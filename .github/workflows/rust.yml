@@ -38,6 +38,14 @@ jobs:
           command: test
           args: --all-features --workspace
 
+      - name: Test Cogs
+        run: |
+          mkdir .cogs
+          export STEEL_HOME=.cogs
+          cd cogs
+          cargo run -- install.scm
+          cargo run -- test-runner.scm
+
   coverage:
     name: Code coverage
     runs-on: ubuntu-latest

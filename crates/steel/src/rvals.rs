@@ -1321,76 +1321,76 @@ impl fmt::Debug for SteelVal {
 // A couple approaches here - just limit the printing depth, or refer to self as a "self"
 /// this function recursively prints lists without prepending the `'`
 /// at the beginning
-fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
-    match val {
-        BoolV(b) => write!(f, "#{}", b),
-        NumV(x) => write!(f, "{:?}", x),
-        IntV(x) => write!(f, "{}", x),
-        StringV(s) => write!(f, "\"{}\"", s),
-        CharV(c) => write!(f, "#\\{}", c),
-        FuncV(_) => write!(f, "#<function>"),
-        Void => write!(f, "#<void>"),
-        SymbolV(s) => write!(f, "{}", s),
-        VectorV(lst) => {
-            let mut iter = lst.iter();
-            write!(f, "(")?;
-            if let Some(last) = iter.next_back() {
-                for item in iter {
-                    display_helper(item, f)?;
-                    write!(f, " ")?;
-                }
-                display_helper(last, f)?;
-            }
-            write!(f, ")")
-        }
-        Custom(x) => write!(f, "#<{}>", x.borrow().display()?),
-        CustomStruct(s) => write!(f, "{}", s.borrow()),
-        PortV(_) => write!(f, "#<port>"),
-        Closure(_) => write!(f, "#<bytecode-closure>"),
-        HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm.as_ref()),
-        IterV(_) => write!(f, "#<iterator>"),
-        HashSetV(hs) => write!(f, "#<hashset {:?}>", hs),
-        FutureFunc(_) => write!(f, "#<future-func>"),
-        FutureV(_) => write!(f, "#<future>"),
-        // Promise(_) => write!(f, "#<promise>"),
-        StreamV(_) => write!(f, "#<stream>"),
-        Contract(c) => write!(f, "{}", **c),
-        ContractedFunction(_) => write!(f, "#<contracted-function>"),
-        BoxedFunction(_) => write!(f, "#<function>"),
-        ContinuationFunction(c) => write!(f, "#<continuation: {:?}>", c.stack),
-        #[cfg(feature = "jit")]
-        CompiledFunction(_) => write!(f, "#<compiled-function>"),
-        ListV(l) => {
-            write!(f, "(")?;
+// fn display_helper(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
+//     match val {
+//         BoolV(b) => write!(f, "#{}", b),
+//         NumV(x) => write!(f, "{:?}", x),
+//         IntV(x) => write!(f, "{}", x),
+//         StringV(s) => write!(f, "\"{}\"", s),
+//         CharV(c) => write!(f, "#\\{}", c),
+//         FuncV(_) => write!(f, "#<function>"),
+//         Void => write!(f, "#<void>"),
+//         SymbolV(s) => write!(f, "{}", s),
+//         VectorV(lst) => {
+//             let mut iter = lst.iter();
+//             write!(f, "(")?;
+//             if let Some(last) = iter.next_back() {
+//                 for item in iter {
+//                     display_helper(item, f)?;
+//                     write!(f, " ")?;
+//                 }
+//                 display_helper(last, f)?;
+//             }
+//             write!(f, ")")
+//         }
+//         Custom(x) => write!(f, "#<{}>", x.borrow().display()?),
+//         CustomStruct(s) => write!(f, "{}", s.borrow()),
+//         PortV(_) => write!(f, "#<port>"),
+//         Closure(_) => write!(f, "#<bytecode-closure>"),
+//         HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm.as_ref()),
+//         IterV(_) => write!(f, "#<iterator>"),
+//         HashSetV(hs) => write!(f, "#<hashset {:?}>", hs),
+//         FutureFunc(_) => write!(f, "#<future-func>"),
+//         FutureV(_) => write!(f, "#<future>"),
+//         // Promise(_) => write!(f, "#<promise>"),
+//         StreamV(_) => write!(f, "#<stream>"),
+//         Contract(c) => write!(f, "{}", **c),
+//         ContractedFunction(_) => write!(f, "#<contracted-function>"),
+//         BoxedFunction(_) => write!(f, "#<function>"),
+//         ContinuationFunction(c) => write!(f, "#<continuation: {:?}>", c.stack),
+//         #[cfg(feature = "jit")]
+//         CompiledFunction(_) => write!(f, "#<compiled-function>"),
+//         ListV(l) => {
+//             write!(f, "(")?;
 
-            let mut iter = l.iter().peekable();
+//             let mut iter = l.iter().peekable();
 
-            while let Some(item) = iter.next() {
-                display_helper(item, f)?;
-                if iter.peek().is_some() {
-                    write!(f, " ")?
-                }
-            }
+//             while let Some(item) = iter.next() {
+//                 display_helper(item, f)?;
+//                 if iter.peek().is_some() {
+//                     write!(f, " ")?
+//                 }
+//             }
 
-            // for item in l.iter().pe
+//             // for item in l.iter().pe
 
-            // for item in l {
-            //     display_helper(item, f)?;
-            //     write!(f, " ")?;
-            // }
-            write!(f, ")")
-        }
-        // write!(f, "#<list {:?}>", l),
-        MutFunc(_) => write!(f, "#<function>"),
-        BuiltIn(_) => write!(f, "#<function>"),
-        ReducerV(_) => write!(f, "#<reducer>"),
-        MutableVector(v) => write!(f, "{:?}", v.as_ref().borrow()),
-        SyntaxObject(s) => write!(f, "#<syntax:{:?}:{:?} {:?}>", s.source, s.span, s.syntax),
-        BoxedIterator(_) => write!(f, "#<iterator>"),
-        Boxed(b) => write!(f, "'#&{}", b.get()),
-        // BoxedIterator(_) => write!(f, "#<boxed-iterator>"),
-    }
-}
+//             // for item in l {
+//             //     display_helper(item, f)?;
+//             //     write!(f, " ")?;
+//             // }
+//             write!(f, ")")
+//         }
+//         // write!(f, "#<list {:?}>", l),
+//         MutFunc(_) => write!(f, "#<function>"),
+//         BuiltIn(_) => write!(f, "#<function>"),
+//         ReducerV(_) => write!(f, "#<reducer>"),
+//         MutableVector(v) => write!(f, "{:?}", v.as_ref().borrow()),
+//         SyntaxObject(s) => write!(f, "#<syntax:{:?}:{:?} {:?}>", s.source, s.span, s.syntax),
+//         BoxedIterator(_) => write!(f, "#<iterator>"),
+//         Boxed(b) => write!(f, "'#&{}", b.get()),
+//         // BoxedIterator(_) => write!(f, "#<boxed-iterator>"),
+//     }
+// }
 
 // pub(crate) fn collect_pair_into_vector(p: &SteelVal) -> SteelVal {
 //     VectorV(Gc::new(SteelVal::iter(p.clone()).collect::<Vector<_>>()))

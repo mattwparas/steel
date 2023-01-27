@@ -95,8 +95,6 @@
         (list (current-directory))
         std::env::args))
 
-
-
 (define (main)
 
     (define cogs-to-install (parse-cogs-from-command-line))
@@ -105,19 +103,9 @@
     ;; We will check if the cog is already installed before patching over the directory
     (define installed-cogs (discover-cogs *STEEL_HOME*))
 
-    ; (define cogs-to-install '("contracts" "tests" "transducers"))
-
-    ;; Grab the cog to install to the file system
-    ; (define cog-to-install (car (parse-cog "foo")))
-
-    ; (displayln installed-cogs)
-
     (transduce cogs-to-install
                (flat-mapping parse-cog)
                (into-for-each (lambda (x) (check-install-package installed-cogs x)))))
 
-    ; (displayln installed-cogs)
-
-    ; (install-package installed-cogs cog-to-install)
 
 (main)
