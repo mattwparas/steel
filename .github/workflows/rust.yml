@@ -40,9 +40,9 @@ jobs:
 
       - name: Test Cogs
         env:
-          STEEL_HOME: $GITHUB_WORKSPACE/.cogs
+          STEEL_HOME: $HOME/.cogs
         run: |
-          mkdir .cogs
+          mkdir $HOME/.cogs
           cd cogs
           cargo run -- install.scm
           cargo run -- test-runner.scm
