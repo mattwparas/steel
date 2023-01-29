@@ -31,27 +31,31 @@ impl DylibContainers {
             let mut home = PathBuf::from(home);
             home.push("native");
 
-            let paths = std::fs::read_dir(home).unwrap();
+            if home.exists() {
+                let paths = std::fs::read_dir(home).unwrap();
 
-            for path in paths {
-                // println!("{:?}", path);
+                for path in paths {
+                    // println!("{:?}", path);
 
-                let path = path.unwrap().path();
+                    let path = path.unwrap().path();
 
-                if path.extension().unwrap() != "so" && path.extension().unwrap() != "dylib" {
-                    continue;
+                    if path.extension().unwrap() != "so" && path.extension().unwrap() != "dylib" {
+                        continue;
+                    }
+
+                    let path_name = path.file_name().and_then(|x| x.to_str()).unwrap();
+                    log::info!(target: "dylibs", "Loading dylib: {}", path_name);
+                    // Load in the dylib
+                    let cont: Container<ModuleApi> = unsafe { Container::load(path) }
+                        .expect("Could not open library or load symbols");
+
+                    // Keep the container alive for the duration of the program
+                    // This should probably just get wrapped up with the engine as well, when registering modules, directly
+                    // register an external dylib
+                    self.containers.push(Rc::new(cont));
                 }
-
-                let path_name = path.file_name().and_then(|x| x.to_str()).unwrap();
-                log::info!(target: "dylibs", "Loading dylib: {}", path_name);
-                // Load in the dylib
-                let cont: Container<ModuleApi> = unsafe { Container::load(path) }
-                    .expect("Could not open library or load symbols");
-
-                // Keep the container alive for the duration of the program
-                // This should probably just get wrapped up with the engine as well, when registering modules, directly
-                // register an external dylib
-                self.containers.push(Rc::new(cont));
+            } else {
+                log::warn!(target: "dylibs", "$STEEL_HOME/native directory does not exist")
             }
         } else {
             log::warn!(target: "dylibs", "STEEL_HOME variable missing - unable to read shared dylibs")
