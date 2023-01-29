@@ -77,6 +77,14 @@ impl Engine {
             vm.compile_and_run_raw_program(core).unwrap();
         }
 
+        vm.dylibs.load_modules();
+
+        let modules = vm.dylibs.modules().collect::<Vec<_>>();
+
+        for module in modules {
+            vm.register_module(module);
+        }
+
         vm
     }
 

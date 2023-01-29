@@ -260,6 +260,7 @@ impl CycleDetector {
         false
     }
 
+    // TODO: Complete the rest of this visitor
     fn visit(&mut self, val: &SteelVal) {
         match val {
             SteelVal::CustomStruct(s) => {
@@ -278,7 +279,10 @@ impl CycleDetector {
                 }
             }
             SteelVal::HashMapV(h) => {
-                todo!()
+                for (key, val) in h.iter() {
+                    self.visit(key);
+                    self.visit(val);
+                }
             }
             _ => {}
         }

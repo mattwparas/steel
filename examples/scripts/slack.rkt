@@ -1,5 +1,5 @@
 (require-builtin steel/requests)
-(require "std::result")
+(require "steel/result")
 
 (define client (Client))
 

@@ -32,6 +32,7 @@ pub struct BuiltInModule {
     pub(crate) name: Rc<str>,
     values: OrdMap<String, SteelVal>,
     docs: InternalDocumentation,
+    version: &'static str,
 }
 
 impl Custom for BuiltInModule {}
@@ -42,6 +43,7 @@ impl BuiltInModule {
             name: name.into(),
             values: OrdMap::new(),
             docs: InternalDocumentation::new(),
+            version: env!("CARGO_PKG_VERSION"),
         }
     }
 

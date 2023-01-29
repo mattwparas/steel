@@ -53,7 +53,7 @@ macro_rules! test_harness_failure {
 test_harness_success! {
     abc_problem,
     apply_more_complex,
-    // babbage_problem,
+    babbage_problem,
     balanced_brackets,
     basic_apply,
     calculator,

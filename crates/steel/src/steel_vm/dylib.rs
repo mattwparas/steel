@@ -34,14 +34,16 @@ impl DylibContainers {
             let paths = std::fs::read_dir(home).unwrap();
 
             for path in paths {
+                // println!("{:?}", path);
+
                 let path = path.unwrap().path();
 
-                if path.extension().unwrap() != "so" || path.extension().unwrap() != "dylib" {
+                if path.extension().unwrap() != "so" && path.extension().unwrap() != "dylib" {
                     continue;
                 }
 
-                let path = path.file_name().and_then(|x| x.to_str()).unwrap();
-                log::info!(target: "dylibs", "Loading dylib: {}", path);
+                let path_name = path.file_name().and_then(|x| x.to_str()).unwrap();
+                log::info!(target: "dylibs", "Loading dylib: {}", path_name);
                 // Load in the dylib
                 let cont: Container<ModuleApi> = unsafe { Container::load(path) }
                     .expect("Could not open library or load symbols");
@@ -52,7 +54,7 @@ impl DylibContainers {
                 self.containers.push(Rc::new(cont));
             }
         } else {
-            log::warn!("STEEL_HOME variable missing - unable to read shared dylibs")
+            log::warn!(target: "dylibs", "STEEL_HOME variable missing - unable to read shared dylibs")
         }
     }
 

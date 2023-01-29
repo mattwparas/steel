@@ -1,7 +1,7 @@
 use crate::{
     gc::Gc,
     rerrs::SteelErr,
-    rvals::{Result, SteelVal},
+    rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
     throw,
 };
 use im_lists::list::List;
@@ -107,6 +107,18 @@ impl TryFrom<Number> for SteelVal {
     fn try_from(n: Number) -> std::result::Result<Self, Self::Error> {
         let result = n.as_f64().unwrap();
         Ok(SteelVal::NumV(result))
+    }
+}
+
+impl IntoSteelVal for Value {
+    fn into_steelval(self) -> Result<SteelVal> {
+        self.try_into()
+    }
+}
+
+impl FromSteelVal for Value {
+    fn from_steelval(val: &SteelVal) -> Result<Self> {
+        val.clone().try_into()
     }
 }
 

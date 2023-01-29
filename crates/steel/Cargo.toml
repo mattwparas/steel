@@ -38,6 +38,10 @@ smallvec = "1.10.0"
 lazy_static = "1.4.0"
 steel-gen = { path = "../steel-gen" }
 
+reqwest = { version = "0.11.10", features = ["blocking", "json"], optional = true }
+url = { version = "2.2.2", optional = true }
+tungstenite = { version = "0.17.2", features = ["rustls-tls-native-roots"], optional = true }
+
 [dev-dependencies]
 proptest = "1.0.0"
 criterion = "0.3.5"
@@ -53,9 +57,12 @@ steel-gen = { path = "../steel-gen" }
 # `cargo test --features colors_off`
 colors_off = ["colored/no-color"]
 modules = []
-jit = []
+jit = ["dep:cranelift", "dep:cranelift-module", "dep:cranelift-jit"]
 dynamic = []
 profiling = []
+web = ["dep:reqwest", "dep:url", "dep:tungstenite"]
+# dylibs = ["dep:dlopen", "dep:dlopen_derive"]
+
 
 [[bench]]
 name = "my_benchmark"

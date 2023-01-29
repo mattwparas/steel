@@ -79,7 +79,8 @@
     (->c hash? void?)
     (let ((output-dir (install-package cog-to-install)))
                 (display-color "Installed package to: " 'green)
-                (displayln output-dir)))
+                (displayln output-dir)
+                (newline)))
 
 
 (define (check-install-package installed-cogs cog-to-install)
@@ -87,8 +88,8 @@
     (if (hash-contains? installed-cogs package-name)
         (begin
             (displayln "Beginning installation for " package-name)
-            (displayln "Package already installed...")
-            (displayln "Overwriting existing package installation...")
+            (displayln "    Package already installed...")
+            (displayln "    Overwriting existing package installation...")
             (install-package-and-log cog-to-install))
 
         (begin

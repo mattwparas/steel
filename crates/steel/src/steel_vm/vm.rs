@@ -2333,6 +2333,8 @@ impl<'a> VmCore<'a> {
         func: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>>,
         payload_size: usize,
     ) -> Result<()> {
+        // println!("{:?}, {:?}", self.thread.stack, payload_size);
+
         let last_index = self.thread.stack.len() - payload_size;
 
         let result = func(&self.thread.stack[last_index..])
@@ -4344,6 +4346,9 @@ fn call_global_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     ctx.ip += 1;
     let next_inst = ctx.instructions[ctx.ip];
+
+    // println!("{:?}, {:?}", next_inst.payload_size, payload_size);
+
     ctx.handle_call_global(next_inst.payload_size as usize, payload_size as usize)
 }
 
@@ -4776,9 +4781,14 @@ fn call_global_tail_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     // assert!(ctx.ip + 1 < ctx.instructions.len());
 
     let payload_size = ctx.instructions[ctx.ip].payload_size;
-    ctx.ip += 1;
-    let next_inst = ctx.instructions[ctx.ip];
-    ctx.handle_tail_call_global(payload_size as usize, next_inst.payload_size as usize)
+    // ctx.ip += 1;
+    let next_inst = ctx.instructions[ctx.ip + 1];
+
+    // println!("{:?}, {:?}", payload_size, next_inst.payload_size);
+
+    ctx.handle_tail_call_global(next_inst.payload_size as usize, payload_size as usize)
+
+    // ctx.handle_tail_call_global(payload_size as usize, next_inst.payload_size as usize)
 }
 
 #[inline(always)]

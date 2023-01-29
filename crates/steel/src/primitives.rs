@@ -17,6 +17,9 @@ pub mod transducers;
 mod utils;
 mod vectors;
 
+#[cfg(feature = "web")]
+pub mod web;
+
 pub use control::ControlOperations;
 pub use fs::FsFunctions;
 pub use hashmaps::HashMapOperations;

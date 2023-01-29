@@ -757,10 +757,6 @@ fn get_environment_variable(var: String) -> Result<SteelVal> {
         .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
 }
 
-fn set_environment_variable(key: String, value: String) {
-    std::env::set_var(key, value)
-}
-
 fn sandboxed_meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta".to_string());
     module
@@ -864,7 +860,7 @@ fn meta_module() -> BuiltInModule {
         )
         .register_value("custom-struct?", is_custom_struct())
         .register_fn("env-var", get_environment_variable)
-        .register_fn("set-env-var!", set_environment_variable)
+        .register_fn("set-env-var!", std::env::set_var::<String, String>)
         .register_fn("arity?", arity)
         .register_fn("multi-arity?", is_multi_arity)
         .register_value("make-struct-type", SteelVal::FuncV(make_struct_type))

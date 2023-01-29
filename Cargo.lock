@@ -2075,6 +2075,7 @@ dependencies = [
  "pretty",
  "proptest",
  "quickscope",
+ "reqwest",
  "serde",
  "serde_derive",
  "serde_json",
@@ -2083,6 +2084,8 @@ dependencies = [
  "steel-gen",
  "termimad",
  "thiserror",
+ "tungstenite",
+ "url",
 ]
 
 [[package]]

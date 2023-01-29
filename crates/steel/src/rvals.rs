@@ -177,18 +177,18 @@ pub trait CustomType {
 //     }
 // }
 
-impl<T: Custom + 'static + std::fmt::Debug> CustomType for T {
+impl<T: Custom + 'static> CustomType for T {
     fn as_any_ref(&self) -> &dyn Any {
         self as &dyn Any
     }
     fn as_any_ref_mut(&mut self) -> &mut dyn Any {
         self as &mut dyn Any
     }
-    fn display(&self) -> std::result::Result<String, std::fmt::Error> {
-        let mut buf = String::new();
-        write!(buf, "{:?}", &self)?;
-        Ok(buf)
-    }
+    // fn display(&self) -> std::result::Result<String, std::fmt::Error> {
+    //     let mut buf = String::new();
+    //     write!(buf, "{:?}", &self)?;
+    //     Ok(buf)
+    // }
 }
 
 impl<T: CustomType + 'static> IntoSteelVal for T {
