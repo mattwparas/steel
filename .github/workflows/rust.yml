@@ -22,7 +22,7 @@ jobs:
   test:
     name: Test Suite
     runs-on: ubuntu-latest
-    needs: build
+    # needs: build
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
