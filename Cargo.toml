@@ -14,7 +14,7 @@ path = "src/main.rs"
 once_cell = "1.10.0"
 # steel = { path = "./steel", features = ["jit"] }
 # steel = { path = "./crates/steel", features = [] }
-steel = { path = "./crates/steel", features = ["dynamic"] }
+steel = { path = "./crates/steel", features = ["dynamic", "web"] }
 steel_derive = { path = "./crates/steel_derive"}
 steel_repl = { path = "./crates/steel_repl" }
 env_logger = "0.9"

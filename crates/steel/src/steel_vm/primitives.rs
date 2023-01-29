@@ -40,6 +40,9 @@ use crate::{
     SteelErr,
 };
 
+#[cfg(feature = "web")]
+use crate::primitives::web::{requests::requests_module, websockets::websockets_module};
+
 use itertools::Itertools;
 
 macro_rules! ensure_tonicity_two {
@@ -243,6 +246,12 @@ thread_local! {
     pub static OPTION_MODULE: BuiltInModule = build_option_structs();
     pub static PRELUDE_MODULE: BuiltInModule = prelude();
     pub static TIME_MODULE: BuiltInModule = time_module();
+
+    #[cfg(feature = "web")]
+    pub static WEBSOCKETS_MODULE: BuiltInModule = websockets_module();
+
+    #[cfg(feature = "web")]
+    pub static REQUESTS_MODULE: BuiltInModule = requests_module();
 }
 
 pub fn prelude() -> BuiltInModule {
@@ -343,6 +352,11 @@ pub fn register_builtin_modules(engine: &mut Engine) {
         .register_module(OPTION_MODULE.with(|x| x.clone()))
         .register_module(PRELUDE_MODULE.with(|x| x.clone()))
         .register_module(TIME_MODULE.with(|x| x.clone()));
+
+    #[cfg(feature = "web")]
+    engine
+        .register_module(WEBSOCKETS_MODULE.with(|x| x.clone()))
+        .register_module(REQUESTS_MODULE.with(|x| x.clone()));
 }
 
 pub static ALL_MODULES: &str = r#"

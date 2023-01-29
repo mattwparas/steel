@@ -12,8 +12,6 @@ use serde_json::Value;
 
 impl Custom for Client {}
 
-impl Custom for Response {}
-
 impl Custom for SteelRequestBuilder {}
 
 impl Custom for StatusCode {}
@@ -71,6 +69,14 @@ fn post_wrapper(client: &Client, url: String) -> SteelRequestBuilder {
     client.post(url).into()
 }
 
+fn get_wrapper(client: &Client, url: String) -> SteelRequestBuilder {
+    client.get(url).into()
+}
+
+fn basic_get_wrapper(url: String) -> reqwest::Result<SteelResponse> {
+    get(url).map(|x| x.into())
+}
+
 fn status_code_to_int(status_code: &StatusCode) -> usize {
     status_code.as_u16() as usize
 }
@@ -99,6 +105,10 @@ impl SteelResponse {
     fn json(&mut self) -> Option<reqwest::Result<Value>> {
         self.response.take().map(|x| x.json::<Value>())
     }
+
+    fn text(&mut self) -> Option<reqwest::Result<String>> {
+        self.response.take().map(|x| x.text())
+    }
 }
 
 impl Custom for SteelResponse {}
@@ -108,8 +118,9 @@ pub fn requests_module() -> BuiltInModule {
 
     module
         .register_fn("request/client", Client::new)
-        .register_fn("get", get::<String>)
-        .register_fn("post", post_wrapper)
+        .register_fn("get", basic_get_wrapper)
+        .register_fn("client/post", post_wrapper)
+        .register_fn("client/get", get_wrapper)
         .register_fn("request/json", SteelRequestBuilder::json)
         .register_fn("request/query", SteelRequestBuilder::query)
         .register_fn("request/send", SteelRequestBuilder::send)
@@ -126,7 +137,8 @@ pub fn requests_module() -> BuiltInModule {
         .register_type::<StatusCode>("status-code?")
         .register_type::<Client>("request/client?")
         .register_fn("response?", SteelResponse::identity)
-        .register_fn("response->json", SteelResponse::json);
+        .register_fn("response->json", SteelResponse::json)
+        .register_fn("response->text", SteelResponse::text);
 
     module
 }

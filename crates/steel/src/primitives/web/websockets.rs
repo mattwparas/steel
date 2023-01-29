@@ -35,7 +35,7 @@ pub fn text_payload(message: &Message) -> Option<String> {
     }
 }
 
-pub fn requests_module() -> BuiltInModule {
+pub fn websockets_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/web/ws".to_string());
 
     module
