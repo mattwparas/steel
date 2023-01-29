@@ -48,6 +48,15 @@ impl<T: IntoSteelVal + Clone> IntoSteelVal for &[T] {
     }
 }
 
+impl<A: IntoSteelVal, B: IntoSteelVal> IntoSteelVal for (A, B) {
+    fn into_steelval(self) -> Result<SteelVal> {
+        Ok(SteelVal::ListV(im_lists::list![
+            self.0.into_steelval()?,
+            self.1.into_steelval()?
+        ]))
+    }
+}
+
 // Vectors should translate into vectors in rust
 impl<T: IntoSteelVal> IntoSteelVal for Vec<T> {
     fn into_steelval(self) -> Result<SteelVal> {
