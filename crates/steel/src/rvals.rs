@@ -1011,6 +1011,7 @@ impl Hash for SteelVal {
             }
             IntV(i) => i.hash(state),
             CharV(c) => c.hash(state),
+            ListV(l) => l.hash(state),
             // Pair(cell) => {
             //     cell.hash(state);
             // }
@@ -1063,6 +1064,7 @@ impl SteelVal {
                 | SymbolV(_)
                 | HashMapV(_)
                 | Closure(_)
+                | ListV(_)
         )
     }
 

@@ -63,11 +63,19 @@ jobs:
           toolchain: stable
           profile: minimal
           override: true
-      - name: rust-tarpaulin
-        uses: actions-rs/tarpaulin@v0.1
-        with:
-          args: --all
-          out-type: "Lcov"
+
+      - name: install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin
+
+      # - name: rust-tarpaulin
+      #   uses: actions-rs/tarpaulin@v0.1
+      #   with:
+      #     args: --all
+      #     out-type: "Lcov"
+
+      - name: run code coverage
+        run: cargo tarpaulin --all -o "lcov"
+
       - name: Coveralls GitHub Action
         uses: coverallsapp/github-action@v1.1.2
         with:
