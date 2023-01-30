@@ -37,17 +37,16 @@ jobs:
         run: cargo build --verbose
 
       - uses: actions-rs/cargo@v1
+        env:
+          STEEL_HOME: $HOME/.steel
         with:
           command: test
           args: --all-features --workspace
 
       - name: Test Cogs
         env:
-          STEEL_HOME: $HOME/.cogs
+          STEEL_HOME: $HOME/.steel
         run: |
-          mkdir $HOME/.cogs
-          cd cogs
-          cargo run -- install.scm
           cargo run -- test-runner.scm
 
   coverage:
