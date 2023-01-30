@@ -43,7 +43,7 @@ jobs:
           STEEL_HOME: ${{ github.GITHUB_WORKSPACE }}/.steel
         run: |
           echo $STEEL_HOME
-          mkdir .steel
+          mkdir -p .steel/cogs
           cd cogs/
           cargo run -- install.scm
 
