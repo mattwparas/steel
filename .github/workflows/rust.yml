@@ -32,7 +32,9 @@ jobs:
           toolchain: stable
           profile: minimal
           override: true
-      
+
+      - name: Set the STEEL_HOME environment variable
+        run: echo STEEL_HOME=${PWD}/.steel >> $GITHUB_ENV 
       - uses: Swatinem/rust-cache@v1
 
       - name: Build
@@ -40,16 +42,16 @@ jobs:
 
       - name: Install cogs
         env:
-          STEEL_HOME: ${{ github.GITHUB_WORKSPACE }}/.steel
+          STEEL_HOME: ${{ env.STEEL_HOME }}
         run: |
           echo $STEEL_HOME
-          mkdir -p $STEEL_HOME/cogs
+          mkdir -p .steel/cogs
           cd cogs/
           cargo run -- install.scm
 
       - uses: actions-rs/cargo@v1
         env:
-          STEEL_HOME: ${{ github.GITHUB_WORKSPACE }}/.steel
+          STEEL_HOME: ${{ env.STEEL_HOME }}
         with:
           command: test
           args: --all
