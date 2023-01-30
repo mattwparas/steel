@@ -161,6 +161,10 @@ impl ReadLine {
     pub fn readline(&mut self, prompt: String) -> Result<String, ReadlineError> {
         self.0.readline(&prompt)
     }
+
+    pub fn add_history_entry(&mut self, entry: String) {
+        self.0.add_history_entry(entry);
+    }
 }
 
 /// Entire point for the repl
