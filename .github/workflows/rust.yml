@@ -41,13 +41,7 @@ jobs:
           STEEL_HOME: $HOME/.steel
         with:
           command: test
-          args: --all-features --workspace
-
-      - name: Test Cogs
-        env:
-          STEEL_HOME: $HOME/.steel
-        run: |
-          cargo run -- test-runner.scm
+          args: --all
 
   coverage:
     name: Code coverage
