@@ -32,9 +32,18 @@ jobs:
           toolchain: stable
           profile: minimal
           override: true
-        
+      
+      - uses: Swatinem/rust-cache@v1
+
       - name: Build
         run: cargo build --verbose
+
+      - name: Install cogs
+        env:
+          STEEL_HOME: $HOME/.steel
+        run: |
+          cd cogs/
+          cargo run -- install.scm
 
       - uses: actions-rs/cargo@v1
         env:
