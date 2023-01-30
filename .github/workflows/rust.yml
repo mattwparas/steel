@@ -40,14 +40,14 @@ jobs:
 
       - name: Install cogs
         env:
-          STEEL_HOME: ${{ GITHUB_WORKSPACE }}/.steel
+          STEEL_HOME: ${{ github.GITHUB_WORKSPACE }}/.steel
         run: |
           cd cogs/
           cargo run -- install.scm
 
       - uses: actions-rs/cargo@v1
         env:
-          STEEL_HOME: ${{ GITHUB_WORKSPACE }}/.steel
+          STEEL_HOME: ${{ github.GITHUB_WORKSPACE }}/.steel
         with:
           command: test
           args: --all
