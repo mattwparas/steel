@@ -40,40 +40,20 @@ jobs:
 
       - name: Install cogs
         env:
-          STEEL_HOME: $HOME/.steel
+          STEEL_HOME: ${{ GITHUB_WORKSPACE }}/.steel
         run: |
           cd cogs/
           cargo run -- install.scm
 
       - uses: actions-rs/cargo@v1
         env:
-          STEEL_HOME: $HOME/.steel
+          STEEL_HOME: ${{ GITHUB_WORKSPACE }}/.steel
         with:
           command: test
           args: --all
 
-  coverage:
-    name: Code coverage
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-
       - name: install cargo-tarpaulin
         run: cargo install cargo-tarpaulin
-
-      # - name: rust-tarpaulin
-      #   uses: actions-rs/tarpaulin@v0.1
-      #   with:
-      #     args: --all
-      #     out-type: "Lcov"
 
       - name: run code coverage
         run: cargo tarpaulin --all -o "lcov"
@@ -83,6 +63,24 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path-to-lcov: ./lcov.info
+
+  # coverage:
+  #   name: Code coverage
+  #   runs-on: ubuntu-latest
+  #   needs: test
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v2
+  #     - name: Install Rust toolchain
+  #       uses: actions-rs/toolchain@v1
+  #       with:
+  #         toolchain: stable
+  #         profile: minimal
+  #         override: true
+
+  #     - uses: Swatinem/rust-cache@v1
+
+
 
   rustfmt:
     name: Rustfmt
