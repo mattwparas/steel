@@ -61,7 +61,7 @@ impl std::fmt::Display for LocalVariable {
 }
 
 fn op_code_to_handler(op_code: Pattern) -> String {
-    format!("opcode_to_ssa_handler!({})", op_code)
+    format!("opcode_to_ssa_handler!({op_code})")
 }
 
 struct StackToSSAConverter {
@@ -79,8 +79,8 @@ pub enum Pattern {
 impl std::fmt::Display for Pattern {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Pattern::Single(op) => write!(f, "{:?}", op),
-            Pattern::Double(op, payload) => write!(f, "{:?}{}", op, payload),
+            Pattern::Single(op) => write!(f, "{op:?}"),
+            Pattern::Double(op, payload) => write!(f, "{op:?}{payload}"),
         }
     }
 }
@@ -140,7 +140,7 @@ impl StackToSSAConverter {
         let mut function = Function::new(
             op_codes
                 .iter()
-                .map(|x| format!("{}", x).to_lowercase())
+                .map(|x| format!("{x}").to_lowercase())
                 .join("_"),
         );
         function.arg("ctx", codegen::Type::new("&mut VmCore<'_>"));
@@ -181,7 +181,7 @@ impl StackToSSAConverter {
                 // }
                 Single(VOID) => {
                     let local = self.push_with_hint(TypeHint::Void);
-                    lines.line(format!("let {} = SteelVal::Void;", local));
+                    lines.line(format!("let {local} = SteelVal::Void;"));
                     lines.line("ctx.ip += 1;");
                 }
                 Single(LOADINT0) => {
@@ -221,25 +221,23 @@ impl StackToSSAConverter {
                         for value in &self.stack {
                             match value.type_hint {
                                 TypeHint::Int | TypeHint::Bool | TypeHint::Float => {
-                                    lines.line(format!("ctx.thread.stack.push({}.into());", value))
+                                    lines.line(format!("ctx.thread.stack.push({value}.into());"))
                                 }
                                 // It is already confirmed to be... something thats non primitive.
-                                _ => lines.line(format!("ctx.thread.stack.push({});", value)),
+                                _ => lines.line(format!("ctx.thread.stack.push({value});")),
                             };
                         }
 
                         self.stack.clear();
 
                         lines.line(format!(
-                            "opcode_to_ssa_handler!(CALLGLOBAL, Tail)(ctx, &mut [{}])?;",
-                            args
+                            "opcode_to_ssa_handler!(CALLGLOBAL, Tail)(ctx, &mut [{args}])?;"
                         ));
                     } else {
                         let local = self.push();
 
                         lines.line(format!(
-                            "let {} = opcode_to_ssa_handler!(CALLGLOBAL)(ctx, &mut [{}])?;",
-                            local, args
+                            "let {local} = opcode_to_ssa_handler!(CALLGLOBAL)(ctx, &mut [{args}])?;"
                         ));
                     }
                 }
@@ -258,7 +256,7 @@ impl StackToSSAConverter {
                     } else {
                         let local = self.push();
                         let var = self.stack.get(*n).unwrap();
-                        lines.line(format!("let {} = {}.clone();", local, var));
+                        lines.line(format!("let {local} = {var}.clone();"));
                     }
                 }
                 Single(READLOCAL0) => {
@@ -283,7 +281,7 @@ impl StackToSSAConverter {
                     } else {
                         let local = self.push();
                         let var = self.stack.get(0).unwrap();
-                        lines.line(format!("let {} = {}.clone();", local, var));
+                        lines.line(format!("let {local} = {var}.clone();"));
                     }
                 }
                 Single(READLOCAL1) => {
@@ -301,7 +299,7 @@ impl StackToSSAConverter {
                     } else {
                         let local = self.push();
                         let var = self.stack.get(1).unwrap();
-                        lines.line(format!("let {} = {}.clone();", local, var));
+                        lines.line(format!("let {local} = {var}.clone();"));
                     }
                 }
                 Single(READLOCAL2) => {
@@ -319,7 +317,7 @@ impl StackToSSAConverter {
                     } else {
                         let local = self.push();
                         let var = self.stack.get(2).unwrap();
-                        lines.line(format!("let {} = {}.clone();", local, var));
+                        lines.line(format!("let {local} = {var}.clone();"));
                     }
                 }
                 Single(READLOCAL3) => {
@@ -337,7 +335,7 @@ impl StackToSSAConverter {
                     } else {
                         let local = self.push();
                         let var = self.stack.get(3).unwrap();
-                        lines.line(format!("let {} = {}.clone();", local, var));
+                        lines.line(format!("let {local} = {var}.clone();"));
                     }
                 }
                 Double(MOVEREADLOCAL, n) => {
@@ -355,7 +353,7 @@ impl StackToSSAConverter {
                     } else {
                         let local = self.push();
                         let var = self.stack.get(*n).unwrap();
-                        lines.line(format!("let {} = {};", local, var));
+                        lines.line(format!("let {local} = {var};"));
                     }
                 }
                 Single(MOVEREADLOCAL0) => {
@@ -380,7 +378,7 @@ impl StackToSSAConverter {
                     } else {
                         let local = self.push();
                         let var = self.stack.get(0).unwrap();
-                        lines.line(format!("let {} = {};", local, var));
+                        lines.line(format!("let {local} = {var};"));
                     }
                 }
                 Single(MOVEREADLOCAL1) => {
@@ -398,7 +396,7 @@ impl StackToSSAConverter {
                     } else {
                         let local = self.push();
                         let var = self.stack.get(1).unwrap();
-                        lines.line(format!("let {} = {};", local, var));
+                        lines.line(format!("let {local} = {var};"));
                     }
                 }
                 Single(MOVEREADLOCAL2) => {
@@ -416,7 +414,7 @@ impl StackToSSAConverter {
                     } else {
                         let local = self.push();
                         let var = self.stack.get(2).unwrap();
-                        lines.line(format!("let {} = {};", local, var));
+                        lines.line(format!("let {local} = {var};"));
                     }
                 }
                 Single(MOVEREADLOCAL3) => {
@@ -434,7 +432,7 @@ impl StackToSSAConverter {
                     } else {
                         let local = self.push();
                         let var = self.stack.get(3).unwrap();
-                        lines.line(format!("let {} = {};", local, var));
+                        lines.line(format!("let {local} = {var};"));
                     }
                 }
                 Single(PUSH | READCAPTURED | TAILCALL | CALLGLOBAL) => {
@@ -462,14 +460,12 @@ impl StackToSSAConverter {
                     match test_condition.type_hint {
                         TypeHint::Bool => {
                             lines.line(format!(
-                                "if_to_ssa_handler!(IF, Bool)(ctx, {});",
-                                test_condition
+                                "if_to_ssa_handler!(IF, Bool)(ctx, {test_condition});"
                             ));
                         }
                         _ => {
                             lines.line(format!(
-                                "if_to_ssa_handler!(IF)(ctx, {}.into());",
-                                test_condition
+                                "if_to_ssa_handler!(IF)(ctx, {test_condition}.into());"
                             ));
                         }
                     }
@@ -486,13 +482,13 @@ impl StackToSSAConverter {
                         (a, b) if a == b => {
                             let local = self.push_with_hint(TypeHint::Bool);
 
-                            lines.line(format!("let {} = {} == {};", local, left, right));
+                            lines.line(format!("let {local} = {left} == {right};"));
                             lines.line("ctx.ip += 1;");
                             max_ip_read += 1;
                         }
                         (TypeHint::Int, TypeHint::Int) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({}, Int, Int)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({op}, Int, Int)");
 
                             let local = self.push_with_hint(TypeHint::Bool);
 
@@ -500,7 +496,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::Int, TypeHint::Float) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({}, Int, Float)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({op}, Int, Float)");
 
                             let local = self.push_with_hint(TypeHint::Bool);
 
@@ -508,7 +504,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::Int, TypeHint::None) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({}, Int, None)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({op}, Int, None)");
 
                             let local = self.push_with_hint(TypeHint::Bool);
 
@@ -516,7 +512,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::Float, TypeHint::Int) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({}, Float, Int)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({op}, Float, Int)");
 
                             let local = self.push_with_hint(TypeHint::Bool);
 
@@ -525,7 +521,7 @@ impl StackToSSAConverter {
                         (TypeHint::Float, TypeHint::Float) => {
                             // Delegate to the binary handler to return an int
                             let call =
-                                format!("binop_opcode_to_ssa_handler!({}, Float, Float)", op);
+                                format!("binop_opcode_to_ssa_handler!({op}, Float, Float)");
 
                             let local = self.push_with_hint(TypeHint::Bool);
 
@@ -533,7 +529,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::Float, TypeHint::None) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({}, Float, None)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({op}, Float, None)");
 
                             // Probably needs to be promoted to a float in this case
                             let local = self.push_with_hint(TypeHint::Bool);
@@ -542,7 +538,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::None, TypeHint::Int) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({}, None, Int)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({op}, None, Int)");
 
                             // Probably needs to be promoted to a float in this case
                             let local = self.push_with_hint(TypeHint::Bool);
@@ -551,7 +547,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::None, TypeHint::Float) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({}, None, Int)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({op}, None, Int)");
 
                             // Probably needs to be promoted to a float in this case
                             let local = self.push_with_hint(TypeHint::Bool);
@@ -575,7 +571,7 @@ impl StackToSSAConverter {
                     match (left.type_hint, right.type_hint) {
                         (TypeHint::Int, TypeHint::Int) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({}, Int, Int)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({op}, Int, Int)");
 
                             let local = self.push_with_hint(TypeHint::Int);
 
@@ -583,7 +579,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::Int, TypeHint::Float) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({}, Int, Float)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({op}, Int, Float)");
 
                             let local = self.push_with_hint(TypeHint::Float);
 
@@ -591,7 +587,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::Int, TypeHint::None) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({}, Int, None)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({op}, Int, None)");
 
                             let local = self.push_with_hint(TypeHint::None);
 
@@ -599,7 +595,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::Float, TypeHint::Int) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({}, Float, Int)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({op}, Float, Int)");
 
                             let local = self.push_with_hint(TypeHint::Float);
 
@@ -608,7 +604,7 @@ impl StackToSSAConverter {
                         (TypeHint::Float, TypeHint::Float) => {
                             // Delegate to the binary handler to return an int
                             let call =
-                                format!("binop_opcode_to_ssa_handler!({}, Float, Float)", op);
+                                format!("binop_opcode_to_ssa_handler!({op}, Float, Float)");
 
                             let local = self.push_with_hint(TypeHint::Float);
 
@@ -616,7 +612,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::Float, TypeHint::None) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({}, Float, None)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({op}, Float, None)");
 
                             // Probably needs to be promoted to a float in this case
                             let local = self.push_with_hint(TypeHint::Float);
@@ -625,7 +621,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::None, TypeHint::Int) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({}, None, Int)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({op}, None, Int)");
 
                             // Probably needs to be promoted to a float in this case
                             let local = self.push_with_hint(TypeHint::None);
@@ -634,7 +630,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::None, TypeHint::Float) => {
                             // Delegate to the binary handler to return an int
-                            let call = format!("binop_opcode_to_ssa_handler!({}, None, Float)", op);
+                            let call = format!("binop_opcode_to_ssa_handler!({op}, None, Float)");
 
                             // Probably needs to be promoted to a float in this case
                             let local = self.push_with_hint(TypeHint::Float);
@@ -654,10 +650,10 @@ impl StackToSSAConverter {
         for value in &self.stack {
             match value.type_hint {
                 TypeHint::Int | TypeHint::Bool | TypeHint::Float => {
-                    lines.line(format!("ctx.thread.stack.push({}.into());", value))
+                    lines.line(format!("ctx.thread.stack.push({value}.into());"))
                 }
                 // It is already confirmed to be... something thats non primitive.
-                _ => lines.line(format!("ctx.thread.stack.push({});", value)),
+                _ => lines.line(format!("ctx.thread.stack.push({value});")),
             };
         }
 
@@ -667,15 +663,13 @@ impl StackToSSAConverter {
         // Emit the assert for bounds checking purposes
         if max_local_offset_read > 0 {
             function.line(format!(
-                "assert!(ctx.sp + {} < ctx.thread.stack.len());",
-                max_local_offset_read
+                "assert!(ctx.sp + {max_local_offset_read} < ctx.thread.stack.len());"
             ));
         }
 
         if max_ip_read > 0 {
             function.line(format!(
-                "assert!(ctx.ip + {} < ctx.instructions.len());",
-                max_ip_read
+                "assert!(ctx.ip + {max_ip_read} < ctx.instructions.len());"
             ));
         }
 
@@ -707,8 +701,7 @@ fn push_binop(
                 left.to_string().into(),
                 right.to_string().into()
             ],
-        )
-        .to_string(),
+        ),
     ));
 }
 
@@ -720,7 +713,7 @@ struct Call<'a> {
 impl<'a> Call<'a> {
     pub fn new(name: Cow<'a, str>, args: Vec<Cow<'a, str>>) -> Self {
         Self {
-            name: name.into(),
+            name,
             args,
         }
     }
@@ -731,7 +724,7 @@ impl<'a> std::fmt::Display for Call<'a> {
         write!(f, "{}", self.name)?;
         write!(f, "(")?;
         for arg in &self.args {
-            write!(f, "{}, ", arg)?;
+            write!(f, "{arg}, ")?;
         }
         write!(f, ")?;")
     }
@@ -751,9 +744,9 @@ impl Pattern {
         use OpCode::*;
 
         let mut patterns: Vec<Pattern> = Vec::new();
-        let mut iter = op_codes.iter();
+        let iter = op_codes.iter();
 
-        while let Some(op) = iter.next() {
+        for op in iter {
             match op {
                 (
                     LOADINT0 | LOADINT1 | LOADINT2 | READLOCAL0 | READLOCAL1 | READLOCAL2
@@ -774,7 +767,7 @@ impl Pattern {
             }
         }
 
-        return patterns;
+        patterns
     }
 }
 
@@ -783,7 +776,7 @@ impl Pattern {
 // }
 
 pub fn generate_opcode_map(patterns: Vec<Vec<(OpCode, usize)>>) -> String {
-    use OpCode::*;
+    
 
     let mut global_scope = Scope::new();
 
@@ -802,7 +795,7 @@ pub fn generate_opcode_map(patterns: Vec<Vec<(OpCode, usize)>>) -> String {
         let pattern = Pattern::from_opcodes(&pattern);
         let generated_name = pattern
             .iter()
-            .map(|x| format!("{}", x).to_lowercase())
+            .map(|x| format!("{x}").to_lowercase())
             .join("_");
         let generated_function = converter.process_sequence(&pattern);
 
@@ -812,8 +805,7 @@ pub fn generate_opcode_map(patterns: Vec<Vec<(OpCode, usize)>>) -> String {
 
         generate.line(scope.to_string());
         generate.line(format!(
-            "map.insert(vec!{:?}, {});",
-            pattern, generated_name
+            "map.insert(vec!{pattern:?}, {generated_name});"
         ));
 
         converter.reset();
@@ -890,7 +882,7 @@ fn test() {
 
     let op_codes = Pattern::from_opcodes(&op_codes);
 
-    println!("{:#?}", op_codes);
+    println!("{op_codes:#?}");
 
     let mut stack_to_ssa = StackToSSAConverter::new();
 
