@@ -28,7 +28,6 @@ use std::{
     cell::{Ref, RefCell, RefMut},
     cmp::Ordering,
     fmt,
-    fmt::Write,
     future::Future,
     hash::{Hash, Hasher},
     ops::Deref,

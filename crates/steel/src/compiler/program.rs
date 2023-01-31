@@ -12,12 +12,13 @@ use crate::{
 use crate::{core::instructions::DenseInstruction, parser::span::Span};
 
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    convert::TryInto,
-    rc::Rc,
-    time::{SystemTime},
-};
+use std::{collections::HashMap, convert::TryInto, rc::Rc, time::SystemTime};
+
+#[cfg(feature = "profiling")]
+use std::time::Instant;
+
+#[cfg(feature = "profiling")]
+use log::{debug, log_enabled};
 
 use super::{compiler::DebruijnIndicesInterner, map::SymbolMap};
 
@@ -852,8 +853,6 @@ impl RawProgramWithSymbols {
         // }
 
         let (spans, instructions) = extract_spans(self.instructions);
-
-        
 
         // let mut sorted_symbol_map = symbol_map.map.iter().collect::<Vec<_>>();
         // sorted_symbol_map.sort_by_key(|x| x.1);

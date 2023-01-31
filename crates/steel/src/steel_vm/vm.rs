@@ -5,6 +5,7 @@
 // #[cfg(feature = "jit")]
 // use crate::jit::sig::JitFunctionPointer;
 use crate::values::transducers::Reducer;
+use crate::values::{closed::Heap, contracts::ContractType};
 use crate::{
     compiler::constants::ConstantMap,
     core::{instructions::DenseInstruction, opcode::OpCode},
@@ -16,9 +17,6 @@ use crate::{
     primitives::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive},
     steel_vm::primitives::{equality_primitive, lte_primitive},
     values::transducers::Transducers,
-};
-use crate::{
-    values::{closed::Heap, contracts::ContractType},
 };
 
 use crate::{
@@ -38,6 +36,10 @@ use super::builtin::DocTemplate;
 use im_lists::list::List;
 use lazy_static::lazy_static;
 
+#[cfg(feature = "profiling")]
+use log::{debug, log_enabled};
+#[cfg(feature = "profiling")]
+use std::time::Instant;
 
 use crate::rvals::IntoSteelVal;
 
@@ -949,7 +951,6 @@ impl<'a> VmCore<'a> {
 
         // self.function_stack
         // .push(CallContext::new(Gc::clone(closure)));
-        
 
         self.call_with_instructions_and_reset_state(instructions, spans)
     }
