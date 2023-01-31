@@ -468,6 +468,8 @@
 
 (define-syntax help
   (syntax-rules ()
+    [(help)
+     (displayln "help expects an identifier to lookup documentation for")]
     [(help ident) 
      (%doc? %-builtin-module-steel/base (quote ident))]
     [(help module ident)
