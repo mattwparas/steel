@@ -12,9 +12,7 @@ use rustyline::Editor;
 use rustyline::{hint::Hinter, CompletionType, Context};
 use rustyline_derive::Helper;
 use std::{
-    cell::RefCell,
     path::{Path, PathBuf},
-    rc::Rc,
 };
 use steel::{rvals::SteelVal, steel_vm::register_fn::RegisterFn};
 
@@ -87,13 +85,12 @@ impl Highlighter for RustylineHelper {
 
 fn display_help() {
     println!(
-        "{}",
-        r#"
+        "
         :time       -- toggles the timing of expressions
         :? | :help  -- displays help dialog
         :quit       -- exits the REPL
         :pwd        -- displays the current working directory
-        "#
+        "
     );
 }
 
@@ -202,7 +199,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                             print_time.to_string().bright_green()
                         );
                     }
-                    ":pwd" => println!("{:#?}", current_dir),
+                    ":pwd" => println!("{current_dir:#?}"),
                     // ":env" => vm.print_bindings(),
                     ":?" | ":help" => display_help(),
                     line if line.contains(":load") => {
@@ -211,7 +208,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                         // Update the prompt to now include the new context
                         prompt = format!(
                             "{}",
-                            format!("λ ({}) > ", line).bright_green().bold().italic(),
+                            format!("λ ({line}) > ").bright_green().bold().italic(),
                         );
 
                         let path = Path::new(line);
@@ -219,7 +216,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                         let file = std::fs::File::open(path);
 
                         if let Err(e) = file {
-                            eprintln!("{}", e);
+                            eprintln!("{e}");
                             continue;
                         }
 
@@ -245,7 +242,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                 break;
             }
             Err(err) => {
-                println!("Error: {:?}", err);
+                println!("Error: {err:?}");
                 break;
             }
         }
