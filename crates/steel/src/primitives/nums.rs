@@ -61,7 +61,13 @@ pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     let mut floats = floats?.into_iter();
 
     if let Some(first) = floats.next() {
-        Ok(SteelVal::NumV(floats.fold(first, |acc, x| acc / x)))
+        let result = floats.fold(first, |acc, x| acc / x);
+
+        if result.fract() == 0.0 {
+            Ok(SteelVal::IntV(result as isize))
+        } else {
+            Ok(SteelVal::NumV(result))
+        }
     } else {
         stop!(ArityMismatch => "division requires at least one argument")
     }
@@ -240,7 +246,7 @@ impl NumOperations {
             if let SteelVal::IntV(n) = &args[0] {
                 Ok(SteelVal::BoolV(n & 1 == 0))
             } else {
-                stop!(TypeMismatch => "even? requires an integer")
+                stop!(TypeMismatch => format!("even? requires an integer, found: {:?}", &args[0]))
             }
         })
     }
@@ -359,7 +365,7 @@ mod num_op_tests {
         let args = vec![IntV(10), IntV(2)];
 
         let output = apply_function(NumOperations::divide(), args).unwrap();
-        let expected = NumV(5.0);
+        let expected = IntV(5);
         assert_eq!(output.to_string(), expected.to_string());
     }
 

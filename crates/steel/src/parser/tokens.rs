@@ -112,7 +112,8 @@ fn parse_str(lex: &mut Lexer<TokenType>) -> Option<String> {
         .or(Some(slice))
         .and_then(|x| x.strip_prefix('\"'))
         .or(Some(slice))
-        .map(|x| x.to_string())
+        .map(|x| x.replace("\\\"", "\""))
+    // .map(|x| x.to_string())
 }
 
 // TODO the character parsing is not quite right

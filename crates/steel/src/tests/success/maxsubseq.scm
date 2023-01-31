@@ -1,0 +1,15 @@
+(define (max-subseq in)
+  (define (loop _sum _seq maxsum maxseq l)
+    (if (null? l)
+        (cons maxsum (reverse maxseq))
+        (let* ((x (car l)) (sum (+ _sum x)) (seq (cons x _seq)))
+            (if (> sum 0)
+                (if (> sum maxsum)
+                    (loop sum seq    sum    seq (cdr l))
+                    (loop sum seq maxsum maxseq (cdr l)))
+                (loop 0 (list) maxsum maxseq (cdr l))))))
+  (loop 0 (list) 0 (list) in))
+
+(assert! (equal? 
+            (max-subseq '(-1 -2 3 5 6 -2 -1 4 -4 2 -1))
+            '(15 3 5 6 -2 -1 4)))

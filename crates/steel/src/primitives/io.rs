@@ -81,7 +81,9 @@ impl IoFunctions {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             for arg in args {
                 match &arg {
-                    SteelVal::StringV(s) => print!("{}", s),
+                    SteelVal::StringV(s) => {
+                        print!("{}", s)
+                    }
                     _ => print!("{}", arg),
                 }
             }

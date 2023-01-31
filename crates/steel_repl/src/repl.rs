@@ -1,7 +1,7 @@
 extern crate rustyline;
 use colored::*;
 
-// use std::sync::mpsc::channel;
+use std::sync::mpsc::channel;
 
 use rustyline::error::ReadlineError;
 use rustyline::highlight::{Highlighter, MatchingBracketHighlighter};
@@ -192,14 +192,17 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
 
     // let buffer = String::new();
 
-    // TODO make this better
-    // let core_libraries = &[PRELUDE, DISPLAY, CONTRACTS];
-
     let current_dir = std::env::current_dir()?;
 
     let mut print_time = false;
 
-    // let (tx, rx) = channel();
+    let (tx, rx) = channel();
+
+    let cancellation_function = move || {
+        tx.send(()).unwrap();
+    };
+
+    vm.register_fn("quit", cancellation_function);
 
     // ctrlc::set_handler(move || tx.send(()).expect("Could not send signal on channel."))
     // .expect("Error setting Ctrl-C handler");
@@ -214,7 +217,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     //     true
     // });
 
-    loop {
+    while rx.try_recv().is_err() {
         let readline = rl.readline(&prompt);
 
         match readline {

@@ -67,7 +67,7 @@ fn unlikely(b: bool) -> bool {
 //     println!("{:?}", message());
 // }
 
-const STACK_LIMIT: usize = 1000;
+const STACK_LIMIT: usize = 1000000;
 const _JIT_THRESHOLD: usize = 100;
 
 #[derive(Clone, Debug, Copy, PartialEq)]

@@ -60,15 +60,16 @@ impl Heap {
         globals: impl Iterator<Item = &'a SteelVal>,
     ) {
         if self.memory.len() > self.threshold {
-            println!("Freeing memory");
+            log::info!(target: "gc", "Freeing memory");
 
             let mut changed = true;
             while changed {
-                println!("Small collection");
+                log::info!(target: "gc", "Small collection");
                 let prior_len = self.memory.len();
+                log::info!(target: "gc", "Previous length: {:?}", prior_len);
                 self.memory.retain(|x| Rc::weak_count(x) > 0);
                 let after = self.memory.len();
-                println!("Objects freed: {:?}", prior_len - after);
+                log::info!(target: "gc", "Objects freed: {:?}", prior_len - after);
                 changed = prior_len != after;
             }
 
@@ -87,6 +88,8 @@ impl Heap {
         function_stack: impl Iterator<Item = &'a Gc<ByteCodeLambda>>,
         globals: impl Iterator<Item = &'a SteelVal>,
     ) {
+        log::info!(target: "gc", "Marking the heap");
+
         // mark
         for root in roots {
             traverse(root);
@@ -116,8 +119,17 @@ impl Heap {
         //         .collect::<Vec<_>>()
         // );
 
+        log::info!(target: "gc", "Sweeping");
+        let prior_len = self.memory.len();
+
         // sweep
         self.memory.retain(|x| x.borrow().is_reachable());
+
+        let after_len = self.memory.len();
+
+        let amount_freed = prior_len - after_len;
+
+        log::info!(target: "gc", "Freed objects: {:?}", amount_freed);
 
         // put them back as unreachable
         self.memory.iter().for_each(|x| x.borrow_mut().reset());

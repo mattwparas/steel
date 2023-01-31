@@ -26,7 +26,7 @@ macro_rules! test_harness_success {
             $(
                 #[test]
                 fn $file_name() {
-                    let script = include_str!(concat!("success/", stringify!($file_name), ".rkt"));
+                    let script = include_str!(concat!("success/", stringify!($file_name), ".scm"));
                     assert_script(script);
                 }
             )*
@@ -42,7 +42,7 @@ macro_rules! test_harness_failure {
             $(
                 #[test]
                 fn $file_name() {
-                    let script = include_str!(concat!("failure/", stringify!($file_name), ".rkt"));
+                    let script = include_str!(concat!("failure/", stringify!($file_name), ".scm"));
                     assert_script_error(script);
                 }
             )*
@@ -73,10 +73,13 @@ test_harness_success! {
     generic_transducer_with_different_functions,
     generic_transducer,
     heap_sort,
+    help,
+    html_table,
     letrec_mutual_recursion,
     letrec_simple_recursion,
     local_struct,
     matcher,
+    maxsubseq,
     merge_sort,
     numbers,
     quicksort,
