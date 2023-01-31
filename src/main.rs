@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use clap::Parser;
-use steel_client::Args;
+use steel_interpreter::Args;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // env_logger::init();
@@ -18,7 +18,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let clap_args = Args::parse();
 
-    steel_client::run(clap_args)?;
+    steel_interpreter::run(clap_args)?;
 
     Ok(())
 }

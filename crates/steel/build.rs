@@ -1,15 +1,15 @@
 // build.rs
 
-use std::env;
-use std::fs;
-use std::path::Path;
-
-use steel_gen::generate_opcode_map;
-use steel_gen::OpCode::*;
-
 fn main() {
     #[cfg(feature = "dynamic")]
     {
+        use std::env;
+        use std::fs;
+        use std::path::Path;
+
+        use steel_gen::generate_opcode_map;
+        use steel_gen::OpCode::*;
+
         let out_dir = env::var_os("OUT_DIR").unwrap();
         let dest_path = Path::new(&out_dir).join("dynamic.rs");
 

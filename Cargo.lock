@@ -2089,6 +2089,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "steel-derive"
+version = "0.2.0"
+dependencies = [
+ "proc-macro2 1.0.39",
+ "quote 1.0.9",
+ "syn 1.0.96",
+]
+
+[[package]]
 name = "steel-gen"
 version = "0.2.0"
 dependencies = [
@@ -2099,7 +2108,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "steel_client"
+name = "steel-interpreter"
 version = "0.2.0"
 dependencies = [
  "clap 3.1.17",
@@ -2112,23 +2121,14 @@ dependencies = [
  "serde",
  "serde_json",
  "steel",
- "steel_derive",
- "steel_repl",
+ "steel-derive",
+ "steel-repl",
  "tungstenite",
  "url",
 ]
 
 [[package]]
-name = "steel_derive"
-version = "0.2.0"
-dependencies = [
- "proc-macro2 1.0.39",
- "quote 1.0.9",
- "syn 1.0.96",
-]
-
-[[package]]
-name = "steel_repl"
+name = "steel-repl"
 version = "0.2.0"
 dependencies = [
  "colored",
