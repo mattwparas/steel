@@ -303,29 +303,28 @@ impl<'global, 'a> VmCore<'a> {
                     todo!()
                 }
                 Transducers::Extend(collection) => {
-                    let extender: Box<dyn Iterator<Item = Result<SteelVal>>> = match collection
-                        .clone()
-                    {
-                        SteelVal::VectorV(v) => Box::new(v.unwrap().into_iter().map(Ok)),
-                        // TODO this needs to be fixed
-                        SteelVal::StringV(s) => Box::new(
-                            s.chars()
-                                .map(|x| Ok(SteelVal::CharV(x)))
-                                .collect::<Vec<_>>()
-                                .into_iter(),
-                        ),
-                        SteelVal::ListV(l) => Box::new(l.into_iter().map(Ok)),
-                        // SteelVal::StructV(s) => Box::new(s.unwrap().fields.into_iter().map(Ok)),
-                        els => {
-                            let err = SteelErr::new(
-                                ErrorKind::TypeMismatch,
-                                format!("extending expected a traversable value, found: {els}"),
-                            )
-                            .with_span(*cur_inst_span);
+                    let extender: Box<dyn Iterator<Item = Result<SteelVal>>> =
+                        match collection.clone() {
+                            SteelVal::VectorV(v) => Box::new(v.unwrap().into_iter().map(Ok)),
+                            // TODO this needs to be fixed
+                            SteelVal::StringV(s) => Box::new(
+                                s.chars()
+                                    .map(|x| Ok(SteelVal::CharV(x)))
+                                    .collect::<Vec<_>>()
+                                    .into_iter(),
+                            ),
+                            SteelVal::ListV(l) => Box::new(l.into_iter().map(Ok)),
+                            // SteelVal::StructV(s) => Box::new(s.unwrap().fields.into_iter().map(Ok)),
+                            els => {
+                                let err = SteelErr::new(
+                                    ErrorKind::TypeMismatch,
+                                    format!("extending expected a traversable value, found: {els}"),
+                                )
+                                .with_span(*cur_inst_span);
 
-                            Box::new(std::iter::once(Err(err)))
-                        }
-                    };
+                                Box::new(std::iter::once(Err(err)))
+                            }
+                        };
 
                     Box::new(iter.chain(extender))
                 }
@@ -341,29 +340,28 @@ impl<'global, 'a> VmCore<'a> {
                     )))
                 })),
                 Transducers::Zipping(collection) => {
-                    let zipped: Box<dyn Iterator<Item = Result<SteelVal>>> = match collection
-                        .clone()
-                    {
-                        SteelVal::VectorV(v) => Box::new(v.unwrap().into_iter().map(Ok)),
-                        // TODO this needs to be fixed
-                        SteelVal::StringV(s) => Box::new(
-                            s.chars()
-                                .map(|x| Ok(SteelVal::CharV(x)))
-                                .collect::<Vec<_>>()
-                                .into_iter(),
-                        ),
-                        SteelVal::ListV(l) => Box::new(l.into_iter().map(Ok)),
-                        // SteelVal::StructV(s) => Box::new(s.unwrap().fields.into_iter().map(Ok)),
-                        els => {
-                            let err = SteelErr::new(
-                                ErrorKind::TypeMismatch,
-                                format!("extending expected a traversable value, found: {els}"),
-                            )
-                            .with_span(*cur_inst_span);
+                    let zipped: Box<dyn Iterator<Item = Result<SteelVal>>> =
+                        match collection.clone() {
+                            SteelVal::VectorV(v) => Box::new(v.unwrap().into_iter().map(Ok)),
+                            // TODO this needs to be fixed
+                            SteelVal::StringV(s) => Box::new(
+                                s.chars()
+                                    .map(|x| Ok(SteelVal::CharV(x)))
+                                    .collect::<Vec<_>>()
+                                    .into_iter(),
+                            ),
+                            SteelVal::ListV(l) => Box::new(l.into_iter().map(Ok)),
+                            // SteelVal::StructV(s) => Box::new(s.unwrap().fields.into_iter().map(Ok)),
+                            els => {
+                                let err = SteelErr::new(
+                                    ErrorKind::TypeMismatch,
+                                    format!("extending expected a traversable value, found: {els}"),
+                                )
+                                .with_span(*cur_inst_span);
 
-                            Box::new(std::iter::once(Err(err)))
-                        }
-                    };
+                                Box::new(std::iter::once(Err(err)))
+                            }
+                        };
                     Box::new(
                         iter.zip(zipped)
                             .map(|x| Ok(SteelVal::ListV(im_lists::list!(x.0?, x.1?)))),

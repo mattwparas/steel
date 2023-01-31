@@ -118,9 +118,7 @@ pub fn main() {
 
     let second_new_external_struct: ExternalStruct =
         vm.extract("second-new-external-struct").unwrap();
-    println!(
-        "second_new_external_struct: {second_new_external_struct:?}"
-    );
+    println!("second_new_external_struct: {second_new_external_struct:?}");
     assert_eq!(
         ExternalStruct::new(50, "bananas".to_string(), 72.6),
         second_new_external_struct

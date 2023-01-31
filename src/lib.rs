@@ -11,9 +11,6 @@ use std::{error::Error, fs};
 
 use clap::Parser;
 
-
-
-
 /// Steel Interpreter
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -93,8 +90,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
 
             let contents =
                 fs::read_to_string(&path).expect("Something went wrong reading the file");
-            let res =
-                vm.compile_and_run_raw_program_with_path(&contents, path.clone());
+            let res = vm.compile_and_run_raw_program_with_path(&contents, path.clone());
 
             if let Err(e) = res {
                 e.emit_result(path.to_str().unwrap(), &contents);
@@ -219,8 +215,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
 
             let contents =
                 fs::read_to_string(&path).expect("Something went wrong reading the file");
-            let res =
-                vm.compile_and_run_raw_program_with_path(&contents, path.clone());
+            let res = vm.compile_and_run_raw_program_with_path(&contents, path.clone());
 
             if let Err(e) = res {
                 e.emit_result(path.to_str().unwrap(), &contents);

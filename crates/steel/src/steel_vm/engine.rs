@@ -721,9 +721,7 @@ impl Engine {
             }
         }
 
-        println!(
-            "Unable to locate source and span information for this error: {error}"
-        );
+        println!("Unable to locate source and span information for this error: {error}");
     }
 
     /// Execute a program given as the `expr`, and computes a `Vec<SteelVal>` corresponding to the output of each expression given.

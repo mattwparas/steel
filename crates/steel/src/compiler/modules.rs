@@ -1,5 +1,5 @@
 use crate::{
-    compiler::passes::{VisitorMutRefUnit},
+    compiler::passes::VisitorMutRefUnit,
     expr_list,
     parser::{
         ast::{Atom, Begin, Define, ExprKind, List, Quote},

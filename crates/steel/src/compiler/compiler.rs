@@ -183,9 +183,8 @@ impl DebruijnIndicesInterner {
                         && self.second_pass_defines.get(s).is_none()
                         && depth == 0
                     {
-                        let message = format!(
-                            "Cannot reference an identifier before its definition: {s}"
-                        );
+                        let message =
+                            format!("Cannot reference an identifier before its definition: {s}");
                         stop!(FreeIdentifier => message; *span);
                     }
 
@@ -217,10 +216,12 @@ impl DebruijnIndicesInterner {
                         }),
                     ..
                 } => {
-                    if self.flat_defines.get(s).is_some() && self.second_pass_defines.get(s).is_none() && depth == 0 {
-                        let message = format!(
-                            "Cannot reference an identifier before its definition: {s}"
-                        );
+                    if self.flat_defines.get(s).is_some()
+                        && self.second_pass_defines.get(s).is_none()
+                        && depth == 0
+                    {
+                        let message =
+                            format!("Cannot reference an identifier before its definition: {s}");
                         stop!(FreeIdentifier => message; *span);
                     }
 

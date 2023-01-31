@@ -59,9 +59,7 @@ impl HttpClient {
 
         request
             .send()
-            .map_err(|e| {
-                SteelErr::new(ErrorKind::Generic, format!("Unable to send request: {e}"))
-            })?
+            .map_err(|e| SteelErr::new(ErrorKind::Generic, format!("Unable to send request: {e}")))?
             .json::<Value>()
             .map_err(|_| {
                 SteelErr::new(

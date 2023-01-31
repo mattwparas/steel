@@ -1807,9 +1807,7 @@ fn parse_lambda(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> 
             // This should be fairly trivial in this case since we can just put the
             // first thing into a vec for the lambda node
             Err(ParseError::SyntaxError(
-                format!(
-                    "lambda function expected a list of identifiers, found: {arguments:?}"
-                ),
+                format!("lambda function expected a list of identifiers, found: {arguments:?}"),
                 syn.span,
                 None,
             ))
@@ -1885,7 +1883,7 @@ mod display_tests {
     fn parse(expr: &str) -> ExprKind {
         let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
         let a: Result<Vec<ExprKind>> = Parser::new(expr, &mut cache, None).collect();
-        
+
         a.unwrap()[0].clone()
     }
 
@@ -2058,7 +2056,7 @@ mod pretty_print_tests {
     fn parse(expr: &str) -> ExprKind {
         let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
         let a: Result<Vec<ExprKind>> = Parser::new(expr, &mut cache, None).collect();
-        
+
         a.unwrap()[0].clone()
     }
 
