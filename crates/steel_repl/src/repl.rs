@@ -12,7 +12,9 @@ use rustyline::Editor;
 use rustyline::{hint::Hinter, CompletionType, Context};
 use rustyline_derive::Helper;
 use std::{
+    cell::RefCell,
     path::{Path, PathBuf},
+    rc::Rc,
 };
 use steel::{rvals::SteelVal, steel_vm::register_fn::RegisterFn};
 
@@ -85,12 +87,13 @@ impl Highlighter for RustylineHelper {
 
 fn display_help() {
     println!(
-        "
+        "{}",
+        r#"
         :time       -- toggles the timing of expressions
         :? | :help  -- displays help dialog
         :quit       -- exits the REPL
         :pwd        -- displays the current working directory
-        "
+        "#
     );
 }
 
@@ -129,38 +132,6 @@ fn finish_or_interrupt(vm: &mut Engine, line: String, print_time: bool) {
 
     if print_time {
         println!("Time taken: {:?}", now.elapsed());
-    }
-}
-
-// TODO: Rewrite the repl implementation in Steel
-// pub fn wrap_engine_with_wrapper(mut engine: Engine) {
-//     let wrapped_engine = Rc::new(RefCell::new(engine));
-
-//     let cloned_engine = Rc::clone(&wrapped_engine);
-
-//     wrapped_engine.borrow_mut().register_fn("load", |path| )
-
-// }
-
-struct ReadLine(Editor<RustylineHelper>);
-
-impl ReadLine {
-    pub fn new() -> Self {
-        let mut rl = Editor::<RustylineHelper>::new();
-        rl.set_helper(Some(RustylineHelper {
-            highlighter: MatchingBracketHighlighter::default(),
-            validator: MatchingBracketValidator::default(),
-        }));
-
-        ReadLine(rl)
-    }
-
-    pub fn readline(&mut self, prompt: String) -> Result<String, ReadlineError> {
-        self.0.readline(&prompt)
-    }
-
-    pub fn add_history_entry(&mut self, entry: String) {
-        self.0.add_history_entry(entry);
     }
 }
 
@@ -231,7 +202,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                             print_time.to_string().bright_green()
                         );
                     }
-                    ":pwd" => println!("{current_dir:#?}"),
+                    ":pwd" => println!("{:#?}", current_dir),
                     // ":env" => vm.print_bindings(),
                     ":?" | ":help" => display_help(),
                     line if line.contains(":load") => {
@@ -240,7 +211,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                         // Update the prompt to now include the new context
                         prompt = format!(
                             "{}",
-                            format!("λ ({line}) > ").bright_green().bold().italic(),
+                            format!("λ ({}) > ", line).bright_green().bold().italic(),
                         );
 
                         let path = Path::new(line);
@@ -248,7 +219,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                         let file = std::fs::File::open(path);
 
                         if let Err(e) = file {
-                            eprintln!("{e}");
+                            eprintln!("{}", e);
                             continue;
                         }
 
@@ -274,7 +245,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                 break;
             }
             Err(err) => {
-                println!("Error: {err:?}");
+                println!("Error: {:?}", err);
                 break;
             }
         }
