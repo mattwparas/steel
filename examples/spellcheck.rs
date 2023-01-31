@@ -39,10 +39,10 @@ fn main() {
 
     let contents = include_str!("scripts/spellcheck.rkt");
 
-    let res = vm.compile_and_run_raw_program(&contents);
+    let res = vm.compile_and_run_raw_program(contents);
 
     if let Err(e) = res {
-        e.emit_result("spellcheck.rkt", &contents);
+        e.emit_result("spellcheck.rkt", contents);
     }
 
     finish(repl_base(vm))

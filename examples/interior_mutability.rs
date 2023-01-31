@@ -82,6 +82,6 @@ pub fn main() {
     let rc = vm.extract::<RcRefCellWrapper>("rc").unwrap();
     let mutex: MutexWrapper = vm.extract("mutex").unwrap();
 
-    println!("RcRefCellWrapper: {:?}", rc);
-    println!("MutexWrapper: {:?}", mutex);
+    println!("RcRefCellWrapper: {rc:?}");
+    println!("MutexWrapper: {mutex:?}");
 }

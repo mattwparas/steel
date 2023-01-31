@@ -11,8 +11,8 @@ use std::{error::Error, fs};
 
 use clap::Parser;
 
-use env_logger::Builder;
-use log::LevelFilter;
+
+
 
 /// Steel Interpreter
 #[derive(Parser, Debug)]
@@ -94,7 +94,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             let contents =
                 fs::read_to_string(&path).expect("Something went wrong reading the file");
             let res =
-                vm.compile_and_run_raw_program_with_path(&contents, PathBuf::from(path.clone()));
+                vm.compile_and_run_raw_program_with_path(&contents, path.clone());
 
             if let Err(e) = res {
                 e.emit_result(path.to_str().unwrap(), &contents);
@@ -108,7 +108,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
 
         Args {
             default_file: None,
-            action: Some(EmitAction::Test { default_file }),
+            action: Some(EmitAction::Test { default_file: _ }),
             ..
         } => {
             todo!()
@@ -116,7 +116,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
 
         Args {
             default_file: None,
-            action: Some(EmitAction::Doc { default_file }),
+            action: Some(EmitAction::Doc { default_file: _ }),
             ..
         } => {
             todo!()
@@ -139,7 +139,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             for core in core_libraries {
                 let res = vm.compile_and_run_raw_program(core);
                 if let Err(e) = res {
-                    eprintln!("{}", e);
+                    eprintln!("{e}");
                     return Ok(());
                 }
             }
@@ -147,7 +147,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             let contents =
                 fs::read_to_string(&path).expect("Something went wrong reading the file");
 
-            let program = vm.emit_raw_program(&contents, path.clone().into());
+            let program = vm.emit_raw_program(&contents, path.clone());
 
             match program {
                 Ok(program) => {
@@ -176,7 +176,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             for core in core_libraries {
                 let res = vm.compile_and_run_raw_program(core);
                 if let Err(e) = res {
-                    eprintln!("{}", e);
+                    eprintln!("{e}");
                     return Ok(());
                 }
             }
@@ -184,7 +184,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             let contents =
                 fs::read_to_string(path.clone()).expect("Something went wrong reading the file");
 
-            let res = vm.emit_fully_expanded_ast_to_string(&contents, Some(path.clone().into()));
+            let res = vm.emit_fully_expanded_ast_to_string(&contents, Some(path.clone()));
 
             match res {
                 Ok(ast) => println!("{ast}"),
@@ -199,7 +199,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             action:
                 Some(EmitAction::Interactive {
                     default_file: Some(path),
-                    arguments,
+                    arguments: _,
                 }),
             ..
         } => {
@@ -212,7 +212,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             for core in core_libraries {
                 let res = vm.compile_and_run_raw_program(core);
                 if let Err(e) = res {
-                    eprintln!("{}", e);
+                    eprintln!("{e}");
                     return Ok(());
                 }
             }
@@ -220,7 +220,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             let contents =
                 fs::read_to_string(&path).expect("Something went wrong reading the file");
             let res =
-                vm.compile_and_run_raw_program_with_path(&contents, PathBuf::from(path.clone()));
+                vm.compile_and_run_raw_program_with_path(&contents, path.clone());
 
             if let Err(e) = res {
                 e.emit_result(path.to_str().unwrap(), &contents);

@@ -56,16 +56,16 @@ pub fn main() {
     .unwrap();
 
     let foo = vm.extract::<usize>("foo").unwrap();
-    println!("foo: {}", foo);
+    println!("foo: {foo}");
     assert_eq!(35, foo);
 
     // Can also extract a value by specifying the type on the variable
     let bar: String = vm.extract("bar").unwrap();
-    println!("bar: {}", bar);
+    println!("bar: {bar}");
     assert_eq!("applesauce".to_string(), bar);
 
     let baz: Result<String, String> = vm.extract("baz").unwrap();
-    println!("baz: {:?}", baz.clone());
+    println!("baz: {:?}", baz);
     assert_eq!("bananas".to_string(), baz.unwrap());
 
     // let res: SteelVal = vm.extract("res").unwrap();

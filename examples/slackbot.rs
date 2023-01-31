@@ -60,7 +60,7 @@ impl HttpClient {
         request
             .send()
             .map_err(|e| {
-                SteelErr::new(ErrorKind::Generic, format!("Unable to send request: {}", e))
+                SteelErr::new(ErrorKind::Generic, format!("Unable to send request: {e}"))
             })?
             .json::<Value>()
             .map_err(|_| {
@@ -69,7 +69,7 @@ impl HttpClient {
                     "Unable to deserialize json response".to_string(),
                 )
             })
-            .map(|x| SteelVal::try_from(x))?
+            .map(SteelVal::try_from)?
     }
 }
 
@@ -125,7 +125,7 @@ fn main() -> Result<(), std::io::Error> {
     let res = engine.compile_and_run_raw_program_with_path(&exprs, path_buf);
 
     if let Err(e) = res {
-        e.emit_result(&path, &exprs);
+        e.emit_result(path, &exprs);
     }
 
     Ok(())
@@ -157,7 +157,7 @@ impl SocketWrapper {
         println!("Response HTTP code: {}", response.status());
         println!("Response contains the following headers:");
         for (ref header, _value) in response.headers() {
-            println!("* {}", header);
+            println!("* {header}");
         }
 
         Ok(Self { socket })
@@ -167,7 +167,7 @@ impl SocketWrapper {
         self.socket.read_message().map(WrappedMessage).map_err(|x| {
             SteelErr::new(
                 ErrorKind::Generic,
-                format!("Unable to read message from socket: {}", x),
+                format!("Unable to read message from socket: {x}"),
             )
         })
     }
@@ -176,7 +176,7 @@ impl SocketWrapper {
         self.socket.write_message(message.0).map_err(|x| {
             SteelErr::new(
                 ErrorKind::Generic,
-                format!("Unable to write message to socket: {}", x),
+                format!("Unable to write message to socket: {x}"),
             )
         })
     }
