@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 use steel::stdlib::PRELUDE;

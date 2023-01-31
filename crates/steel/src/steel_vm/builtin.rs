@@ -47,6 +47,10 @@ impl BuiltInModule {
         }
     }
 
+    pub fn check_compatibility(self: &BuiltInModule) -> bool {
+        self.version == env!("CARGO_PKG_VERSION")
+    }
+
     pub fn contains(&self, ident: &str) -> bool {
         self.values.contains_key(ident)
     }

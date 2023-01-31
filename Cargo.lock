@@ -666,7 +666,7 @@ dependencies = [
 
 [[package]]
 name = "example-dylib"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "steel",
 ]
@@ -2050,7 +2050,7 @@ checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
 
 [[package]]
 name = "steel"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bincode",
  "codespan-reporting",
@@ -2100,7 +2100,7 @@ dependencies = [
 
 [[package]]
 name = "steel_client"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap 3.1.17",
  "dlopen",
@@ -2130,7 +2130,7 @@ dependencies = [
 
 [[package]]
 name = "steel_repl"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "colored",
  "ctrlc",

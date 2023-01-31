@@ -1,9 +1,5 @@
-// #![allow(unused)]
+#![allow(unused)]
 
-// #[cfg(feature = "jit")]
-// use crate::jit::code_gen::JIT;
-// #[cfg(feature = "jit")]
-// use crate::jit::sig::JitFunctionPointer;
 use crate::values::transducers::Reducer;
 use crate::values::{closed::Heap, contracts::ContractType};
 use crate::{
@@ -628,6 +624,7 @@ impl DynamicBlock {
         Ok(())
     }
 
+    #[cfg(feature = "dynamic")]
     fn construct_basic_block(head: DenseInstruction, basic_block: InstructionPattern) -> Self {
         // TODO: Drop the first
         let mut handlers = basic_block.block.iter().peekable();
@@ -3468,6 +3465,7 @@ impl OpCodeOccurenceProfiler {
 
     // Process the op code and the associated payload
     // TODO: Get this to just use offsets, don't actually clone the instruction set directly
+    #[cfg(feature = "dynamic")]
     pub fn process_opcode(
         &mut self,
         opcode: &OpCode,
@@ -3483,7 +3481,7 @@ impl OpCodeOccurenceProfiler {
         // Trace once it becomes hot
         let call_count = function.call_count();
         // If we're in the special zone, profile, otherwise don't
-        if !(1000..=10000).contains(&call_count) {
+        if call_count < 1000 || call_count > 10000 {
             self.starting_index = None;
             self.ending_index = None;
             return None;
@@ -3567,7 +3565,7 @@ impl OpCodeOccurenceProfiler {
         None
     }
 
-    // TODO: Use this in the above function
+    #[cfg(feature = "dynamic")]
     pub fn cut_sequence(
         &mut self,
         instructions: &[DenseInstruction],
@@ -5009,130 +5007,119 @@ fn lte_handler_none_int(_: &mut VmCore<'_>, l: SteelVal, r: isize) -> Result<boo
     }
 }
 
-#[macro_export]
-macro_rules! binop_opcode_to_ssa_handler {
-    (ADD2, Int, Int) => {
-        add_handler_int_int
-    };
-
-    (ADD2, Int, Float) => {
-        add_handler_int_float
-    };
-
-    (ADD2, Float, Int) => {
-        add_handler_int_float
-    };
-
-    (ADD2, Float, Float) => {
-        add_handler_float_float
-    };
-
-    (MUL2, Int, Int) => {
-        multiply_handler_int_int
-    };
-
-    (MUL2, Int, Float) => {
-        multiply_handler_int_float
-    };
-
-    (MUL2, Float, Int) => {
-        multiply_handler_int_float
-    };
-
-    (MUL2, Float, Float) => {
-        multiply_handler_float_float
-    };
-
-    (SUB2, Int, Int) => {
-        sub_handler_int_int
-    };
-
-    (SUB2, Int, None) => {
-        sub_handler_int_none
-    };
-
-    (SUB2, None, Int) => {
-        sub_handler_none_int
-    };
-
-    (SUB2, Int, Float) => {
-        sub_handler_int_float
-    };
-
-    (SUB2, Float, Int) => {
-        sub_handler_float_int
-    };
-
-    (SUB2, Float, Float) => {
-        sub_handler_float_float
-    };
-
-    (DIV2, Int, Int) => {
-        div_handler_int_int
-    };
-
-    (DIV2, Int, Float) => {
-        div_handler_int_float
-    };
-
-    (DIV2, Float, Int) => {
-        div_handler_float_int
-    };
-
-    (DIV2, Float, Float) => {
-        div_handler_float_float
-    };
-
-    (LTE2, None, Int) => {
-        lte_handler_none_int
-    };
-}
-
-macro_rules! if_to_ssa_handler {
-    (IF, Bool) => {
-        if_handler_with_bool
-    };
-    (IF) => {
-        raw_if_handler
-    };
-}
-
-// READLOCAL0,
-// LOADINT2,
-// MUL,
-// MOVEREADLOCAL1,
-// LOADINT1,
-// SUB,
-// READLOCAL2,
-// LOADINT1,
-// SUB,
-// READLOCAL3,
-// CALLGLOBAL
-
-macro_rules! opcode_to_ssa_handler {
-    (CALLGLOBAL) => {
-        call_global_handler_no_stack
-    };
-
-    (CALLGLOBAL, Tail) => {
-        call_global_handler_with_args
-    };
-
-    (MOVEREADLOCAL0) => {
-        handle_move_local_0_no_stack
-    };
-
-    (MOVEREADLOCAL1) => {
-        handle_move_local_1_no_stack
-    };
-
-    (READLOCAL0) => {
-        handle_local_0_no_stack
-    };
-}
-
+#[cfg(feature = "dynamic")]
 mod dynamic {
     use super::*;
+
+    #[macro_export]
+    macro_rules! binop_opcode_to_ssa_handler {
+        (ADD2, Int, Int) => {
+            add_handler_int_int
+        };
+
+        (ADD2, Int, Float) => {
+            add_handler_int_float
+        };
+
+        (ADD2, Float, Int) => {
+            add_handler_int_float
+        };
+
+        (ADD2, Float, Float) => {
+            add_handler_float_float
+        };
+
+        (MUL2, Int, Int) => {
+            multiply_handler_int_int
+        };
+
+        (MUL2, Int, Float) => {
+            multiply_handler_int_float
+        };
+
+        (MUL2, Float, Int) => {
+            multiply_handler_int_float
+        };
+
+        (MUL2, Float, Float) => {
+            multiply_handler_float_float
+        };
+
+        (SUB2, Int, Int) => {
+            sub_handler_int_int
+        };
+
+        (SUB2, Int, None) => {
+            sub_handler_int_none
+        };
+
+        (SUB2, None, Int) => {
+            sub_handler_none_int
+        };
+
+        (SUB2, Int, Float) => {
+            sub_handler_int_float
+        };
+
+        (SUB2, Float, Int) => {
+            sub_handler_float_int
+        };
+
+        (SUB2, Float, Float) => {
+            sub_handler_float_float
+        };
+
+        (DIV2, Int, Int) => {
+            div_handler_int_int
+        };
+
+        (DIV2, Int, Float) => {
+            div_handler_int_float
+        };
+
+        (DIV2, Float, Int) => {
+            div_handler_float_int
+        };
+
+        (DIV2, Float, Float) => {
+            div_handler_float_float
+        };
+
+        (LTE2, None, Int) => {
+            lte_handler_none_int
+        };
+    }
+
+    macro_rules! if_to_ssa_handler {
+        (IF, Bool) => {
+            if_handler_with_bool
+        };
+        (IF) => {
+            raw_if_handler
+        };
+    }
+
+    macro_rules! opcode_to_ssa_handler {
+        (CALLGLOBAL) => {
+            call_global_handler_no_stack
+        };
+
+        (CALLGLOBAL, Tail) => {
+            call_global_handler_with_args
+        };
+
+        (MOVEREADLOCAL0) => {
+            handle_move_local_0_no_stack
+        };
+
+        (MOVEREADLOCAL1) => {
+            handle_move_local_1_no_stack
+        };
+
+        (READLOCAL0) => {
+            handle_local_0_no_stack
+        };
+    }
 
     // Includes the module as a dependency, that being said - this should
     // probably get generated into some specific sub module directly?

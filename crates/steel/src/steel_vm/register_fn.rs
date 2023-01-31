@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use std::{future::Future, marker::PhantomData, rc::Rc};
 
 use super::engine::Engine;

@@ -11,9 +11,7 @@ use rustyline::validate::{
 use rustyline::Editor;
 use rustyline::{hint::Hinter, CompletionType, Context};
 use rustyline_derive::Helper;
-use std::{
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 use steel::{rvals::SteelVal, steel_vm::register_fn::RegisterFn};
 
 use rustyline::completion::Completer;
@@ -139,7 +137,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
         "{}",
         r#"
      _____ __            __
-    / ___// /____  ___  / /          Version 0.1.0
+    / ___// /____  ___  / /          Version 0.2.0
     \__ \/ __/ _ \/ _ \/ /           https://github.com/mattwparas/steel
    ___/ / /_/  __/  __/ /            :? for help
   /____/\__/\___/\___/_/ 

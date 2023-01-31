@@ -1,4 +1,5 @@
 // TODO: Create stack to ssa representation of the op codes, via macros
+#![allow(unused)]
 
 pub mod opcode;
 use std::borrow::Cow;
@@ -520,8 +521,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::Float, TypeHint::Float) => {
                             // Delegate to the binary handler to return an int
-                            let call =
-                                format!("binop_opcode_to_ssa_handler!({op}, Float, Float)");
+                            let call = format!("binop_opcode_to_ssa_handler!({op}, Float, Float)");
 
                             let local = self.push_with_hint(TypeHint::Bool);
 
@@ -603,8 +603,7 @@ impl StackToSSAConverter {
                         }
                         (TypeHint::Float, TypeHint::Float) => {
                             // Delegate to the binary handler to return an int
-                            let call =
-                                format!("binop_opcode_to_ssa_handler!({op}, Float, Float)");
+                            let call = format!("binop_opcode_to_ssa_handler!({op}, Float, Float)");
 
                             let local = self.push_with_hint(TypeHint::Float);
 
@@ -712,10 +711,7 @@ struct Call<'a> {
 
 impl<'a> Call<'a> {
     pub fn new(name: Cow<'a, str>, args: Vec<Cow<'a, str>>) -> Self {
-        Self {
-            name,
-            args,
-        }
+        Self { name, args }
     }
 }
 
@@ -776,8 +772,6 @@ impl Pattern {
 // }
 
 pub fn generate_opcode_map(patterns: Vec<Vec<(OpCode, usize)>>) -> String {
-    
-
     let mut global_scope = Scope::new();
 
     let mut generate = codegen::Function::new("generate_dynamic_op_codes");
@@ -804,9 +798,7 @@ pub fn generate_opcode_map(patterns: Vec<Vec<(OpCode, usize)>>) -> String {
         scope.push_fn(generated_function);
 
         generate.line(scope.to_string());
-        generate.line(format!(
-            "map.insert(vec!{pattern:?}, {generated_name});"
-        ));
+        generate.line(format!("map.insert(vec!{pattern:?}, {generated_name});"));
 
         converter.reset();
 
