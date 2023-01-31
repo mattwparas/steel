@@ -1,8 +1,11 @@
 [package]
-name = "steel"
+name = "steel-core"
 version = "0.2.0"
 authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
 edition = "2021"
+
+[lib]
+name = "steel"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -46,7 +49,7 @@ tungstenite = { version = "0.17.2", features = ["rustls-tls-native-roots"], opti
 proptest = "1.0.0"
 criterion = "0.3.5"
 # steel = { path = ".", features = ["modules", "jit"] }
-steel = { path = ".", features = ["modules"] }
+steel-core = { path = ".", features = ["modules"] }
 env_logger = "0.9"
 
 [build-dependencies]

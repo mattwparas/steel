@@ -668,7 +668,7 @@ dependencies = [
 name = "example-dylib"
 version = "0.2.0"
 dependencies = [
- "steel",
+ "steel-core",
 ]
 
 [[package]]
@@ -2049,7 +2049,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
 
 [[package]]
-name = "steel"
+name = "steel-core"
 version = "0.2.0"
 dependencies = [
  "bincode",
@@ -2080,7 +2080,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "smallvec",
- "steel",
+ "steel-core",
  "steel-gen",
  "termimad",
  "thiserror",
@@ -2120,7 +2120,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "steel",
+ "steel-core",
  "steel-derive",
  "steel-repl",
  "tungstenite",
@@ -2136,7 +2136,7 @@ dependencies = [
  "futures",
  "rustyline",
  "rustyline-derive",
- "steel",
+ "steel-core",
 ]
 
 [[package]]
