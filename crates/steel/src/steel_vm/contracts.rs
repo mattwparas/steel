@@ -13,11 +13,11 @@ use crate::{
 use log::debug;
 
 impl ContractedFunction {
-    pub fn apply<'a>(
+    pub fn apply(
         &self,
         arguments: Vec<SteelVal>,
         cur_inst_span: &Span,
-        ctx: &mut VmCore<'a>,
+        ctx: &mut VmCore,
     ) -> Result<SteelVal> {
         // Walk back and find the contracts to apply
         {
@@ -36,12 +36,7 @@ impl ContractedFunction {
 }
 
 impl FlatContract {
-    pub fn apply<'a>(
-        &self,
-        arg: SteelVal,
-        cur_inst_span: &Span,
-        ctx: &mut VmCore<'a>,
-    ) -> Result<()> {
+    pub fn apply(&self, arg: SteelVal, cur_inst_span: &Span, ctx: &mut VmCore) -> Result<()> {
         // TODO make this not clone the argument
         let output = match self.predicate() {
             SteelVal::FuncV(func) => func(&[arg.clone()]).map_err(|x| x.set_span(*cur_inst_span)),
@@ -65,25 +60,25 @@ impl FlatContract {
 
 /// Extension trait for the application of function contracts
 pub(crate) trait FunctionContractExt {
-    fn apply<'a>(
+    fn apply(
         &self,
         name: &Option<String>,
         // function: &Gc<ByteCodeLambda>,
         function: &SteelVal,
         arguments: &[SteelVal],
         cur_inst_span: &Span,
-        ctx: &mut VmCore<'a>,
+        ctx: &mut VmCore,
     ) -> Result<SteelVal>;
 }
 
 impl FunctionContractExt for FunctionKind {
-    fn apply<'a>(
+    fn apply(
         &self,
         name: &Option<String>,
         function: &SteelVal,
         arguments: &[SteelVal],
         cur_inst_span: &Span,
-        ctx: &mut VmCore<'a>,
+        ctx: &mut VmCore,
     ) -> Result<SteelVal> {
         match self {
             Self::Basic(fc) => fc.apply(name, function, arguments, cur_inst_span, ctx),
@@ -93,13 +88,13 @@ impl FunctionContractExt for FunctionKind {
 }
 
 impl FunctionContractExt for DependentContract {
-    fn apply<'a>(
+    fn apply(
         &self,
         name: &Option<String>,
         function: &SteelVal,
         arguments: &[SteelVal],
         cur_inst_span: &Span,
-        ctx: &mut VmCore<'a>,
+        ctx: &mut VmCore,
     ) -> Result<SteelVal> {
         let mut verified_args: Vec<SteelVal> = Vec::new();
 
@@ -287,13 +282,13 @@ impl FunctionContractExt for DependentContract {
 }
 
 impl FunctionContract {
-    pub fn apply<'a>(
+    pub fn apply(
         &self,
         name: &Option<String>,
         function: &SteelVal,
         arguments: &[SteelVal],
         cur_inst_span: &Span,
-        ctx: &mut VmCore<'a>,
+        ctx: &mut VmCore,
     ) -> Result<SteelVal> {
         let verified_args = self.verify_preconditions(arguments, cur_inst_span, ctx, name)?;
 

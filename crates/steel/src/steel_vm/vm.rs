@@ -3108,10 +3108,7 @@ impl<'a> VmCore<'a> {
     }
 }
 
-pub fn current_function_span<'a, 'b>(
-    ctx: &'a mut VmCore<'b>,
-    args: &[SteelVal],
-) -> Option<Result<SteelVal>> {
+pub fn current_function_span(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if !args.is_empty() {
         builtin_stop!(ArityMismatch => format!("current-function-span requires no arguments, found {}", args.len()))
     }
@@ -3122,8 +3119,8 @@ pub fn current_function_span<'a, 'b>(
     }
 }
 
-pub fn call_with_exception_handler<'a, 'b>(
-    ctx: &'a mut VmCore<'b>,
+pub fn call_with_exception_handler(
+    ctx: &mut VmCore,
     args: &[SteelVal],
 ) -> Option<Result<SteelVal>> {
     if args.len() != 2 {
