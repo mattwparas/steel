@@ -34,18 +34,18 @@ pub fn test_line(input: &str, output: &[&str], evaluator: &mut Engine) {
     let result = evaluator.compile_and_run_raw_program(input);
     match result {
         Ok(vals) => {
-            println!("Expected values: {:?}", output);
-            println!("Resulting values: {:?}", vals);
+            println!("Expected values: {output:?}");
+            println!("Resulting values: {vals:?}");
 
             let vals: Vec<_> = vals
                 .into_iter()
                 .filter(|x| x.clone() != SteelVal::Void)
                 .collect();
 
-            let output: Vec<&&str> = output.into_iter().filter(|x| **x != "#<void>").collect();
+            let output: Vec<&&str> = output.iter().filter(|x| **x != "#<void>").collect();
 
-            println!("post - Expected values: {:?}", output);
-            println!("post - Resulting values: {:?}", vals);
+            println!("post - Expected values: {output:?}");
+            println!("post - Resulting values: {vals:?}");
 
             // TODO -> this shouldn't check this here
             // voids should be skipped if the outputs don't match
@@ -54,7 +54,7 @@ pub fn test_line(input: &str, output: &[&str], evaluator: &mut Engine) {
 
             for (expr, &&expected) in vals.iter().zip(output.iter()) {
                 println!("expr to string: {:?}", expr.to_string());
-                println!("expected to string: {:?}", expected);
+                println!("expected to string: {expected:?}");
 
                 assert_eq!(expr.to_string(), expected);
                 // match expr {

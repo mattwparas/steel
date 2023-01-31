@@ -18,7 +18,6 @@ use crate::{
     values::transducers::Transducers,
 };
 use crate::{
-    core::utils::arity_check,
     values::{closed::Heap, contracts::ContractType},
 };
 
@@ -32,13 +31,13 @@ use crate::{
     values::functions::ByteCodeLambda,
 };
 // use std::env::current_exe;
-use std::{cell::RefCell, collections::HashMap, iter::Iterator, rc::Rc, time::Instant};
+use std::{collections::HashMap, iter::Iterator, rc::Rc};
 
 use super::builtin::DocTemplate;
 
 use im_lists::list::List;
 use lazy_static::lazy_static;
-use log::{debug, error, log_enabled};
+
 
 use crate::rvals::IntoSteelVal;
 
@@ -263,9 +262,9 @@ impl SteelThread {
         self.constant_map = constant_map.clone();
 
         let result = instructions
-            .into_iter()
-            .zip(spans.into_iter())
-            .map(|x| self.execute(Rc::clone(&x.0), constant_map.clone(), Rc::clone(x.1)))
+            .iter()
+            .zip(spans.iter())
+            .map(|x| self.execute(Rc::clone(x.0), constant_map.clone(), Rc::clone(x.1)))
             .collect();
 
         self.constant_map = DEFAULT_CONSTANT_MAP.with(|x| x.clone());
@@ -332,7 +331,7 @@ impl SteelThread {
                 vm_instance.call_with_args(&closure, args)
             }
             _ => {
-                stop!(TypeMismatch => format!("application not a procedure: {}", function))
+                stop!(TypeMismatch => format!("application not a procedure: {function}"))
             }
         }
     }
@@ -537,7 +536,7 @@ impl<'a> VmContext for VmCore<'a> {
             function,
             arg,
             &span,
-            throw!(TypeMismatch => format!("application not a procedure: {}", function)),
+            throw!(TypeMismatch => format!("application not a procedure: {function}")),
         )
     }
 
@@ -553,7 +552,7 @@ impl<'a> VmContext for VmCore<'a> {
             arg1,
             arg2,
             &span,
-            throw!(TypeMismatch => format!("application not a procedure: {}", function)),
+            throw!(TypeMismatch => format!("application not a procedure: {function}")),
         )
     }
 
@@ -567,7 +566,7 @@ impl<'a> VmContext for VmCore<'a> {
             function,
             args,
             &span,
-            throw!(TypeMismatch => format!("application not a procedure: {}", function)),
+            throw!(TypeMismatch => format!("application not a procedure: {function}")),
         )
     }
 
@@ -629,13 +628,13 @@ impl DynamicBlock {
 
     fn construct_basic_block(head: DenseInstruction, basic_block: InstructionPattern) -> Self {
         // TODO: Drop the first
-        let mut handlers = basic_block.block.into_iter().peekable();
+        let mut handlers = basic_block.block.iter().peekable();
         // .map(|x| OP_CODE_TABLE[x as usize]);
         // .collect();
 
         let mut header_func = None;
 
-        println!("{:#?}", basic_block);
+        println!("{basic_block:#?}");
 
         if let Some(first) = handlers.peek() {
             header_func = op_code_requires_payload(first.0);
@@ -950,9 +949,9 @@ impl<'a> VmCore<'a> {
 
         // self.function_stack
         // .push(CallContext::new(Gc::clone(closure)));
-        let result = self.call_with_instructions_and_reset_state(instructions, spans);
+        
 
-        result
+        self.call_with_instructions_and_reset_state(instructions, spans)
     }
 
     // Calling convention
@@ -1503,7 +1502,7 @@ impl<'a> VmCore<'a> {
                     let closure_arity = last_stack_frame.function.arity();
 
                     if current_arity != closure_arity {
-                        stop!(ArityMismatch => format!("tco: function expected {} arguments, found {}", closure_arity, current_arity); self.current_span());
+                        stop!(ArityMismatch => format!("tco: function expected {closure_arity} arguments, found {current_arity}"); self.current_span());
                     }
 
                     // HACK COME BACK TO THIS
@@ -2322,7 +2321,7 @@ impl<'a> VmCore<'a> {
                 // println!("{:?}", self.stack);
                 // println!("{:?}", self.stack_index);
                 crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-                stop!(BadSyntax => format!("TailCall - Application not a procedure or function type not supported: {}", stack_func); self.current_span());
+                stop!(BadSyntax => format!("TailCall - Application not a procedure or function type not supported: {stack_func}"); self.current_span());
             }
         }
     }
@@ -2523,7 +2522,7 @@ impl<'a> VmCore<'a> {
     ) -> Result<()> {
         if let Some(arity) = cf.arity() {
             if arity != payload_size {
-                stop!(ArityMismatch => format!("function expected {} arguments, found {}", arity, payload_size); self.current_span());
+                stop!(ArityMismatch => format!("function expected {arity} arguments, found {payload_size}"); self.current_span());
             }
         }
 
@@ -2551,7 +2550,7 @@ impl<'a> VmCore<'a> {
     ) -> Result<()> {
         if let Some(arity) = cf.arity() {
             if arity != payload_size {
-                stop!(ArityMismatch => format!("function expected {} arguments, found {}", arity, payload_size); self.current_span());
+                stop!(ArityMismatch => format!("function expected {arity} arguments, found {payload_size}"); self.current_span());
             }
         }
 
@@ -2798,8 +2797,8 @@ impl<'a> VmCore<'a> {
             //     self.ip += 4;
             // }
             _ => {
-                println!("{:?}", stack_func);
-                stop!(BadSyntax => format!("Function application not a procedure or function type not supported, {}", stack_func); self.current_span());
+                println!("{stack_func:?}");
+                stop!(BadSyntax => format!("Function application not a procedure or function type not supported, {stack_func}"); self.current_span());
             }
         }
         Ok(())
@@ -2987,7 +2986,7 @@ impl<'a> VmCore<'a> {
             Contract(c) => self.call_contract(&c, payload_size)?,
             BuiltIn(f) => self.call_builtin_func(f, payload_size)?,
             _ => {
-                println!("{:?}", stack_func);
+                println!("{stack_func:?}");
                 println!("Stack: {:?}", self.thread.stack);
                 stop!(BadSyntax => "Function application not a procedure or function type not supported"; self.current_span());
             }
@@ -3011,9 +3010,9 @@ impl<'a> VmCore<'a> {
             FuncV(f) => f(args),
             FutureFunc(f) => Ok(SteelVal::FutureV(Gc::new(f(args)?))),
             _ => {
-                println!("{:?}", stack_func);
+                println!("{stack_func:?}");
                 println!("Stack: {:?}", self.thread.stack);
-                stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); self.current_span());
+                stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {stack_func}"); self.current_span());
             }
         }
 
@@ -3061,9 +3060,9 @@ impl<'a> VmCore<'a> {
             }
             // BuiltIn(f) => f(self, args),
             _ => {
-                println!("{:?}", stack_func);
+                println!("{stack_func:?}");
                 println!("Stack: {:?}", self.thread.stack);
-                stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); self.current_span());
+                stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {stack_func}"); self.current_span());
             }
         }
 
@@ -3097,9 +3096,9 @@ impl<'a> VmCore<'a> {
             Contract(c) => self.call_contract(&c, payload_size)?,
             BuiltIn(f) => self.call_builtin_func(f, payload_size)?,
             _ => {
-                println!("{:?}", stack_func);
+                println!("{stack_func:?}");
                 println!("stack: {:?}", self.thread.stack);
-                stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); self.current_span());
+                stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {stack_func}"); self.current_span());
             }
         }
         Ok(())
@@ -3190,7 +3189,7 @@ pub fn call_with_exception_handler<'a, 'b>(
         }
 
         _ => {
-            builtin_stop!(TypeMismatch => format!("call-with-exception-handler expects a thunk as an argument, found: {}", thunk); ctx.current_span())
+            builtin_stop!(TypeMismatch => format!("call-with-exception-handler expects a thunk as an argument, found: {thunk}"); ctx.current_span())
         }
     }
 
@@ -3229,7 +3228,7 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
         }
         SteelVal::ContinuationFunction(_) => {}
         _ => {
-            builtin_stop!(Generic => format!("call/cc expects a function, found: {}", function); ctx.current_span())
+            builtin_stop!(Generic => format!("call/cc expects a function, found: {function}"); ctx.current_span())
         }
     }
 
@@ -3291,7 +3290,7 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
         }
 
         _ => {
-            builtin_stop!(Generic => format!("call/cc expects a function, found: {}", function));
+            builtin_stop!(Generic => format!("call/cc expects a function, found: {function}"));
         }
     }
 
@@ -3309,11 +3308,11 @@ pub(crate) const APPLY_DOC: DocTemplate<'static> = DocTemplate {
     ],
 };
 
-pub(crate) fn get_test_mode(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+pub(crate) fn get_test_mode(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(Ok(ctx.thread.runtime_options.test.into()))
 }
 
-pub(crate) fn set_test_mode(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+pub(crate) fn set_test_mode(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
     ctx.thread.runtime_options.test = true;
 
     Some(Ok(ctx.thread.runtime_options.test.into()))
@@ -3405,7 +3404,7 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
                 }
 
                 _ => {
-                    builtin_stop!(Generic => format!("apply expects a function, found: {}", arg1));
+                    builtin_stop!(Generic => format!("apply expects a function, found: {arg1}"));
                 }
             }
         } else {
@@ -3483,7 +3482,7 @@ impl OpCodeOccurenceProfiler {
         // Trace once it becomes hot
         let call_count = function.call_count();
         // If we're in the special zone, profile, otherwise don't
-        if call_count < 1000 || call_count > 10000 {
+        if !(1000..=10000).contains(&call_count) {
             self.starting_index = None;
             self.ending_index = None;
             return None;
@@ -3534,7 +3533,7 @@ impl OpCodeOccurenceProfiler {
                         // println!("{} {}", block_pattern.start, index);
 
                         let sequence = instructions[block_pattern.start..=index]
-                            .into_iter()
+                            .iter()
                             .map(|x| (x.op_code, x.payload_size as usize))
                             .filter(|x| !x.0.is_ephemeral_opcode() && x.0 != OpCode::POPPURE)
                             .collect();
@@ -3548,10 +3547,8 @@ impl OpCodeOccurenceProfiler {
                         return Some(InstructionPattern::new(sequence, block_pattern));
                     }
 
-                } else {
-                    if index - block_pattern.start > 2 {
-                        guard.push((block_pattern, BlockMetadata::default()));
-                    }
+                } else if index - block_pattern.start > 2 {
+                    guard.push((block_pattern, BlockMetadata::default()));
                 }
 
                 self.starting_index = None;
@@ -3585,7 +3582,7 @@ impl OpCodeOccurenceProfiler {
         // Trace once it becomes hot
         let call_count = function.call_count();
         // If we're in the special zone, profile, otherwise don't
-        if call_count < 1000 || call_count > 10000 {
+        if !(1000..=10000).contains(&call_count) {
             self.starting_index = None;
             self.ending_index = None;
             return None;
@@ -3616,7 +3613,7 @@ impl OpCodeOccurenceProfiler {
                 metadata.created = true;
 
                 let sequence = instructions[block_pattern.start..=index]
-                    .into_iter()
+                    .iter()
                     .map(|x| (x.op_code, x.payload_size as usize))
                     .filter(|x| !x.0.is_ephemeral_opcode() && x.0 != OpCode::POPPURE)
                     .collect();
@@ -3628,10 +3625,8 @@ impl OpCodeOccurenceProfiler {
 
                 return Some(InstructionPattern::new(sequence, block_pattern));
             }
-        } else {
-            if index - block_pattern.start > 3 {
-                guard.push((block_pattern, BlockMetadata::default()));
-            }
+        } else if index - block_pattern.start > 3 {
+            guard.push((block_pattern, BlockMetadata::default()));
         }
 
         self.starting_index = None;
@@ -3694,7 +3689,7 @@ impl OpCodeOccurenceProfiler {
         counts.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
 
         println!("------- Profiling Report -------");
-        println!("Total instructions executed: {}", total);
+        println!("Total instructions executed: {total}");
         for row in counts {
             println!("{:?} => {:.2}%", row.0, row.1);
         }
@@ -4257,7 +4252,7 @@ fn bind_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 
 // OpCode::BIND
 fn bind_handler_with_payload(ctx: &mut VmCore<'_>, index: usize) -> Result<()> {
-    ctx.handle_bind(index as usize);
+    ctx.handle_bind(index);
     Ok(())
 }
 
@@ -4652,7 +4647,7 @@ fn read_alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
         .unwrap()
         .function
         .heap_allocated()
-        .borrow()[payload_size as usize]
+        .borrow()[payload_size]
         .get();
 
     ctx.thread.stack.push(value);
@@ -4671,7 +4666,7 @@ fn read_alloc_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) ->
         .unwrap()
         .function
         .heap_allocated()
-        .borrow()[payload_size as usize]
+        .borrow()[payload_size]
         .get();
 
     ctx.thread.stack.push(value);
@@ -4693,7 +4688,7 @@ fn set_alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
         .unwrap()
         .function
         .heap_allocated()
-        .borrow_mut()[payload_size as usize]
+        .borrow_mut()[payload_size]
         .set(value_to_assign);
 
     ctx.thread.stack.push(old_value);
@@ -4714,7 +4709,7 @@ fn set_alloc_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> 
         .unwrap()
         .function
         .heap_allocated()
-        .borrow_mut()[payload_size as usize]
+        .borrow_mut()[payload_size]
         .set(value_to_assign);
 
     ctx.thread.stack.push(old_value);
@@ -4727,12 +4722,12 @@ fn set_alloc_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> 
 fn new_sclosure_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     let payload_size = ctx.instructions[ctx.ip].payload_size as usize;
 
-    ctx.handle_new_start_closure(payload_size as usize)
+    ctx.handle_new_start_closure(payload_size)
 }
 
 // OpCode::NEWSCLOSURE
 fn new_sclosure_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
-    ctx.handle_new_start_closure(payload_size as usize)
+    ctx.handle_new_start_closure(payload_size)
 }
 
 #[inline(always)]
@@ -4844,7 +4839,7 @@ fn tco_jump_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     let closure_arity = last_stack_frame.function.arity();
 
     if current_arity != closure_arity {
-        stop!(ArityMismatch => format!("tco: function expected {} arguments, found {}", closure_arity, current_arity); ctx.current_span());
+        stop!(ArityMismatch => format!("tco: function expected {closure_arity} arguments, found {current_arity}"); ctx.current_span());
     }
 
     // HACK COME BACK TO THIS

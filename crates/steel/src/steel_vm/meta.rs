@@ -57,7 +57,7 @@ impl EngineWrapper {
         if let SteelVal::ListV(list) = args {
             let arguments = list.into_iter().collect();
 
-            println!("Calling with arguments: {:?}", arguments);
+            println!("Calling with arguments: {arguments:?}");
 
             self.0.call_function_with_args(function, arguments)
         } else {
@@ -221,7 +221,7 @@ fn drain_custom_output_port() -> String {
 }
 
 pub fn value_to_string(value: SteelVal) -> String {
-    format!("{:?}", value)
+    format!("{value:?}")
 }
 
 /// Eval with a completely fresh environment

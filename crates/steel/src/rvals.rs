@@ -27,7 +27,6 @@ use std::{
     any::Any,
     cell::{Ref, RefCell, RefMut},
     cmp::Ordering,
-    collections::HashSet,
     fmt,
     fmt::Write,
     future::Future,
@@ -912,7 +911,7 @@ impl SteelVal {
 
     #[allow(unused)]
     pub(crate) fn other_contains_self(&self, other: &SteelVal) -> bool {
-        println!("Checking self: {} with other: {}", self, other);
+        println!("Checking self: {self} with other: {other}");
         match other {
             // In this trivial case, these are atomic and therefore we are not concerned with cyclic
             // reference
@@ -1034,7 +1033,7 @@ impl Hash for SteelVal {
             IterV(s) => s.hash(state),
             HashSetV(hs) => hs.hash(state),
             _ => {
-                println!("Trying to hash: {:?}", self);
+                println!("Trying to hash: {self:?}");
                 unimplemented!()
             } // Promise(_) => unimplemented!(),
         }

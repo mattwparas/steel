@@ -150,8 +150,7 @@ impl Folder for ConvertDefinesToLets {
                     ExprKind::Let(l)
                 }
                 other => panic!(
-                    "Something went wrong in define conversion, found: {:?}",
-                    other
+                    "Something went wrong in define conversion, found: {other:?}"
                 ),
             }
         } else {

@@ -86,7 +86,7 @@ pub fn resolve_labels(instructions: Vec<LabeledInstruction>) -> Vec<Instruction>
             // If this is an instruction with a jump of some kind to a label
             // Resolve that here
             if let Some(label_goto) = x.goto {
-                println!("Instruction: {:#?}", x);
+                println!("Instruction: {x:#?}");
                 x.payload_size = label_map[&label_goto]
             }
 

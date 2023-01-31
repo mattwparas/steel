@@ -113,7 +113,7 @@ impl From<Infallible> for Repr {
 
 impl fmt::Display for ErrorKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 

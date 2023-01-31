@@ -41,7 +41,7 @@ impl<'global, 'a> Iterator for LazyStreamIter<'global, 'a> {
             &stream_thunk,
             Vec::new(),
             self.cur_inst_span,
-            throw!(TypeMismatch => format!("stream expected a thunk, found: {}", stream_thunk)),
+            throw!(TypeMismatch => format!("stream expected a thunk, found: {stream_thunk}")),
         );
 
         if let Ok(next_value) = next_value {

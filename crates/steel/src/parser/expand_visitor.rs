@@ -357,8 +357,7 @@ fn expand_keyword_arguments(
                     expr_list![
                         ExprKind::ident("error!"),
                         ExprKind::string_lit(format!(
-                            "Function application missing required keyword argument: {}",
-                            keyword
+                            "Function application missing required keyword argument: {keyword}"
                         ))
                     ],
                 ),

@@ -10,13 +10,13 @@ use crate::{
     stop, SteelVal,
 };
 use crate::{core::instructions::DenseInstruction, parser::span::Span};
-use log::{debug, log_enabled};
+
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     convert::TryInto,
     rc::Rc,
-    time::{Instant, SystemTime},
+    time::{SystemTime},
 };
 
 use super::{compiler::DebruijnIndicesInterner, map::SymbolMap};
@@ -444,7 +444,7 @@ impl SerializableProgram {
     pub fn write_to_file(&self, filename: &str) -> Result<()> {
         use std::io::prelude::*;
 
-        let mut file = File::create(format!("{}.txt", filename)).unwrap();
+        let mut file = File::create(format!("{filename}.txt")).unwrap();
 
         let buffer = bincode::serialize(self).unwrap();
 
@@ -455,7 +455,7 @@ impl SerializableProgram {
     pub fn read_from_file(filename: &str) -> Result<Self> {
         use std::io::prelude::*;
 
-        let mut file = File::open(format!("{}.txt", filename)).unwrap();
+        let mut file = File::open(format!("{filename}.txt")).unwrap();
 
         let mut buffer = Vec::new();
 
@@ -527,7 +527,7 @@ impl SerializableRawProgramWithSymbols {
     pub fn write_to_file(&self, filename: &str) -> Result<()> {
         use std::io::prelude::*;
 
-        let mut file = File::create(format!("{}.txt", filename)).unwrap();
+        let mut file = File::create(format!("{filename}.txt")).unwrap();
 
         let buffer = bincode::serialize(self).unwrap();
 
@@ -538,7 +538,7 @@ impl SerializableRawProgramWithSymbols {
     pub fn read_from_file(filename: &str) -> Result<Self> {
         use std::io::prelude::*;
 
-        let mut file = File::open(format!("{}.txt", filename)).unwrap();
+        let mut file = File::open(format!("{filename}.txt")).unwrap();
         let mut buffer = Vec::new();
         let _ = file.read_to_end(&mut buffer).unwrap();
         let program: Self = bincode::deserialize(&buffer).unwrap();
@@ -614,7 +614,7 @@ impl RawProgramWithSymbols {
 
         counts.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
 
-        println!("{:#?}", counts);
+        println!("{counts:#?}");
     }
 
     // Definitely can be improved
@@ -853,17 +853,7 @@ impl RawProgramWithSymbols {
 
         let (spans, instructions) = extract_spans(self.instructions);
 
-        let res = Ok(Executable {
-            name: Rc::new(name),
-            version: Rc::new(self.version),
-            time_stamp: SystemTime::now(),
-            instructions: instructions
-                .into_iter()
-                .map(|x| Rc::from(x.into_boxed_slice()))
-                .collect(),
-            constant_map: self.constant_map,
-            spans: spans.into(),
-        });
+        
 
         // let mut sorted_symbol_map = symbol_map.map.iter().collect::<Vec<_>>();
         // sorted_symbol_map.sort_by_key(|x| x.1);
@@ -875,7 +865,17 @@ impl RawProgramWithSymbols {
             debug!(target: "pipeline_time", "Executable Build Time: {:?}", now.elapsed());
         }
 
-        res
+        Ok(Executable {
+            name: Rc::new(name),
+            version: Rc::new(self.version),
+            time_stamp: SystemTime::now(),
+            instructions: instructions
+                .into_iter()
+                .map(|x| Rc::from(x.into_boxed_slice()))
+                .collect(),
+            constant_map: self.constant_map,
+            spans,
+        })
     }
 }
 

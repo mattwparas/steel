@@ -44,6 +44,6 @@ fn main() {
         ],
     ];
 
-    fs::write(&dest_path, generate_opcode_map(patterns)).unwrap();
+    fs::write(dest_path, generate_opcode_map(patterns)).unwrap();
     println!("cargo:rerun-if-changed=build.rs");
 }

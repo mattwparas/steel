@@ -38,7 +38,7 @@ proptest! {
 
         let expr_string = expr.to_string();
 
-        println!("{}", expr_string);
+        println!("{expr_string}");
 
         let resulting_expr = Parser::parse(&expr_string).unwrap();
 
@@ -78,7 +78,7 @@ fn define_vec_strategy(
 fn begin_vec_strategy(
     inner: impl Strategy<Value = ExprKind> + Clone,
 ) -> impl Strategy<Value = ExprKind> {
-    prop::collection::vec(inner.clone(), 0..10).prop_map(|x| {
+    prop::collection::vec(inner, 0..10).prop_map(|x| {
         ExprKind::Begin(Begin::new(
             x,
             SyntaxObject::new(TokenType::Begin, Span::new(0, 0, None)),
@@ -89,7 +89,7 @@ fn begin_vec_strategy(
 fn naive_list_vec_strategy(
     inner: impl Strategy<Value = ExprKind> + Clone,
 ) -> impl Strategy<Value = ExprKind> {
-    prop::collection::vec(inner.clone(), 0..10).prop_map(|x| {
+    prop::collection::vec(inner, 0..10).prop_map(|x| {
         if x.is_empty() {
             ExprKind::Quote(Box::new(Quote::new(
                 ExprKind::List(List::new(x)),
@@ -109,7 +109,7 @@ fn exprkind_strategy() -> BoxedStrategy<ExprKind> {
             define_vec_strategy(inner.clone()),
             if_vec_strategy(inner.clone()),
             begin_vec_strategy(inner.clone()),
-            naive_list_vec_strategy(inner.clone())
+            naive_list_vec_strategy(inner)
         ]
     })
     .boxed()

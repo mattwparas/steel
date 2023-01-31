@@ -21,14 +21,14 @@ impl StringOperations {
                 let mut first = if let SteelVal::StringV(first) = first_arg {
                     first.to_string()
                 } else {
-                    stop!(TypeMismatch => format!("string-append expected a string, found: {}", first_arg))
+                    stop!(TypeMismatch => format!("string-append expected a string, found: {first_arg}"))
                 };
 
                 for arg in arg_iter {
                     if let SteelVal::StringV(r) = arg {
                         first = first + r;
                     } else {
-                        stop!(TypeMismatch => format!("string-append expected a string, found: {}", first_arg))
+                        stop!(TypeMismatch => format!("string-append expected a string, found: {first_arg}"))
                     };
                 }
 
@@ -57,7 +57,7 @@ impl StringOperations {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
                 if let SteelVal::IntV(s) = &args[0] {
-                    Ok(SteelVal::StringV(format!("{}", s).into()))
+                    Ok(SteelVal::StringV(format!("{s}").into()))
                 } else {
                     stop!(TypeMismatch => "string->int expected a string")
                 }

@@ -207,7 +207,7 @@ impl<'a> StaticContract<'a> {
                     ))
                 }
                 _ => {
-                    println!("{}", expr);
+                    println!("{expr}");
                     stop!(Generic => "Unexpected contract combinator")
                 }
             },
@@ -342,7 +342,7 @@ impl<'a> ContractChecker<'a> {
     pub fn check(&mut self, exprs: impl IntoIterator<Item = &'a ExprKind>) -> Result<()> {
         for expr in exprs {
             let type_checked = self.visit(expr)?;
-            println!("{:#?}", type_checked);
+            println!("{type_checked:#?}");
         }
         Ok(())
     }
@@ -583,8 +583,8 @@ impl<'a> VisitorMut for ContractChecker<'a> {
         let function_type = self.visit(&l.args[0])?;
         let expected_arity = l.args.len() - 1;
 
-        println!("Type checking this expression: {}", l);
-        println!("Function type: {:?}", function_type);
+        println!("Type checking this expression: {l}");
+        println!("Function type: {function_type:?}");
 
         match &function_type {
             TypeInfo::Unknown => {
@@ -670,7 +670,7 @@ impl<'a> VisitorMut for ContractChecker<'a> {
                     }
 
                     if !pre.is_compatible_with(&found) {
-                        stop!(ContractViolation => format!("type mismatch: expected {:?}, found {:?}", pre, found))
+                        stop!(ContractViolation => format!("type mismatch: expected {pre:?}, found {found:?}"))
                     }
                 }
 
@@ -679,7 +679,7 @@ impl<'a> VisitorMut for ContractChecker<'a> {
             TypeInfo::FixedArityFunction(pre, post) => {
                 let found_arity = pre.len();
                 if expected_arity != found_arity {
-                    stop!(ArityMismatch => format!("Function application mismatched with expected - function expected {} arguments but found {}", found_arity, expected_arity))
+                    stop!(ArityMismatch => format!("Function application mismatched with expected - function expected {found_arity} arguments but found {expected_arity}"))
                 }
 
                 if l.args.len() == 1 {
@@ -694,7 +694,7 @@ impl<'a> VisitorMut for ContractChecker<'a> {
                 for ((expected, mut found), unvisited) in
                     pre.iter().zip(visited).zip(l.args[1..].iter())
                 {
-                    println!("Found argument type: {:?}", found);
+                    println!("Found argument type: {found:?}");
 
                     // If we've found an unknown, we don't necessarily have enough information
                     // to say what this type is. We attempt to resolve it by the inferring that the type
@@ -712,14 +712,14 @@ impl<'a> VisitorMut for ContractChecker<'a> {
                     }
 
                     if !expected.is_compatible_with(&found) {
-                        stop!(ContractViolation => format!("type mismatch: expected {:?}, found {:?}", expected, found))
+                        stop!(ContractViolation => format!("type mismatch: expected {expected:?}, found {found:?}"))
                     }
                 }
 
                 Ok(*(post.clone()))
             }
             _ => {
-                stop!(TypeMismatch => format!("Function application not a procedure, expected a function, found: {:?}", function_type))
+                stop!(TypeMismatch => format!("Function application not a procedure, expected a function, found: {function_type:?}"))
             }
         }
     }

@@ -238,7 +238,7 @@ impl VectorOperations {
                             stop!(Generic => e);
                         }
                     } else {
-                        stop!(TypeMismatch => format!("vector-ref expected a vector and a number, found: {} and {}", vec, idx))
+                        stop!(TypeMismatch => format!("vector-ref expected a vector and a number, found: {vec} and {idx}"))
                     }
                 }
                 _ => stop!(ArityMismatch => "vector-ref takes two arguments"),

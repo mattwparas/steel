@@ -354,19 +354,19 @@ impl ExprKind {
 impl fmt::Display for ExprKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ExprKind::Atom(a) => write!(f, "{}", a),
-            ExprKind::If(i) => write!(f, "{}", i),
-            ExprKind::Define(d) => write!(f, "{}", d),
-            ExprKind::LambdaFunction(l) => write!(f, "{}", l),
-            ExprKind::Begin(b) => write!(f, "{}", b),
-            ExprKind::Return(r) => write!(f, "{}", r),
-            ExprKind::Let(l) => write!(f, "{}", l),
-            ExprKind::Quote(q) => write!(f, "{}", q),
-            ExprKind::Macro(m) => write!(f, "{}", m),
-            ExprKind::SyntaxRules(s) => write!(f, "{}", s),
-            ExprKind::List(l) => write!(f, "{}", l),
-            ExprKind::Set(s) => write!(f, "{}", s),
-            ExprKind::Require(r) => write!(f, "{}", r),
+            ExprKind::Atom(a) => write!(f, "{a}"),
+            ExprKind::If(i) => write!(f, "{i}"),
+            ExprKind::Define(d) => write!(f, "{d}"),
+            ExprKind::LambdaFunction(l) => write!(f, "{l}"),
+            ExprKind::Begin(b) => write!(f, "{b}"),
+            ExprKind::Return(r) => write!(f, "{r}"),
+            ExprKind::Let(l) => write!(f, "{l}"),
+            ExprKind::Quote(q) => write!(f, "{q}"),
+            ExprKind::Macro(m) => write!(f, "{m}"),
+            ExprKind::SyntaxRules(s) => write!(f, "{s}"),
+            ExprKind::List(l) => write!(f, "{l}"),
+            ExprKind::Set(s) => write!(f, "{s}"),
+            ExprKind::Require(r) => write!(f, "{r}"),
         }
     }
 }
@@ -1551,7 +1551,7 @@ where
 
     let func = value_iter.next().ok_or_else(|| {
         ParseError::ArityMismatch(
-            format!("{} expected one argument, found none", name),
+            format!("{name} expected one argument, found none"),
             syn.span,
             None,
         )
@@ -1559,7 +1559,7 @@ where
 
     if value_iter.next().is_some() {
         Err(ParseError::SyntaxError(
-            format!("{} expects only one argument", name),
+            format!("{name} expects only one argument"),
             syn.span,
             None,
         ))
@@ -1808,8 +1808,7 @@ fn parse_lambda(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> 
             // first thing into a vec for the lambda node
             Err(ParseError::SyntaxError(
                 format!(
-                    "lambda function expected a list of identifiers, found: {:?}",
-                    arguments
+                    "lambda function expected a list of identifiers, found: {arguments:?}"
                 ),
                 syn.span,
                 None,
@@ -1886,8 +1885,8 @@ mod display_tests {
     fn parse(expr: &str) -> ExprKind {
         let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
         let a: Result<Vec<ExprKind>> = Parser::new(expr, &mut cache, None).collect();
-        let a = a.unwrap()[0].clone();
-        a
+        
+        a.unwrap()[0].clone()
     }
 
     #[test]
@@ -2059,8 +2058,8 @@ mod pretty_print_tests {
     fn parse(expr: &str) -> ExprKind {
         let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
         let a: Result<Vec<ExprKind>> = Parser::new(expr, &mut cache, None).collect();
-        let a = a.unwrap()[0].clone();
-        a
+        
+        a.unwrap()[0].clone()
     }
 
     #[test]

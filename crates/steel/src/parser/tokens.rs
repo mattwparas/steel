@@ -77,7 +77,7 @@ fn parse_unicode_str(slice: &str) -> Option<char> {
         let uinitial: u32 = decoded.into();
         let result = char::try_from(uinitial).ok();
 
-        println!("{:?}", result);
+        println!("{result:?}");
         result
     } else {
         None
@@ -247,7 +247,7 @@ fn character_special_display(c: char, f: &mut fmt::Formatter) -> fmt::Result {
         // '\"' => write!(f, "#\\DOUBLE-QUOTE"),
         // '\'' => write!(f, "#\\QUOTE"),
         // '\\' => write!(f, "#\\BACKSLASH"),
-        _ => write!(f, "#\\{}", c),
+        _ => write!(f, "#\\{c}"),
     }
 }
 
@@ -257,12 +257,12 @@ impl fmt::Display for TokenType {
             OpenParen => write!(f, "("),
             CloseParen => write!(f, "("),
             CharacterLiteral(x) => character_special_display(*x, f),
-            BooleanLiteral(x) => write!(f, "#{}", x),
-            Identifier(x) => write!(f, "{}", x),
-            NumberLiteral(x) => write!(f, "{:?}", x),
-            IntegerLiteral(x) => write!(f, "{}", x),
-            StringLiteral(x) => write!(f, "\"{}\"", x),
-            Keyword(x) => write!(f, "{}", x),
+            BooleanLiteral(x) => write!(f, "#{x}"),
+            Identifier(x) => write!(f, "{x}"),
+            NumberLiteral(x) => write!(f, "{x:?}"),
+            IntegerLiteral(x) => write!(f, "{x}"),
+            StringLiteral(x) => write!(f, "\"{x}\""),
+            Keyword(x) => write!(f, "{x}"),
             QuoteTick => write!(f, "'"),
             Unquote => write!(f, ","),
             QuasiQuote => write!(f, "`"),

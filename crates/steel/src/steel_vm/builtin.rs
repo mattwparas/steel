@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, rc::Rc};
+use std::{borrow::Cow, rc::Rc};
 
 use crate::{
     parser::{ast::ExprKind, parser::SyntaxObject, tokens::TokenType},
@@ -87,7 +87,7 @@ impl BuiltInModule {
 
     pub fn get_doc(&self, definition: String) {
         if let Some(value) = self.docs.get(&definition) {
-            println!("{}", value)
+            println!("{value}")
         }
     }
 
@@ -254,39 +254,39 @@ pub struct MarkdownDoc<'a>(pub &'a str);
 
 impl<'a> std::fmt::Display for MarkdownDoc<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", termimad::text(&self.0))
+        write!(f, "{}", termimad::text(self.0))
     }
 }
 
 impl<'a> std::fmt::Display for Documentation<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Documentation::Function(d) => write!(f, "{}", d),
-            Documentation::Module(d) => write!(f, "{}", d),
-            Documentation::Value(d) => write!(f, "{}", d),
-            Documentation::Markdown(d) => write!(f, "{}", d),
+            Documentation::Function(d) => write!(f, "{d}"),
+            Documentation::Module(d) => write!(f, "{d}"),
+            Documentation::Value(d) => write!(f, "{d}"),
+            Documentation::Markdown(d) => write!(f, "{d}"),
         }
     }
 }
 
 impl<'a> std::fmt::Display for DocTemplate<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "")?;
+        writeln!(f)?;
         writeln!(f, "{}", self.signature)?;
-        writeln!(f, "")?;
+        writeln!(f)?;
 
         for param in self.params {
-            writeln!(f, "   {}", param)?
+            writeln!(f, "   {param}")?
         }
 
-        writeln!(f, "")?;
+        writeln!(f)?;
         writeln!(f, "{}", self.description)?;
-        writeln!(f, "")?;
+        writeln!(f)?;
         if !self.examples.is_empty() {
             writeln!(f, "Examples:")?;
             for (example, output) in self.examples {
-                writeln!(f, "   {}", example)?;
-                writeln!(f, "   {}", output)?;
+                writeln!(f, "   {example}")?;
+                writeln!(f, "   {output}")?;
             }
         }
 
@@ -296,43 +296,43 @@ impl<'a> std::fmt::Display for DocTemplate<'a> {
 
 impl<'a> std::fmt::Display for ValueDoc<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "")?;
+        writeln!(f)?;
         writeln!(f, "{}", self.name)?;
-        writeln!(f, "")?;
+        writeln!(f)?;
         writeln!(f, "{}", self.description)
     }
 }
 
 impl<'a> std::fmt::Display for ModuleDoc<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "")?;
+        writeln!(f)?;
         writeln!(f, "{}", self.name)?;
-        writeln!(f, "")?;
+        writeln!(f)?;
         writeln!(f, "{}", self.description)
     }
 }
 
-impl<'a> Into<Documentation<'a>> for DocTemplate<'a> {
-    fn into(self) -> Documentation<'a> {
-        Documentation::Function(self)
+impl<'a> From<DocTemplate<'a>> for Documentation<'a> {
+    fn from(val: DocTemplate<'a>) -> Self {
+        Documentation::Function(val)
     }
 }
 
-impl<'a> Into<Documentation<'a>> for ModuleDoc<'a> {
-    fn into(self) -> Documentation<'a> {
-        Documentation::Module(self)
+impl<'a> From<ModuleDoc<'a>> for Documentation<'a> {
+    fn from(val: ModuleDoc<'a>) -> Self {
+        Documentation::Module(val)
     }
 }
 
-impl<'a> Into<Documentation<'a>> for ValueDoc<'a> {
-    fn into(self) -> Documentation<'a> {
-        Documentation::Value(self)
+impl<'a> From<ValueDoc<'a>> for Documentation<'a> {
+    fn from(val: ValueDoc<'a>) -> Self {
+        Documentation::Value(val)
     }
 }
 
-impl<'a> Into<Documentation<'a>> for MarkdownDoc<'a> {
-    fn into(self) -> Documentation<'a> {
-        Documentation::Markdown(self)
+impl<'a> From<MarkdownDoc<'a>> for Documentation<'a> {
+    fn from(val: MarkdownDoc<'a>) -> Self {
+        Documentation::Markdown(val)
     }
 }
 

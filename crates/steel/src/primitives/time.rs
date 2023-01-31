@@ -24,7 +24,7 @@ Contains direct wrappers around the Rust `std::time::Instant` and `std::time::Du
 );
 
 fn duration_to_string(duration: Duration) -> String {
-    format!("{:?}", duration)
+    format!("{duration:?}")
 }
 
 pub fn time_module() -> BuiltInModule {

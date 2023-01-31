@@ -123,10 +123,10 @@ impl FsFunctions {
     pub fn get_extension(args: &[SteelVal]) -> Result<SteelVal> {
         if args.len() == 1 {
             if let SteelVal::StringV(s) = &args[0] {
-                if let Some(ext) = get_extension_from_filename(&s) {
+                if let Some(ext) = get_extension_from_filename(s) {
                     Ok(SteelVal::StringV(ext.into()))
                 } else {
-                    stop!(Generic => format!("path->extension expects a path that exists, found: {}", s))
+                    stop!(Generic => format!("path->extension expects a path that exists, found: {s}"))
                 }
             } else {
                 stop!(TypeMismatch => format!("path->extension expects a string, found: {}", &args[0]))

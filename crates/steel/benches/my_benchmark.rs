@@ -8,7 +8,7 @@ fn benchmark_template(c: &mut Criterion, name: &str, script: &str, warmup: &str)
     vm.compile_and_run_raw_program(PRELUDE).unwrap();
     vm.compile_and_run_raw_program(black_box(warmup)).unwrap();
 
-    let program = vm.emit_raw_program_no_path(&script).unwrap();
+    let program = vm.emit_raw_program_no_path(script).unwrap();
     let executable = vm.raw_program_to_executable(program).unwrap();
 
     c.bench_function(name, |b| b.iter(|| vm.run_executable(&executable)));
@@ -21,7 +21,7 @@ fn range(c: &mut Criterion) {
 
     vm.compile_and_run_raw_program(PRELUDE).unwrap();
 
-    let program = vm.emit_raw_program_no_path(&script).unwrap();
+    let program = vm.emit_raw_program_no_path(script).unwrap();
     let executable = vm.raw_program_to_executable(program).unwrap();
 
     c.bench_function("range-big", |b| b.iter(|| vm.run_executable(&executable)));
@@ -113,11 +113,11 @@ fn trie_sort_without_optimizations(c: &mut Criterion) {
          \"notify\"
          \"star\"))";
 
-    vm.compile_and_run_raw_program(black_box(&warmup)).unwrap();
+    vm.compile_and_run_raw_program(black_box(warmup)).unwrap();
 
     let script = "(trie-sort lst)";
 
-    let program = vm.emit_raw_program_no_path(&script).unwrap();
+    let program = vm.emit_raw_program_no_path(script).unwrap();
     let executable = vm.raw_program_to_executable(program).unwrap();
 
     c.bench_function("trie-sort-without-optimizations", |b| {
@@ -149,11 +149,11 @@ fn trie_sort_with_optimizations(c: &mut Criterion) {
          \"notify\"
          \"star\"))";
 
-    vm.compile_and_run_raw_program(black_box(&warmup)).unwrap();
+    vm.compile_and_run_raw_program(black_box(warmup)).unwrap();
 
     let script = "(trie-sort lst)";
 
-    let program = vm.emit_raw_program_no_path(&script).unwrap();
+    let program = vm.emit_raw_program_no_path(script).unwrap();
     let executable = vm.raw_program_to_executable(program).unwrap();
 
     c.bench_function("trie-sort-with-optimizations", |b| {
@@ -172,7 +172,7 @@ fn fib_28(c: &mut Criterion) {
     .unwrap();
 
     let script = "(fib 28)";
-    let program = vm.emit_raw_program_no_path(&script).unwrap();
+    let program = vm.emit_raw_program_no_path(script).unwrap();
     let executable = vm.raw_program_to_executable(program).unwrap();
 
     let mut group = c.benchmark_group("fib-28");
@@ -192,7 +192,7 @@ fn fib_28_contract(c: &mut Criterion) {
     .unwrap();
 
     let script = "(fib 28)";
-    let program = vm.emit_raw_program_no_path(&script).unwrap();
+    let program = vm.emit_raw_program_no_path(script).unwrap();
     let executable = vm.raw_program_to_executable(program).unwrap();
 
     let mut group = c.benchmark_group("contract-fib-28");
@@ -223,7 +223,7 @@ fn fib_28_contract(c: &mut Criterion) {
 // }
 
 fn engine_creation(c: &mut Criterion) {
-    c.bench_function("engine-creation", |b| b.iter(|| Engine::new()));
+    c.bench_function("engine-creation", |b| b.iter(Engine::new));
 }
 
 fn register_function(c: &mut Criterion) {

@@ -1464,10 +1464,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                     // var.refers
                 } else {
-                    println!("Unable to find var: {} in info map to update to set!", name);
+                    println!("Unable to find var: {name} in info map to update to set!");
                 }
             } else {
-                println!("Variable not yet in scope: {}", name);
+                println!("Variable not yet in scope: {name}");
             }
         }
 
@@ -3072,7 +3072,7 @@ mod analysis_pass_tests {
                 ErrorKind::FreeIdentifier.to_error_code(),
                 "input.rkt",
                 script,
-                format!("last usage"),
+                "last usage".to_string(),
                 var.span,
             );
         }
@@ -3116,12 +3116,12 @@ mod analysis_pass_tests {
             .filter(|x| x.kind == IdentifierStatus::HeapAllocated);
 
         for var in let_vars {
-            println!("{:?}", var);
+            println!("{var:?}");
             crate::rerrs::report_info(
                 ErrorKind::FreeIdentifier.to_error_code(),
                 "input.rkt",
                 script,
-                format!("let-var"),
+                "let-var".to_string(),
                 var.span,
             );
         }
@@ -3145,7 +3145,7 @@ mod analysis_pass_tests {
                 ErrorKind::FreeIdentifier.to_error_code(),
                 "input.rkt",
                 script,
-                format!("last usage"),
+                "last usage".to_string(),
                 var.span,
             );
         }
@@ -3186,12 +3186,12 @@ mod analysis_pass_tests {
             .filter(|x| x.kind == IdentifierStatus::Local);
 
         for var in let_vars {
-            println!("{:?}", var);
+            println!("{var:?}");
             crate::rerrs::report_info(
                 ErrorKind::FreeIdentifier.to_error_code(),
                 "input.rkt",
                 script,
-                format!("let-var"),
+                "let-var".to_string(),
                 var.span,
             );
         }
@@ -3225,13 +3225,13 @@ mod analysis_pass_tests {
         assert_eq!(tail_calls.len(), 3);
 
         for var in tail_calls {
-            println!("{:?}", var);
+            println!("{var:?}");
 
             crate::rerrs::report_info(
                 ErrorKind::FreeIdentifier.to_error_code(),
                 "input.rkt",
                 script,
-                format!("tail call"),
+                "tail call".to_string(),
                 var.span,
             );
         }
@@ -3277,7 +3277,7 @@ mod analysis_pass_tests {
                 ErrorKind::FreeIdentifier.to_error_code(),
                 "input.rkt",
                 script,
-                format!("tail call"),
+                "tail call".to_string(),
                 var.span,
             );
         }
@@ -3316,7 +3316,7 @@ mod analysis_pass_tests {
                 ErrorKind::FreeIdentifier.to_error_code(),
                 "input.rkt",
                 script,
-                format!("tail call"),
+                "tail call".to_string(),
                 var.span,
             );
         }
@@ -3474,7 +3474,7 @@ mod analysis_pass_tests {
                 .filter(|x| x.escapes)
                 .collect::<Vec<_>>();
 
-            println!("{:#?}", escaping_functions);
+            println!("{escaping_functions:#?}");
         }
     }
 
@@ -3520,7 +3520,7 @@ mod analysis_pass_tests {
                 .filter(|x| x.escapes)
                 .collect::<Vec<_>>();
 
-            println!("{:#?}", escaping_functions);
+            println!("{escaping_functions:#?}");
         }
     }
 
@@ -3603,21 +3603,21 @@ mod analysis_pass_tests {
                     ErrorKind::FreeIdentifier.to_error_code(),
                     "input.rkt",
                     script,
-                    format!("Free identifier"),
+                    "Free identifier".to_string(),
                     var.span,
                 );
             }
 
             let unused_args = analysis.find_unused_arguments();
 
-            println!("Unused args: {:?}", unused_args);
+            println!("Unused args: {unused_args:?}");
 
             for var in analysis.unused_variables() {
                 crate::rerrs::report_warning(
                     ErrorKind::FreeIdentifier.to_error_code(),
                     "input.rkt",
                     script,
-                    format!("Unused variable"),
+                    "Unused variable".to_string(),
                     var.span,
                 );
             }
@@ -3627,7 +3627,7 @@ mod analysis_pass_tests {
                     ErrorKind::FreeIdentifier.to_error_code(),
                     "input.rkt",
                     script,
-                    format!("global var"),
+                    "global var".to_string(),
                     var.span,
                 );
             }
@@ -3647,7 +3647,7 @@ mod analysis_pass_tests {
                     ErrorKind::FreeIdentifier.to_error_code(),
                     "input.rkt",
                     script,
-                    format!("last usage of variable"),
+                    "last usage of variable".to_string(),
                     var.span,
                 );
             }
@@ -3656,7 +3656,7 @@ mod analysis_pass_tests {
             // analysis.lift_local_functions();
 
             for expr in analysis.exprs.iter() {
-                println!("{}", expr);
+                println!("{expr}");
             }
 
             let list_id = analysis
@@ -3678,8 +3678,7 @@ mod analysis_pass_tests {
             let found = analysis.resolve_alias(alias_list_4_id);
 
             println!(
-                "List id: {}, list 4 id: {}, resolved alias id: {:?}",
-                list_id, alias_list_4_id, found
+                "List id: {list_id}, list 4 id: {alias_list_4_id}, resolved alias id: {found:?}"
             );
         }
 

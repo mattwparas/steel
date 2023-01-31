@@ -228,7 +228,7 @@ impl UserDefinedStruct {
                 properties,
             })
         } else {
-            stop!(TypeMismatch => format!("struct constructor expected a hashmap, found: {}", options))
+            stop!(TypeMismatch => format!("struct constructor expected a hashmap, found: {options}"))
         }
     }
 
@@ -381,8 +381,7 @@ impl UserDefinedStruct {
                 }
                 _ => {
                     let error_message = format!(
-                        "struct-ref expected a struct and an int, found: {} and {}",
-                        steel_struct, idx
+                        "struct-ref expected a struct and an int, found: {steel_struct} and {idx}"
                     );
                     stop!(TypeMismatch => error_message)
                 }
@@ -414,8 +413,7 @@ impl UserDefinedStruct {
                 }
                 _ => {
                     let error_message = format!(
-                        "struct-ref expected a struct and an int, found: {} and {}",
-                        steel_struct, index
+                        "struct-ref expected a struct and an int, found: {steel_struct} and {index}"
                     );
                     stop!(TypeMismatch => error_message)
                 }
@@ -470,8 +468,7 @@ impl UserDefinedStruct {
                 }
                 _ => {
                     let error_message = format!(
-                        "struct-ref expected a struct and an int, found: {} and {}",
-                        steel_struct, idx
+                        "struct-ref expected a struct and an int, found: {steel_struct} and {idx}"
                     );
                     stop!(TypeMismatch => error_message)
                 }
@@ -678,7 +675,7 @@ impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for std::result::Result<T
     fn into_steelval(self) -> Result<SteelVal> {
         match self {
             Ok(s) => UserDefinedStruct::new_ok(s),
-            Err(e) => crate::stop!(Generic => format!("{:?}", e)),
+            Err(e) => crate::stop!(Generic => format!("{e:?}")),
         }
     }
 }
@@ -693,14 +690,14 @@ impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for std::result::Result<T, E
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::CustomStruct(s) = val {
             if s.borrow().is_ok() {
-                Ok(Ok(T::from_steelval(&s.borrow().fields.get(0).unwrap())?))
+                Ok(Ok(T::from_steelval(s.borrow().fields.get(0).unwrap())?))
             } else if s.borrow().is_err() {
-                Ok(Err(E::from_steelval(&s.borrow().fields.get(0).unwrap())?))
+                Ok(Err(E::from_steelval(s.borrow().fields.get(0).unwrap())?))
             } else {
-                stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type: {:?}", val))
+                stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type: {val:?}"))
             }
         } else {
-            stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type: {:?}", val));
+            stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type: {val:?}"));
         }
     }
 }

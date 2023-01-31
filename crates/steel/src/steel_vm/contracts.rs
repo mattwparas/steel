@@ -235,15 +235,15 @@ impl FunctionContractExt for DependentContract {
 
                     // TODO clean this up
                     if let Some(blame_location) = blame_location {
-                        let error_message = format!("this function call resulted in an error - occured in the range position of this contract: {} \n
-                        {}
-                        blaming: {} - broke its own contract", self, e, blame_location);
+                        let error_message = format!("this function call resulted in an error - occured in the range position of this contract: {self} \n
+                        {e}
+                        blaming: {blame_location} - broke its own contract");
 
                         stop!(ContractViolation => error_message; *cur_inst_span);
                     } else {
-                        let error_message = format!("this function call resulted in an error - occured in the range position of this contract: {} \n
-                        {}
-                        blaming: None - broke its own contract", self, e);
+                        let error_message = format!("this function call resulted in an error - occured in the range position of this contract: {self} \n
+                        {e}
+                        blaming: None - broke its own contract");
 
                         stop!(ContractViolation => error_message; *cur_inst_span);
                     }
@@ -344,15 +344,15 @@ impl FunctionContract {
 
                     // TODO clean this up
                     if let Some(blame_location) = blame_location {
-                        let error_message = format!("this function call resulted in an error - occured in the range position of this contract: {} \n
-                        {}
-                        blaming: {} - broke its own contract", self, e, blame_location);
+                        let error_message = format!("this function call resulted in an error - occured in the range position of this contract: {self} \n
+                        {e}
+                        blaming: {blame_location} - broke its own contract");
 
                         stop!(ContractViolation => error_message; *cur_inst_span);
                     } else {
-                        let error_message = format!("this function call resulted in an error - occured in the range position of this contract: {} \n
-                        {}
-                        blaming: None - broke its own contract", self, e);
+                        let error_message = format!("this function call resulted in an error - occured in the range position of this contract: {self} \n
+                        {e}
+                        blaming: None - broke its own contract");
 
                         stop!(ContractViolation => error_message; *cur_inst_span);
                     }

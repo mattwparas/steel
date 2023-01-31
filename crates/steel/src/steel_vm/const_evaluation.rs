@@ -345,7 +345,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
         for arg in &lambda_function.args {
             let identifier = arg.atom_identifier_or_else(
-                throw!(BadSyntax => format!("lambda expects an identifier for the arguments, found: {}", arg); lambda_function.location.span),
+                throw!(BadSyntax => format!("lambda expects an identifier for the arguments, found: {arg}"); lambda_function.location.span),
             )?;
             new_env.bind_non_constant(identifier);
         }
@@ -475,7 +475,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
             for (var, arg) in l.args.iter().zip(args.iter()) {
                 let identifier = var.atom_identifier_or_else(
-                    throw!(BadSyntax => format!("lambda expects an identifier for the arguments: {}", var); l.location.span),
+                    throw!(BadSyntax => format!("lambda expects an identifier for the arguments: {var}"); l.location.span),
                 )?;
                 if let Some(c) = self.to_constant(arg) {
                     new_env.bind(identifier, c);
@@ -503,7 +503,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             let span = l.location.span;
             for (var, arg) in l.args.iter().zip(args.iter()) {
                 let identifier = var.atom_identifier_or_else(
-                    throw!(BadSyntax => format!("lambda expects an identifier for the arguments: {}", var); span),
+                    throw!(BadSyntax => format!("lambda expects an identifier for the arguments: {var}"); span),
                 )?;
 
                 // If the argument/variable is used internally, keep it

@@ -30,7 +30,7 @@ impl FlatContract {
         } else if predicate.is_function() {
             Ok(FlatContract::new(predicate, name).into())
         } else {
-            stop!(TypeMismatch => format!("flat contracts require a function argument, found {}", predicate));
+            stop!(TypeMismatch => format!("flat contracts require a function argument, found {predicate}"));
         }
     }
 
@@ -117,7 +117,7 @@ fn parse_list(lst: SteelVal) -> Result<(String, Vec<String>, Gc<ByteCodeLambda>,
                 .map(|x| x.clone_symbol_or_else(throw!(TypeMismatch => "make-dependent-function/c expected a symbol in the list of arguments")))
                 .collect::<Result<Vec<_>>>()
             }
-            _ => stop!(TypeMismatch => format!("make-dependent-function/c expected a list of symbols, found: {}", raw_arguments)),
+            _ => stop!(TypeMismatch => format!("make-dependent-function/c expected a list of symbols, found: {raw_arguments}")),
         }?;
 
         let contract = iter
@@ -379,8 +379,8 @@ impl Contract for FunctionKind {
 impl fmt::Display for FunctionKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Basic(fc) => write!(f, "{}", fc),
-            Self::Dependent(dc) => write!(f, "{}", dc),
+            Self::Basic(fc) => write!(f, "{fc}"),
+            Self::Dependent(dc) => write!(f, "{dc}"),
         }
     }
 }
@@ -388,8 +388,8 @@ impl fmt::Display for FunctionKind {
 impl fmt::Display for ContractType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::Flat(flat) => write!(f, "{}", flat),
-            Self::Function(fc) => write!(f, "{}", fc),
+            Self::Flat(flat) => write!(f, "{flat}"),
+            Self::Function(fc) => write!(f, "{fc}"),
         }
     }
 }

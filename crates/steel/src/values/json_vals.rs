@@ -23,7 +23,7 @@ pub fn string_to_jsexpr() -> SteelVal {
             let res: std::result::Result<Value, _> = serde_json::from_str(arg);
             match res {
                 Ok(res) => res.try_into(),
-                Err(e) => stop!(Generic => format!("string->jsexpr failed: {}", e)),
+                Err(e) => stop!(Generic => format!("string->jsexpr failed: {e}")),
             }
         }
     })

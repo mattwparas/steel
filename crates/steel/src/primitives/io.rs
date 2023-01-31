@@ -21,12 +21,12 @@ impl IoFunctions {
 
                 match &*output_port.borrow() {
                     crate::values::port::SteelPort::StdOutput(out) => match &print_val {
-                        SteelVal::StringV(s) => write!(out.borrow_mut().lock(), "{}", s),
-                        _ => write!(out.borrow_mut().lock(), "{}", print_val),
+                        SteelVal::StringV(s) => write!(out.borrow_mut().lock(), "{s}"),
+                        _ => write!(out.borrow_mut().lock(), "{print_val}"),
                     },
                     crate::values::port::SteelPort::StringOutput(out) => match &print_val {
-                        SteelVal::StringV(s) => write!(out.borrow_mut(), "{}", s),
-                        _ => write!(out.borrow_mut(), "{}", print_val),
+                        SteelVal::StringV(s) => write!(out.borrow_mut(), "{s}"),
+                        _ => write!(out.borrow_mut(), "{print_val}"),
                     },
                     // crate::values::port::SteelPort::Closed => todo!(),
                     other => stop!(Generic => "Unable to write to port: {:?}", other),
@@ -68,8 +68,8 @@ impl IoFunctions {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             for arg in args {
                 match &arg {
-                    SteelVal::StringV(s) => print!("{}", s),
-                    _ => print!("{}", arg),
+                    SteelVal::StringV(s) => print!("{s}"),
+                    _ => print!("{arg}"),
                 }
             }
 
@@ -82,9 +82,9 @@ impl IoFunctions {
             for arg in args {
                 match &arg {
                     SteelVal::StringV(s) => {
-                        print!("{}", s)
+                        print!("{s}")
                     }
-                    _ => print!("{}", arg),
+                    _ => print!("{arg}"),
                 }
             }
 
@@ -105,13 +105,13 @@ impl IoFunctions {
                         "green" | "Green" => print!("{}", s.to_string().bright_green()),
                         "blue" | "Blue" => print!("{}", s.to_string().bright_blue()),
                         "red" | "Red" => print!("{}", s.to_string().red()),
-                        _ => print!("{}", s),
+                        _ => print!("{s}"),
                     },
                     (_, SteelVal::StringV(c)) | (_, SteelVal::SymbolV(c)) => match c.as_str() {
                         "green" | "Green" => print!("{}", print_val.to_string().bright_green()),
                         "blue" | "Blue" => print!("{}", print_val.to_string().bright_blue()),
                         "red" | "Red" => print!("{}", print_val.to_string().red()),
-                        _ => print!("{}", print_val),
+                        _ => print!("{print_val}"),
                     },
                     (_, _) => {
                         stop!(TypeMismatch => "display-color expected a symbol as the second argument")

@@ -337,6 +337,6 @@ mod tests {
 
         let result = TryFromExprKindForSteelVal::try_from_expr_kind(expr);
 
-        println!("{:?}", result);
+        println!("{result:?}");
     }
 }

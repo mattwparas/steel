@@ -96,7 +96,7 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
                 sum_float = *n;
             }
             _ => {
-                stop!(TypeMismatch => format!("'-' expected a number type, found: {}", first))
+                stop!(TypeMismatch => format!("'-' expected a number type, found: {first}"))
             }
         }
     }
@@ -164,7 +164,7 @@ pub fn add_primitive_faster(args: &[SteelVal]) -> Result<SteelVal> {
                 // sum_float += n;
             }
             _ => {
-                let e = format!("+ expected a number, found {:?}", arg);
+                let e = format!("+ expected a number, found {arg:?}");
                 stop!(TypeMismatch => e);
             }
         }
@@ -202,7 +202,7 @@ pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
                 sum_float += n;
             }
             _ => {
-                let e = format!("+ expected a number, found {:?}, all args: {:?}", arg, args);
+                let e = format!("+ expected a number, found {arg:?}, all args: {args:?}");
                 stop!(TypeMismatch => e);
             }
         }

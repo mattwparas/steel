@@ -12,7 +12,7 @@ impl SymbolOperations {
                     new_symbol.push_str(quoted_value.as_ref());
                 } else {
                     let error_message =
-                        format!("concat-symbol expected only symbols, found {:?}", args);
+                        format!("concat-symbol expected only symbols, found {args:?}");
                     stop!(TypeMismatch => error_message);
                 }
             }

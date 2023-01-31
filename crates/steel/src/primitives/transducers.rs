@@ -55,7 +55,7 @@ pub fn zipping(args: &[SteelVal]) -> Result<SteelVal> {
             Ok(SteelVal::IterV(Gc::new(transducer)))
         }
         v => {
-            stop!(TypeMismatch => format!("zipping expects an iterable, found: {:?}", v))
+            stop!(TypeMismatch => format!("zipping expects an iterable, found: {v:?}"))
         }
     }
 }
@@ -72,7 +72,7 @@ pub fn interleaving(args: &[SteelVal]) -> Result<SteelVal> {
             Ok(SteelVal::IterV(Gc::new(transducer)))
         }
         v => {
-            stop!(TypeMismatch => format!("interleaving expects an iterable, found: {:?}", v))
+            stop!(TypeMismatch => format!("interleaving expects an iterable, found: {v:?}"))
         }
     }
 }
@@ -93,7 +93,7 @@ pub fn map(args: &[SteelVal]) -> Result<SteelVal> {
             transducer.push(Transducers::Map(args[0].clone()));
             Ok(SteelVal::IterV(Gc::new(transducer)))
         }
-        v => stop!(TypeMismatch => format!("mapping expects a function, found: {:?}", v)),
+        v => stop!(TypeMismatch => format!("mapping expects a function, found: {v:?}")),
     }
 }
 
@@ -109,7 +109,7 @@ pub fn extending(args: &[SteelVal]) -> Result<SteelVal> {
             Ok(SteelVal::IterV(Gc::new(transducer)))
         }
         v => {
-            stop!(TypeMismatch => format!("extending expects an iterable, found: {:?}", v))
+            stop!(TypeMismatch => format!("extending expects an iterable, found: {v:?}"))
         }
     }
 }
@@ -131,7 +131,7 @@ pub fn flat_map(args: &[SteelVal]) -> Result<SteelVal> {
             Ok(SteelVal::IterV(Gc::new(transducer)))
         }
         v => {
-            stop!(TypeMismatch => format!("flat-mapping expects a function, found: {:?}", v))
+            stop!(TypeMismatch => format!("flat-mapping expects a function, found: {v:?}"))
         }
     }
 }

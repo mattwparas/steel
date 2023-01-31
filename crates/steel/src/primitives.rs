@@ -296,7 +296,7 @@ impl FromSteelVal for String {
             SteelVal::StringV(s) | SteelVal::SymbolV(s) => Ok(s.to_string()),
             _ => Err(SteelErr::new(
                 ErrorKind::ConversionError,
-                format!("Expected string, found: {}", val),
+                format!("Expected string, found: {val}"),
             )),
         }
     }

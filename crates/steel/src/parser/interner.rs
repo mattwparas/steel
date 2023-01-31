@@ -85,12 +85,12 @@ static INTERNER: OnceCell<ThreadedRodeo> = OnceCell::new();
 
 #[test]
 fn test_initialization() {
-    INTERNER.get_or_init(|| ThreadedRodeo::new());
+    INTERNER.get_or_init(ThreadedRodeo::new);
     let key = INTERNER.get().unwrap().get_or_intern_static("hello world");
 
     let resolved_string = INTERNER.get().unwrap().resolve(&key);
 
-    println!("resolved string: {:?}", resolved_string);
+    println!("resolved string: {resolved_string:?}");
 }
 
 // fn intern(key: String) -> Spur {

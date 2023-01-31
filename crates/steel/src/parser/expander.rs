@@ -77,7 +77,7 @@ impl LocalMacroManager {
                 file.write_all(&bytes)?;
                 Ok(())
             }
-            Err(e) => stop!(Generic => format!("Unable to write macro to file: {:?}", e)),
+            Err(e) => stop!(Generic => format!("Unable to write macro to file: {e:?}")),
         }
     }
 
@@ -106,7 +106,7 @@ impl LocalMacroManager {
         match bincode::deserialize(&buffer) {
             Ok(inner) => Ok(inner),
             Err(e) => {
-                stop!(Generic => format!("Unable to deserialize local macro manager from file: {:?}", e))
+                stop!(Generic => format!("Unable to deserialize local macro manager from file: {e:?}"))
             }
         }
     }
@@ -222,7 +222,7 @@ impl SteelMacro {
         error!("Macro expansion unable to match case with: {}", expr);
 
         if let Some(ExprKind::Atom(a)) = expr.first() {
-            stop!(BadSyntax => format!("macro expansion unable to match case: {}", expr); a.syn.span);
+            stop!(BadSyntax => format!("macro expansion unable to match case: {expr}"); a.syn.span);
         } else {
             unreachable!()
         }
@@ -598,7 +598,7 @@ pub fn collect_bindings(
             // actually check if the syntax matches
             MacroPattern::Syntax(s) => {
                 let e = token_iter.next().ok_or_else(
-                    throw!(BadSyntax => format!("macro expand expected keyword {}", s)),
+                    throw!(BadSyntax => format!("macro expand expected keyword {s}")),
                 )?;
 
                 if let ExprKind::Atom(Atom {

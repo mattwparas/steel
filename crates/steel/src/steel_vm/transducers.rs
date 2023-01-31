@@ -69,7 +69,7 @@ fn transduce(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
             if let SteelVal::IterV(i) = x {
                 Ok(i)
             } else {
-                stop!(TypeMismatch => format!("transduce expects a transducer, found: {}", x))
+                stop!(TypeMismatch => format!("transduce expects a transducer, found: {x}"))
             }
         })
         .collect::<Result<Vec<_>>>()
@@ -85,7 +85,7 @@ fn transduce(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
         // just pass a reference instead
         Some(ctx.call_transduce(&transducers, collection.clone(), r.unwrap(), None))
     } else {
-        builtin_stop!(TypeMismatch => format!("transduce requires that the last argument be a reducer, found: {}", reducer))
+        builtin_stop!(TypeMismatch => format!("transduce requires that the last argument be a reducer, found: {reducer}"))
     }
 }
 
@@ -145,7 +145,7 @@ impl<'global, 'a> VmCore<'a> {
                 Ok(Box::new(nursery.as_ref().unwrap().iter().cloned().map(Ok)))
             }
             _ => {
-                stop!(TypeMismatch => format!("value unable to be converted to an iterable: {}", value))
+                stop!(TypeMismatch => format!("value unable to be converted to an iterable: {value}"))
             }
         }
     }
@@ -241,7 +241,7 @@ impl<'global, 'a> VmCore<'a> {
                                                 //     Box::new(s.unwrap().fields.into_iter().map(Ok))
                                                 // }
                                                 els => {
-                                                    let err = SteelErr::new(ErrorKind::TypeMismatch, format!("flatten expected a traversable value, found: {}", els)).with_span(*cur_inst_span);
+                                                    let err = SteelErr::new(ErrorKind::TypeMismatch, format!("flatten expected a traversable value, found: {els}")).with_span(*cur_inst_span);
 
                                                     Box::new(std::iter::once(Err(err)))
                                                 }
@@ -279,7 +279,7 @@ impl<'global, 'a> VmCore<'a> {
                                         //     Box::new(s.unwrap().fields.into_iter().map(Ok))
                                         // }
                                         els => {
-                                            let err = SteelErr::new(ErrorKind::TypeMismatch, format!("flatten expected a traversable value, found: {}", els)).with_span(*cur_inst_span);
+                                            let err = SteelErr::new(ErrorKind::TypeMismatch, format!("flatten expected a traversable value, found: {els}")).with_span(*cur_inst_span);
 
                                             Box::new(std::iter::once(Err(err)))
                                         }
@@ -319,7 +319,7 @@ impl<'global, 'a> VmCore<'a> {
                         els => {
                             let err = SteelErr::new(
                                 ErrorKind::TypeMismatch,
-                                format!("extending expected a traversable value, found: {}", els),
+                                format!("extending expected a traversable value, found: {els}"),
                             )
                             .with_span(*cur_inst_span);
 
@@ -357,7 +357,7 @@ impl<'global, 'a> VmCore<'a> {
                         els => {
                             let err = SteelErr::new(
                                 ErrorKind::TypeMismatch,
-                                format!("extending expected a traversable value, found: {}", els),
+                                format!("extending expected a traversable value, found: {els}"),
                             )
                             .with_span(*cur_inst_span);
 
@@ -385,7 +385,7 @@ impl<'global, 'a> VmCore<'a> {
                         els => {
                             let err = SteelErr::new(
                                 ErrorKind::TypeMismatch,
-                                format!("extending expected a traversable value, found: {}", els),
+                                format!("extending expected a traversable value, found: {els}"),
                             )
                             .with_span(*cur_inst_span);
 
@@ -447,7 +447,7 @@ impl<'global, 'a> VmCore<'a> {
                     match x? {
                         SteelVal::ListV(l) => {
                             if l.len() != 2 {
-                                stop!(Generic => format!("Hashmap iterator expects an iterable with two elements, found: {:?}", l));
+                                stop!(Generic => format!("Hashmap iterator expects an iterable with two elements, found: {l:?}"));
                             } else {
                                 let mut iter = l.into_iter();
                                 Ok((iter.next().unwrap(), iter.next().unwrap()))
@@ -455,14 +455,14 @@ impl<'global, 'a> VmCore<'a> {
                         }
                         SteelVal::VectorV(l) => {
                             if l.len() != 2 {
-                                stop!(Generic => format!("Hashmap iterator expects an iterable with two elements, found: {:?}", l));
+                                stop!(Generic => format!("Hashmap iterator expects an iterable with two elements, found: {l:?}"));
                             } else {
                                 let mut iter = l.iter();
                                 Ok((iter.next().cloned().unwrap(), iter.next().cloned().unwrap()))
                             }
                         }
                         other => {
-                            stop!(TypeMismatch => format!("Unable to convert: {} to pair that can be used to construct a hashmap", other));
+                            stop!(TypeMismatch => format!("Unable to convert: {other} to pair that can be used to construct a hashmap"));
                         }
                     }
                 }).collect::<Result<im_rc::HashMap<_, _>>>().map(|x| SteelVal::HashMapV(Gc::new(x)))

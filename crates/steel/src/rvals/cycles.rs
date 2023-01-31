@@ -36,8 +36,8 @@ impl CycleDetector {
                 }
             };
 
-            write!(f, "#{}=", id)?;
-            self.top_level_format_with_cycles(&node, f)?;
+            write!(f, "#{id}=")?;
+            self.top_level_format_with_cycles(node, f)?;
             writeln!(f)?;
         }
 
@@ -52,14 +52,14 @@ impl CycleDetector {
 
     fn top_level_format_with_cycles(&self, val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         match val {
-            BoolV(b) => write!(f, "#{}", b),
-            NumV(x) => write!(f, "{:?}", x),
-            IntV(x) => write!(f, "{}", x),
-            StringV(s) => write!(f, "{:?}", s),
-            CharV(c) => write!(f, "#\\{}", c),
+            BoolV(b) => write!(f, "#{b}"),
+            NumV(x) => write!(f, "{x:?}"),
+            IntV(x) => write!(f, "{x}"),
+            StringV(s) => write!(f, "{s:?}"),
+            CharV(c) => write!(f, "#\\{c}"),
             FuncV(_) => write!(f, "#<function>"),
             Void => write!(f, "#<void>"),
-            SymbolV(s) => write!(f, "{}", s),
+            SymbolV(s) => write!(f, "{s}"),
             VectorV(lst) => {
                 let mut iter = lst.iter();
                 write!(f, "(")?;
@@ -103,7 +103,7 @@ impl CycleDetector {
             Closure(_) => write!(f, "#<bytecode-closure>"),
             HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm.as_ref()),
             IterV(_) => write!(f, "#<iterator>"),
-            HashSetV(hs) => write!(f, "#<hashset {:?}>", hs),
+            HashSetV(hs) => write!(f, "#<hashset {hs:?}>"),
             FutureFunc(_) => write!(f, "#<future-func>"),
             FutureV(_) => write!(f, "#<future>"),
             // Promise(_) => write!(f, "#<promise>"),
@@ -147,14 +147,14 @@ impl CycleDetector {
 
     fn format_with_cycles(&self, val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         match val {
-            BoolV(b) => write!(f, "#{}", b),
-            NumV(x) => write!(f, "{:?}", x),
-            IntV(x) => write!(f, "{}", x),
-            StringV(s) => write!(f, "{:?}", s),
-            CharV(c) => write!(f, "#\\{}", c),
+            BoolV(b) => write!(f, "#{b}"),
+            NumV(x) => write!(f, "{x:?}"),
+            IntV(x) => write!(f, "{x}"),
+            StringV(s) => write!(f, "{s:?}"),
+            CharV(c) => write!(f, "#\\{c}"),
             FuncV(_) => write!(f, "#<function>"),
             Void => write!(f, "#<void>"),
-            SymbolV(s) => write!(f, "{}", s),
+            SymbolV(s) => write!(f, "{s}"),
             VectorV(lst) => {
                 let mut iter = lst.iter();
                 write!(f, "(")?;
@@ -170,7 +170,7 @@ impl CycleDetector {
             Custom(x) => write!(f, "#<{}>", x.borrow().display()?),
             CustomStruct(s) => {
                 if let Some(id) = self.cycles.get(&(s.as_ptr() as usize)) {
-                    write!(f, "#{}#", id)
+                    write!(f, "#{id}#")
                 } else {
                     let guard = s.borrow();
 
@@ -198,7 +198,7 @@ impl CycleDetector {
             Closure(_) => write!(f, "#<bytecode-closure>"),
             HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm.as_ref()),
             IterV(_) => write!(f, "#<iterator>"),
-            HashSetV(hs) => write!(f, "#<hashset {:?}>", hs),
+            HashSetV(hs) => write!(f, "#<hashset {hs:?}>"),
             FutureFunc(_) => write!(f, "#<future-func>"),
             FutureV(_) => write!(f, "#<future>"),
             // Promise(_) => write!(f, "#<promise>"),
@@ -245,12 +245,12 @@ impl CycleDetector {
             let id = self.cycles.len();
 
             // If we've already seen this, its fine, we can just move on
-            if self.cycles.contains_key(&val) {
-                return true;
-            } else {
-                self.cycles.insert(val, id);
+            if let std::collections::hash_map::Entry::Vacant(e) = self.cycles.entry(val) {
+                e.insert(id);
                 // Keep track of the actual values that are being captured
                 self.values.push(steelval.clone());
+            } else {
+                return true;
             }
 
             return true;

@@ -69,7 +69,7 @@ impl<'a> ReplaceExpressions<'a> {
 
             let rest = self.bindings
                 .get(var)
-                .ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanding ellipses: {}", var)))?;
+                .ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanding ellipses: {var}")))?;
 
             let list_of_exprs = rest.list_or_else(
                 throw!(BadSyntax => "macro expansion failed, expected list of expressions"),

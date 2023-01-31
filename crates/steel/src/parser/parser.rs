@@ -112,7 +112,7 @@ pub struct FunctionId(usize);
 
 impl std::fmt::Display for SyntaxObjectId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 

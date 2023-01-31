@@ -1,5 +1,5 @@
 use crate::{
-    compiler::passes::{mangle::mangle_vars_with_prefix, VisitorMutRefUnit},
+    compiler::passes::{VisitorMutRefUnit},
     expr_list,
     parser::{
         ast::{Atom, Begin, Define, ExprKind, List, Quote},

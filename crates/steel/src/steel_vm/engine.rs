@@ -7,21 +7,19 @@ use super::{
 use crate::{
     compiler::{
         compiler::Compiler,
-        constants::ConstantMap,
         modules::CompiledModule,
         program::{Executable, RawProgramWithSymbols},
     },
-    core::instructions::DenseInstruction,
     parser::ast::ExprKind,
     parser::{
-        kernel::{fresh_kernel_image, Kernel, KERNEL_IMAGE},
+        kernel::{fresh_kernel_image, Kernel},
         parser::{ParseError, Parser, Sources},
     },
     rerrs::back_trace,
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
     stop, throw, SteelErr,
 };
-use std::{borrow::Cow, collections::HashMap, path::PathBuf, rc::Rc};
+use std::{collections::HashMap, path::PathBuf, rc::Rc};
 
 use im_rc::HashMap as ImmutableHashMap;
 use itertools::Itertools;
@@ -626,7 +624,7 @@ impl Engine {
     /// )
     /// .unwrap();
     /// ```
-    pub fn on_progress<FN: Fn(usize) -> bool + 'static>(&mut self, callback: FN) -> &mut Self {
+    pub fn on_progress<FN: Fn(usize) -> bool + 'static>(&mut self, _callback: FN) -> &mut Self {
         // self.virtual_machine.on_progress(callback);
         self
     }
@@ -650,12 +648,12 @@ impl Engine {
     /// ```
     pub fn extract_value(&self, name: &str) -> Result<SteelVal> {
         let idx = self.compiler.get_idx(name).ok_or_else(throw!(
-            Generic => format!("free identifier: {} - identifier given cannot be found in the global environment", name)
+            Generic => format!("free identifier: {name} - identifier given cannot be found in the global environment")
         ))?;
 
         self.virtual_machine.extract_value(idx)
             .ok_or_else(throw!(
-                Generic => format!("free identifier: {} - identifier given cannot be found in the global environment", name)
+                Generic => format!("free identifier: {name} - identifier given cannot be found in the global environment")
             ))
     }
 
@@ -724,8 +722,7 @@ impl Engine {
         }
 
         println!(
-            "Unable to locate source and span information for this error: {}",
-            error
+            "Unable to locate source and span information for this error: {error}"
         );
     }
 
