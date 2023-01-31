@@ -2120,11 +2120,10 @@ dependencies = [
 
 [[package]]
 name = "steel_derive"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "proc-macro2 1.0.39",
  "quote 1.0.9",
- "steel",
  "syn 1.0.96",
 ]
 

@@ -1,6 +1,6 @@
 [package]
 name = "steel_derive"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
 edition = "2021"
 
@@ -13,4 +13,3 @@ proc-macro = true
 syn = {version = "1.0.76" }
 quote = "1.0.9"
 proc-macro2 = "1.0.29"
-steel = { path = "../steel" }

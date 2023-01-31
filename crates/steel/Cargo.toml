@@ -36,7 +36,7 @@ dlopen_derive = "0.1.4"
 termimad = "0.14"
 smallvec = "1.10.0"
 lazy_static = "1.4.0"
-steel-gen = { path = "../steel-gen" }
+steel-gen = { path = "../steel-gen", version = "0.2.0" }
 
 reqwest = { version = "0.11.10", features = ["blocking", "json"], optional = true }
 url = { version = "2.2.2", optional = true }
@@ -50,7 +50,7 @@ steel = { path = ".", features = ["modules"] }
 env_logger = "0.9"
 
 [build-dependencies]
-steel-gen = { path = "../steel-gen" }
+steel-gen = { path = "../steel-gen", version = "0.2.0" }
 
 [features]
 # this effectively enable the feature `no-color` of colored when testing with
