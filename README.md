@@ -19,7 +19,7 @@ An embeddable and extensible scheme dialect built in Rust.
 
 ## Getting Started
 
-This github repository contains a client that uses the `steel`, `steel_derive`, and `steel_repl` crates (which also live in this repo). To try it out on the online playground, go to the [Steel playground](https://mattwparas.github.io/steel-playground/dev). To get started using a repl with the crates, make sure you first have rust installed.
+This github repository contains a cli interpreter. To try it out on the online playground, go to the [Steel playground](https://mattwparas.github.io/steel-playground/dev). To get started using a repl with the crates, make sure you first have rust installed.
 
 Then, clone the repo and run the following command:
 
@@ -33,9 +33,14 @@ This will launch a REPL instance that looks something like this:
   <img src="images/repl.gif" width="100%">
 </p>
 
+
 ## About
 
-`Steel` is an embedded scheme interpreter. Inspired largely by Racket and Clojure, the language seeks to be ergonomic scheme variant helpful for embedding in applications, or to be used on its own with high performance functions implemented in Rust. The language implementation itself contains a fairly powerful macro system based on the `syntax-rules` style and a bytecode virtual machine.
+`Steel` is an embedded scheme interpreter. Inspired largely by Racket and Clojure, the language seeks to be ergonomic scheme variant helpful for embedding in applications, or to be used on its own with high performance functions implemented in Rust. The language implementation itself contains a fairly powerful macro system based on the `syntax-rules` style and a bytecode virtual machine. At the moment, it is not explicitly compliant with any individual scheme specification.
+
+### Disclaimer
+
+The API is very unstable with no guarantees, and may change at any time while pre 1.0. There are undoubtedly bugs that exist, and I wouldn't consider Steel to be production ready. That being said, I do use it as a daily driver for many scripting tasks myself.
 
 ## Features
 
@@ -339,8 +344,12 @@ impl ExternalStruct {
         ExternalStruct { foo, bar, baz }
     }
 
-    // Embedding functions that take self must take by value
+    // Embedding functions that take self by value
     pub fn method_by_value(self) -> usize {
+        self.foo
+    }
+
+    pub fn method_by_reference(&self) -> usize {
         self.foo
     }
 
@@ -362,6 +371,7 @@ pub fn main() {
 
     // register_fn can be chained
     vm.register_fn("method-by-value", ExternalStruct::method_by_value)
+        .register_fn("method-by-reference", ExternalStruct::method_by_reference)
         .register_fn("set-foo", ExternalStruct::set_foo);
 
     let external_struct = ExternalStruct::new(1, "foo".to_string(), 12.4);
