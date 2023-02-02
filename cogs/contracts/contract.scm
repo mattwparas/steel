@@ -382,14 +382,14 @@
              (FunctionContract-parents contract))
             function name)))
 
-      (lambda args
-                                        ; (displayln args)
-        ; (displayln "CALLING WRAPPED FUNCTION")
-        ; (displayln args)
-        (apply-contracted-function
-         contracted-function
-         args
-         (if span (car span) (current-function-span)))))))
+      (let ((resulting-lambda-function
+              (lambda args
+                  (apply-contracted-function
+                    contracted-function
+                    args
+                    (if span (car span) (current-function-span))))))
+          (attach-contract-struct! resulting-lambda-function contracted-function)
+          resulting-lambda-function))))
 
 
 
@@ -502,9 +502,9 @@
                       (make-function-contract (make-contract contract 'contract))
                       (lambda () expr))))]))
 
-; (define/c (blagh x)
-;   (->c string? string?)
-;   x)
+(define/c (blagh x)
+  (->c string? string?)
+  x)
 
 ; (define/c (foo x y)
 ;   (->c even? odd? odd?)

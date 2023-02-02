@@ -576,36 +576,137 @@ impl Compiler {
 
         let parsed = parsed?;
 
-        let expanded_statements =
-            self.expand_expressions(parsed, path, sources, builtin_modules)?;
+        let mut expanded_statements =
+            self.expand_expressions(parsed, path, sources, builtin_modules.clone())?;
 
-        let mut expanded_statements = expanded_statements;
-
-        match self.opt_level {
-            OptLevel::Three => loop {
-                let mut manager = ConstantEvaluatorManager::new(constants.clone(), self.opt_level);
-                expanded_statements = manager.run(expanded_statements)?;
-                if !manager.changed {
-                    break;
-                }
-            },
-            OptLevel::Two => {
-                expanded_statements = ConstantEvaluatorManager::new(constants, self.opt_level)
-                    .run(expanded_statements)?;
-            }
-            _ => {}
+        if log_enabled!(log::Level::Debug) {
+            debug!(
+                "Generating instructions for the expression: {:?}",
+                expanded_statements
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+            );
         }
 
+        // TODO: This needs to be moved into the expansion
+        // In order for this to make sense, the defmacro expansion needs to happen at the same phase as
+        // syntax rules expansion.
+        // Also, macro expansion needs to be cleaned up in general - right now lines are a little blurry, and they probably
+        // should happen strictly before the other kinds
+
+        expanded_statements = expanded_statements
+            .into_iter()
+            .map(|x| expand_kernel(x, self.kernel.as_mut(), builtin_modules.clone()))
+            .collect::<Result<Vec<_>>>()?;
+
+        // if let Some(kernel) = &mut self.kernel {
+        //     // println!("Here with kernel: {:?}", kernel.)
+
+        //     // Crawl for the kernel level expansions
+        //     expanded_statements = expanded_statements
+        //         .into_iter()
+        //         .map(|x| expand_kernel(x, kernel, builtin_modules.clone()))
+        //         .collect::<Result<Vec<_>>>()?;
+        // }
+
+        let mut expanded_statements =
+            self.apply_const_evaluation(constants, expanded_statements)?;
+
+        RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
+
+        let mut analysis = Analysis::from_exprs(&expanded_statements);
+        analysis.populate_captures(&expanded_statements);
+
+        let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+
+        // This is definitely broken still
+        semantic
+            // .replace_anonymous_function_calls_with_plain_lets();
+            .lift_pure_local_functions();
+        // .lift_all_local_functions();
+
+        // if std::env::var("STEEL_MINIMIZE").is_ok() {
+        //     semantic.remove_unused_define_imports();
+        //     semantic.refresh_variables();
+        // }
+
+        debug!("About to expand defines");
+        let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
+
+        let mut analysis = Analysis::from_exprs(&expanded_statements);
+        analysis.populate_captures(&expanded_statements);
+
+        let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+        semantic.refresh_variables();
+
+        semantic.flatten_anonymous_functions();
+
+        semantic.refresh_variables();
+
+        // if std::env::var("STEEL_MINIMIZE").is_ok() {
+        //     let mut analysis = Analysis::from_exprs(&expanded_statements);
+        //     analysis.populate_captures(&expanded_statements);
+
+        //     let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+
+        //     semantic.remove_unused_imports();
+
+        //     semantic.refresh_variables();
+        // }
+
+        // semantic.remove_unused_imports();
+
+        // semantic.refresh_variables();
+
+        if log_enabled!(log::Level::Debug) {
+            debug!(
+                "Successfully expanded defines: {:?}",
+                expanded_statements
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+            );
+        }
+
+        // TODO - make sure I want to keep this
+        // let expanded_statements = ExpandMethodCalls::expand_methods(expanded_statements);
+
+        // if std::env::var("CODE_GEN_V2").is_err() {
+        // expanded_statements = LambdaLifter::lift(expanded_statements);
+        // }
+
+        // TODO
+        // let expanded_statements = LambdaLifter::lift(expanded_statements);
+
+        // TODO - make sure I want to keep this
+        let expanded_statements =
+            MultipleArityFunctions::expand_multiple_arity_functions(expanded_statements);
+
         // let expanded_statements =
-        //     ConstantEvaluatorManager::new(constants).run(expanded_statements)?;
+        //     self.expand_expressions(parsed, path, sources, builtin_modules)?;
 
-        let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
+        // let mut expanded_statements = expanded_statements;
 
-        // TODO -> lambda lifting should be done here
-        // Ok(expanded_statements)
+        // match self.opt_level {
+        //     OptLevel::Three => loop {
+        //         let mut manager = ConstantEvaluatorManager::new(constants.clone(), self.opt_level);
+        //         expanded_statements = manager.run(expanded_statements)?;
+        //         if !manager.changed {
+        //             break;
+        //         }
+        //     },
+        //     OptLevel::Two => {
+        //         expanded_statements = ConstantEvaluatorManager::new(constants, self.opt_level)
+        //             .run(expanded_statements)?;
+        //     }
+        //     _ => {}
+        // }
 
-        // TODO: Deprecate this usage of the lambda lifter. Clean up the emit expanded ast API to plug back
-        // in to the playground.
+        // // let expanded_statements =
+        // //     ConstantEvaluatorManager::new(constants).run(expanded_statements)?;
+
+        // let expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
         Ok(expanded_statements)
     }

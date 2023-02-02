@@ -12,13 +12,16 @@ use crate::{
     core::{instructions::DenseInstruction, opcode::OpCode},
     gc::Gc,
     parser::span::Span,
-    rvals::{BoxedFunctionSignature, FunctionSignature, MutFunctionSignature},
+    rvals::{
+        AsRefSteelVal, BoxedFunctionSignature, FunctionSignature, IntoSteelVal,
+        MutFunctionSignature,
+    },
     steel_vm::vm::{BlockMetadata, BlockPattern, BuiltInSignature},
     values::contracts::ContractedFunction,
     SteelVal,
 };
 
-use super::closed::HeapRef;
+use super::{closed::HeapRef, structs::UserDefinedStruct};
 
 // pub(crate) enum Function {
 //     BoxedFunction(BoxedFunctionSignature),
@@ -47,6 +50,9 @@ pub struct ByteCodeLambda {
     pub(crate) heap_allocated: RefCell<Vec<HeapRef>>,
     pub(crate) blocks: RefCell<Vec<(BlockPattern, BlockMetadata)>>,
     pub(crate) spans: Rc<[Span]>,
+
+    // This is a little suspicious, but it should give us the necessary information to attach a struct of metadata
+    contract: RefCell<Option<Gc<RefCell<UserDefinedStruct>>>>,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -90,6 +96,7 @@ impl ByteCodeLambda {
             heap_allocated: RefCell::new(heap_allocated),
             blocks: RefCell::new(Vec::new()),
             spans,
+            contract: RefCell::new(None),
         }
     }
 
@@ -174,6 +181,19 @@ impl ByteCodeLambda {
         self.cant_be_compiled.get()
     }
 
+    pub fn attach_contract_information(&self, steel_struct: Gc<RefCell<UserDefinedStruct>>) {
+        let mut guard = self.contract.borrow_mut();
+
+        *guard = Some(steel_struct);
+    }
+
+    pub fn get_contract_information(&self) -> Option<SteelVal> {
+        self.contract
+            .borrow()
+            .as_ref()
+            .map(|x| SteelVal::CustomStruct(x.clone()))
+    }
+
     // pub fn mark_hot(&self) {
     //     self.is_hot.set(true)
     // }
@@ -187,4 +207,26 @@ impl ByteCodeLambda {
     // }
 
     // pub(crate) fn block_tail(&self, block_pattern
+}
+
+pub fn attach_contract_struct(args: &[SteelVal]) -> crate::rvals::Result<SteelVal> {
+    if let SteelVal::Closure(closure) = &args[0] {
+        if let SteelVal::CustomStruct(s) = &args[1] {
+            closure.attach_contract_information(s.clone());
+
+            Ok(SteelVal::Void)
+        } else {
+            stop!(TypeMismatch => "attach-contract-struct! expects a struct in the second position")
+        }
+    } else {
+        stop!(TypeMismatch => "attach-contract-struct! expects a function in the first position")
+    }
+}
+
+pub fn get_contract(args: &[SteelVal]) -> crate::rvals::Result<SteelVal> {
+    if let SteelVal::Closure(closure) = &args[0] {
+        closure.get_contract_information().into_steelval()
+    } else {
+        stop!(TypeMismatch => "get-contract-struct! expects a function in the first position")
+    }
 }

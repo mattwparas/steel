@@ -167,7 +167,7 @@ impl CycleDetector {
                 }
                 write!(f, ")")
             }
-            Custom(x) => write!(f, "#<{}>", x.borrow().display()?),
+            Custom(x) => write!(f, "{}", x.borrow().display()?),
             CustomStruct(s) => {
                 if let Some(id) = self.cycles.get(&(s.as_ptr() as usize)) {
                     write!(f, "#{id}#")

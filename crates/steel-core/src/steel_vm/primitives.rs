@@ -9,6 +9,7 @@ use super::{
 use crate::{
     parser::span::Span,
     primitives::{
+        colors::string_coloring_module,
         contracts,
         hashmaps::hashmap_module,
         hashmaps::{HM_CONSTRUCT, HM_GET, HM_INSERT},
@@ -28,6 +29,7 @@ use crate::{
     rvals::FromSteelVal,
     values::{
         closed::HeapRef,
+        functions::{attach_contract_struct, get_contract},
         structs::{is_custom_struct, make_struct_type},
     },
 };
@@ -252,6 +254,8 @@ thread_local! {
 
     #[cfg(feature = "web")]
     pub static REQUESTS_MODULE: BuiltInModule = requests_module();
+
+    pub static STRING_COLORS_MODULE: BuiltInModule = string_coloring_module();
 }
 
 pub fn prelude() -> BuiltInModule {
@@ -351,7 +355,8 @@ pub fn register_builtin_modules(engine: &mut Engine) {
         .register_module(RESULT_MODULE.with(|x| x.clone()))
         .register_module(OPTION_MODULE.with(|x| x.clone()))
         .register_module(PRELUDE_MODULE.with(|x| x.clone()))
-        .register_module(TIME_MODULE.with(|x| x.clone()));
+        .register_module(TIME_MODULE.with(|x| x.clone()))
+        .register_module(STRING_COLORS_MODULE.with(|x| x.clone()));
 
     #[cfg(feature = "web")]
     engine
@@ -884,7 +889,12 @@ fn meta_module() -> BuiltInModule {
             SteelVal::BuiltIn(crate::primitives::meta_ops::steel_box),
         )
         .register_fn("unbox", HeapRef::get)
-        .register_fn("set-box!", HeapRef::set_interior_mut);
+        .register_fn("set-box!", HeapRef::set_interior_mut)
+        .register_value(
+            "attach-contract-struct!",
+            SteelVal::FuncV(attach_contract_struct),
+        )
+        .register_value("get-contract-struct", SteelVal::FuncV(get_contract));
     module
 }
 

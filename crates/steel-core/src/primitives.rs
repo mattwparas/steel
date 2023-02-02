@@ -1,3 +1,4 @@
+pub mod colors;
 pub mod contracts;
 mod control;
 mod fs;

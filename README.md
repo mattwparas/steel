@@ -36,7 +36,7 @@ This will launch a REPL instance that looks something like this:
 
 ## About
 
-`Steel` is an embedded scheme interpreter. Inspired largely by Racket and Clojure, the language seeks to be ergonomic scheme variant helpful for embedding in applications, or to be used on its own with high performance functions implemented in Rust. The language implementation itself contains a fairly powerful macro system based on the `syntax-rules` style and a bytecode virtual machine. At the moment, it is not explicitly compliant with any individual scheme specification.
+`Steel` is an embeddable scheme interpreter, with a standalone cli included as well. Inspired largely by Racket and Clojure, the language seeks to be ergonomic scheme variant helpful for embedding in applications, or to be used on its own with high performance functions implemented in Rust. The language implementation itself contains a fairly powerful macro system based on the `syntax-rules` style and a bytecode virtual machine. At the moment, it is not explicitly compliant with any individual scheme specification.
 
 ### Disclaimer
 

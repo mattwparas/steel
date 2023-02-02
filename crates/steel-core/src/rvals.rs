@@ -146,7 +146,11 @@ pub(crate) fn _as_underlying_type<T: 'static>(value: &dyn CustomType) -> Option<
     value.as_any_ref().downcast_ref::<T>()
 }
 
-pub trait Custom {}
+pub trait Custom {
+    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+        None
+    }
+}
 
 pub trait CustomType {
     // fn box_clone(&self) -> Box<dyn CustomType>;
@@ -158,7 +162,7 @@ pub trait CustomType {
     }
     // fn new_steel_val(&self) -> SteelVal;
     fn display(&self) -> std::result::Result<String, std::fmt::Error> {
-        Ok(self.name().to_string())
+        Ok(format!("#<{}>", self.name().to_string()))
     }
     // fn as_underlying_type<'a>(&'a self) -> Option<&'a Self>;
 }
@@ -182,11 +186,17 @@ impl<T: Custom + 'static> CustomType for T {
     fn as_any_ref_mut(&mut self) -> &mut dyn Any {
         self as &mut dyn Any
     }
-    // fn display(&self) -> std::result::Result<String, std::fmt::Error> {
-    //     let mut buf = String::new();
-    //     write!(buf, "{:?}", &self)?;
-    //     Ok(buf)
-    // }
+    fn display(&self) -> std::result::Result<String, std::fmt::Error> {
+        if let Some(formatted) = self.fmt() {
+            formatted
+        } else {
+            Ok(self.name().to_string())
+        }
+
+        // let mut buf = String::new();
+        // write!(buf, "{:?}", &self)?;
+        // Ok(buf)
+    }
 }
 
 impl<T: CustomType + 'static> IntoSteelVal for T {
@@ -643,8 +653,7 @@ pub enum SteelVal {
     FutureV(Gc<FutureResult>),
 
     StreamV(Gc<LazyStream>),
-    // Break the cycle somehow
-    // EvaluationEnv(Weak<RefCell<Env>>),
+
     /// Contract
     Contract(Gc<ContractType>),
     /// Contracted Function
