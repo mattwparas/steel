@@ -190,7 +190,7 @@ impl<T: Custom + 'static> CustomType for T {
         if let Some(formatted) = self.fmt() {
             formatted
         } else {
-            Ok(self.name().to_string())
+            Ok(format!("#<{}>", self.name().to_string()))
         }
 
         // let mut buf = String::new();

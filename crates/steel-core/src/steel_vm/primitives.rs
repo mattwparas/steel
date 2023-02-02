@@ -323,6 +323,10 @@ pub fn register_builtin_modules(engine: &mut Engine) {
     engine.register_fn("##__module-get", BuiltInModule::get);
     engine.register_fn("%module-get%", BuiltInModule::get);
     engine.register_fn("%doc?", BuiltInModule::get_doc);
+    engine.register_fn(
+        "%module-bound-identifiers->list",
+        BuiltInModule::bound_identifiers,
+    );
     engine.register_value("%proto-hash%", HM_CONSTRUCT);
     engine.register_value("%proto-hash-insert%", HM_INSERT);
     engine.register_value("%proto-hash-get%", HM_GET);

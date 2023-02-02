@@ -55,6 +55,13 @@ impl BuiltInModule {
         self.values.contains_key(ident)
     }
 
+    pub fn bound_identifiers(&self) -> im_lists::list::List<SteelVal> {
+        self.values
+            .keys()
+            .map(|x| SteelVal::StringV(x.into()))
+            .collect()
+    }
+
     pub fn with_module(mut self, module: BuiltInModule) -> Self {
         self.values = self.values.union(module.values);
         self.docs.definitions.extend(module.docs.definitions);
