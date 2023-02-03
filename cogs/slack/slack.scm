@@ -3,11 +3,15 @@
 (require "steel/result")
 (require "steel/logging/log.scm")
 
-
-
 (provide event-loop send-message)
 
-(define (env-var! var) (unwrap-ok (env-var var)))
+; (define (env-var! var) (unwrap-ok (env-var var)))
+
+(define (env-var! var)
+  (let ((e (env-var var)))
+    (if (Err? e)
+        "TODO"
+        (unwrap-ok e))))
 
 (define client (request/client))
 (define *SLACK_API_TOKEN* (env-var! "SLACK_API_TOKEN"))
