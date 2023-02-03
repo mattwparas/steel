@@ -16,6 +16,12 @@ impl Custom for SteelRequestBuilder {}
 
 impl Custom for StatusCode {}
 
+impl Custom for reqwest::Error {
+    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+        Some(Ok(format!("{:?}", self)))
+    }
+}
+
 #[derive(Debug)]
 struct SteelRequestBuilder {
     builder: RequestBuilder,

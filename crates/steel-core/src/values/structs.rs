@@ -671,20 +671,23 @@ pub(crate) fn is_custom_struct() -> SteelVal {
 //     }
 // }
 
-impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for std::result::Result<T, E> {
+// impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for std::result::Result<T, E> {
+//     fn into_steelval(self) -> Result<SteelVal> {
+//         match self {
+//             Ok(s) => UserDefinedStruct::new_ok(s),
+//             Err(e) => UserDefinedStruct::new_err(format!("{:?}", e)),
+//         }
+//     }
+// }
+
+impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for std::result::Result<T, E> {
     fn into_steelval(self) -> Result<SteelVal> {
         match self {
             Ok(s) => UserDefinedStruct::new_ok(s),
-            Err(e) => crate::stop!(Generic => format!("{e:?}")),
+            Err(e) => UserDefinedStruct::new_err(e.into_steelval()?),
         }
     }
 }
-
-// // impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for Result<T, E> {
-// //     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
-
-// //     }
-// // }
 
 impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for std::result::Result<T, E> {
     fn from_steelval(val: &SteelVal) -> Result<Self> {

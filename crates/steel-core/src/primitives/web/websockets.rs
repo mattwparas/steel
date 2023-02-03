@@ -18,6 +18,11 @@ impl Custom for Message {
     }
 }
 impl Custom for Response {}
+impl Custom for tungstenite::Error {
+    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+        Some(Ok(format!("{:?}", self)))
+    }
+}
 
 /// In lieu of a direct bytes type in Steel, since we need to typically respond to a ping with a pong
 /// containing the matching payload, we can skip the deserializing into the Steel type and directly

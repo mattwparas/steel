@@ -11,6 +11,6 @@
         (time! (send-message channel "pong!"))))
 
 (define (process-message-timed body)
-    (time! (process-message body)))
+    (time! (process-message (connect-to-slack-socket) body)))
 
 (event-loop process-message-timed)
