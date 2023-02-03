@@ -12,5 +12,5 @@ rustyline-derive = "0.6.0"
 colored = "2.0"
 # steel = { path = "../steel", features = ["modules", "jit"] }
 steel-core = { path = "../steel-core", version = "0.2.0", features = ["modules"] }
-ctrlc = "3.2.2"
-futures = "0.3.13"
+# ctrlc = "3.2.2"
+# futures = "0.3.13"

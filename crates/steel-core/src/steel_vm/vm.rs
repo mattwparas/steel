@@ -1746,7 +1746,7 @@ impl<'a> VmCore<'a> {
         self.thread
             .stack_frames
             .last()
-            .and_then(|x| x.spans.get(x.ip).copied())
+            .and_then(|x| x.spans.get(x.ip - 1).copied())
     }
 
     #[inline(never)]
@@ -3112,6 +3112,8 @@ pub fn current_function_span(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Resu
     if !args.is_empty() {
         builtin_stop!(ArityMismatch => format!("current-function-span requires no arguments, found {}", args.len()))
     }
+
+    // println!("Enclosing span: {:?}", ctx.enclosing_span());
 
     match ctx.enclosing_span() {
         Some(s) => Some(Span::into_steelval(s)),

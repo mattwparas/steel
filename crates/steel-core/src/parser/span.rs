@@ -31,7 +31,13 @@ impl FromSteelVal for Span {
             Ok(Span {
                 start: usize::from_steelval(l.get(0).unwrap())?,
                 end: usize::from_steelval(l.get(1).unwrap())?,
-                source_id: Some(SourceId(usize::from_steelval(l.get(2).unwrap())?)),
+                source_id: l
+                    .get(2)
+                    .map(Option::<usize>::from_steelval)
+                    .map(|x| x.transpose())
+                    .flatten()
+                    .transpose()?
+                    .map(SourceId),
             })
         } else {
             stop!(ConversionError => "cannot convert to a span object: {}", val)

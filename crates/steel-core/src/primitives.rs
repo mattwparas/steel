@@ -54,7 +54,7 @@ macro_rules! try_from_impl {
                 fn try_from(value: SteelVal) -> result::Result<Self, Self::Error> {
                     match value {
                         SteelVal::$type(x) => Ok(x.clone() as $body),
-                        _ => Err(SteelErr::new(ErrorKind::ConversionError, "Expected number".to_string())),
+                        _ => Err(SteelErr::new(ErrorKind::ConversionError, format!("Expected number, found: {}", value))),
                     }
                 }
             }
@@ -64,7 +64,7 @@ macro_rules! try_from_impl {
                 fn try_from(value: &SteelVal) -> result::Result<Self, Self::Error> {
                     match value {
                         SteelVal::$type(x) => Ok(x.clone() as $body),
-                        _ => Err(SteelErr::new(ErrorKind::ConversionError, "Expected number".to_string())),
+                        _ => Err(SteelErr::new(ErrorKind::ConversionError, format!("Expected number, found: {}", value))),
                     }
                 }
             }
@@ -73,7 +73,7 @@ macro_rules! try_from_impl {
                 fn from_steelval(value: &SteelVal) -> result::Result<Self, SteelErr> {
                     match value {
                         SteelVal::$type(x) => Ok(x.clone() as $body),
-                        _ => Err(SteelErr::new(ErrorKind::ConversionError, "Expected number".to_string())),
+                        _ => Err(SteelErr::new(ErrorKind::ConversionError, format!("Expected number, found: {}", value))),
                     }
                 }
             }

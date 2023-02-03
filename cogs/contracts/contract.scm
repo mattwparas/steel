@@ -56,7 +56,7 @@
                     parents))
 
 
-
+;; Formats a contract nicely as a string
 (define (contract->string contract)
   (cond [(FlatContract? contract) => (symbol->string (FlatContract-name contract))]
         [(FunctionContract? contract) =>
@@ -71,7 +71,7 @@
           ")")]
         [else => (error! "Unexpected value found in contract:" contract)]))
 
-
+;; Given a list, splits off the last argument, returns as a pair
 (define (split-last lst)
   (define (loop accum lst)
     (if (empty? (cdr lst))
@@ -79,13 +79,14 @@
         (loop (cons (car lst) accum) (cdr lst))))
   (loop '() lst))
 
+;; Contracts a default function contract
 (define make-function-contract
   (lambda conditions
     (%plain-let ((split (split-last conditions)))
-      (FunctionContract (first split) (second split) void '()))))
+                (FunctionContract (first split) (second split) void '()))))
 
 
-
+;; Applies a flat contract to the given argument
 (define (apply-flat-contract flat-contract arg)
   (if ((FlatContract-predicate flat-contract) arg)
       #true
@@ -115,14 +116,14 @@
 
 ;; Call a contracted function
 (define (apply-contracted-function contracted-function arguments span)
+  ; (displayln "Passed in span: " span)
+  (define span (if span span '(0 0 0)))
 
-  (define span (if span span '(0 0)))
-
-  ; (displayln "Applying contracted function")
-  ; (displayln (ContractedFunction-name contracted-function))
-  ; (displayln arguments)
-  ; (displayln "Parents:")
-  ; (displayln (FunctionContract-parents (ContractedFunction-contract contracted-function)))
+                                        ; (displayln "Applying contracted function")
+                                        ; (displayln (ContractedFunction-name contracted-function))
+                                        ; (displayln arguments)
+                                        ; (displayln "Parents:")
+                                        ; (displayln (FunctionContract-parents (ContractedFunction-contract contracted-function)))
 
                                         ;   (displayln contracted-function)
 
@@ -130,7 +131,7 @@
    (FunctionContract-parents (ContractedFunction-contract contracted-function))
    (into-for-each
     (lambda (x)
-      ; (displayln "Checking parent contracts")
+                                        ; (displayln "Checking parent contracts")
       (apply-function-contract
        (ContractedFunction-contract x)
        (ContractedFunction-name contracted-function)
@@ -158,7 +159,7 @@
 
 
 (define (verify-preconditions self-contract arguments name span)
-  ; (displayln arguments)
+                                        ; (displayln arguments)
   (transduce
    arguments
    (zipping (FunctionContract-pre-conditions self-contract))
@@ -171,9 +172,9 @@
 
         (cond [(FlatContract? contract)
                =>
-              ;  (displayln "Applying flat contract in pre condition")
-              ;  (displayln x)
-              ;  (displayln arg)
+                                        ;  (displayln "Applying flat contract in pre condition")
+                                        ;  (displayln x)
+                                        ;  (displayln arg)
 
                (let ((result (apply-flat-contract contract arg)))
                                         ;  (displayln result)
@@ -191,8 +192,8 @@
                      arg))]
               [(FunctionContract? contract)
                =>
-              ;  (displayln "Wrapping contract in precondition")
-              ;  (displayln arg)
+                                        ;  (displayln "Wrapping contract in precondition")
+                                        ;  (displayln arg)
                (if (ContractedFunction? arg)
                    (let ((pre-parent (ContractedFunction-contract arg)))
                      (let ((parent (new-FunctionContract
@@ -225,13 +226,12 @@
                                         ;     'test-function)
 
 (define (apply-function-contract contract name function arguments span)
-  ; (displayln "--------------------- APPLY FUNCTION CONTRACT ------------------")
+                                        ; (displayln "--------------------- APPLY FUNCTION CONTRACT ------------------")
 
-  ; (displayln contract)
-  ; (displayln name)
-  ; (displayln function)
-  ; (displayln arguments)
-  ; (displayln span)
+                                        ; (displayln contract)
+                                        ; (displayln name)
+                                        ; (displayln function)
+                                        ; (displayln arguments)
 
   ;; Check that each of the arguments abides by the
   (let ((validated-arguments (verify-preconditions contract arguments name span)))
@@ -245,9 +245,9 @@
           (contract (FunctionContract-post-condition contract)))
       (cond [(FlatContract? contract)
              =>
-            ;  (displayln "applying flat contract in post condition")
-            ;  (displayln (FlatContract-name contract))
-            ;  (displayln contract)
+                                        ;  (displayln "applying flat contract in post condition")
+                                        ;  (displayln (FlatContract-name contract))
+                                        ;  (displayln contract)
                                         ;  (displayln function)
 
              (let ((result (apply-flat-contract contract output)))
@@ -299,9 +299,9 @@
                    output))]
             [(FunctionContract? contract)
              =>
-            ;  (displayln "Wrapping contract in post condition")
-            ;  (displayln contract)
-            ;  (displayln output)
+                                        ;  (displayln "Wrapping contract in post condition")
+                                        ;  (displayln contract)
+                                        ;  (displayln output)
              (if (ContractedFunction? output)
                  ;; TODO: Come back to this and understand what the heck its doing
                  ;; Figured it out -> its never actually a contracted function, because we're wrapping
@@ -327,13 +327,16 @@
             [else => (error! "Unhandled value in post condition: " contract)]))))
 
 (define (bind-contract-to-function contract function name . span)
-  ; (displayln "Binding contract to function")
+                                        ; (displayln "Binding contract to function")
   (define post-condition (FunctionContract-post-condition contract))
-  ; (displayln post-condition)
-  ; (displayln contract)
+                                        ; (displayln post-condition)
+                                        ; (displayln contract)
                                         ; (displayln (FunctionContract-pre-conditions contract))
                                         ; (displayln (FunctionContract-post-condition contract))
                                         ;   (displayln name)
+
+  ; (displayln "Current function span: " (current-function-span))
+  
   (let ((updated-preconditions
          (transduce
           (FunctionContract-pre-conditions contract)
@@ -349,8 +352,8 @@
           (into-list)))
 
         (updated-postcondition
-        ;  (begin 
-        ;  (displayln post-condition)
+                                        ;  (begin
+                                        ;  (displayln post-condition)
          (cond [(FlatContract? post-condition) => post-condition]
                [(FunctionContract? post-condition) =>
                 (FunctionContract
@@ -358,11 +361,11 @@
                  (FunctionContract-post-condition post-condition)
                  (ContractAttachmentLocation 'RANGE name)
                  (FunctionContract-parents post-condition))]
-               [else => 
-               
-              ;  (displayln post-condition)
-               
-               (error "Unexpected value found in bind-contract-to-function post condition: " post-condition)])))
+               [else =>
+
+                                        ;  (displayln post-condition)
+
+                     (error "Unexpected value found in bind-contract-to-function post condition: " post-condition)])))
 
                                         ; (displayln "Binding contract to function")
                                         ; (displayln updated-preconditions)
@@ -377,19 +380,32 @@
              updated-postcondition
                                         ;  void
                                         ;  (ContractAttachmentLocation 'TOPLEVEL name)
-            ;  void
+                                        ;  void
              (ContractAttachmentLocation 'TOPLEVEL name)
              (FunctionContract-parents contract))
             function name)))
 
+      ; (displayln "prev span: " (current-function-span))
+
+      ; (displayln "current span: " (current-function-span))
+
       (let ((resulting-lambda-function
-              (lambda args
-                  (apply-contracted-function
-                    contracted-function
-                    args
-                    (if span (car span) (current-function-span))))))
-          (attach-contract-struct! resulting-lambda-function contracted-function)
-          resulting-lambda-function))))
+             (lambda args
+
+              ;  (define span (current-function-span))
+
+               (apply-contracted-function
+                contracted-function
+                args
+                ; span
+                ; (current-function-span)
+                (if span (car span) (current-function-span))
+                ;          (begin (displayln ("Current span: " (current-function-span))) 
+                ;          (current-function-span)))
+                         )
+                         )))
+        (attach-contract-struct! resulting-lambda-function contracted-function)
+        resulting-lambda-function))))
 
 
 
@@ -440,14 +456,14 @@
 ;; ;         'bar))
 
 
-; (define blagh
-;      (bind-contract-to-function
-;          (make-function-contract
-;              (make-function-contract (FlatContract even? 'even?) (FlatContract odd? 'odd?))
-;              (FlatContract even? 'even?)
-;              (FlatContract even? 'even?))
-;          (lambda (func y) (+ 1 (func y)))
-;          'blagh))
+                                        ; (define blagh
+                                        ;      (bind-contract-to-function
+                                        ;          (make-function-contract
+                                        ;              (make-function-contract (FlatContract even? 'even?) (FlatContract odd? 'odd?))
+                                        ;              (FlatContract even? 'even?)
+                                        ;              (FlatContract even? 'even?))
+                                        ;          (lambda (func y) (+ 1 (func y)))
+                                        ;          'blagh))
 
 (define (make-contract contract name)
   (cond [(FlatContract? contract) contract]
@@ -464,25 +480,25 @@
      (make-function-contract (make-contract a 'a) (make-contract b 'b) (make-contract c 'c))]
     [(->c a b c d)
      (make-function-contract (make-contract a 'a) (make-contract b 'b)
-                      (make-contract c 'c) (make-contract d 'd))]
+                             (make-contract c 'c) (make-contract d 'd))]
     [(->c a b c d e)
      (make-function-contract (make-contract a 'a) (make-contract b 'b) (make-contract c 'c)
-                      (make-contract d 'd) (make-contract e 'e))]
+                             (make-contract d 'd) (make-contract e 'e))]
     [(->c a b c d e f)
      (make-function-contract (make-contract a 'a) (make-contract b 'b) (make-contract c 'c)
-                      (make-contract d 'd) (make-contract e 'e) (make-contract f 'f))]
+                             (make-contract d 'd) (make-contract e 'e) (make-contract f 'f))]
     [(->c a b c d e f g)
      (make-function-contract (make-contract a 'a) (make-contract b 'b) (make-contract c 'c)
-                      (make-contract d 'd) (make-contract e 'e) (make-contract f 'f)
-                      (make-contract g 'g))]
+                             (make-contract d 'd) (make-contract e 'e) (make-contract f 'f)
+                             (make-contract g 'g))]
     [(->c a b c d e f g h)
      (make-function-contract (make-contract a 'a) (make-contract b 'b) (make-contract c 'c)
-                      (make-contract d 'd) (make-contract e 'e) (make-contract f 'f)
-                      (make-contract g 'g) (make-contract h 'h))]
+                             (make-contract d 'd) (make-contract e 'e) (make-contract f 'f)
+                             (make-contract g 'g) (make-contract h 'h))]
     [(->c a b c d e f g h i)
      (make-function-contract (make-contract a 'a) (make-contract b 'b) (make-contract c 'c)
-                      (make-contract d 'd) (make-contract e 'e) (make-contract f 'f)
-                      (make-contract g 'g) (make-contract h 'h) (make-contract i 'i))]))
+                             (make-contract d 'd) (make-contract e 'e) (make-contract f 'f)
+                             (make-contract g 'g) (make-contract h 'h) (make-contract i 'i))]))
 
 ;; Macro for basic usage of contracts
 (define-syntax define/c
@@ -491,28 +507,26 @@
        contract
        body ...)
      (begin
-        (define name (lambda (args ...) body ...))
-        (set! name (bind-contract-to-function contract name 'name))
-        void)
-    ;  (define name (bind/c contract (lambda (args ...) body ...) 'name))
+       (define name (lambda (args ...) body ...))
+       (set! name (bind-contract-to-function contract name 'name))
+       void)
+                                        ;  (define name (bind/c contract (lambda (args ...) body ...) 'name))
 
      ]
     [(define/c name contract expr)
      (define name ((bind-contract-to-function
-                      (make-function-contract (make-contract contract 'contract))
-                      (lambda () expr))))]))
+                    (make-function-contract (make-contract contract 'contract))
+                    (lambda () expr))))]))
 
-(define/c (blagh x)
-  (->c string? string?)
-  x)
+; (define/c (blagh x)
+;   (->c string? string?)
+;   x)
 
-; (define/c (foo x y)
-;   (->c even? odd? odd?)
-;   (+ x y))
+                                        ; (define/c (foo x y)
+                                        ;   (->c even? odd? odd?)
+                                        ;   (+ x y))
 
-; (foo 11 11)
-
-
+                                        ; (foo 11 11)
 
 
 
