@@ -40,6 +40,7 @@ termimad = "0.14"
 smallvec = "1.10.0"
 lazy_static = "1.4.0"
 steel-gen = { path = "../steel-gen", version = "0.2.0" }
+chrono = "0.4.23"
 
 reqwest = { version = "0.11.10", features = ["blocking", "json"], optional = true }
 url = { version = "2.2.2", optional = true }

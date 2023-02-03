@@ -12,7 +12,11 @@ use crate::{
 type SteelWebSocket = WebSocket<MaybeTlsStream<TcpStream>>;
 
 impl Custom for SteelWebSocket {}
-impl Custom for Message {}
+impl Custom for Message {
+    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+        Some(Ok(format!("{:?}", self)))
+    }
+}
 impl Custom for Response {}
 
 /// In lieu of a direct bytes type in Steel, since we need to typically respond to a ping with a pong

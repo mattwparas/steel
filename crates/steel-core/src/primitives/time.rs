@@ -1,6 +1,6 @@
 use crate::{rvals::Custom, steel_vm::builtin::MarkdownDoc};
+use chrono::Local;
 use std::{time::Duration, time::Instant};
-// use chrono::
 
 // TODO fix this noise
 
@@ -27,6 +27,10 @@ fn duration_to_string(duration: Duration) -> String {
     format!("{duration:?}")
 }
 
+fn current_time_formatted(format_string: String) -> String {
+    Local::now().format(&format_string).to_string()
+}
+
 pub fn time_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/time".to_string());
 
@@ -37,7 +41,8 @@ pub fn time_module() -> BuiltInModule {
         .register_fn("instant/elapsed", Instant::elapsed)
         .register_fn("duration-since", Instant::duration_since)
         .register_fn("duration->string", duration_to_string)
-        .register_fn("duration->seconds", Duration::as_secs);
+        .register_fn("duration->seconds", Duration::as_secs)
+        .register_fn("local-time/now!", current_time_formatted);
 
     module
 }

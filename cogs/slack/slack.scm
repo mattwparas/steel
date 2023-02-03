@@ -1,11 +1,15 @@
 (require-builtin steel/web/requests)
 (require-builtin steel/web/ws)
 (require "steel/result")
+(require "steel/logging/log.scm")
 
-(define client (request/client))
+
+
+(provide event-loop send-message)
 
 (define (env-var! var) (unwrap-ok (env-var var)))
 
+(define client (request/client))
 (define *SLACK_API_TOKEN* (env-var! "SLACK_API_TOKEN"))
 (define *SLACK_API_WS_TOKEN* (env-var! "SLACK_API_WS_TOKEN"))
 
@@ -41,13 +45,13 @@
 
 (define socket (connect-to-slack-socket))
 
-(define (process-message body)
-  (displayln body)
-  (define event-json (-> body (hash-get 'payload) (hash-get 'event)))
-  (define text (hash-get event-json 'text))
-  (define channel (hash-get event-json 'channel))
-  (when (starts-with? text "!ping")
-        (send-message channel "pong!")))
+; (define (process-message body)
+;   (displayln body)
+;   (define event-json (-> body (hash-get 'payload) (hash-get 'event)))
+;   (define text (hash-get event-json 'text))
+;   (define channel (hash-get event-json 'channel))
+;   (when (starts-with? text "!ping")
+;         (send-message channel "pong!")))
 
 (define (send-acknowledgement socket body)
     (ws/write-message! socket
@@ -66,9 +70,9 @@
         [else => 
           ;; At this point, the message should be guaranteed to be here, unwrap and continue
           (define message (unwrap-ok message))
-          (displayln message)
+          (log/info! message)
           ;; If its a ping, respond with a pong
-          (cond [(ws/message-ping? message) 
+          (cond [(ws/message-ping? message)
                     =>
                       (ws/write-message! socket (ws/message-ping->pong message))
                       (loop message-thunk)]
@@ -86,5 +90,4 @@
                                   (loop message-thunk)])]
                 [else => (loop message-thunk)])]))
 
-
-(loop process-message)
+(define event-loop loop)

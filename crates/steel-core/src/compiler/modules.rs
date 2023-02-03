@@ -307,7 +307,7 @@ impl ModuleManager {
     ) -> (&'a CompiledModule, HashMap<String, SteelMacro>) {
         let module = compiled_modules
             .get(require_for_syntax)
-            .expect("Module missing!");
+            .expect(&format!("Module missing!: {:?}", require_for_syntax));
 
         let prefix = "mangler".to_string() + module.name.to_str().unwrap();
 

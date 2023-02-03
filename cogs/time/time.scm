@@ -1,4 +1,5 @@
 (require-builtin steel/time)
+(provide (for-syntax time!))
 
 
 (define (instant/elapsed->string t)
