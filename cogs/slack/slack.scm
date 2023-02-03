@@ -3,7 +3,7 @@
 (require "steel/result")
 (require "steel/logging/log.scm")
 
-(provide event-loop send-message provide connect-to-slack-socket)
+(provide event-loop send-message connect-to-slack-socket get-ws-url)
 
 ; (define (env-var! var) (unwrap-ok (env-var var)))
 
@@ -14,6 +14,8 @@
         (unwrap-ok e))))
 
 (define client (request/client))
+
+
 (define *SLACK_API_TOKEN* (env-var! "SLACK_API_TOKEN"))
 (define *SLACK_API_WS_TOKEN* (env-var! "SLACK_API_WS_TOKEN"))
 
@@ -39,10 +41,10 @@
         (unwrap-ok)
         (hash-get 'url)))
 
-(define *ws-url* (get-ws-url))
+; (define *ws-url* (get-ws-url))
 
-(define (connect-to-slack-socket)
-    (~> *ws-url*
+(define (connect-to-slack-socket url)
+    (~> url
         (ws/connect)
         (unwrap-ok)
         (first)))
@@ -53,13 +55,13 @@
             (value->jsexpr-string 
                 (hash 'envelope_id (hash-get body 'envelope_id))))))
 
-(define (loop socket message-thunk)
+(define (loop url socket message-thunk)
   (define message (ws/read-message! socket))
   (cond [(Err? message) => 
                 (displayln "Unable to read the message from the socket, retrying connection")
                 ;; Try to reconnect and see what happens
                 ;; Probably need to add a sleep here at some point to retry with a backoff
-                (loop (connect-to-slack-socket) message-thunk)]
+                (loop url (connect-to-slack-socket url) message-thunk)]
         [else => 
           ;; At this point, the message should be guaranteed to be here, unwrap and continue
           (define message (unwrap-ok message))
@@ -68,19 +70,19 @@
           (cond [(ws/message-ping? message)
                     =>
                       (ws/write-message! socket (ws/message-ping->pong message))
-                      (loop socket message-thunk)]
+                      (loop url socket message-thunk)]
                 ;; If its a text message, check if its a hello message - otherwise, continue
                 ;; And process the message
                 [(ws/message-text? message) 
                     =>
                       (define body (string->jsexpr (ws/message->text-payload message)))
                       (cond [(equal? "hello" (hash-try-get body 'type)) => 
-                              (loop socket message-thunk)]
+                              (loop url socket message-thunk)]
                             [else
                                 => 
                                   (send-acknowledgement socket body)
                                   (message-thunk body)
-                                  (loop socket message-thunk)])]
-                [else => (loop socket message-thunk)])]))
+                                  (loop url socket message-thunk)])]
+                [else => (loop url socket message-thunk)])]))
 
 (define event-loop loop)
