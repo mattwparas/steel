@@ -1743,10 +1743,13 @@ impl<'a> VmCore<'a> {
     }
 
     fn enclosing_span(&self) -> Option<Span> {
-        self.thread
-            .stack_frames
-            .last()
-            .and_then(|x| x.spans.get(x.ip - 1).copied())
+        self.thread.stack_frames.last().and_then(|x| {
+            if x.ip > 0 {
+                x.spans.get(x.ip - 1).copied()
+            } else {
+                None
+            }
+        })
     }
 
     #[inline(never)]
