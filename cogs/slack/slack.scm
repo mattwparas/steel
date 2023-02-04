@@ -2,6 +2,7 @@
 (require-builtin steel/web/ws)
 (require "steel/result")
 (require "steel/logging/log.scm")
+(require steel/time)
 
 (provide event-loop send-message connect-to-slack-socket get-ws-url)
 
@@ -31,6 +32,7 @@
         (unwrap-ok)))
 
 (define (get-ws-url)
+    (log/info! "Requesting a websocket url")
     (~> client
         (client/post *ws-connection-url*)
         (request/bearer-auth *SLACK_API_WS_TOKEN*)
@@ -61,7 +63,7 @@
                 (displayln "Unable to read the message from the socket, retrying connection")
                 ;; Try to reconnect and see what happens
                 ;; Probably need to add a sleep here at some point to retry with a backoff
-                (loop url (connect-to-slack-socket url) message-thunk)]
+                (loop url (connect-to-slack-socket (get-ws-url)) message-thunk)]
         [else => 
           ;; At this point, the message should be guaranteed to be here, unwrap and continue
           (define message (unwrap-ok message))
@@ -80,8 +82,9 @@
                               (loop url socket message-thunk)]
 
                             [(equal? "disconnect" (hash-try-get body 'type)) =>
-                              (log/info! "Refreshing the connection")
-                              (loop url (connect-to-slack-socket url) message-thunk)]
+                              (log/info! "Refreshing the connection, sleeping for 500 ms")
+                              (time/sleep-ms 500)
+                              (loop url (connect-to-slack-socket (get-ws-url)) message-thunk)]
 
                             [else
                                 => 

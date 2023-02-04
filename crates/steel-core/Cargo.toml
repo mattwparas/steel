@@ -42,6 +42,8 @@ lazy_static = "1.4.0"
 steel-gen = { path = "../steel-gen", version = "0.2.0" }
 chrono = "0.4.23"
 
+rusqlite =  { version = "0.28.0", features = ["bundled"], optional = true }
+
 reqwest = { version = "0.11.10", features = ["blocking", "json"], optional = true }
 url = { version = "2.2.2", optional = true }
 tungstenite = { version = "0.17.2", features = ["rustls-tls-native-roots"], optional = true }
@@ -65,6 +67,8 @@ jit = ["dep:cranelift", "dep:cranelift-module", "dep:cranelift-jit"]
 dynamic = []
 profiling = []
 web = ["dep:reqwest", "dep:url", "dep:tungstenite"]
+sqlite = ["dep:rusqlite"]
+
 # dylibs = ["dep:dlopen", "dep:dlopen_derive"]
 
 

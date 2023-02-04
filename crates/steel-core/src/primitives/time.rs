@@ -31,6 +31,10 @@ fn current_time_formatted(format_string: String) -> String {
     Local::now().format(&format_string).to_string()
 }
 
+fn sleep_millis(millis: usize) {
+    std::thread::sleep(Duration::from_millis(millis.try_into().unwrap()))
+}
+
 pub fn time_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/time".to_string());
 
@@ -42,7 +46,8 @@ pub fn time_module() -> BuiltInModule {
         .register_fn("duration-since", Instant::duration_since)
         .register_fn("duration->string", duration_to_string)
         .register_fn("duration->seconds", Duration::as_secs)
-        .register_fn("local-time/now!", current_time_formatted);
+        .register_fn("local-time/now!", current_time_formatted)
+        .register_fn("time/sleep-ms", sleep_millis);
 
     module
 }

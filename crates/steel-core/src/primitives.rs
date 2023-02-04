@@ -21,6 +21,9 @@ mod vectors;
 #[cfg(feature = "web")]
 pub mod web;
 
+#[cfg(feature = "sqlite")]
+pub mod sqlite;
+
 pub use control::ControlOperations;
 pub use fs::FsFunctions;
 pub use hashmaps::HashMapOperations;
@@ -35,8 +38,11 @@ pub use vectors::VectorOperations;
 
 pub use nums::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
 
-use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::{FunctionSignature, SteelVal};
+use crate::{
+    rerrs::{ErrorKind, SteelErr},
+    rvals::SteelString,
+};
 use im_rc::Vector;
 
 use std::convert::TryFrom;
@@ -320,6 +326,22 @@ impl TryFrom<&SteelVal> for String {
 impl From<String> for SteelVal {
     fn from(val: String) -> SteelVal {
         SteelVal::StringV(val.into())
+    }
+}
+
+impl IntoSteelVal for &str {
+    fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
+        Ok(SteelVal::StringV(self.into()))
+    }
+}
+
+impl FromSteelVal for SteelString {
+    fn from_steelval(val: &SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::StringV(s) = val {
+            Ok(s.clone())
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel string", val))
+        }
     }
 }
 

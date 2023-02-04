@@ -146,7 +146,7 @@ pub(crate) fn _as_underlying_type<T: 'static>(value: &dyn CustomType) -> Option<
     value.as_any_ref().downcast_ref::<T>()
 }
 
-pub trait Custom {
+pub trait Custom: private::Sealed {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
         None
     }
@@ -303,7 +303,7 @@ mod private {
 
     pub trait Sealed {}
 
-    impl<T: Any + Clone> Sealed for T {}
+    impl<T: Any> Sealed for T {}
 }
 
 // pub trait DowncastSteelval: private::Sealed {
