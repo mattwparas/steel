@@ -841,11 +841,22 @@ pub enum BuiltInDataStructureIterator {
     Set(im_rc::hashset::ConsumingIter<SteelVal>),
     Map(im_rc::hashmap::ConsumingIter<(SteelVal, SteelVal)>),
     String(Chunks),
+    Opaque(Box<dyn Iterator<Item = SteelVal>>),
 }
 
 impl BuiltInDataStructureIterator {
     pub fn into_boxed_iterator(self) -> SteelVal {
         SteelVal::BoxedIterator(Gc::new(RefCell::new(self)))
+    }
+}
+
+impl BuiltInDataStructureIterator {
+    pub fn from_iterator<T: IntoSteelVal, S: IntoIterator<Item = T> + 'static>(value: S) -> Self {
+        Self::Opaque(Box::new(
+            value
+                .into_iter()
+                .map(|x| x.into_steelval().expect("This shouldn't fail!")),
+        ))
     }
 }
 
@@ -859,6 +870,7 @@ impl Iterator for BuiltInDataStructureIterator {
             Self::String(s) => s.remaining.next().map(SteelVal::CharV),
             Self::Set(s) => s.next(),
             Self::Map(s) => s.next().map(|x| SteelVal::ListV(im_lists::list![x.0, x.1])),
+            Self::Opaque(s) => s.next(),
         }
     }
 }

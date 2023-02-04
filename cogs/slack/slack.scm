@@ -78,6 +78,11 @@
                       (define body (string->jsexpr (ws/message->text-payload message)))
                       (cond [(equal? "hello" (hash-try-get body 'type)) => 
                               (loop url socket message-thunk)]
+
+                            [(equal? "disconnect" (hash-try-get body 'type)) =>
+                              (log/info! "Refreshing the connection")
+                              (loop url (connect-to-slack-socket url) message-thunk)]
+
                             [else
                                 => 
                                   (send-acknowledgement socket body)

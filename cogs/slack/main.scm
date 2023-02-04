@@ -2,12 +2,22 @@
 (require "steel/time/time.scm" 
         (for-syntax "steel/time/time.scm"))
 
-(define (process-message body)
+(require "steel/contracts/contract.scm"
+        (for-syntax "steel/contracts/contract.scm"))
+
+(require "steel/logging/log.scm")
+
+(define/c (process-message body)
+  (->c hash? any/c)
 ;   (displayln body)
+
+  (log/info! body)
+
   (define event-json (-> body (hash-get 'payload) (hash-get 'event)))
-  (define text (hash-get event-json 'text))
+  (define text (hash-try-get event-json 'text))
   (define channel (hash-get event-json 'channel))
-  (when (starts-with? text "!ping")
+
+  (when (and text (starts-with? text "!ping"))
         (time! (send-message channel "pong!"))))
 
 (define (process-message-timed body)
