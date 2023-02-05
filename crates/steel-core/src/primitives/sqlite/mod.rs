@@ -1,4 +1,7 @@
-use rusqlite::{Connection, Result, ToSql};
+use rusqlite::{
+    types::{ToSqlOutput, Value},
+    Connection, Result, Statement, ToSql,
+};
 
 use crate::{
     rvals::{Custom, SteelString},
@@ -9,10 +12,27 @@ use crate::{
 impl Custom for Connection {}
 impl Custom for rusqlite::Error {}
 
+impl Custom for Statement<'static> {}
+
 impl ToSql for SteelVal {
-    fn to_sql(&self) -> Result<rusqlite::types::ToSqlOutput<'_>> {
-        todo!()
+    fn to_sql(&self) -> Result<ToSqlOutput<'_>> {
+        match self {
+            Self::IntV(b) => Ok(ToSqlOutput::Owned(Value::Integer((*b).try_into().unwrap()))),
+            Self::StringV(s) => Ok(ToSqlOutput::Owned(Value::Text(s.to_string()))),
+            Self::NumV(n) => Ok(ToSqlOutput::Owned(Value::Real(*n))),
+            Self::Void => Ok(ToSqlOutput::Owned(Value::Null)),
+            _ => {
+                todo!("Implement serialization for other types")
+            }
+        }
     }
+}
+
+fn statement_wrapper(
+    connection: &'static Connection,
+    sql: SteelString,
+) -> Result<Statement<'static>> {
+    connection.prepare(sql.as_str())
 }
 
 fn connection_wrapper(
@@ -31,17 +51,7 @@ pub fn sqlite_module() -> BuiltInModule {
     module
         .register_fn("connection/open-in-memory", Connection::open_in_memory)
         .register_fn("connection/execute!", connection_wrapper);
-
-    // module
-    //     .register_fn("ws/message-ping?", Message::is_ping)
-    //     .register_fn("ws/message-pog?", Message::is_pong)
-    //     .register_fn("ws/message-text?", Message::is_text)
-    //     .register_fn("ws/message-text", Message::Text)
-    //     .register_fn("ws/message-ping->pong", ping_to_pong)
-    //     .register_fn("ws/message->text-payload", text_payload)
-    //     .register_fn("ws/connect", connect::<String>)
-    //     .register_fn("ws/read-message!", SteelWebSocket::read_message)
-    //     .register_fn("ws/write-message!", SteelWebSocket::write_message);
+    // .register_fn("connection/prepare", statement_wrapper);
 
     module
 }
