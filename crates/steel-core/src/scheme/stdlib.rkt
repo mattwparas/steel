@@ -474,3 +474,10 @@
      (%doc? %-builtin-module-steel/base (quote ident))]
     [(help module ident)
      (%doc? (datum->syntax %-builtin-module- module) (quote ident))]))
+
+(define-syntax dbg!
+  (syntax-rules ()
+    [(dbg! expr)
+      (let ((result expr))
+        (displayln (quote expr) " = " result)
+        result)]))

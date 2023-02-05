@@ -256,6 +256,9 @@ thread_local! {
     pub static REQUESTS_MODULE: BuiltInModule = requests_module();
 
     pub static STRING_COLORS_MODULE: BuiltInModule = string_coloring_module();
+
+    #[cfg(feature = "sqlite")]
+    pub static SQLITE_MODULE: BuiltInModule = crate::primitives::sqlite::sqlite_module();
 }
 
 pub fn prelude() -> BuiltInModule {
@@ -366,6 +369,9 @@ pub fn register_builtin_modules(engine: &mut Engine) {
     engine
         .register_module(WEBSOCKETS_MODULE.with(|x| x.clone()))
         .register_module(REQUESTS_MODULE.with(|x| x.clone()));
+
+    #[cfg(feature = "sqlite")]
+    engine.register_module(SQLITE_MODULE.with(|x| x.clone()));
 }
 
 pub static ALL_MODULES: &str = r#"

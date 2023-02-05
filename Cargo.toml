@@ -14,7 +14,7 @@ path = "src/main.rs"
 once_cell = "1.10.0"
 # steel = { path = "./steel", features = ["jit"] }
 # steel = { path = "./crates/steel", features = [] }
-steel-core = { path = "./crates/steel-core", version = "0.2.0", features = ["web"] }
+steel-core = { path = "./crates/steel-core", version = "0.2.0", features = ["web", "sqlite"] }
 steel-derive = { path = "./crates/steel-derive", version = "0.2.0"}
 steel-repl = { path = "./crates/steel-repl", version = "0.2.0" }
 env_logger = "0.9"
