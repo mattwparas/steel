@@ -2,7 +2,7 @@
 (require-builtin steel/web/ws)
 (require "steel/result")
 (require "steel/logging/log.scm")
-(require steel/time)
+(require-builtin steel/time)
 
 (provide event-loop send-message connect-to-slack-socket get-ws-url)
 
