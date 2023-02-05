@@ -44,6 +44,15 @@ pub fn text_payload(message: &Message) -> Option<String> {
     }
 }
 
+// TODO: @Matt -> perhaps explore this and/or explore using tokio tungstenite for this
+fn _make_non_blocking(socket: &mut SteelWebSocket) -> std::result::Result<(), std::io::Error> {
+    match socket.get_mut() {
+        MaybeTlsStream::Plain(s) => s.set_nonblocking(true),
+        MaybeTlsStream::Rustls(s) => s.get_mut().set_nonblocking(true),
+        _ => todo!(),
+    }
+}
+
 pub fn websockets_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/web/ws".to_string());
 

@@ -1,5 +1,7 @@
+use im_lists::list::List;
 use rusqlite::{
-    types::{ToSqlOutput, Value},
+    params_from_iter,
+    types::{FromSql, ToSqlOutput, Value},
     Connection, Result, Statement, ToSql,
 };
 
@@ -28,21 +30,77 @@ impl ToSql for SteelVal {
     }
 }
 
-fn statement_wrapper(
-    connection: &'static Connection,
+impl FromSql for SteelVal {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        match value {
+            rusqlite::types::ValueRef::Null => Ok(SteelVal::Void),
+            rusqlite::types::ValueRef::Integer(i) => Ok(SteelVal::IntV(i as isize)),
+            rusqlite::types::ValueRef::Real(f) => Ok(SteelVal::NumV(f)),
+            rusqlite::types::ValueRef::Text(t) => Ok(SteelVal::StringV(
+                std::str::from_utf8(t)
+                    .expect("Unable to decode text from sqlite")
+                    .into(),
+            )),
+            rusqlite::types::ValueRef::Blob(_) => {
+                todo!("Implement deserialization for other types")
+            }
+        }
+    }
+}
+
+fn prepare_and_execute(
+    connection: &Connection,
     sql: SteelString,
-) -> Result<Statement<'static>> {
-    connection.prepare(sql.as_str())
+    params: List<im_lists::list::List<SteelVal>>,
+) -> Result<usize> {
+    let mut statement = connection.prepare(sql.as_str())?;
+
+    let mut count = 0;
+
+    for group in params {
+        count += statement.execute(params_from_iter(group))?;
+    }
+
+    Ok(count)
+}
+
+// Consider returning a struct directly...
+fn prepare_and_query(
+    connection: &Connection,
+    sql: SteelString,
+    params: List<SteelVal>,
+) -> Result<List<List<SteelVal>>> {
+    let mut statement = connection.prepare(sql.as_str())?;
+
+    let mut rows = statement.query(params_from_iter(params))?;
+
+    let mut results = Vec::new();
+
+    while let Some(row) = rows.next()? {
+        // TODO: Save the row length for the next iteration, so that we can pre allocate
+        // the row width
+        let mut computed_row: Vec<SteelVal> = Vec::new();
+        let mut i = 0;
+
+        while let Ok(value) = row.get(i) {
+            computed_row.push(value);
+            i += 1;
+        }
+
+        results.push(List::from(computed_row));
+    }
+
+    // todo!()
+
+    Ok(List::from(results))
 }
 
 fn connection_wrapper(
     connection: &Connection,
     sql: SteelString,
-    params: im_lists::list::List<SteelVal>,
+    params: List<SteelVal>,
 ) -> Result<usize> {
-    let opaque_params = params.iter().map(|x| x as &dyn ToSql).collect::<Vec<_>>();
-
-    connection.execute(&sql, opaque_params.as_slice())
+    connection.execute(&sql, params_from_iter(params))
 }
 
 pub fn sqlite_module() -> BuiltInModule {
@@ -50,7 +108,9 @@ pub fn sqlite_module() -> BuiltInModule {
 
     module
         .register_fn("connection/open-in-memory", Connection::open_in_memory)
-        .register_fn("connection/execute!", connection_wrapper);
+        .register_fn("connection/execute!", connection_wrapper)
+        .register_fn("connection/prepare-and-execute!", prepare_and_execute)
+        .register_fn("connection/prepare-and-query!", prepare_and_query);
     // .register_fn("connection/prepare", statement_wrapper);
 
     module

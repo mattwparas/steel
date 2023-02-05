@@ -6,8 +6,6 @@
 
 (provide event-loop send-message connect-to-slack-socket get-ws-url)
 
-; (define (env-var! var) (unwrap-ok (env-var var)))
-
 (define (env-var! var)
   (let ((e (env-var var)))
     (if (Err? e)
