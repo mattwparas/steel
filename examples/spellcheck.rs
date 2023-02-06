@@ -37,7 +37,7 @@ fn main() {
 
     let mut vm = configure_engine();
 
-    let contents = include_str!("scripts/spellcheck.rkt");
+    let contents = include_str!("scripts/spellcheck.scm");
 
     let res = vm.compile_and_run_raw_program(contents);
 

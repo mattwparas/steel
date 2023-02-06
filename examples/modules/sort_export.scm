@@ -1,4 +1,4 @@
-(require "sort.rkt")
+(require "sort.scm")
 
 (provide sort)
 
