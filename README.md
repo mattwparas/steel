@@ -38,9 +38,8 @@ This will launch a REPL instance that looks something like this:
 
 `Steel` is an embeddable scheme interpreter, with a standalone cli included as well. Inspired largely by Racket and Clojure, the language seeks to be ergonomic scheme variant helpful for embedding in applications, or to be used on its own with high performance functions implemented in Rust. The language implementation itself contains a fairly powerful macro system based on the `syntax-rules` style and a bytecode virtual machine. At the moment, it is not explicitly compliant with any individual scheme specification.
 
-### Disclaimer
-
-The API is very unstable with no guarantees, and may change at any time while pre 1.0. There are undoubtedly bugs that exist, and I wouldn't consider Steel to be production ready. That being said, I do use it as a daily driver for many scripting tasks myself.
+> **Warning**
+> The API is very unstable with no guarantees, and may change at any time while pre 1.0. There are undoubtedly bugs that exist, and I wouldn't consider Steel to be production ready. That being said, I do use it as a daily driver for many scripting tasks myself.
 
 ## Features
 
@@ -160,7 +159,7 @@ Inspired by clojure's transducers, `Steel` has a similar object that is somewher
     (taking 15)) ;; => <#iterator>
 ```
 
-Each of these expressions emit an `<#iterator>` object, which means they're compatible with `execute` and `transduce`. Execute takes a transducer (i.e. `<#iterator>`) and a collection that can be iterated (`list`, `vector`, `stream`, `hashset`, `hashmap`, `string`, `struct`) and applies the transducer.
+Each of these expressions emit an `<#iterator>` object, which means they're compatible with  `transduce`. `transduce` takes a transducer (i.e. `<#iterator>`) and a collection that can be iterated (`list`, `vector`, `stream`, `hashset`, `hashmap`, `string`, `struct`) and applies the transducer.
 
 ```scheme
 ;; Accepts lists
@@ -218,13 +217,13 @@ Compose just combines the iterator functions and lets us avoid intermediate allo
 In order to support a growing codebase, Steel has module support for projects spanning multiple files. Steel files can `provide` values (with contracts attached) and `require` modules from other files:
 
 ```scheme
-;; main.stl
-(require "provide.stl")
+;; main.scm
+(require "provide.scm")
 
 (even->odd 10)
 
 
-;; provide.stl
+;; provide.scm
 (provide 
     (contract/out even->odd (->/c even? odd?))
     no-contract
