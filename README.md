@@ -33,6 +33,9 @@ This will launch a REPL instance that looks something like this:
   <img src="images/repl.gif" width="100%">
 </p>
 
+### Packages
+
+If you would like to install and use packages, please set the `STEEL_HOME` environment variable. This will be the location that packages get installed to. Steel currently does not assume any default.
 
 ## About
 

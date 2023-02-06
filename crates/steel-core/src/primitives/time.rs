@@ -2,8 +2,6 @@ use crate::{rvals::Custom, steel_vm::builtin::MarkdownDoc};
 use chrono::Local;
 use std::{time::Duration, time::Instant};
 
-// TODO fix this noise
-
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::steel_vm::register_fn::RegisterFn;
 
