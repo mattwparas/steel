@@ -76,23 +76,49 @@ fn prepare_and_query(
 
     let mut results = Vec::new();
 
+    let mut width: Option<usize> = None;
+
     while let Some(row) = rows.next()? {
-        // TODO: Save the row length for the next iteration, so that we can pre allocate
-        // the row width
-        let mut computed_row: Vec<SteelVal> = Vec::new();
-        let mut i = 0;
+        if let Some(width) = width {
+            // TODO: Save the row length for the next iteration, so that we can pre allocate
+            // the row width
+            let mut computed_row: Vec<SteelVal> = Vec::with_capacity(width);
 
-        while let Ok(value) = row.get(i) {
-            computed_row.push(value);
-            i += 1;
+            for i in 0..width {
+                computed_row.push(row.get(i).unwrap())
+            }
+
+            results.push(List::from(computed_row));
+        } else {
+            // TODO: Save the row length for the next iteration, so that we can pre allocate
+            // the row width
+            let mut computed_row: Vec<SteelVal> = Vec::new();
+            let mut i = 0;
+
+            while let Ok(value) = row.get(i) {
+                computed_row.push(value);
+                i += 1;
+            }
+
+            width = Some(i);
+
+            results.push(List::from(computed_row));
         }
-
-        results.push(List::from(computed_row));
     }
 
     // todo!()
 
     Ok(List::from(results))
+}
+
+// Consider returning a struct directly...
+fn _query_to_struct_list(
+    _connection: &Connection,
+    _sql: SteelString,
+    _params: List<SteelVal>,
+    _struct_descriptor: SteelVal,
+) -> Result<List<List<SteelVal>>> {
+    todo!("Add pushing a struct constructor directly on to the values returned for one less allocation")
 }
 
 fn connection_wrapper(
@@ -111,7 +137,6 @@ pub fn sqlite_module() -> BuiltInModule {
         .register_fn("connection/execute!", connection_wrapper)
         .register_fn("connection/prepare-and-execute!", prepare_and_execute)
         .register_fn("connection/prepare-and-query!", prepare_and_query);
-    // .register_fn("connection/prepare", statement_wrapper);
 
     module
 }

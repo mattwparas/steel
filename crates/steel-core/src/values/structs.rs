@@ -17,7 +17,10 @@ use crate::{
     SteelErr,
 };
 use crate::{steel_vm::builtin::BuiltInModule, stop};
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::{Ref, RefCell},
+    rc::Rc,
+};
 
 #[derive(Clone, Debug)]
 pub struct UserDefinedStruct {
@@ -26,16 +29,6 @@ pub struct UserDefinedStruct {
     pub(crate) len: usize,
     pub(crate) properties: Gc<im_rc::HashMap<SteelVal, SteelVal>>,
 }
-
-// impl AsRefSteelVal for UserDefinedStruct {
-//     fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
-//         if let SteelVal::CustomStruct(s) = val {
-//             Ok(SRef::Temporary(&s.borrow()))
-//         } else {
-//             stop!(TypeMismatch => format!("Value cannot be referenced as a struct: {}", val))
-//         }
-//     }
-// }
 
 impl std::fmt::Display for UserDefinedStruct {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
