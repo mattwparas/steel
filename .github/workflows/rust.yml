@@ -7,23 +7,22 @@ on:
     branches: [master]
 
 jobs:
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - name: Build
-        run: cargo build --verbose
+  # build:
+  #   name: Build
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v2
+  #     - uses: actions-rs/toolchain@v1
+  #       with:
+  #         profile: minimal
+  #         toolchain: stable
+  #         override: true
+
 
   test:
     name: Test Suite
     runs-on: ubuntu-latest
-    needs: build
+    # needs: build
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
@@ -33,39 +32,64 @@ jobs:
           toolchain: stable
           profile: minimal
           override: true
+
+      - name: Set the STEEL_HOME environment variable
+        run: echo STEEL_HOME=${PWD}/.steel >> $GITHUB_ENV 
+      - uses: Swatinem/rust-cache@v1
+
+      - name: Build
+        run: cargo build --verbose
+
+      - name: Install cogs
+        env:
+          STEEL_HOME: ${{ env.STEEL_HOME }}
+        run: |
+          echo $STEEL_HOME
+          mkdir -p .steel/cogs
+          cd cogs/
+          cargo run -- install.scm
+
       - uses: actions-rs/cargo@v1
+        env:
+          STEEL_HOME: ${{ env.STEEL_HOME }}
         with:
           command: test
-          args: --all-features --workspace
-
-  coverage:
-    name: Code coverage
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-      - name: rust-tarpaulin
-        uses: actions-rs/tarpaulin@v0.1
-        with:
           args: --all
-          out-type: "Lcov"
+
+      - name: install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin
+
+      - name: run code coverage
+        run: cargo tarpaulin --all -o "lcov"
+
       - name: Coveralls GitHub Action
         uses: coverallsapp/github-action@v1.1.2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path-to-lcov: ./lcov.info
 
+  # coverage:
+  #   name: Code coverage
+  #   runs-on: ubuntu-latest
+  #   needs: test
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v2
+  #     - name: Install Rust toolchain
+  #       uses: actions-rs/toolchain@v1
+  #       with:
+  #         toolchain: stable
+  #         profile: minimal
+  #         override: true
+
+  #     - uses: Swatinem/rust-cache@v1
+
+
+
   rustfmt:
     name: Rustfmt
     runs-on: ubuntu-latest
-    needs: build
+    needs: test
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2

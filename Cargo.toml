@@ -1,6 +1,6 @@
 [package]
-name = "steel_client"
-version = "0.1.0"
+name = "steel-cli"
+version = "0.2.0"
 authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
@@ -13,9 +13,10 @@ path = "src/main.rs"
 [dependencies]
 once_cell = "1.10.0"
 # steel = { path = "./steel", features = ["jit"] }
-steel = { path = "./steel" }
-steel_derive = { path = "./steel_derive"}
-steel_repl = { path = "./steel_repl" }
+# steel = { path = "./crates/steel", features = [] }
+steel-core = { path = "./crates/steel-core", version = "0.2.0", features = ["web", "sqlite"] }
+steel-derive = { path = "./crates/steel-derive", version = "0.2.0"}
+steel-repl = { path = "./crates/steel-repl", version = "0.2.0" }
 env_logger = "0.9"
 log = "0.4.14"
 clap = { version = "3.1.17", features = ["derive"] }
@@ -34,11 +35,10 @@ serde_json = "1.0.81"
 
 [workspace]
 members = [
-    "steel",
-    "steel_derive",
-    "steel_repl",
-    "example-dylib"
+    ".",
+    "crates/*",
 ]
 
 [profile.release]
-debug = true
+# debug = true
+lto = true

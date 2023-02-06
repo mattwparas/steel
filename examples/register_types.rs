@@ -105,7 +105,7 @@ pub fn main() {
         .unwrap();
 
     let new_external_struct = vm.extract::<ExternalStruct>("new-external-struct").unwrap();
-    println!("new_external_struct: {:?}", new_external_struct);
+    println!("new_external_struct: {new_external_struct:?}");
     assert_eq!(
         ExternalStruct::new(100, "foo".to_string(), 12.4),
         new_external_struct
@@ -113,15 +113,12 @@ pub fn main() {
 
     // Can also extract a value by specifying the type on the variable
     let get_output: usize = vm.extract("get-output").unwrap();
-    println!("get_output: {}", get_output);
+    println!("get_output: {get_output}");
     assert_eq!(1, get_output);
 
     let second_new_external_struct: ExternalStruct =
         vm.extract("second-new-external-struct").unwrap();
-    println!(
-        "second_new_external_struct: {:?}",
-        second_new_external_struct
-    );
+    println!("second_new_external_struct: {second_new_external_struct:?}");
     assert_eq!(
         ExternalStruct::new(50, "bananas".to_string(), 72.6),
         second_new_external_struct
@@ -129,5 +126,5 @@ pub fn main() {
 
     // We also get the output of the VM as the value of every expression run
     // we can inspect the results just by printing like so
-    println!("{:?}", output);
+    println!("{output:?}");
 }

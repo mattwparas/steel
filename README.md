@@ -19,7 +19,7 @@ An embeddable and extensible scheme dialect built in Rust.
 
 ## Getting Started
 
-This github repository contains a client that uses the `steel`, `steel_derive`, and `steel_repl` crates (which also live in this repo). To try it out on the online playground, go to the [Steel playground](https://mattwparas.github.io/steel-playground/dev). To get started using a repl with the crates, make sure you first have rust installed.
+This github repository contains a cli interpreter. To try it out on the online playground, go to the [Steel playground](https://mattwparas.github.io/steel-playground/dev). To get started using a repl with the crates, make sure you first have rust installed.
 
 Then, clone the repo and run the following command:
 
@@ -33,16 +33,22 @@ This will launch a REPL instance that looks something like this:
   <img src="images/repl.gif" width="100%">
 </p>
 
+### Packages
+
+If you would like to install and use packages, please set the `STEEL_HOME` environment variable. This will be the location that packages get installed to. Steel currently does not assume any default.
+
 ## About
 
-`Steel` is an embedded scheme interpreter. Inspired largely by Racket and Clojure, the language seeks to be ergonomic scheme variant helpful for embedding in applications, or to be used on its own with high performance functions implemented in Rust. The language implementation itself contains a fairly powerful macro system based on the `syntax-rules` style and a bytecode virtual machine.
+`Steel` is an embeddable scheme interpreter, with a standalone cli included as well. Inspired largely by Racket and Clojure, the language seeks to be ergonomic scheme variant helpful for embedding in applications, or to be used on its own with high performance functions implemented in Rust. The language implementation itself contains a fairly powerful macro system based on the `syntax-rules` style and a bytecode virtual machine. At the moment, it is not explicitly compliant with any individual scheme specification.
+
+> **Warning**
+> The API is very unstable with no guarantees, and may change at any time while pre 1.0. There are undoubtedly bugs that exist, and I wouldn't consider Steel to be production ready. That being said, I do use it as a daily driver for many scripting tasks myself.
 
 ## Features
 
 * Limited `syntax-rules` style macros are supported
 * Easy integration with Rust functions and structs
 * Easily call a script from rust or via a separate file
-* Few dependencies
 * Efficient - common functions and data structures are optimized for performance (`map`, `filter`, etc)
 * Higher order Contracts
 * Built in immutable data structures include:
@@ -156,7 +162,7 @@ Inspired by clojure's transducers, `Steel` has a similar object that is somewher
     (taking 15)) ;; => <#iterator>
 ```
 
-Each of these expressions emit an `<#iterator>` object, which means they're compatible with `execute` and `transduce`. Execute takes a transducer (i.e. `<#iterator>`) and a collection that can be iterated (`list`, `vector`, `stream`, `hashset`, `hashmap`, `string`, `struct`) and applies the transducer.
+Each of these expressions emit an `<#iterator>` object, which means they're compatible with  `transduce`. `transduce` takes a transducer (i.e. `<#iterator>`) and a collection that can be iterated (`list`, `vector`, `stream`, `hashset`, `hashmap`, `string`, `struct`) and applies the transducer.
 
 ```scheme
 ;; Accepts lists
@@ -214,13 +220,13 @@ Compose just combines the iterator functions and lets us avoid intermediate allo
 In order to support a growing codebase, Steel has module support for projects spanning multiple files. Steel files can `provide` values (with contracts attached) and `require` modules from other files:
 
 ```scheme
-;; main.stl
-(require "provide.stl")
+;; main.scm
+(require "provide.scm")
 
 (even->odd 10)
 
 
-;; provide.stl
+;; provide.scm
 (provide 
     (contract/out even->odd (->/c even? odd?))
     no-contract
@@ -340,8 +346,12 @@ impl ExternalStruct {
         ExternalStruct { foo, bar, baz }
     }
 
-    // Embedding functions that take self must take by value
+    // Embedding functions that take self by value
     pub fn method_by_value(self) -> usize {
+        self.foo
+    }
+
+    pub fn method_by_reference(&self) -> usize {
         self.foo
     }
 
@@ -363,6 +373,7 @@ pub fn main() {
 
     // register_fn can be chained
     vm.register_fn("method-by-value", ExternalStruct::method_by_value)
+        .register_fn("method-by-reference", ExternalStruct::method_by_reference)
         .register_fn("set-foo", ExternalStruct::set_foo);
 
     let external_struct = ExternalStruct::new(1, "foo".to_string(), 12.4);

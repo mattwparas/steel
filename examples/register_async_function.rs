@@ -28,27 +28,27 @@ pub fn main() {
     // like to not invoke it from an async context
     vm.register_fn("test", test_function);
 
-    let contents = include_str!("scripts/async.rkt");
+    let contents = include_str!("scripts/async.scm");
 
-    let res = vm.compile_and_run_raw_program(&contents);
+    let res = vm.compile_and_run_raw_program(contents);
 
     if let Err(e) = res {
-        e.emit_result("async.rkt", &contents);
+        e.emit_result("async.rkt", contents);
     }
 
-    let contents = include_str!("scripts/async-threads.rkt");
+    let contents = include_str!("scripts/async-threads.scm");
 
-    let res = vm.compile_and_run_raw_program(&contents);
+    let res = vm.compile_and_run_raw_program(contents);
 
     if let Err(e) = res {
-        e.emit_result("async-threads.rkt", &contents);
+        e.emit_result("async-threads.rkt", contents);
     }
 
-    let contents = include_str!("scripts/poll.rkt");
+    let contents = include_str!("scripts/poll.scm");
 
-    let res = vm.compile_and_run_raw_program(&contents);
+    let res = vm.compile_and_run_raw_program(contents);
 
     if let Err(e) = res {
-        e.emit_result("poll.rkt", &contents);
+        e.emit_result("poll.rkt", contents);
     }
 }

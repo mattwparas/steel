@@ -106,3 +106,11 @@ Now, we also want to provide the ability to apply transformations at the module 
 ```
 
 We want this to actually apply the contract transformation explicitly at the module boundary - that way only modules that explicitly import this will see the contract applied here.
+
+
+### Constant folding of bytecode ops
+
+* So we can generate a trace, to not only create super instructions, but rather to just flatten the sequence of instructions
+* Even better, if we can constant fold some of the operations, that would be better, take for example something like this:
+
+<!-- https://www3.hhu.de/stups/downloads/pdf/BoCuFiRi09_246.pdf -->

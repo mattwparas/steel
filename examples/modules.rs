@@ -13,7 +13,7 @@ pub fn main() {
 
     vm.compile_and_run_raw_program(
         r#"
-        (require "examples/modules/sort_export.rkt")
+        (require "examples/modules/sort_export.scm")
 
         (define sorted (sort '(1000 342 1 5534 34243 223 23495)))
 

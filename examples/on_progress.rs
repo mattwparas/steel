@@ -14,7 +14,7 @@ pub fn main() {
         // parameter is 'usize' - number of instructions performed up to this point
         if count % 1000 == 0 {
             // print out a progress log every 1000 operations
-            println!("Number of instructions up to this point: {}", count);
+            println!("Number of instructions up to this point: {count}");
             // Returning false here would quit the evaluation of the function
             return true;
         }

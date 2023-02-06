@@ -1,0 +1,15 @@
+[package]
+name = "steel-derive"
+version = "0.2.0"
+authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = {version = "1.0.76" }
+quote = "1.0.9"
+proc-macro2 = "1.0.29"
