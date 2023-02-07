@@ -147,7 +147,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     );
     let mut prompt = format!("{}", "λ > ".bright_green().bold().italic());
 
-    let mut rl = Editor::<RustylineHelper>::new();
+    let mut rl = Editor::<RustylineHelper>::new().expect("Unable to instantiate the repl!");
     rl.set_helper(Some(RustylineHelper {
         highlighter: MatchingBracketHighlighter::default(),
         validator: MatchingBracketValidator::default(),

@@ -11,27 +11,27 @@ name = "steel"
 path = "src/main.rs"
 
 [dependencies]
-once_cell = "1.10.0"
+once_cell = "1.17.0"
 # steel = { path = "./steel", features = ["jit"] }
 # steel = { path = "./crates/steel", features = [] }
 steel-core = { path = "./crates/steel-core", version = "0.2.0", features = ["web", "sqlite"] }
 steel-derive = { path = "./crates/steel-derive", version = "0.2.0"}
 steel-repl = { path = "./crates/steel-repl", version = "0.2.0" }
-env_logger = "0.9"
-log = "0.4.14"
-clap = { version = "3.1.17", features = ["derive"] }
-dlopen = "0.1"
+env_logger = "0.10.0"
+log = "0.4.17"
+clap = { version = "4.1.4", features = ["derive"] }
+dlopen = "0.1.8"
 dlopen_derive = "0.1.4"
 
 # [[bin]]
 # name = "main"
 
 [dev-dependencies]
-tungstenite = { version = "0.17.2", features = ["rustls-tls-native-roots"] }
-reqwest = { version = "0.11.10", features = ["blocking", "json"] }
-serde = { version = "1.0", features = ["derive"] }
-url = "2.2.2"
-serde_json = "1.0.81"
+tungstenite = { version = "0.18.0", features = ["rustls-tls-native-roots"] }
+reqwest = { version = "0.11.14", features = ["blocking", "json"] }
+serde = { version = "1.0.152", features = ["derive"] }
+url = "2.3.1"
+serde_json = "1.0.92"
 
 [workspace]
 members = [
