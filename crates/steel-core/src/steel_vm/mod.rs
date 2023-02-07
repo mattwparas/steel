@@ -3,7 +3,6 @@ pub(crate) mod const_evaluation;
 pub mod contract_checker;
 mod contracts;
 pub mod engine;
-mod evaluation_progress;
 // mod heap;
 pub mod dylib;
 mod lazy_stream;
