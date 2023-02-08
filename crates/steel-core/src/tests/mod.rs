@@ -61,6 +61,7 @@ test_harness_success! {
     capture_upvalues_arity_two,
     close_upvalue,
     closure_value_capture,
+    complex_lets,
     delim_control,
     delim_control_n,
     define_normal,
