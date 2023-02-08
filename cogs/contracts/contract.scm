@@ -159,6 +159,7 @@
                                         ; (ContractedFunction-contract contracted-function)))
 
   (log/warn! "apply-contracted-function: " contracted-function)
+  (log/info! span)
 
   (apply-function-contract (ContractedFunction-contract contracted-function)
                            (ContractedFunction-name contracted-function)
@@ -204,7 +205,7 @@
                      arg))]
               [(FunctionContract? contract)
                =>
-              ;  (log/info! "Wrapping contract in precondition: " arg)
+               (log/info! "Wrapping contract in precondition: " arg)
                (if (ContractedFunction? arg)
                    (let ((pre-parent (ContractedFunction-contract arg)))
                      (let ((parent (new-FunctionContract
@@ -252,7 +253,22 @@
                                         ; (displayln function)
                                         ; (displayln validated-arguments)
                                         ; (displayln "Calling the function itself!")
-    (let ((output (apply function validated-arguments))
+
+    ;; TODO: Catch the error from the result of apply here, and attach the correct span
+
+    ; (with-handler (lambda (err) (mark-failed name)
+    ;                                     (print-failure name) 
+    ;                                     (displayln err))
+    ;             (test name input expected))
+
+    (log/error! span)
+
+    (let (
+          ; (output (apply function validated-arguments))
+
+          (output (with-handler (lambda (err) (displayln span) (raise-error-with-span err span))
+                                (apply function validated-arguments)))
+
           (self-contract contract)
           (self-contract-attachment-location (FunctionContract-contract-attachment-location contract))
           (contract (FunctionContract-post-condition contract)))
@@ -348,7 +364,7 @@
                                #:contract-attachment-location contract-attachment-location
                                #:parents (cons parent (FunctionContract-parents pre-parent))))
 
-                    ; (log/info! "Parents found here: " (FunctionContract-parents fc))
+                    (log/info! "Parents found here: " (FunctionContract-parents fc))
 
                    (bind-contract-to-function fc original-function name span))
                  (bind-contract-to-function contract output name span))]
@@ -366,7 +382,7 @@
   ; (displayln "Current function span: " (current-function-span))
   
   (let ((updated-preconditions
-         (dbg! (transduce
+         (transduce
           (FunctionContract-pre-conditions contract)
           (mapping (lambda (c)
                      (cond [(FlatContract? c) => c]
@@ -377,7 +393,7 @@
                              (ContractAttachmentLocation 'DOMAIN name)
                              (FunctionContract-parents c))]
                            [else => (error "Unexpected value found in bind-contract-to-function preconditions: " c)])))
-          (into-list))))
+          (into-list)))
 
         (updated-postcondition
                                         ;  (begin
@@ -388,7 +404,8 @@
 
                ;; TODO: This log here causes an error -> probably to do with offset calculation
                ;; during semantic analysis
-              ;  (log/error! "Getting here!")
+               (log/error! "Getting here!")
+               (log/error! post-condition)
 
                 (FunctionContract
                  (FunctionContract-pre-conditions post-condition)
@@ -409,7 +426,10 @@
 
                                         ; (displayln (FunctionContract-parents contract))
 
-    (log/debug! "Preconditions here: " updated-preconditions)
+    ; (log/debug! "Preconditions here: " updated-preconditions)
+
+    ; (log/error! contract)
+
 
     (let ((contracted-function
            (ContractedFunction
@@ -420,7 +440,14 @@
                                         ;  (ContractAttachmentLocation 'TOPLEVEL name)
                                         ;  void
              (ContractAttachmentLocation 'TOPLEVEL name)
-             (FunctionContract-parents contract))
+             
+             (if (get-contract-struct function)
+                 (cons (get-contract-struct function) (FunctionContract-parents contract))
+                 (FunctionContract-parents contract))
+             
+             
+             
+             )
             function name)))
 
       ; (displayln "prev span: " (current-function-span))
@@ -576,33 +603,37 @@
 ;; ; (blagh (lambda (x) (+ x 2)) 2)
 
 
-; (define (any? x) (displayln "***** CHECKING ANY? *****") #true)
+(define (any? x) (displayln "***** CHECKING ANY? *****") #true)
 
-; (define (int-checker? x) (displayln "***** CHECKING INT? ******") (int? x))
-; (define (number-checker? x) (displayln "***** CHECKING NUMBER? ******") (number? x))
+(define (int-checker? x) (displayln "***** CHECKING INT? ******") (int? x))
+(define (number-checker? x) (displayln "***** CHECKING NUMBER? ******") (number? x))
 
-; (define level1
-;     (bind-contract-to-function
-;         (make-function-contract
-;             (make-function-contract (FlatContract number-checker? 'number-checker?)))
-;         (lambda () (lambda () (displayln "@@@@@@@@@@ CALLING FUNCTION @@@@@@@@@@@") 10))
-;         'level1))
+(define level1
+    (bind-contract-to-function
+        (make-function-contract
+            (make-function-contract (FlatContract number-checker? 'number-checker?)))
+        (lambda () (lambda () (displayln "@@@@@@@@@@ CALLING FUNCTION @@@@@@@@@@@") 10.2))
+        'level1))
 
-; (define level2
-;     (bind-contract-to-function
-;         (make-function-contract
-;             (make-function-contract (FlatContract int-checker? 'int-checker)))
-;         (lambda () (level1))
-;         'level2))
+(define level2
+    (bind-contract-to-function
+        (make-function-contract
+            (make-function-contract (FlatContract int-checker? 'int-checker)))
+        (lambda () (level1))
+        'level2))
 
-; (define level3
-;     (bind-contract-to-function
-;         (make-function-contract
-;             (make-function-contract (FlatContract any? 'any?)))
-;         (lambda () (level2))
-;         'level3))
+(define level3
+    (bind-contract-to-function
+        (make-function-contract
+            (make-function-contract (FlatContract any? 'any?)))
+        (lambda () (level2))
+        'level3))
 
-; ((level3))
+((level3))
+
+; (define/c (foo x y)
+;     (->c even? odd? odd?)
+;     (+ x y))
 
 
 

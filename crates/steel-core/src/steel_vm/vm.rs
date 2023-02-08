@@ -415,6 +415,8 @@ impl SteelThread {
 
                                 vm_instance.ip = 0;
                                 vm_instance.sp = last.sp;
+
+                                println!("{:?}", vm_instance.thread.stack);
                             }
                             _ => todo!("Unsupported"),
                         }
