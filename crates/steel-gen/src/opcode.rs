@@ -14,6 +14,7 @@ pub enum OpCode {
     SDEF,
     EDEF,
     POPPURE,
+    POPN,
     PASS,
     PUSHCONST,
     NDEFS,

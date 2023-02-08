@@ -481,6 +481,10 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             self.visit(expr)?;
         }
 
+        if begin.exprs.len() > 1 {
+            self.push(LabeledInstruction::builder(OpCode::POPN).payload(begin.exprs.len() - 1));
+        }
+
         Ok(())
     }
 

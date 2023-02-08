@@ -861,7 +861,11 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         for expr in &l.args[1..] {
             self.escape_analysis = true;
+            // self.stack_offset += 1;
             self.visit(expr);
+
+            // println!("Stack offset: {:?}", self.stack_offset);
+
             self.stack_offset += 1;
             // println!("Visiting argument: {}", expr);
             // self.escape_analysis = true;
@@ -966,7 +970,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // After that, we can continue with everything but those
         for (index, expr) in begin.exprs.iter().enumerate() {
             if index == last {
-                self.tail_call_eligible = true;
+                self.tail_call_eligible = eligibility;
             }
 
             if let ExprKind::Define(define) = expr {

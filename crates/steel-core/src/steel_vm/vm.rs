@@ -1137,6 +1137,27 @@ impl<'a> VmCore<'a> {
                 }
 
                 DenseInstruction {
+                    op_code: OpCode::POPN,
+                    payload_size,
+                    ..
+                } => {
+                    let last = self.thread.stack.pop().unwrap();
+
+                    // println!("popping: {}", payload_size);
+                    // println!("Stack length: {:?}", self.thread.stack.len());
+
+                    self.thread
+                        .stack
+                        .truncate(self.thread.stack.len() - payload_size as usize);
+
+                    self.thread.stack.push(last);
+
+                    self.ip += 1;
+
+                    // todo!()
+                }
+
+                DenseInstruction {
                     op_code: OpCode::POPPURE,
                     ..
                 } => {
@@ -1859,6 +1880,7 @@ impl<'a> VmCore<'a> {
 
     #[inline(always)]
     fn handle_local(&mut self, index: usize) -> Result<()> {
+        // println!("STACK HERE: {:?}", self.thread.stack);
         // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
         let offset = self.get_offset();
         let value = self.thread.stack[index + offset].clone();
