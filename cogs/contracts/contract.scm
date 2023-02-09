@@ -301,7 +301,6 @@
                              (contract->string self-contract) (ContractViolation-error-message result) "blaming: None - broke its own contract")]
 
                            [else =>
-                                 (displayln "Inside here!")
                                  (error-with-span
                                   span
                                   "this function call resulted in an error - occurred in the range position of this contract: "
