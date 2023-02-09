@@ -428,6 +428,13 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         let pop_op_code = OpCode::POPPURE;
 
+        // Elide the POPN if the POPPURE will take care of it
+        if let Some(x) = body_instructions.last_mut() {
+            if x.op_code == OpCode::POPN {
+                x.op_code = OpCode::PASS;
+            }
+        }
+
         body_instructions
             .push(LabeledInstruction::builder(pop_op_code).payload(lambda_function.args.len()));
 
