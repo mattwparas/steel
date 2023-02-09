@@ -375,19 +375,6 @@ impl SteelThread {
 
                         vm_instance.thread.stack.push(e.into_steelval()?);
 
-                        // vm_instance
-                        //     .stack
-                        //     .push(SteelVal::StringV(Rc::from("APPLESAUCE")));
-
-                        // println!("Found handler!");
-
-                        // println!("Stack here: {:?}", vm_instance.stack_frames);
-                        // println!("pop count: {}", vm_instance.pop_count);
-
-                        // panic!("Stopping");
-
-                        // vm_instance.stack_frames.push(last);
-
                         // If we're at the top level, we need to handle this _slightly_ differently
                         // if vm_instance.stack_frames.is_empty() {
                         // Somehow update the main instruction group to _just_ be the new group
@@ -413,23 +400,12 @@ impl SteelThread {
                                 last.handler = None;
                                 last.function = closure;
 
-                                // ctx.function_stack
-                                //     .push(CallContext::new(closure).with_span(ctx.current_span()));
-
                                 vm_instance.ip = 0;
 
                                 // Put this back as the last stack frame
                                 vm_instance.thread.stack_frames.push(last);
 
                                 vm_instance.pop_count += 1;
-
-                                // vm_instance.thread.stack_frames.push()
-
-                                // vm_instance.pop_count += 1;
-
-                                // vm_instance.sp = last.sp;
-
-                                // println!("{:?}", vm_instance.thread.stack);
                             }
                             _ => todo!("Unsupported"),
                         }

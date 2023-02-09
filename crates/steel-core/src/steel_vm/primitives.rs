@@ -980,17 +980,5 @@ pub fn error_from_error_with_span() -> SteelVal {
         let span = Span::from_steelval(&args[1])?;
 
         Err(steel_error.with_span(span))
-
-        // if !args[1..].is_empty() {
-        //     for arg in &args[1..] {
-        //         let error_val = arg.to_string();
-        //         error_message.push(' ');
-        //         error_message.push_str(error_val.trim_matches('\"'));
-        //     }
-
-        //     stop!(Generic => error_message; span);
-        // } else {
-        //     stop!(ArityMismatch => "error-with-span takes at least one argument"; span);
-        // }
     })
 }
