@@ -1705,7 +1705,7 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::PASS,
                     ..
                 } => {
-                    log::warn!("Hitting a pass - this shouldn't happen");
+                    // log::warn!("Hitting a pass - this shouldn't happen");
                     self.ip += 1;
                 }
                 _ => {
