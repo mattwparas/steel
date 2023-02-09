@@ -360,7 +360,7 @@ impl SteelThread {
             // (let () (call-with-exception-handler (lambda (x) (displayln x)) (lambda () (+ 10 20 (error "oops!")))) (displayln "hi"))
 
             if let Err(e) = result {
-                while let Some(last) = vm_instance.thread.stack_frames.pop() {
+                while let Some(mut last) = vm_instance.thread.stack_frames.pop() {
                     // For whatever reason - if we're at the top, we shouldn't go down below 0
                     if vm_instance.pop_count == 0 {
                         return Err(e);
@@ -374,19 +374,6 @@ impl SteelThread {
                         vm_instance.thread.stack.truncate(last.sp);
 
                         vm_instance.thread.stack.push(e.into_steelval()?);
-
-                        // vm_instance
-                        //     .stack
-                        //     .push(SteelVal::StringV(Rc::from("APPLESAUCE")));
-
-                        // println!("Found handler!");
-
-                        // println!("Stack here: {:?}", vm_instance.stack_frames);
-                        // println!("pop count: {}", vm_instance.pop_count);
-
-                        // panic!("Stopping");
-
-                        // vm_instance.stack_frames.push(last);
 
                         // If we're at the top level, we need to handle this _slightly_ differently
                         // if vm_instance.stack_frames.is_empty() {
@@ -406,15 +393,19 @@ impl SteelThread {
                                     ));
                                 }
 
-                                // vm_instance.pop_count += 1;
-
+                                vm_instance.sp = last.sp;
                                 vm_instance.instructions = closure.body_exp();
                                 vm_instance.spans = closure.spans();
-                                // ctx.function_stack
-                                //     .push(CallContext::new(closure).with_span(ctx.current_span()));
+
+                                last.handler = None;
+                                last.function = closure;
 
                                 vm_instance.ip = 0;
-                                vm_instance.sp = last.sp;
+
+                                // Put this back as the last stack frame
+                                vm_instance.thread.stack_frames.push(last);
+
+                                vm_instance.pop_count += 1;
                             }
                             _ => todo!("Unsupported"),
                         }
@@ -1134,6 +1125,27 @@ impl<'a> VmCore<'a> {
                         { self.thread.super_instructions[payload_size as usize].clone() };
 
                     super_instruction.call(self)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::POPN,
+                    payload_size,
+                    ..
+                } => {
+                    let last = self.thread.stack.pop().unwrap();
+
+                    // println!("popping: {}", payload_size);
+                    // println!("Stack length: {:?}", self.thread.stack.len());
+
+                    self.thread
+                        .stack
+                        .truncate(self.thread.stack.len() - payload_size as usize);
+
+                    self.thread.stack.push(last);
+
+                    self.ip += 1;
+
+                    // todo!()
                 }
 
                 DenseInstruction {
@@ -1859,6 +1871,7 @@ impl<'a> VmCore<'a> {
 
     #[inline(always)]
     fn handle_local(&mut self, index: usize) -> Result<()> {
+        // println!("STACK HERE: {:?}", self.thread.stack);
         // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
         let offset = self.get_offset();
         let value = self.thread.stack[index + offset].clone();

@@ -58,32 +58,7 @@ impl<'global, 'a> Iterator for LazyStreamIter<'global, 'a> {
 
 #[cfg(test)]
 mod stream_tests {
-    // use super::*;
-    // use crate::compiler::constants::ConstantMap;
-    // use crate::steel_vm::options::ApplyContract;
-    // use crate::steel_vm::options::UseCallback;
     use crate::steel_vm::test_util::assert_script;
-
-    // #[test]
-    // fn test_empty_stream_creates_no_iter() {
-    //     let constants = ConstantMap::new();
-    //     let cur_inst_span = Span::new(0, 0);
-    //     let callback = EvaluationProgress::new();
-    //     let mut global_env = Env::root();
-    //     let mut mut_ref = &mut global_env;
-
-    //     let lazy_iter = LazyStreamIter::new(
-    //         LazyStream::new_empty_stream(),
-    //         &constants,
-    //         &cur_inst_span,
-    //         &callback,
-    //         Rc::new(RefCell::new(&mut mut_ref)),
-    //         UseCallback,
-    //         ApplyContract,
-    //     );
-
-    //     assert!(lazy_iter.into_iter().next().is_none());
-    // }
 
     #[test]
     fn simple_stream() {

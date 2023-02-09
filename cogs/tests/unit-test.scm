@@ -74,15 +74,18 @@
 ))
 
 ; (test-module
-;     (check-equal? "Checks that the expressions make sense" 
-;                   (+ 10 20 30) 
-;                   (+ 10 20 30))
+    ; (check-equal? "Checks that the expressions make sense" 
+    ;               (+ 10 20 30) 
+    ;               (+ 10 20 30))
 
-;     (check-err? "This should fail (in a good way)!" 
-;                 (error! "Throwing an error") 
-;                 (+ 10 20 30))
+    ; (check-err? "This should fail (in a good way)!" 
+    ;             (error! "Throwing an error") 
+    ;             (+ 10 20 30))
 
-;     (check-equal? "This should fail" 
-;                   (+ 10 20) 
-;                   (+ 30 40)))
+    ; (check-equal? "This should fail" 
+    ;               (+ 10 20) 
+    ;               (+ 30 40))
+                  
+                ;   )
 
+; (check-equal? "test" (begin (error! "hello world") 10) 10)

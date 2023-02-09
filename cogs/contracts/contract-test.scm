@@ -24,4 +24,4 @@
     ; (check-err? "Should raise a contract violation" (foo 11 10) 21)
     
     ; (check-err? "Should raise a contract violation" (foo 11 10) 21)
-    )
+)
