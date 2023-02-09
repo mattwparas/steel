@@ -993,14 +993,13 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             }
 
             self.tail_call_eligible = false;
-            self.stack_offset += 1;
+            // self.stack_offset += 1;
         }
 
         // Overall, 1 for the total
-        // self.stack_offset += 1;
 
         if !begin.exprs.is_empty() {
-            self.stack_offset -= 1;
+            self.stack_offset += 1;
         }
 
         self.tail_call_eligible = eligibility;

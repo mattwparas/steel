@@ -4,4 +4,4 @@
             (foo (begin (displayln 10) (displayln 20) 40)))
         (+ apples bananas foo)))
 
-(assert (equal? (test) 80))
+(assert! (equal? (test) 80))

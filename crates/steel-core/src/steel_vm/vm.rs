@@ -360,7 +360,7 @@ impl SteelThread {
             // (let () (call-with-exception-handler (lambda (x) (displayln x)) (lambda () (+ 10 20 (error "oops!")))) (displayln "hi"))
 
             if let Err(e) = result {
-                while let Some(last) = vm_instance.thread.stack_frames.pop() {
+                while let Some(mut last) = vm_instance.thread.stack_frames.pop() {
                     // For whatever reason - if we're at the top, we shouldn't go down below 0
                     if vm_instance.pop_count == 0 {
                         return Err(e);
@@ -406,17 +406,30 @@ impl SteelThread {
                                     ));
                                 }
 
-                                // vm_instance.pop_count += 1;
-
+                                vm_instance.sp = last.sp;
                                 vm_instance.instructions = closure.body_exp();
                                 vm_instance.spans = closure.spans();
+
+                                last.handler = None;
+                                last.function = closure;
+
                                 // ctx.function_stack
                                 //     .push(CallContext::new(closure).with_span(ctx.current_span()));
 
                                 vm_instance.ip = 0;
-                                vm_instance.sp = last.sp;
 
-                                println!("{:?}", vm_instance.thread.stack);
+                                // Put this back as the last stack frame
+                                vm_instance.thread.stack_frames.push(last);
+
+                                vm_instance.pop_count += 1;
+
+                                // vm_instance.thread.stack_frames.push()
+
+                                // vm_instance.pop_count += 1;
+
+                                // vm_instance.sp = last.sp;
+
+                                // println!("{:?}", vm_instance.thread.stack);
                             }
                             _ => todo!("Unsupported"),
                         }

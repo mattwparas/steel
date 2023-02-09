@@ -1,4 +1,4 @@
-(require "../logging/log.scm")
+; (require "../logging/log.scm")
 
 (provide
  make-function-contract
@@ -158,8 +158,8 @@
                                         ; (apply-parents (FunctionContract-parent
                                         ; (ContractedFunction-contract contracted-function)))
 
-  (log/warn! "apply-contracted-function: " contracted-function)
-  (log/info! span)
+  ; (log/warn! "apply-contracted-function: " contracted-function)
+  ; (log/info! span)
 
   (apply-function-contract (ContractedFunction-contract contracted-function)
                            (ContractedFunction-name contracted-function)
@@ -205,7 +205,7 @@
                      arg))]
               [(FunctionContract? contract)
                =>
-               (log/info! "Wrapping contract in precondition: " arg)
+              ;  (log/info! "Wrapping contract in precondition: " arg)
                (if (ContractedFunction? arg)
                    (let ((pre-parent (ContractedFunction-contract arg)))
                      (let ((parent (new-FunctionContract
@@ -261,12 +261,18 @@
     ;                                     (displayln err))
     ;             (test name input expected))
 
-    (log/error! span)
+    ; (log/error! span)
 
     (let (
           ; (output (apply function validated-arguments))
 
-          (output (with-handler (lambda (err) (displayln span) (raise-error-with-span err span))
+          (output (with-handler (lambda (err) 
+                                          ;; Adding these here forces the correct capturing
+                                          ;; for whatever reason, span => getting captured as a function
+                                          ;; try to investigate whats going on
+                                          ; (displayln function) 
+                                          ; (displayln span) 
+                                          (raise-error-with-span err span))
                                 (apply function validated-arguments)))
 
           (self-contract contract)
@@ -364,7 +370,7 @@
                                #:contract-attachment-location contract-attachment-location
                                #:parents (cons parent (FunctionContract-parents pre-parent))))
 
-                    (log/info! "Parents found here: " (FunctionContract-parents fc))
+                    ; (log/info! "Parents found here: " (FunctionContract-parents fc))
 
                    (bind-contract-to-function fc original-function name span))
                  (bind-contract-to-function contract output name span))]
@@ -404,8 +410,8 @@
 
                ;; TODO: This log here causes an error -> probably to do with offset calculation
                ;; during semantic analysis
-               (log/error! "Getting here!")
-               (log/error! post-condition)
+              ;  (log/error! "Getting here!")
+              ;  (log/error! post-condition)
 
                 (FunctionContract
                  (FunctionContract-pre-conditions post-condition)
@@ -603,33 +609,33 @@
 ;; ; (blagh (lambda (x) (+ x 2)) 2)
 
 
-(define (any? x) (displayln "***** CHECKING ANY? *****") #true)
+; (define (any? x) (displayln "***** CHECKING ANY? *****") #true)
 
-(define (int-checker? x) (displayln "***** CHECKING INT? ******") (int? x))
-(define (number-checker? x) (displayln "***** CHECKING NUMBER? ******") (number? x))
+; (define (int-checker? x) (displayln "***** CHECKING INT? ******") (int? x))
+; (define (number-checker? x) (displayln "***** CHECKING NUMBER? ******") (number? x))
 
-(define level1
-    (bind-contract-to-function
-        (make-function-contract
-            (make-function-contract (FlatContract number-checker? 'number-checker?)))
-        (lambda () (lambda () (displayln "@@@@@@@@@@ CALLING FUNCTION @@@@@@@@@@@") 10.2))
-        'level1))
+; (define level1
+;     (bind-contract-to-function
+;         (make-function-contract
+;             (make-function-contract (FlatContract number-checker? 'number-checker?)))
+;         (lambda () (lambda () (displayln "@@@@@@@@@@ CALLING FUNCTION @@@@@@@@@@@") 10.2))
+;         'level1))
 
-(define level2
-    (bind-contract-to-function
-        (make-function-contract
-            (make-function-contract (FlatContract int-checker? 'int-checker)))
-        (lambda () (level1))
-        'level2))
+; (define level2
+;     (bind-contract-to-function
+;         (make-function-contract
+;             (make-function-contract (FlatContract int-checker? 'int-checker)))
+;         (lambda () (level1))
+;         'level2))
 
-(define level3
-    (bind-contract-to-function
-        (make-function-contract
-            (make-function-contract (FlatContract any? 'any?)))
-        (lambda () (level2))
-        'level3))
+; (define level3
+;     (bind-contract-to-function
+;         (make-function-contract
+;             (make-function-contract (FlatContract any? 'any?)))
+;         (lambda () (level2))
+;         'level3))
 
-((level3))
+; ((level3))
 
 ; (define/c (foo x y)
 ;     (->c even? odd? odd?)
