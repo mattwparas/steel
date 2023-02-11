@@ -6,6 +6,8 @@
  FlatContract
  FlatContract-predicate
  FunctionContract
+ FunctionContract-pre-conditions
+ FunctionContract-post-condition
  (for-syntax ->c)
  (for-syntax define/c))
 

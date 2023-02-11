@@ -840,6 +840,140 @@ impl<'a> Parser<'a> {
     }
 }
 
+fn wrap_in_doc_function(expr: ExprKind, comment: String) -> ExprKind {
+    ExprKind::List(List::new(vec![
+        ExprKind::ident("@doc"),
+        expr,
+        ExprKind::string_lit(comment),
+    ]))
+}
+
+impl<'a> Parser<'a> {
+    fn get_next_and_maybe_wrap_in_doc(&mut self) -> Option<Result<ExprKind>> {
+        let mut next;
+
+        loop {
+            next = self.tokenizer.next();
+
+            if let Some(res) = next {
+                match res.ty {
+                    TokenType::Comment => {
+                        self.comment_buffer
+                            .push(res.source().trim_start_matches(';').trim_start());
+
+                        continue;
+                    }
+
+                    TokenType::QuoteTick => {
+                        // See if this does the job
+                        self.shorthand_quote_stack.push(0);
+
+                        // println!("Entering Context: Quote Tick");
+                        self.context.push(ParsingContext::QuoteTick(0));
+
+                        let value = self
+                            .next()
+                            .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                            .map(|x| self.construct_quote_vec(x, res.span));
+
+                        self.shorthand_quote_stack.pop();
+
+                        let popped_value = self.context.pop();
+
+                        if let Some(popped) = popped_value {
+                            debug_assert!(matches!(popped, ParsingContext::QuoteTick(_)))
+                        }
+
+                        // println!("Exiting context: {:?}", self.context.pop());
+                        // println!("Result: {:?}", value);
+
+                        return Some(match value {
+                            Ok(v) => ExprKind::try_from(v),
+                            Err(e) => Err(e),
+                        });
+                    }
+
+                    TokenType::Unquote => {
+                        // println!("Entering Context: Unquote");
+                        self.context.push(ParsingContext::UnquoteTick(0));
+
+                        let value = self
+                            .next()
+                            .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                            .map(|x| self.construct_unquote(x, res.span));
+
+                        let popped_value = self.context.pop();
+
+                        if let Some(popped) = popped_value {
+                            debug_assert!(matches!(popped, ParsingContext::UnquoteTick(_)))
+                        }
+                        // println!("Exiting context: {:?}", self.context.pop());
+
+                        return Some(value);
+                    }
+
+                    TokenType::UnquoteSplice => {
+                        // println!("Entering Context: Unquotesplicing");
+                        self.context.push(ParsingContext::UnquoteSplicingTick(0));
+
+                        let value = self
+                            .next()
+                            .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                            .map(|x| self.construct_unquote_splicing(x, res.span));
+
+                        let popped_value = self.context.pop();
+
+                        if let Some(popped) = popped_value {
+                            debug_assert!(matches!(popped, ParsingContext::UnquoteSplicingTick(_)))
+                        }
+
+                        // println!("Exiting context: {:?}", self.context.pop());
+
+                        return Some(value);
+                    }
+
+                    TokenType::QuasiQuote => {
+                        // println!("Entering Context: Quasiquote");
+                        self.context.push(ParsingContext::QuasiquoteTick(0));
+
+                        let value = self
+                            .next()
+                            .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                            .map(|x| self.construct_quasiquote(x, res.span));
+
+                        // println!("{:?}", self.context.pop());
+
+                        // println!("Top level Context: {:?}", self.context);
+
+                        let popped_value = self.context.pop();
+
+                        if let Some(popped) = popped_value {
+                            debug_assert!(matches!(popped, ParsingContext::QuasiquoteTick(_)))
+                        }
+
+                        // println!("Exiting context: {:?}", self.context.pop());
+
+                        return Some(value);
+                    }
+
+                    TokenType::OpenParen => return Some(self.read_from_tokens()),
+                    TokenType::CloseParen => {
+                        return Some(Err(ParseError::Unexpected(
+                            TokenType::CloseParen,
+                            self.source_name.clone(),
+                        )))
+                    }
+                    TokenType::Error => return Some(Err(tokentype_error_to_parse_error(&res))),
+                    _ => return Some(Ok(ExprKind::Atom(Atom::new(SyntaxObject::from(&res))))),
+                };
+            } else {
+                // We're done consuming input
+                return None;
+            }
+        }
+    }
+}
+
 impl<'a> Iterator for Parser<'a> {
     type Item = Result<ExprKind>;
 
@@ -848,132 +982,147 @@ impl<'a> Iterator for Parser<'a> {
         // self.shorthand_quote_stack = Vec::new();
         // self.quote_stack = Vec::new();
 
-        self.tokenizer.next().map(|res| match res.ty {
-            // Collect the comment until theres something to attach to
-            TokenType::Comment => {
-                //     // todo!()
-
-                // println!("Found a comment: {}", res.source());
-                // println!("Buffer now: {:?}", self.comment_buffer);
-
-                self.comment_buffer
-                    .push(res.source().trim_start_matches(';').trim_start());
-
-                match self.next() {
-                    Some(v) => {
-                        // println!("Next thing found: {:?}", v);
-                        v
-                    }
-                    None => Err(ParseError::SyntaxError(
-                        "Doc comment not associated with a top level definition".to_string(),
-                        res.span(),
-                        None,
-                    )),
-                }
-
-                // Ok(self.next().unwrap)
-
-                //     println!("Found a comment!");
+        self.get_next_and_maybe_wrap_in_doc().map(|res| {
+            if self.comment_buffer.is_empty() {
+                res
+            } else {
+                res.map(|x| {
+                    wrap_in_doc_function(x, self.comment_buffer.join("\n").drain(..).collect())
+                })
             }
-
-            // Err(e) => Err(ParseError::TokenError(e)),
-            TokenType::QuoteTick => {
-                // See if this does the job
-                self.shorthand_quote_stack.push(0);
-
-                // println!("Entering Context: Quote Tick");
-                self.context.push(ParsingContext::QuoteTick(0));
-
-                let value = self
-                    .next()
-                    .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                    .map(|x| self.construct_quote_vec(x, res.span));
-
-                self.shorthand_quote_stack.pop();
-
-                let popped_value = self.context.pop();
-
-                if let Some(popped) = popped_value {
-                    debug_assert!(matches!(popped, ParsingContext::QuoteTick(_)))
-                }
-
-                // println!("Exiting context: {:?}", self.context.pop());
-                // println!("Result: {:?}", value);
-
-                match value {
-                    Ok(v) => ExprKind::try_from(v),
-                    Err(e) => Err(e),
-                }
-            }
-            TokenType::Unquote => {
-                // println!("Entering Context: Unquote");
-                self.context.push(ParsingContext::UnquoteTick(0));
-
-                let value = self
-                    .next()
-                    .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                    .map(|x| self.construct_unquote(x, res.span));
-
-                let popped_value = self.context.pop();
-
-                if let Some(popped) = popped_value {
-                    debug_assert!(matches!(popped, ParsingContext::UnquoteTick(_)))
-                }
-                // println!("Exiting context: {:?}", self.context.pop());
-
-                value
-            }
-            TokenType::UnquoteSplice => {
-                // println!("Entering Context: Unquotesplicing");
-                self.context.push(ParsingContext::UnquoteSplicingTick(0));
-
-                let value = self
-                    .next()
-                    .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                    .map(|x| self.construct_unquote_splicing(x, res.span));
-
-                let popped_value = self.context.pop();
-
-                if let Some(popped) = popped_value {
-                    debug_assert!(matches!(popped, ParsingContext::UnquoteSplicingTick(_)))
-                }
-
-                // println!("Exiting context: {:?}", self.context.pop());
-
-                value
-            }
-            TokenType::QuasiQuote => {
-                // println!("Entering Context: Quasiquote");
-                self.context.push(ParsingContext::QuasiquoteTick(0));
-
-                let value = self
-                    .next()
-                    .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                    .map(|x| self.construct_quasiquote(x, res.span));
-
-                // println!("{:?}", self.context.pop());
-
-                // println!("Top level Context: {:?}", self.context);
-
-                let popped_value = self.context.pop();
-
-                if let Some(popped) = popped_value {
-                    debug_assert!(matches!(popped, ParsingContext::QuasiquoteTick(_)))
-                }
-
-                // println!("Exiting context: {:?}", self.context.pop());
-
-                value
-            }
-            TokenType::OpenParen => self.read_from_tokens(),
-            TokenType::CloseParen => Err(ParseError::Unexpected(
-                TokenType::CloseParen,
-                self.source_name.clone(),
-            )),
-            TokenType::Error => Err(tokentype_error_to_parse_error(&res)),
-            _ => Ok(ExprKind::Atom(Atom::new(SyntaxObject::from(&res)))),
         })
     }
+
+    // self.tokenizer.next().map(|res| match res.ty {
+    //     // Collect the comment until theres something to attach to
+    //     TokenType::Comment => {
+    //         //     // todo!()
+
+    //         // println!("Found a comment: {}", res.source());
+    //         // println!("Buffer now: {:?}", self.comment_buffer);
+
+    //         self.comment_buffer
+    //             .push(res.source().trim_start_matches(';').trim_start());
+
+    //         // TODO: Instead of making a recursive call, we should just wrap
+    //         // this whole thing in a loop, and accumulate until we return
+    //         match self.next() {
+    //             Some(v) => {
+    //                 println!("Next thing found: {:?}", v);
+    //                 v
+    //                 // v.map(|x| {
+    //                 //     wrap_in_doc_function(x, self.comment_buffer.join("\n").to_string())
+    //                 // })
+    //             }
+    //             None => Err(ParseError::SyntaxError(
+    //                 "Doc comment not associated with a top level definition".to_string(),
+    //                 res.span(),
+    //                 None,
+    //             )),
+    //         }
+
+    //         // Ok(self.next().unwrap)
+
+    //         //     println!("Found a comment!");
+    //     }
+
+    //     // Err(e) => Err(ParseError::TokenError(e)),
+    //     TokenType::QuoteTick => {
+    //         // See if this does the job
+    //         self.shorthand_quote_stack.push(0);
+
+    //         // println!("Entering Context: Quote Tick");
+    //         self.context.push(ParsingContext::QuoteTick(0));
+
+    //         let value = self
+    //             .next()
+    //             .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+    //             .map(|x| self.construct_quote_vec(x, res.span));
+
+    //         self.shorthand_quote_stack.pop();
+
+    //         let popped_value = self.context.pop();
+
+    //         if let Some(popped) = popped_value {
+    //             debug_assert!(matches!(popped, ParsingContext::QuoteTick(_)))
+    //         }
+
+    //         // println!("Exiting context: {:?}", self.context.pop());
+    //         // println!("Result: {:?}", value);
+
+    //         match value {
+    //             Ok(v) => ExprKind::try_from(v),
+    //             Err(e) => Err(e),
+    //         }
+    //     }
+    //     TokenType::Unquote => {
+    //         // println!("Entering Context: Unquote");
+    //         self.context.push(ParsingContext::UnquoteTick(0));
+
+    //         let value = self
+    //             .next()
+    //             .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+    //             .map(|x| self.construct_unquote(x, res.span));
+
+    //         let popped_value = self.context.pop();
+
+    //         if let Some(popped) = popped_value {
+    //             debug_assert!(matches!(popped, ParsingContext::UnquoteTick(_)))
+    //         }
+    //         // println!("Exiting context: {:?}", self.context.pop());
+
+    //         value
+    //     }
+    //     TokenType::UnquoteSplice => {
+    //         // println!("Entering Context: Unquotesplicing");
+    //         self.context.push(ParsingContext::UnquoteSplicingTick(0));
+
+    //         let value = self
+    //             .next()
+    //             .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+    //             .map(|x| self.construct_unquote_splicing(x, res.span));
+
+    //         let popped_value = self.context.pop();
+
+    //         if let Some(popped) = popped_value {
+    //             debug_assert!(matches!(popped, ParsingContext::UnquoteSplicingTick(_)))
+    //         }
+
+    //         // println!("Exiting context: {:?}", self.context.pop());
+
+    //         value
+    //     }
+    //     TokenType::QuasiQuote => {
+    //         // println!("Entering Context: Quasiquote");
+    //         self.context.push(ParsingContext::QuasiquoteTick(0));
+
+    //         let value = self
+    //             .next()
+    //             .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+    //             .map(|x| self.construct_quasiquote(x, res.span));
+
+    //         // println!("{:?}", self.context.pop());
+
+    //         // println!("Top level Context: {:?}", self.context);
+
+    //         let popped_value = self.context.pop();
+
+    //         if let Some(popped) = popped_value {
+    //             debug_assert!(matches!(popped, ParsingContext::QuasiquoteTick(_)))
+    //         }
+
+    //         // println!("Exiting context: {:?}", self.context.pop());
+
+    //         value
+    //     }
+    //     TokenType::OpenParen => self.read_from_tokens(),
+    //     TokenType::CloseParen => Err(ParseError::Unexpected(
+    //         TokenType::CloseParen,
+    //         self.source_name.clone(),
+    //     )),
+    //     TokenType::Error => Err(tokentype_error_to_parse_error(&res)),
+    //     _ => Ok(ExprKind::Atom(Atom::new(SyntaxObject::from(&res)))),
+    // })
 }
 
 #[cfg(test)]
