@@ -439,7 +439,7 @@ impl Engine {
         let result = program.build("TestProgram".to_string(), &mut self.compiler.symbol_map);
 
         if result.is_err() {
-            println!("Rolling back symbol map");
+            // println!("Rolling back symbol map");
             self.compiler.symbol_map.roll_back(symbol_map_offset);
         }
 

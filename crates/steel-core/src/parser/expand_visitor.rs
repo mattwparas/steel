@@ -7,7 +7,7 @@ use crate::{expr_list, parser::parser::SyntaxObject};
 use crate::{parser::ast::ExprKind, steel_vm::builtin::BuiltInModule};
 
 use super::{
-    ast::{Atom, LambdaFunction, List, Quote},
+    ast::{Atom, Begin, Define, LambdaFunction, List, Quote},
     kernel::Kernel,
 };
 
@@ -16,6 +16,7 @@ use std::{collections::HashMap, rc::Rc};
 use crate::parser::expander::SteelMacro;
 
 pub const REQUIRE_BUILTIN: &str = "require-builtin";
+pub const DOC_MACRO: &str = "@doc";
 
 pub fn extract_macro_defs(
     exprs: Vec<ExprKind>,
@@ -506,6 +507,35 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
         })) = l.first()
         {
             if let Some(map) = &mut self.map {
+                if s == DOC_MACRO {
+                    if l.len() != 3 {
+                        stop!(BadSyntax => "Malformed @doc statement!")
+                    }
+
+                    let mut args = l.into_iter();
+                    args.next(); // Skip past the doc macro
+
+                    let comment = args.next().unwrap();
+                    let top_level_define = args.next().unwrap();
+
+                    if let ExprKind::Define(d) = &top_level_define {
+                        let doc_expr = ExprKind::Define(Box::new(Define::new(
+                            ExprKind::atom(
+                                "__doc-".to_string() + d.name.atom_identifier().unwrap(),
+                            ),
+                            comment,
+                            SyntaxObject::default(TokenType::Define),
+                        )));
+
+                        return Ok(ExprKind::Begin(Begin::new(
+                            vec![doc_expr, self.visit(top_level_define)?],
+                            SyntaxObject::default(TokenType::Begin),
+                        )));
+                    } else {
+                        return self.visit(top_level_define);
+                    }
+                }
+
                 if map.contains_macro(s) {
                     let expanded = map.expand(s, ExprKind::List(l.clone()))?;
                     self.changed = true;

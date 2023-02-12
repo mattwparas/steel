@@ -3,7 +3,12 @@ use std::{collections::HashSet, convert::TryFrom};
 use crate::{parser::ast::from_list_repr_to_ast, rvals::Result};
 use crate::{stdlib::KERNEL, steel_vm::engine::Engine, SteelVal};
 
-use super::{ast::ExprKind, span_visitor::get_span};
+use super::{
+    ast::{Define, ExprKind},
+    parser::SyntaxObject,
+    span_visitor::get_span,
+    tokens::TokenType,
+};
 
 thread_local! {
     pub(crate) static KERNEL_IMAGE: Engine = Engine::new_kernel();
@@ -39,7 +44,7 @@ impl Kernel {
         engine.compile_and_run_raw_program(KERNEL).unwrap();
 
         let mut macros = HashSet::new();
-        macros.insert("%better-lambda%".to_string());
+        // macros.insert("%better-lambda%".to_string());
         macros.insert("struct".to_string());
 
         Kernel {

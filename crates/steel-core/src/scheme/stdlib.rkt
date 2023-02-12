@@ -481,3 +481,11 @@
       (let ((result expr))
         (displayln (quote expr) " = " result)
         result)]))
+
+
+; (define-syntax @doc
+;   (syntax-rules ()
+;     [(@doc (define name pattern) document)
+;      (begin 
+;         (define name pattern)
+;         document)]))
