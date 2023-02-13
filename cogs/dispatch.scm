@@ -1,9 +1,9 @@
-; (require "contracts/contract.scm"
-;          (for-syntax "contracts/contract.scm"))
+(require "contracts/contract.scm"
+         (for-syntax "contracts/contract.scm"))
 
-; (define/c (apples x)
-;   (->c even? odd?)
-;   (+ x 1))
+(define/c (apples x)
+  (->c even? odd?)
+  (+ x 1))
 
 ; (define/c (bananas y)
 ;   (->c even? odd?)
@@ -33,13 +33,23 @@
 
 
 
-(define (transform-doc expr comment)
-  (if (equal? (car expr) 'define)
-      `(begin 
-          (define ,(concat-symbols '__doc- (second expr)) comment)
-          ,expr
-       )
-       (displayln "didn't work!")))
+; (define (transform-doc expr comment)
+;   (if (equal? (car expr) 'define)
+;       `(begin 
+;           (define ,(concat-symbols '__doc- (second expr)) comment)
+;           ,expr
+;        )
+;        (displayln "didn't work!")))
 
 
-(dbg! (transform-doc '(define x 100) "this is the value that is associated with 100"))
+; (dbg! (transform-doc '(define x 100) "this is the value that is associated with 100"))
+
+
+(@doc 
+  "This is an apples function"
+  (define/c (apples x)
+    (->c even? odd?)
+    (+ x 1)))
+
+(dbg! __doc-apples)
+(dbg! __ast-apples)

@@ -518,6 +518,10 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                     let comment = args.next().unwrap();
                     let top_level_define = args.next().unwrap();
 
+                    println!("Expanding: {}", top_level_define);
+
+                    // TODO: Store a documentation object that can be referenced, should store the ast node itself
+                    // alongside the
                     if let ExprKind::Define(d) = &top_level_define {
                         let doc_expr = ExprKind::Define(Box::new(Define::new(
                             ExprKind::atom(
@@ -527,8 +531,23 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                             SyntaxObject::default(TokenType::Define),
                         )));
 
+                        let ast_name = ExprKind::atom(
+                            "__ast-".to_string() + d.name.atom_identifier().unwrap(),
+                        );
+
+                        let expanded_expr = self.visit(top_level_define)?;
+
+                        let quoted_ast = ExprKind::Define(Box::new(Define::new(
+                            ast_name,
+                            ExprKind::Quote(Box::new(Quote::new(
+                                expanded_expr.clone(),
+                                SyntaxObject::default(TokenType::Quote),
+                            ))),
+                            SyntaxObject::default(TokenType::Define),
+                        )));
+
                         return Ok(ExprKind::Begin(Begin::new(
-                            vec![doc_expr, self.visit(top_level_define)?],
+                            vec![doc_expr, quoted_ast, expanded_expr],
                             SyntaxObject::default(TokenType::Begin),
                         )));
                     } else {
