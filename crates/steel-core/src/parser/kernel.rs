@@ -3,12 +3,7 @@ use std::{collections::HashSet, convert::TryFrom};
 use crate::{parser::ast::from_list_repr_to_ast, rvals::Result};
 use crate::{stdlib::KERNEL, steel_vm::engine::Engine, SteelVal};
 
-use super::{
-    ast::{Define, ExprKind},
-    parser::SyntaxObject,
-    span_visitor::get_span,
-    tokens::TokenType,
-};
+use super::{ast::ExprKind, span_visitor::get_span};
 
 thread_local! {
     pub(crate) static KERNEL_IMAGE: Engine = Engine::new_kernel();
