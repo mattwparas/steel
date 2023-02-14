@@ -352,6 +352,7 @@ pub struct Parser<'a> {
     source_name: Option<Rc<PathBuf>>,
     context: Vec<ParsingContext>,
     comment_buffer: Vec<&'a str>,
+    collecting_comments: bool,
 }
 
 #[derive(Debug)]
@@ -412,6 +413,7 @@ impl<'a> Parser<'a> {
             source_name: None,
             context: Vec::new(),
             comment_buffer: Vec::new(),
+            collecting_comments: false,
         }
     }
 
@@ -429,6 +431,7 @@ impl<'a> Parser<'a> {
             source_name: Some(Rc::from(source_name)),
             context: Vec::new(),
             comment_buffer: Vec::new(),
+            collecting_comments: false,
         }
     }
 
@@ -446,6 +449,7 @@ impl<'a> Parser<'a> {
             source_name: None,
             context: Vec::new(),
             comment_buffer: Vec::new(),
+            collecting_comments: false,
         }
     }
 
@@ -843,8 +847,8 @@ impl<'a> Parser<'a> {
 fn wrap_in_doc_function(expr: ExprKind, comment: String) -> ExprKind {
     ExprKind::List(List::new(vec![
         ExprKind::ident("@doc"),
-        expr,
         ExprKind::string_lit(comment),
+        expr,
     ]))
 }
 
@@ -858,8 +862,17 @@ impl<'a> Parser<'a> {
             if let Some(res) = next {
                 match res.ty {
                     TokenType::Comment => {
-                        self.comment_buffer
-                            .push(res.source().trim_start_matches(';').trim_start());
+                        if self.comment_buffer.is_empty() {
+                            if res.source().trim_start_matches(';').starts_with("@doc") {
+                                self.collecting_comments = true;
+                                continue;
+                            }
+                        }
+
+                        if self.collecting_comments {
+                            self.comment_buffer
+                                .push(res.source().trim_start_matches(';').trim_start());
+                        }
 
                         continue;
                     }
@@ -986,6 +999,9 @@ impl<'a> Iterator for Parser<'a> {
             if self.comment_buffer.is_empty() {
                 res
             } else {
+                // Reset the comment collection until next @doc statement
+                self.collecting_comments = false;
+
                 res.map(|x| {
                     wrap_in_doc_function(x, self.comment_buffer.join("\n").drain(..).collect())
                 })
@@ -1183,6 +1199,7 @@ mod parser_tests {
         let mut cache = HashMap::new();
 
         let expr = r#"
+        ;;@doc
         ;; This is a fancy cool comment, that I want to attach to a top level definition!
         ;; This is the second line of the comment, I want this attached as well!
         ;; Macro for creating a new struct, in the form of:

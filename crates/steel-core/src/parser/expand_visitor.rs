@@ -518,40 +518,68 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                     let comment = args.next().unwrap();
                     let top_level_define = args.next().unwrap();
 
-                    println!("Expanding: {}", top_level_define);
+                    // println!("Expanding: {}", top_level_define);
 
-                    // TODO: Store a documentation object that can be referenced, should store the ast node itself
-                    // alongside the
-                    if let ExprKind::Define(d) = &top_level_define {
-                        let doc_expr = ExprKind::Define(Box::new(Define::new(
-                            ExprKind::atom(
-                                "__doc-".to_string() + d.name.atom_identifier().unwrap(),
-                            ),
-                            comment,
-                            SyntaxObject::default(TokenType::Define),
-                        )));
+                    match &top_level_define {
+                        // A classic @doc case
+                        // (@doc "comment" (define <name> <body>))
+                        ExprKind::Define(d) => {
+                            let doc_expr = ExprKind::Define(Box::new(Define::new(
+                                ExprKind::atom(
+                                    "__doc-".to_string() + d.name.atom_identifier().unwrap(),
+                                ),
+                                comment,
+                                SyntaxObject::default(TokenType::Define),
+                            )));
 
-                        let ast_name = ExprKind::atom(
-                            "__ast-".to_string() + d.name.atom_identifier().unwrap(),
-                        );
+                            let ast_name = ExprKind::atom(
+                                "__ast-".to_string() + d.name.atom_identifier().unwrap(),
+                            );
 
-                        let expanded_expr = self.visit(top_level_define)?;
+                            let expanded_expr = self.visit(top_level_define)?;
 
-                        let quoted_ast = ExprKind::Define(Box::new(Define::new(
-                            ast_name,
-                            ExprKind::Quote(Box::new(Quote::new(
-                                expanded_expr.clone(),
-                                SyntaxObject::default(TokenType::Quote),
-                            ))),
-                            SyntaxObject::default(TokenType::Define),
-                        )));
+                            let quoted_ast = define_quoted_ast_node(ast_name, &expanded_expr);
 
-                        return Ok(ExprKind::Begin(Begin::new(
-                            vec![doc_expr, quoted_ast, expanded_expr],
-                            SyntaxObject::default(TokenType::Begin),
-                        )));
-                    } else {
-                        return self.visit(top_level_define);
+                            return Ok(ExprKind::Begin(Begin::new(
+                                vec![doc_expr, quoted_ast, expanded_expr],
+                                SyntaxObject::default(TokenType::Begin),
+                            )));
+                        }
+
+                        // An edge case that should eventually be realized:
+                        //
+                        ExprKind::Begin(b) => match &b.exprs.as_slice() {
+                            // If this is a sequence of two things, catch the latter one like above
+                            &[ExprKind::Define(d), ExprKind::Set(s), _]
+                                if d.name.atom_identifier() == s.variable.atom_identifier() =>
+                            {
+                                let doc_expr = ExprKind::Define(Box::new(Define::new(
+                                    ExprKind::atom(
+                                        "__doc-".to_string() + d.name.atom_identifier().unwrap(),
+                                    ),
+                                    comment,
+                                    SyntaxObject::default(TokenType::Define),
+                                )));
+
+                                let ast_name = ExprKind::atom(
+                                    "__ast-".to_string() + d.name.atom_identifier().unwrap(),
+                                );
+
+                                let expanded_expr = self.visit(top_level_define)?;
+
+                                let quoted_ast = define_quoted_ast_node(ast_name, &expanded_expr);
+
+                                return Ok(ExprKind::Begin(Begin::new(
+                                    vec![doc_expr, quoted_ast, expanded_expr],
+                                    SyntaxObject::default(TokenType::Begin),
+                                )));
+                            }
+                            _ => return self.visit(top_level_define),
+                        },
+
+                        _ => {
+                            return self.visit(top_level_define);
+                        }
                     }
                 }
 
@@ -670,6 +698,17 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
 
         Ok(ExprKind::Let(l))
     }
+}
+
+fn define_quoted_ast_node(ast_name: ExprKind, expanded_expr: &ExprKind) -> ExprKind {
+    ExprKind::Define(Box::new(Define::new(
+        ast_name,
+        ExprKind::Quote(Box::new(Quote::new(
+            expanded_expr.clone(),
+            SyntaxObject::default(TokenType::Quote),
+        ))),
+        SyntaxObject::default(TokenType::Define),
+    )))
 }
 
 #[cfg(test)]

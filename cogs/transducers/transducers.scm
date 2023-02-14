@@ -199,7 +199,6 @@
            test
            (reduced #f))))))
 
-
 (define list-transduce
   (case-lambda
     ((xform f coll)

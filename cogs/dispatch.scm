@@ -1,6 +1,10 @@
 (require "contracts/contract.scm"
          (for-syntax "contracts/contract.scm"))
 
+(provide apples)
+
+;;@doc
+;; Apples are a tasty fruit
 (define/c (apples x)
   (->c even? odd?)
   (+ x 1))
@@ -45,11 +49,3 @@
 ; (dbg! (transform-doc '(define x 100) "this is the value that is associated with 100"))
 
 
-(@doc 
-  "This is an apples function"
-  (define/c (apples x)
-    (->c even? odd?)
-    (+ x 1)))
-
-(dbg! __doc-apples)
-(dbg! __ast-apples)

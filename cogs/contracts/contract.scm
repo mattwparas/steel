@@ -11,7 +11,7 @@
  (for-syntax ->c)
  (for-syntax define/c))
 
-;;struct definitions
+;; struct definitions
 (struct FlatContract (predicate name))
 ;; Contract Attachment - use this for understanding where something happened
 (struct ContractAttachmentLocation (type name))
