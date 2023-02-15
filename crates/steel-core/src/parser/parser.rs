@@ -406,7 +406,7 @@ impl<'a> Parser<'a> {
         source_id: Option<SourceId>,
     ) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, false, source_id),
+            tokenizer: TokenStream::new(input, true, source_id),
             _intern: intern,
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
@@ -424,7 +424,7 @@ impl<'a> Parser<'a> {
         source_id: Option<SourceId>,
     ) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, false, source_id),
+            tokenizer: TokenStream::new(input, true, source_id),
             _intern: intern,
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),

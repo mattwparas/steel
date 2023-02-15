@@ -1,4 +1,4 @@
-use axum::{response::Html, routing::get, Router};
+use axum::{routing::get, Router};
 use std::net::SocketAddr;
 use steel::steel_vm::engine::Engine;
 
@@ -53,14 +53,14 @@ async fn main() {
     let command_messenger = CommandMessenger::new(command_sender, command_receiver);
 
     // Engine thread where processing occurs for messages that come through
-    let vm_thread = thread::spawn(move || {
+    let _vm_thread = thread::spawn(move || {
         let mut vm = Engine::new();
 
-        let result = vm
-            .compile_and_run_raw_program(
-                "(define x 10) (define y 100) (define z (int->string (+ x y))) z",
-            )
-            .unwrap();
+        // Warmup script
+        vm.compile_and_run_raw_program(
+            "(define x 10) (define y 100) (define z (int->string (+ x y))) z",
+        )
+        .unwrap();
 
         // TODO change this to not just be strings
         for () in vm_receiver {
