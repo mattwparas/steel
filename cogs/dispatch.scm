@@ -49,3 +49,13 @@
 ; (dbg! (transform-doc '(define x 100) "this is the value that is associated with 100"))
 
 
+;;@doc
+;;
+;; Seeing if a comment will show up in the repl.
+;; 
+;; perhaps introduce some markdown:
+;; 
+;; ```scheme
+;; (list 10 20 30 40)
+;; ```
+(define x 100)
