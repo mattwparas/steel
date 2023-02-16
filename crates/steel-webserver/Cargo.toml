@@ -3,6 +3,10 @@ name = "steel-webserver"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "steel_webserver"
+crate-type = ["cdylib"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
