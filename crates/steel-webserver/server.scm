@@ -13,8 +13,7 @@
 
 
 (define (handle-request path)
-    (displayln path)
-    "hello world!")
+    "hello world")
 
 (define (loop)
     (->> (receiver/recv vm-receiver)
