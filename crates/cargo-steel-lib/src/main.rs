@@ -3,7 +3,7 @@ use std::{error::Error, path::PathBuf, process::Command};
 use cargo_metadata::{Message, MetadataCommand, Package};
 use std::process::Stdio;
 
-fn check_package_contains_dependency_on_steel(packages: &[Package]) -> Option<&Package> {
+fn package_contains_dependency_on_steel(packages: &[Package]) -> Option<&Package> {
     packages.iter().find(|x| x.name == "steel-core")
 }
 
@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Attempting to install: {:#?}", package.name);
 
-    if check_package_contains_dependency_on_steel(&metadata.packages).is_none() {
+    if package_contains_dependency_on_steel(&metadata.packages).is_none() {
         return Err(
             "Cannot install package as a steel dylib - does not contain a dependency on steel!"
                 .into(),
@@ -80,32 +80,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Done!");
 
-    // {
-    //     match message.unwrap() {
-    //         Message::CompilerMessage(msg) => {
-    //             // println!("{:?}", msg);
-    //         }
-    //         Message::CompilerArtifact(artifact) => {
-    //             // println!("{:#?}", artifact.target);
-    //             if &artifact.target.name == package_name {
-    //                 println!("{:#?}", artifact);
-    //             }
-
-    //             // if artifact.target
-    //         }
-    //         Message::BuildScriptExecuted(script) => {
-    //             // println!("{:?}", script);
-    //         }
-    //         Message::BuildFinished(finished) => {
-    //             // println!("{:?}", finished);
-    //         }
-    //         _ => (), // Unknown message
-    //     }
-    // }
-
     command.wait().expect("Couldn't get cargo's exit status");
 
     Ok(())
-
-    // println!("Hello, world!");
 }
