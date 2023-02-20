@@ -2,7 +2,7 @@ use crate::{
     compiler::passes::VisitorMutRefUnit,
     expr_list,
     parser::{
-        ast::{Atom, Begin, Define, ExprKind, List, Quote},
+        ast::{AstTools, Atom, Begin, Define, ExprKind, List, Quote},
         expand_visitor::expand_kernel,
         kernel::Kernel,
         parser::{ParseError, Parser, Sources, SyntaxObject},
@@ -263,6 +263,8 @@ impl ModuleManager {
             );
 
             // ast = ast.into_iter().map(|x| )
+
+            // ast.pretty_print();
 
             ast = ast
                 .into_iter()
@@ -948,6 +950,8 @@ impl<'a> ModuleBuilder<'a> {
                 require_for_syntax,
                 &mut mangled_asts,
             );
+
+            // ast.pretty_print();
 
             ast = ast
                 .into_iter()

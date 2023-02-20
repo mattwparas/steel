@@ -105,7 +105,7 @@ impl<'a> ConsumingVisitor for Expander<'a> {
     }
 
     fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
-        stop!(Generic => "unexpected macro definition"; m.location.span)
+        stop!(BadSyntax => format!("unexpected macro definition in expand visitor: {}", m); m.location.span)
     }
 
     fn visit_atom(&mut self, a: Atom) -> Self::Output {
@@ -488,7 +488,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
     }
 
     fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
-        stop!(Generic => "unexpected macro definition"; m.location.span)
+        stop!(BadSyntax => format!("unexpected macro definition in kernel expander: {}", m); m.location.span)
     }
 
     fn visit_atom(&mut self, a: Atom) -> Self::Output {

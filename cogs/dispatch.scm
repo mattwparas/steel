@@ -1,13 +1,15 @@
-(require "contracts/contract.scm"
-         (for-syntax "contracts/contract.scm"))
+; (require "contracts/contract.scm"
+;          (for-syntax "contracts/contract.scm"))
 
-(provide apples)
+(require "logging/log.scm")
+
+; (provide apples)
 
 ;;@doc
 ;; Apples are a tasty fruit
-(define/c (apples x)
-  (->c even? odd?)
-  (+ x 1))
+; (define/c (apples x)
+;   (->c even? odd?)
+;   (+ x 1))
 
 ; (define/c (bananas y)
 ;   (->c even? odd?)
@@ -59,3 +61,11 @@
 ;; (list 10 20 30 40)
 ;; ```
 (define x 100)
+
+;;@doc
+;; Hello world!
+(define y 20)
+
+; (displayln __doc-apples)
+; (displayln __doc-x)
+; (displayln __doc-y)

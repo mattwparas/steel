@@ -516,7 +516,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 
     fn visit_macro(&mut self, m: &crate::parser::ast::Macro) -> Self::Output {
-        stop!(BadSyntax => "unexpected macro definition"; m.location.span)
+        stop!(BadSyntax => format!("unexpected macro definition: {}", m); m.location.span)
     }
 
     fn visit_atom(&mut self, a: &crate::parser::ast::Atom) -> Self::Output {

@@ -406,7 +406,7 @@ impl<'a> Parser<'a> {
         source_id: Option<SourceId>,
     ) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, true, source_id),
+            tokenizer: TokenStream::new(input, false, source_id),
             _intern: intern,
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
@@ -424,7 +424,7 @@ impl<'a> Parser<'a> {
         source_id: Option<SourceId>,
     ) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, true, source_id),
+            tokenizer: TokenStream::new(input, false, source_id),
             _intern: intern,
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
@@ -865,11 +865,20 @@ impl<'a> Parser<'a> {
                         if self.comment_buffer.is_empty() {
                             if res.source().trim_start_matches(';').starts_with("@doc") {
                                 self.collecting_comments = true;
+
+                                // println!("Found a comment to collect, starting collection...");
+
                                 continue;
                             }
                         }
 
                         if self.collecting_comments {
+                            // If we hit another comment, clear it
+                            if res.source().trim_start_matches(';').starts_with("@doc") {
+                                self.comment_buffer.clear();
+                                continue;
+                            }
+
                             self.comment_buffer
                                 .push(res.source().trim_start_matches(';').trim_start());
                         }
@@ -995,12 +1004,16 @@ impl<'a> Iterator for Parser<'a> {
         // self.shorthand_quote_stack = Vec::new();
         // self.quote_stack = Vec::new();
 
+        self.comment_buffer.clear();
+
         self.get_next_and_maybe_wrap_in_doc().map(|res| {
             if self.comment_buffer.is_empty() {
                 res
             } else {
                 // Reset the comment collection until next @doc statement
                 self.collecting_comments = false;
+
+                // println!("Setting collecting comments to false");
 
                 res.map(|x| {
                     wrap_in_doc_function(x, self.comment_buffer.join("\n").drain(..).collect())

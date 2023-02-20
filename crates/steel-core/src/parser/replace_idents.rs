@@ -273,7 +273,7 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
     }
 
     fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
-        stop!(Generic => "unexpected macro definition"; m.location.span)
+        stop!(BadSyntax => format!("unexpected macro definition: {}", m); m.location.span)
     }
 
     fn visit_atom(&mut self, a: Atom) -> Self::Output {
@@ -396,7 +396,7 @@ impl ConsumingVisitor for RewriteSpan {
     }
 
     fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
-        stop!(Generic => "unexpected macro definition"; m.location.span)
+        stop!(BadSyntax => format!("unexpected macro definition: {}", m); m.location.span)
     }
 
     fn visit_atom(&mut self, mut a: Atom) -> Self::Output {
