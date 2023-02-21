@@ -88,8 +88,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
                 ),
             );
 
-            let contents =
-                fs::read_to_string(&path).expect("Something went wrong reading the file");
+            let contents = fs::read_to_string(&path)?;
             let res = vm.compile_and_run_raw_program_with_path(&contents, path.clone());
 
             if let Err(e) = res {
@@ -112,10 +111,58 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
 
         Args {
             default_file: None,
-            action: Some(EmitAction::Doc { default_file: _ }),
+            action: Some(EmitAction::Doc {
+                default_file: Some(path),
+            }),
             ..
         } => {
-            todo!()
+            // todo!()
+
+            fn walk_for_defines(ast: &[steel::parser::ast::ExprKind]) {
+                for node in ast {
+                    match &node {
+                        steel::parser::ast::ExprKind::Define(d) => {
+                            let name = d.name.atom_identifier().unwrap();
+
+                            // We'll only check things that are values
+                            if !name.starts_with("mangler") && name.ends_with("__doc__") {
+                                println!("{}", node);
+                            }
+                        }
+
+                        steel::parser::ast::ExprKind::Begin(b) => {
+                            walk_for_defines(&b.exprs);
+                        }
+
+                        _ => {}
+                    }
+                }
+            }
+
+            fn walk_dir(path: PathBuf, vm: &mut Engine) -> Result<(), Box<dyn Error>> {
+                if path.is_dir() {
+                    for file in path.read_dir()? {
+                        if let Ok(file) = file {
+                            let path = file.path();
+                            walk_dir(path, vm)?;
+                        } else {
+                            return Ok(());
+                        }
+                    }
+                } else {
+                    let contents = fs::read_to_string(&path)?;
+                    let ast = vm.emit_fully_expanded_ast(&contents, Some(path))?;
+                    walk_for_defines(&ast);
+                }
+
+                Ok(())
+            }
+
+            walk_dir(path, &mut vm)
+
+            // Ok(())
+
+            // todo!()
         }
 
         Args {
@@ -126,22 +173,21 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
                 }),
             ..
         } => {
-            let core_libraries = &[
-                steel::stdlib::PRELUDE,
-                steel::stdlib::DISPLAY,
-                steel::stdlib::CONTRACTS,
-            ];
+            // let core_libraries = &[
+            //     steel::stdlib::PRELUDE,
+            //     steel::stdlib::DISPLAY,
+            //     steel::stdlib::CONTRACTS,
+            // ];
 
-            for core in core_libraries {
-                let res = vm.compile_and_run_raw_program(core);
-                if let Err(e) = res {
-                    eprintln!("{e}");
-                    return Ok(());
-                }
-            }
+            // for core in core_libraries {
+            //     let res = vm.compile_and_run_raw_program(core);
+            //     if let Err(e) = res {
+            //         eprintln!("{e}");
+            //         return Ok(());
+            //     }
+            // }
 
-            let contents =
-                fs::read_to_string(&path).expect("Something went wrong reading the file");
+            let contents = fs::read_to_string(&path)?;
 
             let program = vm.emit_raw_program(&contents, path.clone());
 
@@ -163,22 +209,21 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             }),
             ..
         } => {
-            let core_libraries = &[
-                steel::stdlib::PRELUDE,
-                steel::stdlib::DISPLAY,
-                steel::stdlib::CONTRACTS,
-            ];
+            // let core_libraries = &[
+            //     steel::stdlib::PRELUDE,
+            //     steel::stdlib::DISPLAY,
+            //     steel::stdlib::CONTRACTS,
+            // ];
 
-            for core in core_libraries {
-                let res = vm.compile_and_run_raw_program(core);
-                if let Err(e) = res {
-                    eprintln!("{e}");
-                    return Ok(());
-                }
-            }
+            // for core in core_libraries {
+            //     let res = vm.compile_and_run_raw_program(core);
+            //     if let Err(e) = res {
+            //         eprintln!("{e}");
+            //         return Ok(());
+            //     }
+            // }
 
-            let contents =
-                fs::read_to_string(path.clone()).expect("Something went wrong reading the file");
+            let contents = fs::read_to_string(path.clone())?;
 
             let res = vm.emit_fully_expanded_ast_to_string(&contents, Some(path.clone()));
 

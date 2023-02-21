@@ -845,6 +845,8 @@ impl<'a> Parser<'a> {
 }
 
 fn wrap_in_doc_function(expr: ExprKind, comment: String) -> ExprKind {
+    // println!("Found comment : {} for expr {}", comment, expr);
+
     ExprKind::List(List::new(vec![
         ExprKind::ident("@doc"),
         ExprKind::string_lit(comment),
@@ -862,7 +864,7 @@ impl<'a> Parser<'a> {
             if let Some(res) = next {
                 match res.ty {
                     TokenType::Comment => {
-                        if self.comment_buffer.is_empty() {
+                        if self.comment_buffer.is_empty() && !self.collecting_comments {
                             if res.source().trim_start_matches(';').starts_with("@doc") {
                                 self.collecting_comments = true;
 
@@ -873,14 +875,19 @@ impl<'a> Parser<'a> {
                         }
 
                         if self.collecting_comments {
+                            let doc_line = res.source().trim_start_matches(';');
+
                             // If we hit another comment, clear it
-                            if res.source().trim_start_matches(';').starts_with("@doc") {
+                            if doc_line.starts_with("@doc") {
+                                // println!("Clearing buffer");
+
                                 self.comment_buffer.clear();
                                 continue;
                             }
 
-                            self.comment_buffer
-                                .push(res.source().trim_start_matches(';').trim_start());
+                            // println!("Collecting line: {}", doc_line);
+
+                            self.comment_buffer.push(doc_line.trim_start());
                         }
 
                         continue;
@@ -1004,7 +1011,14 @@ impl<'a> Iterator for Parser<'a> {
         // self.shorthand_quote_stack = Vec::new();
         // self.quote_stack = Vec::new();
 
-        self.comment_buffer.clear();
+        if self.quote_stack.is_empty()
+            && self.shorthand_quote_stack.is_empty()
+            && self.context.is_empty()
+        {
+            self.comment_buffer.clear();
+        }
+
+        // println!("Clearing the comment buffer!");
 
         self.get_next_and_maybe_wrap_in_doc().map(|res| {
             if self.comment_buffer.is_empty() {
@@ -1013,7 +1027,7 @@ impl<'a> Iterator for Parser<'a> {
                 // Reset the comment collection until next @doc statement
                 self.collecting_comments = false;
 
-                // println!("Setting collecting comments to false");
+                // println!("Setting collecting comments to false, found: {:?}", res);
 
                 res.map(|x| {
                     wrap_in_doc_function(x, self.comment_buffer.join("\n").drain(..).collect())

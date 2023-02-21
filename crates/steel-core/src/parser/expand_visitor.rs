@@ -526,14 +526,14 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                         ExprKind::Define(d) => {
                             let doc_expr = ExprKind::Define(Box::new(Define::new(
                                 ExprKind::atom(
-                                    "__doc-".to_string() + d.name.atom_identifier().unwrap(),
+                                    d.name.atom_identifier().unwrap().to_string() + "__doc__",
                                 ),
                                 comment,
                                 SyntaxObject::default(TokenType::Define),
                             )));
 
                             let ast_name = ExprKind::atom(
-                                "__ast-".to_string() + d.name.atom_identifier().unwrap(),
+                                d.name.atom_identifier().unwrap().to_string() + "__ast__",
                             );
 
                             let expanded_expr = self.visit(top_level_define)?;

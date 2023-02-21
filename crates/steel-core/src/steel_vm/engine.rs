@@ -501,6 +501,21 @@ impl Engine {
             .join("\n\n"))
     }
 
+    pub fn emit_fully_expanded_ast(
+        &mut self,
+        expr: &str,
+        path: Option<PathBuf>,
+    ) -> Result<Vec<ExprKind>> {
+        let constants = self.constants();
+        self.compiler.emit_expanded_ast(
+            expr,
+            constants,
+            path,
+            &mut self.sources,
+            self.modules.clone(),
+        )
+    }
+
     /// Registers an external value of any type as long as it implements [`FromSteelVal`](crate::rvals::FromSteelVal) and
     /// [`IntoSteelVal`](crate::rvals::IntoSteelVal). This method does the coercion to embed the type into the `Engine`'s
     /// environment with the name `name`. This function can fail only if the conversion from `T` to [`SteelVal`](crate::rvals::SteelVal) fails.
