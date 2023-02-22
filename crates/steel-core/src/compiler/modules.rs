@@ -2,7 +2,7 @@ use crate::{
     compiler::passes::VisitorMutRefUnit,
     expr_list,
     parser::{
-        ast::{AstTools, Atom, Begin, Define, ExprKind, List, Quote},
+        ast::{Atom, Begin, Define, ExprKind, List, Quote},
         expand_visitor::expand_kernel,
         kernel::Kernel,
         parser::{ParseError, Parser, Sources, SyntaxObject},

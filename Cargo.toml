@@ -22,6 +22,7 @@ log = "0.4.17"
 clap = { version = "4.1.4", features = ["derive"] }
 dlopen = "0.1.8"
 dlopen_derive = "0.1.4"
+steel-doc = { path = "./crates/steel-doc", version = "0.2.0"}
 
 # [[bin]]
 # name = "main"

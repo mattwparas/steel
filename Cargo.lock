@@ -2409,6 +2409,7 @@ dependencies = [
  "serde_json",
  "steel-core",
  "steel-derive",
+ "steel-doc",
  "steel-repl",
  "tungstenite",
  "url",
@@ -2463,6 +2464,13 @@ dependencies = [
  "proc-macro2 1.0.51",
  "quote 1.0.23",
  "syn 1.0.107",
+]
+
+[[package]]
+name = "steel-doc"
+version = "0.2.0"
+dependencies = [
+ "steel-core",
 ]
 
 [[package]]
