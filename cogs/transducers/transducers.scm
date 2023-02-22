@@ -151,6 +151,7 @@
 ;; Reducing functions meant to be used at the end at the transducing
 ;; process.    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;;@doc
 ;; a transducer-friendly cons with the empty list as identity
 (define rcons
   (case-lambda
@@ -166,8 +167,12 @@
     ((lst x) (cons x lst))))
 
 
+;;@doc
 ;; Use this as the f in transduce to count the amount of elements passed through.
-;; (transduce (tfilter odd?) tcount (list 1 2 3)) => 2
+;;
+;; ```scheme
+;; (list-transduce (tfilter odd?) tcount (list 1 2 3)) => 2
+;; ```
 (define rcount
   (case-lambda
     (() 0)
@@ -176,6 +181,7 @@
      (+ 1 result))))
 
 
+;;@doc
 ;; These two take a predicate and returns reducing functions that behave
 ;; like any and every from srfi-1
 (define (rany pred)
@@ -187,7 +193,6 @@
        (if test
            (reduced test)
            #f)))))
-
 
 (define (revery pred)
   (case-lambda
@@ -391,9 +396,12 @@
 ;   (compose (tmap f) tconcatenate))
 
 
-
-; ;; Flattens everything and passes each value through the reducer
-; ;; (list-transduce tflatten rcons (list 1 2 (list 3 4 '(5 6) 7 8))) => (1 2 3 4 5 6 7 8)
+;;@doc
+;; Flattens everything and passes each value through the reducer
+;;
+;; ```scheme
+;; (list-transduce tflatten rcons (list 1 2 (list 3 4 '(5 6) 7 8))) ;; => (1 2 3 4 5 6 7 8)
+;; ```
 (define tflatten
   (lambda (reducer)
     (case-lambda
@@ -405,7 +413,7 @@
            (reducer result input))))))
 
 
-
+;;@doc
 ;; removes duplicate consecutive elements
 (define tdelete-neighbor-duplicates
   (case-lambda
@@ -501,7 +509,7 @@
 ;                (set! collect (list input))
 ;                (reducer result next-input))))))))))
 
-
+;;@doc
 ;; Interposes element between each value pushed through the transduction.
 (define (tadd-between elem)
   (lambda (reducer)
@@ -520,7 +528,7 @@
                (set! send-elem? #t)
                (reducer result input))))))))
 
-
+;;@doc
 ;; indexes every value passed through in a cons pair as in (index . value). By default starts at 0
 (define tenumerate
   (case-lambda

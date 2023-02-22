@@ -52,9 +52,22 @@ fn walk_for_defines<W: Write>(
                                 if let steel::parser::ast::ExprKind::LambdaFunction(l) = &d.body {
                                     writeln!(writer, "```scheme")?;
                                     write!(writer, "({}", name.trim_end_matches("__doc__"))?;
-                                    for arg in &l.args {
-                                        write!(writer, " {arg}")?;
+
+                                    if l.rest && l.args.len() == 1 {
+                                        write!(writer, " .")?;
                                     }
+
+                                    for arg in &l.args {
+                                        if let Some(ident) = arg.atom_identifier() {
+                                            // Macros will generate unreadable symbols - so for the sake
+                                            // of the documentation generator, we probably want to make this
+                                            // more human readable
+                                            write!(writer, " {}", ident.trim_start_matches("#"))?;
+                                        } else {
+                                            write!(writer, " {arg}")?;
+                                        }
+                                    }
+
                                     writeln!(writer, ")")?;
                                     writeln!(writer, "```")?;
                                 }
@@ -77,7 +90,11 @@ fn walk_for_defines<W: Write>(
     Ok(())
 }
 
-fn walk_dir<W: Write>(
+fn top_level_walk_directory(path: PathBuf, vm: &mut Engine) {
+    todo!()
+}
+
+pub fn walk_dir<W: Write>(
     writer: &mut W,
     path: PathBuf,
     vm: &mut Engine,
@@ -86,15 +103,11 @@ fn walk_dir<W: Write>(
         // If contents are a cog module, then we should grab it
         // OR, if at any point in the recursion we've found a cog module in the directory, we should
         // be good to check it out
-        let contents = path.read_dir()?.collect::<Vec<_>>();
+        let directory_contents = path.read_dir()?.collect::<Result<Vec<_>, _>>()?;
 
-        for file in path.read_dir()? {
-            if let Ok(file) = file {
-                let path = file.path();
-                walk_dir(writer, path, vm)?;
-            } else {
-                return Ok(());
-            }
+        for file in directory_contents {
+            let path = file.path();
+            walk_dir(writer, path, vm)?;
         }
     } else if path.extension().and_then(|x| x.to_str()) == Some("scm")
         && path.file_name().and_then(|x| x.to_str()) != Some("cog.scm")
@@ -111,4 +124,10 @@ fn walk_dir<W: Write>(
     Ok(())
 }
 
-// walk_dir(path, &mut vm)
+// Parse the cog file located at the path, and return the package name
+// Other things are probably important, but for now we'll just deal with that
+pub fn parse_cog_file(path: PathBuf) -> steel::rvals::Result<String> {
+    let contents = std::fs::read_to_string(&path)?;
+    let exprs = steel::parser::parser::Parser::parse(&contents)?;
+    todo!()
+}

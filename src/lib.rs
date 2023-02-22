@@ -3,6 +3,7 @@ extern crate steel_derive;
 extern crate steel_repl;
 
 use steel::steel_vm::engine::Engine;
+use steel_doc::walk_dir;
 use steel_repl::repl::repl_base;
 
 use std::path::PathBuf;
@@ -118,81 +119,11 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
         } => {
             // todo!()
 
-            fn walk_for_defines(ast: &[steel::parser::ast::ExprKind]) {
-                let mut nodes = ast.iter();
+            let mut writer = std::io::BufWriter::new(std::io::stdout());
 
-                while let Some(node) = nodes.next() {
-                    match &node {
-                        steel::parser::ast::ExprKind::Define(d) => {
-                            let name = d.name.atom_identifier().unwrap();
+            walk_dir(&mut writer, path, &mut vm)?;
 
-                            // We'll only check things that are values
-                            if !name.starts_with("mangler") && name.ends_with("__doc__") {
-                                println!("### **{}**", name.trim_end_matches("__doc__"));
-
-                                // println!("{}")
-
-                                let ast_node = nodes.next().unwrap();
-
-                                // println!("{:?}", ast_node);
-
-                                if let steel::parser::ast::ExprKind::Define(def) = &ast_node {
-                                    if let steel::parser::ast::ExprKind::Quote(q) = &def.body {
-                                        if let steel::parser::ast::ExprKind::Define(d) = &q.expr {
-                                            if let steel::parser::ast::ExprKind::LambdaFunction(l) =
-                                                &d.body
-                                            {
-                                                println!("```scheme");
-                                                print!("({}", name.trim_end_matches("__doc__"));
-                                                for arg in &l.args {
-                                                    print!(" {arg}")
-                                                }
-                                                println!(")");
-                                                println!("```");
-                                            }
-                                        }
-                                    }
-                                }
-
-                                println!("{}", d.body.string_literal().unwrap());
-                            }
-                        }
-
-                        steel::parser::ast::ExprKind::Begin(b) => {
-                            walk_for_defines(&b.exprs);
-                        }
-
-                        _ => {}
-                    }
-                }
-            }
-
-            fn walk_dir(path: PathBuf, vm: &mut Engine) -> Result<(), Box<dyn Error>> {
-                if path.is_dir() {
-                    for file in path.read_dir()? {
-                        if let Ok(file) = file {
-                            let path = file.path();
-                            walk_dir(path, vm)?;
-                        } else {
-                            return Ok(());
-                        }
-                    }
-                } else if path.extension().and_then(|x| x.to_str()) == Some("scm")
-                    && path.file_name().and_then(|x| x.to_str()) != Some("cog.scm")
-                {
-                    println!("# {:?}", path);
-
-                    let contents = fs::read_to_string(&path)?;
-                    let ast = vm.emit_fully_expanded_ast(&contents, Some(path))?;
-                    walk_for_defines(&ast);
-                }
-
-                Ok(())
-            }
-
-            walk_dir(path, &mut vm)
-
-            // Ok(())
+            Ok(())
 
             // todo!()
         }
