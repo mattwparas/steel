@@ -53,10 +53,6 @@ fn walk_for_defines<W: Write>(
                                     writeln!(writer, "```scheme")?;
                                     write!(writer, "({}", name.trim_end_matches("__doc__"))?;
 
-                                    if l.rest && l.args.len() == 1 {
-                                        write!(writer, " .")?;
-                                    }
-
                                     for arg in &l.args {
                                         if let Some(ident) = arg.atom_identifier() {
                                             // Macros will generate unreadable symbols - so for the sake
@@ -66,6 +62,10 @@ fn walk_for_defines<W: Write>(
                                         } else {
                                             write!(writer, " {arg}")?;
                                         }
+                                    }
+
+                                    if l.rest && l.args.len() == 1 {
+                                        write!(writer, " ...")?;
                                     }
 
                                     writeln!(writer, ")")?;

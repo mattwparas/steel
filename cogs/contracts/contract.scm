@@ -2,6 +2,7 @@
 
 (provide
  make-function-contract
+ make-contract
  bind-contract-to-function
  FlatContract
  FlatContract-predicate

@@ -152,7 +152,11 @@
 ;; process.    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;@doc
-;; a transducer-friendly cons with the empty list as identity
+;; A transducer-friendly cons with the empty list as identity
+;; This function accepts multiple arguments:
+;;   * 0 arguments, returns the empty list as the identity
+;;   * 1 argument, a list, returns the reverse of that list
+;;   * 2 arguments, a list and the element, then returns a new list with the element consed to the list
 (define rcons
   (case-lambda
     (() '())

@@ -12,6 +12,9 @@ use std::collections::HashMap;
 
 const DATUM_TO_SYNTAX: &str = "datum->syntax";
 const SYNTAX_CONST_IF: &str = "syntax-const-if";
+// TODO: Add level for pure macros to run at compile time... More or less const functions, that still
+// have access to the span?
+// const CURRENT_FILE: &str = "const-current-file!";
 
 pub fn replace_identifiers(
     expr: ExprKind,
@@ -21,6 +24,10 @@ pub fn replace_identifiers(
     let rewrite_spans = RewriteSpan::new(span).visit(expr)?;
     ReplaceExpressions::new(bindings).visit(rewrite_spans)
 }
+
+// struct ConstExprKindTransformers {
+//     functions: HashMap<&'static str, fn(&ReplaceExpressions<'_>, ExprKind) -> Result<ExprKind>>,
+// }
 
 pub struct ReplaceExpressions<'a> {
     bindings: &'a HashMap<String, ExprKind>,

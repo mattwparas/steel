@@ -480,7 +480,7 @@ impl Engine {
         Ok(parsed.into_iter().map(|x| x.to_pretty(60)).join("\n\n"))
     }
 
-    /// Emit the fully expanded AST
+    /// Emit the fully expanded AST as a pretty printed string
     pub fn emit_fully_expanded_ast_to_string(
         &mut self,
         expr: &str,
@@ -501,6 +501,7 @@ impl Engine {
             .join("\n\n"))
     }
 
+    /// Emits the fully expanded AST directly.
     pub fn emit_fully_expanded_ast(
         &mut self,
         expr: &str,

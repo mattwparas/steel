@@ -1,5 +1,6 @@
-; (require "contracts/contract.scm"
-;          (for-syntax "contracts/contract.scm"))
+(require "contracts/contract.scm"
+         (for-syntax "contracts/contract.scm")
+         "contracts/types.scm")
 
 (require "logging/log.scm")
 
@@ -7,9 +8,9 @@
 
 ;;@doc
 ;; Apples are a tasty fruit
-; (define/c (apples x)
-;   (->c even? odd?)
-;   (+ x 1))
+(define/c (apples x)
+  (->c even? odd?)
+  (+ x 1))
 
 ; (define/c (bananas y)
 ;   (->c even? odd?)
@@ -69,3 +70,8 @@
 ; (displayln __doc-apples)
 ; (displayln __doc-x)
 ; (displayln __doc-y)
+
+(define/c (applesauce lst)
+    (->c (listof int?) (listof number?))
+    (map (fn (x) (+ x 0.1)) lst))
+
