@@ -555,14 +555,14 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                             {
                                 let doc_expr = ExprKind::Define(Box::new(Define::new(
                                     ExprKind::atom(
-                                        "__doc-".to_string() + d.name.atom_identifier().unwrap(),
+                                        d.name.atom_identifier().unwrap().to_string() + "__doc__",
                                     ),
                                     comment,
                                     SyntaxObject::default(TokenType::Define),
                                 )));
 
                                 let ast_name = ExprKind::atom(
-                                    "__ast-".to_string() + d.name.atom_identifier().unwrap(),
+                                    d.name.atom_identifier().unwrap().to_string() + "__ast__",
                                 );
 
                                 let expanded_expr = self.visit(top_level_define)?;
@@ -576,6 +576,32 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                             }
                             _ => return self.visit(top_level_define),
                         },
+
+                        ExprKind::List(struct_def)
+                            if struct_def.first_ident() == Some("struct") =>
+                        {
+                            if let Some(struct_name) =
+                                struct_def.get(1).and_then(|x| x.atom_identifier())
+                            {
+                                let doc_expr = ExprKind::Define(Box::new(Define::new(
+                                    ExprKind::atom(struct_name.to_string() + "__doc__"),
+                                    comment,
+                                    SyntaxObject::default(TokenType::Define),
+                                )));
+
+                                let ast_name = ExprKind::atom(struct_name.to_string() + "__ast__");
+
+                                let quoted_ast =
+                                    define_quoted_ast_node(ast_name, &top_level_define);
+
+                                return Ok(ExprKind::Begin(Begin::new(
+                                    vec![doc_expr, quoted_ast, self.visit(top_level_define)?],
+                                    SyntaxObject::default(TokenType::Begin),
+                                )));
+                            }
+
+                            return self.visit(top_level_define);
+                        }
 
                         _ => {
                             return self.visit(top_level_define);

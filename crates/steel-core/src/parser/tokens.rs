@@ -307,9 +307,9 @@ impl<'a> Token<'a> {
         }
     }
 
-    // pub const fn ty(&self) -> TokenType {
-    //     self.ty
-    // }
+    pub fn typ(&self) -> &TokenType {
+        &self.ty
+    }
 
     pub const fn span(&self) -> Span {
         self.span

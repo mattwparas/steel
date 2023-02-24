@@ -10,7 +10,7 @@ use crate::{
         modules::CompiledModule,
         program::{Executable, RawProgramWithSymbols},
     },
-    parser::ast::ExprKind,
+    parser::{ast::ExprKind, expander::SteelMacro},
     parser::{
         kernel::{fresh_kernel_image, Kernel},
         parser::{ParseError, Parser, Sources},
@@ -874,6 +874,14 @@ impl Engine {
 
     pub fn modules(&self) -> &HashMap<PathBuf, CompiledModule> {
         self.compiler.modules()
+    }
+
+    pub fn global_exists(&self, ident: &str) -> bool {
+        self.compiler.symbol_map.get(ident).is_ok()
+    }
+
+    pub fn in_scope_macros(&self) -> &HashMap<String, SteelMacro> {
+        &self.compiler.macro_env
     }
 }
 

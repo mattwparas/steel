@@ -1,23 +1,15 @@
 extern crate rustyline;
 use colored::*;
 
-use std::sync::mpsc::channel;
+use std::{cell::RefCell, rc::Rc, sync::mpsc::channel};
 
 use rustyline::error::ReadlineError;
-use rustyline::highlight::{Highlighter, MatchingBracketHighlighter};
-use rustyline::validate::{
-    MatchingBracketValidator, ValidationContext, ValidationResult, Validator,
-};
+
+use rustyline::validate::MatchingBracketValidator;
 use rustyline::Editor;
-use rustyline::{hint::Hinter, CompletionType, Context};
-use rustyline_derive::Helper;
+
 use std::path::{Path, PathBuf};
 use steel::{rvals::SteelVal, steel_vm::register_fn::RegisterFn};
-
-use rustyline::completion::Completer;
-use rustyline::completion::Pair;
-
-use std::borrow::Cow;
 
 use steel::steel_vm::engine::Engine;
 
@@ -25,61 +17,7 @@ use std::io::Read;
 
 use std::time::Instant;
 
-impl Completer for RustylineHelper {
-    type Candidate = Pair;
-}
-
-#[derive(Helper)]
-struct RustylineHelper {
-    highlighter: MatchingBracketHighlighter,
-    validator: MatchingBracketValidator,
-}
-
-impl Validator for RustylineHelper {
-    fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
-        self.validator.validate(ctx)
-    }
-
-    fn validate_while_typing(&self) -> bool {
-        self.validator.validate_while_typing()
-    }
-}
-
-impl Hinter for RustylineHelper {
-    type Hint = String;
-    fn hint(&self, _line: &str, _pos: usize, _context: &Context) -> Option<String> {
-        None
-    }
-}
-
-impl Highlighter for RustylineHelper {
-    fn highlight<'l>(&self, line: &'l str, pos: usize) -> Cow<'l, str> {
-        self.highlighter.highlight(line, pos)
-    }
-    fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
-        &'s self,
-        prompt: &'p str,
-        default: bool,
-    ) -> Cow<'b, str> {
-        self.highlighter.highlight_prompt(prompt, default)
-    }
-
-    fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
-        self.highlighter.highlight_hint(hint)
-    }
-
-    fn highlight_candidate<'c>(
-        &self,
-        candidate: &'c str,
-        completion: CompletionType,
-    ) -> Cow<'c, str> {
-        self.highlighter.highlight_candidate(candidate, completion)
-    }
-
-    fn highlight_char(&self, line: &str, pos: usize) -> bool {
-        self.highlighter.highlight_char(line, pos)
-    }
-}
+use crate::highlight::RustylineHelper;
 
 fn display_help() {
     println!(
@@ -148,10 +86,6 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     let mut prompt = format!("{}", "λ > ".bright_green().bold().italic());
 
     let mut rl = Editor::<RustylineHelper>::new().expect("Unable to instantiate the repl!");
-    rl.set_helper(Some(RustylineHelper {
-        highlighter: MatchingBracketHighlighter::default(),
-        validator: MatchingBracketValidator::default(),
-    }));
 
     // let buffer = String::new();
 
@@ -166,6 +100,13 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     };
 
     vm.register_fn("quit", cancellation_function);
+
+    let engine = Rc::new(RefCell::new(vm));
+    rl.set_helper(Some(RustylineHelper::new(
+        // highlighter: MatchingBracketHighlighter::default(),
+        MatchingBracketValidator::default(),
+        engine.clone(),
+    )));
 
     // ctrlc::set_handler(move || tx.send(()).expect("Could not send signal on channel."))
     // .expect("Error setting Ctrl-C handler");
@@ -223,11 +164,15 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                         let mut exprs = String::new();
                         file.read_to_string(&mut exprs)?;
 
-                        finish_load_or_interrupt(&mut vm, exprs, path.to_path_buf());
+                        finish_load_or_interrupt(
+                            &mut engine.borrow_mut(),
+                            exprs,
+                            path.to_path_buf(),
+                        );
                     }
                     _ => {
                         // TODO also include this for loading files
-                        finish_or_interrupt(&mut vm, line, print_time);
+                        finish_or_interrupt(&mut engine.borrow_mut(), line, print_time);
                     }
                 }
             }

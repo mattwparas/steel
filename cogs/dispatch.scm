@@ -75,3 +75,6 @@
     (->c (listof int?) (listof number?))
     (map (fn (x) (+ x 0.1)) lst))
 
+;;@doc
+;; A fun little doc
+(struct FooBarBaz (a b c))
