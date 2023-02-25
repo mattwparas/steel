@@ -112,7 +112,7 @@ pub fn walk_dir<W: Write>(
     } else if path.extension().and_then(|x| x.to_str()) == Some("scm")
         && path.file_name().and_then(|x| x.to_str()) != Some("cog.scm")
     {
-        writeln!(writer, "# {:?}", path)?;
+        writeln!(writer, "# {}", path.to_str().unwrap())?;
 
         let contents = std::fs::read_to_string(&path)?;
         let ast = vm.emit_fully_expanded_ast(&contents, Some(path))?;

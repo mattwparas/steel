@@ -3,8 +3,7 @@ use colored::*;
 
 use std::{cell::RefCell, rc::Rc};
 
-
-use rustyline::highlight::{Highlighter};
+use rustyline::highlight::Highlighter;
 use rustyline::validate::{
     MatchingBracketValidator, ValidationContext, ValidationResult, Validator,
 };
@@ -12,7 +11,7 @@ use rustyline::validate::{
 use rustyline::{hint::Hinter, Context};
 use rustyline_derive::Helper;
 
-use steel::{parser::lexer::TokenStream};
+use steel_parser::lexer::TokenStream;
 
 use rustyline::completion::Completer;
 use rustyline::completion::Pair;
@@ -20,10 +19,6 @@ use rustyline::completion::Pair;
 use std::borrow::Cow;
 
 use steel::steel_vm::engine::Engine;
-
-
-
-
 
 impl Completer for RustylineHelper {
     type Candidate = Pair;
@@ -66,7 +61,7 @@ impl Hinter for RustylineHelper {
 
 impl Highlighter for RustylineHelper {
     fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
-        use steel::parser::tokens::TokenType;
+        use steel_parser::tokens::TokenType;
 
         use Cow::*;
 
@@ -123,8 +118,11 @@ impl Highlighter for RustylineHelper {
                 // steel::parser::tokens::TokenType::Require => todo!(),
                 // steel::parser::tokens::TokenType::CharacterLiteral(_) => todo!(),
                 // steel::parser::tokens::TokenType::Comment => todo!(),
-                // steel::parser::tokens::TokenType::BooleanLiteral(_) => todo!(),
-                steel::parser::tokens::TokenType::Identifier(ident) => {
+                TokenType::BooleanLiteral(_) => {
+                    let highlighted = format!("{}", token.source().bright_magenta());
+                    ranges_to_replace.push((token.span().range(), highlighted));
+                }
+                TokenType::Identifier(ident) => {
                     // If its a free identifier, nix it?
                     if self.engine.borrow().global_exists(&ident) {
                         // println!("before length: {}", token.source().as_bytes().len());
@@ -134,14 +132,13 @@ impl Highlighter for RustylineHelper {
                         // println!("paren pos: {:?}", self.bracket.get());
 
                         ranges_to_replace.push((token.span().range(), highlighted));
-                    } else if self.engine.borrow().in_scope_macros().contains_key(ident) {
+                    } else if self.engine.borrow().in_scope_macros().contains_key(*ident) {
                         let highlighted = format!("{}", token.source().bright_cyan());
                         ranges_to_replace.push((token.span().range(), highlighted));
                     }
                 }
                 // steel::parser::tokens::TokenType::Keyword(_) => todo!(),
-                steel::parser::tokens::TokenType::NumberLiteral(_)
-                | steel::parser::tokens::TokenType::IntegerLiteral(_) => {
+                TokenType::NumberLiteral(_) | TokenType::IntegerLiteral(_) => {
                     // println!("Found something to replace! @ {:?}", token.span().range());
 
                     let highlighted = format!("{}", token.source().bright_yellow());
@@ -149,7 +146,7 @@ impl Highlighter for RustylineHelper {
 
                     // line_to_highlight.replace_range(token.span().range(), &highlighted);
                 }
-                steel::parser::tokens::TokenType::StringLiteral(_) => {
+                TokenType::StringLiteral(_) => {
                     let highlighted = format!("{}", token.source().bright_green());
                     ranges_to_replace.push((token.span().range(), highlighted));
                 }

@@ -2484,6 +2484,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "steel-parser"
+version = "0.2.0"
+dependencies = [
+ "logos",
+ "serde",
+ "serde_derive",
+]
+
+[[package]]
 name = "steel-repl"
 version = "0.2.0"
 dependencies = [
@@ -2491,6 +2500,7 @@ dependencies = [
  "rustyline",
  "rustyline-derive",
  "steel-core",
+ "steel-parser",
 ]
 
 [[package]]
