@@ -8,6 +8,7 @@ use std::rc::Rc;
 use std::result;
 use std::str;
 use std::{collections::HashMap, path::PathBuf};
+use steel_parser::lexer::{OwnedString, OwnedTokenStream};
 use thiserror::Error;
 
 use crate::parser::span::Span;
@@ -24,10 +25,12 @@ use super::ast;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-#[derive(
-    Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
-)]
-pub struct SourceId(pub(crate) usize);
+pub use steel_parser::parser::SourceId;
+
+// #[derive(
+//     Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
+// )]
+// pub struct SourceId(pub(crate) usize);
 
 impl IntoSteelVal for SourceId {
     fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
@@ -178,7 +181,7 @@ impl<T: std::hash::Hash> std::hash::Hash for RawSyntaxObject<T> {
     }
 }
 
-pub type SyntaxObject = RawSyntaxObject<TokenType>;
+pub type SyntaxObject = RawSyntaxObject<TokenType<String>>;
 
 // #[derive(Debug, Clone, Serialize, Deserialize)]
 // pub struct SyntaxObject {
@@ -194,7 +197,7 @@ impl PartialEq for SyntaxObject {
 }
 
 impl SyntaxObject {
-    pub fn new(ty: TokenType, span: Span) -> Self {
+    pub fn new(ty: TokenType<String>, span: Span) -> Self {
         SyntaxObject {
             ty,
             span,
@@ -203,7 +206,7 @@ impl SyntaxObject {
         }
     }
 
-    pub fn new_with_source(ty: TokenType, span: Span, source: Option<Rc<PathBuf>>) -> Self {
+    pub fn new_with_source(ty: TokenType<String>, span: Span, source: Option<Rc<PathBuf>>) -> Self {
         SyntaxObject {
             ty,
             span,
@@ -212,7 +215,7 @@ impl SyntaxObject {
         }
     }
 
-    pub fn default(ty: TokenType) -> Self {
+    pub fn default(ty: TokenType<String>) -> Self {
         SyntaxObject {
             ty,
             span: Span::new(0, 0, None),
@@ -225,7 +228,7 @@ impl SyntaxObject {
         self.span = span
     }
 
-    pub fn from_token_with_source(val: &Token, source: &Option<Rc<PathBuf>>) -> Self {
+    pub fn from_token_with_source(val: &Token<'_, String>, source: &Option<Rc<PathBuf>>) -> Self {
         SyntaxObject {
             ty: val.ty.clone(),
             span: val.span,
@@ -235,8 +238,8 @@ impl SyntaxObject {
     }
 }
 
-impl From<&Token<'_>> for SyntaxObject {
-    fn from(val: &Token) -> SyntaxObject {
+impl From<&Token<'_, String>> for SyntaxObject {
+    fn from(val: &Token<'_, String>) -> SyntaxObject {
         SyntaxObject::new(val.ty.clone(), val.span)
     }
 }
@@ -300,7 +303,7 @@ pub enum ParseError {
     // #[error("Parse: Error reading tokens: {0}")]
     // TokenError(#[from] TokenError),
     #[error("Parse: Unexpected token: {0:?}")]
-    Unexpected(TokenType, Option<Rc<PathBuf>>),
+    Unexpected(TokenType<String>, Option<Rc<PathBuf>>),
     #[error("Parse: Unexpected EOF")]
     UnexpectedEOF(Option<Rc<PathBuf>>),
     #[error("Parse: Unexpected character: {0:?}")]
@@ -339,10 +342,10 @@ impl ParseError {
     }
 }
 
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct Parser<'a> {
-    tokenizer: TokenStream<'a>,
-    _intern: &'a mut HashMap<String, Rc<TokenType>>,
+    tokenizer: OwnedTokenStream<'a, String, OwnedString>,
+    _intern: &'a mut HashMap<String, Rc<TokenType<String>>>,
     quote_stack: Vec<usize>,
     shorthand_quote_stack: Vec<usize>,
     source_name: Option<Rc<PathBuf>>,
@@ -381,7 +384,7 @@ impl<'a> Parser<'a> {
 
 pub type Result<T> = result::Result<T, ParseError>;
 
-fn tokentype_error_to_parse_error(t: &Token) -> ParseError {
+fn tokentype_error_to_parse_error(t: &Token<'_, String>) -> ParseError {
     if let TokenType::Error = t.ty {
         // println!("Found an error: {}", t);
 
@@ -398,11 +401,11 @@ fn tokentype_error_to_parse_error(t: &Token) -> ParseError {
 impl<'a> Parser<'a> {
     pub fn new(
         input: &'a str,
-        intern: &'a mut HashMap<String, Rc<TokenType>>,
+        intern: &'a mut HashMap<String, Rc<TokenType<String>>>,
         source_id: Option<SourceId>,
     ) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, false, source_id),
+            tokenizer: TokenStream::new(input, false, source_id).into_owned(OwnedString),
             _intern: intern,
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
@@ -415,12 +418,12 @@ impl<'a> Parser<'a> {
 
     pub fn new_from_source(
         input: &'a str,
-        intern: &'a mut HashMap<String, Rc<TokenType>>,
+        intern: &'a mut HashMap<String, Rc<TokenType<String>>>,
         source_name: PathBuf,
         source_id: Option<SourceId>,
     ) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, false, source_id),
+            tokenizer: TokenStream::new(input, false, source_id).into_owned(OwnedString),
             _intern: intern,
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
@@ -434,11 +437,11 @@ impl<'a> Parser<'a> {
     // Attach comments!
     pub fn doc_comment_parser(
         input: &'a str,
-        intern: &'a mut HashMap<String, Rc<TokenType>>,
+        intern: &'a mut HashMap<String, Rc<TokenType<String>>>,
         source_id: Option<SourceId>,
     ) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, false, source_id),
+            tokenizer: TokenStream::new(input, false, source_id).into_owned(OwnedString),
             _intern: intern,
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
@@ -1193,26 +1196,26 @@ mod parser_tests {
     }
 
     fn parses(s: &str) {
-        let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
+        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
         let a: Result<Vec<_>> = Parser::new(s, &mut cache, None).collect();
         a.unwrap();
     }
 
     fn assert_parse(s: &str, result: &[ExprKind]) {
-        let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
+        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
         let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache, None).collect();
         let a = a.unwrap();
         assert_eq!(a.as_slice(), result);
     }
 
     fn assert_parse_err(s: &str, err: ParseError) {
-        let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
+        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
         let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache, None).collect();
         assert_eq!(a, Err(err));
     }
 
     fn assert_parse_is_err(s: &str) {
-        let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
+        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
         let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache, None).collect();
         assert!(a.is_err());
     }

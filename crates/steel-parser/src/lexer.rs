@@ -21,13 +21,25 @@ impl<'a> TokenStream<'a> {
         }
     }
 
-    pub fn into_owned<T, F: FnMut(&'a str) -> T>(self, adapter: F) -> OwnedTokenStream<'a, T, F> {
+    pub fn into_owned<T, F: ToOwnedString<T>>(self, adapter: F) -> OwnedTokenStream<'a, T, F> {
         OwnedTokenStream {
             stream: self,
             adapter,
             _token_type: PhantomData,
         }
     }
+}
+
+pub struct OwnedString;
+
+impl ToOwnedString<String> for OwnedString {
+    fn own(&self, s: &str) -> String {
+        s.to_string()
+    }
+}
+
+pub trait ToOwnedString<T> {
+    fn own(&self, s: &str) -> T;
 }
 
 pub struct OwnedTokenStream<'a, T, F> {
@@ -39,15 +51,12 @@ pub struct OwnedTokenStream<'a, T, F> {
 // TODO: Make the Token generic over the identifier type
 // and then this work alright
 
-impl<'a, T, F> Iterator for OwnedTokenStream<'a, T, F>
-where
-    F: FnMut(&'a str) -> T,
-{
+impl<'a, T, F: ToOwnedString<T>> Iterator for OwnedTokenStream<'a, T, F> {
     type Item = Token<'a, T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.stream.next().map(|x| Token {
-            ty: x.ty.map(&mut self.adapter),
+            ty: x.ty.map(|x| self.adapter.own(x)),
             source: x.source,
             span: x.span,
         })

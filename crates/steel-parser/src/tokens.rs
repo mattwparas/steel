@@ -367,6 +367,41 @@ impl fmt::Display for TokenType<&str> {
     }
 }
 
+impl fmt::Display for TokenType<String> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            OpenParen => write!(f, "("),
+            CloseParen => write!(f, "("),
+            CharacterLiteral(x) => character_special_display(*x, f),
+            BooleanLiteral(x) => write!(f, "#{x}"),
+            Identifier(x) => write!(f, "{x}"),
+            NumberLiteral(x) => write!(f, "{x:?}"),
+            IntegerLiteral(x) => write!(f, "{x}"),
+            StringLiteral(x) => write!(f, "\"{x}\""),
+            Keyword(x) => write!(f, "{x}"),
+            QuoteTick => write!(f, "'"),
+            Unquote => write!(f, ","),
+            QuasiQuote => write!(f, "`"),
+            UnquoteSplice => write!(f, ",@"),
+            Error => write!(f, "error"),
+            Comment => write!(f, ""),
+            If => write!(f, "if"),
+            Define => write!(f, "define"),
+            Let => write!(f, "let"),
+            TestLet => write!(f, "test-let"),
+            Return => write!(f, "return!"),
+            Begin => write!(f, "begin"),
+            Lambda => write!(f, "lambda"),
+            Quote => write!(f, "quote"),
+            DefineSyntax => write!(f, "define-syntax"),
+            SyntaxRules => write!(f, "syntax-rules"),
+            Ellipses => write!(f, "..."),
+            Set => write!(f, "set!"),
+            Require => write!(f, "require"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token<'a, T> {
     pub ty: TokenType<T>,

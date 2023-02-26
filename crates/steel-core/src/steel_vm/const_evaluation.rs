@@ -158,7 +158,7 @@ struct ConstantEvaluator<'a> {
     opt_level: OptLevel,
 }
 
-fn steelval_to_atom(value: &SteelVal) -> Option<TokenType> {
+fn steelval_to_atom(value: &SteelVal) -> Option<TokenType<String>> {
     match value {
         SteelVal::BoolV(b) => Some(TokenType::BooleanLiteral(*b)),
         SteelVal::NumV(n) => Some(TokenType::NumberLiteral(*n)),

@@ -10,9 +10,9 @@ use super::parser::SourceId;
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
 pub struct Span {
-    start: usize,
-    end: usize,
-    source_id: Option<SourceId>,
+    pub start: usize,
+    pub end: usize,
+    pub source_id: Option<SourceId>,
 }
 
 // impl IntoSteelVal for Span {

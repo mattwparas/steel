@@ -2451,6 +2451,7 @@ dependencies = [
  "smallvec",
  "steel-core",
  "steel-gen",
+ "steel-parser",
  "termimad",
  "thiserror",
  "tungstenite",

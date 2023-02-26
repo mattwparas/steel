@@ -200,7 +200,7 @@ impl<'a> ReplaceExpressions<'a> {
     }
 }
 
-fn reserved_token_type_to_ident(token: &mut TokenType) {
+fn reserved_token_type_to_ident(token: &mut TokenType<String>) {
     if *token == TokenType::Define {
         *token = TokenType::Identifier("define".to_string());
     }
