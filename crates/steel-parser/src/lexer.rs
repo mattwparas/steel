@@ -1,7 +1,7 @@
 use crate::tokens::{Token, TokenType};
 use logos::{Lexer, Logos};
-use std::fmt;
 use std::iter::Iterator;
+use std::{fmt, marker::PhantomData};
 
 use super::parser::SourceId;
 
@@ -20,10 +20,42 @@ impl<'a> TokenStream<'a> {
             source_id, // skip_doc_comments,
         }
     }
+
+    pub fn into_owned<T, F: FnMut(&'a str) -> T>(self, adapter: F) -> OwnedTokenStream<'a, T, F> {
+        OwnedTokenStream {
+            stream: self,
+            adapter,
+            _token_type: PhantomData,
+        }
+    }
+}
+
+pub struct OwnedTokenStream<'a, T, F> {
+    stream: TokenStream<'a>,
+    adapter: F,
+    _token_type: PhantomData<T>,
+}
+
+// TODO: Make the Token generic over the identifier type
+// and then this work alright
+
+impl<'a, T, F> Iterator for OwnedTokenStream<'a, T, F>
+where
+    F: FnMut(&'a str) -> T,
+{
+    type Item = Token<'a, T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.stream.next().map(|x| Token {
+            ty: x.ty.map(&mut self.adapter),
+            source: x.source,
+            span: x.span,
+        })
+    }
 }
 
 impl<'a> Iterator for TokenStream<'a> {
-    type Item = Token<'a>;
+    type Item = Token<'a, &'a str>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.lexer.next().and_then(|token| {
@@ -38,17 +70,17 @@ impl<'a> Iterator for TokenStream<'a> {
     }
 }
 
-impl fmt::Debug for TokenStream<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let tokens = self.clone().collect::<Vec<Token<'_>>>();
+// impl fmt::Debug for TokenStream<'_> {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         let tokens = self.clone().collect::<Vec<Token<'_, &'_ str>>>();
 
-        f.debug_struct("TokenStream")
-            .field("lexer", &tokens)
-            .field("skip_comments", &self.skip_comments)
-            // .field("skip_doc_comments", &self.skip_doc_comments)
-            .finish()
-    }
-}
+//         f.debug_struct("TokenStream")
+//             .field("lexer", &tokens)
+//             .field("skip_comments", &self.skip_comments)
+//             // .field("skip_doc_comments", &self.skip_doc_comments)
+//             .finish()
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
@@ -288,9 +320,9 @@ mod tests {
     #[test]
     fn scheme_statement() {
         let s = TokenStream::new("(apples (function a b) (+ a b))", true, None);
-        let res: Vec<Token> = s.collect();
+        let res: Vec<Token<&str>> = s.collect();
 
-        let expected: Vec<Token> = vec![
+        let expected: Vec<Token<&str>> = vec![
             Token {
                 ty: OpenParen,
                 source: "(",

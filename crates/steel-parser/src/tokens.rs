@@ -368,15 +368,15 @@ impl fmt::Display for TokenType<&str> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Token<'a> {
-    pub(crate) ty: TokenType<&'a str>,
-    pub(crate) source: &'a str,
-    pub(crate) span: Span,
+pub struct Token<'a, T> {
+    pub ty: TokenType<T>,
+    pub source: &'a str,
+    pub span: Span,
 }
 
-impl<'a> Token<'a> {
+impl<'a, T> Token<'a, T> {
     pub const fn new(
-        ty: TokenType<&'a str>,
+        ty: TokenType<T>,
         source: &'a str,
         range: ops::Range<usize>,
         source_id: Option<SourceId>,
@@ -388,7 +388,7 @@ impl<'a> Token<'a> {
         }
     }
 
-    pub fn typ(&self) -> &TokenType<&'a str> {
+    pub fn typ(&self) -> &TokenType<T> {
         &self.ty
     }
 
@@ -405,55 +405,55 @@ impl<'a> Token<'a> {
     }
 }
 
-impl From<Token<'_>> for Span {
-    fn from(token: Token<'_>) -> Self {
+impl<T> From<Token<'_, T>> for Span {
+    fn from(token: Token<'_, T>) -> Self {
         token.span()
     }
 }
 
-impl From<&Token<'_>> for Span {
-    fn from(token: &Token<'_>) -> Self {
+impl<T> From<&Token<'_, T>> for Span {
+    fn from(token: &Token<'_, T>) -> Self {
         token.span()
     }
 }
 
-impl From<Token<'_>> for ops::Range<usize> {
-    fn from(token: Token<'_>) -> Self {
+impl<T> From<Token<'_, T>> for ops::Range<usize> {
+    fn from(token: Token<'_, T>) -> Self {
         token.span().into()
     }
 }
 
-impl From<&Token<'_>> for ops::Range<usize> {
-    fn from(token: &Token<'_>) -> Self {
+impl<T> From<&Token<'_, T>> for ops::Range<usize> {
+    fn from(token: &Token<'_, T>) -> Self {
         token.span().into()
     }
 }
 
-impl From<Token<'_>> for (usize, usize) {
-    fn from(token: Token<'_>) -> Self {
+impl<T> From<Token<'_, T>> for (usize, usize) {
+    fn from(token: Token<'_, T>) -> Self {
         token.span().into()
     }
 }
 
-impl From<&Token<'_>> for (usize, usize) {
-    fn from(token: &Token<'_>) -> Self {
+impl<T> From<&Token<'_, T>> for (usize, usize) {
+    fn from(token: &Token<'_, T>) -> Self {
         token.span().into()
     }
 }
 
-impl From<Token<'_>> for [usize; 2] {
-    fn from(token: Token<'_>) -> Self {
+impl<T> From<Token<'_, T>> for [usize; 2] {
+    fn from(token: Token<'_, T>) -> Self {
         token.span().into()
     }
 }
 
-impl From<&Token<'_>> for [usize; 2] {
-    fn from(token: &Token<'_>) -> Self {
+impl<T> From<&Token<'_, T>> for [usize; 2] {
+    fn from(token: &Token<'_, T>) -> Self {
         token.span().into()
     }
 }
 
-impl fmt::Display for Token<'_> {
+impl<T> fmt::Display for Token<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} @ {:?}", self.source, self.span)
     }
