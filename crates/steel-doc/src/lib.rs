@@ -1,4 +1,6 @@
-use std::{error::Error, io::BufWriter, path::PathBuf};
+#![allow(unused)]
+
+use std::{env::current_dir, error::Error, io::BufWriter, path::PathBuf};
 
 use steel::steel_vm::engine::Engine;
 
@@ -13,7 +15,20 @@ struct DocumentGenerator {
 }
 
 impl DocumentGenerator {
-    pub fn new(output_dir: PathBuf) -> Self {
+    pub fn new(output_dir: Option<PathBuf>) -> Self {
+        let output_dir = output_dir.unwrap_or({
+            // TODO: Come back and remove this unwrap
+            let mut current_dir = current_dir().unwrap();
+
+            current_dir.push("/docs");
+
+            if !current_dir.exists() {
+                std::fs::create_dir(&current_dir).unwrap();
+            }
+
+            current_dir
+        });
+
         Self {
             output_dir,
             writers: HashSet::new(),
@@ -115,8 +130,35 @@ pub fn walk_dir<W: Write>(
         writeln!(writer, "# {}", path.to_str().unwrap())?;
 
         let contents = std::fs::read_to_string(&path)?;
-        let ast = vm.emit_fully_expanded_ast(&contents, Some(path))?;
+
+        // let full_path = std::fs::canonicalize(path.clone()).expect("Unable to canonicalize path!");
+
+        // {
+        //     println!("Requiring: {:?}", full_path);
+        //     vm.emit_fully_expanded_ast(
+        //         &format!("(require {:?})", full_path),
+        //         Some(full_path.clone()),
+        //     )
+        //     .unwrap();
+        // }
+
+        let ast = vm.emit_fully_expanded_ast(&contents, Some(path.clone()))?;
+
+        // println!("{:?}", vm.modules().keys().collect::<Vec<_>>());
+
+        // if let Some(module) = module {
+        //     println!("{:?}", module.get_requires());
+        // }
+
         walk_for_defines(writer, &ast)?;
+
+        // let module = vm.modules().get(&full_path);
+
+        // println!("{:?}", vm.modules().keys().collect::<Vec<_>>());
+
+        // if let Some(module) = module {
+        //     println!("{:?}", module.get_requires());
+        // }
     }
 
     writer.flush()?;

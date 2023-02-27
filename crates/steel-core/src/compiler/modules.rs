@@ -404,6 +404,14 @@ impl CompiledModule {
         }
     }
 
+    pub fn get_provides(&self) -> &[ExprKind] {
+        &self.provides
+    }
+
+    pub fn get_requires(&self) -> &[PathBuf] {
+        &self.requires
+    }
+
     pub fn set_emitted(&mut self, emitted: bool) {
         self.emitted = emitted;
     }

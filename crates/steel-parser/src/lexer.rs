@@ -1,7 +1,7 @@
 use crate::tokens::{Token, TokenType};
 use logos::{Lexer, Logos};
 use std::iter::Iterator;
-use std::{fmt, marker::PhantomData};
+use std::marker::PhantomData;
 
 use super::parser::SourceId;
 
@@ -47,9 +47,6 @@ pub struct OwnedTokenStream<'a, T, F> {
     adapter: F,
     _token_type: PhantomData<T>,
 }
-
-// TODO: Make the Token generic over the identifier type
-// and then this work alright
 
 impl<'a, T, F: ToOwnedString<T>> Iterator for OwnedTokenStream<'a, T, F> {
     type Item = Token<'a, T>;
