@@ -7,9 +7,7 @@ use crate::parser::span::Span;
 use proptest::prelude::*;
 use std::convert::TryFrom;
 
-use crate::parser::ast::{
-    Atom, Begin, Define, If, List, Quote,
-};
+use crate::parser::ast::{Atom, Begin, Define, If, List, Quote};
 
 // #[derive(Clone, Debug, PartialEq)]
 // pub enum ExprKind {
