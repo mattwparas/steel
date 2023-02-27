@@ -1,3 +1,5 @@
+/*
+
 #![allow(unused)]
 use std::collections::{BTreeSet, HashMap};
 
@@ -754,3 +756,5 @@ impl<'a> VisitorMut for ContractChecker<'a> {
         self.visit(&l.body_expr)
     }
 }
+
+*/
