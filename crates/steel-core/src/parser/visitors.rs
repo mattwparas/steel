@@ -1,6 +1,11 @@
 use crate::parser::ast::*;
 use crate::rvals::Result;
 
+use crate::parser::ast::{
+    Atom, Begin, Define, If, LambdaFunction, Let, List, Macro, Quote, Require, Return, Set,
+    SyntaxRules,
+};
+
 pub trait VisitorMut {
     type Output;
 

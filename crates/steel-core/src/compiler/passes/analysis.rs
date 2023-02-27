@@ -927,21 +927,21 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                 // Assuming this information is here, otherwise we'll panic for whatever reason the symbol is missing
                 // But this shouldn't happen given that we're checking this _after_ we visit the function
-                let func_info = self.info.get(func).unwrap();
+                if let Some(func_info) = self.info.get(func) {
+                    // If we've managed to resolve this call site to the definition, then we should be able
+                    // to identify if this refers to the correct definition
+                    if call_site_kind == CallKind::TailCall
+                        && self.defining_context.is_some()
+                        && func_info.refers_to == self.defining_context
+                    {
+                        call_site_kind = CallKind::SelfTailCall(self.defining_context_depth);
+                    }
 
-                // If we've managed to resolve this call site to the definition, then we should be able
-                // to identify if this refers to the correct definition
-                if call_site_kind == CallKind::TailCall
-                    && self.defining_context.is_some()
-                    && func_info.refers_to == self.defining_context
-                {
-                    call_site_kind = CallKind::SelfTailCall(self.defining_context_depth);
+                    self.info.call_info.insert(
+                        l.syntax_object_id,
+                        CallSiteInformation::new(call_site_kind, span),
+                    );
                 }
-
-                self.info.call_info.insert(
-                    l.syntax_object_id,
-                    CallSiteInformation::new(call_site_kind, span),
-                );
             }
         }
     }

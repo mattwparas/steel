@@ -130,6 +130,14 @@
                   (setter-proto this ,(list-ref field 1) value))))
        (enumerate 0 '() fields)))
 
+;; TODO: Come back to this once theres something to attach it to
+; (define (@doc expr comment)
+;   (if (equal? (car expr) 'define)
+;       `(begin 
+;           (define ,(concat-symbols '__doc- (second expr)) ,comment)
+;           ,expr
+;        )
+;        expr))
 
 ;; TODO: This is going to fail simply because when re-reading in the body of
 ;; expanded functions. The parser is unable to parse already made un-parseable

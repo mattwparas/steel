@@ -7,7 +7,7 @@ use crate::{expr_list, parser::parser::SyntaxObject};
 use crate::{parser::ast::ExprKind, steel_vm::builtin::BuiltInModule};
 
 use super::{
-    ast::{Atom, LambdaFunction, List, Quote},
+    ast::{Atom, Begin, Define, LambdaFunction, List, Quote},
     kernel::Kernel,
 };
 
@@ -16,6 +16,7 @@ use std::{collections::HashMap, rc::Rc};
 use crate::parser::expander::SteelMacro;
 
 pub const REQUIRE_BUILTIN: &str = "require-builtin";
+pub const DOC_MACRO: &str = "@doc";
 
 pub fn extract_macro_defs(
     exprs: Vec<ExprKind>,
@@ -104,7 +105,7 @@ impl<'a> ConsumingVisitor for Expander<'a> {
     }
 
     fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
-        stop!(Generic => "unexpected macro definition"; m.location.span)
+        stop!(BadSyntax => format!("unexpected macro definition in expand visitor: {}", m); m.location.span)
     }
 
     fn visit_atom(&mut self, a: Atom) -> Self::Output {
@@ -487,7 +488,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
     }
 
     fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
-        stop!(Generic => "unexpected macro definition"; m.location.span)
+        stop!(BadSyntax => format!("unexpected macro definition in kernel expander: {}", m); m.location.span)
     }
 
     fn visit_atom(&mut self, a: Atom) -> Self::Output {
@@ -506,6 +507,108 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
         })) = l.first()
         {
             if let Some(map) = &mut self.map {
+                if s == DOC_MACRO {
+                    if l.len() != 3 {
+                        stop!(BadSyntax => "Malformed @doc statement!")
+                    }
+
+                    let mut args = l.into_iter();
+                    args.next(); // Skip past the doc macro
+
+                    let comment = args.next().unwrap();
+                    let top_level_define = args.next().unwrap();
+
+                    // println!("Expanding: {}", top_level_define);
+
+                    match &top_level_define {
+                        // A classic @doc case
+                        // (@doc "comment" (define <name> <body>))
+                        ExprKind::Define(d) => {
+                            let doc_expr = ExprKind::Define(Box::new(Define::new(
+                                ExprKind::atom(
+                                    d.name.atom_identifier().unwrap().to_string() + "__doc__",
+                                ),
+                                comment,
+                                SyntaxObject::default(TokenType::Define),
+                            )));
+
+                            let ast_name = ExprKind::atom(
+                                d.name.atom_identifier().unwrap().to_string() + "__ast__",
+                            );
+
+                            let expanded_expr = self.visit(top_level_define)?;
+
+                            let quoted_ast = define_quoted_ast_node(ast_name, &expanded_expr);
+
+                            return Ok(ExprKind::Begin(Begin::new(
+                                vec![doc_expr, quoted_ast, expanded_expr],
+                                SyntaxObject::default(TokenType::Begin),
+                            )));
+                        }
+
+                        // An edge case that should eventually be realized:
+                        //
+                        ExprKind::Begin(b) => match &b.exprs.as_slice() {
+                            // If this is a sequence of two things, catch the latter one like above
+                            &[ExprKind::Define(d), ExprKind::Set(s), _]
+                                if d.name.atom_identifier() == s.variable.atom_identifier() =>
+                            {
+                                let doc_expr = ExprKind::Define(Box::new(Define::new(
+                                    ExprKind::atom(
+                                        d.name.atom_identifier().unwrap().to_string() + "__doc__",
+                                    ),
+                                    comment,
+                                    SyntaxObject::default(TokenType::Define),
+                                )));
+
+                                let ast_name = ExprKind::atom(
+                                    d.name.atom_identifier().unwrap().to_string() + "__ast__",
+                                );
+
+                                let expanded_expr = self.visit(top_level_define)?;
+
+                                let quoted_ast = define_quoted_ast_node(ast_name, &expanded_expr);
+
+                                return Ok(ExprKind::Begin(Begin::new(
+                                    vec![doc_expr, quoted_ast, expanded_expr],
+                                    SyntaxObject::default(TokenType::Begin),
+                                )));
+                            }
+                            _ => return self.visit(top_level_define),
+                        },
+
+                        ExprKind::List(struct_def)
+                            if struct_def.first_ident() == Some("struct") =>
+                        {
+                            if let Some(struct_name) =
+                                struct_def.get(1).and_then(|x| x.atom_identifier())
+                            {
+                                let doc_expr = ExprKind::Define(Box::new(Define::new(
+                                    ExprKind::atom(struct_name.to_string() + "__doc__"),
+                                    comment,
+                                    SyntaxObject::default(TokenType::Define),
+                                )));
+
+                                let ast_name = ExprKind::atom(struct_name.to_string() + "__ast__");
+
+                                let quoted_ast =
+                                    define_quoted_ast_node(ast_name, &top_level_define);
+
+                                return Ok(ExprKind::Begin(Begin::new(
+                                    vec![doc_expr, quoted_ast, self.visit(top_level_define)?],
+                                    SyntaxObject::default(TokenType::Begin),
+                                )));
+                            }
+
+                            return self.visit(top_level_define);
+                        }
+
+                        _ => {
+                            return self.visit(top_level_define);
+                        }
+                    }
+                }
+
                 if map.contains_macro(s) {
                     let expanded = map.expand(s, ExprKind::List(l.clone()))?;
                     self.changed = true;
@@ -621,6 +724,17 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
 
         Ok(ExprKind::Let(l))
     }
+}
+
+fn define_quoted_ast_node(ast_name: ExprKind, expanded_expr: &ExprKind) -> ExprKind {
+    ExprKind::Define(Box::new(Define::new(
+        ast_name,
+        ExprKind::Quote(Box::new(Quote::new(
+            expanded_expr.clone(),
+            SyntaxObject::default(TokenType::Quote),
+        ))),
+        SyntaxObject::default(TokenType::Define),
+    )))
 }
 
 #[cfg(test)]

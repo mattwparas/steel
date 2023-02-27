@@ -24,12 +24,16 @@ impl SymbolOperations {
     pub fn symbol_to_string() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 1 {
-                if let SteelVal::SymbolV(quoted_value) = &args[0] {
-                    Ok(SteelVal::StringV(quoted_value.clone()))
-                } else {
-                    let error_message =
-                        format!("symbol->string expected a symbol, found {}", &args[0]);
-                    stop!(TypeMismatch => error_message)
+                match &args[0] {
+                    SteelVal::SymbolV(quoted_value) => Ok(SteelVal::StringV(quoted_value.clone())),
+                    SteelVal::ListV(_) => Ok(SteelVal::StringV(
+                        format!("{:?}", &args[0]).trim_start_matches('\'').into(),
+                    )),
+                    _ => {
+                        let error_message =
+                            format!("symbol->string expected a symbol, found {}", &args[0]);
+                        stop!(TypeMismatch => error_message)
+                    }
                 }
             } else {
                 stop!(ArityMismatch => "symbol->string expects only one argument")

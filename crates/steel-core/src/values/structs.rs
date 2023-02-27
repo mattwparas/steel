@@ -30,6 +30,16 @@ pub struct UserDefinedStruct {
     pub(crate) properties: Gc<im_rc::HashMap<SteelVal, SteelVal>>,
 }
 
+// TODO: This could blow the stack for big trees...
+impl PartialEq for UserDefinedStruct {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.name, &other.name)
+            && self.len == other.len
+            && self.fields == other.fields
+            && Gc::ptr_eq(&self.properties, &other.properties)
+    }
+}
+
 impl std::fmt::Display for UserDefinedStruct {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self

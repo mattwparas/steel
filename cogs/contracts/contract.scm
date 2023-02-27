@@ -2,14 +2,17 @@
 
 (provide
  make-function-contract
+ make-contract
  bind-contract-to-function
  FlatContract
  FlatContract-predicate
  FunctionContract
+ FunctionContract-pre-conditions
+ FunctionContract-post-condition
  (for-syntax ->c)
  (for-syntax define/c))
 
-;;struct definitions
+;; struct definitions
 (struct FlatContract (predicate name))
 ;; Contract Attachment - use this for understanding where something happened
 (struct ContractAttachmentLocation (type name))
@@ -81,7 +84,9 @@
         (loop (cons (car lst) accum) (cdr lst))))
   (loop '() lst))
 
-;; Contracts a default function contract
+;;@doc
+;; Creates a `FunctionContract` from the list of conditions, splitting out the 
+;; preconditions and the postconditions
 (define make-function-contract
   (lambda conditions
     (%plain-let ((split (split-last conditions)))
@@ -167,7 +172,10 @@
                            arguments
                            span))
 
-
+;;@doc
+;; Verifies the arguments against the FunctionContract, and then produces
+;; a new list of arguments, with any arguments wrapped in function contracts if they happen
+;; to be higher order
 (define (verify-preconditions self-contract arguments name span)
                                         ; (displayln arguments)
 

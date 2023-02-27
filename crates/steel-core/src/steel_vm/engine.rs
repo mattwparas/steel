@@ -10,7 +10,7 @@ use crate::{
         modules::CompiledModule,
         program::{Executable, RawProgramWithSymbols},
     },
-    parser::ast::ExprKind,
+    parser::{ast::ExprKind, expander::SteelMacro},
     parser::{
         kernel::{fresh_kernel_image, Kernel},
         parser::{ParseError, Parser, Sources},
@@ -439,7 +439,7 @@ impl Engine {
         let result = program.build("TestProgram".to_string(), &mut self.compiler.symbol_map);
 
         if result.is_err() {
-            println!("Rolling back symbol map");
+            // println!("Rolling back symbol map");
             self.compiler.symbol_map.roll_back(symbol_map_offset);
         }
 
@@ -480,7 +480,7 @@ impl Engine {
         Ok(parsed.into_iter().map(|x| x.to_pretty(60)).join("\n\n"))
     }
 
-    /// Emit the fully expanded AST
+    /// Emit the fully expanded AST as a pretty printed string
     pub fn emit_fully_expanded_ast_to_string(
         &mut self,
         expr: &str,
@@ -499,6 +499,22 @@ impl Engine {
             .into_iter()
             .map(|x| x.to_pretty(60))
             .join("\n\n"))
+    }
+
+    /// Emits the fully expanded AST directly.
+    pub fn emit_fully_expanded_ast(
+        &mut self,
+        expr: &str,
+        path: Option<PathBuf>,
+    ) -> Result<Vec<ExprKind>> {
+        let constants = self.constants();
+        self.compiler.emit_expanded_ast(
+            expr,
+            constants,
+            path,
+            &mut self.sources,
+            self.modules.clone(),
+        )
     }
 
     /// Registers an external value of any type as long as it implements [`FromSteelVal`](crate::rvals::FromSteelVal) and
@@ -858,6 +874,14 @@ impl Engine {
 
     pub fn modules(&self) -> &HashMap<PathBuf, CompiledModule> {
         self.compiler.modules()
+    }
+
+    pub fn global_exists(&self, ident: &str) -> bool {
+        self.compiler.symbol_map.get(ident).is_ok()
+    }
+
+    pub fn in_scope_macros(&self) -> &HashMap<String, SteelMacro> {
+        &self.compiler.macro_env
     }
 }
 

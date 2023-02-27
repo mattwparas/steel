@@ -1881,7 +1881,7 @@ mod display_tests {
     use std::rc::Rc;
 
     fn parse(expr: &str) -> ExprKind {
-        let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
+        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
         let a: Result<Vec<ExprKind>> = Parser::new(expr, &mut cache, None).collect();
 
         a.unwrap()[0].clone()
@@ -2054,7 +2054,7 @@ mod pretty_print_tests {
     // }
 
     fn parse(expr: &str) -> ExprKind {
-        let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
+        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
         let a: Result<Vec<ExprKind>> = Parser::new(expr, &mut cache, None).collect();
 
         a.unwrap()[0].clone()

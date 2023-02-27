@@ -9,6 +9,8 @@ use std::{ops::Deref, rc::Weak};
 pub static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static MAXIMUM_OBJECTS: usize = 50000;
 
+// TODO: Consider triomphe for a drop in replacement of Arc
+
 /// Used for automatic detection of ref cycle
 pub enum MaybeWeak<T: Clone> {
     StrongRef(Gc<T>),

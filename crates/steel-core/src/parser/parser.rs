@@ -8,6 +8,7 @@ use std::rc::Rc;
 use std::result;
 use std::str;
 use std::{collections::HashMap, path::PathBuf};
+use steel_parser::lexer::{OwnedString, OwnedTokenStream};
 use thiserror::Error;
 
 use crate::parser::span::Span;
@@ -24,10 +25,12 @@ use super::ast;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-#[derive(
-    Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
-)]
-pub struct SourceId(pub(crate) usize);
+pub use steel_parser::parser::SourceId;
+
+// #[derive(
+//     Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
+// )]
+// pub struct SourceId(pub(crate) usize);
 
 impl IntoSteelVal for SourceId {
     fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
@@ -178,7 +181,7 @@ impl<T: std::hash::Hash> std::hash::Hash for RawSyntaxObject<T> {
     }
 }
 
-pub type SyntaxObject = RawSyntaxObject<TokenType>;
+pub type SyntaxObject = RawSyntaxObject<TokenType<String>>;
 
 // #[derive(Debug, Clone, Serialize, Deserialize)]
 // pub struct SyntaxObject {
@@ -194,7 +197,7 @@ impl PartialEq for SyntaxObject {
 }
 
 impl SyntaxObject {
-    pub fn new(ty: TokenType, span: Span) -> Self {
+    pub fn new(ty: TokenType<String>, span: Span) -> Self {
         SyntaxObject {
             ty,
             span,
@@ -203,7 +206,7 @@ impl SyntaxObject {
         }
     }
 
-    pub fn new_with_source(ty: TokenType, span: Span, source: Option<Rc<PathBuf>>) -> Self {
+    pub fn new_with_source(ty: TokenType<String>, span: Span, source: Option<Rc<PathBuf>>) -> Self {
         SyntaxObject {
             ty,
             span,
@@ -212,7 +215,7 @@ impl SyntaxObject {
         }
     }
 
-    pub fn default(ty: TokenType) -> Self {
+    pub fn default(ty: TokenType<String>) -> Self {
         SyntaxObject {
             ty,
             span: Span::new(0, 0, None),
@@ -225,7 +228,7 @@ impl SyntaxObject {
         self.span = span
     }
 
-    pub fn from_token_with_source(val: &Token, source: &Option<Rc<PathBuf>>) -> Self {
+    pub fn from_token_with_source(val: &Token<'_, String>, source: &Option<Rc<PathBuf>>) -> Self {
         SyntaxObject {
             ty: val.ty.clone(),
             span: val.span,
@@ -235,8 +238,8 @@ impl SyntaxObject {
     }
 }
 
-impl From<&Token<'_>> for SyntaxObject {
-    fn from(val: &Token) -> SyntaxObject {
+impl From<&Token<'_, String>> for SyntaxObject {
+    fn from(val: &Token<'_, String>) -> SyntaxObject {
         SyntaxObject::new(val.ty.clone(), val.span)
     }
 }
@@ -282,17 +285,13 @@ impl TryFrom<SyntaxObject> for SteelVal {
             Define => Ok(SymbolV("define".into())),
             Let => Ok(SymbolV("let".into())),
             TestLet => Ok(SymbolV("test-let".into())),
-            // Transduce => Ok(SymbolV("transduce".into())),
-            // Execute => Ok(SymbolV("execute".into())),
             Return => Ok(SymbolV("return!".into())),
             Begin => Ok(SymbolV("begin".into())),
-            // Panic => Ok(SymbolV("panic!".into())),
             Lambda => Ok(SymbolV("lambda".into())),
             Quote => Ok(SymbolV("quote".into())),
             DefineSyntax => Ok(SymbolV("define-syntax".into())),
             SyntaxRules => Ok(SymbolV("syntax-rules".into())),
             Ellipses => Ok(SymbolV("...".into())),
-            // Apply => Ok(SymbolV("apply".into())),
             Set => Ok(SymbolV("set!".into())),
             Require => Ok(SymbolV("require".into())),
         }
@@ -304,7 +303,7 @@ pub enum ParseError {
     // #[error("Parse: Error reading tokens: {0}")]
     // TokenError(#[from] TokenError),
     #[error("Parse: Unexpected token: {0:?}")]
-    Unexpected(TokenType, Option<Rc<PathBuf>>),
+    Unexpected(TokenType<String>, Option<Rc<PathBuf>>),
     #[error("Parse: Unexpected EOF")]
     UnexpectedEOF(Option<Rc<PathBuf>>),
     #[error("Parse: Unexpected character: {0:?}")]
@@ -343,15 +342,16 @@ impl ParseError {
     }
 }
 
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct Parser<'a> {
-    tokenizer: TokenStream<'a>,
-    _intern: &'a mut HashMap<String, Rc<TokenType>>,
+    tokenizer: OwnedTokenStream<'a, String, OwnedString>,
+    _intern: &'a mut HashMap<String, Rc<TokenType<String>>>,
     quote_stack: Vec<usize>,
     shorthand_quote_stack: Vec<usize>,
     source_name: Option<Rc<PathBuf>>,
     context: Vec<ParsingContext>,
     comment_buffer: Vec<&'a str>,
+    collecting_comments: bool,
 }
 
 #[derive(Debug)]
@@ -384,7 +384,7 @@ impl<'a> Parser<'a> {
 
 pub type Result<T> = result::Result<T, ParseError>;
 
-fn tokentype_error_to_parse_error(t: &Token) -> ParseError {
+fn tokentype_error_to_parse_error(t: &Token<'_, String>) -> ParseError {
     if let TokenType::Error = t.ty {
         // println!("Found an error: {}", t);
 
@@ -401,51 +401,54 @@ fn tokentype_error_to_parse_error(t: &Token) -> ParseError {
 impl<'a> Parser<'a> {
     pub fn new(
         input: &'a str,
-        intern: &'a mut HashMap<String, Rc<TokenType>>,
+        intern: &'a mut HashMap<String, Rc<TokenType<String>>>,
         source_id: Option<SourceId>,
     ) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, true, source_id),
+            tokenizer: TokenStream::new(input, false, source_id).into_owned(OwnedString),
             _intern: intern,
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
             source_name: None,
             context: Vec::new(),
             comment_buffer: Vec::new(),
+            collecting_comments: false,
         }
     }
 
     pub fn new_from_source(
         input: &'a str,
-        intern: &'a mut HashMap<String, Rc<TokenType>>,
+        intern: &'a mut HashMap<String, Rc<TokenType<String>>>,
         source_name: PathBuf,
         source_id: Option<SourceId>,
     ) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, true, source_id),
+            tokenizer: TokenStream::new(input, false, source_id).into_owned(OwnedString),
             _intern: intern,
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
             source_name: Some(Rc::from(source_name)),
             context: Vec::new(),
             comment_buffer: Vec::new(),
+            collecting_comments: false,
         }
     }
 
     // Attach comments!
     pub fn doc_comment_parser(
         input: &'a str,
-        intern: &'a mut HashMap<String, Rc<TokenType>>,
+        intern: &'a mut HashMap<String, Rc<TokenType<String>>>,
         source_id: Option<SourceId>,
     ) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, false, source_id),
+            tokenizer: TokenStream::new(input, false, source_id).into_owned(OwnedString),
             _intern: intern,
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
             source_name: None,
             context: Vec::new(),
             comment_buffer: Vec::new(),
+            collecting_comments: false,
         }
     }
 
@@ -840,6 +843,165 @@ impl<'a> Parser<'a> {
     }
 }
 
+fn wrap_in_doc_function(expr: ExprKind, comment: String) -> ExprKind {
+    // println!("Found comment : {} for expr {}", comment, expr);
+
+    ExprKind::List(List::new(vec![
+        ExprKind::ident("@doc"),
+        ExprKind::string_lit(comment),
+        expr,
+    ]))
+}
+
+impl<'a> Parser<'a> {
+    fn get_next_and_maybe_wrap_in_doc(&mut self) -> Option<Result<ExprKind>> {
+        let mut next;
+
+        loop {
+            next = self.tokenizer.next();
+
+            if let Some(res) = next {
+                match res.ty {
+                    TokenType::Comment => {
+                        if self.comment_buffer.is_empty() && !self.collecting_comments {
+                            if res.source().trim_start_matches(';').starts_with("@doc") {
+                                self.collecting_comments = true;
+
+                                // println!("Found a comment to collect, starting collection...");
+
+                                continue;
+                            }
+                        }
+
+                        if self.collecting_comments {
+                            let doc_line = res.source().trim_start_matches(';');
+
+                            // If we hit another comment, clear it
+                            if doc_line.starts_with("@doc") {
+                                // println!("Clearing buffer");
+
+                                self.comment_buffer.clear();
+                                continue;
+                            }
+
+                            // println!("Collecting line: {}", doc_line);
+
+                            self.comment_buffer.push(doc_line.trim_start());
+                        }
+
+                        continue;
+                    }
+
+                    TokenType::QuoteTick => {
+                        // See if this does the job
+                        self.shorthand_quote_stack.push(0);
+
+                        // println!("Entering Context: Quote Tick");
+                        self.context.push(ParsingContext::QuoteTick(0));
+
+                        let value = self
+                            .next()
+                            .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                            .map(|x| self.construct_quote_vec(x, res.span));
+
+                        self.shorthand_quote_stack.pop();
+
+                        let popped_value = self.context.pop();
+
+                        if let Some(popped) = popped_value {
+                            debug_assert!(matches!(popped, ParsingContext::QuoteTick(_)))
+                        }
+
+                        // println!("Exiting context: {:?}", self.context.pop());
+                        // println!("Result: {:?}", value);
+
+                        return Some(match value {
+                            Ok(v) => ExprKind::try_from(v),
+                            Err(e) => Err(e),
+                        });
+                    }
+
+                    TokenType::Unquote => {
+                        // println!("Entering Context: Unquote");
+                        self.context.push(ParsingContext::UnquoteTick(0));
+
+                        let value = self
+                            .next()
+                            .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                            .map(|x| self.construct_unquote(x, res.span));
+
+                        let popped_value = self.context.pop();
+
+                        if let Some(popped) = popped_value {
+                            debug_assert!(matches!(popped, ParsingContext::UnquoteTick(_)))
+                        }
+                        // println!("Exiting context: {:?}", self.context.pop());
+
+                        return Some(value);
+                    }
+
+                    TokenType::UnquoteSplice => {
+                        // println!("Entering Context: Unquotesplicing");
+                        self.context.push(ParsingContext::UnquoteSplicingTick(0));
+
+                        let value = self
+                            .next()
+                            .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                            .map(|x| self.construct_unquote_splicing(x, res.span));
+
+                        let popped_value = self.context.pop();
+
+                        if let Some(popped) = popped_value {
+                            debug_assert!(matches!(popped, ParsingContext::UnquoteSplicingTick(_)))
+                        }
+
+                        // println!("Exiting context: {:?}", self.context.pop());
+
+                        return Some(value);
+                    }
+
+                    TokenType::QuasiQuote => {
+                        // println!("Entering Context: Quasiquote");
+                        self.context.push(ParsingContext::QuasiquoteTick(0));
+
+                        let value = self
+                            .next()
+                            .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                            .map(|x| self.construct_quasiquote(x, res.span));
+
+                        // println!("{:?}", self.context.pop());
+
+                        // println!("Top level Context: {:?}", self.context);
+
+                        let popped_value = self.context.pop();
+
+                        if let Some(popped) = popped_value {
+                            debug_assert!(matches!(popped, ParsingContext::QuasiquoteTick(_)))
+                        }
+
+                        // println!("Exiting context: {:?}", self.context.pop());
+
+                        return Some(value);
+                    }
+
+                    TokenType::OpenParen => return Some(self.read_from_tokens()),
+                    TokenType::CloseParen => {
+                        return Some(Err(ParseError::Unexpected(
+                            TokenType::CloseParen,
+                            self.source_name.clone(),
+                        )))
+                    }
+                    TokenType::Error => return Some(Err(tokentype_error_to_parse_error(&res))),
+                    _ => return Some(Ok(ExprKind::Atom(Atom::new(SyntaxObject::from(&res))))),
+                };
+            } else {
+                // We're done consuming input
+                return None;
+            }
+        }
+    }
+}
+
 impl<'a> Iterator for Parser<'a> {
     type Item = Result<ExprKind>;
 
@@ -848,132 +1010,161 @@ impl<'a> Iterator for Parser<'a> {
         // self.shorthand_quote_stack = Vec::new();
         // self.quote_stack = Vec::new();
 
-        self.tokenizer.next().map(|res| match res.ty {
-            // Collect the comment until theres something to attach to
-            TokenType::Comment => {
-                //     // todo!()
+        if self.quote_stack.is_empty()
+            && self.shorthand_quote_stack.is_empty()
+            && self.context.is_empty()
+        {
+            self.comment_buffer.clear();
+        }
 
-                // println!("Found a comment: {}", res.source());
-                // println!("Buffer now: {:?}", self.comment_buffer);
+        // println!("Clearing the comment buffer!");
 
-                self.comment_buffer
-                    .push(res.source().trim_start_matches(';').trim_start());
+        self.get_next_and_maybe_wrap_in_doc().map(|res| {
+            if self.comment_buffer.is_empty() {
+                res
+            } else {
+                // Reset the comment collection until next @doc statement
+                self.collecting_comments = false;
 
-                match self.next() {
-                    Some(v) => {
-                        // println!("Next thing found: {:?}", v);
-                        v
-                    }
-                    None => Err(ParseError::SyntaxError(
-                        "Doc comment not associated with a top level definition".to_string(),
-                        res.span(),
-                        None,
-                    )),
-                }
+                // println!("Setting collecting comments to false, found: {:?}", res);
 
-                // Ok(self.next().unwrap)
-
-                //     println!("Found a comment!");
+                res.map(|x| {
+                    wrap_in_doc_function(x, self.comment_buffer.join("\n").drain(..).collect())
+                })
             }
-
-            // Err(e) => Err(ParseError::TokenError(e)),
-            TokenType::QuoteTick => {
-                // See if this does the job
-                self.shorthand_quote_stack.push(0);
-
-                // println!("Entering Context: Quote Tick");
-                self.context.push(ParsingContext::QuoteTick(0));
-
-                let value = self
-                    .next()
-                    .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                    .map(|x| self.construct_quote_vec(x, res.span));
-
-                self.shorthand_quote_stack.pop();
-
-                let popped_value = self.context.pop();
-
-                if let Some(popped) = popped_value {
-                    debug_assert!(matches!(popped, ParsingContext::QuoteTick(_)))
-                }
-
-                // println!("Exiting context: {:?}", self.context.pop());
-                // println!("Result: {:?}", value);
-
-                match value {
-                    Ok(v) => ExprKind::try_from(v),
-                    Err(e) => Err(e),
-                }
-            }
-            TokenType::Unquote => {
-                // println!("Entering Context: Unquote");
-                self.context.push(ParsingContext::UnquoteTick(0));
-
-                let value = self
-                    .next()
-                    .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                    .map(|x| self.construct_unquote(x, res.span));
-
-                let popped_value = self.context.pop();
-
-                if let Some(popped) = popped_value {
-                    debug_assert!(matches!(popped, ParsingContext::UnquoteTick(_)))
-                }
-                // println!("Exiting context: {:?}", self.context.pop());
-
-                value
-            }
-            TokenType::UnquoteSplice => {
-                // println!("Entering Context: Unquotesplicing");
-                self.context.push(ParsingContext::UnquoteSplicingTick(0));
-
-                let value = self
-                    .next()
-                    .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                    .map(|x| self.construct_unquote_splicing(x, res.span));
-
-                let popped_value = self.context.pop();
-
-                if let Some(popped) = popped_value {
-                    debug_assert!(matches!(popped, ParsingContext::UnquoteSplicingTick(_)))
-                }
-
-                // println!("Exiting context: {:?}", self.context.pop());
-
-                value
-            }
-            TokenType::QuasiQuote => {
-                // println!("Entering Context: Quasiquote");
-                self.context.push(ParsingContext::QuasiquoteTick(0));
-
-                let value = self
-                    .next()
-                    .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                    .map(|x| self.construct_quasiquote(x, res.span));
-
-                // println!("{:?}", self.context.pop());
-
-                // println!("Top level Context: {:?}", self.context);
-
-                let popped_value = self.context.pop();
-
-                if let Some(popped) = popped_value {
-                    debug_assert!(matches!(popped, ParsingContext::QuasiquoteTick(_)))
-                }
-
-                // println!("Exiting context: {:?}", self.context.pop());
-
-                value
-            }
-            TokenType::OpenParen => self.read_from_tokens(),
-            TokenType::CloseParen => Err(ParseError::Unexpected(
-                TokenType::CloseParen,
-                self.source_name.clone(),
-            )),
-            TokenType::Error => Err(tokentype_error_to_parse_error(&res)),
-            _ => Ok(ExprKind::Atom(Atom::new(SyntaxObject::from(&res)))),
         })
     }
+
+    // self.tokenizer.next().map(|res| match res.ty {
+    //     // Collect the comment until theres something to attach to
+    //     TokenType::Comment => {
+    //         //     // todo!()
+
+    //         // println!("Found a comment: {}", res.source());
+    //         // println!("Buffer now: {:?}", self.comment_buffer);
+
+    //         self.comment_buffer
+    //             .push(res.source().trim_start_matches(';').trim_start());
+
+    //         // TODO: Instead of making a recursive call, we should just wrap
+    //         // this whole thing in a loop, and accumulate until we return
+    //         match self.next() {
+    //             Some(v) => {
+    //                 println!("Next thing found: {:?}", v);
+    //                 v
+    //                 // v.map(|x| {
+    //                 //     wrap_in_doc_function(x, self.comment_buffer.join("\n").to_string())
+    //                 // })
+    //             }
+    //             None => Err(ParseError::SyntaxError(
+    //                 "Doc comment not associated with a top level definition".to_string(),
+    //                 res.span(),
+    //                 None,
+    //             )),
+    //         }
+
+    //         // Ok(self.next().unwrap)
+
+    //         //     println!("Found a comment!");
+    //     }
+
+    //     // Err(e) => Err(ParseError::TokenError(e)),
+    //     TokenType::QuoteTick => {
+    //         // See if this does the job
+    //         self.shorthand_quote_stack.push(0);
+
+    //         // println!("Entering Context: Quote Tick");
+    //         self.context.push(ParsingContext::QuoteTick(0));
+
+    //         let value = self
+    //             .next()
+    //             .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+    //             .map(|x| self.construct_quote_vec(x, res.span));
+
+    //         self.shorthand_quote_stack.pop();
+
+    //         let popped_value = self.context.pop();
+
+    //         if let Some(popped) = popped_value {
+    //             debug_assert!(matches!(popped, ParsingContext::QuoteTick(_)))
+    //         }
+
+    //         // println!("Exiting context: {:?}", self.context.pop());
+    //         // println!("Result: {:?}", value);
+
+    //         match value {
+    //             Ok(v) => ExprKind::try_from(v),
+    //             Err(e) => Err(e),
+    //         }
+    //     }
+    //     TokenType::Unquote => {
+    //         // println!("Entering Context: Unquote");
+    //         self.context.push(ParsingContext::UnquoteTick(0));
+
+    //         let value = self
+    //             .next()
+    //             .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+    //             .map(|x| self.construct_unquote(x, res.span));
+
+    //         let popped_value = self.context.pop();
+
+    //         if let Some(popped) = popped_value {
+    //             debug_assert!(matches!(popped, ParsingContext::UnquoteTick(_)))
+    //         }
+    //         // println!("Exiting context: {:?}", self.context.pop());
+
+    //         value
+    //     }
+    //     TokenType::UnquoteSplice => {
+    //         // println!("Entering Context: Unquotesplicing");
+    //         self.context.push(ParsingContext::UnquoteSplicingTick(0));
+
+    //         let value = self
+    //             .next()
+    //             .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+    //             .map(|x| self.construct_unquote_splicing(x, res.span));
+
+    //         let popped_value = self.context.pop();
+
+    //         if let Some(popped) = popped_value {
+    //             debug_assert!(matches!(popped, ParsingContext::UnquoteSplicingTick(_)))
+    //         }
+
+    //         // println!("Exiting context: {:?}", self.context.pop());
+
+    //         value
+    //     }
+    //     TokenType::QuasiQuote => {
+    //         // println!("Entering Context: Quasiquote");
+    //         self.context.push(ParsingContext::QuasiquoteTick(0));
+
+    //         let value = self
+    //             .next()
+    //             .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+    //             .map(|x| self.construct_quasiquote(x, res.span));
+
+    //         // println!("{:?}", self.context.pop());
+
+    //         // println!("Top level Context: {:?}", self.context);
+
+    //         let popped_value = self.context.pop();
+
+    //         if let Some(popped) = popped_value {
+    //             debug_assert!(matches!(popped, ParsingContext::QuasiquoteTick(_)))
+    //         }
+
+    //         // println!("Exiting context: {:?}", self.context.pop());
+
+    //         value
+    //     }
+    //     TokenType::OpenParen => self.read_from_tokens(),
+    //     TokenType::CloseParen => Err(ParseError::Unexpected(
+    //         TokenType::CloseParen,
+    //         self.source_name.clone(),
+    //     )),
+    //     TokenType::Error => Err(tokentype_error_to_parse_error(&res)),
+    //     _ => Ok(ExprKind::Atom(Atom::new(SyntaxObject::from(&res)))),
+    // })
 }
 
 #[cfg(test)]
@@ -1005,26 +1196,26 @@ mod parser_tests {
     }
 
     fn parses(s: &str) {
-        let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
+        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
         let a: Result<Vec<_>> = Parser::new(s, &mut cache, None).collect();
         a.unwrap();
     }
 
     fn assert_parse(s: &str, result: &[ExprKind]) {
-        let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
+        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
         let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache, None).collect();
         let a = a.unwrap();
         assert_eq!(a.as_slice(), result);
     }
 
     fn assert_parse_err(s: &str, err: ParseError) {
-        let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
+        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
         let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache, None).collect();
         assert_eq!(a, Err(err));
     }
 
     fn assert_parse_is_err(s: &str) {
-        let mut cache: HashMap<String, Rc<TokenType>> = HashMap::new();
+        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
         let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache, None).collect();
         assert!(a.is_err());
     }
@@ -1034,6 +1225,7 @@ mod parser_tests {
         let mut cache = HashMap::new();
 
         let expr = r#"
+        ;;@doc
         ;; This is a fancy cool comment, that I want to attach to a top level definition!
         ;; This is the second line of the comment, I want this attached as well!
         ;; Macro for creating a new struct, in the form of:

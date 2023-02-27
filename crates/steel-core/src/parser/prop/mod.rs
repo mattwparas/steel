@@ -7,6 +7,8 @@ use crate::parser::span::Span;
 use proptest::prelude::*;
 use std::convert::TryFrom;
 
+use crate::parser::ast::{Atom, Begin, Define, If, List, Quote};
+
 // #[derive(Clone, Debug, PartialEq)]
 // pub enum ExprKind {
 //     Atom(Atom),
@@ -142,7 +144,7 @@ prop_compose! {
     }
 }
 
-fn tokentype_strategy() -> impl Strategy<Value = TokenType> {
+fn tokentype_strategy() -> impl Strategy<Value = TokenType<String>> {
     use TokenType::*;
     prop_oneof![
         any::<char>().prop_map(CharacterLiteral),

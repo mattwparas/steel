@@ -126,8 +126,27 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
         stop!(Generic => "internal compiler error - could not translate require to steel value")
     }
 
-    fn visit_let(&mut self, _l: Box<super::ast::Let>) -> Self::Output {
-        todo!()
+    fn visit_let(&mut self, l: Box<super::ast::Let>) -> Self::Output {
+        // todo!()
+
+        let pairs = l
+            .bindings
+            .into_iter()
+            .map(|x| {
+                Ok(SteelVal::ListV(
+                    vec![self.visit(x.0)?, self.visit(x.1)?].into(),
+                ))
+            })
+            .collect::<Result<_>>()?;
+
+        Ok(SteelVal::ListV(
+            vec![
+                SteelVal::SymbolV("%plain-let".into()),
+                SteelVal::ListV(pairs),
+                self.visit(l.body_expr)?,
+            ]
+            .into(),
+        ))
     }
 }
 

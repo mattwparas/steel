@@ -174,6 +174,8 @@ thread_local! {
     pub(crate) static DEFAULT_CONSTANT_MAP: ConstantMap = ConstantMap::new();
 }
 
+// Drain and move across the thread boundary, OR, enforce the restriction that only pure functions
+// can move into a new thread... that might be the easiest way?
 #[derive(Clone)]
 pub struct SteelThread {
     pub(crate) global_env: Env,

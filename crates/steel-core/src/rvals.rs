@@ -1282,6 +1282,8 @@ impl PartialEq for SteelVal {
             (Contract(l), Contract(r)) => l == r,
             (IterV(l), IterV(r)) => l == r,
             (ListV(l), ListV(r)) => l == r,
+            (CustomStruct(l), CustomStruct(r)) => l == r,
+            (FuncV(l), FuncV(r)) => *l as usize == *r as usize,
             //TODO
             (_, _) => false, // (l, r) => {
                              //     let left = unwrap!(l, usize);

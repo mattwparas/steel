@@ -39,7 +39,7 @@ impl Kernel {
         engine.compile_and_run_raw_program(KERNEL).unwrap();
 
         let mut macros = HashSet::new();
-        macros.insert("%better-lambda%".to_string());
+        // macros.insert("%better-lambda%".to_string());
         macros.insert("struct".to_string());
 
         Kernel {

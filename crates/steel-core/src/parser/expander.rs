@@ -418,6 +418,8 @@ impl MacroPattern {
                 )?)),
                 ExprKind::Quote(q) => pattern_vec.push(MacroPattern::QuotedExpr(q)),
                 _ => {
+                    // TODO: Add pattern matching on other kinds of forms here - probably just a special IR
+                    // for the pattern to match against here
                     stop!(BadSyntax => "illegal special form found in macro pattern");
                 }
             }

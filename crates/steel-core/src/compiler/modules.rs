@@ -264,6 +264,8 @@ impl ModuleManager {
 
             // ast = ast.into_iter().map(|x| )
 
+            // ast.pretty_print();
+
             ast = ast
                 .into_iter()
                 .map(|x| {
@@ -400,6 +402,14 @@ impl CompiledModule {
             ast,
             emitted: false,
         }
+    }
+
+    pub fn get_provides(&self) -> &[ExprKind] {
+        &self.provides
+    }
+
+    pub fn get_requires(&self) -> &[PathBuf] {
+        &self.requires
     }
 
     pub fn set_emitted(&mut self, emitted: bool) {
@@ -948,6 +958,8 @@ impl<'a> ModuleBuilder<'a> {
                 require_for_syntax,
                 &mut mangled_asts,
             );
+
+            // ast.pretty_print();
 
             ast = ast
                 .into_iter()

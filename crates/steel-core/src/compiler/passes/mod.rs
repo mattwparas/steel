@@ -8,7 +8,13 @@ pub mod shadow;
 use std::ops::ControlFlow;
 
 use crate::parser::ast::ExprKind;
-use crate::parser::ast::*;
+// use crate::parser::ast::*;
+
+use crate::parser::ast::{
+    Atom, Begin, Define, If, LambdaFunction, Let, List, Macro, Quote, Require, Return, Set,
+    SyntaxRules,
+};
+
 pub trait Folder {
     fn fold(&mut self, ast: Vec<ExprKind>) -> Vec<ExprKind> {
         ast.into_iter().map(|x| self.visit(x)).collect()

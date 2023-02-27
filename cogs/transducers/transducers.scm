@@ -6,11 +6,13 @@
          tflatten
          tdelete-neighbor-duplicates
          tenumerate
+         tlog
          tadd-between
          ttake
          ttake-while
          tconcatenate
-         rcons)
+         rcons
+         reverse-rcons)
 
 
 ;; A reduced value is stops the transduction.
@@ -151,7 +153,17 @@
 ;; Reducing functions meant to be used at the end at the transducing
 ;; process.    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; a transducer-friendly cons with the empty list as identity
+;;@doc
+;; A transducer-friendly cons with the empty list as identity
+;; This function accepts multiple arguments:
+;;   * 0 arguments, returns the empty list as the identity
+;;   * 1 argument, a list, returns the reverse of that list
+;;   * 2 arguments, a list and the element, then returns a new list with the element consed to the list
+;; 
+;; Used to build up a list during a transduction:
+;; ```scheme
+;; (list-transduce (tfilter odd?) rcons (list 1 2 3 4)) ;; => '(1 3)
+;; ```
 (define rcons
   (case-lambda
     (() '())
@@ -159,6 +171,19 @@
     ((lst x) (cons x lst))))
 
 
+;;@doc
+;; A transducer-friendly cons with the empty list as identity. Acts like rcons, however will reverse
+;; the resulting list.
+;;
+;; This function accepts multiple arguments:
+;;   * 0 arguments, returns the empty list as the identity
+;;   * 1 argument, a list, returns that list
+;;   * 2 arguments, a list and the element, then returns a new list with the element consed to the list
+;; 
+;; Used to build up a list during a transduction:
+;; ```scheme
+;; (list-transduce (tfilter odd?) rcons (list 1 2 3 4)) ;; => '(3 1)
+;; ```
 (define reverse-rcons
   (case-lambda
     (() '())
@@ -166,8 +191,12 @@
     ((lst x) (cons x lst))))
 
 
+;;@doc
 ;; Use this as the f in transduce to count the amount of elements passed through.
-;; (transduce (tfilter odd?) tcount (list 1 2 3)) => 2
+;;
+;; ```scheme
+;; (list-transduce (tfilter odd?) tcount (list 1 2 3)) ;; => 2
+;; ```
 (define rcount
   (case-lambda
     (() 0)
@@ -176,6 +205,7 @@
      (+ 1 result))))
 
 
+;;@doc
 ;; These two take a predicate and returns reducing functions that behave
 ;; like any and every from srfi-1
 (define (rany pred)
@@ -188,7 +218,6 @@
            (reduced test)
            #f)))))
 
-
 (define (revery pred)
   (case-lambda
     (() #t)
@@ -198,7 +227,6 @@
        (if (and result test)
            test
            (reduced #f))))))
-
 
 (define list-transduce
   (case-lambda
@@ -392,9 +420,12 @@
 ;   (compose (tmap f) tconcatenate))
 
 
-
-; ;; Flattens everything and passes each value through the reducer
-; ;; (list-transduce tflatten rcons (list 1 2 (list 3 4 '(5 6) 7 8))) => (1 2 3 4 5 6 7 8)
+;;@doc
+;; Flattens everything and passes each value through the reducer
+;;
+;; ```scheme
+;; (list-transduce tflatten rcons (list 1 2 (list 3 4 '(5 6) 7 8))) ;; => (1 2 3 4 5 6 7 8)
+;; ```
 (define tflatten
   (lambda (reducer)
     (case-lambda
@@ -406,7 +437,7 @@
            (reducer result input))))))
 
 
-
+;;@doc
 ;; removes duplicate consecutive elements
 (define tdelete-neighbor-duplicates
   (case-lambda
@@ -502,7 +533,7 @@
 ;                (set! collect (list input))
 ;                (reducer result next-input))))))))))
 
-
+;;@doc
 ;; Interposes element between each value pushed through the transduction.
 (define (tadd-between elem)
   (lambda (reducer)
@@ -521,7 +552,7 @@
                (set! send-elem? #t)
                (reducer result input))))))))
 
-
+;;@doc
 ;; indexes every value passed through in a cons pair as in (index . value). By default starts at 0
 (define tenumerate
   (case-lambda
@@ -538,17 +569,17 @@
               (reducer result input)))))))))
 
 
-; (define tlog
-;   (case-lambda
-;     (() (tlog (lambda (result input) (write input) (newline))))
-;     ((log-function)
-;      (lambda (reducer)
-;        (case-lambda
-;          (() (reducer))
-;          ((result) (reducer result))
-;          ((result input)
-;           (log-function result input)
-;           (reducer result input)))))))
+(define tlog
+  (case-lambda
+    (() (tlog (lambda (result input) (displayln input) )))
+    ((log-function)
+     (lambda (reducer)
+       (case-lambda
+         (() (reducer))
+         ((result) (reducer result))
+         ((result input)
+          (log-function result input)
+          (reducer result input)))))))
 
 
 ;; rcons here seems to be... slow

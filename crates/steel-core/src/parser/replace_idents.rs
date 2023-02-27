@@ -12,6 +12,9 @@ use std::collections::HashMap;
 
 const DATUM_TO_SYNTAX: &str = "datum->syntax";
 const SYNTAX_CONST_IF: &str = "syntax-const-if";
+// TODO: Add level for pure macros to run at compile time... More or less const functions, that still
+// have access to the span?
+// const CURRENT_FILE: &str = "const-current-file!";
 
 pub fn replace_identifiers(
     expr: ExprKind,
@@ -21,6 +24,10 @@ pub fn replace_identifiers(
     let rewrite_spans = RewriteSpan::new(span).visit(expr)?;
     ReplaceExpressions::new(bindings).visit(rewrite_spans)
 }
+
+// struct ConstExprKindTransformers {
+//     functions: HashMap<&'static str, fn(&ReplaceExpressions<'_>, ExprKind) -> Result<ExprKind>>,
+// }
 
 pub struct ReplaceExpressions<'a> {
     bindings: &'a HashMap<String, ExprKind>,
@@ -193,7 +200,7 @@ impl<'a> ReplaceExpressions<'a> {
     }
 }
 
-fn reserved_token_type_to_ident(token: &mut TokenType) {
+fn reserved_token_type_to_ident(token: &mut TokenType<String>) {
     if *token == TokenType::Define {
         *token = TokenType::Identifier("define".to_string());
     }
@@ -273,7 +280,7 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
     }
 
     fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
-        stop!(Generic => "unexpected macro definition"; m.location.span)
+        stop!(BadSyntax => format!("unexpected macro definition: {}", m); m.location.span)
     }
 
     fn visit_atom(&mut self, a: Atom) -> Self::Output {
@@ -396,7 +403,7 @@ impl ConsumingVisitor for RewriteSpan {
     }
 
     fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
-        stop!(Generic => "unexpected macro definition"; m.location.span)
+        stop!(BadSyntax => format!("unexpected macro definition: {}", m); m.location.span)
     }
 
     fn visit_atom(&mut self, mut a: Atom) -> Self::Output {
