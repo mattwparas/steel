@@ -22,6 +22,8 @@ use std::{
     rc::Rc,
 };
 
+use super::functions::BoxedDynFunction;
+
 #[derive(Clone, Debug)]
 pub struct UserDefinedStruct {
     pub(crate) name: Rc<String>,
@@ -296,6 +298,8 @@ impl UserDefinedStruct {
         options: Gc<HashMap<SteelVal, SteelVal>>,
         len: usize,
     ) -> SteelVal {
+        let out_name = Rc::clone(&name);
+
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != len {
                 let error_message = format!(
@@ -313,10 +317,16 @@ impl UserDefinedStruct {
             Ok(SteelVal::CustomStruct(Gc::new(RefCell::new(new_struct))))
         };
 
-        SteelVal::BoxedFunction(Rc::new(Box::new(f)))
+        SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+            Box::new(f),
+            Some(out_name),
+            Some(len),
+        )))
     }
 
     fn constructor(name: Rc<String>, len: usize) -> SteelVal {
+        let out_name = Rc::clone(&name);
+
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != len {
                 let error_message = format!(
@@ -333,10 +343,16 @@ impl UserDefinedStruct {
             Ok(SteelVal::CustomStruct(Gc::new(RefCell::new(new_struct))))
         };
 
-        SteelVal::BoxedFunction(Rc::new(Box::new(f)))
+        SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+            Box::new(f),
+            Some(out_name),
+            Some(len),
+        )))
     }
 
     fn predicate(name: Rc<String>) -> SteelVal {
+        let out_name = Rc::clone(&name);
+
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
                 let error_message =
@@ -354,10 +370,16 @@ impl UserDefinedStruct {
             }))
         };
 
-        SteelVal::BoxedFunction(Rc::new(Box::new(f)))
+        SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+            Box::new(f),
+            Some(out_name),
+            Some(1),
+        )))
     }
 
     fn getter_prototype(name: Rc<String>) -> SteelVal {
+        let out_name = Rc::clone(&name);
+
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
                 stop!(ArityMismatch => "struct-ref expected two arguments");
@@ -391,10 +413,16 @@ impl UserDefinedStruct {
             }
         };
 
-        SteelVal::BoxedFunction(Rc::new(Box::new(f)))
+        SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+            Box::new(f),
+            Some(out_name),
+            Some(2),
+        )))
     }
 
     fn getter_prototype_index(name: Rc<String>, index: usize) -> SteelVal {
+        let out_name = Rc::clone(&name);
+
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
                 stop!(ArityMismatch => "struct-ref expected one argument");
@@ -423,10 +451,16 @@ impl UserDefinedStruct {
             }
         };
 
-        SteelVal::BoxedFunction(Rc::new(Box::new(f)))
+        SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+            Box::new(f),
+            Some(out_name),
+            Some(1),
+        )))
     }
 
     fn setter_prototype(name: Rc<String>) -> SteelVal {
+        let out_name = Rc::clone(&name);
+
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 3 {
                 stop!(ArityMismatch => "struct-ref expected 3 arguments");
@@ -478,7 +512,11 @@ impl UserDefinedStruct {
             }
         };
 
-        SteelVal::BoxedFunction(Rc::new(Box::new(f)))
+        SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+            Box::new(f),
+            Some(out_name),
+            Some(3),
+        )))
     }
 
     pub fn properties(&self) -> SteelVal {
@@ -580,7 +618,15 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
         module
             .register_value(
                 "Ok",
-                SteelVal::BoxedFunction(OK_CONSTRUCTOR.with(|x| Rc::clone(x))),
+                SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+                    Box::new(UserDefinedStruct::constructor_thunk(
+                        Rc::clone(&name),
+                        RESULT_OPTIONS.with(|x| Gc::clone(x)),
+                        1,
+                    )),
+                    Some(Rc::clone(&name)),
+                    Some(1),
+                ))),
             )
             .register_value("Ok?", predicate)
             .register_value("Ok->value", getter);
@@ -597,7 +643,15 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
         module
             .register_value(
                 "Err",
-                SteelVal::BoxedFunction(ERR_CONSTRUCTOR.with(|x| Rc::clone(x))),
+                SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+                    Box::new(UserDefinedStruct::constructor_thunk(
+                        Rc::clone(&name),
+                        RESULT_OPTIONS.with(|x| Gc::clone(x)),
+                        1,
+                    )),
+                    Some(Rc::clone(&name)),
+                    Some(1),
+                ))),
             )
             .register_value("Err?", predicate)
             .register_value("Err->value", getter);
@@ -620,7 +674,15 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
         module
             .register_value(
                 "Some",
-                SteelVal::BoxedFunction(SOME_CONSTRUCTOR.with(|x| Rc::clone(x))),
+                SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+                    Box::new(UserDefinedStruct::constructor_thunk(
+                        Rc::clone(&name),
+                        OPTION_OPTIONS.with(|x| Gc::clone(x)),
+                        1,
+                    )),
+                    Some(Rc::clone(&name)),
+                    Some(1),
+                ))),
             )
             .register_value("Some?", predicate)
             .register_value("Some->value", getter);
@@ -634,7 +696,15 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
         module
             .register_value(
                 "None",
-                SteelVal::BoxedFunction(NONE_CONSTRUCTOR.with(|x| Rc::clone(x))),
+                SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+                    Box::new(UserDefinedStruct::constructor_thunk(
+                        Rc::clone(&name),
+                        OPTION_OPTIONS.with(|x| Gc::clone(x)),
+                        1,
+                    )),
+                    Some(Rc::clone(&name)),
+                    Some(0),
+                ))),
             )
             .register_value("None?", predicate);
     }

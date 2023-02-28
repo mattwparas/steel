@@ -2,9 +2,10 @@ use std::{borrow::Cow, rc::Rc};
 
 use crate::{
     parser::{ast::ExprKind, parser::SyntaxObject, tokens::TokenType},
-    rvals::{Custom, FromSteelVal, IntoSteelVal, Result, SteelVal},
+    rvals::{Custom, FromSteelVal, FunctionSignature, IntoSteelVal, Result, SteelVal},
+    values::functions::BoxedDynFunction,
 };
-use im_rc::OrdMap;
+use im_rc::{HashMap, OrdMap};
 
 /// A module to be consumed by the Steel Engine for later on demand access by scripts
 /// to refresh the primitives that are being used. For instance, the VM should have support
@@ -33,6 +34,15 @@ pub struct BuiltInModule {
     values: OrdMap<String, SteelVal>,
     docs: InternalDocumentation,
     version: &'static str,
+    // Add the metadata separate from the pointer, keeps the pointer slim
+    fn_ptr_table: HashMap<*const FunctionSignature, FunctionSignatureMetadata>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+// Probably need something more interesting than just an integer for the arity
+struct FunctionSignatureMetadata {
+    name: &'static str,
+    arity: usize,
 }
 
 impl Custom for BuiltInModule {}
@@ -44,6 +54,7 @@ impl BuiltInModule {
             values: OrdMap::new(),
             docs: InternalDocumentation::new(),
             version: env!("CARGO_PKG_VERSION"),
+            fn_ptr_table: HashMap::new(),
         }
     }
 
@@ -84,7 +95,11 @@ impl BuiltInModule {
 
         self.register_value(
             predicate_name,
-            SteelVal::BoxedFunction(Rc::new(Box::new(f))),
+            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+                Box::new(f),
+                Some(predicate_name),
+                Some(1),
+            ))),
         )
     }
 

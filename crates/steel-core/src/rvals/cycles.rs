@@ -110,7 +110,13 @@ impl CycleDetector {
             StreamV(_) => write!(f, "#<stream>"),
             Contract(c) => write!(f, "{}", **c),
             ContractedFunction(_) => write!(f, "#<contracted-function>"),
-            BoxedFunction(_) => write!(f, "#<function>"),
+            BoxedFunction(b) => {
+                if let Some(name) = b.name() {
+                    write!(f, "#<function:{}>", name)
+                } else {
+                    write!(f, "#<function>")
+                }
+            }
             ContinuationFunction(c) => write!(f, "#<continuation: {:?}>", c.stack),
             #[cfg(feature = "jit")]
             CompiledFunction(_) => write!(f, "#<compiled-function>"),
@@ -205,7 +211,13 @@ impl CycleDetector {
             StreamV(_) => write!(f, "#<stream>"),
             Contract(c) => write!(f, "{}", **c),
             ContractedFunction(_) => write!(f, "#<contracted-function>"),
-            BoxedFunction(_) => write!(f, "#<function>"),
+            BoxedFunction(b) => {
+                if let Some(name) = b.name() {
+                    write!(f, "#<function:{}>", name)
+                } else {
+                    write!(f, "#<function>")
+                }
+            }
             ContinuationFunction(c) => write!(f, "#<continuation: {:?}>", c.stack),
             #[cfg(feature = "jit")]
             CompiledFunction(_) => write!(f, "#<compiled-function>"),

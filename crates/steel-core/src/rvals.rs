@@ -11,7 +11,7 @@ use crate::{
     rerrs::{ErrorKind, SteelErr},
     steel_vm::vm::{BuiltInSignature, Continuation},
     values::port::SteelPort,
-    values::{closed::HeapRef, structs::UserDefinedStruct},
+    values::{closed::HeapRef, functions::BoxedDynFunction, structs::UserDefinedStruct},
     values::{
         contracts::{ContractType, ContractedFunction},
         functions::ByteCodeLambda,
@@ -659,7 +659,7 @@ pub enum SteelVal {
     /// Contracted Function
     ContractedFunction(Gc<ContractedFunction>),
     /// Custom closure
-    BoxedFunction(BoxedFunctionSignature),
+    BoxedFunction(Rc<BoxedDynFunction>),
     // Continuation
     ContinuationFunction(Gc<Continuation>),
     // Function Pointer
@@ -930,55 +930,6 @@ impl SteelVal {
         }
     }
 
-    #[allow(unused)]
-    pub(crate) fn other_contains_self(&self, other: &SteelVal) -> bool {
-        println!("Checking self: {self} with other: {other}");
-        match other {
-            // In this trivial case, these are atomic and therefore we are not concerned with cyclic
-            // reference
-            BoolV(_)
-            | NumV(_)
-            | IntV(_)
-            | CharV(_)
-            | Void
-            | StringV(_)
-            | PortV(_)
-            | SymbolV(_)
-            | SteelVal::Custom(_)
-            | FuncV(_)
-            | MutFunc(_)
-            | BuiltIn(_) => false,
-            VectorV(v) => v.iter().any(|x| self.other_contains_self(x)),
-            HashMapV(hm) => hm
-                .iter()
-                .any(|x| self.other_contains_self(x.0) || self.other_contains_self(x.1)),
-            HashSetV(hs) => hs.iter().any(|x| self.other_contains_self(x)),
-            Closure(_) => todo!(),
-            IterV(_) => todo!(),
-            ReducerV(_) => todo!(),
-            FutureFunc(_) => todo!(),
-            FutureV(_) => todo!(),
-            StreamV(_) => todo!(),
-            Contract(_) => todo!(),
-            SteelVal::ContractedFunction(_) => todo!(),
-            BoxedFunction(_) => todo!(),
-            ContinuationFunction(_) => todo!(),
-            ListV(l) => l.iter().any(|x| self.other_contains_self(x)),
-            MutableVector(v) => {
-                if let SteelVal::MutableVector(s) = self {
-                    Gc::ptr_eq(v, s)
-                } else {
-                    v.borrow().iter().any(|x| self.other_contains_self(x))
-                }
-            }
-            #[cfg(feature = "jit")]
-            CompiledFunction(_) => todo!(),
-            SyntaxObject(_) => todo!(),
-            _ => todo!(),
-            // BoxedIterator(_) => todo!(),
-        }
-    }
-
     #[inline(always)]
     pub fn is_struct(&self) -> bool {
         match self {
@@ -1179,7 +1130,7 @@ impl SteelVal {
     pub fn boxed_func_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,
-    ) -> std::result::Result<&BoxedFunctionSignature, E> {
+    ) -> std::result::Result<&BoxedDynFunction, E> {
         match self {
             Self::BoxedFunction(v) => Ok(v),
             _ => Err(err()),

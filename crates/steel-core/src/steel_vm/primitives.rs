@@ -829,6 +829,17 @@ fn sandboxed_meta_module() -> BuiltInModule {
 fn arity(value: SteelVal) -> UnRecoverableResult {
     match value {
         SteelVal::Closure(c) => Ok(SteelVal::IntV(c.arity() as isize)).into(),
+        SteelVal::BoxedFunction(f) => f
+            .get_arity()
+            .map(|x| SteelVal::IntV(x as isize))
+            .ok_or(SteelErr::new(
+                ErrorKind::TypeMismatch,
+                "Unable to find the arity for the given function".to_string(),
+            ))
+            // .ok_or(steelerr!(TypeMismatch => "Unable to find the arity for the give function"))
+            .into(),
+
+        // Ok(SteelVal::IntV(f.get_arity()))
         _ => steelerr!(TypeMismatch => "Unable to find the arity for the given function").into(),
     }
 }

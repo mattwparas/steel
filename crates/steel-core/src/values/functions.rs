@@ -230,3 +230,61 @@ pub fn get_contract(args: &[SteelVal]) -> crate::rvals::Result<SteelVal> {
         stop!(TypeMismatch => "get-contract-struct! expects a function in the first position")
     }
 }
+
+// Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>
+
+enum StaticOrRcStr {
+    Static(&'static str),
+    Owned(Rc<String>),
+}
+
+pub struct BoxedDynFunction {
+    function: Box<dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal>>,
+    name: Option<StaticOrRcStr>,
+    arity: Option<usize>,
+}
+
+impl BoxedDynFunction {
+    pub(crate) fn new(
+        function: Box<dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal>>,
+        name: Option<&'static str>,
+        arity: Option<usize>,
+    ) -> Self {
+        BoxedDynFunction {
+            function,
+            name: name.map(StaticOrRcStr::Static),
+            arity,
+        }
+    }
+
+    pub(crate) fn new_owned(
+        function: Box<dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal>>,
+        name: Option<Rc<String>>,
+        arity: Option<usize>,
+    ) -> Self {
+        BoxedDynFunction {
+            function,
+            name: name.map(StaticOrRcStr::Owned),
+            arity,
+        }
+    }
+
+    #[inline(always)]
+    pub fn func(&self) -> &dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> {
+        &self.function
+    }
+
+    #[inline(always)]
+    pub fn get_arity(&self) -> Option<usize> {
+        self.arity
+    }
+
+    #[inline(always)]
+    pub fn name(&self) -> Option<&str> {
+        match &self.name {
+            Some(StaticOrRcStr::Owned(o)) => Some(&o),
+            Some(StaticOrRcStr::Static(s)) => Some(s),
+            None => None,
+        }
+    }
+}

@@ -17,7 +17,9 @@ use crate::{
     },
     rerrs::back_trace,
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
-    stop, throw, SteelErr,
+    stop, throw,
+    values::functions::BoxedDynFunction,
+    SteelErr,
 };
 use std::{collections::HashMap, path::PathBuf, rc::Rc};
 
@@ -606,7 +608,11 @@ impl Engine {
 
         self.register_value(
             predicate_name,
-            SteelVal::BoxedFunction(Rc::new(Box::new(f))),
+            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+                Box::new(f),
+                Some(predicate_name),
+                Some(1),
+            ))),
         )
     }
 

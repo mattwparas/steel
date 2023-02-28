@@ -290,7 +290,7 @@ impl SteelThread {
             }
             SteelVal::BoxedFunction(func) => {
                 let arg_vec: Vec<_> = args.into_iter().collect();
-                func(&arg_vec).map_err(|x| x.set_span_if_none(Span::default()))
+                func.func()(&arg_vec).map_err(|x| x.set_span_if_none(Span::default()))
             }
             // SteelVal::ContractedFunction(cf) => {
             //     let arg_vec: Vec<_> = args.into_iter().collect();
@@ -815,7 +815,7 @@ impl<'a> VmCore<'a> {
             }
             SteelVal::BoxedFunction(func) => {
                 let arg_vec = [arg];
-                func(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+                func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
             SteelVal::ContractedFunction(cf) => {
                 let arg_vec = vec![arg];
@@ -850,7 +850,7 @@ impl<'a> VmCore<'a> {
             }
             SteelVal::BoxedFunction(func) => {
                 let arg_vec = [arg1, arg2];
-                func(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+                func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
             SteelVal::ContractedFunction(cf) => {
                 let arg_vec = vec![arg1, arg2];
@@ -884,7 +884,7 @@ impl<'a> VmCore<'a> {
             }
             SteelVal::BoxedFunction(func) => {
                 let arg_vec: Vec<_> = args.into_iter().collect();
-                func(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+                func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
             SteelVal::ContractedFunction(cf) => {
                 let arg_vec: Vec<_> = args.into_iter().collect();
@@ -2325,7 +2325,7 @@ impl<'a> VmCore<'a> {
     fn handle_tail_call(&mut self, stack_func: SteelVal, payload_size: usize) -> Result<()> {
         use SteelVal::*;
         match stack_func {
-            BoxedFunction(f) => self.call_boxed_func(f, payload_size),
+            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
             FuncV(f) => self.call_primitive_func(f, payload_size),
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
             // FutureFunc(f) => self.call_future_func(f, payload_size),
@@ -2345,7 +2345,7 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     fn call_boxed_func(
         &mut self,
-        func: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>>,
+        func: &dyn Fn(&[SteelVal]) -> Result<SteelVal>,
         payload_size: usize,
     ) -> Result<()> {
         // println!("{:?}, {:?}", self.thread.stack, payload_size);
@@ -2748,7 +2748,7 @@ impl<'a> VmCore<'a> {
         match &stack_func {
             BoxedFunction(f) => {
                 self.thread.stack.push(
-                    f(&[local, const_value])
+                    f.func()(&[local, const_value])
                         .map_err(|x| x.set_span_if_none(self.current_span()))?,
                 );
                 self.ip += 4;
@@ -2992,7 +2992,7 @@ impl<'a> VmCore<'a> {
         match stack_func {
             Closure(closure) => self.handle_function_call_closure_jit(closure, payload_size)?,
             FuncV(f) => self.call_primitive_func(f, payload_size)?,
-            BoxedFunction(f) => self.call_boxed_func(f, payload_size)?,
+            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size)?,
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size)?,
             FutureFunc(f) => self.call_future_func(f, payload_size)?,
             ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size)?,
@@ -3021,7 +3021,7 @@ impl<'a> VmCore<'a> {
         self.ip += 1;
 
         match &stack_func {
-            BoxedFunction(f) => f(args),
+            BoxedFunction(f) => f.func()(args),
             MutFunc(f) => f(args),
             FuncV(f) => f(args),
             FutureFunc(f) => Ok(SteelVal::FutureV(Gc::new(f(args)?))),
@@ -3048,7 +3048,7 @@ impl<'a> VmCore<'a> {
         match stack_func {
             BoxedFunction(f) => {
                 self.ip += 1;
-                self.thread.stack.push(f(args)?)
+                self.thread.stack.push(f.func()(args)?)
             }
             MutFunc(f) => {
                 self.ip += 1;
@@ -3100,7 +3100,7 @@ impl<'a> VmCore<'a> {
         use SteelVal::*;
 
         match stack_func {
-            BoxedFunction(f) => self.call_boxed_func(f, payload_size)?,
+            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size)?,
             FuncV(f) => self.call_primitive_func(f, payload_size)?,
             FutureFunc(f) => self.call_future_func(f, payload_size)?,
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size)?,
