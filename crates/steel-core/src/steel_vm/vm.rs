@@ -3333,6 +3333,21 @@ pub(crate) fn set_test_mode(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Resu
     Some(Ok(ctx.thread.runtime_options.test.into()))
 }
 
+pub(crate) fn list_modules(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    use crate::rvals::AsRefSteelVal;
+    use crate::steel_vm::builtin::BuiltInModule;
+    // Find all of the modules that are
+    let modules = ctx
+        .thread
+        .global_env
+        .roots()
+        .filter(|x| BuiltInModule::as_ref(x).is_ok())
+        .cloned()
+        .collect();
+
+    Some(Ok(SteelVal::ListV(modules)))
+}
+
 // TODO: This apply does not respect tail position
 // Something like this: (define (loop) (apply loop '()))
 // _should_ result in an infinite loop. In the current form, this is a Rust stack overflow.

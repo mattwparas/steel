@@ -2,7 +2,7 @@
 
 use std::{future::Future, marker::PhantomData, rc::Rc};
 
-use super::engine::Engine;
+use super::{builtin::FunctionSignatureMetadata, engine::Engine};
 use crate::rvals::{AsRefSteelVal, FromSteelVal, IntoSteelVal, Result, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::stop;
@@ -23,6 +23,8 @@ pub trait RegisterFn<FN, ARGS, RET> {
 // Without this, upstream crates could provides alternative implementations for (_,_), (_,_,_), etc.
 // This allows us to get away with some funny business in the arguments
 pub struct Wrapper<ARGS>(PhantomData<ARGS>);
+
+pub struct NativeWrapper;
 
 pub struct AsyncWrapper<ARGS>(PhantomData<ARGS>);
 
@@ -66,6 +68,30 @@ impl<
         };
 
         self.register_value(name, SteelVal::FutureFunc(Box::new(Rc::new(f))))
+    }
+}
+
+impl RegisterFn<fn(&[SteelVal]) -> Result<SteelVal>, NativeWrapper, Result<SteelVal>> for Engine {
+    fn register_fn(
+        &mut self,
+        name: &'static str,
+        func: fn(&[SteelVal]) -> Result<SteelVal>,
+    ) -> &mut Self {
+        self.register_value(name, SteelVal::FuncV(func))
+    }
+}
+
+impl RegisterFn<fn(&[SteelVal]) -> Result<SteelVal>, NativeWrapper, Result<SteelVal>>
+    for BuiltInModule
+{
+    fn register_fn(
+        &mut self,
+        name: &'static str,
+        func: fn(&[SteelVal]) -> Result<SteelVal>,
+    ) -> &mut Self {
+        // Just automatically add it to the function pointer table to help out with searching
+        self.add_to_fn_ptr_table(func, FunctionSignatureMetadata::new(name, 1234));
+        self.register_value(name, SteelVal::FuncV(func))
     }
 }
 
@@ -291,7 +317,7 @@ impl<A: AsRefSteelVal, B: AsRefSteelVal, FN: Fn(&A, &B) -> RET + 'static, RET: I
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
             }
 
-            let one = A::as_ref(&args[1])?;
+            let one = A::as_ref(&args[0])?;
             let two = B::as_ref(&args[1])?;
 
             let res = func(&one, &two);

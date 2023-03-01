@@ -158,7 +158,7 @@ pub(crate) const LIST_DOC: DocTemplate<'static> = DocTemplate {
     ],
 };
 
-fn new(args: &[SteelVal]) -> Result<SteelVal> {
+pub fn new(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::ListV(args.iter().cloned().collect()))
 }
 

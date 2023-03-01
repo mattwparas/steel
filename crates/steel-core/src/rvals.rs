@@ -355,6 +355,16 @@ impl AsRefSteelVal for List<SteelVal> {
     }
 }
 
+impl AsRefSteelVal for FunctionSignature {
+    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
+        if let SteelVal::FuncV(f) = val {
+            Ok(SRef::Temporary(f))
+        } else {
+            stop!(TypeMismatch => "Value cannot be referenced as a primitive function!")
+        }
+    }
+}
+
 impl<T: CustomType + 'static> AsRefSteelVal for T {
     fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
         // todo!()
@@ -368,7 +378,8 @@ impl<T: CustomType + 'static> AsRefSteelVal for T {
                 })))
             } else {
                 let error_message = format!(
-                    "Type Mismatch: Type of SteelVal did not match the given type: {}",
+                    "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
+                    val,
                     std::any::type_name::<Self>()
                 );
                 Err(SteelErr::new(ErrorKind::ConversionError, error_message))
@@ -376,7 +387,8 @@ impl<T: CustomType + 'static> AsRefSteelVal for T {
             // res
         } else {
             let error_message = format!(
-                "Type Mismatch: Type of SteelVal did not match the given type: {}",
+                "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
+                val,
                 std::any::type_name::<Self>()
             );
 

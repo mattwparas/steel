@@ -40,9 +40,15 @@ pub struct BuiltInModule {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 // Probably need something more interesting than just an integer for the arity
-struct FunctionSignatureMetadata {
+pub struct FunctionSignatureMetadata {
     name: &'static str,
     arity: usize,
+}
+
+impl FunctionSignatureMetadata {
+    pub fn new(name: &'static str, arity: usize) -> Self {
+        Self { name, arity }
+    }
 }
 
 impl Custom for BuiltInModule {}
@@ -64,6 +70,27 @@ impl BuiltInModule {
 
     pub fn contains(&self, ident: &str) -> bool {
         self.values.contains_key(ident)
+    }
+
+    pub(crate) fn add_to_fn_ptr_table(
+        &mut self,
+        value: FunctionSignature,
+        data: FunctionSignatureMetadata,
+    ) -> &mut Self {
+        self.fn_ptr_table
+            .insert(value as *const FunctionSignature, data);
+
+        self
+    }
+
+    pub fn search(&self, value: &FunctionSignature) -> Option<String> {
+        // println!("{:?}", (*value as *const FunctionSignature) as usize);
+
+        // println!("{:#?}", self.fn_ptr_table);
+
+        self.fn_ptr_table
+            .get(&(*value as *const FunctionSignature))
+            .map(|x| x.name.to_string())
     }
 
     pub fn bound_identifiers(&self) -> im_lists::list::List<SteelVal> {

@@ -4,7 +4,7 @@ use super::{
     builtin::BuiltInModule,
     engine::Engine,
     register_fn::RegisterFn,
-    vm::{apply, get_test_mode, set_test_mode, APPLY_DOC},
+    vm::{apply, get_test_mode, list_modules, set_test_mode, APPLY_DOC},
 };
 use crate::{
     parser::span::Span,
@@ -26,7 +26,7 @@ use crate::{
         StreamOperations, StringOperations, SymbolOperations, VectorOperations,
     },
     rerrs::ErrorKind,
-    rvals::FromSteelVal,
+    rvals::{FromSteelVal, FunctionSignature},
     values::{
         closed::HeapRef,
         functions::{attach_contract_struct, get_contract},
@@ -330,6 +330,8 @@ pub fn register_builtin_modules(engine: &mut Engine) {
     engine.register_fn("##__module-get", BuiltInModule::get);
     engine.register_fn("%module-get%", BuiltInModule::get);
     engine.register_fn("%doc?", BuiltInModule::get_doc);
+    engine.register_value("%list-modules!", SteelVal::BuiltIn(list_modules));
+    engine.register_fn("%module/lookup-function", BuiltInModule::search);
     engine.register_fn("%string->render-markdown", render_as_md);
     engine.register_fn(
         "%module-bound-identifiers->list",
@@ -436,6 +438,12 @@ fn list_module() -> BuiltInModule {
 
     // Register the doc for the module
     module.register_doc("steel/lists", crate::primitives::lists::LIST_MODULE_DOC);
+
+    // Grab a raw handle to a list
+    module.register_fn(
+        "%raw-list",
+        crate::primitives::lists::new as FunctionSignature,
+    );
 
     module
         .register_value_with_doc(LIST, crate::primitives::lists::LIST, LIST_DOC)
