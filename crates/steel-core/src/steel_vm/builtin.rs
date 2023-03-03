@@ -42,12 +42,26 @@ pub struct BuiltInModule {
 // Probably need something more interesting than just an integer for the arity
 pub struct FunctionSignatureMetadata {
     name: &'static str,
-    arity: usize,
+    arity: Arity,
 }
 
 impl FunctionSignatureMetadata {
-    pub fn new(name: &'static str, arity: usize) -> Self {
+    pub fn new(name: &'static str, arity: Arity) -> Self {
         Self { name, arity }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Arity {
+    Exact(usize),
+    AtLeast(usize),
+    AtMost(usize),
+    Range(usize),
+}
+
+impl Custom for FunctionSignatureMetadata {
+    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+        Some(Ok(format!("{:?}", self)))
     }
 }
 
@@ -62,6 +76,17 @@ impl BuiltInModule {
             version: env!("CARGO_PKG_VERSION"),
             fn_ptr_table: HashMap::new(),
         }
+    }
+
+    pub fn register_native_fn(
+        &mut self,
+        name: &'static str,
+        func: fn(&[SteelVal]) -> Result<SteelVal>,
+        arity: Arity,
+    ) -> &mut Self {
+        // Just automatically add it to the function pointer table to help out with searching
+        self.add_to_fn_ptr_table(func, FunctionSignatureMetadata::new(name, arity));
+        self.register_value(name, SteelVal::FuncV(func))
     }
 
     pub fn check_compatibility(self: &BuiltInModule) -> bool {
@@ -83,14 +108,14 @@ impl BuiltInModule {
         self
     }
 
-    pub fn search(&self, value: &FunctionSignature) -> Option<String> {
+    pub fn search(&self, value: &FunctionSignature) -> Option<FunctionSignatureMetadata> {
         // println!("{:?}", (*value as *const FunctionSignature) as usize);
 
         // println!("{:#?}", self.fn_ptr_table);
 
         self.fn_ptr_table
             .get(&(*value as *const FunctionSignature))
-            .map(|x| x.name.to_string())
+            .cloned()
     }
 
     pub fn bound_identifiers(&self) -> im_lists::list::List<SteelVal> {

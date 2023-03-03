@@ -27,6 +27,7 @@ use crate::{
     },
     rerrs::ErrorKind,
     rvals::{FromSteelVal, FunctionSignature},
+    steel_vm::builtin::Arity,
     values::{
         closed::HeapRef,
         functions::{attach_contract_struct, get_contract},
@@ -695,18 +696,21 @@ fn ord_module() -> BuiltInModule {
 
 pub fn transducer_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/transducers".to_string());
+
+    use crate::primitives::transducers::*;
+
     module
-        .register_value("compose", crate::primitives::transducers::COMPOSE)
-        .register_value("mapping", crate::primitives::transducers::MAPPING)
-        .register_value("flattening", crate::primitives::transducers::FLATTENING)
-        .register_value("flat-mapping", crate::primitives::transducers::FLAT_MAPPING)
-        .register_value("filtering", crate::primitives::transducers::FILTERING)
-        .register_value("taking", crate::primitives::transducers::TAKING)
-        .register_value("dropping", crate::primitives::transducers::DROPPING)
-        .register_value("extending", crate::primitives::transducers::EXTENDING)
-        .register_value("enumerating", crate::primitives::transducers::ENUMERATING)
-        .register_value("zipping", crate::primitives::transducers::ZIPPING)
-        .register_value("interleaving", crate::primitives::transducers::INTERLEAVING)
+        .register_native_fn("compose", compose, Arity::AtLeast(0))
+        .register_native_fn("mapping", map, Arity::Exact(1))
+        .register_native_fn("flattening", flatten, Arity::Exact(1))
+        .register_native_fn("flat-mapping", flat_map, Arity::Exact(1))
+        .register_native_fn("filtering", filter, Arity::Exact(1))
+        .register_native_fn("taking", take, Arity::Exact(1))
+        .register_native_fn("dropping", dropping, Arity::Exact(1))
+        .register_native_fn("extending", extending, Arity::Exact(1))
+        .register_native_fn("enumerating", enumerating, Arity::Exact(0))
+        .register_native_fn("zipping", zipping, Arity::Exact(1))
+        .register_native_fn("interleaving", interleaving, Arity::Exact(1))
         .register_value("into-sum", crate::values::transducers::INTO_SUM)
         .register_value("into-product", crate::values::transducers::INTO_PRODUCT)
         .register_value("into-max", crate::values::transducers::INTO_MAX)

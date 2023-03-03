@@ -2,7 +2,10 @@
 
 use std::{future::Future, marker::PhantomData, rc::Rc};
 
-use super::{builtin::FunctionSignatureMetadata, engine::Engine};
+use super::{
+    builtin::{Arity, FunctionSignatureMetadata},
+    engine::Engine,
+};
 use crate::rvals::{AsRefSteelVal, FromSteelVal, IntoSteelVal, Result, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::stop;
@@ -90,7 +93,10 @@ impl RegisterFn<fn(&[SteelVal]) -> Result<SteelVal>, NativeWrapper, Result<Steel
         func: fn(&[SteelVal]) -> Result<SteelVal>,
     ) -> &mut Self {
         // Just automatically add it to the function pointer table to help out with searching
-        self.add_to_fn_ptr_table(func, FunctionSignatureMetadata::new(name, 1234));
+        self.add_to_fn_ptr_table(
+            func,
+            FunctionSignatureMetadata::new(name, Arity::Exact(1234)),
+        );
         self.register_value(name, SteelVal::FuncV(func))
     }
 }
