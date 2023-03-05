@@ -69,6 +69,7 @@ dynamic = []
 profiling = []
 web = ["dep:reqwest", "dep:url", "dep:tungstenite"]
 sqlite = ["dep:rusqlite"]
+unsafe-internals = []
 
 # dylibs = ["dep:dlopen", "dep:dlopen_derive"]
 

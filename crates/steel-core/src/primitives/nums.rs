@@ -1,5 +1,8 @@
-use crate::rvals::{Result, SteelVal};
 use crate::stop;
+use crate::{
+    rvals::{Result, SteelVal},
+    steel_vm::vm::cold,
+};
 
 pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     if args.is_empty() {
@@ -120,7 +123,9 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
                 }
                 sum_float -= n;
             }
-            _ => stop!(TypeMismatch => "- expected a number"),
+            _ => {
+                stop!(TypeMismatch => "- expected a number")
+            }
         }
     }
 
@@ -140,30 +145,13 @@ pub fn add_primitive_faster(args: &[SteelVal]) -> Result<SteelVal> {
         match arg {
             SteelVal::IntV(n) => {
                 sum_int += n;
-
-                // if found_float {
-                //     sum_float += *n as f64;
-                // } else {
-                //     if let Some(res) = isize::checked_add(sum_int, *n) {
-                //         sum_int = res
-                //     } else {
-                //         found_float = true;
-                //         sum_float += *n as f64;
-                //     }
-                // }
             }
             SteelVal::NumV(n) => {
                 sum_float += n;
-
                 found_float = true;
-
-                // if !found_float {
-                //     sum_float = sum_int as f64;
-                //     found_float = true
-                // }
-                // sum_float += n;
             }
             _ => {
+                crate::steel_vm::vm::cold();
                 let e = format!("+ expected a number, found {arg:?}");
                 stop!(TypeMismatch => e);
             }

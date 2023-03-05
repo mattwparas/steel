@@ -90,7 +90,6 @@ impl<'a> CodeGenerator<'a> {
         Ok(())
     }
 
-    #[allow(unused)]
     fn should_specialize_call(&self, l: &List) -> Option<OpCode> {
         if l.args.len() == 3 {
             let function = l.first()?;
@@ -565,9 +564,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     // then, specialize accordingly.
     fn visit_list(&mut self, l: &crate::parser::ast::List) -> Self::Output {
         // TODO: Come back to call specialization
-        // if let Some(op) = self.should_specialize_call(l) {
-        //     return self.specialize_call(l, op);
-        // }
+        if let Some(op) = self.should_specialize_call(l) {
+            return self.specialize_call(l, op);
+        }
 
         if l.args.is_empty() {
             stop!(BadSyntax => "function application empty");

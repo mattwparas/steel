@@ -41,5 +41,5 @@ members = [
 ]
 
 [profile.release]
-# debug = true
+debug = true
 lto = true

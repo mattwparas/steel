@@ -108,14 +108,18 @@ impl BuiltInModule {
         self
     }
 
-    pub fn search(&self, value: &FunctionSignature) -> Option<FunctionSignatureMetadata> {
+    pub fn search(&self, value: SteelVal) -> Option<FunctionSignatureMetadata> {
         // println!("{:?}", (*value as *const FunctionSignature) as usize);
 
         // println!("{:#?}", self.fn_ptr_table);
 
-        self.fn_ptr_table
-            .get(&(*value as *const FunctionSignature))
-            .cloned()
+        if let SteelVal::FuncV(f) = value {
+            self.fn_ptr_table
+                .get(&(f as *const FunctionSignature))
+                .cloned()
+        } else {
+            None
+        }
     }
 
     pub fn bound_identifiers(&self) -> im_lists::list::List<SteelVal> {

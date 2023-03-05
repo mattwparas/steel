@@ -1,6 +1,5 @@
 #![allow(unused)]
 
-use crate::values::transducers::Reducer;
 use crate::values::{closed::Heap, contracts::ContractType};
 use crate::{
     compiler::constants::ConstantMap,
@@ -14,6 +13,7 @@ use crate::{
     steel_vm::primitives::{equality_primitive, lte_primitive},
     values::transducers::Transducers,
 };
+use crate::{primitives::nums::add_primitive_faster, values::transducers::Reducer};
 
 use crate::{
     env::Env,
@@ -41,10 +41,10 @@ use crate::rvals::IntoSteelVal;
 
 #[inline]
 #[cold]
-fn cold() {}
+pub fn cold() {}
 
 #[inline]
-fn likely(b: bool) -> bool {
+pub fn likely(b: bool) -> bool {
     if !b {
         cold()
     }
@@ -52,7 +52,7 @@ fn likely(b: bool) -> bool {
 }
 
 #[inline]
-fn unlikely(b: bool) -> bool {
+pub fn unlikely(b: bool) -> bool {
     if b {
         cold()
     }
@@ -120,6 +120,12 @@ pub struct StackFrame {
     ip: usize,
     instructions: Rc<[DenseInstruction]>,
     spans: Rc<[Span]>,
+}
+
+#[test]
+fn check_sizes() {
+    println!("{:?}", std::mem::size_of::<Option<SteelVal>>());
+    println!("{:?}", std::mem::size_of::<StackFrame>());
 }
 
 impl StackFrame {
@@ -224,7 +230,7 @@ impl SteelThread {
             super_instructions: Vec::new(),
             heap: Heap::new(),
             runtime_options: RunTimeOptions::new(),
-            stack_frames: Vec::with_capacity(32),
+            stack_frames: Vec::with_capacity(128),
             current_frame: StackFrame::main(),
             // Should probably just have this be Option<ConstantMap> - but then every time we look up
             // something we'll have to deal with the fact that its wrapped in an option. Another options
@@ -1030,8 +1036,12 @@ impl<'a> VmCore<'a> {
                 };
 
                 // This is the old way... lets see if the below way improves the speed
-                self.thread.stack.truncate(last_index);
-                self.thread.stack.push(result);
+                // self.thread.stack.truncate(last_index);
+                // self.thread.stack.push(result);
+
+                self.thread.stack.truncate(last_index + 1);
+                *self.thread.stack.last_mut().unwrap() = result;
+                // self.thread.stack.push(result);
 
                 self.ip += 2;
             }};
@@ -1204,14 +1214,16 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
-                    inline_primitive!(add_primitive, payload_size)
+                    add_handler_payload(self, payload_size as usize)?;
+                    // inline_primitive!(add_primitive, payload_size)
                 }
                 DenseInstruction {
                     op_code: OpCode::SUB,
                     payload_size,
                     ..
                 } => {
-                    inline_primitive!(subtract_primitive, payload_size)
+                    sub_handler_payload(self, payload_size as usize)?;
+                    // inline_primitive!(subtract_primitive, payload_size)
                 }
                 DenseInstruction {
                     op_code: OpCode::MUL,
@@ -1239,7 +1251,8 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
-                    inline_primitive!(lte_primitive, payload_size);
+                    lte_handler_payload(self, payload_size as usize)?;
+                    // inline_primitive!(lte_primitive, payload_size);
                 }
 
                 DenseInstruction {
@@ -1766,7 +1779,7 @@ impl<'a> VmCore<'a> {
         })
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn handle_pop_pure(&mut self) -> Option<Result<SteelVal>> {
         // Check that the amount we're looking to pop and the function stack length are equivalent
         // otherwise we have a problem
@@ -1780,9 +1793,13 @@ impl<'a> VmCore<'a> {
         let last = self.thread.stack_frames.pop();
 
         // let should_return = self.stack_frames.is_empty();
-        let should_return = self.pop_count == 0;
+        let should_continue = self.pop_count != 0;
 
-        if likely(!should_return) {
+        if should_continue {
+            // #[cfg(feature = "unsafe-internals")]
+            // let last = unsafe { last.unwrap_unchecked() };
+
+            // #[cfg(not(feature = "unsafe-internals"))]
             let last = last.unwrap();
 
             // Update the current frame to be the last one
@@ -1798,11 +1815,9 @@ impl<'a> VmCore<'a> {
                 .stack
                 .drain(rollback_index..self.thread.stack.len() - 1);
 
-            self.ip = last.ip;
-            self.instructions = last.instructions;
-            self.spans = last.spans;
+            self.update_state_with_frame(last);
 
-            self.sp = self.thread.stack_frames.last().map(|x| x.sp).unwrap_or(0);
+            self.sp = self.get_last_stack_frame_sp();
 
             // self.sp = last.index;
 
@@ -1825,6 +1840,18 @@ impl<'a> VmCore<'a> {
 
             Some(ret_val)
         }
+    }
+
+    #[inline(always)]
+    fn update_state_with_frame(&mut self, last: StackFrame) {
+        self.ip = last.ip;
+        self.instructions = last.instructions;
+        self.spans = last.spans;
+    }
+
+    #[inline(always)]
+    fn get_last_stack_frame_sp(&self) -> usize {
+        self.thread.stack_frames.last().map(|x| x.sp).unwrap_or(0)
     }
 
     // #[inline(always)]
@@ -1877,6 +1904,7 @@ impl<'a> VmCore<'a> {
         // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
         let offset = self.get_offset();
         let value = self.thread.stack[index + offset].clone();
+
         self.thread.stack.push(value);
         self.ip += 1;
         Ok(())
@@ -2922,25 +2950,23 @@ impl<'a> VmCore<'a> {
     #[inline(always)]
     fn handle_function_call_closure_jit_without_profiling(
         &mut self,
-        closure: Gc<ByteCodeLambda>,
+        mut closure: Gc<ByteCodeLambda>,
         payload_size: usize,
     ) -> Result<()> {
         self.adjust_stack_for_multi_arity(&closure, payload_size, &mut 0)?;
 
         self.sp = self.thread.stack.len() - closure.arity();
 
-        let instructions = closure.body_exp();
-        let spans = closure.spans();
+        let mut instructions = closure.body_exp();
+        let mut spans = closure.spans();
+
+        std::mem::swap(&mut instructions, &mut self.instructions);
+        std::mem::swap(&mut spans, &mut self.spans);
 
         // Do this _after_ the multi arity business
+        // TODO: can these rcs be avoided
         self.thread.stack_frames.push(
-            StackFrame::new(
-                self.sp,
-                closure,
-                self.ip + 1,
-                Rc::clone(&self.instructions),
-                Rc::clone(&self.spans),
-            ), // .with_span(self.current_span()),
+            StackFrame::new(self.sp, closure, self.ip + 1, instructions, spans), // .with_span(self.current_span()),
         );
 
         // self.current_arity = Some(closure.arity());
@@ -2957,8 +2983,8 @@ impl<'a> VmCore<'a> {
 
         self.pop_count += 1;
 
-        self.instructions = instructions;
-        self.spans = spans;
+        // self.instructions = instructions;
+        // self.spans = spans;
         self.ip = 0;
         Ok(())
     }
@@ -2976,7 +3002,10 @@ impl<'a> VmCore<'a> {
 
         // Jit profiling -> Make sure that we really only trace once we pass a certain threshold
         // For instance, if this function
-        closure.increment_call_count();
+        #[cfg(feature = "dynamic")]
+        {
+            closure.increment_call_count();
+        }
 
         self.handle_function_call_closure_jit_without_profiling(closure, payload_size)
     }
@@ -3002,6 +3031,8 @@ impl<'a> VmCore<'a> {
             Contract(c) => self.call_contract(&c, payload_size)?,
             BuiltIn(f) => self.call_builtin_func(f, payload_size)?,
             _ => {
+                // Explicitly mark this as unlikely
+                cold();
                 println!("{stack_func:?}");
                 println!("Stack: {:?}", self.thread.stack);
                 stop!(BadSyntax => "Function application not a procedure or function type not supported"; self.current_span());
@@ -4540,8 +4571,11 @@ macro_rules! handler_inline_primitive {
         };
 
         // This is the old way... lets see if the below way improves the speed
-        $ctx.thread.stack.truncate(last_index);
-        $ctx.thread.stack.push(result);
+        // $ctx.thread.stack.truncate(last_index);
+        // $ctx.thread.stack.push(result);
+
+        $ctx.thread.stack.truncate(last_index + 1);
+        *$ctx.thread.stack.last_mut().unwrap() = result;
 
         $ctx.ip += 2;
     }};
@@ -4557,8 +4591,11 @@ macro_rules! handler_inline_primitive_payload {
         };
 
         // This is the old way... lets see if the below way improves the speed
-        $ctx.thread.stack.truncate(last_index);
-        $ctx.thread.stack.push(result);
+        // $ctx.thread.stack.truncate(last_index);
+        // $ctx.thread.stack.push(result);
+
+        $ctx.thread.stack.truncate(last_index + 1);
+        *$ctx.thread.stack.last_mut().unwrap() = result;
 
         $ctx.ip += 2;
     }};
@@ -4572,7 +4609,7 @@ fn add_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 
 // OpCode::ADD
 fn add_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    handler_inline_primitive_payload!(ctx, add_primitive, payload);
+    handler_inline_primitive_payload!(ctx, add_primitive_faster, payload);
     Ok(())
 }
 
@@ -4584,6 +4621,7 @@ fn sub_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 }
 
 // OpCode::SUB
+#[inline(always)]
 fn sub_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
     handler_inline_primitive_payload!(ctx, subtract_primitive, payload);
     Ok(())

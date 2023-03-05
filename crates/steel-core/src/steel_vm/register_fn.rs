@@ -74,32 +74,32 @@ impl<
     }
 }
 
-impl RegisterFn<fn(&[SteelVal]) -> Result<SteelVal>, NativeWrapper, Result<SteelVal>> for Engine {
-    fn register_fn(
-        &mut self,
-        name: &'static str,
-        func: fn(&[SteelVal]) -> Result<SteelVal>,
-    ) -> &mut Self {
-        self.register_value(name, SteelVal::FuncV(func))
-    }
-}
+// impl RegisterFn<fn(&[SteelVal]) -> Result<SteelVal>, NativeWrapper, Result<SteelVal>> for Engine {
+//     fn register_fn(
+//         &mut self,
+//         name: &'static str,
+//         func: fn(&[SteelVal]) -> Result<SteelVal>,
+//     ) -> &mut Self {
+//         self.register_value(name, SteelVal::FuncV(func))
+//     }
+// }
 
-impl RegisterFn<fn(&[SteelVal]) -> Result<SteelVal>, NativeWrapper, Result<SteelVal>>
-    for BuiltInModule
-{
-    fn register_fn(
-        &mut self,
-        name: &'static str,
-        func: fn(&[SteelVal]) -> Result<SteelVal>,
-    ) -> &mut Self {
-        // Just automatically add it to the function pointer table to help out with searching
-        self.add_to_fn_ptr_table(
-            func,
-            FunctionSignatureMetadata::new(name, Arity::Exact(1234)),
-        );
-        self.register_value(name, SteelVal::FuncV(func))
-    }
-}
+// impl RegisterFn<fn(&[SteelVal]) -> Result<SteelVal>, NativeWrapper, Result<SteelVal>>
+//     for BuiltInModule
+// {
+//     fn register_fn(
+//         &mut self,
+//         name: &'static str,
+//         func: fn(&[SteelVal]) -> Result<SteelVal>,
+//     ) -> &mut Self {
+//         // Just automatically add it to the function pointer table to help out with searching
+//         self.add_to_fn_ptr_table(
+//             func,
+//             FunctionSignatureMetadata::new(name, Arity::Exact(1234)),
+//         );
+//         self.register_value(name, SteelVal::FuncV(func))
+//     }
+// }
 
 impl<RET: IntoSteelVal, FN: Fn() -> RET + 'static> RegisterFn<FN, Wrapper<()>, RET> for Engine {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {

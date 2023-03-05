@@ -355,15 +355,15 @@ impl AsRefSteelVal for List<SteelVal> {
     }
 }
 
-impl AsRefSteelVal for FunctionSignature {
-    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
-        if let SteelVal::FuncV(f) = val {
-            Ok(SRef::Temporary(f))
-        } else {
-            stop!(TypeMismatch => "Value cannot be referenced as a primitive function!")
-        }
-    }
-}
+// impl AsRefSteelVal for FunctionSignature {
+//     fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
+//         if let SteelVal::FuncV(f) = val {
+//             Ok(SRef::Temporary(f))
+//         } else {
+//             stop!(TypeMismatch => "Value cannot be referenced as a primitive function!")
+//         }
+//     }
+// }
 
 impl<T: CustomType + 'static> AsRefSteelVal for T {
     fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {

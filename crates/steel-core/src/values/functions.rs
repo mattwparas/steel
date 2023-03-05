@@ -122,6 +122,12 @@ impl ByteCodeLambda {
 
     pub fn body_exp(&self) -> Rc<[DenseInstruction]> {
         Rc::clone(&self.body_exp.borrow())
+
+        // Rc::clone(self.body_exp)
+    }
+
+    pub fn body_mut_exp(&mut self) -> Rc<[DenseInstruction]> {
+        Rc::clone(self.body_exp.get_mut())
     }
 
     pub fn spans(&self) -> Rc<[Span]> {
@@ -150,7 +156,7 @@ impl ByteCodeLambda {
         (head_instruction, Rc::clone(&guard))
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn arity(&self) -> usize {
         self.arity
     }
