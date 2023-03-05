@@ -1,7 +1,7 @@
+use crate::gc::Gc;
 use crate::rvals::SteelVal::*;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
-use crate::{core::utils::declare_const_ref_functions, gc::Gc};
 
 use crate::values::transducers::Transducer;
 use crate::values::transducers::Transducers;

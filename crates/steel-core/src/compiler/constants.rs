@@ -10,8 +10,6 @@ use std::{cell::RefCell, convert::TryFrom, rc::Rc};
 // TODO add the serializing and deserializing for constants
 // use serde::{Deserialize, Serialize};
 
-use std::collections::HashMap;
-
 // Shared constant map - for repeated in memory execution of a program, this is going to share the same
 // underlying representation.
 #[derive(Debug, PartialEq)]
@@ -69,16 +67,12 @@ impl ConstantMap {
     pub fn from_bytes(encoded: &[u8]) -> Result<ConstantMap> {
         let str_vector: Vec<String> = bincode::deserialize(encoded).unwrap();
 
-        // the interner needs to be fixed but for now it just is here for legacy reasons
-        // it currently does no allocation
-        let mut intern = HashMap::new();
-
         str_vector
             .into_iter()
             .map(|x| {
                 // Parse the input
                 let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-                    Parser::new(&x, &mut intern, None).collect();
+                    Parser::new(&x, None).collect();
                 let parsed = parsed?;
 
                 Ok(SteelVal::try_from(parsed[0].clone()).unwrap())

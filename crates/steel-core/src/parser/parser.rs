@@ -345,7 +345,6 @@ impl ParseError {
 // #[derive(Debug)]
 pub struct Parser<'a> {
     tokenizer: OwnedTokenStream<'a, String, OwnedString>,
-    _intern: &'a mut HashMap<String, Rc<TokenType<String>>>,
     quote_stack: Vec<usize>,
     shorthand_quote_stack: Vec<usize>,
     source_name: Option<Rc<PathBuf>>,
@@ -377,8 +376,7 @@ enum ParsingContext {
 impl<'a> Parser<'a> {
     // #[cfg(test)]
     pub fn parse(expr: &str) -> Result<Vec<ExprKind>> {
-        let mut intern = HashMap::new();
-        Parser::new(expr, &mut intern, None).collect()
+        Parser::new(expr, None).collect()
     }
 }
 
@@ -399,14 +397,9 @@ fn tokentype_error_to_parse_error(t: &Token<'_, String>) -> ParseError {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(
-        input: &'a str,
-        intern: &'a mut HashMap<String, Rc<TokenType<String>>>,
-        source_id: Option<SourceId>,
-    ) -> Self {
+    pub fn new(input: &'a str, source_id: Option<SourceId>) -> Self {
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(OwnedString),
-            _intern: intern,
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
             source_name: None,
@@ -418,13 +411,11 @@ impl<'a> Parser<'a> {
 
     pub fn new_from_source(
         input: &'a str,
-        intern: &'a mut HashMap<String, Rc<TokenType<String>>>,
         source_name: PathBuf,
         source_id: Option<SourceId>,
     ) -> Self {
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(OwnedString),
-            _intern: intern,
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
             source_name: Some(Rc::from(source_name)),
@@ -435,14 +426,9 @@ impl<'a> Parser<'a> {
     }
 
     // Attach comments!
-    pub fn doc_comment_parser(
-        input: &'a str,
-        intern: &'a mut HashMap<String, Rc<TokenType<String>>>,
-        source_id: Option<SourceId>,
-    ) -> Self {
+    pub fn doc_comment_parser(input: &'a str, source_id: Option<SourceId>) -> Self {
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(OwnedString),
-            _intern: intern,
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
             source_name: None,
@@ -1196,34 +1182,28 @@ mod parser_tests {
     }
 
     fn parses(s: &str) {
-        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
-        let a: Result<Vec<_>> = Parser::new(s, &mut cache, None).collect();
+        let a: Result<Vec<_>> = Parser::new(s, None).collect();
         a.unwrap();
     }
 
     fn assert_parse(s: &str, result: &[ExprKind]) {
-        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
-        let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache, None).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(s, None).collect();
         let a = a.unwrap();
         assert_eq!(a.as_slice(), result);
     }
 
     fn assert_parse_err(s: &str, err: ParseError) {
-        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
-        let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache, None).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(s, None).collect();
         assert_eq!(a, Err(err));
     }
 
     fn assert_parse_is_err(s: &str) {
-        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
-        let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache, None).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(s, None).collect();
         assert!(a.is_err());
     }
 
     #[test]
     fn check_parser_with_doc_comments() {
-        let mut cache = HashMap::new();
-
         let expr = r#"
         ;;@doc
         ;; This is a fancy cool comment, that I want to attach to a top level definition!
@@ -1252,7 +1232,7 @@ mod parser_tests {
         (define foo 12345)
         "#;
 
-        let parser = Parser::doc_comment_parser(expr, &mut cache, None);
+        let parser = Parser::doc_comment_parser(expr, None);
 
         let result: Result<Vec<_>> = parser.collect();
 

@@ -533,8 +533,6 @@ impl Compiler {
         builtin_modules: ImmutableHashMap<std::rc::Rc<str>, BuiltInModule>,
         sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {
-        let mut intern = HashMap::new();
-
         #[cfg(feature = "profiling")]
         let now = Instant::now();
 
@@ -542,9 +540,9 @@ impl Compiler {
 
         // Could fail here
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> = if let Some(p) = &path {
-            Parser::new_from_source(expr_str, &mut intern, p.clone(), Some(id)).collect()
+            Parser::new_from_source(expr_str, p.clone(), Some(id)).collect()
         } else {
-            Parser::new(expr_str, &mut intern, Some(id)).collect()
+            Parser::new(expr_str, Some(id)).collect()
         };
 
         #[cfg(feature = "profiling")]
@@ -568,13 +566,11 @@ impl Compiler {
         sources: &mut Sources,
         builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
     ) -> Result<Vec<ExprKind>> {
-        let mut intern = HashMap::new();
-
         let id = sources.add_source(expr_str.to_string(), path.clone());
 
         // Could fail here
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-            Parser::new(expr_str, &mut intern, Some(id)).collect();
+            Parser::new(expr_str, Some(id)).collect();
 
         let parsed = parsed?;
 

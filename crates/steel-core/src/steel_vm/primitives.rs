@@ -26,7 +26,7 @@ use crate::{
         StreamOperations, StringOperations, SymbolOperations, VectorOperations,
     },
     rerrs::ErrorKind,
-    rvals::{FromSteelVal, FunctionSignature},
+    rvals::FromSteelVal,
     steel_vm::builtin::Arity,
     values::{
         closed::HeapRef,

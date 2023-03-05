@@ -475,9 +475,8 @@ impl Engine {
 
     /// Emit the unexpanded AST
     pub fn emit_ast_to_string(expr: &str) -> Result<String> {
-        let mut intern = HashMap::new();
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-            Parser::new(expr, &mut intern, None).collect();
+            Parser::new(expr, None).collect();
         let parsed = parsed?;
         Ok(parsed.into_iter().map(|x| x.to_pretty(60)).join("\n\n"))
     }

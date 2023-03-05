@@ -1299,9 +1299,7 @@ impl<'a> ModuleBuilder<'a> {
     }
 
     fn parse_builtin(mut self, input: &str) -> Result<Self> {
-        let mut intern = HashMap::new();
-
-        let parsed = Parser::new_from_source(input, &mut intern, self.name.clone(), None)
+        let parsed = Parser::new_from_source(input, self.name.clone(), None)
             .collect::<std::result::Result<Vec<_>, ParseError>>()?;
 
         self.source_ast = parsed;
@@ -1329,9 +1327,7 @@ impl<'a> ModuleBuilder<'a> {
         // We did _just_ add it, so its fine to unwrap
         let exprs = self.sources.get(id).unwrap();
 
-        let mut intern = HashMap::new();
-
-        let parsed = Parser::new_from_source(exprs, &mut intern, self.name.clone(), Some(id))
+        let parsed = Parser::new_from_source(exprs, self.name.clone(), Some(id))
             .collect::<std::result::Result<Vec<_>, ParseError>>()?;
 
         self.source_ast = parsed;

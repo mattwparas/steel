@@ -1,8 +1,5 @@
+use crate::rvals::{Result, SteelVal};
 use crate::stop;
-use crate::{
-    rvals::{Result, SteelVal},
-    steel_vm::vm::cold,
-};
 
 pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     if args.is_empty() {

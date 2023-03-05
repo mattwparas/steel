@@ -1877,12 +1877,9 @@ mod display_tests {
 
     use super::*;
     use crate::parser::parser::{Parser, Result};
-    use std::collections::HashMap;
-    use std::rc::Rc;
 
     fn parse(expr: &str) -> ExprKind {
-        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
-        let a: Result<Vec<ExprKind>> = Parser::new(expr, &mut cache, None).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(expr, None).collect();
 
         a.unwrap()[0].clone()
     }
@@ -2044,8 +2041,6 @@ mod display_tests {
 mod pretty_print_tests {
     use super::*;
     use crate::parser::parser::{Parser, Result};
-    use std::collections::HashMap;
-    use std::rc::Rc;
 
     // pub fn to_pretty(&self, width: usize) -> String {
     //     let mut w = Vec::new();
@@ -2054,8 +2049,7 @@ mod pretty_print_tests {
     // }
 
     fn parse(expr: &str) -> ExprKind {
-        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
-        let a: Result<Vec<ExprKind>> = Parser::new(expr, &mut cache, None).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(expr, None).collect();
 
         a.unwrap()[0].clone()
     }
