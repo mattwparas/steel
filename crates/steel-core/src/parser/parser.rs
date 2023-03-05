@@ -4,11 +4,11 @@ use crate::{
     rvals::FromSteelVal,
 };
 
-use std::rc::Rc;
 use std::result;
 use std::str;
 use std::{collections::HashMap, path::PathBuf};
-use steel_parser::lexer::{OwnedString, OwnedTokenStream};
+use std::{marker::PhantomData, rc::Rc};
+use steel_parser::lexer::{OwnedString, OwnedTokenStream, ToOwnedString};
 use thiserror::Error;
 
 use crate::parser::span::Span;
@@ -21,7 +21,7 @@ use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::SteelVal;
 use crate::rvals::SteelVal::*;
 
-use super::ast;
+use super::{ast, interner::InternedString};
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -339,6 +339,14 @@ impl ParseError {
             ParseError::SyntaxError(l, s, _) => SyntaxError(l, s, source),
             ParseError::ArityMismatch(l, s, _) => ArityMismatch(l, s, source),
         }
+    }
+}
+
+pub struct InternString;
+
+impl ToOwnedString<InternedString> for InternString {
+    fn own(&self, s: &str) -> InternedString {
+        s.into()
     }
 }
 

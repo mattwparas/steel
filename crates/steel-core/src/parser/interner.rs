@@ -48,11 +48,15 @@ impl InternedString {
     }
 }
 
-// impl From<&str> for InternedString {
-//     fn from(ident: &str) -> Self {
-//         Self::from_string(&ident)
-//     }
-// }
+impl From<&str> for InternedString {
+    fn from(ident: &str) -> Self {
+        Self(
+            INTERNER
+                .get_or_init(ThreadedRodeo::new)
+                .get_or_intern(ident),
+        )
+    }
+}
 
 impl From<String> for InternedString {
     fn from(ident: String) -> Self {
