@@ -1,4 +1,8 @@
-use crate::{parser::lexer::TokenStream, rvals::IntoSteelVal};
+use crate::{
+    compiler::program::{QUASIQUOTE, UNQUOTE, UNQUOTE_SPLICING},
+    parser::lexer::TokenStream,
+    rvals::IntoSteelVal,
+};
 use crate::{
     parser::tokens::{Token, TokenType, TokenType::*},
     rvals::FromSteelVal,
@@ -8,7 +12,7 @@ use std::rc::Rc;
 use std::result;
 use std::str;
 use std::{collections::HashMap, path::PathBuf};
-use steel_parser::lexer::{OwnedString, OwnedTokenStream, ToOwnedString};
+use steel_parser::lexer::{OwnedTokenStream, ToOwnedString};
 use thiserror::Error;
 
 use crate::parser::span::Span;
@@ -494,7 +498,7 @@ impl<'a> Parser<'a> {
     // Reader macro for `
     fn construct_quasiquote(&mut self, val: ExprKind, span: Span) -> ExprKind {
         let q = {
-            let rc_val = TokenType::Identifier("quasiquote".into());
+            let rc_val = TokenType::Identifier(*QUASIQUOTE);
             ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
         };
 
@@ -504,7 +508,7 @@ impl<'a> Parser<'a> {
     // Reader macro for ,
     fn construct_unquote(&mut self, val: ExprKind, span: Span) -> ExprKind {
         let q = {
-            let rc_val = TokenType::Identifier("unquote".into());
+            let rc_val = TokenType::Identifier(*UNQUOTE);
             ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
         };
 
@@ -514,7 +518,7 @@ impl<'a> Parser<'a> {
     // Reader macro for ,@
     fn construct_unquote_splicing(&mut self, val: ExprKind, span: Span) -> ExprKind {
         let q = {
-            let rc_val = TokenType::Identifier("unquote-splicing".into());
+            let rc_val = TokenType::Identifier(*UNQUOTE_SPLICING);
             ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
         };
 
@@ -526,10 +530,6 @@ impl<'a> Parser<'a> {
         let mut current_frame: Vec<ExprKind> = Vec::new();
 
         self.quote_stack = Vec::new();
-
-        let unquote_spur = InternedString::from("unquote");
-        let quasiquote_spur = InternedString::from("quasiquote");
-        let unquote_splicing = InternedString::from("unquote-splicing");
 
         loop {
             match self.tokenizer.next() {
@@ -816,13 +816,13 @@ impl<'a> Parser<'a> {
                                     TokenType::Quote => {
                                         self.context.push(ParsingContext::Quote(stack.len()))
                                     }
-                                    TokenType::Identifier(ident) if *ident == unquote_spur => {
+                                    TokenType::Identifier(ident) if *ident == *UNQUOTE => {
                                         self.context.push(ParsingContext::Unquote(stack.len()))
                                     }
-                                    TokenType::Identifier(ident) if *ident == quasiquote_spur => {
+                                    TokenType::Identifier(ident) if *ident == *QUASIQUOTE => {
                                         self.context.push(ParsingContext::Quasiquote(stack.len()))
                                     }
-                                    TokenType::Identifier(ident) if *ident == unquote_splicing => {
+                                    TokenType::Identifier(ident) if *ident == *UNQUOTE_SPLICING => {
                                         self.context
                                             .push(ParsingContext::UnquoteSplicing(stack.len()))
                                     }
