@@ -1,6 +1,6 @@
-use super::ast::*;
 use super::parser::SyntaxObject;
 use super::tokens::TokenType;
+use super::{ast::*, interner::InternedString};
 use crate::parser::parser::Parser;
 use crate::parser::span::Span;
 // use super::
@@ -144,7 +144,7 @@ prop_compose! {
     }
 }
 
-fn tokentype_strategy() -> impl Strategy<Value = TokenType<String>> {
+fn tokentype_strategy() -> impl Strategy<Value = TokenType<InternedString>> {
     use TokenType::*;
     prop_oneof![
         any::<char>().prop_map(CharacterLiteral),
@@ -167,8 +167,8 @@ prop_compose! {
 prop_compose! {
     fn ident_strategy()(
         ident in r#"[_\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Start}\p{Emoji_Presentation}]['_\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Continue}\p{Emoji_Presentation}]*"#
-    ) -> String {
-        ident
+    ) -> InternedString {
+        ident.into()
     }
 }
 

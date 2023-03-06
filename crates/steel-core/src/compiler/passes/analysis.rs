@@ -9,6 +9,7 @@ use quickscope::ScopeMap;
 use crate::{
     parser::{
         ast::{Atom, Define, ExprKind, LambdaFunction, Let, List, Quote},
+        interner::InternedString,
         parser::{RawSyntaxObject, SyntaxObject, SyntaxObjectId},
         span::Span,
         tokens::TokenType,
@@ -142,8 +143,8 @@ impl SemanticInformation {
 pub struct FunctionInformation {
     // Just a mapping of the vars to their scope info - holds which vars are being
     // captured by this function
-    captured_vars: FxHashMap<String, ScopeInfo>,
-    arguments: FxHashMap<String, ScopeInfo>,
+    captured_vars: FxHashMap<InternedString, ScopeInfo>,
+    arguments: FxHashMap<InternedString, ScopeInfo>,
     // Keeps a mapping of vars to their scope info, if the variable was mutated
     // if this variable was mutated and inevitably captured, we want to know
     // mutated_vars: HashMap<String, ScopeInfo>,
@@ -159,8 +160,8 @@ pub struct FunctionInformation {
 
 impl FunctionInformation {
     pub fn new(
-        captured_vars: FxHashMap<String, ScopeInfo>,
-        arguments: FxHashMap<String, ScopeInfo>,
+        captured_vars: FxHashMap<InternedString, ScopeInfo>,
+        arguments: FxHashMap<InternedString, ScopeInfo>,
     ) -> Self {
         Self {
             captured_vars,
@@ -171,11 +172,11 @@ impl FunctionInformation {
         }
     }
 
-    pub fn captured_vars(&self) -> &FxHashMap<String, ScopeInfo> {
+    pub fn captured_vars(&self) -> &FxHashMap<InternedString, ScopeInfo> {
         &self.captured_vars
     }
 
-    pub fn arguments(&self) -> &FxHashMap<String, ScopeInfo> {
+    pub fn arguments(&self) -> &FxHashMap<InternedString, ScopeInfo> {
         &self.arguments
     }
 
@@ -213,14 +214,14 @@ impl CallSiteInformation {
 pub struct LetInformation {
     pub stack_offset: usize,
     pub function_context: Option<usize>,
-    pub arguments: FxHashMap<String, ScopeInfo>,
+    pub arguments: FxHashMap<InternedString, ScopeInfo>,
 }
 
 impl LetInformation {
     pub fn new(
         stack_offset: usize,
         function_context: Option<usize>,
-        arguments: FxHashMap<String, ScopeInfo>,
+        arguments: FxHashMap<InternedString, ScopeInfo>,
     ) -> Self {
         Self {
             stack_offset,
@@ -297,7 +298,7 @@ impl Analysis {
 
     pub fn visit_top_level_define_function_without_body(
         &mut self,
-        scope: &mut ScopeMap<String, ScopeInfo>,
+        scope: &mut ScopeMap<InternedString, ScopeInfo>,
         define: &crate::parser::ast::Define,
     ) {
         let name = define.name.atom_identifier().unwrap();
@@ -325,7 +326,7 @@ impl Analysis {
     }
 
     pub fn run(&mut self, exprs: &[ExprKind]) {
-        let mut scope: ScopeMap<String, ScopeInfo> = ScopeMap::new();
+        let mut scope: ScopeMap<InternedString, ScopeInfo> = ScopeMap::new();
 
         // TODO: Functions should be globally resolvable but top level identifiers cannot be used before they are defined
         // The way this is implemented right now doesn't respect that
@@ -492,8 +493,8 @@ impl ScopeInfo {
 
 struct AnalysisPass<'a> {
     info: &'a mut Analysis,
-    scope: &'a mut ScopeMap<String, ScopeInfo>,
-    captures: ScopeMap<String, ScopeInfo>,
+    scope: &'a mut ScopeMap<InternedString, ScopeInfo>,
+    captures: ScopeMap<InternedString, ScopeInfo>,
     tail_call_eligible: bool,
     escape_analysis: bool,
     defining_context: Option<SyntaxObjectId>,
@@ -502,20 +503,23 @@ struct AnalysisPass<'a> {
     stack_offset: usize,
     function_context: Option<usize>,
     contains_lambda_func: bool,
-    vars_used: im_rc::HashSet<String>,
-    total_vars_used: im_rc::HashSet<String>,
+    vars_used: im_rc::HashSet<InternedString>,
+    total_vars_used: im_rc::HashSet<InternedString>,
     ids_referenced_in_tail_position: HashSet<SyntaxObjectId>,
 }
 
-fn define_var(scope: &mut ScopeMap<String, ScopeInfo>, define: &crate::parser::ast::Define) {
+fn define_var(
+    scope: &mut ScopeMap<InternedString, ScopeInfo>,
+    define: &crate::parser::ast::Define,
+) {
     scope.define(
-        define.name.atom_identifier().unwrap().to_string(),
+        *define.name.atom_identifier().unwrap(),
         ScopeInfo::new(define.name.atom_syntax_object().unwrap().syntax_object_id),
     );
 }
 
 impl<'a> AnalysisPass<'a> {
-    pub fn new(info: &'a mut Analysis, scope: &'a mut ScopeMap<String, ScopeInfo>) -> Self {
+    pub fn new(info: &'a mut Analysis, scope: &'a mut ScopeMap<InternedString, ScopeInfo>) -> Self {
         AnalysisPass {
             info,
             scope,
@@ -536,20 +540,26 @@ impl<'a> AnalysisPass<'a> {
 
 impl<'a> AnalysisPass<'a> {
     // TODO: This needs to be fixed with interning
-    fn _get_possible_captures(&self, let_level_bindings: &[&str]) -> HashSet<String> {
+    fn _get_possible_captures(
+        &self,
+        let_level_bindings: &[&InternedString],
+    ) -> HashSet<InternedString> {
         self.scope
             .iter()
             .filter(|x| !x.1.captured)
-            .filter(|x| !let_level_bindings.contains(&x.0.as_str()))
+            .filter(|x| !let_level_bindings.contains(&x.0))
             .map(|x| x.0.clone())
             .collect()
     }
 
-    fn get_captured_vars(&self, let_level_bindings: &[&str]) -> FxHashMap<String, ScopeInfo> {
+    fn get_captured_vars(
+        &self,
+        let_level_bindings: &[&InternedString],
+    ) -> FxHashMap<InternedString, ScopeInfo> {
         self.scope
             .iter()
             .filter(|x| x.1.captured)
-            .filter(|x| !let_level_bindings.contains(&x.0.as_str()))
+            .filter(|x| !let_level_bindings.contains(&x.0))
             .map(|x| (x.0.clone(), x.1.clone()))
             .collect()
     }
@@ -670,7 +680,7 @@ impl<'a> AnalysisPass<'a> {
             // TODO: clean this up like a lot
             if heap_alloc {
                 self.scope.define(
-                    name.to_string(),
+                    *name,
                     ScopeInfo::new_heap_allocated_var(
                         id,
                         index,
@@ -692,8 +702,7 @@ impl<'a> AnalysisPass<'a> {
 
                 mut_var_offset += 1;
             } else {
-                self.scope
-                    .define(name.to_string(), ScopeInfo::new_local(id, index));
+                self.scope.define(*name, ScopeInfo::new_local(id, index));
 
                 // Throw in a dummy info so that no matter what, we have something to refer to
                 // in the event of a set!
@@ -710,7 +719,7 @@ impl<'a> AnalysisPass<'a> {
         }
     }
 
-    fn pop_top_layer(&mut self) -> FxHashMap<String, ScopeInfo> {
+    fn pop_top_layer(&mut self) -> FxHashMap<InternedString, ScopeInfo> {
         let arguments = self
             .scope
             .iter_top()
@@ -726,9 +735,9 @@ impl<'a> AnalysisPass<'a> {
     fn find_and_mark_captured_arguments(
         &mut self,
         lambda_function: &LambdaFunction,
-        captured_vars: &FxHashMap<String, ScopeInfo>,
+        captured_vars: &FxHashMap<InternedString, ScopeInfo>,
         depth: usize,
-        arguments: &FxHashMap<String, ScopeInfo>,
+        arguments: &FxHashMap<InternedString, ScopeInfo>,
     ) {
         for var in &lambda_function.args {
             let ident = var.atom_identifier().unwrap();
@@ -1059,7 +1068,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             #[allow(clippy::diverging_sub_expression)]
             if heap_alloc {
                 self.scope.define(
-                    name.to_string(),
+                    *name,
                     ScopeInfo::new_heap_allocated_var(
                         id,
                         todo!("Need to include the stack offset here!"),
@@ -1082,7 +1091,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 mutable_var_offset += 1;
             } else {
                 self.scope
-                    .define(name.to_string(), ScopeInfo::new_local(id, stack_offset));
+                    .define(*name, ScopeInfo::new_local(id, stack_offset));
 
                 self.info.insert(
                     arg.atom_syntax_object().unwrap(),
@@ -1108,7 +1117,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         for arg in l.local_bindings() {
             let name = arg.atom_identifier().unwrap();
 
-            arguments.insert(name.to_string(), self.scope.remove(name).unwrap());
+            arguments.insert(*name, self.scope.remove(name).unwrap());
         }
 
         if let hash_map::Entry::Vacant(e) = self.info.let_info.entry(l.syntax_object_id) {
@@ -1168,14 +1177,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                     // If we've already captured this variable, mark it as being captured from the enclosing environment
                     // TODO: If there is shadowing, this might not work?
-                    if let Some(captured_var) = self.captures.get(key.as_str()) {
+                    if let Some(captured_var) = self.captures.get(key) {
                         // TODO: If the key already exists, we need to check if we're shadowing
                         // the variable - I think we can do this by checking what the variable shadows?
 
                         // Check if this variable shadows another one. If so, we defer to the
                         // notion that this is a fresh variable
                         // if let Some(analysis) = self.captures.contains_key_at_top(key) {
-                        if self.captures.depth_of(key.as_str()).unwrap() > 1 {
+                        if self.captures.depth_of(key).unwrap() > 1 {
                             // todo!()
 
                             // if analysis.shadows.is_some() {
@@ -1226,8 +1235,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                     // If we've already captured this variable, mark it as being captured from the enclosing environment
                     // TODO: If there is shadowing, this might not work?
-                    if self.captures.contains_key(key.as_str()) {
-                        if self.captures.depth_of(key.as_str()).unwrap() > 1 {
+                    if self.captures.contains_key(key) {
+                        if self.captures.depth_of(key).unwrap() > 1 {
                             value.heap_offset = value.stack_offset;
                             value.read_heap_offset = Some(index);
 
@@ -1244,22 +1253,15 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                         // TODO: If theres weird bugs here, match behavior of the captures from above
                         // i.e. heap offset just patches in the read offset from the parent
-                        value.heap_offset = self
-                            .captures
-                            .get(key.as_str())
-                            .and_then(|x| x.read_heap_offset);
+                        value.heap_offset = self.captures.get(key).and_then(|x| x.read_heap_offset);
 
-                        value.read_heap_offset = self
-                            .captures
-                            .get(key.as_str())
-                            .and_then(|x| x.read_heap_offset);
+                        value.read_heap_offset =
+                            self.captures.get(key).and_then(|x| x.read_heap_offset);
 
                         value.read_heap_offset = Some(index);
 
-                        value.parent_heap_offset = self
-                            .captures
-                            .get(key.as_str())
-                            .and_then(|x| x.local_heap_offset);
+                        value.parent_heap_offset =
+                            self.captures.get(key).and_then(|x| x.local_heap_offset);
 
                         value.local_heap_offset = Some(index);
 
@@ -1351,7 +1353,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // println!("{:?}", )
 
         for (var, value) in self.captures.iter() {
-            if let Some(scope_info) = captured_vars.get_mut(var.as_str()) {
+            if let Some(scope_info) = captured_vars.get_mut(var) {
                 scope_info.captured_from_enclosing = value.captured_from_enclosing;
             }
         }
@@ -1392,7 +1394,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             let mut slated_for_removal = Vec::new();
 
             if lambda_bottoms_out {
-                captured_vars.retain(|x: &String, _| self.vars_used.contains(x));
+                captured_vars.retain(|x: &InternedString, _| self.vars_used.contains(x));
 
                 for var in info.captured_vars.keys() {
                     if !captured_vars.contains_key(var) {
@@ -1408,7 +1410,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             }
 
             for (var, value) in captured_vars {
-                if let Some(scope_info) = info.captured_vars.get_mut(var.as_str()) {
+                if let Some(scope_info) = info.captured_vars.get_mut(&var) {
                     scope_info.captured_from_enclosing = value.captured_from_enclosing;
                     scope_info.heap_offset = value.heap_offset;
                 };
@@ -1446,7 +1448,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         if let Some(name) = name {
             // Mark that we've used this
-            self.vars_used.insert(name.to_string());
+            self.vars_used.insert(*name);
 
             // Gather the id of the variable that is in fact mutated
             if let Some(scope_info) = self.scope.get_mut(name) {
@@ -1487,7 +1489,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         if let Some(ident) = name {
             // Mark that we've seen this one
-            self.vars_used.insert(ident.to_string());
+            self.vars_used.insert(*ident);
             // Mark that this was perhaps used in tail position
             self.ids_referenced_in_tail_position.insert(current_id);
 
@@ -1508,7 +1510,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                     // TODO: We _really_ should be providing the built-ins in a better way thats not
                     // passing around a thread local
-                    if crate::steel_vm::primitives::PRELUDE_MODULE.with(|x| x.contains(ident)) {
+                    if crate::steel_vm::primitives::PRELUDE_MODULE
+                        .with(|x| x.contains(ident.resolve()))
+                    {
                         semantic_information.mark_builtin()
                     }
 
@@ -1705,7 +1709,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
             // TODO: We _really_ should be providing the built-ins in a better way thats not
             // passing around a thread local
-            if crate::steel_vm::primitives::PRELUDE_MODULE.with(|x| x.contains(ident)) {
+            if crate::steel_vm::primitives::PRELUDE_MODULE.with(|x| x.contains(ident.resolve())) {
                 semantic_info.mark_builtin();
                 semantic_info.kind = IdentifierStatus::Global
             }
@@ -1752,7 +1756,7 @@ pub fn query_top_level_define<A: AsRef<str>>(
     for expr in exprs {
         if let ExprKind::Define(d) = expr {
             match d.name.atom_identifier() {
-                Some(n) if name.as_ref() == n => found_defines.push(d.as_ref()),
+                Some(n) if name.as_ref() == n.resolve() => found_defines.push(d.as_ref()),
                 _ => {}
             }
         }
@@ -1873,7 +1877,8 @@ impl<'a, F> FindCallSites<'a, F> {
         if let Some(name) = l.first_ident() {
             if let Some(semantic_info) = self.analysis.get(l.args[0].atom_syntax_object().unwrap())
             {
-                return name == self.name && semantic_info.kind == IdentifierStatus::Global;
+                return name.resolve() == self.name
+                    && semantic_info.kind == IdentifierStatus::Global;
             }
         }
 
@@ -1955,7 +1960,9 @@ where
                         if let Some(semantic_info) =
                             self.analysis.get(l.args[0].atom_syntax_object().unwrap())
                         {
-                            if name == self.name && semantic_info.kind == IdentifierStatus::Global {
+                            if name.resolve() == self.name
+                                && semantic_info.kind == IdentifierStatus::Global
+                            {
                                 // At this point, call out to the user given function - if we do in fact mutate
                                 // where the value points to, we should return a full node that needs to be visited
                                 (self.func)(self.analysis, list);
@@ -2255,7 +2262,7 @@ impl<'a> LiftPureFunctionsToGlobalScope<'a> {
 
 fn atom(name: String) -> ExprKind {
     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-        name,
+        name.into(),
     ))))
 }
 
@@ -2901,9 +2908,10 @@ impl<'a> SemanticAnalysis<'a> {
                 let mut find_call_site_by_id =
                     FindUsages::new(id, &self.analysis, |_: &Analysis, usage: &mut Atom| {
                         if let Some(ident) = usage.ident_mut() {
-                            *ident = "##lambda-lifting##".to_string()
-                                + ident
-                                + id.0.to_string().as_str();
+                            *ident = ("##lambda-lifting##".to_string()
+                                + ident.resolve()
+                                + id.0.to_string().as_str())
+                            .into();
                             true
                         } else {
                             false
@@ -2927,8 +2935,10 @@ impl<'a> SemanticAnalysis<'a> {
                         }
 
                         if let Some(name) = define.name.atom_identifier_mut() {
-                            *name =
-                                "##lambda-lifting##".to_string() + name + id.0.to_string().as_str();
+                            *name = ("##lambda-lifting##".to_string()
+                                + name.resolve()
+                                + id.0.to_string().as_str())
+                            .into();
                         } else {
                             unreachable!("This should explicitly be an identifier here - perhaps a macro was invalid?");
                         }

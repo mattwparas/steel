@@ -5,14 +5,16 @@ use crate::parser::visitors::VisitorMutRef;
 
 use std::collections::HashSet;
 
+use super::interner::InternedString;
+
 pub struct RenameIdentifiersVisitor<'a> {
-    introduced_identifiers: HashSet<String>,
-    pattern_variables: &'a [&'a str],
-    syntax: &'a [String],
+    introduced_identifiers: HashSet<InternedString>,
+    pattern_variables: &'a [&'a InternedString],
+    syntax: &'a [InternedString],
 }
 
 impl<'a> RenameIdentifiersVisitor<'a> {
-    pub fn new(pattern_variables: &'a [&'a str], syntax: &'a [String]) -> Self {
+    pub fn new(pattern_variables: &'a [&'a InternedString], syntax: &'a [InternedString]) -> Self {
         RenameIdentifiersVisitor {
             introduced_identifiers: HashSet::new(),
             pattern_variables,
@@ -20,11 +22,11 @@ impl<'a> RenameIdentifiersVisitor<'a> {
         }
     }
 
-    pub fn add(&mut self, ident: &str) {
-        self.introduced_identifiers.insert(ident.to_string());
+    pub fn add(&mut self, ident: InternedString) {
+        self.introduced_identifiers.insert(ident);
     }
 
-    pub fn is_gensym(&self, ident: &str) -> bool {
+    pub fn is_gensym(&self, ident: &InternedString) -> bool {
         self.introduced_identifiers.contains(ident) || self.pattern_variables.contains(&ident)
     }
 
@@ -50,12 +52,14 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
             } = a.syn
             {
                 // If this is a special pattern variable, don't do any mangling of the variable
-                if !self.pattern_variables.contains(&s.as_str()) {
-                    self.add(s);
+                if !self.pattern_variables.contains(&s) {
+                    self.add(*s);
                     // a.syn = SyntaxObject::default(TokenType::Identifier("##".to_string() + s));
                 }
 
-                a.syn = SyntaxObject::default(TokenType::Identifier("##".to_string() + s));
+                a.syn = SyntaxObject::default(TokenType::Identifier(
+                    ("##".to_string() + s.resolve()).into(),
+                ));
             }
         }
 
@@ -74,12 +78,14 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                     ..
                 } = a.syn
                 {
-                    if !self.pattern_variables.contains(&s.as_str()) {
-                        self.add(s);
+                    if !self.pattern_variables.contains(&s) {
+                        self.add(*s);
                         // a.syn = SyntaxObject::default(TokenType::Identifier("##".to_string() + s));
                     }
 
-                    a.syn = SyntaxObject::default(TokenType::Identifier("##".to_string() + s));
+                    a.syn = SyntaxObject::default(TokenType::Identifier(
+                        ("##".to_string() + s.resolve()).into(),
+                    ));
                 }
             }
         }
@@ -123,7 +129,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                 // if self.syntax.contains(&s.as_str()) {
                 //     return;
                 // }
-                a.syn.ty = TokenType::Identifier("##".to_string() + &s);
+                a.syn.ty = TokenType::Identifier(("##".to_string() + s.resolve()).into());
             }
         }
     }
@@ -165,7 +171,7 @@ mod rename_visitor_tests {
 
     fn atom_identifier(s: &str) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-            s.to_string(),
+            s.into(),
         ))))
     }
 
@@ -179,15 +185,11 @@ mod rename_visitor_tests {
     fn test_rename_identifiers() {
         let mut pre_condition = ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
             vec![ExprKind::Atom(Atom::new(SyntaxObject::default(
-                Identifier("x".to_string()),
+                Identifier("x".into()),
             )))],
             ExprKind::List(List::new(vec![
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "+".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "x".to_string(),
-                )))),
+                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier("+".into())))),
+                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier("x".into())))),
                 ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
             ])),
             SyntaxObject::default(TokenType::Lambda),
@@ -195,15 +197,11 @@ mod rename_visitor_tests {
 
         let post_condition = ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
             vec![ExprKind::Atom(Atom::new(SyntaxObject::default(
-                Identifier("##x".to_string()),
+                Identifier("##x".into()),
             )))],
             ExprKind::List(List::new(vec![
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "+".to_string(),
-                )))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-                    "##x".to_string(),
-                )))),
+                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier("+".into())))),
+                ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier("##x".into())))),
                 ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
             ])),
             SyntaxObject::default(TokenType::Lambda),

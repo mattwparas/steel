@@ -1,9 +1,9 @@
 #![allow(unused)]
 
-use crate::parser::ast;
 use crate::parser::ast::ExprKind;
 use crate::parser::tokens::TokenType;
 use crate::parser::visitors::VisitorMut;
+use crate::parser::{ast, interner::InternedString};
 
 use std::collections::HashSet;
 
@@ -19,15 +19,15 @@ use super::ir::Expr;
 // (+ x (+ y z))
 struct RenameShadowedVars<'a> {
     depth: usize,
-    in_scope: HashSet<String>,
-    shadowed: HashMap<String, usize>,
-    args: Option<Vec<String>>,
-    ret_val: Option<String>,
-    legal_vars: &'a HashSet<String>,
+    in_scope: HashSet<InternedString>,
+    shadowed: HashMap<InternedString, usize>,
+    args: Option<Vec<InternedString>>,
+    ret_val: Option<InternedString>,
+    legal_vars: &'a HashSet<InternedString>,
 }
 
 impl<'a> RenameShadowedVars<'a> {
-    pub fn new(legal_vars: &'a HashSet<String>) -> Self {
+    pub fn new(legal_vars: &'a HashSet<InternedString>) -> Self {
         Self {
             depth: 0,
             in_scope: HashSet::new(),
@@ -54,7 +54,7 @@ impl<'a> RenameShadowedVars<'a> {
 /// Checks that the input is in fact a lowered function
 pub fn lower_function(
     expr: &ExprKind,
-    bound_vars: &mut HashSet<String>,
+    bound_vars: &mut HashSet<InternedString>,
 ) -> Option<(String, Vec<String>, String, Vec<Expr>)> {
     // let mut visitor = RenameShadowedVars::default();
 
@@ -198,7 +198,7 @@ impl<'a> VisitorMut for RenameShadowedVars<'a> {
         match &a.syn.ty {
             Identifier(s) => {
                 // Short circuit if we reference a function that we can't yet reference
-                self.validate_identifier(s.as_str())?;
+                self.validate_identifier(s)?;
 
                 if let Some(depth) = self.shadowed.get(s) {
                     // Create this busted shadowed nonsense
@@ -231,11 +231,7 @@ impl<'a> VisitorMut for RenameShadowedVars<'a> {
                 let variable_names = lam
                     .args
                     .iter()
-                    .map(|x| {
-                        x.atom_identifier_or_else(|| unreachable!())
-                            .ok()
-                            .map(|x| x.to_string())
-                    })
+                    .map(|x| x.atom_identifier_or_else(|| unreachable!()).ok().cloned())
                     .collect::<Option<Vec<_>>>()?;
 
                 let pre_variables = self.shadowed.clone();
@@ -339,7 +335,7 @@ impl<'a> RenameShadowedVars<'a> {
         })
     }
 
-    fn validate_function_call_ident(&self, ident: &str) -> Option<()> {
+    fn validate_function_call_ident(&self, ident: &InternedString) -> Option<()> {
         if self.legal_vars.contains(ident) {
             println!("Validated: {}", ident);
             println!("Legal vars: {:#?}", self.legal_vars);
@@ -353,7 +349,7 @@ impl<'a> RenameShadowedVars<'a> {
         }
     }
 
-    fn validate_identifier(&self, ident: &str) -> Option<()> {
+    fn validate_identifier(&self, ident: &InternedString) -> Option<()> {
         if !self.shadowed.contains_key(ident)
             && !self.in_scope.contains(ident)
             && !self.legal_vars.contains(ident)

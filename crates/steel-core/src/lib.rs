@@ -13,9 +13,8 @@ pub mod stdlib;
 pub mod gc;
 mod conversions;
 
-#[cfg(feature = "jit")]
-pub mod jit;
-
+// #[cfg(feature = "jit")]
+// pub mod jit;
 pub mod parser;
 pub mod steel_vm;
 #[cfg(test)]

@@ -132,10 +132,12 @@ impl Highlighter for RustylineHelper {
                         // println!("paren pos: {:?}", self.bracket.get());
 
                         ranges_to_replace.push((token.span().range(), highlighted));
-                    } else if self.engine.borrow().in_scope_macros().contains_key(*ident) {
-                        let highlighted = format!("{}", token.source().bright_cyan());
-                        ranges_to_replace.push((token.span().range(), highlighted));
                     }
+
+                    // else if self.engine.borrow().in_scope_macros().contains_key(*ident) {
+                    //     let highlighted = format!("{}", token.source().bright_cyan());
+                    //     ranges_to_replace.push((token.span().range(), highlighted));
+                    // }
                 }
                 // steel::parser::tokens::TokenType::Keyword(_) => todo!(),
                 TokenType::NumberLiteral(_) | TokenType::IntegerLiteral(_) => {

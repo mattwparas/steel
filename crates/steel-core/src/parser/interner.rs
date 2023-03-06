@@ -1,5 +1,6 @@
 use lasso::Key;
 use lasso::Spur;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 // #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
@@ -9,7 +10,7 @@ use std::fmt;
 // }
 
 /// An interned string
-#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 #[repr(transparent)]
 pub struct InternedString(Spur);
 
@@ -82,8 +83,33 @@ impl fmt::Display for InternedString {
     }
 }
 
+impl From<InternedString> for SteelVal {
+    fn from(value: InternedString) -> Self {
+        SteelVal::StringV(value.into())
+    }
+}
+
+impl From<InternedString> for SteelString {
+    fn from(value: InternedString) -> Self {
+        value.resolve().into()
+    }
+}
+
+// impl Serialize for InternedString {
+//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+//     where
+//         S: Serializer,
+//     {
+//         serializer.serialize_str(self.resolve())
+//     }
+// }
+
+// impl Dese
+
 use lasso::ThreadedRodeo;
 use once_cell::sync::OnceCell;
+
+use crate::{rvals::SteelString, SteelVal};
 
 static INTERNER: OnceCell<ThreadedRodeo> = OnceCell::new();
 

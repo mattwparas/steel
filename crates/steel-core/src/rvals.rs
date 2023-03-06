@@ -20,8 +20,8 @@ use crate::{
     },
 };
 
-#[cfg(feature = "jit")]
-use crate::jit::sig::JitFunctionPointer;
+// #[cfg(feature = "jit")]
+// use crate::jit::sig::JitFunctionPointer;
 
 use std::{
     any::Any,
@@ -521,7 +521,7 @@ impl Syntax {
             // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
             // MacroV(_) => Err("Can't convert from Macro to expression!"),
             SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                TokenType::Identifier(x.to_string()),
+                TokenType::Identifier(x.as_str().into()),
             )))),
             ListV(l) => {
                 let items: Result<Vec<ExprKind>> =
@@ -572,7 +572,7 @@ impl Syntax {
             // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
             // MacroV(_) => Err("Can't convert from Macro to expression!"),
             SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new_with_source(
-                TokenType::Identifier(x.to_string()),
+                TokenType::Identifier(x.as_str().into()),
                 span,
                 source,
             )))),
@@ -675,8 +675,8 @@ pub enum SteelVal {
     // Continuation
     ContinuationFunction(Gc<Continuation>),
     // Function Pointer
-    #[cfg(feature = "jit")]
-    CompiledFunction(Box<JitFunctionPointer>),
+    // #[cfg(feature = "jit")]
+    // CompiledFunction(Box<JitFunctionPointer>),
     // List
     ListV(List<SteelVal>),
     // Mutable functions

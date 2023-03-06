@@ -1,5 +1,6 @@
 use crate::parser::{
     ast::{ExprKind, If},
+    interner::InternedString,
     parser::SyntaxObject,
     tokens::TokenType,
     tryfrom_visitor::TryFromExprKindForSteelVal,
@@ -27,14 +28,14 @@ use log::debug;
 type SharedEnv = Rc<RefCell<ConstantEnv>>;
 
 struct ConstantEnv {
-    bindings: HashMap<String, SteelVal>,
-    used_bindings: HashSet<String>,
-    non_constant_bound: HashSet<String>,
+    bindings: HashMap<InternedString, SteelVal>,
+    used_bindings: HashSet<InternedString>,
+    non_constant_bound: HashSet<InternedString>,
     parent: Option<Weak<RefCell<ConstantEnv>>>,
 }
 
 impl ConstantEnv {
-    fn root(bindings: HashMap<String, SteelVal>) -> Self {
+    fn root(bindings: HashMap<InternedString, SteelVal>) -> Self {
         Self {
             bindings,
             used_bindings: HashSet::new(),
@@ -52,15 +53,15 @@ impl ConstantEnv {
         }
     }
 
-    fn bind(&mut self, ident: &str, value: SteelVal) {
-        self.bindings.insert(ident.to_owned(), value);
+    fn bind(&mut self, ident: &InternedString, value: SteelVal) {
+        self.bindings.insert(*ident, value);
     }
 
-    fn bind_non_constant(&mut self, ident: &str) {
-        self.non_constant_bound.insert(ident.to_owned());
+    fn bind_non_constant(&mut self, ident: &InternedString) {
+        self.non_constant_bound.insert(*ident);
     }
 
-    fn get(&mut self, ident: &str) -> Option<SteelVal> {
+    fn get(&mut self, ident: &InternedString) -> Option<SteelVal> {
         if self.non_constant_bound.get(ident).is_some() {
             return None;
         }
@@ -74,12 +75,12 @@ impl ConstantEnv {
                 .borrow_mut()
                 .get(ident)
         } else {
-            self.used_bindings.insert(ident.to_string());
+            self.used_bindings.insert(*ident);
             value.cloned()
         }
     }
 
-    fn _set(&mut self, ident: &str, value: SteelVal) -> Option<SteelVal> {
+    fn _set(&mut self, ident: &InternedString, value: SteelVal) -> Option<SteelVal> {
         let output = self.bindings.get(ident);
         if output.is_none() {
             self.parent
@@ -89,14 +90,14 @@ impl ConstantEnv {
                 .borrow_mut()
                 ._set(ident, value)
         } else {
-            self.bindings.insert(ident.to_string(), value)
+            self.bindings.insert(*ident, value)
         }
     }
 
-    fn unbind(&mut self, ident: &str) -> Option<()> {
+    fn unbind(&mut self, ident: &InternedString) -> Option<()> {
         if self.bindings.get(ident).is_some() {
             self.bindings.remove(ident);
-            self.used_bindings.insert(ident.to_string());
+            self.used_bindings.insert(*ident);
         } else {
             self.parent
                 .as_ref()?
@@ -113,13 +114,13 @@ impl ConstantEnv {
 // Holds the arena for all environments to eventually be dropped together
 pub struct ConstantEvaluatorManager {
     global_env: SharedEnv,
-    set_idents: HashSet<String>,
+    set_idents: HashSet<InternedString>,
     pub(crate) changed: bool,
     opt_level: OptLevel,
 }
 
 impl ConstantEvaluatorManager {
-    pub fn new(constant_bindings: HashMap<String, SteelVal>, opt_level: OptLevel) -> Self {
+    pub fn new(constant_bindings: HashMap<InternedString, SteelVal>, opt_level: OptLevel) -> Self {
         Self {
             global_env: Rc::new(RefCell::new(ConstantEnv::root(constant_bindings))),
             set_idents: HashSet::new(),
@@ -153,12 +154,12 @@ impl ConstantEvaluatorManager {
 
 struct ConstantEvaluator<'a> {
     bindings: SharedEnv,
-    set_idents: &'a HashSet<String>,
+    set_idents: &'a HashSet<InternedString>,
     changed: bool,
     opt_level: OptLevel,
 }
 
-fn steelval_to_atom(value: &SteelVal) -> Option<TokenType<String>> {
+fn steelval_to_atom(value: &SteelVal) -> Option<TokenType<InternedString>> {
     match value {
         SteelVal::BoolV(b) => Some(TokenType::BooleanLiteral(*b)),
         SteelVal::NumV(n) => Some(TokenType::NumberLiteral(*n)),
@@ -172,7 +173,7 @@ fn steelval_to_atom(value: &SteelVal) -> Option<TokenType<String>> {
 impl<'a> ConstantEvaluator<'a> {
     fn new(
         bindings: Rc<RefCell<ConstantEnv>>,
-        set_idents: &'a HashSet<String>,
+        set_idents: &'a HashSet<InternedString>,
         opt_level: OptLevel,
     ) -> Self {
         Self {
@@ -202,7 +203,7 @@ impl<'a> ConstantEvaluator<'a> {
                 if self.set_idents.get(s).is_some() {
                     return None;
                 };
-                self.bindings.borrow_mut().get(s.as_str())
+                self.bindings.borrow_mut().get(s)
             }
             TokenType::NumberLiteral(n) => Some(SteelVal::NumV(*n)),
             TokenType::StringLiteral(s) => Some(SteelVal::StringV(s.clone().into())),
@@ -624,11 +625,11 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 }
 
 struct CollectSet<'a> {
-    set_idents: &'a mut HashSet<String>,
+    set_idents: &'a mut HashSet<InternedString>,
 }
 
 impl<'a> CollectSet<'a> {
-    fn new(set_idents: &'a mut HashSet<String>) -> Self {
+    fn new(set_idents: &'a mut HashSet<InternedString>) -> Self {
         Self { set_idents }
     }
 }
@@ -676,10 +677,10 @@ impl<'a> VisitorMut for CollectSet<'a> {
     fn visit_syntax_rules(&mut self, _l: &crate::parser::ast::SyntaxRules) -> Self::Output {}
 
     fn visit_set(&mut self, s: &crate::parser::ast::Set) -> Self::Output {
-        if let Ok(identifier) = &s.variable.atom_identifier_or_else(
+        if let Ok(identifier) = s.variable.atom_identifier_or_else(
             throw!(BadSyntax => "set expects an identifier"; s.location.span),
         ) {
-            self.set_idents.insert(identifier.to_string());
+            self.set_idents.insert(*identifier);
         }
 
         self.visit(&s.expr);

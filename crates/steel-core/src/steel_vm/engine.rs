@@ -10,7 +10,7 @@ use crate::{
         modules::CompiledModule,
         program::{Executable, RawProgramWithSymbols},
     },
-    parser::{ast::ExprKind, expander::SteelMacro},
+    parser::{ast::ExprKind, expander::SteelMacro, interner::InternedString},
     parser::{
         kernel::{fresh_kernel_image, Kernel},
         parser::{ParseError, Parser, Sources},
@@ -30,7 +30,7 @@ use itertools::Itertools;
 pub struct Engine {
     virtual_machine: SteelThread,
     compiler: Compiler,
-    constants: Option<ImmutableHashMap<String, SteelVal>>,
+    constants: Option<ImmutableHashMap<InternedString, SteelVal>>,
     modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
     sources: Sources,
     dylibs: DylibContainers,
@@ -854,7 +854,7 @@ impl Engine {
 
     // TODO this does not take into account the issues with
     // people registering new functions that shadow the original one
-    fn constants(&mut self) -> ImmutableHashMap<String, SteelVal> {
+    fn constants(&mut self) -> ImmutableHashMap<InternedString, SteelVal> {
         if let Some(hm) = self.constants.clone() {
             if !hm.is_empty() {
                 return hm;
@@ -864,7 +864,7 @@ impl Engine {
         let mut hm = ImmutableHashMap::new();
         for constant in CONSTANTS {
             if let Ok(v) = self.extract_value(constant) {
-                hm.insert(constant.to_string(), v);
+                hm.insert((*constant).into(), v);
             }
         }
         self.constants = Some(hm.clone());
@@ -885,7 +885,7 @@ impl Engine {
         self.compiler.symbol_map.get(ident).is_ok()
     }
 
-    pub fn in_scope_macros(&self) -> &HashMap<String, SteelMacro> {
+    pub fn in_scope_macros(&self) -> &HashMap<InternedString, SteelMacro> {
         &self.compiler.macro_env
     }
 }

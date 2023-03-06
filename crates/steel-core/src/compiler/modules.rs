@@ -1,9 +1,10 @@
 use crate::{
-    compiler::passes::VisitorMutRefUnit,
+    compiler::{passes::VisitorMutRefUnit, program::PROVIDE},
     expr_list,
     parser::{
         ast::{Atom, Begin, Define, ExprKind, List, Quote},
         expand_visitor::expand_kernel,
+        interner::InternedString,
         kernel::Kernel,
         parser::{ParseError, Parser, Sources, SyntaxObject},
         tokens::TokenType,
@@ -29,7 +30,10 @@ use crate::parser::expand_visitor::{expand, extract_macro_defs};
 use itertools::Itertools;
 use log::{debug, info, log_enabled};
 
-use super::passes::mangle::{collect_globals, NameMangler};
+use super::{
+    passes::mangle::{collect_globals, NameMangler},
+    program::{CONTRACT_OUT, FOR_SYNTAX},
+};
 
 use im_rc::HashMap as ImmutableHashMap;
 
@@ -79,7 +83,7 @@ impl ModuleManager {
     pub(crate) fn add_module(
         &mut self,
         path: PathBuf,
-        _global_macro_map: &mut HashMap<String, SteelMacro>,
+        _global_macro_map: &mut HashMap<InternedString, SteelMacro>,
         kernel: &mut Option<Kernel>,
         sources: &mut Sources,
         builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
@@ -110,7 +114,7 @@ impl ModuleManager {
     #[allow(unused)]
     pub(crate) fn compile_main(
         &mut self,
-        global_macro_map: &mut HashMap<String, SteelMacro>,
+        global_macro_map: &mut HashMap<InternedString, SteelMacro>,
         kernel: &mut Option<Kernel>,
         sources: &mut Sources,
         exprs: Vec<ExprKind>,
@@ -181,8 +185,8 @@ impl ModuleManager {
                     match provide {
                         ExprKind::List(l) => {
                             if let Some(qualifier) = l.first_ident() {
-                                match qualifier {
-                                    "contract/out" => {
+                                match *qualifier {
+                                    x if x == *CONTRACT_OUT => {
                                         // Directly expand into define/contract, but with the value just being the hash get below
 
                                         // (bind/c contract name 'name)
@@ -306,7 +310,7 @@ impl ModuleManager {
         compiled_modules: &'a HashMap<PathBuf, CompiledModule>,
         require_for_syntax: &'a PathBuf,
         mangled_asts: &'a mut Vec<ExprKind>,
-    ) -> (&'a CompiledModule, HashMap<String, SteelMacro>) {
+    ) -> (&'a CompiledModule, HashMap<InternedString, SteelMacro>) {
         let module = compiled_modules
             .get(require_for_syntax)
             .expect(&format!("Module missing!: {:?}", require_for_syntax));
@@ -338,7 +342,7 @@ impl ModuleManager {
         let in_scope_macros = module
             .provides_for_syntax
             .iter()
-            .filter_map(|x| module.macro_map.get(x).map(|m| (x.to_string(), m.clone()))) // TODO -> fix this unwrap
+            .filter_map(|x| module.macro_map.get(x).map(|m| (*x, m.clone()))) // TODO -> fix this unwrap
             .map(|mut x| {
                 for expr in x.1.exprs_mut() {
                     name_mangler.visit(expr);
@@ -375,8 +379,8 @@ pub struct CompiledModule {
     provides: Vec<ExprKind>,
     // TODO: Change this to be an ID instead of a string directly
     requires: Vec<PathBuf>,
-    provides_for_syntax: Vec<String>,
-    macro_map: HashMap<String, SteelMacro>,
+    provides_for_syntax: Vec<InternedString>,
+    macro_map: HashMap<InternedString, SteelMacro>,
     ast: Vec<ExprKind>,
     emitted: bool,
 }
@@ -389,8 +393,8 @@ impl CompiledModule {
         name: PathBuf,
         provides: Vec<ExprKind>,
         requires: Vec<PathBuf>,
-        provides_for_syntax: Vec<String>,
-        macro_map: HashMap<String, SteelMacro>,
+        provides_for_syntax: Vec<InternedString>,
+        macro_map: HashMap<InternedString, SteelMacro>,
         ast: Vec<ExprKind>,
     ) -> Self {
         Self {
@@ -442,8 +446,8 @@ impl CompiledModule {
                     match provide {
                         ExprKind::List(l) => {
                             if let Some(qualifier) = l.first_ident() {
-                                match qualifier {
-                                    "contract/out" => {
+                                match *qualifier {
+                                    x if x == *CONTRACT_OUT => {
                                         // Directly expand into define/contract, but with the value just being the hash get below
 
                                         // (bind/c contract name 'name)
@@ -454,7 +458,7 @@ impl CompiledModule {
                                         // Since this is now bound to be in the scope of the current working module, we also want
                                         // this to be mangled. In the event we do something like, qualify the import, then we might
                                         // have to mangle this differently
-                                        globals.insert(name.atom_identifier().unwrap().to_string());
+                                        globals.insert(*name.atom_identifier().unwrap());
 
                                         let hash_get = expr_list![
                                             ExprKind::ident("hash-get"),
@@ -469,7 +473,8 @@ impl CompiledModule {
 
                                         let define = ExprKind::Define(Box::new(Define::new(
                                             ExprKind::atom(
-                                                prefix.clone() + name.atom_identifier().unwrap(),
+                                                prefix.clone()
+                                                    + name.atom_identifier().unwrap().resolve(),
                                             ),
                                             expr_list![
                                                 ExprKind::ident("bind/c"),
@@ -499,10 +504,10 @@ impl CompiledModule {
                             // Since this is now bound to be in the scope of the current working module, we also want
                             // this to be mangled. In the event we do something like, qualify the import, then we might
                             // have to mangle this differently
-                            globals.insert(provide_ident.to_string());
+                            globals.insert(*provide_ident);
 
                             let define = ExprKind::Define(Box::new(Define::new(
-                                ExprKind::atom(prefix.clone() + provide_ident),
+                                ExprKind::atom(prefix.clone() + provide_ident.resolve()),
                                 expr_list![
                                     ExprKind::ident("hash-get"),
                                     ExprKind::atom("__module-".to_string() + &other_module_prefix),
@@ -556,7 +561,7 @@ impl CompiledModule {
                 ExprKind::List(l) => {
                     if let Some(qualifier) = l.first_ident() {
                         match qualifier {
-                            "contract/out" => {
+                            x if *x == *CONTRACT_OUT => {
                                 // Update the item to point to just the name
                                 *provide = l.get(1).unwrap().clone();
                             }
@@ -618,10 +623,10 @@ impl CompiledModule {
     fn _to_module_ast_node(&self) -> ExprKind {
         let mut body = vec![
             ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-                "module".to_string(),
+                "module".into(),
             )))),
             ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-                "___".to_string() + self.name.to_str().unwrap(),
+                ("___".to_string() + self.name.to_str().unwrap()).into(),
             )))),
         ];
 
@@ -659,7 +664,7 @@ struct ModuleBuilder<'a> {
     name: PathBuf,
     main: bool,
     source_ast: Vec<ExprKind>,
-    macro_map: HashMap<String, SteelMacro>,
+    macro_map: HashMap<InternedString, SteelMacro>,
     requires: Vec<PathBuf>,
     requires_for_syntax: Vec<PathBuf>,
     built_ins: Vec<PathBuf>,
@@ -749,7 +754,7 @@ impl<'a> ModuleBuilder<'a> {
                 .filter(|x| {
                     if let ExprKind::List(l) = x {
                         if let Some(provide) = l.first_ident() {
-                            return provide != "provide";
+                            return *provide != *PROVIDE;
                         }
                     }
                     true
@@ -993,7 +998,7 @@ impl<'a> ModuleBuilder<'a> {
             requires,
             self.provides_for_syntax
                 .iter()
-                .map(|x| x.atom_identifier().unwrap().to_string())
+                .map(|x| *x.atom_identifier().unwrap())
                 .collect(),
             std::mem::take(&mut self.macro_map),
             mangled_asts,
@@ -1025,7 +1030,7 @@ impl<'a> ModuleBuilder<'a> {
             if let ExprKind::Macro(m) = expr {
                 let generated_macro = SteelMacro::parse_from_ast_macro(m)?;
                 let name = generated_macro.name();
-                self.macro_map.insert(name.to_string(), generated_macro);
+                self.macro_map.insert(*name, generated_macro);
             } else {
                 non_macros.push(expr)
             }
@@ -1045,8 +1050,8 @@ impl<'a> ModuleBuilder<'a> {
                 }
                 ExprKind::List(l) => {
                     if let Some(for_syntax) = l.first_ident() {
-                        match for_syntax {
-                            "for-syntax" => {
+                        match *for_syntax {
+                            x if x == *FOR_SYNTAX => {
                                 if l.args.len() != 2 {
                                     stop!(ArityMismatch => "provide expects a single identifier in the (for-syntax <ident>)")
                                 }
@@ -1055,7 +1060,7 @@ impl<'a> ModuleBuilder<'a> {
                                 // TODO -> remove this clone
                                 self.provides_for_syntax.push(l.args[1].clone());
                             }
-                            "contract/out" => {
+                            x if x == *CONTRACT_OUT => {
                                 normal_provides.push(expr);
                             }
                             _ => {
@@ -1085,7 +1090,7 @@ impl<'a> ModuleBuilder<'a> {
         for mut expr in exprs {
             if let ExprKind::List(l) = &mut expr {
                 if let Some(provide) = l.first_ident() {
-                    if provide == "provide" {
+                    if *provide == *PROVIDE {
                         if l.len() == 1 {
                             stop!(Generic => "provide expects at least one identifier to provide");
                         }
@@ -1172,7 +1177,7 @@ impl<'a> ModuleBuilder<'a> {
 
                             ExprKind::List(l) => {
                                 match l.first_ident() {
-                                    Some("for-syntax") => {
+                                    Some(x) if *x == *FOR_SYNTAX => {
                                         // We're expecting something like (for-syntax "foo")
                                         if l.args.len() != 2 {
                                             stop!(BadSyntax => "for-syntax expects one string literal referring to a file or module"; r.location.span; r.location.source.clone());

@@ -1,13 +1,17 @@
 use itertools::Itertools;
 
-use crate::parser::tokens::TokenType;
-use crate::parser::visitors::ConsumingVisitor;
-use crate::rvals::Result;
+use crate::{compiler::program::REQUIRE_BUILTIN, rvals::Result};
+use crate::{compiler::program::STRUCT_KEYWORD, parser::visitors::ConsumingVisitor};
+use crate::{
+    compiler::program::{AS_KEYWORD, DOC_MACRO},
+    parser::tokens::TokenType,
+};
 use crate::{expr_list, parser::parser::SyntaxObject};
 use crate::{parser::ast::ExprKind, steel_vm::builtin::BuiltInModule};
 
 use super::{
     ast::{Atom, Begin, Define, LambdaFunction, List, Quote},
+    interner::InternedString,
     kernel::Kernel,
 };
 
@@ -15,19 +19,19 @@ use std::{collections::HashMap, rc::Rc};
 
 use crate::parser::expander::SteelMacro;
 
-pub const REQUIRE_BUILTIN: &str = "require-builtin";
-pub const DOC_MACRO: &str = "@doc";
+// pub const REQUIRE_BUILTIN: &str = "require-builtin";
+// pub const DOC_MACRO: &str = "@doc";
 
 pub fn extract_macro_defs(
     exprs: Vec<ExprKind>,
-    macro_map: &mut HashMap<String, SteelMacro>,
+    macro_map: &mut HashMap<InternedString, SteelMacro>,
 ) -> Result<Vec<ExprKind>> {
     let mut non_macros = Vec::new();
     for expr in exprs {
         if let ExprKind::Macro(m) = expr {
             let generated_macro = SteelMacro::parse_from_ast_macro(m)?;
             let name = generated_macro.name();
-            macro_map.insert(name.to_string(), generated_macro);
+            macro_map.insert(*name, generated_macro);
         } else {
             non_macros.push(expr)
         }
@@ -35,7 +39,7 @@ pub fn extract_macro_defs(
     Ok(non_macros)
 }
 
-pub fn expand(expr: ExprKind, map: &HashMap<String, SteelMacro>) -> Result<ExprKind> {
+pub fn expand(expr: ExprKind, map: &HashMap<InternedString, SteelMacro>) -> Result<ExprKind> {
     Expander {
         map,
         changed: false,
@@ -44,12 +48,12 @@ pub fn expand(expr: ExprKind, map: &HashMap<String, SteelMacro>) -> Result<ExprK
 }
 
 pub struct Expander<'a> {
-    map: &'a HashMap<String, SteelMacro>,
+    map: &'a HashMap<InternedString, SteelMacro>,
     pub(crate) changed: bool,
 }
 
 impl<'a> Expander<'a> {
-    pub fn new(map: &'a HashMap<String, SteelMacro>) -> Self {
+    pub fn new(map: &'a HashMap<InternedString, SteelMacro>) -> Self {
         Self {
             map,
             changed: false,
@@ -507,7 +511,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
         })) = l.first()
         {
             if let Some(map) = &mut self.map {
-                if s == DOC_MACRO {
+                if *s == *DOC_MACRO {
                     if l.len() != 3 {
                         stop!(BadSyntax => "Malformed @doc statement!")
                     }
@@ -578,7 +582,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                         },
 
                         ExprKind::List(struct_def)
-                            if struct_def.first_ident() == Some("struct") =>
+                            if struct_def.first_ident() == Some(&STRUCT_KEYWORD) =>
                         {
                             if let Some(struct_name) =
                                 struct_def.get(1).and_then(|x| x.atom_identifier())
@@ -616,12 +620,12 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                 }
             }
 
-            if s == REQUIRE_BUILTIN {
+            if *s == *REQUIRE_BUILTIN {
                 match &l.args[1..] {
                     [ExprKind::Atom(Atom {
                         syn:
                             SyntaxObject {
-                                ty: TokenType::StringLiteral(s) | TokenType::Identifier(s),
+                                ty: TokenType::StringLiteral(s),
                                 ..
                             },
                     })] => {
@@ -635,7 +639,21 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                     [ExprKind::Atom(Atom {
                         syn:
                             SyntaxObject {
-                                ty: TokenType::StringLiteral(s) | TokenType::Identifier(s),
+                                ty: TokenType::Identifier(s),
+                                ..
+                            },
+                    })] => {
+                        if let Some(module) = self.builtin_modules.get(s.resolve()) {
+                            return Ok(module.to_syntax(None));
+                        } else {
+                            stop!(BadSyntax => "require-builtin: module not found: {}", s);
+                        }
+                    }
+
+                    [ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::StringLiteral(s),
                                 ..
                             },
                     }), ExprKind::Atom(Atom {
@@ -650,9 +668,35 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                                 ty: TokenType::Identifier(prefix),
                                 ..
                             },
-                    })] if az == "as" => {
+                    })] if *az == *AS_KEYWORD => {
                         if let Some(module) = self.builtin_modules.get(s.as_str()) {
-                            return Ok(module.to_syntax(Some(prefix.as_str())));
+                            return Ok(module.to_syntax(Some(prefix.resolve())));
+                        } else {
+                            stop!(BadSyntax => "require-builtin: module not found: {}", s);
+                        }
+                    }
+
+                    [ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Identifier(s),
+                                ..
+                            },
+                    }), ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Identifier(az),
+                                ..
+                            },
+                    }), ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Identifier(prefix),
+                                ..
+                            },
+                    })] if *az == *AS_KEYWORD => {
+                        if let Some(module) = self.builtin_modules.get(s.resolve()) {
+                            return Ok(module.to_syntax(Some(prefix.resolve())));
                         } else {
                             stop!(BadSyntax => "require-builtin: module not found: {}", s);
                         }
@@ -749,7 +793,7 @@ mod expansion_tests {
 
     fn atom_identifier(s: &str) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-            s.to_string(),
+            s.into(),
         ))))
     }
 
@@ -764,13 +808,13 @@ mod expansion_tests {
         //       [(when a b ...)
         //        (if a (begin b ...) void)]))
         let m = SteelMacro::new(
-            "when".to_string(),
+            "when".into(),
             Vec::new(),
             vec![MacroCase::new(
                 vec![
-                    MacroPattern::Syntax("when".to_string()),
-                    MacroPattern::Single("a".to_string()),
-                    MacroPattern::Many("b".to_string()),
+                    MacroPattern::Syntax("when".into()),
+                    MacroPattern::Single("a".into()),
+                    MacroPattern::Many("b".into()),
                 ],
                 If::new(
                     atom_identifier("a"),
@@ -787,7 +831,7 @@ mod expansion_tests {
         );
 
         let mut map = HashMap::new();
-        map.insert("when".to_string(), m);
+        map.insert("when".into(), m);
 
         let input: ExprKind = List::new(vec![
             atom_identifier("when"),

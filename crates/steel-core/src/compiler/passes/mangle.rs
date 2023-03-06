@@ -1,5 +1,6 @@
 use crate::parser::{
     ast::{Atom, ExprKind, Quote},
+    interner::InternedString,
     tokens::TokenType,
 };
 
@@ -16,17 +17,17 @@ Steps for doing having scoped macros
     - Copy the code for B, mangle it and then include it in A directly
 */
 
-pub fn collect_globals(exprs: &[ExprKind]) -> HashSet<String> {
+pub fn collect_globals(exprs: &[ExprKind]) -> HashSet<InternedString> {
     let mut global_defs = HashSet::new();
 
     for expr in exprs {
         match expr {
             ExprKind::Define(d) => {
                 if let Some(name) = d.name.atom_identifier() {
-                    if name.starts_with("mangler") {
+                    if name.resolve().starts_with("mangler") {
                         continue;
                     }
-                    global_defs.insert(name.to_string());
+                    global_defs.insert(*name);
                 }
             }
             ExprKind::Begin(b) => {
@@ -41,12 +42,12 @@ pub fn collect_globals(exprs: &[ExprKind]) -> HashSet<String> {
 }
 
 pub struct NameMangler {
-    globals: HashSet<String>,
+    globals: HashSet<InternedString>,
     prefix: String,
 }
 
 impl NameMangler {
-    pub fn new(globals: HashSet<String>, prefix: String) -> Self {
+    pub fn new(globals: HashSet<InternedString>, prefix: String) -> Self {
         Self { globals, prefix }
     }
 
@@ -72,7 +73,11 @@ impl VisitorMutRefUnit for NameMangler {
     fn visit_atom(&mut self, a: &mut Atom) {
         if let TokenType::Identifier(i) = &mut a.syn.ty {
             if self.globals.contains(i) {
-                i.insert_str(0, &self.prefix);
+                let new_str = i.resolve();
+
+                *i = (self.prefix.clone() + new_str).into();
+
+                // i.insert_str(0, &self.prefix);
             }
         }
     }

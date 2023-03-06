@@ -1,5 +1,6 @@
 use crate::parser::{
     ast::ExprKind,
+    interner::InternedString,
     parser::{RawSyntaxObject, SyntaxObject},
     tokens::TokenType,
 };
@@ -371,6 +372,37 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
     }
 }
 
+lazy_static::lazy_static! {
+    static ref PLUS: InternedString = "+".into();
+    static ref MINUS: InternedString = "-".into();
+    static ref DIV: InternedString = "/".into();
+    static ref STAR: InternedString = "*".into();
+    static ref EQUAL: InternedString = "equal?".into();
+    static ref LTE: InternedString = "<=".into();
+    pub static ref UNREADABLE_MODULE_GET: InternedString = "##__module-get".into();
+    pub static ref STANDARD_MODULE_GET: InternedString = "%module-get%".into();
+    pub static ref CONTRACT_OUT: InternedString = "contract/out".into();
+    pub static ref PROVIDE: InternedString = "provide".into();
+    pub static ref FOR_SYNTAX: InternedString = "for-syntax".into();
+    pub static ref DATUM_SYNTAX: InternedString = "datum->syntax".into();
+    pub static ref IF: InternedString = "if".into();
+    pub static ref DEFINE: InternedString = "define".into();
+    pub static ref LET: InternedString = "let".into();
+    pub static ref QUOTE: InternedString = "quote".into();
+    pub static ref RETURN: InternedString = "return!".into();
+    pub static ref REQUIRE: InternedString = "require".into();
+    pub static ref SET: InternedString = "set!".into();
+    pub static ref LAMBDA: InternedString = "lambda".into();
+    pub static ref LAMBDA_SYMBOL: InternedString = "λ".into();
+    pub static ref LAMBDA_FN: InternedString = "fn".into();
+    pub static ref BEGIN: InternedString = "begin".into();
+    pub static ref DOC_MACRO: InternedString = "@doc".into();
+    pub static ref REQUIRE_BUILTIN: InternedString = "require-builtin".into();
+    pub static ref STRUCT_KEYWORD: InternedString = "struct".into();
+    pub static ref AS_KEYWORD: InternedString = "as".into();
+    pub static ref SYNTAX_CONST_IF: InternedString = "syntax-const-if".into();
+}
+
 pub fn inline_num_operations(instructions: &mut [Instruction]) {
     for i in 0..instructions.len() - 1 {
         let push = instructions.get(i);
@@ -393,13 +425,13 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
             }),
         ) = (push, func)
         {
-            let replaced = match ident.as_ref() {
-                "+" => Some(OpCode::ADD),
-                "-" => Some(OpCode::SUB),
-                "/" => Some(OpCode::DIV),
-                "*" => Some(OpCode::MUL),
-                "equal?" => Some(OpCode::EQUAL),
-                "<=" => Some(OpCode::LTE),
+            let replaced = match *ident {
+                x if x == *PLUS => Some(OpCode::ADD),
+                x if x == *MINUS => Some(OpCode::SUB),
+                x if x == *DIV => Some(OpCode::DIV),
+                x if x == *STAR => Some(OpCode::MUL),
+                x if x == *EQUAL => Some(OpCode::EQUAL),
+                x if x == *LTE => Some(OpCode::LTE),
                 _ => None,
             };
 

@@ -10,7 +10,9 @@ use crate::{
             reader::MultipleArityFunctions, shadow::RenameShadowedVariables,
         },
     },
-    parser::{ast::AstTools, expand_visitor::expand_kernel, kernel::Kernel},
+    parser::{
+        ast::AstTools, expand_visitor::expand_kernel, interner::InternedString, kernel::Kernel,
+    },
     steel_vm::builtin::BuiltInModule,
     // values::structs::StructBuilders,
 };
@@ -58,8 +60,8 @@ use std::time::Instant;
 
 #[derive(Default)]
 pub struct DebruijnIndicesInterner {
-    flat_defines: HashSet<String>,
-    second_pass_defines: HashSet<String>,
+    flat_defines: HashSet<InternedString>,
+    second_pass_defines: HashSet<InternedString>,
 }
 
 impl DebruijnIndicesInterner {
@@ -89,7 +91,7 @@ impl DebruijnIndicesInterner {
                         ..
                     },
                 ) => {
-                    let idx = symbol_map.get_or_add(s);
+                    let idx = symbol_map.get_or_add(s.resolve());
                     self.flat_defines.insert(s.to_owned());
 
                     if let Some(x) = instructions.get_mut(i) {
@@ -108,7 +110,7 @@ impl DebruijnIndicesInterner {
                     },
                     ..,
                 ) => {
-                    let idx = symbol_map.get_or_add(s);
+                    let idx = symbol_map.get_or_add(s.resolve());
                     self.flat_defines.insert(s.to_owned());
 
                     if let Some(x) = instructions.get_mut(i) {
@@ -188,7 +190,7 @@ impl DebruijnIndicesInterner {
                         stop!(FreeIdentifier => message; *span);
                     }
 
-                    let idx = symbol_map.get(s).map_err(|e| e.set_span(*span))?;
+                    let idx = symbol_map.get(s.resolve()).map_err(|e| e.set_span(*span))?;
 
                     // TODO commenting this for now
                     if let Some(x) = instructions.get_mut(i) {
@@ -225,7 +227,7 @@ impl DebruijnIndicesInterner {
                         stop!(FreeIdentifier => message; *span);
                     }
 
-                    let idx = symbol_map.get(s).map_err(|e| e.set_span(*span))?;
+                    let idx = symbol_map.get(s.resolve()).map_err(|e| e.set_span(*span))?;
 
                     // TODO commenting this for now
                     if let Some(x) = instructions.get_mut(i + 1) {
@@ -433,7 +435,7 @@ pub enum OptLevel {
 pub struct Compiler {
     pub(crate) symbol_map: SymbolMap,
     pub(crate) constant_map: ConstantMap,
-    pub(crate) macro_env: HashMap<String, SteelMacro>,
+    pub(crate) macro_env: HashMap<InternedString, SteelMacro>,
     module_manager: ModuleManager,
     opt_level: OptLevel,
     pub(crate) kernel: Option<Kernel>,
@@ -454,7 +456,7 @@ impl Compiler {
     fn new(
         symbol_map: SymbolMap,
         constant_map: ConstantMap,
-        macro_env: HashMap<String, SteelMacro>,
+        macro_env: HashMap<InternedString, SteelMacro>,
         module_manager: ModuleManager,
     ) -> Compiler {
         Compiler {
@@ -470,7 +472,7 @@ impl Compiler {
     fn new_with_kernel(
         symbol_map: SymbolMap,
         constant_map: ConstantMap,
-        macro_env: HashMap<String, SteelMacro>,
+        macro_env: HashMap<InternedString, SteelMacro>,
         module_manager: ModuleManager,
         kernel: Kernel,
     ) -> Compiler {
@@ -519,7 +521,7 @@ impl Compiler {
         &mut self,
         exprs: Vec<ExprKind>,
         builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
-        constants: ImmutableHashMap<String, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal>,
         sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {
         self.compile_raw_program(exprs, constants, builtin_modules, None, sources)
@@ -529,7 +531,7 @@ impl Compiler {
         &mut self,
         expr_str: &str,
         path: Option<PathBuf>,
-        constants: ImmutableHashMap<String, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal>,
         builtin_modules: ImmutableHashMap<std::rc::Rc<str>, BuiltInModule>,
         sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {
@@ -561,7 +563,7 @@ impl Compiler {
     pub fn emit_expanded_ast(
         &mut self,
         expr_str: &str,
-        constants: ImmutableHashMap<String, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal>,
         path: Option<PathBuf>,
         sources: &mut Sources,
         builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
@@ -721,7 +723,7 @@ impl Compiler {
     fn compile_raw_program(
         &mut self,
         exprs: Vec<ExprKind>,
-        constants: ImmutableHashMap<String, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal>,
         builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
         path: Option<PathBuf>,
         sources: &mut Sources,
@@ -803,7 +805,7 @@ impl Compiler {
 
     fn apply_const_evaluation(
         &mut self,
-        constants: ImmutableHashMap<String, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal>,
         mut expanded_statements: Vec<ExprKind>,
     ) -> Result<Vec<ExprKind>> {
         #[cfg(feature = "profiling")]

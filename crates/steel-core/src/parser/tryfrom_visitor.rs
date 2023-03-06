@@ -342,11 +342,11 @@ mod tests {
             ExprKind::List(crate::parser::ast::List::new(vec![
                 ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Define))),
                 ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-                    "applesauce".to_string(),
+                    "applesauce".into(),
                 )))),
                 ExprKind::Quote(Box::new(Quote::new(
                     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-                        "bananas".to_string(),
+                        "bananas".into(),
                     )))),
                     SyntaxObject::default(TokenType::Quote),
                 ))),

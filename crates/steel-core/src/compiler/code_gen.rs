@@ -99,7 +99,7 @@ impl<'a> CodeGenerator<'a> {
 
             if let Some(info) = self.analysis.get(function.atom_syntax_object()?) {
                 if info.kind == Free || info.kind == Global {
-                    return match function.atom_identifier().unwrap() {
+                    return match function.atom_identifier().unwrap().resolve() {
                         "+" => Some(OpCode::ADDREGISTER),
                         "-" => Some(OpCode::SUBREGISTER),
                         "<=" => Some(OpCode::LTEREGISTER),
@@ -139,7 +139,11 @@ impl<'a> CodeGenerator<'a> {
             .atom_syntax_object()
             .and_then(|a| self.analysis.get(a))
         {
-            self.push(LabeledInstruction::builder(op).payload(analysis.stack_offset.unwrap()));
+            if let Some(offset) = analysis.stack_offset {
+                self.push(LabeledInstruction::builder(op).payload(offset));
+            } else {
+                stop!(Generic => "Missing stack offset!");
+            }
         } else {
             panic!("Shouldn't be happening")
         }
@@ -389,27 +393,21 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                         self.push(
                             LabeledInstruction::builder(OpCode::COPYHEAPCAPTURECLOSURE)
                                 .payload(var.parent_heap_offset.unwrap())
-                                .contents(SyntaxObject::default(TokenType::Identifier(
-                                    key.to_string(),
-                                ))),
+                                .contents(SyntaxObject::default(TokenType::Identifier(*key))),
                         );
                     } else {
                         // In this case we're gonna patch in the variable from the current captured scope
                         self.push(
                             LabeledInstruction::builder(OpCode::COPYCAPTURECLOSURE)
                                 .payload(var.capture_offset.unwrap())
-                                .contents(SyntaxObject::default(TokenType::Identifier(
-                                    key.to_string(),
-                                ))),
+                                .contents(SyntaxObject::default(TokenType::Identifier(*key))),
                         );
                     }
                 } else if var.mutated {
                     self.push(
                         LabeledInstruction::builder(OpCode::FIRSTCOPYHEAPCAPTURECLOSURE)
                             .payload(var.heap_offset.unwrap())
-                            .contents(SyntaxObject::default(TokenType::Identifier(
-                                key.to_string(),
-                            ))),
+                            .contents(SyntaxObject::default(TokenType::Identifier(*key))),
                     );
                 } else {
                     // In this case, it hasn't yet been captured, so we'll just capture
@@ -417,9 +415,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                     self.push(
                         LabeledInstruction::builder(OpCode::COPYCAPTURESTACK)
                             .payload(var.stack_offset.unwrap())
-                            .contents(SyntaxObject::default(TokenType::Identifier(
-                                key.to_string(),
-                            ))),
+                            .contents(SyntaxObject::default(TokenType::Identifier(*key))),
                     );
                 }
             }
@@ -452,9 +448,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 self.push(
                     LabeledInstruction::builder(OpCode::ALLOC)
                         .payload(var.stack_offset.unwrap())
-                        .contents(SyntaxObject::default(TokenType::Identifier(
-                            key.to_string(),
-                        ))),
+                        .contents(SyntaxObject::default(TokenType::Identifier(*key))),
                 );
             }
         }
@@ -565,7 +559,10 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     fn visit_list(&mut self, l: &crate::parser::ast::List) -> Self::Output {
         // TODO: Come back to call specialization
         if let Some(op) = self.should_specialize_call(l) {
-            return self.specialize_call(l, op);
+            match self.specialize_call(l, op) {
+                Ok(r) => return Ok(r),
+                Err(_) => {}
+            }
         }
 
         if l.args.is_empty() {
@@ -589,10 +586,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             s.clone()
         } else {
             // TODO check span information here by coalescing the entire list
-            SyntaxObject::new(
-                TokenType::Identifier("lambda".to_string()),
-                get_span(&l.args[0]),
-            )
+            SyntaxObject::new(TokenType::Identifier("lambda".into()), get_span(&l.args[0]))
         };
 
         if let Some(call_info) = self.analysis.call_info.get(&l.syntax_object_id) {

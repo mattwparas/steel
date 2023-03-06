@@ -2,15 +2,18 @@ use std::collections::HashMap;
 
 use quickscope::{ScopeMap, ScopeSet};
 
-use crate::parser::ast::{Atom, ExprKind};
+use crate::parser::{
+    ast::{Atom, ExprKind},
+    interner::InternedString,
+};
 
 use super::VisitorMutRefUnit;
 
 pub struct RenameShadowedVariables {
     modified: bool,
-    scope: ScopeSet<String>,
+    scope: ScopeSet<InternedString>,
     // Modify the variable with the depth
-    shadows: ScopeMap<String, usize>,
+    shadows: ScopeMap<InternedString, usize>,
     str_modifiers: HashMap<usize, String>,
 }
 
@@ -48,19 +51,28 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
         for variable in lambda_function.arguments_mut() {
             if self.scope.contains(variable) {
                 let modifier = self.scope.depth();
-                self.shadows.define(variable.to_string(), modifier);
+                self.shadows.define(*variable, modifier);
+
+                // Create a mutable string to mangle
+                let mut mut_var = variable.resolve().to_string();
 
                 if let Some(char_modifier) = char::from_digit(modifier as u32, 10) {
-                    variable.push(char_modifier);
+                    mut_var.push(char_modifier);
                 } else if let Some(str_modifier) = self.str_modifiers.get(&modifier) {
-                    variable.push_str(str_modifier);
+                    mut_var.push_str(str_modifier);
                 } else {
                     self.str_modifiers.insert(modifier, modifier.to_string());
-                    variable.push_str(self.str_modifiers.get(&modifier).unwrap());
+                    mut_var.push_str(self.str_modifiers.get(&modifier).unwrap());
                 }
+
+                *variable = mut_var.into();
+
+                self.scope.define(*variable);
+
+                continue;
             }
 
-            self.scope.define(variable.to_string());
+            self.scope.define(*variable);
         }
 
         self.visit(&mut lambda_function.body);
@@ -71,18 +83,22 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
 
     fn visit_atom(&mut self, a: &mut Atom) {
         if let Some(ident) = a.ident_mut() {
-            if let Some(modifier) = self.shadows.get(ident.as_str()) {
+            if let Some(modifier) = self.shadows.get(ident) {
                 // Append the variable with the depth it occurs at.
                 // Now, shadowing shouldn't actually _be_ a problem
                 // ident.push(char::from_digit(*modifier as u32, 10).unwrap());
 
+                let mut mut_ident = ident.resolve().to_string();
+
                 if let Some(char_modifier) = char::from_digit(*modifier as u32, 10) {
-                    ident.push(char_modifier)
+                    mut_ident.push(char_modifier)
                 } else if let Some(str_modifier) = self.str_modifiers.get(modifier) {
-                    ident.push_str(str_modifier)
+                    mut_ident.push_str(str_modifier)
                 } else {
                     panic!("The modifier should be defined by now")
                 }
+
+                *ident = mut_ident.into();
 
                 self.modified = true;
             }
@@ -100,19 +116,26 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
         {
             if self.scope.contains(variable) {
                 let modifier = self.scope.depth();
-                self.shadows.define(variable.to_string(), modifier);
+                self.shadows.define(*variable, modifier);
+
+                let mut mut_var = variable.resolve().to_string();
 
                 if let Some(char_modifier) = char::from_digit(modifier as u32, 10) {
-                    variable.push(char_modifier);
+                    mut_var.push(char_modifier);
                 } else if let Some(str_modifier) = self.str_modifiers.get(&modifier) {
-                    variable.push_str(str_modifier);
+                    mut_var.push_str(str_modifier);
                 } else {
                     self.str_modifiers.insert(modifier, modifier.to_string());
-                    variable.push_str(self.str_modifiers.get(&modifier).unwrap());
+                    mut_var.push_str(self.str_modifiers.get(&modifier).unwrap());
                 }
+
+                *variable = mut_var.into();
+
+                self.scope.define(*variable);
+                continue;
             }
 
-            self.scope.define(variable.to_string());
+            self.scope.define(*variable);
         }
 
         //

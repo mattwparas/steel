@@ -1,9 +1,9 @@
 use std::{collections::HashSet, convert::TryFrom};
 
-use crate::{parser::ast::from_list_repr_to_ast, rvals::Result};
+use crate::{compiler::program::STRUCT_KEYWORD, parser::ast::from_list_repr_to_ast, rvals::Result};
 use crate::{stdlib::KERNEL, steel_vm::engine::Engine, SteelVal};
 
-use super::{ast::ExprKind, span_visitor::get_span};
+use super::{ast::ExprKind, interner::InternedString, span_visitor::get_span};
 
 thread_local! {
     pub(crate) static KERNEL_IMAGE: Engine = Engine::new_kernel();
@@ -21,7 +21,7 @@ pub(crate) fn fresh_kernel_image() -> Engine {
 /// for structs.
 #[derive(Clone)]
 pub struct Kernel {
-    macros: HashSet<String>,
+    macros: HashSet<InternedString>,
     engine: Box<Engine>,
 }
 
@@ -40,7 +40,7 @@ impl Kernel {
 
         let mut macros = HashSet::new();
         // macros.insert("%better-lambda%".to_string());
-        macros.insert("struct".to_string());
+        macros.insert(*STRUCT_KEYWORD);
 
         Kernel {
             macros,
@@ -48,11 +48,11 @@ impl Kernel {
         }
     }
 
-    pub fn contains_macro(&self, ident: &str) -> bool {
+    pub fn contains_macro(&self, ident: &InternedString) -> bool {
         self.macros.contains(ident)
     }
 
-    pub fn expand(&mut self, ident: &str, expr: ExprKind) -> Result<ExprKind> {
+    pub fn expand(&mut self, ident: &InternedString, expr: ExprKind) -> Result<ExprKind> {
         let span = get_span(&expr);
 
         // let syntax_objects = SyntaxObjectFromExprKind::try_from_expr_kind(expr.clone())?;
@@ -66,7 +66,7 @@ impl Kernel {
 
         let args = SteelVal::try_from(expr)?;
 
-        let function = self.engine.extract_value(ident)?;
+        let function = self.engine.extract_value(ident.resolve())?;
 
         if let SteelVal::ListV(list) = args {
             let mut iter = list.into_iter();

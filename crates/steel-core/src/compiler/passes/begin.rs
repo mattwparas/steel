@@ -1,10 +1,10 @@
 use log::{debug, log_enabled};
 
-use crate::parser::tokens::TokenType;
 use crate::parser::{
     ast::{Atom, Begin, ExprKind, LambdaFunction, List, Set},
     parser::SyntaxObject,
 };
+use crate::parser::{interner::InternedString, tokens::TokenType};
 use std::{collections::HashSet, time::Instant};
 
 use super::{Folder, VisitorMutUnit};
@@ -69,12 +69,12 @@ pub fn flatten_begins_and_expand_defines(exprs: Vec<ExprKind>) -> Vec<ExprKind> 
     res
 }
 
-struct DefinedVars<'a> {
-    defined_identifiers: HashSet<&'a str>,
+struct DefinedVars {
+    defined_identifiers: HashSet<InternedString>,
     output: bool,
 }
 
-impl<'a> DefinedVars<'a> {
+impl DefinedVars {
     fn new() -> Self {
         DefinedVars {
             defined_identifiers: HashSet::new(),
@@ -82,7 +82,7 @@ impl<'a> DefinedVars<'a> {
         }
     }
 
-    fn insert(&mut self, name: &'a str) {
+    fn insert(&mut self, name: InternedString) {
         self.defined_identifiers.insert(name);
     }
 
@@ -93,10 +93,10 @@ impl<'a> DefinedVars<'a> {
     }
 }
 
-impl<'a> VisitorMutUnit for DefinedVars<'a> {
+impl VisitorMutUnit for DefinedVars {
     fn visit_atom(&mut self, a: &Atom) {
         if let TokenType::Identifier(ident) = &a.syn.ty {
-            self.output = self.defined_identifiers.contains(ident.as_str()) || self.output;
+            self.output = self.defined_identifiers.contains(ident) || self.output;
         }
     }
 }
@@ -160,15 +160,15 @@ impl Folder for ConvertDefinesToLets {
 }
 
 #[derive(PartialEq, Debug)]
-enum ExpressionType<'a> {
-    DefineConst(&'a str),
-    DefineFlat(&'a str),
-    DefineFlatStar(&'a str),
-    DefineFunction(&'a str),
+enum ExpressionType {
+    DefineConst(InternedString),
+    DefineFlat(InternedString),
+    DefineFlatStar(InternedString),
+    DefineFunction(InternedString),
     Expression,
 }
 
-impl<'a> ExpressionType<'a> {
+impl ExpressionType {
     fn is_expression(&self) -> bool {
         matches!(self, ExpressionType::Expression)
     }
@@ -184,14 +184,14 @@ impl<'a> ExpressionType<'a> {
         )
     }
 
-    fn is_constant(expr: &'a ExprKind) -> bool {
+    fn is_constant(expr: &ExprKind) -> bool {
         match expr {
             ExprKind::Atom(Atom { syn, .. }) => Self::eval_atom(syn),
             _ => false,
         }
     }
 
-    fn generate_expression_types(exprs: &'a [ExprKind]) -> Vec<ExpressionType<'a>> {
+    fn generate_expression_types(exprs: &[ExprKind]) -> Vec<ExpressionType> {
         let mut expression_types = Vec::with_capacity(exprs.len());
         let mut defined_idents = DefinedVars::new();
 
@@ -203,20 +203,20 @@ impl<'a> ExpressionType<'a> {
                         .atom_identifier_or_else(|| {})
                         .expect("Define without a legal name");
 
-                    defined_idents.insert(name);
+                    defined_idents.insert(*name);
 
                     match &d.body {
                         ExprKind::LambdaFunction(_) => {
-                            expression_types.push(ExpressionType::DefineFunction(name));
+                            expression_types.push(ExpressionType::DefineFunction(*name));
                         }
                         _ => {
                             defined_idents.visit(&d.body);
                             if defined_idents.check_output() {
-                                expression_types.push(ExpressionType::DefineFlatStar(name));
+                                expression_types.push(ExpressionType::DefineFlatStar(*name));
                             } else if Self::is_constant(&d.body) {
-                                expression_types.push(ExpressionType::DefineConst(name));
+                                expression_types.push(ExpressionType::DefineConst(*name));
                             } else {
-                                expression_types.push(ExpressionType::DefineFlat(name));
+                                expression_types.push(ExpressionType::DefineFlat(*name));
                             }
                         }
                     }
@@ -233,7 +233,7 @@ impl<'a> ExpressionType<'a> {
 
 fn atom(name: String) -> ExprKind {
     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-        name,
+        name.into(),
     ))))
 }
 
@@ -383,7 +383,8 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
                         TokenType::IntegerLiteral(123),
                     ))));
-                    let name_prime = atom("_____".to_string() + name + i.to_string().as_str());
+                    let name_prime =
+                        atom("_____".to_string() + name.resolve() + i.to_string().as_str());
                     let set_expr = set(d.name.clone(), name_prime.clone());
                     bound_names.push(name_prime);
                     set_expressions.push(set_expr);
@@ -400,7 +401,8 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
                         TokenType::IntegerLiteral(123),
                     ))));
-                    let name_prime = atom("_____".to_string() + name + i.to_string().as_str());
+                    let name_prime =
+                        atom("_____".to_string() + name.resolve() + i.to_string().as_str());
                     let set_expr = set(d.name.clone(), name_prime.clone());
                     bound_names.push(name_prime);
                     set_expressions.push(set_expr);
@@ -428,7 +430,8 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
                         TokenType::IntegerLiteral(123),
                     ))));
-                    let name_prime = atom("_____".to_string() + name + i.to_string().as_str());
+                    let name_prime =
+                        atom("_____".to_string() + name.resolve() + i.to_string().as_str());
 
                     // Make this a (set! x (x'))
                     // Applying the function
@@ -567,9 +570,7 @@ mod flatten_begin_test {
     // }
 
     fn atom(ident: &str) -> ExprKind {
-        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-            ident.to_string(),
-        ))))
+        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(ident.into()))))
     }
 
     fn int(num: isize) -> ExprKind {

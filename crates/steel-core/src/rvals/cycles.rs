@@ -118,8 +118,8 @@ impl CycleDetector {
                 }
             }
             ContinuationFunction(c) => write!(f, "#<continuation: {:?}>", c.stack),
-            #[cfg(feature = "jit")]
-            CompiledFunction(_) => write!(f, "#<compiled-function>"),
+            // #[cfg(feature = "jit")]
+            // CompiledFunction(_) => write!(f, "#<compiled-function>"),
             ListV(l) => {
                 write!(f, "(")?;
 
@@ -219,8 +219,8 @@ impl CycleDetector {
                 }
             }
             ContinuationFunction(c) => write!(f, "#<continuation: {:?}>", c.stack),
-            #[cfg(feature = "jit")]
-            CompiledFunction(_) => write!(f, "#<compiled-function>"),
+            // #[cfg(feature = "jit")]
+            // CompiledFunction(_) => write!(f, "#<compiled-function>"),
             ListV(l) => {
                 write!(f, "(")?;
 
