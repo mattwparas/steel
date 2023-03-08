@@ -6,7 +6,8 @@ use crate::{stdlib::KERNEL, steel_vm::engine::Engine, SteelVal};
 use super::{ast::ExprKind, interner::InternedString, span_visitor::get_span};
 
 thread_local! {
-    pub(crate) static KERNEL_IMAGE: Engine = Engine::new_kernel();
+    // pub(crate) static KERNEL_IMAGE: Engine = Engine::new_kernel();
+    pub(crate) static KERNEL_IMAGE: Engine = Engine::new_bootstrap_kernel();
 }
 
 pub(crate) fn fresh_kernel_image() -> Engine {

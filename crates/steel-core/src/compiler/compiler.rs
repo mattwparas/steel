@@ -29,6 +29,7 @@ use std::{iter::Iterator, rc::Rc};
 
 // TODO: Replace the usages of hashmap with this directly
 use fxhash::FxHashMap;
+use serde::{Deserialize, Serialize};
 
 use crate::rvals::{Result, SteelVal};
 
@@ -47,6 +48,7 @@ use log::{debug, log_enabled};
 use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
 use super::{
+    constants::SerializableConstantMap,
     modules::{CompiledModule, ModuleManager},
     passes::analysis::Analysis,
     program::RawProgramWithSymbols,
@@ -91,7 +93,7 @@ impl DebruijnIndicesInterner {
                         ..
                     },
                 ) => {
-                    let idx = symbol_map.get_or_add(s.resolve());
+                    let idx = symbol_map.get_or_add(s);
                     self.flat_defines.insert(s.to_owned());
 
                     if let Some(x) = instructions.get_mut(i) {
@@ -110,7 +112,7 @@ impl DebruijnIndicesInterner {
                     },
                     ..,
                 ) => {
-                    let idx = symbol_map.get_or_add(s.resolve());
+                    let idx = symbol_map.get_or_add(s);
                     self.flat_defines.insert(s.to_owned());
 
                     if let Some(x) = instructions.get_mut(i) {
@@ -190,7 +192,7 @@ impl DebruijnIndicesInterner {
                         stop!(FreeIdentifier => message; *span);
                     }
 
-                    let idx = symbol_map.get(s.resolve()).map_err(|e| e.set_span(*span))?;
+                    let idx = symbol_map.get(s).map_err(|e| e.set_span(*span))?;
 
                     // TODO commenting this for now
                     if let Some(x) = instructions.get_mut(i) {
@@ -227,7 +229,7 @@ impl DebruijnIndicesInterner {
                         stop!(FreeIdentifier => message; *span);
                     }
 
-                    let idx = symbol_map.get(s.resolve()).map_err(|e| e.set_span(*span))?;
+                    let idx = symbol_map.get(s).map_err(|e| e.set_span(*span))?;
 
                     // TODO commenting this for now
                     if let Some(x) = instructions.get_mut(i + 1) {
@@ -423,7 +425,7 @@ impl DebruijnIndicesInterner {
 //     }
 // }
 
-#[derive(Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum OptLevel {
     Zero = 0,
     One,
@@ -439,6 +441,14 @@ pub struct Compiler {
     module_manager: ModuleManager,
     opt_level: OptLevel,
     pub(crate) kernel: Option<Kernel>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SerializableCompiler {
+    pub(crate) symbol_map: SymbolMap,
+    pub(crate) constant_map: SerializableConstantMap,
+    pub(crate) macro_env: HashMap<InternedString, SteelMacro>,
+    pub(crate) opt_level: OptLevel,
 }
 
 impl Default for Compiler {
@@ -508,13 +518,14 @@ impl Compiler {
 
     /// Registers a name in the underlying symbol map and returns the idx that it maps to
     pub fn register(&mut self, name: &str) -> usize {
-        self.symbol_map.get_or_add(name)
+        let spur = name.into();
+        self.symbol_map.get_or_add(&spur)
     }
 
     /// Get the index associated with a name in the underlying symbol map
     /// If the name hasn't been registered, this will return `None`
     pub fn get_idx(&self, name: &str) -> Option<usize> {
-        self.symbol_map.get(name).ok()
+        self.symbol_map.get(&InternedString::try_get(name)?).ok()
     }
 
     pub fn compile_executable_from_expressions(

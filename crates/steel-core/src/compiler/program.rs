@@ -544,10 +544,11 @@ impl Program {
 // An inspectable program with debug symbols still included on the instructions
 // ConstantMap needs to get passed in to the run time to execute the program
 // This way, the VM knows where to look up values
+#[derive(Clone)]
 pub struct RawProgramWithSymbols {
     // struct_functions: Vec<StructFuncBuilderConcrete>,
     instructions: Vec<Vec<Instruction>>,
-    constant_map: ConstantMap,
+    pub(crate) constant_map: ConstantMap,
     version: String, // TODO -> this should be semver
 }
 

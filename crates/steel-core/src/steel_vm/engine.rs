@@ -8,9 +8,14 @@ use crate::{
     compiler::{
         compiler::Compiler,
         modules::CompiledModule,
-        program::{Executable, RawProgramWithSymbols},
+        program::{Executable, RawProgramWithSymbols, SerializableRawProgramWithSymbols},
     },
-    parser::{ast::ExprKind, expander::SteelMacro, interner::InternedString},
+    parser::{
+        ast::ExprKind,
+        expander::SteelMacro,
+        interner::{get_interner, take_interner, InternedString},
+        parser::SYNTAX_OBJECT_ID,
+    },
     parser::{
         kernel::{fresh_kernel_image, Kernel},
         parser::{ParseError, Parser, Sources},
@@ -21,10 +26,12 @@ use crate::{
     values::functions::BoxedDynFunction,
     SteelErr,
 };
-use std::{collections::HashMap, path::PathBuf, rc::Rc};
+use std::{collections::HashMap, path::PathBuf, rc::Rc, sync::Arc};
 
 use im_rc::HashMap as ImmutableHashMap;
 use itertools::Itertools;
+use lasso::ThreadedRodeo;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
 pub struct Engine {
@@ -40,6 +47,30 @@ impl Default for Engine {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// Pre-parsed ASTs along with the global state to set before we start any further processing
+#[derive(Serialize, Deserialize)]
+struct BootstrapImage {
+    interner: Arc<ThreadedRodeo>,
+    syntax_object_id: usize,
+    sources: Sources,
+    programs: Vec<Vec<ExprKind>>,
+}
+
+// Pre compiled programs along with the global state to set before we start any further processing
+#[derive(Serialize, Deserialize)]
+struct StartupBootstrapImage {
+    interner: Arc<ThreadedRodeo>,
+    syntax_object_id: usize,
+    sources: Sources,
+    programs: Vec<SerializableRawProgramWithSymbols>,
+    macros: HashMap<InternedString, SteelMacro>,
+}
+
+#[test]
+fn run_bootstrap() {
+    Engine::create_bootstrap_from_programs();
 }
 
 impl Engine {
@@ -77,6 +108,8 @@ impl Engine {
             vm.compile_and_run_raw_program(core).unwrap();
         }
 
+        log::info!(target: "kernel", "Loaded prelude in the kernel!");
+
         vm.dylibs.load_modules();
 
         let modules = vm.dylibs.modules().collect::<Vec<_>>();
@@ -85,7 +118,224 @@ impl Engine {
             vm.register_module(module);
         }
 
+        log::info!(target: "kernel", "Loaded dylibs in the kernel!");
+
         vm
+    }
+
+    /// Function to access a kernel level execution environment
+    /// Has access to primitives and syntax rules, but will not defer to a child
+    /// kernel in the compiler
+    pub(crate) fn new_bootstrap_kernel() -> Self {
+        // If the interner has already been initialized, it most likely means that either:
+        // 1) Tests are being run
+        // 2) The parser was used in a standalone fashion, somewhere, which invalidates the bootstrap
+        //    process
+        //
+        // There are a few solutions to this - one would probably be to not use a static interner,
+        // however given that its a huge chore to pass around the interner everywhere there are strings,
+        // its probably inevitable we have that.
+        if get_interner().is_some() {
+            return Engine::new_kernel();
+        }
+
+        log::info!(target:"kernel", "Instantiating a new kernel");
+
+        let mut vm = Engine {
+            virtual_machine: SteelThread::new(),
+            compiler: Compiler::default(),
+            constants: None,
+            modules: ImmutableHashMap::new(),
+            sources: Sources::new(),
+            dylibs: DylibContainers::new(),
+        };
+
+        if let Some(programs) = Engine::load_from_bootstrap(&mut vm) {
+            register_builtin_modules(&mut vm);
+
+            for program in programs {
+                // println!("Running raw program...");
+
+                vm.compiler.constant_map = program.constant_map.clone();
+                vm.virtual_machine.constant_map = program.constant_map.clone();
+
+                vm.run_raw_program(program).unwrap();
+                // vm.run_raw_program_from_exprs(ast).unwrap();
+            }
+
+            log::info!(target: "kernel", "Loaded prelude in the kernel!");
+
+            vm.dylibs.load_modules();
+
+            let modules = vm.dylibs.modules().collect::<Vec<_>>();
+
+            for module in modules {
+                vm.register_module(module);
+            }
+
+            log::info!(target: "kernel", "Loaded dylibs in the kernel!");
+
+            vm
+        } else {
+            Engine::new_kernel()
+        }
+    }
+
+    // fn load_from_bootstrap(vm: &mut Engine) -> Option<Vec<Vec<ExprKind>>> {
+    //     let bootstrap: BootstrapImage =
+    //         bincode::deserialize(include_bytes!("../boot/bootstrap.bin")).unwrap();
+
+    //     // Set the syntax object id to be AFTER the previous items have been parsed
+    //     SYNTAX_OBJECT_ID.store(
+    //         bootstrap.syntax_object_id,
+    //         std::sync::atomic::Ordering::Relaxed,
+    //     );
+
+    //     // Set up the interner to have this latest state
+    //     if crate::parser::interner::initialize_with(bootstrap.interner).is_err() {
+    //         return None;
+    //     }
+
+    //     vm.sources = bootstrap.sources;
+
+    //     Some(bootstrap.programs)
+    // }
+
+    fn load_from_bootstrap(vm: &mut Engine) -> Option<Vec<RawProgramWithSymbols>> {
+        let bootstrap: StartupBootstrapImage =
+            bincode::deserialize(include_bytes!("../boot/bootstrap.bin")).unwrap();
+
+        // Set the syntax object id to be AFTER the previous items have been parsed
+        SYNTAX_OBJECT_ID.store(
+            bootstrap.syntax_object_id,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+
+        // Set up the interner to have this latest state
+        if crate::parser::interner::initialize_with(bootstrap.interner).is_err() {
+            return None;
+        }
+
+        vm.sources = bootstrap.sources;
+        vm.compiler.macro_env = bootstrap.macros;
+
+        Some(
+            bootstrap
+                .programs
+                .into_iter()
+                .map(SerializableRawProgramWithSymbols::into_raw_program)
+                .collect(),
+        )
+    }
+
+    fn create_bootstrap_from_programs() {
+        let mut vm = Engine {
+            virtual_machine: SteelThread::new(),
+            compiler: Compiler::default(),
+            constants: None,
+            modules: ImmutableHashMap::new(),
+            sources: Sources::new(),
+            dylibs: DylibContainers::new(),
+        };
+
+        register_builtin_modules(&mut vm);
+
+        let mut programs = Vec::new();
+
+        let bootstrap_sources = [
+            crate::steel_vm::primitives::ALL_MODULES,
+            crate::stdlib::PRELUDE,
+            crate::stdlib::CONTRACTS,
+            crate::stdlib::DISPLAY,
+        ];
+
+        for source in bootstrap_sources {
+            // let id = vm.sources.add_source(source.to_string(), None);
+
+            // Could fail here
+            // let parsed: Vec<ExprKind> = Parser::new(source, Some(id))
+            //     .collect::<std::result::Result<_, _>>()
+            //     .unwrap();
+
+            let raw_program = vm.emit_raw_program_no_path(source).unwrap();
+
+            programs.push(raw_program.clone());
+
+            vm.run_raw_program(raw_program).unwrap();
+
+            // asts.push(parsed.clone());
+
+            // vm.run_raw_program_from_exprs(parsed).unwrap();
+        }
+
+        // Grab the last value of the offset
+        let syntax_object_id = SYNTAX_OBJECT_ID.load(std::sync::atomic::Ordering::Relaxed);
+
+        let bootstrap = StartupBootstrapImage {
+            interner: take_interner(),
+            syntax_object_id,
+            sources: vm.sources,
+            programs: programs
+                .into_iter()
+                .map(RawProgramWithSymbols::into_serializable_program)
+                .collect::<Result<_>>()
+                .unwrap(),
+            macros: vm.compiler.macro_env,
+        };
+
+        // Encode to something implementing `Write`
+        let mut f = std::fs::File::create("src/boot/bootstrap.bin").unwrap();
+        bincode::serialize_into(&mut f, &bootstrap).unwrap();
+    }
+
+    fn create_bootstrap() {
+        let mut vm = Engine {
+            virtual_machine: SteelThread::new(),
+            compiler: Compiler::default(),
+            constants: None,
+            modules: ImmutableHashMap::new(),
+            sources: Sources::new(),
+            dylibs: DylibContainers::new(),
+        };
+
+        register_builtin_modules(&mut vm);
+
+        let mut asts = Vec::new();
+
+        let bootstrap_sources = [
+            crate::steel_vm::primitives::ALL_MODULES,
+            crate::stdlib::PRELUDE,
+            crate::stdlib::CONTRACTS,
+            crate::stdlib::DISPLAY,
+            // crate::stdlib::KERNEL,
+        ];
+
+        for source in bootstrap_sources {
+            let id = vm.sources.add_source(source.to_string(), None);
+
+            // Could fail here
+            let parsed: Vec<ExprKind> = Parser::new(source, Some(id))
+                .collect::<std::result::Result<_, _>>()
+                .unwrap();
+
+            asts.push(parsed.clone());
+
+            vm.run_raw_program_from_exprs(parsed).unwrap();
+        }
+
+        // Grab the last value of the offset
+        let syntax_object_id = SYNTAX_OBJECT_ID.load(std::sync::atomic::Ordering::Relaxed);
+
+        let bootstrap = BootstrapImage {
+            interner: take_interner(),
+            syntax_object_id,
+            sources: vm.sources,
+            programs: asts,
+        };
+
+        // Encode to something implementing `Write`
+        let mut f = std::fs::File::create("src/boot/bootstrap.bin").unwrap();
+        bincode::serialize_into(&mut f, &bootstrap).unwrap();
     }
 
     /// Instantiates a raw engine instance. Includes no primitives or prelude.
@@ -403,7 +653,7 @@ impl Engine {
         self.run_raw_program(program)
     }
 
-    pub(crate) fn _run_raw_program_from_exprs(
+    pub(crate) fn run_raw_program_from_exprs(
         &mut self,
         exprs: Vec<ExprKind>,
     ) -> Result<Vec<SteelVal>> {
@@ -882,7 +1132,13 @@ impl Engine {
     }
 
     pub fn global_exists(&self, ident: &str) -> bool {
-        self.compiler.symbol_map.get(ident).is_ok()
+        let spur = if let Some(spur) = InternedString::try_get(ident) {
+            spur
+        } else {
+            return false;
+        };
+
+        self.compiler.symbol_map.get(&spur).is_ok()
     }
 
     pub fn in_scope_macros(&self) -> &HashMap<InternedString, SteelMacro> {

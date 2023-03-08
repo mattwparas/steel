@@ -52,7 +52,7 @@ impl FromSteelVal for SourceId {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Sources {
     paths: HashMap<SourceId, PathBuf>,
     sources: Vec<String>,
@@ -103,7 +103,7 @@ pub struct SyntaxObjectId(pub usize);
 
 impl SyntaxObjectId {
     pub fn fresh() -> Self {
-        SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst))
+        SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed))
     }
 }
 
@@ -144,7 +144,7 @@ impl<T: Clone> Clone for RawSyntaxObject<T> {
             span: self.span,
             source: self.source.clone(),
             // metadata: self.metadata.clone(),
-            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
+            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed)),
         }
     }
 }
@@ -206,7 +206,7 @@ impl SyntaxObject {
             ty,
             span,
             source: None,
-            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
+            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed)),
         }
     }
 
@@ -219,7 +219,7 @@ impl SyntaxObject {
             ty,
             span,
             source,
-            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
+            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed)),
         }
     }
 
@@ -228,7 +228,7 @@ impl SyntaxObject {
             ty,
             span: Span::new(0, 0, None),
             source: None,
-            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
+            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed)),
         }
     }
 
@@ -244,7 +244,7 @@ impl SyntaxObject {
             ty: val.ty.clone(),
             span: val.span,
             source: source.as_ref().map(Rc::clone),
-            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
+            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed)),
         }
     }
 }

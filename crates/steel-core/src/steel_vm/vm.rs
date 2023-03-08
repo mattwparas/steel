@@ -126,6 +126,9 @@ pub struct StackFrame {
 fn check_sizes() {
     println!("{:?}", std::mem::size_of::<Option<SteelVal>>());
     println!("{:?}", std::mem::size_of::<StackFrame>());
+    println!("{:?}", std::mem::size_of::<Rc<[DenseInstruction]>>());
+    println!("{:?}", std::mem::size_of::<Rc<[Span]>>());
+    println!("{:?}", std::mem::size_of::<Gc<ByteCodeLambda>>());
 }
 
 impl StackFrame {
@@ -195,7 +198,7 @@ pub struct SteelThread {
     pub(crate) runtime_options: RunTimeOptions,
     pub(crate) current_frame: StackFrame,
     pub(crate) stack_frames: Vec<StackFrame>,
-    constant_map: ConstantMap,
+    pub(crate) constant_map: ConstantMap,
     // current_executable: Option<Executable>,
 }
 

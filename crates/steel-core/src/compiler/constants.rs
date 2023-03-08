@@ -8,12 +8,15 @@ use crate::parser::{
 use std::{cell::RefCell, convert::TryFrom, rc::Rc};
 
 // TODO add the serializing and deserializing for constants
-// use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 // Shared constant map - for repeated in memory execution of a program, this is going to share the same
 // underlying representation.
 #[derive(Debug, PartialEq)]
 pub struct ConstantMap(Rc<RefCell<Vec<SteelVal>>>);
+
+#[derive(Serialize, Deserialize)]
+pub struct SerializableConstantMap(Vec<u8>);
 
 // #[derive(Debug, PartialEq, Clone, Deserialize, Serialize)]
 // struct ConstantExprMap {

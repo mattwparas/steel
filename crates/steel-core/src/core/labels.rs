@@ -13,7 +13,7 @@ pub(crate) static LABEL_ID: AtomicUsize = AtomicUsize::new(0);
 pub struct Label(usize);
 
 pub fn fresh() -> Label {
-    Label(LABEL_ID.fetch_add(1, Ordering::SeqCst))
+    Label(LABEL_ID.fetch_add(1, Ordering::Relaxed))
 }
 
 #[derive(Clone, Debug)]
