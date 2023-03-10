@@ -11,7 +11,7 @@ use fxhash::FxHashSet;
 use crate::{
     core::{instructions::DenseInstruction, opcode::OpCode},
     gc::Gc,
-    parser::span::Span,
+    parser::{parser::SyntaxObjectId, span::Span},
     rvals::{
         AsRefSteelVal, BoxedFunctionSignature, FunctionSignature, IntoSteelVal,
         MutFunctionSignature,
@@ -41,15 +41,22 @@ use super::{closed::HeapRef, structs::UserDefinedStruct};
 pub struct ByteCodeLambda {
     pub(crate) id: usize,
     /// body of the function with identifiers yet to be bound
+    #[cfg(feature = "dynamic")]
     pub(crate) body_exp: RefCell<Rc<[DenseInstruction]>>,
+
+    #[cfg(not(feature = "dynamic"))]
+    pub(crate) body_exp: Rc<[DenseInstruction]>,
+
+    // #[cfg(not(feature = "dynamic"))]
+    // pub(crate) body_exp: Rc<[DenseInstruction]>,
     arity: usize,
     call_count: Cell<usize>,
-    cant_be_compiled: Cell<bool>,
     pub(crate) is_multi_arity: bool,
     captures: Vec<SteelVal>,
     pub(crate) heap_allocated: RefCell<Vec<HeapRef>>,
-    pub(crate) blocks: RefCell<Vec<(BlockPattern, BlockMetadata)>>,
     pub(crate) spans: Rc<[Span]>,
+    #[cfg(feature = "dynamic")]
+    pub(crate) blocks: RefCell<Vec<(BlockPattern, BlockMetadata)>>,
 
     // This is a little suspicious, but it should give us the necessary information to attach a struct of metadata
     contract: RefCell<Option<Gc<RefCell<UserDefinedStruct>>>>,
@@ -74,7 +81,7 @@ impl std::hash::Hash for ByteCodeLambda {
 impl ByteCodeLambda {
     pub fn new(
         id: usize,
-        body_exp: Vec<DenseInstruction>,
+        body_exp: Rc<[DenseInstruction]>,
         arity: usize,
         is_multi_arity: bool,
         captures: Vec<SteelVal>,
@@ -82,28 +89,36 @@ impl ByteCodeLambda {
         // TODO: Spans need to be moved around as well, like instructions
         spans: Rc<[Span]>,
     ) -> ByteCodeLambda {
-        debug_assert_eq!(body_exp.len(), spans.len());
+        // debug_assert_eq!(body_exp.len(), spans.len());
 
         ByteCodeLambda {
             id,
-            body_exp: RefCell::new(body_exp.into_boxed_slice().into()),
+
+            #[cfg(feature = "dynamic")]
+            body_exp: RefCell::new(body_exp),
+            #[cfg(not(feature = "dynamic"))]
+            body_exp,
+
             arity,
             call_count: Cell::new(0),
-            cant_be_compiled: Cell::new(false),
             is_multi_arity,
             captures,
             // TODO: Allocated the necessary size right away <- we're going to index into it
             heap_allocated: RefCell::new(heap_allocated),
-            blocks: RefCell::new(Vec::new()),
             spans,
+
+            // span_id,
             contract: RefCell::new(None),
+
+            #[cfg(feature = "dynamic")]
+            blocks: RefCell::new(Vec::new()),
         }
     }
 
     pub fn main(instructions: Vec<DenseInstruction>) -> ByteCodeLambda {
         Self::new(
-            0,
-            instructions,
+            SyntaxObjectId::fresh().into(),
+            instructions.into(),
             0,
             false,
             Vec::default(),
@@ -121,13 +136,19 @@ impl ByteCodeLambda {
     }
 
     pub fn body_exp(&self) -> Rc<[DenseInstruction]> {
-        Rc::clone(&self.body_exp.borrow())
+        #[cfg(feature = "dynamic")]
+        return Rc::clone(&self.body_exp.borrow());
 
-        // Rc::clone(self.body_exp)
+        #[cfg(not(feature = "dynamic"))]
+        Rc::clone(&self.body_exp)
     }
 
     pub fn body_mut_exp(&mut self) -> Rc<[DenseInstruction]> {
-        Rc::clone(self.body_exp.get_mut())
+        #[cfg(feature = "dynamic")]
+        return Rc::clone(self.body_exp.get_mut());
+
+        #[cfg(not(feature = "dynamic"))]
+        Rc::clone(&self.body_exp)
     }
 
     pub fn spans(&self) -> Rc<[Span]> {
@@ -138,6 +159,7 @@ impl ByteCodeLambda {
     // super instruction set.
     // Deep copy the old instruction set, update the new spot to have a dynamic super instruction
     // associated with it.
+    #[cfg(feature = "dynamic")]
     pub fn update_to_super_instruction(
         &self,
         start: usize,
@@ -179,13 +201,13 @@ impl ByteCodeLambda {
         self.call_count.get()
     }
 
-    pub fn set_cannot_be_compiled(&self) {
-        self.cant_be_compiled.set(true)
-    }
+    // pub fn set_cannot_be_compiled(&self) {
+    //     self.cant_be_compiled.set(true)
+    // }
 
-    pub fn has_attempted_to_be_compiled(&self) -> bool {
-        self.cant_be_compiled.get()
-    }
+    // pub fn has_attempted_to_be_compiled(&self) -> bool {
+    //     self.cant_be_compiled.get()
+    // }
 
     pub fn attach_contract_information(&self, steel_struct: Gc<RefCell<UserDefinedStruct>>) {
         let mut guard = self.contract.borrow_mut();

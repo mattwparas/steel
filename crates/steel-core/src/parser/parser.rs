@@ -102,8 +102,15 @@ pub(crate) static SYNTAX_OBJECT_ID: AtomicUsize = AtomicUsize::new(0);
 pub struct SyntaxObjectId(pub usize);
 
 impl SyntaxObjectId {
+    #[inline]
     pub fn fresh() -> Self {
         SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
+impl From<SyntaxObjectId> for usize {
+    fn from(value: SyntaxObjectId) -> Self {
+        value.0
     }
 }
 

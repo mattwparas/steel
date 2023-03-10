@@ -34,6 +34,7 @@ use lazy_static::lazy_static;
 
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
+use smallvec::SmallVec;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
 
@@ -119,7 +120,7 @@ pub struct StackFrame {
     pub(crate) function: Gc<ByteCodeLambda>,
     ip: usize,
     instructions: Rc<[DenseInstruction]>,
-    spans: Rc<[Span]>,
+    spans: Rc<[Span]>, // span_id: usize,
 }
 
 #[test]
@@ -137,6 +138,7 @@ impl StackFrame {
         function: Gc<ByteCodeLambda>,
         ip: usize,
         instructions: Rc<[DenseInstruction]>,
+        // span_id: usize,
         spans: Rc<[Span]>,
     ) -> Self {
         Self {
@@ -147,6 +149,7 @@ impl StackFrame {
             // span: None,
             handler: None,
             spans,
+            // span_id,
         }
     }
 
@@ -199,7 +202,6 @@ pub struct SteelThread {
     pub(crate) current_frame: StackFrame,
     pub(crate) stack_frames: Vec<StackFrame>,
     pub(crate) constant_map: ConstantMap,
-    // current_executable: Option<Executable>,
 }
 
 #[derive(Clone)]
@@ -217,10 +219,24 @@ impl RunTimeOptions {
     }
 }
 
+#[derive(PartialEq)]
+struct SpanId(usize);
+
 #[derive(Default, Clone)]
 pub struct FunctionInterner {
     closure_interner: fxhash::FxHashMap<usize, ByteCodeLambda>,
     pure_function_interner: fxhash::FxHashMap<usize, Gc<ByteCodeLambda>>,
+    // Functions will store a reference to a slot here, rather than any other way
+    // getting the span can be super late bound then, and we don't need to worry about
+    // cache misses nearly as much
+    // Rooted spans more or less are just spans from the top level getting passed in - we'll
+    // take them, root them with some sort of gensym, and then free them on the way out.
+    //
+    // These should get GC'd eventually, by walking the alive set and seeing if there are
+    // actually any references to this still in existence. Functions should probably hold a direct
+    // reference to the existing thread in which it was created, and if passed in externally by
+    // another run time, we can nuke it?
+    spans: fxhash::FxHashMap<usize, Rc<[Span]>>,
 }
 
 impl SteelThread {
@@ -326,8 +342,10 @@ impl SteelThread {
                     constant_map,
                     // &mut self.function_stack,
                     // &mut self.stack_index,
-                    spans,
+                    // 0,
+                    Rc::clone(&spans),
                     self,
+                    &spans,
                 );
 
                 // vm_instance.call_func_or_else_many_args(
@@ -356,7 +374,8 @@ impl SteelThread {
         #[cfg(feature = "profiling")]
         let execution_time = Instant::now();
 
-        let mut vm_instance = VmCore::new(instructions, constant_map, spans, self)?;
+        let mut vm_instance =
+            VmCore::new(instructions, constant_map, Rc::clone(&spans), self, &spans)?;
 
         // This is our pseudo "dynamic unwind"
         // If we need to, we'll walk back on the stack and find any handlers to pop
@@ -401,6 +420,7 @@ impl SteelThread {
                                         0,
                                         Rc::from([]),
                                         Rc::from([]),
+                                        // 0,
                                     ));
                                 }
 
@@ -488,6 +508,7 @@ pub struct Continuation {
     spans: Rc<[Span]>,
     instructions: Rc<[DenseInstruction]>,
     pub(crate) stack_frames: Vec<StackFrame>,
+    // pub(crate) stack_frames: SmallVec<[StackFrame; 64]>,
     ip: usize,
     sp: usize,
     pop_count: usize,
@@ -673,8 +694,10 @@ pub struct VmCore<'a> {
     pub(crate) sp: usize,
     pub(crate) pop_count: usize,
     pub(crate) spans: Rc<[Span]>,
+    // pub(crate) span_id: usize,
     pub(crate) depth: usize,
     pub(crate) thread: &'a mut SteelThread,
+    pub(crate) root_spans: &'a [Span],
 }
 
 // TODO: Delete this entirely, and just have the run function live on top of the SteelThread.
@@ -684,7 +707,9 @@ impl<'a> VmCore<'a> {
         instructions: Rc<[DenseInstruction]>,
         constants: ConstantMap,
         spans: Rc<[Span]>,
+        // span_id: usize,
         thread: &'a mut SteelThread,
+        root_spans: &'a [Span],
     ) -> VmCore<'a> {
         VmCore {
             instructions,
@@ -693,8 +718,10 @@ impl<'a> VmCore<'a> {
             sp: 0,
             pop_count: 1,
             spans,
+            // span_id,
             depth: 0,
             thread,
+            root_spans,
         }
     }
 
@@ -702,7 +729,9 @@ impl<'a> VmCore<'a> {
         instructions: Rc<[DenseInstruction]>,
         constants: ConstantMap,
         spans: Rc<[Span]>,
+        // span_id: usize,
         thread: &'a mut SteelThread,
+        root_spans: &'a [Span],
     ) -> Result<VmCore<'a>> {
         if instructions.is_empty() {
             stop!(Generic => "empty stack!")
@@ -720,8 +749,10 @@ impl<'a> VmCore<'a> {
             sp: 0,
             pop_count: 1,
             spans,
+            // span_id,
             depth: 0,
             thread,
+            root_spans,
         })
     }
 
@@ -1756,7 +1787,24 @@ impl<'a> VmCore<'a> {
 
         // println!("Span vec: {:#?}", self.spans);
 
-        self.spans.get(self.ip).copied().unwrap_or_default()
+        // self.spans.get(self.ip).copied().unwrap_or_default()
+
+        self.thread
+            .stack_frames
+            .last()
+            .map(|x| x.function.id)
+            .and_then(|x| {
+                self.thread
+                    .function_interner
+                    .spans
+                    .get(&x)
+                    .and_then(|x| x.get(self.ip))
+            })
+            .or_else(|| self.root_spans.get(self.ip))
+            .copied()
+            .unwrap_or_default()
+
+        // todo!()
 
         // self.spans
         //     .get(
@@ -1985,7 +2033,7 @@ impl<'a> VmCore<'a> {
 
             // Construct the closure body using the offsets from the payload
             // used to be - 1, now - 2
-            let closure_body = self.instructions[self.ip..forward_jump_index].to_vec();
+            let closure_body = self.instructions[self.ip..forward_jump_index].into();
             let spans = self.spans[self.ip..forward_jump_index].into();
 
             // snag the arity from the eclosure instruction
@@ -1998,13 +2046,19 @@ impl<'a> VmCore<'a> {
                 is_multi_arity,
                 Vec::new(),
                 Vec::new(),
-                spans,
+                Rc::clone(&spans),
             ));
 
             self.thread
                 .function_interner
                 .pure_function_interner
                 .insert(closure_id, Gc::clone(&constructed_lambda));
+
+            // Put the spans into the
+            self.thread
+                .function_interner
+                .spans
+                .insert(closure_id, spans);
 
             constructed_lambda
         };
@@ -2145,7 +2199,7 @@ impl<'a> VmCore<'a> {
 
             // Construct the closure body using the offsets from the payload
             // used to be - 1, now - 2
-            let closure_body = self.instructions[self.ip..forward_jump_index].to_vec();
+            let closure_body = self.instructions[self.ip..forward_jump_index].into();
             let spans = self.spans[self.ip..forward_jump_index].into();
 
             // snag the arity from the eclosure instruction
@@ -2158,13 +2212,19 @@ impl<'a> VmCore<'a> {
                 is_multi_arity,
                 Vec::new(),
                 Vec::new(),
-                spans,
+                Rc::clone(&spans),
             );
 
             self.thread
                 .function_interner
                 .closure_interner
                 .insert(closure_id, constructed_lambda.clone());
+
+            // Put the spans into the interner
+            self.thread
+                .function_interner
+                .spans
+                .insert(closure_id, spans);
 
             constructed_lambda.set_captures(captures);
             constructed_lambda.set_heap_allocated(heap_vars);

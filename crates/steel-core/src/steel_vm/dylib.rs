@@ -25,6 +25,9 @@ impl DylibContainers {
     // TODO: This should be lazily loaded on the first require-builtin
     // For now, we can just load everything at the start when the interpreter boots up
     pub fn load_modules(&mut self) {
+        #[cfg(feature = "profiling")]
+        let now = std::time::Instant::now();
+
         let home = std::env::var("STEEL_HOME");
 
         if let Ok(home) = home {
@@ -59,6 +62,11 @@ impl DylibContainers {
             }
         } else {
             log::warn!(target: "dylibs", "STEEL_HOME variable missing - unable to read shared dylibs")
+        }
+
+        #[cfg(feature = "profiling")]
+        if log::log_enabled!(target: "pipeline_time", log::Level::Debug) {
+            log::debug!(target: "pipeline_time", "Dylib loading time: {:?}", now.elapsed());
         }
     }
 
