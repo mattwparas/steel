@@ -54,7 +54,7 @@ pub struct ByteCodeLambda {
     pub(crate) is_multi_arity: bool,
     captures: Vec<SteelVal>,
     pub(crate) heap_allocated: RefCell<Vec<HeapRef>>,
-    pub(crate) spans: Rc<[Span]>,
+    // pub(crate) spans: Rc<[Span]>,
     #[cfg(feature = "dynamic")]
     pub(crate) blocks: RefCell<Vec<(BlockPattern, BlockMetadata)>>,
 
@@ -87,7 +87,7 @@ impl ByteCodeLambda {
         captures: Vec<SteelVal>,
         heap_allocated: Vec<HeapRef>,
         // TODO: Spans need to be moved around as well, like instructions
-        spans: Rc<[Span]>,
+        // spans: Rc<[Span]>,
     ) -> ByteCodeLambda {
         // debug_assert_eq!(body_exp.len(), spans.len());
 
@@ -105,7 +105,7 @@ impl ByteCodeLambda {
             captures,
             // TODO: Allocated the necessary size right away <- we're going to index into it
             heap_allocated: RefCell::new(heap_allocated),
-            spans,
+            // spans,
 
             // span_id,
             contract: RefCell::new(None),
@@ -123,9 +123,13 @@ impl ByteCodeLambda {
             false,
             Vec::default(),
             Vec::default(),
-            Rc::from([]),
+            // Rc::from([]),
         )
     }
+
+    // pub fn id(&self) -> usize {
+    //     self.id
+    // }
 
     pub fn set_captures(&mut self, captures: Vec<SteelVal>) {
         self.captures = captures;
@@ -151,9 +155,9 @@ impl ByteCodeLambda {
         Rc::clone(&self.body_exp)
     }
 
-    pub fn spans(&self) -> Rc<[Span]> {
-        Rc::clone(&self.spans)
-    }
+    // pub fn spans(&self) -> Rc<[Span]> {
+    //     Rc::clone(&self.spans)
+    // }
 
     // Get the starting index in the instruction set, and the new ID to associate with this
     // super instruction set.

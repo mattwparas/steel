@@ -120,7 +120,7 @@ pub struct StackFrame {
     pub(crate) function: Gc<ByteCodeLambda>,
     ip: usize,
     instructions: Rc<[DenseInstruction]>,
-    spans: Rc<[Span]>, // span_id: usize,
+    // spans: Rc<[Span]>, // span_id: usize,
 }
 
 #[test]
@@ -139,7 +139,7 @@ impl StackFrame {
         ip: usize,
         instructions: Rc<[DenseInstruction]>,
         // span_id: usize,
-        spans: Rc<[Span]>,
+        // spans: Rc<[Span]>,
     ) -> Self {
         Self {
             sp: stack_index,
@@ -148,14 +148,14 @@ impl StackFrame {
             instructions,
             // span: None,
             handler: None,
-            spans,
+            // spans,
             // span_id,
         }
     }
 
     pub fn main() -> Self {
         let function = Gc::new(ByteCodeLambda::main(Vec::new()));
-        StackFrame::new(0, function, 0, Rc::from([]), Rc::from([]))
+        StackFrame::new(0, function, 0, Rc::from([]))
     }
 
     // #[inline(always)]
@@ -419,14 +419,14 @@ impl SteelThread {
                                         Gc::clone(&closure),
                                         0,
                                         Rc::from([]),
-                                        Rc::from([]),
+                                        // Rc::from([]),
                                         // 0,
                                     ));
                                 }
 
                                 vm_instance.sp = last.sp;
                                 vm_instance.instructions = closure.body_exp();
-                                vm_instance.spans = closure.spans();
+                                // vm_instance.spans = closure.spans();
 
                                 last.handler = None;
                                 last.function = closure;
@@ -505,7 +505,7 @@ impl SteelThread {
 pub struct Continuation {
     pub(crate) stack: Vec<SteelVal>,
     current_frame: StackFrame,
-    spans: Rc<[Span]>,
+    // spans: Rc<[Span]>,
     instructions: Rc<[DenseInstruction]>,
     pub(crate) stack_frames: Vec<StackFrame>,
     // pub(crate) stack_frames: SmallVec<[StackFrame; 64]>,
@@ -693,7 +693,7 @@ pub struct VmCore<'a> {
     pub(crate) ip: usize,
     pub(crate) sp: usize,
     pub(crate) pop_count: usize,
-    pub(crate) spans: Rc<[Span]>,
+    // pub(crate) spans: Rc<[Span]>,
     // pub(crate) span_id: usize,
     pub(crate) depth: usize,
     pub(crate) thread: &'a mut SteelThread,
@@ -717,7 +717,7 @@ impl<'a> VmCore<'a> {
             ip: 0,
             sp: 0,
             pop_count: 1,
-            spans,
+            // spans,
             // span_id,
             depth: 0,
             thread,
@@ -748,7 +748,7 @@ impl<'a> VmCore<'a> {
             ip: 0,
             sp: 0,
             pop_count: 1,
-            spans,
+            // spans,
             // span_id,
             depth: 0,
             thread,
@@ -766,7 +766,7 @@ impl<'a> VmCore<'a> {
             ip: self.ip,
             sp: self.sp,
             pop_count: self.pop_count,
-            spans: Rc::clone(&self.spans),
+            // spans: Rc::clone(&self.spans),
         }
     }
 
@@ -775,7 +775,16 @@ impl<'a> VmCore<'a> {
             self.thread
                 .stack_frames
                 .iter()
-                .map(|x| DehydratedCallContext::new(x.spans.get(x.ip).copied()))
+                .map(|x| {
+                    DehydratedCallContext::new(
+                        self.thread
+                            .function_interner
+                            .spans
+                            .get(&x.function.id)
+                            .and_then(|x| x.get(self.ip))
+                            .copied(),
+                    )
+                })
                 .collect(),
         )
     }
@@ -784,7 +793,7 @@ impl<'a> VmCore<'a> {
     fn set_state_from_continuation(&mut self, continuation: Continuation) {
         self.thread.stack = continuation.stack;
         self.instructions = continuation.instructions;
-        self.spans = continuation.spans;
+        // self.spans = continuation.spans;
         self.ip = continuation.ip;
         self.sp = continuation.sp;
         self.pop_count = continuation.pop_count;
@@ -802,12 +811,12 @@ impl<'a> VmCore<'a> {
     fn call_with_instructions_and_reset_state(
         &mut self,
         closure: Rc<[DenseInstruction]>,
-        spans: Rc<[Span]>,
+        // spans: Rc<[Span]>,
     ) -> Result<SteelVal> {
         let old_ip = self.ip;
         let old_instructions = std::mem::replace(&mut self.instructions, closure);
         let old_pop_count = self.pop_count;
-        let old_spans = std::mem::replace(&mut self.spans, spans);
+        // let old_spans = std::mem::replace(&mut self.spans, spans);
 
         // dbg!(self.sp);
 
@@ -829,7 +838,7 @@ impl<'a> VmCore<'a> {
         self.ip = old_ip;
         self.instructions = old_instructions;
         self.pop_count = old_pop_count;
-        self.spans = old_spans;
+        // self.spans = old_spans;
         self.sp = self.thread.stack_frames.last().map(|x| x.sp).unwrap_or(0);
 
         // dbg!(self.sp);
@@ -958,7 +967,7 @@ impl<'a> VmCore<'a> {
         // if self.stack_frames
 
         let instructions = closure.body_exp();
-        let spans = closure.spans();
+        // let spans = closure.spans();
 
         // TODO:
         self.thread.stack_frames.push(StackFrame::new(
@@ -966,7 +975,7 @@ impl<'a> VmCore<'a> {
             Gc::clone(closure),
             0,
             instructions.clone(),
-            spans.clone(),
+            // spans.clone(),
         ));
 
         self.sp = prev_length;
@@ -982,7 +991,7 @@ impl<'a> VmCore<'a> {
         // self.function_stack
         // .push(CallContext::new(Gc::clone(closure)));
 
-        self.call_with_instructions_and_reset_state(instructions, spans)
+        self.call_with_instructions_and_reset_state(instructions)
     }
 
     // Calling convention
@@ -1000,7 +1009,7 @@ impl<'a> VmCore<'a> {
             Gc::clone(closure),
             0,
             Rc::from([]),
-            Rc::from([]),
+            // Rc::from([]),
         ));
 
         self.sp = prev_length;
@@ -1012,7 +1021,7 @@ impl<'a> VmCore<'a> {
 
         self.adjust_stack_for_multi_arity(closure, 2, &mut 0)?;
 
-        self.call_with_instructions_and_reset_state(closure.body_exp(), closure.spans())
+        self.call_with_instructions_and_reset_state(closure.body_exp())
     }
 
     // Calling convention
@@ -1028,7 +1037,7 @@ impl<'a> VmCore<'a> {
             Gc::clone(closure),
             0,
             Rc::from([]),
-            Rc::from([]),
+            // Rc::from([]),
         ));
 
         self.sp = prev_length;
@@ -1042,7 +1051,7 @@ impl<'a> VmCore<'a> {
 
         self.adjust_stack_for_multi_arity(closure, 1, &mut 0)?;
 
-        self.call_with_instructions_and_reset_state(closure.body_exp(), closure.spans())
+        self.call_with_instructions_and_reset_state(closure.body_exp())
     }
 
     // pub fn get_slice_of_size_two(&mut self) -> &mut [SteelVal] {
@@ -1094,6 +1103,34 @@ impl<'a> VmCore<'a> {
 
                 // get the const
                 let const_val = self.constants.get(push_const.payload_size as usize);
+
+                let result = match $name(&[local_value, const_val]) {
+                    Ok(value) => value,
+                    Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                };
+
+                self.thread.stack.push(result);
+
+                self.ip += 2;
+            }};
+        }
+
+        // TODO: Directly call the binary operation with the value as an isize
+        macro_rules! inline_register_primitive_immediate {
+            ($name:tt) => {{
+                let read_local = &self.instructions[self.ip];
+                let push_const = &self.instructions[self.ip + 1];
+
+                // get the local
+                // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                let offset = self.get_offset();
+                let local_value =
+                    self.thread.stack[read_local.payload_size as usize + offset].clone();
+
+                // get the const value, if it can fit into the value...
+                let const_val = SteelVal::IntV(push_const.payload_size as isize);
+
+                // sub_handler_none_int
 
                 let result = match $name(&[local_value, const_val]) {
                     Ok(value) => value,
@@ -1242,6 +1279,79 @@ impl<'a> VmCore<'a> {
                     ..
                 } => {
                     inline_register_primitive!(lte_primitive)
+                }
+                DenseInstruction {
+                    op_code: OpCode::ADDIMMEDIATE,
+                    ..
+                } => {
+                    inline_register_primitive_immediate!(add_primitive)
+                }
+                DenseInstruction {
+                    op_code: OpCode::SUBIMMEDIATE,
+                    ..
+                } => {
+                    // inline_register_primitive_immediate!(subtract_primitive)
+
+                    let read_local = &self.instructions[self.ip];
+                    let push_const = &self.instructions[self.ip + 1];
+
+                    // get the local
+                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                    let offset = self.get_offset();
+                    let local_value =
+                        self.thread.stack[read_local.payload_size as usize + offset].clone();
+
+                    // get the const value, if it can fit into the value...
+                    let const_val = push_const.payload_size as isize;
+
+                    // sub_handler_none_int
+
+                    let result = sub_handler_none_int(self, local_value, const_val)?;
+
+                    // let result = match $name(&[local_value, const_val]) {
+                    //     Ok(value) => value,
+                    //     Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                    // };
+
+                    // let result
+
+                    self.thread.stack.push(result);
+
+                    self.ip += 2;
+                }
+                DenseInstruction {
+                    op_code: OpCode::LTEIMMEDIATE,
+                    ..
+                } => {
+                    // inline_register_primitive_immediate!(subtract_primitive)
+
+                    let read_local = &self.instructions[self.ip];
+                    let push_const = &self.instructions[self.ip + 1];
+
+                    // get the local
+                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                    let offset = self.get_offset();
+                    let local_value =
+                        self.thread.stack[read_local.payload_size as usize + offset].clone();
+
+                    // get the const value, if it can fit into the value...
+                    let const_val = push_const.payload_size as isize;
+
+                    // sub_handler_none_int
+
+                    // TODO: Probably elide the stack push if the next inst is an IF
+                    let result = lte_handler_none_int(self, local_value, const_val)?;
+
+                    // let result = match $name(&[local_value, const_val]) {
+                    //     Ok(value) => value,
+                    //     Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                    // };
+
+                    // let result
+
+                    self.thread.stack.push(SteelVal::BoolV(result));
+
+                    self.ip += 2;
                 }
                 DenseInstruction {
                     op_code: OpCode::ADD,
@@ -1549,7 +1659,7 @@ impl<'a> VmCore<'a> {
                     let last_stack_frame = self.thread.stack_frames.last().unwrap();
 
                     self.instructions = last_stack_frame.function.body_exp();
-                    self.spans = last_stack_frame.function.spans();
+                    // self.spans = last_stack_frame.function.spans();
                     self.sp = last_stack_frame.sp;
 
                     // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
@@ -1821,13 +1931,15 @@ impl<'a> VmCore<'a> {
     }
 
     fn enclosing_span(&self) -> Option<Span> {
-        self.thread.stack_frames.last().and_then(|x| {
-            if x.ip > 0 {
-                x.spans.get(x.ip - 1).copied()
-            } else {
-                None
-            }
-        })
+        todo!("Fix me!")
+
+        // self.thread.stack_frames.last().and_then(|x| {
+        //     if x.ip > 0 {
+        //         x.spans.get(x.ip - 1).copied()
+        //     } else {
+        //         None
+        //     }
+        // })
     }
 
     #[inline(always)]
@@ -1897,7 +2009,7 @@ impl<'a> VmCore<'a> {
     fn update_state_with_frame(&mut self, last: StackFrame) {
         self.ip = last.ip;
         self.instructions = last.instructions;
-        self.spans = last.spans;
+        // self.spans = last.spans;
     }
 
     #[inline(always)]
@@ -2034,7 +2146,21 @@ impl<'a> VmCore<'a> {
             // Construct the closure body using the offsets from the payload
             // used to be - 1, now - 2
             let closure_body = self.instructions[self.ip..forward_jump_index].into();
-            let spans = self.spans[self.ip..forward_jump_index].into();
+
+            let spans = if let Some(spans) = self
+                .thread
+                .stack_frames
+                .last()
+                .and_then(|x| self.thread.function_interner.spans.get(&x.function.id))
+            {
+                spans[self.ip..forward_jump_index].into()
+            } else {
+                self.root_spans[self.ip..forward_jump_index].into()
+            };
+
+            // if let Some(spans) = self.thread.function_interner.spans.get()
+
+            // let spans = self.spans[self.ip..forward_jump_index].into();
 
             // snag the arity from the eclosure instruction
             let arity = self.instructions[forward_index - 1].payload_size;
@@ -2046,7 +2172,7 @@ impl<'a> VmCore<'a> {
                 is_multi_arity,
                 Vec::new(),
                 Vec::new(),
-                Rc::clone(&spans),
+                // Rc::clone(&spans),
             ));
 
             self.thread
@@ -2200,7 +2326,18 @@ impl<'a> VmCore<'a> {
             // Construct the closure body using the offsets from the payload
             // used to be - 1, now - 2
             let closure_body = self.instructions[self.ip..forward_jump_index].into();
-            let spans = self.spans[self.ip..forward_jump_index].into();
+            // let spans = self.spans[self.ip..forward_jump_index].into();
+
+            let spans = if let Some(spans) = self
+                .thread
+                .stack_frames
+                .last()
+                .and_then(|x| self.thread.function_interner.spans.get(&x.function.id))
+            {
+                spans[self.ip..forward_jump_index].into()
+            } else {
+                self.root_spans[self.ip..forward_jump_index].into()
+            };
 
             // snag the arity from the eclosure instruction
             let arity = self.instructions[forward_jump_index].payload_size;
@@ -2212,7 +2349,7 @@ impl<'a> VmCore<'a> {
                 is_multi_arity,
                 Vec::new(),
                 Vec::new(),
-                Rc::clone(&spans),
+                // Rc::clone(&spans),
             );
 
             self.thread
@@ -2328,7 +2465,7 @@ impl<'a> VmCore<'a> {
 
         // self.global_env = inner_env;
         self.instructions = closure.body_exp();
-        self.spans = closure.spans();
+        // self.spans = closure.spans();
 
         last.set_function(closure);
         // last.set_span(current_span);
@@ -2763,7 +2900,7 @@ impl<'a> VmCore<'a> {
                 Gc::clone(closure),
                 self.ip + 4,
                 Rc::clone(&self.instructions),
-                Rc::clone(&self.spans),
+                // Rc::clone(&self.spans),
             ), // .with_span(self.current_span()),
         );
 
@@ -2803,7 +2940,7 @@ impl<'a> VmCore<'a> {
         self.pop_count += 1;
 
         self.instructions = closure.body_exp();
-        self.spans = closure.spans();
+        // self.spans = closure.spans();
         self.ip = 0;
         Ok(())
     }
@@ -2947,7 +3084,7 @@ impl<'a> VmCore<'a> {
         // }
 
         let instructions = closure.body_exp();
-        let spans = closure.spans();
+        // let spans = closure.spans();
 
         self.thread.stack_frames.push(
             StackFrame::new(
@@ -2955,7 +3092,7 @@ impl<'a> VmCore<'a> {
                 closure,
                 self.ip + 1,
                 Rc::clone(&self.instructions),
-                Rc::clone(&self.spans),
+                // Rc::clone(&self.spans),
             ), // .with_span(self.current_span()),
         );
 
@@ -2981,7 +3118,7 @@ impl<'a> VmCore<'a> {
         // self.stacks.push(stack);
 
         self.instructions = instructions;
-        self.spans = spans;
+        // self.spans = spans;
 
         self.ip = 0;
         Ok(())
@@ -3021,15 +3158,15 @@ impl<'a> VmCore<'a> {
         self.sp = self.thread.stack.len() - closure.arity();
 
         let mut instructions = closure.body_exp();
-        let mut spans = closure.spans();
+        // let mut spans = closure.spans();
 
         std::mem::swap(&mut instructions, &mut self.instructions);
-        std::mem::swap(&mut spans, &mut self.spans);
+        // std::mem::swap(&mut spans, &mut self.spans);
 
         // Do this _after_ the multi arity business
         // TODO: can these rcs be avoided
         self.thread.stack_frames.push(
-            StackFrame::new(self.sp, closure, self.ip + 1, instructions, spans), // .with_span(self.current_span()),
+            StackFrame::new(self.sp, closure, self.ip + 1, instructions), // .with_span(self.current_span()),
         );
 
         // self.current_arity = Some(closure.arity());
@@ -3270,7 +3407,7 @@ pub fn call_with_exception_handler(
                     Gc::clone(&closure),
                     ctx.ip + 1,
                     Rc::clone(&ctx.instructions),
-                    Rc::clone(&ctx.spans),
+                    // Rc::clone(&ctx.spans),
                 )
                 // .with_span(ctx.current_span())
                 .with_handler(handler),
@@ -3290,7 +3427,7 @@ pub fn call_with_exception_handler(
             ctx.pop_count += 1;
 
             ctx.instructions = closure.body_exp();
-            ctx.spans = closure.spans();
+            // ctx.spans = closure.spans();
             // ctx.function_stack
             //     .push(CallContext::new(closure).with_span(ctx.current_span()));
 
@@ -3368,7 +3505,7 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
                     Gc::clone(&closure),
                     ctx.ip + 1,
                     Rc::clone(&ctx.instructions),
-                    Rc::clone(&ctx.spans),
+                    // Rc::clone(&ctx.spans),
                 ), // .with_span(ctx.current_span()),
             );
 
@@ -3386,7 +3523,7 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
             ctx.pop_count += 1;
 
             ctx.instructions = closure.body_exp();
-            ctx.spans = closure.spans();
+            // ctx.spans = closure.spans();
             // ctx.function_stack
             //     .push(CallContext::new(closure).with_span(ctx.current_span()));
 
@@ -4959,7 +5096,7 @@ fn tco_jump_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     let last_stack_frame = ctx.thread.stack_frames.last().unwrap();
 
     ctx.instructions = last_stack_frame.function.body_exp();
-    ctx.spans = last_stack_frame.function.spans();
+    // ctx.spans = last_stack_frame.function.spans();
     ctx.sp = last_stack_frame.sp;
 
     // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);

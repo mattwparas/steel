@@ -51,6 +51,25 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
     }
 }
 
+fn try_eval_atom(t: &SyntaxObject) -> Option<SteelVal> {
+    match &t.ty {
+        TokenType::BooleanLiteral(b) => Some((*b).into()),
+        // TokenType::Identifier(s) => env.borrow().lookup(&s),
+        TokenType::NumberLiteral(n) => Some(SteelVal::NumV(*n)),
+        TokenType::StringLiteral(s) => Some(SteelVal::StringV(s.into())),
+        TokenType::CharacterLiteral(c) => Some(SteelVal::CharV(*c)),
+        TokenType::IntegerLiteral(n) => Some(SteelVal::IntV(*n)),
+        // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
+        TokenType::Keyword(k) => Some(SteelVal::SymbolV(k.clone().into())),
+        what => {
+            // println!("getting here in the eval_atom - code_gen");
+            // stop!(UnexpectedToken => what; t.span)
+
+            return None;
+        }
+    }
+}
+
 impl<'a> CodeGenerator<'a> {
     pub fn new(constant_map: &'a mut ConstantMap, analysis: &'a Analysis) -> Self {
         CodeGenerator {
@@ -90,6 +109,28 @@ impl<'a> CodeGenerator<'a> {
         Ok(())
     }
 
+    fn specialize_immediate(&self, l: &List) -> Option<OpCode> {
+        if l.args.len() == 3 {
+            let function = l.first()?;
+
+            let _ = l.args[1].atom_identifier()?;
+            let _ = eval_atom(l.args[2].atom_syntax_object()?).ok()?;
+
+            if let Some(info) = self.analysis.get(function.atom_syntax_object()?) {
+                if info.kind == Free || info.kind == Global {
+                    return match function.atom_identifier().unwrap().resolve() {
+                        "+" => Some(OpCode::ADDIMMEDIATE),
+                        "-" => Some(OpCode::SUBIMMEDIATE),
+                        "<=" => Some(OpCode::LTEIMMEDIATE),
+                        _ => None,
+                    };
+                }
+            }
+        }
+
+        None
+    }
+
     fn should_specialize_call(&self, l: &List) -> Option<OpCode> {
         if l.args.len() == 3 {
             let function = l.first()?;
@@ -112,9 +153,61 @@ impl<'a> CodeGenerator<'a> {
         None
     }
 
+    fn specialize_immediate_call(&mut self, l: &List, op: OpCode) -> Option<()> {
+        // let value = eval_atom(l.args[2].atom_syntax_object().unwrap())?;
+
+        if l.args.len() != 3 {
+            return None;
+        }
+
+        let value = if let Some(TokenType::IntegerLiteral(l)) =
+            l.args[2].atom_syntax_object().map(|x| &x.ty)
+        {
+            *l
+        } else {
+            return None;
+            // stop!()
+        };
+
+        if value < 0 {
+            return None;
+        }
+
+        // if let Some(analysis) = &l.args[1]
+        //     .atom_syntax_object()
+        //     .and_then(|a| self.analysis.get(a))
+        // {
+        //     if let Some(offset) = analysis.stack_offset {
+        //         self.push(LabeledInstruction::builder(op).payload(offset));
+        //     } else {
+        //         stop!(Generic => "Missing stack offset!");
+        //     }
+        // } else {
+        //     panic!("Shouldn't be happening")
+        // }
+
+        let analysis = &l.args[1]
+            .atom_syntax_object()
+            .and_then(|a| self.analysis.get(a))?;
+
+        let offset = analysis.stack_offset?;
+
+        self.push(LabeledInstruction::builder(op).payload(offset));
+
+        // let idx = self.constant_map.add_or_get(value);
+
+        self.push(LabeledInstruction::builder(OpCode::PASS).payload(value as usize));
+
+        Some(())
+    }
+
     #[allow(unused)]
-    fn specialize_call(&mut self, l: &List, op: OpCode) -> Result<()> {
-        let value = eval_atom(l.args[2].atom_syntax_object().unwrap())?;
+    fn specialize_call(&mut self, l: &List, op: OpCode) -> Option<()> {
+        if l.args.len() != 3 {
+            return None;
+        }
+
+        let value = try_eval_atom(l.args[2].atom_syntax_object().unwrap())?;
 
         // Specialize SUB1 -> specializing here is a bit much but it should help
         // if value == SteelVal::IntV(1) && op == OpCode::SUBREGISTER {
@@ -135,18 +228,24 @@ impl<'a> CodeGenerator<'a> {
         //     return Ok(());
         // }
 
-        if let Some(analysis) = &l.args[1]
+        let analysis = &l.args[1]
             .atom_syntax_object()
-            .and_then(|a| self.analysis.get(a))
-        {
-            if let Some(offset) = analysis.stack_offset {
-                self.push(LabeledInstruction::builder(op).payload(offset));
-            } else {
-                stop!(Generic => "Missing stack offset!");
-            }
-        } else {
-            panic!("Shouldn't be happening")
-        }
+            .and_then(|a| self.analysis.get(a))?;
+
+        let offset = analysis.stack_offset?;
+
+        self.push(LabeledInstruction::builder(op).payload(offset));
+
+        // if let Some(analysis) =
+        // {
+        //     if let Some(offset) = analysis.stack_offset {
+        //         self.push(LabeledInstruction::builder(op).payload(offset));
+        //     } else {
+        //         return None;
+        //     }
+        // } else {
+        //     panic!("Shouldn't be happening")
+        // }
 
         // local variable, map to index:
         // if let ExprKind::Atom(a) = &l.args[1] {
@@ -166,7 +265,9 @@ impl<'a> CodeGenerator<'a> {
 
         self.push(LabeledInstruction::builder(OpCode::PASS).payload(idx));
 
-        Ok(())
+        Some(())
+
+        // Ok(())
     }
 }
 
@@ -557,11 +658,15 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     // This should be pretty straightforward - just check if they're still globals
     // then, specialize accordingly.
     fn visit_list(&mut self, l: &crate::parser::ast::List) -> Self::Output {
-        // TODO: Come back to call specialization
-        if let Some(op) = self.should_specialize_call(l) {
+        if let Some(op) = self.specialize_immediate(l) {
+            match self.specialize_immediate_call(l, op) {
+                Some(r) => return Ok(r),
+                None => {}
+            }
+        } else if let Some(op) = self.should_specialize_call(l) {
             match self.specialize_call(l, op) {
-                Ok(r) => return Ok(r),
-                Err(_) => {}
+                Some(r) => return Ok(r),
+                None => {}
             }
         }
 
