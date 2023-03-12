@@ -54,7 +54,7 @@
          (max-depth (max (+ min-depth 2) n)))
     (let ((stretch-depth (+ max-depth 1)))
         (displayln "stretch tree of depth " stretch-depth " check: " (check (make 0 stretch-depth))))
-    (%plain-let ((long-lived-tree (make 0 max-depth)))
+    (let ((long-lived-tree (make 0 max-depth)))
       ; (begin
         ; (define end )
 
