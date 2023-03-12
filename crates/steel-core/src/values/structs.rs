@@ -382,7 +382,7 @@ impl UserDefinedStruct {
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
-                stop!(ArityMismatch => "struct-ref expected two arguments");
+                stop!(ArityMismatch => format!("{} expected two arguments", name));
             }
 
             let steel_struct = &args[0].clone();
@@ -406,7 +406,7 @@ impl UserDefinedStruct {
                 }
                 _ => {
                     let error_message = format!(
-                        "struct-ref expected a struct and an int, found: {steel_struct} and {idx}"
+                        "{name} expected a struct and an int, found: {steel_struct} and {idx}"
                     );
                     stop!(TypeMismatch => error_message)
                 }
@@ -444,7 +444,7 @@ impl UserDefinedStruct {
                 }
                 _ => {
                     let error_message = format!(
-                        "struct-ref expected a struct and an int, found: {steel_struct} and {index}"
+                        "{name} expected a struct and an int, found: {steel_struct} and {index}"
                     );
                     stop!(TypeMismatch => error_message)
                 }
