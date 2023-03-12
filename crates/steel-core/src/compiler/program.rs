@@ -943,8 +943,18 @@ fn extract_spans(
     let instructions: Vec<_> = instructions
         .into_iter()
         .map(|x| {
+            // let len = x.len();
             x.into_iter()
-                .map(|x| DenseInstruction::new(x.op_code, x.payload_size.try_into().unwrap()))
+                .map(|i| {
+                    DenseInstruction::new(
+                        i.op_code,
+                        i.payload_size.try_into().unwrap_or_else(|_| {
+                            // println!("{:?}", len);
+                            println!("{:?}", i);
+                            panic!("Uh oh ")
+                        }),
+                    )
+                })
                 .collect()
         })
         .collect();

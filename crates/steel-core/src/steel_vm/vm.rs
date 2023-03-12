@@ -1931,7 +1931,35 @@ impl<'a> VmCore<'a> {
     }
 
     fn enclosing_span(&self) -> Option<Span> {
-        todo!("Fix me!")
+        // todo!("Fix me!")
+
+        if self.thread.stack_frames.len() > 2 {
+            let back_two = self.thread.stack_frames.len() - 2;
+
+            self.thread
+                .stack_frames
+                .get(back_two)
+                .and_then(|frame| {
+                    self.thread
+                        .function_interner
+                        .spans
+                        .get(&frame.function.id)
+                        .and_then(|x| {
+                            if frame.ip > 0 {
+                                x.get(frame.ip - 1)
+                            } else {
+                                None
+                            }
+                        })
+                })
+                .or_else(|| self.root_spans.get(self.ip))
+                .copied()
+            // .unwrap_or_default()
+        } else {
+            None
+        }
+
+        // self.thread.stack_frames
 
         // self.thread.stack_frames.last().and_then(|x| {
         //     if x.ip > 0 {

@@ -177,7 +177,7 @@ impl ByteCodeLambda {
 
         // Point to the new super instruction
         old[start].op_code = OpCode::DynSuperInstruction;
-        old[start].payload_size = super_instruction_id as u32;
+        old[start].payload_size = super_instruction_id as _;
         *guard = old.into();
         (head_instruction, Rc::clone(&guard))
     }

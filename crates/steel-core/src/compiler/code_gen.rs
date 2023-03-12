@@ -1,3 +1,5 @@
+use std::sync::atomic::AtomicUsize;
+
 use crate::{
     compiler::passes::analysis::IdentifierStatus::{
         Captured, Free, Global, HeapAllocated, LetVar, Local, LocallyDefinedFunction,
@@ -26,6 +28,14 @@ use super::{
 };
 
 use crate::rvals::Result;
+
+// TODO: Have this interner also be a part of what gets saved...
+pub(crate) static FUNCTION_ID: AtomicUsize = AtomicUsize::new(0);
+
+fn fresh_function_id() -> usize {
+    // println!("{:?}", FUNCTION_ID);
+    FUNCTION_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
 
 pub struct CodeGenerator<'a> {
     pub(crate) instructions: Vec<LabeledInstruction>,
@@ -263,6 +273,8 @@ impl<'a> CodeGenerator<'a> {
 
         let idx = self.constant_map.add_or_get(value);
 
+        // println!("Index: {:?}", idx);
+
         self.push(LabeledInstruction::builder(OpCode::PASS).payload(idx));
 
         Some(())
@@ -437,9 +449,11 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // Patching over the changes, see old code generator for more information
         // TODO: This is not a portable change. Syntax Object IDs need to have a patched unique ID
         // This should be doable by supplementing everything with an offset when consuming external modules
-        self.push(
-            LabeledInstruction::builder(OpCode::PASS).payload(lambda_function.syntax_object_id),
-        );
+        // self.push(
+        //     LabeledInstruction::builder(OpCode::PASS).payload(lambda_function.syntax_object_id),
+        // );
+
+        self.push(LabeledInstruction::builder(OpCode::PASS).payload(fresh_function_id()));
 
         // Save how many locals we have, for when we hit lets
         self.local_count.push(arity);

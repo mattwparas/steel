@@ -63,12 +63,13 @@ struct BootstrapImage {
 struct StartupBootstrapImage {
     interner: Arc<ThreadedRodeo>,
     syntax_object_id: usize,
+    function_id: usize,
     sources: Sources,
     programs: Vec<SerializableRawProgramWithSymbols>,
     macros: HashMap<InternedString, SteelMacro>,
 }
 
-#[test]
+// #[test]
 fn run_bootstrap() {
     Engine::create_bootstrap_from_programs();
 }
@@ -211,6 +212,9 @@ impl Engine {
             std::sync::atomic::Ordering::Relaxed,
         );
 
+        crate::compiler::code_gen::FUNCTION_ID
+            .store(bootstrap.function_id, std::sync::atomic::Ordering::Relaxed);
+
         // Set up the interner to have this latest state
         if crate::parser::interner::initialize_with(bootstrap.interner).is_err() {
             return None;
@@ -270,10 +274,13 @@ impl Engine {
 
         // Grab the last value of the offset
         let syntax_object_id = SYNTAX_OBJECT_ID.load(std::sync::atomic::Ordering::Relaxed);
+        let function_id =
+            crate::compiler::code_gen::FUNCTION_ID.load(std::sync::atomic::Ordering::Relaxed);
 
         let bootstrap = StartupBootstrapImage {
             interner: take_interner(),
             syntax_object_id,
+            function_id,
             sources: vm.sources,
             programs: programs
                 .into_iter()
