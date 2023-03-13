@@ -1196,7 +1196,10 @@ impl<'a> VmCore<'a> {
             // We can elide the reads, and instead opt to just go for values directly on the instructions
             // Otherwise, we're going to be copying the instruction _every_ time we iterate which is going to slow down the loop
             // We'd rather just reference the instruction and call it a day
-            match self.instructions[self.ip] {
+
+            let instr = self.instructions[self.ip];
+
+            match instr {
                 DenseInstruction {
                     op_code: OpCode::DynSuperInstruction,
                     payload_size,
@@ -1359,6 +1362,40 @@ impl<'a> VmCore<'a> {
                     ..
                 } => {
                     add_handler_payload(self, payload_size as usize)?;
+                    // inline_primitive!(add_primitive, payload_size)
+                }
+                DenseInstruction {
+                    op_code: OpCode::BINOPADD,
+                    ..
+                } => {
+                    // add_handler_payload(self, 2)?;
+
+                    let last_index = self.thread.stack.len() - 2;
+
+                    let right = self.thread.stack.pop().unwrap();
+                    let left = self.thread.stack.last().unwrap();
+
+                    let result = match add_handler_none_none(left, &right) {
+                        Ok(value) => value,
+                        Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                    };
+
+                    // let result = match $name(&mut $ctx.thread.stack[last_index..]) {
+                    //     Ok(value) => value,
+                    //     Err(e) => return Err(e.set_span_if_none($ctx.current_span())),
+                    // };
+
+                    // This is the old way... lets see if the below way improves the speed
+                    // $ctx.thread.stack.truncate(last_index);
+                    // $ctx.thread.stack.push(result);
+
+                    // self.thread.stack.truncate(last_index + 1);
+                    // *self.thread.stack.last_mut().unwrap() = result;
+
+                    *self.thread.stack.last_mut().unwrap() = result;
+
+                    self.ip += 2;
+
                     // inline_primitive!(add_primitive, payload_size)
                 }
                 DenseInstruction {
@@ -5302,6 +5339,17 @@ fn lte_handler_none_int(_: &mut VmCore<'_>, l: SteelVal, r: isize) -> Result<boo
         SteelVal::IntV(l) => Ok(l <= r),
         SteelVal::NumV(l) => Ok(l <= r as f64),
         _ => stop!(TypeMismatch => "lte expected an number, found: {}", r),
+    }
+}
+
+#[inline(always)]
+fn add_handler_none_none(l: &SteelVal, r: &SteelVal) -> Result<SteelVal> {
+    match (l, r) {
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => Ok(SteelVal::IntV(l + r)),
+        (SteelVal::IntV(l), SteelVal::NumV(r)) => Ok(SteelVal::NumV(*l as f64 + r)),
+        (SteelVal::NumV(l), SteelVal::IntV(r)) => Ok(SteelVal::NumV(l + *r as f64)),
+        (SteelVal::NumV(l), SteelVal::NumV(r)) => Ok(SteelVal::NumV(l + r)),
+        _ => stop!(TypeMismatch => "+ expected two numbers, found: {} and {}", l, r),
     }
 }
 

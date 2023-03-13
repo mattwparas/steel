@@ -319,6 +319,12 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         //     stop!(Generic => "out of bounds jump");
         // }
 
+        // if let Some(potential_pop_instr) = self.instructions.get(j3 - 1) {
+        //     if potential_pop_instr.op_code == OpCode::POPPURE {
+        //         println!("Found a pop instruction: {:?}", potential_pop_instr);
+        //     }
+        // }
+
         if let Some(elem) = self.instructions.get_mut(false_start - 1) {
             elem.payload_size = j3;
             // (*elem).payload_size = false_start;

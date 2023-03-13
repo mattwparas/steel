@@ -695,6 +695,44 @@ pub enum SteelVal {
     Boxed(HeapRef),
 }
 
+// impl Clone for SteelVal {
+//     fn clone(&self) -> Self {
+//         match &self {
+//             Closure(x) => SteelVal::Closure(x.clone()),
+//             BoolV(x) => SteelVal::BoolV(*x),
+//             NumV(x) => SteelVal::NumV(*x),
+//             IntV(x) => SteelVal::IntV(*x),
+//             CharV(x) => SteelVal::CharV(*x),
+//             VectorV(v) => SteelVal::VectorV(v.clone()),
+//             Void => SteelVal::Void,
+//             StringV(x) => SteelVal::StringV(x.clone()),
+//             FuncV(x) => SteelVal::FuncV(*x),
+//             SymbolV(x) => SteelVal::SymbolV(x.clone()),
+//             SteelVal::Custom(x) => SteelVal::Custom(x.clone()),
+//             HashMapV(x) => HashMapV(x.clone()),
+//             HashSetV(x) => HashSetV(x.clone()),
+//             CustomStruct(x) => CustomStruct(x.clone()),
+//             PortV(x) => PortV(x.clone()),
+//             IterV(x) => IterV(x.clone()),
+//             ReducerV(x) => ReducerV(x.clone()),
+//             FutureFunc(x) => FutureFunc(x.clone()),
+//             FutureV(x) => FutureV(x.clone()),
+//             StreamV(x) => StreamV(x.clone()),
+//             Contract(x) => Contract(x.clone()),
+//             SteelVal::ContractedFunction(x) => SteelVal::ContractedFunction(x.clone()),
+//             BoxedFunction(x) => BoxedFunction(Rc::clone(x)),
+//             ContinuationFunction(x) => ContinuationFunction(x.clone()),
+//             ListV(l) => ListV(l.clone()),
+//             MutFunc(x) => MutFunc(*x),
+//             BuiltIn(x) => BuiltIn(*x),
+//             MutableVector(x) => MutableVector(Gc::clone(x)),
+//             BoxedIterator(x) => BoxedIterator(x.clone()),
+//             SteelVal::SyntaxObject(x) => SteelVal::SyntaxObject(x.clone()),
+//             Boxed(x) => SteelVal::Boxed(x.clone()),
+//         }
+//     }
+// }
+
 // TODO: Consider unboxed value types, for optimized usages when compiling segments of code.
 // If we can infer the types from the concrete functions used, we don't need to have unboxed values -> We also
 // can use concrete forms of the underlying functions as well.
@@ -1025,12 +1063,23 @@ impl Hash for SteelVal {
 }
 
 impl SteelVal {
+    #[inline(always)]
     pub fn is_truthy(&self) -> bool {
         match &self {
             SteelVal::BoolV(false) => false,
             SteelVal::Void => false,
             SteelVal::ListV(v) => !v.is_empty(),
             _ => true,
+        }
+    }
+
+    #[inline(always)]
+    pub fn is_falsey(&self) -> bool {
+        match &self {
+            SteelVal::BoolV(false) => true,
+            SteelVal::Void => true,
+            SteelVal::ListV(v) => v.is_empty(),
+            _ => false,
         }
     }
 

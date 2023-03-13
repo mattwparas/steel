@@ -111,6 +111,27 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
 //     }
 // }
 
+// pub fn specialize_exit_jmp(instructions: &mut [Instruction]) {
+//     for i in 0..instructions.len() {
+//         if let Some(Instruction {
+//             op_code: OpCode::JMP,
+//             payload_size,
+//             ..
+//         }) = instructions.get(i)
+//         {
+//             if let Some((OpCode::POPPURE, payload_size_pop)) = instructions
+//                 .get(i + *payload_size)
+//                 .map(|x| (x.op_code, x.payload_size))
+//             {
+//                 let guard = instructions.get_mut(i).unwrap();
+//                 guard.op_code = OpCode::POPPURE;
+//                 guard.payload_size = payload_size_pop;
+//                 continue;
+//             }
+//         }
+//     }
+// }
+
 pub fn specialize_read_local(instructions: &mut [Instruction]) {
     for i in 0..instructions.len() {
         let read_local = instructions.get(i);
@@ -429,6 +450,7 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
         ) = (push, func)
         {
             let replaced = match *ident {
+                x if x == *PLUS && *payload_size == 2 => Some(OpCode::BINOPADD),
                 x if x == *PLUS => Some(OpCode::ADD),
                 x if x == *MINUS => Some(OpCode::SUB),
                 x if x == *DIV => Some(OpCode::DIV),
@@ -795,6 +817,8 @@ impl RawProgramWithSymbols {
             // gimmick_super_instruction(instructions);
             // move_read_local_call_global(instructions);
             specialize_read_local(instructions);
+
+            // specialize_exit_jmp(instructions);
 
             // loop_condition_local_const_arity_two(instructions);
         }

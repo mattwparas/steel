@@ -69,6 +69,7 @@ pub enum OpCode {
     ADDIMMEDIATE,
     SUBIMMEDIATE,
     LTEIMMEDIATE,
+    BINOPADD,
 }
 
 impl OpCode {
