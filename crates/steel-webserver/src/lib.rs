@@ -1,4 +1,4 @@
-use axum::{routing::get, Router};
+use axum::{routing::get, Json, Router};
 use std::net::SocketAddr;
 use steel::{
     rvals::{Custom, IntoSteelVal},
@@ -118,36 +118,37 @@ impl WrappedJoinHandler {
 impl Custom for WrappedJoinHandler {}
 
 fn spawn_server(command_messenger: CommandMessenger) -> WrappedJoinHandler {
-    let handle = std::thread::spawn(|| {
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .unwrap()
-            .block_on(async {
-                // let (command_sender, vm_receiver) = unbounded();
-                // let (vm_sender, command_receiver) = unbounded();
+    let handle =
+        std::thread::spawn(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    // let (command_sender, vm_receiver) = unbounded();
+                    // let (vm_sender, command_receiver) = unbounded();
 
-                // let command_messenger = CommandMessenger::new(command_sender, command_receiver);
+                    // let command_messenger = CommandMessenger::new(command_sender, command_receiver);
 
-                // build our application with a route
-                let app = Router::new().route(
+                    // build our application with a route
+                    let app = Router::new().route(
                     "/*route",
-                    get(|Path(path): Path<String>| async move {
+                    get(|Path(path): Path<String>, Json(json): Json<serde_json::Value>| async move {
                         // println!("Receiving request");
                         command_messenger.send_request(path);
                         command_messenger.receiver.recv().unwrap()
                     }),
                 );
 
-                // run it
-                let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-                println!("listening on {}", addr);
-                axum::Server::bind(&addr)
-                    .serve(app.into_make_service())
-                    .await
-                    .unwrap();
-            })
-    });
+                    // run it
+                    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+                    println!("listening on {}", addr);
+                    axum::Server::bind(&addr)
+                        .serve(app.into_make_service())
+                        .await
+                        .unwrap();
+                })
+        });
 
     WrappedJoinHandler {
         handle: Some(handle),

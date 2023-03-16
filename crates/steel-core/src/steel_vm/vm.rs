@@ -219,6 +219,12 @@ impl RunTimeOptions {
     }
 }
 
+struct InstructionChunk {
+    start: usize,
+    end: usize,
+    id: usize,
+}
+
 #[derive(PartialEq)]
 struct SpanId(usize);
 
@@ -237,6 +243,9 @@ pub struct FunctionInterner {
     // reference to the existing thread in which it was created, and if passed in externally by
     // another run time, we can nuke it?
     spans: fxhash::FxHashMap<usize, Rc<[Span]>>,
+    // Keep these around - each thread keeps track of the instructions on the bytecode object, but we shouldn't
+    // need to dereference that until later? When we actually move to that
+    instructions: fxhash::FxHashMap<usize, Rc<[DenseInstruction]>>,
 }
 
 impl SteelThread {
