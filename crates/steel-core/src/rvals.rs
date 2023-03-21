@@ -235,6 +235,8 @@ impl<T: CustomType + Clone + 'static> FromSteelVal for T {
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::Custom(v) = val {
             // let left_type = v.borrow().as_any_ref();
+            // TODO: @Matt - dylibs cause issues here, as the underlying type ids are different
+            // across workspaces and builds
             let left = v.borrow().as_any_ref().downcast_ref::<T>().cloned();
             left.ok_or_else(|| {
                 let error_message = format!(
@@ -246,7 +248,7 @@ impl<T: CustomType + Clone + 'static> FromSteelVal for T {
             })
         } else {
             let error_message = format!(
-                "Type Mismatch: Type of SteelVal: {:?} did not match the given type: {}",
+                "Type Mismatch: Type of SteelVal: {:?} did not match the given type, expecting opaque struct: {}",
                 val,
                 std::any::type_name::<Self>()
             );

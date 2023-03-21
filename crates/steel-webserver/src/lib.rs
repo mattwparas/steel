@@ -1,5 +1,10 @@
-use axum::{routing::get, Json, Router};
-use std::net::SocketAddr;
+use axum::{
+    extract::Query,
+    http::StatusCode,
+    routing::{get, post},
+    Json, Router,
+};
+use std::{collections::HashMap, net::SocketAddr};
 use steel::{
     rvals::{Custom, IntoSteelVal},
     steel_vm::{builtin::BuiltInModule, register_fn::RegisterFn},
@@ -10,24 +15,61 @@ use crossbeam::channel::{unbounded, Receiver, Sender};
 
 use axum::extract::Path;
 
+thread_local! {
+    static POST: SteelVal = SteelVal::SymbolV("POST".into());
+    static GET: SteelVal = SteelVal::SymbolV("GET".into());
+}
+
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum RequestType {
+    Post,
+    Get,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct Request {
+    typ: RequestType,
+    path: String,
+    body: Option<serde_json::Value>,
+}
+
+impl Custom for Request {}
+
+impl Request {
+    fn get_type(&self) -> SteelVal {
+        match self.typ {
+            RequestType::Post => POST.with(|x| x.clone()),
+            RequestType::Get => GET.with(|x| x.clone()),
+        }
+    }
+
+    fn get_path(&self) -> String {
+        self.path.clone()
+    }
+
+    fn get_body(&self) -> Option<serde_json::Value> {
+        self.body.clone()
+    }
+}
+
 #[derive(Clone)]
 struct CommandMessenger {
-    sender: Sender<String>,
-    receiver: Receiver<String>,
+    sender: Sender<Request>,
+    receiver: Receiver<Result<String, String>>,
 }
 
 impl Custom for CommandMessenger {}
 
 impl CommandMessenger {
-    pub fn new(sender: Sender<String>, receiver: Receiver<String>) -> Self {
+    pub fn new(sender: Sender<Request>, receiver: Receiver<Result<String, String>>) -> Self {
         Self { sender, receiver }
     }
 
-    pub fn send_request(&self, path: String) {
+    pub fn send_request(&self, request: Request) {
         // todo!()
 
         // Send the message to the VM context to parse
-        match self.sender.send(path) {
+        match self.sender.send(request) {
             Ok(_) => {}
             Err(e) => {
                 println!("Error: {:?}", e)
@@ -39,11 +81,11 @@ impl CommandMessenger {
 
 #[derive(Clone)]
 struct WrappedReceiver {
-    receiver: Receiver<String>,
+    receiver: Receiver<Request>,
 }
 
 impl WrappedReceiver {
-    fn recv(&self) -> String {
+    fn recv(&self) -> Request {
         self.receiver.recv().unwrap()
     }
 }
@@ -52,11 +94,11 @@ impl Custom for WrappedReceiver {}
 
 #[derive(Clone)]
 struct WrappedSender {
-    sender: Sender<String>,
+    sender: Sender<Result<String, String>>,
 }
 
 impl WrappedSender {
-    fn send(&self, value: String) {
+    fn send(&self, value: Result<String, String>) {
         self.sender.send(value).unwrap()
     }
 }
@@ -91,7 +133,12 @@ fn generate_module() -> BuiltInModule {
         .register_fn("setup-channels", setup_channels)
         .register_fn("receiver/recv", WrappedReceiver::recv)
         .register_fn("sender/send", WrappedSender::send)
-        .register_fn("thread/join", WrappedJoinHandler::join);
+        .register_fn("thread/join", WrappedJoinHandler::join)
+        .register_fn("request-type", Request::get_type)
+        .register_fn("request-path", Request::get_path)
+        .register_fn("request-body", Request::get_body)
+        .register_value("request-type/POST", POST.with(|x| x.clone()))
+        .register_value("request-type/GET", GET.with(|x| x.clone()));
 
     // module.register_type::<SteelTomlValue>("toml?");
 
@@ -117,38 +164,70 @@ impl WrappedJoinHandler {
 
 impl Custom for WrappedJoinHandler {}
 
-fn spawn_server(command_messenger: CommandMessenger) -> WrappedJoinHandler {
-    let handle =
-        std::thread::spawn(|| {
-            tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .unwrap()
-                .block_on(async {
-                    // let (command_sender, vm_receiver) = unbounded();
-                    // let (vm_sender, command_receiver) = unbounded();
+fn spawn_server(
+    command_messenger: CommandMessenger,
+    routes: Vec<String>,
+    port: usize,
+) -> WrappedJoinHandler {
+    let handle = std::thread::spawn(move || {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                // let (command_sender, vm_receiver) = unbounded();
+                // let (vm_sender, command_receiver) = unbounded();
 
-                    // let command_messenger = CommandMessenger::new(command_sender, command_receiver);
+                // let command_messenger = CommandMessenger::new(command_sender, command_receiver);
 
-                    // build our application with a route
-                    let app = Router::new().route(
-                    "/*route",
-                    get(|Path(path): Path<String>, Json(json): Json<serde_json::Value>| async move {
-                        // println!("Receiving request");
-                        command_messenger.send_request(path);
-                        command_messenger.receiver.recv().unwrap()
-                    }),
-                );
+                // let post_messenger = command_messenger.clone();
 
-                    // run it
-                    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-                    println!("listening on {}", addr);
-                    axum::Server::bind(&addr)
-                        .serve(app.into_make_service())
-                        .await
-                        .unwrap();
-                })
-        });
+                let mut app = Router::new();
+
+                for route in routes {
+                    let messenger = command_messenger.clone();
+
+                    app = app.route(
+                        &route,
+                        get(
+                            |Path(path): Path<String>,
+                             Path(params): Path<std::collections::HashMap<String, String>>,
+                             Query(query): Query<HashMap<String, String>>,
+                             json: Option<Json<serde_json::Value>>| async move {
+                                // println!("Receiving request");
+
+                                // println!("path parameters: {:?}", params);
+                                // println!("Query parameters: {:?}", query);
+                                // println!("Body: {:?}", json);
+
+                                let request = Request {
+                                    typ: RequestType::Get,
+                                    path,
+                                    body: None,
+                                };
+
+                                messenger.send_request(request);
+
+                                match messenger.receiver.recv() {
+                                    Ok(Ok(v)) => Ok(v),
+                                    Ok(Err(_)) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+                                    Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+                                }
+                                // messenger.receiver.recv().unwrap()
+                            },
+                        ),
+                    );
+                }
+
+                // run it
+                let addr = SocketAddr::from(([127, 0, 0, 1], port as u16));
+                println!("listening on {}", addr);
+                axum::Server::bind(&addr)
+                    .serve(app.into_make_service())
+                    .await
+                    .unwrap();
+            })
+    });
 
     WrappedJoinHandler {
         handle: Some(handle),

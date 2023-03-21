@@ -8,10 +8,16 @@ use crate::{
     rvals::FromSteelVal,
 };
 
-use std::rc::Rc;
-use std::result;
-use std::str;
+use std::{
+    cell::{Ref, RefCell},
+    str,
+};
 use std::{collections::HashMap, path::PathBuf};
+use std::{
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
+use std::{result, sync::MutexGuard};
 use steel_parser::lexer::{OwnedTokenStream, ToOwnedString};
 use thiserror::Error;
 
@@ -52,21 +58,15 @@ impl FromSteelVal for SourceId {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Sources {
+#[derive(Default, Clone, Serialize, Deserialize)]
+struct InterierSources {
     paths: HashMap<SourceId, PathBuf>,
     sources: Vec<String>,
 }
 
-impl Default for Sources {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Sources {
+impl InterierSources {
     pub fn new() -> Self {
-        Sources {
+        InterierSources {
             paths: HashMap::new(),
             sources: Vec::new(),
         }
@@ -91,6 +91,37 @@ impl Sources {
 
     pub fn get_path(&self, source_id: &SourceId) -> Option<&PathBuf> {
         self.paths.get(source_id)
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Sources {
+    sources: Rc<RefCell<InterierSources>>,
+}
+
+impl Default for Sources {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Sources {
+    pub fn new() -> Self {
+        Sources {
+            sources: Rc::new(RefCell::new(InterierSources::new())),
+        }
+    }
+
+    pub fn add_source(&mut self, source: String, path: Option<PathBuf>) -> SourceId {
+        self.sources.borrow_mut().add_source(source, path)
+    }
+
+    pub fn get(&'_ self, source_id: SourceId) -> Option<Ref<'_, String>> {
+        Ref::filter_map(self.sources.borrow(), |x| x.get(source_id)).ok()
+    }
+
+    pub fn get_path(&self, source_id: &SourceId) -> Option<Ref<'_, PathBuf>> {
+        Ref::filter_map(self.sources.borrow(), |x| x.paths.get(source_id)).ok()
     }
 }
 

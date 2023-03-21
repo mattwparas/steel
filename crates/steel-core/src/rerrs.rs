@@ -17,7 +17,7 @@ struct Repr {
     pub kind: ErrorKind,
     pub message: String,
     pub span: Option<Span>,
-    pub source: Option<Rc<PathBuf>>,
+    // pub source: Option<Rc<PathBuf>>,
     pub stack_trace: Option<DehydratedStackTrace>,
 }
 
@@ -81,7 +81,7 @@ impl From<std::io::Error> for Repr {
             kind: ErrorKind::Io,
             message: v.to_string(),
             span: None,
-            source: None,
+            // source: None,
             stack_trace: None,
         }
     }
@@ -105,7 +105,7 @@ impl From<Infallible> for Repr {
             kind: ErrorKind::Infallible,
             message: v.to_string(),
             span: None,
-            source: None,
+            // source: None,
             stack_trace: None,
         }
     }
@@ -132,7 +132,7 @@ impl From<ParseError> for Repr {
             kind: ErrorKind::Parse,
             message: v.to_string(),
             span,
-            source: source.clone(),
+            // source: source.clone(),
             stack_trace: None,
         }
     }
@@ -149,7 +149,11 @@ impl fmt::Display for SteelErr {
     }
 }
 
-impl Custom for SteelErr {}
+impl Custom for SteelErr {
+    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+        Some(Ok(format!("{}", self)))
+    }
+}
 
 impl SteelErr {
     fn _new(repr: Repr) -> Self {
@@ -166,7 +170,7 @@ impl SteelErr {
                 kind,
                 message,
                 span: None,
-                source: None,
+                // source: None,
                 stack_trace: None,
             },
         }
@@ -198,10 +202,10 @@ impl SteelErr {
         self
     }
 
-    pub fn with_source(mut self, source: Option<Rc<PathBuf>>) -> Self {
-        self.repr.source = source;
-        self
-    }
+    // pub fn with_source(mut self, source: Option<Rc<PathBuf>>) -> Self {
+    //     self.repr.source = source;
+    //     self
+    // }
 
     pub fn with_stack_trace(mut self, stack_trace: DehydratedStackTrace) -> Self {
         self.repr.stack_trace = Some(stack_trace);
@@ -363,7 +367,9 @@ macro_rules! stop {
         return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span))
     };
     ($type:ident => $thing:expr; $span:expr; $source:expr) => {
-        return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span).with_source($source))
+        return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span))
+
+        // .with_source($source))
     };
 }
 

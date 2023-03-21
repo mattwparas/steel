@@ -140,7 +140,7 @@ pub fn hm_get(args: &[SteelVal]) -> Result<SteelVal> {
     if let SteelVal::HashMapV(hm) = hashmap {
         match hm.get(key) {
             Some(v) => Ok(v.clone()),
-            None => stop!(Generic => "hash map key not found!"),
+            None => stop!(Generic => "hash map key not found!: {}", key),
         }
     } else {
         stop!(TypeMismatch => "hm-get takes a hashmap, found: {}", hashmap)

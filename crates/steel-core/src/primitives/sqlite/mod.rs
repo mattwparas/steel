@@ -24,7 +24,7 @@ impl ToSql for SteelVal {
             Self::NumV(n) => Ok(ToSqlOutput::Owned(Value::Real(*n))),
             Self::Void => Ok(ToSqlOutput::Owned(Value::Null)),
             _ => {
-                todo!("Implement serialization for other types")
+                todo!("Implement serialization for other types: {:?}", self)
             }
         }
     }

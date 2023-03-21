@@ -1328,14 +1328,16 @@ impl<'a> ModuleBuilder<'a> {
 
         let id = self.sources.add_source(exprs, Some(self.name.clone()));
 
-        // Fetch the exprs after adding them to the sources
-        // We did _just_ add it, so its fine to unwrap
-        let exprs = self.sources.get(id).unwrap();
+        {
+            // Fetch the exprs after adding them to the sources
+            // We did _just_ add it, so its fine to unwrap
+            let exprs = self.sources.get(id).unwrap();
 
-        let parsed = Parser::new_from_source(exprs, self.name.clone(), Some(id))
-            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
+            let parsed = Parser::new_from_source(&exprs, self.name.clone(), Some(id))
+                .collect::<std::result::Result<Vec<_>, ParseError>>()?;
 
-        self.source_ast = parsed;
+            self.source_ast = parsed;
+        }
 
         Ok(self)
     }

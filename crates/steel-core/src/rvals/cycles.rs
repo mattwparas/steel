@@ -86,9 +86,13 @@ impl CycleDetector {
                         .is_some()
                     {
                         write!(f, "({}", guard.name)?;
-                        for i in 0..guard.len - 1 {
+                        // for i in 0..guard.len - 1 {
+
+                        // }
+
+                        for i in &guard.fields {
                             write!(f, " ")?;
-                            self.format_with_cycles(&guard.fields[i], f)?;
+                            self.format_with_cycles(i, f)?;
                         }
 
                         write!(f, ")")
@@ -187,9 +191,14 @@ impl CycleDetector {
                             .is_some()
                         {
                             write!(f, "({}", guard.name)?;
-                            for i in 0..guard.len - 1 {
+                            // for i in 0..guard.len - 1 {
+                            //     write!(f, " ")?;
+                            //     self.format_with_cycles(&guard.fields[i], f)?;
+                            // }
+
+                            for i in &guard.fields {
                                 write!(f, " ")?;
-                                self.format_with_cycles(&guard.fields[i], f)?;
+                                self.format_with_cycles(i, f)?;
                             }
 
                             write!(f, ")")

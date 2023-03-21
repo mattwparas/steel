@@ -24,11 +24,16 @@ use std::{
 
 use super::functions::BoxedDynFunction;
 
+enum StringOrMagicNumber {
+    String(Rc<String>),
+    Magic(usize),
+}
+
 #[derive(Clone, Debug)]
 pub struct UserDefinedStruct {
     pub(crate) name: Rc<String>,
     pub(crate) fields: smallvec::SmallVec<[SteelVal; 5]>,
-    pub(crate) len: usize,
+    // pub(crate) len: usize,
     pub(crate) properties: Gc<im_rc::HashMap<SteelVal, SteelVal>>,
 }
 
@@ -36,7 +41,7 @@ pub struct UserDefinedStruct {
 impl PartialEq for UserDefinedStruct {
     fn eq(&self, other: &Self) -> bool {
         Rc::ptr_eq(&self.name, &other.name)
-            && self.len == other.len
+            // && self.len == other.len
             && self.fields == other.fields
             && Gc::ptr_eq(&self.properties, &other.properties)
     }
@@ -50,8 +55,12 @@ impl std::fmt::Display for UserDefinedStruct {
             .is_some()
         {
             write!(f, "({}", self.name)?;
-            for i in 0..self.len - 1 {
-                write!(f, " {}", self.fields[i])?;
+            // for i in 0..self.len - 1 {
+            //     write!(f, " {}", self.fields[i])?;
+            // }
+
+            for i in &self.fields {
+                write!(f, " {}", i)?;
             }
 
             write!(f, ")")
@@ -229,7 +238,7 @@ impl UserDefinedStruct {
             Ok(Self {
                 name,
                 fields: rest.into(),
-                len: fields.len(),
+                // len: fields.len(),
                 properties,
             })
         } else {
@@ -247,14 +256,18 @@ impl UserDefinedStruct {
         ERR_CONSTRUCTOR.with(|x| x(&[value.into_steelval()?]))
     }
 
+    // TODO: This doesn't particularly play nice with dynamic libraries. Should probably just assign some IDs
+    // to these structs and use them that way
     #[inline(always)]
     fn is_ok(&self) -> bool {
         Rc::ptr_eq(&self.name, &OK_RESULT_LABEL.with(|x| Rc::clone(x)))
+            || self.name == OK_RESULT_LABEL.with(|x| Rc::clone(x))
     }
 
     #[inline(always)]
     fn is_err(&self) -> bool {
         Rc::ptr_eq(&self.name, &ERR_RESULT_LABEL.with(|x| Rc::clone(x)))
+            || self.name == ERR_RESULT_LABEL.with(|x| Rc::clone(x))
     }
 
     fn new_with_options(
@@ -265,7 +278,7 @@ impl UserDefinedStruct {
         Self {
             name,
             fields: rest.into(),
-            len: rest.len() + 1,
+            // len: rest.len() + 1,
             properties,
         }
     }
@@ -479,7 +492,7 @@ impl UserDefinedStruct {
                     if *idx < 0 {
                         stop!(Generic => "struct-ref expected a non negative index");
                     }
-                    if *idx as usize >= s.borrow().len {
+                    if *idx as usize >= s.borrow().fields.len() {
                         stop!(Generic => "struct-ref: index out of bounds");
                     }
 
@@ -773,7 +786,7 @@ impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for std::result::Result<T, E
                 stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type: {val:?}"))
             }
         } else {
-            stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type: {val:?}"));
+            stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type - value is not a struct: {val:?}"));
         }
     }
 }

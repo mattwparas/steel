@@ -22,6 +22,7 @@ use crate::{
     },
     rerrs::back_trace,
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
+    steel_vm::register_fn::RegisterFn,
     stop, throw,
     values::functions::BoxedDynFunction,
     SteelErr,
@@ -175,6 +176,12 @@ impl Engine {
             }
 
             log::info!(target: "kernel", "Loaded dylibs in the kernel!");
+
+            let sources = vm.sources.clone();
+
+            vm.register_fn("report-error!", move |error: SteelErr| {
+                raise_error(&sources, error);
+            });
 
             vm
         } else {
@@ -954,53 +961,7 @@ impl Engine {
     }
 
     pub fn raise_error(&self, error: SteelErr) {
-        if let Some(span) = error.span() {
-            if let Some(source_id) = span.source_id() {
-                let file_name = self.sources.get_path(&source_id);
-
-                if let Some(file_content) = self.sources.get(source_id) {
-                    // Build stack trace if we have it:
-                    if let Some(trace) = error.stack_trace() {
-                        // TODO: Flatten recursive calls into the same stack trace
-                        // and present the count
-                        for dehydrated_context in trace.trace().iter().take(20) {
-                            // Report a call stack with whatever we actually have,
-                            if let Some(span) = dehydrated_context.span() {
-                                if let Some(id) = span.source_id() {
-                                    if let Some(source) = self.sources.get(id) {
-                                        let trace_line_file_name = self.sources.get_path(&id);
-
-                                        back_trace(
-                                            trace_line_file_name
-                                                .and_then(|x| x.to_str())
-                                                .unwrap_or(""),
-                                            source,
-                                            *span,
-                                        );
-
-                                        // let slice = &source.as_str()[span.range()];
-
-                                        // println!("{}", slice);
-
-                                        // todo!()
-                                    }
-                                }
-                            }
-
-                            // source = self.sources.get(dehydrated_context.)
-                        }
-                    }
-
-                    error.emit_result(
-                        file_name.and_then(|x| x.to_str()).unwrap_or(""),
-                        file_content,
-                    );
-                    return;
-                }
-            }
-        }
-
-        println!("Unable to locate source and span information for this error: {error}");
+        raise_error(&self.sources, error)
     }
 
     /// Execute a program given as the `expr`, and computes a `Vec<SteelVal>` corresponding to the output of each expression given.
@@ -1196,3 +1157,60 @@ impl Engine {
 //     //     assert_eq!(external_count.get(), 4);
 //     // }
 // }
+
+fn raise_error(sources: &Sources, error: SteelErr) {
+    if let Some(span) = error.span() {
+        if let Some(source_id) = span.source_id() {
+            let file_name = sources.get_path(&source_id);
+
+            if let Some(file_content) = sources.get(source_id) {
+                // Build stack trace if we have it:
+                if let Some(trace) = error.stack_trace() {
+                    // TODO: Flatten recursive calls into the same stack trace
+                    // and present the count
+                    for dehydrated_context in trace.trace().iter().take(20) {
+                        // Report a call stack with whatever we actually have,
+                        if let Some(span) = dehydrated_context.span() {
+                            if let Some(id) = span.source_id() {
+                                if let Some(source) = sources.get(id) {
+                                    let trace_line_file_name = sources.get_path(&id);
+
+                                    // let resolved_file_name = trace_line_file_name
+                                    //     .and_then(|x| {
+                                    //         std::cell::Ref::filter_map(x, |x| x.to_str()).ok()
+                                    //     })
+                                    //     .unwrap_or(std::cell::RefCell::new("").borrow());
+
+                                    let resolved_file_name = trace_line_file_name
+                                        .as_ref()
+                                        .and_then(|x| x.to_str())
+                                        .unwrap_or_default();
+
+                                    back_trace(&resolved_file_name, &source, *span);
+
+                                    // let slice = &source.as_str()[span.range()];
+
+                                    // println!("{}", slice);
+
+                                    // todo!()
+                                }
+                            }
+                        }
+
+                        // source = self.sources.get(dehydrated_context.)
+                    }
+                }
+
+                let resolved_file_name = file_name
+                    .as_ref()
+                    .and_then(|x| x.to_str())
+                    .unwrap_or_default();
+
+                error.emit_result(&resolved_file_name, &file_content);
+                return;
+            }
+        }
+    }
+
+    println!("Unable to locate source and span information for this error: {error}");
+}
