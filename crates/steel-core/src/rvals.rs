@@ -888,7 +888,7 @@ impl Chunks {
 }
 
 pub enum BuiltInDataStructureIterator {
-    List(im_lists::list::ConsumingIter<SteelVal>),
+    List(im_lists::list::ConsumingIter<SteelVal, im_lists::shared::RcPointer, 256>),
     Vector(im_rc::vector::ConsumingIter<SteelVal>),
     Set(im_rc::hashset::ConsumingIter<SteelVal>),
     Map(im_rc::hashmap::ConsumingIter<(SteelVal, SteelVal)>),

@@ -10,4 +10,4 @@ crate-type = ["cdylib"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-steel-core = { path = "../steel-core", version = "0.2.0" }
+steel-core = { path = "../steel-core", version = "0.2.0", features = ["modules"] }

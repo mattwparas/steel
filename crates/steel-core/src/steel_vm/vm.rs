@@ -246,6 +246,7 @@ pub struct FunctionInterner {
     // Keep these around - each thread keeps track of the instructions on the bytecode object, but we shouldn't
     // need to dereference that until later? When we actually move to that
     instructions: fxhash::FxHashMap<usize, Rc<[DenseInstruction]>>,
+    // slot_map: SlotMap<
 }
 
 impl SteelThread {
@@ -1365,6 +1366,46 @@ impl<'a> VmCore<'a> {
 
                     self.ip += 2;
                 }
+                DenseInstruction {
+                    op_code: OpCode::LTEIMMEDIATEIF,
+                    ..
+                } => {
+                    // inline_register_primitive_immediate!(subtract_primitive)
+
+                    let read_local = &self.instructions[self.ip];
+                    let push_const = &self.instructions[self.ip + 1];
+
+                    // get the local
+                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                    let offset = self.get_offset();
+                    let local_value =
+                        self.thread.stack[read_local.payload_size as usize + offset].clone();
+
+                    // get the const value, if it can fit into the value...
+                    let const_val = push_const.payload_size as isize;
+
+                    // sub_handler_none_int
+
+                    // TODO: Probably elide the stack push if the next inst is an IF
+                    let result = lte_handler_none_int(self, local_value, const_val)?;
+
+                    // let result = match $name(&[local_value, const_val]) {
+                    //     Ok(value) => value,
+                    //     Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                    // };
+
+                    // let result
+
+                    self.ip += 2;
+
+                    // change to truthy...
+                    if result {
+                        self.ip += 1;
+                    } else {
+                        self.ip = self.instructions[self.ip].payload_size as usize;
+                    }
+                }
+
                 DenseInstruction {
                     op_code: OpCode::ADD,
                     payload_size,
@@ -3525,10 +3566,7 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
     */
 
     // Roll back one because we advanced prior to entering the builtin
-
-    // if std::env::var("CODE_GEN_V2").is_err() {
     ctx.ip -= 1;
-    // }
 
     if args.len() != 1 {
         builtin_stop!(ArityMismatch => format!("call/cc expects one argument, found: {}", args.len()); ctx.current_span());

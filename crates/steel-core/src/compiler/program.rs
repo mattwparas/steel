@@ -475,6 +475,52 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
     }
 }
 
+pub fn merge_conditions_with_if(instructions: &mut [Instruction]) {
+    for i in 0..instructions.len() - 1 {
+        let condition = instructions.get(i);
+        let guard = instructions.get(i + 2);
+
+        if let (
+            Some(Instruction {
+                op_code: OpCode::LTEIMMEDIATE,
+                ..
+            }),
+            Some(Instruction {
+                op_code: OpCode::IF,
+                ..
+            }),
+        ) = (condition, guard)
+        {
+            if let Some(x) = instructions.get_mut(i) {
+                x.op_code = OpCode::LTEIMMEDIATEIF;
+            }
+
+            // let replaced = match *ident {
+            //     x if x == *PLUS && *payload_size == 2 => Some(OpCode::BINOPADD),
+            //     x if x == *PLUS => Some(OpCode::ADD),
+            //     x if x == *MINUS => Some(OpCode::SUB),
+            //     x if x == *DIV => Some(OpCode::DIV),
+            //     x if x == *STAR => Some(OpCode::MUL),
+            //     x if x == *EQUAL => Some(OpCode::EQUAL),
+            //     x if x == *LTE => Some(OpCode::LTE),
+            //     _ => None,
+            // };
+
+            // if let Some(new_op_code) = replaced {
+            //     let payload_size = *payload_size;
+            //     if let Some(x) = instructions.get_mut(i) {
+            //         x.op_code = new_op_code;
+            //         x.payload_size = payload_size;
+            //     }
+
+            //     if let Some(x) = instructions.get_mut(i + 1) {
+            //         x.op_code = OpCode::PASS;
+            //     }
+            // }
+        }
+    }
+}
+
 pub struct ProgramBuilder(Vec<Vec<DenseInstruction>>);
 impl Default for ProgramBuilder {
     fn default() -> Self {
@@ -817,6 +863,8 @@ impl RawProgramWithSymbols {
             // gimmick_super_instruction(instructions);
             // move_read_local_call_global(instructions);
             specialize_read_local(instructions);
+
+            merge_conditions_with_if(instructions);
 
             // specialize_exit_jmp(instructions);
 

@@ -44,7 +44,6 @@
 (define make-flat-contract FlatContract)
 
 
-
 ;;#|
 ;;   Testing out a multi line comment...
 ;; |#
@@ -59,7 +58,6 @@
                     post-condition
                     contract-attachment-location
                     parents))
-
 
 ;; Formats a contract nicely as a string
 (define (contract->string contract)

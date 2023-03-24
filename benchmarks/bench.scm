@@ -43,8 +43,8 @@
     (build-release)
     (print "Running benches...")
     (bench-group "map")
-    ; (bench-group "startup" "--warmup" "10" "--min-runs" "100" "--export-markdown" "warmup.md")
-    ; (bench-group "fib" "--warmup" "10" "--min-runs" "40" "--export-markdown" "fib.md")
+    (bench-group "startup" "--warmup" "10" "--min-runs" "100" "--export-markdown" "warmup.md")
+    (bench-group "fib" "--warmup" "10" "--min-runs" "40" "--export-markdown" "fib.md")
     ; (bench-group "bin-trees")
     (print "Done"))
 

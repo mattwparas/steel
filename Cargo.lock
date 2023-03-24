@@ -1251,9 +1251,9 @@ dependencies = [
 
 [[package]]
 name = "im-lists"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c5a802ec35c9c27d0b192e53413af9f65fb5e4cf95de3efac449b1a45e6296a"
+checksum = "672276519d815ccefd90f863e554e788054189db625d81c86949988478af7a58"
 dependencies = [
  "itertools",
 ]
