@@ -50,7 +50,10 @@ pub struct ByteCodeLambda {
     // #[cfg(not(feature = "dynamic"))]
     // pub(crate) body_exp: Rc<[DenseInstruction]>,
     arity: usize,
+
+    #[cfg(feature = "dynamic")]
     call_count: Cell<usize>,
+
     pub(crate) is_multi_arity: bool,
     captures: Vec<SteelVal>,
     pub(crate) heap_allocated: RefCell<Vec<HeapRef>>,
@@ -100,7 +103,10 @@ impl ByteCodeLambda {
             body_exp,
 
             arity,
+
+            #[cfg(feature = "dynamic")]
             call_count: Cell::new(0),
+
             is_multi_arity,
             captures,
             // TODO: Allocated the necessary size right away <- we're going to index into it
@@ -195,12 +201,14 @@ impl ByteCodeLambda {
         &self.captures
     }
 
+    #[cfg(feature = "dynamic")]
     #[inline(always)]
     pub fn increment_call_count(&self) {
         // self.call_count += 1;
         self.call_count.set(self.call_count.get() + 1);
     }
 
+    #[cfg(feature = "dynamic")]
     pub fn call_count(&self) -> usize {
         self.call_count.get()
     }

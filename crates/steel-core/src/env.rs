@@ -33,6 +33,7 @@ impl Env {
         }
     }
 
+    #[cfg(feature = "dynamic")]
     pub(crate) fn _print_diagnostics(&self) {
         for (idx, value) in self.bindings_vec.iter().enumerate() {
             if let SteelVal::Closure(b) = value {

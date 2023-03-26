@@ -25,7 +25,7 @@ use crate::{
     values::functions::ByteCodeLambda,
 };
 // use std::env::current_exe;
-use std::{collections::HashMap, iter::Iterator, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, iter::Iterator, rc::Rc};
 
 use super::builtin::DocTemplate;
 
@@ -34,6 +34,7 @@ use lazy_static::lazy_static;
 
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
+use slotmap::DefaultKey;
 use smallvec::SmallVec;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
@@ -115,7 +116,7 @@ impl DehydratedStackTrace {
 pub struct StackFrame {
     sp: usize,
     // This _has_ to be a function
-    handler: Option<SteelVal>,
+    handler: Option<DefaultKey>,
     // This should get added to the GC as well
     pub(crate) function: Gc<ByteCodeLambda>,
     ip: usize,
@@ -128,8 +129,9 @@ fn check_sizes() {
     println!("{:?}", std::mem::size_of::<Option<SteelVal>>());
     println!("{:?}", std::mem::size_of::<StackFrame>());
     println!("{:?}", std::mem::size_of::<Rc<[DenseInstruction]>>());
-    println!("{:?}", std::mem::size_of::<Rc<[Span]>>());
+    // println!("{:?}", std::mem::size_of::<Rc<[Span]>>());
     println!("{:?}", std::mem::size_of::<Gc<ByteCodeLambda>>());
+    // println!("{:?}", std::mem::size_of::<Option<slotmap::DefaultKey>>());
 }
 
 impl StackFrame {
@@ -172,11 +174,11 @@ impl StackFrame {
     //     self.span = Some(span);
     // }
 
-    pub fn attach_handler(&mut self, handler: SteelVal) {
-        self.handler = Some(handler);
-    }
+    // pub fn attach_handler(&mut self, handler: SteelVal) {
+    //     self.handler = Some(handler);
+    // }
 
-    pub fn with_handler(mut self, handler: SteelVal) -> Self {
+    pub fn with_handler(mut self, handler: DefaultKey) -> Self {
         self.handler = Some(handler);
         self
     }
@@ -246,7 +248,9 @@ pub struct FunctionInterner {
     // Keep these around - each thread keeps track of the instructions on the bytecode object, but we shouldn't
     // need to dereference that until later? When we actually move to that
     instructions: fxhash::FxHashMap<usize, Rc<[DenseInstruction]>>,
-    // slot_map: SlotMap<
+
+    handlers: Rc<RefCell<slotmap::SlotMap<DefaultKey, SteelVal>>>,
+    // arena: Rc<bumpalo::Bump>,
 }
 
 impl SteelThread {
@@ -384,6 +388,8 @@ impl SteelThread {
         #[cfg(feature = "profiling")]
         let execution_time = Instant::now();
 
+        let handler_ref = Rc::clone(&self.function_interner.handlers);
+
         let mut vm_instance =
             VmCore::new(instructions, constant_map, Rc::clone(&spans), self, &spans)?;
 
@@ -415,6 +421,8 @@ impl SteelThread {
 
                         vm_instance.thread.stack.push(e.into_steelval()?);
 
+                        let handler = &handler_ref.borrow()[handler];
+
                         // If we're at the top level, we need to handle this _slightly_ differently
                         // if vm_instance.stack_frames.is_empty() {
                         // Somehow update the main instruction group to _just_ be the new group
@@ -439,7 +447,7 @@ impl SteelThread {
                                 // vm_instance.spans = closure.spans();
 
                                 last.handler = None;
-                                last.function = closure;
+                                last.function = closure.clone();
 
                                 vm_instance.ip = 0;
 
@@ -2088,10 +2096,22 @@ impl<'a> VmCore<'a> {
 
             let rollback_index = last.sp;
 
+            // let ret_val = self.thread.stack.pop().unwrap();
+
+            // for _ in rollback_index..self.thread.stack.len() {
+            //     self.thread.stack.pop();
+            // }
+
+            // self.thread.stack.push(ret_val);
+
             let _ = self
                 .thread
                 .stack
                 .drain(rollback_index..self.thread.stack.len() - 1);
+
+            // for value in values {
+            //     dbg!(value);
+            // }
 
             self.update_state_with_frame(last);
 
@@ -2464,7 +2484,6 @@ impl<'a> VmCore<'a> {
                 is_multi_arity,
                 Vec::new(),
                 Vec::new(),
-                // Rc::clone(&spans),
             );
 
             self.thread
@@ -3514,6 +3533,13 @@ pub fn call_with_exception_handler(
             ctx.ip -= 1;
 
             ctx.sp = ctx.thread.stack.len();
+
+            let handler = ctx
+                .thread
+                .function_interner
+                .handlers
+                .borrow_mut()
+                .insert(handler);
 
             // Push the previous state on
             ctx.thread.stack_frames.push(

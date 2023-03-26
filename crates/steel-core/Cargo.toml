@@ -42,7 +42,9 @@ lazy_static = "1.4.0"
 steel-gen = { path = "../steel-gen", version = "0.2.0" }
 steel-parser = { path = "../steel-parser", version = "0.2.0" }
 chrono = "0.4.23"
-# slotmap = "1.0.6"
+slotmap = "1.0.6"
+
+# bumpalo = { version = "3.12.0", features = ["boxed", "collections"] }
 
 rusqlite =  { version = "0.28.0", features = ["bundled"], optional = true }
 
