@@ -182,3 +182,33 @@ impl AsRef<str> for Gc<String> {
         self.0.as_ref()
     }
 }
+
+#[cfg(feature = "unsafe-internals")]
+mod unsafe_roots {
+
+    use crate::SteelVal;
+
+    use super::Gc;
+    use std::ptr::NonNull;
+
+    pub struct Rooted<T> {
+        value: NonNull<T>,
+    }
+
+    impl<T> Rooted<T> {
+        fn from_rc(value: &Gc<T>) -> Self {
+            Rooted {
+                value: NonNull::new(Gc::as_ptr(value) as _).expect("Given pointer was null!"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_rooting() {
+        let root = Gc::new(SteelVal::ListV(im_lists::list![]));
+
+        let rooted_reference = Rooted::from_rc(&root);
+
+        println!("{:?}", unsafe { rooted_reference.value.as_ref() });
+    }
+}
