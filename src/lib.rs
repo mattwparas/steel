@@ -49,51 +49,10 @@ enum EmitAction {
     Doc { default_file: Option<PathBuf> },
 }
 
-struct Applesauce {}
-impl CustomReference for Applesauce {}
-
-struct Bananas<'a> {
-    applesauce: &'a mut Applesauce,
-}
-impl<'a> CustomReference for Bananas<'a> {}
-
-#[derive(Clone)]
-enum Test {}
-
-impl Custom for Test {}
-
-fn test_embedding(b: &mut Bananas, args: &[std::borrow::Cow<str>], test: Test) {
-    todo!()
-}
-
-// fn standard_cow(arg: &[std::borrow::Cow<str>]) {
-//     todo!()
-// }
-
 pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
     let mut vm = Engine::new();
 
     vm.register_value("std::env::args", steel::SteelVal::ListV(vec![].into()));
-
-    let mut applesauce = Applesauce {};
-
-    let mut bananas = Bananas {
-        applesauce: &mut applesauce,
-    };
-
-    vm.register_fn("blagh", test_embedding);
-
-    vm.run_with_reference::<Bananas<'_>, Bananas<'static>>(
-        &mut bananas,
-        "*applesauce*",
-        "(displayln *applesauce*)",
-    );
-
-    // vm.run_with_reference::<Bananas<'_>, Bananas<'static>>(
-    //     &mut bananas,
-    //     "*applesauce*",
-    //     "(displayln *applesauce*)",
-    // );
 
     match clap_args {
         Args {
