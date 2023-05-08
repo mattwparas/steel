@@ -1,4 +1,5 @@
 pub mod builtin;
+pub mod cache;
 pub(crate) mod const_evaluation;
 pub mod contract_checker;
 mod contracts;

@@ -39,6 +39,12 @@ impl AstTools for Vec<ExprKind> {
     }
 }
 
+impl AstTools for Vec<&ExprKind> {
+    fn pretty_print(&self) {
+        println!("{}", self.iter().map(|x| x.to_pretty(60)).join("\n\n"))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ExprKind {
     Atom(Atom),
@@ -321,6 +327,7 @@ impl TryFrom<&SteelVal> for ExprKind {
             CustomStruct(_) => Err("Can't convert from struct to expression!"),
             BoxedIterator(_) => Err("Can't convert from boxed iterator to expression!"),
             Boxed(_) => Err("Can't convert from boxed steel val to expression!"),
+            Reference(_) => Err("Can't convert from opaque reference type to expression!"),
         }
     }
 }

@@ -1,6 +1,7 @@
 use crate::parser::{
     ast::{ExprKind, If},
     interner::InternedString,
+    kernel::Kernel,
     parser::SyntaxObject,
     tokens::TokenType,
     tryfrom_visitor::TryFromExprKindForSteelVal,
@@ -24,6 +25,8 @@ use std::{
 use im_rc::HashMap;
 
 use log::debug;
+
+use super::cache::MemoizationTable;
 
 type SharedEnv = Rc<RefCell<ConstantEnv>>;
 
@@ -112,20 +115,29 @@ impl ConstantEnv {
 
 // Holds the global env that will eventually get passed down
 // Holds the arena for all environments to eventually be dropped together
-pub struct ConstantEvaluatorManager {
+pub struct ConstantEvaluatorManager<'a> {
     global_env: SharedEnv,
     set_idents: HashSet<InternedString>,
     pub(crate) changed: bool,
     opt_level: OptLevel,
+    memoization_table: &'a mut MemoizationTable,
+    kernel: &'a mut Option<Kernel>,
 }
 
-impl ConstantEvaluatorManager {
-    pub fn new(constant_bindings: HashMap<InternedString, SteelVal>, opt_level: OptLevel) -> Self {
+impl<'a> ConstantEvaluatorManager<'a> {
+    pub fn new(
+        memoization_table: &'a mut MemoizationTable,
+        constant_bindings: HashMap<InternedString, SteelVal>,
+        opt_level: OptLevel,
+        kernel: &'a mut Option<Kernel>,
+    ) -> Self {
         Self {
             global_env: Rc::new(RefCell::new(ConstantEnv::root(constant_bindings))),
             set_idents: HashSet::new(),
             changed: false,
             opt_level,
+            memoization_table,
+            kernel,
         }
     }
 
@@ -143,6 +155,8 @@ impl ConstantEvaluatorManager {
                     Rc::clone(&self.global_env),
                     &self.set_idents,
                     self.opt_level,
+                    self.memoization_table,
+                    self.kernel,
                 );
                 let output = eval.visit(x);
                 self.changed = self.changed || eval.changed;
@@ -157,6 +171,8 @@ struct ConstantEvaluator<'a> {
     set_idents: &'a HashSet<InternedString>,
     changed: bool,
     opt_level: OptLevel,
+    memoization_table: &'a mut MemoizationTable,
+    kernel: &'a mut Option<Kernel>,
 }
 
 fn steelval_to_atom(value: &SteelVal) -> Option<TokenType<InternedString>> {
@@ -175,12 +191,16 @@ impl<'a> ConstantEvaluator<'a> {
         bindings: Rc<RefCell<ConstantEnv>>,
         set_idents: &'a HashSet<InternedString>,
         opt_level: OptLevel,
+        memoization_table: &'a mut MemoizationTable,
+        kernel: &'a mut Option<Kernel>,
     ) -> Self {
         Self {
             bindings,
             set_idents,
             changed: false,
             opt_level,
+            memoization_table,
+            kernel,
         }
     }
 
@@ -217,6 +237,53 @@ impl<'a> ConstantEvaluator<'a> {
         exprs.iter().map(|x| self.to_constant(x)).collect()
     }
 
+    fn eval_kernel_function(
+        &mut self,
+        ident: InternedString,
+        func: ExprKind,
+        mut raw_args: Vec<ExprKind>,
+        args: &[SteelVal],
+    ) -> Result<ExprKind> {
+        println!(
+            "Calling function: {} with args: {:?}",
+            ident.resolve(),
+            args
+        );
+
+        let output = self.kernel.as_mut().unwrap().call_function(&ident, args)?;
+
+        if let Some(new_token) = steelval_to_atom(&output) {
+            let atom = Atom::new(SyntaxObject::new(new_token, get_span(&func)));
+            debug!(
+                "Const evaluation of a function resulted in an atom: {}",
+                atom
+            );
+            self.changed = true;
+            Ok(ExprKind::Atom(atom))
+        } else if let Ok(lst) = ExprKind::try_from(&output) {
+            self.changed = true;
+            let output = ExprKind::Quote(Box::new(Quote::new(
+                lst,
+                SyntaxObject::new(TokenType::Quote, get_span(&func)),
+            )));
+            debug!(
+                "Const evaluation of a function resulted in a quoted value: {}",
+                output
+            );
+            Ok(output)
+        } else {
+            debug!(
+                "Unable to convert constant-evalutable function output to value: {}",
+                func
+            );
+            // Something went wrong
+            raw_args.insert(0, func);
+            Ok(ExprKind::List(List::new(raw_args)))
+        }
+
+        // todo!()
+    }
+
     fn eval_function(
         &mut self,
         evaluated_func: SteelVal,
@@ -227,39 +294,40 @@ impl<'a> ConstantEvaluator<'a> {
         if evaluated_func.is_function() {
             match evaluated_func {
                 SteelVal::FuncV(f) => {
+                    // println!(
+                    //     "Evaluating function!: {} with args: {:?}",
+                    //     func.atom_identifier().unwrap().resolve(),
+                    //     args
+                    // );
+
                     // TODO: Clean this up - we shouldn't even enter this section of the code w/o having
                     // the actual atom itself.
-                    let output = f(args)
-                        .map_err(|e| e.set_span_if_none(func.atom_syntax_object().unwrap().span))?;
+                    let output = if let Some(output) = self
+                        .memoization_table
+                        .get(SteelVal::FuncV(f), args.to_vec())
+                    {
+                        // println!("Function result found in the cache!");
+                        // println!("{:#?}", self.memoization_table);
 
-                    if let Some(new_token) = steelval_to_atom(&output) {
-                        let atom = Atom::new(SyntaxObject::new(new_token, get_span(&func)));
-                        debug!(
-                            "Const evaluation of a function resulted in an atom: {}",
-                            atom
-                        );
-                        self.changed = true;
-                        Ok(ExprKind::Atom(atom))
-                    } else if let Ok(lst) = ExprKind::try_from(&output) {
-                        self.changed = true;
-                        let output = ExprKind::Quote(Box::new(Quote::new(
-                            lst,
-                            SyntaxObject::new(TokenType::Quote, get_span(&func)),
-                        )));
-                        debug!(
-                            "Const evaluation of a function resulted in a quoted value: {}",
-                            output
-                        );
-                        Ok(output)
+                        output
                     } else {
-                        debug!(
-                            "Unable to convert constant-evalutable function output to value: {}",
-                            evaluated_func
+                        // println!("Not found in the cache, adding...");
+                        // println!("{:#?}", self.memoization_table);
+
+                        let output = f(args).map_err(|e| {
+                            e.set_span_if_none(func.atom_syntax_object().unwrap().span)
+                        })?;
+
+                        self.memoization_table.insert(
+                            SteelVal::FuncV(f),
+                            args.to_vec(),
+                            output.clone(),
                         );
-                        // Something went wrong
-                        raw_args.insert(0, func);
-                        Ok(ExprKind::List(List::new(raw_args)))
-                    }
+
+                        output
+                    };
+
+                    self.handle_output(output, func, &evaluated_func, raw_args)
                 }
                 _ => {
                     debug!(
@@ -272,6 +340,43 @@ impl<'a> ConstantEvaluator<'a> {
                 }
             }
         } else {
+            raw_args.insert(0, func);
+            Ok(ExprKind::List(List::new(raw_args)))
+        }
+    }
+
+    fn handle_output(
+        &mut self,
+        output: SteelVal,
+        func: ExprKind,
+        evaluated_func: &SteelVal,
+        mut raw_args: Vec<ExprKind>,
+    ) -> std::result::Result<ExprKind, crate::SteelErr> {
+        if let Some(new_token) = steelval_to_atom(&output) {
+            let atom = Atom::new(SyntaxObject::new(new_token, get_span(&func)));
+            debug!(
+                "Const evaluation of a function resulted in an atom: {}",
+                atom
+            );
+            self.changed = true;
+            Ok(ExprKind::Atom(atom))
+        } else if let Ok(lst) = ExprKind::try_from(&output) {
+            self.changed = true;
+            let output = ExprKind::Quote(Box::new(Quote::new(
+                lst,
+                SyntaxObject::new(TokenType::Quote, get_span(&func)),
+            )));
+            debug!(
+                "Const evaluation of a function resulted in a quoted value: {}",
+                output
+            );
+            Ok(output)
+        } else {
+            debug!(
+                "Unable to convert constant-evalutable function output to value: {}",
+                evaluated_func
+            );
+            // Something went wrong
             raw_args.insert(0, func);
             Ok(ExprKind::List(List::new(raw_args)))
         }
@@ -411,6 +516,16 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             if let Some(evaluated_func) = self.to_constant(&func) {
                 debug!("Attempting to evaluate: {}", &func);
                 return self.eval_function(evaluated_func, func, Vec::new(), &[]);
+            } else if let Some(ident) = func.atom_identifier().and_then(|x| {
+                // TODO: @Matt 4/24/23 - this condition is super ugly and I would prefer if we cleaned it up
+                if self.kernel.is_some() && self.kernel.as_ref().unwrap().is_constant(x) {
+                    Some(x)
+                } else {
+                    None
+                }
+            }) {
+                println!("Running kernel function!");
+                return self.eval_kernel_function(ident.clone(), func, Vec::new(), &[]);
             } else {
                 if let ExprKind::LambdaFunction(f) = &func {
                     if !f.args.is_empty() {
@@ -446,6 +561,15 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                         &func_expr, arguments
                     );
                     return self.eval_function(evaluated_func, func_expr, args, &arguments);
+                } else if let Some(ident) = func_expr.atom_identifier().and_then(|x| {
+                    // TODO: @Matt 4/24/23 - this condition is super ugly and I would prefer if we cleaned it up
+                    if self.kernel.is_some() && self.kernel.as_ref().unwrap().is_constant(x) {
+                        Some(x)
+                    } else {
+                        None
+                    }
+                }) {
+                    return self.eval_kernel_function(ident.clone(), func_expr, args, &arguments);
                 }
                 // return self.eval_function(func_expr, span, &arguments);
             }
@@ -554,6 +678,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                 debug!("Found a constant output from the body");
 
                 self.changed = true;
+                self.bindings = parent;
                 if non_constant_arguments.is_empty() {
                     // println!("Returning here!");
                     return Ok(output);

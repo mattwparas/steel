@@ -195,7 +195,7 @@ pub(crate) fn steel_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<St
     let allocated_var = ctx.thread.heap.allocate(
         arg,
         ctx.thread.stack.iter(),
-        ctx.thread.stack_frames.iter().map(|x| &x.function),
+        ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
         ctx.thread.global_env.roots(),
     );
 

@@ -130,6 +130,21 @@
                   (setter-proto this ,(list-ref field 1) value))))
        (enumerate 0 '() fields)))
 
+
+
+(define (%make-memoize f)
+    (lambda n
+        (let ((previous-value (%memo-table-ref %memo-table f n)))
+            (if (and (Ok? previous-value) (Ok->value previous-value))
+                (begin
+                    (displayln "READ VALUE: " previous-value " with args " n)
+                    (Ok->value previous-value))
+                (let ((new-value (apply f n)))
+                    (displayln "SETTING VALUE " new-value " with args " n)
+                    (%memo-table-set! %memo-table f n new-value)
+                    new-value)))))
+
+
 ;; TODO: Come back to this once theres something to attach it to
 ; (define (@doc expr comment)
 ;   (if (equal? (car expr) 'define)

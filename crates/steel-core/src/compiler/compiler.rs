@@ -13,8 +13,7 @@ use crate::{
     parser::{
         ast::AstTools, expand_visitor::expand_kernel, interner::InternedString, kernel::Kernel,
     },
-    steel_vm::builtin::BuiltInModule,
-    // values::structs::StructBuilders,
+    steel_vm::{builtin::BuiltInModule, cache::MemoizationTable},
 };
 use crate::{
     core::{instructions::Instruction, opcode::OpCode},
@@ -245,186 +244,6 @@ impl DebruijnIndicesInterner {
     }
 }
 
-// TODO this needs to take into account if they are functions or not before adding them
-// don't just blindly do all global defines first - need to do them in order correctly
-// pub fn replace_defines_with_debruijn_indices(
-//     instructions: &mut [Instruction],
-//     symbol_map: &mut SymbolMap,
-// ) -> Result<()> {
-//     let mut flat_defines: HashSet<String> = HashSet::new();
-
-//     for i in 2..instructions.len() {
-//         match (&instructions[i], &instructions[i - 1], &instructions[i - 2]) {
-//             (
-//                 Instruction {
-//                     op_code: OpCode::BIND,
-//                     contents:
-//                         Some(SyntaxObject {
-//                             ty: TokenType::Identifier(s),
-//                             ..
-//                         }),
-//                     ..
-//                 },
-//                 Instruction {
-//                     op_code: OpCode::EDEF,
-//                     ..
-//                 },
-//                 Instruction {
-//                     op_code: OpCode::ECLOSURE,
-//                     ..
-//                 },
-//             ) => {
-//                 let idx = symbol_map.get_or_add(s);
-//                 flat_defines.insert(s.to_owned());
-
-//                 if let Some(x) = instructions.get_mut(i) {
-//                     x.payload_size = idx;
-//                 }
-//             }
-//             (
-//                 Instruction {
-//                     op_code: OpCode::BIND,
-//                     contents:
-//                         Some(SyntaxObject {
-//                             ty: TokenType::Identifier(s),
-//                             ..
-//                         }),
-//                     ..
-//                 },
-//                 ..,
-//             ) => {
-//                 let idx = symbol_map.get_or_add(s);
-//                 flat_defines.insert(s.to_owned());
-
-//                 if let Some(x) = instructions.get_mut(i) {
-//                     x.payload_size = idx;
-//                 }
-//             }
-//             _ => {}
-//         }
-//     }
-
-//     let mut second_pass_defines: HashSet<String> = HashSet::new();
-
-//     let mut depth = 0;
-
-//     // name mangle
-//     // Replace all identifiers with indices
-//     for i in 0..instructions.len() {
-//         match &instructions[i] {
-//             Instruction {
-//                 op_code: OpCode::SCLOSURE | OpCode::NEWSCLOSURE | OpCode::PUREFUNC,
-//                 ..
-//             } => {
-//                 depth += 1;
-//             }
-//             Instruction {
-//                 op_code: OpCode::ECLOSURE,
-//                 ..
-//             } => {
-//                 depth -= 1;
-//             }
-//             Instruction {
-//                 op_code: OpCode::BIND,
-//                 contents:
-//                     Some(SyntaxObject {
-//                         ty: TokenType::Identifier(s),
-//                         ..
-//                     }),
-//                 ..
-//             } => {
-//                 // Keep track of where the defines actually are in the process
-//                 second_pass_defines.insert(s.to_owned());
-//             }
-//             Instruction {
-//                 op_code: OpCode::PUSH,
-//                 contents:
-//                     Some(SyntaxObject {
-//                         ty: TokenType::Identifier(s),
-//                         span,
-//                         ..
-//                     }),
-//                 ..
-//             }
-//             | Instruction {
-//                 op_code: OpCode::CALLGLOBAL,
-//                 contents:
-//                     Some(SyntaxObject {
-//                         ty: TokenType::Identifier(s),
-//                         span,
-//                         ..
-//                     }),
-//                 ..
-//             }
-//             | Instruction {
-//                 op_code: OpCode::CALLGLOBALTAIL,
-//                 contents:
-//                     Some(SyntaxObject {
-//                         ty: TokenType::Identifier(s),
-//                         span,
-//                         ..
-//                     }),
-//                 ..
-//             }
-//             | Instruction {
-//                 op_code: OpCode::SET,
-//                 contents:
-//                     Some(SyntaxObject {
-//                         ty: TokenType::Identifier(s),
-//                         span,
-//                         ..
-//                     }),
-//                 ..
-//             } => {
-//                 if flat_defines.get(s).is_some() {
-//                     if second_pass_defines.get(s).is_none() && depth == 0 {
-//                         let message = format!(
-//                             "Cannot reference an identifier before its definition: {}",
-//                             s
-//                         );
-//                         stop!(FreeIdentifier => message; *span);
-//                     }
-//                 }
-
-//                 let idx = symbol_map.get(s).map_err(|e| e.set_span(*span))?;
-
-//                 // TODO commenting this for now
-//                 if let Some(x) = instructions.get_mut(i) {
-//                     x.payload_size = idx;
-//                     x.constant = false;
-//                 }
-//             }
-//             _ => {}
-//         }
-//     }
-
-//     Ok(())
-// }
-
-// Adds a flag to the pop value in order to save the heap to the global heap
-// I should really come up with a better name but for now we'll leave it
-// fn inject_heap_save_to_pop(instructions: &mut [Instruction]) {
-//     match instructions {
-//         [.., Instruction {
-//             op_code: OpCode::EDEF,
-//             ..
-//         }, Instruction {
-//             op_code: OpCode::BIND,
-//             ..
-//         }, Instruction {
-//             op_code: OpCode::VOID,
-//             ..
-//         }, Instruction {
-//             op_code: OpCode::POP,
-//             payload_size: x,
-//             ..
-//         }] => {
-//             *x = 1;
-//         }
-//         _ => {}
-//     }
-// }
-
 #[derive(Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum OptLevel {
     Zero = 0,
@@ -441,6 +260,7 @@ pub struct Compiler {
     module_manager: ModuleManager,
     opt_level: OptLevel,
     pub(crate) kernel: Option<Kernel>,
+    memoization_table: MemoizationTable,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -476,6 +296,7 @@ impl Compiler {
             module_manager,
             opt_level: OptLevel::Three,
             kernel: None,
+            memoization_table: MemoizationTable::new(),
         }
     }
 
@@ -493,6 +314,7 @@ impl Compiler {
             module_manager,
             opt_level: OptLevel::Three,
             kernel: Some(kernel),
+            memoization_table: MemoizationTable::new(),
         }
     }
 
@@ -606,7 +428,7 @@ impl Compiler {
             .collect::<Result<Vec<_>>>()?;
 
         let mut expanded_statements =
-            self.apply_const_evaluation(constants, expanded_statements)?;
+            self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
 
         RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
 
@@ -647,6 +469,9 @@ impl Compiler {
         // TODO - make sure I want to keep this
         let expanded_statements =
             MultipleArityFunctions::expand_multiple_arity_functions(expanded_statements);
+
+        let mut expanded_statements =
+            self.apply_const_evaluation(constants, expanded_statements, true)?;
 
         Ok(expanded_statements)
     }
@@ -758,7 +583,7 @@ impl Compiler {
             .collect::<Result<Vec<_>>>()?;
 
         let mut expanded_statements =
-            self.apply_const_evaluation(constants, expanded_statements)?;
+            self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
 
         RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
 
@@ -800,6 +625,13 @@ impl Compiler {
         let expanded_statements =
             MultipleArityFunctions::expand_multiple_arity_functions(expanded_statements);
 
+        let expanded_statements =
+            self.apply_const_evaluation(constants, expanded_statements, true)?;
+
+        // TODO:
+        // Here we're gonna do the constant evaluation pass, using the kernel for execution of the
+        // constant functions w/ memoization:
+
         let instructions = self.generate_instructions_for_executable(expanded_statements)?;
 
         let mut raw_program = RawProgramWithSymbols::new(
@@ -814,21 +646,46 @@ impl Compiler {
         Ok(raw_program)
     }
 
-    fn apply_const_evaluation(
+    fn run_const_evaluation_with_memoization(
         &mut self,
         constants: ImmutableHashMap<InternedString, SteelVal>,
         mut expanded_statements: Vec<ExprKind>,
     ) -> Result<Vec<ExprKind>> {
+        todo!("Implement kernel level const evaluation here!")
+    }
+
+    fn apply_const_evaluation(
+        &mut self,
+        constants: ImmutableHashMap<InternedString, SteelVal>,
+        mut expanded_statements: Vec<ExprKind>,
+        use_kernel: bool,
+    ) -> Result<Vec<ExprKind>> {
         #[cfg(feature = "profiling")]
         let opt_time = Instant::now();
+
+        let mut maybe_kernel = None;
+
+        if use_kernel {
+            if let Some(kernel) = self.kernel.as_mut() {
+                kernel.load_program_for_comptime(constants.clone(), &mut expanded_statements);
+            }
+        }
 
         match self.opt_level {
             // TODO
             // Cut this off at 10 iterations no matter what
             OptLevel::Three => {
                 for _ in 0..10 {
-                    let mut manager =
-                        ConstantEvaluatorManager::new(constants.clone(), self.opt_level);
+                    let mut manager = ConstantEvaluatorManager::new(
+                        &mut self.memoization_table,
+                        constants.clone(),
+                        self.opt_level,
+                        if use_kernel {
+                            &mut self.kernel
+                        } else {
+                            &mut maybe_kernel
+                        },
+                    );
                     expanded_statements = manager.run(expanded_statements)?;
 
                     if !manager.changed {
@@ -837,8 +694,17 @@ impl Compiler {
                 }
             }
             OptLevel::Two => {
-                expanded_statements = ConstantEvaluatorManager::new(constants, self.opt_level)
-                    .run(expanded_statements)?;
+                expanded_statements = ConstantEvaluatorManager::new(
+                    &mut self.memoization_table,
+                    constants,
+                    self.opt_level,
+                    if use_kernel {
+                        &mut self.kernel
+                    } else {
+                        &mut maybe_kernel
+                    },
+                )
+                .run(expanded_statements)?;
             }
             _ => {}
         }

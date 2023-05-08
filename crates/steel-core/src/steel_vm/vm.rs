@@ -118,7 +118,12 @@ pub struct StackFrame {
     // This _has_ to be a function
     handler: Option<DefaultKey>,
     // This should get added to the GC as well
+    #[cfg(not(feature = "unsafe-internals"))]
     pub(crate) function: Gc<ByteCodeLambda>,
+    // Whenever the StackFrame object leaves the context of _this_ VM, these functions
+    // need to become rooted, otherwise we'll have an issue with use after free
+    #[cfg(feature = "unsafe-internals")]
+    pub(crate) function: crate::gc::unsafe_roots::MaybeRooted<ByteCodeLambda>,
     ip: usize,
     instructions: Rc<[DenseInstruction]>,
     // spans: Rc<[Span]>, // span_id: usize,
@@ -145,6 +150,35 @@ impl StackFrame {
     ) -> Self {
         Self {
             sp: stack_index,
+            #[cfg(feature = "unsafe-internals")]
+            function: crate::gc::unsafe_roots::MaybeRooted::Reference(function),
+            #[cfg(not(feature = "unsafe-internals"))]
+            function,
+            ip,
+            instructions,
+            // span: None,
+            handler: None,
+            // spans,
+            // span_id,
+        }
+    }
+
+    fn new_rooted(
+        stack_index: usize,
+        #[cfg(feature = "unsafe-internals")] function: crate::gc::unsafe_roots::MaybeRooted<
+            ByteCodeLambda,
+        >,
+        #[cfg(not(feature = "unsafe-internals"))] function: Gc<ByteCodeLambda>,
+        ip: usize,
+        instructions: Rc<[DenseInstruction]>,
+        // span_id: usize,
+        // spans: Rc<[Span]>,
+    ) -> Self {
+        Self {
+            sp: stack_index,
+            #[cfg(feature = "unsafe-internals")]
+            function,
+            #[cfg(not(feature = "unsafe-internals"))]
             function,
             ip,
             instructions,
@@ -167,7 +201,15 @@ impl StackFrame {
     // }
 
     pub fn set_function(&mut self, function: Gc<ByteCodeLambda>) {
-        self.function = function;
+        #[cfg(not(feature = "unsafe-internals"))]
+        {
+            self.function = function;
+        }
+
+        #[cfg(feature = "unsafe-internals")]
+        {
+            self.function = crate::gc::unsafe_roots::MaybeRooted::Reference(function);
+        }
     }
 
     // pub fn set_span(&mut self, span: Span) {
@@ -447,7 +489,18 @@ impl SteelThread {
                                 // vm_instance.spans = closure.spans();
 
                                 last.handler = None;
-                                last.function = closure.clone();
+
+                                #[cfg(feature = "unsafe-internals")]
+                                {
+                                    last.function = crate::gc::unsafe_roots::MaybeRooted::Reference(
+                                        closure.clone(),
+                                    );
+                                }
+
+                                #[cfg(not(feature = "unsafe-internals"))]
+                                {
+                                    last.function = closure.clone();
+                                }
 
                                 vm_instance.ip = 0;
 
@@ -492,8 +545,6 @@ impl SteelThread {
 
                 // Clean up
                 self.stack.clear();
-                // self.stack_index.clear();
-                // self.function_stack.clear();
 
                 #[cfg(feature = "profiling")]
                 if log_enabled!(target: "pipeline_time", log::Level::Debug) {
@@ -523,10 +574,8 @@ impl SteelThread {
 pub struct Continuation {
     pub(crate) stack: Vec<SteelVal>,
     current_frame: StackFrame,
-    // spans: Rc<[Span]>,
     instructions: Rc<[DenseInstruction]>,
     pub(crate) stack_frames: Vec<StackFrame>,
-    // pub(crate) stack_frames: SmallVec<[StackFrame; 64]>,
     ip: usize,
     sp: usize,
     pop_count: usize,
@@ -1176,7 +1225,7 @@ impl<'a> VmCore<'a> {
                 self.ip,
                 &self.instructions,
                 // Grab the current stack frame
-                self.thread.stack_frames.last().map(|x| &x.function),
+                self.thread.stack_frames.last().map(|x| x.function.as_ref()),
             ) {
                 // if count > 1000 {
                 println!("Found a hot pattern, creating super instruction...");
@@ -2174,10 +2223,20 @@ impl<'a> VmCore<'a> {
 
     #[inline(always)]
     fn handle_call_global(&mut self, index: usize, payload_size: usize) -> Result<()> {
-        let func = self.thread.global_env.repl_lookup_idx(index);
-        // TODO - handle this a bit more elegantly
-        // self.handle_function_call(func, payload_size, span)
-        self.handle_global_function_call(func, payload_size)
+        #[cfg(not(feature = "unsafe-internals"))]
+        {
+            let func = self.thread.global_env.repl_lookup_idx(index);
+            // TODO - handle this a bit more elegantly
+            // self.handle_function_call(func, payload_size, span)
+            self.handle_global_function_call(func, payload_size)
+        }
+        #[cfg(feature = "unsafe-internals")]
+        {
+            let func = self.thread.global_env.repl_lookup_idx(index);
+            // TODO - handle this a bit more elegantly
+            // self.handle_function_call(func, payload_size, span)
+            self.handle_global_function_call_by_reference(&func, payload_size)
+        }
     }
 
     #[inline(always)]
@@ -2660,7 +2719,7 @@ impl<'a> VmCore<'a> {
         #[cfg(feature = "dynamic")]
         if let Some(pat) = self.thread.profiler.cut_sequence(
             &self.instructions,
-            self.thread.stack_frames.last().map(|x| &x.function),
+            self.thread.stack_frames.last().map(|x| x.function.as_ref()),
         ) {
             println!("Found a hot pattern, creating super instruction...");
 
@@ -3323,6 +3382,58 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
+    #[inline(always)]
+    fn handle_function_call_closure_jit_without_profiling_ref(
+        &mut self,
+        mut closure: &Gc<ByteCodeLambda>,
+        payload_size: usize,
+    ) -> Result<()> {
+        self.adjust_stack_for_multi_arity(closure, payload_size, &mut 0)?;
+
+        self.sp = self.thread.stack.len() - closure.arity();
+
+        let mut instructions = closure.body_exp();
+        // let mut spans = closure.spans();
+
+        std::mem::swap(&mut instructions, &mut self.instructions);
+        // std::mem::swap(&mut spans, &mut self.spans);
+
+        // Do this _after_ the multi arity business
+        // TODO: can these rcs be avoided
+        self.thread.stack_frames.push(
+            StackFrame::new_rooted(
+                self.sp,
+                // Almost assuredly UB - there really just needs to be a runtime reference
+                // on the value that gets passed around, or we just need to
+                #[cfg(feature = "unsafe-internals")]
+                crate::gc::unsafe_roots::MaybeRooted::from_root(closure),
+                #[cfg(not(feature = "unsafe-internals"))]
+                closure.clone(),
+                self.ip + 1,
+                instructions,
+            ), // .with_span(self.current_span()),
+        );
+
+        // self.current_arity = Some(closure.arity());
+
+        self.check_stack_overflow()?;
+
+        // closure arity here is the number of true arguments
+        // self.stack_index.push(self.stack.len() - closure.arity());
+
+        // TODO use new heap
+        // self.heap
+        //     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
+        // self.heap.collect_garbage();
+
+        self.pop_count += 1;
+
+        // self.instructions = instructions;
+        // self.spans = spans;
+        self.ip = 0;
+        Ok(())
+    }
+
     // TODO improve this a bit
     // #[inline(always)]
     #[inline(always)]
@@ -3342,6 +3453,56 @@ impl<'a> VmCore<'a> {
         }
 
         self.handle_function_call_closure_jit_without_profiling(closure, payload_size)
+    }
+
+    #[inline(always)]
+    fn handle_function_call_closure_jit_ref(
+        &mut self,
+        closure: &Gc<ByteCodeLambda>,
+        payload_size: usize,
+    ) -> Result<()> {
+        // Record the end of the existing sequence
+        self.cut_sequence();
+
+        // Jit profiling -> Make sure that we really only trace once we pass a certain threshold
+        // For instance, if this function
+        #[cfg(feature = "dynamic")]
+        {
+            closure.increment_call_count();
+        }
+
+        self.handle_function_call_closure_jit_without_profiling_ref(closure, payload_size)
+    }
+
+    #[inline(always)]
+    fn handle_global_function_call_by_reference(
+        &mut self,
+        stack_func: &SteelVal,
+        payload_size: usize,
+    ) -> Result<()> {
+        use SteelVal::*;
+
+        match stack_func {
+            Closure(closure) => self.handle_function_call_closure_jit_ref(closure, payload_size)?,
+            FuncV(f) => self.call_primitive_func(*f, payload_size)?,
+            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size)?,
+            MutFunc(f) => self.call_primitive_mut_func(*f, payload_size)?,
+            FutureFunc(f) => self.call_future_func(f.clone(), payload_size)?,
+            ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size)?,
+            ContinuationFunction(cc) => self.call_continuation(&cc)?,
+            // #[cfg(feature = "jit")]
+            // CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
+            Contract(c) => self.call_contract(&c, payload_size)?,
+            BuiltIn(f) => self.call_builtin_func(*f, payload_size)?,
+            _ => {
+                // Explicitly mark this as unlikely
+                cold();
+                println!("{stack_func:?}");
+                println!("Stack: {:?}", self.thread.stack);
+                stop!(BadSyntax => "Function application not a procedure or function type not supported"; self.current_span());
+            }
+        }
+        Ok(())
     }
 
     #[inline(always)]
@@ -3705,12 +3866,15 @@ pub(crate) fn set_test_mode(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Resu
 pub(crate) fn list_modules(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
     use crate::rvals::AsRefSteelVal;
     use crate::steel_vm::builtin::BuiltInModule;
+
+    let mut nursery = ();
+
     // Find all of the modules that are
     let modules = ctx
         .thread
         .global_env
         .roots()
-        .filter(|x| BuiltInModule::as_ref(x).is_ok())
+        .filter(|x| BuiltInModule::as_ref(x, &mut nursery).is_ok())
         .cloned()
         .collect();
 
@@ -3873,7 +4037,7 @@ impl OpCodeOccurenceProfiler {
         // payload: usize,
         index: usize,
         instructions: &[DenseInstruction],
-        function: Option<&Gc<ByteCodeLambda>>,
+        function: Option<&ByteCodeLambda>,
     ) -> Option<InstructionPattern> {
         // *self.occurrences.entry((*opcode, payload)).or_default() += 1;
 
@@ -3970,7 +4134,7 @@ impl OpCodeOccurenceProfiler {
     pub fn cut_sequence(
         &mut self,
         instructions: &[DenseInstruction],
-        function: Option<&Gc<ByteCodeLambda>>,
+        function: Option<&ByteCodeLambda>,
     ) -> Option<InstructionPattern> {
         // println!(
         //     "Cutting sequence: {:?} {:?} {:?}",
@@ -5024,7 +5188,7 @@ fn alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     let allocated_var = ctx.thread.heap.allocate(
         ctx.thread.stack[offset].clone(), // TODO: Could actually move off of the stack entirely
         ctx.thread.stack.iter(),
-        ctx.thread.stack_frames.iter().map(|x| &x.function),
+        ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
         ctx.thread.global_env.roots(),
     );
 

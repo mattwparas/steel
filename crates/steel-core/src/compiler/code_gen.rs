@@ -71,7 +71,7 @@ fn try_eval_atom(t: &SyntaxObject) -> Option<SteelVal> {
         TokenType::IntegerLiteral(n) => Some(SteelVal::IntV(*n)),
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
         TokenType::Keyword(k) => Some(SteelVal::SymbolV(k.clone().into())),
-        what => {
+        _what => {
             // println!("getting here in the eval_atom - code_gen");
             // stop!(UnexpectedToken => what; t.span)
 

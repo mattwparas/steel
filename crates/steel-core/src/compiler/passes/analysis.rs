@@ -1,8 +1,9 @@
 use std::{
-    collections::{hash_map, HashSet},
+    collections::{hash_map, HashMap, HashSet},
     hash::BuildHasherDefault,
 };
 
+use im_rc::HashMap as ImmutableHashMap;
 // use itertools::Itertools;
 use quickscope::ScopeMap;
 
@@ -14,7 +15,7 @@ use crate::{
         span::Span,
         tokens::TokenType,
     },
-    throw, SteelErr,
+    throw, SteelErr, SteelVal,
 };
 
 use super::{VisitorMutControlFlow, VisitorMutRefUnit, VisitorMutUnitRef};
@@ -361,7 +362,7 @@ impl Analysis {
             }
         }
 
-        log::info!("Global scope: {:?}", scope.iter_top().collect::<Vec<_>>());
+        // log::info!("Global scope: {:?}", scope.iter_top().collect::<Vec<_>>());
     }
 
     pub fn get_function_info(&self, function: &LambdaFunction) -> Option<&FunctionInformation> {
@@ -1469,10 +1470,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                     // var.refers
                 } else {
-                    println!("Unable to find var: {name} in info map to update to set!");
+                    log::warn!("Unable to find var: {name} in info map to update to set!");
                 }
             } else {
-                println!("Variable not yet in scope: {name}");
+                log::debug!("Variable not yet in scope: {name}");
             }
         }
 
@@ -2518,11 +2519,136 @@ impl<'a> VisitorMutRefUnit for FlattenAnonymousFunctionCalls<'a> {
     }
 }
 
+struct FunctionCallCollector<'a> {
+    analysis: &'a Analysis,
+    functions: HashMap<InternedString, HashSet<InternedString>>,
+    black_box: InternedString,
+    context: Option<InternedString>,
+    constants: ImmutableHashMap<InternedString, SteelVal>,
+    should_mangle: bool,
+}
+
+impl<'a> FunctionCallCollector<'a> {
+    pub fn mangle(
+        analysis: &'a Analysis,
+        exprs: &mut Vec<ExprKind>,
+        constants: ImmutableHashMap<InternedString, SteelVal>,
+        should_mangle: bool,
+    ) -> HashMap<InternedString, HashSet<InternedString>> {
+        let black_box: InternedString = "#%black-box".into();
+
+        let mut collector = Self {
+            analysis,
+            functions: HashMap::new(),
+            context: None,
+            black_box,
+            constants,
+            should_mangle,
+        };
+
+        for expr in exprs.iter() {
+            if let ExprKind::Define(define) = expr {
+                if let ExprKind::LambdaFunction(_) = &define.body {
+                    let name = define.name.atom_identifier().unwrap().clone();
+
+                    collector.functions.entry(name).or_default();
+                }
+            }
+        }
+
+        for expr in exprs {
+            collector.visit(expr);
+        }
+
+        collector.functions
+    }
+}
+
+impl<'a> VisitorMutRefUnit for FunctionCallCollector<'a> {
+    fn visit_define(&mut self, define: &mut Define) {
+        if let ExprKind::LambdaFunction(f) = &mut define.body {
+            let name = define.name.atom_identifier().unwrap().clone();
+
+            self.functions.entry(name).or_default();
+
+            self.context = Some(name);
+
+            self.visit_lambda_function(f);
+
+            // let should_remove = if let Some(callers) = self
+            //     .context
+            //     .as_ref()
+            //     .and_then(|ctx| self.functions.get(ctx))
+            // {
+            //     callers.is_empty()
+            // } else {
+            //     true
+            // };
+
+            // if should_remove {
+            //     self.functions.remove(&self.context.unwrap());
+            // }
+
+            self.context = None;
+        } else {
+            self.visit(&mut define.body);
+        }
+    }
+
+    fn visit_list(&mut self, l: &mut List) {
+        let mut mangle = false;
+
+        if let Some(function) = l.first() {
+            if let ExprKind::Atom(a) = function {
+                if let Some(info) = self.analysis.get(&a.syn) {
+                    // At this point... we don't care if its a free identifier
+                    if info.kind == IdentifierStatus::Global || info.kind == IdentifierStatus::Free
+                    {
+                        if let Some(function) = a.ident() {
+                            // If this isn't a function that has been locally defined,
+                            // then we want to mangle the definition of it
+                            if !self.functions.contains_key(function)
+                                && !self.constants.contains_key(function)
+                            {
+                                mangle = true;
+                            } else {
+                                // Mark that this
+                                self.context
+                                    .as_ref()
+                                    .and_then(|ctx| self.functions.get_mut(ctx))
+                                    .map(|calls| calls.insert(function.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Adjust the function call to be a reference to the black box function
+        if self.should_mangle && mangle {
+            *l.first_ident_mut().unwrap() = self.black_box.clone()
+        }
+
+        for expr in &mut l.args {
+            self.visit(expr);
+        }
+    }
+
+    // Any set expr needs to get purged
+    fn visit_set(&mut self, s: &mut crate::parser::ast::Set) {
+        if let Some(function) = s.variable.atom_identifier() {
+            if self.functions.contains_key(function) {
+                self.functions.remove(function);
+            }
+        }
+    }
+}
+
 // TODO: There might be opportunity to parallelize this here - perhaps shard the analysis between threads
 // across some subset of expressions and then merge afterwards
 pub struct SemanticAnalysis<'a> {
     // We want to reserve the right to add or remove expressions from the program as needed
-    exprs: &'a mut Vec<ExprKind>,
+    pub(crate) exprs: &'a mut Vec<ExprKind>,
     pub(crate) analysis: Analysis,
 }
 
@@ -2672,6 +2798,37 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         self
+    }
+
+    pub fn run_black_box(
+        &mut self,
+        constants: ImmutableHashMap<InternedString, SteelVal>,
+        should_mangle: bool,
+    ) -> HashMap<InternedString, HashSet<InternedString>> {
+        let map = FunctionCallCollector::mangle(
+            &self.analysis,
+            &mut self.exprs,
+            constants,
+            should_mangle,
+        );
+
+        // These are all of the global functions referenced
+        let global_keys_that_reference_non_constant_function = map
+            .iter()
+            .filter(|(_, v)| v.is_empty())
+            .map(|x| x.0.clone())
+            .collect::<HashSet<_>>();
+
+        // Only constant evaluatable functions should be ones that references _other_ const functions
+        map.into_iter()
+            .filter(|(_, v)| {
+                !v.is_empty() && v.is_disjoint(&global_keys_that_reference_non_constant_function)
+            })
+            .collect()
+
+        // map.drain().filter(|x| )
+
+        // map
     }
 
     /// Find anonymous function calls with no arguments that don't capture anything,
@@ -3534,6 +3691,66 @@ mod analysis_pass_tests {
                 .collect::<Vec<_>>();
 
             println!("{escaping_functions:#?}");
+        }
+    }
+
+    #[test]
+    fn test_black_box_mangling() {
+        let script = r#"
+            (define (fib n) 
+                (if (<= n 2) 
+                    1
+                    (+ (fib (- n 1)) (fib (- n 2)))))
+
+            (define (obviously-not-function-that-works)
+                (if (list 100 20 30 40 50 60)
+                    (random-call-not-const)
+                    (other-random-call-not-const)))
+
+            (fib 100)
+            (obviously-not-function-that-works)
+
+        "#;
+
+        // let mut analysis = Analysis::default();
+        let mut exprs = Parser::parse(script).unwrap();
+        {
+            let mut analysis = SemanticAnalysis::new(&mut exprs);
+
+            let constants = im_rc::hashmap! {
+                "+".into() => SteelVal::Void,
+                "<=".into() => SteelVal::Void,
+                "-".into() => SteelVal::Void,
+            };
+
+            let result = analysis.run_black_box(constants, true);
+
+            println!("{:#?}", result);
+
+            // Only select expressions which are identified as constant
+
+            analysis
+                .exprs
+                .iter()
+                .filter(|expr| {
+                    if let ExprKind::Define(define) = expr {
+                        if let ExprKind::LambdaFunction(_) = &define.body {
+                            let name = define.name.atom_identifier().unwrap().clone();
+
+                            return result.contains_key(&name);
+
+                            // collector.functions.entry(name).or_default();
+                        }
+                    }
+
+                    false
+                })
+                .collect::<Vec<_>>()
+                .pretty_print();
+
+            // let constant_exprs = analysis.exprs.iter().filter(|x| )
+
+            // analysis.exprs.pretty_print();
         }
     }
 

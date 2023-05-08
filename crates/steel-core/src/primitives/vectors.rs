@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::{cell::RefCell, ops::DerefMut};
 
 use crate::gc::Gc;
 use crate::rvals::SteelVal::*;
@@ -20,6 +20,30 @@ impl VectorOperations {
             Ok(SteelVal::MutableVector(Gc::new(RefCell::new(
                 args.to_vec(),
             ))))
+        })
+    }
+
+    pub fn mut_vec_to_list() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => "mutable-vector->list takes one argument, found: {:?}", args.len())
+            }
+
+            let vec = &args[0];
+
+            if let SteelVal::MutableVector(v) = vec {
+                let mut guard = v.borrow_mut();
+
+                let new = std::mem::replace(guard.deref_mut(), Vec::new());
+
+                Ok(SteelVal::ListV(new.into()))
+
+                // let inner = std::mem::take(guard);
+
+                // Ok(SteelVal::ListV(inner.into()))
+            } else {
+                stop!(TypeMismatch => "mutable-vector->list expects a vector, found: {:?}", vec);
+            }
         })
     }
 

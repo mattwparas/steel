@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 
 use super::{
     builtin::BuiltInModule,
+    cache::WeakMemoizationTable,
     engine::Engine,
     register_fn::RegisterFn,
     vm::{apply, get_test_mode, list_modules, set_test_mode, APPLY_DOC},
@@ -345,6 +346,13 @@ pub fn register_builtin_modules(engine: &mut Engine) {
 
     engine.register_value("error", ControlOperations::error());
 
+    engine.register_value(
+        "%memo-table",
+        WeakMemoizationTable::new().into_steelval().unwrap(),
+    );
+    engine.register_fn("%memo-table-ref", WeakMemoizationTable::get);
+    engine.register_fn("%memo-table-set!", WeakMemoizationTable::insert);
+
     engine
         .register_module(MAP_MODULE.with(|x| x.clone()))
         .register_module(SET_MODULE.with(|x| x.clone()))
@@ -485,6 +493,7 @@ fn vector_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/vectors".to_string());
     module
         .register_value("mutable-vector", VectorOperations::mut_vec_construct())
+        .register_value("mutable-vector->list", VectorOperations::mut_vec_to_list())
         .register_value("vector-push!", VectorOperations::mut_vec_push())
         .register_value("mut-vec-len", VectorOperations::mut_vec_length())
         .register_value("vector-length", VectorOperations::vec_length())

@@ -106,7 +106,7 @@ pub fn disassemble(instructions: &[Instruction]) -> String {
     buffer
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DenseInstruction {
     pub op_code: OpCode,
     // Function IDs need to be interned _again_ before patched into the code?

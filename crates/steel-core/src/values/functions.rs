@@ -67,13 +67,18 @@ pub struct ByteCodeLambda {
 
 impl PartialEq for ByteCodeLambda {
     fn eq(&self, other: &Self) -> bool {
-        self.body_exp == other.body_exp && self.arity == other.arity
+        // self.body_exp == other.body_exp &&
+        self.arity == other.arity && self.id == self.id
     }
 }
 
+impl Eq for ByteCodeLambda {}
+
 impl std::hash::Hash for ByteCodeLambda {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.body_exp.as_ptr().hash(state);
+        self.id.hash(state);
+        // self.body_exp.as_ptr().hash(state);
+        self.arity.hash(state);
         // self.sub_expression_env.as_ptr().hash(state);
     }
 }
@@ -89,8 +94,6 @@ impl ByteCodeLambda {
         is_multi_arity: bool,
         captures: Vec<SteelVal>,
         heap_allocated: Vec<HeapRef>,
-        // TODO: Spans need to be moved around as well, like instructions
-        // spans: Rc<[Span]>,
     ) -> ByteCodeLambda {
         // debug_assert_eq!(body_exp.len(), spans.len());
 

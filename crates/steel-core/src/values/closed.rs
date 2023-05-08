@@ -40,7 +40,7 @@ impl Heap {
         &mut self,
         value: SteelVal,
         roots: impl Iterator<Item = &'a SteelVal>,
-        live_functions: impl Iterator<Item = &'a Gc<ByteCodeLambda>>,
+        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: impl Iterator<Item = &'a SteelVal>,
     ) -> HeapRef {
         self.collect(roots, live_functions, globals);
@@ -56,7 +56,7 @@ impl Heap {
     pub fn collect<'a>(
         &mut self,
         roots: impl Iterator<Item = &'a SteelVal>,
-        live_functions: impl Iterator<Item = &'a Gc<ByteCodeLambda>>,
+        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: impl Iterator<Item = &'a SteelVal>,
     ) {
         if self.memory.len() > self.threshold {
@@ -85,7 +85,7 @@ impl Heap {
     fn mark_and_sweep<'a>(
         &mut self,
         roots: impl Iterator<Item = &'a SteelVal>,
-        function_stack: impl Iterator<Item = &'a Gc<ByteCodeLambda>>,
+        function_stack: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: impl Iterator<Item = &'a SteelVal>,
     ) {
         log::info!(target: "gc", "Marking the heap");
@@ -170,7 +170,12 @@ impl HeapRef {
 }
 
 impl AsRefSteelVal for HeapRef {
-    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> crate::rvals::Result<SRef<'b, Self>> {
+    type Nursery = ();
+
+    fn as_ref<'b, 'a: 'b>(
+        val: &'a SteelVal,
+        _nursery: &mut Self::Nursery,
+    ) -> crate::rvals::Result<SRef<'b, Self>> {
         if let SteelVal::Boxed(s) = val {
             Ok(SRef::Temporary(s))
         } else {
@@ -179,7 +184,7 @@ impl AsRefSteelVal for HeapRef {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HeapAllocated {
     pub(crate) reachable: bool,
     pub(crate) value: SteelVal,

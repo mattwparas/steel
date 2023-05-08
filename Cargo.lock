@@ -39,9 +39,9 @@ checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
 
 [[package]]
 name = "anyhow"
-version = "1.0.69"
+version = "1.0.71"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "224afbd727c3d6e4b90103ece64b8d1b67fbb1973b1046c2281eed3f3803f800"
+checksum = "9c7d0618f0e0b7e8ff11427422b64564d5fb0be1940354bfe2e0529b18a9d9b8"
 
 [[package]]
 name = "arrayvec"
@@ -1251,12 +1251,9 @@ dependencies = [
 
 [[package]]
 name = "im-lists"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "672276519d815ccefd90f863e554e788054189db625d81c86949988478af7a58"
-dependencies = [
- "itertools",
-]
+checksum = "08f93ebe9d5265409edc0b5c2ebd96bf7dcd4125c1626bff0ece34b9300e490a"
 
 [[package]]
 name = "im-rc"
@@ -2430,6 +2427,7 @@ dependencies = [
 name = "steel-core"
 version = "0.2.0"
 dependencies = [
+ "anyhow",
  "bincode",
  "chrono",
  "codespan-reporting",
@@ -2468,6 +2466,7 @@ dependencies = [
  "thiserror",
  "tungstenite",
  "url",
+ "weak-table",
 ]
 
 [[package]]
@@ -3070,6 +3069,12 @@ name = "wasm-bindgen-shared"
 version = "0.2.84"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0046fef7e28c3804e5e38bfa31ea2a0f73905319b677e57ebe37e49358989b5d"
+
+[[package]]
+name = "weak-table"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "323f4da9523e9a669e1eaf9c6e763892769b1d38c623913647bfdc1532fe4549"
 
 [[package]]
 name = "web-sys"

@@ -2,7 +2,11 @@ extern crate steel;
 extern crate steel_derive;
 extern crate steel_repl;
 
-use steel::steel_vm::engine::Engine;
+use steel::{
+    gc::unsafe_erased_pointers::{CustomReference, ReferenceCustomType},
+    rvals::Custom,
+    steel_vm::{engine::Engine, register_fn::RegisterFn},
+};
 use steel_doc::walk_dir;
 use steel_repl::repl::repl_base;
 
@@ -45,10 +49,51 @@ enum EmitAction {
     Doc { default_file: Option<PathBuf> },
 }
 
+struct Applesauce {}
+impl CustomReference for Applesauce {}
+
+struct Bananas<'a> {
+    applesauce: &'a mut Applesauce,
+}
+impl<'a> CustomReference for Bananas<'a> {}
+
+#[derive(Clone)]
+enum Test {}
+
+impl Custom for Test {}
+
+fn test_embedding(b: &mut Bananas, args: &[std::borrow::Cow<str>], test: Test) {
+    todo!()
+}
+
+// fn standard_cow(arg: &[std::borrow::Cow<str>]) {
+//     todo!()
+// }
+
 pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
     let mut vm = Engine::new();
 
     vm.register_value("std::env::args", steel::SteelVal::ListV(vec![].into()));
+
+    let mut applesauce = Applesauce {};
+
+    let mut bananas = Bananas {
+        applesauce: &mut applesauce,
+    };
+
+    vm.register_fn("blagh", test_embedding);
+
+    vm.run_with_reference::<Bananas<'_>, Bananas<'static>>(
+        &mut bananas,
+        "*applesauce*",
+        "(displayln *applesauce*)",
+    );
+
+    // vm.run_with_reference::<Bananas<'_>, Bananas<'static>>(
+    //     &mut bananas,
+    //     "*applesauce*",
+    //     "(displayln *applesauce*)",
+    // );
 
     match clap_args {
         Args {

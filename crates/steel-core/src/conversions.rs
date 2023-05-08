@@ -3,10 +3,25 @@ use im_lists::list::List;
 use crate::{
     gc::Gc,
     rerrs::ErrorKind,
-    rvals::{FromSteelVal, IntoSteelVal, Result},
+    rvals::{AsRefSteelVal, AsRefSteelValFromUnsized, FromSteelVal, IntoSteelVal, Result},
     SteelErr, SteelVal,
 };
-use std::collections::{HashMap, HashSet};
+use std::{
+    borrow::Cow,
+    cell::{Ref, RefCell},
+    collections::{HashMap, HashSet},
+};
+
+#[cfg(feature = "anyhow")]
+mod anyhow_conversion {
+    use crate::{rvals::IntoSteelVal, SteelVal};
+
+    impl IntoSteelVal for anyhow::Error {
+        fn into_steelval(self) -> crate::rvals::Result<crate::SteelVal> {
+            Ok(SteelVal::StringV(format!("{:#?}", self).into()))
+        }
+    }
+}
 
 impl IntoSteelVal for SteelVal {
     fn into_steelval(self) -> Result<SteelVal> {
@@ -39,12 +54,62 @@ impl<T: IntoSteelVal + Clone> IntoSteelVal for List<T> {
     }
 }
 
+// impl IntoSteelVal for str {
+//     fn into_steelval(self) -> Result<SteelVal> {
+//         Ok(SteelVal::StringV(self.to_string().into()))
+//     }
+// }
+
+// impl<T: IntoSteelVal + Clone> IntoSteelVal for Cow<'_, T> {
+//     fn into_steelval(self) -> Result<SteelVal> {
+//         match self {
+//             Cow::Borrowed(b) => b.clone().into_steelval(),
+//             Cow::Owned(o) => o.into_steelval(),
+//         }
+//     }
+// }
+
+impl IntoSteelVal for Cow<'_, str> {
+    fn into_steelval(self) -> Result<SteelVal> {
+        match self {
+            Cow::Borrowed(b) => b.into_steelval(),
+            Cow::Owned(o) => o.into_steelval(),
+        }
+    }
+}
+
+impl FromSteelVal for Cow<'_, str> {
+    fn from_steelval(val: &SteelVal) -> Result<Self> {
+        if let SteelVal::StringV(s) = val {
+            Ok(Cow::Owned(s.to_string()))
+        } else {
+            stop!(TypeMismatch => "expected string, found {:?}", val)
+        }
+    }
+}
+
 impl<T: IntoSteelVal + Clone> IntoSteelVal for &[T] {
     fn into_steelval(self) -> Result<SteelVal> {
         self.iter()
             .map(|x| x.clone().into_steelval())
             .collect::<Result<List<_>>>()
             .map(SteelVal::ListV)
+    }
+}
+
+// TODO: @Matt - figure out how to get this to actually return the right value. At the moment,
+// it seems I can't get this to return the correct value
+impl<T: FromSteelVal + Clone> AsRefSteelValFromUnsized<T> for T {
+    type Output = Vec<T>;
+
+    fn as_ref_from_unsized(val: &SteelVal) -> Result<Self::Output> {
+        if let SteelVal::ListV(v) = val {
+            v.iter()
+                .map(|x| T::from_steelval(x))
+                .collect::<Result<Vec<_>>>()
+        } else {
+            stop!(TypeMismatch => "expected list, found: {:?}", val);
+        }
     }
 }
 

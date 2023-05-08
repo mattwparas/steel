@@ -113,6 +113,7 @@ fn parse_str<'a>(lex: &mut Lexer<'a, TokenType<&'a str>>) -> Option<String> {
         .and_then(|x| x.strip_prefix('\"'))
         .or(Some(slice))
         .map(|x| x.replace("\\\"", "\""))
+        .map(|x| x.replace("\\n", "\n"))
     // .map(|x| x.to_string())
 }
 

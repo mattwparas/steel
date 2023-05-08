@@ -24,6 +24,10 @@ impl SymbolMap {
         }
     }
 
+    pub fn values(&self) -> &Vec<InternedString> {
+        &self.values
+    }
+
     pub fn len(&self) -> usize {
         self.values.len()
     }

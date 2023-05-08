@@ -1,7 +1,10 @@
 pub mod cycles;
 
 use crate::{
-    gc::Gc,
+    gc::{
+        unsafe_erased_pointers::{BorrowedObject, OpaqueReference},
+        Gc,
+    },
     parser::{
         ast::{Atom, ExprKind},
         parser::SyntaxObject,
@@ -167,18 +170,6 @@ pub trait CustomType {
     // fn as_underlying_type<'a>(&'a self) -> Option<&'a Self>;
 }
 
-// impl Clone for Box<dyn CustomType> {
-//     fn clone(&self) -> Box<dyn CustomType> {
-//         self.box_clone()
-//     }
-// }
-
-// impl From<Box<dyn CustomType>> for SteelVal {
-//     fn from(val: Box<dyn CustomType>) -> SteelVal {
-//         val.new_steel_val()
-//     }
-// }
-
 impl<T: Custom + 'static> CustomType for T {
     fn as_any_ref(&self) -> &dyn Any {
         self as &dyn Any
@@ -192,10 +183,6 @@ impl<T: Custom + 'static> CustomType for T {
         } else {
             Ok(format!("#<{}>", self.name().to_string()))
         }
-
-        // let mut buf = String::new();
-        // write!(buf, "{:?}", &self)?;
-        // Ok(buf)
     }
 }
 
@@ -324,6 +311,7 @@ mod private {
 pub enum SRef<'b, T: ?Sized + 'b> {
     Temporary(&'b T),
     Owned(Ref<'b, T>),
+    // ExistingBorrow(S),
 }
 
 impl<'b, T: ?Sized + 'b> Deref for SRef<'b, T> {
@@ -334,21 +322,49 @@ impl<'b, T: ?Sized + 'b> Deref for SRef<'b, T> {
         match self {
             SRef::Temporary(inner) => inner,
             SRef::Owned(inner) => inner,
+            // SRef::ExistingBorrow(inner) =>
         }
     }
 }
 
 // Can you take a steel val and execute operations on it by reference
 pub trait AsRefSteelVal: Sized {
-    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>>;
+    type Nursery: Default;
+
+    fn as_ref<'b, 'a: 'b>(
+        val: &'a SteelVal,
+        _nursery: &'a mut Self::Nursery,
+    ) -> Result<SRef<'b, Self>>;
+}
+
+pub trait AsSlice<T> {
+    fn as_slice_repr(&self) -> &[T];
+}
+
+impl<T> AsSlice<T> for Vec<T> {
+    fn as_slice_repr(&self) -> &[T] {
+        self.as_slice()
+    }
+}
+
+pub trait AsRefSteelValFromUnsized<T>: Sized {
+    type Output: AsSlice<T>;
+
+    fn as_ref_from_unsized(val: &SteelVal) -> Result<Self::Output>;
 }
 
 pub trait AsRefMutSteelVal: Sized {
     fn as_mut_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<RefMut<'b, Self>>;
 }
 
+pub trait AsRefMutSteelValFromRef: Sized {
+    fn as_mut_ref_from_ref<'a>(val: &'a SteelVal) -> crate::rvals::Result<&'a mut Self>;
+}
+
 impl AsRefSteelVal for List<SteelVal> {
-    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
+    type Nursery = ();
+
+    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal, _nursery: &mut ()) -> Result<SRef<'b, Self>> {
         if let SteelVal::ListV(l) = val {
             Ok(SRef::Temporary(l))
         } else {
@@ -368,7 +384,12 @@ impl AsRefSteelVal for List<SteelVal> {
 // }
 
 impl<T: CustomType + 'static> AsRefSteelVal for T {
-    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
+    type Nursery = ();
+
+    fn as_ref<'b, 'a: 'b>(
+        val: &'a SteelVal,
+        _nursery: &mut Self::Nursery,
+    ) -> Result<SRef<'b, Self>> {
         // todo!()
 
         if let SteelVal::Custom(v) = val {
@@ -426,40 +447,6 @@ impl<T: CustomType + 'static> AsRefMutSteelVal for T {
         }
     }
 }
-
-// impl AsRefSteelVal for List<SteelVal> {
-//     fn as_ref<'a>(val: &'a SteelVal) -> Result<Ref<'a, List<SteelVal>>> {
-//         todo!()
-
-//         // if let SteelVal::ListV(list) = val {
-//         //     Ok(list)
-//         // } else {
-//         //     Err(SteelErr::new(
-//         //         ErrorKind::ConversionError,
-//         //         "Value unable to be converted to a list".to_string(),
-//         //     ))
-//         // }
-//     }
-// }
-
-// impl Custom for Box<dyn Iterator<Item = SteelVal>> {}
-
-// todo
-// impl<T: IntoIterator<Item = SteelVal>> FromSteelVal for T {
-//     fn from_steelval(val: &SteelVal) -> Result<Self> {
-//         todo!()
-//     }
-// }
-
-// struct Blagh;
-
-// impl<'a> FromSteelVal for &'a Blagh {
-//     fn from_steelval(val: &SteelVal) -> Result<
-// }
-
-// TODO: Make a struct builder instead of the ugly function below
-// struct StructBuilder {
-// }
 
 thread_local! {
     pub static MAGIC_STRUCT_SYMBOL: SteelVal = SteelVal::ListV(im_lists::list![SteelVal::SymbolV("StructMarker".into())]);
@@ -601,7 +588,12 @@ impl IntoSteelVal for Syntax {
 }
 
 impl AsRefSteelVal for Syntax {
-    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
+    type Nursery = ();
+
+    fn as_ref<'b, 'a: 'b>(
+        val: &'a SteelVal,
+        _nursery: &'a mut Self::Nursery,
+    ) -> Result<SRef<'b, Self>> {
         if let SteelVal::SyntaxObject(s) = val {
             Ok(SRef::Temporary(s))
         } else {
@@ -695,6 +687,8 @@ pub enum SteelVal {
 
     // Mutable storage, with Gc backing
     Boxed(HeapRef),
+
+    Reference(OpaqueReference<'static>),
 }
 
 // impl Clone for SteelVal {
@@ -888,7 +882,7 @@ impl Chunks {
 }
 
 pub enum BuiltInDataStructureIterator {
-    List(im_lists::list::ConsumingIter<SteelVal, im_lists::shared::RcPointer, 256>),
+    List(im_lists::list::ConsumingIter<SteelVal, im_lists::shared::RcPointer, 256, 1>),
     Vector(im_rc::vector::ConsumingIter<SteelVal>),
     Set(im_rc::hashset::ConsumingIter<SteelVal>),
     Map(im_rc::hashmap::ConsumingIter<(SteelVal, SteelVal)>),
@@ -1029,9 +1023,7 @@ impl Hash for SteelVal {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
             BoolV(b) => b.hash(state),
-            NumV(_) => {
-                unimplemented!();
-            }
+            NumV(n) => n.to_string().hash(state),
             IntV(i) => i.hash(state),
             CharV(c) => c.hash(state),
             ListV(l) => l.hash(state),
@@ -1041,7 +1033,7 @@ impl Hash for SteelVal {
             VectorV(v) => v.hash(state),
             v @ Void => v.hash(state),
             StringV(s) => s.hash(state),
-            FuncV(s) => (s as *const FunctionSignature).hash(state),
+            FuncV(s) => (*s as *const FunctionSignature).hash(state),
             // LambdaV(_) => unimplemented!(),
             // MacroV(_) => unimplemented!(),
             SymbolV(sym) => {
@@ -1098,6 +1090,7 @@ impl SteelVal {
                 | HashMapV(_)
                 | Closure(_)
                 | ListV(_)
+                | FuncV(_)
         )
     }
 

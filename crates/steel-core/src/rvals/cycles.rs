@@ -80,7 +80,7 @@ impl CycleDetector {
                 let guard = s.borrow();
 
                 {
-                    if s.borrow()
+                    if guard
                         .properties
                         .get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
                         .is_some()
@@ -152,6 +152,7 @@ impl CycleDetector {
             SyntaxObject(s) => write!(f, "#<syntax:{:?}:{:?} {:?}>", s.source, s.span, s.syntax),
             BoxedIterator(_) => write!(f, "#<iterator>"),
             Boxed(b) => write!(f, "'#&{}", b.get()),
+            Reference(x) => write!(f, "{}", x.format()?),
         }
     }
 
@@ -258,6 +259,7 @@ impl CycleDetector {
             SyntaxObject(s) => write!(f, "#<syntax:{:?}:{:?} {:?}>", s.source, s.span, s.syntax),
             BoxedIterator(_) => write!(f, "#<iterator>"),
             Boxed(b) => write!(f, "'#&{}", b.get()),
+            Reference(x) => write!(f, "{}", x.format()?),
         }
     }
 

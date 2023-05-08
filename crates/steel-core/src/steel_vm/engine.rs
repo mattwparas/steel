@@ -10,6 +10,7 @@ use crate::{
         modules::CompiledModule,
         program::{Executable, RawProgramWithSymbols, SerializableRawProgramWithSymbols},
     },
+    gc::unsafe_erased_pointers::{BorrowedObject, CustomReference, ReferenceCustomType},
     parser::{
         ast::ExprKind,
         expander::SteelMacro,
@@ -112,15 +113,18 @@ impl Engine {
 
         log::info!(target: "kernel", "Loaded prelude in the kernel!");
 
-        vm.dylibs.load_modules();
+        #[cfg(feature = "dylibs")]
+        {
+            vm.dylibs.load_modules();
 
-        let modules = vm.dylibs.modules().collect::<Vec<_>>();
+            let modules = vm.dylibs.modules().collect::<Vec<_>>();
 
-        for module in modules {
-            vm.register_module(module);
+            for module in modules {
+                vm.register_module(module);
+            }
+
+            log::info!(target: "kernel", "Loaded dylibs in the kernel!");
         }
-
-        log::info!(target: "kernel", "Loaded dylibs in the kernel!");
 
         vm
     }
@@ -167,15 +171,18 @@ impl Engine {
 
             log::info!(target: "kernel", "Loaded prelude in the kernel!");
 
-            vm.dylibs.load_modules();
+            #[cfg(feature = "dylib")]
+            {
+                vm.dylibs.load_modules();
 
-            let modules = vm.dylibs.modules().collect::<Vec<_>>();
+                let modules = vm.dylibs.modules().collect::<Vec<_>>();
 
-            for module in modules {
-                vm.register_module(module);
+                for module in modules {
+                    vm.register_module(module);
+                }
+
+                log::info!(target: "kernel", "Loaded dylibs in the kernel!");
             }
-
-            log::info!(target: "kernel", "Loaded dylibs in the kernel!");
 
             let sources = vm.sources.clone();
 
@@ -210,6 +217,10 @@ impl Engine {
     // }
 
     fn load_from_bootstrap(vm: &mut Engine) -> Option<Vec<RawProgramWithSymbols>> {
+        if matches!(option_env!("STEEL_BOOTSTRAP"), Some("false") | None) {
+            return None;
+        }
+
         let bootstrap: StartupBootstrapImage =
             bincode::deserialize(include_bytes!("../boot/bootstrap.bin")).unwrap();
 
@@ -395,12 +406,15 @@ impl Engine {
         vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
             .unwrap();
 
-        vm.dylibs.load_modules();
+        #[cfg(feature = "dylibs")]
+        {
+            vm.dylibs.load_modules();
 
-        let modules = vm.dylibs.modules().collect::<Vec<_>>();
+            let modules = vm.dylibs.modules().collect::<Vec<_>>();
 
-        for module in modules {
-            vm.register_module(module);
+            for module in modules {
+                vm.register_module(module);
+            }
         }
 
         // vm.dylibs.load_modules(&mut vm);
@@ -451,6 +465,44 @@ impl Engine {
 
     pub fn run(&mut self, input: &str) -> Result<Vec<SteelVal>> {
         self.compile_and_run_raw_program(input)
+    }
+
+    // Tie the lifetime of this object to the scope of this execution
+    pub fn run_with_reference<
+        'a,
+        'b: 'a,
+        T: CustomReference + 'b,
+        EXT: CustomReference + 'static,
+    >(
+        &'a mut self,
+        obj: &'a mut T,
+        bind_to: &'a str,
+        script: &'a str,
+    ) -> Result<()> {
+        // todo!()
+
+        crate::gc::unsafe_erased_pointers::MutableReferenceNursery::new().retain_reference(
+            obj,
+            |wrapped| {
+                // todo!();
+
+                let extended = unsafe {
+                    std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(wrapped)
+                };
+
+                self.register_value(
+                    bind_to,
+                    SteelVal::Reference(extended.into_opaque_reference::<'static>()),
+                );
+
+                let res = self.compile_and_run_raw_program(script);
+
+                // Wipe out the value from existence at all
+                self.register_value(bind_to, SteelVal::Void);
+
+                res.map(|_| ())
+            },
+        )
     }
 
     /// Instantiates a new engine instance with all the primitive functions enabled.
@@ -592,6 +644,14 @@ impl Engine {
     ) -> Result<()> {
         program.debug_build(name, &mut self.compiler.symbol_map)
     }
+
+    pub fn globals(&self) -> &Vec<InternedString> {
+        self.compiler.symbol_map.values()
+    }
+
+    // pub fn get_exported_module_functions(&self, path: PathBuf) -> impl Iterator<Item = InternedString> {
+
+    // }
 
     // Attempts to disassemble the given expression into a series of bytecode dumps
     // pub fn disassemble(&mut self, expr: &str) -> Result<String> {
