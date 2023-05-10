@@ -10,6 +10,7 @@ pub mod meta_ops;
 pub mod nums;
 mod ports;
 pub mod process;
+pub mod random;
 mod streams;
 mod strings;
 mod symbols;
@@ -23,6 +24,9 @@ pub mod web;
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
+
+#[cfg(feature = "blocking_requests")]
+pub mod blocking_requests;
 
 pub use control::ControlOperations;
 pub use fs::FsFunctions;

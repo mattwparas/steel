@@ -10,7 +10,9 @@ use crate::{
         modules::CompiledModule,
         program::{Executable, RawProgramWithSymbols, SerializableRawProgramWithSymbols},
     },
-    gc::unsafe_erased_pointers::{BorrowedObject, CustomReference, ReferenceCustomType},
+    gc::unsafe_erased_pointers::{
+        BorrowedObject, CustomReference, OpaqueReferenceNursery, ReferenceCustomType,
+    },
     parser::{
         ast::ExprKind,
         expander::SteelMacro,
@@ -449,11 +451,13 @@ impl Engine {
         vm
     }
 
+    /// Call the print method within the VM
     pub fn call_printing_method_in_context(&mut self, argument: SteelVal) -> Result<SteelVal> {
         let function = self.extract_value("println")?;
         self.call_function_with_args(function, vec![argument])
     }
 
+    /// Internal API for calling a function directly
     pub(crate) fn call_function_with_args(
         &mut self,
         function: SteelVal,
@@ -463,6 +467,22 @@ impl Engine {
             .call_function(self.compiler.constant_map.clone(), function, arguments)
     }
 
+    /// Call a function by name directly within the target environment
+    pub fn call_function_by_name_with_args(
+        &mut self,
+        function: &str,
+        arguments: Vec<SteelVal>,
+    ) -> Result<SteelVal> {
+        self.extract_value(function).and_then(|function| {
+            self.virtual_machine.call_function(
+                self.compiler.constant_map.clone(),
+                function,
+                arguments,
+            )
+        })
+    }
+
+    /// Nothing fancy, just run it
     pub fn run(&mut self, input: &str) -> Result<Vec<SteelVal>> {
         self.compile_and_run_raw_program(input)
     }
@@ -485,6 +505,11 @@ impl Engine {
             obj,
             |wrapped| {
                 // todo!();
+
+                let mut scope = ();
+
+                // Allocate the token to tie all references to this lifetime
+                let _token = OpaqueReferenceNursery::tie_lifetime(&mut scope);
 
                 let extended = unsafe {
                     std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(wrapped)
@@ -523,20 +548,6 @@ impl Engine {
         engine.compiler.kernel = Some(Kernel::new());
 
         engine
-
-        // let mut vm = Engine::new_base();
-
-        // let core_libraries = [
-        //     crate::stdlib::PRELUDE,
-        //     crate::stdlib::DISPLAY,
-        //     crate::stdlib::CONTRACTS,
-        // ];
-
-        // for core in core_libraries.into_iter() {
-        //     vm.compile_and_run_raw_program(core).unwrap();
-        // }
-
-        // vm
     }
 
     /// Consumes the current `Engine` and emits a new `Engine` with the prelude added

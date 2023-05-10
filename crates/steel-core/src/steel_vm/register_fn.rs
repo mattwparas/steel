@@ -1,17 +1,20 @@
 #![allow(unused)]
 
-use std::{future::Future, marker::PhantomData, rc::Rc};
+use std::{cell::RefCell, future::Future, marker::PhantomData, rc::Rc};
 
 use super::{
     builtin::{Arity, FunctionSignatureMetadata},
     engine::Engine,
 };
-use crate::rvals::{
-    AsRefMutSteelValFromRef, AsRefSteelVal, AsRefSteelValFromUnsized, AsSlice, FromSteelVal,
-    IntoSteelVal, Result, SteelVal,
-};
-use crate::steel_vm::builtin::BuiltInModule;
 use crate::stop;
+use crate::{gc::unsafe_erased_pointers::TemporaryObject, steel_vm::builtin::BuiltInModule};
+use crate::{
+    gc::unsafe_erased_pointers::{BorrowedObject, OpaqueReferenceNursery},
+    rvals::{
+        AsRefMutSteelValFromRef, AsRefSteelVal, AsRefSteelValFromUnsized, AsSlice, FromSteelVal,
+        IntoSteelVal, Result, SteelVal,
+    },
+};
 use crate::{
     rvals::{AsRefMutSteelVal, FutureResult},
     values::functions::BoxedDynFunction,
@@ -258,6 +261,88 @@ impl<
 }
 
 impl<
+        // RET: IntoSteelVal,
+        'a,
+        SELF: AsRefMutSteelValFromRef + 'a,
+        SELFSTAT: AsRefMutSteelValFromRef + 'static,
+        RET: AsRefMutSteelValFromRef + 'a,
+        STATICRET: AsRefMutSteelValFromRef + 'static,
+        // INNER: FromSteelVal + Clone + AsRefSteelValFromUnsized<INNER>,
+        // F: FromSteelVal,
+        FN: (Fn(&'a mut SELF) -> &'a mut RET) + 'static,
+    > RegisterFn<FN, MarkerWrapper7<(SELF, RET, STATICRET, SELFSTAT)>, STATICRET> for Engine
+{
+    fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+        // use std::Borrow();
+
+        // todo!()
+
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+
+            if args.len() != 1 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
+            }
+
+            // If this value is
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+
+            // let mut input = unsafe { std::mem::transmute::<&mut SELF, &mut SELFSTAT>(input) };
+
+            // let func = unsafe { std::mem::transmute::<FN, OTHER>(func) };
+
+            let res = func(input);
+
+            // let res = unsafe { std::mem::transmute::<&mut RET, &'static mut STATICRET>(res) };
+
+            let erased = res as *mut _;
+
+            let wrapped = Rc::new(RefCell::new(erased));
+            let weak_ptr = Rc::downgrade(&wrapped);
+
+            let temporary_borrowed_object =
+                crate::gc::unsafe_erased_pointers::TemporaryObject { ptr: wrapped };
+
+            let temp_borrow = unsafe {
+                std::mem::transmute::<TemporaryObject<RET>, TemporaryObject<STATICRET>>(
+                    temporary_borrowed_object,
+                )
+            };
+
+            // Allocate the rooted object here
+            OpaqueReferenceNursery::allocate(temp_borrow.into_opaque_reference());
+
+            let borrowed = BorrowedObject { ptr: weak_ptr };
+
+            let extended = unsafe {
+                std::mem::transmute::<BorrowedObject<RET>, BorrowedObject<STATICRET>>(borrowed)
+            };
+
+            let return_value = SteelVal::Reference(extended.into_opaque_reference::<'static>());
+
+            Ok(return_value)
+
+            // let weak_ptr = Rc::downgrade(&wrapped);
+
+            // todo!()
+
+            // res.into_steelval()
+        };
+
+        // todo!()
+
+        self.register_value(
+            name,
+            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+                Box::new(f),
+                Some(name),
+                Some(1),
+            ))),
+        )
+    }
+}
+
+impl<
         RET: IntoSteelVal,
         SELF: AsRefMutSteelValFromRef,
         INNER: FromSteelVal + Clone + AsRefSteelValFromUnsized<INNER>,
@@ -463,6 +548,7 @@ pub struct MarkerWrapper4<ARGS>(PhantomData<ARGS>);
 pub struct MarkerWrapper5<ARGS>(PhantomData<ARGS>);
 
 pub struct MarkerWrapper6<ARGS>(PhantomData<ARGS>);
+pub struct MarkerWrapper7<ARGS>(PhantomData<ARGS>);
 
 impl<A: AsRefSteelVal, B: AsRefSteelVal, FN: Fn(&A, &B) -> RET + 'static, RET: IntoSteelVal>
     RegisterFn<FN, MarkerWrapper1<(A, B)>, RET> for Engine

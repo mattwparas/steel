@@ -44,6 +44,7 @@ steel-parser = { path = "../steel-parser", version = "0.2.0" }
 chrono = "0.4.23"
 slotmap = "1.0.6"
 weak-table = "0.3.2"
+rand = "0.8.5"
 
 # bumpalo = { version = "3.12.0", features = ["boxed", "collections"] }
 
@@ -54,6 +55,8 @@ url = { version = "2.3.1", optional = true }
 tungstenite = { version = "0.18.0", features = ["rustls-tls-native-roots"], optional = true }
 
 anyhow = { version = "1", optional = true }
+
+ureq = { version = "2.6.2", optional = true }
 
 [dev-dependencies]
 proptest = "1.1.0"
@@ -78,6 +81,7 @@ sqlite = ["dep:rusqlite"]
 unsafe-internals = []
 anyhow = ["dep:anyhow"]
 dylibs = []
+blocking_requests = ["dep:ureq"]
 
 # dylibs = ["dep:dlopen", "dep:dlopen_derive"]
 

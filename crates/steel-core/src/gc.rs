@@ -354,8 +354,31 @@ pub mod unsafe_erased_pointers {
     //     std::mem::transmute::<R<'b>, R<'static>>(r)
     // }
 
+    /// This is for objects that are references FROM an already borrowed object.
+    /// In order to make this safe - we create a scoped nursery which ties the lifetime
+    /// of the object to the parent object, and all of those get dropped when the parent lifetime
+    /// ends. This will also mean that allocating references repeatedly will continuously
+    /// fill space in the nursery (at the moment). Once the original reference is done being borrowed,
+    /// we purge the entire nursery. This could cause issues - however for now as a proof
+    /// of concept, we will just treat the nursery as an allocation pool. Gc cycles should be able
+    /// to be run over this pool - just check the amount of weak pointer allocations to each allocation
+    /// and drop those from the vec.
+    pub(crate) struct TemporaryObject<T> {
+        pub(crate) ptr: Rc<RefCell<*mut T>>,
+    }
+
+    impl<T> CustomReference for TemporaryObject<T> {}
+
+    impl<T: 'static> TemporaryObject<T> {
+        pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
+            OpaqueReference {
+                inner: Rc::new(self),
+            }
+        }
+    }
+
     pub struct BorrowedObject<T> {
-        ptr: Weak<RefCell<*mut T>>,
+        pub(crate) ptr: Weak<RefCell<*mut T>>,
     }
 
     impl<T> CustomReference for BorrowedObject<T> {}
@@ -379,6 +402,55 @@ pub mod unsafe_erased_pointers {
             OpaqueReference {
                 inner: Rc::new(self),
             }
+        }
+    }
+
+    #[derive(Clone, Default)]
+    pub(crate) struct OpaqueReferenceNursery {
+        memory: Rc<RefCell<Vec<OpaqueReference<'static>>>>,
+    }
+
+    thread_local! {
+        static NURSERY: OpaqueReferenceNursery = OpaqueReferenceNursery::new();
+    }
+
+    impl OpaqueReferenceNursery {
+        const DEFAULT_CAPACITY: usize = 8;
+
+        fn new() -> Self {
+            Self {
+                memory: Rc::new(RefCell::new(Vec::with_capacity(Self::DEFAULT_CAPACITY))),
+            }
+        }
+
+        pub fn tie_lifetime<'a, T>(_: &'a mut T) -> NurseryAccessToken<'a> {
+            NurseryAccessToken {
+                phantom: PhantomData,
+            }
+        }
+
+        pub(crate) fn allocate(obj: OpaqueReference<'static>) {
+            NURSERY.with(|x| x.memory.borrow_mut().push(obj));
+        }
+
+        pub(crate) fn free_all() {
+            NURSERY.with(|x| x.memory.borrow_mut().clear())
+        }
+    }
+
+    pub struct NurseryAccessToken<'a> {
+        phantom: PhantomData<&'a ()>,
+    }
+
+    impl<'a> NurseryAccessToken<'a> {
+        pub fn allocate(obj: OpaqueReference<'static>) {
+            OpaqueReferenceNursery::allocate(obj)
+        }
+    }
+
+    impl<'a> Drop for NurseryAccessToken<'a> {
+        fn drop(&mut self) {
+            OpaqueReferenceNursery::free_all()
         }
     }
 

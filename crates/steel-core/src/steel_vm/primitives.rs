@@ -22,6 +22,7 @@ use crate::{
         },
         nums::quotient,
         process::process_module,
+        random::random_module,
         time::time_module,
         ControlOperations, FsFunctions, IoFunctions, MetaOperations, NumOperations, PortOperations,
         StreamOperations, StringOperations, SymbolOperations, VectorOperations,
@@ -246,6 +247,7 @@ thread_local! {
     pub static SANDBOXED_META_MODULE: BuiltInModule = sandboxed_meta_module();
     pub static SANDBOXED_IO_MODULE: BuiltInModule = sandboxed_io_module();
     pub static PROCESS_MODULE: BuiltInModule = process_module();
+    pub static RANDOM_MODULE: BuiltInModule = random_module();
     pub static RESULT_MODULE: BuiltInModule = build_result_structs();
     pub static OPTION_MODULE: BuiltInModule = build_option_structs();
     pub static PRELUDE_MODULE: BuiltInModule = prelude();
@@ -256,6 +258,9 @@ thread_local! {
 
     #[cfg(feature = "web")]
     pub static REQUESTS_MODULE: BuiltInModule = requests_module();
+
+    #[cfg(feature = "blocking_requests")]
+    pub static BLOCKING_REQUESTS_MODULE: BuiltInModule = crate::primitives::blocking_requests::blocking_requests_module();
 
     pub static STRING_COLORS_MODULE: BuiltInModule = string_coloring_module();
 
@@ -379,7 +384,8 @@ pub fn register_builtin_modules(engine: &mut Engine) {
         .register_module(OPTION_MODULE.with(|x| x.clone()))
         .register_module(PRELUDE_MODULE.with(|x| x.clone()))
         .register_module(TIME_MODULE.with(|x| x.clone()))
-        .register_module(STRING_COLORS_MODULE.with(|x| x.clone()));
+        .register_module(STRING_COLORS_MODULE.with(|x| x.clone()))
+        .register_module(RANDOM_MODULE.with(|x| x.clone()));
 
     #[cfg(feature = "web")]
     engine
@@ -388,6 +394,9 @@ pub fn register_builtin_modules(engine: &mut Engine) {
 
     #[cfg(feature = "sqlite")]
     engine.register_module(SQLITE_MODULE.with(|x| x.clone()));
+
+    #[cfg(feature = "blocking_requests")]
+    engine.register_module(BLOCKING_REQUESTS_MODULE.with(|x| x.clone()));
 }
 
 pub static ALL_MODULES: &str = r#"
