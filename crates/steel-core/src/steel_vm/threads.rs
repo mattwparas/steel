@@ -5,15 +5,14 @@ use crate::{rvals::SteelVal, values::functions::ByteCodeLambda};
 //     function
 // }
 
-
 // fn deep_clone(val: SteelVal) {
 //     if let SteelVal::BoxedFunction(b) = val {
-        
+
 //     }
 // }
 
 // Can be naively translated to another thread?
-fn is_thread_safe(val: SteelVal) {
+fn is_thread_safe(val: SteelVal) -> bool {
     match val {
         SteelVal::Closure(_) => todo!(),
         SteelVal::BoolV(b) => true,
