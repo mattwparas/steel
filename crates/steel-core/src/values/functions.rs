@@ -274,13 +274,13 @@ pub fn get_contract(args: &[SteelVal]) -> crate::rvals::Result<SteelVal> {
     }
 }
 
-// Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>
-
+#[derive(Clone)]
 enum StaticOrRcStr {
     Static(&'static str),
     Owned(Rc<String>),
 }
 
+// #[derive(Clone)]
 pub struct BoxedDynFunction {
     function: Box<dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal>>,
     name: Option<StaticOrRcStr>,

@@ -135,11 +135,11 @@ impl Kernel {
 
         log::debug!("Constant functions loaded");
 
-        dbg!(&self
-            .constants
-            .iter()
-            .map(|x| x.resolve())
-            .collect::<Vec<_>>());
+        // dbg!(&self
+        //     .constants
+        //     .iter()
+        //     .map(|x| x.resolve())
+        //     .collect::<Vec<_>>());
 
         Ok(())
 

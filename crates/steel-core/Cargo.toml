@@ -56,7 +56,7 @@ tungstenite = { version = "0.18.0", features = ["rustls-tls-native-roots"], opti
 
 anyhow = { version = "1", optional = true }
 
-ureq = { version = "2.6.2", optional = true }
+ureq = { version = "2.6.2", features = ["json"], optional = true }
 
 [dev-dependencies]
 proptest = "1.1.0"

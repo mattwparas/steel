@@ -292,7 +292,6 @@ pub struct FunctionInterner {
     instructions: fxhash::FxHashMap<usize, Rc<[DenseInstruction]>>,
 
     handlers: Rc<RefCell<slotmap::SlotMap<DefaultKey, SteelVal>>>,
-    // arena: Rc<bumpalo::Bump>,
 }
 
 impl SteelThread {

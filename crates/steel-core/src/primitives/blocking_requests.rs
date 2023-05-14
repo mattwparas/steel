@@ -34,6 +34,20 @@ impl SteelResponse {
             crate::stop!(Generic => "Response already consumed, can only consume the response one time!")
         }
     }
+
+    fn into_json(&mut self) -> crate::rvals::Result<serde_json::Value> {
+        let resp = self.response.take();
+
+        if let Some(resp) = resp {
+            Ok(resp.into_json()?)
+
+            // fn json(&mut self) -> Option<reqwest::Result<Value>> {
+            //     self.response.take().map(|x| x.json::<Value>())
+            // }
+        } else {
+            crate::stop!(Generic => "Response already consumed, can only consume the response one time!")
+        }
+    }
 }
 
 impl From<ureq::Response> for SteelResponse {
@@ -57,7 +71,8 @@ pub fn blocking_requests_module() -> BuiltInModule {
                 Request::call(request).map(|x| x.into())
             },
         )
-        .register_fn("response->text", SteelResponse::into_text);
+        .register_fn("response->text", SteelResponse::into_text)
+        .register_fn("response->json", SteelResponse::into_json);
 
     module
 }
