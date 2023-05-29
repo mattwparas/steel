@@ -1,5 +1,5 @@
 use super::{
-    builtin::BuiltInModule,
+    builtin::{BuiltInModule, EmbeddedModule},
     dylib::DylibContainers,
     primitives::{register_builtin_modules, register_builtin_modules_without_io, CONSTANTS},
     vm::SteelThread,
@@ -11,7 +11,7 @@ use crate::{
         program::{Executable, RawProgramWithSymbols, SerializableRawProgramWithSymbols},
     },
     gc::unsafe_erased_pointers::{
-        BorrowedObject, CustomReference, OpaqueReferenceNursery, ReferenceCustomType,
+        BorrowedObject, CustomReference, OpaqueReferenceNursery, ReadOnlyBorrowedObject,
     },
     parser::{
         ast::ExprKind,
@@ -25,7 +25,7 @@ use crate::{
     },
     rerrs::back_trace,
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
-    steel_vm::register_fn::RegisterFn,
+    steel_vm::{builtin::ExternalModule, register_fn::RegisterFn},
     stop, throw,
     values::functions::BoxedDynFunction,
     SteelErr,
@@ -37,12 +37,43 @@ use itertools::Itertools;
 use lasso::ThreadedRodeo;
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Default)]
+pub struct ModuleContainer {
+    modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
+    external_modules: ImmutableHashMap<Rc<str>, ExternalModule>,
+}
+
+impl ModuleContainer {
+    pub fn insert(&mut self, key: Rc<str>, value: BuiltInModule) {
+        self.modules.insert(key, value);
+    }
+
+    pub fn insert_ext(&mut self, key: Rc<str>, value: ExternalModule) {
+        self.external_modules.insert(key, value);
+    }
+
+    pub fn get(&mut self, key: &str) -> Option<EmbeddedModule> {
+        self.modules
+            .get(key)
+            .cloned()
+            .map(EmbeddedModule::Native)
+            .or_else(|| {
+                self.external_modules
+                    .get(key)
+                    .cloned()
+                    .map(EmbeddedModule::External)
+            })
+    }
+}
+
 #[derive(Clone)]
 pub struct Engine {
     virtual_machine: SteelThread,
     compiler: Compiler,
     constants: Option<ImmutableHashMap<InternedString, SteelVal>>,
-    modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
+    // modules: ImmutableHashMap<Rc<str>, Rc<BuiltInModule>>,
+    // external_modules: ImmutableHashMap<Rc<str>, *mut BuiltInModule>,
+    modules: ModuleContainer,
     sources: Sources,
     dylibs: DylibContainers,
 }
@@ -78,6 +109,57 @@ fn run_bootstrap() {
     Engine::create_bootstrap_from_programs();
 }
 
+pub struct LifetimeGuard<'a> {
+    // nursery: OpaqueReferenceNursery,
+    engine: &'a mut Engine,
+}
+
+impl<'a> Drop for LifetimeGuard<'a> {
+    fn drop(&mut self) {
+        crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::free_all();
+    }
+}
+
+impl<'a> LifetimeGuard<'a> {
+    // pub fn dummy<T: CustomReference, B: CustomReference + 'a, C: CustomReference + 'static>(
+    //     self,
+    //     obj: &'a B,
+    // ) -> Self {
+    //     crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_ro_object::<B, C>(obj);
+
+    //     self
+    // }
+
+    pub fn with_immutable_reference<T: CustomReference + 'a, EXT: CustomReference + 'static>(
+        self,
+        obj: &'a T,
+    ) -> Self {
+        crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_ro_object::<T, EXT>(
+            obj,
+        );
+
+        self
+    }
+
+    pub fn with_mut_reference<T: CustomReference + 'a, EXT: CustomReference + 'static>(
+        self,
+        obj: &'a mut T,
+    ) -> Self {
+        crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_rw_object::<T, EXT>(
+            obj,
+        );
+
+        self
+    }
+
+    pub fn consume<T>(self, mut thunk: impl FnMut(&mut Engine, Vec<SteelVal>) -> T) -> T {
+        let values =
+            crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::drain_to_steelvals();
+
+        thunk(self.engine, values)
+    }
+}
+
 impl Engine {
     /// Function to access a kernel level execution environment
     /// Has access to primitives and syntax rules, but will not defer to a child
@@ -89,7 +171,7 @@ impl Engine {
             virtual_machine: SteelThread::new(),
             compiler: Compiler::default(),
             constants: None,
-            modules: ImmutableHashMap::new(),
+            modules: ModuleContainer::default(),
             sources: Sources::new(),
             dylibs: DylibContainers::new(),
         };
@@ -119,16 +201,32 @@ impl Engine {
         {
             vm.dylibs.load_modules();
 
-            let modules = vm.dylibs.modules().collect::<Vec<_>>();
+            let modules = vm.dylibs.modules();
 
             for module in modules {
-                vm.register_module(module);
+                vm.register_external_module(module);
+                // vm.register_module(module);
             }
 
             log::info!(target: "kernel", "Loaded dylibs in the kernel!");
         }
 
         vm
+    }
+
+    /// Load dylibs from the given path and make them
+    pub fn load_modules_from_directory(&mut self, directory: String) {
+        log::info!("Loading modules from directory: {}", &directory);
+        self.dylibs.load_modules_from_directory(Some(directory));
+
+        let modules = self.dylibs.modules();
+
+        for module in modules {
+            self.register_external_module(module);
+            // self.register_module(module);
+        }
+
+        log::info!("Successfully loaded modules!");
     }
 
     /// Function to access a kernel level execution environment
@@ -153,7 +251,7 @@ impl Engine {
             virtual_machine: SteelThread::new(),
             compiler: Compiler::default(),
             constants: None,
-            modules: ImmutableHashMap::new(),
+            modules: ModuleContainer::default(),
             sources: Sources::new(),
             dylibs: DylibContainers::new(),
         };
@@ -177,10 +275,11 @@ impl Engine {
             {
                 vm.dylibs.load_modules();
 
-                let modules = vm.dylibs.modules().collect::<Vec<_>>();
+                let modules = vm.dylibs.modules();
 
                 for module in modules {
-                    vm.register_module(module);
+                    vm.register_external_module(module);
+                    // vm.register_module(module);
                 }
 
                 log::info!(target: "kernel", "Loaded dylibs in the kernel!");
@@ -194,7 +293,15 @@ impl Engine {
 
             vm
         } else {
-            Engine::new_kernel()
+            let mut vm = Engine::new_kernel();
+
+            let sources = vm.sources.clone();
+
+            vm.register_fn("report-error!", move |error: SteelErr| {
+                raise_error(&sources, error);
+            });
+
+            vm
         }
     }
 
@@ -257,7 +364,7 @@ impl Engine {
             virtual_machine: SteelThread::new(),
             compiler: Compiler::default(),
             constants: None,
-            modules: ImmutableHashMap::new(),
+            modules: ModuleContainer::default(),
             sources: Sources::new(),
             dylibs: DylibContainers::new(),
         };
@@ -320,7 +427,7 @@ impl Engine {
             virtual_machine: SteelThread::new(),
             compiler: Compiler::default(),
             constants: None,
-            modules: ImmutableHashMap::new(),
+            modules: ModuleContainer::default(),
             sources: Sources::new(),
             dylibs: DylibContainers::new(),
         };
@@ -380,7 +487,7 @@ impl Engine {
             virtual_machine: SteelThread::new(),
             compiler: Compiler::default_with_kernel(),
             constants: None,
-            modules: ImmutableHashMap::new(),
+            modules: ModuleContainer::default(),
             sources: Sources::new(),
             dylibs: DylibContainers::new(),
         }
@@ -412,10 +519,11 @@ impl Engine {
         {
             vm.dylibs.load_modules();
 
-            let modules = vm.dylibs.modules().collect::<Vec<_>>();
+            let modules = vm.dylibs.modules();
 
             for module in modules {
-                vm.register_module(module);
+                vm.register_external_module(module);
+                // vm.register_module(module);
             }
         }
 
@@ -458,7 +566,7 @@ impl Engine {
     }
 
     /// Internal API for calling a function directly
-    pub(crate) fn call_function_with_args(
+    pub fn call_function_with_args(
         &mut self,
         function: SteelVal,
         arguments: Vec<SteelVal>,
@@ -487,6 +595,28 @@ impl Engine {
         self.compile_and_run_raw_program(input)
     }
 
+    pub fn with_immutable_reference<'a, T: CustomReference + 'a, EXT: CustomReference + 'static>(
+        &'a mut self,
+        obj: &'a T,
+    ) -> LifetimeGuard<'a> {
+        crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_ro_object::<T, EXT>(
+            obj,
+        );
+
+        LifetimeGuard { engine: self }
+    }
+
+    pub fn with_mut_reference<'a, T: CustomReference + 'a, EXT: CustomReference + 'static>(
+        &'a mut self,
+        obj: &'a mut T,
+    ) -> LifetimeGuard<'a> {
+        crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_rw_object::<T, EXT>(
+            obj,
+        );
+
+        LifetimeGuard { engine: self }
+    }
+
     // Tie the lifetime of this object to the scope of this execution
     pub fn run_with_reference<
         'a,
@@ -498,7 +628,7 @@ impl Engine {
         obj: &'a mut T,
         bind_to: &'a str,
         script: &'a str,
-    ) -> Result<()> {
+    ) -> Result<SteelVal> {
         // todo!()
 
         crate::gc::unsafe_erased_pointers::MutableReferenceNursery::new().retain_reference(
@@ -525,7 +655,138 @@ impl Engine {
                 // Wipe out the value from existence at all
                 self.register_value(bind_to, SteelVal::Void);
 
-                res.map(|_| ())
+                res.map(|x| x.into_iter().next().unwrap())
+            },
+        )
+    }
+
+    pub fn run_with_references<
+        'a,
+        'b: 'a,
+        T: CustomReference + 'b,
+        EXT: CustomReference + 'static,
+        T2: CustomReference + 'b,
+        EXT2: CustomReference + 'static,
+    >(
+        &'a mut self,
+        obj: &'a mut T,
+        obj2: &'a mut T2,
+        mut thunk: impl FnMut(&mut Engine, SteelVal, SteelVal) -> Result<SteelVal>,
+    ) -> Result<SteelVal> {
+        crate::gc::unsafe_erased_pointers::MutableReferenceArena::new().retain_reference(
+            obj,
+            obj2,
+            |wrapped1, wrapped2| {
+                // todo!();
+
+                let mut scope = ();
+                let mut scope2 = ();
+
+                // Allocate the token to tie all references to this lifetime
+                let _token = OpaqueReferenceNursery::tie_lifetime(&mut scope);
+                let _token2 = OpaqueReferenceNursery::tie_lifetime(&mut scope2);
+
+                let extended = unsafe {
+                    std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(wrapped1)
+                };
+
+                let extended2 = unsafe {
+                    std::mem::transmute::<BorrowedObject<T2>, BorrowedObject<EXT2>>(wrapped2)
+                };
+
+                let steelval1 = SteelVal::Reference(extended.into_opaque_reference::<'static>());
+                let steelval2 = SteelVal::Reference(extended2.into_opaque_reference::<'static>());
+
+                // self.register_value(
+                //     bind_to,
+                //     SteelVal::Reference(extended.into_opaque_reference::<'static>()),
+                // );
+                // self.register_value(
+                //     bind_to2,
+                //     SteelVal::Reference(extended2.into_opaque_reference::<'static>()),
+                // );
+
+                // let res = self.compile_and_run_raw_program(script);
+
+                let res = thunk(self, steelval1, steelval2);
+
+                // Wipe out the value from existence at all
+                // self.register_value(bind_to, SteelVal::Void);
+                // self.register_value(bind_to2, SteelVal::Void);
+
+                res
+            },
+        )
+    }
+
+    pub fn run_thunk_with_reference<
+        'a,
+        'b: 'a,
+        T: CustomReference + 'b,
+        EXT: CustomReference + 'static,
+    >(
+        &'a mut self,
+        obj: &'a mut T,
+        mut thunk: impl FnMut(&mut Engine, SteelVal) -> Result<SteelVal>,
+    ) -> Result<SteelVal> {
+        crate::gc::unsafe_erased_pointers::MutableReferenceNursery::new().retain_reference(
+            obj,
+            |wrapped1| {
+                // todo!();
+
+                let mut scope = ();
+
+                // Allocate the token to tie all references to this lifetime
+                let _token = OpaqueReferenceNursery::tie_lifetime(&mut scope);
+
+                let extended = unsafe {
+                    std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(wrapped1)
+                };
+
+                let steelval1 = SteelVal::Reference(extended.into_opaque_reference::<'static>());
+
+                let res = thunk(self, steelval1);
+
+                // Wipe out the value from existence at all
+                // self.register_value(bind_to, SteelVal::Void);
+                // self.register_value(bind_to2, SteelVal::Void);
+
+                res
+            },
+        )
+    }
+
+    pub fn run_thunk_with_ro_reference<
+        'a,
+        'b: 'a,
+        T: CustomReference + 'b,
+        EXT: CustomReference + 'static,
+    >(
+        &'a mut self,
+        obj: &'a T,
+        mut thunk: impl FnMut(&mut Engine, SteelVal) -> Result<SteelVal>,
+    ) -> Result<SteelVal> {
+        crate::gc::unsafe_erased_pointers::MutableReferenceNursery::new().retain_readonly_reference(
+            obj,
+            |wrapped1| {
+                // todo!();
+
+                let mut scope = ();
+
+                // Allocate the token to tie all references to this lifetime
+                let _token = OpaqueReferenceNursery::tie_lifetime(&mut scope);
+
+                let extended = unsafe {
+                    std::mem::transmute::<ReadOnlyBorrowedObject<T>, ReadOnlyBorrowedObject<EXT>>(
+                        wrapped1,
+                    )
+                };
+
+                let steelval1 = SteelVal::Reference(extended.into_opaque_reference::<'static>());
+
+                let res = thunk(self, steelval1);
+
+                res
             },
         )
     }
@@ -608,7 +869,24 @@ impl Engine {
         // Register the actual module itself as a value to make the virtual machine capable of reading from it
         self.register_value(
             module.unreadable_name().as_str(),
-            module.into_steelval().unwrap(),
+            EmbeddedModule::Native(module).into_steelval().unwrap(),
+        );
+
+        self
+    }
+
+    // TODO: Lets see if this can _not_ segfault!
+    pub fn register_external_module(&mut self, module: *mut BuiltInModule) -> &mut Self {
+        let external_module = ExternalModule::new(module);
+
+        self.modules
+            .insert_ext(external_module.get_name(), external_module.clone());
+
+        self.register_value(
+            external_module.unreadable_name().as_str(),
+            EmbeddedModule::External(external_module)
+                .into_steelval()
+                .unwrap(),
         );
 
         self
@@ -943,7 +1221,7 @@ impl Engine {
         self.register_value(
             predicate_name,
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                Box::new(f),
+                Arc::new(f),
                 Some(predicate_name),
                 Some(1),
             ))),
@@ -1232,7 +1510,9 @@ impl Engine {
 fn raise_error(sources: &Sources, error: SteelErr) {
     if let Some(span) = error.span() {
         if let Some(source_id) = span.source_id() {
-            let file_name = sources.get_path(&source_id);
+            let sources = sources.sources.lock().unwrap();
+
+            let file_name = sources.get(source_id);
 
             if let Some(file_content) = sources.get(source_id) {
                 // Build stack trace if we have it:
@@ -1272,10 +1552,7 @@ fn raise_error(sources: &Sources, error: SteelErr) {
                     }
                 }
 
-                let resolved_file_name = file_name
-                    .as_ref()
-                    .and_then(|x| x.to_str())
-                    .unwrap_or_default();
+                let resolved_file_name = file_name.cloned().unwrap_or_default();
 
                 error.emit_result(&resolved_file_name, &file_content);
                 return;

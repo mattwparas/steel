@@ -2,8 +2,10 @@
 
 use std::{
     cell::{Cell, RefCell},
+    convert::TryFrom,
     hash::Hasher,
     rc::Rc,
+    sync::Arc,
 };
 
 use fxhash::FxHashSet;
@@ -13,12 +15,15 @@ use crate::{
     gc::Gc,
     parser::{parser::SyntaxObjectId, span::Span},
     rvals::{
-        AsRefSteelVal, BoxedFunctionSignature, FunctionSignature, IntoSteelVal,
-        MutFunctionSignature,
+        from_serializable_value, into_serializable_value, AsRefSteelVal, BoxedFunctionSignature,
+        FunctionSignature, IntoSteelVal, MutFunctionSignature, SerializableSteelVal,
     },
-    steel_vm::vm::{BlockMetadata, BlockPattern, BuiltInSignature},
+    steel_vm::{
+        register_fn::SendSyncStatic,
+        vm::{BlockMetadata, BlockPattern, BuiltInSignature},
+    },
     values::contracts::ContractedFunction,
-    SteelVal,
+    SteelErr, SteelVal,
 };
 
 use super::{closed::HeapRef, structs::UserDefinedStruct};
@@ -80,6 +85,54 @@ impl std::hash::Hash for ByteCodeLambda {
         // self.body_exp.as_ptr().hash(state);
         self.arity.hash(state);
         // self.sub_expression_env.as_ptr().hash(state);
+    }
+}
+
+// Can this be moved across threads? What does it cost to execute a closure in another thread?
+// Engine instances be deep cloned?
+pub struct SerializedLambda {
+    id: usize,
+    body_exp: Vec<DenseInstruction>,
+    arity: usize,
+    is_multi_arity: bool,
+    // TODO: Go ahead and create a ThreadSafeSteelVal where we will just deep clone everything, move
+    // it across the thread, and reconstruct on the other side.
+    captures: Vec<SerializableSteelVal>,
+}
+
+impl TryFrom<ByteCodeLambda> for SerializedLambda {
+    type Error = SteelErr;
+
+    fn try_from(value: ByteCodeLambda) -> Result<Self, Self::Error> {
+        Ok(SerializedLambda {
+            id: value.id,
+            body_exp: value.body_exp.into_iter().cloned().collect(),
+            arity: value.arity,
+            is_multi_arity: value.is_multi_arity,
+            captures: value
+                .captures
+                .into_iter()
+                .map(into_serializable_value)
+                .collect::<Result<_, Self::Error>>()?,
+        })
+    }
+}
+
+// Do the opposite conversion
+impl From<SerializedLambda> for ByteCodeLambda {
+    fn from(value: SerializedLambda) -> Self {
+        ByteCodeLambda::new(
+            value.id,
+            value.body_exp.into(),
+            value.arity,
+            value.is_multi_arity,
+            value
+                .captures
+                .into_iter()
+                .map(from_serializable_value)
+                .collect(),
+            Vec::new(),
+        )
     }
 }
 
@@ -275,34 +328,78 @@ pub fn get_contract(args: &[SteelVal]) -> crate::rvals::Result<SteelVal> {
 }
 
 #[derive(Clone)]
-enum StaticOrRcStr {
+#[repr(C)]
+pub enum StaticOrRcStr {
     Static(&'static str),
-    Owned(Rc<String>),
+    Owned(Arc<String>),
 }
 
-// #[derive(Clone)]
+/// This allows cloning the underlying closure, so we can send it across threads.
+/// It does _not_ solve serializing closures fully, but it does mean we can move function
+/// pointers across threads, which should be very helpful with spawning native threads.
+// TODO: @Matt - Replace usage of BoxedDynFunction (and subsequent call sites) with this instead
+// trait DynamicFunction: Send + Sync {
+//     #[inline]
+//     fn call(&self, args: &[SteelVal]) -> crate::rvals::Result<SteelVal>;
+//     fn clone_box(&self) -> Box<dyn DynamicFunction>;
+// }
+
+// // Allow only the capturing of send + sync variables?
+// impl<F: Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> + Clone + Send + Sync + 'static>
+//     DynamicFunction for F
+// {
+//     fn call(&self, args: &[SteelVal]) -> crate::rvals::Result<SteelVal> {
+//         (self)(args)
+//     }
+
+//     fn clone_box(&self) -> Box<dyn DynamicFunction> {
+//         Box::new(self.clone())
+//     }
+// }
+
+// impl Clone for Box<dyn DynamicFunction> {
+//     fn clone(&self) -> Self {
+//         self.clone_box()
+//     }
+// }
+
+// pub enum MaybeSendSyncFunction {}
+
+#[derive(Clone)]
+#[repr(C)]
 pub struct BoxedDynFunction {
-    function: Box<dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal>>,
-    name: Option<StaticOrRcStr>,
-    arity: Option<usize>,
+    pub function:
+        Arc<dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> + Send + Sync + 'static>,
+    pub name: Option<StaticOrRcStr>,
+    pub arity: Option<usize>,
 }
 
 impl BoxedDynFunction {
+    // pub fn spawn_on_thread(self) {
+    //     std::thread::spawn(move || self.function);
+    // }
+
     pub(crate) fn new(
-        function: Box<dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal>>,
-        name: Option<&'static str>,
+        function: Arc<
+            dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> + Send + Sync + 'static,
+        >,
+        name: Option<&str>,
         arity: Option<usize>,
     ) -> Self {
         BoxedDynFunction {
             function,
-            name: name.map(StaticOrRcStr::Static),
+            name: name
+                .map(|x| Arc::new(x.to_string()))
+                .map(StaticOrRcStr::Owned),
             arity,
         }
     }
 
     pub(crate) fn new_owned(
-        function: Box<dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal>>,
-        name: Option<Rc<String>>,
+        function: Arc<
+            dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> + Send + Sync + 'static,
+        >,
+        name: Option<Arc<String>>,
         arity: Option<usize>,
     ) -> Self {
         BoxedDynFunction {
@@ -313,8 +410,10 @@ impl BoxedDynFunction {
     }
 
     #[inline(always)]
-    pub fn func(&self) -> &dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> {
-        &self.function
+    pub fn func(
+        &self,
+    ) -> &(dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> + Send + Sync + 'static) {
+        self.function.as_ref()
     }
 
     #[inline(always)]
@@ -325,7 +424,7 @@ impl BoxedDynFunction {
     #[inline(always)]
     pub fn name(&self) -> Option<&str> {
         match &self.name {
-            Some(StaticOrRcStr::Owned(o)) => Some(&o),
+            Some(StaticOrRcStr::Owned(o)) => None, // TODO: Come back here @Matt
             Some(StaticOrRcStr::Static(s)) => Some(s),
             None => None,
         }

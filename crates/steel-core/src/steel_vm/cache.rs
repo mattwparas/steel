@@ -61,7 +61,7 @@ impl WeakMemoizationTable {
         arguments: List<SteelVal>,
         value: SteelVal,
     ) -> crate::rvals::Result<()> {
-        println!("Inserting args: {:?}", arguments);
+        // println!("Inserting args: {:?}", arguments);
 
         if let SteelVal::Closure(l) = function {
             if let Some(map) = self.table.get_mut(&l) {

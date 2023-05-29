@@ -21,6 +21,11 @@ pub struct Env {
     pub(crate) bindings_vec: Vec<SteelVal>,
 }
 
+// Serialize... if possible?
+pub struct SerializableEnv {
+    bindings_vec: Vec<u8>,
+}
+
 impl Env {
     pub fn extract(&self, idx: usize) -> Option<SteelVal> {
         self.bindings_vec.get(idx).cloned()
@@ -31,6 +36,10 @@ impl Env {
         Env {
             bindings_vec: Vec::new(),
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.bindings_vec.len()
     }
 
     #[cfg(feature = "dynamic")]

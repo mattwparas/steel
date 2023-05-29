@@ -187,6 +187,52 @@ impl<T: FromSteelVal> FromSteelVal for Vec<T> {
     }
 }
 
+impl<T: FromSteelVal> FromSteelVal for Box<[T]> {
+    fn from_steelval(val: &SteelVal) -> Result<Self> {
+        match val {
+            SteelVal::ListV(l) => {
+                let result_vec_vals: Result<Self> = l
+                    .into_iter()
+                    .map(|x| FromSteelVal::from_steelval(x))
+                    .collect();
+
+                match result_vec_vals {
+                    Ok(x) => Ok(x),
+                    _ => Err(SteelErr::new(
+                        ErrorKind::ConversionError,
+                        "Could not convert SteelVal list to Vector of values".to_string(),
+                    )),
+                }
+            }
+            SteelVal::VectorV(v) => {
+                let result_vec_vals: Result<Self> =
+                    v.iter().map(FromSteelVal::from_steelval).collect();
+                match result_vec_vals {
+                    Ok(x) => Ok(x),
+                    _ => Err(SteelErr::new(
+                        ErrorKind::ConversionError,
+                        "Could not convert SteelVal list to Vector of values".to_string(),
+                    )),
+                }
+            } // TODO
+            _ => Err(SteelErr::new(
+                ErrorKind::ConversionError,
+                "Could not convert SteelVal list to Vector of values".to_string(),
+            )),
+        }
+    }
+}
+
+impl FromSteelVal for Box<str> {
+    fn from_steelval(val: &SteelVal) -> Result<Self> {
+        if let SteelVal::StringV(s) = val {
+            Ok(s.as_str().into())
+        } else {
+            stop!(TypeMismatch => "Unable to convert {} into Box<str>", val);
+        }
+    }
+}
+
 // HashMap
 impl<K: IntoSteelVal, V: IntoSteelVal> IntoSteelVal for HashMap<K, V> {
     fn into_steelval(mut self) -> Result<SteelVal> {
@@ -232,6 +278,26 @@ impl<K: FromSteelVal + Eq + std::hash::Hash, V: FromSteelVal> FromSteelVal for H
 //         todo!()
 //     }
 // }
+
+impl<A: FromSteelVal, B: FromSteelVal> FromSteelVal for (A, B) {
+    fn from_steelval(val: &SteelVal) -> Result<Self> {
+        if let SteelVal::ListV(l) = val {
+            if l.len() != 2 {
+                return Err(SteelErr::new(ErrorKind::ConversionError, format!("Could not convert steelval to (A, B): {:?} - list was not length of 2, found length: {}", val, l.len())));
+            }
+
+            Ok((
+                A::from_steelval(l.get(0).unwrap())?,
+                B::from_steelval(l.get(1).unwrap())?,
+            ))
+        } else {
+            Err(SteelErr::new(
+                ErrorKind::ConversionError,
+                format!("Could not convert SteelVal to (A, B): {:?}", val),
+            ))
+        }
+    }
+}
 
 // HashSet
 impl<K: IntoSteelVal> IntoSteelVal for HashSet<K> {

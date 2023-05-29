@@ -94,9 +94,10 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     let mut print_time = false;
 
     let (tx, rx) = channel();
+    let tx = std::sync::Mutex::new(tx);
 
     let cancellation_function = move || {
-        tx.send(()).unwrap();
+        tx.lock().unwrap().send(()).unwrap();
     };
 
     vm.register_fn("quit", cancellation_function);

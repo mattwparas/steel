@@ -244,11 +244,11 @@ impl<'a> ConstantEvaluator<'a> {
         mut raw_args: Vec<ExprKind>,
         args: &[SteelVal],
     ) -> Result<ExprKind> {
-        println!(
-            "Calling function: {} with args: {:?}",
-            ident.resolve(),
-            args
-        );
+        // println!(
+        //     "Calling function: {} with args: {:?}",
+        //     ident.resolve(),
+        //     args
+        // );
 
         let output = self.kernel.as_mut().unwrap().call_function(&ident, args)?;
 

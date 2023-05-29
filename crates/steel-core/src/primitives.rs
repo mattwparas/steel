@@ -367,6 +367,16 @@ impl From<bool> for SteelVal {
     }
 }
 
+impl FromSteelVal for bool {
+    fn from_steelval(val: &SteelVal) -> crate::rvals::Result<bool> {
+        if let SteelVal::BoolV(b) = val {
+            Ok(*b)
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {val} to boolean"))
+        }
+    }
+}
+
 impl IntoSteelVal for bool {
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         Ok(SteelVal::BoolV(self))

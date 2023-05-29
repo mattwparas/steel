@@ -13,7 +13,7 @@ use crate::{
     parser::{
         ast::AstTools, expand_visitor::expand_kernel, interner::InternedString, kernel::Kernel,
     },
-    steel_vm::{builtin::BuiltInModule, cache::MemoizationTable},
+    steel_vm::{builtin::BuiltInModule, cache::MemoizationTable, engine::ModuleContainer},
 };
 use crate::{
     core::{instructions::Instruction, opcode::OpCode},
@@ -353,7 +353,7 @@ impl Compiler {
     pub fn compile_executable_from_expressions(
         &mut self,
         exprs: Vec<ExprKind>,
-        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
+        builtin_modules: ModuleContainer,
         constants: ImmutableHashMap<InternedString, SteelVal>,
         sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {
@@ -365,7 +365,7 @@ impl Compiler {
         expr_str: &str,
         path: Option<PathBuf>,
         constants: ImmutableHashMap<InternedString, SteelVal>,
-        builtin_modules: ImmutableHashMap<std::rc::Rc<str>, BuiltInModule>,
+        builtin_modules: ModuleContainer,
         sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {
         #[cfg(feature = "profiling")]
@@ -399,7 +399,7 @@ impl Compiler {
         constants: ImmutableHashMap<InternedString, SteelVal>,
         path: Option<PathBuf>,
         sources: &mut Sources,
-        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
+        builtin_modules: ModuleContainer,
     ) -> Result<Vec<ExprKind>> {
         let id = sources.add_source(expr_str.to_string(), path.clone());
 
@@ -480,7 +480,7 @@ impl Compiler {
         &mut self,
         path: PathBuf,
         sources: &mut Sources,
-        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
+        builtin_modules: ModuleContainer,
     ) -> Result<()> {
         self.module_manager.add_module(
             path,
@@ -500,7 +500,7 @@ impl Compiler {
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
         sources: &mut Sources,
-        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
+        builtin_modules: ModuleContainer,
     ) -> Result<Vec<ExprKind>> {
         #[cfg(feature = "modules")]
         return self.module_manager.compile_main(
@@ -560,7 +560,7 @@ impl Compiler {
         &mut self,
         exprs: Vec<ExprKind>,
         constants: ImmutableHashMap<InternedString, SteelVal>,
-        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
+        builtin_modules: ModuleContainer,
         path: Option<PathBuf>,
         sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {

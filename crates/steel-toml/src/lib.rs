@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use steel::steel_vm::{builtin::BuiltInModule, register_fn::RegisterFn};
 use steel::SteelVal;
 
@@ -44,11 +46,20 @@ fn as_native_steelval(value: &Value) -> steel::rvals::Result<SteelVal> {
 //     }
 // }
 
-#[no_mangle]
-fn generate_module() -> BuiltInModule {
+// thread_local! {
+//     static MODULE: Rc<BuiltInModule> = create_module();
+// }
+
+fn add_100(x: usize) -> usize {
+    x + 100
+}
+
+// #[no_mangle]
+fn create_module() -> Box<BuiltInModule> {
     let mut module = BuiltInModule::new("dylib/toml".to_string());
 
-    module.register_fn("toml->value", SteelTomlValue::as_value);
+    module.register_owned_fn("toml->value".to_string(), SteelTomlValue::as_value);
+    module.register_fn("add-100", add_100);
 
     // module.register_type::<SteelTomlValue>("toml?");
 
@@ -57,5 +68,26 @@ fn generate_module() -> BuiltInModule {
     // module.register_value("outside-value", SteelVal::StringV("Hello world!".into()));
     // module.register_fn("hidden-function", hidden_function);
 
-    module
+    Box::new(module)
+
+    // module
+}
+
+#[no_mangle]
+pub fn build_module(module: &mut BuiltInModule) {
+    module.set_name("dylib/toml".to_string());
+
+    module.register_fn("toml->value", SteelTomlValue::as_value);
+}
+
+#[no_mangle]
+pub fn generate_module() -> *mut BuiltInModule {
+    Box::into_raw(create_module())
+}
+
+#[no_mangle]
+pub fn free_module(ptr: *mut BuiltInModule) {
+    unsafe {
+        let _ = Box::from_raw(ptr);
+    }
 }

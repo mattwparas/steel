@@ -3,6 +3,7 @@
 
 use im_rc::HashMap;
 
+use crate::parser::interner::InternedString;
 use crate::throw;
 use crate::{
     core::utils::Boxed,
@@ -17,6 +18,7 @@ use crate::{
     SteelErr,
 };
 use crate::{steel_vm::builtin::BuiltInModule, stop};
+use std::sync::Arc;
 use std::{
     cell::{Ref, RefCell},
     rc::Rc,
@@ -29,28 +31,36 @@ enum StringOrMagicNumber {
     Magic(usize),
 }
 
+// If they're built in, we want to package the values alongside the
+#[derive(Debug, Clone)]
+pub enum Properties {
+    BuiltIn,
+    Local(Gc<im_rc::HashMap<SteelVal, SteelVal>>),
+}
+
 #[derive(Clone, Debug)]
 pub struct UserDefinedStruct {
-    pub(crate) name: Rc<String>,
+    // Consider using an interned string here directly, rather than
+    // a fake arc string.
+    // pub(crate) name: Arc<String>,
+    pub(crate) name: InternedString,
     pub(crate) fields: smallvec::SmallVec<[SteelVal; 5]>,
-    // pub(crate) len: usize,
-    pub(crate) properties: Gc<im_rc::HashMap<SteelVal, SteelVal>>,
+    pub(crate) properties: Properties, // pub(crate) properties: Gc<im_rc::HashMap<SteelVal, SteelVal>>,
 }
 
 // TODO: This could blow the stack for big trees...
 impl PartialEq for UserDefinedStruct {
     fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.name, &other.name)
+        self.name == other.name
             // && self.len == other.len
             && self.fields == other.fields
-            && Gc::ptr_eq(&self.properties, &other.properties)
+        // && Gc::ptr_eq(&self.properties, &other.properties)
     }
 }
 
 impl std::fmt::Display for UserDefinedStruct {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self
-            .properties
             .get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
             .is_some()
         {
@@ -229,20 +239,32 @@ impl ImmutableMaybeHeapVec {
 }
 
 impl UserDefinedStruct {
-    fn new(name: Rc<String>, fields: &[SteelVal]) -> Result<Self> {
+    fn new(name: InternedString, fields: &[SteelVal]) -> Result<Self> {
         let (options, rest) = fields.split_first().ok_or_else(
             throw!(ArityMismatch => "struct constructor expects at least one argument"),
         )?;
 
+        // TODO: Don't use a hashmap for these properties. Probably best to have some kind of fixed purpose
+        // data structure? A hashmap is also fine, but something that is required to be constructed with only
+        // constants could be helpful.
         if let SteelVal::HashMapV(properties) = options.clone() {
             Ok(Self {
                 name,
                 fields: rest.into(),
                 // len: fields.len(),
-                properties,
+                properties: Properties::Local(properties),
             })
         } else {
             stop!(TypeMismatch => format!("struct constructor expected a hashmap, found: {options}"))
+        }
+    }
+
+    pub(crate) fn get(&self, val: &SteelVal) -> Option<&SteelVal> {
+        match &self.properties {
+            Properties::BuiltIn => {
+                todo!()
+            }
+            Properties::Local(p) => p.get(val),
         }
     }
 
@@ -260,21 +282,21 @@ impl UserDefinedStruct {
     // to these structs and use them that way
     #[inline(always)]
     fn is_ok(&self) -> bool {
-        Rc::ptr_eq(&self.name, &OK_RESULT_LABEL.with(|x| Rc::clone(x)))
-            || self.name == OK_RESULT_LABEL.with(|x| Rc::clone(x))
+        // todo!()
+        self.name == *OK_RESULT_LABEL
+        // Arc::ptr_eq(&self.name, &OK_RESULT_LABEL.with(|x| Rc::clone(x)))
+        //     || self.name == OK_RESULT_LABEL.with(|x| Rc::clone(x))
     }
 
     #[inline(always)]
     fn is_err(&self) -> bool {
-        Rc::ptr_eq(&self.name, &ERR_RESULT_LABEL.with(|x| Rc::clone(x)))
-            || self.name == ERR_RESULT_LABEL.with(|x| Rc::clone(x))
+        // todo!()
+        self.name == *ERR_RESULT_LABEL
+        // Arc::ptr_eq(&self.name, &ERR_RESULT_LABEL.with(|x| Rc::clone(x)))
+        //     || self.name == ERR_RESULT_LABEL.with(|x| Rc::clone(x))
     }
 
-    fn new_with_options(
-        name: Rc<String>,
-        properties: Gc<HashMap<SteelVal, SteelVal>>,
-        rest: &[SteelVal],
-    ) -> Self {
+    fn new_with_options(name: InternedString, properties: Properties, rest: &[SteelVal]) -> Self {
         Self {
             name,
             fields: rest.into(),
@@ -284,8 +306,8 @@ impl UserDefinedStruct {
     }
 
     fn constructor_thunk(
-        name: Rc<String>,
-        options: Gc<HashMap<SteelVal, SteelVal>>,
+        name: InternedString,
+        // options: Properties,
         len: usize,
     ) -> impl Fn(&[SteelVal]) -> Result<SteelVal> {
         move |args: &[SteelVal]| -> Result<SteelVal> {
@@ -299,19 +321,19 @@ impl UserDefinedStruct {
                 stop!(ArityMismatch => error_message);
             }
 
-            let new_struct =
-                UserDefinedStruct::new_with_options(Rc::clone(&name), options.clone(), args);
+            let new_struct = UserDefinedStruct::new_with_options(name, Properties::BuiltIn, args);
 
             Ok(SteelVal::CustomStruct(Gc::new(RefCell::new(new_struct))))
         }
     }
 
     fn constructor_with_options(
-        name: Rc<String>,
-        options: Gc<HashMap<SteelVal, SteelVal>>,
+        name: InternedString,
+        // options: Gc<HashMap<SteelVal, SteelVal>>,
+        // options: Properties,
         len: usize,
     ) -> SteelVal {
-        let out_name = Rc::clone(&name);
+        // let out_name = Arc::clone(&name);
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != len {
@@ -324,21 +346,20 @@ impl UserDefinedStruct {
                 stop!(ArityMismatch => error_message);
             }
 
-            let new_struct =
-                UserDefinedStruct::new_with_options(Rc::clone(&name), options.clone(), args);
+            let new_struct = UserDefinedStruct::new_with_options(name, Properties::BuiltIn, args);
 
             Ok(SteelVal::CustomStruct(Gc::new(RefCell::new(new_struct))))
         };
 
         SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
-            Box::new(f),
-            Some(out_name),
+            Arc::new(f),
+            Some(name.resolve().to_string().into()),
             Some(len),
         )))
     }
 
-    fn constructor(name: Rc<String>, len: usize) -> SteelVal {
-        let out_name = Rc::clone(&name);
+    fn constructor(name: InternedString, len: usize) -> SteelVal {
+        // let out_name = Arc::clone(&name);
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != len {
@@ -351,20 +372,23 @@ impl UserDefinedStruct {
                 stop!(ArityMismatch => error_message);
             }
 
-            let new_struct = UserDefinedStruct::new(Rc::clone(&name), args)?;
+            // Definitely use interned symbols for these. Otherwise we're going to be doing A LOT of
+            // arc cloning, and we don't want that.
+            let new_struct = UserDefinedStruct::new(name, args)?;
 
             Ok(SteelVal::CustomStruct(Gc::new(RefCell::new(new_struct))))
         };
 
         SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
-            Box::new(f),
-            Some(out_name),
+            Arc::new(f),
+            // Some(out_name),
+            Some(name.resolve().to_string().into()),
             Some(len),
         )))
     }
 
-    fn predicate(name: Rc<String>) -> SteelVal {
-        let out_name = Rc::clone(&name);
+    fn predicate(name: InternedString) -> SteelVal {
+        // let out_name = Arc::clone(&name);
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
@@ -373,25 +397,22 @@ impl UserDefinedStruct {
                 stop!(ArityMismatch => error_message);
             }
             Ok(SteelVal::BoolV(match &args[0] {
-                SteelVal::CustomStruct(my_struct)
-                    if Rc::ptr_eq(&my_struct.borrow().name, &name) =>
-                {
-                    true
-                }
+                SteelVal::CustomStruct(my_struct) if my_struct.borrow().name == name => true,
                 // SteelVal::CustomStruct(my_struct) if my_struct.name == name => true,
                 _ => false,
             }))
         };
 
         SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
-            Box::new(f),
-            Some(out_name),
+            Arc::new(f),
+            // Some(out_name),
+            Some(name.resolve().to_string().into()),
             Some(1),
         )))
     }
 
-    fn getter_prototype(name: Rc<String>) -> SteelVal {
-        let out_name = Rc::clone(&name);
+    fn getter_prototype(name: InternedString) -> SteelVal {
+        // let out_name = Arc::clone(&name);
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
@@ -403,7 +424,7 @@ impl UserDefinedStruct {
 
             match (&steel_struct, &idx) {
                 (SteelVal::CustomStruct(s), SteelVal::IntV(idx)) => {
-                    if !Rc::ptr_eq(&s.borrow().name, &name) {
+                    if !(s.borrow().name == name) {
                         stop!(TypeMismatch => format!("Struct getter expected {}, found {:p}, {:?}", name, &s, &steel_struct));
                     }
 
@@ -427,14 +448,15 @@ impl UserDefinedStruct {
         };
 
         SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
-            Box::new(f),
-            Some(out_name),
+            Arc::new(f),
+            // Some(out_name),
+            Some(name.resolve().to_string().into()),
             Some(2),
         )))
     }
 
-    fn getter_prototype_index(name: Rc<String>, index: usize) -> SteelVal {
-        let out_name = Rc::clone(&name);
+    fn getter_prototype_index(name: InternedString, index: usize) -> SteelVal {
+        // let out_name = Arc::clone(&name);
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
@@ -445,7 +467,7 @@ impl UserDefinedStruct {
 
             match &steel_struct {
                 SteelVal::CustomStruct(s) => {
-                    if !Rc::ptr_eq(&s.borrow().name, &name) {
+                    if !(s.borrow().name == name) {
                         stop!(TypeMismatch => format!("Struct getter expected {}, found {:p}, {:?}", name, &s, &steel_struct));
                     }
 
@@ -465,14 +487,15 @@ impl UserDefinedStruct {
         };
 
         SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
-            Box::new(f),
-            Some(out_name),
+            Arc::new(f),
+            // Some(out_name),
+            Some(name.resolve().to_string().into()),
             Some(1),
         )))
     }
 
-    fn setter_prototype(name: Rc<String>) -> SteelVal {
-        let out_name = Rc::clone(&name);
+    fn setter_prototype(name: InternedString) -> SteelVal {
+        // let out_name = Arc::clone(&name);
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 3 {
@@ -485,7 +508,7 @@ impl UserDefinedStruct {
 
             match (&steel_struct, &idx) {
                 (SteelVal::CustomStruct(s), SteelVal::IntV(idx)) => {
-                    if !Rc::ptr_eq(&s.borrow().name, &name) {
+                    if !(s.borrow().name == name) {
                         stop!(TypeMismatch => format!("Struct setter expected {}, found {}", name, &s.borrow().name));
                     }
 
@@ -503,18 +526,6 @@ impl UserDefinedStruct {
                     guard.fields[*idx as usize] = arg.clone();
 
                     Ok(old)
-
-                    // s.borrow_mut().fields[0].clone();
-
-                    // if let StructBacking::Mutable(m) = s.fields {
-                    // Ok(s.borrow_mut().fields.set(0, arg.clone()))
-                    // } else {
-                    // stop!(TypeMismatch => "attempted to set an immutable struct fields")
-                    // }
-
-                    // Ok(s.fields[*idx as usize].clone())
-
-                    // s.fields.borrow_mut()[*idx as usize] = arg.clone();
                 }
                 _ => {
                     let error_message = format!(
@@ -526,15 +537,16 @@ impl UserDefinedStruct {
         };
 
         SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
-            Box::new(f),
-            Some(out_name),
+            Arc::new(f),
+            // Some(out_name),
+            Some(name.resolve().to_string().into()),
             Some(3),
         )))
     }
 
-    pub fn properties(&self) -> SteelVal {
-        SteelVal::HashMapV(self.properties.clone())
-    }
+    // pub fn properties(&self) -> SteelVal {
+    // SteelVal::HashMapV(self.properties.clone())
+    // }
 }
 
 pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
@@ -542,11 +554,13 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
         stop!(ArityMismatch => "make-struct-type expects 2 args, found: {}", args.len())
     }
 
-    let name = if let SteelVal::SymbolV(s) = &args[0] {
+    // Convert the string into an Arc'd string - this now makes the generated functions
+    // thread safe.
+    let name: InternedString = if let SteelVal::SymbolV(s) = &args[0] {
         Ok::<_, SteelErr>(s)
     } else {
         stop!(TypeMismatch => format!("make-struct-type expected a symbol for the name, found: {}", &args[0]));
-    }?;
+    }?.as_str().into();
 
     let field_count = if let SteelVal::IntV(i) = &args[1] {
         Ok::<_, SteelErr>(i)
@@ -555,11 +569,11 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
     }?;
 
     // Build out the constructor and the predicate
-    let struct_constructor = UserDefinedStruct::constructor(Rc::clone(name), *field_count as usize);
-    let struct_predicate = UserDefinedStruct::predicate(Rc::clone(name));
+    let struct_constructor = UserDefinedStruct::constructor(name, *field_count as usize);
+    let struct_predicate = UserDefinedStruct::predicate(name);
 
-    let getter_prototype = UserDefinedStruct::getter_prototype(Rc::clone(name));
-    let setter_prototype = UserDefinedStruct::setter_prototype(Rc::clone(name));
+    let getter_prototype = UserDefinedStruct::getter_prototype(name);
+    let setter_prototype = UserDefinedStruct::setter_prototype(name);
 
     Ok(SteelVal::ListV(im_lists::list![
         struct_constructor,
@@ -569,49 +583,103 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
     ]))
 }
 
+// Thread local v-table reference.
+// Rather than have structs hold their options directly, we will include a map which
+// is just a weak reference to the original arc. Then, in order to access the vtable, we use the Arc'd
+// name as a key, and use that to grab the properties. Under any circumstance that I am aware of,
+// the entry in the vtable should be alive for as long as the struct is legally allowed to be accessed.
+pub struct VTable {
+    map: fxhash::FxHashMap<InternedString, Gc<im_rc::HashMap<SteelVal, SteelVal>>>,
+}
+
+impl VTable {
+    fn insert(&self, name: InternedString, options: Gc<im_rc::HashMap<SteelVal, SteelVal>>) {
+        VTABLE.with(|x| x.write().unwrap().map.insert(name, options));
+    }
+
+    fn get(&self, name: &InternedString) -> Option<Gc<im_rc::HashMap<SteelVal, SteelVal>>> {
+        VTABLE.with(|x| x.read().unwrap().map.get(name).cloned())
+    }
+}
+
+// Probably just... intern the strings instead? I have an interner, it might be useful to
+// just use that directly. Resolve shouldn't be that difficult in this case.
+lazy_static::lazy_static! {
+    pub static ref OK_RESULT_LABEL: InternedString = "Ok".into();
+    pub static ref ERR_RESULT_LABEL: InternedString = "Err".into();
+    pub static ref SOME_OPTION_LABEL: InternedString = "Some".into();
+    pub static ref NONE_OPTION_LABEL: InternedString = "None".into();
+}
+
+// TODO: Just make these Arc'd and lazy static instead of thread local.
 thread_local! {
-    pub static OK_RESULT_LABEL: Rc<String> = Rc::new("Ok".into());
-    pub static ERR_RESULT_LABEL: Rc<String> = Rc::new("Err".into());
-    pub static RESULT_OPTIONS: Gc<im_rc::HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
-        SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
-    });
+
+    // Consult this to get values. It is possible, the vtable is _not_ populated for a given thread.
+    // The only way that can happen is if a struct is constructed on another thread?
+    // The value inside should explicitly be a thread safe value.
+    pub static VTABLE: Arc<std::sync::RwLock<VTable>> = {
+
+        let mut map = fxhash::FxHashMap::default();
+
+        let result_options = Gc::new(im_rc::hashmap! {
+            SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
+        });
+
+        map.insert("Ok".into(), result_options.clone());
+        map.insert("Err".into(), result_options.clone());
+        map.insert("Some".into(), result_options.clone());
+        map.insert("None".into(), result_options.clone());
+
+        Arc::new(std::sync::RwLock::new(VTable {
+            map
+        }))
+    };
+
+
+    // pub static OK_RESULT_LABEL: Rc<String> = Rc::new("Ok".into());
+    // pub static ERR_RESULT_LABEL: Rc<String> = Rc::new("Err".into());
+    // pub static RESULT_OPTIONS: Gc<im_rc::HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
+        // SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
+    // });
     pub static OK_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
-        let name = OK_RESULT_LABEL.with(|x| Rc::clone(x));
-        Rc::new(Box::new(UserDefinedStruct::constructor_thunk(
-            Rc::clone(&name),
-            RESULT_OPTIONS.with(|x| Gc::clone(x)),
+            Rc::new(Box::new(UserDefinedStruct::constructor_thunk(
+            *OK_RESULT_LABEL,
+            // RESULT_OPTIONS.with(|x| Gc::clone(x)),
             1,
         )))
     };
 
     pub static ERR_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
-        let name = ERR_RESULT_LABEL.with(|x| Rc::clone(x));
+        // let name = ERR_RESULT_LABEL.with(|x| Rc::clone(x));
         Rc::new(Box::new(UserDefinedStruct::constructor_thunk(
-            Rc::clone(&name),
-            RESULT_OPTIONS.with(|x| Gc::clone(x)),
+            // Rc::clone(&name),
+            *ERR_RESULT_LABEL,
+            // RESULT_OPTIONS.with(|x| Gc::clone(x)),
             1,
         )))
     };
 
-    pub static SOME_OPTION_LABEL: Rc<String> = Rc::new("Some".into());
-    pub static NONE_LABEL: Rc<String> = Rc::new("None".into());
+    // pub static SOME_OPTION_LABEL: Rc<String> = Rc::new("Some".into());
+    // pub static NONE_LABEL: Rc<String> = Rc::new("None".into());
     pub static OPTION_OPTIONS: Gc<im_rc::HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
         SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
     pub static SOME_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
-        let name = SOME_OPTION_LABEL.with(|x| Rc::clone(x));
+        // let name = SOME_OPTION_LABEL.with(|x| Rc::clone(x));
         Rc::new(Box::new(UserDefinedStruct::constructor_thunk(
-            Rc::clone(&name),
-            OPTION_OPTIONS.with(|x| Gc::clone(x)),
+            // Rc::clone(&name),
+            *SOME_OPTION_LABEL,
+            // OPTION_OPTIONS.with(|x| Gc::clone(x)),
             1,
         )))
     };
 
     pub static NONE_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
-        let name = NONE_LABEL.with(|x| Rc::clone(x));
+        // let name = NONE_LABEL.with(|x| Rc::clone(x));
         Rc::new(Box::new(UserDefinedStruct::constructor_thunk(
-            Rc::clone(&name),
-            OPTION_OPTIONS.with(|x| Gc::clone(x)),
+            // Rc::clone(&name),
+            *NONE_OPTION_LABEL,
+            // OPTION_OPTIONS.with(|x| Gc::clone(x)),
             0,
         )))
     };
@@ -622,22 +690,23 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/core/result".to_string());
 
     {
-        let name = OK_RESULT_LABEL.with(|x| Rc::clone(x));
+        let name = *OK_RESULT_LABEL;
 
         // Build the getter for the first index
-        let getter = UserDefinedStruct::getter_prototype_index(Rc::clone(&name), 0);
-        let predicate = UserDefinedStruct::predicate(Rc::clone(&name));
+        let getter = UserDefinedStruct::getter_prototype_index(name, 0);
+        let predicate = UserDefinedStruct::predicate(name);
 
         module
             .register_value(
                 "Ok",
                 SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
-                    Box::new(UserDefinedStruct::constructor_thunk(
-                        Rc::clone(&name),
-                        RESULT_OPTIONS.with(|x| Gc::clone(x)),
+                    Arc::new(UserDefinedStruct::constructor_thunk(
+                        // Rc::clone(&name),
+                        name, // RESULT_OPTIONS.with(|x| Gc::clone(x)),
                         1,
                     )),
-                    Some(Rc::clone(&name)),
+                    // Some(Rc::clone(&name)),
+                    Some(name.resolve().to_string().into()),
                     Some(1),
                 ))),
             )
@@ -646,23 +715,24 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
     }
 
     {
-        let name = ERR_RESULT_LABEL.with(|x| Rc::clone(x));
+        // let name = ERR_RESULT_LABEL.with(|x| Rc::clone(x));
+        let name = *ERR_RESULT_LABEL;
         // let constructor = UserDefinedStruct::constructor(Rc::clone(&name), 1);
-        let predicate = UserDefinedStruct::predicate(Rc::clone(&name));
+        let predicate = UserDefinedStruct::predicate(name);
 
         // Build the getter for the first index
-        let getter = UserDefinedStruct::getter_prototype_index(Rc::clone(&name), 0);
+        let getter = UserDefinedStruct::getter_prototype_index(name, 0);
 
         module
             .register_value(
                 "Err",
                 SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
-                    Box::new(UserDefinedStruct::constructor_thunk(
-                        Rc::clone(&name),
-                        RESULT_OPTIONS.with(|x| Gc::clone(x)),
+                    Arc::new(UserDefinedStruct::constructor_thunk(
+                        // Rc::clone(&name),
+                        name, // RESULT_OPTIONS.with(|x| Gc::clone(x)),
                         1,
                     )),
-                    Some(Rc::clone(&name)),
+                    Some(name.resolve().to_string().into()),
                     Some(1),
                 ))),
             )
@@ -678,22 +748,23 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/core/option".to_string());
 
     {
-        let name = SOME_OPTION_LABEL.with(|x| Rc::clone(x));
+        // let name = SOME_OPTION_LABEL.with(|x| Rc::clone(x));
+        let name = *SOME_OPTION_LABEL;
 
         // Build the getter for the first index
-        let getter = UserDefinedStruct::getter_prototype_index(Rc::clone(&name), 0);
-        let predicate = UserDefinedStruct::predicate(Rc::clone(&name));
+        let getter = UserDefinedStruct::getter_prototype_index(name, 0);
+        let predicate = UserDefinedStruct::predicate(name);
 
         module
             .register_value(
                 "Some",
                 SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
-                    Box::new(UserDefinedStruct::constructor_thunk(
-                        Rc::clone(&name),
-                        OPTION_OPTIONS.with(|x| Gc::clone(x)),
+                    Arc::new(UserDefinedStruct::constructor_thunk(
+                        // Rc::clone(&name),
+                        name, // OPTION_OPTIONS.with(|x| Gc::clone(x)),
                         1,
                     )),
-                    Some(Rc::clone(&name)),
+                    Some(name.resolve().to_string().into()),
                     Some(1),
                 ))),
             )
@@ -702,20 +773,20 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
     }
 
     {
-        let name = NONE_LABEL.with(|x| Rc::clone(x));
+        // let name = NONE_LABEL.with(|x| Rc::clone(x));
+        let name = *NONE_OPTION_LABEL;
         // let constructor = UserDefinedStruct::constructor(Rc::clone(&name), 1);
-        let predicate = UserDefinedStruct::predicate(Rc::clone(&name));
+        let predicate = UserDefinedStruct::predicate(name);
 
         module
             .register_value(
                 "None",
                 SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
-                    Box::new(UserDefinedStruct::constructor_thunk(
-                        Rc::clone(&name),
-                        OPTION_OPTIONS.with(|x| Gc::clone(x)),
+                    Arc::new(UserDefinedStruct::constructor_thunk(
+                        name, // OPTION_OPTIONS.with(|x| Gc::clone(x)),
                         1,
                     )),
-                    Some(Rc::clone(&name)),
+                    Some(name.resolve().to_string().into()),
                     Some(0),
                 ))),
             )
@@ -725,6 +796,7 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
     module
 }
 
+// TODO: Delete this
 pub(crate) fn is_custom_struct() -> SteelVal {
     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
         if args.len() != 1 {

@@ -7,7 +7,7 @@
 
 (define (list-subset? left right)
   (hashset-subset? (list->hashset left)
-                (list->hashset right)))
+                   (list->hashset right)))
 
 ;; Classes contain:
 ;; A name, which is required to be a symbol (string should also work, but for now a symbol simplifies this)
@@ -29,13 +29,13 @@
     (error! "Not all required methods are implemented for the given interfaces"))
 
   (Class-Object
-   name
-   parents
-   interfaces
-   ;; Explicitly go collect the fields to flatten into this class given the
-   ;; class hierarchy
-   (combine-local-and-parent-fields fields parents)
-   methods))
+    name
+    parents
+    interfaces
+    ;; Explicitly go collect the fields to flatten into this class given the
+    ;; class hierarchy
+    (combine-local-and-parent-fields fields parents)
+    methods))
 
 (define (Make-Class 
                name 

@@ -59,7 +59,7 @@ impl FromSteelVal for SourceId {
 }
 
 #[derive(Default, Clone, Serialize, Deserialize)]
-struct InterierSources {
+pub(crate) struct InterierSources {
     paths: HashMap<SourceId, PathBuf>,
     sources: Vec<String>,
 }
@@ -96,7 +96,7 @@ impl InterierSources {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Sources {
-    sources: Rc<RefCell<InterierSources>>,
+    pub(crate) sources: Arc<Mutex<InterierSources>>,
 }
 
 impl Default for Sources {
@@ -108,21 +108,31 @@ impl Default for Sources {
 impl Sources {
     pub fn new() -> Self {
         Sources {
-            sources: Rc::new(RefCell::new(InterierSources::new())),
+            sources: Arc::new(Mutex::new(InterierSources::new())),
         }
     }
 
     pub fn add_source(&mut self, source: String, path: Option<PathBuf>) -> SourceId {
-        self.sources.borrow_mut().add_source(source, path)
+        self.sources.lock().unwrap().add_source(source, path)
     }
 
-    pub fn get(&'_ self, source_id: SourceId) -> Option<Ref<'_, String>> {
-        Ref::filter_map(self.sources.borrow(), |x| x.get(source_id)).ok()
-    }
+    // pub fn get(&self, source_id: SourceId) -> MutexGuard<'_, InteriorSources> {
+    //     let guard = self.sources.lock().unwrap();
 
-    pub fn get_path(&self, source_id: &SourceId) -> Option<Ref<'_, PathBuf>> {
-        Ref::filter_map(self.sources.borrow(), |x| x.paths.get(source_id)).ok()
-    }
+    //     guard.get(source_id)
+    // }
+
+    // pub fn get(&'_ self, source_id: SourceId) -> Option<Ref<'_, String>> {
+    //     Ref::filter_map(self.sources.borrow(), |x| x.get(source_id)).ok()
+    // }
+
+    // pub fn get_path(&self, source_id: &SourceId) -> Option<Ref<'_, PathBuf>> {
+    //     Ref::filter_map(self.sources.borrow(), |x| x.paths.get(source_id)).ok()
+    // }
+
+    // pub fn get_path(&self, source_id: &SourceId) -> Option<&PathBuf> {
+    //     self.sources.lock().unwrap().paths.get(source_id)
+    // }
 }
 
 pub(crate) static SYNTAX_OBJECT_ID: AtomicUsize = AtomicUsize::new(0);

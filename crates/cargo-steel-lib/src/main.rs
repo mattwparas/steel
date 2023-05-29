@@ -76,6 +76,21 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             steel_home.pop();
         }
+    } else if last.target.kind == ["dylib"] {
+        println!("Found a dylib!");
+        // println!("{:#?}", last);
+
+        for file in last.filenames {
+            let filename = file.file_name().unwrap();
+
+            steel_home.push(filename);
+
+            println!("Copying {} to {}", file, &steel_home.to_str().unwrap());
+
+            std::fs::copy(file, &steel_home).unwrap();
+
+            steel_home.pop();
+        }
     }
 
     println!("Done!");

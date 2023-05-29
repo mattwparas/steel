@@ -30,6 +30,7 @@ use std::{
     any::Any,
     cell::{Ref, RefCell, RefMut},
     cmp::Ordering,
+    convert::TryInto,
     fmt,
     future::Future,
     hash::{Hash, Hasher},
@@ -361,6 +362,10 @@ pub trait AsRefMutSteelValFromRef: Sized {
     fn as_mut_ref_from_ref<'a>(val: &'a SteelVal) -> crate::rvals::Result<&'a mut Self>;
 }
 
+pub trait AsRefSteelValFromRef: Sized {
+    fn as_ref_from_ref<'a>(val: &'a SteelVal) -> crate::rvals::Result<&'a Self>;
+}
+
 impl AsRefSteelVal for List<SteelVal> {
     type Nursery = ();
 
@@ -608,6 +613,77 @@ impl From<Syntax> for SteelVal {
     }
 }
 
+// Values which can be sent to another thread.
+// If it cannot be sent to another thread, then we'll error out on conversion.
+// TODO: Add boxed dyn functions to this.
+// #[derive(PartialEq)]
+pub enum SerializableSteelVal {
+    Closure(crate::values::functions::SerializedLambda),
+    BoolV(bool),
+    NumV(f64),
+    IntV(isize),
+    CharV(char),
+    Void,
+    StringV(String),
+    FuncV(FunctionSignature),
+    HashMapV(std::collections::HashMap<SerializableSteelVal, SerializableSteelVal>),
+    // If the value
+    VectorV(Vec<SerializableSteelVal>),
+    BoxedDynFunction(BoxedDynFunction),
+}
+
+// Once crossed over the line, convert BACK into a SteelVal
+// This should be infallible.
+pub fn from_serializable_value(val: SerializableSteelVal) -> SteelVal {
+    match val {
+        SerializableSteelVal::Closure(c) => SteelVal::Closure(Gc::new(c.into())),
+        SerializableSteelVal::BoolV(b) => SteelVal::BoolV(b),
+        SerializableSteelVal::NumV(n) => SteelVal::NumV(n),
+        SerializableSteelVal::IntV(i) => SteelVal::IntV(i),
+        SerializableSteelVal::CharV(c) => SteelVal::CharV(c),
+        SerializableSteelVal::Void => SteelVal::Void,
+        SerializableSteelVal::StringV(s) => SteelVal::StringV(s.into()),
+        SerializableSteelVal::FuncV(f) => SteelVal::FuncV(f),
+        SerializableSteelVal::HashMapV(_) => todo!(),
+        SerializableSteelVal::VectorV(v) => {
+            SteelVal::ListV(v.into_iter().map(from_serializable_value).collect())
+        }
+        SerializableSteelVal::BoxedDynFunction(f) => SteelVal::BoxedFunction(Rc::new(f)),
+    }
+}
+
+pub fn into_serializable_value(val: SteelVal) -> Result<SerializableSteelVal> {
+    match val {
+        SteelVal::Closure(c) => Ok(SerializableSteelVal::Closure(c.unwrap().try_into()?)),
+        SteelVal::BoolV(b) => Ok(SerializableSteelVal::BoolV(b)),
+        SteelVal::NumV(n) => Ok(SerializableSteelVal::NumV(n)),
+        SteelVal::IntV(n) => Ok(SerializableSteelVal::IntV(n)),
+        SteelVal::CharV(c) => Ok(SerializableSteelVal::CharV(c)),
+        SteelVal::Void => Ok(SerializableSteelVal::Void),
+        SteelVal::StringV(s) => Ok(SerializableSteelVal::StringV(s.to_string())),
+        SteelVal::FuncV(f) => Ok(SerializableSteelVal::FuncV(f)),
+        SteelVal::ListV(l) => Ok(SerializableSteelVal::VectorV(
+            l.into_iter()
+                .map(into_serializable_value)
+                .collect::<Result<_>>()?,
+        )),
+        SteelVal::BoxedFunction(f) => Ok(SerializableSteelVal::BoxedDynFunction((*f).clone())),
+        // SteelVal::HashMapV(v) => Ok(SerializableSteelVal::HashMapV(
+        //     v.into_iter()
+        //         .map(|(k, v)| {
+        //             let kprime = into_serializable_value(k)?;
+        //             let vprime = into_serializable_value(v)?;
+
+        //             Ok((kprime, vprime))
+        //         })
+        //         .collect::<Result<_>>()?,
+        // )),
+        illegal => stop!(Generic => "Type not allowed to be moved across threads!: {}", illegal),
+    }
+
+    // todo!()
+}
+
 #[derive(Clone)]
 pub enum SteelVal {
     /// Represents a bytecode closure
@@ -688,46 +764,9 @@ pub enum SteelVal {
     // Mutable storage, with Gc backing
     Boxed(HeapRef),
 
+    // TODO: This itself, needs to be boxed unfortunately.
     Reference(OpaqueReference<'static>),
 }
-
-// impl Clone for SteelVal {
-//     fn clone(&self) -> Self {
-//         match &self {
-//             Closure(x) => SteelVal::Closure(x.clone()),
-//             BoolV(x) => SteelVal::BoolV(*x),
-//             NumV(x) => SteelVal::NumV(*x),
-//             IntV(x) => SteelVal::IntV(*x),
-//             CharV(x) => SteelVal::CharV(*x),
-//             VectorV(v) => SteelVal::VectorV(v.clone()),
-//             Void => SteelVal::Void,
-//             StringV(x) => SteelVal::StringV(x.clone()),
-//             FuncV(x) => SteelVal::FuncV(*x),
-//             SymbolV(x) => SteelVal::SymbolV(x.clone()),
-//             SteelVal::Custom(x) => SteelVal::Custom(x.clone()),
-//             HashMapV(x) => HashMapV(x.clone()),
-//             HashSetV(x) => HashSetV(x.clone()),
-//             CustomStruct(x) => CustomStruct(x.clone()),
-//             PortV(x) => PortV(x.clone()),
-//             IterV(x) => IterV(x.clone()),
-//             ReducerV(x) => ReducerV(x.clone()),
-//             FutureFunc(x) => FutureFunc(x.clone()),
-//             FutureV(x) => FutureV(x.clone()),
-//             StreamV(x) => StreamV(x.clone()),
-//             Contract(x) => Contract(x.clone()),
-//             SteelVal::ContractedFunction(x) => SteelVal::ContractedFunction(x.clone()),
-//             BoxedFunction(x) => BoxedFunction(Rc::clone(x)),
-//             ContinuationFunction(x) => ContinuationFunction(x.clone()),
-//             ListV(l) => ListV(l.clone()),
-//             MutFunc(x) => MutFunc(*x),
-//             BuiltIn(x) => BuiltIn(*x),
-//             MutableVector(x) => MutableVector(Gc::clone(x)),
-//             BoxedIterator(x) => BoxedIterator(x.clone()),
-//             SteelVal::SyntaxObject(x) => SteelVal::SyntaxObject(x.clone()),
-//             Boxed(x) => SteelVal::Boxed(x.clone()),
-//         }
-//     }
-// }
 
 // TODO: Consider unboxed value types, for optimized usages when compiling segments of code.
 // If we can infer the types from the concrete functions used, we don't need to have unboxed values -> We also
@@ -812,6 +851,7 @@ pub enum SteelVal {
 // }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct SteelString(Rc<String>);
 
 impl Deref for SteelString {

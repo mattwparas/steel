@@ -1,5 +1,7 @@
 #![allow(unused)]
 
+use crate::steel_vm::builtin::EmbeddedModule;
+use crate::values::functions::SerializedLambda;
 use crate::values::{closed::Heap, contracts::ContractType};
 use crate::{
     compiler::constants::ConstantMap,
@@ -39,7 +41,7 @@ use smallvec::SmallVec;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
 
-use crate::rvals::IntoSteelVal;
+use crate::rvals::{from_serializable_value, into_serializable_value, IntoSteelVal};
 
 #[inline]
 #[cold]
@@ -69,6 +71,7 @@ pub fn unlikely(b: bool) -> bool {
 const STACK_LIMIT: usize = 1000000;
 const _JIT_THRESHOLD: usize = 100;
 
+#[repr(C)]
 #[derive(Clone, Debug, Copy, PartialEq)]
 pub struct DehydratedCallContext {
     span: Option<Span>,
@@ -86,6 +89,7 @@ impl DehydratedCallContext {
     }
 }
 
+#[repr(C)]
 #[derive(Clone, Debug, PartialEq)]
 pub struct DehydratedStackTrace {
     stack_trace: Vec<DehydratedCallContext>,
@@ -488,13 +492,6 @@ impl SteelThread {
                                 // vm_instance.spans = closure.spans();
 
                                 last.handler = None;
-
-                                #[cfg(feature = "unsafe-internals")]
-                                {
-                                    last.function = crate::gc::unsafe_roots::MaybeRooted::Reference(
-                                        closure.clone(),
-                                    );
-                                }
 
                                 #[cfg(not(feature = "unsafe-internals"))]
                                 {
@@ -2569,6 +2566,14 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
+    // Enter a new thread, passing values that can be serialized
+    // Resolve all references, attempt to instantiate a new engine on the other side?
+    fn new_thread(&mut self, function: Gc<ByteCodeLambda>) {
+        todo!()
+
+        // Analyze the dependencies of the function, and see if its safe to be spawned on another thread
+    }
+
     // #[inline(always)]
     fn handle_bind(&mut self, payload_size: usize) {
         self.thread
@@ -3873,11 +3878,239 @@ pub(crate) fn list_modules(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Resul
         .thread
         .global_env
         .roots()
-        .filter(|x| BuiltInModule::as_ref(x, &mut nursery).is_ok())
+        .filter(|x| EmbeddedModule::as_ref(x, &mut nursery).is_ok())
         .cloned()
         .collect();
 
     Some(Ok(SteelVal::ListV(modules)))
+}
+
+// TODO: Move this to the threads.rs file
+pub struct ThreadHandle {
+    // If this can hold a native steelerr object that would be nice
+    handle: Option<std::thread::JoinHandle<std::result::Result<(), String>>>,
+}
+
+impl crate::rvals::Custom for ThreadHandle {}
+
+pub(crate) fn thread_join(handle: &mut ThreadHandle) -> Result<()> {
+    if let Some(handle) = handle.handle.take() {
+        handle
+            .join()
+            .map_err(|_| SteelErr::new(ErrorKind::Generic, "thread panicked!".to_string()))?
+            .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
+    } else {
+        stop!(ContractViolation => "thread handle has already been joined!");
+    }
+}
+
+fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    use crate::rvals::SerializableSteelVal;
+
+    // Need a new:
+    // Stack
+    // Heap
+    // global env - This we can do (hopefully) lazily. Only clone the values that actually
+    // get referenced. We can also just straight up reject any closures that cannot be moved
+    // across threads
+    struct MovableThread {
+        // TODO: Make this also be serializable steel val
+        constants: Vec<u8>,
+        global_env: Vec<SerializableSteelVal>,
+        function_interner: MovableFunctionInterner,
+        runtime_options: RunTimeOptions,
+    }
+
+    // TODO: Fill this in
+    struct MovableFunctionInterner {
+        closure_interner: fxhash::FxHashMap<usize, SerializedLambda>,
+        pure_function_interner: fxhash::FxHashMap<usize, SerializedLambda>,
+        spans: fxhash::FxHashMap<usize, Vec<Span>>,
+        instructions: fxhash::FxHashMap<usize, Vec<DenseInstruction>>,
+    }
+
+    if args.len() != 1 {
+        stop!(ArityMismatch => "spawn-thread! accepts one argument, found: {}", args.len())
+    }
+
+    // If it is a native function, theres no reason we can't just call it on a new thread, most likely.
+    // There might be some funny business with thread local values, but for now we'll just accept it.
+    let function: SerializedLambda = match &args[0] {
+        SteelVal::FuncV(f) => {
+            let func = *f;
+
+            let handle =
+                std::thread::spawn(move || func(&[]).map(|_| ()).map_err(|e| e.to_string()));
+
+            return ThreadHandle {
+                handle: Some(handle),
+            }
+            .into_steelval();
+
+            // todo!()
+        }
+        SteelVal::MutFunc(f) => {
+            let func = *f;
+
+            let handle =
+                std::thread::spawn(move || func(&mut []).map(|_| ()).map_err(|e| e.to_string()));
+
+            return ThreadHandle {
+                handle: Some(handle),
+            }
+            .into_steelval();
+        }
+
+        // Probably rename unwrap to something else
+        SteelVal::Closure(f) => f.unwrap().try_into()?,
+        illegal => {
+            stop!(TypeMismatch => "Cannot spawn value on another thread: {}", illegal);
+        }
+    };
+
+    // Create a thread that is... thread safe?
+    // let thread = ctx.thread.clone();
+
+    let thread = MovableThread {
+        constants: ctx
+            .thread
+            .constant_map
+            .to_bytes()
+            .expect("Unable to serialize constant map to move across threads!"),
+
+        // Void in this case, is a poisoned value. We need to trace the closure
+        // (and all of its references) - to find any / all globals that _could_ be
+        // referenced.
+        global_env: ctx
+            .thread
+            .global_env
+            .bindings_vec
+            .iter()
+            .cloned()
+            .map(into_serializable_value)
+            .map(|x| x.unwrap_or(SerializableSteelVal::Void))
+            .collect(),
+        // Populate with the values after moving into the thread, spawn accordingly
+        // TODO: Move this out of here
+        function_interner: MovableFunctionInterner {
+            closure_interner: ctx
+                .thread
+                .function_interner
+                .closure_interner
+                .iter()
+                .map(|(k, v)| {
+                    let v_prime: SerializedLambda =
+                        v.clone().try_into().expect("This shouldn't fail!");
+                    (*k, v_prime)
+                })
+                .collect(),
+            pure_function_interner: ctx
+                .thread
+                .function_interner
+                .pure_function_interner
+                .iter()
+                .map(|(k, v)| {
+                    let v_prime: SerializedLambda =
+                        v.unwrap().try_into().expect("This shouldn't fail!");
+                    (*k, v_prime)
+                })
+                .collect(),
+            spans: ctx
+                .thread
+                .function_interner
+                .spans
+                .iter()
+                .map(|(k, v)| (*k, v.iter().copied().collect()))
+                .collect(),
+            instructions: ctx
+                .thread
+                .function_interner
+                .instructions
+                .iter()
+                .map(|(k, v)| (*k, v.iter().copied().collect()))
+                .collect(),
+        },
+
+        runtime_options: ctx.thread.runtime_options.clone(),
+    };
+
+    // TODO: Spawn a bunch of threads at the start to handle requests. That way we don't need to do this
+    // the whole time they're in there.
+    let handle = std::thread::spawn(move || {
+        // Moved over the thread. We now have
+        let closure: ByteCodeLambda = function.into();
+
+        // New thread! It will result in a run time error if the function references globals that cannot be shared
+        // between threads. This is a bit of an unfortunate occurrence - we probably _should_ just have the engine share
+        // as much as possible between threads.
+        let mut thread = SteelThread {
+            global_env: Env {
+                bindings_vec: thread
+                    .global_env
+                    .into_iter()
+                    .map(from_serializable_value)
+                    .collect(),
+            },
+            stack: Vec::with_capacity(64),
+            profiler: OpCodeOccurenceProfiler::new(),
+            function_interner: FunctionInterner {
+                closure_interner: thread
+                    .function_interner
+                    .closure_interner
+                    .into_iter()
+                    .map(|(k, v)| (k, v.into()))
+                    .collect(),
+                pure_function_interner: thread
+                    .function_interner
+                    .pure_function_interner
+                    .into_iter()
+                    .map(|(k, v)| (k, Gc::new(v.into())))
+                    .collect(),
+                spans: thread
+                    .function_interner
+                    .spans
+                    .into_iter()
+                    .map(|(k, v)| (k, v.into()))
+                    .collect(),
+                instructions: thread
+                    .function_interner
+                    .instructions
+                    .into_iter()
+                    .map(|(k, v)| (k, v.into()))
+                    .collect(),
+                handlers: Rc::new(RefCell::new(slotmap::SlotMap::default())),
+            },
+            super_instructions: Vec::new(),
+            heap: Heap::new(),
+            runtime_options: thread.runtime_options,
+            current_frame: StackFrame::main(),
+            stack_frames: Vec::with_capacity(32),
+            constant_map: ConstantMap::from_bytes(&thread.constants)
+                .expect("Unable to construct constant map!"),
+        };
+
+        // Call the function!
+        thread
+            .call_function(
+                thread.constant_map.clone(),
+                SteelVal::Closure(Gc::new(closure)),
+                Vec::new(),
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    });
+
+    return ThreadHandle {
+        handle: Some(handle),
+    }
+    .into_steelval();
+
+    // todo!("First - start with deep cloning a new environment!")
+}
+
+// Use internal spawn_thread function
+pub(crate) fn spawn_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(spawn_thread_result(ctx, args))
 }
 
 // TODO: This apply does not respect tail position
@@ -4025,108 +4258,6 @@ impl OpCodeOccurenceProfiler {
     pub fn reset(&mut self) {
         self.occurrences.clear();
         self.time.clear();
-    }
-
-    // Process the op code and the associated payload
-    // TODO: Get this to just use offsets, don't actually clone the instruction set directly
-    #[cfg(feature = "dynamic")]
-    pub fn process_opcode(
-        &mut self,
-        opcode: &OpCode,
-        // payload: usize,
-        index: usize,
-        instructions: &[DenseInstruction],
-        function: Option<&ByteCodeLambda>,
-    ) -> Option<InstructionPattern> {
-        // *self.occurrences.entry((*opcode, payload)).or_default() += 1;
-
-        let function = function?;
-
-        // Trace once it becomes hot
-        let call_count = function.call_count();
-        // If we're in the special zone, profile, otherwise don't
-        if call_count < 1000 || call_count > 10000 {
-            self.starting_index = None;
-            self.ending_index = None;
-            return None;
-        }
-
-        match opcode {
-            OpCode::SDEF | OpCode::EDEF => return None,
-            _ => {}
-        }
-
-        if self.starting_index.is_none() {
-            self.starting_index = Some(index);
-        }
-
-        self.ending_index = Some(index);
-
-        match opcode {
-            OpCode::JMP
-            | OpCode::IF
-            // | OpCode::CALLGLOBAL
-            | OpCode::CALLGLOBALTAIL
-            | OpCode::TAILCALL
-            | OpCode::TCOJMP
-            | OpCode::POPPURE
-            // | OpCode::FUNC 
-            => {
-
-                let block_pattern = BlockPattern {
-                    start: self.starting_index.unwrap(),
-                    end: index
-                };
-
-                let mut guard = function.blocks.borrow_mut();
-
-
-                if let Some((_, metadata)) = guard.iter_mut().find(|x| x.0 == block_pattern) {
-
-                    // self.sample_count += 1;
-                    // println!("Sampling on op code: {:?}", opcode);
-
-                    metadata.count += 1;
-                    metadata.length = index - block_pattern.start;
-                    // self.last_sequence = Some(pattern);
-
-                    if metadata.count > 1000 && !metadata.created {
-                        metadata.created = true;
-
-                        // println!("{} {}", block_pattern.start, index);
-
-                        let sequence = instructions[block_pattern.start..=index]
-                            .iter()
-                            .map(|x| (x.op_code, x.payload_size as usize))
-                            .filter(|x| !x.0.is_ephemeral_opcode() && x.0 != OpCode::POPPURE)
-                            .collect();
-
-                        self.starting_index = None;
-                        self.ending_index = None;
-
-
-                        // println!("Pattern finished");
-
-                        return Some(InstructionPattern::new(sequence, block_pattern));
-                    }
-
-                } else if index - block_pattern.start > 2 {
-                    guard.push((block_pattern, BlockMetadata::default()));
-                }
-
-                self.starting_index = None;
-                self.ending_index = None;
-
-                // println!("Pattern finished");
-            }
-            _ => {
-                // println!("Updating end to be: {}", index);
-                self.ending_index = Some(index);
-                // self.sequence.push((*opcode, index));
-            }
-        }
-
-        None
     }
 
     #[cfg(feature = "dynamic")]

@@ -281,11 +281,54 @@ pub mod unsafe_erased_pointers {
         rc::{Rc, Weak},
     };
 
+    use crate::rvals::AsRefSteelValFromRef;
     use crate::{
         rerrs::ErrorKind,
         rvals::{AsRefMutSteelVal, AsRefMutSteelValFromRef, Custom, IntoSteelVal},
         SteelErr, SteelVal,
     };
+
+    // TODO: This needs to be exanded to n args, probably like 8 with a macro
+    pub struct MutableReferenceArena<A, B> {
+        _phantom1: PhantomData<A>,
+        _phantom2: PhantomData<B>,
+    }
+
+    impl<A, B> MutableReferenceArena<A, B> {
+        pub fn new() -> Self {
+            Self {
+                _phantom1: PhantomData,
+                _phantom2: PhantomData,
+            }
+        }
+
+        pub fn retain_reference(
+            &mut self,
+            original_a: &mut A,
+            original_b: &mut B,
+            mut thunk: impl FnMut(
+                BorrowedObject<A>,
+                BorrowedObject<B>,
+            ) -> crate::rvals::Result<SteelVal>,
+        ) -> crate::rvals::Result<SteelVal> {
+            let erased = original_a as *mut _;
+
+            // Wrap the original mutable pointer in an object that respects borrowing
+            // rules for runtime borrow checking
+            let wrapped = Rc::new(RefCell::new(erased));
+            let weak_ptr = Rc::downgrade(&wrapped);
+
+            let borrowed = BorrowedObject { ptr: weak_ptr };
+
+            let erased2 = original_b as *mut _;
+            let wrapped2 = Rc::new(RefCell::new(erased2));
+            let weak_ptr2 = Rc::downgrade(&wrapped2);
+
+            let borrowed2 = BorrowedObject { ptr: weak_ptr2 };
+
+            thunk(borrowed, borrowed2)
+        }
+    }
 
     pub struct MutableReferenceNursery<T> {
         _phantom: PhantomData<T>, // pointers: Vec<Rc<RefCell<*mut T>>>,
@@ -298,11 +341,28 @@ pub mod unsafe_erased_pointers {
             }
         }
 
+        pub fn retain_readonly_reference(
+            &mut self,
+            original: &T,
+            mut thunk: impl FnMut(ReadOnlyBorrowedObject<T>) -> crate::rvals::Result<SteelVal>,
+        ) -> crate::rvals::Result<SteelVal> {
+            let erased = original as *const _;
+
+            // Wrap the original mutable pointer in an object that respects borrowing
+            // rules for runtime borrow checking
+            let wrapped = Rc::new(RefCell::new(erased));
+            let weak_ptr = Rc::downgrade(&wrapped);
+
+            let borrowed = ReadOnlyBorrowedObject { ptr: weak_ptr };
+
+            thunk(borrowed)
+        }
+
         pub fn retain_reference(
             &mut self,
             original: &mut T,
-            mut thunk: impl FnMut(BorrowedObject<T>) -> crate::rvals::Result<()>,
-        ) -> crate::rvals::Result<()> {
+            mut thunk: impl FnMut(BorrowedObject<T>) -> crate::rvals::Result<SteelVal>,
+        ) -> crate::rvals::Result<SteelVal> {
             let erased = original as *mut _;
 
             // Wrap the original mutable pointer in an object that respects borrowing
@@ -314,8 +374,23 @@ pub mod unsafe_erased_pointers {
 
             thunk(borrowed)
         }
+
+        // pub(crate) fn wrap_mut_borrow_object(original: &mut T) -> BorrowedObject<T> {
+        //     let erased = original as *mut _;
+
+        //     // Wrap the original mutable pointer in an object that respects borrowing
+        //     // rules for runtime borrow checking
+        //     let wrapped = Rc::new(RefCell::new(erased));
+        //     let weak_ptr = Rc::downgrade(&wrapped);
+
+        //     let borrowed = BorrowedObject { ptr: weak_ptr };
+
+        //     borrowed
+        // }
     }
 
+    // TODO: Re-evaluate the necessity of this trait. Is it possible to overload it all into one? That could
+    // help disambiguate the function call sites.
     pub trait CustomReference {}
 
     pub trait ReferenceCustomType {
@@ -371,9 +446,36 @@ pub mod unsafe_erased_pointers {
         pub(crate) ptr: Rc<RefCell<*mut T>>,
     }
 
+    // TODO: Probably combine this and the above
+    pub(crate) struct ReadOnlyTemporaryObject<T> {
+        pub(crate) ptr: Rc<RefCell<*const T>>,
+    }
+
     impl<T> CustomReference for TemporaryObject<T> {}
 
     impl<T: 'static> TemporaryObject<T> {
+        pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
+            OpaqueReference {
+                inner: Rc::new(self),
+            }
+        }
+    }
+
+    pub struct ReadOnlyBorrowedObject<T> {
+        pub(crate) ptr: Weak<RefCell<*const T>>,
+    }
+
+    impl<T> CustomReference for ReadOnlyBorrowedObject<T> {}
+
+    impl<T> Clone for ReadOnlyBorrowedObject<T> {
+        fn clone(&self) -> Self {
+            Self {
+                ptr: Weak::clone(&self.ptr),
+            }
+        }
+    }
+
+    impl<T: 'static> ReadOnlyBorrowedObject<T> {
         pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
             OpaqueReference {
                 inner: Rc::new(self),
@@ -397,21 +499,23 @@ pub mod unsafe_erased_pointers {
 
     impl<T: 'static> BorrowedObject<T> {
         pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
-            // unsafe {
-            //     std::mem::transmute::<R<'b>, R<'static>>(r)
-            // }
-
-            // let extended = std::mem::transmute::<BorrowedObject<T>
-
             OpaqueReference {
                 inner: Rc::new(self),
             }
         }
     }
 
+    trait Opaque {}
+
+    impl<T> Opaque for Rc<RefCell<T>> {}
+
+    // TODO: Use this to chain multiple references together. The engine should be able to accept something
+    // `with_reference` and then have the value be scoped to that lifetime.
     #[derive(Clone, Default)]
     pub(crate) struct OpaqueReferenceNursery {
-        memory: Rc<RefCell<Vec<OpaqueReference<'static>>>>,
+        // memory: Rc<RefCell<Vec<OpaqueReference<'static>>>>,
+        memory: Rc<RefCell<Vec<Box<dyn Opaque>>>>,
+        weak_values: Rc<RefCell<Vec<OpaqueReference<'static>>>>,
     }
 
     thread_local! {
@@ -424,6 +528,7 @@ pub mod unsafe_erased_pointers {
         fn new() -> Self {
             Self {
                 memory: Rc::new(RefCell::new(Vec::with_capacity(Self::DEFAULT_CAPACITY))),
+                weak_values: Rc::new(RefCell::new(Vec::with_capacity(Self::DEFAULT_CAPACITY))),
             }
         }
 
@@ -433,12 +538,80 @@ pub mod unsafe_erased_pointers {
             }
         }
 
+        // pub(crate) fn allocate_ro_object<T: 'static>
+
+        // Safety - these absolutely need to be the same type.
+        pub(crate) fn allocate_rw_object<'a, T: 'a, EXT: 'static>(obj: &mut T) {
+            let erased = obj as *mut _;
+
+            let erased = unsafe { std::mem::transmute::<*mut T, *mut EXT>(erased) };
+
+            // Wrap the original mutable pointer in an object that respects borrowing
+            // rules for runtime borrow checking
+            let wrapped = Rc::new(RefCell::new(erased));
+            let weak_ptr = Rc::downgrade(&wrapped);
+
+            let borrowed = BorrowedObject { ptr: weak_ptr };
+
+            // let extended =
+            //     unsafe { std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(borrowed) };
+
+            NURSERY.with(|x| x.memory.borrow_mut().push(Box::new(wrapped)));
+            NURSERY.with(|x| {
+                x.weak_values
+                    .borrow_mut()
+                    .push(borrowed.into_opaque_reference())
+            });
+
+            // borrowed.into_opaque_reference()
+        }
+
+        pub(crate) fn allocate_ro_object<'a, T: 'a, EXT: 'static>(obj: &T) {
+            let erased = obj as *const _;
+
+            let erased = unsafe { std::mem::transmute::<*const T, *const EXT>(erased) };
+
+            // Wrap the original mutable pointer in an object that respects borrowing
+            // rules for runtime borrow checking
+            let wrapped = Rc::new(RefCell::new(erased));
+            let weak_ptr = Rc::downgrade(&wrapped);
+
+            let borrowed = ReadOnlyBorrowedObject { ptr: weak_ptr };
+
+            // let extended =
+            //     unsafe { std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(borrowed) };
+
+            NURSERY.with(|x| x.memory.borrow_mut().push(Box::new(wrapped)));
+            NURSERY.with(|x| {
+                x.weak_values
+                    .borrow_mut()
+                    .push(borrowed.into_opaque_reference())
+            });
+
+            // borrowed.into_opaque_reference()
+        }
+
         pub(crate) fn allocate(obj: OpaqueReference<'static>) {
-            NURSERY.with(|x| x.memory.borrow_mut().push(obj));
+            NURSERY.with(|x| x.weak_values.borrow_mut().push(obj));
         }
 
         pub(crate) fn free_all() {
-            NURSERY.with(|x| x.memory.borrow_mut().clear())
+            NURSERY.with(|x| x.memory.borrow_mut().clear());
+            NURSERY.with(|x| x.weak_values.borrow_mut().clear());
+        }
+
+        pub(crate) fn drain_to_steelvals() -> Vec<SteelVal> {
+            let res = NURSERY.with(|x| {
+                x.weak_values
+                    .borrow_mut()
+                    .drain(..)
+                    .map(SteelVal::Reference)
+                    .collect()
+            });
+
+            NURSERY.with(|x| x.memory.borrow_mut().clear());
+
+            res
         }
     }
 
@@ -480,6 +653,7 @@ pub mod unsafe_erased_pointers {
     // Erase the type, continue on with our lives
     // impl<T: 'static> Custom for BorrowedObject<T> {}
 
+    // TODO: Combine this and the next into 1 trait
     impl<T: ReferenceCustomType + 'static> AsRefMutSteelValFromRef for T {
         fn as_mut_ref_from_ref<'a>(val: &'a SteelVal) -> crate::rvals::Result<&'a mut T> {
             // todo!()
@@ -497,6 +671,44 @@ pub mod unsafe_erased_pointers {
                     );
 
                     return guard.map(|x| unsafe { &mut *(*x.borrow_mut()) });
+                } else {
+                    let error_message = format!(
+                        "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
+                        val,
+                        std::any::type_name::<Self>()
+                    );
+                    Err(SteelErr::new(ErrorKind::ConversionError, error_message))
+                }
+            } else {
+                let error_message = format!(
+                    "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
+                    val,
+                    std::any::type_name::<Self>()
+                );
+
+                Err(SteelErr::new(ErrorKind::ConversionError, error_message))
+            }
+        }
+    }
+
+    impl<T: ReferenceCustomType + 'static> AsRefSteelValFromRef for T {
+        fn as_ref_from_ref<'a>(val: &'a SteelVal) -> crate::rvals::Result<&'a T> {
+            // todo!()
+
+            if let SteelVal::Reference(v) = val {
+                let res = v.inner.as_any_ref();
+
+                // TODO: Flatten these conversions - we're doing 2 checks when we only need to do one.
+                if res.is::<ReadOnlyBorrowedObject<T>>() {
+                    let borrowed_object = res.downcast_ref::<ReadOnlyBorrowedObject<T>>().unwrap();
+
+                    // return Ok(borrowed_object.clone());
+
+                    let guard = borrowed_object.ptr.upgrade().ok_or_else(
+                        throw!(Generic => "opaque reference pointer dropped before use!"),
+                    );
+
+                    return guard.map(|x| unsafe { &*(*x.borrow()) });
                 } else {
                     let error_message = format!(
                         "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
@@ -553,7 +765,7 @@ pub mod unsafe_erased_pointers {
 
                 ref_mut.foo_bar.append_str("bananas");
 
-                Ok(())
+                Ok(SteelVal::Void)
             })
             .unwrap();
 

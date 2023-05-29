@@ -1,7 +1,7 @@
-use std::cmp::Ordering;
+use std::{cmp::Ordering, rc::Rc};
 
 use super::{
-    builtin::BuiltInModule,
+    builtin::{BuiltInModule, EmbeddedModule},
     cache::WeakMemoizationTable,
     engine::Engine,
     register_fn::RegisterFn,
@@ -296,8 +296,9 @@ pub fn prelude() -> BuiltInModule {
 }
 
 pub fn register_builtin_modules_without_io(engine: &mut Engine) {
-    engine.register_fn("##__module-get", BuiltInModule::get);
-    engine.register_fn("%module-get%", BuiltInModule::get);
+    engine.register_fn("##__module-get", EmbeddedModule::get);
+    engine.register_fn("%module-get%", EmbeddedModule::get);
+
     engine.register_value("%proto-hash%", HM_CONSTRUCT);
     engine.register_value("%proto-hash-insert%", HM_INSERT);
     engine.register_value("%proto-hash-get%", HM_GET);
@@ -334,11 +335,11 @@ fn render_as_md(text: String) {
 }
 
 pub fn register_builtin_modules(engine: &mut Engine) {
-    engine.register_fn("##__module-get", BuiltInModule::get);
-    engine.register_fn("%module-get%", BuiltInModule::get);
-    engine.register_fn("%doc?", BuiltInModule::get_doc);
+    engine.register_fn("##__module-get", EmbeddedModule::get);
+    engine.register_fn("%module-get%", EmbeddedModule::get);
+    engine.register_fn("%doc?", EmbeddedModule::get_doc);
     engine.register_value("%list-modules!", SteelVal::BuiltIn(list_modules));
-    engine.register_fn("%module/lookup-function", BuiltInModule::search);
+    engine.register_fn("%module/lookup-function", EmbeddedModule::search);
     engine.register_fn("%string->render-markdown", render_as_md);
     engine.register_fn(
         "%module-bound-identifiers->list",
@@ -967,7 +968,9 @@ fn meta_module() -> BuiltInModule {
             "attach-contract-struct!",
             SteelVal::FuncV(attach_contract_struct),
         )
-        .register_value("get-contract-struct", SteelVal::FuncV(get_contract));
+        .register_value("get-contract-struct", SteelVal::FuncV(get_contract))
+        .register_value("spawn-thread!", SteelVal::BuiltIn(super::vm::spawn_thread))
+        .register_fn("thread-join!", super::vm::thread_join);
     module
 }
 

@@ -1,5 +1,6 @@
 use itertools::Itertools;
 
+use crate::steel_vm::engine::ModuleContainer;
 use crate::{compiler::program::REQUIRE_BUILTIN, rvals::Result};
 use crate::{compiler::program::STRUCT_KEYWORD, parser::visitors::ConsumingVisitor};
 use crate::{
@@ -175,7 +176,7 @@ impl<'a> ConsumingVisitor for Expander<'a> {
 pub fn expand_kernel(
     expr: ExprKind,
     kernel: Option<&mut Kernel>,
-    builtin_modules: im_rc::HashMap<Rc<str>, BuiltInModule>,
+    builtin_modules: ModuleContainer,
 ) -> Result<ExprKind> {
     KernelExpander {
         map: kernel,
@@ -188,14 +189,11 @@ pub fn expand_kernel(
 pub struct KernelExpander<'a> {
     map: Option<&'a mut Kernel>,
     pub(crate) changed: bool,
-    builtin_modules: im_rc::HashMap<Rc<str>, BuiltInModule>,
+    builtin_modules: ModuleContainer,
 }
 
 impl<'a> KernelExpander<'a> {
-    pub fn new(
-        map: Option<&'a mut Kernel>,
-        builtin_modules: im_rc::HashMap<Rc<str>, BuiltInModule>,
-    ) -> Self {
+    pub fn new(map: Option<&'a mut Kernel>, builtin_modules: ModuleContainer) -> Self {
         Self {
             map,
             changed: false,

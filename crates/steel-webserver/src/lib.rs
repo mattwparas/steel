@@ -4,7 +4,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use std::{collections::HashMap, net::SocketAddr};
+use std::{collections::HashMap, net::SocketAddr, rc::Rc};
 use steel::{
     rvals::{Custom, IntoSteelVal},
     steel_vm::{builtin::BuiltInModule, register_fn::RegisterFn},
@@ -122,8 +122,12 @@ fn setup_channels() -> Vec<SteelVal> {
     ]
 }
 
-#[no_mangle]
-fn generate_module() -> BuiltInModule {
+// thread_local! {
+//     static MODULE: Rc<BuiltInModule> = create_module();
+// }
+
+// #[no_mangle]
+fn create_module() -> Box<BuiltInModule> {
     let mut module = BuiltInModule::new("dylib/steel/webserver".to_string());
 
     // module.register_fn("toml->value", SteelTomlValue::as_value);
@@ -147,7 +151,37 @@ fn generate_module() -> BuiltInModule {
     // module.register_value("outside-value", SteelVal::StringV("Hello world!".into()));
     // module.register_fn("hidden-function", hidden_function);
 
+    // Rc::new(module)
+    Box::new(module)
+}
+
+#[no_mangle]
+pub fn build_module(module: &mut BuiltInModule) {
+    module.set_name("dylib/steel/webserver".to_string());
+
     module
+        .register_fn("start-server!", spawn_server)
+        .register_fn("setup-channels", setup_channels)
+        .register_fn("receiver/recv", WrappedReceiver::recv)
+        .register_fn("sender/send", WrappedSender::send)
+        .register_fn("thread/join", WrappedJoinHandler::join)
+        .register_fn("request-type", Request::get_type)
+        .register_fn("request-path", Request::get_path)
+        .register_fn("request-body", Request::get_body)
+        .register_value("request-type/POST", POST.with(|x| x.clone()))
+        .register_value("request-type/GET", GET.with(|x| x.clone()));
+}
+
+#[no_mangle]
+pub fn generate_module() -> *mut BuiltInModule {
+    Box::into_raw(create_module())
+}
+
+#[no_mangle]
+pub fn free_module(ptr: *mut BuiltInModule) {
+    unsafe {
+        let _ = Box::from_raw(ptr);
+    }
 }
 
 struct WrappedJoinHandler {

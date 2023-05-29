@@ -9,7 +9,7 @@ use crate::{
         parser::{ParseError, Parser, Sources, SyntaxObject},
         tokens::TokenType,
     },
-    steel_vm::builtin::BuiltInModule,
+    steel_vm::{builtin::BuiltInModule, engine::ModuleContainer},
 };
 use crate::{parser::expand_visitor::Expander, rvals::Result};
 
@@ -86,7 +86,7 @@ impl ModuleManager {
         _global_macro_map: &mut HashMap<InternedString, SteelMacro>,
         kernel: &mut Option<Kernel>,
         sources: &mut Sources,
-        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
+        builtin_modules: ModuleContainer,
     ) -> Result<()> {
         // todo!()
 
@@ -119,7 +119,7 @@ impl ModuleManager {
         sources: &mut Sources,
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
-        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
+        builtin_modules: ModuleContainer,
     ) -> Result<Vec<ExprKind>> {
         // Wipe the visited set on entry
         self.visited.clear();
@@ -675,7 +675,7 @@ struct ModuleBuilder<'a> {
     file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
     sources: &'a mut Sources,
     kernel: &'a mut Option<Kernel>,
-    builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
+    builtin_modules: ModuleContainer,
 }
 
 impl<'a> ModuleBuilder<'a> {
@@ -689,7 +689,7 @@ impl<'a> ModuleBuilder<'a> {
         file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
-        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
+        builtin_modules: ModuleContainer,
     ) -> Result<Self> {
         // TODO don't immediately canonicalize the path unless we _know_ its coming from a path
         // change the path to not always be required
@@ -1240,7 +1240,7 @@ impl<'a> ModuleBuilder<'a> {
         file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
-        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
+        builtin_modules: ModuleContainer,
     ) -> Result<Self> {
         ModuleBuilder::raw(
             name,
@@ -1261,7 +1261,7 @@ impl<'a> ModuleBuilder<'a> {
         file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
-        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
+        builtin_modules: ModuleContainer,
     ) -> Result<Self> {
         ModuleBuilder::raw(
             name,
@@ -1282,7 +1282,7 @@ impl<'a> ModuleBuilder<'a> {
         file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
-        builtin_modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
+        builtin_modules: ModuleContainer,
     ) -> Self {
         ModuleBuilder {
             name,
@@ -1331,7 +1331,9 @@ impl<'a> ModuleBuilder<'a> {
         {
             // Fetch the exprs after adding them to the sources
             // We did _just_ add it, so its fine to unwrap
-            let exprs = self.sources.get(id).unwrap();
+            let guard = self.sources.sources.lock().unwrap();
+
+            let exprs = guard.get(id).unwrap();
 
             let parsed = Parser::new_from_source(&exprs, self.name.clone(), Some(id))
                 .collect::<std::result::Result<Vec<_>, ParseError>>()?;

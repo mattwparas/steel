@@ -1,12 +1,11 @@
 #![allow(unused)]
 
-use std::{cell::RefCell, future::Future, marker::PhantomData, rc::Rc};
+use std::{cell::RefCell, future::Future, marker::PhantomData, rc::Rc, sync::Arc};
 
 use super::{
     builtin::{Arity, FunctionSignatureMetadata},
     engine::Engine,
 };
-use crate::stop;
 use crate::{gc::unsafe_erased_pointers::TemporaryObject, steel_vm::builtin::BuiltInModule};
 use crate::{
     gc::unsafe_erased_pointers::{BorrowedObject, OpaqueReferenceNursery},
@@ -15,6 +14,7 @@ use crate::{
         IntoSteelVal, Result, SteelVal,
     },
 };
+use crate::{rvals::AsRefSteelValFromRef, stop};
 use crate::{
     rvals::{AsRefMutSteelVal, FutureResult},
     values::functions::BoxedDynFunction,
@@ -26,7 +26,13 @@ use im_lists::list::List;
 /// This allows for clean embedding of function pointers as well as closures that capture immutable environments
 pub trait RegisterFn<FN, ARGS, RET> {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self;
+    fn register_owned_fn(&mut self, name: String, func: FN) -> &mut Self {
+        self
+    }
 }
+
+pub trait SendSyncStatic: Send + Sync + 'static {}
+impl<T: Send + Sync + 'static> SendSyncStatic for T {}
 
 // Exists only to provides some bounds for the impl_register_fn implementation
 // Without this, upstream crates could provides alternative implementations for (_,_), (_,_,_), etc.
@@ -42,6 +48,44 @@ pub struct AsyncWrapper<ARGS>(PhantomData<ARGS>);
 struct RestArgs {
     args: List<SteelVal>,
 }
+
+// TODO: @Matt - replace the body of this file with something more akin to using this macro:
+// That way we can auto generate the combinations of things
+// // The macro that expands into all pairs
+// macro_rules! for_all_pairs {
+//     ($mac:ident: $($x:ident)*) => {
+//         // Duplicate the list
+//         for_all_pairs!(@inner $mac: $($x)*; $($x)*; $($x)*);
+//     };
+
+//     // The end of iteration: we exhausted the list
+//     (@inner $mac:ident: ; $($x:ident)* ; $($y:ident)*) => {};
+
+//     // The head/tail recursion: pick the first element of the first list
+//     // and recursively do it for the tail.
+//     (@inner $mac:ident: $head:ident $($tail:ident)*; $($x:ident)*; $($y:ident)*) => {
+//         $(
+//             $mac!($head $x $y);
+//         )*
+//         for_all_pairs!(@inner $mac: $($tail)*; $($x)*; $($y)*);
+//     };
+// }
+
+// // What you actually want to do for each pair
+// macro_rules! print_pair {
+//     ($a:ident $b:ident $c:ident) => {
+//         println!("{} <-> {} <-> {}", $a, $b, $c);
+//     }
+// }
+
+// fn main () {
+//     // Test code
+//     let a = 'a';
+//     let b = 'b';
+//     let c = 'c';
+
+//     for_all_pairs!(print_pair: a b c);
+// }
 
 /// TODO: This can actually be used to do const stuff
 // const fn test_move(
@@ -62,7 +106,7 @@ struct RestArgs {
 impl<
         FUT: Future<Output = RET> + 'static,
         RET: IntoSteelVal + 'static,
-        FN: Fn() -> FUT + 'static,
+        FN: Fn() -> FUT + SendSyncStatic,
     > RegisterFn<FN, AsyncWrapper<()>, RET> for Engine
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -107,7 +151,9 @@ impl<
 //     }
 // }
 
-impl<RET: IntoSteelVal, FN: Fn() -> RET + 'static> RegisterFn<FN, Wrapper<()>, RET> for Engine {
+impl<RET: IntoSteelVal, FN: Fn() -> RET + SendSyncStatic> RegisterFn<FN, Wrapper<()>, RET>
+    for Engine
+{
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if !args.is_empty() {
@@ -119,10 +165,12 @@ impl<RET: IntoSteelVal, FN: Fn() -> RET + 'static> RegisterFn<FN, Wrapper<()>, R
             res.into_steelval()
         };
 
+        // self.register_value(name, SteelVal::FuncV(f))
+
         self.register_value(
             name,
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                Box::new(f),
+                Arc::new(f),
                 Some(name),
                 Some(0),
             ))),
@@ -130,7 +178,7 @@ impl<RET: IntoSteelVal, FN: Fn() -> RET + 'static> RegisterFn<FN, Wrapper<()>, R
     }
 }
 
-impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + 'static>
+impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStatic>
     RegisterFn<FN, MarkerWrapper1<SELF>, RET> for Engine
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -153,7 +201,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + 'static>
         self.register_value(
             name,
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                Box::new(f),
+                Arc::new(f),
                 Some(name),
                 Some(1),
             ))),
@@ -161,7 +209,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + 'static>
     }
 }
 
-impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + 'static>
+impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendSyncStatic>
     RegisterFn<FN, MarkerWrapper2<SELF>, RET> for Engine
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -182,7 +230,7 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + 'stat
         self.register_value(
             name,
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                Box::new(f),
+                Arc::new(f),
                 Some(name),
                 Some(1),
             ))),
@@ -190,8 +238,11 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + 'stat
     }
 }
 
-impl<RET: IntoSteelVal, SELF: AsRefMutSteelValFromRef, FN: Fn(&mut SELF) -> RET + 'static>
-    RegisterFn<FN, MarkerWrapper5<SELF>, RET> for Engine
+impl<
+        RET: IntoSteelVal,
+        SELF: AsRefMutSteelValFromRef,
+        FN: Fn(&mut SELF) -> RET + SendSyncStatic,
+    > RegisterFn<FN, MarkerWrapper5<SELF>, RET> for Engine
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         // use std::Borrow();
@@ -211,7 +262,208 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelValFromRef, FN: Fn(&mut SELF) -> RET 
         self.register_value(
             name,
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                Box::new(f),
+                Arc::new(f),
+                Some(name),
+                Some(1),
+            ))),
+        )
+    }
+}
+
+//     fn handle_event(
+//         &mut self,
+//         _event: &helix_view::input::Event,
+//         _ctx: &mut compositor::Context,
+//     ) -> compositor::EventResult {
+//         if let Some(handle_event) = &mut self.handle_event {
+//             todo!()
+//         } else {
+//             compositor::EventResult::Ignored(None)
+//         }
+//     }
+
+//     fn should_update(&self) -> bool {
+//         if let Some(should_update) = &self.should_update {
+//             todo!()
+//         } else {
+//             true
+//         }
+//     }
+
+//     fn cursor(
+//         &self,
+//         _area: helix_view::graphics::Rect,
+//         _ctx: &Editor,
+//     ) -> (
+//         Option<helix_core::Position>,
+//         helix_view::graphics::CursorKind,
+//     ) {
+//         if let Some(cursor) = &self.cursor {
+//             todo!()
+//         } else {
+//             (None, helix_view::graphics::CursorKind::Hidden)
+//         }
+//     }
+
+//     fn required_size(&mut self, _viewport: (u16, u16)) -> Option<(u16, u16)> {
+//         if let Some(required_size) = &mut self.required_size {
+//             todo!()
+//         } else {
+//             None
+//         }
+//     }
+
+//     fn type_name(&self) -> &'static str {
+//         std::any::type_name::<Self>()
+//     }
+
+//     fn id(&self) -> Option<&'static str> {
+//         None
+//     }
+
+// fn render(
+//         &mut self,
+//         area: helix_view::graphics::Rect,
+//         frame: &mut tui::buffer::Buffer,
+//         ctx: &mut compositor::Context,
+//     ) {
+//         todo!()
+//     }
+
+impl<
+        RET: IntoSteelVal,
+        SELF: AsRefMutSteelValFromRef,
+        FRAME: AsRefMutSteelVal,
+        FN: Fn(&mut SELF, &mut FRAME) -> RET + SendSyncStatic,
+    > RegisterFn<FN, MarkerWrapper6<(SELF, FRAME)>, RET> for Engine
+{
+    fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
+            }
+
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+            let mut area = <FRAME>::as_mut_ref(&args[1])?;
+
+            let res = func(&mut input, &mut area);
+
+            res.into_steelval()
+        };
+
+        self.register_value(
+            name,
+            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+                Arc::new(f),
+                Some(name),
+                Some(1),
+            ))),
+        )
+    }
+}
+
+// Handle the component interface in helix. This will be the following:
+impl<
+        RET: IntoSteelVal,
+        SELF: AsRefMutSteelVal,
+        AREA: FromSteelVal,
+        FRAME: AsRefMutSteelValFromRef,
+        CTX: AsRefMutSteelValFromRef,
+        FN: Fn(&mut SELF, AREA, &mut FRAME, &mut CTX) -> RET + SendSyncStatic,
+    > RegisterFn<FN, MarkerWrapper6<(SELF, AREA, FRAME, CTX)>, RET> for Engine
+{
+    fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 4 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
+            }
+
+            let mut input = <SELF>::as_mut_ref(&args[0])?;
+            let mut area = <AREA>::from_steelval(&args[1])?;
+            let mut frame = <FRAME>::as_mut_ref_from_ref(&args[2])?;
+            let mut ctx = <CTX>::as_mut_ref_from_ref(&args[3])?;
+
+            let res = func(&mut input, area, &mut frame, &mut ctx);
+
+            res.into_steelval()
+        };
+
+        self.register_value(
+            name,
+            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+                Arc::new(f),
+                Some(name),
+                Some(1),
+            ))),
+        )
+    }
+}
+
+impl<
+        RET: IntoSteelVal,
+        SELF: AsRefMutSteelVal,
+        AREA: AsRefSteelVal,
+        CTX: AsRefMutSteelValFromRef,
+        FN: Fn(&mut SELF, &AREA, &mut CTX) -> RET + SendSyncStatic,
+    > RegisterFn<FN, MarkerWrapper7<(SELF, AREA, CTX)>, RET> for Engine
+{
+    fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 4 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
+            }
+
+            let mut nursery = <AREA as AsRefSteelVal>::Nursery::default();
+
+            let mut input = <SELF>::as_mut_ref(&args[0])?;
+            let mut area = <AREA>::as_ref(&args[1], &mut nursery)?;
+            let mut ctx = <CTX>::as_mut_ref_from_ref(&args[2])?;
+
+            let res = func(&mut input, &area, &mut ctx);
+
+            res.into_steelval()
+        };
+
+        self.register_value(
+            name,
+            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+                Arc::new(f),
+                Some(name),
+                Some(1),
+            ))),
+        )
+    }
+}
+
+impl<
+        RET: IntoSteelVal,
+        SELF: AsRefSteelVal,
+        AREA: FromSteelVal,
+        CTX: AsRefSteelValFromRef,
+        FN: Fn(&SELF, AREA, &CTX) -> RET + SendSyncStatic,
+    > RegisterFn<FN, MarkerWrapper8<(SELF, AREA, CTX)>, RET> for Engine
+{
+    fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 4 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
+            }
+
+            let mut nursery = <SELF as AsRefSteelVal>::Nursery::default();
+
+            let mut input = <SELF>::as_ref(&args[0], &mut nursery)?;
+            let mut area = <AREA>::from_steelval(&args[1])?;
+            let mut ctx = <CTX>::as_ref_from_ref(&args[2])?;
+
+            let res = func(&input, area, &ctx);
+
+            res.into_steelval()
+        };
+
+        self.register_value(
+            name,
+            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+                Arc::new(f),
                 Some(name),
                 Some(1),
             ))),
@@ -225,7 +477,7 @@ impl<
         SELF: AsRefMutSteelValFromRef,
         INNER: FromSteelVal + Clone + AsRefSteelValFromUnsized<INNER>,
         F: FromSteelVal,
-        FN: Fn(&mut SELF, &[INNER], F) -> RET + 'static,
+        FN: Fn(&mut SELF, &[INNER], F) -> RET + SendSyncStatic,
     > RegisterFn<FN, MarkerWrapper6<(SELF, F, INNER)>, RET> for Engine
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -252,8 +504,41 @@ impl<
         self.register_value(
             name,
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                Box::new(f),
+                Arc::new(f),
                 Some(name),
+                Some(1),
+            ))),
+        )
+    }
+
+    fn register_owned_fn(&mut self, name: String, func: FN) -> &mut Self {
+        // use std::Borrow();
+
+        let cloned_name = name.clone();
+
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 3 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+            }
+
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+
+            let temp_res = INNER::as_ref_from_unsized(&args[1])?;
+
+            let res = func(
+                &mut input,
+                temp_res.as_slice_repr(),
+                F::from_steelval(&args[2])?,
+            );
+
+            res.into_steelval()
+        };
+
+        self.register_value(
+            &cloned_name.to_string(),
+            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+                Arc::new(f),
+                Some(cloned_name.into()),
                 Some(1),
             ))),
         )
@@ -269,7 +554,7 @@ impl<
         STATICRET: AsRefMutSteelValFromRef + 'static,
         // INNER: FromSteelVal + Clone + AsRefSteelValFromUnsized<INNER>,
         // F: FromSteelVal,
-        FN: (Fn(&'a mut SELF) -> &'a mut RET) + 'static,
+        FN: (Fn(&'a mut SELF) -> &'a mut RET) + SendSyncStatic,
     > RegisterFn<FN, MarkerWrapper7<(SELF, RET, STATICRET, SELFSTAT)>, STATICRET> for Engine
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -334,7 +619,7 @@ impl<
         self.register_value(
             name,
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                Box::new(f),
+                Arc::new(f),
                 Some(name),
                 Some(1),
             ))),
@@ -342,12 +627,94 @@ impl<
     }
 }
 
+// impl<
+//         // RET: IntoSteelVal,
+//         'a,
+//         SELF: AsRefMutSteelValFromRef + 'a,
+//         SELFSTAT: AsRefMutSteelValFromRef + 'static,
+//         RET: AsRefSteelValFromRef + 'a,
+//         STATICRET: AsRefSteelValFromRef + 'static,
+//         // INNER: FromSteelVal + Clone + AsRefSteelValFromUnsized<INNER>,
+//         // F: FromSteelVal,
+//         FN: (Fn(&'a mut SELF) -> &'a RET) + 'static,
+//     > RegisterFn<FN, MarkerWrapper8<(SELF, RET, STATICRET, SELFSTAT)>, STATICRET> for Engine
+// {
+//     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+//         // use std::Borrow();
+
+//         // todo!()
+
+//         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+//             let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+
+//             if args.len() != 1 {
+//                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
+//             }
+
+//             // If this value is
+//             let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+
+//             // let mut input = unsafe { std::mem::transmute::<&mut SELF, &mut SELFSTAT>(input) };
+
+//             // let func = unsafe { std::mem::transmute::<FN, OTHER>(func) };
+
+//             let res = func(input);
+
+//             // let res = unsafe { std::mem::transmute::<&mut RET, &'static mut STATICRET>(res) };
+
+//             let erased = res as *const _;
+
+//             let wrapped = Rc::new(RefCell::new(erased));
+//             let weak_ptr = Rc::downgrade(&wrapped);
+
+//             let temporary_borrowed_object =
+//                 crate::gc::unsafe_erased_pointers::TemporaryObject { ptr: wrapped };
+
+//             let temp_borrow = unsafe {
+//                 std::mem::transmute::<TemporaryObject<RET>, TemporaryObject<STATICRET>>(
+//                     temporary_borrowed_object,
+//                 )
+//             };
+
+//             // Allocate the rooted object here
+//             OpaqueReferenceNursery::allocate(temp_borrow.into_opaque_reference());
+
+//             let borrowed = BorrowedObject { ptr: weak_ptr };
+
+//             let extended = unsafe {
+//                 std::mem::transmute::<BorrowedObject<RET>, BorrowedObject<STATICRET>>(borrowed)
+//             };
+
+//             let return_value = SteelVal::Reference(extended.into_opaque_reference::<'static>());
+
+//             Ok(return_value)
+
+//             // let weak_ptr = Rc::downgrade(&wrapped);
+
+//             // todo!()
+
+//             // res.into_steelval()
+//         };
+
+//         // todo!()
+
+//         self.register_value(
+//             name,
+//             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+//                 Box::new(f),
+//                 Some(name),
+//                 Some(1),
+//             ))),
+//         )
+//     }
+// }
+
 impl<
         RET: IntoSteelVal,
         SELF: AsRefMutSteelValFromRef,
         INNER: FromSteelVal + Clone + AsRefSteelValFromUnsized<INNER>,
         F: FromSteelVal,
-        FN: Fn(&mut SELF, &[INNER], F) -> RET + 'static,
+        FN: Fn(&mut SELF, &[INNER], F) -> RET + SendSyncStatic,
     > RegisterFn<FN, MarkerWrapper6<(SELF, F, INNER)>, RET> for BuiltInModule
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -374,18 +741,118 @@ impl<
         self.register_value(
             name,
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                Box::new(f),
+                Arc::new(f),
                 Some(name),
+                Some(1),
+            ))),
+        )
+    }
+
+    // TODO: Make this use not a static string since we _could_ have dynamic names
+    fn register_owned_fn(&mut self, name: String, func: FN) -> &mut Self {
+        // use std::Borrow();
+
+        let cloned_name = name.clone();
+
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 3 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+            }
+
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+
+            let temp_res = INNER::as_ref_from_unsized(&args[1])?;
+
+            let res = func(
+                &mut input,
+                temp_res.as_slice_repr(),
+                F::from_steelval(&args[2])?,
+            );
+
+            res.into_steelval()
+        };
+
+        self.register_value(
+            &cloned_name.clone(),
+            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+                Arc::new(f),
+                Some(Arc::new(cloned_name)),
                 Some(1),
             ))),
         )
     }
 }
 
+// impl<
+//         RET: IntoSteelVal,
+//         SELF: AsRefMutSteelValFromRef,
+//         INNER: FromSteelVal,
+//         F: FromSteelVal,
+//         FN: Fn(&mut SELF, INNER, F) -> RET + 'static,
+//     > RegisterFn<FN, MarkerWrapper7<(SELF, F, INNER)>, RET> for BuiltInModule
+// {
+//     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+//         // use std::Borrow();
+
+//         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+//             if args.len() != 3 {
+//                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+//             }
+
+//             let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+
+//             let temp_res = INNER::from_steelval(&args[1])?;
+
+//             let res = func(&mut input, temp_res, F::from_steelval(&args[2])?);
+
+//             res.into_steelval()
+//         };
+
+//         self.register_value(
+//             name,
+//             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+//                 Box::new(f),
+//                 Some(name),
+//                 Some(1),
+//             ))),
+//         )
+//     }
+
+//     // TODO: Make this use not a static string since we _could_ have dynamic names
+//     fn register_owned_fn(&mut self, name: String, func: FN) -> &mut Self {
+//         // use std::Borrow();
+
+//         let cloned_name = name.clone();
+
+//         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+//             if args.len() != 3 {
+//                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+//             }
+
+//             let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+
+//             let temp_res = INNER::from_steelval(&args[1])?;
+
+//             let res = func(&mut input, temp_res, F::from_steelval(&args[2])?);
+
+//             res.into_steelval()
+//         };
+
+//         self.register_value(
+//             &cloned_name.clone(),
+//             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+//                 Box::new(f),
+//                 Some(Rc::new(cloned_name)),
+//                 Some(1),
+//             ))),
+//         )
+//     }
+// }
+
 impl<
         FUT: Future<Output = RET> + 'static,
         RET: IntoSteelVal + 'static,
-        FN: Fn() -> FUT + 'static,
+        FN: Fn() -> FUT + SendSyncStatic,
     > RegisterFn<FN, AsyncWrapper<()>, RET> for BuiltInModule
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -403,7 +870,7 @@ impl<
     }
 }
 
-impl<RET: IntoSteelVal, FN: Fn() -> RET + 'static> RegisterFn<FN, Wrapper<()>, RET>
+impl<RET: IntoSteelVal, FN: Fn() -> RET + SendSyncStatic> RegisterFn<FN, Wrapper<()>, RET>
     for BuiltInModule
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -420,7 +887,7 @@ impl<RET: IntoSteelVal, FN: Fn() -> RET + 'static> RegisterFn<FN, Wrapper<()>, R
         self.register_value(
             name,
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                Box::new(f),
+                Arc::new(f),
                 Some(name),
                 Some(0),
             ))),
@@ -428,7 +895,7 @@ impl<RET: IntoSteelVal, FN: Fn() -> RET + 'static> RegisterFn<FN, Wrapper<()>, R
     }
 }
 
-impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + 'static>
+impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStatic>
     RegisterFn<FN, MarkerWrapper1<SELF>, RET> for BuiltInModule
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -449,15 +916,45 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + 'static>
         self.register_value(
             name,
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                Box::new(f),
+                Arc::new(f),
                 Some(name),
                 Some(1),
             ))),
         )
     }
+
+    fn register_owned_fn(&mut self, name: String, func: FN) -> &mut Self {
+        let name = Rc::new(name);
+        let cloned_name = Rc::clone(&name);
+
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
+            }
+
+            let mut nursery = <SELF::Nursery>::default();
+
+            let input = <SELF>::as_ref(&args[0], &mut nursery)?;
+
+            let res = func(&input);
+
+            res.into_steelval()
+        };
+
+        todo!("Resolve using RC's here")
+
+        // self.register_value(
+        //     &Rc::clone(&cloned_name),
+        //     SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+        //         Arc::new(f),
+        //         Some(cloned_name),
+        //         Some(1),
+        //     ))),
+        // )
+    }
 }
 
-impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + 'static>
+impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendSyncStatic>
     RegisterFn<FN, MarkerWrapper2<SELF>, RET> for BuiltInModule
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -478,7 +975,7 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + 'stat
         self.register_value(
             name,
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                Box::new(f),
+                Arc::new(f),
                 Some(name),
                 Some(1),
             ))),
@@ -486,8 +983,11 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + 'stat
     }
 }
 
-impl<RET: IntoSteelVal, SELF: AsRefMutSteelValFromRef, FN: Fn(&mut SELF) -> RET + 'static>
-    RegisterFn<FN, MarkerWrapper5<SELF>, RET> for BuiltInModule
+impl<
+        RET: IntoSteelVal,
+        SELF: AsRefMutSteelValFromRef,
+        FN: Fn(&mut SELF) -> RET + SendSyncStatic,
+    > RegisterFn<FN, MarkerWrapper5<SELF>, RET> for BuiltInModule
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         // use std::Borrow();
@@ -507,7 +1007,65 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelValFromRef, FN: Fn(&mut SELF) -> RET 
         self.register_value(
             name,
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                Box::new(f),
+                Arc::new(f),
+                Some(name),
+                Some(1),
+            ))),
+        )
+    }
+}
+
+impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendSyncStatic>
+    RegisterFn<FN, MarkerWrapper8<SELF>, RET> for BuiltInModule
+{
+    fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+        // use std::Borrow();
+
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+            }
+
+            let mut input = <SELF>::as_ref_from_ref(&args[0])?;
+
+            let res = func(&mut input);
+
+            res.into_steelval()
+        };
+
+        self.register_value(
+            name,
+            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+                Arc::new(f),
+                Some(name),
+                Some(1),
+            ))),
+        )
+    }
+}
+
+impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendSyncStatic>
+    RegisterFn<FN, MarkerWrapper8<SELF>, RET> for Engine
+{
+    fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+        // use std::Borrow();
+
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+            }
+
+            let mut input = <SELF>::as_ref_from_ref(&args[0])?;
+
+            let res = func(&mut input);
+
+            res.into_steelval()
+        };
+
+        self.register_value(
+            name,
+            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+                Arc::new(f),
                 Some(name),
                 Some(1),
             ))),
@@ -549,9 +1107,14 @@ pub struct MarkerWrapper5<ARGS>(PhantomData<ARGS>);
 
 pub struct MarkerWrapper6<ARGS>(PhantomData<ARGS>);
 pub struct MarkerWrapper7<ARGS>(PhantomData<ARGS>);
+pub struct MarkerWrapper8<ARGS>(PhantomData<ARGS>);
 
-impl<A: AsRefSteelVal, B: AsRefSteelVal, FN: Fn(&A, &B) -> RET + 'static, RET: IntoSteelVal>
-    RegisterFn<FN, MarkerWrapper1<(A, B)>, RET> for Engine
+impl<
+        A: AsRefSteelVal,
+        B: AsRefSteelVal,
+        FN: Fn(&A, &B) -> RET + SendSyncStatic,
+        RET: IntoSteelVal,
+    > RegisterFn<FN, MarkerWrapper1<(A, B)>, RET> for Engine
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
@@ -575,7 +1138,7 @@ impl<A: AsRefSteelVal, B: AsRefSteelVal, FN: Fn(&A, &B) -> RET + 'static, RET: I
         self.register_value(
             name,
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                Box::new(f),
+                Arc::new(f),
                 Some(name),
                 Some(2),
             ))),
@@ -583,8 +1146,12 @@ impl<A: AsRefSteelVal, B: AsRefSteelVal, FN: Fn(&A, &B) -> RET + 'static, RET: I
     }
 }
 
-impl<A: FromSteelVal, B: AsRefSteelVal, FN: Fn(A, &B) -> RET + 'static, RET: IntoSteelVal>
-    RegisterFn<FN, MarkerWrapper2<(A, B)>, RET> for Engine
+impl<
+        A: FromSteelVal,
+        B: AsRefSteelVal,
+        FN: Fn(A, &B) -> RET + SendSyncStatic,
+        RET: IntoSteelVal,
+    > RegisterFn<FN, MarkerWrapper2<(A, B)>, RET> for Engine
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
@@ -604,7 +1171,7 @@ impl<A: FromSteelVal, B: AsRefSteelVal, FN: Fn(A, &B) -> RET + 'static, RET: Int
         self.register_value(
             name,
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                Box::new(f),
+                Arc::new(f),
                 Some(name),
                 Some(2),
             ))),
@@ -616,7 +1183,7 @@ macro_rules! impl_register_fn {
     ($arg_count:expr => $($param:ident: $idx:expr),*) => {
         impl<
             $($param: FromSteelVal,)*
-            FN: Fn($($param),*) -> RET + 'static,
+            FN: Fn($($param),*) -> RET + SendSyncStatic,
             RET: IntoSteelVal
         > RegisterFn<FN, Wrapper<($($param,)*)>, RET> for Engine {
             fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -633,7 +1200,7 @@ macro_rules! impl_register_fn {
                 self.register_value(
                     name,
                     SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                        Box::new(f),
+                        Arc::new(f),
                         Some(name),
                         Some($arg_count),
                     ))),
@@ -643,7 +1210,7 @@ macro_rules! impl_register_fn {
 
         impl<
             $($param: FromSteelVal,)*
-            FN: Fn($($param),*) -> RET + 'static,
+            FN: Fn($($param),*) -> RET + SendSyncStatic,
             RET: IntoSteelVal
         > RegisterFn<FN, Wrapper<($($param,)*)>, RET> for BuiltInModule {
             fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -660,7 +1227,7 @@ macro_rules! impl_register_fn {
                 self.register_value(
                     name,
                     SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                        Box::new(f),
+                        Arc::new(f),
                         Some(name),
                         Some($arg_count),
                     ))),
@@ -674,7 +1241,7 @@ macro_rules! impl_register_fn {
         impl<
             FUT: Future<Output = RET> + 'static,
             $($param: FromSteelVal,)*
-            FN: Fn($($param),*) -> FUT + 'static,
+            FN: Fn($($param),*) -> FUT + SendSyncStatic,
             RET: IntoSteelVal
         > RegisterFn<FN, AsyncWrapper<($($param,)*)>, RET> for Engine {
             fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -695,7 +1262,7 @@ macro_rules! impl_register_fn {
         impl<
             FUT: Future<Output = RET> + 'static,
             $($param: FromSteelVal,)*
-            FN: Fn($($param),*) -> FUT + 'static,
+            FN: Fn($($param),*) -> FUT + SendSyncStatic,
             RET: IntoSteelVal
         > RegisterFn<FN, AsyncWrapper<($($param,)*)>, RET> for BuiltInModule {
             fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -720,7 +1287,7 @@ macro_rules! impl_register_fn_self {
         impl<
             SELF: AsRefSteelVal,
             $($param: FromSteelVal,)*
-            FN: Fn(&SELF, $($param),*) -> RET + 'static,
+            FN: Fn(&SELF, $($param),*) -> RET + SendSyncStatic,
             RET: IntoSteelVal
         > RegisterFn<FN, MarkerWrapper3<(SELF, $($param,)*)>, RET> for Engine {
             fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -741,7 +1308,7 @@ macro_rules! impl_register_fn_self {
                 self.register_value(
                     name,
                     SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                        Box::new(f),
+                        Arc::new(f),
                         Some(name),
                         Some($arg_count),
                     ))),
@@ -752,7 +1319,7 @@ macro_rules! impl_register_fn_self {
         impl<
             SELF: AsRefMutSteelVal,
             $($param: FromSteelVal,)*
-            FN: Fn(&mut SELF, $($param),*) -> RET + 'static,
+            FN: Fn(&mut SELF, $($param),*) -> RET + SendSyncStatic,
             RET: IntoSteelVal
         > RegisterFn<FN, MarkerWrapper4<(SELF, $($param,)*)>, RET> for Engine {
             fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -771,7 +1338,7 @@ macro_rules! impl_register_fn_self {
                 self.register_value(
                     name,
                     SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                        Box::new(f),
+                        Arc::new(f),
                         Some(name),
                         Some($arg_count),
                     ))),
@@ -782,7 +1349,7 @@ macro_rules! impl_register_fn_self {
         impl<
             SELF: AsRefMutSteelValFromRef,
             $($param: FromSteelVal,)*
-            FN: Fn(&mut SELF, $($param),*) -> RET + 'static,
+            FN: Fn(&mut SELF, $($param),*) -> RET + SendSyncStatic,
             RET: IntoSteelVal
         > RegisterFn<FN, MarkerWrapper5<(SELF, $($param,)*)>, RET> for Engine {
             fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -801,7 +1368,7 @@ macro_rules! impl_register_fn_self {
                 self.register_value(
                     name,
                     SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                        Box::new(f),
+                        Arc::new(f),
                         Some(name),
                         Some($arg_count),
                     ))),
@@ -812,7 +1379,7 @@ macro_rules! impl_register_fn_self {
         impl<
             SELF: AsRefSteelVal,
             $($param: FromSteelVal,)*
-            FN: Fn(&SELF, $($param),*) -> RET + 'static,
+            FN: Fn(&SELF, $($param),*) -> RET + SendSyncStatic,
             RET: IntoSteelVal
         > RegisterFn<FN, MarkerWrapper1<(SELF, $($param,)*)>, RET> for BuiltInModule {
             fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -833,7 +1400,7 @@ macro_rules! impl_register_fn_self {
                 self.register_value(
                     name,
                     SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                        Box::new(f),
+                        Arc::new(f),
                         Some(name),
                         Some($arg_count),
                     ))),
@@ -844,7 +1411,7 @@ macro_rules! impl_register_fn_self {
         impl<
             SELF: AsRefMutSteelVal,
             $($param: FromSteelVal,)*
-            FN: Fn(&mut SELF, $($param),*) -> RET + 'static,
+            FN: Fn(&mut SELF, $($param),*) -> RET + SendSyncStatic,
             RET: IntoSteelVal
         > RegisterFn<FN, MarkerWrapper3<(SELF, $($param,)*)>, RET> for BuiltInModule {
             fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -863,7 +1430,7 @@ macro_rules! impl_register_fn_self {
                 self.register_value(
                     name,
                     SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                        Box::new(f),
+                        Arc::new(f),
                         Some(name),
                         Some($arg_count),
                     ))),
@@ -874,7 +1441,7 @@ macro_rules! impl_register_fn_self {
         impl<
             SELF: AsRefMutSteelValFromRef,
             $($param: FromSteelVal,)*
-            FN: Fn(&mut SELF, $($param),*) -> RET + 'static,
+            FN: Fn(&mut SELF, $($param),*) -> RET + SendSyncStatic,
             RET: IntoSteelVal
         > RegisterFn<FN, MarkerWrapper5<(SELF, $($param,)*)>, RET> for BuiltInModule {
             fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
@@ -893,8 +1460,34 @@ macro_rules! impl_register_fn_self {
                 self.register_value(
                     name,
                     SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-                        Box::new(f),
+                        Arc::new(f),
                         Some(name),
+                        Some($arg_count),
+                    ))),
+                )
+            }
+
+            fn register_owned_fn(&mut self, name: String, func: FN) -> &mut Self {
+
+                let cloned_name = name.clone();
+
+                let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+                    if args.len() != $arg_count {
+                        stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
+                    }
+
+                    let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+
+                    let res = func(&mut input, $(<$param>::from_steelval(&args[$idx])?,)*);
+
+                    res.into_steelval()
+                };
+
+                self.register_value(
+                    &cloned_name.to_string(),
+                    SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+                        Arc::new(f),
+                        Some(Arc::new(cloned_name)),
                         Some($arg_count),
                     ))),
                 )

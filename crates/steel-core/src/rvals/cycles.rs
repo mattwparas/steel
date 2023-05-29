@@ -81,7 +81,6 @@ impl CycleDetector {
 
                 {
                     if guard
-                        .properties
                         .get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
                         .is_some()
                     {
@@ -187,7 +186,6 @@ impl CycleDetector {
 
                     {
                         if s.borrow()
-                            .properties
                             .get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
                             .is_some()
                         {

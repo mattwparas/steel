@@ -13,6 +13,7 @@ use std::fmt;
 use std::rc::Rc;
 
 #[derive(Clone, Debug, PartialEq)]
+#[repr(C)]
 struct Repr {
     pub kind: ErrorKind,
     pub message: String,
@@ -139,6 +140,7 @@ impl From<ParseError> for Repr {
 }
 
 #[derive(Debug, Error, Clone, PartialEq)]
+#[repr(C)]
 pub struct SteelErr {
     repr: Repr,
 }
