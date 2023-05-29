@@ -259,12 +259,10 @@ impl UserDefinedStruct {
         }
     }
 
-    pub(crate) fn get(&self, val: &SteelVal) -> Option<&SteelVal> {
+    pub(crate) fn get(&self, val: &SteelVal) -> Option<SteelVal> {
         match &self.properties {
-            Properties::BuiltIn => {
-                todo!()
-            }
-            Properties::Local(p) => p.get(val),
+            Properties::BuiltIn => VTable::get(&self.name).and_then(|x| x.get(val).cloned()),
+            Properties::Local(p) => p.get(val).cloned(),
         }
     }
 
@@ -593,11 +591,11 @@ pub struct VTable {
 }
 
 impl VTable {
-    fn insert(&self, name: InternedString, options: Gc<im_rc::HashMap<SteelVal, SteelVal>>) {
+    fn insert(name: InternedString, options: Gc<im_rc::HashMap<SteelVal, SteelVal>>) {
         VTABLE.with(|x| x.write().unwrap().map.insert(name, options));
     }
 
-    fn get(&self, name: &InternedString) -> Option<Gc<im_rc::HashMap<SteelVal, SteelVal>>> {
+    fn get(name: &InternedString) -> Option<Gc<im_rc::HashMap<SteelVal, SteelVal>>> {
         VTABLE.with(|x| x.read().unwrap().map.get(name).cloned())
     }
 }

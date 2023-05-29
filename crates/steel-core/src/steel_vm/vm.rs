@@ -3907,6 +3907,8 @@ pub(crate) fn thread_join(handle: &mut ThreadHandle) -> Result<()> {
 fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     use crate::rvals::SerializableSteelVal;
 
+    let now = std::time::Instant::now();
+
     // Need a new:
     // Stack
     // Heap
@@ -4088,6 +4090,8 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             constant_map: ConstantMap::from_bytes(&thread.constants)
                 .expect("Unable to construct constant map!"),
         };
+
+        println!("Time taken to spawn thread: {:?}", now.elapsed());
 
         // Call the function!
         thread

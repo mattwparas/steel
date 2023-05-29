@@ -630,6 +630,7 @@ pub enum SerializableSteelVal {
     // If the value
     VectorV(Vec<SerializableSteelVal>),
     BoxedDynFunction(BoxedDynFunction),
+    BuiltIn(BuiltInSignature),
 }
 
 // Once crossed over the line, convert BACK into a SteelVal
@@ -649,6 +650,7 @@ pub fn from_serializable_value(val: SerializableSteelVal) -> SteelVal {
             SteelVal::ListV(v.into_iter().map(from_serializable_value).collect())
         }
         SerializableSteelVal::BoxedDynFunction(f) => SteelVal::BoxedFunction(Rc::new(f)),
+        SerializableSteelVal::BuiltIn(f) => SteelVal::BuiltIn(f),
     }
 }
 
@@ -668,6 +670,7 @@ pub fn into_serializable_value(val: SteelVal) -> Result<SerializableSteelVal> {
                 .collect::<Result<_>>()?,
         )),
         SteelVal::BoxedFunction(f) => Ok(SerializableSteelVal::BoxedDynFunction((*f).clone())),
+        SteelVal::BuiltIn(f) => Ok(SerializableSteelVal::BuiltIn(f)),
         // SteelVal::HashMapV(v) => Ok(SerializableSteelVal::HashMapV(
         //     v.into_iter()
         //         .map(|(k, v)| {
