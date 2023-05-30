@@ -1,4 +1,4 @@
-use crate::rvals::{Result, SteelVal};
+use crate::rvals::{into_serializable_value, Result, SerializableSteelVal, SteelVal};
 
 use crate::parser::{
     ast::ExprKind,
@@ -37,6 +37,16 @@ impl Clone for ConstantMap {
 impl ConstantMap {
     pub fn new() -> ConstantMap {
         ConstantMap(Rc::new(RefCell::new(Vec::new())))
+    }
+
+    pub fn to_serializable_vec(&self) -> Vec<SerializableSteelVal> {
+        self.0
+            .borrow()
+            .iter()
+            .cloned()
+            .map(into_serializable_value)
+            .collect::<Result<_>>()
+            .unwrap()
     }
 
     // There might be a better way of doing this - but provide this as an option

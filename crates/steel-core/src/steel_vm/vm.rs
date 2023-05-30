@@ -3904,6 +3904,18 @@ pub(crate) fn thread_join(handle: &mut ThreadHandle) -> Result<()> {
     }
 }
 
+macro_rules! time {
+    ($label:expr, $e:expr) => {{
+        let now = std::time::Instant::now();
+
+        let e = $e;
+
+        println!("{}: {:?}", $label, now.elapsed());
+
+        e
+    }};
+}
+
 fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     use crate::rvals::SerializableSteelVal;
 
@@ -3917,7 +3929,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
     // across threads
     struct MovableThread {
         // TODO: Make this also be serializable steel val
-        constants: Vec<u8>,
+        constants: Vec<SerializableSteelVal>,
         global_env: Vec<SerializableSteelVal>,
         function_interner: MovableFunctionInterner,
         runtime_options: RunTimeOptions,
@@ -3974,64 +3986,68 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
     // let thread = ctx.thread.clone();
 
     let thread = MovableThread {
-        constants: ctx
-            .thread
-            .constant_map
-            .to_bytes()
-            .expect("Unable to serialize constant map to move across threads!"),
+        constants: time!(
+            "Constant map serialization",
+            ctx.thread.constant_map.to_serializable_vec()
+        ),
 
         // Void in this case, is a poisoned value. We need to trace the closure
         // (and all of its references) - to find any / all globals that _could_ be
         // referenced.
-        global_env: ctx
-            .thread
-            .global_env
-            .bindings_vec
-            .iter()
-            .cloned()
-            .map(into_serializable_value)
-            .map(|x| x.unwrap_or(SerializableSteelVal::Void))
-            .collect(),
+        global_env: time!(
+            "Global env serialization",
+            ctx.thread
+                .global_env
+                .bindings_vec
+                .iter()
+                .cloned()
+                .map(into_serializable_value)
+                .map(|x| x.unwrap_or(SerializableSteelVal::Void))
+                .collect()
+        ),
         // Populate with the values after moving into the thread, spawn accordingly
         // TODO: Move this out of here
-        function_interner: MovableFunctionInterner {
-            closure_interner: ctx
-                .thread
-                .function_interner
-                .closure_interner
-                .iter()
-                .map(|(k, v)| {
-                    let v_prime: SerializedLambda =
-                        v.clone().try_into().expect("This shouldn't fail!");
-                    (*k, v_prime)
-                })
-                .collect(),
-            pure_function_interner: ctx
-                .thread
-                .function_interner
-                .pure_function_interner
-                .iter()
-                .map(|(k, v)| {
-                    let v_prime: SerializedLambda =
-                        v.unwrap().try_into().expect("This shouldn't fail!");
-                    (*k, v_prime)
-                })
-                .collect(),
-            spans: ctx
-                .thread
-                .function_interner
-                .spans
-                .iter()
-                .map(|(k, v)| (*k, v.iter().copied().collect()))
-                .collect(),
-            instructions: ctx
-                .thread
-                .function_interner
-                .instructions
-                .iter()
-                .map(|(k, v)| (*k, v.iter().copied().collect()))
-                .collect(),
-        },
+        function_interner: time!(
+            "Function interner serialization",
+            MovableFunctionInterner {
+                closure_interner: ctx
+                    .thread
+                    .function_interner
+                    .closure_interner
+                    .iter()
+                    .map(|(k, v)| {
+                        let v_prime: SerializedLambda =
+                            v.clone().try_into().expect("This shouldn't fail!");
+                        (*k, v_prime)
+                    })
+                    .collect(),
+                pure_function_interner: ctx
+                    .thread
+                    .function_interner
+                    .pure_function_interner
+                    .iter()
+                    .map(|(k, v)| {
+                        let v_prime: SerializedLambda =
+                            v.unwrap().try_into().expect("This shouldn't fail!");
+                        (*k, v_prime)
+                    })
+                    .collect(),
+                spans: ctx
+                    .thread
+                    .function_interner
+                    .spans
+                    .iter()
+                    .map(|(k, v)| (*k, v.iter().copied().collect()))
+                    .collect(),
+                instructions: ctx
+                    .thread
+                    .function_interner
+                    .instructions
+                    .iter()
+                    .map(|(k, v)| (*k, v.iter().copied().collect()))
+                    .collect(),
+            }
+        ),
 
         runtime_options: ctx.thread.runtime_options.clone(),
     };
@@ -4046,49 +4062,64 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
         // between threads. This is a bit of an unfortunate occurrence - we probably _should_ just have the engine share
         // as much as possible between threads.
         let mut thread = SteelThread {
-            global_env: Env {
-                bindings_vec: thread
-                    .global_env
-                    .into_iter()
-                    .map(from_serializable_value)
-                    .collect(),
-            },
+            global_env: time!(
+                "Global env creation",
+                Env {
+                    bindings_vec: thread
+                        .global_env
+                        .into_iter()
+                        .map(from_serializable_value)
+                        .collect(),
+                }
+            ),
+
             stack: Vec::with_capacity(64),
             profiler: OpCodeOccurenceProfiler::new(),
-            function_interner: FunctionInterner {
-                closure_interner: thread
-                    .function_interner
-                    .closure_interner
-                    .into_iter()
-                    .map(|(k, v)| (k, v.into()))
-                    .collect(),
-                pure_function_interner: thread
-                    .function_interner
-                    .pure_function_interner
-                    .into_iter()
-                    .map(|(k, v)| (k, Gc::new(v.into())))
-                    .collect(),
-                spans: thread
-                    .function_interner
-                    .spans
-                    .into_iter()
-                    .map(|(k, v)| (k, v.into()))
-                    .collect(),
-                instructions: thread
-                    .function_interner
-                    .instructions
-                    .into_iter()
-                    .map(|(k, v)| (k, v.into()))
-                    .collect(),
-                handlers: Rc::new(RefCell::new(slotmap::SlotMap::default())),
-            },
+            function_interner: time!(
+                "Function interner time",
+                FunctionInterner {
+                    closure_interner: thread
+                        .function_interner
+                        .closure_interner
+                        .into_iter()
+                        .map(|(k, v)| (k, v.into()))
+                        .collect(),
+                    pure_function_interner: thread
+                        .function_interner
+                        .pure_function_interner
+                        .into_iter()
+                        .map(|(k, v)| (k, Gc::new(v.into())))
+                        .collect(),
+                    spans: thread
+                        .function_interner
+                        .spans
+                        .into_iter()
+                        .map(|(k, v)| (k, v.into()))
+                        .collect(),
+                    instructions: thread
+                        .function_interner
+                        .instructions
+                        .into_iter()
+                        .map(|(k, v)| (k, v.into()))
+                        .collect(),
+                    handlers: Rc::new(RefCell::new(slotmap::SlotMap::default())),
+                }
+            ),
             super_instructions: Vec::new(),
             heap: Heap::new(),
             runtime_options: thread.runtime_options,
             current_frame: StackFrame::main(),
             stack_frames: Vec::with_capacity(32),
-            constant_map: ConstantMap::from_bytes(&thread.constants)
-                .expect("Unable to construct constant map!"),
+            constant_map: time!(
+                "Constant map deserialization",
+                ConstantMap::from_vec(
+                    thread
+                        .constants
+                        .into_iter()
+                        .map(from_serializable_value)
+                        .collect(),
+                )
+            ),
         };
 
         println!("Time taken to spawn thread: {:?}", now.elapsed());

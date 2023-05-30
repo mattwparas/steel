@@ -154,6 +154,10 @@ pub trait Custom: private::Sealed {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
         None
     }
+
+    fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
+        None
+    }
 }
 
 pub trait CustomType {
@@ -167,6 +171,10 @@ pub trait CustomType {
     // fn new_steel_val(&self) -> SteelVal;
     fn display(&self) -> std::result::Result<String, std::fmt::Error> {
         Ok(format!("#<{}>", self.name().to_string()))
+    }
+
+    fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
+        None
     }
     // fn as_underlying_type<'a>(&'a self) -> Option<&'a Self>;
 }
@@ -185,12 +193,49 @@ impl<T: Custom + 'static> CustomType for T {
             Ok(format!("#<{}>", self.name().to_string()))
         }
     }
+
+    fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
+        self.into_serializable_steelval()
+    }
 }
 
 impl<T: CustomType + 'static> IntoSteelVal for T {
     fn into_steelval(self) -> Result<SteelVal> {
         // Ok(self.new_steel_val())
         Ok(SteelVal::Custom(Gc::new(RefCell::new(Box::new(self)))))
+    }
+}
+
+pub trait IntoSerializableSteelVal {
+    fn into_serializable_steelval(val: &SteelVal) -> Result<SerializableSteelVal>;
+}
+
+impl<T: CustomType + Clone + Send + Sync + 'static> IntoSerializableSteelVal for T {
+    fn into_serializable_steelval(val: &SteelVal) -> Result<SerializableSteelVal> {
+        if let SteelVal::Custom(v) = val {
+            // let left_type = v.borrow().as_any_ref();
+            // TODO: @Matt - dylibs cause issues here, as the underlying type ids are different
+            // across workspaces and builds
+            let left = v.borrow().as_any_ref().downcast_ref::<T>().cloned();
+            let lifted = left.ok_or_else(|| {
+                let error_message = format!(
+                    "Type Mismatch: Type of SteelVal: {:?}, did not match the given type: {}",
+                    val,
+                    std::any::type_name::<Self>()
+                );
+                SteelErr::new(ErrorKind::ConversionError, error_message)
+            });
+
+            todo!()
+        } else {
+            let error_message = format!(
+                "Type Mismatch: Type of SteelVal: {:?} did not match the given type, expecting opaque struct: {}",
+                val,
+                std::any::type_name::<Self>()
+            );
+
+            Err(SteelErr::new(ErrorKind::ConversionError, error_message))
+        }
     }
 }
 
@@ -626,11 +671,13 @@ pub enum SerializableSteelVal {
     Void,
     StringV(String),
     FuncV(FunctionSignature),
-    HashMapV(std::collections::HashMap<SerializableSteelVal, SerializableSteelVal>),
+    HashMapV(Vec<(SerializableSteelVal, SerializableSteelVal)>),
     // If the value
     VectorV(Vec<SerializableSteelVal>),
     BoxedDynFunction(BoxedDynFunction),
     BuiltIn(BuiltInSignature),
+    SymbolV(String),
+    Custom(Box<dyn CustomType + Send>), // Custom()
 }
 
 // Once crossed over the line, convert BACK into a SteelVal
@@ -645,12 +692,18 @@ pub fn from_serializable_value(val: SerializableSteelVal) -> SteelVal {
         SerializableSteelVal::Void => SteelVal::Void,
         SerializableSteelVal::StringV(s) => SteelVal::StringV(s.into()),
         SerializableSteelVal::FuncV(f) => SteelVal::FuncV(f),
-        SerializableSteelVal::HashMapV(_) => todo!(),
+        SerializableSteelVal::HashMapV(h) => SteelVal::HashMapV(Gc::new(
+            h.into_iter()
+                .map(|(k, v)| (from_serializable_value(k), from_serializable_value(v)))
+                .collect(),
+        )),
         SerializableSteelVal::VectorV(v) => {
             SteelVal::ListV(v.into_iter().map(from_serializable_value).collect())
         }
         SerializableSteelVal::BoxedDynFunction(f) => SteelVal::BoxedFunction(Rc::new(f)),
         SerializableSteelVal::BuiltIn(f) => SteelVal::BuiltIn(f),
+        SerializableSteelVal::SymbolV(s) => SteelVal::SymbolV(s.into()),
+        SerializableSteelVal::Custom(b) => SteelVal::Custom(Gc::new(RefCell::new(b))),
     }
 }
 
@@ -671,20 +724,29 @@ pub fn into_serializable_value(val: SteelVal) -> Result<SerializableSteelVal> {
         )),
         SteelVal::BoxedFunction(f) => Ok(SerializableSteelVal::BoxedDynFunction((*f).clone())),
         SteelVal::BuiltIn(f) => Ok(SerializableSteelVal::BuiltIn(f)),
-        // SteelVal::HashMapV(v) => Ok(SerializableSteelVal::HashMapV(
-        //     v.into_iter()
-        //         .map(|(k, v)| {
-        //             let kprime = into_serializable_value(k)?;
-        //             let vprime = into_serializable_value(v)?;
+        SteelVal::SymbolV(s) => Ok(SerializableSteelVal::SymbolV(s.to_string())),
 
-        //             Ok((kprime, vprime))
-        //         })
-        //         .collect::<Result<_>>()?,
-        // )),
+        SteelVal::HashMapV(v) => Ok(SerializableSteelVal::HashMapV(
+            v.unwrap()
+                .into_iter()
+                .map(|(k, v)| {
+                    let kprime = into_serializable_value(k)?;
+                    let vprime = into_serializable_value(v)?;
+
+                    Ok((kprime, vprime))
+                })
+                .collect::<Result<_>>()?,
+        )),
+
+        SteelVal::Custom(c) => {
+            if let Some(output) = c.borrow_mut().as_serializable_steelval() {
+                Ok(output)
+            } else {
+                stop!(Generic => "Custom type not allowed to be moved across threads!")
+            }
+        }
         illegal => stop!(Generic => "Type not allowed to be moved across threads!: {}", illegal),
     }
-
-    // todo!()
 }
 
 #[derive(Clone)]
