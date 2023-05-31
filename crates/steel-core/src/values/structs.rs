@@ -423,7 +423,9 @@ impl UserDefinedStruct {
             match (&steel_struct, &idx) {
                 (SteelVal::CustomStruct(s), SteelVal::IntV(idx)) => {
                     if !(s.borrow().name == name) {
-                        stop!(TypeMismatch => format!("Struct getter expected {}, found {:p}, {:?}", name, &s, &steel_struct));
+                        // println!("{}, {}", s.borrow().name.resolve(), name.resolve());
+
+                        stop!(TypeMismatch => format!("Struct getter expected {}, found {:?}, {:?}", name, &s, &steel_struct));
                     }
 
                     if *idx < 0 {
@@ -465,8 +467,10 @@ impl UserDefinedStruct {
 
             match &steel_struct {
                 SteelVal::CustomStruct(s) => {
+                    // println!("{}, {}", s.borrow().name.resolve(), name.resolve());
+
                     if !(s.borrow().name == name) {
-                        stop!(TypeMismatch => format!("Struct getter expected {}, found {:p}, {:?}", name, &s, &steel_struct));
+                        stop!(TypeMismatch => format!("Struct getter expected {}, found {:?}, {:?}", name, &s, &steel_struct));
                     }
 
                     s.borrow()

@@ -52,10 +52,60 @@
 
   sender)
 
-; (let ((sender (message-passing)))
+(define *CHILD_THREADS* '())
+
+;; Keep track of all of the threads currently running
+(define (record-thread-handle handle)
+  (set! *CHILD_THREADS* (cons handle *CHILD_THREADS*)))
+
+(struct CancellableThreadHandle (sender handle))
+
+;;@doc
+;; Spawn a function, func, that runs on a background thread, running at the interval `delay-ms`
+(define (spawn-cancellable-thread-looping func delay-ms)
+  ;; Create the channels. We're going to cancel the thread using
+  ;; the sender here to interrupt the receiver
+  (define channels (make-channels))
+  (define sender (list-ref channels 0))
+  (define receiver (list-ref channels 1))
+
+  (CancellableThreadHandle sender
+                           (spawn-thread! (lambda ()
+                                            (while (not (~> (channel->try-recv receiver) (unwrap-ok)))
+                                                   (begin
+                                                     (func)
+                                                     (time/sleep-ms delay-ms)))
+                                            (displayln "Shutting down thread: "
+                                                       (thread::current/id))))))
+
+; (define tasks
+;   (map
+;    (lambda (_) (spawn-cancellable-thread-looping (lambda () (displayln (thread::current/id))) 1000))
+;    (range 0 100)))
+
+; (thread-join! (CancellableThreadHandle-handle (car tasks)))
+
+; (let ([cancellable-handler
+;        (spawn-cancellable-thread-looping (lambda () (displayln "Hello world!")) 500)])
+;   (time/sleep-ms 3000)
+;   ;; Cancel the background thread with the interrupt token
+;   (channel->send (CancellableThreadHandle-sender cancellable-handler) #t)
+
+;   (displayln "Doing more work after the function!")
+;   (time/sleep-ms 1000)
+;   (displayln "Finished"))
+
+; (let ([sender (message-passing)])
 ;   (channel->send sender "Hello world!")
 ;   (time/sleep-ms 500)
 ;   (channel->send sender "Second message!")
 ;   (time/sleep-ms 500)
 ;   (channel->send sender "and we're done")
 ;   (time/sleep-ms 500))
+
+(let ([tasks (map (lambda (_)
+                    (spawn-thread! (lambda ()
+                                     (time/sleep-ms 2000)
+                                     (displayln (thread::current/id)))))
+                  (range 0 10))])
+  (map thread-join! tasks))

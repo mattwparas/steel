@@ -47,6 +47,7 @@ weak-table = "0.3.2"
 rand = "0.8.5"
 
 abi_stable = "0.11.1"
+which = "4.4.0"
 
 rusqlite =  { version = "0.28.0", features = ["bundled"], optional = true }
 

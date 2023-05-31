@@ -3904,13 +3904,14 @@ pub(crate) fn thread_join(handle: &mut ThreadHandle) -> Result<()> {
     }
 }
 
+// TODO: Do proper logging here for thread spawning
 macro_rules! time {
     ($label:expr, $e:expr) => {{
         let now = std::time::Instant::now();
 
         let e = $e;
 
-        println!("{}: {:?}", $label, now.elapsed());
+        log::info!(target: "threads", "{}: {:?}", $label, now.elapsed());
 
         e
     }};
@@ -3928,14 +3929,12 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
     // get referenced. We can also just straight up reject any closures that cannot be moved
     // across threads
     struct MovableThread {
-        // TODO: Make this also be serializable steel val
         constants: Vec<SerializableSteelVal>,
         global_env: Vec<SerializableSteelVal>,
         function_interner: MovableFunctionInterner,
         runtime_options: RunTimeOptions,
     }
 
-    // TODO: Fill this in
     struct MovableFunctionInterner {
         closure_interner: fxhash::FxHashMap<usize, SerializedLambda>,
         pure_function_interner: fxhash::FxHashMap<usize, SerializedLambda>,
@@ -4122,7 +4121,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             ),
         };
 
-        println!("Time taken to spawn thread: {:?}", now.elapsed());
+        log::info!(target: "threads", "Time taken to spawn thread: {:?}", now.elapsed());
 
         // Call the function!
         thread
