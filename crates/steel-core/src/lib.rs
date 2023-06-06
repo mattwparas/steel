@@ -11,6 +11,7 @@ pub mod rvals;
 pub mod stdlib;
 #[macro_use]
 pub mod gc;
+mod containers;
 mod conversions;
 
 // #[cfg(feature = "jit")]

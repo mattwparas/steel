@@ -393,6 +393,9 @@ pub mod unsafe_erased_pointers {
     // help disambiguate the function call sites.
     pub trait CustomReference {}
 
+    // Only works if this is explicitly, a reference type?
+    impl CustomReference for &str {}
+
     pub trait ReferenceCustomType {
         fn as_any_ref(&self) -> &dyn Any;
         fn as_any_ref_mut(&mut self) -> &mut dyn Any;
@@ -452,8 +455,17 @@ pub mod unsafe_erased_pointers {
     }
 
     impl<T> CustomReference for TemporaryObject<T> {}
+    impl<T> CustomReference for ReadOnlyTemporaryObject<T> {}
 
     impl<T: 'static> TemporaryObject<T> {
+        pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
+            OpaqueReference {
+                inner: Rc::new(self),
+            }
+        }
+    }
+
+    impl<T: 'static> ReadOnlyTemporaryObject<T> {
         pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
             OpaqueReference {
                 inner: Rc::new(self),
@@ -505,7 +517,7 @@ pub mod unsafe_erased_pointers {
         }
     }
 
-    trait Opaque {}
+    pub(crate) trait Opaque {}
 
     impl<T> Opaque for Rc<RefCell<T>> {}
 
@@ -590,6 +602,10 @@ pub mod unsafe_erased_pointers {
 
             // borrowed.into_opaque_reference()
         }
+
+        // pub(crate) fn allocate_strong(obj: Box<dyn Opaque>) {
+        //     NURSERY.with(|x| x.memory.borrow_mut().push(obj));
+        // }
 
         pub(crate) fn allocate(obj: OpaqueReference<'static>) {
             NURSERY.with(|x| x.weak_values.borrow_mut().push(obj));

@@ -42,7 +42,7 @@ pub use vectors::VectorOperations;
 
 pub use nums::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
 
-use crate::rvals::{FunctionSignature, SteelVal};
+use crate::rvals::{AsRefSteelValFromRef, FunctionSignature, SteelVal};
 use crate::{
     rerrs::{ErrorKind, SteelErr},
     rvals::SteelString,

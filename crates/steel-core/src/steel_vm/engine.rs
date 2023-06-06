@@ -10,6 +10,7 @@ use crate::{
         modules::CompiledModule,
         program::{Executable, RawProgramWithSymbols, SerializableRawProgramWithSymbols},
     },
+    containers::RegisterValue,
     gc::unsafe_erased_pointers::{
         BorrowedObject, CustomReference, OpaqueReferenceNursery, ReadOnlyBorrowedObject,
     },
@@ -23,7 +24,7 @@ use crate::{
         kernel::{fresh_kernel_image, Kernel},
         parser::{ParseError, Parser, Sources},
     },
-    rerrs::back_trace,
+    rerrs::{back_trace, back_trace_to_string},
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
     steel_vm::{builtin::ExternalModule, register_fn::RegisterFn},
     stop, throw,
@@ -157,6 +158,14 @@ impl<'a> LifetimeGuard<'a> {
             crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::drain_to_steelvals();
 
         thunk(self.engine, values)
+    }
+}
+
+impl RegisterValue for Engine {
+    fn register_value_inner(&mut self, name: &str, value: SteelVal) -> &mut Self {
+        let idx = self.compiler.register(name);
+        self.virtual_machine.insert_binding(idx, value);
+        self
     }
 }
 
@@ -1168,9 +1177,11 @@ impl Engine {
     /// vm.run("hello-world").unwrap(); // Will return the string
     /// ```
     pub fn register_value(&mut self, name: &str, value: SteelVal) -> &mut Self {
-        let idx = self.compiler.register(name);
-        self.virtual_machine.insert_binding(idx, value);
-        self
+        self.register_value_inner(name, value)
+
+        // let idx = self.compiler.register(name);
+        // self.virtual_machine.insert_binding(idx, value);
+        // self
     }
 
     /// Registers multiple values at once
@@ -1309,8 +1320,14 @@ impl Engine {
         T::from_steelval(&self.extract_value(name)?)
     }
 
+    /// Raise the error within the stack trace
     pub fn raise_error(&self, error: SteelErr) {
         raise_error(&self.sources, error)
+    }
+
+    /// Emit an error string reporing, the back trace.
+    pub fn raise_error_to_string(&self, error: SteelErr) -> Option<String> {
+        raise_error_to_string(&self.sources, error)
     }
 
     /// Execute a program given as the `expr`, and computes a `Vec<SteelVal>` corresponding to the output of each expression given.
@@ -1512,7 +1529,7 @@ fn raise_error(sources: &Sources, error: SteelErr) {
         if let Some(source_id) = span.source_id() {
             let sources = sources.sources.lock().unwrap();
 
-            let file_name = sources.get(source_id);
+            let file_name = sources.get_path(&source_id);
 
             if let Some(file_content) = sources.get(source_id) {
                 // Build stack trace if we have it:
@@ -1526,39 +1543,83 @@ fn raise_error(sources: &Sources, error: SteelErr) {
                                 if let Some(source) = sources.get(id) {
                                     let trace_line_file_name = sources.get_path(&id);
 
-                                    // let resolved_file_name = trace_line_file_name
-                                    //     .and_then(|x| {
-                                    //         std::cell::Ref::filter_map(x, |x| x.to_str()).ok()
-                                    //     })
-                                    //     .unwrap_or(std::cell::RefCell::new("").borrow());
-
                                     let resolved_file_name = trace_line_file_name
                                         .as_ref()
                                         .and_then(|x| x.to_str())
                                         .unwrap_or_default();
 
                                     back_trace(&resolved_file_name, &source, *span);
-
-                                    // let slice = &source.as_str()[span.range()];
-
-                                    // println!("{}", slice);
-
-                                    // todo!()
                                 }
                             }
                         }
-
-                        // source = self.sources.get(dehydrated_context.)
                     }
                 }
 
                 let resolved_file_name = file_name.cloned().unwrap_or_default();
 
-                error.emit_result(&resolved_file_name, &file_content);
+                error.emit_result(resolved_file_name.to_str().unwrap(), &file_content);
                 return;
             }
         }
     }
 
     println!("Unable to locate source and span information for this error: {error}");
+}
+
+// If we are to construct an error object, emit that
+pub(crate) fn raise_error_to_string(sources: &Sources, error: SteelErr) -> Option<String> {
+    if let Some(span) = error.span() {
+        if let Some(source_id) = span.source_id() {
+            let sources = sources.sources.lock().unwrap();
+
+            let file_name = sources.get_path(&source_id);
+
+            if let Some(file_content) = sources.get(source_id) {
+                let mut back_traces = Vec::with_capacity(20);
+
+                // Build stack trace if we have it:
+                if let Some(trace) = error.stack_trace() {
+                    // TODO: Flatten recursive calls into the same stack trace
+                    // and present the count
+                    for dehydrated_context in trace.trace().iter().take(20) {
+                        // Report a call stack with whatever we actually have,
+                        if let Some(span) = dehydrated_context.span() {
+                            // Missing the span, its not particularly worth reporting?
+                            if span.start == 0 && span.end == 0 {
+                                continue;
+                            }
+
+                            if let Some(id) = span.source_id() {
+                                if let Some(source) = sources.get(id) {
+                                    let trace_line_file_name = sources.get_path(&id);
+
+                                    let resolved_file_name = trace_line_file_name
+                                        .as_ref()
+                                        .and_then(|x| x.to_str())
+                                        .unwrap_or_default();
+
+                                    let bt =
+                                        back_trace_to_string(&resolved_file_name, &source, *span);
+                                    back_traces.push(bt);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let resolved_file_name = file_name.cloned().unwrap_or_default();
+
+                let final_error = error
+                    .emit_result_to_string(resolved_file_name.to_str().unwrap(), &file_content);
+
+                back_traces.push(final_error);
+
+                return Some(back_traces.join("\n"));
+            }
+        }
+    }
+
+    // println!("Unable to locate source and span information for this error: {error}");
+
+    None
 }

@@ -226,9 +226,7 @@ impl SteelErr {
 
         let file = SimpleFile::new(file_name, file_content);
 
-        let error_span = Span::new(0, 0, None);
-
-        let report = self.report(file_name, file_content, error_span);
+        let report = self.report();
 
         term::emit(&mut writer.lock(), &config, &file, &report).unwrap(); // TODO come back
 
@@ -245,23 +243,19 @@ impl SteelErr {
 
         let file = SimpleFile::new(file_name, file_content);
 
-        let error_span = Span::new(0, 0, None);
-
-        let report = self.report(file_name, file_content, error_span);
+        let report = self.report();
         term::emit(&mut writer, &config, &file, &report).unwrap(); // TODO come back
         let output = writer.into_inner();
         std::str::from_utf8(&output).unwrap().to_string()
     }
 
-    fn report(&self, _file_name: &str, _file_content: &str, _error_span: Span) -> Diagnostic<()> {
-        // println!("Generating error report!");
-
+    fn report(&self) -> Diagnostic<()> {
         Diagnostic::error()
             .with_code(self.repr.kind.to_error_code())
             .with_message(self.repr.kind.to_string())
             .with_labels(vec![Label::primary(
                 (),
-                self.repr.span.unwrap_or(_error_span),
+                self.repr.span.unwrap_or(Span::new(0, 0, None)),
             )
             .with_message(&self.repr.message)])
     }
@@ -333,6 +327,22 @@ pub fn back_trace(file_name: &str, file_content: &str, span: Span) {
     let report = Diagnostic::note().with_labels(vec![Label::primary((), span)]);
 
     term::emit(&mut writer.lock(), &config, &file, &report).unwrap(); // TODO come back
+}
+
+// TODO: Abstract this to just take the writer interface optionally, otherwise just write to a string?
+pub fn back_trace_to_string(file_name: &str, file_content: &str, span: Span) -> String {
+    let mut writer = NoColor::new(Vec::<u8>::new());
+    let config = codespan_reporting::term::Config::default();
+
+    let file = SimpleFile::new(file_name, file_content);
+
+    let report = Diagnostic::note().with_labels(vec![Label::primary((), span)]);
+
+    term::emit(&mut writer, &config, &file, &report).unwrap(); // TODO come back
+
+    let output = writer.into_inner();
+
+    std::str::from_utf8(&output).unwrap().to_string()
 }
 
 #[macro_export]

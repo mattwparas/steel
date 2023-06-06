@@ -2,6 +2,7 @@
 #![allow(unused)]
 
 pub mod opcode;
+pub mod permutations;
 use std::borrow::Cow;
 
 use itertools::Itertools;

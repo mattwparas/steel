@@ -1,6 +1,7 @@
 use std::{borrow::Cow, cell::RefCell, rc::Rc, sync::Arc};
 
 use crate::{
+    containers::RegisterValue,
     gc::Gc,
     parser::{ast::ExprKind, parser::SyntaxObject, tokens::TokenType},
     rerrs::ErrorKind,
@@ -297,6 +298,13 @@ impl Custom for FunctionSignatureMetadata {
 
 impl Custom for BuiltInModule {}
 
+impl RegisterValue for BuiltInModule {
+    fn register_value_inner(&mut self, name: &str, value: SteelVal) -> &mut Self {
+        self.values.insert(name.into(), value);
+        self
+    }
+}
+
 impl BuiltInModule {
     pub fn raw() -> Self {
         Self {
@@ -426,8 +434,7 @@ impl BuiltInModule {
     /// Add a value to the module namespace. This value can be any legal SteelVal, or if you're explicitly attempting
     /// to compile an program for later use and don't currently have access to the functions in memory, use `SteelVal::Void`
     pub fn register_value(&mut self, name: &str, value: SteelVal) -> &mut Self {
-        self.values.insert(name.into(), value);
-        self
+        self.register_value_inner(name, value)
     }
 
     pub fn register_value_with_doc(
