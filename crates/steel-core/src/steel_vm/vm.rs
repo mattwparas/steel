@@ -1,6 +1,5 @@
 #![allow(unused)]
 
-use crate::steel_vm::builtin::EmbeddedModule;
 use crate::values::functions::SerializedLambda;
 use crate::values::{closed::Heap, contracts::ContractType};
 use crate::{
@@ -3878,7 +3877,7 @@ pub(crate) fn list_modules(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Resul
         .thread
         .global_env
         .roots()
-        .filter(|x| EmbeddedModule::as_ref(x, &mut nursery).is_ok())
+        .filter(|x| BuiltInModule::as_ref(x, &mut nursery).is_ok())
         .cloned()
         .collect();
 

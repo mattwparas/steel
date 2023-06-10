@@ -54,63 +54,6 @@ struct RestArgs {
     args: List<SteelVal>,
 }
 
-// TODO: With some build script / code gen, we could probably just generate the implementations for register_fn across all of the grains that we want.
-// that would entail QUITE a bit of code gen, but it could work out nicely. Perhaps sketch out a solution.
-
-// TODO: @Matt - replace the body of this file with something more akin to using this macro:
-// That way we can auto generate the combinations of things
-// // The macro that expands into all pairs
-// macro_rules! for_all_pairs {
-//     ($mac:ident: $($x:ident)*) => {
-//         // Duplicate the list
-//         for_all_pairs!(@inner $mac: $($x)*; $($x)*; $($x)*);
-//     };
-
-//     // The end of iteration: we exhausted the list
-//     (@inner $mac:ident: ; $($x:ident)* ; $($y:ident)*) => {};
-
-//     // The head/tail recursion: pick the first element of the first list
-//     // and recursively do it for the tail.
-//     (@inner $mac:ident: $head:ident $($tail:ident)*; $($x:ident)*; $($y:ident)*) => {
-//         $(
-//             $mac!($head $x $y);
-//         )*
-//         for_all_pairs!(@inner $mac: $($tail)*; $($x)*; $($y)*);
-//     };
-// }
-
-// // What you actually want to do for each pair
-// macro_rules! print_pair {
-//     ($a:ident $b:ident $c:ident) => {
-//         println!("{} <-> {} <-> {}", $a, $b, $c);
-//     }
-// }
-
-// fn main () {
-//     // Test code
-//     let a = 'a';
-//     let b = 'b';
-//     let c = 'c';
-
-//     for_all_pairs!(print_pair: a b c);
-// }
-
-/// TODO: This can actually be used to do const stuff
-// const fn test_move(
-//     name: &'static str,
-//     func: impl Fn() -> usize,
-// ) -> impl Fn(&[SteelVal]) -> Result<SteelVal> {
-//     move |args: &[SteelVal]| -> Result<SteelVal> {
-//         if !args.is_empty() {
-//             stop!(ArityMismatch => format!("{} expected 0 arguments, got {}", name, args.len()));
-//         }
-
-//         let res = func();
-
-//         res.into_steelval()
-//     }
-// }
-
 impl<
         FUT: Future<Output = RET> + 'static,
         RET: IntoSteelVal + 'static,
@@ -1968,6 +1911,8 @@ mod generated_impls {
 
     impl crate::rvals::Custom for FooBarBaz {}
 
+    // Check the status of the code gen. Eventually we're going to pivot this to just be a blanket implementation
+    // against anything that implements `RegisterValue`
     #[test]
     fn check_engine_light() {
         let mut engine = FakeEngine {};

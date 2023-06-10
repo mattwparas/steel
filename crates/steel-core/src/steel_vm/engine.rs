@@ -1,5 +1,5 @@
 use super::{
-    builtin::{BuiltInModule, EmbeddedModule},
+    builtin::{BuiltInModule, FFIModule, FFIWrappedModule},
     dylib::DylibContainers,
     primitives::{register_builtin_modules, register_builtin_modules_without_io, CONSTANTS},
     vm::SteelThread,
@@ -41,7 +41,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Default)]
 pub struct ModuleContainer {
     modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
-    external_modules: ImmutableHashMap<Rc<str>, ExternalModule>,
+    // external_modules: ImmutableHashMap<Rc<str>, ExternalModule>,
 }
 
 impl ModuleContainer {
@@ -49,21 +49,20 @@ impl ModuleContainer {
         self.modules.insert(key, value);
     }
 
-    pub fn insert_ext(&mut self, key: Rc<str>, value: ExternalModule) {
-        self.external_modules.insert(key, value);
-    }
+    // pub fn insert_ext(&mut self, key: Rc<str>, value: ExternalModule) {
+    // self.external_modules.insert(key, value);
+    // }
 
-    pub fn get(&mut self, key: &str) -> Option<EmbeddedModule> {
-        self.modules
-            .get(key)
-            .cloned()
-            .map(EmbeddedModule::Native)
-            .or_else(|| {
-                self.external_modules
-                    .get(key)
-                    .cloned()
-                    .map(EmbeddedModule::External)
-            })
+    pub fn get(&mut self, key: &str) -> Option<BuiltInModule> {
+        // todo!()
+
+        self.modules.get(key).cloned()
+        // .or_else(|| {
+        // self.external_modules
+        // .get(key)
+        // .cloned()
+        // .map(EmbeddedModule::External)
+        // })
     }
 }
 
@@ -878,27 +877,28 @@ impl Engine {
         // Register the actual module itself as a value to make the virtual machine capable of reading from it
         self.register_value(
             module.unreadable_name().as_str(),
-            EmbeddedModule::Native(module).into_steelval().unwrap(),
+            module.into_steelval().unwrap(),
         );
 
         self
     }
 
     // TODO: Lets see if this can _not_ segfault!
-    pub fn register_external_module(&mut self, module: *mut BuiltInModule) -> &mut Self {
-        let external_module = ExternalModule::new(module);
+    pub fn register_external_module(
+        &mut self,
+        module: abi_stable::std_types::RBox<FFIModule>,
+    ) -> Result<&mut Self> {
+        let external_module = FFIWrappedModule::new(module)?.build();
 
         self.modules
-            .insert_ext(external_module.get_name(), external_module.clone());
+            .insert(external_module.name.clone(), external_module.clone());
 
         self.register_value(
             external_module.unreadable_name().as_str(),
-            EmbeddedModule::External(external_module)
-                .into_steelval()
-                .unwrap(),
+            external_module.into_steelval().unwrap(),
         );
 
-        self
+        Ok(self)
     }
 
     // /// Emits a program with path information embedded for error messaging.

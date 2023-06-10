@@ -89,7 +89,7 @@ impl ExprKind {
         )))
     }
 
-    pub fn atom(name: String) -> ExprKind {
+    pub fn atom<T: Into<InternedString>>(name: T) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
             name.into(),
         ))))

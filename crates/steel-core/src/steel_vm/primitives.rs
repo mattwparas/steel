@@ -1,11 +1,11 @@
 use std::{cmp::Ordering, rc::Rc};
 
 use super::{
-    builtin::{BuiltInModule, EmbeddedModule},
+    builtin::BuiltInModule,
     cache::WeakMemoizationTable,
     engine::Engine,
     register_fn::RegisterFn,
-    vm::{apply, get_test_mode, list_modules, set_test_mode, APPLY_DOC},
+    vm::{apply, get_test_mode, list_modules, set_test_mode, VmCore, APPLY_DOC},
 };
 use crate::{
     parser::span::Span,
@@ -296,8 +296,8 @@ pub fn prelude() -> BuiltInModule {
 }
 
 pub fn register_builtin_modules_without_io(engine: &mut Engine) {
-    engine.register_fn("##__module-get", EmbeddedModule::get);
-    engine.register_fn("%module-get%", EmbeddedModule::get);
+    engine.register_fn("##__module-get", BuiltInModule::get);
+    engine.register_fn("%module-get%", BuiltInModule::get);
 
     engine.register_value("%proto-hash%", HM_CONSTRUCT);
     engine.register_value("%proto-hash-insert%", HM_INSERT);
@@ -335,11 +335,11 @@ fn render_as_md(text: String) {
 }
 
 pub fn register_builtin_modules(engine: &mut Engine) {
-    engine.register_fn("##__module-get", EmbeddedModule::get);
-    engine.register_fn("%module-get%", EmbeddedModule::get);
-    engine.register_fn("%doc?", EmbeddedModule::get_doc);
+    engine.register_fn("##__module-get", BuiltInModule::get);
+    engine.register_fn("%module-get%", BuiltInModule::get);
+    engine.register_fn("%doc?", BuiltInModule::get_doc);
     engine.register_value("%list-modules!", SteelVal::BuiltIn(list_modules));
-    engine.register_fn("%module/lookup-function", EmbeddedModule::search);
+    engine.register_fn("%module/lookup-function", BuiltInModule::search);
     engine.register_fn("%string->render-markdown", render_as_md);
     engine.register_fn(
         "%module-bound-identifiers->list",
@@ -1189,4 +1189,15 @@ pub fn error_from_error_with_span() -> SteelVal {
 
         Err(steel_error.with_span(span))
     })
+}
+
+// Be able to introspect on the modules - probably just need to add a modules
+// field on the vm, or use a wrapped type with modules to find things
+// TODO: Add magic number for modules. - key to magic number, do pointer equality
+fn lookup_doc(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    // for value in ctx.thread.global_env.bindings_vec.iter() {
+    //     if let
+    // }
+
+    todo!()
 }

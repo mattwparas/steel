@@ -250,7 +250,15 @@ impl<'a> ConstantEvaluator<'a> {
         //     args
         // );
 
-        let output = self.kernel.as_mut().unwrap().call_function(&ident, args)?;
+        // TODO: We should just bail immediately if this results in an error
+        let output = match self.kernel.as_mut().unwrap().call_function(&ident, args) {
+            Ok(v) => v,
+            Err(e) => {
+                log::error!("{:?}", e);
+                raw_args.insert(0, func);
+                return Ok(ExprKind::List(List::new(raw_args)));
+            }
+        };
 
         if let Some(new_token) = steelval_to_atom(&output) {
             let atom = Atom::new(SyntaxObject::new(new_token, get_span(&func)));
@@ -524,7 +532,8 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                     None
                 }
             }) {
-                println!("Running kernel function!");
+                log::debug!("Running kernel function!");
+
                 return self.eval_kernel_function(ident.clone(), func, Vec::new(), &[]);
             } else {
                 if let ExprKind::LambdaFunction(f) = &func {

@@ -1,16 +1,27 @@
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     rc::Rc,
     sync::{Arc, Mutex},
 };
 
+use abi_stable::{
+    library::{LibraryError, RootModule},
+    package_version_strings,
+    sabi_types::VersionStrings,
+    std_types::RBox,
+    StableAbi,
+};
 use dlopen::wrapper::{Container, WrapperApi};
 use dlopen_derive::WrapperApi;
 use once_cell::sync::Lazy;
 
-use super::builtin::BuiltInModule;
+use super::builtin::{BuiltInModule, FFIModule};
 
 static LOADED_DYLIBS: Lazy<Arc<Mutex<Vec<(String, Container<ModuleApi>)>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(Vec::new())));
+
+// The new and improved loading of modules
+static LOADED_MODULES: Lazy<Arc<Mutex<Vec<(String, GenerateModule_Ref)>>>> =
     Lazy::new(|| Arc::new(Mutex::new(Vec::new())));
 
 // #[derive(WrapperApi, Clone)]
@@ -18,11 +29,33 @@ static LOADED_DYLIBS: Lazy<Arc<Mutex<Vec<(String, Container<ModuleApi>)>>>> =
 // generate_module: fn() -> Rc<BuiltInModule>,
 // }
 
+#[repr(C)]
+#[derive(StableAbi)]
+#[sabi(kind(Prefix(prefix_ref = GenerateModule_Ref)))]
+#[sabi(missing_field(panic))]
+pub struct GenerateModule {
+    pub generate_module: extern "C" fn() -> RBox<FFIModule>,
+}
+
+/// The RootModule trait defines how to load the root module of a library.
+impl RootModule for GenerateModule_Ref {
+    abi_stable::declare_root_module_statics! {GenerateModule_Ref}
+
+    const BASE_NAME: &'static str = "generate_module";
+    const NAME: &'static str = "generate_module";
+    const VERSION_STRINGS: VersionStrings = package_version_strings!();
+}
+
+// Load from the directory
+pub fn load_root_module_in_directory(file: &Path) -> Result<GenerateModule_Ref, LibraryError> {
+    GenerateModule_Ref::load_from_file(file)
+}
+
 #[derive(WrapperApi, Clone)]
 struct ModuleApi {
-    generate_module: fn() -> *mut BuiltInModule,
-    build_module: fn(module: &mut BuiltInModule),
-    free_module: fn(ptr: *mut BuiltInModule),
+    generate_module: extern "C" fn() -> RBox<FFIModule>,
+    // build_module: fn(module: &mut BuiltInModule),
+    // free_module: fn(ptr: *mut BuiltInModule),
 }
 
 #[derive(Clone)]
@@ -47,6 +80,7 @@ impl DylibContainers {
 
         if let Some(home) = home {
             let mut guard = LOADED_DYLIBS.lock().unwrap();
+            let mut module_guard = LOADED_MODULES.lock().unwrap();
 
             let mut home = PathBuf::from(home);
             home.push("native");
@@ -74,16 +108,23 @@ impl DylibContainers {
                         continue;
                     }
 
-                    // Load in the dylib
-                    let cont: Container<ModuleApi> = unsafe { Container::load(path) }
-                        .expect("Could not open library or load symbols");
+                    // Load the module in
+                    if true {
+                        let container = load_root_module_in_directory(&path).unwrap();
 
-                    // Keep the container alive for the duration of the program
-                    // This should probably just get wrapped up with the engine as well, when registering modules, directly
-                    // register an external dylib
-                    // self.containers.push(Rc::new(cont));
+                        module_guard.push((module_name, container));
+                    } else {
+                        // // Load in the dylib
+                        // let cont: Container<ModuleApi> = unsafe { Container::load(path) }
+                        //     .expect("Could not open library or load symbols");
 
-                    guard.push((module_name, cont));
+                        // // Keep the container alive for the duration of the program
+                        // // This should probably just get wrapped up with the engine as well, when registering modules, directly
+                        // // register an external dylib
+                        // // self.containers.push(Rc::new(cont));
+
+                        // guard.push((module_name, cont));
+                    }
                 }
             } else {
                 log::warn!(target: "dylibs", "$STEEL_HOME/native directory does not exist")
@@ -115,14 +156,14 @@ impl DylibContainers {
     //         .collect()
     // }
 
-    pub fn modules(&self) -> Vec<*mut BuiltInModule> {
-        LOADED_DYLIBS
+    pub fn modules(&self) -> Vec<RBox<FFIModule>> {
+        LOADED_MODULES
             .lock()
             .unwrap()
             .iter()
             .map(|x| {
                 // let mut module = BuiltInModule::raw();
-                x.1.generate_module()
+                x.1.generate_module()()
                 // module
             })
             .collect()

@@ -66,6 +66,7 @@ macro_rules! list {
 
 use SteelVal::*;
 
+use abi_stable::std_types::RString;
 use im_rc::{HashMap, Vector};
 
 use futures::FutureExt;
@@ -146,7 +147,7 @@ pub(crate) fn poll_future(mut fut: Shared<BoxedFutureResult>) -> Option<Result<S
 }
 
 /// Attempt to cast this custom type down to the underlying type
-pub(crate) fn _as_underlying_type<T: 'static>(value: &dyn CustomType) -> Option<&T> {
+pub fn as_underlying_type<T: 'static>(value: &dyn CustomType) -> Option<&T> {
     value.as_any_ref().downcast_ref::<T>()
 }
 

@@ -258,6 +258,7 @@ fn _expand_default_arguments(
     todo!()
 }
 
+// Adjust the generated code to raise a specific error saying certain keys were missing.
 fn expand_keyword_arguments(
     lambda_function: Box<super::ast::LambdaFunction>,
 ) -> Result<Box<super::ast::LambdaFunction>> {
@@ -408,7 +409,7 @@ fn expand_keyword_arguments(
             ))),
             expr_list![
                 ExprKind::ident("apply"),
-                ExprKind::ident("hash"),
+                ExprKind::ident("%keyword-hash"), // This shouldn't be `hash` directly - something with a specific error
                 ExprKind::ident("!!dummy-rest-arg!!"),
             ],
         ],

@@ -7,7 +7,10 @@ use axum::{
 use std::{collections::HashMap, net::SocketAddr, rc::Rc};
 use steel::{
     rvals::{Custom, IntoSteelVal},
-    steel_vm::{builtin::BuiltInModule, register_fn::RegisterFn},
+    steel_vm::{
+        builtin::{BuiltInModule, FFIModule, FFIValue, IntoFFIVal, RegisterFFIFn},
+        register_fn::RegisterFn,
+    },
     SteelVal,
 };
 
@@ -105,20 +108,20 @@ impl WrappedSender {
 
 impl Custom for WrappedSender {}
 
-fn setup_channels() -> Vec<SteelVal> {
+fn setup_channels() -> Vec<FFIValue> {
     let (command_sender, vm_receiver) = unbounded();
     let (vm_sender, command_receiver) = unbounded();
 
     let command_messenger = CommandMessenger::new(command_sender, command_receiver);
 
     vec![
-        WrappedSender { sender: vm_sender }.into_steelval().unwrap(),
+        WrappedSender { sender: vm_sender }.into_ffi_val().unwrap(),
         WrappedReceiver {
             receiver: vm_receiver,
         }
-        .into_steelval()
+        .into_ffi_val()
         .unwrap(),
-        command_messenger.into_steelval().unwrap(),
+        command_messenger.into_ffi_val().unwrap(),
     ]
 }
 
@@ -127,61 +130,54 @@ fn setup_channels() -> Vec<SteelVal> {
 // }
 
 // #[no_mangle]
-fn create_module() -> Box<BuiltInModule> {
-    let mut module = BuiltInModule::new("dylib/steel/webserver".to_string());
+// fn create_module() -> Box<BuiltInModule> {
+//     let mut module = BuiltInModule::new("dylib/steel/webserver".to_string());
 
-    // module.register_fn("toml->value", SteelTomlValue::as_value);
+//     // module.register_fn("toml->value", SteelTomlValue::as_value);
+
+//     module
+//         .register_fn("start-server!", spawn_server)
+//         .register_fn("setup-channels", setup_channels)
+//         .register_fn("receiver/recv", WrappedReceiver::recv)
+//         .register_fn("sender/send", WrappedSender::send)
+//         .register_fn("thread/join", WrappedJoinHandler::join)
+//         .register_fn("request-type", Request::get_type)
+//         .register_fn("request-path", Request::get_path)
+//         .register_fn("request-body", Request::get_body)
+//         .register_value("request-type/POST", POST.with(|x| x.clone()))
+//         .register_value("request-type/GET", GET.with(|x| x.clone()));
+
+//     // module.register_type::<SteelTomlValue>("toml?");
+
+//     // module.register_
+
+//     // module.register_value("outside-value", SteelVal::StringV("Hello world!".into()));
+//     // module.register_fn("hidden-function", hidden_function);
+
+//     // Rc::new(module)
+//     Box::new(module)
+// }
+
+steel::declare_module!(build_module);
+
+pub fn build_module() -> FFIModule {
+    let mut module = FFIModule::new("dylib/steel/webserver");
 
     module
         .register_fn("start-server!", spawn_server)
         .register_fn("setup-channels", setup_channels)
         .register_fn("receiver/recv", WrappedReceiver::recv)
-        .register_fn("sender/send", WrappedSender::send)
+        // .register_fn("sender/send", WrappedSender::send)
         .register_fn("thread/join", WrappedJoinHandler::join)
-        .register_fn("request-type", Request::get_type)
+        // .register_fn("request-type", Request::get_type)
         .register_fn("request-path", Request::get_path)
-        .register_fn("request-body", Request::get_body)
-        .register_value("request-type/POST", POST.with(|x| x.clone()))
-        .register_value("request-type/GET", GET.with(|x| x.clone()));
+        // .register_fn("request-body", Request::get_body)
+    ;
 
-    // module.register_type::<SteelTomlValue>("toml?");
-
-    // module.register_
-
-    // module.register_value("outside-value", SteelVal::StringV("Hello world!".into()));
-    // module.register_fn("hidden-function", hidden_function);
-
-    // Rc::new(module)
-    Box::new(module)
-}
-
-#[no_mangle]
-pub fn build_module(module: &mut BuiltInModule) {
-    module.set_name("dylib/steel/webserver".to_string());
+    //     .register_value("request-type/POST", POST.with(|x| x.clone()))
+    //     .register_value("request-type/GET", GET.with(|x| x.clone()));
 
     module
-        .register_fn("start-server!", spawn_server)
-        .register_fn("setup-channels", setup_channels)
-        .register_fn("receiver/recv", WrappedReceiver::recv)
-        .register_fn("sender/send", WrappedSender::send)
-        .register_fn("thread/join", WrappedJoinHandler::join)
-        .register_fn("request-type", Request::get_type)
-        .register_fn("request-path", Request::get_path)
-        .register_fn("request-body", Request::get_body)
-        .register_value("request-type/POST", POST.with(|x| x.clone()))
-        .register_value("request-type/GET", GET.with(|x| x.clone()));
-}
-
-#[no_mangle]
-pub fn generate_module() -> *mut BuiltInModule {
-    Box::into_raw(create_module())
-}
-
-#[no_mangle]
-pub fn free_module(ptr: *mut BuiltInModule) {
-    unsafe {
-        let _ = Box::from_raw(ptr);
-    }
 }
 
 struct WrappedJoinHandler {

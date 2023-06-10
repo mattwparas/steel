@@ -18,6 +18,7 @@ use std::{
     io::Read,
     path::PathBuf,
     rc::Rc,
+    sync::Arc,
 };
 
 use crate::parser::expander::SteelMacro;
@@ -588,6 +589,11 @@ impl CompiledModule {
         name_mangler.mangle_vars(&mut provides);
 
         let mut hash_body = vec![ExprKind::ident("hash")];
+
+        // We can put the module name in there, but that doesn't help us get the docs out...
+        // Probably need to just store the docs directly in the module itself as well?
+        // hash_body.push(ExprKind::atom("#:module-name"));
+        // hash_body.push(ExprKind::atom(prefix.clone()));
 
         hash_body.extend(
             un_mangled

@@ -30,6 +30,7 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/hash".to_string());
     module
         .register_value_with_doc("hash", HM_CONSTRUCT, HASH_DOC)
+        .register_value("%keyword-hash", SteelVal::FuncV(hm_construct_keywords))
         .register_value_with_doc("hash-insert", HM_INSERT, HASH_INSERT_DOC)
         .register_value_with_doc("hash-get", HM_GET, HASH_GET_DOC)
         .register_value("hash-try-get", HM_TRY_GET)
@@ -79,6 +80,30 @@ pub fn hm_construct(args: &[SteelVal]) -> Result<SteelVal> {
             (None, None) => break,
             _ => {
                 stop!(ArityMismatch => "hash map must have a value for every key!");
+            }
+        }
+    }
+
+    Ok(SteelVal::HashMapV(Gc::new(hm)))
+}
+
+pub fn hm_construct_keywords(args: &[SteelVal]) -> Result<SteelVal> {
+    let mut hm = HashMap::new();
+
+    let mut arg_iter = args.iter().cloned();
+
+    loop {
+        match (arg_iter.next(), arg_iter.next()) {
+            (Some(key), Some(value)) => {
+                if key.is_hashable() {
+                    hm.insert(key, value);
+                } else {
+                    stop!(TypeMismatch => "hash key not hashable!");
+                }
+            }
+            (None, None) => break,
+            _ => {
+                stop!(ArityMismatch => "Missing keyword argument!");
             }
         }
     }
