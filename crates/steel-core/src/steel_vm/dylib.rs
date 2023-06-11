@@ -15,7 +15,8 @@ use dlopen::wrapper::{Container, WrapperApi};
 use dlopen_derive::WrapperApi;
 use once_cell::sync::Lazy;
 
-use super::builtin::{BuiltInModule, FFIModule};
+use super::builtin::BuiltInModule;
+use super::ffi::FFIModule;
 
 static LOADED_DYLIBS: Lazy<Arc<Mutex<Vec<(String, Container<ModuleApi>)>>>> =
     Lazy::new(|| Arc::new(Mutex::new(Vec::new())));

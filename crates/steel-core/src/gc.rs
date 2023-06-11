@@ -621,6 +621,7 @@ pub mod unsafe_erased_pointers {
                 x.weak_values
                     .borrow_mut()
                     .drain(..)
+                    .map(Box::new)
                     .map(SteelVal::Reference)
                     .collect()
             });

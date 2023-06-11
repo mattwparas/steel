@@ -1,6 +1,8 @@
 use super::{
-    builtin::{BuiltInModule, FFIModule, FFIWrappedModule},
+    builtin::BuiltInModule,
     dylib::DylibContainers,
+    ffi::FFIModule,
+    ffi::FFIWrappedModule,
     primitives::{register_builtin_modules, register_builtin_modules_without_io, CONSTANTS},
     vm::SteelThread,
 };
@@ -26,7 +28,7 @@ use crate::{
     },
     rerrs::{back_trace, back_trace_to_string},
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
-    steel_vm::{builtin::ExternalModule, register_fn::RegisterFn},
+    steel_vm::register_fn::RegisterFn,
     stop, throw,
     values::functions::BoxedDynFunction,
     SteelErr,
@@ -655,7 +657,7 @@ impl Engine {
 
                 self.register_value(
                     bind_to,
-                    SteelVal::Reference(extended.into_opaque_reference::<'static>()),
+                    SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>())),
                 );
 
                 let res = self.compile_and_run_raw_program(script);
@@ -702,8 +704,10 @@ impl Engine {
                     std::mem::transmute::<BorrowedObject<T2>, BorrowedObject<EXT2>>(wrapped2)
                 };
 
-                let steelval1 = SteelVal::Reference(extended.into_opaque_reference::<'static>());
-                let steelval2 = SteelVal::Reference(extended2.into_opaque_reference::<'static>());
+                let steelval1 =
+                    SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
+                let steelval2 =
+                    SteelVal::Reference(Box::new(extended2.into_opaque_reference::<'static>()));
 
                 // self.register_value(
                 //     bind_to,
@@ -751,7 +755,8 @@ impl Engine {
                     std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(wrapped1)
                 };
 
-                let steelval1 = SteelVal::Reference(extended.into_opaque_reference::<'static>());
+                let steelval1 =
+                    SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
 
                 let res = thunk(self, steelval1);
 
@@ -790,7 +795,8 @@ impl Engine {
                     )
                 };
 
-                let steelval1 = SteelVal::Reference(extended.into_opaque_reference::<'static>());
+                let steelval1 =
+                    SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
 
                 let res = thunk(self, steelval1);
 

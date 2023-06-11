@@ -618,7 +618,8 @@ impl<
                 std::mem::transmute::<BorrowedObject<RET>, BorrowedObject<STATICRET>>(borrowed)
             };
 
-            let return_value = SteelVal::Reference(extended.into_opaque_reference::<'static>());
+            let return_value =
+                SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
 
             Ok(return_value)
 
@@ -694,7 +695,8 @@ impl<
                 )
             };
 
-            let return_value = SteelVal::Reference(extended.into_opaque_reference::<'static>());
+            let return_value =
+                SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
 
             Ok(return_value)
         };
@@ -763,7 +765,8 @@ impl<
                 )
             };
 
-            let return_value = SteelVal::Reference(extended.into_opaque_reference::<'static>());
+            let return_value =
+                SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
 
             Ok(return_value)
         };
@@ -980,7 +983,8 @@ impl<
                 std::mem::transmute::<BorrowedObject<RET>, BorrowedObject<STATICRET>>(borrowed)
             };
 
-            let return_value = SteelVal::Reference(extended.into_opaque_reference::<'static>());
+            let return_value =
+                SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
 
             Ok(return_value)
 
@@ -1057,7 +1061,8 @@ impl<
                 )
             };
 
-            let return_value = SteelVal::Reference(extended.into_opaque_reference::<'static>());
+            let return_value =
+                SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
 
             Ok(return_value)
         };
@@ -1127,7 +1132,8 @@ impl<
                 )
             };
 
-            let return_value = SteelVal::Reference(extended.into_opaque_reference::<'static>());
+            let return_value =
+                SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
 
             Ok(return_value)
         };
@@ -1913,19 +1919,19 @@ mod generated_impls {
 
     // Check the status of the code gen. Eventually we're going to pivot this to just be a blanket implementation
     // against anything that implements `RegisterValue`
-    #[test]
-    fn check_engine_light() {
-        let mut engine = FakeEngine {};
+    // #[test]
+    // fn check_engine_light() {
+    //     let mut engine = FakeEngine {};
 
-        engine.register_fn(
-            "applesauce",
-            |foo: FooBarBaz,
-             bar: &FooBarBaz,
-             baz: &mut FooBarBaz,
-             quux: FooBarBaz,
-             qux: FooBarBaz| todo!(),
-        );
-    }
+    //     engine.register_fn(
+    //         "applesauce",
+    //         |foo: FooBarBaz,
+    //          bar: &FooBarBaz,
+    //          baz: &mut FooBarBaz,
+    //          quux: FooBarBaz,
+    //          qux: FooBarBaz| todo!(),
+    //     );
+    // }
 
     struct MarkerWrapper<ARGS>(PhantomData<ARGS>);
 

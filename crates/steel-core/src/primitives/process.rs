@@ -10,6 +10,7 @@ pub fn process_module() -> BuiltInModule {
 
     module
         .register_fn("command", CommandBuilder::new)
+        .register_fn("set-current-dir!", CommandBuilder::current_dir)
         .register_fn("spawn-process", CommandBuilder::spawn_process)
         .register_fn("wait", ChildProcess::wait)
         .register_fn("wait->stdout", ChildProcess::wait_with_stdout)
@@ -80,6 +81,10 @@ impl CommandBuilder {
         command.args(&args);
 
         Self { command }
+    }
+
+    pub fn current_dir(&mut self, directory: String) {
+        self.command.current_dir(directory);
     }
 
     pub fn spawn_process(&mut self) -> Result<ChildProcess, SteelErr> {

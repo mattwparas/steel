@@ -1,13 +1,8 @@
 // Using ABI Stable types is very important
-use abi_stable::std_types::{RBox, RBoxError, RResult, RString, RVec};
 use steel::{
     declare_module,
-    gc::Gc,
-    rvals::{as_underlying_type, Custom},
-    steel_vm::{
-        builtin::{FFIBoxedDynFunction, FFIModule, FFIValue, OpaqueFFIValue, RegisterFFIFn},
-        dylib::{GenerateModule, GenerateModule_Ref},
-    },
+    rvals::Custom,
+    steel_vm::ffi::{FFIModule, RegisterFFIFn},
 };
 
 struct MemoryInfo {

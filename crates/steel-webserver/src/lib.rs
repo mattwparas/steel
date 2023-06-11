@@ -4,13 +4,10 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use std::{collections::HashMap, net::SocketAddr, rc::Rc};
+use std::{collections::HashMap, net::SocketAddr};
 use steel::{
-    rvals::{Custom, IntoSteelVal},
-    steel_vm::{
-        builtin::{BuiltInModule, FFIModule, FFIValue, IntoFFIVal, RegisterFFIFn},
-        register_fn::RegisterFn,
-    },
+    rvals::Custom,
+    steel_vm::ffi::{FFIModule, FFIValue, IntoFFIVal, RegisterFFIFn},
     SteelVal,
 };
 

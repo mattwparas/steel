@@ -832,7 +832,7 @@ pub enum SteelVal {
     Boxed(HeapRef),
 
     // TODO: This itself, needs to be boxed unfortunately.
-    Reference(OpaqueReference<'static>),
+    Reference(Box<OpaqueReference<'static>>),
 }
 
 // TODO: Consider unboxed value types, for optimized usages when compiling segments of code.

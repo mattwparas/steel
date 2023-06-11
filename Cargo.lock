@@ -967,6 +967,7 @@ dependencies = [
 name = "example-dylib"
 version = "0.2.0"
 dependencies = [
+ "abi_stable",
  "steel-core",
 ]
 
@@ -2692,6 +2693,7 @@ dependencies = [
 name = "steel-toml"
 version = "0.1.0"
 dependencies = [
+ "abi_stable",
  "steel-core",
  "toml",
 ]

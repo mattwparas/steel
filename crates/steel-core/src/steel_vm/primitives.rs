@@ -1063,7 +1063,8 @@ fn meta_module() -> BuiltInModule {
                 }
             },
         )
-        .register_fn("thread::current/id", || std::thread::current().id());
+        .register_fn("thread::current/id", || std::thread::current().id())
+        .register_fn("current-os!", || std::env::consts::OS);
     module
 }
 

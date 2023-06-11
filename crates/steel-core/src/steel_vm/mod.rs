@@ -5,6 +5,7 @@ pub mod contract_checker;
 mod contracts;
 pub mod dylib;
 pub mod engine;
+pub mod ffi;
 mod lazy_stream;
 mod meta;
 pub mod primitives;
@@ -13,6 +14,5 @@ pub mod register_fn;
 mod test_util;
 #[cfg(test)]
 mod tests;
-mod threads;
 mod transducers;
 pub(crate) mod vm;

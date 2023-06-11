@@ -3,9 +3,7 @@ extern crate steel_derive;
 extern crate steel_repl;
 
 use steel::{
-    gc::unsafe_erased_pointers::{CustomReference, ReferenceCustomType},
-    rvals::Custom,
-    steel_vm::{engine::Engine, register_fn::RegisterFn},
+    steel_vm::{engine::Engine},
 };
 use steel_doc::walk_dir;
 use steel_repl::repl::repl_base;
