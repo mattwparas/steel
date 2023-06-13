@@ -1,7 +1,7 @@
 use axum::{
     extract::Query,
     http::StatusCode,
-    routing::{get, post},
+    routing::{get},
     Json, Router,
 };
 use std::{collections::HashMap, net::SocketAddr};
@@ -218,9 +218,9 @@ fn spawn_server(
                         &route,
                         get(
                             |Path(path): Path<String>,
-                             Path(params): Path<std::collections::HashMap<String, String>>,
-                             Query(query): Query<HashMap<String, String>>,
-                             json: Option<Json<serde_json::Value>>| async move {
+                             Path(_params): Path<std::collections::HashMap<String, String>>,
+                             Query(_query): Query<HashMap<String, String>>,
+                             _json: Option<Json<serde_json::Value>>| async move {
                                 // println!("Receiving request");
 
                                 // println!("path parameters: {:?}", params);

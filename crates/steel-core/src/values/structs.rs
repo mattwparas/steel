@@ -7,7 +7,7 @@ use crate::parser::interner::InternedString;
 use crate::throw;
 use crate::{
     core::utils::Boxed,
-    rvals::{FromSteelVal, IntoSteelVal, MAGIC_STRUCT_SYMBOL},
+    rvals::{FromSteelVal, IntoSteelVal},
 };
 use crate::{
     gc::Gc,
@@ -797,31 +797,6 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
 
     module
 }
-
-// TODO: Delete this
-pub(crate) fn is_custom_struct() -> SteelVal {
-    SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-        if args.len() != 1 {
-            stop!(ArityMismatch => "struct? expected one argument");
-        }
-
-        let steel_struct = &args[0].clone();
-
-        if let SteelVal::MutableVector(v) = &steel_struct {
-            if let Some(magic_value) = v.borrow().get(0) {
-                Ok(SteelVal::BoolV(
-                    magic_value.ptr_eq(&MAGIC_STRUCT_SYMBOL.with(|x| x.clone())),
-                ))
-            } else {
-                Ok(SteelVal::BoolV(false))
-            }
-        } else {
-            Ok(SteelVal::BoolV(false))
-        }
-    })
-}
-
-// TODO: Implement this for results
 
 // impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for Result<T, E> {
 //     fn into_steelval(self) -> Result<SteelVal> {

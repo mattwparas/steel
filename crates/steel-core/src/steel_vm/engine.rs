@@ -51,20 +51,8 @@ impl ModuleContainer {
         self.modules.insert(key, value);
     }
 
-    // pub fn insert_ext(&mut self, key: Rc<str>, value: ExternalModule) {
-    // self.external_modules.insert(key, value);
-    // }
-
     pub fn get(&mut self, key: &str) -> Option<BuiltInModule> {
-        // todo!()
-
         self.modules.get(key).cloned()
-        // .or_else(|| {
-        // self.external_modules
-        // .get(key)
-        // .cloned()
-        // .map(EmbeddedModule::External)
-        // })
     }
 }
 
@@ -112,7 +100,6 @@ fn run_bootstrap() {
 }
 
 pub struct LifetimeGuard<'a> {
-    // nursery: OpaqueReferenceNursery,
     engine: &'a mut Engine,
 }
 
@@ -123,15 +110,6 @@ impl<'a> Drop for LifetimeGuard<'a> {
 }
 
 impl<'a> LifetimeGuard<'a> {
-    // pub fn dummy<T: CustomReference, B: CustomReference + 'a, C: CustomReference + 'static>(
-    //     self,
-    //     obj: &'a B,
-    // ) -> Self {
-    //     crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_ro_object::<B, C>(obj);
-
-    //     self
-    // }
-
     pub fn with_immutable_reference<T: CustomReference + 'a, EXT: CustomReference + 'static>(
         self,
         obj: &'a T,
@@ -193,8 +171,6 @@ impl Engine {
 
         log::info!(target:"kernel", "Registered modules in the kernel!");
 
-        // embed_primitives(&mut vm);
-
         let core_libraries = [
             crate::stdlib::PRELUDE,
             crate::stdlib::CONTRACTS,
@@ -214,8 +190,7 @@ impl Engine {
             let modules = vm.dylibs.modules();
 
             for module in modules {
-                vm.register_external_module(module);
-                // vm.register_module(module);
+                vm.register_external_module(module).unwrap();
             }
 
             log::info!(target: "kernel", "Loaded dylibs in the kernel!");
@@ -232,8 +207,7 @@ impl Engine {
         let modules = self.dylibs.modules();
 
         for module in modules {
-            self.register_external_module(module);
-            // self.register_module(module);
+            self.register_external_module(module).unwrap();
         }
 
         log::info!("Successfully loaded modules!");
@@ -288,7 +262,7 @@ impl Engine {
                 let modules = vm.dylibs.modules();
 
                 for module in modules {
-                    vm.register_external_module(module);
+                    vm.register_external_module(module).unwrap();
                     // vm.register_module(module);
                 }
 
@@ -532,7 +506,7 @@ impl Engine {
             let modules = vm.dylibs.modules();
 
             for module in modules {
-                vm.register_external_module(module);
+                vm.register_external_module(module).unwrap();
                 // vm.register_module(module);
             }
         }
@@ -709,22 +683,7 @@ impl Engine {
                 let steelval2 =
                     SteelVal::Reference(Box::new(extended2.into_opaque_reference::<'static>()));
 
-                // self.register_value(
-                //     bind_to,
-                //     SteelVal::Reference(extended.into_opaque_reference::<'static>()),
-                // );
-                // self.register_value(
-                //     bind_to2,
-                //     SteelVal::Reference(extended2.into_opaque_reference::<'static>()),
-                // );
-
-                // let res = self.compile_and_run_raw_program(script);
-
                 let res = thunk(self, steelval1, steelval2);
-
-                // Wipe out the value from existence at all
-                // self.register_value(bind_to, SteelVal::Void);
-                // self.register_value(bind_to2, SteelVal::Void);
 
                 res
             },

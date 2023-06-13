@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, rc::Rc};
+use std::cmp::Ordering;
 
 use super::{
     builtin::BuiltInModule,
@@ -33,7 +33,7 @@ use crate::{
     values::{
         closed::HeapRef,
         functions::{attach_contract_struct, get_contract},
-        structs::{is_custom_struct, make_struct_type},
+        structs::make_struct_type,
     },
 };
 use crate::{
@@ -860,14 +860,9 @@ fn sandboxed_meta_module() -> BuiltInModule {
         // .register_fn("Engine::new", super::meta::EngineWrapper::new)
         .register_fn("eval!", super::meta::eval)
         .register_fn("value->iterator", crate::rvals::value_into_iterator)
-        .register_value("iter-next!", SteelVal::FuncV(crate::rvals::iterator_next))
-        // .register_fn("run!", super::meta::EngineWrapper::call)
-        // .register_fn("get-value", super::meta::EngineWrapper::get_value)
-        .register_value(
-            "___magic_struct_symbol___",
-            crate::rvals::MAGIC_STRUCT_SYMBOL.with(|x| x.clone()),
-        )
-        .register_value("custom-struct?", is_custom_struct());
+        .register_value("iter-next!", SteelVal::FuncV(crate::rvals::iterator_next));
+    // .register_fn("run!", super::meta::EngineWrapper::call)
+    // .register_fn("get-value", super::meta::EngineWrapper::get_value)
     // .register_fn("env-var", get_environment_variable);
     module
 }
@@ -980,11 +975,6 @@ fn meta_module() -> BuiltInModule {
         .register_fn("value->iterator", crate::rvals::value_into_iterator)
         .register_value("iter-next!", SteelVal::FuncV(crate::rvals::iterator_next))
         .register_value("%iterator?", gen_pred!(BoxedIterator))
-        .register_value(
-            "___magic_struct_symbol___",
-            crate::rvals::MAGIC_STRUCT_SYMBOL.with(|x| x.clone()),
-        )
-        .register_value("custom-struct?", is_custom_struct())
         .register_fn("env-var", get_environment_variable)
         .register_fn("set-env-var!", std::env::set_var::<String, String>)
         .register_fn("arity?", arity)
@@ -1195,7 +1185,7 @@ pub fn error_from_error_with_span() -> SteelVal {
 // Be able to introspect on the modules - probably just need to add a modules
 // field on the vm, or use a wrapped type with modules to find things
 // TODO: Add magic number for modules. - key to magic number, do pointer equality
-fn lookup_doc(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+fn lookup_doc(_ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVal> {
     // for value in ctx.thread.global_env.bindings_vec.iter() {
     //     if let
     // }

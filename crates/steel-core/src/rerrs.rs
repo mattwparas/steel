@@ -1,5 +1,5 @@
 use crate::{parser::parser::ParseError, rvals::Custom, steel_vm::vm::DehydratedStackTrace};
-use std::{convert::Infallible, fmt::Formatter, path::PathBuf};
+use std::{convert::Infallible, fmt::Formatter};
 use thiserror::Error;
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
@@ -10,7 +10,7 @@ use codespan_reporting::term::termcolor::{ColorChoice, NoColor, StandardStream};
 use crate::parser::span::Span;
 
 use std::fmt;
-use std::rc::Rc;
+
 
 #[derive(Clone, Debug, PartialEq)]
 #[repr(C)]
@@ -121,7 +121,7 @@ impl fmt::Display for ErrorKind {
 impl From<ParseError> for Repr {
     fn from(v: ParseError) -> Self {
         // unimplemented!()
-        let (span, source) = match &v {
+        let (span, _source) = match &v {
             ParseError::Unexpected(_, source) | ParseError::UnexpectedEOF(source) => (None, source),
             ParseError::UnexpectedChar(_, s, source) => (Some(*s), source),
             ParseError::IncompleteString(_, s, source) => (Some(*s), source),

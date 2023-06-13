@@ -8,7 +8,7 @@ use crate::{
     parser::tokens::TokenType,
 };
 use crate::{expr_list, parser::parser::SyntaxObject};
-use crate::{parser::ast::ExprKind, steel_vm::builtin::BuiltInModule};
+use crate::{parser::ast::ExprKind};
 
 use super::{
     ast::{Atom, Begin, Define, LambdaFunction, List, Quote},
@@ -16,7 +16,7 @@ use super::{
     kernel::Kernel,
 };
 
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap};
 
 use crate::parser::expander::SteelMacro;
 

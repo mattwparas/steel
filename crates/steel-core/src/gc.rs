@@ -277,14 +277,13 @@ pub mod unsafe_erased_pointers {
 
     use std::{any::Any, cell::RefCell, marker::PhantomData};
     use std::{
-        cell::RefMut,
         rc::{Rc, Weak},
     };
 
     use crate::rvals::AsRefSteelValFromRef;
     use crate::{
         rerrs::ErrorKind,
-        rvals::{AsRefMutSteelVal, AsRefMutSteelValFromRef, Custom, IntoSteelVal},
+        rvals::{AsRefMutSteelValFromRef},
         SteelErr, SteelVal,
     };
 

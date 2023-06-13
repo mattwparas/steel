@@ -3,12 +3,11 @@ use im_lists::list::List;
 use crate::{
     gc::Gc,
     rerrs::ErrorKind,
-    rvals::{AsRefSteelVal, AsRefSteelValFromUnsized, FromSteelVal, IntoSteelVal, Result},
+    rvals::{AsRefSteelValFromUnsized, FromSteelVal, IntoSteelVal, Result},
     SteelErr, SteelVal,
 };
 use std::{
     borrow::Cow,
-    cell::{Ref, RefCell},
     collections::{HashMap, HashSet},
 };
 

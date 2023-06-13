@@ -9,7 +9,7 @@ use crate::{
         parser::{ParseError, Parser, Sources, SyntaxObject},
         tokens::TokenType,
     },
-    steel_vm::{builtin::BuiltInModule, engine::ModuleContainer},
+    steel_vm::engine::ModuleContainer,
 };
 use crate::{parser::expand_visitor::Expander, rvals::Result};
 
@@ -17,8 +17,6 @@ use std::{
     collections::{HashMap, HashSet},
     io::Read,
     path::PathBuf,
-    rc::Rc,
-    sync::Arc,
 };
 
 use crate::parser::expander::SteelMacro;
@@ -35,8 +33,6 @@ use super::{
     passes::mangle::{collect_globals, NameMangler},
     program::{CONTRACT_OUT, FOR_SYNTAX},
 };
-
-use im_rc::HashMap as ImmutableHashMap;
 
 const OPTION: &str = include_str!("../scheme/modules/option.scm");
 const OPTION_NAME: &str = "steel/option";
@@ -386,9 +382,7 @@ pub struct CompiledModule {
     emitted: bool,
 }
 
-// TODO -> cache the construction of the module ast node, then we don't need to reconstruct it every time
-// also, just push this down to bytecode immediately -> including a module now is a simple as loading the bytecode for
-// the module first, then compiling the instructions for the
+// TODO: @Matt 6/12/23 - This _should_ be serializable. If possible, we can try to store intermediate objects down to some file.
 impl CompiledModule {
     pub fn new(
         name: PathBuf,
@@ -1011,6 +1005,8 @@ impl<'a> ModuleBuilder<'a> {
         );
 
         module.set_emitted(true);
+
+        dbg!(&module);
 
         // let result = module.to_module_ast_node();
 

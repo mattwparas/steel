@@ -1340,7 +1340,7 @@ where
                 return Err(ParseError::SyntaxError(
                     "Function body cannot be empty".to_string(),
                     syn.span,
-                    syn.source,
+                    None,
                 ));
             }
 
@@ -1855,7 +1855,7 @@ fn parse_require(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError>
         return Err(ParseError::ArityMismatch(
             "require expects at least one identifier or string".to_string(),
             syn.span,
-            a.syn.source.clone(),
+            None,
         ));
     }
     let mut value_iter = value.into_iter();
@@ -1867,7 +1867,7 @@ fn parse_require(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError>
                 _ => Err(ParseError::SyntaxError(
                     "require expects atoms".to_string(),
                     syn.span,
-                    a.syn.source.clone(),
+                    None,
                 )),
             }
 

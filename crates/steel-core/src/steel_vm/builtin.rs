@@ -1,35 +1,24 @@
 use std::{
     borrow::Cow,
-    cell::{Ref, RefCell, RefMut},
-    marker::PhantomData,
     rc::Rc,
-    sync::{Arc, Mutex},
+    sync::{Arc},
 };
 
 use crate::{
     containers::RegisterValue,
-    gc::{unsafe_erased_pointers::OpaqueReference, Gc},
     parser::{ast::ExprKind, interner::InternedString, parser::SyntaxObject, tokens::TokenType},
-    rerrs::ErrorKind,
     rvals::{
-        as_underlying_type, Custom, CustomType, FromSteelVal, FunctionSignature, IntoSteelVal,
-        Result, SRef, SteelVal,
+        Custom, CustomType, FromSteelVal, FunctionSignature, IntoSteelVal,
+        Result, SteelVal,
     },
-    values::functions::{BoxedDynFunction, StaticOrRcStr},
-    SteelErr,
+    values::functions::{BoxedDynFunction},
 };
-use im_rc::{HashMap, OrdMap};
+use im_rc::{HashMap};
 
-use abi_stable::{
-    sabi_trait,
-    std_types::{
-        RArc, RBoxError, RCow, RCowStr, RHashMap, RResult, RSlice, RStr, RString, RVec, Tuple2,
-    },
-    StableAbi,
-};
+
 
 // Use the
-use crate::steel_vm::ffi::*;
+
 
 /// A module to be consumed by the Steel Engine for later on demand access by scripts
 /// to refresh the primitives that are being used. For instance, the VM should have support

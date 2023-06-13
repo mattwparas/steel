@@ -7,23 +7,20 @@ use std::{
 };
 
 use crate::{
-    containers::RegisterValue,
     gc::{unsafe_erased_pointers::OpaqueReference, Gc},
-    parser::{ast::ExprKind, interner::InternedString, parser::SyntaxObject, tokens::TokenType},
     rerrs::ErrorKind,
     rvals::{
-        as_underlying_type, Custom, CustomType, FromSteelVal, FunctionSignature, IntoSteelVal,
+        as_underlying_type, Custom, CustomType, IntoSteelVal,
         Result, SRef, SteelVal,
     },
     values::functions::{BoxedDynFunction, StaticOrRcStr},
     SteelErr,
 };
-use im_rc::{HashMap, OrdMap};
+
 
 use abi_stable::{
-    sabi_trait,
     std_types::{
-        RArc, RBoxError, RCow, RCowStr, RHashMap, RResult, RSlice, RStr, RString, RVec, Tuple2,
+        RBoxError, RCowStr, RHashMap, RResult, RSlice, RStr, RString, RVec, Tuple2,
     },
     StableAbi,
 };
@@ -547,7 +544,7 @@ pub enum FFIValue {
 }
 
 impl std::hash::Hash for FFIValue {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {
         todo!()
     }
 }

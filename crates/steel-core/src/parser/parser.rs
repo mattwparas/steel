@@ -8,16 +8,13 @@ use crate::{
     rvals::FromSteelVal,
 };
 
-use std::{
-    cell::{Ref, RefCell},
-    str,
-};
+use std::result;
+use std::str;
 use std::{collections::HashMap, path::PathBuf};
 use std::{
     rc::Rc,
     sync::{Arc, Mutex},
 };
-use std::{result, sync::MutexGuard};
 use steel_parser::lexer::{OwnedTokenStream, ToOwnedString};
 use thiserror::Error;
 
@@ -180,7 +177,8 @@ impl std::fmt::Display for SyntaxObjectId {
 pub struct RawSyntaxObject<T> {
     pub(crate) ty: T,
     pub(crate) span: Span,
-    pub(crate) source: Option<Rc<PathBuf>>,
+    // TODO: Just nuke this source here, we don't need it.
+    // pub(crate) source: Option<Rc<PathBuf>>,
     // pub(crate) metadata: Option<IdentifierMetadata>,
     pub(crate) syntax_object_id: SyntaxObjectId,
 }
@@ -190,7 +188,7 @@ impl<T: Clone> Clone for RawSyntaxObject<T> {
         Self {
             ty: self.ty.clone(),
             span: self.span,
-            source: self.source.clone(),
+            // source: self.source.clone(),
             // metadata: self.metadata.clone(),
             syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed)),
         }
@@ -219,7 +217,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for RawSyntaxObject<T> {
         f.debug_struct("RawSyntaxObject")
             .field("ty", &self.ty)
             .field("span", &self.span)
-            .field("source", &self.source)
+            // .field("source", &self.source)
             .finish()
     }
 }
@@ -253,20 +251,7 @@ impl SyntaxObject {
         SyntaxObject {
             ty,
             span,
-            source: None,
-            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed)),
-        }
-    }
-
-    pub fn new_with_source(
-        ty: TokenType<InternedString>,
-        span: Span,
-        source: Option<Rc<PathBuf>>,
-    ) -> Self {
-        SyntaxObject {
-            ty,
-            span,
-            source,
+            // source: None,
             syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed)),
         }
     }
@@ -275,7 +260,7 @@ impl SyntaxObject {
         SyntaxObject {
             ty,
             span: Span::new(0, 0, None),
-            source: None,
+            // source: None,
             syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed)),
         }
     }
@@ -291,7 +276,7 @@ impl SyntaxObject {
         SyntaxObject {
             ty: val.ty.clone(),
             span: val.span,
-            source: source.as_ref().map(Rc::clone),
+            // source: source.as_ref().map(Rc::clone),
             syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed)),
         }
     }

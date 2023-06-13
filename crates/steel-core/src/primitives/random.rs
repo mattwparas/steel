@@ -1,9 +1,9 @@
 use rand::prelude::*;
 
-use im_lists::list::List;
+
 
 use crate::{rvals::Custom, steel_vm::builtin::BuiltInModule};
-use crate::{steel_vm::register_fn::RegisterFn, SteelErr};
+use crate::{steel_vm::register_fn::RegisterFn};
 
 impl Custom for ThreadRng {}
 

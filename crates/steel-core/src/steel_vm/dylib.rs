@@ -1,6 +1,6 @@
+#![allow(non_camel_case_types)]
 use std::{
     path::{Path, PathBuf},
-    rc::Rc,
     sync::{Arc, Mutex},
 };
 
@@ -15,7 +15,6 @@ use dlopen::wrapper::{Container, WrapperApi};
 use dlopen_derive::WrapperApi;
 use once_cell::sync::Lazy;
 
-use super::builtin::BuiltInModule;
 use super::ffi::FFIModule;
 
 static LOADED_DYLIBS: Lazy<Arc<Mutex<Vec<(String, Container<ModuleApi>)>>>> =
@@ -24,11 +23,6 @@ static LOADED_DYLIBS: Lazy<Arc<Mutex<Vec<(String, Container<ModuleApi>)>>>> =
 // The new and improved loading of modules
 static LOADED_MODULES: Lazy<Arc<Mutex<Vec<(String, GenerateModule_Ref)>>>> =
     Lazy::new(|| Arc::new(Mutex::new(Vec::new())));
-
-// #[derive(WrapperApi, Clone)]
-// struct ModuleApi {
-// generate_module: fn() -> Rc<BuiltInModule>,
-// }
 
 #[repr(C)]
 #[derive(StableAbi)]
@@ -80,7 +74,7 @@ impl DylibContainers {
         // let home = std::env::var("STEEL_HOME");
 
         if let Some(home) = home {
-            let mut guard = LOADED_DYLIBS.lock().unwrap();
+            let guard = LOADED_DYLIBS.lock().unwrap();
             let mut module_guard = LOADED_MODULES.lock().unwrap();
 
             let mut home = PathBuf::from(home);
