@@ -1,24 +1,12 @@
-use std::{
-    borrow::Cow,
-    rc::Rc,
-    sync::{Arc},
-};
+use std::{borrow::Cow, rc::Rc, sync::Arc};
 
 use crate::{
     containers::RegisterValue,
     parser::{ast::ExprKind, interner::InternedString, parser::SyntaxObject, tokens::TokenType},
-    rvals::{
-        Custom, CustomType, FromSteelVal, FunctionSignature, IntoSteelVal,
-        Result, SteelVal,
-    },
-    values::functions::{BoxedDynFunction},
+    rvals::{Custom, FromSteelVal, FunctionSignature, IntoSteelVal, Result, SteelVal},
+    values::functions::BoxedDynFunction,
 };
-use im_rc::{HashMap};
-
-
-
-// Use the
-
+use im_rc::HashMap;
 
 /// A module to be consumed by the Steel Engine for later on demand access by scripts
 /// to refresh the primitives that are being used. For instance, the VM should have support
@@ -198,8 +186,9 @@ impl BuiltInModule {
         &mut self,
         definition: impl Into<Cow<'static, str>>,
         description: impl Into<Documentation<'static>>,
-    ) {
+    ) -> &mut Self {
         self.docs.register_doc(definition, description.into());
+        self
     }
 
     pub fn get_doc(&self, definition: String) {
