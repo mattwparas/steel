@@ -10,7 +10,8 @@ pub(crate) const TIME_MODULE_DOC: MarkdownDoc<'static> = MarkdownDoc(
 
 # steel/time
     
-Contains direct wrappers around the Rust `std::time::Instant` and `std::time::Duration` modules. For example, to measure the time something takes:
+Contains direct wrappers around the Rust `std::time::Instant` and `std::time::Duration` modules. 
+For example, to measure the time something takes:
 
 ```scheme
 (define t (instant/now))

@@ -30,7 +30,6 @@ pub mod blocking_requests;
 
 pub use control::ControlOperations;
 pub use fs::FsFunctions;
-pub use hashmaps::HashMapOperations;
 pub use io::IoFunctions;
 pub use meta_ops::MetaOperations;
 pub use nums::NumOperations;

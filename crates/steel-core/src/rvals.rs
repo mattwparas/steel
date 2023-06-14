@@ -32,7 +32,6 @@ use std::{
     future::Future,
     hash::{Hash, Hasher},
     ops::Deref,
-    path::PathBuf,
     pin::Pin,
     rc::Rc,
     result,

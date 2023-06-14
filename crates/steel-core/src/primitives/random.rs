@@ -1,14 +1,12 @@
 use rand::prelude::*;
 
-
-
+use crate::steel_vm::register_fn::RegisterFn;
 use crate::{rvals::Custom, steel_vm::builtin::BuiltInModule};
-use crate::{steel_vm::register_fn::RegisterFn};
 
 impl Custom for ThreadRng {}
 
 pub fn random_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/random".to_string());
+    let mut module = BuiltInModule::new("steel/random");
 
     module
         .register_fn("thread-rng!", thread_rng)

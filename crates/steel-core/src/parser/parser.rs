@@ -271,7 +271,7 @@ impl SyntaxObject {
 
     pub fn from_token_with_source(
         val: &Token<'_, InternedString>,
-        source: &Option<Rc<PathBuf>>,
+        _source: &Option<Rc<PathBuf>>,
     ) -> Self {
         SyntaxObject {
             ty: val.ty.clone(),

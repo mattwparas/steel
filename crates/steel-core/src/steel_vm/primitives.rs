@@ -269,7 +269,7 @@ thread_local! {
 }
 
 pub fn prelude() -> BuiltInModule {
-    BuiltInModule::new("steel/base".to_string())
+    BuiltInModule::new("steel/base")
         .with_module(MAP_MODULE.with(|x| x.clone()))
         .with_module(SET_MODULE.with(|x| x.clone()))
         .with_module(LIST_MODULE.with(|x| x.clone()))
@@ -293,6 +293,7 @@ pub fn prelude() -> BuiltInModule {
         .with_module(PROCESS_MODULE.with(|x| x.clone()))
         .with_module(RESULT_MODULE.with(|x| x.clone()))
         .with_module(OPTION_MODULE.with(|x| x.clone()))
+        .with_module(TIME_MODULE.with(|x| x.clone()))
 }
 
 pub fn register_builtin_modules_without_io(engine: &mut Engine) {
@@ -453,7 +454,7 @@ pub static SANDBOXED_MODULES: &str = r#"
 pub(crate) const TEST_APPLY: SteelVal = SteelVal::BuiltIn(apply);
 
 fn list_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/lists".to_string());
+    let mut module = BuiltInModule::new("steel/lists");
 
     // Register the doc for the module
     module.register_doc("steel/lists", crate::primitives::lists::LIST_MODULE_DOC);
@@ -500,7 +501,7 @@ fn list_module() -> BuiltInModule {
 }
 
 fn vector_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/vectors".to_string());
+    let mut module = BuiltInModule::new("steel/vectors");
     module
         .register_value("mutable-vector", VectorOperations::mut_vec_construct())
         .register_value("mutable-vector->list", VectorOperations::mut_vec_to_list())
@@ -528,7 +529,7 @@ fn char_upcase(c: char) -> char {
 }
 
 fn string_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/strings".to_string());
+    let mut module = BuiltInModule::new("steel/strings");
     module
         .register_value("string-append", StringOperations::string_append())
         .register_value("to-string", ControlOperations::to_string())
@@ -550,7 +551,7 @@ fn string_module() -> BuiltInModule {
 }
 
 fn identity_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/identity".to_string());
+    let mut module = BuiltInModule::new("steel/identity");
     module
         .register_value("int?", gen_pred!(IntV))
         .register_value("float?", gen_pred!(NumV))
@@ -601,7 +602,7 @@ fn identity_module() -> BuiltInModule {
 }
 
 fn stream_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/streams".to_string());
+    let mut module = BuiltInModule::new("steel/streams");
     module
         .register_value("stream-cons", StreamOperations::stream_cons())
         .register_value("empty-stream", StreamOperations::empty_stream())
@@ -612,7 +613,7 @@ fn stream_module() -> BuiltInModule {
 }
 
 fn contract_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/contracts".to_string());
+    let mut module = BuiltInModule::new("steel/contracts");
     module
         .register_value("bind/c", contracts::BIND_CONTRACT_TO_FUNCTION)
         .register_value("make-flat/c", contracts::MAKE_FLAT_CONTRACT)
@@ -627,7 +628,7 @@ fn contract_module() -> BuiltInModule {
 }
 
 fn number_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/numbers".to_string());
+    let mut module = BuiltInModule::new("steel/numbers");
     module
         .register_value("+", NumOperations::adder())
         .register_value("f+", NumOperations::float_add())
@@ -703,7 +704,7 @@ pub fn lte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 fn equality_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/equality".to_string());
+    let mut module = BuiltInModule::new("steel/equality");
     module
         .register_value(
             "equal?",
@@ -720,7 +721,7 @@ fn equality_module() -> BuiltInModule {
 }
 
 fn ord_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/ord".to_string());
+    let mut module = BuiltInModule::new("steel/ord");
     module
         .register_value(">", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a > b)))
         .register_value(">=", SteelVal::FuncV(gte_primitive))
@@ -730,7 +731,7 @@ fn ord_module() -> BuiltInModule {
 }
 
 pub fn transducer_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/transducers".to_string());
+    let mut module = BuiltInModule::new("steel/transducers");
 
     use crate::primitives::transducers::*;
 
@@ -764,7 +765,7 @@ pub fn transducer_module() -> BuiltInModule {
 }
 
 fn symbol_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/symbols".to_string());
+    let mut module = BuiltInModule::new("steel/symbols");
     module
         .register_value("concat-symbols", SymbolOperations::concat_symbols())
         .register_value("symbol->string", SymbolOperations::symbol_to_string());
@@ -772,7 +773,7 @@ fn symbol_module() -> BuiltInModule {
 }
 
 fn io_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/io".to_string());
+    let mut module = BuiltInModule::new("steel/io");
     module
         .register_value("display", IoFunctions::display())
         .register_value("displayln", IoFunctions::displayln())
@@ -783,7 +784,7 @@ fn io_module() -> BuiltInModule {
 }
 
 fn sandboxed_io_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/io".to_string());
+    let mut module = BuiltInModule::new("steel/io");
     module
         .register_value("display", IoFunctions::sandboxed_display())
         // .register_value("display-color", IoFunctions::display_color())
@@ -793,13 +794,13 @@ fn sandboxed_io_module() -> BuiltInModule {
 }
 
 fn constants_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/constants".to_string());
+    let mut module = BuiltInModule::new("steel/constants");
     module.register_value("void", SteelVal::Void);
     module
 }
 
 fn fs_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/filesystem".to_string());
+    let mut module = BuiltInModule::new("steel/filesystem");
     module
         .register_value("is-dir?", FsFunctions::is_dir())
         .register_value("is-file?", FsFunctions::is_file())
@@ -821,7 +822,7 @@ fn fs_module() -> BuiltInModule {
 }
 
 fn port_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/ports".to_string());
+    let mut module = BuiltInModule::new("steel/ports");
     module
         .register_value("open-input-file", PortOperations::open_input_file())
         .register_value("open-output-file", PortOperations::open_output_file())
@@ -839,7 +840,7 @@ fn get_environment_variable(var: String) -> Result<SteelVal> {
 }
 
 fn sandboxed_meta_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/meta".to_string());
+    let mut module = BuiltInModule::new("steel/meta");
     module
         // .register_value("assert!", MetaOperations::assert_truthy())
         .register_value("active-object-count", MetaOperations::active_objects())
@@ -928,7 +929,7 @@ impl Custom for std::thread::ThreadId {
 }
 
 fn meta_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/meta".to_string());
+    let mut module = BuiltInModule::new("steel/meta");
     module
         .register_value("assert!", MetaOperations::assert_truthy())
         .register_value("active-object-count", MetaOperations::active_objects())
@@ -1058,8 +1059,9 @@ fn meta_module() -> BuiltInModule {
     module
 }
 
+// TODO: Document these
 fn threading_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/threads".to_string());
+    let mut module = BuiltInModule::new("steel/threads");
 
     module
         .register_value("spawn-thread!", SteelVal::BuiltIn(super::vm::spawn_thread))
@@ -1109,7 +1111,7 @@ fn threading_module() -> BuiltInModule {
 }
 
 fn json_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/json".to_string());
+    let mut module = BuiltInModule::new("steel/json");
     module
         .register_value(
             "string->jsexpr",
@@ -1123,7 +1125,7 @@ fn json_module() -> BuiltInModule {
 }
 
 fn syntax_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/syntax".to_string());
+    let mut module = BuiltInModule::new("steel/syntax");
     module
         .register_fn("syntax->datum", crate::rvals::Syntax::syntax_datum)
         .register_fn("syntax-loc", crate::rvals::Syntax::syntax_loc)

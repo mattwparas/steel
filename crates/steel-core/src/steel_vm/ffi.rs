@@ -9,19 +9,13 @@ use std::{
 use crate::{
     gc::{unsafe_erased_pointers::OpaqueReference, Gc},
     rerrs::ErrorKind,
-    rvals::{
-        as_underlying_type, Custom, CustomType, IntoSteelVal,
-        Result, SRef, SteelVal,
-    },
+    rvals::{as_underlying_type, Custom, CustomType, IntoSteelVal, Result, SRef, SteelVal},
     values::functions::{BoxedDynFunction, StaticOrRcStr},
     SteelErr,
 };
 
-
 use abi_stable::{
-    std_types::{
-        RBoxError, RCowStr, RHashMap, RResult, RSlice, RStr, RString, RVec, Tuple2,
-    },
+    std_types::{RBoxError, RCowStr, RHashMap, RResult, RSlice, RStr, RString, RVec, Tuple2},
     StableAbi,
 };
 

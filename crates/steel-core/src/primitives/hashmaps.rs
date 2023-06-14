@@ -33,20 +33,23 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
         .register_value("%keyword-hash", SteelVal::FuncV(hm_construct_keywords))
         .register_value_with_doc("hash-insert", HM_INSERT, HASH_INSERT_DOC)
         .register_value_with_doc("hash-get", HM_GET, HASH_GET_DOC)
-        .register_value("hash-try-get", HM_TRY_GET)
+        .register_value_with_doc("hash-ref", HM_GET, HASH_GET_DOC)
+        .register_value_with_doc("hash-try-get", HM_TRY_GET, HASH_TRY_GET_DOC)
         .register_value_with_doc("hash-length", HM_LENGTH, HASH_LENGTH_DOC)
         .register_value_with_doc("hash-contains?", HM_CONTAINS, HASH_CONTAINS_DOC)
-        .register_value("hash-keys->list", HM_KEYS_TO_LIST)
+        .register_value_with_doc("hash-keys->list", HM_KEYS_TO_LIST, HASH_KEYS_TO_LIST_DOC)
         .register_value("hash-keys->vector", HM_KEYS_TO_VEC)
-        .register_value("hash-values->list", HM_VALUES_TO_LIST)
+        .register_value_with_doc(
+            "hash-values->list",
+            HM_VALUES_TO_LIST,
+            HASH_VALUES_TO_LIST_DOC,
+        )
         .register_value("hash-values->vector", HM_VALUES_TO_VEC)
         .register_value("hash-clear", HM_CLEAR)
         .register_value("hash-empty?", HM_EMPTY)
         .register_value("hash-union", HM_UNION);
     module
 }
-
-pub struct HashMapOperations {}
 
 const HASH_DOC: DocTemplate<'static> = DocTemplate {
     signature: "(hash key val ...) -> hash?",
@@ -150,7 +153,7 @@ pub fn hm_insert(args: &[SteelVal]) -> Result<SteelVal> {
 const HASH_GET_DOC: DocTemplate<'static> = DocTemplate {
     signature: "(hash-get map key) -> any/c?",
     params: &["map : hash?", "key : any/c"],
-    description: r#"Gets the `key` from the given `map`. Raises an error if the key does not exist"#,
+    description: r#"Gets the `key` from the given `map`. Raises an error if the key does not exist. `hash-ref` is an alias for this."#,
     examples: &[("> (hash-get (hash 'a 10 'b 20) 'b)", r#"=> 20"#)],
 };
 
@@ -171,6 +174,19 @@ pub fn hm_get(args: &[SteelVal]) -> Result<SteelVal> {
         stop!(TypeMismatch => "hm-get takes a hashmap, found: {}", hashmap)
     }
 }
+
+const HASH_TRY_GET_DOC: DocTemplate<'static> = DocTemplate {
+    signature: "(hash-try-get map key) -> (or any/c #false)",
+    params: &["map : hash?", "key : any/c"],
+    description: r#"Gets the `key` from the given `map`. Returns #false if the key does not exist"#,
+    examples: &[
+        ("> (hash-try-get (hash 'a 10 'b 20) 'b)", r#"=> 20"#),
+        (
+            "> (hash-try-get (hash 'a 10 'b 20) 'does-not-exist)",
+            r#"=> #false"#,
+        ),
+    ],
+};
 
 pub fn hm_try_get(args: &[SteelVal]) -> Result<SteelVal> {
     if args.len() != 2 {
@@ -247,6 +263,13 @@ pub fn hm_contains(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+const HASH_KEYS_TO_LIST_DOC: DocTemplate<'static> = DocTemplate {
+    signature: "(hash-keys->list? map) -> (listof hashable?)?",
+    params: &["map : hash?"],
+    description: r#"Returns the keys of the given hash map as a list"#,
+    examples: &[("> (hash-keys->list? (hash 'a 10 'b 20) 'a)", r#"=> '(a b)"#)],
+};
+
 pub fn keys_to_list(args: &[SteelVal]) -> Result<SteelVal> {
     if args.len() != 1 {
         stop!(ArityMismatch => "hm-keys->list takes 1 argument")
@@ -260,6 +283,16 @@ pub fn keys_to_list(args: &[SteelVal]) -> Result<SteelVal> {
         stop!(TypeMismatch => "hm-keys->list takes a hashmap")
     }
 }
+
+const HASH_VALUES_TO_LIST_DOC: DocTemplate<'static> = DocTemplate {
+    signature: "(hash-values->list? map) -> (listof any/c)?",
+    params: &["map : hash?"],
+    description: r#"Returns the values of the given hash map as a list"#,
+    examples: &[(
+        "> (hash-values->list? (hash 'a 10 'b 20) 'a)",
+        r#"=> '(10 20)"#,
+    )],
+};
 
 // values as list
 pub fn values_to_list(args: &[SteelVal]) -> Result<SteelVal> {
