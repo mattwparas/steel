@@ -328,6 +328,10 @@ pub trait FromSteelVal: Sized {
     fn from_steelval(val: &SteelVal) -> Result<Self>;
 }
 
+pub(crate) trait PrimitiveAsRef<'a>: Sized {
+    fn primitive_as_ref(val: &'a SteelVal) -> Result<Self>;
+}
+
 mod private {
 
     use std::any::Any;

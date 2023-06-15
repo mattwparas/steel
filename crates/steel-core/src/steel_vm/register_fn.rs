@@ -49,9 +49,18 @@ pub struct NativeWrapper;
 pub struct AsyncWrapper<ARGS>(PhantomData<ARGS>);
 
 // The _rest_ of the arguments -> This has a specialized implementation for rest arguments getting
-// collected into a list
-struct RestArgs {
-    args: List<SteelVal>,
+// collected into a list, so that register_fn / the macro can use this implementation itself when writing
+// functions over many args
+struct RestArgs<'a> {
+    args: &'a [SteelVal],
+}
+
+impl<'a> std::ops::Deref for RestArgs<'a> {
+    type Target = [SteelVal];
+
+    fn deref(&self) -> &Self::Target {
+        self.args
+    }
 }
 
 impl<

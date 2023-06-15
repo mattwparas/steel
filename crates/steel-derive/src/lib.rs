@@ -150,6 +150,14 @@ pub fn function(
 
     let arity_number = type_vec.len();
 
+    let conversion_functions = type_vec.clone().into_iter().map(|x| {
+        if let Type::Reference(_) = *x {
+            quote! { primitive_as_ref }
+        } else {
+            quote! { from_steelval }
+        }
+    });
+
     let arg_enumerate = type_vec.into_iter().enumerate();
     let arg_type = arg_enumerate.clone().map(|(_, x)| x);
     let arg_index = arg_enumerate.clone().map(|(i, _)| i);
@@ -174,7 +182,7 @@ pub fn function(
 
         pub fn #copied_function_name(args: &[SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
-            use crate::rvals::{IntoSteelVal, FromSteelVal};
+            use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef};
 
 
             if args.len() != #arity_number {
@@ -183,7 +191,9 @@ pub fn function(
 
             let res = #function_name(
                 #(
-                    <#arg_type>::from_steelval(&args[#arg_index])
+                    // TODO: Distinguish reference types here if possible - make a special implementation
+                    // for builtin pointer types here to distinguish them
+                    <#arg_type>::#conversion_functions(&args[#arg_index])
                         .map_err(|mut err| {
                             err.prepend_message(#function_names_with_colon);
                             err.set_kind(crate::rerrs::ErrorKind::TypeMismatch);

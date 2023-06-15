@@ -132,7 +132,7 @@ const HASH_INSERT_DOC: DocTemplate<'static> = DocTemplate {
 
 #[function(name = "hm-insert")]
 pub fn hash_insert(
-    map: Gc<HashMap<SteelVal, SteelVal>>,
+    map: &Gc<HashMap<SteelVal, SteelVal>>,
     key: SteelVal,
     value: SteelVal,
 ) -> Result<SteelVal> {

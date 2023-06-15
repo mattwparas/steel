@@ -43,7 +43,7 @@ pub use strings::string_module;
 
 pub use nums::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
 
-use crate::rvals::{FunctionSignature, SteelVal};
+use crate::rvals::{FunctionSignature, PrimitiveAsRef, SteelVal};
 use crate::{
     rerrs::{ErrorKind, SteelErr},
     rvals::SteelString,
@@ -346,6 +346,26 @@ impl FromSteelVal for SteelString {
             Ok(s.clone())
         } else {
             crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel string", val))
+        }
+    }
+}
+
+impl<'a> PrimitiveAsRef<'a> for &'a SteelString {
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::StringV(s) = val {
+            Ok(s)
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel string", val))
+        }
+    }
+}
+
+impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashMap<SteelVal, SteelVal>> {
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::HashMapV(hm) = val {
+            Ok(hm)
+        } else {
+            crate::stop!(ConversionError => format!("Canto convert steel value: {} to hashmap", val))
         }
     }
 }

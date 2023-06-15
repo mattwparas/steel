@@ -26,7 +26,7 @@ use crate::{
         string_module,
         time::time_module,
         ControlOperations, FsFunctions, IoFunctions, MetaOperations, NumOperations, PortOperations,
-        StreamOperations, StringOperations, SymbolOperations, VectorOperations,
+        StreamOperations, SymbolOperations, VectorOperations,
     },
     rerrs::ErrorKind,
     rvals::{Custom, FromSteelVal, SerializableSteelVal},

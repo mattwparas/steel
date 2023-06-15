@@ -1,7 +1,7 @@
 use im_lists::list::List;
 
 use crate::rvals::{Result, SteelString, SteelVal};
-use crate::steel_vm::builtin::{Arity, BuiltInModule};
+use crate::steel_vm::builtin::BuiltInModule;
 use crate::steel_vm::register_fn::RegisterFn;
 use crate::stop;
 
@@ -68,7 +68,7 @@ pub fn int_to_string(value: isize) -> String {
 }
 
 #[function(name = "string->int")]
-pub fn string_to_int(value: SteelString) -> Result<SteelVal> {
+pub fn string_to_int(value: &SteelString) -> Result<SteelVal> {
     let parsed_int = value.parse::<isize>();
     match parsed_int {
         Ok(n) => Ok(SteelVal::IntV(n)),
@@ -79,7 +79,7 @@ pub fn string_to_int(value: SteelString) -> Result<SteelVal> {
 }
 
 #[function(name = "string->list")]
-pub fn string_to_list(value: SteelString) -> SteelVal {
+pub fn string_to_list(value: &SteelString) -> SteelVal {
     value
         .chars()
         .map(SteelVal::CharV)
@@ -88,32 +88,32 @@ pub fn string_to_list(value: SteelString) -> SteelVal {
 }
 
 #[function(name = "string->upper")]
-pub fn string_to_upper(value: SteelString) -> String {
+pub fn string_to_upper(value: &SteelString) -> String {
     value.to_uppercase()
 }
 
 #[function(name = "string->lower")]
-pub fn string_to_lower(value: SteelString) -> String {
+pub fn string_to_lower(value: &SteelString) -> String {
     value.to_lowercase()
 }
 
 #[function(name = "trim")]
-pub fn trim(value: SteelString) -> String {
+pub fn trim(value: &SteelString) -> String {
     value.trim().into()
 }
 
 #[function(name = "trim-start")]
-pub fn trim_start(value: SteelString) -> String {
+pub fn trim_start(value: &SteelString) -> String {
     value.trim_start().into()
 }
 
 #[function(name = "trim-end")]
-pub fn trim_end(value: SteelString) -> String {
+pub fn trim_end(value: &SteelString) -> String {
     value.trim_end().into()
 }
 
 #[function(name = "split-whitespace")]
-pub fn split_whitespace(value: SteelString) -> SteelVal {
+pub fn split_whitespace(value: &SteelString) -> SteelVal {
     let split: List<SteelVal> = value
         .split_whitespace()
         .map(|x| SteelVal::StringV(x.into()))
@@ -122,17 +122,17 @@ pub fn split_whitespace(value: SteelString) -> SteelVal {
 }
 
 #[function(name = "starts-with?")]
-pub fn starts_with(value: SteelString, prefix: SteelString) -> bool {
+pub fn starts_with(value: &SteelString, prefix: &SteelString) -> bool {
     value.starts_with(prefix.as_str())
 }
 
 #[function(name = "ends-with?")]
-pub fn ends_with(value: SteelString, suffix: SteelString) -> bool {
+pub fn ends_with(value: &SteelString, suffix: &SteelString) -> bool {
     value.ends_with(suffix.as_str())
 }
 
 #[function(name = "string-length")]
-pub fn string_length(value: SteelString) -> usize {
+pub fn string_length(value: &SteelString) -> usize {
     value.len()
 }
 
@@ -166,214 +166,6 @@ impl StringOperations {
             }
         })
     }
-
-    // pub fn string_to_symbol() -> SteelVal {
-    //     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-    //         if args.len() == 1 {
-    //             if let SteelVal::StringV(s) = &args[0] {
-    //                 Ok(SteelVal::SymbolV(s.clone()))
-    //             } else {
-    //                 stop!(TypeMismatch => "string->symbol expected a string")
-    //             }
-    //         } else {
-    //             stop!(ArityMismatch => "string->symbol takes one argument")
-    //         }
-    //     })
-    // }
-
-    // pub fn int_to_string() -> SteelVal {
-    //     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-    //         if args.len() == 1 {
-    //             if let SteelVal::IntV(s) = &args[0] {
-    //                 Ok(SteelVal::StringV(format!("{s}").into()))
-    //             } else {
-    //                 stop!(TypeMismatch => "string->int expected a string")
-    //             }
-    //         } else {
-    //             stop!(ArityMismatch => "string->int takes one argument")
-    //         }
-    //     })
-    // }
-
-    // pub fn string_to_int() -> SteelVal {
-    //     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-    //         if args.len() == 1 {
-    //             if let SteelVal::StringV(s) = &args[0] {
-    //                 let parsed_int = s.parse::<isize>();
-    //                 match parsed_int {
-    //                     Ok(n) => Ok(SteelVal::IntV(n)),
-    //                     Err(_) => {
-    //                         stop!(TypeMismatch => "could not convert number to integer");
-    //                     }
-    //                 }
-    //             } else {
-    //                 stop!(TypeMismatch => "string->int expected a string")
-    //             }
-    //         } else {
-    //             stop!(ArityMismatch => "string->int takes one argument")
-    //         }
-    //     })
-    // }
-
-    // pub fn string_to_list() -> SteelVal {
-    //     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-    //         if args.len() == 1 {
-    //             if let SteelVal::StringV(s) = &args[0] {
-    //                 Ok(s.chars().map(SteelVal::CharV).collect::<List<_>>().into())
-    //             } else {
-    //                 stop!(TypeMismatch => "string->list expected a string")
-    //             }
-    //         } else {
-    //             stop!(ArityMismatch => "string->list takes one argument")
-    //         }
-    //     })
-    // }
-
-    // pub fn string_to_upper() -> SteelVal {
-    //     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-    //         if args.len() == 1 {
-    //             if let SteelVal::StringV(s) = &args[0] {
-    //                 let upper = s.to_uppercase();
-    //                 ok_string!(upper)
-    //             // Ok(Gc::new(SteelVal::StringV(upper)))
-    //             } else {
-    //                 stop!(TypeMismatch => "string-upcase expected a string")
-    //             }
-    //         } else {
-    //             stop!(ArityMismatch => "string-upcase takes one argument")
-    //         }
-    //     })
-    // }
-
-    // pub fn string_to_lower() -> SteelVal {
-    //     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-    //         if args.len() == 1 {
-    //             if let SteelVal::StringV(s) = &args[0] {
-    //                 let lower = s.to_lowercase();
-    //                 ok_string!(lower)
-    //             // Ok(Gc::new(SteelVal::StringV(lower)))
-    //             } else {
-    //                 stop!(TypeMismatch => "string-lowercase expected a string")
-    //             }
-    //         } else {
-    //             stop!(ArityMismatch => "string-lowercase takes one argument")
-    //         }
-    //     })
-    // }
-
-    // pub fn trim() -> SteelVal {
-    //     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-    //         if args.len() == 1 {
-    //             if let SteelVal::StringV(s) = &args[0] {
-    //                 let trimmed = s.trim();
-    //                 ok_string!(trimmed.to_string())
-    //             // Ok(Gc::new(SteelVal::StringV(trimmed.to_string())))
-    //             } else {
-    //                 stop!(TypeMismatch => "trim expected a string")
-    //             }
-    //         } else {
-    //             stop!(ArityMismatch => "trim takes one argument")
-    //         }
-    //     })
-    // }
-
-    // pub fn trim_start() -> SteelVal {
-    //     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-    //         if args.len() == 1 {
-    //             if let SteelVal::StringV(s) = &args[0] {
-    //                 let trimmed = s.trim_start();
-    //                 ok_string!(trimmed.to_string())
-    //             // Ok(Gc::new(SteelVal::StringV(trimmed.to_string())))
-    //             } else {
-    //                 stop!(TypeMismatch => "trim-start expected a string")
-    //             }
-    //         } else {
-    //             stop!(ArityMismatch => "trim-start takes one argument")
-    //         }
-    //     })
-    // }
-
-    // pub fn trim_end() -> SteelVal {
-    //     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-    //         if args.len() == 1 {
-    //             if let SteelVal::StringV(s) = &args[0] {
-    //                 let trimmed = s.trim_end();
-    //                 ok_string!(trimmed.to_string())
-    //             // Ok(Gc::new(SteelVal::StringV(trimmed.to_string())))
-    //             } else {
-    //                 stop!(TypeMismatch => "trim-end expected a string")
-    //             }
-    //         } else {
-    //             stop!(ArityMismatch => "trim-end takes one argument")
-    //         }
-    //     })
-    // }
-
-    // pub fn split_whitespace() -> SteelVal {
-    //     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-    //         if args.len() == 1 {
-    //             if let SteelVal::StringV(s) = &args[0] {
-    //                 let split: List<SteelVal> = s
-    //                     .split_whitespace()
-    //                     .map(|x| SteelVal::StringV(x.into()))
-    //                     .collect();
-    //                 Ok(split.into())
-    //             } else {
-    //                 stop!(TypeMismatch => "split-whitespace expected a string")
-    //             }
-    //         } else {
-    //             stop!(ArityMismatch => "split-whitespace takes one argument")
-    //         }
-    //     })
-    // }
-
-    // pub fn string_length() -> SteelVal {
-    //     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-    //         if args.len() == 1 {
-    //             if let SteelVal::StringV(s) = &args[0] {
-    //                 Ok(SteelVal::IntV(s.len() as isize))
-    //             } else {
-    //                 stop!(TypeMismatch => "string-length expected a string")
-    //             }
-    //         } else {
-    //             stop!(ArityMismatch => "string-length takes one argument")
-    //         }
-    //     })
-    // }
-
-    // pub fn starts_with() -> SteelVal {
-    //     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-    //         if args.len() == 2 {
-    //             match (&args[0], &args[1]) {
-    //                 (SteelVal::StringV(s), SteelVal::StringV(p)) => {
-    //                     Ok(SteelVal::BoolV(s.starts_with(p.as_ref())))
-    //                 }
-    //                 _ => {
-    //                     stop!(ArityMismatch => "starts-with? takes two arguments")
-    //                 }
-    //             }
-    //         } else {
-    //             stop!(ArityMismatch => "starts-with? takes two arguments")
-    //         }
-    //     })
-    // }
-
-    // pub fn ends_with() -> SteelVal {
-    //     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-    //         if args.len() == 2 {
-    //             match (&args[0], &args[1]) {
-    //                 (SteelVal::StringV(s), SteelVal::StringV(p)) => {
-    //                     Ok(SteelVal::BoolV(s.ends_with(p.as_ref())))
-    //                 }
-    //                 _ => {
-    //                     stop!(ArityMismatch => "ends-with? takes two arguments")
-    //                 }
-    //             }
-    //         } else {
-    //             stop!(ArityMismatch => "ends-with? takes two arguments")
-    //         }
-    //     })
-    // }
 }
 
 #[cfg(test)]

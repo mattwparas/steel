@@ -10,8 +10,8 @@ pub static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static MAXIMUM_OBJECTS: usize = 50000;
 
 // TODO: Make these available to be
-type Shared<T> = std::rc::Rc<T>;
-type SharedMut<T> = std::rc::Rc<std::cell::RefCell<T>>;
+// type Shared<T> = std::rc::Rc<T>;
+// type SharedMut<T> = std::rc::Rc<std::cell::RefCell<T>>;
 
 // TODO: Consider triomphe for a drop in replacement of Arc
 
@@ -275,17 +275,11 @@ pub mod unsafe_roots {
 // #[cfg(feature = "unsafe-internals")]
 pub mod unsafe_erased_pointers {
 
+    use std::rc::{Rc, Weak};
     use std::{any::Any, cell::RefCell, marker::PhantomData};
-    use std::{
-        rc::{Rc, Weak},
-    };
 
     use crate::rvals::AsRefSteelValFromRef;
-    use crate::{
-        rerrs::ErrorKind,
-        rvals::{AsRefMutSteelValFromRef},
-        SteelErr, SteelVal,
-    };
+    use crate::{rerrs::ErrorKind, rvals::AsRefMutSteelValFromRef, SteelErr, SteelVal};
 
     // TODO: This needs to be exanded to n args, probably like 8 with a macro
     pub struct MutableReferenceArena<A, B> {
@@ -745,23 +739,22 @@ pub mod unsafe_erased_pointers {
         }
     }
 
-    #[derive(Debug)]
-    struct FooBar {
-        baz: String,
-    }
-
-    struct Baz<'a> {
-        foo_bar: &'a mut FooBar,
-    }
-
-    impl FooBar {
-        fn append_str(&mut self, suffix: &str) {
-            self.baz.push_str(suffix);
-        }
-    }
-
     #[test]
     fn test() {
+        #[derive(Debug)]
+        struct FooBar {
+            baz: String,
+        }
+
+        struct Baz<'a> {
+            foo_bar: &'a mut FooBar,
+        }
+
+        impl FooBar {
+            fn append_str(&mut self, suffix: &str) {
+                self.baz.push_str(suffix);
+            }
+        }
         let mut nursery = MutableReferenceNursery::new();
 
         let mut object = FooBar {
@@ -789,7 +782,4 @@ pub mod unsafe_erased_pointers {
 
         dbg!(object);
     }
-
-    // #[test]
-    // fn test_registering_functions_engine
 }
