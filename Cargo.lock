@@ -2623,6 +2623,7 @@ dependencies = [
  "slotmap",
  "smallvec",
  "steel-core",
+ "steel-derive",
  "steel-gen",
  "steel-parser",
  "termimad",

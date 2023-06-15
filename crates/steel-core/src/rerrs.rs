@@ -11,7 +11,6 @@ use crate::parser::span::Span;
 
 use std::fmt;
 
-
 #[derive(Clone, Debug, PartialEq)]
 #[repr(C)]
 struct Repr {
@@ -164,6 +163,10 @@ impl SteelErr {
 
     pub fn kind(&self) -> ErrorKind {
         self.repr.kind
+    }
+
+    pub fn prepend_message(&mut self, message: &str) {
+        self.repr.message.insert_str(0, &message)
     }
 
     pub fn new(kind: ErrorKind, message: String) -> Self {

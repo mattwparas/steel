@@ -1,7 +1,9 @@
 use im_lists::list::List;
 
-use crate::rvals::{Result, SteelVal};
+use crate::rvals::{Result, SteelString, SteelVal};
 use crate::stop;
+
+use steel_derive::function;
 
 macro_rules! ok_string {
     ($string:expr) => {
@@ -9,6 +11,37 @@ macro_rules! ok_string {
     };
 }
 
+#[function(name = "string->symbol")]
+pub fn string_to_symbol(value: SteelString) -> SteelVal {
+    SteelVal::SymbolV(value)
+}
+
+#[function(name = "int->string")]
+pub fn int_to_string(value: isize) -> String {
+    format!("{value}")
+}
+
+#[function(name = "string->int")]
+pub fn string_to_int(value: SteelString) -> Result<SteelVal> {
+    let parsed_int = value.parse::<isize>();
+    match parsed_int {
+        Ok(n) => Ok(SteelVal::IntV(n)),
+        Err(_) => {
+            stop!(TypeMismatch => "could not convert number to integer");
+        }
+    }
+}
+
+#[function(name = "string->list")]
+pub fn string_to_list(value: SteelString) -> SteelVal {
+    value
+        .chars()
+        .map(SteelVal::CharV)
+        .collect::<List<_>>()
+        .into()
+}
+
+// TODO: Undo all of these wrappers, just reference the native functions directly
 pub struct StringOperations {}
 impl StringOperations {
     pub fn string_append() -> SteelVal {
@@ -45,10 +78,10 @@ impl StringOperations {
                 if let SteelVal::StringV(s) = &args[0] {
                     Ok(SteelVal::SymbolV(s.clone()))
                 } else {
-                    stop!(TypeMismatch => "string->int expected a string")
+                    stop!(TypeMismatch => "string->symbol expected a string")
                 }
             } else {
-                stop!(ArityMismatch => "string->int takes one argument")
+                stop!(ArityMismatch => "string->symbol takes one argument")
             }
         })
     }

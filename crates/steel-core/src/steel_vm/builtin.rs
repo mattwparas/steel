@@ -107,6 +107,17 @@ impl BuiltInModule {
         self.register_value(name, SteelVal::FuncV(func))
     }
 
+    pub fn register_native_fn_with_doc(
+        &mut self,
+        name: &'static str,
+        func: fn(&[SteelVal]) -> Result<SteelVal>,
+        arity: Arity,
+        doc: impl Into<Documentation<'static>>,
+    ) -> &mut Self {
+        self.register_native_fn(name, func, arity)
+            .register_doc(name, doc)
+    }
+
     pub fn check_compatibility(self: &BuiltInModule) -> bool {
         // self.version == env!("CARGO_PKG_VERSION")
         true
