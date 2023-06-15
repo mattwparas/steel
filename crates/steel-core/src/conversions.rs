@@ -53,6 +53,16 @@ impl<T: IntoSteelVal + Clone> IntoSteelVal for List<T> {
     }
 }
 
+impl FromSteelVal for Gc<im_rc::HashMap<SteelVal, SteelVal>> {
+    fn from_steelval(val: &SteelVal) -> Result<Self> {
+        if let SteelVal::HashMapV(hm) = val {
+            Ok(hm.clone())
+        } else {
+            stop!(TypeMismatch => "Unable to convert Steelval to HashMap, found: {}", val);
+        }
+    }
+}
+
 // impl IntoSteelVal for str {
 //     fn into_steelval(self) -> Result<SteelVal> {
 //         Ok(SteelVal::StringV(self.to_string().into()))

@@ -25,8 +25,6 @@ impl CycleDetector {
     }
 
     fn start_format(self, val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
-        // todo!()
-
         for node in &self.values {
             let id = match &node {
                 SteelVal::CustomStruct(c) => {
@@ -48,8 +46,6 @@ impl CycleDetector {
         }
 
         Ok(())
-
-        // for node in
     }
 
     fn top_level_format_with_cycles(&self, val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
@@ -82,9 +78,6 @@ impl CycleDetector {
             }
             Custom(x) => write!(f, "#<{}>", x.borrow().display()?),
             CustomStruct(s) => {
-                // if let Some(id) = self.cycles.get(&(s.as_ptr() as usize)) {
-                //     write!(f, "#{}#", id)
-                // } else {
                 let guard = s.borrow();
 
                 {
@@ -93,9 +86,6 @@ impl CycleDetector {
                         .is_some()
                     {
                         write!(f, "({}", guard.name)?;
-                        // for i in 0..guard.len - 1 {
-
-                        // }
 
                         for i in &guard.fields {
                             write!(f, " ")?;
@@ -107,7 +97,6 @@ impl CycleDetector {
                         write!(f, "({})", guard.name)
                     }
                 }
-                // }
             }
 
             PortV(_) => write!(f, "#<port>"),
@@ -117,7 +106,6 @@ impl CycleDetector {
             HashSetV(hs) => write!(f, "#<hashset {hs:?}>"),
             FutureFunc(_) => write!(f, "#<future-func>"),
             FutureV(_) => write!(f, "#<future>"),
-            // Promise(_) => write!(f, "#<promise>"),
             StreamV(_) => write!(f, "#<stream>"),
             Contract(c) => write!(f, "{}", **c),
             ContractedFunction(_) => write!(f, "#<contracted-function>"),
@@ -143,15 +131,8 @@ impl CycleDetector {
                     }
                 }
 
-                // for item in l.iter().pe
-
-                // for item in l {
-                //     display_helper(item, f)?;
-                //     write!(f, " ")?;
-                // }
                 write!(f, ")")
             }
-            // write!(f, "#<list {:?}>", l),
             MutFunc(_) => write!(f, "#<function>"),
             BuiltIn(_) => write!(f, "#<function>"),
             ReducerV(_) => write!(f, "#<reducer>"),
@@ -204,10 +185,6 @@ impl CycleDetector {
                             .is_some()
                         {
                             write!(f, "({}", guard.name)?;
-                            // for i in 0..guard.len - 1 {
-                            //     write!(f, " ")?;
-                            //     self.format_with_cycles(&guard.fields[i], f)?;
-                            // }
 
                             for i in &guard.fields {
                                 write!(f, " ")?;

@@ -10,6 +10,8 @@ use crate::primitives::VectorOperations;
 
 use crate::primitives::utils::SliceExt;
 
+use steel_derive::function;
+
 declare_const_ref_functions!(
     HM_CONSTRUCT => hm_construct,
     HM_INSERT => hm_insert,
@@ -127,6 +129,19 @@ const HASH_INSERT_DOC: DocTemplate<'static> = DocTemplate {
     }>"#,
     )],
 };
+
+#[function(name = "hm-insert")]
+pub fn hash_insert(
+    map: Gc<HashMap<SteelVal, SteelVal>>,
+    key: SteelVal,
+    value: SteelVal,
+) -> Result<SteelVal> {
+    if key.is_hashable() {
+        Ok(SteelVal::HashMapV(Gc::new(map.update(key, value))))
+    } else {
+        stop!(TypeMismatch => "hash key not hashable: {:?}", key)
+    }
+}
 
 pub fn hm_insert(args: &[SteelVal]) -> Result<SteelVal> {
     if args.len() != 3 {
