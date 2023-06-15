@@ -5,10 +5,7 @@ extern crate syn;
 extern crate quote;
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
-use syn::{
-    parse::Parser, AttributeArgs, Data, DeriveInput, FnArg, Ident, ItemFn, ReturnType, Signature,
-    Type,
-};
+use syn::{AttributeArgs, Data, DeriveInput, FnArg, Ident, ItemFn, ReturnType, Signature, Type};
 
 #[proc_macro_derive(Steel)]
 pub fn derive_steel(input: TokenStream) -> TokenStream {
@@ -30,82 +27,51 @@ pub fn derive_steel(input: TokenStream) -> TokenStream {
     }
 }
 
-trait NestedMeta {
-    fn is_meta(&self) -> bool;
-    fn get_meta(&self) -> &syn::Meta;
-}
-
-/// Can be either a 👉 [syn::NestedMeta::Meta] or a [syn::NestedMeta::Lit].
-impl NestedMeta for syn::NestedMeta {
-    fn is_meta(&self) -> bool {
-        match self {
-            syn::NestedMeta::Meta(_) => true,
-            syn::NestedMeta::Lit(_) => false,
-        }
-    }
-
-    fn get_meta(&self) -> &syn::Meta {
-        match self {
-            syn::NestedMeta::Meta(meta) => meta,
-            syn::NestedMeta::Lit(_) => panic!("Lit found"),
-        }
+fn is_meta(nested: &syn::NestedMeta) -> bool {
+    match nested {
+        syn::NestedMeta::Meta(_) => true,
+        syn::NestedMeta::Lit(_) => false,
     }
 }
 
-trait MetaExt {
-    fn is_meta_name_value(&self) -> bool;
-    fn get_meta_name_value_str(&self) -> String;
-    fn get_meta_name_value_ident(&self) -> Ident;
+fn get_meta(nested: &syn::NestedMeta) -> &syn::Meta {
+    match nested {
+        syn::NestedMeta::Meta(meta) => meta,
+        syn::NestedMeta::Lit(_) => panic!("Lit found"),
+    }
 }
 
-/// Can be either a 👉 [syn::Meta::NameValue], [syn::Meta::List], or [syn::Meta::Path].
-impl MetaExt for syn::Meta {
-    fn is_meta_name_value(&self) -> bool {
-        match self {
-            syn::Meta::Path(_) => false,
-            syn::Meta::List(_) => false,
-            syn::Meta::NameValue(_) => true,
+fn is_meta_name_value(meta: &syn::Meta) -> bool {
+    match meta {
+        syn::Meta::Path(_) => false,
+        syn::Meta::List(_) => false,
+        syn::Meta::NameValue(_) => true,
+    }
+}
+
+fn get_meta_name_value_str(meta: &syn::Meta) -> String {
+    match meta {
+        syn::Meta::Path(_) => panic!("Path found"),
+        syn::Meta::List(_) => panic!("List found"),
+        syn::Meta::NameValue(meta_name_value) => {
+            let lit_str = match &meta_name_value.lit {
+                syn::Lit::Str(lit_str) => lit_str.value(),
+                _ => panic!("Expected a string literal"),
+            };
+            lit_str
         }
     }
+}
 
-    fn get_meta_name_value_str(&self) -> String {
-        match self {
-            syn::Meta::Path(_) => panic!("Path found"),
-            syn::Meta::List(_) => panic!("List found"),
-            syn::Meta::NameValue(meta_name_value) => {
-                let lit_str = match &meta_name_value.lit {
-                    syn::Lit::Str(lit_str) => lit_str.value(),
-                    _ => panic!("Expected a string literal"),
-                };
-                lit_str
-            }
-        }
-    }
-
-    /// ```no_run
-    /// Path {
-    ///   leading_colon: None,
-    ///   segments: [
-    ///       PathSegment {
-    ///           ident: Ident {
-    ///               ident: "key",
-    ///               span: #0 bytes(510..513),
-    ///           },
-    ///           arguments: None,
-    ///       },
-    ///   ],
-    /// }
-    /// ```
-    fn get_meta_name_value_ident(&self) -> Ident {
-        match self {
-            syn::Meta::Path(_) => panic!("Path found"),
-            syn::Meta::List(_) => panic!("List found"),
-            syn::Meta::NameValue(meta_name_value) => {
-                if let Some(ident) = meta_name_value.path.get_ident() {
-                    ident.clone()
-                } else {
-                    panic!("Expected an ident")
-                }
+fn get_meta_name_value_ident(meta: &syn::Meta) -> Ident {
+    match meta {
+        syn::Meta::Path(_) => panic!("Path found"),
+        syn::Meta::List(_) => panic!("List found"),
+        syn::Meta::NameValue(meta_name_value) => {
+            if let Some(ident) = meta_name_value.path.get_ident() {
+                ident.clone()
+            } else {
+                panic!("Expected an ident")
             }
         }
     }
@@ -113,11 +79,11 @@ impl MetaExt for syn::Meta {
 
 fn parse_key_value_pair(args: &AttributeArgs) -> (String, String) {
     for nested_meta in args.iter() {
-        if nested_meta.is_meta() {
-            let meta = nested_meta.get_meta();
-            if meta.is_meta_name_value() {
-                let key = meta.get_meta_name_value_ident().to_string();
-                let value = meta.get_meta_name_value_str();
+        if is_meta(&nested_meta) {
+            let meta = get_meta(&nested_meta);
+            if is_meta_name_value(&meta) {
+                let key = get_meta_name_value_ident(&meta).to_string();
+                let value = get_meta_name_value_str(&meta);
                 return (key, value);
             }
         }
@@ -143,29 +109,9 @@ pub fn function(
     let mut modified_input = input.clone();
     modified_input.attrs = Vec::new();
 
-    // This snags the `Signature` from the function definition
     let sign: Signature = input.clone().sig;
 
-    // This is the `ReturnType`
     let return_type: ReturnType = sign.output;
-
-    // let ret_val = match return_type {
-    //     ReturnType::Default => quote! {
-    //         Ok(SteelVal::Void)
-    //     },
-    //     ReturnType::Type(_, a) => match *a {
-    //         Type::Path(a) => {
-    //             todo!()
-    //         }
-    //         _ => quote! {
-    //             res.into_steelval()
-    //         }
-    //     }
-
-    //     // ReturnType::Type(_, _) => quote! {
-    //     //     res.into_steelval()
-    //     // },
-    // };
 
     let ret_val = match return_type {
         ReturnType::Default => quote! {
@@ -209,14 +155,22 @@ pub fn function(
     let arg_index = arg_enumerate.clone().map(|(i, _)| i);
     let function_names_with_colon = std::iter::repeat(function_name_with_colon);
     let function_name = sign.ident.clone();
+    let arity_name = Ident::new(
+        &(function_name.to_string().to_uppercase() + "_ARITY"),
+        sign.ident.span(),
+    );
     let copied_function_name = Ident::new(
         &("steel_".to_string() + &function_name.to_string()),
         sign.ident.span(),
     );
 
     let output = quote! {
-
+        // Not sure why, but it says this is unused even when generating functions
+        // marked as pub
+        #[allow(dead_code)]
         #modified_input
+
+        pub const #arity_name: crate::steel_vm::builtin::Arity = crate::steel_vm::builtin::Arity::Exact(#arity_number);
 
         pub fn #copied_function_name(args: &[SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
@@ -229,7 +183,12 @@ pub fn function(
 
             let res = #function_name(
                 #(
-                    <#arg_type>::from_steelval(&args[#arg_index]).map_err(|mut err| { err.prepend_message(#function_names_with_colon); err } )?,
+                    <#arg_type>::from_steelval(&args[#arg_index])
+                        .map_err(|mut err| {
+                            err.prepend_message(#function_names_with_colon);
+                            err.set_kind(crate::rerrs::ErrorKind::TypeMismatch);
+                            err
+                        } )?,
                 )*
             );
 

@@ -1,4 +1,4 @@
-use std::{borrow::Cow, rc::Rc, sync::Arc};
+use std::{borrow::Cow, cell::RefCell, rc::Rc, sync::Arc};
 
 use crate::{
     containers::RegisterValue,
@@ -40,11 +40,11 @@ pub struct BuiltInModule {
     fn_ptr_table: HashMap<*const FunctionSignature, FunctionSignatureMetadata>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 // Probably need something more interesting than just an integer for the arity
 pub struct FunctionSignatureMetadata {
-    name: &'static str,
-    arity: Arity,
+    pub name: &'static str,
+    pub arity: Arity,
 }
 
 impl FunctionSignatureMetadata {
@@ -79,6 +79,19 @@ impl RegisterValue for BuiltInModule {
 lazy_static::lazy_static! {
     pub static ref MODULE_GET: InternedString = "%module-get%".into();
     pub static ref VOID: InternedString = "void".into();
+}
+
+// Global function table
+thread_local! {
+    pub static FUNCTION_TABLE: RefCell<HashMap<*const FunctionSignature, FunctionSignatureMetadata>> = RefCell::new(HashMap::new());
+}
+
+pub fn get_function_name(function: FunctionSignature) -> Option<FunctionSignatureMetadata> {
+    FUNCTION_TABLE.with(|x| {
+        x.borrow()
+            .get(&(function as *const FunctionSignature))
+            .copied()
+    })
 }
 
 impl BuiltInModule {
@@ -132,6 +145,14 @@ impl BuiltInModule {
         value: FunctionSignature,
         data: FunctionSignatureMetadata,
     ) -> &mut Self {
+        // Store this in a globally accessible place for printing
+        FUNCTION_TABLE.with(|table| {
+            table
+                .borrow_mut()
+                .insert(value as *const FunctionSignature, data)
+        });
+
+        // Probably don't need to store it in both places?
         self.fn_ptr_table
             .insert(value as *const FunctionSignature, data);
 

@@ -165,6 +165,10 @@ impl SteelErr {
         self.repr.kind
     }
 
+    pub fn set_kind(&mut self, kind: ErrorKind) {
+        self.repr.kind = kind;
+    }
+
     pub fn prepend_message(&mut self, message: &str) {
         self.repr.message.insert_str(0, &message)
     }

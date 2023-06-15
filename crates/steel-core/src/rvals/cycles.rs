@@ -1,3 +1,5 @@
+use crate::steel_vm::builtin::get_function_name;
+
 use super::*;
 
 #[derive(Default)]
@@ -57,7 +59,13 @@ impl CycleDetector {
             IntV(x) => write!(f, "{x}"),
             StringV(s) => write!(f, "{s:?}"),
             CharV(c) => write!(f, "#\\{c}"),
-            FuncV(_) => write!(f, "#<function>"),
+            FuncV(func) => {
+                if let Some(name) = get_function_name(*func) {
+                    write!(f, "#<function:{}>", name.name)
+                } else {
+                    write!(f, "#<function>")
+                }
+            }
             Void => write!(f, "#<void>"),
             SymbolV(s) => write!(f, "{s}"),
             VectorV(lst) => {
@@ -162,7 +170,13 @@ impl CycleDetector {
             IntV(x) => write!(f, "{x}"),
             StringV(s) => write!(f, "{s:?}"),
             CharV(c) => write!(f, "#\\{c}"),
-            FuncV(_) => write!(f, "#<function>"),
+            FuncV(func) => {
+                if let Some(name) = get_function_name(*func) {
+                    write!(f, "#<function:{}>", name.name)
+                } else {
+                    write!(f, "#<function>")
+                }
+            }
             Void => write!(f, "#<void>"),
             SymbolV(s) => write!(f, "{s}"),
             VectorV(lst) => {

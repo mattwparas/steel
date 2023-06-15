@@ -39,6 +39,8 @@ pub use strings::StringOperations;
 pub use symbols::SymbolOperations;
 pub use vectors::VectorOperations;
 
+pub use strings::string_module;
+
 pub use nums::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
 
 use crate::rvals::{FunctionSignature, SteelVal};

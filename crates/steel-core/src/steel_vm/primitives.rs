@@ -23,6 +23,7 @@ use crate::{
         nums::quotient,
         process::process_module,
         random::random_module,
+        string_module,
         time::time_module,
         ControlOperations, FsFunctions, IoFunctions, MetaOperations, NumOperations, PortOperations,
         StreamOperations, StringOperations, SymbolOperations, VectorOperations,
@@ -521,32 +522,6 @@ fn vector_module() -> BuiltInModule {
         .register_value("range-vec", VectorOperations::vec_range())
         .register_value("vec-append", VectorOperations::vec_append())
         .register_value("vector-ref", VectorOperations::vec_ref());
-    module
-}
-
-fn char_upcase(c: char) -> char {
-    c.to_ascii_uppercase()
-}
-
-fn string_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/strings");
-    module
-        .register_value("string-append", StringOperations::string_append())
-        .register_value("to-string", ControlOperations::to_string())
-        .register_value("string->list", StringOperations::string_to_list())
-        .register_value("string-upcase", StringOperations::string_to_upper())
-        .register_value("string-lowercase", StringOperations::string_to_lower())
-        .register_value("string-length", StringOperations::string_length())
-        .register_value("trim", StringOperations::trim())
-        .register_value("trim-start", StringOperations::trim_start())
-        .register_value("trim-end", StringOperations::trim_end())
-        .register_value("split-whitespace", StringOperations::split_whitespace())
-        .register_value("string->int", StringOperations::string_to_int())
-        .register_value("int->string", StringOperations::int_to_string())
-        .register_value("string->symbol", StringOperations::string_to_symbol())
-        .register_value("starts-with?", StringOperations::starts_with())
-        .register_value("ends-with?", StringOperations::ends_with())
-        .register_fn("char-upcase", char_upcase);
     module
 }
 
