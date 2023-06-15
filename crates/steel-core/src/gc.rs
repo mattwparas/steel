@@ -273,7 +273,12 @@ pub mod unsafe_roots {
 }
 
 // #[cfg(feature = "unsafe-internals")]
+#[allow(unused)]
 pub mod unsafe_erased_pointers {
+    /*
+    Warning - here be dragons. Definitely a lot of unsafe things here, and when used incorrectly
+    can lead to undefined behavior.
+    */
 
     use std::rc::{Rc, Weak};
     use std::{any::Any, cell::RefCell, marker::PhantomData};
@@ -421,12 +426,6 @@ pub mod unsafe_erased_pointers {
     //         // Ok(self.new_steel_val())
     //         Ok(SteelVal::Custom(Rc::new(RefCell::new(Box::new(self)))))
     //     }
-    // }
-
-    // pub struct
-
-    // unsafe fn extend_lifetime<'b>(r: R<'b>) -> R<'static> {
-    //     std::mem::transmute::<R<'b>, R<'static>>(r)
     // }
 
     /// This is for objects that are references FROM an already borrowed object.

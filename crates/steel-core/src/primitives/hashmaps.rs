@@ -172,6 +172,18 @@ const HASH_GET_DOC: DocTemplate<'static> = DocTemplate {
     examples: &[("> (hash-get (hash 'a 10 'b 20) 'b)", r#"=> 20"#)],
 };
 
+#[function(name = "hash-ref")]
+pub fn hash_ref(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> Result<SteelVal> {
+    if key.is_hashable() {
+        match map.get(key) {
+            Some(value) => Ok(value.clone()),
+            None => stop!(Generic => "key not found in hash map: {}", key),
+        }
+    } else {
+        stop!(TypeMismatch => "key not hashable: {}", key)
+    }
+}
+
 pub fn hm_get(args: &[SteelVal]) -> Result<SteelVal> {
     if args.len() != 2 {
         stop!(ArityMismatch => "hm get takes 2 arguments")

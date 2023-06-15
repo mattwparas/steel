@@ -335,6 +335,7 @@ impl From<String> for SteelVal {
 }
 
 impl IntoSteelVal for &str {
+    #[inline(always)]
     fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
         Ok(SteelVal::StringV(self.into()))
     }
@@ -350,7 +351,15 @@ impl FromSteelVal for SteelString {
     }
 }
 
+impl<'a> PrimitiveAsRef<'a> for &'a SteelVal {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        Ok(val)
+    }
+}
+
 impl<'a> PrimitiveAsRef<'a> for &'a SteelString {
+    #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::StringV(s) = val {
             Ok(s)
@@ -361,6 +370,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelString {
 }
 
 impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashMap<SteelVal, SteelVal>> {
+    #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::HashMapV(hm) = val {
             Ok(hm)

@@ -21,11 +21,6 @@ pub struct Env {
     pub(crate) bindings_vec: Vec<SteelVal>,
 }
 
-// Serialize... if possible?
-pub struct SerializableEnv {
-    bindings_vec: Vec<u8>,
-}
-
 impl Env {
     pub fn extract(&self, idx: usize) -> Option<SteelVal> {
         self.bindings_vec.get(idx).cloned()
@@ -38,9 +33,9 @@ impl Env {
         }
     }
 
-    pub fn len(&self) -> usize {
-        self.bindings_vec.len()
-    }
+    // pub fn len(&self) -> usize {
+    //     self.bindings_vec.len()
+    // }
 
     #[cfg(feature = "dynamic")]
     pub(crate) fn _print_diagnostics(&self) {
@@ -66,7 +61,7 @@ impl Env {
     }
 
     /// Get the value located at that index
-    pub fn repl_get_idx(&self, idx: usize) -> &SteelVal {
+    pub fn _repl_get_idx(&self, idx: usize) -> &SteelVal {
         &self.bindings_vec[idx]
     }
 

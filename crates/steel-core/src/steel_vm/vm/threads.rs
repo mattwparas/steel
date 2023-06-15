@@ -1,3 +1,8 @@
+use crate::{
+    rvals::{Custom, SerializableSteelVal},
+    steel_vm::{builtin::BuiltInModule, register_fn::RegisterFn},
+};
+
 use super::*;
 
 // TODO: Do proper logging here for thread spawning
@@ -259,4 +264,107 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
 // Use internal spawn_thread function
 pub(crate) fn spawn_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(spawn_thread_result(ctx, args))
+}
+
+// Move values back and forth across threads!
+impl Custom for std::sync::mpsc::Sender<SerializableSteelVal> {
+    fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
+        Some(SerializableSteelVal::Custom(Box::new(self.clone())))
+    }
+}
+
+struct SReceiver {
+    receiver: Option<std::sync::mpsc::Receiver<SerializableSteelVal>>,
+}
+
+impl Custom for SReceiver {
+    fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
+        let inner = self.receiver.take();
+
+        let new_channel = SReceiver { receiver: inner };
+
+        Some(SerializableSteelVal::Custom(Box::new(new_channel)))
+    }
+}
+
+// impl Custom for std::sync::mpsc::Receiver<SerializableSteelVal> {
+//     fn into_serializable_steelval(&self) -> Option<SerializableSteelVal> {
+//         Some(SerializableSteelVal::Custom(Box::new(self.clone())))
+//     }
+// }
+
+impl Custom for std::thread::ThreadId {
+    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+        Some(Ok(format!("#<{:?}>", self)))
+    }
+}
+
+// TODO: Document these
+pub fn threading_module() -> BuiltInModule {
+    let mut module = BuiltInModule::new("steel/threads");
+
+    module
+        .register_value(
+            "spawn-thread!",
+            SteelVal::BuiltIn(crate::steel_vm::vm::spawn_thread),
+        )
+        .register_fn("thread-join!", crate::steel_vm::vm::thread_join)
+        .register_fn("make-channels", || {
+            let (left, right) = std::sync::mpsc::channel::<SerializableSteelVal>();
+
+            crate::list![
+                left,
+                SReceiver {
+                    receiver: Some(right)
+                }
+            ]
+        })
+        .register_fn(
+            "channel->send",
+            |channel: &std::sync::mpsc::Sender<SerializableSteelVal>,
+             val: SteelVal|
+             -> Result<()> {
+                let serializable = crate::rvals::into_serializable_value(val)?;
+
+                channel
+                    .send(serializable)
+                    .map_err(|e| SteelErr::new(ErrorKind::Generic, e.to_string()))
+            },
+        )
+        .register_fn("channel->recv", |channel: &SReceiver| -> Result<SteelVal> {
+            let receiver = channel
+                .receiver
+                .as_ref()
+                .expect("Channel should not be dropped here!");
+
+            let value = receiver
+                .recv()
+                .map_err(|e| SteelErr::new(ErrorKind::Generic, e.to_string()))?;
+
+            let value = crate::rvals::from_serializable_value(value);
+
+            Ok(value)
+        })
+        .register_fn(
+            "channel->try-recv",
+            |channel: &SReceiver| -> Result<Option<SteelVal>> {
+                // let serializable = crate::rvals::into_serializable_value(val)?;
+
+                let receiver = channel
+                    .receiver
+                    .as_ref()
+                    .expect("Channel should not be dropped here!");
+
+                let value = receiver.try_recv();
+
+                match value {
+                    Ok(v) => return Ok(Some(crate::rvals::from_serializable_value(v))),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => return Ok(None),
+                    Err(e) => Err(SteelErr::new(ErrorKind::Generic, e.to_string())),
+                }
+            },
+        )
+        .register_fn("thread::current/id", || std::thread::current().id())
+        .register_fn("current-os!", || std::env::consts::OS);
+    module
 }
