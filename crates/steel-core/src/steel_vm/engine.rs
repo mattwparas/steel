@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use super::{
     builtin::BuiltInModule,
     dylib::DylibContainers,

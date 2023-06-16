@@ -8,14 +8,12 @@ use im_rc::HashMap;
 
 use crate::primitives::VectorOperations;
 
-use crate::primitives::utils::SliceExt;
-
 use steel_derive::function;
 
 declare_const_ref_functions!(
     HM_CONSTRUCT => hm_construct,
-    HM_INSERT => hm_insert,
-    HM_GET => hm_get,
+    HM_INSERT => steel_hash_insert,
+    HM_GET => steel_hash_ref,
     HM_TRY_GET => hm_try_get,
     HM_LENGTH => hm_length,
     HM_CONTAINS => hm_contains,
@@ -33,9 +31,10 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
     module
         .register_value_with_doc("hash", HM_CONSTRUCT, HASH_DOC)
         .register_value("%keyword-hash", SteelVal::FuncV(hm_construct_keywords))
-        .register_value_with_doc("hash-insert", HM_INSERT, HASH_INSERT_DOC)
-        .register_value_with_doc("hash-get", HM_GET, HASH_GET_DOC)
-        .register_value_with_doc("hash-ref", HM_GET, HASH_GET_DOC)
+        // .register_value_with_doc("hash-insert", HM_INSERT, HASH_INSERT_DOC)
+        .register_native_fn_definition(HASH_INSERT_DEFINITION)
+        .register_native_fn_definition(HASH_REF_DEFINITION)
+        .register_value("hash-get", SteelVal::FuncV(steel_hash_ref))
         .register_value_with_doc("hash-try-get", HM_TRY_GET, HASH_TRY_GET_DOC)
         .register_value_with_doc("hash-length", HM_LENGTH, HASH_LENGTH_DOC)
         .register_value_with_doc("hash-contains?", HM_CONTAINS, HASH_CONTAINS_DOC)
@@ -56,7 +55,7 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
 const HASH_DOC: DocTemplate<'static> = DocTemplate {
     signature: "(hash key val ...) -> hash?",
     params: &["key : hashable?", "val : any/c"],
-    description: r#"Creates an immutable hash table with each given `key` mapped to the following `val; each key must have a val, so the total number of arguments must be even.
+    description: r#"Creates an immutable hash table with each given `key` mapped to the following `val`; each key must have a val, so the total number of arguments must be even.
     
 Note, the key must be hashable."#,
     examples: &[(
@@ -116,21 +115,26 @@ pub fn hm_construct_keywords(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::HashMapV(Gc::new(hm)))
 }
 
-const HASH_INSERT_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(hash-insert map key val) -> hash?",
-    params: &["map : hash?", "key : any/c", "val : any/c"],
-    description: r#"Returns a new hashmap with the additional key value pair added. Performs a functional update, so the old hash map is still accessible."#,
-    examples: &[(
-        "> (hash-insert (hash 'a 10 'b 20) 'c 30)",
-        r#"=> #<hashmap {
-        'a: 10,
-        'b: 20,
-        'c: 30
-    }>"#,
-    )],
-};
-
-#[function(name = "hm-insert")]
+/// Returns a new hashmap with the additional key value pair added. Performs a functional update,
+/// so the old hash map is still accessible.
+///
+/// (hash-insert map key val) -> hash?
+///
+/// * map : hash?
+/// * key : any/c
+/// * val : any/c
+///
+/// # Examples
+/// ```scheme
+/// > (hash-insert (hash 'a 10 'b 20) 'c 30)
+///
+/// => #<hashmap {
+///         'a: 10,
+///         'b: 20,
+///         'c: 30
+///     }>
+/// ```
+#[function(name = "hash-insert")]
 pub fn hash_insert(
     map: &Gc<HashMap<SteelVal, SteelVal>>,
     key: SteelVal,
@@ -143,35 +147,24 @@ pub fn hash_insert(
     }
 }
 
-pub fn hm_insert(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 3 {
-        stop!(ArityMismatch => "hm insert takes 3 arguments")
-    }
+// const HASH_GET_DOC: DocTemplate<'static> = DocTemplate {
+//     signature: "(hash-get map key) -> any/c?",
+//     params: &["map : hash?", "key : any/c"],
+//     description: r#"Gets the `key` from the given `map`. Raises an error if the key does not exist. `hash-ref` is an alias for this."#,
+//     examples: &[("> (hash-get (hash 'a 10 'b 20) 'b)", r#"=> 20"#)],
+// };
 
-    let hashmap = args.get_clone(0);
-    let key = args.get_clone(1);
-    let value = args.get_clone(2);
-
-    if let SteelVal::HashMapV(hm) = hashmap {
-        let mut hm = hm.unwrap();
-        if key.is_hashable() {
-            hm.insert(key, value);
-        } else {
-            stop!(TypeMismatch => "hash key not hashable!");
-        }
-        Ok(SteelVal::HashMapV(Gc::new(hm)))
-    } else {
-        stop!(TypeMismatch => "hm insert takes a hashmap")
-    }
-}
-
-const HASH_GET_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(hash-get map key) -> any/c?",
-    params: &["map : hash?", "key : any/c"],
-    description: r#"Gets the `key` from the given `map`. Raises an error if the key does not exist. `hash-ref` is an alias for this."#,
-    examples: &[("> (hash-get (hash 'a 10 'b 20) 'b)", r#"=> 20"#)],
-};
-
+/// Gets the `key` from the given `map`. Raises an error if the key does not exist. `hash-get` is an alias for this.
+///
+/// (hash-ref map key) -> any/c
+///
+/// * map : hash?
+/// * key : any/c
+///
+/// # Examples
+/// ```scheme
+/// > (hash-get (hash 'a 10 'b 20) 'b) ;; => 20
+/// ```
 #[function(name = "hash-ref")]
 pub fn hash_ref(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> Result<SteelVal> {
     if key.is_hashable() {
@@ -181,24 +174,6 @@ pub fn hash_ref(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> Result
         }
     } else {
         stop!(TypeMismatch => "key not hashable: {}", key)
-    }
-}
-
-pub fn hm_get(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 2 {
-        stop!(ArityMismatch => "hm get takes 2 arguments")
-    }
-
-    let hashmap = &args[0];
-    let key = &args[1];
-
-    if let SteelVal::HashMapV(hm) = hashmap {
-        match hm.get(key) {
-            Some(v) => Ok(v.clone()),
-            None => stop!(Generic => "hash map key not found!: {}", key),
-        }
-    } else {
-        stop!(TypeMismatch => "hm-get takes a hashmap, found: {}", hashmap)
     }
 }
 
@@ -467,7 +442,7 @@ mod hashmap_tests {
             StringV("foo".into()),
             StringV("bar".into()),
         ];
-        let res = hm_insert(&args);
+        let res = steel_hash_insert(&args);
         let expected = SteelVal::HashMapV(Gc::new(hashmap! {
             StringV("foo".into()) => StringV("bar".into())
         }));
@@ -482,7 +457,7 @@ mod hashmap_tests {
             })),
             StringV("foo".into()),
         ];
-        let res = hm_get(&args);
+        let res = steel_hash_ref(&args);
         let expected = StringV("bar".into());
         assert_eq!(res.unwrap(), expected);
     }
@@ -495,7 +470,7 @@ mod hashmap_tests {
             })),
             StringV("garbage".into()),
         ];
-        let res = hm_get(&args);
+        let res = steel_hash_ref(&args);
         assert!(res.is_err());
     }
 

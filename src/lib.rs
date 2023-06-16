@@ -2,9 +2,7 @@ extern crate steel;
 extern crate steel_derive;
 extern crate steel_repl;
 
-use steel::{
-    steel_vm::{engine::Engine},
-};
+use steel::steel_vm::engine::Engine;
 use steel_doc::walk_dir;
 use steel_repl::repl::repl_base;
 

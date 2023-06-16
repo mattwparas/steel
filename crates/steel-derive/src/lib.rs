@@ -5,7 +5,10 @@ extern crate syn;
 extern crate quote;
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
-use syn::{AttributeArgs, Data, DeriveInput, FnArg, Ident, ItemFn, ReturnType, Signature, Type};
+use syn::{
+    punctuated::Punctuated, spanned::Spanned, Attribute, Data, DeriveInput, Error, Expr, ExprLit,
+    FnArg, Ident, ItemFn, Lit, Meta, ReturnType, Signature, Type,
+};
 
 #[proc_macro_derive(Steel)]
 pub fn derive_steel(input: TokenStream) -> TokenStream {
@@ -27,41 +30,41 @@ pub fn derive_steel(input: TokenStream) -> TokenStream {
     }
 }
 
-fn is_meta(nested: &syn::NestedMeta) -> bool {
-    match nested {
-        syn::NestedMeta::Meta(_) => true,
-        syn::NestedMeta::Lit(_) => false,
-    }
-}
+// fn is_meta(nested: &syn::NestedMeta) -> bool {
+//     match nested {
+//         syn::NestedMeta::Meta(_) => true,
+//         syn::NestedMeta::Lit(_) => false,
+//     }
+// }
 
-fn get_meta(nested: &syn::NestedMeta) -> &syn::Meta {
-    match nested {
-        syn::NestedMeta::Meta(meta) => meta,
-        syn::NestedMeta::Lit(_) => panic!("Lit found"),
-    }
-}
+// fn get_meta(nested: &syn::NestedMeta) -> &syn::Meta {
+//     match nested {
+//         syn::NestedMeta::Meta(meta) => meta,
+//         syn::NestedMeta::Lit(_) => panic!("Lit found"),
+//     }
+// }
 
-fn is_meta_name_value(meta: &syn::Meta) -> bool {
-    match meta {
-        syn::Meta::Path(_) => false,
-        syn::Meta::List(_) => false,
-        syn::Meta::NameValue(_) => true,
-    }
-}
+// fn is_meta_name_value(meta: &syn::Meta) -> bool {
+//     match meta {
+//         syn::Meta::Path(_) => false,
+//         syn::Meta::List(_) => false,
+//         syn::Meta::NameValue(_) => true,
+//     }
+// }
 
-fn get_meta_name_value_str(meta: &syn::Meta) -> String {
-    match meta {
-        syn::Meta::Path(_) => panic!("Path found"),
-        syn::Meta::List(_) => panic!("List found"),
-        syn::Meta::NameValue(meta_name_value) => {
-            let lit_str = match &meta_name_value.lit {
-                syn::Lit::Str(lit_str) => lit_str.value(),
-                _ => panic!("Expected a string literal"),
-            };
-            lit_str
-        }
-    }
-}
+// fn get_meta_name_value_str(meta: &syn::Meta) -> String {
+//     match meta {
+//         syn::Meta::Path(_) => panic!("Path found"),
+//         syn::Meta::List(_) => panic!("List found"),
+//         syn::Meta::NameValue(meta_name_value) => {
+//             let lit_str = match &meta_name_value.lit {
+//                 syn::Lit::Str(lit_str) => lit_str.value(),
+//                 _ => panic!("Expected a string literal"),
+//             };
+//             lit_str
+//         }
+//     }
+// }
 
 fn get_meta_name_value_ident(meta: &syn::Meta) -> Ident {
     match meta {
@@ -77,20 +80,66 @@ fn get_meta_name_value_ident(meta: &syn::Meta) -> Ident {
     }
 }
 
-fn parse_key_value_pair(args: &AttributeArgs) -> (String, String) {
+fn parse_key_value_pair(args: &Punctuated<Meta, Token![,]>) -> (String, String) {
     for nested_meta in args.iter() {
-        if is_meta(&nested_meta) {
-            let meta = get_meta(&nested_meta);
-            if is_meta_name_value(&meta) {
-                let key = get_meta_name_value_ident(&meta).to_string();
-                let value = get_meta_name_value_str(&meta);
-                return (key, value);
+        if let Meta::NameValue(n) = nested_meta {
+            let key = n.path.get_ident().unwrap().to_string();
+            if let Expr::Lit(ExprLit {
+                lit: Lit::Str(s), ..
+            }) = &n.value
+            {
+                return (key, s.value());
             }
         }
+
         panic!("Expected a key value pair");
     }
 
     panic!("Expected a key value pair");
+}
+
+fn parse_doc_comment(input: ItemFn) -> Option<String> {
+    let maybe_str_literals = input
+        .attrs
+        .into_iter()
+        .filter_map(|attr| match attr.meta {
+            Meta::NameValue(name_value) if name_value.path.is_ident("doc") => {
+                Some(name_value.value)
+            }
+            _ => None,
+        })
+        .map(|expr| match expr {
+            Expr::Lit(ExprLit {
+                lit: Lit::Str(s), ..
+            }) => Ok(s.value()),
+            e => Err(e),
+        })
+        .collect::<Result<Vec<_>, _>>();
+
+    let literals = match maybe_str_literals {
+        Ok(lits) => lits,
+        Err(_) => {
+            return None;
+            // Error::new(expr.span(), "Doc comment is not a string literal")
+            //     .into_compile_error()
+            //     .into()
+        }
+    };
+
+    if literals.len() == 0 {
+        return None;
+        // Error::new(ident.span(), "No doc comment found on this type")
+        //     .into_compile_error()
+        //     .into();
+    }
+
+    let trimmed: Vec<_> = literals
+        .iter()
+        .flat_map(|lit| lit.split("\n").collect::<Vec<_>>())
+        .map(|line| line.trim().to_string())
+        .collect();
+
+    Some(trimmed.join("\n"))
 }
 
 // See REmacs : https://github.com/remacs/remacs/blob/16b6fb9319a6d48fbc7b27d27c3234990f6718c5/rust_src/remacs-macros/lib.rs#L17-L161
@@ -100,16 +149,22 @@ pub fn function(
     args: proc_macro::TokenStream,
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    let args = parse_macro_input!(args as AttributeArgs);
+    let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
+
     let (_, value) = parse_key_value_pair(&args);
     let function_name_with_colon = value.clone() + ": ";
 
     let input = parse_macro_input!(input as ItemFn);
 
     let mut modified_input = input.clone();
+    // let ident = input.sig.ident.clone();
+    let sign: Signature = input.clone().sig;
+
+    let maybe_doc_comments = parse_doc_comment(input);
+
     modified_input.attrs = Vec::new();
 
-    let sign: Signature = input.clone().sig;
+    // let sign: Signature = input.clone().sig;
 
     let return_type: ReturnType = sign.output;
 
@@ -172,13 +227,38 @@ pub fn function(
         sign.ident.span(),
     );
 
+    let doc_name = Ident::new(
+        &(function_name.to_string().to_uppercase() + "_DEFINITION"),
+        sign.ident.span(),
+    );
+
+    let definition_struct = if let Some(doc) = maybe_doc_comments {
+        quote! {
+            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
+                name: #value,
+                func: #copied_function_name,
+                arity: crate::steel_vm::builtin::Arity::Exact(#arity_number),
+                doc: Some(crate::steel_vm::builtin::MarkdownDoc(#doc))
+            };
+        }
+    } else {
+        quote! {
+            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
+                name: #value,
+                func: #copied_function_name,
+                arity: crate::steel_vm::builtin::Arity::Exact(#arity_number),
+                doc: None
+            };
+        }
+    };
+
     let output = quote! {
         // Not sure why, but it says this is unused even when generating functions
         // marked as pub
         #[allow(dead_code)]
         #modified_input
 
-        pub const #arity_name: crate::steel_vm::builtin::Arity = crate::steel_vm::builtin::Arity::Exact(#arity_number);
+        #definition_struct
 
         pub fn #copied_function_name(args: &[SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
 

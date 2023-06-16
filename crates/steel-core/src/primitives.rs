@@ -30,6 +30,7 @@ pub mod blocking_requests;
 
 pub use control::ControlOperations;
 pub use fs::FsFunctions;
+use im_lists::list::List;
 pub use io::IoFunctions;
 pub use meta_ops::MetaOperations;
 pub use nums::NumOperations;
@@ -345,6 +346,17 @@ impl FromSteelVal for SteelString {
     fn from_steelval(val: &SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::StringV(s) = val {
             Ok(s.clone())
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel string", val))
+        }
+    }
+}
+
+impl<'a> PrimitiveAsRef<'a> for &'a List<SteelVal> {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::ListV(l) = val {
+            Ok(l)
         } else {
             crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel string", val))
         }

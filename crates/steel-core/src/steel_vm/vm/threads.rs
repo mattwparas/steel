@@ -287,12 +287,6 @@ impl Custom for SReceiver {
     }
 }
 
-// impl Custom for std::sync::mpsc::Receiver<SerializableSteelVal> {
-//     fn into_serializable_steelval(&self) -> Option<SerializableSteelVal> {
-//         Some(SerializableSteelVal::Custom(Box::new(self.clone())))
-//     }
-// }
-
 impl Custom for std::thread::ThreadId {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
         Some(Ok(format!("#<{:?}>", self)))
@@ -348,8 +342,6 @@ pub fn threading_module() -> BuiltInModule {
         .register_fn(
             "channel->try-recv",
             |channel: &SReceiver| -> Result<Option<SteelVal>> {
-                // let serializable = crate::rvals::into_serializable_value(val)?;
-
                 let receiver = channel
                     .receiver
                     .as_ref()

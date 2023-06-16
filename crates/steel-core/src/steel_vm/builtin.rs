@@ -94,6 +94,13 @@ pub fn get_function_name(function: FunctionSignature) -> Option<FunctionSignatur
     })
 }
 
+pub struct NativeFunctionDefinition {
+    pub name: &'static str,
+    pub func: fn(&[SteelVal]) -> Result<SteelVal>,
+    pub arity: Arity,
+    pub doc: Option<MarkdownDoc<'static>>,
+}
+
 impl BuiltInModule {
     pub fn new<T: Into<Rc<str>>>(name: T) -> Self {
         Self {
@@ -129,6 +136,23 @@ impl BuiltInModule {
     ) -> &mut Self {
         self.register_native_fn(name, func, arity)
             .register_doc(name, doc)
+    }
+
+    pub fn register_native_fn_definition(
+        &mut self,
+        definition: NativeFunctionDefinition,
+    ) -> &mut Self {
+        if let Some(doc) = definition.doc {
+            self.register_native_fn_with_doc(
+                definition.name,
+                definition.func,
+                definition.arity,
+                doc,
+            );
+        } else {
+            self.register_native_fn(definition.name, definition.func, definition.arity);
+        }
+        self
     }
 
     pub fn check_compatibility(self: &BuiltInModule) -> bool {

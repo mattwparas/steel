@@ -1,9 +1,6 @@
-use axum::{
-    extract::Query,
-    http::StatusCode,
-    routing::{get},
-    Json, Router,
-};
+#![allow(unused)]
+
+use axum::{extract::Query, http::StatusCode, routing::get, Json, Router};
 use std::{collections::HashMap, net::SocketAddr};
 use steel::{
     rvals::Custom,

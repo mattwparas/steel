@@ -29,7 +29,7 @@ use crate::{
         StreamOperations, SymbolOperations, VectorOperations,
     },
     rerrs::ErrorKind,
-    rvals::{FromSteelVal},
+    rvals::FromSteelVal,
     steel_vm::{builtin::Arity, vm::threads::threading_module},
     values::{
         closed::HeapRef,
@@ -1020,7 +1020,7 @@ pub fn error_from_error_with_span() -> SteelVal {
 // Be able to introspect on the modules - probably just need to add a modules
 // field on the vm, or use a wrapped type with modules to find things
 // TODO: Add magic number for modules. - key to magic number, do pointer equality
-fn lookup_doc(_ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVal> {
+fn _lookup_doc(_ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVal> {
     // for value in ctx.thread.global_env.bindings_vec.iter() {
     //     if let
     // }

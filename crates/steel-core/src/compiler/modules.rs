@@ -1006,7 +1006,7 @@ impl<'a> ModuleBuilder<'a> {
 
         module.set_emitted(true);
 
-        dbg!(&module);
+        // dbg!(&module);
 
         // let result = module.to_module_ast_node();
 
