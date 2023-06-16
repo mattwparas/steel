@@ -1,4 +1,4 @@
-use crate::{SteelVal};
+use crate::SteelVal;
 
 mod private {
     use crate::steel_vm::{builtin::BuiltInModule, engine::Engine};

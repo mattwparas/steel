@@ -1,4 +1,3 @@
-
 use crate::steel_vm::engine::Engine;
 
 fn generate_asserting_machine() -> Engine {

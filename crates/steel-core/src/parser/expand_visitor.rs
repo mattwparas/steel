@@ -1,5 +1,6 @@
 use itertools::Itertools;
 
+use crate::parser::ast::ExprKind;
 use crate::steel_vm::engine::ModuleContainer;
 use crate::{compiler::program::REQUIRE_BUILTIN, rvals::Result};
 use crate::{compiler::program::STRUCT_KEYWORD, parser::visitors::ConsumingVisitor};
@@ -8,7 +9,6 @@ use crate::{
     parser::tokens::TokenType,
 };
 use crate::{expr_list, parser::parser::SyntaxObject};
-use crate::{parser::ast::ExprKind};
 
 use super::{
     ast::{Atom, Begin, Define, LambdaFunction, List, Quote},
@@ -16,7 +16,7 @@ use super::{
     kernel::Kernel,
 };
 
-use std::{collections::HashMap};
+use std::collections::HashMap;
 
 use crate::parser::expander::SteelMacro;
 
