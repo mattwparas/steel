@@ -21,11 +21,12 @@ use crate::{
             SECOND_DOC, THIRD_DOC,
         },
         nums::quotient,
+        port_module,
         process::process_module,
         random::random_module,
         string_module,
         time::time_module,
-        ControlOperations, FsFunctions, IoFunctions, MetaOperations, NumOperations, PortOperations,
+        ControlOperations, FsFunctions, IoFunctions, MetaOperations, NumOperations,
         StreamOperations, SymbolOperations, VectorOperations,
     },
     rerrs::ErrorKind,
@@ -797,18 +798,6 @@ fn fs_module() -> BuiltInModule {
             "path->extension",
             SteelVal::FuncV(FsFunctions::get_extension),
         );
-    module
-}
-
-fn port_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/ports");
-    module
-        .register_value("open-input-file", PortOperations::open_input_file())
-        .register_value("open-output-file", PortOperations::open_output_file())
-        .register_value("write-line!", PortOperations::write_line())
-        .register_value("read-port-to-string", PortOperations::read_port_to_string())
-        .register_value("read-line-from-port", PortOperations::read_line_to_string())
-        .register_value("stdin", SteelVal::FuncV(PortOperations::open_stdin));
     module
 }
 

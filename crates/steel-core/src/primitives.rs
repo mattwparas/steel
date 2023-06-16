@@ -34,7 +34,7 @@ use im_lists::list::List;
 pub use io::IoFunctions;
 pub use meta_ops::MetaOperations;
 pub use nums::NumOperations;
-pub use ports::PortOperations;
+pub use ports::port_module;
 pub use streams::StreamOperations;
 pub use strings::StringOperations;
 pub use symbols::SymbolOperations;
@@ -45,6 +45,7 @@ pub use strings::string_module;
 pub use nums::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
 
 use crate::rvals::{FunctionSignature, PrimitiveAsRef, SteelVal};
+use crate::values::port::SteelPort;
 use crate::{
     rerrs::{ErrorKind, SteelErr},
     rvals::SteelString,
@@ -348,6 +349,17 @@ impl FromSteelVal for SteelString {
             Ok(s.clone())
         } else {
             crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel string", val))
+        }
+    }
+}
+
+impl<'a> PrimitiveAsRef<'a> for &'a Gc<SteelPort> {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::PortV(p) = val {
+            Ok(p)
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel port", val))
         }
     }
 }
