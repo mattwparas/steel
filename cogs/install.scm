@@ -16,16 +16,16 @@
 ;; Should make this lazy?
 (define *STEEL_HOME* (~> "STEEL_HOME" (env-var) (unwrap-ok) (append-with-separator)))
 
-(define/contract (parse-cog module)
-                 (->c string? list?)
-                 (if (is-dir? module)
-                     (let ([cog-path (string-append module "/cog.scm")])
-                       (if (is-file? cog-path)
-                           ;; Update the resulting map with the path to the module
-                           (list (hash-insert (parse-cog-file cog-path) 'path module))
+(define/c (parse-cog module)
+          (->c string? list?)
+          (if (is-dir? module)
+              (let ([cog-path (string-append module "/cog.scm")])
+                (if (is-file? cog-path)
+                    ;; Update the resulting map with the path to the module
+                    (list (hash-insert (parse-cog-file cog-path) 'path module))
 
-                           (hash-values->list (discover-cogs module))))
-                     (error! "Unable to locate the module " module)))
+                    (hash-values->list (discover-cogs module))))
+              (error! "Unable to locate the module " module)))
 
 ;; Parses a cog file directly into a hashmap
 (define/c (parse-cog-file path)
