@@ -14,9 +14,9 @@ declare_const_ref_functions!(
     HM_CONSTRUCT => hm_construct,
     HM_INSERT => steel_hash_insert,
     HM_GET => steel_hash_ref,
-    HM_TRY_GET => hm_try_get,
-    HM_LENGTH => hm_length,
-    HM_CONTAINS => hm_contains,
+    // HM_TRY_GET => hm_try_get,
+    // HM_LENGTH => hm_length,
+    // HM_CONTAINS => steel_hash_contains,
     HM_KEYS_TO_LIST => keys_to_list,
     HM_VALUES_TO_LIST => values_to_list,
     HM_KEYS_TO_VEC => keys_to_vector,
@@ -31,13 +31,12 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
     module
         .register_value_with_doc("hash", HM_CONSTRUCT, HASH_DOC)
         .register_value("%keyword-hash", SteelVal::FuncV(hm_construct_keywords))
-        // .register_value_with_doc("hash-insert", HM_INSERT, HASH_INSERT_DOC)
         .register_native_fn_definition(HASH_INSERT_DEFINITION)
         .register_native_fn_definition(HASH_REF_DEFINITION)
         .register_value("hash-get", SteelVal::FuncV(steel_hash_ref))
-        .register_value_with_doc("hash-try-get", HM_TRY_GET, HASH_TRY_GET_DOC)
-        .register_value_with_doc("hash-length", HM_LENGTH, HASH_LENGTH_DOC)
-        .register_value_with_doc("hash-contains?", HM_CONTAINS, HASH_CONTAINS_DOC)
+        .register_native_fn_definition(HASH_TRY_GET_DEFINITION)
+        .register_native_fn_definition(HASH_LENGTH_DEFINITION)
+        .register_native_fn_definition(HASH_CONTAINS_DEFINITION)
         .register_value_with_doc("hash-keys->list", HM_KEYS_TO_LIST, HASH_KEYS_TO_LIST_DOC)
         .register_value("hash-keys->vector", HM_KEYS_TO_VEC)
         .register_value_with_doc(
@@ -147,13 +146,6 @@ pub fn hash_insert(
     }
 }
 
-// const HASH_GET_DOC: DocTemplate<'static> = DocTemplate {
-//     signature: "(hash-get map key) -> any/c?",
-//     params: &["map : hash?", "key : any/c"],
-//     description: r#"Gets the `key` from the given `map`. Raises an error if the key does not exist. `hash-ref` is an alias for this."#,
-//     examples: &[("> (hash-get (hash 'a 10 'b 20) 'b)", r#"=> 20"#)],
-// };
-
 /// Gets the `key` from the given `map`. Raises an error if the key does not exist. `hash-get` is an alias for this.
 ///
 /// (hash-ref map key) -> any/c
@@ -177,91 +169,62 @@ pub fn hash_ref(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> Result
     }
 }
 
-const HASH_TRY_GET_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(hash-try-get map key) -> (or any/c #false)",
-    params: &["map : hash?", "key : any/c"],
-    description: r#"Gets the `key` from the given `map`. Returns #false if the key does not exist"#,
-    examples: &[
-        ("> (hash-try-get (hash 'a 10 'b 20) 'b)", r#"=> 20"#),
-        (
-            "> (hash-try-get (hash 'a 10 'b 20) 'does-not-exist)",
-            r#"=> #false"#,
-        ),
-    ],
-};
-
-pub fn hm_try_get(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 2 {
-        stop!(ArityMismatch => "hm get takes 2 arguments")
-    }
-
-    let hashmap = &args[0];
-    let key = &args[1];
-
-    if let SteelVal::HashMapV(hm) = hashmap {
-        match hm.get(key) {
-            Some(v) => Ok(v.clone()),
-            None => Ok(SteelVal::BoolV(false)),
-        }
-    } else {
-        stop!(TypeMismatch => format!("hash-try-get takes a hashmap, found: {hashmap}"))
+/// Gets the `key` from the given `map`. Returns #false if the key does not exist.
+///
+/// (hash-try-get map key) -> (or any/c #false)
+///
+/// * map : hash?
+/// * key : any/c
+///
+/// # Examples
+///
+/// ```scheme
+/// > (hash-try-get (hash 'a 10 'b 20) 'b) ;; => 20
+/// > (hash-try-get (hash 'a 10 'b 20) 'does-not-exist) ;; => #false
+/// ```
+#[function(name = "hash-try-get")]
+pub fn hash_try_get(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> SteelVal {
+    match map.get(key) {
+        Some(v) => v.clone(),
+        None => SteelVal::BoolV(false),
     }
 }
 
-const HASH_LENGTH_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(hash-length map) -> (and positive? int?)",
-    params: &["map : hash?"],
-    description: r#"Returns the number of key value pairs in the map."#,
-    examples: &[("> (hash-length (hash 'a 10 'b 20))", r#"=> 2"#)],
-};
-
-pub fn hm_length(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => "hm-length takes 1 argument")
-    }
-
-    let hashmap = &args[0];
-
-    if let SteelVal::HashMapV(hm) = hashmap {
-        Ok(SteelVal::IntV(hm.len() as isize))
-    } else {
-        stop!(TypeMismatch => "hm-length takes a hashmap")
-    }
+/// Returns the number of key value pairs in the map
+///
+/// (hash-length map) -> (and positive? int?)
+///
+/// * map : hash?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (hash-length (hash 'a 10 'b 20)) ;; => 2
+/// ```
+#[function(name = "hash-length")]
+pub fn hash_length(map: &Gc<HashMap<SteelVal, SteelVal>>) -> usize {
+    map.len()
 }
 
-const HASH_CONTAINS_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(hash-contains? map key) -> bool?",
-    params: &["map : hash?", "key : hashable?"],
-    description: r#"Checks whether the given map contains the given key. Key must be hashable."#,
-    examples: &[
-        ("> (hash-contains? (hash 'a 10 'b 20) 'a)", r#"=> #true"#),
-        (
-            "> (hash-contains? (hash 'a 10 'b 20) 'not-there)",
-            r#"=> #false"#,
-        ),
-    ],
-};
-
-pub fn hm_contains(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 2 {
-        stop!(ArityMismatch => "hm-contains? get takes 2 arguments")
-    }
-
-    let hashmap = &args[0];
-    let key = &args[1];
-
-    if let SteelVal::HashMapV(hm) = hashmap {
-        if key.is_hashable() {
-            if hm.contains_key(key) {
-                Ok(SteelVal::BoolV(true))
-            } else {
-                Ok(SteelVal::BoolV(false))
-            }
-        } else {
-            stop!(TypeMismatch => "hash key not hashable!");
-        }
+/// Checks whether the given map contains the given key. Key must be hashable.
+///
+/// (hash-contains? map key) -> bool?
+///
+/// * map : hash?
+/// * key : hashable?
+///
+/// # Example
+///
+/// ```scheme
+/// > (hash-contains? (hash 'a 10 'b 20) 'a) ;; => #true
+/// > (hash-contains? (hash 'a 10 'b 20) 'not-there) ;; => #false
+/// ```
+#[function(name = "hash-contains?")]
+pub fn hash_contains(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> Result<SteelVal> {
+    if key.is_hashable() {
+        Ok(SteelVal::BoolV(map.contains_key(key)))
     } else {
-        stop!(TypeMismatch => "hm-contains? takes a hashmap")
+        stop!(TypeMismatch => "hash key not hashable!");
     }
 }
 
@@ -482,7 +445,7 @@ mod hashmap_tests {
             })),
             StringV("foo".into()),
         ];
-        let res = hm_try_get(&args);
+        let res = steel_hash_try_get(&args);
         let expected = StringV("bar".into());
         assert_eq!(res.unwrap(), expected);
     }
@@ -495,7 +458,7 @@ mod hashmap_tests {
             })),
             StringV("garbage".into()),
         ];
-        let res = hm_contains(&args);
+        let res = steel_hash_contains(&args);
         let expected = SteelVal::BoolV(false);
         assert_eq!(res.unwrap(), expected);
     }
@@ -508,7 +471,7 @@ mod hashmap_tests {
             })),
             StringV("foo".into()),
         ];
-        let res = hm_contains(&args);
+        let res = steel_hash_contains(&args);
         let expected = SteelVal::BoolV(true);
         assert_eq!(res.unwrap(), expected);
     }
@@ -521,7 +484,7 @@ mod hashmap_tests {
             })),
             StringV("bar".into()),
         ];
-        let res = hm_contains(&args);
+        let res = steel_hash_contains(&args);
         let expected = SteelVal::BoolV(false);
         assert_eq!(res.unwrap(), expected);
     }
