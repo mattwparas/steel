@@ -41,32 +41,88 @@ pub fn open_stdin() -> SteelVal {
     ))))
 }
 
+/// Takes a filename `path` referring to an existing file and returns an input port. Raises an error
+/// if the file does not exist
+///
+/// (open-input-file string?) -> input-port?
+///
+/// # Examples
+/// ```scheme
+/// > (open-input-file "foo-bar.txt") ;; => #<port>
+/// > (open-input-file "file-does-not-exist.txt")
+/// error[E08]: Io
+///   ┌─ :1:2
+///   │
+/// 1 │ (open-input-file "foo-bar.txt")
+///   │  ^^^^^^^^^^^^^^^ No such file or directory (os error 2)
+/// ```
 #[function(name = "open-input-file")]
 pub fn open_input_file(path: &SteelString) -> Result<SteelVal> {
     let port = SteelPort::new_textual_file_input(path)?;
     Ok(SteelVal::PortV(Gc::new(port)))
 }
 
+/// Takes a filename `path` referring to a file to be created and returns an output port.
+///
+/// (open-output-file string?) -> output-port?
+///
+/// # Examples
+/// ```scheme
+/// > (open-output-file "foo-bar.txt") ;; => #<port>
+/// ```
 #[function(name = "open-output-file")]
 pub fn open_output_file(path: &SteelString) -> Result<SteelVal> {
     let new_port = SteelPort::new_textual_file_output(path)?;
     Ok(SteelVal::PortV(Gc::new(new_port)))
 }
 
+/// Takes a port and reads the entire content into a string
+///
+/// (read-port-to-string port) -> string?
+///
+/// * port : input-port?
 #[function(name = "read-port-to-string")]
 pub fn read_port_to_string(port: &Gc<SteelPort>) -> Result<SteelVal> {
     let (_, result) = port.read_all_str()?;
     Ok(SteelVal::StringV(result.into()))
 }
 
+/// Checks if a given value is an input port
+///
+/// (input-port? any/c) -> bool?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (input-port? (stdin)) ;; => #true
+/// > (input-port? "foo") ;; => #false
+/// ```
 #[function(name = "input-port?")]
-pub fn is_input(port: &Gc<SteelPort>) -> bool {
-    port.is_input()
+pub fn is_input(maybe_port: &SteelVal) -> bool {
+    if let SteelVal::PortV(port) = maybe_port {
+        port.is_input()
+    } else {
+        false
+    }
 }
 
+/// Checks if a given value is an output port
+///
+/// (output-port? any/c) -> bool?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (define output (open-output-file "foo.txt"))
+/// > (output-port? output) ;; => #true
+/// ```
 #[function(name = "output-port?")]
-pub fn is_output(port: &Gc<SteelPort>) -> bool {
-    port.is_output()
+pub fn is_output(maybe_port: &SteelVal) -> bool {
+    if let SteelVal::PortV(port) = maybe_port {
+        port.is_output()
+    } else {
+        false
+    }
 }
 
 #[function(name = "read-line-to-string")]
