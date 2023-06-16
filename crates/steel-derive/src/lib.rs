@@ -6,8 +6,8 @@ extern crate quote;
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{
-    punctuated::Punctuated, spanned::Spanned, Attribute, Data, DeriveInput, Error, Expr, ExprLit,
-    FnArg, Ident, ItemFn, Lit, Meta, ReturnType, Signature, Type,
+    punctuated::Punctuated, Data, DeriveInput, Expr, ExprLit, FnArg, Ident, ItemFn, Lit, Meta,
+    ReturnType, Signature, Type,
 };
 
 #[proc_macro_derive(Steel)]
@@ -26,56 +26,6 @@ pub fn derive_steel(input: TokenStream) -> TokenStream {
         _ => {
             let output = quote! { #input };
             output.into()
-        }
-    }
-}
-
-// fn is_meta(nested: &syn::NestedMeta) -> bool {
-//     match nested {
-//         syn::NestedMeta::Meta(_) => true,
-//         syn::NestedMeta::Lit(_) => false,
-//     }
-// }
-
-// fn get_meta(nested: &syn::NestedMeta) -> &syn::Meta {
-//     match nested {
-//         syn::NestedMeta::Meta(meta) => meta,
-//         syn::NestedMeta::Lit(_) => panic!("Lit found"),
-//     }
-// }
-
-// fn is_meta_name_value(meta: &syn::Meta) -> bool {
-//     match meta {
-//         syn::Meta::Path(_) => false,
-//         syn::Meta::List(_) => false,
-//         syn::Meta::NameValue(_) => true,
-//     }
-// }
-
-// fn get_meta_name_value_str(meta: &syn::Meta) -> String {
-//     match meta {
-//         syn::Meta::Path(_) => panic!("Path found"),
-//         syn::Meta::List(_) => panic!("List found"),
-//         syn::Meta::NameValue(meta_name_value) => {
-//             let lit_str = match &meta_name_value.lit {
-//                 syn::Lit::Str(lit_str) => lit_str.value(),
-//                 _ => panic!("Expected a string literal"),
-//             };
-//             lit_str
-//         }
-//     }
-// }
-
-fn get_meta_name_value_ident(meta: &syn::Meta) -> Ident {
-    match meta {
-        syn::Meta::Path(_) => panic!("Path found"),
-        syn::Meta::List(_) => panic!("List found"),
-        syn::Meta::NameValue(meta_name_value) => {
-            if let Some(ident) = meta_name_value.path.get_ident() {
-                ident.clone()
-            } else {
-                panic!("Expected an ident")
-            }
         }
     }
 }
@@ -218,7 +168,7 @@ pub fn function(
     let arg_index = arg_enumerate.clone().map(|(i, _)| i);
     let function_names_with_colon = std::iter::repeat(function_name_with_colon);
     let function_name = sign.ident.clone();
-    let arity_name = Ident::new(
+    let _arity_name = Ident::new(
         &(function_name.to_string().to_uppercase() + "_ARITY"),
         sign.ident.span(),
     );
