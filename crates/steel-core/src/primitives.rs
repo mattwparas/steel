@@ -360,7 +360,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a Gc<Vector<SteelVal>> {
         if let SteelVal::VectorV(p) = val {
             Ok(p)
         } else {
-            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel port", val))
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel vector", val))
         }
     }
 }
@@ -371,7 +371,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashSet<SteelVal>> {
         if let SteelVal::HashSetV(p) = val {
             Ok(p)
         } else {
-            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel port", val))
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel hashset", val))
         }
     }
 }
@@ -382,7 +382,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a Gc<RefCell<Vec<SteelVal>>> {
         if let SteelVal::MutableVector(p) = val {
             Ok(p)
         } else {
-            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel port", val))
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel mutable vector", val))
         }
     }
 }
