@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use crate::values::transducers::Reducer;
+use crate::values::functions::SerializedLambda;
 use crate::values::{closed::Heap, contracts::ContractType};
 use crate::{
     compiler::constants::ConstantMap,
@@ -14,6 +14,7 @@ use crate::{
     steel_vm::primitives::{equality_primitive, lte_primitive},
     values::transducers::Transducers,
 };
+use crate::{primitives::nums::add_primitive_faster, values::transducers::Reducer};
 
 use crate::{
     env::Env,
@@ -25,7 +26,7 @@ use crate::{
     values::functions::ByteCodeLambda,
 };
 // use std::env::current_exe;
-use std::{collections::HashMap, iter::Iterator, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, iter::Iterator, rc::Rc};
 
 use super::builtin::DocTemplate;
 
@@ -34,17 +35,22 @@ use lazy_static::lazy_static;
 
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
+use slotmap::DefaultKey;
+use smallvec::SmallVec;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
 
-use crate::rvals::IntoSteelVal;
+use crate::rvals::{from_serializable_value, into_serializable_value, IntoSteelVal};
+
+pub(crate) mod threads;
+pub(crate) use threads::{spawn_thread, thread_join};
 
 #[inline]
 #[cold]
-fn cold() {}
+pub fn cold() {}
 
 #[inline]
-fn likely(b: bool) -> bool {
+pub fn likely(b: bool) -> bool {
     if !b {
         cold()
     }
@@ -52,7 +58,7 @@ fn likely(b: bool) -> bool {
 }
 
 #[inline]
-fn unlikely(b: bool) -> bool {
+pub fn unlikely(b: bool) -> bool {
     if b {
         cold()
     }
@@ -67,6 +73,7 @@ fn unlikely(b: bool) -> bool {
 const STACK_LIMIT: usize = 1000000;
 const _JIT_THRESHOLD: usize = 100;
 
+#[repr(C)]
 #[derive(Clone, Debug, Copy, PartialEq)]
 pub struct DehydratedCallContext {
     span: Option<Span>,
@@ -84,6 +91,7 @@ impl DehydratedCallContext {
     }
 }
 
+#[repr(C)]
 #[derive(Clone, Debug, PartialEq)]
 pub struct DehydratedStackTrace {
     stack_trace: Vec<DehydratedCallContext>,
@@ -114,12 +122,27 @@ impl DehydratedStackTrace {
 pub struct StackFrame {
     sp: usize,
     // This _has_ to be a function
-    handler: Option<SteelVal>,
+    handler: Option<DefaultKey>,
     // This should get added to the GC as well
+    #[cfg(not(feature = "unsafe-internals"))]
     pub(crate) function: Gc<ByteCodeLambda>,
+    // Whenever the StackFrame object leaves the context of _this_ VM, these functions
+    // need to become rooted, otherwise we'll have an issue with use after free
+    #[cfg(feature = "unsafe-internals")]
+    pub(crate) function: crate::gc::unsafe_roots::MaybeRooted<ByteCodeLambda>,
     ip: usize,
     instructions: Rc<[DenseInstruction]>,
-    spans: Rc<[Span]>,
+    // spans: Rc<[Span]>, // span_id: usize,
+}
+
+#[test]
+fn check_sizes() {
+    println!("{:?}", std::mem::size_of::<Option<SteelVal>>());
+    println!("{:?}", std::mem::size_of::<StackFrame>());
+    println!("{:?}", std::mem::size_of::<Rc<[DenseInstruction]>>());
+    // println!("{:?}", std::mem::size_of::<Rc<[Span]>>());
+    println!("{:?}", std::mem::size_of::<Gc<ByteCodeLambda>>());
+    // println!("{:?}", std::mem::size_of::<Option<slotmap::DefaultKey>>());
 }
 
 impl StackFrame {
@@ -128,22 +151,53 @@ impl StackFrame {
         function: Gc<ByteCodeLambda>,
         ip: usize,
         instructions: Rc<[DenseInstruction]>,
-        spans: Rc<[Span]>,
+        // span_id: usize,
+        // spans: Rc<[Span]>,
     ) -> Self {
         Self {
             sp: stack_index,
+            #[cfg(feature = "unsafe-internals")]
+            function: crate::gc::unsafe_roots::MaybeRooted::Reference(function),
+            #[cfg(not(feature = "unsafe-internals"))]
             function,
             ip,
             instructions,
             // span: None,
             handler: None,
-            spans,
+            // spans,
+            // span_id,
+        }
+    }
+
+    fn new_rooted(
+        stack_index: usize,
+        #[cfg(feature = "unsafe-internals")] function: crate::gc::unsafe_roots::MaybeRooted<
+            ByteCodeLambda,
+        >,
+        #[cfg(not(feature = "unsafe-internals"))] function: Gc<ByteCodeLambda>,
+        ip: usize,
+        instructions: Rc<[DenseInstruction]>,
+        // span_id: usize,
+        // spans: Rc<[Span]>,
+    ) -> Self {
+        Self {
+            sp: stack_index,
+            #[cfg(feature = "unsafe-internals")]
+            function,
+            #[cfg(not(feature = "unsafe-internals"))]
+            function,
+            ip,
+            instructions,
+            // span: None,
+            handler: None,
+            // spans,
+            // span_id,
         }
     }
 
     pub fn main() -> Self {
         let function = Gc::new(ByteCodeLambda::main(Vec::new()));
-        StackFrame::new(0, function, 0, Rc::from([]), Rc::from([]))
+        StackFrame::new(0, function, 0, Rc::from([]))
     }
 
     // #[inline(always)]
@@ -153,18 +207,26 @@ impl StackFrame {
     // }
 
     pub fn set_function(&mut self, function: Gc<ByteCodeLambda>) {
-        self.function = function;
+        #[cfg(not(feature = "unsafe-internals"))]
+        {
+            self.function = function;
+        }
+
+        #[cfg(feature = "unsafe-internals")]
+        {
+            self.function = crate::gc::unsafe_roots::MaybeRooted::Reference(function);
+        }
     }
 
     // pub fn set_span(&mut self, span: Span) {
     //     self.span = Some(span);
     // }
 
-    pub fn attach_handler(&mut self, handler: SteelVal) {
-        self.handler = Some(handler);
-    }
+    // pub fn attach_handler(&mut self, handler: SteelVal) {
+    //     self.handler = Some(handler);
+    // }
 
-    pub fn with_handler(mut self, handler: SteelVal) -> Self {
+    pub fn with_handler(mut self, handler: DefaultKey) -> Self {
         self.handler = Some(handler);
         self
     }
@@ -189,8 +251,7 @@ pub struct SteelThread {
     pub(crate) runtime_options: RunTimeOptions,
     pub(crate) current_frame: StackFrame,
     pub(crate) stack_frames: Vec<StackFrame>,
-    constant_map: ConstantMap,
-    // current_executable: Option<Executable>,
+    pub(crate) constant_map: ConstantMap,
 }
 
 #[derive(Clone)]
@@ -208,10 +269,35 @@ impl RunTimeOptions {
     }
 }
 
+struct InstructionChunk {
+    start: usize,
+    end: usize,
+    id: usize,
+}
+
+#[derive(PartialEq)]
+struct SpanId(usize);
+
 #[derive(Default, Clone)]
 pub struct FunctionInterner {
     closure_interner: fxhash::FxHashMap<usize, ByteCodeLambda>,
     pure_function_interner: fxhash::FxHashMap<usize, Gc<ByteCodeLambda>>,
+    // Functions will store a reference to a slot here, rather than any other way
+    // getting the span can be super late bound then, and we don't need to worry about
+    // cache misses nearly as much
+    // Rooted spans more or less are just spans from the top level getting passed in - we'll
+    // take them, root them with some sort of gensym, and then free them on the way out.
+    //
+    // These should get GC'd eventually, by walking the alive set and seeing if there are
+    // actually any references to this still in existence. Functions should probably hold a direct
+    // reference to the existing thread in which it was created, and if passed in externally by
+    // another run time, we can nuke it?
+    spans: fxhash::FxHashMap<usize, Rc<[Span]>>,
+    // Keep these around - each thread keeps track of the instructions on the bytecode object, but we shouldn't
+    // need to dereference that until later? When we actually move to that
+    instructions: fxhash::FxHashMap<usize, Rc<[DenseInstruction]>>,
+
+    handlers: Rc<RefCell<slotmap::SlotMap<DefaultKey, SteelVal>>>,
 }
 
 impl SteelThread {
@@ -224,7 +310,7 @@ impl SteelThread {
             super_instructions: Vec::new(),
             heap: Heap::new(),
             runtime_options: RunTimeOptions::new(),
-            stack_frames: Vec::with_capacity(32),
+            stack_frames: Vec::with_capacity(128),
             current_frame: StackFrame::main(),
             // Should probably just have this be Option<ConstantMap> - but then every time we look up
             // something we'll have to deal with the fact that its wrapped in an option. Another options
@@ -290,7 +376,7 @@ impl SteelThread {
             }
             SteelVal::BoxedFunction(func) => {
                 let arg_vec: Vec<_> = args.into_iter().collect();
-                func(&arg_vec).map_err(|x| x.set_span_if_none(Span::default()))
+                func.func()(&arg_vec).map_err(|x| x.set_span_if_none(Span::default()))
             }
             // SteelVal::ContractedFunction(cf) => {
             //     let arg_vec: Vec<_> = args.into_iter().collect();
@@ -317,8 +403,10 @@ impl SteelThread {
                     constant_map,
                     // &mut self.function_stack,
                     // &mut self.stack_index,
-                    spans,
+                    // 0,
+                    Rc::clone(&spans),
                     self,
+                    &spans,
                 );
 
                 // vm_instance.call_func_or_else_many_args(
@@ -347,7 +435,10 @@ impl SteelThread {
         #[cfg(feature = "profiling")]
         let execution_time = Instant::now();
 
-        let mut vm_instance = VmCore::new(instructions, constant_map, spans, self)?;
+        let handler_ref = Rc::clone(&self.function_interner.handlers);
+
+        let mut vm_instance =
+            VmCore::new(instructions, constant_map, Rc::clone(&spans), self, &spans)?;
 
         // This is our pseudo "dynamic unwind"
         // If we need to, we'll walk back on the stack and find any handlers to pop
@@ -377,6 +468,8 @@ impl SteelThread {
 
                         vm_instance.thread.stack.push(e.into_steelval()?);
 
+                        let handler = &handler_ref.borrow()[handler];
+
                         // If we're at the top level, we need to handle this _slightly_ differently
                         // if vm_instance.stack_frames.is_empty() {
                         // Somehow update the main instruction group to _just_ be the new group
@@ -391,16 +484,21 @@ impl SteelThread {
                                         Gc::clone(&closure),
                                         0,
                                         Rc::from([]),
-                                        Rc::from([]),
+                                        // Rc::from([]),
+                                        // 0,
                                     ));
                                 }
 
                                 vm_instance.sp = last.sp;
                                 vm_instance.instructions = closure.body_exp();
-                                vm_instance.spans = closure.spans();
+                                // vm_instance.spans = closure.spans();
 
                                 last.handler = None;
-                                last.function = closure;
+
+                                #[cfg(not(feature = "unsafe-internals"))]
+                                {
+                                    last.function = closure.clone();
+                                }
 
                                 vm_instance.ip = 0;
 
@@ -445,8 +543,6 @@ impl SteelThread {
 
                 // Clean up
                 self.stack.clear();
-                // self.stack_index.clear();
-                // self.function_stack.clear();
 
                 #[cfg(feature = "profiling")]
                 if log_enabled!(target: "pipeline_time", log::Level::Debug) {
@@ -476,7 +572,6 @@ impl SteelThread {
 pub struct Continuation {
     pub(crate) stack: Vec<SteelVal>,
     current_frame: StackFrame,
-    spans: Rc<[Span]>,
     instructions: Rc<[DenseInstruction]>,
     pub(crate) stack_frames: Vec<StackFrame>,
     ip: usize,
@@ -663,9 +758,11 @@ pub struct VmCore<'a> {
     pub(crate) ip: usize,
     pub(crate) sp: usize,
     pub(crate) pop_count: usize,
-    pub(crate) spans: Rc<[Span]>,
+    // pub(crate) spans: Rc<[Span]>,
+    // pub(crate) span_id: usize,
     pub(crate) depth: usize,
     pub(crate) thread: &'a mut SteelThread,
+    pub(crate) root_spans: &'a [Span],
 }
 
 // TODO: Delete this entirely, and just have the run function live on top of the SteelThread.
@@ -675,7 +772,9 @@ impl<'a> VmCore<'a> {
         instructions: Rc<[DenseInstruction]>,
         constants: ConstantMap,
         spans: Rc<[Span]>,
+        // span_id: usize,
         thread: &'a mut SteelThread,
+        root_spans: &'a [Span],
     ) -> VmCore<'a> {
         VmCore {
             instructions,
@@ -683,9 +782,11 @@ impl<'a> VmCore<'a> {
             ip: 0,
             sp: 0,
             pop_count: 1,
-            spans,
+            // spans,
+            // span_id,
             depth: 0,
             thread,
+            root_spans,
         }
     }
 
@@ -693,7 +794,9 @@ impl<'a> VmCore<'a> {
         instructions: Rc<[DenseInstruction]>,
         constants: ConstantMap,
         spans: Rc<[Span]>,
+        // span_id: usize,
         thread: &'a mut SteelThread,
+        root_spans: &'a [Span],
     ) -> Result<VmCore<'a>> {
         if instructions.is_empty() {
             stop!(Generic => "empty stack!")
@@ -710,9 +813,11 @@ impl<'a> VmCore<'a> {
             ip: 0,
             sp: 0,
             pop_count: 1,
-            spans,
+            // spans,
+            // span_id,
             depth: 0,
             thread,
+            root_spans,
         })
     }
 
@@ -726,7 +831,7 @@ impl<'a> VmCore<'a> {
             ip: self.ip,
             sp: self.sp,
             pop_count: self.pop_count,
-            spans: Rc::clone(&self.spans),
+            // spans: Rc::clone(&self.spans),
         }
     }
 
@@ -735,7 +840,16 @@ impl<'a> VmCore<'a> {
             self.thread
                 .stack_frames
                 .iter()
-                .map(|x| DehydratedCallContext::new(x.spans.get(x.ip).copied()))
+                .map(|x| {
+                    DehydratedCallContext::new(
+                        self.thread
+                            .function_interner
+                            .spans
+                            .get(&x.function.id)
+                            .and_then(|x| x.get(self.ip))
+                            .copied(),
+                    )
+                })
                 .collect(),
         )
     }
@@ -744,7 +858,7 @@ impl<'a> VmCore<'a> {
     fn set_state_from_continuation(&mut self, continuation: Continuation) {
         self.thread.stack = continuation.stack;
         self.instructions = continuation.instructions;
-        self.spans = continuation.spans;
+        // self.spans = continuation.spans;
         self.ip = continuation.ip;
         self.sp = continuation.sp;
         self.pop_count = continuation.pop_count;
@@ -762,12 +876,12 @@ impl<'a> VmCore<'a> {
     fn call_with_instructions_and_reset_state(
         &mut self,
         closure: Rc<[DenseInstruction]>,
-        spans: Rc<[Span]>,
+        // spans: Rc<[Span]>,
     ) -> Result<SteelVal> {
         let old_ip = self.ip;
         let old_instructions = std::mem::replace(&mut self.instructions, closure);
         let old_pop_count = self.pop_count;
-        let old_spans = std::mem::replace(&mut self.spans, spans);
+        // let old_spans = std::mem::replace(&mut self.spans, spans);
 
         // dbg!(self.sp);
 
@@ -789,7 +903,7 @@ impl<'a> VmCore<'a> {
         self.ip = old_ip;
         self.instructions = old_instructions;
         self.pop_count = old_pop_count;
-        self.spans = old_spans;
+        // self.spans = old_spans;
         self.sp = self.thread.stack_frames.last().map(|x| x.sp).unwrap_or(0);
 
         // dbg!(self.sp);
@@ -815,7 +929,7 @@ impl<'a> VmCore<'a> {
             }
             SteelVal::BoxedFunction(func) => {
                 let arg_vec = [arg];
-                func(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+                func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
             SteelVal::ContractedFunction(cf) => {
                 let arg_vec = vec![arg];
@@ -850,7 +964,7 @@ impl<'a> VmCore<'a> {
             }
             SteelVal::BoxedFunction(func) => {
                 let arg_vec = [arg1, arg2];
-                func(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+                func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
             SteelVal::ContractedFunction(cf) => {
                 let arg_vec = vec![arg1, arg2];
@@ -884,7 +998,7 @@ impl<'a> VmCore<'a> {
             }
             SteelVal::BoxedFunction(func) => {
                 let arg_vec: Vec<_> = args.into_iter().collect();
-                func(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+                func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
             SteelVal::ContractedFunction(cf) => {
                 let arg_vec: Vec<_> = args.into_iter().collect();
@@ -918,7 +1032,7 @@ impl<'a> VmCore<'a> {
         // if self.stack_frames
 
         let instructions = closure.body_exp();
-        let spans = closure.spans();
+        // let spans = closure.spans();
 
         // TODO:
         self.thread.stack_frames.push(StackFrame::new(
@@ -926,7 +1040,7 @@ impl<'a> VmCore<'a> {
             Gc::clone(closure),
             0,
             instructions.clone(),
-            spans.clone(),
+            // spans.clone(),
         ));
 
         self.sp = prev_length;
@@ -942,7 +1056,7 @@ impl<'a> VmCore<'a> {
         // self.function_stack
         // .push(CallContext::new(Gc::clone(closure)));
 
-        self.call_with_instructions_and_reset_state(instructions, spans)
+        self.call_with_instructions_and_reset_state(instructions)
     }
 
     // Calling convention
@@ -960,7 +1074,7 @@ impl<'a> VmCore<'a> {
             Gc::clone(closure),
             0,
             Rc::from([]),
-            Rc::from([]),
+            // Rc::from([]),
         ));
 
         self.sp = prev_length;
@@ -972,7 +1086,7 @@ impl<'a> VmCore<'a> {
 
         self.adjust_stack_for_multi_arity(closure, 2, &mut 0)?;
 
-        self.call_with_instructions_and_reset_state(closure.body_exp(), closure.spans())
+        self.call_with_instructions_and_reset_state(closure.body_exp())
     }
 
     // Calling convention
@@ -988,7 +1102,7 @@ impl<'a> VmCore<'a> {
             Gc::clone(closure),
             0,
             Rc::from([]),
-            Rc::from([]),
+            // Rc::from([]),
         ));
 
         self.sp = prev_length;
@@ -1002,7 +1116,7 @@ impl<'a> VmCore<'a> {
 
         self.adjust_stack_for_multi_arity(closure, 1, &mut 0)?;
 
-        self.call_with_instructions_and_reset_state(closure.body_exp(), closure.spans())
+        self.call_with_instructions_and_reset_state(closure.body_exp())
     }
 
     // pub fn get_slice_of_size_two(&mut self) -> &mut [SteelVal] {
@@ -1030,8 +1144,12 @@ impl<'a> VmCore<'a> {
                 };
 
                 // This is the old way... lets see if the below way improves the speed
-                self.thread.stack.truncate(last_index);
-                self.thread.stack.push(result);
+                // self.thread.stack.truncate(last_index);
+                // self.thread.stack.push(result);
+
+                self.thread.stack.truncate(last_index + 1);
+                *self.thread.stack.last_mut().unwrap() = result;
+                // self.thread.stack.push(result);
 
                 self.ip += 2;
             }};
@@ -1062,6 +1180,34 @@ impl<'a> VmCore<'a> {
             }};
         }
 
+        // TODO: Directly call the binary operation with the value as an isize
+        macro_rules! inline_register_primitive_immediate {
+            ($name:tt) => {{
+                let read_local = &self.instructions[self.ip];
+                let push_const = &self.instructions[self.ip + 1];
+
+                // get the local
+                // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                let offset = self.get_offset();
+                let local_value =
+                    self.thread.stack[read_local.payload_size as usize + offset].clone();
+
+                // get the const value, if it can fit into the value...
+                let const_val = SteelVal::IntV(push_const.payload_size as isize);
+
+                // sub_handler_none_int
+
+                let result = match $name(&[local_value, const_val]) {
+                    Ok(value) => value,
+                    Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                };
+
+                self.thread.stack.push(result);
+
+                self.ip += 2;
+            }};
+        }
+
         // let mut frame = self.stack_frames.last().unwrap();
 
         // while self.ip < self.instructions.len() {
@@ -1077,7 +1223,7 @@ impl<'a> VmCore<'a> {
                 self.ip,
                 &self.instructions,
                 // Grab the current stack frame
-                self.thread.stack_frames.last().map(|x| &x.function),
+                self.thread.stack_frames.last().map(|x| x.function.as_ref()),
             ) {
                 // if count > 1000 {
                 println!("Found a hot pattern, creating super instruction...");
@@ -1115,7 +1261,10 @@ impl<'a> VmCore<'a> {
             // We can elide the reads, and instead opt to just go for values directly on the instructions
             // Otherwise, we're going to be copying the instruction _every_ time we iterate which is going to slow down the loop
             // We'd rather just reference the instruction and call it a day
-            match self.instructions[self.ip] {
+
+            let instr = self.instructions[self.ip];
+
+            match instr {
                 DenseInstruction {
                     op_code: OpCode::DynSuperInstruction,
                     payload_size,
@@ -1200,18 +1349,167 @@ impl<'a> VmCore<'a> {
                     inline_register_primitive!(lte_primitive)
                 }
                 DenseInstruction {
+                    op_code: OpCode::ADDIMMEDIATE,
+                    ..
+                } => {
+                    inline_register_primitive_immediate!(add_primitive)
+                }
+                DenseInstruction {
+                    op_code: OpCode::SUBIMMEDIATE,
+                    ..
+                } => {
+                    // inline_register_primitive_immediate!(subtract_primitive)
+
+                    let read_local = &self.instructions[self.ip];
+                    let push_const = &self.instructions[self.ip + 1];
+
+                    // get the local
+                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                    let offset = self.get_offset();
+                    let local_value =
+                        self.thread.stack[read_local.payload_size as usize + offset].clone();
+
+                    // get the const value, if it can fit into the value...
+                    let const_val = push_const.payload_size as isize;
+
+                    // sub_handler_none_int
+
+                    let result = sub_handler_none_int(self, local_value, const_val)?;
+
+                    // let result = match $name(&[local_value, const_val]) {
+                    //     Ok(value) => value,
+                    //     Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                    // };
+
+                    // let result
+
+                    self.thread.stack.push(result);
+
+                    self.ip += 2;
+                }
+                DenseInstruction {
+                    op_code: OpCode::LTEIMMEDIATE,
+                    ..
+                } => {
+                    // inline_register_primitive_immediate!(subtract_primitive)
+
+                    let read_local = &self.instructions[self.ip];
+                    let push_const = &self.instructions[self.ip + 1];
+
+                    // get the local
+                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                    let offset = self.get_offset();
+                    let local_value =
+                        self.thread.stack[read_local.payload_size as usize + offset].clone();
+
+                    // get the const value, if it can fit into the value...
+                    let const_val = push_const.payload_size as isize;
+
+                    // sub_handler_none_int
+
+                    // TODO: Probably elide the stack push if the next inst is an IF
+                    let result = lte_handler_none_int(self, local_value, const_val)?;
+
+                    // let result = match $name(&[local_value, const_val]) {
+                    //     Ok(value) => value,
+                    //     Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                    // };
+
+                    // let result
+
+                    self.thread.stack.push(SteelVal::BoolV(result));
+
+                    self.ip += 2;
+                }
+                DenseInstruction {
+                    op_code: OpCode::LTEIMMEDIATEIF,
+                    ..
+                } => {
+                    // inline_register_primitive_immediate!(subtract_primitive)
+
+                    let read_local = &self.instructions[self.ip];
+                    let push_const = &self.instructions[self.ip + 1];
+
+                    // get the local
+                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                    let offset = self.get_offset();
+                    let local_value =
+                        self.thread.stack[read_local.payload_size as usize + offset].clone();
+
+                    // get the const value, if it can fit into the value...
+                    let const_val = push_const.payload_size as isize;
+
+                    // sub_handler_none_int
+
+                    // TODO: Probably elide the stack push if the next inst is an IF
+                    let result = lte_handler_none_int(self, local_value, const_val)?;
+
+                    // let result = match $name(&[local_value, const_val]) {
+                    //     Ok(value) => value,
+                    //     Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                    // };
+
+                    // let result
+
+                    self.ip += 2;
+
+                    // change to truthy...
+                    if result {
+                        self.ip += 1;
+                    } else {
+                        self.ip = self.instructions[self.ip].payload_size as usize;
+                    }
+                }
+
+                DenseInstruction {
                     op_code: OpCode::ADD,
                     payload_size,
                     ..
                 } => {
-                    inline_primitive!(add_primitive, payload_size)
+                    add_handler_payload(self, payload_size as usize)?;
+                    // inline_primitive!(add_primitive, payload_size)
+                }
+                DenseInstruction {
+                    op_code: OpCode::BINOPADD,
+                    ..
+                } => {
+                    // add_handler_payload(self, 2)?;
+
+                    let last_index = self.thread.stack.len() - 2;
+
+                    let right = self.thread.stack.pop().unwrap();
+                    let left = self.thread.stack.last().unwrap();
+
+                    let result = match add_handler_none_none(left, &right) {
+                        Ok(value) => value,
+                        Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                    };
+
+                    // let result = match $name(&mut $ctx.thread.stack[last_index..]) {
+                    //     Ok(value) => value,
+                    //     Err(e) => return Err(e.set_span_if_none($ctx.current_span())),
+                    // };
+
+                    // This is the old way... lets see if the below way improves the speed
+                    // $ctx.thread.stack.truncate(last_index);
+                    // $ctx.thread.stack.push(result);
+
+                    // self.thread.stack.truncate(last_index + 1);
+                    // *self.thread.stack.last_mut().unwrap() = result;
+
+                    *self.thread.stack.last_mut().unwrap() = result;
+
+                    self.ip += 2;
+
+                    // inline_primitive!(add_primitive, payload_size)
                 }
                 DenseInstruction {
                     op_code: OpCode::SUB,
                     payload_size,
                     ..
                 } => {
-                    inline_primitive!(subtract_primitive, payload_size)
+                    sub_handler_payload(self, payload_size as usize)?;
+                    // inline_primitive!(subtract_primitive, payload_size)
                 }
                 DenseInstruction {
                     op_code: OpCode::MUL,
@@ -1239,7 +1537,8 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
-                    inline_primitive!(lte_primitive, payload_size);
+                    lte_handler_payload(self, payload_size as usize)?;
+                    // inline_primitive!(lte_primitive, payload_size);
                 }
 
                 DenseInstruction {
@@ -1502,7 +1801,7 @@ impl<'a> VmCore<'a> {
                     let last_stack_frame = self.thread.stack_frames.last().unwrap();
 
                     self.instructions = last_stack_frame.function.body_exp();
-                    self.spans = last_stack_frame.function.spans();
+                    // self.spans = last_stack_frame.function.spans();
                     self.sp = last_stack_frame.sp;
 
                     // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
@@ -1740,7 +2039,24 @@ impl<'a> VmCore<'a> {
 
         // println!("Span vec: {:#?}", self.spans);
 
-        self.spans.get(self.ip).copied().unwrap_or_default()
+        // self.spans.get(self.ip).copied().unwrap_or_default()
+
+        self.thread
+            .stack_frames
+            .last()
+            .map(|x| x.function.id)
+            .and_then(|x| {
+                self.thread
+                    .function_interner
+                    .spans
+                    .get(&x)
+                    .and_then(|x| x.get(self.ip))
+            })
+            .or_else(|| self.root_spans.get(self.ip))
+            .copied()
+            .unwrap_or_default()
+
+        // todo!()
 
         // self.spans
         //     .get(
@@ -1757,16 +2073,46 @@ impl<'a> VmCore<'a> {
     }
 
     fn enclosing_span(&self) -> Option<Span> {
-        self.thread.stack_frames.last().and_then(|x| {
-            if x.ip > 0 {
-                x.spans.get(x.ip - 1).copied()
-            } else {
-                None
-            }
-        })
+        // todo!("Fix me!")
+
+        if self.thread.stack_frames.len() > 2 {
+            let back_two = self.thread.stack_frames.len() - 2;
+
+            self.thread
+                .stack_frames
+                .get(back_two)
+                .and_then(|frame| {
+                    self.thread
+                        .function_interner
+                        .spans
+                        .get(&frame.function.id)
+                        .and_then(|x| {
+                            if frame.ip > 0 {
+                                x.get(frame.ip - 1)
+                            } else {
+                                None
+                            }
+                        })
+                })
+                .or_else(|| self.root_spans.get(self.ip))
+                .copied()
+            // .unwrap_or_default()
+        } else {
+            None
+        }
+
+        // self.thread.stack_frames
+
+        // self.thread.stack_frames.last().and_then(|x| {
+        //     if x.ip > 0 {
+        //         x.spans.get(x.ip - 1).copied()
+        //     } else {
+        //         None
+        //     }
+        // })
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn handle_pop_pure(&mut self) -> Option<Result<SteelVal>> {
         // Check that the amount we're looking to pop and the function stack length are equivalent
         // otherwise we have a problem
@@ -1780,9 +2126,13 @@ impl<'a> VmCore<'a> {
         let last = self.thread.stack_frames.pop();
 
         // let should_return = self.stack_frames.is_empty();
-        let should_return = self.pop_count == 0;
+        let should_continue = self.pop_count != 0;
 
-        if likely(!should_return) {
+        if should_continue {
+            // #[cfg(feature = "unsafe-internals")]
+            // let last = unsafe { last.unwrap_unchecked() };
+
+            // #[cfg(not(feature = "unsafe-internals"))]
             let last = last.unwrap();
 
             // Update the current frame to be the last one
@@ -1793,16 +2143,26 @@ impl<'a> VmCore<'a> {
 
             let rollback_index = last.sp;
 
+            // let ret_val = self.thread.stack.pop().unwrap();
+
+            // for _ in rollback_index..self.thread.stack.len() {
+            //     self.thread.stack.pop();
+            // }
+
+            // self.thread.stack.push(ret_val);
+
             let _ = self
                 .thread
                 .stack
                 .drain(rollback_index..self.thread.stack.len() - 1);
 
-            self.ip = last.ip;
-            self.instructions = last.instructions;
-            self.spans = last.spans;
+            // for value in values {
+            //     dbg!(value);
+            // }
 
-            self.sp = self.thread.stack_frames.last().map(|x| x.sp).unwrap_or(0);
+            self.update_state_with_frame(last);
+
+            self.sp = self.get_last_stack_frame_sp();
 
             // self.sp = last.index;
 
@@ -1827,6 +2187,18 @@ impl<'a> VmCore<'a> {
         }
     }
 
+    #[inline(always)]
+    fn update_state_with_frame(&mut self, last: StackFrame) {
+        self.ip = last.ip;
+        self.instructions = last.instructions;
+        // self.spans = last.spans;
+    }
+
+    #[inline(always)]
+    fn get_last_stack_frame_sp(&self) -> usize {
+        self.thread.stack_frames.last().map(|x| x.sp).unwrap_or(0)
+    }
+
     // #[inline(always)]
     fn handle_panic(&mut self, span: Span) -> Result<()> {
         let error_message = self.thread.stack.pop().unwrap();
@@ -1849,10 +2221,20 @@ impl<'a> VmCore<'a> {
 
     #[inline(always)]
     fn handle_call_global(&mut self, index: usize, payload_size: usize) -> Result<()> {
-        let func = self.thread.global_env.repl_lookup_idx(index);
-        // TODO - handle this a bit more elegantly
-        // self.handle_function_call(func, payload_size, span)
-        self.handle_global_function_call(func, payload_size)
+        #[cfg(not(feature = "unsafe-internals"))]
+        {
+            let func = self.thread.global_env.repl_lookup_idx(index);
+            // TODO - handle this a bit more elegantly
+            // self.handle_function_call(func, payload_size, span)
+            self.handle_global_function_call(func, payload_size)
+        }
+        #[cfg(feature = "unsafe-internals")]
+        {
+            let func = self.thread.global_env.repl_lookup_idx(index);
+            // TODO - handle this a bit more elegantly
+            // self.handle_function_call(func, payload_size, span)
+            self.handle_global_function_call_by_reference(&func, payload_size)
+        }
     }
 
     #[inline(always)]
@@ -1877,6 +2259,7 @@ impl<'a> VmCore<'a> {
         // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
         let offset = self.get_offset();
         let value = self.thread.stack[index + offset].clone();
+
         self.thread.stack.push(value);
         self.ip += 1;
         Ok(())
@@ -1954,8 +2337,22 @@ impl<'a> VmCore<'a> {
 
             // Construct the closure body using the offsets from the payload
             // used to be - 1, now - 2
-            let closure_body = self.instructions[self.ip..forward_jump_index].to_vec();
-            let spans = self.spans[self.ip..forward_jump_index].into();
+            let closure_body = self.instructions[self.ip..forward_jump_index].into();
+
+            let spans = if let Some(spans) = self
+                .thread
+                .stack_frames
+                .last()
+                .and_then(|x| self.thread.function_interner.spans.get(&x.function.id))
+            {
+                spans[self.ip..forward_jump_index].into()
+            } else {
+                self.root_spans[self.ip..forward_jump_index].into()
+            };
+
+            // if let Some(spans) = self.thread.function_interner.spans.get()
+
+            // let spans = self.spans[self.ip..forward_jump_index].into();
 
             // snag the arity from the eclosure instruction
             let arity = self.instructions[forward_index - 1].payload_size;
@@ -1967,13 +2364,19 @@ impl<'a> VmCore<'a> {
                 is_multi_arity,
                 Vec::new(),
                 Vec::new(),
-                spans,
+                // Rc::clone(&spans),
             ));
 
             self.thread
                 .function_interner
                 .pure_function_interner
                 .insert(closure_id, Gc::clone(&constructed_lambda));
+
+            // Put the spans into the
+            self.thread
+                .function_interner
+                .spans
+                .insert(closure_id, spans);
 
             constructed_lambda
         };
@@ -2114,8 +2517,19 @@ impl<'a> VmCore<'a> {
 
             // Construct the closure body using the offsets from the payload
             // used to be - 1, now - 2
-            let closure_body = self.instructions[self.ip..forward_jump_index].to_vec();
-            let spans = self.spans[self.ip..forward_jump_index].into();
+            let closure_body = self.instructions[self.ip..forward_jump_index].into();
+            // let spans = self.spans[self.ip..forward_jump_index].into();
+
+            let spans = if let Some(spans) = self
+                .thread
+                .stack_frames
+                .last()
+                .and_then(|x| self.thread.function_interner.spans.get(&x.function.id))
+            {
+                spans[self.ip..forward_jump_index].into()
+            } else {
+                self.root_spans[self.ip..forward_jump_index].into()
+            };
 
             // snag the arity from the eclosure instruction
             let arity = self.instructions[forward_jump_index].payload_size;
@@ -2127,13 +2541,18 @@ impl<'a> VmCore<'a> {
                 is_multi_arity,
                 Vec::new(),
                 Vec::new(),
-                spans,
             );
 
             self.thread
                 .function_interner
                 .closure_interner
                 .insert(closure_id, constructed_lambda.clone());
+
+            // Put the spans into the interner
+            self.thread
+                .function_interner
+                .spans
+                .insert(closure_id, spans);
 
             constructed_lambda.set_captures(captures);
             constructed_lambda.set_heap_allocated(heap_vars);
@@ -2147,6 +2566,14 @@ impl<'a> VmCore<'a> {
 
         self.ip = forward_index;
         Ok(())
+    }
+
+    // Enter a new thread, passing values that can be serialized
+    // Resolve all references, attempt to instantiate a new engine on the other side?
+    fn new_thread(&mut self, function: Gc<ByteCodeLambda>) {
+        todo!()
+
+        // Analyze the dependencies of the function, and see if its safe to be spawned on another thread
     }
 
     // #[inline(always)]
@@ -2237,7 +2664,7 @@ impl<'a> VmCore<'a> {
 
         // self.global_env = inner_env;
         self.instructions = closure.body_exp();
-        self.spans = closure.spans();
+        // self.spans = closure.spans();
 
         last.set_function(closure);
         // last.set_span(current_span);
@@ -2298,7 +2725,7 @@ impl<'a> VmCore<'a> {
         #[cfg(feature = "dynamic")]
         if let Some(pat) = self.thread.profiler.cut_sequence(
             &self.instructions,
-            self.thread.stack_frames.last().map(|x| &x.function),
+            self.thread.stack_frames.last().map(|x| x.function.as_ref()),
         ) {
             println!("Found a hot pattern, creating super instruction...");
 
@@ -2325,7 +2752,7 @@ impl<'a> VmCore<'a> {
     fn handle_tail_call(&mut self, stack_func: SteelVal, payload_size: usize) -> Result<()> {
         use SteelVal::*;
         match stack_func {
-            BoxedFunction(f) => self.call_boxed_func(f, payload_size),
+            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
             FuncV(f) => self.call_primitive_func(f, payload_size),
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
             // FutureFunc(f) => self.call_future_func(f, payload_size),
@@ -2345,7 +2772,7 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     fn call_boxed_func(
         &mut self,
-        func: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>>,
+        func: &dyn Fn(&[SteelVal]) -> Result<SteelVal>,
         payload_size: usize,
     ) -> Result<()> {
         // println!("{:?}, {:?}", self.thread.stack, payload_size);
@@ -2672,7 +3099,7 @@ impl<'a> VmCore<'a> {
                 Gc::clone(closure),
                 self.ip + 4,
                 Rc::clone(&self.instructions),
-                Rc::clone(&self.spans),
+                // Rc::clone(&self.spans),
             ), // .with_span(self.current_span()),
         );
 
@@ -2712,7 +3139,7 @@ impl<'a> VmCore<'a> {
         self.pop_count += 1;
 
         self.instructions = closure.body_exp();
-        self.spans = closure.spans();
+        // self.spans = closure.spans();
         self.ip = 0;
         Ok(())
     }
@@ -2748,7 +3175,7 @@ impl<'a> VmCore<'a> {
         match &stack_func {
             BoxedFunction(f) => {
                 self.thread.stack.push(
-                    f(&[local, const_value])
+                    f.func()(&[local, const_value])
                         .map_err(|x| x.set_span_if_none(self.current_span()))?,
                 );
                 self.ip += 4;
@@ -2856,7 +3283,7 @@ impl<'a> VmCore<'a> {
         // }
 
         let instructions = closure.body_exp();
-        let spans = closure.spans();
+        // let spans = closure.spans();
 
         self.thread.stack_frames.push(
             StackFrame::new(
@@ -2864,7 +3291,7 @@ impl<'a> VmCore<'a> {
                 closure,
                 self.ip + 1,
                 Rc::clone(&self.instructions),
-                Rc::clone(&self.spans),
+                // Rc::clone(&self.spans),
             ), // .with_span(self.current_span()),
         );
 
@@ -2890,7 +3317,7 @@ impl<'a> VmCore<'a> {
         // self.stacks.push(stack);
 
         self.instructions = instructions;
-        self.spans = spans;
+        // self.spans = spans;
 
         self.ip = 0;
         Ok(())
@@ -2922,24 +3349,74 @@ impl<'a> VmCore<'a> {
     #[inline(always)]
     fn handle_function_call_closure_jit_without_profiling(
         &mut self,
-        closure: Gc<ByteCodeLambda>,
+        mut closure: Gc<ByteCodeLambda>,
         payload_size: usize,
     ) -> Result<()> {
         self.adjust_stack_for_multi_arity(&closure, payload_size, &mut 0)?;
 
         self.sp = self.thread.stack.len() - closure.arity();
 
-        let instructions = closure.body_exp();
-        let spans = closure.spans();
+        let mut instructions = closure.body_exp();
+        // let mut spans = closure.spans();
+
+        std::mem::swap(&mut instructions, &mut self.instructions);
+        // std::mem::swap(&mut spans, &mut self.spans);
 
         // Do this _after_ the multi arity business
+        // TODO: can these rcs be avoided
         self.thread.stack_frames.push(
-            StackFrame::new(
+            StackFrame::new(self.sp, closure, self.ip + 1, instructions), // .with_span(self.current_span()),
+        );
+
+        // self.current_arity = Some(closure.arity());
+
+        self.check_stack_overflow()?;
+
+        // closure arity here is the number of true arguments
+        // self.stack_index.push(self.stack.len() - closure.arity());
+
+        // TODO use new heap
+        // self.heap
+        //     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
+        // self.heap.collect_garbage();
+
+        self.pop_count += 1;
+
+        // self.instructions = instructions;
+        // self.spans = spans;
+        self.ip = 0;
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn handle_function_call_closure_jit_without_profiling_ref(
+        &mut self,
+        mut closure: &Gc<ByteCodeLambda>,
+        payload_size: usize,
+    ) -> Result<()> {
+        self.adjust_stack_for_multi_arity(closure, payload_size, &mut 0)?;
+
+        self.sp = self.thread.stack.len() - closure.arity();
+
+        let mut instructions = closure.body_exp();
+        // let mut spans = closure.spans();
+
+        std::mem::swap(&mut instructions, &mut self.instructions);
+        // std::mem::swap(&mut spans, &mut self.spans);
+
+        // Do this _after_ the multi arity business
+        // TODO: can these rcs be avoided
+        self.thread.stack_frames.push(
+            StackFrame::new_rooted(
                 self.sp,
-                closure,
+                // Almost assuredly UB - there really just needs to be a runtime reference
+                // on the value that gets passed around, or we just need to
+                #[cfg(feature = "unsafe-internals")]
+                crate::gc::unsafe_roots::MaybeRooted::from_root(closure),
+                #[cfg(not(feature = "unsafe-internals"))]
+                closure.clone(),
                 self.ip + 1,
-                Rc::clone(&self.instructions),
-                Rc::clone(&self.spans),
+                instructions,
             ), // .with_span(self.current_span()),
         );
 
@@ -2957,8 +3434,8 @@ impl<'a> VmCore<'a> {
 
         self.pop_count += 1;
 
-        self.instructions = instructions;
-        self.spans = spans;
+        // self.instructions = instructions;
+        // self.spans = spans;
         self.ip = 0;
         Ok(())
     }
@@ -2976,9 +3453,62 @@ impl<'a> VmCore<'a> {
 
         // Jit profiling -> Make sure that we really only trace once we pass a certain threshold
         // For instance, if this function
-        closure.increment_call_count();
+        #[cfg(feature = "dynamic")]
+        {
+            closure.increment_call_count();
+        }
 
         self.handle_function_call_closure_jit_without_profiling(closure, payload_size)
+    }
+
+    #[inline(always)]
+    fn handle_function_call_closure_jit_ref(
+        &mut self,
+        closure: &Gc<ByteCodeLambda>,
+        payload_size: usize,
+    ) -> Result<()> {
+        // Record the end of the existing sequence
+        self.cut_sequence();
+
+        // Jit profiling -> Make sure that we really only trace once we pass a certain threshold
+        // For instance, if this function
+        #[cfg(feature = "dynamic")]
+        {
+            closure.increment_call_count();
+        }
+
+        self.handle_function_call_closure_jit_without_profiling_ref(closure, payload_size)
+    }
+
+    #[inline(always)]
+    fn handle_global_function_call_by_reference(
+        &mut self,
+        stack_func: &SteelVal,
+        payload_size: usize,
+    ) -> Result<()> {
+        use SteelVal::*;
+
+        match stack_func {
+            Closure(closure) => self.handle_function_call_closure_jit_ref(closure, payload_size)?,
+            FuncV(f) => self.call_primitive_func(*f, payload_size)?,
+            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size)?,
+            MutFunc(f) => self.call_primitive_mut_func(*f, payload_size)?,
+            FutureFunc(f) => self.call_future_func(f.clone(), payload_size)?,
+            ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size)?,
+            ContinuationFunction(cc) => self.call_continuation(&cc)?,
+            // #[cfg(feature = "jit")]
+            // CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
+            Contract(c) => self.call_contract(&c, payload_size)?,
+            BuiltIn(f) => self.call_builtin_func(*f, payload_size)?,
+            _ => {
+                // Explicitly mark this as unlikely
+                cold();
+                println!("{stack_func:?}");
+                println!("Stack: {:?}", self.thread.stack);
+                stop!(BadSyntax => "Function application not a procedure or function type not supported"; self.current_span());
+            }
+        }
+        Ok(())
     }
 
     #[inline(always)]
@@ -2992,7 +3522,7 @@ impl<'a> VmCore<'a> {
         match stack_func {
             Closure(closure) => self.handle_function_call_closure_jit(closure, payload_size)?,
             FuncV(f) => self.call_primitive_func(f, payload_size)?,
-            BoxedFunction(f) => self.call_boxed_func(f, payload_size)?,
+            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size)?,
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size)?,
             FutureFunc(f) => self.call_future_func(f, payload_size)?,
             ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size)?,
@@ -3002,6 +3532,8 @@ impl<'a> VmCore<'a> {
             Contract(c) => self.call_contract(&c, payload_size)?,
             BuiltIn(f) => self.call_builtin_func(f, payload_size)?,
             _ => {
+                // Explicitly mark this as unlikely
+                cold();
                 println!("{stack_func:?}");
                 println!("Stack: {:?}", self.thread.stack);
                 stop!(BadSyntax => "Function application not a procedure or function type not supported"; self.current_span());
@@ -3021,7 +3553,7 @@ impl<'a> VmCore<'a> {
         self.ip += 1;
 
         match &stack_func {
-            BoxedFunction(f) => f(args),
+            BoxedFunction(f) => f.func()(args),
             MutFunc(f) => f(args),
             FuncV(f) => f(args),
             FutureFunc(f) => Ok(SteelVal::FutureV(Gc::new(f(args)?))),
@@ -3048,7 +3580,7 @@ impl<'a> VmCore<'a> {
         match stack_func {
             BoxedFunction(f) => {
                 self.ip += 1;
-                self.thread.stack.push(f(args)?)
+                self.thread.stack.push(f.func()(args)?)
             }
             MutFunc(f) => {
                 self.ip += 1;
@@ -3100,7 +3632,7 @@ impl<'a> VmCore<'a> {
         use SteelVal::*;
 
         match stack_func {
-            BoxedFunction(f) => self.call_boxed_func(f, payload_size)?,
+            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size)?,
             FuncV(f) => self.call_primitive_func(f, payload_size)?,
             FutureFunc(f) => self.call_future_func(f, payload_size)?,
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size)?,
@@ -3169,6 +3701,13 @@ pub fn call_with_exception_handler(
 
             ctx.sp = ctx.thread.stack.len();
 
+            let handler = ctx
+                .thread
+                .function_interner
+                .handlers
+                .borrow_mut()
+                .insert(handler);
+
             // Push the previous state on
             ctx.thread.stack_frames.push(
                 StackFrame::new(
@@ -3176,7 +3715,7 @@ pub fn call_with_exception_handler(
                     Gc::clone(&closure),
                     ctx.ip + 1,
                     Rc::clone(&ctx.instructions),
-                    Rc::clone(&ctx.spans),
+                    // Rc::clone(&ctx.spans),
                 )
                 // .with_span(ctx.current_span())
                 .with_handler(handler),
@@ -3196,7 +3735,7 @@ pub fn call_with_exception_handler(
             ctx.pop_count += 1;
 
             ctx.instructions = closure.body_exp();
-            ctx.spans = closure.spans();
+            // ctx.spans = closure.spans();
             // ctx.function_stack
             //     .push(CallContext::new(closure).with_span(ctx.current_span()));
 
@@ -3220,10 +3759,7 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
     */
 
     // Roll back one because we advanced prior to entering the builtin
-
-    // if std::env::var("CODE_GEN_V2").is_err() {
     ctx.ip -= 1;
-    // }
 
     if args.len() != 1 {
         builtin_stop!(ArityMismatch => format!("call/cc expects one argument, found: {}", args.len()); ctx.current_span());
@@ -3274,7 +3810,7 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
                     Gc::clone(&closure),
                     ctx.ip + 1,
                     Rc::clone(&ctx.instructions),
-                    Rc::clone(&ctx.spans),
+                    // Rc::clone(&ctx.spans),
                 ), // .with_span(ctx.current_span()),
             );
 
@@ -3292,7 +3828,7 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
             ctx.pop_count += 1;
 
             ctx.instructions = closure.body_exp();
-            ctx.spans = closure.spans();
+            // ctx.spans = closure.spans();
             // ctx.function_stack
             //     .push(CallContext::new(closure).with_span(ctx.current_span()));
 
@@ -3331,6 +3867,24 @@ pub(crate) fn set_test_mode(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Resu
     ctx.thread.runtime_options.test = true;
 
     Some(Ok(ctx.thread.runtime_options.test.into()))
+}
+
+pub(crate) fn list_modules(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    use crate::rvals::AsRefSteelVal;
+    use crate::steel_vm::builtin::BuiltInModule;
+
+    let mut nursery = ();
+
+    // Find all of the modules that are
+    let modules = ctx
+        .thread
+        .global_env
+        .roots()
+        .filter(|x| BuiltInModule::as_ref(x, &mut nursery).is_ok())
+        .cloned()
+        .collect();
+
+    Some(Ok(SteelVal::ListV(modules)))
 }
 
 // TODO: This apply does not respect tail position
@@ -3480,113 +4034,11 @@ impl OpCodeOccurenceProfiler {
         self.time.clear();
     }
 
-    // Process the op code and the associated payload
-    // TODO: Get this to just use offsets, don't actually clone the instruction set directly
-    #[cfg(feature = "dynamic")]
-    pub fn process_opcode(
-        &mut self,
-        opcode: &OpCode,
-        // payload: usize,
-        index: usize,
-        instructions: &[DenseInstruction],
-        function: Option<&Gc<ByteCodeLambda>>,
-    ) -> Option<InstructionPattern> {
-        // *self.occurrences.entry((*opcode, payload)).or_default() += 1;
-
-        let function = function?;
-
-        // Trace once it becomes hot
-        let call_count = function.call_count();
-        // If we're in the special zone, profile, otherwise don't
-        if call_count < 1000 || call_count > 10000 {
-            self.starting_index = None;
-            self.ending_index = None;
-            return None;
-        }
-
-        match opcode {
-            OpCode::SDEF | OpCode::EDEF => return None,
-            _ => {}
-        }
-
-        if self.starting_index.is_none() {
-            self.starting_index = Some(index);
-        }
-
-        self.ending_index = Some(index);
-
-        match opcode {
-            OpCode::JMP
-            | OpCode::IF
-            // | OpCode::CALLGLOBAL
-            | OpCode::CALLGLOBALTAIL
-            | OpCode::TAILCALL
-            | OpCode::TCOJMP
-            | OpCode::POPPURE
-            // | OpCode::FUNC 
-            => {
-
-                let block_pattern = BlockPattern {
-                    start: self.starting_index.unwrap(),
-                    end: index
-                };
-
-                let mut guard = function.blocks.borrow_mut();
-
-
-                if let Some((_, metadata)) = guard.iter_mut().find(|x| x.0 == block_pattern) {
-
-                    // self.sample_count += 1;
-                    // println!("Sampling on op code: {:?}", opcode);
-
-                    metadata.count += 1;
-                    metadata.length = index - block_pattern.start;
-                    // self.last_sequence = Some(pattern);
-
-                    if metadata.count > 1000 && !metadata.created {
-                        metadata.created = true;
-
-                        // println!("{} {}", block_pattern.start, index);
-
-                        let sequence = instructions[block_pattern.start..=index]
-                            .iter()
-                            .map(|x| (x.op_code, x.payload_size as usize))
-                            .filter(|x| !x.0.is_ephemeral_opcode() && x.0 != OpCode::POPPURE)
-                            .collect();
-
-                        self.starting_index = None;
-                        self.ending_index = None;
-
-
-                        // println!("Pattern finished");
-
-                        return Some(InstructionPattern::new(sequence, block_pattern));
-                    }
-
-                } else if index - block_pattern.start > 2 {
-                    guard.push((block_pattern, BlockMetadata::default()));
-                }
-
-                self.starting_index = None;
-                self.ending_index = None;
-
-                // println!("Pattern finished");
-            }
-            _ => {
-                // println!("Updating end to be: {}", index);
-                self.ending_index = Some(index);
-                // self.sequence.push((*opcode, index));
-            }
-        }
-
-        None
-    }
-
     #[cfg(feature = "dynamic")]
     pub fn cut_sequence(
         &mut self,
         instructions: &[DenseInstruction],
-        function: Option<&Gc<ByteCodeLambda>>,
+        function: Option<&ByteCodeLambda>,
     ) -> Option<InstructionPattern> {
         // println!(
         //     "Cutting sequence: {:?} {:?} {:?}",
@@ -4525,8 +4977,11 @@ macro_rules! handler_inline_primitive {
         };
 
         // This is the old way... lets see if the below way improves the speed
-        $ctx.thread.stack.truncate(last_index);
-        $ctx.thread.stack.push(result);
+        // $ctx.thread.stack.truncate(last_index);
+        // $ctx.thread.stack.push(result);
+
+        $ctx.thread.stack.truncate(last_index + 1);
+        *$ctx.thread.stack.last_mut().unwrap() = result;
 
         $ctx.ip += 2;
     }};
@@ -4542,8 +4997,11 @@ macro_rules! handler_inline_primitive_payload {
         };
 
         // This is the old way... lets see if the below way improves the speed
-        $ctx.thread.stack.truncate(last_index);
-        $ctx.thread.stack.push(result);
+        // $ctx.thread.stack.truncate(last_index);
+        // $ctx.thread.stack.push(result);
+
+        $ctx.thread.stack.truncate(last_index + 1);
+        *$ctx.thread.stack.last_mut().unwrap() = result;
 
         $ctx.ip += 2;
     }};
@@ -4557,7 +5015,7 @@ fn add_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 
 // OpCode::ADD
 fn add_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    handler_inline_primitive_payload!(ctx, add_primitive, payload);
+    handler_inline_primitive_payload!(ctx, add_primitive_faster, payload);
     Ok(())
 }
 
@@ -4569,6 +5027,7 @@ fn sub_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 }
 
 // OpCode::SUB
+#[inline(always)]
 fn sub_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
     handler_inline_primitive_payload!(ctx, subtract_primitive, payload);
     Ok(())
@@ -4633,7 +5092,7 @@ fn alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     let allocated_var = ctx.thread.heap.allocate(
         ctx.thread.stack[offset].clone(), // TODO: Could actually move off of the stack entirely
         ctx.thread.stack.iter(),
-        ctx.thread.stack_frames.iter().map(|x| &x.function),
+        ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
         ctx.thread.global_env.roots(),
     );
 
@@ -4843,7 +5302,7 @@ fn tco_jump_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     let last_stack_frame = ctx.thread.stack_frames.last().unwrap();
 
     ctx.instructions = last_stack_frame.function.body_exp();
-    ctx.spans = last_stack_frame.function.spans();
+    // ctx.spans = last_stack_frame.function.spans();
     ctx.sp = last_stack_frame.sp;
 
     // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
@@ -5021,6 +5480,17 @@ fn lte_handler_none_int(_: &mut VmCore<'_>, l: SteelVal, r: isize) -> Result<boo
         SteelVal::IntV(l) => Ok(l <= r),
         SteelVal::NumV(l) => Ok(l <= r as f64),
         _ => stop!(TypeMismatch => "lte expected an number, found: {}", r),
+    }
+}
+
+#[inline(always)]
+fn add_handler_none_none(l: &SteelVal, r: &SteelVal) -> Result<SteelVal> {
+    match (l, r) {
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => Ok(SteelVal::IntV(l + r)),
+        (SteelVal::IntV(l), SteelVal::NumV(r)) => Ok(SteelVal::NumV(*l as f64 + r)),
+        (SteelVal::NumV(l), SteelVal::IntV(r)) => Ok(SteelVal::NumV(l + *r as f64)),
+        (SteelVal::NumV(l), SteelVal::NumV(r)) => Ok(SteelVal::NumV(l + r)),
+        _ => stop!(TypeMismatch => "+ expected two numbers, found: {} and {}", l, r),
     }
 }
 

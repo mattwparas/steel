@@ -1,5 +1,6 @@
 use crate::parser::{
     ast::ExprKind,
+    interner::InternedString,
     parser::{RawSyntaxObject, SyntaxObject},
     tokens::TokenType,
 };
@@ -106,6 +107,27 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
 //                 }
 //             }
 //             _ => {}
+//         }
+//     }
+// }
+
+// pub fn specialize_exit_jmp(instructions: &mut [Instruction]) {
+//     for i in 0..instructions.len() {
+//         if let Some(Instruction {
+//             op_code: OpCode::JMP,
+//             payload_size,
+//             ..
+//         }) = instructions.get(i)
+//         {
+//             if let Some((OpCode::POPPURE, payload_size_pop)) = instructions
+//                 .get(i + *payload_size)
+//                 .map(|x| (x.op_code, x.payload_size))
+//             {
+//                 let guard = instructions.get_mut(i).unwrap();
+//                 guard.op_code = OpCode::POPPURE;
+//                 guard.payload_size = payload_size_pop;
+//                 continue;
+//             }
 //         }
 //     }
 // }
@@ -371,6 +393,40 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
     }
 }
 
+lazy_static::lazy_static! {
+    static ref PLUS: InternedString = "+".into();
+    static ref MINUS: InternedString = "-".into();
+    static ref DIV: InternedString = "/".into();
+    static ref STAR: InternedString = "*".into();
+    static ref EQUAL: InternedString = "equal?".into();
+    static ref LTE: InternedString = "<=".into();
+    pub static ref UNREADABLE_MODULE_GET: InternedString = "##__module-get".into();
+    pub static ref STANDARD_MODULE_GET: InternedString = "%module-get%".into();
+    pub static ref CONTRACT_OUT: InternedString = "contract/out".into();
+    pub static ref PROVIDE: InternedString = "provide".into();
+    pub static ref FOR_SYNTAX: InternedString = "for-syntax".into();
+    pub static ref DATUM_SYNTAX: InternedString = "datum->syntax".into();
+    pub static ref IF: InternedString = "if".into();
+    pub static ref DEFINE: InternedString = "define".into();
+    pub static ref LET: InternedString = "let".into();
+    pub static ref QUOTE: InternedString = "quote".into();
+    pub static ref RETURN: InternedString = "return!".into();
+    pub static ref REQUIRE: InternedString = "require".into();
+    pub static ref SET: InternedString = "set!".into();
+    pub static ref LAMBDA: InternedString = "lambda".into();
+    pub static ref LAMBDA_SYMBOL: InternedString = "λ".into();
+    pub static ref LAMBDA_FN: InternedString = "fn".into();
+    pub static ref BEGIN: InternedString = "begin".into();
+    pub static ref DOC_MACRO: InternedString = "@doc".into();
+    pub static ref REQUIRE_BUILTIN: InternedString = "require-builtin".into();
+    pub static ref STRUCT_KEYWORD: InternedString = "struct".into();
+    pub static ref AS_KEYWORD: InternedString = "as".into();
+    pub static ref SYNTAX_CONST_IF: InternedString = "syntax-const-if".into();
+    pub static ref UNQUOTE: InternedString = "unquote".into();
+    pub static ref UNQUOTE_SPLICING: InternedString = "unquote-splicing".into();
+    pub static ref QUASIQUOTE: InternedString = "quasiquote".into();
+}
+
 pub fn inline_num_operations(instructions: &mut [Instruction]) {
     for i in 0..instructions.len() - 1 {
         let push = instructions.get(i);
@@ -393,13 +449,14 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
             }),
         ) = (push, func)
         {
-            let replaced = match ident.as_ref() {
-                "+" => Some(OpCode::ADD),
-                "-" => Some(OpCode::SUB),
-                "/" => Some(OpCode::DIV),
-                "*" => Some(OpCode::MUL),
-                "equal?" => Some(OpCode::EQUAL),
-                "<=" => Some(OpCode::LTE),
+            let replaced = match *ident {
+                x if x == *PLUS && *payload_size == 2 => Some(OpCode::BINOPADD),
+                x if x == *PLUS => Some(OpCode::ADD),
+                x if x == *MINUS => Some(OpCode::SUB),
+                x if x == *DIV => Some(OpCode::DIV),
+                x if x == *STAR => Some(OpCode::MUL),
+                x if x == *EQUAL => Some(OpCode::EQUAL),
+                x if x == *LTE => Some(OpCode::LTE),
                 _ => None,
             };
 
@@ -414,6 +471,52 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
                     x.op_code = OpCode::PASS;
                 }
             }
+        }
+    }
+}
+
+pub fn merge_conditions_with_if(instructions: &mut [Instruction]) {
+    for i in 0..instructions.len() - 1 {
+        let condition = instructions.get(i);
+        let guard = instructions.get(i + 2);
+
+        if let (
+            Some(Instruction {
+                op_code: OpCode::LTEIMMEDIATE,
+                ..
+            }),
+            Some(Instruction {
+                op_code: OpCode::IF,
+                ..
+            }),
+        ) = (condition, guard)
+        {
+            if let Some(x) = instructions.get_mut(i) {
+                x.op_code = OpCode::LTEIMMEDIATEIF;
+            }
+
+            // let replaced = match *ident {
+            //     x if x == *PLUS && *payload_size == 2 => Some(OpCode::BINOPADD),
+            //     x if x == *PLUS => Some(OpCode::ADD),
+            //     x if x == *MINUS => Some(OpCode::SUB),
+            //     x if x == *DIV => Some(OpCode::DIV),
+            //     x if x == *STAR => Some(OpCode::MUL),
+            //     x if x == *EQUAL => Some(OpCode::EQUAL),
+            //     x if x == *LTE => Some(OpCode::LTE),
+            //     _ => None,
+            // };
+
+            // if let Some(new_op_code) = replaced {
+            //     let payload_size = *payload_size;
+            //     if let Some(x) = instructions.get_mut(i) {
+            //         x.op_code = new_op_code;
+            //         x.payload_size = payload_size;
+            //     }
+
+            //     if let Some(x) = instructions.get_mut(i + 1) {
+            //         x.op_code = OpCode::PASS;
+            //     }
+            // }
         }
     }
 }
@@ -509,10 +612,11 @@ impl Program {
 // An inspectable program with debug symbols still included on the instructions
 // ConstantMap needs to get passed in to the run time to execute the program
 // This way, the VM knows where to look up values
+#[derive(Clone)]
 pub struct RawProgramWithSymbols {
     // struct_functions: Vec<StructFuncBuilderConcrete>,
     instructions: Vec<Vec<Instruction>>,
-    constant_map: ConstantMap,
+    pub(crate) constant_map: ConstantMap,
     version: String, // TODO -> this should be semver
 }
 
@@ -760,6 +864,10 @@ impl RawProgramWithSymbols {
             // move_read_local_call_global(instructions);
             specialize_read_local(instructions);
 
+            merge_conditions_with_if(instructions);
+
+            // specialize_exit_jmp(instructions);
+
             // loop_condition_local_const_arity_two(instructions);
         }
 
@@ -907,8 +1015,18 @@ fn extract_spans(
     let instructions: Vec<_> = instructions
         .into_iter()
         .map(|x| {
+            // let len = x.len();
             x.into_iter()
-                .map(|x| DenseInstruction::new(x.op_code, x.payload_size.try_into().unwrap()))
+                .map(|i| {
+                    DenseInstruction::new(
+                        i.op_code,
+                        i.payload_size.try_into().unwrap_or_else(|_| {
+                            // println!("{:?}", len);
+                            println!("{:?}", i);
+                            panic!("Uh oh ")
+                        }),
+                    )
+                })
                 .collect()
         })
         .collect();

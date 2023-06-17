@@ -22,7 +22,7 @@ declare_const_ref_functions!(
 );
 
 pub(crate) fn hashset_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/sets".to_string());
+    let mut module = BuiltInModule::new("steel/sets");
     module
         .register_value("hashset", HS_CONSTRUCT)
         .register_value("hashset-length", HS_LENGTH)

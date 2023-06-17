@@ -18,7 +18,7 @@ use std::{
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 
-use super::{ast::Quote, parser::Parser};
+use super::{ast::Quote, interner::InternedString, parser::Parser};
 
 // Given path, update the extension
 fn update_extension(mut path: PathBuf, extension: &str) -> PathBuf {
@@ -45,7 +45,7 @@ pub fn path_from_working_dir<P: AsRef<Path>>(path: P) -> std::io::Result<PathBuf
 /// Manages macros for a single namespace
 #[derive(Default, Serialize, Deserialize, Debug)]
 pub struct LocalMacroManager {
-    macros: HashMap<String, SteelMacro>,
+    macros: HashMap<InternedString, SteelMacro>,
 }
 
 impl LocalMacroManager {
@@ -145,14 +145,18 @@ pub struct GlobalMacroManager {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SteelMacro {
-    name: String,
-    special_forms: Vec<String>,
+    name: InternedString,
+    special_forms: Vec<InternedString>,
     cases: Vec<MacroCase>,
 }
 
 impl SteelMacro {
     #[cfg(test)]
-    pub fn new(name: String, special_forms: Vec<String>, cases: Vec<MacroCase>) -> Self {
+    pub fn new(
+        name: InternedString,
+        special_forms: Vec<InternedString>,
+        cases: Vec<MacroCase>,
+    ) -> Self {
         SteelMacro {
             name,
             special_forms,
@@ -160,7 +164,7 @@ impl SteelMacro {
         }
     }
 
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &InternedString {
         &self.name
     }
 
@@ -169,12 +173,11 @@ impl SteelMacro {
     }
 
     pub fn parse_from_ast_macro(ast_macro: Macro) -> Result<Self> {
-        let name = ast_macro
+        let name = *ast_macro
             .name
             .atom_identifier_or_else(
                 throw!(BadSyntax => "macros only currently support identifiers as the name"; ast_macro.location.span),
-            )?
-            .to_string();
+            )?;
 
         let sp = ast_macro.location.span;
 
@@ -186,7 +189,7 @@ impl SteelMacro {
                 x.atom_identifier_or_else(
                     throw!(BadSyntax => "macros only support identifiers for special syntax"; sp),
                 )
-                .map(|x| x.to_string())
+                .cloned()
             })
             .collect::<Result<Vec<_>>>()?;
 
@@ -258,8 +261,8 @@ impl MacroCase {
 
     fn parse_from_pattern_pair(
         pattern_pair: PatternPair,
-        name: &str,
-        special_forms: &[String],
+        name: &InternedString,
+        special_forms: &[InternedString],
     ) -> Result<Self> {
         let PatternPair { pattern, mut body } = pattern_pair;
 
@@ -269,7 +272,7 @@ impl MacroCase {
             stop!(Generic => "unable to parse macro");
         };
 
-        let args_str: Vec<&str> = args
+        let args_str: Vec<&InternedString> = args
             .iter()
             .flat_map(|x| x.deconstruct_without_syntax())
             .collect();
@@ -316,9 +319,9 @@ impl MacroCase {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum MacroPattern {
-    Single(String),
-    Syntax(String),
-    Many(String),
+    Single(InternedString),
+    Syntax(InternedString),
+    Many(InternedString),
     Nested(Vec<MacroPattern>),
     CharacterLiteral(char),
     IntLiteral(isize),
@@ -329,28 +332,28 @@ pub enum MacroPattern {
 }
 
 impl MacroPattern {
-    fn mangle(&self, special_forms: &[String]) -> Self {
+    fn mangle(&self, special_forms: &[InternedString]) -> Self {
         use MacroPattern::*;
         match self {
             Single(s) => {
                 if special_forms.contains(s) {
-                    Single(s.to_string())
+                    Single(*s)
                 } else {
-                    Single("##".to_string() + s)
+                    Single(("##".to_string() + s.resolve()).into())
                 }
             }
             Syntax(s) => {
                 // if special_forms.contains(s) {
-                Syntax(s.to_string())
+                Syntax(*s)
                 // } else {
                 // Syntax("##".to_string() + s)
                 // }
             }
             Many(s) => {
                 if special_forms.contains(s) {
-                    Many(s.to_string())
+                    Many(*s)
                 } else {
-                    Many("##".to_string() + s)
+                    Many(("##".to_string() + s.resolve()).into())
                 }
             }
             Nested(v) => Nested(v.iter().map(|x| x.mangle(special_forms)).collect()),
@@ -360,8 +363,8 @@ impl MacroPattern {
 
     fn parse_from_list(
         list: List,
-        macro_name: &str,
-        special_forms: &[String],
+        macro_name: &InternedString,
+        special_forms: &[InternedString],
     ) -> Result<Vec<Self>> {
         let mut pattern_vec: Vec<MacroPattern> = Vec::new();
         let mut peek_token_iter = list.args.into_iter().peekable();
@@ -372,7 +375,7 @@ impl MacroPattern {
                     syn: SyntaxObject { ty: s, span, .. },
                 }) => match s {
                     TokenType::Identifier(t) => {
-                        if t == macro_name || special_forms.contains(&t) {
+                        if t == *macro_name || special_forms.contains(&t) {
                             pattern_vec.push(MacroPattern::Syntax(t.clone()))
                         } else {
                             match peek_token_iter.peek() {
@@ -430,7 +433,7 @@ impl MacroPattern {
 
 impl MacroPattern {
     // TODO make this not so trash
-    pub fn deconstruct(&self) -> Vec<&str> {
+    pub fn deconstruct(&self) -> Vec<&InternedString> {
         match self {
             Self::Syntax(s) => vec![s],
             Self::Single(s) => vec![s],
@@ -440,7 +443,7 @@ impl MacroPattern {
         }
     }
 
-    pub fn deconstruct_without_syntax(&self) -> Vec<&str> {
+    pub fn deconstruct_without_syntax(&self) -> Vec<&InternedString> {
         match self {
             Self::Single(s) => vec![s],
             Self::Many(s) => vec![s],
@@ -583,7 +586,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
 pub fn collect_bindings(
     args: &[MacroPattern],
     list: &List,
-    bindings: &mut HashMap<String, ExprKind>,
+    bindings: &mut HashMap<InternedString, ExprKind>,
 ) -> Result<()> {
     let mut token_iter = list.iter();
 
@@ -592,7 +595,7 @@ pub fn collect_bindings(
             // bind the expression to a single variable
             MacroPattern::Single(s) => {
                 if let Some(e) = token_iter.next() {
-                    bindings.insert(s.to_string(), e.clone());
+                    bindings.insert(*s, e.clone());
                 } else {
                     stop!(ArityMismatch => "macro invocation expected a value, found none");
                 }
@@ -619,7 +622,7 @@ pub fn collect_bindings(
             // bind the ellipses to the rest of the statement
             MacroPattern::Many(ident) => {
                 let rest: Vec<_> = token_iter.cloned().collect();
-                bindings.insert(ident.to_string(), List::new(rest).into());
+                bindings.insert(*ident, List::new(rest).into());
                 break;
             }
             MacroPattern::Nested(children) => {
@@ -654,7 +657,7 @@ mod match_vec_pattern_tests {
 
     fn atom_identifier(s: &str) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-            s.to_string(),
+            s.into(),
         ))))
     }
 
@@ -667,9 +670,9 @@ mod match_vec_pattern_tests {
     #[test]
     fn test_match_basic() {
         let pattern_args = vec![
-            MacroPattern::Syntax("and".to_string()),
-            MacroPattern::Single("a".to_string()),
-            MacroPattern::Single("b".to_string()),
+            MacroPattern::Syntax("and".into()),
+            MacroPattern::Single("a".into()),
+            MacroPattern::Single("b".into()),
         ];
         let list_expr = List::new(vec![
             atom_identifier("and"),
@@ -691,9 +694,9 @@ mod match_vec_pattern_tests {
     #[test]
     fn test_match_many() {
         let pattern_args = vec![
-            MacroPattern::Syntax("and".to_string()),
-            MacroPattern::Single("a".to_string()),
-            MacroPattern::Many("b".to_string()),
+            MacroPattern::Syntax("and".into()),
+            MacroPattern::Single("a".into()),
+            MacroPattern::Many("b".into()),
         ];
         let list_expr = List::new(vec![
             atom_identifier("and"),
@@ -714,9 +717,9 @@ mod match_vec_pattern_tests {
     #[test]
     fn test_match_many_multiple() {
         let pattern_args = vec![
-            MacroPattern::Syntax("and".to_string()),
-            MacroPattern::Single("a".to_string()),
-            MacroPattern::Many("b".to_string()),
+            MacroPattern::Syntax("and".into()),
+            MacroPattern::Single("a".into()),
+            MacroPattern::Many("b".into()),
         ];
         let list_expr = List::new(vec![
             atom_identifier("and"),
@@ -735,11 +738,11 @@ mod match_vec_pattern_tests {
     #[test]
     fn test_nested() {
         let pattern_args = vec![
-            MacroPattern::Syntax("->>".to_string()),
-            MacroPattern::Single("a".to_string()),
+            MacroPattern::Syntax("->>".into()),
+            MacroPattern::Single("a".into()),
             MacroPattern::Nested(vec![
-                MacroPattern::Single("b".to_string()),
-                MacroPattern::Many("c".to_string()),
+                MacroPattern::Single("b".into()),
+                MacroPattern::Many("c".into()),
             ]),
         ];
 
@@ -758,9 +761,9 @@ mod match_vec_pattern_tests {
     #[test]
     fn test_no_match_simple() {
         let pattern_args = vec![
-            MacroPattern::Syntax("->>".to_string()),
-            MacroPattern::Single("a".to_string()),
-            MacroPattern::Single("bad".to_string()),
+            MacroPattern::Syntax("->>".into()),
+            MacroPattern::Single("a".into()),
+            MacroPattern::Single("bad".into()),
         ];
 
         let list_expr = List::new(vec![
@@ -776,12 +779,12 @@ mod match_vec_pattern_tests {
     #[test]
     fn test_nested_no_match() {
         let pattern_args = vec![
-            MacroPattern::Syntax("->>".to_string()),
-            MacroPattern::Single("a".to_string()),
-            MacroPattern::Single("bad".to_string()),
+            MacroPattern::Syntax("->>".into()),
+            MacroPattern::Single("a".into()),
+            MacroPattern::Single("bad".into()),
             MacroPattern::Nested(vec![
-                MacroPattern::Single("b".to_string()),
-                MacroPattern::Many("c".to_string()),
+                MacroPattern::Single("b".into()),
+                MacroPattern::Many("c".into()),
             ]),
         ];
 
@@ -806,7 +809,7 @@ mod collect_bindings_tests {
 
     fn atom_identifier(s: &str) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-            s.to_string(),
+            s.into(),
         ))))
     }
 
@@ -820,9 +823,9 @@ mod collect_bindings_tests {
     fn test_collect_basic() {
         let mut bindings = HashMap::new();
         let pattern_args = vec![
-            MacroPattern::Syntax("and".to_string()),
-            MacroPattern::Single("a".to_string()),
-            MacroPattern::Single("b".to_string()),
+            MacroPattern::Syntax("and".into()),
+            MacroPattern::Single("a".into()),
+            MacroPattern::Single("b".into()),
         ];
         let list_expr = List::new(vec![
             atom_identifier("and"),
@@ -842,7 +845,7 @@ mod collect_bindings_tests {
 
         let mut post_bindings = HashMap::new();
         post_bindings.insert(
-            "a".to_string(),
+            "a".into(),
             ExprKind::List(List::new(vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
@@ -851,7 +854,7 @@ mod collect_bindings_tests {
         );
 
         post_bindings.insert(
-            "b".to_string(),
+            "b".into(),
             ExprKind::List(List::new(vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
@@ -866,9 +869,9 @@ mod collect_bindings_tests {
     fn test_collect_many() {
         let mut bindings = HashMap::new();
         let pattern_args = vec![
-            MacroPattern::Syntax("and".to_string()),
-            MacroPattern::Single("a".to_string()),
-            MacroPattern::Many("b".to_string()),
+            MacroPattern::Syntax("and".into()),
+            MacroPattern::Single("a".into()),
+            MacroPattern::Many("b".into()),
         ];
         let list_expr = List::new(vec![
             atom_identifier("and"),
@@ -888,7 +891,7 @@ mod collect_bindings_tests {
 
         let mut post_bindings = HashMap::new();
         post_bindings.insert(
-            "a".to_string(),
+            "a".into(),
             ExprKind::List(List::new(vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
@@ -896,7 +899,7 @@ mod collect_bindings_tests {
             ])),
         );
         post_bindings.insert(
-            "b".to_string(),
+            "b".into(),
             ExprKind::List(List::new(vec![ExprKind::List(List::new(vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
@@ -911,9 +914,9 @@ mod collect_bindings_tests {
     fn test_collect_many_multiple_singles() {
         let mut bindings = HashMap::new();
         let pattern_args = vec![
-            MacroPattern::Syntax("and".to_string()),
-            MacroPattern::Single("a".to_string()),
-            MacroPattern::Many("b".to_string()),
+            MacroPattern::Syntax("and".into()),
+            MacroPattern::Single("a".into()),
+            MacroPattern::Many("b".into()),
         ];
         let list_expr = List::new(vec![
             atom_identifier("and"),
@@ -931,7 +934,7 @@ mod collect_bindings_tests {
         let mut post_bindings = HashMap::new();
 
         post_bindings.insert(
-            "a".to_string(),
+            "a".into(),
             ExprKind::List(List::new(vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
@@ -940,7 +943,7 @@ mod collect_bindings_tests {
         );
 
         post_bindings.insert(
-            "b".to_string(),
+            "b".into(),
             ExprKind::List(List::new(vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
@@ -956,11 +959,11 @@ mod collect_bindings_tests {
         let mut bindings = HashMap::new();
         // (->> a (b c ...))
         let pattern_args = vec![
-            MacroPattern::Syntax("->>".to_string()),
-            MacroPattern::Single("a".to_string()),
+            MacroPattern::Syntax("->>".into()),
+            MacroPattern::Single("a".into()),
             MacroPattern::Nested(vec![
-                MacroPattern::Single("b".to_string()),
-                MacroPattern::Many("c".to_string()),
+                MacroPattern::Single("b".into()),
+                MacroPattern::Many("c".into()),
             ]),
         ];
 
@@ -977,10 +980,10 @@ mod collect_bindings_tests {
         let mut post_bindings = HashMap::new();
 
         collect_bindings(&pattern_args, &list_expr, &mut bindings).unwrap();
-        post_bindings.insert("a".to_string(), atom_int(1));
-        post_bindings.insert("b".to_string(), atom_identifier("apple"));
+        post_bindings.insert("a".into(), atom_int(1));
+        post_bindings.insert("b".into(), atom_identifier("apple"));
         post_bindings.insert(
-            "c".to_string(),
+            "c".into(),
             ExprKind::List(List::new(vec![
                 atom_identifier("sauce"),
                 atom_identifier("is-good"),
@@ -1007,7 +1010,7 @@ mod macro_case_expand_test {
 
     fn atom_identifier(s: &str) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-            s.to_string(),
+            s.into(),
         ))))
     }
 
@@ -1021,10 +1024,10 @@ mod macro_case_expand_test {
     fn test_basic_expansion() {
         let case = MacroCase {
             args: vec![
-                MacroPattern::Syntax("test".to_string()),
-                MacroPattern::Single("a".to_string()),
-                MacroPattern::Single("b".to_string()),
-                MacroPattern::Single("c".to_string()),
+                MacroPattern::Syntax("test".into()),
+                MacroPattern::Single("a".into()),
+                MacroPattern::Single("b".into()),
+                MacroPattern::Single("c".into()),
             ],
             body: List::new(vec![
                 atom_identifier("fun-call"),

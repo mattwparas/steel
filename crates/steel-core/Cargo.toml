@@ -29,9 +29,9 @@ cranelift = { version = "0.84.0", optional = true }
 cranelift-module = { version = "0.84.0", optional = true }
 cranelift-jit = { version = "0.84.0", optional = true }
 # lazy_static = "1.4.0"
-im-lists = "0.2.0"
+im-lists = "0.4.0"
 quickscope = "0.2.0"
-lasso = { version = "0.6.0", features = ["multi-threaded"] }
+lasso = { version = "0.6.0", features = ["multi-threaded", "serialize"] }
 once_cell = "1.17.0"
 fxhash = "0.2.1"
 dlopen = "0.1.8"
@@ -41,13 +41,24 @@ smallvec = "1.10.0"
 lazy_static = "1.4.0"
 steel-gen = { path = "../steel-gen", version = "0.2.0" }
 steel-parser = { path = "../steel-parser", version = "0.2.0" }
+steel-derive = { path = "../steel-derive", version = "0.2.0" }
 chrono = "0.4.23"
+slotmap = "1.0.6"
+weak-table = "0.3.2"
+rand = "0.8.5"
+
+abi_stable = "0.11.1"
+which = "4.4.0"
 
 rusqlite =  { version = "0.28.0", features = ["bundled"], optional = true }
 
 reqwest = { version = "0.11.14", features = ["blocking", "json"], optional = true }
 url = { version = "2.3.1", optional = true }
 tungstenite = { version = "0.18.0", features = ["rustls-tls-native-roots"], optional = true }
+
+anyhow = { version = "1", optional = true }
+
+ureq = { version = "2.6.2", features = ["json"], optional = true }
 
 [dev-dependencies]
 proptest = "1.1.0"
@@ -69,6 +80,10 @@ dynamic = []
 profiling = []
 web = ["dep:reqwest", "dep:url", "dep:tungstenite"]
 sqlite = ["dep:rusqlite"]
+unsafe-internals = []
+anyhow = ["dep:anyhow"]
+dylibs = []
+blocking_requests = ["dep:ureq"]
 
 # dylibs = ["dep:dlopen", "dep:dlopen_derive"]
 

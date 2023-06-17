@@ -38,12 +38,30 @@
 (define (bench-group dir . options)
     (run-bench (append (filter (lambda (x) (not (ends-with? x ".lua"))) (directory->bench-command dir)) options)))
 
+(define *benches*
+    '(
+        ("startup" "--warmup" "10" "--min-runs" "100" "--export-markdown" "warmup.md")
+        ("map" "--warmup" "10")
+        ("ack" "--warmup" "10")
+        ("fib" "--warmup" "10" "--min-runs" "40" "--export-markdown" "fib.md")
+
+
+
+    )
+
+)
+
 (define (main)
     (print "Building steel for release...")
     (build-release)
     (print "Running benches...")
-    (bench-group "startup" "--warmup" "10" "--min-runs" "100" "--export-markdown" "warmup.md")
-    (bench-group "fib" "--warmup" "10" "--min-runs" "40" "--export-markdown" "fib.md")
+    (transduce *benches* 
+               (mapping (lambda (args) 
+                                    (newline)    
+                                    (apply bench-group args)))
+               (into-list))
+
+    ; (bench-group "bin-trees")
     (print "Done"))
 
 (main)

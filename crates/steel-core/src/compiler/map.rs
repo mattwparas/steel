@@ -1,12 +1,13 @@
-use crate::rvals::Result;
 use crate::throw;
+use crate::{parser::interner::InternedString, rvals::Result};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct SymbolMap {
-    values: Vec<String>,
+    values: Vec<InternedString>,
     // TODO don't do this - don't expose this API
-    map: HashMap<String, usize>,
+    map: HashMap<InternedString, usize>,
 }
 
 impl Default for SymbolMap {
@@ -21,6 +22,10 @@ impl SymbolMap {
             values: Vec::new(),
             map: HashMap::new(),
         }
+    }
+
+    pub fn values(&self) -> &Vec<InternedString> {
+        &self.values
     }
 
     pub fn len(&self) -> usize {
@@ -40,7 +45,7 @@ impl SymbolMap {
         }
     }
 
-    pub fn get_or_add(&mut self, ident: &str) -> usize {
+    pub fn get_or_add(&mut self, ident: &InternedString) -> usize {
         // let rev_iter = self.values.iter().enumerate().rev();
 
         // for (idx, val) in rev_iter {
@@ -67,17 +72,17 @@ impl SymbolMap {
             //     println!("Adding to map: {}", idx);
             // }
 
-            self.map.insert(ident.to_string(), idx);
+            self.map.insert(*ident, idx);
 
             // Add the values so we can do a backwards resolution
-            self.values.push(ident.to_string());
+            self.values.push(*ident);
 
             idx
         }
     }
 
     // fallible
-    pub fn get(&self, ident: &str) -> Result<usize> {
+    pub fn get(&self, ident: &InternedString) -> Result<usize> {
         // let rev_iter = self.values.iter().enumerate().rev();
 
         // for (idx, val) in rev_iter {
@@ -93,6 +98,6 @@ impl SymbolMap {
         self.map
             .get(ident)
             .copied()
-            .ok_or_else(throw!(FreeIdentifier => ident.to_string()))
+            .ok_or_else(throw!(FreeIdentifier => ident.resolve()))
     }
 }

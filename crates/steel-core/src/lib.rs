@@ -11,13 +11,14 @@ pub mod rvals;
 pub mod stdlib;
 #[macro_use]
 pub mod gc;
+mod containers;
 mod conversions;
 
-#[cfg(feature = "jit")]
-pub mod jit;
-
+// #[cfg(feature = "jit")]
+// pub mod jit;
 pub mod parser;
 pub mod steel_vm;
+
 #[cfg(test)]
 mod tests;
 pub(crate) mod values;

@@ -113,6 +113,7 @@ fn parse_str<'a>(lex: &mut Lexer<'a, TokenType<&'a str>>) -> Option<String> {
         .and_then(|x| x.strip_prefix('\"'))
         .or(Some(slice))
         .map(|x| x.replace("\\\"", "\""))
+        .map(|x| x.replace("\\n", "\n"))
     // .map(|x| x.to_string())
 }
 
@@ -332,7 +333,7 @@ fn character_special_display(c: char, f: &mut fmt::Formatter) -> fmt::Result {
     }
 }
 
-impl fmt::Display for TokenType<&str> {
+impl<T: fmt::Display> fmt::Display for TokenType<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             OpenParen => write!(f, "("),
@@ -367,40 +368,40 @@ impl fmt::Display for TokenType<&str> {
     }
 }
 
-impl fmt::Display for TokenType<String> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            OpenParen => write!(f, "("),
-            CloseParen => write!(f, "("),
-            CharacterLiteral(x) => character_special_display(*x, f),
-            BooleanLiteral(x) => write!(f, "#{x}"),
-            Identifier(x) => write!(f, "{x}"),
-            NumberLiteral(x) => write!(f, "{x:?}"),
-            IntegerLiteral(x) => write!(f, "{x}"),
-            StringLiteral(x) => write!(f, "\"{x}\""),
-            Keyword(x) => write!(f, "{x}"),
-            QuoteTick => write!(f, "'"),
-            Unquote => write!(f, ","),
-            QuasiQuote => write!(f, "`"),
-            UnquoteSplice => write!(f, ",@"),
-            Error => write!(f, "error"),
-            Comment => write!(f, ""),
-            If => write!(f, "if"),
-            Define => write!(f, "define"),
-            Let => write!(f, "let"),
-            TestLet => write!(f, "test-let"),
-            Return => write!(f, "return!"),
-            Begin => write!(f, "begin"),
-            Lambda => write!(f, "lambda"),
-            Quote => write!(f, "quote"),
-            DefineSyntax => write!(f, "define-syntax"),
-            SyntaxRules => write!(f, "syntax-rules"),
-            Ellipses => write!(f, "..."),
-            Set => write!(f, "set!"),
-            Require => write!(f, "require"),
-        }
-    }
-}
+// impl fmt::Display for TokenType<String> {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         match self {
+//             OpenParen => write!(f, "("),
+//             CloseParen => write!(f, "("),
+//             CharacterLiteral(x) => character_special_display(*x, f),
+//             BooleanLiteral(x) => write!(f, "#{x}"),
+//             Identifier(x) => write!(f, "{x}"),
+//             NumberLiteral(x) => write!(f, "{x:?}"),
+//             IntegerLiteral(x) => write!(f, "{x}"),
+//             StringLiteral(x) => write!(f, "\"{x}\""),
+//             Keyword(x) => write!(f, "{x}"),
+//             QuoteTick => write!(f, "'"),
+//             Unquote => write!(f, ","),
+//             QuasiQuote => write!(f, "`"),
+//             UnquoteSplice => write!(f, ",@"),
+//             Error => write!(f, "error"),
+//             Comment => write!(f, ""),
+//             If => write!(f, "if"),
+//             Define => write!(f, "define"),
+//             Let => write!(f, "let"),
+//             TestLet => write!(f, "test-let"),
+//             Return => write!(f, "return!"),
+//             Begin => write!(f, "begin"),
+//             Lambda => write!(f, "lambda"),
+//             Quote => write!(f, "quote"),
+//             DefineSyntax => write!(f, "define-syntax"),
+//             SyntaxRules => write!(f, "syntax-rules"),
+//             Ellipses => write!(f, "..."),
+//             Set => write!(f, "set!"),
+//             Require => write!(f, "require"),
+//         }
+//     }
+// }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token<'a, T> {

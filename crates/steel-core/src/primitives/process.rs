@@ -10,8 +10,11 @@ pub fn process_module() -> BuiltInModule {
 
     module
         .register_fn("command", CommandBuilder::new)
+        .register_fn("set-current-dir!", CommandBuilder::current_dir)
         .register_fn("spawn-process", CommandBuilder::spawn_process)
-        .register_fn("wait", ChildProcess::wait);
+        .register_fn("wait", ChildProcess::wait)
+        .register_fn("wait->stdout", ChildProcess::wait_with_stdout)
+        .register_fn("which", binary_exists_on_path);
 
     module
 }
@@ -23,12 +26,19 @@ struct CommandBuilder {
 
 #[derive(Debug)]
 struct ChildProcess {
-    child: Child,
+    child: Option<Child>,
 }
 
 #[derive(Debug)]
 struct ProcessExitStatus {
     _exit_status: ExitStatus,
+}
+
+fn binary_exists_on_path(binary: String) -> Option<String> {
+    match which::which(binary) {
+        Ok(v) => Some(v.into_os_string().into_string().unwrap()),
+        Err(_) => None,
+    }
 }
 
 impl ProcessExitStatus {
@@ -39,14 +49,28 @@ impl ProcessExitStatus {
 
 impl ChildProcess {
     pub fn new(child: Child) -> Self {
-        Self { child }
+        Self { child: Some(child) }
     }
 
     pub fn wait(&mut self) -> Result<ProcessExitStatus, SteelErr> {
         self.child
+            .take()
+            .ok_or_else(crate::throw!(Generic => "Child already awaited!"))?
             .wait()
             .map(ProcessExitStatus::new)
             .map_err(|x| x.into())
+    }
+
+    pub fn wait_with_stdout(&mut self) -> Result<String, SteelErr> {
+        let stdout = self
+            .child
+            .take()
+            .ok_or_else(crate::throw!(Generic => "Child already awaited!"))?
+            .wait_with_output()?
+            .stdout;
+
+        String::from_utf8(stdout)
+            .map_err(|e| SteelErr::new(crate::rerrs::ErrorKind::ConversionError, e.to_string()))
     }
 }
 
@@ -57,6 +81,10 @@ impl CommandBuilder {
         command.args(&args);
 
         Self { command }
+    }
+
+    pub fn current_dir(&mut self, directory: String) {
+        self.command.current_dir(directory);
     }
 
     pub fn spawn_process(&mut self) -> Result<ChildProcess, SteelErr> {

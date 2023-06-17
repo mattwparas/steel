@@ -1,3 +1,5 @@
+use crate::steel_vm::builtin::get_function_name;
+
 use super::*;
 
 #[derive(Default)]
@@ -23,8 +25,6 @@ impl CycleDetector {
     }
 
     fn start_format(self, val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
-        // todo!()
-
         for node in &self.values {
             let id = match &node {
                 SteelVal::CustomStruct(c) => {
@@ -46,8 +46,6 @@ impl CycleDetector {
         }
 
         Ok(())
-
-        // for node in
     }
 
     fn top_level_format_with_cycles(&self, val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
@@ -57,7 +55,13 @@ impl CycleDetector {
             IntV(x) => write!(f, "{x}"),
             StringV(s) => write!(f, "{s:?}"),
             CharV(c) => write!(f, "#\\{c}"),
-            FuncV(_) => write!(f, "#<function>"),
+            FuncV(func) => {
+                if let Some(name) = get_function_name(*func) {
+                    write!(f, "#<function:{}>", name.name)
+                } else {
+                    write!(f, "#<function>")
+                }
+            }
             Void => write!(f, "#<void>"),
             SymbolV(s) => write!(f, "{s}"),
             VectorV(lst) => {
@@ -74,21 +78,18 @@ impl CycleDetector {
             }
             Custom(x) => write!(f, "#<{}>", x.borrow().display()?),
             CustomStruct(s) => {
-                // if let Some(id) = self.cycles.get(&(s.as_ptr() as usize)) {
-                //     write!(f, "#{}#", id)
-                // } else {
                 let guard = s.borrow();
 
                 {
-                    if s.borrow()
-                        .properties
+                    if guard
                         .get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
                         .is_some()
                     {
                         write!(f, "({}", guard.name)?;
-                        for i in 0..guard.len - 1 {
+
+                        for i in &guard.fields {
                             write!(f, " ")?;
-                            self.format_with_cycles(&guard.fields[i], f)?;
+                            self.format_with_cycles(i, f)?;
                         }
 
                         write!(f, ")")
@@ -96,7 +97,6 @@ impl CycleDetector {
                         write!(f, "({})", guard.name)
                     }
                 }
-                // }
             }
 
             PortV(_) => write!(f, "#<port>"),
@@ -106,14 +106,19 @@ impl CycleDetector {
             HashSetV(hs) => write!(f, "#<hashset {hs:?}>"),
             FutureFunc(_) => write!(f, "#<future-func>"),
             FutureV(_) => write!(f, "#<future>"),
-            // Promise(_) => write!(f, "#<promise>"),
             StreamV(_) => write!(f, "#<stream>"),
             Contract(c) => write!(f, "{}", **c),
             ContractedFunction(_) => write!(f, "#<contracted-function>"),
-            BoxedFunction(_) => write!(f, "#<function>"),
+            BoxedFunction(b) => {
+                if let Some(name) = b.name() {
+                    write!(f, "#<function:{}>", name)
+                } else {
+                    write!(f, "#<function>")
+                }
+            }
             ContinuationFunction(c) => write!(f, "#<continuation: {:?}>", c.stack),
-            #[cfg(feature = "jit")]
-            CompiledFunction(_) => write!(f, "#<compiled-function>"),
+            // #[cfg(feature = "jit")]
+            // CompiledFunction(_) => write!(f, "#<compiled-function>"),
             ListV(l) => {
                 write!(f, "(")?;
 
@@ -126,22 +131,16 @@ impl CycleDetector {
                     }
                 }
 
-                // for item in l.iter().pe
-
-                // for item in l {
-                //     display_helper(item, f)?;
-                //     write!(f, " ")?;
-                // }
                 write!(f, ")")
             }
-            // write!(f, "#<list {:?}>", l),
             MutFunc(_) => write!(f, "#<function>"),
             BuiltIn(_) => write!(f, "#<function>"),
             ReducerV(_) => write!(f, "#<reducer>"),
             MutableVector(v) => write!(f, "{:?}", v.as_ref().borrow()),
-            SyntaxObject(s) => write!(f, "#<syntax:{:?}:{:?} {:?}>", s.source, s.span, s.syntax),
+            SyntaxObject(s) => write!(f, "#<syntax:{:?} {:?}>", s.span, s.syntax),
             BoxedIterator(_) => write!(f, "#<iterator>"),
             Boxed(b) => write!(f, "'#&{}", b.get()),
+            Reference(x) => write!(f, "{}", x.format()?),
         }
     }
 
@@ -152,7 +151,13 @@ impl CycleDetector {
             IntV(x) => write!(f, "{x}"),
             StringV(s) => write!(f, "{s:?}"),
             CharV(c) => write!(f, "#\\{c}"),
-            FuncV(_) => write!(f, "#<function>"),
+            FuncV(func) => {
+                if let Some(name) = get_function_name(*func) {
+                    write!(f, "#<function:{}>", name.name)
+                } else {
+                    write!(f, "#<function>")
+                }
+            }
             Void => write!(f, "#<void>"),
             SymbolV(s) => write!(f, "{s}"),
             VectorV(lst) => {
@@ -176,14 +181,14 @@ impl CycleDetector {
 
                     {
                         if s.borrow()
-                            .properties
                             .get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
                             .is_some()
                         {
                             write!(f, "({}", guard.name)?;
-                            for i in 0..guard.len - 1 {
+
+                            for i in &guard.fields {
                                 write!(f, " ")?;
-                                self.format_with_cycles(&guard.fields[i], f)?;
+                                self.format_with_cycles(i, f)?;
                             }
 
                             write!(f, ")")
@@ -205,10 +210,16 @@ impl CycleDetector {
             StreamV(_) => write!(f, "#<stream>"),
             Contract(c) => write!(f, "{}", **c),
             ContractedFunction(_) => write!(f, "#<contracted-function>"),
-            BoxedFunction(_) => write!(f, "#<function>"),
+            BoxedFunction(b) => {
+                if let Some(name) = b.name() {
+                    write!(f, "#<function:{}>", name)
+                } else {
+                    write!(f, "#<function>")
+                }
+            }
             ContinuationFunction(c) => write!(f, "#<continuation: {:?}>", c.stack),
-            #[cfg(feature = "jit")]
-            CompiledFunction(_) => write!(f, "#<compiled-function>"),
+            // #[cfg(feature = "jit")]
+            // CompiledFunction(_) => write!(f, "#<compiled-function>"),
             ListV(l) => {
                 write!(f, "(")?;
 
@@ -234,9 +245,10 @@ impl CycleDetector {
             BuiltIn(_) => write!(f, "#<function>"),
             ReducerV(_) => write!(f, "#<reducer>"),
             MutableVector(v) => write!(f, "{:?}", v.as_ref().borrow()),
-            SyntaxObject(s) => write!(f, "#<syntax:{:?}:{:?} {:?}>", s.source, s.span, s.syntax),
+            SyntaxObject(s) => write!(f, "#<syntax:{:?} {:?}>", s.span, s.syntax),
             BoxedIterator(_) => write!(f, "#<iterator>"),
             Boxed(b) => write!(f, "'#&{}", b.get()),
+            Reference(x) => write!(f, "{}", x.format()?),
         }
     }
 

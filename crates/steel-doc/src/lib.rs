@@ -49,7 +49,7 @@ fn walk_for_defines<W: Write>(
     while let Some(node) = nodes.next() {
         match &node {
             steel::parser::ast::ExprKind::Define(d) => {
-                let name = d.name.atom_identifier().unwrap();
+                let name = d.name.atom_identifier().unwrap().resolve();
 
                 // We'll only check things that are values
                 if !name.starts_with("mangler") && name.ends_with("__doc__") {
@@ -73,7 +73,11 @@ fn walk_for_defines<W: Write>(
                                             // Macros will generate unreadable symbols - so for the sake
                                             // of the documentation generator, we probably want to make this
                                             // more human readable
-                                            write!(writer, " {}", ident.trim_start_matches("#"))?;
+                                            write!(
+                                                writer,
+                                                " {}",
+                                                ident.resolve().trim_start_matches("#")
+                                            )?;
                                         } else {
                                             write!(writer, " {arg}")?;
                                         }

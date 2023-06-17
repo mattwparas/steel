@@ -66,6 +66,11 @@ pub enum OpCode {
     DynSuperInstruction,
     Arity,
     LetVar,
+    ADDIMMEDIATE,
+    SUBIMMEDIATE,
+    LTEIMMEDIATE,
+    BINOPADD,
+    LTEIMMEDIATEIF,
 }
 
 impl OpCode {

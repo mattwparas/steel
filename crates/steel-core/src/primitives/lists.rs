@@ -22,7 +22,7 @@ declare_const_ref_functions! {
     // TAKE => take,
     LIST_REF => list_ref,
     TRY_LIST_REF => try_list_ref,
-    RANGE => range,
+    RANGE => steel_range,
     IS_EMPTY => is_empty,
     CAR => car,
     LIST_TO_STRING => list_to_string,
@@ -158,7 +158,7 @@ pub(crate) const LIST_DOC: DocTemplate<'static> = DocTemplate {
     ],
 };
 
-fn new(args: &[SteelVal]) -> Result<SteelVal> {
+pub fn new(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::ListV(args.iter().cloned().collect()))
 }
 
@@ -206,22 +206,13 @@ fn cons(args: &mut [SteelVal]) -> Result<SteelVal> {
     }
     match (args[0].clone(), &mut args[1]) {
         (left, SteelVal::ListV(right)) => {
-            // println!("Consing {:?} to list {:?}", left, right);
-            // println!("Strong count: {:?}", right.strong_count());
             right.cons_mut(left);
+
+            // Consider moving in a default value instead of cloning?
             Ok(SteelVal::ListV(right.clone()))
         }
         (left, right) => Ok(SteelVal::ListV(list![left, right.clone()])),
     }
-
-    // match (&args[1].clone(), &mut args[0]) {
-    //     (right, SteelVal::ListV(left)) => {
-    //         println!("Strong count: {:?}", left.strong_count());
-    //         right.cons_mut(left);
-    //         Ok(SteelVal::ListV(right.clone()))
-    //     }
-    //     (right, left) => Ok(SteelVal::ListV(list![left, right])),
-    // }
 }
 
 pub(crate) const RANGE_DOC: DocTemplate<'static> = DocTemplate {
@@ -231,28 +222,46 @@ pub(crate) const RANGE_DOC: DocTemplate<'static> = DocTemplate {
     examples: &[("λ > (range 0 10)", "=> '(0 1 2 3 4 5 6 7 8 9)")],
 };
 
-fn range(args: &[SteelVal]) -> Result<SteelVal> {
-    arity_check!(new_range, args, 2);
-
-    if let (SteelVal::IntV(lower), SteelVal::IntV(upper)) = (&args[0], &args[1]) {
-        if *lower < 0 {
-            stop!(Generic => "range expects a positive integer");
-        }
-
-        if *upper < 0 {
-            stop!(Generic => "range expects a positive integer");
-        }
-
-        Ok(SteelVal::ListV(
-            (*lower as usize..*upper as usize)
-                .into_iter()
-                .map(|x| SteelVal::IntV(x as isize))
-                .collect(),
-        ))
-    } else {
-        stop!(ArityMismatch => "range takes two integers")
+#[steel_derive::function(name = "range")]
+fn range(lower: isize, upper: isize) -> Result<SteelVal> {
+    if lower < 0 {
+        stop!(Generic => "range expects a positive integer");
     }
+
+    if upper < 0 {
+        stop!(Generic => "range expects a positive integer");
+    }
+
+    Ok(SteelVal::ListV(
+        (lower as usize..upper as usize)
+            .into_iter()
+            .map(|x| SteelVal::IntV(x as isize))
+            .collect(),
+    ))
 }
+
+// fn range(args: &[SteelVal]) -> Result<SteelVal> {
+//     arity_check!(new_range, args, 2);
+
+//     if let (SteelVal::IntV(lower), SteelVal::IntV(upper)) = (&args[0], &args[1]) {
+//         if *lower < 0 {
+//             stop!(Generic => "range expects a positive integer");
+//         }
+
+//         if *upper < 0 {
+//             stop!(Generic => "range expects a positive integer");
+//         }
+
+//         Ok(SteelVal::ListV(
+//             (*lower as usize..*upper as usize)
+//                 .into_iter()
+//                 .map(|x| SteelVal::IntV(x as isize))
+//                 .collect(),
+//         ))
+//     } else {
+//         stop!(ArityMismatch => "range takes two integers")
+//     }
+// }
 
 pub(crate) const LENGTH_DOC: DocTemplate<'static> = DocTemplate {
     signature: "(length l) -> int?",
@@ -272,6 +281,11 @@ fn length(args: &[SteelVal]) -> Result<SteelVal> {
     } else {
         stop!(TypeMismatch => "length expects a list, found: {:?}", &args[0])
     }
+}
+
+#[steel_derive::function(name = "length")]
+fn custom_length(list: &List<SteelVal>) -> usize {
+    list.len()
 }
 
 pub(crate) const REVERSE_DOC: DocTemplate<'static> = DocTemplate {
@@ -664,7 +678,7 @@ mod list_operation_tests {
     #[test]
     fn range_tests_arity_too_few() {
         let args = [SteelVal::IntV(1)];
-        let res = range(&args);
+        let res = steel_range(&args);
         let expected = ErrorKind::ArityMismatch;
         assert_eq!(res.unwrap_err().kind(), expected);
     }
@@ -676,7 +690,7 @@ mod list_operation_tests {
             SteelVal::NumV(2.0),
             SteelVal::NumV(3.0),
         ];
-        let res = range(&args);
+        let res = steel_range(&args);
         let expected = ErrorKind::ArityMismatch;
         assert_eq!(res.unwrap_err().kind(), expected);
     }
@@ -684,7 +698,7 @@ mod list_operation_tests {
     #[test]
     fn range_test_normal_input() {
         let args = [SteelVal::IntV(0), SteelVal::IntV(3)];
-        let res = range(&args);
+        let res = steel_range(&args);
         let expected = SteelVal::ListV(list![
             SteelVal::IntV(0),
             SteelVal::IntV(1),

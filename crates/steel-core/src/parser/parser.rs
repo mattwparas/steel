@@ -1,14 +1,21 @@
-use crate::{parser::lexer::TokenStream, rvals::IntoSteelVal};
+use crate::{
+    compiler::program::{QUASIQUOTE, UNQUOTE, UNQUOTE_SPLICING},
+    parser::lexer::TokenStream,
+    rvals::IntoSteelVal,
+};
 use crate::{
     parser::tokens::{Token, TokenType, TokenType::*},
     rvals::FromSteelVal,
 };
 
-use std::rc::Rc;
 use std::result;
 use std::str;
 use std::{collections::HashMap, path::PathBuf};
-use steel_parser::lexer::{OwnedString, OwnedTokenStream};
+use std::{
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
+use steel_parser::lexer::{OwnedTokenStream, ToOwnedString};
 use thiserror::Error;
 
 use crate::parser::span::Span;
@@ -21,7 +28,7 @@ use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::SteelVal;
 use crate::rvals::SteelVal::*;
 
-use super::ast;
+use super::{ast, interner::InternedString};
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -48,21 +55,15 @@ impl FromSteelVal for SourceId {
     }
 }
 
-#[derive(Clone)]
-pub struct Sources {
+#[derive(Default, Clone, Serialize, Deserialize)]
+pub(crate) struct InterierSources {
     paths: HashMap<SourceId, PathBuf>,
     sources: Vec<String>,
 }
 
-impl Default for Sources {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Sources {
+impl InterierSources {
     pub fn new() -> Self {
-        Sources {
+        InterierSources {
             paths: HashMap::new(),
             sources: Vec::new(),
         }
@@ -90,6 +91,47 @@ impl Sources {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Sources {
+    pub(crate) sources: Arc<Mutex<InterierSources>>,
+}
+
+impl Default for Sources {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Sources {
+    pub fn new() -> Self {
+        Sources {
+            sources: Arc::new(Mutex::new(InterierSources::new())),
+        }
+    }
+
+    pub fn add_source(&mut self, source: String, path: Option<PathBuf>) -> SourceId {
+        self.sources.lock().unwrap().add_source(source, path)
+    }
+
+    // pub fn get(&self, source_id: SourceId) -> MutexGuard<'_, InteriorSources> {
+    //     let guard = self.sources.lock().unwrap();
+
+    //     guard.get(source_id)
+    // }
+
+    // pub fn get(&'_ self, source_id: SourceId) -> Option<Ref<'_, String>> {
+    //     Ref::filter_map(self.sources.borrow(), |x| x.get(source_id)).ok()
+    // }
+
+    // pub fn get_path(&self, source_id: &SourceId) -> Option<Ref<'_, PathBuf>> {
+    //     Ref::filter_map(self.sources.borrow(), |x| x.paths.get(source_id)).ok()
+    // }
+
+    // pub fn get_path(&self, source_id: &SourceId) -> Option<&PathBuf> {
+    //     self.sources.lock().unwrap().paths.get(source_id)
+    // }
+}
+
 pub(crate) static SYNTAX_OBJECT_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(
@@ -98,8 +140,15 @@ pub(crate) static SYNTAX_OBJECT_ID: AtomicUsize = AtomicUsize::new(0);
 pub struct SyntaxObjectId(pub usize);
 
 impl SyntaxObjectId {
+    #[inline]
     pub fn fresh() -> Self {
-        SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst))
+        SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
+impl From<SyntaxObjectId> for usize {
+    fn from(value: SyntaxObjectId) -> Self {
+        value.0
     }
 }
 
@@ -128,7 +177,8 @@ impl std::fmt::Display for SyntaxObjectId {
 pub struct RawSyntaxObject<T> {
     pub(crate) ty: T,
     pub(crate) span: Span,
-    pub(crate) source: Option<Rc<PathBuf>>,
+    // TODO: Just nuke this source here, we don't need it.
+    // pub(crate) source: Option<Rc<PathBuf>>,
     // pub(crate) metadata: Option<IdentifierMetadata>,
     pub(crate) syntax_object_id: SyntaxObjectId,
 }
@@ -138,9 +188,9 @@ impl<T: Clone> Clone for RawSyntaxObject<T> {
         Self {
             ty: self.ty.clone(),
             span: self.span,
-            source: self.source.clone(),
+            // source: self.source.clone(),
             // metadata: self.metadata.clone(),
-            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
+            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed)),
         }
     }
 }
@@ -167,7 +217,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for RawSyntaxObject<T> {
         f.debug_struct("RawSyntaxObject")
             .field("ty", &self.ty)
             .field("span", &self.span)
-            .field("source", &self.source)
+            // .field("source", &self.source)
             .finish()
     }
 }
@@ -181,7 +231,7 @@ impl<T: std::hash::Hash> std::hash::Hash for RawSyntaxObject<T> {
     }
 }
 
-pub type SyntaxObject = RawSyntaxObject<TokenType<String>>;
+pub type SyntaxObject = RawSyntaxObject<TokenType<InternedString>>;
 
 // #[derive(Debug, Clone, Serialize, Deserialize)]
 // pub struct SyntaxObject {
@@ -197,30 +247,21 @@ impl PartialEq for SyntaxObject {
 }
 
 impl SyntaxObject {
-    pub fn new(ty: TokenType<String>, span: Span) -> Self {
+    pub fn new(ty: TokenType<InternedString>, span: Span) -> Self {
         SyntaxObject {
             ty,
             span,
-            source: None,
-            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
+            // source: None,
+            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed)),
         }
     }
 
-    pub fn new_with_source(ty: TokenType<String>, span: Span, source: Option<Rc<PathBuf>>) -> Self {
-        SyntaxObject {
-            ty,
-            span,
-            source,
-            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
-        }
-    }
-
-    pub fn default(ty: TokenType<String>) -> Self {
+    pub fn default(ty: TokenType<InternedString>) -> Self {
         SyntaxObject {
             ty,
             span: Span::new(0, 0, None),
-            source: None,
-            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
+            // source: None,
+            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed)),
         }
     }
 
@@ -228,21 +269,30 @@ impl SyntaxObject {
         self.span = span
     }
 
-    pub fn from_token_with_source(val: &Token<'_, String>, source: &Option<Rc<PathBuf>>) -> Self {
+    pub fn from_token_with_source(
+        val: &Token<'_, InternedString>,
+        _source: &Option<Rc<PathBuf>>,
+    ) -> Self {
         SyntaxObject {
             ty: val.ty.clone(),
             span: val.span,
-            source: source.as_ref().map(Rc::clone),
-            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst)),
+            // source: source.as_ref().map(Rc::clone),
+            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed)),
         }
     }
 }
 
-impl From<&Token<'_, String>> for SyntaxObject {
-    fn from(val: &Token<'_, String>) -> SyntaxObject {
+impl From<&Token<'_, InternedString>> for SyntaxObject {
+    fn from(val: &Token<'_, InternedString>) -> SyntaxObject {
         SyntaxObject::new(val.ty.clone(), val.span)
     }
 }
+
+// impl From<&Token<'_, String>> for SyntaxObject {
+//     fn from(val: &Token<'_, String>) -> SyntaxObject {
+//         SyntaxObject::new(val.ty.clone(), val.span)
+//     }
+// }
 
 impl TryFrom<SyntaxObject> for SteelVal {
     type Error = SteelErr;
@@ -342,10 +392,17 @@ impl ParseError {
     }
 }
 
+pub struct InternString;
+
+impl ToOwnedString<InternedString> for InternString {
+    fn own(&self, s: &str) -> InternedString {
+        s.into()
+    }
+}
+
 // #[derive(Debug)]
 pub struct Parser<'a> {
-    tokenizer: OwnedTokenStream<'a, String, OwnedString>,
-    _intern: &'a mut HashMap<String, Rc<TokenType<String>>>,
+    tokenizer: OwnedTokenStream<'a, InternedString, InternString>,
     quote_stack: Vec<usize>,
     shorthand_quote_stack: Vec<usize>,
     source_name: Option<Rc<PathBuf>>,
@@ -377,14 +434,13 @@ enum ParsingContext {
 impl<'a> Parser<'a> {
     // #[cfg(test)]
     pub fn parse(expr: &str) -> Result<Vec<ExprKind>> {
-        let mut intern = HashMap::new();
-        Parser::new(expr, &mut intern, None).collect()
+        Parser::new(expr, None).collect()
     }
 }
 
 pub type Result<T> = result::Result<T, ParseError>;
 
-fn tokentype_error_to_parse_error(t: &Token<'_, String>) -> ParseError {
+fn tokentype_error_to_parse_error(t: &Token<'_, InternedString>) -> ParseError {
     if let TokenType::Error = t.ty {
         // println!("Found an error: {}", t);
 
@@ -399,14 +455,9 @@ fn tokentype_error_to_parse_error(t: &Token<'_, String>) -> ParseError {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(
-        input: &'a str,
-        intern: &'a mut HashMap<String, Rc<TokenType<String>>>,
-        source_id: Option<SourceId>,
-    ) -> Self {
+    pub fn new(input: &'a str, source_id: Option<SourceId>) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, false, source_id).into_owned(OwnedString),
-            _intern: intern,
+            tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
             source_name: None,
@@ -418,13 +469,11 @@ impl<'a> Parser<'a> {
 
     pub fn new_from_source(
         input: &'a str,
-        intern: &'a mut HashMap<String, Rc<TokenType<String>>>,
         source_name: PathBuf,
         source_id: Option<SourceId>,
     ) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, false, source_id).into_owned(OwnedString),
-            _intern: intern,
+            tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
             source_name: Some(Rc::from(source_name)),
@@ -435,14 +484,9 @@ impl<'a> Parser<'a> {
     }
 
     // Attach comments!
-    pub fn doc_comment_parser(
-        input: &'a str,
-        intern: &'a mut HashMap<String, Rc<TokenType<String>>>,
-        source_id: Option<SourceId>,
-    ) -> Self {
+    pub fn doc_comment_parser(input: &'a str, source_id: Option<SourceId>) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, false, source_id).into_owned(OwnedString),
-            _intern: intern,
+            tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
             quote_stack: Vec::new(),
             shorthand_quote_stack: Vec::new(),
             source_name: None,
@@ -487,7 +531,7 @@ impl<'a> Parser<'a> {
     // Reader macro for `
     fn construct_quasiquote(&mut self, val: ExprKind, span: Span) -> ExprKind {
         let q = {
-            let rc_val = TokenType::Identifier("quasiquote".to_string());
+            let rc_val = TokenType::Identifier(*QUASIQUOTE);
             ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
         };
 
@@ -497,7 +541,7 @@ impl<'a> Parser<'a> {
     // Reader macro for ,
     fn construct_unquote(&mut self, val: ExprKind, span: Span) -> ExprKind {
         let q = {
-            let rc_val = TokenType::Identifier("unquote".to_string());
+            let rc_val = TokenType::Identifier(*UNQUOTE);
             ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
         };
 
@@ -507,7 +551,7 @@ impl<'a> Parser<'a> {
     // Reader macro for ,@
     fn construct_unquote_splicing(&mut self, val: ExprKind, span: Span) -> ExprKind {
         let q = {
-            let rc_val = TokenType::Identifier("unquote-splicing".to_string());
+            let rc_val = TokenType::Identifier(*UNQUOTE_SPLICING);
             ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
         };
 
@@ -805,17 +849,13 @@ impl<'a> Parser<'a> {
                                     TokenType::Quote => {
                                         self.context.push(ParsingContext::Quote(stack.len()))
                                     }
-                                    TokenType::Identifier(ident) if ident.as_str() == "unquote" => {
+                                    TokenType::Identifier(ident) if *ident == *UNQUOTE => {
                                         self.context.push(ParsingContext::Unquote(stack.len()))
                                     }
-                                    TokenType::Identifier(ident)
-                                        if ident.as_str() == "quasiquote" =>
-                                    {
+                                    TokenType::Identifier(ident) if *ident == *QUASIQUOTE => {
                                         self.context.push(ParsingContext::Quasiquote(stack.len()))
                                     }
-                                    TokenType::Identifier(ident)
-                                        if ident.as_str() == "unquote-splicing" =>
-                                    {
+                                    TokenType::Identifier(ident) if *ident == *UNQUOTE_SPLICING => {
                                         self.context
                                             .push(ParsingContext::UnquoteSplicing(stack.len()))
                                     }
@@ -1175,9 +1215,7 @@ mod parser_tests {
     use crate::parser::ast::{Begin, Define, If, LambdaFunction, Quote, Return};
 
     fn atom(ident: &str) -> ExprKind {
-        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(
-            ident.to_string(),
-        ))))
+        ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier(ident.into()))))
     }
 
     fn int(num: isize) -> ExprKind {
@@ -1196,34 +1234,28 @@ mod parser_tests {
     }
 
     fn parses(s: &str) {
-        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
-        let a: Result<Vec<_>> = Parser::new(s, &mut cache, None).collect();
+        let a: Result<Vec<_>> = Parser::new(s, None).collect();
         a.unwrap();
     }
 
     fn assert_parse(s: &str, result: &[ExprKind]) {
-        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
-        let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache, None).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(s, None).collect();
         let a = a.unwrap();
         assert_eq!(a.as_slice(), result);
     }
 
     fn assert_parse_err(s: &str, err: ParseError) {
-        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
-        let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache, None).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(s, None).collect();
         assert_eq!(a, Err(err));
     }
 
     fn assert_parse_is_err(s: &str) {
-        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
-        let a: Result<Vec<ExprKind>> = Parser::new(s, &mut cache, None).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(s, None).collect();
         assert!(a.is_err());
     }
 
     #[test]
     fn check_parser_with_doc_comments() {
-        let mut cache = HashMap::new();
-
         let expr = r#"
         ;;@doc
         ;; This is a fancy cool comment, that I want to attach to a top level definition!
@@ -1252,7 +1284,7 @@ mod parser_tests {
         (define foo 12345)
         "#;
 
-        let parser = Parser::doc_comment_parser(expr, &mut cache, None);
+        let parser = Parser::doc_comment_parser(expr, None);
 
         let result: Result<Vec<_>> = parser.collect();
 

@@ -64,14 +64,14 @@
                               '#:fields fields))
 
   (when (not (list? fields))
-    (error! "make-struct expects a list of field names, found " fields))
+    (error! "struct expects a list of field names, found " fields))
 
   (when (not (symbol? struct-name))
-    (error! "make-struct expects an identifier as the first argument, found "
+    (error! "struct expects an identifier as the first argument, found "
             struct-name))
 
   (when (odd? (length options-without-single-keywords))
-    (error! "make-struct options are malformed - each option requires a value"))
+    (error! "struct options are malformed - each option requires a value"))
 
   ;; Update the options-map to have the fields included
   (let* ((options-map (apply hash options-without-single-keywords))
@@ -129,6 +129,21 @@
                 (lambda (this value)
                   (setter-proto this ,(list-ref field 1) value))))
        (enumerate 0 '() fields)))
+
+
+
+(define (%make-memoize f)
+    (lambda n
+        (let ((previous-value (%memo-table-ref %memo-table f n)))
+            (if (and (Ok? previous-value) (Ok->value previous-value))
+                (begin
+                    ; (displayln "READ VALUE: " previous-value " with args " n)
+                    (Ok->value previous-value))
+                (let ((new-value (apply f n)))
+                    ; (displayln "SETTING VALUE " new-value " with args " n)
+                    (%memo-table-set! %memo-table f n new-value)
+                    new-value)))))
+
 
 ;; TODO: Come back to this once theres something to attach it to
 ; (define (@doc expr comment)

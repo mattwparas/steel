@@ -9,6 +9,7 @@ use std::fmt;
 use super::parser::SourceId;
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
+#[repr(C)]
 pub struct Span {
     pub start: usize,
     pub end: usize,

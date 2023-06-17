@@ -41,7 +41,7 @@ impl FlatContract {
         let output = match self.predicate() {
             SteelVal::FuncV(func) => func(&[arg.clone()]).map_err(|x| x.set_span(*cur_inst_span)),
             SteelVal::BoxedFunction(func) => {
-                func(&[arg.clone()]).map_err(|x| x.set_span(*cur_inst_span))
+                func.func()(&[arg.clone()]).map_err(|x| x.set_span(*cur_inst_span))
             }
             SteelVal::Closure(closure) => ctx.call_with_one_arg(closure, arg.clone()),
             SteelVal::ContractedFunction(c) => c.apply(vec![arg.clone()], cur_inst_span, ctx),
@@ -178,7 +178,7 @@ impl FunctionContractExt for DependentContract {
         let output = match function {
             SteelVal::Closure(function) => ctx.call_with_args(function, verified_args)?,
             SteelVal::BoxedFunction(f) => {
-                f(&verified_args).map_err(|x| x.set_span(*cur_inst_span))?
+                f.func()(&verified_args).map_err(|x| x.set_span(*cur_inst_span))?
             }
             SteelVal::FuncV(f) => f(&verified_args).map_err(|x| x.set_span(*cur_inst_span))?,
             SteelVal::FutureFunc(f) => SteelVal::FutureV(Gc::new(
@@ -306,7 +306,7 @@ impl FunctionContract {
                 ctx.call_with_args(function, verified_args.into_iter())?
             }
             SteelVal::BoxedFunction(f) => {
-                f(&verified_args).map_err(|x| x.set_span(*cur_inst_span))?
+                f.func()(&verified_args).map_err(|x| x.set_span(*cur_inst_span))?
             }
             SteelVal::FuncV(f) => f(&verified_args).map_err(|x| x.set_span(*cur_inst_span))?,
             SteelVal::FutureFunc(f) => SteelVal::FutureV(Gc::new(

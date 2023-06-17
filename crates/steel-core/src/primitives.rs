@@ -10,6 +10,7 @@ pub mod meta_ops;
 pub mod nums;
 mod ports;
 pub mod process;
+pub mod random;
 mod streams;
 mod strings;
 mod symbols;
@@ -24,27 +25,34 @@ pub mod web;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 
+#[cfg(feature = "blocking_requests")]
+pub mod blocking_requests;
+
 pub use control::ControlOperations;
 pub use fs::FsFunctions;
-pub use hashmaps::HashMapOperations;
+use im_lists::list::List;
 pub use io::IoFunctions;
 pub use meta_ops::MetaOperations;
 pub use nums::NumOperations;
-pub use ports::PortOperations;
+pub use ports::port_module;
 pub use streams::StreamOperations;
 pub use strings::StringOperations;
 pub use symbols::SymbolOperations;
 pub use vectors::VectorOperations;
 
+pub use strings::string_module;
+
 pub use nums::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
 
-use crate::rvals::{FunctionSignature, SteelVal};
+use crate::rvals::{FunctionSignature, PrimitiveAsRef, SteelVal};
+use crate::values::port::SteelPort;
 use crate::{
     rerrs::{ErrorKind, SteelErr},
     rvals::SteelString,
 };
 use im_rc::Vector;
 
+use std::cell::RefCell;
 use std::convert::TryFrom;
 use std::result;
 
@@ -330,6 +338,7 @@ impl From<String> for SteelVal {
 }
 
 impl IntoSteelVal for &str {
+    #[inline(always)]
     fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
         Ok(SteelVal::StringV(self.into()))
     }
@@ -341,6 +350,90 @@ impl FromSteelVal for SteelString {
             Ok(s.clone())
         } else {
             crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel string", val))
+        }
+    }
+}
+
+impl<'a> PrimitiveAsRef<'a> for &'a Gc<Vector<SteelVal>> {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::VectorV(p) = val {
+            Ok(p)
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel vector", val))
+        }
+    }
+}
+
+impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashSet<SteelVal>> {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::HashSetV(p) = val {
+            Ok(p)
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel hashset", val))
+        }
+    }
+}
+
+impl<'a> PrimitiveAsRef<'a> for &'a Gc<RefCell<Vec<SteelVal>>> {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::MutableVector(p) = val {
+            Ok(p)
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel mutable vector", val))
+        }
+    }
+}
+
+impl<'a> PrimitiveAsRef<'a> for &'a Gc<SteelPort> {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::PortV(p) = val {
+            Ok(p)
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel port", val))
+        }
+    }
+}
+
+impl<'a> PrimitiveAsRef<'a> for &'a List<SteelVal> {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::ListV(l) = val {
+            Ok(l)
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel string", val))
+        }
+    }
+}
+
+impl<'a> PrimitiveAsRef<'a> for &'a SteelVal {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        Ok(val)
+    }
+}
+
+impl<'a> PrimitiveAsRef<'a> for &'a SteelString {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::StringV(s) = val {
+            Ok(s)
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel string", val))
+        }
+    }
+}
+
+impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashMap<SteelVal, SteelVal>> {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::HashMapV(hm) = val {
+            Ok(hm)
+        } else {
+            crate::stop!(ConversionError => format!("Canto convert steel value: {} to hashmap", val))
         }
     }
 }
@@ -360,6 +453,16 @@ impl From<String> for Gc<SteelVal> {
 impl From<bool> for SteelVal {
     fn from(val: bool) -> SteelVal {
         SteelVal::BoolV(val)
+    }
+}
+
+impl FromSteelVal for bool {
+    fn from_steelval(val: &SteelVal) -> crate::rvals::Result<bool> {
+        if let SteelVal::BoolV(b) = val {
+            Ok(*b)
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {val} to boolean"))
+        }
     }
 }
 

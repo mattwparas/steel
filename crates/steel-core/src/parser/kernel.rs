@@ -1,12 +1,23 @@
 use std::{collections::HashSet, convert::TryFrom};
 
-use crate::{parser::ast::from_list_repr_to_ast, rvals::Result};
+use steel_parser::tokens::TokenType;
+
+use crate::{
+    compiler::{passes::analysis::SemanticAnalysis, program::STRUCT_KEYWORD},
+    expr_list,
+    parser::{
+        ast::{from_list_repr_to_ast, Atom, Set},
+        parser::SyntaxObject,
+    },
+    rvals::Result,
+};
 use crate::{stdlib::KERNEL, steel_vm::engine::Engine, SteelVal};
 
-use super::{ast::ExprKind, span_visitor::get_span};
+use super::{ast::ExprKind, interner::InternedString, span_visitor::get_span};
 
 thread_local! {
-    pub(crate) static KERNEL_IMAGE: Engine = Engine::new_kernel();
+    // pub(crate) static KERNEL_IMAGE: Engine = Engine::new_kernel();
+    pub(crate) static KERNEL_IMAGE: Engine = Engine::new_bootstrap_kernel();
 }
 
 pub(crate) fn fresh_kernel_image() -> Engine {
@@ -21,7 +32,8 @@ pub(crate) fn fresh_kernel_image() -> Engine {
 /// for structs.
 #[derive(Clone)]
 pub struct Kernel {
-    macros: HashSet<String>,
+    macros: HashSet<InternedString>,
+    constants: HashSet<InternedString>,
     engine: Box<Engine>,
 }
 
@@ -40,19 +52,111 @@ impl Kernel {
 
         let mut macros = HashSet::new();
         // macros.insert("%better-lambda%".to_string());
-        macros.insert("struct".to_string());
+        macros.insert(*STRUCT_KEYWORD);
 
         Kernel {
             macros,
+            constants: HashSet::new(),
             engine: Box::new(engine),
         }
     }
 
-    pub fn contains_macro(&self, ident: &str) -> bool {
+    pub fn is_constant(&self, ident: &InternedString) -> bool {
+        self.constants.contains(ident)
+    }
+
+    // TODO: Have this report errors
+    pub fn load_program_for_comptime(
+        &mut self,
+        constants: im_rc::HashMap<InternedString, SteelVal>,
+        exprs: &mut Vec<ExprKind>,
+    ) -> Result<()> {
+        let mut analysis = SemanticAnalysis::new(exprs);
+
+        let result = analysis.run_black_box(constants, false);
+
+        // Only select expressions which are identified as constant
+        let subset = analysis
+            .exprs
+            .iter()
+            .filter(|expr| {
+                if let ExprKind::Define(define) = expr {
+                    if let ExprKind::LambdaFunction(_) = &define.body {
+                        let name = define.name.atom_identifier().unwrap().clone();
+
+                        return result.contains_key(&name);
+                    }
+                }
+
+                false
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+
+        log::debug!("Loading constant functions");
+
+        if subset.is_empty() {
+            log::debug!("Found no constant functions");
+
+            return Ok(());
+        }
+
+        self.engine.run_raw_program_from_exprs(subset)?;
+
+        fn set(var: ExprKind, expr: ExprKind) -> ExprKind {
+            ExprKind::Set(Box::new(Set::new(
+                var,
+                expr,
+                SyntaxObject::default(TokenType::Set),
+            )))
+        }
+
+        let mut set_idents = Vec::with_capacity(result.len());
+
+        let memoize: InternedString = "%make-memoize".into();
+
+        for ident in result.keys() {
+            self.constants.insert(ident.clone());
+
+            let set_ident = ExprKind::Atom(Atom::new(SyntaxObject::default(
+                TokenType::Identifier(ident.clone()),
+            )));
+            let memoize_expr = expr_list!(
+                ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
+                    memoize.clone()
+                )))),
+                set_ident.clone()
+            );
+
+            set_idents.push(set(set_ident, memoize_expr));
+        }
+
+        self.engine.run_raw_program_from_exprs(set_idents)?;
+
+        log::debug!("Constant functions loaded");
+
+        // dbg!(&self
+        //     .constants
+        //     .iter()
+        //     .map(|x| x.resolve())
+        //     .collect::<Vec<_>>());
+
+        Ok(())
+
+        // todo!("Run through every expression, and memoize them by calling (set! <ident> (make-memoize <ident>))")
+    }
+
+    pub fn contains_macro(&self, ident: &InternedString) -> bool {
         self.macros.contains(ident)
     }
 
-    pub fn expand(&mut self, ident: &str, expr: ExprKind) -> Result<ExprKind> {
+    pub fn call_function(&mut self, ident: &InternedString, args: &[SteelVal]) -> Result<SteelVal> {
+        let function = self.engine.extract_value(ident.resolve())?;
+
+        self.engine.call_function_with_args(function, args.to_vec())
+    }
+
+    pub fn expand(&mut self, ident: &InternedString, expr: ExprKind) -> Result<ExprKind> {
         let span = get_span(&expr);
 
         // let syntax_objects = SyntaxObjectFromExprKind::try_from_expr_kind(expr.clone())?;
@@ -66,7 +170,7 @@ impl Kernel {
 
         let args = SteelVal::try_from(expr)?;
 
-        let function = self.engine.extract_value(ident)?;
+        let function = self.engine.extract_value(ident.resolve())?;
 
         if let SteelVal::ListV(list) = args {
             let mut iter = list.into_iter();

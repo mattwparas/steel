@@ -1,10 +1,12 @@
-use std::{borrow::Cow, rc::Rc};
+use std::{borrow::Cow, cell::RefCell, rc::Rc, sync::Arc};
 
 use crate::{
-    parser::{ast::ExprKind, parser::SyntaxObject, tokens::TokenType},
-    rvals::{Custom, FromSteelVal, IntoSteelVal, Result, SteelVal},
+    containers::RegisterValue,
+    parser::{ast::ExprKind, interner::InternedString, parser::SyntaxObject, tokens::TokenType},
+    rvals::{Custom, FromSteelVal, FunctionSignature, IntoSteelVal, Result, SteelVal},
+    values::functions::BoxedDynFunction,
 };
-use im_rc::OrdMap;
+use im_rc::HashMap;
 
 /// A module to be consumed by the Steel Engine for later on demand access by scripts
 /// to refresh the primitives that are being used. For instance, the VM should have support
@@ -26,44 +28,188 @@ use im_rc::OrdMap;
 /// with reserving the proper slots in the interner
 ///
 /// TODO: @Matt - We run the risk of running into memory leaks here when exposing external mutable
-/// structs.
+/// structs. This should be more properly documented.
 #[derive(Clone, Debug)]
+#[repr(C)]
 pub struct BuiltInModule {
     pub(crate) name: Rc<str>,
-    values: OrdMap<String, SteelVal>,
-    docs: InternalDocumentation,
+    values: HashMap<Arc<str>, SteelVal>,
+    docs: Box<InternalDocumentation>,
     version: &'static str,
+    // Add the metadata separate from the pointer, keeps the pointer slim
+    fn_ptr_table: HashMap<*const FunctionSignature, FunctionSignatureMetadata>,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+// Probably need something more interesting than just an integer for the arity
+pub struct FunctionSignatureMetadata {
+    pub name: &'static str,
+    pub arity: Arity,
+}
+
+impl FunctionSignatureMetadata {
+    pub fn new(name: &'static str, arity: Arity) -> Self {
+        Self { name, arity }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Arity {
+    Exact(usize),
+    AtLeast(usize),
+    AtMost(usize),
+    Range(usize),
+}
+
+impl Custom for FunctionSignatureMetadata {
+    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+        Some(Ok(format!("{:?}", self)))
+    }
 }
 
 impl Custom for BuiltInModule {}
 
+impl RegisterValue for BuiltInModule {
+    fn register_value_inner(&mut self, name: &str, value: SteelVal) -> &mut Self {
+        self.values.insert(name.into(), value);
+        self
+    }
+}
+
+lazy_static::lazy_static! {
+    pub static ref MODULE_GET: InternedString = "%module-get%".into();
+    pub static ref VOID: InternedString = "void".into();
+}
+
+// Global function table
+thread_local! {
+    pub static FUNCTION_TABLE: RefCell<HashMap<*const FunctionSignature, FunctionSignatureMetadata>> = RefCell::new(HashMap::new());
+}
+
+pub fn get_function_name(function: FunctionSignature) -> Option<FunctionSignatureMetadata> {
+    FUNCTION_TABLE.with(|x| {
+        x.borrow()
+            .get(&(function as *const FunctionSignature))
+            .copied()
+    })
+}
+
+pub struct NativeFunctionDefinition {
+    pub name: &'static str,
+    pub func: fn(&[SteelVal]) -> Result<SteelVal>,
+    pub arity: Arity,
+    pub doc: Option<MarkdownDoc<'static>>,
+}
+
 impl BuiltInModule {
-    pub fn new(name: String) -> Self {
+    pub fn new<T: Into<Rc<str>>>(name: T) -> Self {
         Self {
             name: name.into(),
-            values: OrdMap::new(),
-            docs: InternalDocumentation::new(),
+            values: HashMap::new(),
+            docs: Box::new(InternalDocumentation::new()),
             version: env!("CARGO_PKG_VERSION"),
+            fn_ptr_table: HashMap::new(),
         }
     }
 
+    pub fn set_name(&mut self, name: String) {
+        self.name = name.into();
+    }
+
+    pub fn register_native_fn(
+        &mut self,
+        name: &'static str,
+        func: fn(&[SteelVal]) -> Result<SteelVal>,
+        arity: Arity,
+    ) -> &mut Self {
+        // Just automatically add it to the function pointer table to help out with searching
+        self.add_to_fn_ptr_table(func, FunctionSignatureMetadata::new(name, arity));
+        self.register_value(name, SteelVal::FuncV(func))
+    }
+
+    pub fn register_native_fn_with_doc(
+        &mut self,
+        name: &'static str,
+        func: fn(&[SteelVal]) -> Result<SteelVal>,
+        arity: Arity,
+        doc: impl Into<Documentation<'static>>,
+    ) -> &mut Self {
+        self.register_native_fn(name, func, arity)
+            .register_doc(name, doc)
+    }
+
+    pub fn register_native_fn_definition(
+        &mut self,
+        definition: NativeFunctionDefinition,
+    ) -> &mut Self {
+        if let Some(doc) = definition.doc {
+            self.register_native_fn_with_doc(
+                definition.name,
+                definition.func,
+                definition.arity,
+                doc,
+            );
+        } else {
+            self.register_native_fn(definition.name, definition.func, definition.arity);
+        }
+        self
+    }
+
     pub fn check_compatibility(self: &BuiltInModule) -> bool {
-        self.version == env!("CARGO_PKG_VERSION")
+        // self.version == env!("CARGO_PKG_VERSION")
+        true
     }
 
     pub fn contains(&self, ident: &str) -> bool {
         self.values.contains_key(ident)
     }
 
+    pub(crate) fn add_to_fn_ptr_table(
+        &mut self,
+        value: FunctionSignature,
+        data: FunctionSignatureMetadata,
+    ) -> &mut Self {
+        // Store this in a globally accessible place for printing
+        FUNCTION_TABLE.with(|table| {
+            table
+                .borrow_mut()
+                .insert(value as *const FunctionSignature, data)
+        });
+
+        // Probably don't need to store it in both places?
+        self.fn_ptr_table
+            .insert(value as *const FunctionSignature, data);
+
+        self
+    }
+
+    pub fn search(&self, value: SteelVal) -> Option<FunctionSignatureMetadata> {
+        // println!("{:?}", (*value as *const FunctionSignature) as usize);
+
+        // println!("{:#?}", self.fn_ptr_table);
+
+        if let SteelVal::FuncV(f) = value {
+            self.fn_ptr_table
+                .get(&(f as *const FunctionSignature))
+                .cloned()
+            // None
+        } else {
+            None
+        }
+    }
+
     pub fn bound_identifiers(&self) -> im_lists::list::List<SteelVal> {
         self.values
             .keys()
-            .map(|x| SteelVal::StringV(x.into()))
+            .map(|x| SteelVal::StringV(x.to_string().into()))
             .collect()
     }
 
     pub fn with_module(mut self, module: BuiltInModule) -> Self {
-        self.values = self.values.union(module.values);
+        // self.values = self.values.union(module.values);
+
+        self.values.extend(module.values.into_iter());
+
         self.docs.definitions.extend(module.docs.definitions);
         self
     }
@@ -84,7 +230,11 @@ impl BuiltInModule {
 
         self.register_value(
             predicate_name,
-            SteelVal::BoxedFunction(Rc::new(Box::new(f))),
+            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+                Arc::new(f),
+                Some(predicate_name),
+                Some(1),
+            ))),
         )
     }
 
@@ -92,8 +242,9 @@ impl BuiltInModule {
         &mut self,
         definition: impl Into<Cow<'static, str>>,
         description: impl Into<Documentation<'static>>,
-    ) {
+    ) -> &mut Self {
         self.docs.register_doc(definition, description.into());
+        self
     }
 
     pub fn get_doc(&self, definition: String) {
@@ -109,8 +260,7 @@ impl BuiltInModule {
     /// Add a value to the module namespace. This value can be any legal SteelVal, or if you're explicitly attempting
     /// to compile an program for later use and don't currently have access to the functions in memory, use `SteelVal::Void`
     pub fn register_value(&mut self, name: &str, value: SteelVal) -> &mut Self {
-        self.values.insert(name.to_string(), value);
-        self
+        self.register_value_inner(name, value)
     }
 
     pub fn register_value_with_doc(
@@ -119,14 +269,14 @@ impl BuiltInModule {
         value: SteelVal,
         doc: DocTemplate<'static>,
     ) -> &mut Self {
-        self.values.insert(name.to_string(), value);
+        self.values.insert(name.into(), value);
         self.register_doc(Cow::from(name), doc);
         self
     }
 
     // This _will_ panic given an incorrect value. This will be tied together by macros only allowing legal entries
     pub fn get(&self, name: String) -> SteelVal {
-        self.values.get(&name).unwrap().clone()
+        self.values.get(name.as_str()).unwrap().clone()
     }
 
     /// This does the boot strapping for bundling modules
@@ -156,14 +306,14 @@ impl BuiltInModule {
                 // Otherwise, just default to using the provided name
                 let name = prefix
                     .map(|pre| pre.to_string() + x)
-                    .unwrap_or_else(|| x.to_owned());
+                    .unwrap_or_else(|| x.to_string());
 
                 ExprKind::Define(Box::new(crate::parser::ast::Define::new(
                     // TODO: Add the custom prefix here
                     // Handling a more complex case of qualifying imports
                     ExprKind::atom(name),
                     ExprKind::List(crate::parser::ast::List::new(vec![
-                        ExprKind::atom("%module-get%".to_string()),
+                        ExprKind::atom(*MODULE_GET),
                         ExprKind::atom(module_name.clone()),
                         ExprKind::Quote(Box::new(crate::parser::ast::Quote::new(
                             ExprKind::atom(x.to_string()),
@@ -176,10 +326,10 @@ impl BuiltInModule {
             .collect::<Vec<_>>();
 
         defines.push(ExprKind::List(crate::parser::ast::List::new(vec![
-            ExprKind::atom("%module-get%".to_string()),
+            ExprKind::atom(*MODULE_GET),
             ExprKind::atom("%-builtin-module-".to_string() + "steel/constants"),
             ExprKind::Quote(Box::new(crate::parser::ast::Quote::new(
-                ExprKind::atom("void".to_string()),
+                ExprKind::atom(*VOID),
                 SyntaxObject::default(TokenType::Quote),
             ))),
         ])));
@@ -232,6 +382,7 @@ impl InternalDocumentation {
 
 // "#;
 
+// TODO: We're gonna need an FFI safe variant of this as well
 #[derive(Debug, Clone, PartialEq)]
 pub enum Documentation<'a> {
     Function(DocTemplate<'a>),
@@ -346,8 +497,3 @@ impl<'a> From<MarkdownDoc<'a>> for Documentation<'a> {
         Documentation::Markdown(val)
     }
 }
-
-// #[test]
-// fn check_output() {
-//     println!("{}", LAST_DOC);
-// }

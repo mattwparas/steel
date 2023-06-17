@@ -2,9 +2,10 @@ use std::cmp::Ordering;
 
 use super::{
     builtin::BuiltInModule,
+    cache::WeakMemoizationTable,
     engine::Engine,
     register_fn::RegisterFn,
-    vm::{apply, get_test_mode, set_test_mode, APPLY_DOC},
+    vm::{apply, get_test_mode, list_modules, set_test_mode, VmCore, APPLY_DOC},
 };
 use crate::{
     parser::span::Span,
@@ -20,17 +21,21 @@ use crate::{
             SECOND_DOC, THIRD_DOC,
         },
         nums::quotient,
+        port_module,
         process::process_module,
+        random::random_module,
+        string_module,
         time::time_module,
-        ControlOperations, FsFunctions, IoFunctions, MetaOperations, NumOperations, PortOperations,
-        StreamOperations, StringOperations, SymbolOperations, VectorOperations,
+        ControlOperations, FsFunctions, IoFunctions, MetaOperations, NumOperations,
+        StreamOperations, SymbolOperations, VectorOperations,
     },
     rerrs::ErrorKind,
     rvals::FromSteelVal,
+    steel_vm::{builtin::Arity, vm::threads::threading_module},
     values::{
         closed::HeapRef,
         functions::{attach_contract_struct, get_contract},
-        structs::{is_custom_struct, make_struct_type},
+        structs::make_struct_type,
     },
 };
 use crate::{
@@ -244,16 +249,21 @@ thread_local! {
     pub static SANDBOXED_META_MODULE: BuiltInModule = sandboxed_meta_module();
     pub static SANDBOXED_IO_MODULE: BuiltInModule = sandboxed_io_module();
     pub static PROCESS_MODULE: BuiltInModule = process_module();
+    pub static RANDOM_MODULE: BuiltInModule = random_module();
     pub static RESULT_MODULE: BuiltInModule = build_result_structs();
     pub static OPTION_MODULE: BuiltInModule = build_option_structs();
     pub static PRELUDE_MODULE: BuiltInModule = prelude();
     pub static TIME_MODULE: BuiltInModule = time_module();
+    pub static THREADING_MODULE: BuiltInModule = threading_module();
 
     #[cfg(feature = "web")]
     pub static WEBSOCKETS_MODULE: BuiltInModule = websockets_module();
 
     #[cfg(feature = "web")]
     pub static REQUESTS_MODULE: BuiltInModule = requests_module();
+
+    #[cfg(feature = "blocking_requests")]
+    pub static BLOCKING_REQUESTS_MODULE: BuiltInModule = crate::primitives::blocking_requests::blocking_requests_module();
 
     pub static STRING_COLORS_MODULE: BuiltInModule = string_coloring_module();
 
@@ -262,7 +272,7 @@ thread_local! {
 }
 
 pub fn prelude() -> BuiltInModule {
-    BuiltInModule::new("steel/base".to_string())
+    BuiltInModule::new("steel/base")
         .with_module(MAP_MODULE.with(|x| x.clone()))
         .with_module(SET_MODULE.with(|x| x.clone()))
         .with_module(LIST_MODULE.with(|x| x.clone()))
@@ -286,11 +296,14 @@ pub fn prelude() -> BuiltInModule {
         .with_module(PROCESS_MODULE.with(|x| x.clone()))
         .with_module(RESULT_MODULE.with(|x| x.clone()))
         .with_module(OPTION_MODULE.with(|x| x.clone()))
+        .with_module(TIME_MODULE.with(|x| x.clone()))
+        .with_module(THREADING_MODULE.with(|x| x.clone()))
 }
 
 pub fn register_builtin_modules_without_io(engine: &mut Engine) {
     engine.register_fn("##__module-get", BuiltInModule::get);
     engine.register_fn("%module-get%", BuiltInModule::get);
+
     engine.register_value("%proto-hash%", HM_CONSTRUCT);
     engine.register_value("%proto-hash-insert%", HM_INSERT);
     engine.register_value("%proto-hash-get%", HM_GET);
@@ -330,6 +343,8 @@ pub fn register_builtin_modules(engine: &mut Engine) {
     engine.register_fn("##__module-get", BuiltInModule::get);
     engine.register_fn("%module-get%", BuiltInModule::get);
     engine.register_fn("%doc?", BuiltInModule::get_doc);
+    engine.register_value("%list-modules!", SteelVal::BuiltIn(list_modules));
+    engine.register_fn("%module/lookup-function", BuiltInModule::search);
     engine.register_fn("%string->render-markdown", render_as_md);
     engine.register_fn(
         "%module-bound-identifiers->list",
@@ -341,6 +356,13 @@ pub fn register_builtin_modules(engine: &mut Engine) {
     engine.register_value("error!", ControlOperations::error());
 
     engine.register_value("error", ControlOperations::error());
+
+    engine.register_value(
+        "%memo-table",
+        WeakMemoizationTable::new().into_steelval().unwrap(),
+    );
+    engine.register_fn("%memo-table-ref", WeakMemoizationTable::get);
+    engine.register_fn("%memo-table-set!", WeakMemoizationTable::insert);
 
     engine
         .register_module(MAP_MODULE.with(|x| x.clone()))
@@ -368,7 +390,9 @@ pub fn register_builtin_modules(engine: &mut Engine) {
         .register_module(OPTION_MODULE.with(|x| x.clone()))
         .register_module(PRELUDE_MODULE.with(|x| x.clone()))
         .register_module(TIME_MODULE.with(|x| x.clone()))
-        .register_module(STRING_COLORS_MODULE.with(|x| x.clone()));
+        .register_module(STRING_COLORS_MODULE.with(|x| x.clone()))
+        .register_module(RANDOM_MODULE.with(|x| x.clone()))
+        .register_module(THREADING_MODULE.with(|x| x.clone()));
 
     #[cfg(feature = "web")]
     engine
@@ -377,6 +401,9 @@ pub fn register_builtin_modules(engine: &mut Engine) {
 
     #[cfg(feature = "sqlite")]
     engine.register_module(SQLITE_MODULE.with(|x| x.clone()));
+
+    #[cfg(feature = "blocking_requests")]
+    engine.register_module(BLOCKING_REQUESTS_MODULE.with(|x| x.clone()));
 }
 
 pub static ALL_MODULES: &str = r#"
@@ -403,6 +430,7 @@ pub static ALL_MODULES: &str = r#"
     (require-builtin steel/process)
     (require-builtin steel/core/result)
     (require-builtin steel/core/option)
+    (require-builtin steel/threads)
 "#;
 
 pub static SANDBOXED_MODULES: &str = r#"
@@ -432,10 +460,17 @@ pub static SANDBOXED_MODULES: &str = r#"
 pub(crate) const TEST_APPLY: SteelVal = SteelVal::BuiltIn(apply);
 
 fn list_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/lists".to_string());
+    let mut module = BuiltInModule::new("steel/lists");
 
     // Register the doc for the module
     module.register_doc("steel/lists", crate::primitives::lists::LIST_MODULE_DOC);
+
+    // Grab a raw handle to a list
+    module.register_native_fn(
+        "%raw-list",
+        crate::primitives::lists::new,
+        Arity::AtLeast(0),
+    );
 
     module
         .register_value_with_doc(LIST, crate::primitives::lists::LIST, LIST_DOC)
@@ -472,9 +507,10 @@ fn list_module() -> BuiltInModule {
 }
 
 fn vector_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/vectors".to_string());
+    let mut module = BuiltInModule::new("steel/vectors");
     module
         .register_value("mutable-vector", VectorOperations::mut_vec_construct())
+        .register_value("mutable-vector->list", VectorOperations::mut_vec_to_list())
         .register_value("vector-push!", VectorOperations::mut_vec_push())
         .register_value("mut-vec-len", VectorOperations::mut_vec_length())
         .register_value("vector-length", VectorOperations::vec_length())
@@ -494,34 +530,8 @@ fn vector_module() -> BuiltInModule {
     module
 }
 
-fn char_upcase(c: char) -> char {
-    c.to_ascii_uppercase()
-}
-
-fn string_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/strings".to_string());
-    module
-        .register_value("string-append", StringOperations::string_append())
-        .register_value("to-string", ControlOperations::to_string())
-        .register_value("string->list", StringOperations::string_to_list())
-        .register_value("string-upcase", StringOperations::string_to_upper())
-        .register_value("string-lowercase", StringOperations::string_to_lower())
-        .register_value("string-length", StringOperations::string_length())
-        .register_value("trim", StringOperations::trim())
-        .register_value("trim-start", StringOperations::trim_start())
-        .register_value("trim-end", StringOperations::trim_end())
-        .register_value("split-whitespace", StringOperations::split_whitespace())
-        .register_value("string->int", StringOperations::string_to_int())
-        .register_value("int->string", StringOperations::int_to_string())
-        .register_value("string->symbol", StringOperations::string_to_symbol())
-        .register_value("starts-with?", StringOperations::starts_with())
-        .register_value("ends-with?", StringOperations::ends_with())
-        .register_fn("char-upcase", char_upcase);
-    module
-}
-
 fn identity_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/identity".to_string());
+    let mut module = BuiltInModule::new("steel/identity");
     module
         .register_value("int?", gen_pred!(IntV))
         .register_value("float?", gen_pred!(NumV))
@@ -572,7 +582,7 @@ fn identity_module() -> BuiltInModule {
 }
 
 fn stream_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/streams".to_string());
+    let mut module = BuiltInModule::new("steel/streams");
     module
         .register_value("stream-cons", StreamOperations::stream_cons())
         .register_value("empty-stream", StreamOperations::empty_stream())
@@ -583,7 +593,7 @@ fn stream_module() -> BuiltInModule {
 }
 
 fn contract_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/contracts".to_string());
+    let mut module = BuiltInModule::new("steel/contracts");
     module
         .register_value("bind/c", contracts::BIND_CONTRACT_TO_FUNCTION)
         .register_value("make-flat/c", contracts::MAKE_FLAT_CONTRACT)
@@ -598,7 +608,7 @@ fn contract_module() -> BuiltInModule {
 }
 
 fn number_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/numbers".to_string());
+    let mut module = BuiltInModule::new("steel/numbers");
     module
         .register_value("+", NumOperations::adder())
         .register_value("f+", NumOperations::float_add())
@@ -614,19 +624,22 @@ fn number_module() -> BuiltInModule {
 
 #[inline(always)]
 pub fn equality_primitive(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.is_empty() {
-        stop!(ArityMismatch => "expected at least one argument");
-    }
+    // if args.is_empty() {
+    //     stop!(ArityMismatch => "expected at least one argument");
+    // }
 
-    for (left, right) in args.iter().tuple_windows() {
-        if left != right {
-            return Ok(SteelVal::BoolV(false));
-        }
-    }
+    // for (left, right) in args.iter().tuple_windows() {
+    //     if left != right {
+    //         return Ok(SteelVal::BoolV(false));
+    //     }
+    // }
 
-    Ok(SteelVal::BoolV(true))
+    Ok(SteelVal::BoolV(args.windows(2).all(|x| x[0] == x[1])))
+
+    // Ok(SteelVal::BoolV(true))
 }
 
+// TODO: Align with the above using windows
 pub fn gte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     if args.is_empty() {
         stop!(ArityMismatch => "expected at least one argument");
@@ -648,18 +661,30 @@ pub fn lte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
         stop!(ArityMismatch => "expected at least one argument");
     }
 
-    for (left, right) in args.iter().tuple_windows() {
-        match left.partial_cmp(right) {
-            None | Some(Ordering::Greater) => return Ok(SteelVal::BoolV(false)),
-            _ => continue,
-        }
-    }
+    // Ok(SteelVal::BoolV(args.is_sorted_by()))
 
-    Ok(SteelVal::BoolV(true))
+    // self.as_slice().windows(2).all(|w| {
+    //     compare(&&w[0], &&w[1]).map(|o| o != Ordering::Greater).unwrap_or(false)
+    // })
+
+    // for &[left, right] in args.windows(2) {
+    //     match left.partial_cmp(&right) {
+    //         None | Some(Ordering::Greater) => return Ok(SteelVal::BoolV(false)),
+    //         _ => continue,
+    //     }
+    // }
+
+    Ok(SteelVal::BoolV(args.windows(2).all(|x| {
+        x[0].partial_cmp(&x[1])
+            .map(|x| x != Ordering::Greater)
+            .unwrap_or(false)
+    })))
+
+    // Ok(SteelVal::BoolV(true))
 }
 
 fn equality_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/equality".to_string());
+    let mut module = BuiltInModule::new("steel/equality");
     module
         .register_value(
             "equal?",
@@ -676,7 +701,7 @@ fn equality_module() -> BuiltInModule {
 }
 
 fn ord_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/ord".to_string());
+    let mut module = BuiltInModule::new("steel/ord");
     module
         .register_value(">", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a > b)))
         .register_value(">=", SteelVal::FuncV(gte_primitive))
@@ -686,19 +711,22 @@ fn ord_module() -> BuiltInModule {
 }
 
 pub fn transducer_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/transducers".to_string());
+    let mut module = BuiltInModule::new("steel/transducers");
+
+    use crate::primitives::transducers::*;
+
     module
-        .register_value("compose", crate::primitives::transducers::COMPOSE)
-        .register_value("mapping", crate::primitives::transducers::MAPPING)
-        .register_value("flattening", crate::primitives::transducers::FLATTENING)
-        .register_value("flat-mapping", crate::primitives::transducers::FLAT_MAPPING)
-        .register_value("filtering", crate::primitives::transducers::FILTERING)
-        .register_value("taking", crate::primitives::transducers::TAKING)
-        .register_value("dropping", crate::primitives::transducers::DROPPING)
-        .register_value("extending", crate::primitives::transducers::EXTENDING)
-        .register_value("enumerating", crate::primitives::transducers::ENUMERATING)
-        .register_value("zipping", crate::primitives::transducers::ZIPPING)
-        .register_value("interleaving", crate::primitives::transducers::INTERLEAVING)
+        .register_native_fn("compose", compose, Arity::AtLeast(0))
+        .register_native_fn("mapping", map, Arity::Exact(1))
+        .register_native_fn("flattening", flatten, Arity::Exact(1))
+        .register_native_fn("flat-mapping", flat_map, Arity::Exact(1))
+        .register_native_fn("filtering", filter, Arity::Exact(1))
+        .register_native_fn("taking", take, Arity::Exact(1))
+        .register_native_fn("dropping", dropping, Arity::Exact(1))
+        .register_native_fn("extending", extending, Arity::Exact(1))
+        .register_native_fn("enumerating", enumerating, Arity::Exact(0))
+        .register_native_fn("zipping", zipping, Arity::Exact(1))
+        .register_native_fn("interleaving", interleaving, Arity::Exact(1))
         .register_value("into-sum", crate::values::transducers::INTO_SUM)
         .register_value("into-product", crate::values::transducers::INTO_PRODUCT)
         .register_value("into-max", crate::values::transducers::INTO_MAX)
@@ -717,7 +745,7 @@ pub fn transducer_module() -> BuiltInModule {
 }
 
 fn symbol_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/symbols".to_string());
+    let mut module = BuiltInModule::new("steel/symbols");
     module
         .register_value("concat-symbols", SymbolOperations::concat_symbols())
         .register_value("symbol->string", SymbolOperations::symbol_to_string());
@@ -725,7 +753,7 @@ fn symbol_module() -> BuiltInModule {
 }
 
 fn io_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/io".to_string());
+    let mut module = BuiltInModule::new("steel/io");
     module
         .register_value("display", IoFunctions::display())
         .register_value("displayln", IoFunctions::displayln())
@@ -736,7 +764,7 @@ fn io_module() -> BuiltInModule {
 }
 
 fn sandboxed_io_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/io".to_string());
+    let mut module = BuiltInModule::new("steel/io");
     module
         .register_value("display", IoFunctions::sandboxed_display())
         // .register_value("display-color", IoFunctions::display_color())
@@ -746,13 +774,13 @@ fn sandboxed_io_module() -> BuiltInModule {
 }
 
 fn constants_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/constants".to_string());
+    let mut module = BuiltInModule::new("steel/constants");
     module.register_value("void", SteelVal::Void);
     module
 }
 
 fn fs_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/filesystem".to_string());
+    let mut module = BuiltInModule::new("steel/filesystem");
     module
         .register_value("is-dir?", FsFunctions::is_dir())
         .register_value("is-file?", FsFunctions::is_file())
@@ -773,18 +801,6 @@ fn fs_module() -> BuiltInModule {
     module
 }
 
-fn port_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/ports".to_string());
-    module
-        .register_value("open-input-file", PortOperations::open_input_file())
-        .register_value("open-output-file", PortOperations::open_output_file())
-        .register_value("write-line!", PortOperations::write_line())
-        .register_value("read-port-to-string", PortOperations::read_port_to_string())
-        .register_value("read-line-from-port", PortOperations::read_line_to_string())
-        .register_value("stdin", SteelVal::FuncV(PortOperations::open_stdin));
-    module
-}
-
 fn get_environment_variable(var: String) -> Result<SteelVal> {
     std::env::var(var)
         .map(|x| x.into_steelval().unwrap())
@@ -792,7 +808,7 @@ fn get_environment_variable(var: String) -> Result<SteelVal> {
 }
 
 fn sandboxed_meta_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/meta".to_string());
+    let mut module = BuiltInModule::new("steel/meta");
     module
         // .register_value("assert!", MetaOperations::assert_truthy())
         .register_value("active-object-count", MetaOperations::active_objects())
@@ -813,14 +829,9 @@ fn sandboxed_meta_module() -> BuiltInModule {
         // .register_fn("Engine::new", super::meta::EngineWrapper::new)
         .register_fn("eval!", super::meta::eval)
         .register_fn("value->iterator", crate::rvals::value_into_iterator)
-        .register_value("iter-next!", SteelVal::FuncV(crate::rvals::iterator_next))
-        // .register_fn("run!", super::meta::EngineWrapper::call)
-        // .register_fn("get-value", super::meta::EngineWrapper::get_value)
-        .register_value(
-            "___magic_struct_symbol___",
-            crate::rvals::MAGIC_STRUCT_SYMBOL.with(|x| x.clone()),
-        )
-        .register_value("custom-struct?", is_custom_struct());
+        .register_value("iter-next!", SteelVal::FuncV(crate::rvals::iterator_next));
+    // .register_fn("run!", super::meta::EngineWrapper::call)
+    // .register_fn("get-value", super::meta::EngineWrapper::get_value)
     // .register_fn("env-var", get_environment_variable);
     module
 }
@@ -829,6 +840,17 @@ fn sandboxed_meta_module() -> BuiltInModule {
 fn arity(value: SteelVal) -> UnRecoverableResult {
     match value {
         SteelVal::Closure(c) => Ok(SteelVal::IntV(c.arity() as isize)).into(),
+        SteelVal::BoxedFunction(f) => f
+            .get_arity()
+            .map(|x| SteelVal::IntV(x as isize))
+            .ok_or(SteelErr::new(
+                ErrorKind::TypeMismatch,
+                "Unable to find the arity for the given function".to_string(),
+            ))
+            // .ok_or(steelerr!(TypeMismatch => "Unable to find the arity for the give function"))
+            .into(),
+
+        // Ok(SteelVal::IntV(f.get_arity()))
         _ => steelerr!(TypeMismatch => "Unable to find the arity for the given function").into(),
     }
 }
@@ -842,7 +864,7 @@ fn is_multi_arity(value: SteelVal) -> UnRecoverableResult {
 }
 
 fn meta_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/meta".to_string());
+    let mut module = BuiltInModule::new("steel/meta");
     module
         .register_value("assert!", MetaOperations::assert_truthy())
         .register_value("active-object-count", MetaOperations::active_objects())
@@ -889,11 +911,6 @@ fn meta_module() -> BuiltInModule {
         .register_fn("value->iterator", crate::rvals::value_into_iterator)
         .register_value("iter-next!", SteelVal::FuncV(crate::rvals::iterator_next))
         .register_value("%iterator?", gen_pred!(BoxedIterator))
-        .register_value(
-            "___magic_struct_symbol___",
-            crate::rvals::MAGIC_STRUCT_SYMBOL.with(|x| x.clone()),
-        )
-        .register_value("custom-struct?", is_custom_struct())
         .register_fn("env-var", get_environment_variable)
         .register_fn("set-env-var!", std::env::set_var::<String, String>)
         .register_fn("arity?", arity)
@@ -910,12 +927,13 @@ fn meta_module() -> BuiltInModule {
             "attach-contract-struct!",
             SteelVal::FuncV(attach_contract_struct),
         )
-        .register_value("get-contract-struct", SteelVal::FuncV(get_contract));
+        .register_value("get-contract-struct", SteelVal::FuncV(get_contract))
+        .register_fn("current-os!", || std::env::consts::OS);
     module
 }
 
 fn json_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/json".to_string());
+    let mut module = BuiltInModule::new("steel/json");
     module
         .register_value(
             "string->jsexpr",
@@ -929,7 +947,7 @@ fn json_module() -> BuiltInModule {
 }
 
 fn syntax_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/syntax".to_string());
+    let mut module = BuiltInModule::new("steel/syntax");
     module
         .register_fn("syntax->datum", crate::rvals::Syntax::syntax_datum)
         .register_fn("syntax-loc", crate::rvals::Syntax::syntax_loc)
@@ -986,4 +1004,15 @@ pub fn error_from_error_with_span() -> SteelVal {
 
         Err(steel_error.with_span(span))
     })
+}
+
+// Be able to introspect on the modules - probably just need to add a modules
+// field on the vm, or use a wrapped type with modules to find things
+// TODO: Add magic number for modules. - key to magic number, do pointer equality
+fn _lookup_doc(_ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVal> {
+    // for value in ctx.thread.global_env.bindings_vec.iter() {
+    //     if let
+    // }
+
+    todo!()
 }

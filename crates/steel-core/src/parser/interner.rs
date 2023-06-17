@@ -1,6 +1,7 @@
 use lasso::Key;
 use lasso::Spur;
-use std::fmt;
+use serde::{Deserialize, Serialize};
+use std::{fmt, sync::Arc};
 
 // #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 // pub enum MaybeInternedString {
@@ -9,7 +10,7 @@ use std::fmt;
 // }
 
 /// An interned string
-#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 #[repr(transparent)]
 pub struct InternedString(Spur);
 
@@ -17,7 +18,7 @@ impl InternedString {
     pub fn from_static(ident: &'static str) -> Self {
         Self(
             INTERNER
-                .get_or_init(ThreadedRodeo::new)
+                .get_or_init(|| Arc::new(ThreadedRodeo::new()))
                 .get_or_intern_static(ident),
         )
     }
@@ -25,7 +26,7 @@ impl InternedString {
     pub fn from_string(ident: String) -> Self {
         Self(
             INTERNER
-                .get_or_init(ThreadedRodeo::new)
+                .get_or_init(|| Arc::new(ThreadedRodeo::new()))
                 .get_or_intern(ident),
         )
     }
@@ -38,6 +39,10 @@ impl InternedString {
         self.0
     }
 
+    pub fn try_get(ident: &str) -> Option<InternedString> {
+        INTERNER.get().unwrap().get(ident).map(InternedString)
+    }
+
     #[doc(hidden)]
     pub fn as_u32(self) -> u32 {
         self.get().into_usize() as u32
@@ -48,11 +53,15 @@ impl InternedString {
     }
 }
 
-// impl From<&str> for InternedString {
-//     fn from(ident: &str) -> Self {
-//         Self::from_string(&ident)
-//     }
-// }
+impl From<&str> for InternedString {
+    fn from(ident: &str) -> Self {
+        Self(
+            INTERNER
+                .get_or_init(|| Arc::new(ThreadedRodeo::new()))
+                .get_or_intern(ident),
+        )
+    }
+}
 
 impl From<String> for InternedString {
     fn from(ident: String) -> Self {
@@ -78,14 +87,52 @@ impl fmt::Display for InternedString {
     }
 }
 
+impl From<InternedString> for SteelVal {
+    fn from(value: InternedString) -> Self {
+        SteelVal::StringV(value.into())
+    }
+}
+
+impl From<InternedString> for SteelString {
+    fn from(value: InternedString) -> Self {
+        value.resolve().into()
+    }
+}
+
+// impl Serialize for InternedString {
+//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+//     where
+//         S: Serializer,
+//     {
+//         serializer.serialize_str(self.resolve())
+//     }
+// }
+
+// impl Dese
+
 use lasso::ThreadedRodeo;
 use once_cell::sync::OnceCell;
 
-static INTERNER: OnceCell<ThreadedRodeo> = OnceCell::new();
+use crate::{rvals::SteelString, SteelVal};
+
+static INTERNER: OnceCell<Arc<ThreadedRodeo>> = OnceCell::new();
+
+pub fn take_interner() -> Arc<ThreadedRodeo> {
+    // INTERNER.take().unwrap()
+    Arc::clone(INTERNER.get().unwrap())
+}
+
+pub fn initialize_with(interner: Arc<ThreadedRodeo>) -> Result<(), Arc<ThreadedRodeo>> {
+    INTERNER.set(interner)
+}
+
+pub fn get_interner() -> Option<&'static Arc<ThreadedRodeo>> {
+    INTERNER.get()
+}
 
 #[test]
 fn test_initialization() {
-    INTERNER.get_or_init(ThreadedRodeo::new);
+    INTERNER.get_or_init(|| Arc::new(ThreadedRodeo::new()));
     let key = INTERNER.get().unwrap().get_or_intern_static("hello world");
 
     let resolved_string = INTERNER.get().unwrap().resolve(&key);

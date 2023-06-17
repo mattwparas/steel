@@ -1,4 +1,7 @@
-use crate::parser::ast::{ExprKind, List};
+use crate::parser::{
+    ast::{ExprKind, List},
+    interner::InternedString,
+};
 
 use super::Folder;
 
@@ -37,10 +40,10 @@ impl Folder for ExpandMethodCalls {
                     let mut second = first.clone();
 
                     // method
-                    first.update_string_in_atom(words[0].to_string());
+                    first.update_string_in_atom(words[0].into());
 
                     // struct
-                    second.update_string_in_atom(words[1].to_string());
+                    second.update_string_in_atom(words[1].into());
 
                     // method pushed on first
                     l.args.insert(0, first);
@@ -62,11 +65,13 @@ impl Folder for ExpandMethodCalls {
     }
 }
 
-pub struct MultipleArityFunctions {}
+pub struct MultipleArityFunctions {
+    dot: InternedString,
+}
 
 impl MultipleArityFunctions {
     pub fn expand_multiple_arity_functions(exprs: Vec<ExprKind>) -> Vec<ExprKind> {
-        MultipleArityFunctions {}.fold(exprs)
+        MultipleArityFunctions { dot: ".".into() }.fold(exprs)
     }
 }
 
@@ -86,7 +91,7 @@ impl Folder for MultipleArityFunctions {
             .iter()
             .filter_map(|x| x.atom_identifier())
             .for_each(|x| {
-                if x == "." {
+                if *x == self.dot {
                     dot_count += 1;
                 }
             });
@@ -97,7 +102,7 @@ impl Folder for MultipleArityFunctions {
             let dot_index = lambda_function.args.len() - 2;
 
             if let Some(dot) = lambda_function.args[dot_index].atom_identifier() {
-                if dot == "." {
+                if *dot == self.dot {
                     lambda_function.args.remove(dot_index);
                     lambda_function.rest = true;
 

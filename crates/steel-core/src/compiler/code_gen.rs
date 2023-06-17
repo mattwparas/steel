@@ -1,3 +1,5 @@
+use std::sync::atomic::AtomicUsize;
+
 use crate::{
     compiler::passes::analysis::IdentifierStatus::{
         Captured, Free, Global, HeapAllocated, LetVar, Local, LocallyDefinedFunction,
@@ -27,6 +29,14 @@ use super::{
 
 use crate::rvals::Result;
 
+// TODO: Have this interner also be a part of what gets saved...
+pub(crate) static FUNCTION_ID: AtomicUsize = AtomicUsize::new(0);
+
+fn fresh_function_id() -> usize {
+    // println!("{:?}", FUNCTION_ID);
+    FUNCTION_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 pub struct CodeGenerator<'a> {
     pub(crate) instructions: Vec<LabeledInstruction>,
     constant_map: &'a mut ConstantMap,
@@ -47,6 +57,25 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
         what => {
             // println!("getting here in the eval_atom - code_gen");
             stop!(UnexpectedToken => what; t.span)
+        }
+    }
+}
+
+fn try_eval_atom(t: &SyntaxObject) -> Option<SteelVal> {
+    match &t.ty {
+        TokenType::BooleanLiteral(b) => Some((*b).into()),
+        // TokenType::Identifier(s) => env.borrow().lookup(&s),
+        TokenType::NumberLiteral(n) => Some(SteelVal::NumV(*n)),
+        TokenType::StringLiteral(s) => Some(SteelVal::StringV(s.into())),
+        TokenType::CharacterLiteral(c) => Some(SteelVal::CharV(*c)),
+        TokenType::IntegerLiteral(n) => Some(SteelVal::IntV(*n)),
+        // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
+        TokenType::Keyword(k) => Some(SteelVal::SymbolV(k.clone().into())),
+        _what => {
+            // println!("getting here in the eval_atom - code_gen");
+            // stop!(UnexpectedToken => what; t.span)
+
+            return None;
         }
     }
 }
@@ -90,7 +119,28 @@ impl<'a> CodeGenerator<'a> {
         Ok(())
     }
 
-    #[allow(unused)]
+    fn specialize_immediate(&self, l: &List) -> Option<OpCode> {
+        if l.args.len() == 3 {
+            let function = l.first()?;
+
+            let _ = l.args[1].atom_identifier()?;
+            let _ = eval_atom(l.args[2].atom_syntax_object()?).ok()?;
+
+            if let Some(info) = self.analysis.get(function.atom_syntax_object()?) {
+                if info.kind == Free || info.kind == Global {
+                    return match function.atom_identifier().unwrap().resolve() {
+                        "+" => Some(OpCode::ADDIMMEDIATE),
+                        "-" => Some(OpCode::SUBIMMEDIATE),
+                        "<=" => Some(OpCode::LTEIMMEDIATE),
+                        _ => None,
+                    };
+                }
+            }
+        }
+
+        None
+    }
+
     fn should_specialize_call(&self, l: &List) -> Option<OpCode> {
         if l.args.len() == 3 {
             let function = l.first()?;
@@ -100,7 +150,7 @@ impl<'a> CodeGenerator<'a> {
 
             if let Some(info) = self.analysis.get(function.atom_syntax_object()?) {
                 if info.kind == Free || info.kind == Global {
-                    return match function.atom_identifier().unwrap() {
+                    return match function.atom_identifier().unwrap().resolve() {
                         "+" => Some(OpCode::ADDREGISTER),
                         "-" => Some(OpCode::SUBREGISTER),
                         "<=" => Some(OpCode::LTEREGISTER),
@@ -113,9 +163,61 @@ impl<'a> CodeGenerator<'a> {
         None
     }
 
+    fn specialize_immediate_call(&mut self, l: &List, op: OpCode) -> Option<()> {
+        // let value = eval_atom(l.args[2].atom_syntax_object().unwrap())?;
+
+        if l.args.len() != 3 {
+            return None;
+        }
+
+        let value = if let Some(TokenType::IntegerLiteral(l)) =
+            l.args[2].atom_syntax_object().map(|x| &x.ty)
+        {
+            *l
+        } else {
+            return None;
+            // stop!()
+        };
+
+        if value < 0 {
+            return None;
+        }
+
+        // if let Some(analysis) = &l.args[1]
+        //     .atom_syntax_object()
+        //     .and_then(|a| self.analysis.get(a))
+        // {
+        //     if let Some(offset) = analysis.stack_offset {
+        //         self.push(LabeledInstruction::builder(op).payload(offset));
+        //     } else {
+        //         stop!(Generic => "Missing stack offset!");
+        //     }
+        // } else {
+        //     panic!("Shouldn't be happening")
+        // }
+
+        let analysis = &l.args[1]
+            .atom_syntax_object()
+            .and_then(|a| self.analysis.get(a))?;
+
+        let offset = analysis.stack_offset?;
+
+        self.push(LabeledInstruction::builder(op).payload(offset));
+
+        // let idx = self.constant_map.add_or_get(value);
+
+        self.push(LabeledInstruction::builder(OpCode::PASS).payload(value as usize));
+
+        Some(())
+    }
+
     #[allow(unused)]
-    fn specialize_call(&mut self, l: &List, op: OpCode) -> Result<()> {
-        let value = eval_atom(l.args[2].atom_syntax_object().unwrap())?;
+    fn specialize_call(&mut self, l: &List, op: OpCode) -> Option<()> {
+        if l.args.len() != 3 {
+            return None;
+        }
+
+        let value = try_eval_atom(l.args[2].atom_syntax_object().unwrap())?;
 
         // Specialize SUB1 -> specializing here is a bit much but it should help
         // if value == SteelVal::IntV(1) && op == OpCode::SUBREGISTER {
@@ -136,14 +238,24 @@ impl<'a> CodeGenerator<'a> {
         //     return Ok(());
         // }
 
-        if let Some(analysis) = &l.args[1]
+        let analysis = &l.args[1]
             .atom_syntax_object()
-            .and_then(|a| self.analysis.get(a))
-        {
-            self.push(LabeledInstruction::builder(op).payload(analysis.stack_offset.unwrap()));
-        } else {
-            panic!("Shouldn't be happening")
-        }
+            .and_then(|a| self.analysis.get(a))?;
+
+        let offset = analysis.stack_offset?;
+
+        self.push(LabeledInstruction::builder(op).payload(offset));
+
+        // if let Some(analysis) =
+        // {
+        //     if let Some(offset) = analysis.stack_offset {
+        //         self.push(LabeledInstruction::builder(op).payload(offset));
+        //     } else {
+        //         return None;
+        //     }
+        // } else {
+        //     panic!("Shouldn't be happening")
+        // }
 
         // local variable, map to index:
         // if let ExprKind::Atom(a) = &l.args[1] {
@@ -161,9 +273,13 @@ impl<'a> CodeGenerator<'a> {
 
         let idx = self.constant_map.add_or_get(value);
 
+        // println!("Index: {:?}", idx);
+
         self.push(LabeledInstruction::builder(OpCode::PASS).payload(idx));
 
-        Ok(())
+        Some(())
+
+        // Ok(())
     }
 }
 
@@ -201,6 +317,12 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         //     (*elem).payload_size = false_start;
         // } else {
         //     stop!(Generic => "out of bounds jump");
+        // }
+
+        // if let Some(potential_pop_instr) = self.instructions.get(j3 - 1) {
+        //     if potential_pop_instr.op_code == OpCode::POPPURE {
+        //         println!("Found a pop instruction: {:?}", potential_pop_instr);
+        //     }
         // }
 
         if let Some(elem) = self.instructions.get_mut(false_start - 1) {
@@ -333,9 +455,11 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // Patching over the changes, see old code generator for more information
         // TODO: This is not a portable change. Syntax Object IDs need to have a patched unique ID
         // This should be doable by supplementing everything with an offset when consuming external modules
-        self.push(
-            LabeledInstruction::builder(OpCode::PASS).payload(lambda_function.syntax_object_id),
-        );
+        // self.push(
+        //     LabeledInstruction::builder(OpCode::PASS).payload(lambda_function.syntax_object_id),
+        // );
+
+        self.push(LabeledInstruction::builder(OpCode::PASS).payload(fresh_function_id()));
 
         // Save how many locals we have, for when we hit lets
         self.local_count.push(arity);
@@ -390,27 +514,21 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                         self.push(
                             LabeledInstruction::builder(OpCode::COPYHEAPCAPTURECLOSURE)
                                 .payload(var.parent_heap_offset.unwrap())
-                                .contents(SyntaxObject::default(TokenType::Identifier(
-                                    key.to_string(),
-                                ))),
+                                .contents(SyntaxObject::default(TokenType::Identifier(*key))),
                         );
                     } else {
                         // In this case we're gonna patch in the variable from the current captured scope
                         self.push(
                             LabeledInstruction::builder(OpCode::COPYCAPTURECLOSURE)
                                 .payload(var.capture_offset.unwrap())
-                                .contents(SyntaxObject::default(TokenType::Identifier(
-                                    key.to_string(),
-                                ))),
+                                .contents(SyntaxObject::default(TokenType::Identifier(*key))),
                         );
                     }
                 } else if var.mutated {
                     self.push(
                         LabeledInstruction::builder(OpCode::FIRSTCOPYHEAPCAPTURECLOSURE)
                             .payload(var.heap_offset.unwrap())
-                            .contents(SyntaxObject::default(TokenType::Identifier(
-                                key.to_string(),
-                            ))),
+                            .contents(SyntaxObject::default(TokenType::Identifier(*key))),
                     );
                 } else {
                     // In this case, it hasn't yet been captured, so we'll just capture
@@ -418,9 +536,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                     self.push(
                         LabeledInstruction::builder(OpCode::COPYCAPTURESTACK)
                             .payload(var.stack_offset.unwrap())
-                            .contents(SyntaxObject::default(TokenType::Identifier(
-                                key.to_string(),
-                            ))),
+                            .contents(SyntaxObject::default(TokenType::Identifier(*key))),
                     );
                 }
             }
@@ -453,9 +569,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 self.push(
                     LabeledInstruction::builder(OpCode::ALLOC)
                         .payload(var.stack_offset.unwrap())
-                        .contents(SyntaxObject::default(TokenType::Identifier(
-                            key.to_string(),
-                        ))),
+                        .contents(SyntaxObject::default(TokenType::Identifier(*key))),
                 );
             }
         }
@@ -564,10 +678,17 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     // This should be pretty straightforward - just check if they're still globals
     // then, specialize accordingly.
     fn visit_list(&mut self, l: &crate::parser::ast::List) -> Self::Output {
-        // TODO: Come back to call specialization
-        // if let Some(op) = self.should_specialize_call(l) {
-        //     return self.specialize_call(l, op);
-        // }
+        if let Some(op) = self.specialize_immediate(l) {
+            match self.specialize_immediate_call(l, op) {
+                Some(r) => return Ok(r),
+                None => {}
+            }
+        } else if let Some(op) = self.should_specialize_call(l) {
+            match self.specialize_call(l, op) {
+                Some(r) => return Ok(r),
+                None => {}
+            }
+        }
 
         if l.args.is_empty() {
             stop!(BadSyntax => "function application empty");
@@ -590,10 +711,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             s.clone()
         } else {
             // TODO check span information here by coalescing the entire list
-            SyntaxObject::new(
-                TokenType::Identifier("lambda".to_string()),
-                get_span(&l.args[0]),
-            )
+            SyntaxObject::new(TokenType::Identifier("lambda".into()), get_span(&l.args[0]))
         };
 
         if let Some(call_info) = self.analysis.call_info.get(&l.syntax_object_id) {

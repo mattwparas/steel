@@ -1,7 +1,13 @@
-use crate::parser::{
-    parser::{ParseError, SyntaxObject},
-    tokens::TokenType::{self, *},
-    tryfrom_visitor::TryFromExprKindForSteelVal,
+use crate::{
+    compiler::program::{
+        BEGIN, DATUM_SYNTAX, DEFINE, IF, LAMBDA, LAMBDA_FN, LAMBDA_SYMBOL, LET, QUOTE, REQUIRE,
+        RETURN, SET, STANDARD_MODULE_GET, UNREADABLE_MODULE_GET,
+    },
+    parser::{
+        parser::{ParseError, SyntaxObject},
+        tokens::TokenType::{self, *},
+        tryfrom_visitor::TryFromExprKindForSteelVal,
+    },
 };
 
 use std::{convert::TryFrom, sync::atomic::Ordering};
@@ -18,6 +24,7 @@ use crate::{
 };
 
 use super::{
+    interner::InternedString,
     parser::{SyntaxObjectId, SYNTAX_OBJECT_ID},
     span::Span,
 };
@@ -27,6 +34,12 @@ pub(crate) trait AstTools {
 }
 
 impl AstTools for Vec<ExprKind> {
+    fn pretty_print(&self) {
+        println!("{}", self.iter().map(|x| x.to_pretty(60)).join("\n\n"))
+    }
+}
+
+impl AstTools for Vec<&ExprKind> {
     fn pretty_print(&self) {
         println!("{}", self.iter().map(|x| x.to_pretty(60)).join("\n\n"))
     }
@@ -76,15 +89,15 @@ impl ExprKind {
         )))
     }
 
-    pub fn atom(name: String) -> ExprKind {
+    pub fn atom<T: Into<InternedString>>(name: T) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-            name,
+            name.into(),
         ))))
     }
 
     pub fn ident(name: &str) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-            name.to_string(),
+            name.into(),
         ))))
     }
 
@@ -116,7 +129,7 @@ impl ExprKind {
         }
     }
 
-    pub fn atom_identifier_mut(&mut self) -> Option<&mut String> {
+    pub fn atom_identifier_mut(&mut self) -> Option<&mut InternedString> {
         match self {
             Self::Atom(Atom {
                 syn:
@@ -139,7 +152,7 @@ impl ExprKind {
     pub fn atom_identifier_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,
-    ) -> std::result::Result<&str, E> {
+    ) -> std::result::Result<&InternedString, E> {
         match self {
             Self::Atom(Atom {
                 syn:
@@ -152,7 +165,7 @@ impl ExprKind {
         }
     }
 
-    pub fn atom_identifier(&self) -> Option<&str> {
+    pub fn atom_identifier(&self) -> Option<&InternedString> {
         match self {
             Self::Atom(Atom {
                 syn:
@@ -209,7 +222,7 @@ impl ExprKind {
         }
     }
 
-    pub fn update_string_in_atom(&mut self, ident: String) {
+    pub fn update_string_in_atom(&mut self, ident: InternedString) {
         if let ExprKind::Atom(Atom {
             syn:
                 SyntaxObject {
@@ -274,7 +287,7 @@ impl TryFrom<&SteelVal> for ExprKind {
             // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
             // MacroV(_) => Err("Can't convert from Macro to expression!"),
             SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                Identifier(x.to_string()),
+                Identifier(x.as_str().into()),
             )))),
             SyntaxObject(_) => todo!("Implement conversion"),
             Custom(_) => {
@@ -305,8 +318,8 @@ impl TryFrom<&SteelVal> for ExprKind {
             ContractedFunction(_) => Err("Can't convert from contracted function to expression!"),
             BoxedFunction(_) => Err("Can't convert from boxed function to expression!"),
             ContinuationFunction(_) => Err("Can't convert from continuation to expression!"),
-            #[cfg(feature = "jit")]
-            CompiledFunction(_) => Err("Can't convert from function to expression!"),
+            // #[cfg(feature = "jit")]
+            // CompiledFunction(_) => Err("Can't convert from function to expression!"),
             MutFunc(_) => Err("Can't convert from function to expression!"),
             BuiltIn(_) => Err("Can't convert from function to expression!"),
             ReducerV(_) => Err("Can't convert from reducer to expression!"),
@@ -314,6 +327,7 @@ impl TryFrom<&SteelVal> for ExprKind {
             CustomStruct(_) => Err("Can't convert from struct to expression!"),
             BoxedIterator(_) => Err("Can't convert from boxed iterator to expression!"),
             Boxed(_) => Err("Can't convert from boxed steel val to expression!"),
+            Reference(_) => Err("Can't convert from opaque reference type to expression!"),
         }
     }
 }
@@ -381,7 +395,7 @@ impl Atom {
         Atom { syn }
     }
 
-    pub fn ident(&self) -> Option<&str> {
+    pub fn ident(&self) -> Option<&InternedString> {
         if let TokenType::Identifier(ref ident) = self.syn.ty {
             Some(ident)
         } else {
@@ -389,7 +403,7 @@ impl Atom {
         }
     }
 
-    pub fn ident_mut(&mut self) -> Option<&mut String> {
+    pub fn ident_mut(&mut self) -> Option<&mut InternedString> {
         if let TokenType::Identifier(ref mut ident) = self.syn.ty {
             Some(ident)
         } else {
@@ -434,7 +448,7 @@ impl Let {
             bindings,
             body_expr,
             location,
-            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst),
+            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed),
         }
     }
 
@@ -641,8 +655,8 @@ impl Define {
     pub(crate) fn is_a_builtin_definition(&self) -> bool {
         if let ExprKind::List(l) = &self.body {
             match l.first_ident() {
-                Some(func) if func == "##__module-get" => return true,
-                Some(func) if func == "%module-get%" => return true,
+                Some(func) if *func == *UNREADABLE_MODULE_GET => return true,
+                Some(func) if *func == *STANDARD_MODULE_GET => return true,
                 _ => {}
             }
         }
@@ -677,7 +691,7 @@ impl Clone for LambdaFunction {
             body: self.body.clone(),
             location: self.location.clone(),
             rest: self.rest,
-            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst),
+            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed),
         }
     }
 }
@@ -737,7 +751,7 @@ impl LambdaFunction {
             body,
             location,
             rest: false,
-            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst),
+            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed),
         }
     }
 
@@ -747,15 +761,15 @@ impl LambdaFunction {
             body,
             location,
             rest: true,
-            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst),
+            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed),
         }
     }
 
-    pub fn arguments(&self) -> Option<Vec<&str>> {
+    pub fn arguments(&self) -> Option<Vec<&InternedString>> {
         self.args.iter().map(|x| x.atom_identifier()).collect()
     }
 
-    pub fn arguments_mut(&mut self) -> impl Iterator<Item = &mut String> {
+    pub fn arguments_mut(&mut self) -> impl Iterator<Item = &mut InternedString> {
         self.args.iter_mut().filter_map(|x| x.atom_identifier_mut())
     }
 }
@@ -894,7 +908,7 @@ impl List {
     pub fn new(args: Vec<ExprKind>) -> Self {
         List {
             args,
-            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::SeqCst),
+            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed),
         }
     }
 
@@ -906,7 +920,7 @@ impl List {
         self.args.split_first_mut().map(|x| x.1)
     }
 
-    pub fn first_ident_mut(&mut self) -> Option<&mut String> {
+    pub fn first_ident_mut(&mut self) -> Option<&mut InternedString> {
         if let Some(ExprKind::Atom(Atom {
             syn:
                 SyntaxObject {
@@ -921,7 +935,7 @@ impl List {
         }
     }
 
-    pub fn first_ident(&self) -> Option<&str> {
+    pub fn first_ident(&self) -> Option<&InternedString> {
         if let Some(ExprKind::Atom(Atom {
             syn:
                 SyntaxObject {
@@ -941,7 +955,7 @@ impl List {
     }
 
     pub fn is_a_builtin_expr(&self) -> bool {
-        matches!(self.first_ident(), Some(func) if func == "##__module-get" || func == "%module-get%")
+        matches!(self.first_ident(), Some(func) if *func == *UNREADABLE_MODULE_GET || *func == *STANDARD_MODULE_GET)
     }
 
     pub fn first_func_mut(&mut self) -> Option<&mut LambdaFunction> {
@@ -1282,7 +1296,7 @@ where
                     },
             }) = name_ref
             {
-                if datum_syntax == "datum->syntax" {
+                if *datum_syntax == *DATUM_SYNTAX {
                     return Ok(ExprKind::Define(Box::new(Define::new(
                         ExprKind::List(List::new(l.args)),
                         {
@@ -1326,7 +1340,7 @@ where
                 return Err(ParseError::SyntaxError(
                     "Function body cannot be empty".to_string(),
                     syn.span,
-                    syn.source,
+                    None,
                 ));
             }
 
@@ -1582,17 +1596,17 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                         // Have this also match on the first argument being a TokenType::Identifier("if")
                         // Do the same for the rest of the arguments
                         TokenType::If => parse_if(value.into_iter(), a.syn.clone()),
-                        TokenType::Identifier(expr) if expr == "if" => {
+                        TokenType::Identifier(expr) if *expr == *IF => {
                             parse_if(value.into_iter(), a.syn.clone())
                         }
 
                         TokenType::Define => parse_define(value.into_iter(), a.syn.clone()),
-                        TokenType::Identifier(expr) if expr == "define" => {
+                        TokenType::Identifier(expr) if *expr == *DEFINE => {
                             parse_define(value.into_iter(), a.syn.clone())
                         }
 
                         TokenType::Let => parse_let(value.into_iter(), a.syn.clone()),
-                        TokenType::Identifier(expr) if expr == "let" => {
+                        TokenType::Identifier(expr) if *expr == *LET => {
                             parse_let(value.into_iter(), a.syn.clone())
                         }
 
@@ -1605,7 +1619,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                             "quote",
                             |expr, syn| Quote::new(expr, syn).into(),
                         ),
-                        TokenType::Identifier(expr) if expr == "quote" => parse_single_argument(
+                        TokenType::Identifier(expr) if *expr == *QUOTE => parse_single_argument(
                             value.into_iter(),
                             a.syn.clone(),
                             "quote",
@@ -1618,7 +1632,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                             "return!",
                             |expr, syn| Return::new(expr, syn).into(),
                         ),
-                        TokenType::Identifier(expr) if expr == "return!" => parse_single_argument(
+                        TokenType::Identifier(expr) if *expr == *RETURN => parse_single_argument(
                             value.into_iter(),
                             a.syn.clone(),
                             "return!",
@@ -1626,19 +1640,21 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                         ),
 
                         TokenType::Require => parse_require(&a, value),
-                        TokenType::Identifier(expr) if expr == "require" => {
+                        TokenType::Identifier(expr) if *expr == *REQUIRE => {
                             parse_require(&a, value)
                         }
 
                         TokenType::Set => parse_set(&a, value),
-                        TokenType::Identifier(expr) if expr == "set!" => parse_set(&a, value),
+                        TokenType::Identifier(expr) if *expr == *SET => parse_set(&a, value),
 
                         TokenType::Begin => parse_begin(&a, value),
-                        TokenType::Identifier(expr) if expr == "begin" => parse_begin(&a, value),
+                        TokenType::Identifier(expr) if *expr == *BEGIN => parse_begin(&a, value),
 
                         TokenType::Lambda => parse_lambda(&a, value),
                         TokenType::Identifier(expr)
-                            if expr == "lambda" || expr == "fn" || expr == "λ" =>
+                            if *expr == *LAMBDA
+                                || *expr == *LAMBDA_FN
+                                || *expr == *LAMBDA_SYMBOL =>
                         {
                             parse_lambda(&a, value)
                         }
@@ -1839,7 +1855,7 @@ fn parse_require(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError>
         return Err(ParseError::ArityMismatch(
             "require expects at least one identifier or string".to_string(),
             syn.span,
-            a.syn.source.clone(),
+            None,
         ));
     }
     let mut value_iter = value.into_iter();
@@ -1851,7 +1867,7 @@ fn parse_require(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError>
                 _ => Err(ParseError::SyntaxError(
                     "require expects atoms".to_string(),
                     syn.span,
-                    a.syn.source.clone(),
+                    None,
                 )),
             }
 
@@ -1877,12 +1893,9 @@ mod display_tests {
 
     use super::*;
     use crate::parser::parser::{Parser, Result};
-    use std::collections::HashMap;
-    use std::rc::Rc;
 
     fn parse(expr: &str) -> ExprKind {
-        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
-        let a: Result<Vec<ExprKind>> = Parser::new(expr, &mut cache, None).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(expr, None).collect();
 
         a.unwrap()[0].clone()
     }
@@ -2044,8 +2057,6 @@ mod display_tests {
 mod pretty_print_tests {
     use super::*;
     use crate::parser::parser::{Parser, Result};
-    use std::collections::HashMap;
-    use std::rc::Rc;
 
     // pub fn to_pretty(&self, width: usize) -> String {
     //     let mut w = Vec::new();
@@ -2054,8 +2065,7 @@ mod pretty_print_tests {
     // }
 
     fn parse(expr: &str) -> ExprKind {
-        let mut cache: HashMap<String, Rc<TokenType<String>>> = HashMap::new();
-        let a: Result<Vec<ExprKind>> = Parser::new(expr, &mut cache, None).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(expr, None).collect();
 
         a.unwrap()[0].clone()
     }

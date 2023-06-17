@@ -1,6 +1,10 @@
+#![allow(unused)]
+
 use super::{
     builtin::BuiltInModule,
     dylib::DylibContainers,
+    ffi::FFIModule,
+    ffi::FFIWrappedModule,
     primitives::{register_builtin_modules, register_builtin_modules_without_io, CONSTANTS},
     vm::SteelThread,
 };
@@ -8,28 +12,60 @@ use crate::{
     compiler::{
         compiler::Compiler,
         modules::CompiledModule,
-        program::{Executable, RawProgramWithSymbols},
+        program::{Executable, RawProgramWithSymbols, SerializableRawProgramWithSymbols},
     },
-    parser::{ast::ExprKind, expander::SteelMacro},
+    containers::RegisterValue,
+    gc::unsafe_erased_pointers::{
+        BorrowedObject, CustomReference, OpaqueReferenceNursery, ReadOnlyBorrowedObject,
+    },
+    parser::{
+        ast::ExprKind,
+        expander::SteelMacro,
+        interner::{get_interner, take_interner, InternedString},
+        parser::SYNTAX_OBJECT_ID,
+    },
     parser::{
         kernel::{fresh_kernel_image, Kernel},
         parser::{ParseError, Parser, Sources},
     },
-    rerrs::back_trace,
+    rerrs::{back_trace, back_trace_to_string},
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
-    stop, throw, SteelErr,
+    steel_vm::register_fn::RegisterFn,
+    stop, throw,
+    values::functions::BoxedDynFunction,
+    SteelErr,
 };
-use std::{collections::HashMap, path::PathBuf, rc::Rc};
+use std::{collections::HashMap, path::PathBuf, rc::Rc, sync::Arc};
 
 use im_rc::HashMap as ImmutableHashMap;
 use itertools::Itertools;
+use lasso::ThreadedRodeo;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Default)]
+pub struct ModuleContainer {
+    modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
+    // external_modules: ImmutableHashMap<Rc<str>, ExternalModule>,
+}
+
+impl ModuleContainer {
+    pub fn insert(&mut self, key: Rc<str>, value: BuiltInModule) {
+        self.modules.insert(key, value);
+    }
+
+    pub fn get(&mut self, key: &str) -> Option<BuiltInModule> {
+        self.modules.get(key).cloned()
+    }
+}
 
 #[derive(Clone)]
 pub struct Engine {
     virtual_machine: SteelThread,
     compiler: Compiler,
-    constants: Option<ImmutableHashMap<String, SteelVal>>,
-    modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
+    constants: Option<ImmutableHashMap<InternedString, SteelVal>>,
+    // modules: ImmutableHashMap<Rc<str>, Rc<BuiltInModule>>,
+    // external_modules: ImmutableHashMap<Rc<str>, *mut BuiltInModule>,
+    modules: ModuleContainer,
     sources: Sources,
     dylibs: DylibContainers,
 }
@@ -37,6 +73,80 @@ pub struct Engine {
 impl Default for Engine {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// Pre-parsed ASTs along with the global state to set before we start any further processing
+#[derive(Serialize, Deserialize)]
+struct BootstrapImage {
+    interner: Arc<ThreadedRodeo>,
+    syntax_object_id: usize,
+    sources: Sources,
+    programs: Vec<Vec<ExprKind>>,
+}
+
+// Pre compiled programs along with the global state to set before we start any further processing
+#[derive(Serialize, Deserialize)]
+struct StartupBootstrapImage {
+    interner: Arc<ThreadedRodeo>,
+    syntax_object_id: usize,
+    function_id: usize,
+    sources: Sources,
+    programs: Vec<SerializableRawProgramWithSymbols>,
+    macros: HashMap<InternedString, SteelMacro>,
+}
+
+// #[test]
+fn run_bootstrap() {
+    Engine::create_bootstrap_from_programs();
+}
+
+pub struct LifetimeGuard<'a> {
+    engine: &'a mut Engine,
+}
+
+impl<'a> Drop for LifetimeGuard<'a> {
+    fn drop(&mut self) {
+        crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::free_all();
+    }
+}
+
+impl<'a> LifetimeGuard<'a> {
+    pub fn with_immutable_reference<T: CustomReference + 'a, EXT: CustomReference + 'static>(
+        self,
+        obj: &'a T,
+    ) -> Self {
+        crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_ro_object::<T, EXT>(
+            obj,
+        );
+
+        self
+    }
+
+    pub fn with_mut_reference<T: CustomReference + 'a, EXT: CustomReference + 'static>(
+        self,
+        obj: &'a mut T,
+    ) -> Self {
+        crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_rw_object::<T, EXT>(
+            obj,
+        );
+
+        self
+    }
+
+    pub fn consume<T>(self, mut thunk: impl FnMut(&mut Engine, Vec<SteelVal>) -> T) -> T {
+        let values =
+            crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::drain_to_steelvals();
+
+        thunk(self.engine, values)
+    }
+}
+
+impl RegisterValue for Engine {
+    fn register_value_inner(&mut self, name: &str, value: SteelVal) -> &mut Self {
+        let idx = self.compiler.register(name);
+        self.virtual_machine.insert_binding(idx, value);
+        self
     }
 }
 
@@ -51,7 +161,7 @@ impl Engine {
             virtual_machine: SteelThread::new(),
             compiler: Compiler::default(),
             constants: None,
-            modules: ImmutableHashMap::new(),
+            modules: ModuleContainer::default(),
             sources: Sources::new(),
             dylibs: DylibContainers::new(),
         };
@@ -63,8 +173,6 @@ impl Engine {
 
         log::info!(target:"kernel", "Registered modules in the kernel!");
 
-        // embed_primitives(&mut vm);
-
         let core_libraries = [
             crate::stdlib::PRELUDE,
             crate::stdlib::CONTRACTS,
@@ -75,15 +183,279 @@ impl Engine {
             vm.compile_and_run_raw_program(core).unwrap();
         }
 
-        vm.dylibs.load_modules();
+        log::info!(target: "kernel", "Loaded prelude in the kernel!");
 
-        let modules = vm.dylibs.modules().collect::<Vec<_>>();
+        #[cfg(feature = "dylibs")]
+        {
+            vm.dylibs.load_modules();
 
-        for module in modules {
-            vm.register_module(module);
+            let modules = vm.dylibs.modules();
+
+            for module in modules {
+                vm.register_external_module(module).unwrap();
+            }
+
+            log::info!(target: "kernel", "Loaded dylibs in the kernel!");
         }
 
         vm
+    }
+
+    /// Load dylibs from the given path and make them
+    pub fn load_modules_from_directory(&mut self, directory: String) {
+        log::info!("Loading modules from directory: {}", &directory);
+        self.dylibs.load_modules_from_directory(Some(directory));
+
+        let modules = self.dylibs.modules();
+
+        for module in modules {
+            self.register_external_module(module).unwrap();
+        }
+
+        log::info!("Successfully loaded modules!");
+    }
+
+    /// Function to access a kernel level execution environment
+    /// Has access to primitives and syntax rules, but will not defer to a child
+    /// kernel in the compiler
+    pub(crate) fn new_bootstrap_kernel() -> Self {
+        // If the interner has already been initialized, it most likely means that either:
+        // 1) Tests are being run
+        // 2) The parser was used in a standalone fashion, somewhere, which invalidates the bootstrap
+        //    process
+        //
+        // There are a few solutions to this - one would probably be to not use a static interner,
+        // however given that its a huge chore to pass around the interner everywhere there are strings,
+        // its probably inevitable we have that.
+        if get_interner().is_some() {
+            return Engine::new_kernel();
+        }
+
+        log::info!(target:"kernel", "Instantiating a new kernel");
+
+        let mut vm = Engine {
+            virtual_machine: SteelThread::new(),
+            compiler: Compiler::default(),
+            constants: None,
+            modules: ModuleContainer::default(),
+            sources: Sources::new(),
+            dylibs: DylibContainers::new(),
+        };
+
+        if let Some(programs) = Engine::load_from_bootstrap(&mut vm) {
+            register_builtin_modules(&mut vm);
+
+            for program in programs {
+                // println!("Running raw program...");
+
+                vm.compiler.constant_map = program.constant_map.clone();
+                vm.virtual_machine.constant_map = program.constant_map.clone();
+
+                vm.run_raw_program(program).unwrap();
+                // vm.run_raw_program_from_exprs(ast).unwrap();
+            }
+
+            log::info!(target: "kernel", "Loaded prelude in the kernel!");
+
+            #[cfg(feature = "dylib")]
+            {
+                vm.dylibs.load_modules();
+
+                let modules = vm.dylibs.modules();
+
+                for module in modules {
+                    vm.register_external_module(module).unwrap();
+                    // vm.register_module(module);
+                }
+
+                log::info!(target: "kernel", "Loaded dylibs in the kernel!");
+            }
+
+            let sources = vm.sources.clone();
+
+            vm.register_fn("report-error!", move |error: SteelErr| {
+                raise_error(&sources, error);
+            });
+
+            vm
+        } else {
+            let mut vm = Engine::new_kernel();
+
+            let sources = vm.sources.clone();
+
+            vm.register_fn("report-error!", move |error: SteelErr| {
+                raise_error(&sources, error);
+            });
+
+            vm
+        }
+    }
+
+    // fn load_from_bootstrap(vm: &mut Engine) -> Option<Vec<Vec<ExprKind>>> {
+    //     let bootstrap: BootstrapImage =
+    //         bincode::deserialize(include_bytes!("../boot/bootstrap.bin")).unwrap();
+
+    //     // Set the syntax object id to be AFTER the previous items have been parsed
+    //     SYNTAX_OBJECT_ID.store(
+    //         bootstrap.syntax_object_id,
+    //         std::sync::atomic::Ordering::Relaxed,
+    //     );
+
+    //     // Set up the interner to have this latest state
+    //     if crate::parser::interner::initialize_with(bootstrap.interner).is_err() {
+    //         return None;
+    //     }
+
+    //     vm.sources = bootstrap.sources;
+
+    //     Some(bootstrap.programs)
+    // }
+
+    fn load_from_bootstrap(vm: &mut Engine) -> Option<Vec<RawProgramWithSymbols>> {
+        if matches!(option_env!("STEEL_BOOTSTRAP"), Some("false") | None) {
+            return None;
+        }
+
+        let bootstrap: StartupBootstrapImage =
+            bincode::deserialize(include_bytes!("../boot/bootstrap.bin")).unwrap();
+
+        // Set the syntax object id to be AFTER the previous items have been parsed
+        SYNTAX_OBJECT_ID.store(
+            bootstrap.syntax_object_id,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+
+        crate::compiler::code_gen::FUNCTION_ID
+            .store(bootstrap.function_id, std::sync::atomic::Ordering::Relaxed);
+
+        // Set up the interner to have this latest state
+        if crate::parser::interner::initialize_with(bootstrap.interner).is_err() {
+            return None;
+        }
+
+        vm.sources = bootstrap.sources;
+        vm.compiler.macro_env = bootstrap.macros;
+
+        Some(
+            bootstrap
+                .programs
+                .into_iter()
+                .map(SerializableRawProgramWithSymbols::into_raw_program)
+                .collect(),
+        )
+    }
+
+    fn create_bootstrap_from_programs() {
+        let mut vm = Engine {
+            virtual_machine: SteelThread::new(),
+            compiler: Compiler::default(),
+            constants: None,
+            modules: ModuleContainer::default(),
+            sources: Sources::new(),
+            dylibs: DylibContainers::new(),
+        };
+
+        register_builtin_modules(&mut vm);
+
+        let mut programs = Vec::new();
+
+        let bootstrap_sources = [
+            crate::steel_vm::primitives::ALL_MODULES,
+            crate::stdlib::PRELUDE,
+            crate::stdlib::CONTRACTS,
+            crate::stdlib::DISPLAY,
+        ];
+
+        for source in bootstrap_sources {
+            // let id = vm.sources.add_source(source.to_string(), None);
+
+            // Could fail here
+            // let parsed: Vec<ExprKind> = Parser::new(source, Some(id))
+            //     .collect::<std::result::Result<_, _>>()
+            //     .unwrap();
+
+            let raw_program = vm.emit_raw_program_no_path(source).unwrap();
+
+            programs.push(raw_program.clone());
+
+            vm.run_raw_program(raw_program).unwrap();
+
+            // asts.push(parsed.clone());
+
+            // vm.run_raw_program_from_exprs(parsed).unwrap();
+        }
+
+        // Grab the last value of the offset
+        let syntax_object_id = SYNTAX_OBJECT_ID.load(std::sync::atomic::Ordering::Relaxed);
+        let function_id =
+            crate::compiler::code_gen::FUNCTION_ID.load(std::sync::atomic::Ordering::Relaxed);
+
+        let bootstrap = StartupBootstrapImage {
+            interner: take_interner(),
+            syntax_object_id,
+            function_id,
+            sources: vm.sources,
+            programs: programs
+                .into_iter()
+                .map(RawProgramWithSymbols::into_serializable_program)
+                .collect::<Result<_>>()
+                .unwrap(),
+            macros: vm.compiler.macro_env,
+        };
+
+        // Encode to something implementing `Write`
+        let mut f = std::fs::File::create("src/boot/bootstrap.bin").unwrap();
+        bincode::serialize_into(&mut f, &bootstrap).unwrap();
+    }
+
+    fn create_bootstrap() {
+        let mut vm = Engine {
+            virtual_machine: SteelThread::new(),
+            compiler: Compiler::default(),
+            constants: None,
+            modules: ModuleContainer::default(),
+            sources: Sources::new(),
+            dylibs: DylibContainers::new(),
+        };
+
+        register_builtin_modules(&mut vm);
+
+        let mut asts = Vec::new();
+
+        let bootstrap_sources = [
+            crate::steel_vm::primitives::ALL_MODULES,
+            crate::stdlib::PRELUDE,
+            crate::stdlib::CONTRACTS,
+            crate::stdlib::DISPLAY,
+            // crate::stdlib::KERNEL,
+        ];
+
+        for source in bootstrap_sources {
+            let id = vm.sources.add_source(source.to_string(), None);
+
+            // Could fail here
+            let parsed: Vec<ExprKind> = Parser::new(source, Some(id))
+                .collect::<std::result::Result<_, _>>()
+                .unwrap();
+
+            asts.push(parsed.clone());
+
+            vm.run_raw_program_from_exprs(parsed).unwrap();
+        }
+
+        // Grab the last value of the offset
+        let syntax_object_id = SYNTAX_OBJECT_ID.load(std::sync::atomic::Ordering::Relaxed);
+
+        let bootstrap = BootstrapImage {
+            interner: take_interner(),
+            syntax_object_id,
+            sources: vm.sources,
+            programs: asts,
+        };
+
+        // Encode to something implementing `Write`
+        let mut f = std::fs::File::create("src/boot/bootstrap.bin").unwrap();
+        bincode::serialize_into(&mut f, &bootstrap).unwrap();
     }
 
     /// Instantiates a raw engine instance. Includes no primitives or prelude.
@@ -101,7 +473,7 @@ impl Engine {
             virtual_machine: SteelThread::new(),
             compiler: Compiler::default_with_kernel(),
             constants: None,
-            modules: ImmutableHashMap::new(),
+            modules: ModuleContainer::default(),
             sources: Sources::new(),
             dylibs: DylibContainers::new(),
         }
@@ -129,12 +501,16 @@ impl Engine {
         vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
             .unwrap();
 
-        vm.dylibs.load_modules();
+        #[cfg(feature = "dylibs")]
+        {
+            vm.dylibs.load_modules();
 
-        let modules = vm.dylibs.modules().collect::<Vec<_>>();
+            let modules = vm.dylibs.modules();
 
-        for module in modules {
-            vm.register_module(module);
+            for module in modules {
+                vm.register_external_module(module).unwrap();
+                // vm.register_module(module);
+            }
         }
 
         // vm.dylibs.load_modules(&mut vm);
@@ -142,6 +518,7 @@ impl Engine {
         vm
     }
 
+    /// Turn contracts on in the VM
     pub fn with_contracts(&mut self, contracts: bool) -> &mut Self {
         self.virtual_machine.with_contracts(contracts);
         self
@@ -169,12 +546,14 @@ impl Engine {
         vm
     }
 
+    /// Call the print method within the VM
     pub fn call_printing_method_in_context(&mut self, argument: SteelVal) -> Result<SteelVal> {
         let function = self.extract_value("println")?;
         self.call_function_with_args(function, vec![argument])
     }
 
-    pub(crate) fn call_function_with_args(
+    /// Internal API for calling a function directly
+    pub fn call_function_with_args(
         &mut self,
         function: SteelVal,
         arguments: Vec<SteelVal>,
@@ -183,8 +562,209 @@ impl Engine {
             .call_function(self.compiler.constant_map.clone(), function, arguments)
     }
 
+    /// Call a function by name directly within the target environment
+    pub fn call_function_by_name_with_args(
+        &mut self,
+        function: &str,
+        arguments: Vec<SteelVal>,
+    ) -> Result<SteelVal> {
+        self.extract_value(function).and_then(|function| {
+            self.virtual_machine.call_function(
+                self.compiler.constant_map.clone(),
+                function,
+                arguments,
+            )
+        })
+    }
+
+    /// Nothing fancy, just run it
     pub fn run(&mut self, input: &str) -> Result<Vec<SteelVal>> {
         self.compile_and_run_raw_program(input)
+    }
+
+    pub fn with_immutable_reference<'a, T: CustomReference + 'a, EXT: CustomReference + 'static>(
+        &'a mut self,
+        obj: &'a T,
+    ) -> LifetimeGuard<'a> {
+        crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_ro_object::<T, EXT>(
+            obj,
+        );
+
+        LifetimeGuard { engine: self }
+    }
+
+    pub fn with_mut_reference<'a, T: CustomReference + 'a, EXT: CustomReference + 'static>(
+        &'a mut self,
+        obj: &'a mut T,
+    ) -> LifetimeGuard<'a> {
+        crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_rw_object::<T, EXT>(
+            obj,
+        );
+
+        LifetimeGuard { engine: self }
+    }
+
+    // Tie the lifetime of this object to the scope of this execution
+    pub fn run_with_reference<
+        'a,
+        'b: 'a,
+        T: CustomReference + 'b,
+        EXT: CustomReference + 'static,
+    >(
+        &'a mut self,
+        obj: &'a mut T,
+        bind_to: &'a str,
+        script: &'a str,
+    ) -> Result<SteelVal> {
+        // todo!()
+
+        crate::gc::unsafe_erased_pointers::MutableReferenceNursery::new().retain_reference(
+            obj,
+            |wrapped| {
+                // todo!();
+
+                let mut scope = ();
+
+                // Allocate the token to tie all references to this lifetime
+                let _token = OpaqueReferenceNursery::tie_lifetime(&mut scope);
+
+                let extended = unsafe {
+                    std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(wrapped)
+                };
+
+                self.register_value(
+                    bind_to,
+                    SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>())),
+                );
+
+                let res = self.compile_and_run_raw_program(script);
+
+                // Wipe out the value from existence at all
+                self.register_value(bind_to, SteelVal::Void);
+
+                res.map(|x| x.into_iter().next().unwrap())
+            },
+        )
+    }
+
+    pub fn run_with_references<
+        'a,
+        'b: 'a,
+        T: CustomReference + 'b,
+        EXT: CustomReference + 'static,
+        T2: CustomReference + 'b,
+        EXT2: CustomReference + 'static,
+    >(
+        &'a mut self,
+        obj: &'a mut T,
+        obj2: &'a mut T2,
+        mut thunk: impl FnMut(&mut Engine, SteelVal, SteelVal) -> Result<SteelVal>,
+    ) -> Result<SteelVal> {
+        crate::gc::unsafe_erased_pointers::MutableReferenceArena::new().retain_reference(
+            obj,
+            obj2,
+            |wrapped1, wrapped2| {
+                // todo!();
+
+                let mut scope = ();
+                let mut scope2 = ();
+
+                // Allocate the token to tie all references to this lifetime
+                let _token = OpaqueReferenceNursery::tie_lifetime(&mut scope);
+                let _token2 = OpaqueReferenceNursery::tie_lifetime(&mut scope2);
+
+                let extended = unsafe {
+                    std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(wrapped1)
+                };
+
+                let extended2 = unsafe {
+                    std::mem::transmute::<BorrowedObject<T2>, BorrowedObject<EXT2>>(wrapped2)
+                };
+
+                let steelval1 =
+                    SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
+                let steelval2 =
+                    SteelVal::Reference(Box::new(extended2.into_opaque_reference::<'static>()));
+
+                let res = thunk(self, steelval1, steelval2);
+
+                res
+            },
+        )
+    }
+
+    pub fn run_thunk_with_reference<
+        'a,
+        'b: 'a,
+        T: CustomReference + 'b,
+        EXT: CustomReference + 'static,
+    >(
+        &'a mut self,
+        obj: &'a mut T,
+        mut thunk: impl FnMut(&mut Engine, SteelVal) -> Result<SteelVal>,
+    ) -> Result<SteelVal> {
+        crate::gc::unsafe_erased_pointers::MutableReferenceNursery::new().retain_reference(
+            obj,
+            |wrapped1| {
+                // todo!();
+
+                let mut scope = ();
+
+                // Allocate the token to tie all references to this lifetime
+                let _token = OpaqueReferenceNursery::tie_lifetime(&mut scope);
+
+                let extended = unsafe {
+                    std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(wrapped1)
+                };
+
+                let steelval1 =
+                    SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
+
+                let res = thunk(self, steelval1);
+
+                // Wipe out the value from existence at all
+                // self.register_value(bind_to, SteelVal::Void);
+                // self.register_value(bind_to2, SteelVal::Void);
+
+                res
+            },
+        )
+    }
+
+    pub fn run_thunk_with_ro_reference<
+        'a,
+        'b: 'a,
+        T: CustomReference + 'b,
+        EXT: CustomReference + 'static,
+    >(
+        &'a mut self,
+        obj: &'a T,
+        mut thunk: impl FnMut(&mut Engine, SteelVal) -> Result<SteelVal>,
+    ) -> Result<SteelVal> {
+        crate::gc::unsafe_erased_pointers::MutableReferenceNursery::new().retain_readonly_reference(
+            obj,
+            |wrapped1| {
+                // todo!();
+
+                let mut scope = ();
+
+                // Allocate the token to tie all references to this lifetime
+                let _token = OpaqueReferenceNursery::tie_lifetime(&mut scope);
+
+                let extended = unsafe {
+                    std::mem::transmute::<ReadOnlyBorrowedObject<T>, ReadOnlyBorrowedObject<EXT>>(
+                        wrapped1,
+                    )
+                };
+
+                let steelval1 =
+                    SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
+
+                let res = thunk(self, steelval1);
+
+                res
+            },
+        )
     }
 
     /// Instantiates a new engine instance with all the primitive functions enabled.
@@ -205,20 +785,6 @@ impl Engine {
         engine.compiler.kernel = Some(Kernel::new());
 
         engine
-
-        // let mut vm = Engine::new_base();
-
-        // let core_libraries = [
-        //     crate::stdlib::PRELUDE,
-        //     crate::stdlib::DISPLAY,
-        //     crate::stdlib::CONTRACTS,
-        // ];
-
-        // for core in core_libraries.into_iter() {
-        //     vm.compile_and_run_raw_program(core).unwrap();
-        // }
-
-        // vm
     }
 
     /// Consumes the current `Engine` and emits a new `Engine` with the prelude added
@@ -285,6 +851,24 @@ impl Engine {
         self
     }
 
+    // TODO: Lets see if this can _not_ segfault!
+    pub fn register_external_module(
+        &mut self,
+        module: abi_stable::std_types::RBox<FFIModule>,
+    ) -> Result<&mut Self> {
+        let external_module = FFIWrappedModule::new(module)?.build();
+
+        self.modules
+            .insert(external_module.name.clone(), external_module.clone());
+
+        self.register_value(
+            external_module.unreadable_name().as_str(),
+            external_module.into_steelval().unwrap(),
+        );
+
+        Ok(self)
+    }
+
     // /// Emits a program with path information embedded for error messaging.
     // pub fn emit_program_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Program> {
     //     let constants = self.constants();
@@ -326,6 +910,14 @@ impl Engine {
     ) -> Result<()> {
         program.debug_build(name, &mut self.compiler.symbol_map)
     }
+
+    pub fn globals(&self) -> &Vec<InternedString> {
+        self.compiler.symbol_map.values()
+    }
+
+    // pub fn get_exported_module_functions(&self, path: PathBuf) -> impl Iterator<Item = InternedString> {
+
+    // }
 
     // Attempts to disassemble the given expression into a series of bytecode dumps
     // pub fn disassemble(&mut self, expr: &str) -> Result<String> {
@@ -401,7 +993,7 @@ impl Engine {
         self.run_raw_program(program)
     }
 
-    pub(crate) fn _run_raw_program_from_exprs(
+    pub(crate) fn run_raw_program_from_exprs(
         &mut self,
         exprs: Vec<ExprKind>,
     ) -> Result<Vec<SteelVal>> {
@@ -473,9 +1065,8 @@ impl Engine {
 
     /// Emit the unexpanded AST
     pub fn emit_ast_to_string(expr: &str) -> Result<String> {
-        let mut intern = HashMap::new();
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-            Parser::new(expr, &mut intern, None).collect();
+            Parser::new(expr, None).collect();
         let parsed = parsed?;
         Ok(parsed.into_iter().map(|x| x.to_pretty(60)).join("\n\n"))
     }
@@ -554,9 +1145,11 @@ impl Engine {
     /// vm.run("hello-world").unwrap(); // Will return the string
     /// ```
     pub fn register_value(&mut self, name: &str, value: SteelVal) -> &mut Self {
-        let idx = self.compiler.register(name);
-        self.virtual_machine.insert_binding(idx, value);
-        self
+        self.register_value_inner(name, value)
+
+        // let idx = self.compiler.register(name);
+        // self.virtual_machine.insert_binding(idx, value);
+        // self
     }
 
     /// Registers multiple values at once
@@ -606,7 +1199,11 @@ impl Engine {
 
         self.register_value(
             predicate_name,
-            SteelVal::BoxedFunction(Rc::new(Box::new(f))),
+            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+                Arc::new(f),
+                Some(predicate_name),
+                Some(1),
+            ))),
         )
     }
 
@@ -691,54 +1288,14 @@ impl Engine {
         T::from_steelval(&self.extract_value(name)?)
     }
 
+    /// Raise the error within the stack trace
     pub fn raise_error(&self, error: SteelErr) {
-        if let Some(span) = error.span() {
-            if let Some(source_id) = span.source_id() {
-                let file_name = self.sources.get_path(&source_id);
+        raise_error(&self.sources, error)
+    }
 
-                if let Some(file_content) = self.sources.get(source_id) {
-                    // Build stack trace if we have it:
-                    if let Some(trace) = error.stack_trace() {
-                        // TODO: Flatten recursive calls into the same stack trace
-                        // and present the count
-                        for dehydrated_context in trace.trace().iter().take(20) {
-                            // Report a call stack with whatever we actually have,
-                            if let Some(span) = dehydrated_context.span() {
-                                if let Some(id) = span.source_id() {
-                                    if let Some(source) = self.sources.get(id) {
-                                        let trace_line_file_name = self.sources.get_path(&id);
-
-                                        back_trace(
-                                            trace_line_file_name
-                                                .and_then(|x| x.to_str())
-                                                .unwrap_or(""),
-                                            source,
-                                            *span,
-                                        );
-
-                                        // let slice = &source.as_str()[span.range()];
-
-                                        // println!("{}", slice);
-
-                                        // todo!()
-                                    }
-                                }
-                            }
-
-                            // source = self.sources.get(dehydrated_context.)
-                        }
-                    }
-
-                    error.emit_result(
-                        file_name.and_then(|x| x.to_str()).unwrap_or(""),
-                        file_content,
-                    );
-                    return;
-                }
-            }
-        }
-
-        println!("Unable to locate source and span information for this error: {error}");
+    /// Emit an error string reporing, the back trace.
+    pub fn raise_error_to_string(&self, error: SteelErr) -> Option<String> {
+        raise_error_to_string(&self.sources, error)
     }
 
     /// Execute a program given as the `expr`, and computes a `Vec<SteelVal>` corresponding to the output of each expression given.
@@ -849,7 +1406,7 @@ impl Engine {
 
     // TODO this does not take into account the issues with
     // people registering new functions that shadow the original one
-    fn constants(&mut self) -> ImmutableHashMap<String, SteelVal> {
+    fn constants(&mut self) -> ImmutableHashMap<InternedString, SteelVal> {
         if let Some(hm) = self.constants.clone() {
             if !hm.is_empty() {
                 return hm;
@@ -859,7 +1416,7 @@ impl Engine {
         let mut hm = ImmutableHashMap::new();
         for constant in CONSTANTS {
             if let Ok(v) = self.extract_value(constant) {
-                hm.insert(constant.to_string(), v);
+                hm.insert((*constant).into(), v);
             }
         }
         self.constants = Some(hm.clone());
@@ -877,10 +1434,16 @@ impl Engine {
     }
 
     pub fn global_exists(&self, ident: &str) -> bool {
-        self.compiler.symbol_map.get(ident).is_ok()
+        let spur = if let Some(spur) = InternedString::try_get(ident) {
+            spur
+        } else {
+            return false;
+        };
+
+        self.compiler.symbol_map.get(&spur).is_ok()
     }
 
-    pub fn in_scope_macros(&self) -> &HashMap<String, SteelMacro> {
+    pub fn in_scope_macros(&self) -> &HashMap<InternedString, SteelMacro> {
         &self.compiler.macro_env
     }
 }
@@ -928,3 +1491,103 @@ impl Engine {
 //     //     assert_eq!(external_count.get(), 4);
 //     // }
 // }
+
+fn raise_error(sources: &Sources, error: SteelErr) {
+    if let Some(span) = error.span() {
+        if let Some(source_id) = span.source_id() {
+            let sources = sources.sources.lock().unwrap();
+
+            let file_name = sources.get_path(&source_id);
+
+            if let Some(file_content) = sources.get(source_id) {
+                // Build stack trace if we have it:
+                if let Some(trace) = error.stack_trace() {
+                    // TODO: Flatten recursive calls into the same stack trace
+                    // and present the count
+                    for dehydrated_context in trace.trace().iter().take(20) {
+                        // Report a call stack with whatever we actually have,
+                        if let Some(span) = dehydrated_context.span() {
+                            if let Some(id) = span.source_id() {
+                                if let Some(source) = sources.get(id) {
+                                    let trace_line_file_name = sources.get_path(&id);
+
+                                    let resolved_file_name = trace_line_file_name
+                                        .as_ref()
+                                        .and_then(|x| x.to_str())
+                                        .unwrap_or_default();
+
+                                    back_trace(&resolved_file_name, &source, *span);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let resolved_file_name = file_name.cloned().unwrap_or_default();
+
+                error.emit_result(resolved_file_name.to_str().unwrap(), &file_content);
+                return;
+            }
+        }
+    }
+
+    println!("Unable to locate source and span information for this error: {error}");
+}
+
+// If we are to construct an error object, emit that
+pub(crate) fn raise_error_to_string(sources: &Sources, error: SteelErr) -> Option<String> {
+    if let Some(span) = error.span() {
+        if let Some(source_id) = span.source_id() {
+            let sources = sources.sources.lock().unwrap();
+
+            let file_name = sources.get_path(&source_id);
+
+            if let Some(file_content) = sources.get(source_id) {
+                let mut back_traces = Vec::with_capacity(20);
+
+                // Build stack trace if we have it:
+                if let Some(trace) = error.stack_trace() {
+                    // TODO: Flatten recursive calls into the same stack trace
+                    // and present the count
+                    for dehydrated_context in trace.trace().iter().take(20) {
+                        // Report a call stack with whatever we actually have,
+                        if let Some(span) = dehydrated_context.span() {
+                            // Missing the span, its not particularly worth reporting?
+                            if span.start == 0 && span.end == 0 {
+                                continue;
+                            }
+
+                            if let Some(id) = span.source_id() {
+                                if let Some(source) = sources.get(id) {
+                                    let trace_line_file_name = sources.get_path(&id);
+
+                                    let resolved_file_name = trace_line_file_name
+                                        .as_ref()
+                                        .and_then(|x| x.to_str())
+                                        .unwrap_or_default();
+
+                                    let bt =
+                                        back_trace_to_string(&resolved_file_name, &source, *span);
+                                    back_traces.push(bt);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let resolved_file_name = file_name.cloned().unwrap_or_default();
+
+                let final_error = error
+                    .emit_result_to_string(resolved_file_name.to_str().unwrap(), &file_content);
+
+                back_traces.push(final_error);
+
+                return Some(back_traces.join("\n"));
+            }
+        }
+    }
+
+    // println!("Unable to locate source and span information for this error: {error}");
+
+    None
+}

@@ -1,24 +1,27 @@
-use crate::parser::ast::ExprKind;
-use crate::parser::parser::SyntaxObject;
 use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
 use crate::parser::visitors::ConsumingVisitor;
+use crate::{compiler::program::DEFINE, parser::parser::SyntaxObject};
+use crate::{
+    compiler::program::{DATUM_SYNTAX, SYNTAX_CONST_IF},
+    parser::ast::ExprKind,
+};
 
 use crate::rvals::Result;
 
-use super::ast::Atom;
+use super::{ast::Atom, interner::InternedString};
 
 use std::collections::HashMap;
 
-const DATUM_TO_SYNTAX: &str = "datum->syntax";
-const SYNTAX_CONST_IF: &str = "syntax-const-if";
+// const DATUM_TO_SYNTAX: &str = "datum->syntax";
+// const SYNTAX_CONST_IF: &str = "syntax-const-if";
 // TODO: Add level for pure macros to run at compile time... More or less const functions, that still
 // have access to the span?
 // const CURRENT_FILE: &str = "const-current-file!";
 
 pub fn replace_identifiers(
     expr: ExprKind,
-    bindings: &HashMap<String, ExprKind>,
+    bindings: &HashMap<InternedString, ExprKind>,
     span: Span,
 ) -> Result<ExprKind> {
     let rewrite_spans = RewriteSpan::new(span).visit(expr)?;
@@ -30,7 +33,7 @@ pub fn replace_identifiers(
 // }
 
 pub struct ReplaceExpressions<'a> {
-    bindings: &'a HashMap<String, ExprKind>,
+    bindings: &'a HashMap<InternedString, ExprKind>,
     // span: Span,
 }
 
@@ -47,7 +50,7 @@ fn check_ellipses(expr: &ExprKind) -> bool {
 }
 
 impl<'a> ReplaceExpressions<'a> {
-    pub fn new(bindings: &'a HashMap<String, ExprKind>) -> Self {
+    pub fn new(bindings: &'a HashMap<InternedString, ExprKind>) -> Self {
         ReplaceExpressions { bindings }
     }
 
@@ -100,7 +103,7 @@ impl<'a> ReplaceExpressions<'a> {
                         ty: TokenType::Identifier(check),
                         ..
                     },
-            })) if check == SYNTAX_CONST_IF => {
+            })) if *check == *SYNTAX_CONST_IF => {
                 if vec_exprs.len() != 4 {
                     stop!(BadSyntax => "syntax-const-if expects a const test condition, a then and an else case");
                 }
@@ -157,7 +160,7 @@ impl<'a> ReplaceExpressions<'a> {
                         ty: TokenType::Identifier(check),
                         ..
                     },
-            })) if check == DATUM_TO_SYNTAX => {
+            })) if *check == *DATUM_SYNTAX => {
                 let mut buffer = String::new();
                 if let Some((_, rest)) = vec_exprs.split_first() {
                     for syntax in rest {
@@ -165,31 +168,34 @@ impl<'a> ReplaceExpressions<'a> {
                             throw!(BadSyntax => "datum->syntax requires an identifier"),
                         )?;
 
+                        let resolved = transformer.resolve();
+
                         // TODO this is no longer correct
                         // Should actually just visit the variable in the define name part
                         // TODO
-                        if transformer.starts_with("##") {
+                        if resolved.starts_with("##") {
                             if let Some(body) = self.bindings.get(transformer) {
                                 buffer.push_str(body.to_string().as_str());
                             } else {
-                                let (_, cdr) = transformer.split_at(2);
+                                let (_, cdr) = resolved.split_at(2);
                                 buffer.push_str(cdr);
                             }
                         } else {
                             // Try to get the prepended variable
-                            if let Some(body) = self.bindings.get(&("##".to_string() + transformer))
+                            if let Some(body) =
+                                self.bindings.get(&("##".to_string() + resolved).into())
                             {
                                 // println!("Found datum: {}", transformer);
                                 buffer.push_str(body.to_string().as_str());
                             } else {
                                 // println!("Unable to find datum: {}", transformer);
-                                buffer.push_str(transformer);
+                                buffer.push_str(resolved);
                             }
                         }
                     }
 
                     Ok(Some(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                        TokenType::Identifier(buffer),
+                        TokenType::Identifier(buffer.into()),
                     )))))
                 } else {
                     Ok(None)
@@ -200,9 +206,9 @@ impl<'a> ReplaceExpressions<'a> {
     }
 }
 
-fn reserved_token_type_to_ident(token: &mut TokenType<String>) {
+fn reserved_token_type_to_ident(token: &mut TokenType<InternedString>) {
     if *token == TokenType::Define {
-        *token = TokenType::Identifier("define".to_string());
+        *token = TokenType::Identifier(*DEFINE);
     }
 }
 
@@ -458,15 +464,15 @@ mod replace_expressions_tests {
 
     macro_rules! map {
         ($ ( $key:expr => $value:expr ), *,) => {{
-            let mut hm: HashMap<String, ExprKind> = HashMap::new();
-            $ (hm.insert($key.to_string(), $value); ) *
+            let mut hm: HashMap<InternedString, ExprKind> = HashMap::new();
+            $ (hm.insert($key.into(), $value); ) *
             hm
         }};
     }
 
     fn atom_identifier(s: &str) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-            s.to_string(),
+            s.into(),
         ))))
     }
 

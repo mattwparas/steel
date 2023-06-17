@@ -54,7 +54,7 @@ fn _make_non_blocking(socket: &mut SteelWebSocket) -> std::result::Result<(), st
 }
 
 pub fn websockets_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/web/ws".to_string());
+    let mut module = BuiltInModule::new("steel/web/ws");
 
     module
         .register_fn("ws/message-ping?", Message::is_ping)
