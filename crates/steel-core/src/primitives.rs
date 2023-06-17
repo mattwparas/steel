@@ -52,6 +52,7 @@ use crate::{
 };
 use im_rc::Vector;
 
+use std::cell::RefCell;
 use std::convert::TryFrom;
 use std::result;
 
@@ -349,6 +350,39 @@ impl FromSteelVal for SteelString {
             Ok(s.clone())
         } else {
             crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel string", val))
+        }
+    }
+}
+
+impl<'a> PrimitiveAsRef<'a> for &'a Gc<Vector<SteelVal>> {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::VectorV(p) = val {
+            Ok(p)
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel port", val))
+        }
+    }
+}
+
+impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashSet<SteelVal>> {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::HashSetV(p) = val {
+            Ok(p)
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel port", val))
+        }
+    }
+}
+
+impl<'a> PrimitiveAsRef<'a> for &'a Gc<RefCell<Vec<SteelVal>>> {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::MutableVector(p) = val {
+            Ok(p)
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel port", val))
         }
     }
 }
