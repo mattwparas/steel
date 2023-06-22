@@ -328,8 +328,32 @@ pub trait FromSteelVal: Sized {
     fn from_steelval(val: &SteelVal) -> Result<Self>;
 }
 
-pub(crate) trait PrimitiveAsRef<'a>: Sized {
+pub trait PrimitiveAsRef<'a>: Sized {
     fn primitive_as_ref(val: &'a SteelVal) -> Result<Self>;
+}
+
+pub struct RestArgsIter<'a, T>(
+    pub std::iter::Map<std::slice::Iter<'a, SteelVal>, fn(&'a SteelVal) -> Result<T>>,
+);
+
+impl<'a, T: PrimitiveAsRef<'a> + 'a> RestArgsIter<'a, T> {
+    pub fn new(
+        args: std::iter::Map<std::slice::Iter<'a, SteelVal>, fn(&'a SteelVal) -> Result<T>>,
+    ) -> Self {
+        RestArgsIter(args)
+    }
+
+    pub fn from_slice(args: &'a [SteelVal]) -> Result<Self> {
+        Ok(RestArgsIter(args.iter().map(T::primitive_as_ref)))
+    }
+}
+
+impl<'a, T> Iterator for RestArgsIter<'a, T> {
+    type Item = Result<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
 }
 
 pub struct RestArgs<T: FromSteelVal>(pub Vec<T>);

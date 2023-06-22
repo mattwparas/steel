@@ -421,7 +421,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelString {
         if let SteelVal::StringV(s) = val {
             Ok(s)
         } else {
-            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel string", val))
+            crate::stop!(TypeMismatch => format!("Cannot convert steel value: {} to steel string", val))
         }
     }
 }

@@ -96,6 +96,7 @@ test_harness_success! {
     stack_state,
     stack_struct,
     stack_test_with_contract,
+    string_append,
     transducer_over_streams,
     trie_sort,
     y_combinator,

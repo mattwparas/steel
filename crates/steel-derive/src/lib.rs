@@ -8,8 +8,7 @@ use std::collections::HashMap;
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{
-    punctuated::Punctuated, Data, DeriveInput, Expr, ExprLit, FnArg, Ident, ItemFn, Lit, Meta,
-    PathArguments, ReturnType, Signature, Type,
+    punctuated::Punctuated, Data, DeriveInput, Expr, ExprLit, FnArg, Ident, ItemFn, Lit, Meta, ReturnType, Signature, Type,
 };
 
 #[proc_macro_derive(Steel)]
@@ -311,7 +310,7 @@ pub fn function(
                 let primary_type = p.path.segments.iter().last();
                 if let Some(ty) = primary_type {
                     match ty.ident.to_token_stream().to_string().as_str() {
-                        "RestArgs" => {
+                        "RestArgs" | "RestArgsIter" => {
                             if rest_arg_generic_inner_type {
                                 panic!("There cannot be multiple `RestArg`s for a given function.")
                             }

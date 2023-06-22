@@ -1,6 +1,6 @@
 use im_lists::list::List;
 
-use crate::rvals::{RestArgs, Result, SteelString, SteelVal};
+use crate::rvals::{RestArgsIter, Result, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::steel_vm::register_fn::RegisterFn;
 use crate::stop;
@@ -46,7 +46,7 @@ pub fn string_module() -> BuiltInModule {
 /// * xs : any/c
 ///
 /// # Examples
-/// ```
+/// ```scheme
 /// > (to-string 10) ;; => "10"
 /// > (to-string "hello" "world") ;; => "hello world"
 /// ```
@@ -280,13 +280,10 @@ pub fn string_length(value: &SteelString) -> usize {
 /// > (string-append "foo" "bar") ;; => "foobar"
 // ```
 #[function(name = "string-append")]
-pub fn string_append(rest: RestArgs<SteelString>) -> SteelVal {
-    let accumulated = rest
-        .0
-        .into_iter()
-        .fold("".to_string(), |accum, next| accum + next.as_str());
-
-    SteelVal::StringV(accumulated.into())
+pub fn string_append(mut rest: RestArgsIter<'_, &SteelString>) -> Result<SteelVal> {
+    rest.0
+        .try_fold("".to_string(), |accum, next| Ok(accum + next?.as_str()))
+        .map(|x| SteelVal::StringV(x.into()))
 }
 
 #[cfg(test)]
@@ -380,14 +377,6 @@ mod string_operation_tests {
         let res = steel_string_append(&args);
         let expected = SteelVal::StringV("foobar".into());
         assert_eq!(res.unwrap(), expected);
-    }
-
-    #[test]
-    fn string_append_test_arity_mismatch_too_few() {
-        let args = vec![SteelVal::StringV("foo".into())];
-        let res = steel_string_append(&args);
-        let expected = ErrorKind::ArityMismatch;
-        assert_eq!(res.unwrap_err().kind(), expected);
     }
 
     #[test]
