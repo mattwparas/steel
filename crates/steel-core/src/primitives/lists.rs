@@ -1,5 +1,5 @@
 use crate::steel_vm::{
-    builtin::{BuiltInModule, DocTemplate, MarkdownDoc},
+    builtin::{BuiltInModule, DocTemplate},
     vm::{apply, VmContext, APPLY_DOC},
 };
 use crate::{

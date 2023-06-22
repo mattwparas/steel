@@ -15,9 +15,7 @@ use crate::{
         hashmaps::hashmap_module,
         hashmaps::{HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,
-        lists::{
-            list_module, UnRecoverableResult,
-        },
+        lists::{list_module, UnRecoverableResult},
         nums::quotient,
         port_module,
         process::process_module,
