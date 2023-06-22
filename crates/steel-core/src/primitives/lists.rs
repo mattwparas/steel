@@ -24,7 +24,6 @@ declare_const_ref_functions! {
 
 declare_const_mut_ref_functions! {
     CONS => cons,
-    // FIRST => first,
     REST => rest,
     CDR => cdr,
     APPEND => append,
