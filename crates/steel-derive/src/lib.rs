@@ -32,7 +32,7 @@ pub fn derive_steel(input: TokenStream) -> TokenStream {
     }
 }
 
-fn parse_key_value_pair(args: &Punctuated<Meta, Token![,]>) -> (String, String) {
+fn _parse_key_value_pair(args: &Punctuated<Meta, Token![,]>) -> (String, String) {
     for nested_meta in args.iter() {
         if let Meta::NameValue(n) = nested_meta {
             let key = n.path.get_ident().unwrap().to_string();
@@ -56,11 +56,19 @@ fn parse_key_value_pairs(args: &Punctuated<Meta, Token![,]>) -> HashMap<String, 
     for nested_meta in args.iter() {
         if let Meta::NameValue(n) = nested_meta {
             let key = n.path.get_ident().unwrap().to_string();
-            if let Expr::Lit(ExprLit {
-                lit: Lit::Str(s), ..
-            }) = &n.value
-            {
-                map.insert(key, s.value());
+
+            match &n.value {
+                Expr::Lit(ExprLit {
+                    lit: Lit::Str(s), ..
+                }) => {
+                    map.insert(key, s.value());
+                }
+                Expr::Lit(ExprLit {
+                    lit: Lit::Bool(b), ..
+                }) => {
+                    map.insert(key, b.value().to_string());
+                }
+                _ => {}
             }
         }
     }
@@ -169,6 +177,11 @@ pub fn native(
         .get("arity")
         .expect("native definition requires an arity");
 
+    let is_const = keyword_map
+        .get("constant")
+        .map(|x| x == "true")
+        .unwrap_or_default();
+
     let arity_number: syn::Expr =
         syn::parse_str(arity_number).expect("Unable to parse arity definition");
 
@@ -191,7 +204,8 @@ pub fn native(
                 name: #value,
                 func: #function_name,
                 arity: crate::steel_vm::builtin::Arity::#arity_number,
-                doc: Some(crate::steel_vm::builtin::MarkdownDoc(#doc))
+                doc: Some(crate::steel_vm::builtin::MarkdownDoc(#doc)),
+                is_const: #is_const,
             };
         }
     } else {
@@ -200,7 +214,8 @@ pub fn native(
                 name: #value,
                 func: #function_name,
                 arity: crate::steel_vm::builtin::Arity::#arity_number,
-                doc: None
+                doc: None,
+                is_const: #is_const,
             };
         }
     };
@@ -229,7 +244,20 @@ pub fn function(
 ) -> proc_macro::TokenStream {
     let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
 
-    let (_, value) = parse_key_value_pair(&args);
+    // let (_, value) = parse_key_value_pair(&args);
+
+    let keyword_map = parse_key_value_pairs(&args);
+
+    let value = keyword_map
+        .get("name")
+        .expect("native definition requires a name!");
+
+    // If this is constant evaluatable
+    let is_const = keyword_map
+        .get("constant")
+        .map(|x| x == "true")
+        .unwrap_or_default();
+
     let function_name_with_colon = value.clone() + ": ";
 
     let input = parse_macro_input!(input as ItemFn);
@@ -347,7 +375,8 @@ pub fn function(
                 name: #value,
                 func: #copied_function_name,
                 arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
-                doc: Some(crate::steel_vm::builtin::MarkdownDoc(#doc))
+                doc: Some(crate::steel_vm::builtin::MarkdownDoc(#doc)),
+                is_const: #is_const,
             };
         }
     } else {
@@ -356,7 +385,8 @@ pub fn function(
                 name: #value,
                 func: #copied_function_name,
                 arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
-                doc: None
+                doc: None,
+                is_const: #is_const,
             };
         }
     };

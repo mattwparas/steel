@@ -45,11 +45,16 @@ pub struct BuiltInModule {
 pub struct FunctionSignatureMetadata {
     pub name: &'static str,
     pub arity: Arity,
+    pub is_const: bool,
 }
 
 impl FunctionSignatureMetadata {
-    pub fn new(name: &'static str, arity: Arity) -> Self {
-        Self { name, arity }
+    pub fn new(name: &'static str, arity: Arity, is_const: bool) -> Self {
+        Self {
+            name,
+            arity,
+            is_const,
+        }
     }
 }
 
@@ -63,7 +68,10 @@ pub enum Arity {
 
 impl Custom for FunctionSignatureMetadata {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
-        Some(Ok(format!("{:?}", self)))
+        Some(Ok(format!(
+            "(FunctionSignatureMetadata #:name {} #:arity {:?} #:const? {})",
+            self.name, self.arity, self.is_const
+        )))
     }
 }
 
@@ -99,6 +107,7 @@ pub struct NativeFunctionDefinition {
     pub func: fn(&[SteelVal]) -> Result<SteelVal>,
     pub arity: Arity,
     pub doc: Option<MarkdownDoc<'static>>,
+    pub is_const: bool,
 }
 
 impl BuiltInModule {
@@ -123,35 +132,25 @@ impl BuiltInModule {
         arity: Arity,
     ) -> &mut Self {
         // Just automatically add it to the function pointer table to help out with searching
-        self.add_to_fn_ptr_table(func, FunctionSignatureMetadata::new(name, arity));
+        self.add_to_fn_ptr_table(func, FunctionSignatureMetadata::new(name, arity, false));
         self.register_value(name, SteelVal::FuncV(func))
-    }
-
-    pub fn register_native_fn_with_doc(
-        &mut self,
-        name: &'static str,
-        func: fn(&[SteelVal]) -> Result<SteelVal>,
-        arity: Arity,
-        doc: impl Into<Documentation<'static>>,
-    ) -> &mut Self {
-        self.register_native_fn(name, func, arity)
-            .register_doc(name, doc)
     }
 
     pub fn register_native_fn_definition(
         &mut self,
         definition: NativeFunctionDefinition,
     ) -> &mut Self {
+        self.add_to_fn_ptr_table(
+            definition.func,
+            FunctionSignatureMetadata::new(definition.name, definition.arity, definition.is_const),
+        );
+
         if let Some(doc) = definition.doc {
-            self.register_native_fn_with_doc(
-                definition.name,
-                definition.func,
-                definition.arity,
-                doc,
-            );
-        } else {
-            self.register_native_fn(definition.name, definition.func, definition.arity);
+            self.register_doc(definition.name, doc);
         }
+
+        self.register_value(definition.name, SteelVal::FuncV(definition.func));
+
         self
     }
 
