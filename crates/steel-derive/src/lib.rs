@@ -8,7 +8,8 @@ use std::collections::HashMap;
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{
-    punctuated::Punctuated, Data, DeriveInput, Expr, ExprLit, FnArg, Ident, ItemFn, Lit, Meta, ReturnType, Signature, Type,
+    punctuated::Punctuated, Data, DeriveInput, Expr, ExprLit, FnArg, Ident, ItemFn, Lit, Meta,
+    ReturnType, Signature, Type,
 };
 
 #[proc_macro_derive(Steel)]
