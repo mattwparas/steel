@@ -65,6 +65,7 @@ test_harness_success! {
     delim_control_n,
     define_normal,
     dfs,
+    empty,
     fib,
     generator,
     generic_execution_dropping,
