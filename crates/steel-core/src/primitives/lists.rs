@@ -27,7 +27,7 @@ declare_const_ref_functions! {
     CAR => car,
     LIST_TO_STRING => list_to_string,
     // FIRST => car,
-    PAIR => pair,
+    PAIR => steel_pair,
 }
 
 declare_const_mut_ref_functions! {
@@ -158,6 +158,19 @@ pub(crate) const LIST_DOC: DocTemplate<'static> = DocTemplate {
     ],
 };
 
+/// Returns a newly allocated list containing the vs as its elements.
+///
+/// (list v ...) -> list?
+///
+/// * v : any/c
+///
+/// # Examples
+///
+/// ```scheme
+/// > (list 1 2 3 4 5) ;; => '(1 2 3 4 5)
+/// > (list (list 1 2) (list 3 4)) ;; => '((1 2) (3 4))
+/// ```
+#[steel_derive::native(name = "list", arity = "AtLeast(0)")]
 pub fn new(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::ListV(args.iter().cloned().collect()))
 }
@@ -172,6 +185,23 @@ pub(crate) const IS_EMPTY_DOC: DocTemplate<'static> = DocTemplate {
     ],
 };
 
+/// Checks if the list is empty
+///
+/// (empty? lst) -> bool?
+///
+/// * lst: list?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (empty? (list 1 2 3 4 5)) ;; => #false
+/// > (empty? '()) ;; => #true
+/// ```
+#[steel_derive::function(name = "empty?")]
+fn new_is_empty(list: &List<SteelVal>) -> bool {
+    list.is_empty()
+}
+
 fn is_empty(args: &[SteelVal]) -> Result<SteelVal> {
     arity_check!(is_empty, args, 1);
 
@@ -182,15 +212,22 @@ fn is_empty(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-fn pair(args: &[SteelVal]) -> Result<SteelVal> {
-    arity_check!(pair, args, 1);
-
-    if let SteelVal::ListV(l) = &args[0] {
-        Ok(l.iter().next().is_some().into())
-    } else {
-        Ok(SteelVal::BoolV(false))
-    }
+#[steel_derive::function(name = "pair?")]
+fn pair(list: &SteelVal) -> bool {
+    list.list()
+        .map(|x| x.iter().next().is_some())
+        .unwrap_or_default()
 }
+
+// fn pair(args: &[SteelVal]) -> Result<SteelVal> {
+//     arity_check!(pair, args, 1);
+
+//     if let SteelVal::ListV(l) = &args[0] {
+//         Ok(l.iter().next().is_some().into())
+//     } else {
+//         Ok(SteelVal::BoolV(false))
+//     }
+// }
 
 pub(crate) const CONS_DOC: DocTemplate<'static> = DocTemplate {
     signature: "(cons a d) -> list?",
@@ -222,6 +259,16 @@ pub(crate) const RANGE_DOC: DocTemplate<'static> = DocTemplate {
     examples: &[("λ > (range 0 10)", "=> '(0 1 2 3 4 5 6 7 8 9)")],
 };
 
+/// Returns a newly allocated list of the elements in the range (n, m]
+///
+/// (range n m) -> (listof int?)
+///
+/// * n : int?
+/// * m : int?
+///
+/// ```scheme
+/// > (range 0 10) ;; => '(0 1 2 3 4 5 6 7 8 9)
+/// ```
 #[steel_derive::function(name = "range")]
 fn range(lower: isize, upper: isize) -> Result<SteelVal> {
     if lower < 0 {
@@ -239,29 +286,6 @@ fn range(lower: isize, upper: isize) -> Result<SteelVal> {
             .collect(),
     ))
 }
-
-// fn range(args: &[SteelVal]) -> Result<SteelVal> {
-//     arity_check!(new_range, args, 2);
-
-//     if let (SteelVal::IntV(lower), SteelVal::IntV(upper)) = (&args[0], &args[1]) {
-//         if *lower < 0 {
-//             stop!(Generic => "range expects a positive integer");
-//         }
-
-//         if *upper < 0 {
-//             stop!(Generic => "range expects a positive integer");
-//         }
-
-//         Ok(SteelVal::ListV(
-//             (*lower as usize..*upper as usize)
-//                 .into_iter()
-//                 .map(|x| SteelVal::IntV(x as isize))
-//                 .collect(),
-//         ))
-//     } else {
-//         stop!(ArityMismatch => "range takes two integers")
-//     }
-// }
 
 pub(crate) const LENGTH_DOC: DocTemplate<'static> = DocTemplate {
     signature: "(length l) -> int?",

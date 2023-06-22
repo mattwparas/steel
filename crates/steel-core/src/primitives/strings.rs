@@ -1,29 +1,26 @@
 use im_lists::list::List;
 
-use crate::rvals::{Result, SteelString, SteelVal};
+use crate::rvals::{RestArgs, Result, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::steel_vm::register_fn::RegisterFn;
 use crate::stop;
 
-use steel_derive::function;
-
-use super::ControlOperations;
-
-macro_rules! ok_string {
-    ($string:expr) => {
-        Ok(SteelVal::StringV($string.into()))
-    };
-}
+use steel_derive::{function, native};
 
 fn char_upcase(c: char) -> char {
     c.to_ascii_uppercase()
 }
 
+/// # steel/strings
+///
+/// Strings in Steel are immutable, fixed length arrays of characters. They are heap allocated,
+/// and are implemented under the hood as referenced counted rust `Strings`.
+#[steel_derive::define_module(name = "steel/strings")]
 pub fn string_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/strings");
     module
-        .register_value("string-append", StringOperations::string_append())
-        .register_value("to-string", ControlOperations::to_string())
+        .register_native_fn_definition(STRING_APPEND_DEFINITION)
+        .register_native_fn_definition(TO_STRING_DEFINITION)
         .register_native_fn_definition(STRING_TO_LIST_DEFINITION)
         .register_native_fn_definition(STRING_TO_UPPER_DEFINITION)
         .register_native_fn_definition(STRING_TO_UPPER_DEFINITION)
@@ -42,7 +39,30 @@ pub fn string_module() -> BuiltInModule {
     module
 }
 
-// Just write the documentation for every function, inline - this will make it easier to export the docs!
+/// Concatenatives all of the inputs to their string representation, separated by spaces.
+///
+/// (to-string xs ...)
+///
+/// * xs : any/c
+///
+/// # Examples
+/// ```
+/// > (to-string 10) ;; => "10"
+/// > (to-string "hello" "world") ;; => "hello world"
+/// ```
+#[native(name = "to-string", arity = "AtLeast(0)")]
+pub fn to_string(args: &[SteelVal]) -> Result<SteelVal> {
+    let mut error_message = String::new();
+
+    for arg in args {
+        let error_val = arg.to_string();
+        error_message.push(' ');
+        error_message.push_str(error_val.trim_matches('\"'));
+    }
+
+    Ok(SteelVal::StringV(error_message.into()))
+}
+
 /// Converts a string into a symbol.
 ///
 /// (string->symbol string?) -> symbol?
@@ -248,43 +268,31 @@ pub fn string_length(value: &SteelString) -> usize {
     value.len()
 }
 
-// TODO: Undo all of these wrappers, just reference the native functions directly
-pub struct StringOperations {}
-impl StringOperations {
-    pub fn string_append() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() >= 2 {
-                let mut arg_iter = args.iter();
+/// Concatenates all of the given strings into one
+///
+/// (string-append strs...) -> string?
+///
+/// * strs ... : string?
+///
+/// # Examples
+/// ```scheme
+/// > (string-append) ;; => ""
+/// > (string-append "foo" "bar") ;; => "foobar"
+// ```
+#[function(name = "string-append")]
+pub fn string_append(rest: RestArgs<SteelString>) -> SteelVal {
+    let accumulated = rest
+        .0
+        .into_iter()
+        .fold("".to_string(), |accum, next| accum + next.as_str());
 
-                let first_arg = arg_iter.next().unwrap();
-
-                let mut first = if let SteelVal::StringV(first) = first_arg {
-                    first.to_string()
-                } else {
-                    stop!(TypeMismatch => format!("string-append expected a string, found: {first_arg}"))
-                };
-
-                for arg in arg_iter {
-                    if let SteelVal::StringV(r) = arg {
-                        first = first + r;
-                    } else {
-                        stop!(TypeMismatch => format!("string-append expected a string, found: {first_arg}"))
-                    };
-                }
-
-                ok_string!(first)
-            } else {
-                stop!(ArityMismatch => "string-append takes at least two arguments")
-            }
-        })
-    }
+    SteelVal::StringV(accumulated.into())
 }
 
 #[cfg(test)]
 mod string_operation_tests {
     use super::*;
     use crate::rerrs::ErrorKind;
-    use crate::throw;
     use im_lists::list;
 
     // TODO combine these 3 macros into one
@@ -363,18 +371,13 @@ mod string_operation_tests {
         ("split-whitespace", split_whitespace_arity_takes_string, steel_split_whitespace)
     }
 
-    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<SteelVal> {
-        func.func_or_else(throw!(BadSyntax => "string tests"))
-            .unwrap()(&args)
-    }
-
     #[test]
     fn string_append_test_normal() {
         let args = vec![
             SteelVal::StringV("foo".into()),
             SteelVal::StringV("bar".into()),
         ];
-        let res = apply_function(StringOperations::string_append(), args);
+        let res = steel_string_append(&args);
         let expected = SteelVal::StringV("foobar".into());
         assert_eq!(res.unwrap(), expected);
     }
@@ -382,7 +385,7 @@ mod string_operation_tests {
     #[test]
     fn string_append_test_arity_mismatch_too_few() {
         let args = vec![SteelVal::StringV("foo".into())];
-        let res = apply_function(StringOperations::string_append(), args);
+        let res = steel_string_append(&args);
         let expected = ErrorKind::ArityMismatch;
         assert_eq!(res.unwrap_err().kind(), expected);
     }
@@ -390,7 +393,7 @@ mod string_operation_tests {
     #[test]
     fn string_append_test_takes_string() {
         let args = vec![SteelVal::CharV('a'), SteelVal::CharV('b')];
-        let res = apply_function(StringOperations::string_append(), args);
+        let res = steel_string_append(&args);
         let expected = ErrorKind::TypeMismatch;
         assert_eq!(res.unwrap_err().kind(), expected);
     }

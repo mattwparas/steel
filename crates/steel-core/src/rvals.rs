@@ -332,6 +332,29 @@ pub(crate) trait PrimitiveAsRef<'a>: Sized {
     fn primitive_as_ref(val: &'a SteelVal) -> Result<Self>;
 }
 
+pub struct RestArgs<T: FromSteelVal>(pub Vec<T>);
+
+impl<T: FromSteelVal> RestArgs<T> {
+    pub fn new(args: Vec<T>) -> Self {
+        RestArgs(args)
+    }
+
+    pub fn from_slice(args: &[SteelVal]) -> Result<Self> {
+        args.iter()
+            .map(|x| T::from_steelval(x))
+            .collect::<Result<Vec<_>>>()
+            .map(RestArgs)
+    }
+}
+
+impl<T: FromSteelVal> std::ops::Deref for RestArgs<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 mod private {
 
     use std::any::Any;
@@ -1197,6 +1220,13 @@ impl SteelVal {
         match self {
             Self::ListV(v) => Ok(v),
             _ => Err(err()),
+        }
+    }
+
+    pub fn list(&self) -> Option<&List<SteelVal>> {
+        match self {
+            Self::ListV(l) => Some(l),
+            _ => None,
         }
     }
 

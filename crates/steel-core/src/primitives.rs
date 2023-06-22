@@ -12,7 +12,7 @@ mod ports;
 pub mod process;
 pub mod random;
 mod streams;
-mod strings;
+pub mod strings;
 mod symbols;
 pub mod time;
 pub mod transducers;
@@ -36,7 +36,6 @@ pub use meta_ops::MetaOperations;
 pub use nums::NumOperations;
 pub use ports::port_module;
 pub use streams::StreamOperations;
-pub use strings::StringOperations;
 pub use symbols::SymbolOperations;
 pub use vectors::VectorOperations;
 
