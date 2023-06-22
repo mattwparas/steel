@@ -14,19 +14,11 @@ use crate::core::utils::{
 };
 
 declare_const_ref_functions! {
-    // LIST => new,
     LENGTH => length,
-    // NEW => new,
     REVERSE => reverse,
     LAST => last,
-    // TAKE => take,
-    LIST_REF => list_ref,
     TRY_LIST_REF => try_list_ref,
-    // RANGE => steel_range,
-    // IS_EMPTY => steel_is_empty,
-    // CAR => steel_car,
     LIST_TO_STRING => list_to_string,
-    // FIRST => car,
     PAIR => steel_pair,
 }
 
@@ -99,7 +91,7 @@ pub fn list_module() -> BuiltInModule {
         .register_value_with_doc("rest", crate::primitives::lists::REST, REST_DOC)
         .register_value_with_doc("append", crate::primitives::lists::APPEND, APPEND_DOC)
         .register_value_with_doc("reverse", crate::primitives::lists::REVERSE, REVERSE_DOC)
-        .register_value_with_doc("list-ref", crate::primitives::lists::LIST_REF, LIST_REF_DOC)
+        .register_native_fn_definition(LIST_REF_DEFINITION)
         .register_value("try-list-ref", crate::primitives::lists::TRY_LIST_REF)
         .register_value("list->string", crate::primitives::lists::LIST_TO_STRING)
         .register_value("push-back", crate::primitives::lists::PUSH_BACK)
@@ -493,42 +485,36 @@ pub fn try_list_ref(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-pub(crate) const LIST_REF_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(list-ref lst index) -> list?",
-    params: &["lst : list?", "index : (and/c int? positive?)"],
-    description: r#"Returns the value located at the given index. Will raise an error if you try to index out of bounds.
-
-Note: Runs in time proportional to the length of the list, however lists in Steel are implemented in such a fashion that the
-time complexity is O(n/64). Meaning, for small lists this can be constant."#,
-    examples: &[
-        ("λ > (list-ref (list 1 2 3 4) 2)", "=> 3"),
-        ("λ > (list-ref (range 0 100) 42)", "=> 42"),
-        (
-            "λ > (list-ref (list 1 2 3 4) 10)",
-            r#"error[E11]: Generic
-  ┌─ :1:2
-  │
-1 │ (list-ref (list 1 2 3 4) 10)
-  │  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10"#,
-        ),
-    ],
-};
-
-pub fn list_ref(args: &[SteelVal]) -> Result<SteelVal> {
-    arity_check!(list_ref, args, 2);
-
-    // todo!()
-    if let (SteelVal::ListV(lst), SteelVal::IntV(n)) = (&args[0], &args[1]) {
-        if *n < 0 {
-            stop!(Generic => "list-ref expects a positive integer")
-        } else {
-            lst.get(*n as usize)
-                .cloned()
-                .ok_or_else(throw!(Generic => format!("out of bounds index in list-ref - list length: {}, index: {}", lst.len(), n)))
-        }
-    } else {
-        stop!(TypeMismatch => format!("list-ref expects a list and an integer, found {} and {}", &args[0], &args[1]))
+/// Returns the value located at the given index. Will raise an error if you try to index out of bounds.
+///
+/// Note: Runs in time proportional to the length of the list, however lists in Steel are implemented in such a fashion that the
+/// time complexity is O(n/64). Meaning, for small lists this can be constant.
+///
+/// (list-ref lst index) -> list?
+///
+/// * lst : list?
+/// * index : (and/c int? positive?)
+///
+/// # Examples
+/// ```scheme
+/// > (list-ref (list 1 2 3 4) 2) ;; => 3
+/// > (list-ref (range 0 100) 42) ;; => 42"
+/// > (list-ref (list 1 2 3 4) 10)
+/// error[E11]: Generic
+///   ┌─ :1:2
+///   │
+/// 1 │ (list-ref (list 1 2 3 4) 10)
+///   │  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10
+/// ```
+#[steel_derive::function(name = "list-ref", constant = true)]
+pub fn list_ref(list: &List<SteelVal>, index: isize) -> Result<SteelVal> {
+    if index < 0 {
+        stop!(Generic => "list-ref expects a positive integer, found: {}", index);
     }
+
+    list.get(index as usize)
+        .cloned()
+        .ok_or_else(throw!(Generic => format!("out of bounds index in list-ref - list length: {}, index: {}", list.len(), index)))
 }
 
 fn list_to_string(args: &[SteelVal]) -> Result<SteelVal> {
