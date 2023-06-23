@@ -18,8 +18,7 @@ declare_const_ref_functions! {
     REVERSE => reverse,
     LAST => last,
     TRY_LIST_REF => try_list_ref,
-    LIST_TO_STRING => list_to_string,
-    PAIR => steel_pair,
+    LIST_TO_STRING => steel_list_to_string,
 }
 
 declare_const_mut_ref_functions! {
@@ -94,7 +93,7 @@ pub fn list_module() -> BuiltInModule {
         .register_value("try-list-ref", crate::primitives::lists::TRY_LIST_REF)
         .register_value("list->string", crate::primitives::lists::LIST_TO_STRING)
         .register_value("push-back", crate::primitives::lists::PUSH_BACK)
-        .register_value("pair?", crate::primitives::lists::PAIR)
+        .register_native_fn_definition(PAIR_DEFINITION)
         // TODO move this to somewhere better than here
         .register_value_with_doc("apply", TEST_APPLY, APPLY_DOC)
         .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE)
@@ -206,6 +205,19 @@ fn is_empty(list: &List<SteelVal>) -> bool {
     list.is_empty()
 }
 
+/// Checks if the given value can be treated as a pair.
+/// Note - there are no improper lists in steel, so any list with at least one element
+/// is considered a pair.
+///
+/// (pair? any/c) -> bool?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (pair? '(10 20)) ;; => #true
+/// > (pair? '(10)) ;; => #true
+/// > (pair? '()) ;; => #false
+/// ```
 #[steel_derive::function(name = "pair?")]
 fn pair(list: &SteelVal) -> bool {
     list.list()
@@ -516,21 +528,15 @@ pub fn list_ref(list: &List<SteelVal>, index: isize) -> Result<SteelVal> {
         .ok_or_else(throw!(Generic => format!("out of bounds index in list-ref - list length: {}, index: {}", list.len(), index)))
 }
 
-fn list_to_string(args: &[SteelVal]) -> Result<SteelVal> {
-    arity_check!(list_to_string, args, 1);
-
-    if let SteelVal::ListV(l) = &args[0] {
-        let collected_string = l
-            .iter()
-            .map(|x| {
-                x.char_or_else(throw!(TypeMismatch => "list->string expected a list of characters"))
-            })
-            .collect::<Result<String>>()?;
-
-        Ok(SteelVal::StringV(collected_string.into()))
-    } else {
-        stop!(TypeMismatch => "first expects a list")
-    }
+#[steel_derive::function(name = "list->string", constant = true)]
+fn list_to_string(list: &List<SteelVal>) -> Result<SteelVal> {
+    list.iter()
+        .map(|x| {
+            x.char_or_else(throw!(TypeMismatch => "list->string expected a list of characters"))
+        })
+        .collect::<Result<String>>()
+        .map(|x| x.into())
+        .map(SteelVal::StringV)
 }
 
 // TODO this could be broken using &mut
