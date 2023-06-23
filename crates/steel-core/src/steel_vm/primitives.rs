@@ -5,7 +5,7 @@ use super::{
     cache::WeakMemoizationTable,
     engine::Engine,
     register_fn::RegisterFn,
-    vm::{apply, get_test_mode, list_modules, set_test_mode, VmCore, APPLY_DOC},
+    vm::{get_test_mode, list_modules, set_test_mode, VmCore},
 };
 use crate::{
     parser::span::Span,
@@ -15,11 +15,7 @@ use crate::{
         hashmaps::hashmap_module,
         hashmaps::{HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,
-        lists::{
-            UnRecoverableResult, APPEND_DOC, CAR_DOC, CDR_DOC, CONS_DOC, FIRST_DOC, IS_EMPTY_DOC,
-            LAST_DOC, LENGTH_DOC, LIST_DOC, LIST_REF_DOC, RANGE_DOC, REST_DOC, REVERSE_DOC,
-            SECOND_DOC, THIRD_DOC,
-        },
+        lists::{list_module, UnRecoverableResult},
         nums::quotient,
         port_module,
         process::process_module,
@@ -456,55 +452,6 @@ pub static SANDBOXED_MODULES: &str = r#"
 
 // static MAP_MODULE: Lazy<BuiltInModule> = Lazy::new(hashmap);
 // static SET_MODULE: Lazy<BuiltInModule> = Lazy::new(hashset);
-
-pub(crate) const TEST_APPLY: SteelVal = SteelVal::BuiltIn(apply);
-
-fn list_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/lists");
-
-    // Register the doc for the module
-    module.register_doc("steel/lists", crate::primitives::lists::LIST_MODULE_DOC);
-
-    // Grab a raw handle to a list
-    module.register_native_fn(
-        "%raw-list",
-        crate::primitives::lists::new,
-        Arity::AtLeast(0),
-    );
-
-    module
-        .register_value_with_doc(LIST, crate::primitives::lists::LIST, LIST_DOC)
-        .register_value_with_doc(CONS, crate::primitives::lists::CONS, CONS_DOC)
-        .register_value_with_doc(RANGE, crate::primitives::lists::RANGE, RANGE_DOC)
-        .register_value_with_doc(LENGTH, crate::primitives::lists::LENGTH, LENGTH_DOC)
-        .register_value_with_doc("last", crate::primitives::lists::LAST, LAST_DOC)
-        .register_value_with_doc("empty?", crate::primitives::lists::IS_EMPTY, IS_EMPTY_DOC)
-        .register_value_with_doc(CAR, crate::primitives::lists::CAR, CAR_DOC)
-        .register_value_with_doc(FIRST, crate::primitives::lists::CAR, FIRST_DOC)
-        .register_value_with_doc(CDR, crate::primitives::lists::CDR, CDR_DOC)
-        .register_value_with_doc(REST, crate::primitives::lists::REST, REST_DOC)
-        .register_value_with_doc(APPEND, crate::primitives::lists::APPEND, APPEND_DOC)
-        .register_value_with_doc(REVERSE, crate::primitives::lists::REVERSE, REVERSE_DOC)
-        .register_value_with_doc("list-ref", crate::primitives::lists::LIST_REF, LIST_REF_DOC)
-        .register_value("try-list-ref", crate::primitives::lists::TRY_LIST_REF)
-        .register_value("list->string", crate::primitives::lists::LIST_TO_STRING)
-        .register_value("push-back", crate::primitives::lists::PUSH_BACK)
-        .register_value("pair?", crate::primitives::lists::PAIR)
-        // .register_value("test-push-back", crate::primitives::alternative_list::PU)
-        // .register_value("test-map", crate::primitives::lists::TEST_MAP)
-        // TODO move this to somewhere better than here
-        .register_value_with_doc("apply", TEST_APPLY, APPLY_DOC)
-        // .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE)
-        // .register_value("execute", crate::steel_vm::transducers::EXECUTE)
-        .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE)
-        .register_fn("second", crate::primitives::lists::second)
-        .register_fn("third", crate::primitives::lists::third);
-
-    module.register_doc("second", SECOND_DOC);
-    module.register_doc("third", THIRD_DOC);
-
-    module
-}
 
 fn vector_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/vectors");

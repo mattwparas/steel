@@ -1,6 +1,6 @@
 use crate::steel_vm::{
-    builtin::{DocTemplate, MarkdownDoc},
-    vm::VmContext,
+    builtin::{BuiltInModule, DocTemplate},
+    vm::{apply, VmContext, APPLY_DOC},
 };
 use crate::{
     rvals::{IntoSteelVal, Result, SteelVal},
@@ -14,25 +14,15 @@ use crate::core::utils::{
 };
 
 declare_const_ref_functions! {
-    LIST => new,
     LENGTH => length,
-    // NEW => new,
     REVERSE => reverse,
     LAST => last,
-    // TAKE => take,
-    LIST_REF => list_ref,
     TRY_LIST_REF => try_list_ref,
-    RANGE => steel_range,
-    IS_EMPTY => is_empty,
-    CAR => car,
-    LIST_TO_STRING => list_to_string,
-    // FIRST => car,
-    PAIR => pair,
+    LIST_TO_STRING => steel_list_to_string,
 }
 
 declare_const_mut_ref_functions! {
     CONS => cons,
-    // FIRST => first,
     REST => rest,
     CDR => cdr,
     APPEND => append,
@@ -66,60 +56,93 @@ impl From<Result<SteelVal>> for UnRecoverableResult {
     }
 }
 
-pub(crate) const LIST_MODULE_DOC: MarkdownDoc<'static> = MarkdownDoc(
-    r#"
+pub(crate) const TEST_APPLY: SteelVal = SteelVal::BuiltIn(apply);
 
-# steel/lists
-    
-Lists in Steel have an interface that matches those of classic schemes or lisps. At face value, they appear to be implemented as cons cells - however, under the hood they are actually implemented as unrolled linked lists.
+/// # steel/lists
+///     
+/// Lists in Steel have an interface that matches those of classic schemes or lisps.
+/// At face value, they appear to be implemented as cons cells - however, under the hood
+/// they are actually implemented as unrolled linked lists.
+///
+/// This means that for most practical purposes, interaction with lists is the same.
+/// That being said, there are no improper lists, meaning, pairs are actually just lists of two elements.
+///
+/// Indexing into a list also takes O(n/64) - which means you'll get constant time indexing on small lists.
+///
+/// ```scheme
+/// (list 10 20 30 40) ;; => '(10 20 30 40)
+/// ```
+#[steel_derive::define_module(name = "steel/lists")]
+pub fn list_module() -> BuiltInModule {
+    let mut module = BuiltInModule::new("steel/lists");
 
-This means that for most practical purposes, interaction with lists is the same. That being said, there are no improper lists, meaning, pairs are actually just lists of two elements.
+    module
+        .register_native_fn_definition(NEW_DEFINITION)
+        .register_value_with_doc("cons", crate::primitives::lists::CONS, CONS_DOC)
+        .register_native_fn_definition(RANGE_DEFINITION)
+        .register_value_with_doc("length", crate::primitives::lists::LENGTH, LENGTH_DOC)
+        .register_value_with_doc("last", crate::primitives::lists::LAST, LAST_DOC)
+        .register_native_fn_definition(IS_EMPTY_DEFINITION)
+        .register_native_fn_definition(FIRST_DEFINITION)
+        .register_native_fn_definition(CAR_DEFINITION)
+        .register_value_with_doc("cdr", crate::primitives::lists::CDR, CDR_DOC)
+        .register_value_with_doc("rest", crate::primitives::lists::REST, REST_DOC)
+        .register_value_with_doc("append", crate::primitives::lists::APPEND, APPEND_DOC)
+        .register_value_with_doc("reverse", crate::primitives::lists::REVERSE, REVERSE_DOC)
+        .register_native_fn_definition(LIST_REF_DEFINITION)
+        .register_value("try-list-ref", crate::primitives::lists::TRY_LIST_REF)
+        .register_value("list->string", crate::primitives::lists::LIST_TO_STRING)
+        .register_value("push-back", crate::primitives::lists::PUSH_BACK)
+        .register_native_fn_definition(PAIR_DEFINITION)
+        // TODO move this to somewhere better than here
+        .register_value_with_doc("apply", TEST_APPLY, APPLY_DOC)
+        .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE)
+        .register_native_fn_definition(SECOND_DEFINITION)
+        .register_native_fn_definition(THIRD_DEFINITION);
 
-Indexing into a list also takes O(n/64) - which means you'll get constant time indexing on small lists.
-
-```scheme
-(list 10 20 30 40) ;; => '(10 20 30 40)
-```
-
-"#,
-);
-
-pub(crate) const SECOND_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(second l) -> any/c",
-    params: &["l : list?"],
-    description: r#"Get the second element of the list. Raises an error if the list does not have an element in the second position."#,
-    examples: &[
-        ("λ > (second '(1 2 3))", "=> 2"),
-        ("λ > (second '())", "error[E11]: Generic
-        ┌─ :1:2
-        │
-        1 │ (second '())
-        │  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
-    "),
-    ],
-};
-
-pub(crate) fn second(list: &List<SteelVal>) -> UnRecoverableResult {
-    list.get(1).cloned().ok_or_else(throw!(Generic => "second: index out of bounds - list did not have an element in the second position: {:?}", list)).into()
+    module
 }
 
-pub(crate) const THIRD_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(third l) -> any/c",
-    params: &["l : list?"],
-    description: r#"Get the third element of the list. Raises an error if the list does not have an element in the second position."#,
-    examples: &[
-        ("λ > (third '(1 2 3))", "=> 3"),
-        ("λ > (third '())", "error[E11]: Generic
-        ┌─ :1:2
-        │
-        1 │ (third '())
-        │  ^^^^^^ third: index out of bounds - list did not have an element in the second position: []
-    "),
-    ],
-};
+/// Get the second element of the list. Raises an error if the list does not have an element in the second position.
+///
+/// (second l) -> any/c
+///
+/// * l : list?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (second '(1 2 3)) ;; => 2
+/// > (second '())
+/// error[E11]: Generic
+///         ┌─ :1:2
+///         │
+///         1 │ (second '())
+///         │  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
+#[steel_derive::function(name = "second", constant = true)]
+pub fn second(list: &List<SteelVal>) -> Result<SteelVal> {
+    list.get(1).cloned().ok_or_else(throw!(Generic => "second: index out of bounds - list did not have an element in the second position: {:?}", list))
+}
 
-pub(crate) fn third(list: &List<SteelVal>) -> UnRecoverableResult {
-    list.get(2).cloned().ok_or_else(throw!(Generic => "third: Index out of bounds - list did not have an element in the second position: {:?}", list)).into()
+/// Get the third element of the list. Raises an error if the list does not have an element in the third position.
+///
+/// (third l) -> any/c
+///
+/// * l : list?
+///
+/// # Examples
+/// ```scheme
+/// > (third '(1 2 3)) ;; => 3
+/// > (third '())
+/// error[E11]: Generic
+///        ┌─ :1:2
+///        │
+///        1 │ (third '())
+///        │  ^^^^^^ third: index out of bounds - list did not have an element in the second position: []
+/// ```
+#[steel_derive::function(name = "third", constant = true)]
+pub(crate) fn third(list: &List<SteelVal>) -> Result<SteelVal> {
+    list.get(2).cloned().ok_or_else(throw!(Generic => "third: Index out of bounds - list did not have an element in the second position: {:?}", list))
 }
 
 fn _test_map(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
@@ -148,48 +171,58 @@ fn _test_map(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-pub(crate) const LIST_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(list v ...) -> list?",
-    params: &["v: any/c"],
-    description: "Returns a newly allocated list containing the vs as its elements.",
-    examples: &[
-        ("> (list 1 2 3 4 5)", "'(1 2 3 4)"),
-        ("> (list (list 1 2) (list 3 4))", "'((1 2) (3 4))"),
-    ],
-};
-
+/// Returns a newly allocated list containing the vs as its elements.
+///
+/// (list v ...) -> list?
+///
+/// * v : any/c
+///
+/// # Examples
+///
+/// ```scheme
+/// > (list 1 2 3 4 5) ;; => '(1 2 3 4 5)
+/// > (list (list 1 2) (list 3 4)) ;; => '((1 2) (3 4))
+/// ```
+#[steel_derive::native(name = "list", arity = "AtLeast(0)")]
 pub fn new(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::ListV(args.iter().cloned().collect()))
 }
 
-pub(crate) const IS_EMPTY_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(empty? lst) -> bool?",
-    params: &["lst: list?"],
-    description: "Checks if the list is empty",
-    examples: &[
-        ("> (empty? (list 1 2 3 4 5))", "#false"),
-        ("> (empty? '())", "#true"),
-    ],
-};
-
-fn is_empty(args: &[SteelVal]) -> Result<SteelVal> {
-    arity_check!(is_empty, args, 1);
-
-    if let SteelVal::ListV(l) = &args[0] {
-        Ok(l.is_empty().into())
-    } else {
-        stop!(TypeMismatch => "empty? expects a list")
-    }
+/// Checks if the list is empty
+///
+/// (empty? lst) -> bool?
+///
+/// * lst: list?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (empty? (list 1 2 3 4 5)) ;; => #false
+/// > (empty? '()) ;; => #true
+/// ```
+#[steel_derive::function(name = "empty?")]
+fn is_empty(list: &List<SteelVal>) -> bool {
+    list.is_empty()
 }
 
-fn pair(args: &[SteelVal]) -> Result<SteelVal> {
-    arity_check!(pair, args, 1);
-
-    if let SteelVal::ListV(l) = &args[0] {
-        Ok(l.iter().next().is_some().into())
-    } else {
-        Ok(SteelVal::BoolV(false))
-    }
+/// Checks if the given value can be treated as a pair.
+/// Note - there are no improper lists in steel, so any list with at least one element
+/// is considered a pair.
+///
+/// (pair? any/c) -> bool?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (pair? '(10 20)) ;; => #true
+/// > (pair? '(10)) ;; => #true
+/// > (pair? '()) ;; => #false
+/// ```
+#[steel_derive::function(name = "pair?")]
+fn pair(list: &SteelVal) -> bool {
+    list.list()
+        .map(|x| x.iter().next().is_some())
+        .unwrap_or_default()
 }
 
 pub(crate) const CONS_DOC: DocTemplate<'static> = DocTemplate {
@@ -215,13 +248,16 @@ fn cons(args: &mut [SteelVal]) -> Result<SteelVal> {
     }
 }
 
-pub(crate) const RANGE_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(range n m) -> (listof int?)",
-    params: &["n : int?", "m : int?"],
-    description: r#"Returns a newly allocated list of the elements in the range (n, m]."#,
-    examples: &[("λ > (range 0 10)", "=> '(0 1 2 3 4 5 6 7 8 9)")],
-};
-
+/// Returns a newly allocated list of the elements in the range (n, m]
+///
+/// (range n m) -> (listof int?)
+///
+/// * n : int?
+/// * m : int?
+///
+/// ```scheme
+/// > (range 0 10) ;; => '(0 1 2 3 4 5 6 7 8 9)
+/// ```
 #[steel_derive::function(name = "range")]
 fn range(lower: isize, upper: isize) -> Result<SteelVal> {
     if lower < 0 {
@@ -239,29 +275,6 @@ fn range(lower: isize, upper: isize) -> Result<SteelVal> {
             .collect(),
     ))
 }
-
-// fn range(args: &[SteelVal]) -> Result<SteelVal> {
-//     arity_check!(new_range, args, 2);
-
-//     if let (SteelVal::IntV(lower), SteelVal::IntV(upper)) = (&args[0], &args[1]) {
-//         if *lower < 0 {
-//             stop!(Generic => "range expects a positive integer");
-//         }
-
-//         if *upper < 0 {
-//             stop!(Generic => "range expects a positive integer");
-//         }
-
-//         Ok(SteelVal::ListV(
-//             (*lower as usize..*upper as usize)
-//                 .into_iter()
-//                 .map(|x| SteelVal::IntV(x as isize))
-//                 .collect(),
-//         ))
-//     } else {
-//         stop!(ArityMismatch => "range takes two integers")
-//     }
-// }
 
 pub(crate) const LENGTH_DOC: DocTemplate<'static> = DocTemplate {
     signature: "(length l) -> int?",
@@ -326,42 +339,40 @@ pub fn last(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-// fn first(args: &mut [SteelVal]) -> Result<SteelVal> {
-//     arity_check!(first, args, 1);
+/// Returns the first element of the list l.
+///
+/// (first l) -> any/c
+///
+/// * l : list?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (first '(1 2)) ;; => 1
+/// > (first (cons 2 3)) ;; => 2
+/// ```
+#[steel_derive::function(name = "first", constant = true)]
+fn first(list: &List<SteelVal>) -> Result<SteelVal> {
+    list.car()
+        .ok_or_else(throw!(Generic => "first resulted in an error - empty list"))
+}
 
-//     if let SteelVal::ListV(l) = &mut args[0] {
-//         l.pop_front()
-//             .ok_or_else(throw!(Generic => "first resulted in an error - empty list"))
-//     } else {
-//         stop!(TypeMismatch => "first expects a list")
-//     }
-// }
-
-pub(crate) const CAR_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(car l) -> any/c",
-    params: &["l : list?"],
-    description: r#"Returns the first element of the list l."#,
-    examples: &[("> (car '(1 2))", "=> 1"), ("> (car (cons 2 3))", "=> 2")],
-};
-
-pub(crate) const FIRST_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(first l) -> any/c",
-    params: &["l : list?"],
-    description: r#"Returns the first element of the list l."#,
-    examples: &[
-        ("> (first '(1 2))", "=> 1"),
-        ("> (first (cons 2 3))", "=> 2"),
-    ],
-};
-
-fn car(args: &[SteelVal]) -> Result<SteelVal> {
-    arity_check!(car, args, 1);
-    if let SteelVal::ListV(l) = &args[0] {
-        l.car()
-            .ok_or_else(throw!(Generic => "first resulted in an error - empty list"))
-    } else {
-        stop!(TypeMismatch => format!("first expects a list, found: {:?}", &args[0]))
-    }
+/// Returns the first element of the list l.
+///
+/// (car l) -> any/c
+///
+/// * l : list?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (car '(1 2)) ;; => 1
+/// > (car (cons 2 3)) ;; => 2
+/// ```
+#[steel_derive::function(name = "car", constant = true)]
+fn car(list: &List<SteelVal>) -> Result<SteelVal> {
+    list.car()
+        .ok_or_else(throw!(Generic => "car resulted in an error - empty list"))
 }
 
 pub(crate) const CDR_DOC: DocTemplate<'static> = DocTemplate {
@@ -485,59 +496,47 @@ pub fn try_list_ref(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-pub(crate) const LIST_REF_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(list-ref lst index) -> list?",
-    params: &["lst : list?", "index : (and/c int? positive?)"],
-    description: r#"Returns the value located at the given index. Will raise an error if you try to index out of bounds.
-
-Note: Runs in time proportional to the length of the list, however lists in Steel are implemented in such a fashion that the
-time complexity is O(n/64). Meaning, for small lists this can be constant."#,
-    examples: &[
-        ("λ > (list-ref (list 1 2 3 4) 2)", "=> 3"),
-        ("λ > (list-ref (range 0 100) 42)", "=> 42"),
-        (
-            "λ > (list-ref (list 1 2 3 4) 10)",
-            r#"error[E11]: Generic
-  ┌─ :1:2
-  │
-1 │ (list-ref (list 1 2 3 4) 10)
-  │  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10"#,
-        ),
-    ],
-};
-
-pub fn list_ref(args: &[SteelVal]) -> Result<SteelVal> {
-    arity_check!(list_ref, args, 2);
-
-    // todo!()
-    if let (SteelVal::ListV(lst), SteelVal::IntV(n)) = (&args[0], &args[1]) {
-        if *n < 0 {
-            stop!(Generic => "list-ref expects a positive integer")
-        } else {
-            lst.get(*n as usize)
-                .cloned()
-                .ok_or_else(throw!(Generic => format!("out of bounds index in list-ref - list length: {}, index: {}", lst.len(), n)))
-        }
-    } else {
-        stop!(TypeMismatch => format!("list-ref expects a list and an integer, found {} and {}", &args[0], &args[1]))
+/// Returns the value located at the given index. Will raise an error if you try to index out of bounds.
+///
+/// Note: Runs in time proportional to the length of the list, however lists in Steel are implemented in such a fashion that the
+/// time complexity is O(n/64). Meaning, for small lists this can be constant.
+///
+/// (list-ref lst index) -> list?
+///
+/// * lst : list?
+/// * index : (and/c int? positive?)
+///
+/// # Examples
+/// ```scheme
+/// > (list-ref (list 1 2 3 4) 2) ;; => 3
+/// > (list-ref (range 0 100) 42) ;; => 42"
+/// > (list-ref (list 1 2 3 4) 10)
+/// error[E11]: Generic
+///   ┌─ :1:2
+///   │
+/// 1 │ (list-ref (list 1 2 3 4) 10)
+///   │  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10
+/// ```
+#[steel_derive::function(name = "list-ref", constant = true)]
+pub fn list_ref(list: &List<SteelVal>, index: isize) -> Result<SteelVal> {
+    if index < 0 {
+        stop!(Generic => "list-ref expects a positive integer, found: {}", index);
     }
+
+    list.get(index as usize)
+        .cloned()
+        .ok_or_else(throw!(Generic => format!("out of bounds index in list-ref - list length: {}, index: {}", list.len(), index)))
 }
 
-fn list_to_string(args: &[SteelVal]) -> Result<SteelVal> {
-    arity_check!(list_to_string, args, 1);
-
-    if let SteelVal::ListV(l) = &args[0] {
-        let collected_string = l
-            .iter()
-            .map(|x| {
-                x.char_or_else(throw!(TypeMismatch => "list->string expected a list of characters"))
-            })
-            .collect::<Result<String>>()?;
-
-        Ok(SteelVal::StringV(collected_string.into()))
-    } else {
-        stop!(TypeMismatch => "first expects a list")
-    }
+#[steel_derive::function(name = "list->string", constant = true)]
+fn list_to_string(list: &List<SteelVal>) -> Result<SteelVal> {
+    list.iter()
+        .map(|x| {
+            x.char_or_else(throw!(TypeMismatch => "list->string expected a list of characters"))
+        })
+        .collect::<Result<String>>()
+        .map(|x| x.into())
+        .map(SteelVal::StringV)
 }
 
 // TODO this could be broken using &mut
@@ -596,7 +595,6 @@ mod list_operation_tests {
     fn cons_with_empty_list() {
         let mut args = [SteelVal::IntV(1), SteelVal::ListV(List::new())];
         let res = cons(&mut args);
-        // let expected = SteelVal::ListV(list![SteelVal::IntV(1)]);
 
         let expected = crate::list![1i32];
 
@@ -614,7 +612,7 @@ mod list_operation_tests {
     #[test]
     fn car_normal_input() {
         let args = [crate::list![1i32, 2i32]];
-        let res = car(&args);
+        let res = steel_car(&args);
         let expected = SteelVal::IntV(1);
         assert_eq!(res.unwrap(), expected);
     }
@@ -622,7 +620,7 @@ mod list_operation_tests {
     #[test]
     fn car_bad_input() {
         let args = [SteelVal::IntV(1)];
-        let res = car(&args);
+        let res = steel_car(&args);
         let expected = ErrorKind::TypeMismatch;
         assert_eq!(res.unwrap_err().kind(), expected);
     }
@@ -630,7 +628,7 @@ mod list_operation_tests {
     #[test]
     fn car_too_many_args() {
         let args = [SteelVal::IntV(1), SteelVal::IntV(2)];
-        let res = car(&args);
+        let res = steel_car(&args);
         let expected = ErrorKind::ArityMismatch;
         assert_eq!(res.unwrap_err().kind(), expected);
     }
