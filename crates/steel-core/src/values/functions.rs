@@ -73,7 +73,7 @@ pub struct ByteCodeLambda {
 impl PartialEq for ByteCodeLambda {
     fn eq(&self, other: &Self) -> bool {
         // self.body_exp == other.body_exp &&
-        self.arity == other.arity && self.id == self.id
+        self.arity == other.arity && self.id == other.id
     }
 }
 

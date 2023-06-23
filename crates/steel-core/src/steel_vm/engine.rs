@@ -720,13 +720,11 @@ impl Engine {
                 let steelval1 =
                     SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
 
-                let res = thunk(self, steelval1);
+                thunk(self, steelval1)
 
                 // Wipe out the value from existence at all
                 // self.register_value(bind_to, SteelVal::Void);
                 // self.register_value(bind_to2, SteelVal::Void);
-
-                res
             },
         )
     }
@@ -760,9 +758,7 @@ impl Engine {
                 let steelval1 =
                     SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
 
-                let res = thunk(self, steelval1);
-
-                res
+                thunk(self, steelval1)
             },
         )
     }
