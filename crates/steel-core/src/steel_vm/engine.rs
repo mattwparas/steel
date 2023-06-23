@@ -604,14 +604,6 @@ impl Engine {
         LifetimeGuard { engine: self }
     }
 
-    fn erase_reference<'a, 'b: 'a, T: CustomReference>(&'a mut self, obj: &'a mut T) {
-        fn erase<'c, U: CustomReference + 'c>(object: U) -> Box<dyn CustomReference + 'static> {
-            todo!()
-        }
-
-        todo!()
-    }
-
     // Tie the lifetime of this object to the scope of this execution
     pub fn run_with_reference<
         'a,
