@@ -187,9 +187,7 @@ fn code_gen_permutation(values: &[ValueKind], id: usize, row: usize) -> String {
                 ));
             }
             ValueKind::MutReference => {
-                function_def.line(format!(
-                    "let mut v{i} = <T{i}>::as_mut_ref(&args[{i}])?;"
-                ));
+                function_def.line(format!("let mut v{i} = <T{i}>::as_mut_ref(&args[{i}])?;"));
             }
         }
     }

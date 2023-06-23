@@ -397,7 +397,6 @@ pub fn function(
         let mut conversion_functions = conversion_functions.collect::<Vec<_>>();
         let arg_enumerate = arg_enumerate;
         let mut arg_index = arg_enumerate
-            
             .map(|(i, _)| quote! { #i })
             .collect::<Vec<_>>();
 
