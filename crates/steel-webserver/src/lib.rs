@@ -69,7 +69,7 @@ impl CommandMessenger {
         match self.sender.send(request) {
             Ok(_) => {}
             Err(e) => {
-                println!("Error: {:?}", e)
+                println!("Error: {e:?}")
             }
         };
         // .expect("Failed to send message to VM");
@@ -245,7 +245,7 @@ fn spawn_server(
 
                 // run it
                 let addr = SocketAddr::from(([127, 0, 0, 1], port as u16));
-                println!("listening on {}", addr);
+                println!("listening on {addr}");
                 axum::Server::bind(&addr)
                     .serve(app.into_make_service())
                     .await

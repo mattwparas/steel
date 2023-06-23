@@ -48,8 +48,8 @@ fn as_ffi_value(value: &Value) -> FFIValue {
         Value::Boolean(b) => (*b).into(),
         Value::Datetime(_) => todo!(),
         Value::Array(a) => a
-            .into_iter()
-            .map(|x| as_ffi_value(x))
+            .iter()
+            .map(as_ffi_value)
             .collect::<RVec<_>>()
             .into(),
         // Value::Table(m) => Ok(SteelVal::HashMapV(steel::gc::Gc::new(

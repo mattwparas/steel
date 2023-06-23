@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let mut command = Command::new("cargo")
-        .args(&[
+        .args([
             "build",
             "--release",
             "--message-format=json-render-diagnostics",

@@ -76,7 +76,7 @@ fn walk_for_defines<W: Write>(
                                             write!(
                                                 writer,
                                                 " {}",
-                                                ident.resolve().trim_start_matches("#")
+                                                ident.resolve().trim_start_matches('#')
                                             )?;
                                         } else {
                                             write!(writer, " {arg}")?;
@@ -173,7 +173,7 @@ pub fn walk_dir<W: Write>(
 // Parse the cog file located at the path, and return the package name
 // Other things are probably important, but for now we'll just deal with that
 pub fn parse_cog_file(path: PathBuf) -> steel::rvals::Result<String> {
-    let contents = std::fs::read_to_string(&path)?;
+    let contents = std::fs::read_to_string(path)?;
     let exprs = steel::parser::parser::Parser::parse(&contents)?;
     todo!()
 }
