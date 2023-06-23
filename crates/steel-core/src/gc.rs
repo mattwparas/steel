@@ -487,6 +487,33 @@ pub mod unsafe_erased_pointers {
         }
     }
 
+    // TODO: Refactor to use phantom data inside the borrowed objects to hold
+    // the lifetime
+    struct Test<'a, T: 'a> {
+        foo: T,
+        phantom: PhantomData<&'a T>,
+    }
+
+    unsafe fn extend<'a, T: 'a>(obj: Test<'a, T>) -> Test<'static, T> {
+        std::mem::transmute::<Test<'a, T>, Test<'static, T>>(obj)
+    }
+
+    // TODO: Make ReadOnlyBorrowedObject hold the lifetime directly, then we can manipulate it
+    // impl<'a, T> ReadOnlyBorrowedObject<T> {
+    //     pub fn other_into_opaque_reference<'a>(self) -> OpaqueReference<'static> {
+    //         let inner: Rc<dyn ReferenceCustomType + 'a> = Rc::new(self);
+
+    //         OpaqueReference {
+    //             inner: unsafe {
+    //                 std::mem::transmute::<
+    //                     Rc<dyn ReferenceCustomType + 'a>,
+    //                     Rc<dyn ReferenceCustomType + 'static>,
+    //                 >(inner)
+    //             },
+    //         }
+    //     }
+    // }
+
     pub struct BorrowedObject<T> {
         pub(crate) ptr: Weak<RefCell<*mut T>>,
     }
@@ -582,10 +609,10 @@ pub mod unsafe_erased_pointers {
 
             let borrowed = ReadOnlyBorrowedObject { ptr: weak_ptr };
 
-            // let extended =
-            //     unsafe { std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(borrowed) };
-
             NURSERY.with(|x| x.memory.borrow_mut().push(Box::new(wrapped)));
+
+            // TODO: Consider doing the transmute in the into_opaque_reference function,
+            // to extend the lifetime, but nowhere else. Could save passing in the double types.
             NURSERY.with(|x| {
                 x.weak_values
                     .borrow_mut()

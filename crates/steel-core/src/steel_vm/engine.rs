@@ -111,6 +111,12 @@ impl<'a> Drop for LifetimeGuard<'a> {
     }
 }
 
+fn extend<'a, 'b: 'a, T: CustomReference + 'a, EXT: CustomReference + 'b>(
+    obj: BorrowedObject<T>,
+) -> BorrowedObject<EXT> {
+    unsafe { std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(obj) }
+}
+
 impl<'a> LifetimeGuard<'a> {
     pub fn with_immutable_reference<T: CustomReference + 'a, EXT: CustomReference + 'static>(
         self,
