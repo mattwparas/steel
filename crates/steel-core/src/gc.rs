@@ -516,38 +516,6 @@ pub mod unsafe_erased_pointers {
         }
     }
 
-    // TODO: Refactor to use phantom data inside the borrowed objects to hold
-    // the lifetime
-    // struct Test<'a, T: 'a> {
-    //     foo: T,
-    //     phantom: PhantomData<&'a T>,
-    // }
-
-    // TODO: Make ReadOnlyBorrowedObject hold the lifetime directly, then we can manipulate it
-    // impl<'a, T> ReadOnlyBorrowedObject<T> {
-    //     pub fn other_into_opaque_reference<'a>(self) -> OpaqueReference<'static> {
-    //         let inner: Rc<dyn ReferenceCustomType + 'a> = Rc::new(self);
-
-    //         OpaqueReference {
-    //             inner: unsafe {
-    //                 std::mem::transmute::<
-    //                     Rc<dyn ReferenceCustomType + 'a>,
-    //                     Rc<dyn ReferenceCustomType + 'static>,
-    //                 >(inner)
-    //             },
-    //         }
-    //     }
-    // }
-
-    // pub trait SameType {
-    //     // type Lifted;
-
-    // }
-
-    // impl<'a, T: CustomReference + 'a> SameType for &'a T {
-    //     // type Lifted = Self + 'static;
-    // }
-
     pub struct BorrowedObject<T> {
         pub(crate) ptr: Weak<RefCell<*mut T>>,
     }
@@ -609,8 +577,6 @@ pub mod unsafe_erased_pointers {
         pub(crate) fn allocate_rw_object<'a, T: 'a, EXT: 'static>(obj: &mut T) {
             let erased = obj as *mut _;
 
-            // assert!(std::any::TypeId::of::<*mut T>() == std::any::TypeId::of::<*mut EXT>());
-
             let erased = unsafe { std::mem::transmute::<*mut T, *mut EXT>(erased) };
 
             // Wrap the original mutable pointer in an object that respects borrowing
@@ -620,17 +586,12 @@ pub mod unsafe_erased_pointers {
 
             let borrowed = BorrowedObject { ptr: weak_ptr };
 
-            // let extended =
-            //     unsafe { std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(borrowed) };
-
             NURSERY.with(|x| x.memory.borrow_mut().push(Box::new(wrapped)));
             NURSERY.with(|x| {
                 x.weak_values
                     .borrow_mut()
                     .push(borrowed.into_opaque_reference())
             });
-
-            // borrowed.into_opaque_reference()
         }
 
         pub(crate) fn allocate_ro_object<'a, T: 'a, EXT: 'static>(obj: &T) {
@@ -654,13 +615,7 @@ pub mod unsafe_erased_pointers {
                     .borrow_mut()
                     .push(borrowed.into_opaque_reference())
             });
-
-            // borrowed.into_opaque_reference()
         }
-
-        // pub(crate) fn allocate_strong(obj: Box<dyn Opaque>) {
-        //     NURSERY.with(|x| x.memory.borrow_mut().push(obj));
-        // }
 
         pub(crate) fn allocate(obj: OpaqueReference<'static>) {
             NURSERY.with(|x| x.weak_values.borrow_mut().push(obj));

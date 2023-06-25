@@ -102,10 +102,6 @@ fn run_bootstrap() {
     Engine::create_bootstrap_from_programs();
 }
 
-// pub struct ScopedRunBuilder<'a> {
-
-// }
-
 pub struct LifetimeGuard<'a> {
     engine: &'a mut Engine,
 }
