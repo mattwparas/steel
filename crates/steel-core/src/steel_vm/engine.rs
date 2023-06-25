@@ -606,12 +606,17 @@ impl Engine {
         self.compile_and_run_raw_program(input)
     }
 
-    pub fn with_immutable_reference<'a, T: CustomReference + 'a, EXT: CustomReference + 'static>(
+    pub fn with_immutable_reference<
+        'a,
+        'b: 'a,
+        T: CustomReference + 'b,
+        EXT: CustomReference + 'static,
+    >(
         &'a mut self,
         obj: &'a T,
     ) -> LifetimeGuard<'a>
     where
-        T: ReferenceMarker<'a, Static = EXT>,
+        T: ReferenceMarker<'b, Static = EXT>,
     {
         assert_eq!(
             crate::gc::unsafe_erased_pointers::type_id::<T>(),
@@ -665,40 +670,6 @@ impl Engine {
 
             res.map(|x| x.into_iter().next().unwrap())
         })
-
-        // assert_eq!(
-        //     crate::gc::unsafe_erased_pointers::type_id::<T>(),
-        //     std::any::TypeId::of::<EXT>()
-        // );
-
-        // // Tie the lifetime of this object to the scope of this execution
-        // crate::gc::unsafe_erased_pointers::MutableReferenceNursery::new().retain_reference(
-        //     obj,
-        //     |wrapped| {
-        //         // todo!();
-
-        //         let mut scope = ();
-
-        //         // Allocate the token to tie all references to this lifetime
-        //         let _token = OpaqueReferenceNursery::tie_lifetime(&mut scope);
-
-        //         let extended = unsafe {
-        //             std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(wrapped)
-        //         };
-
-        //         self.register_value(
-        //             bind_to,
-        //             SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>())),
-        //         );
-
-        //         let res = self.compile_and_run_raw_program(script);
-
-        //         // Wipe out the value from existence at all
-        //         self.register_value(bind_to, SteelVal::Void);
-
-        //         res.map(|x| x.into_iter().next().unwrap())
-        //     },
-        // )
     }
 
     pub fn run_thunk_with_reference<
@@ -710,31 +681,15 @@ impl Engine {
         &'a mut self,
         obj: &'a mut T,
         mut thunk: impl FnMut(&mut Engine, SteelVal) -> Result<SteelVal>,
-    ) -> Result<SteelVal> {
-        crate::gc::unsafe_erased_pointers::MutableReferenceNursery::new().retain_reference(
-            obj,
-            |wrapped1| {
-                // todo!();
+    ) -> Result<SteelVal>
+    where
+        T: ReferenceMarker<'b, Static = EXT>,
+    {
+        self.with_mut_reference(obj).consume(|engine, args| {
+            let mut args = args.into_iter();
 
-                let mut scope = ();
-
-                // Allocate the token to tie all references to this lifetime
-                let _token = OpaqueReferenceNursery::tie_lifetime(&mut scope);
-
-                let extended = unsafe {
-                    std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(wrapped1)
-                };
-
-                let steelval1 =
-                    SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
-
-                thunk(self, steelval1)
-
-                // Wipe out the value from existence at all
-                // self.register_value(bind_to, SteelVal::Void);
-                // self.register_value(bind_to2, SteelVal::Void);
-            },
-        )
+            thunk(engine, args.into_iter().next().unwrap())
+        })
     }
 
     pub fn run_thunk_with_ro_reference<
@@ -746,29 +701,15 @@ impl Engine {
         &'a mut self,
         obj: &'a T,
         mut thunk: impl FnMut(&mut Engine, SteelVal) -> Result<SteelVal>,
-    ) -> Result<SteelVal> {
-        crate::gc::unsafe_erased_pointers::MutableReferenceNursery::new().retain_readonly_reference(
-            obj,
-            |wrapped1| {
-                // todo!();
+    ) -> Result<SteelVal>
+    where
+        T: ReferenceMarker<'b, Static = EXT>,
+    {
+        self.with_immutable_reference(obj).consume(|engine, args| {
+            let mut args = args.into_iter();
 
-                let mut scope = ();
-
-                // Allocate the token to tie all references to this lifetime
-                let _token = OpaqueReferenceNursery::tie_lifetime(&mut scope);
-
-                let extended = unsafe {
-                    std::mem::transmute::<ReadOnlyBorrowedObject<T>, ReadOnlyBorrowedObject<EXT>>(
-                        wrapped1,
-                    )
-                };
-
-                let steelval1 =
-                    SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
-
-                thunk(self, steelval1)
-            },
-        )
+            thunk(engine, args.into_iter().next().unwrap())
+        })
     }
 
     /// Instantiates a new engine instance with all the primitive functions enabled.
