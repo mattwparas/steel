@@ -626,7 +626,7 @@ pub mod unsafe_erased_pointers {
             NURSERY.with(|x| x.weak_values.borrow_mut().clear());
         }
 
-        pub(crate) fn drain_to_steelvals() -> Vec<SteelVal> {
+        pub(crate) fn drain_weak_references_to_steelvals() -> Vec<SteelVal> {
             let res = NURSERY.with(|x| {
                 x.weak_values
                     .borrow_mut()
@@ -636,7 +636,7 @@ pub mod unsafe_erased_pointers {
                     .collect()
             });
 
-            NURSERY.with(|x| x.memory.borrow_mut().clear());
+            // NURSERY.with(|x| x.memory.borrow_mut().clear());
 
             res
         }

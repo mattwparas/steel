@@ -108,6 +108,7 @@ pub struct LifetimeGuard<'a> {
 
 impl<'a> Drop for LifetimeGuard<'a> {
     fn drop(&mut self) {
+        println!("Freeing nursery!");
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::free_all();
     }
 }
@@ -156,7 +157,7 @@ impl<'a> LifetimeGuard<'a> {
 
     pub fn consume<T>(self, mut thunk: impl FnMut(&mut Engine, Vec<SteelVal>) -> T) -> T {
         let values =
-            crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::drain_to_steelvals();
+            crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::drain_weak_references_to_steelvals();
 
         thunk(self.engine, values)
     }
@@ -1531,4 +1532,111 @@ pub(crate) fn raise_error_to_string(sources: &Sources, error: SteelErr) -> Optio
     // println!("Unable to locate source and span information for this error: {error}");
 
     None
+}
+
+#[cfg(test)]
+mod engine_api_tests {
+    use crate::custom_reference;
+
+    use super::*;
+
+    struct ReferenceStruct {
+        value: usize,
+    }
+
+    impl ReferenceStruct {
+        pub fn get_value(&mut self) -> usize {
+            self.value
+        }
+
+        pub fn get_value_immutable(&self) -> usize {
+            self.value
+        }
+    }
+
+    impl CustomReference for ReferenceStruct {}
+    custom_reference!(ReferenceStruct);
+
+    #[test]
+    fn test_references_in_engine() {
+        let mut engine = Engine::new();
+        let mut external_object = ReferenceStruct { value: 10 };
+
+        engine.register_fn("external-get-value", ReferenceStruct::get_value);
+
+        {
+            let res = engine
+                .run_with_reference::<ReferenceStruct, ReferenceStruct>(
+                    &mut external_object,
+                    "*external*",
+                    "(external-get-value *external*)",
+                )
+                .unwrap();
+
+            assert_eq!(res, SteelVal::IntV(10));
+        }
+
+        // let res = engine
+        //     .run_with_reference::<ReferenceStruct, ReferenceStruct>(
+        //         &mut external_object,
+        //         "*external*",
+        //         "(external-get-value *external*)",
+        //     )
+        //     .unwrap();
+
+        // assert_eq!(res, SteelVal::IntV(10));
+    }
+
+    #[test]
+    fn test_references_in_engine_get_removed_after_lifetime() {
+        let mut engine = Engine::new();
+        let mut external_object = ReferenceStruct { value: 10 };
+
+        engine.register_fn("external-get-value", ReferenceStruct::get_value);
+
+        let res = engine
+            .run_with_reference::<ReferenceStruct, ReferenceStruct>(
+                &mut external_object,
+                "*external*",
+                "(external-get-value *external*)",
+            )
+            .unwrap();
+
+        assert_eq!(res, SteelVal::IntV(10));
+
+        // Afterwards, the value should be gone
+        assert_eq!(engine.extract_value("*external*").unwrap(), SteelVal::Void);
+    }
+
+    #[test]
+    fn test_immutable_references_in_engine_get_removed_after_lifetime() {
+        let mut engine = Engine::new();
+        let external_object = ReferenceStruct { value: 10 };
+
+        engine.register_fn("external-get-value", ReferenceStruct::get_value);
+
+        engine.register_fn(
+            "external-get-value-imm",
+            ReferenceStruct::get_value_immutable,
+        );
+
+        let res = engine
+            .run_thunk_with_ro_reference::<ReferenceStruct, ReferenceStruct>(
+                &external_object,
+                |mut engine, value| {
+                    engine.register_value("*external*", value);
+                    engine
+                        .compile_and_run_raw_program("(external-get-value-imm *external*)")
+                        .map(|x| x.into_iter().next().unwrap())
+                },
+            )
+            .unwrap();
+
+        assert_eq!(res, SteelVal::IntV(10));
+
+        // This absolutely has to fail, otherwise we're in trouble.
+        assert!(engine
+            .compile_and_run_raw_program("(external-get-value-imm *external*)")
+            .is_err());
+    }
 }
