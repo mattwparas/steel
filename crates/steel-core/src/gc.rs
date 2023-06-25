@@ -391,6 +391,35 @@ pub mod unsafe_erased_pointers {
     // help disambiguate the function call sites.
     pub trait CustomReference {}
 
+    /// Warning - you should not implement this trait yourself. Use the `custom_reference` macro instead.
+    /// Implementing this incorrectly could lead to undefined behavior.
+    pub unsafe trait ReferenceMarker<'a> {
+        type Static: ?Sized + 'static;
+    }
+
+    pub fn type_id<'a, T>() -> std::any::TypeId
+    where
+        T: ReferenceMarker<'a>,
+        T::Static: Any,
+    {
+        std::any::TypeId::of::<T::Static>()
+    }
+
+    #[macro_export]
+    macro_rules! custom_reference {
+        ($t: ident) => {
+            unsafe impl<'a> $crate::gc::unsafe_erased_pointers::ReferenceMarker<'a> for $t {
+                type Static = $t;
+            }
+        };
+
+        ($t: ident<'a>) => {
+            unsafe impl<'a> $crate::gc::unsafe_erased_pointers::ReferenceMarker<'a> for $t<'a> {
+                type Static = $t<'static>;
+            }
+        };
+    }
+
     // Only works if this is explicitly, a reference type?
     impl CustomReference for &str {}
 
@@ -489,14 +518,10 @@ pub mod unsafe_erased_pointers {
 
     // TODO: Refactor to use phantom data inside the borrowed objects to hold
     // the lifetime
-    struct Test<'a, T: 'a> {
-        foo: T,
-        phantom: PhantomData<&'a T>,
-    }
-
-    unsafe fn extend<'a, T: 'a>(obj: Test<'a, T>) -> Test<'static, T> {
-        std::mem::transmute::<Test<'a, T>, Test<'static, T>>(obj)
-    }
+    // struct Test<'a, T: 'a> {
+    //     foo: T,
+    //     phantom: PhantomData<&'a T>,
+    // }
 
     // TODO: Make ReadOnlyBorrowedObject hold the lifetime directly, then we can manipulate it
     // impl<'a, T> ReadOnlyBorrowedObject<T> {
@@ -512,6 +537,15 @@ pub mod unsafe_erased_pointers {
     //             },
     //         }
     //     }
+    // }
+
+    // pub trait SameType {
+    //     // type Lifted;
+
+    // }
+
+    // impl<'a, T: CustomReference + 'a> SameType for &'a T {
+    //     // type Lifted = Self + 'static;
     // }
 
     pub struct BorrowedObject<T> {
@@ -574,6 +608,8 @@ pub mod unsafe_erased_pointers {
         // Safety - these absolutely need to be the same type.
         pub(crate) fn allocate_rw_object<'a, T: 'a, EXT: 'static>(obj: &mut T) {
             let erased = obj as *mut _;
+
+            // assert!(std::any::TypeId::of::<*mut T>() == std::any::TypeId::of::<*mut EXT>());
 
             let erased = unsafe { std::mem::transmute::<*mut T, *mut EXT>(erased) };
 

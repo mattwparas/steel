@@ -17,6 +17,7 @@ use crate::{
     containers::RegisterValue,
     gc::unsafe_erased_pointers::{
         BorrowedObject, CustomReference, OpaqueReferenceNursery, ReadOnlyBorrowedObject,
+        ReferenceMarker,
     },
     parser::{
         ast::ExprKind,
@@ -101,6 +102,10 @@ fn run_bootstrap() {
     Engine::create_bootstrap_from_programs();
 }
 
+// pub struct ScopedRunBuilder<'a> {
+
+// }
+
 pub struct LifetimeGuard<'a> {
     engine: &'a mut Engine,
 }
@@ -111,17 +116,23 @@ impl<'a> Drop for LifetimeGuard<'a> {
     }
 }
 
-fn extend<'a, 'b: 'a, T: CustomReference + 'a, EXT: CustomReference + 'b>(
-    obj: BorrowedObject<T>,
-) -> BorrowedObject<EXT> {
-    unsafe { std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(obj) }
-}
-
 impl<'a> LifetimeGuard<'a> {
-    pub fn with_immutable_reference<T: CustomReference + 'a, EXT: CustomReference + 'static>(
+    pub fn with_immutable_reference<
+        'b: 'a,
+        T: CustomReference + 'b,
+        EXT: CustomReference + 'static,
+    >(
         self,
         obj: &'a T,
-    ) -> Self {
+    ) -> Self
+    where
+        T: ReferenceMarker<'b, Static = EXT>,
+    {
+        assert_eq!(
+            crate::gc::unsafe_erased_pointers::type_id::<T>(),
+            std::any::TypeId::of::<EXT>()
+        );
+
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_ro_object::<T, EXT>(
             obj,
         );
@@ -129,10 +140,17 @@ impl<'a> LifetimeGuard<'a> {
         self
     }
 
-    pub fn with_mut_reference<T: CustomReference + 'a, EXT: CustomReference + 'static>(
+    pub fn with_mut_reference<'b: 'a, T: CustomReference + 'b, EXT: CustomReference + 'static>(
         self,
         obj: &'a mut T,
-    ) -> Self {
+    ) -> Self
+    where
+        T: ReferenceMarker<'b, Static = EXT>,
+    {
+        assert_eq!(
+            crate::gc::unsafe_erased_pointers::type_id::<T>(),
+            std::any::TypeId::of::<EXT>()
+        );
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_rw_object::<T, EXT>(
             obj,
         );
@@ -591,7 +609,15 @@ impl Engine {
     pub fn with_immutable_reference<'a, T: CustomReference + 'a, EXT: CustomReference + 'static>(
         &'a mut self,
         obj: &'a T,
-    ) -> LifetimeGuard<'a> {
+    ) -> LifetimeGuard<'a>
+    where
+        T: ReferenceMarker<'a, Static = EXT>,
+    {
+        assert_eq!(
+            crate::gc::unsafe_erased_pointers::type_id::<T>(),
+            std::any::TypeId::of::<EXT>()
+        );
+
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_ro_object::<T, EXT>(
             obj,
         );
@@ -599,10 +625,18 @@ impl Engine {
         LifetimeGuard { engine: self }
     }
 
-    pub fn with_mut_reference<'a, T: CustomReference + 'a, EXT: CustomReference + 'static>(
+    pub fn with_mut_reference<'a, 'b: 'a, T: CustomReference + 'b, EXT: CustomReference + 'static>(
         &'a mut self,
         obj: &'a mut T,
-    ) -> LifetimeGuard<'a> {
+    ) -> LifetimeGuard<'a>
+    where
+        T: ReferenceMarker<'b, Static = EXT>,
+    {
+        assert_eq!(
+            crate::gc::unsafe_erased_pointers::type_id::<T>(),
+            std::any::TypeId::of::<EXT>()
+        );
+
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_rw_object::<T, EXT>(
             obj,
         );
@@ -611,92 +645,60 @@ impl Engine {
     }
 
     // Tie the lifetime of this object to the scope of this execution
-    pub fn run_with_reference<
-        'a,
-        'b: 'a,
-        T: CustomReference + 'b,
-        EXT: CustomReference + 'static,
-    >(
+    pub fn run_with_reference<'a, 'b: 'a, T: CustomReference + 'b, EXT: CustomReference + 'static>(
         &'a mut self,
         obj: &'a mut T,
         bind_to: &'a str,
         script: &'a str,
-    ) -> Result<SteelVal> {
-        // todo!()
+    ) -> Result<SteelVal>
+    where
+        T: ReferenceMarker<'b, Static = EXT>,
+    {
+        self.with_mut_reference(obj).consume(|engine, args| {
+            let mut args = args.into_iter();
 
-        crate::gc::unsafe_erased_pointers::MutableReferenceNursery::new().retain_reference(
-            obj,
-            |wrapped| {
-                // todo!();
+            engine.register_value(bind_to, args.next().unwrap());
 
-                let mut scope = ();
+            let res = engine.compile_and_run_raw_program(script);
 
-                // Allocate the token to tie all references to this lifetime
-                let _token = OpaqueReferenceNursery::tie_lifetime(&mut scope);
+            engine.register_value(bind_to, SteelVal::Void);
 
-                let extended = unsafe {
-                    std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(wrapped)
-                };
+            res.map(|x| x.into_iter().next().unwrap())
+        })
 
-                self.register_value(
-                    bind_to,
-                    SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>())),
-                );
+        // assert_eq!(
+        //     crate::gc::unsafe_erased_pointers::type_id::<T>(),
+        //     std::any::TypeId::of::<EXT>()
+        // );
 
-                let res = self.compile_and_run_raw_program(script);
+        // // Tie the lifetime of this object to the scope of this execution
+        // crate::gc::unsafe_erased_pointers::MutableReferenceNursery::new().retain_reference(
+        //     obj,
+        //     |wrapped| {
+        //         // todo!();
 
-                // Wipe out the value from existence at all
-                self.register_value(bind_to, SteelVal::Void);
+        //         let mut scope = ();
 
-                res.map(|x| x.into_iter().next().unwrap())
-            },
-        )
-    }
+        //         // Allocate the token to tie all references to this lifetime
+        //         let _token = OpaqueReferenceNursery::tie_lifetime(&mut scope);
 
-    pub fn run_with_references<
-        'a,
-        'b: 'a,
-        T: CustomReference + 'b,
-        EXT: CustomReference + 'static,
-        T2: CustomReference + 'b,
-        EXT2: CustomReference + 'static,
-    >(
-        &'a mut self,
-        obj: &'a mut T,
-        obj2: &'a mut T2,
-        mut thunk: impl FnMut(&mut Engine, SteelVal, SteelVal) -> Result<SteelVal>,
-    ) -> Result<SteelVal> {
-        crate::gc::unsafe_erased_pointers::MutableReferenceArena::new().retain_reference(
-            obj,
-            obj2,
-            |wrapped1, wrapped2| {
-                // todo!();
+        //         let extended = unsafe {
+        //             std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(wrapped)
+        //         };
 
-                let mut scope = ();
-                let mut scope2 = ();
+        //         self.register_value(
+        //             bind_to,
+        //             SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>())),
+        //         );
 
-                // Allocate the token to tie all references to this lifetime
-                let _token = OpaqueReferenceNursery::tie_lifetime(&mut scope);
-                let _token2 = OpaqueReferenceNursery::tie_lifetime(&mut scope2);
+        //         let res = self.compile_and_run_raw_program(script);
 
-                let extended = unsafe {
-                    std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(wrapped1)
-                };
+        //         // Wipe out the value from existence at all
+        //         self.register_value(bind_to, SteelVal::Void);
 
-                let extended2 = unsafe {
-                    std::mem::transmute::<BorrowedObject<T2>, BorrowedObject<EXT2>>(wrapped2)
-                };
-
-                let steelval1 =
-                    SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
-                let steelval2 =
-                    SteelVal::Reference(Box::new(extended2.into_opaque_reference::<'static>()));
-
-                let res = thunk(self, steelval1, steelval2);
-
-                res
-            },
-        )
+        //         res.map(|x| x.into_iter().next().unwrap())
+        //     },
+        // )
     }
 
     pub fn run_thunk_with_reference<
