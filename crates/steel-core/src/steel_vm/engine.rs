@@ -1575,16 +1575,6 @@ mod engine_api_tests {
 
             assert_eq!(res, SteelVal::IntV(10));
         }
-
-        // let res = engine
-        //     .run_with_reference::<ReferenceStruct, ReferenceStruct>(
-        //         &mut external_object,
-        //         "*external*",
-        //         "(external-get-value *external*)",
-        //     )
-        //     .unwrap();
-
-        // assert_eq!(res, SteelVal::IntV(10));
     }
 
     #[test]
