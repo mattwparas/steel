@@ -391,6 +391,35 @@ pub mod unsafe_erased_pointers {
     // help disambiguate the function call sites.
     pub trait CustomReference {}
 
+    /// Warning - you should not implement this trait yourself. Use the `custom_reference` macro instead.
+    /// Implementing this incorrectly could lead to undefined behavior.
+    pub unsafe trait ReferenceMarker<'a> {
+        type Static: ?Sized + 'static;
+    }
+
+    pub fn type_id<'a, T>() -> std::any::TypeId
+    where
+        T: ReferenceMarker<'a>,
+        T::Static: Any,
+    {
+        std::any::TypeId::of::<T::Static>()
+    }
+
+    #[macro_export]
+    macro_rules! custom_reference {
+        ($t: ident) => {
+            unsafe impl<'a> $crate::gc::unsafe_erased_pointers::ReferenceMarker<'a> for $t {
+                type Static = $t;
+            }
+        };
+
+        ($t: ident<'a>) => {
+            unsafe impl<'a> $crate::gc::unsafe_erased_pointers::ReferenceMarker<'a> for $t<'a> {
+                type Static = $t<'static>;
+            }
+        };
+    }
+
     // Only works if this is explicitly, a reference type?
     impl CustomReference for &str {}
 
@@ -557,17 +586,12 @@ pub mod unsafe_erased_pointers {
 
             let borrowed = BorrowedObject { ptr: weak_ptr };
 
-            // let extended =
-            //     unsafe { std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(borrowed) };
-
             NURSERY.with(|x| x.memory.borrow_mut().push(Box::new(wrapped)));
             NURSERY.with(|x| {
                 x.weak_values
                     .borrow_mut()
                     .push(borrowed.into_opaque_reference())
             });
-
-            // borrowed.into_opaque_reference()
         }
 
         pub(crate) fn allocate_ro_object<'a, T: 'a, EXT: 'static>(obj: &T) {
@@ -582,22 +606,16 @@ pub mod unsafe_erased_pointers {
 
             let borrowed = ReadOnlyBorrowedObject { ptr: weak_ptr };
 
-            // let extended =
-            //     unsafe { std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(borrowed) };
-
             NURSERY.with(|x| x.memory.borrow_mut().push(Box::new(wrapped)));
+
+            // TODO: Consider doing the transmute in the into_opaque_reference function,
+            // to extend the lifetime, but nowhere else. Could save passing in the double types.
             NURSERY.with(|x| {
                 x.weak_values
                     .borrow_mut()
                     .push(borrowed.into_opaque_reference())
             });
-
-            // borrowed.into_opaque_reference()
         }
-
-        // pub(crate) fn allocate_strong(obj: Box<dyn Opaque>) {
-        //     NURSERY.with(|x| x.memory.borrow_mut().push(obj));
-        // }
 
         pub(crate) fn allocate(obj: OpaqueReference<'static>) {
             NURSERY.with(|x| x.weak_values.borrow_mut().push(obj));
@@ -608,7 +626,7 @@ pub mod unsafe_erased_pointers {
             NURSERY.with(|x| x.weak_values.borrow_mut().clear());
         }
 
-        pub(crate) fn drain_to_steelvals() -> Vec<SteelVal> {
+        pub(crate) fn drain_weak_references_to_steelvals() -> Vec<SteelVal> {
             let res = NURSERY.with(|x| {
                 x.weak_values
                     .borrow_mut()
@@ -618,7 +636,7 @@ pub mod unsafe_erased_pointers {
                     .collect()
             });
 
-            NURSERY.with(|x| x.memory.borrow_mut().clear());
+            // NURSERY.with(|x| x.memory.borrow_mut().clear());
 
             res
         }
@@ -657,23 +675,14 @@ pub mod unsafe_erased_pointers {
 
     impl CustomReference for OpaqueReference<'static> {}
 
-    // struct Applesauce
-
-    // Erase the type, continue on with our lives
-    // impl<T: 'static> Custom for BorrowedObject<T> {}
-
     // TODO: Combine this and the next into 1 trait
     impl<T: ReferenceCustomType + 'static> AsRefMutSteelValFromRef for T {
         fn as_mut_ref_from_ref<'a>(val: &'a SteelVal) -> crate::rvals::Result<&'a mut T> {
-            // todo!()
-
             if let SteelVal::Reference(v) = val {
                 let res = v.inner.as_any_ref();
 
                 if res.is::<BorrowedObject<T>>() {
                     let borrowed_object = res.downcast_ref::<BorrowedObject<T>>().unwrap();
-
-                    // return Ok(borrowed_object.clone());
 
                     let guard = borrowed_object.ptr.upgrade().ok_or_else(
                         throw!(Generic => "opaque reference pointer dropped before use!"),
@@ -702,8 +711,6 @@ pub mod unsafe_erased_pointers {
 
     impl<T: ReferenceCustomType + 'static> AsRefSteelValFromRef for T {
         fn as_ref_from_ref<'a>(val: &'a SteelVal) -> crate::rvals::Result<&'a T> {
-            // todo!()
-
             if let SteelVal::Reference(v) = val {
                 let res = v.inner.as_any_ref();
 

@@ -23,7 +23,7 @@ pub fn derive_steel(input: TokenStream) -> TokenStream {
                 impl steel::rvals::Custom for #name {}
             };
 
-            return gen.into();
+            gen.into()
         }
         _ => {
             let output = quote! { #input };
@@ -104,7 +104,7 @@ fn parse_doc_comment(input: ItemFn) -> Option<String> {
         }
     };
 
-    if literals.len() == 0 {
+    if literals.is_empty() {
         return None;
         // Error::new(ident.span(), "No doc comment found on this type")
         //     .into_compile_error()
@@ -113,7 +113,7 @@ fn parse_doc_comment(input: ItemFn) -> Option<String> {
 
     let trimmed: Vec<_> = literals
         .iter()
-        .flat_map(|lit| lit.split("\n").collect::<Vec<_>>())
+        .flat_map(|lit| lit.split('\n').collect::<Vec<_>>())
         .map(|line| line.trim().to_string())
         .collect();
 
@@ -137,7 +137,7 @@ pub fn define_module(
 
     let maybe_doc_comments = parse_doc_comment(input.clone());
 
-    let function_name = sign.ident.clone();
+    let function_name = sign.ident;
 
     if let Some(doc_comments) = maybe_doc_comments {
         quote! {
@@ -232,7 +232,7 @@ pub fn native(
     // Uncomment this to see the generated code
     // eprintln!("{}", output.to_string());
 
-    return output.into();
+    output.into()
 }
 
 // See REmacs : https://github.com/remacs/remacs/blob/16b6fb9319a6d48fbc7b27d27c3234990f6718c5/rust_src/remacs-macros/lib.rs#L17-L161
@@ -395,9 +395,8 @@ pub fn function(
     // values in the
     if rest_arg_generic_inner_type {
         let mut conversion_functions = conversion_functions.collect::<Vec<_>>();
-        let arg_enumerate = arg_enumerate.clone();
+        let arg_enumerate = arg_enumerate;
         let mut arg_index = arg_enumerate
-            .clone()
             .map(|(i, _)| quote! { #i })
             .collect::<Vec<_>>();
 
@@ -411,7 +410,7 @@ pub fn function(
             *last = quote! { from_slice };
         }
 
-        let function_name = sign.ident.clone();
+        let function_name = sign.ident;
 
         let output = quote! {
             // Not sure why, but it says this is unused even when generating functions

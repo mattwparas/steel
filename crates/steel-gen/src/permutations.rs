@@ -49,7 +49,7 @@ fn generate_permutations<T: Copy>(input: &[T]) -> Vec<Vec<Vec<T>>> {
         }
     }
 
-    return buffers;
+    buffers
 }
 
 #[derive(Copy, Clone)]
@@ -113,14 +113,14 @@ impl ValueKind {
     }
 }
 
-const FN: &'static str = "FN";
-const RET: &'static str = "RET";
+const FN: &str = "FN";
+const RET: &str = "RET";
 
 fn code_gen_permutation(values: &[ValueKind], id: usize, row: usize) -> String {
     // RegisterFn<FN, MarkerWrapper8<(SELF, AREA, CTX)>, RET>
     let mut trait_to_impl_type = codegen::Type::new("RegisterFn");
     trait_to_impl_type.generic(FN);
-    let mut wrapper = codegen::Type::new(format!("Marker{}{}", row, id));
+    let mut wrapper = codegen::Type::new(format!("Marker{row}{id}"));
     wrapper.generic(ValueKind::format_array_to_tuple(values));
     trait_to_impl_type.generic(wrapper);
     trait_to_impl_type.generic(RET);
@@ -175,25 +175,19 @@ fn code_gen_permutation(values: &[ValueKind], id: usize, row: usize) -> String {
         match value {
             ValueKind::Value => {
                 function_def.line(format!(
-                    "let mut v{} = <T{}>::from_steelval(&args[{}])?;",
-                    i, i, i
+                    "let mut v{i} = <T{i}>::from_steelval(&args[{i}])?;"
                 ));
             }
             ValueKind::Reference => {
                 function_def.line(format!(
-                    "let mut nursery{} = <T{} as AsRefSteelVal>::Nursery::default();",
-                    i, i
+                    "let mut nursery{i} = <T{i} as AsRefSteelVal>::Nursery::default();"
                 ));
                 function_def.line(format!(
-                    "let mut v{} = <T{}>::as_ref(&args[{}], &mut nursery{})?;",
-                    i, i, i, i
+                    "let mut v{i} = <T{i}>::as_ref(&args[{i}], &mut nursery{i})?;"
                 ));
             }
             ValueKind::MutReference => {
-                function_def.line(format!(
-                    "let mut v{} = <T{}>::as_mut_ref(&args[{}])?;",
-                    i, i, i
-                ));
+                function_def.line(format!("let mut v{i} = <T{i}>::as_mut_ref(&args[{i}])?;"));
             }
         }
     }
@@ -209,7 +203,7 @@ fn code_gen_permutation(values: &[ValueKind], id: usize, row: usize) -> String {
                 var.push_str(modifier);
             }
 
-            var.push_str(&format!(" v{},", i));
+            var.push_str(&format!(" v{i},"));
 
             function_def.line(var);
         }
@@ -239,7 +233,7 @@ fn code_gen_permutation(values: &[ValueKind], id: usize, row: usize) -> String {
 
     let mut scope = codegen::Scope::new();
 
-    let mut marker = scope.new_struct(&format!("Marker{}{}", row, id));
+    let mut marker = scope.new_struct(&format!("Marker{row}{id}"));
 
     marker.generic("ARGS");
     marker.tuple_field("PhantomData<ARGS>");
@@ -266,7 +260,7 @@ pub fn code_gen() -> String {
         }
     }
 
-    return out.join("\n");
+    out.join("\n")
 }
 
 #[test]

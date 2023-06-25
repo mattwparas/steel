@@ -350,8 +350,8 @@ pub fn threading_module() -> BuiltInModule {
                 let value = receiver.try_recv();
 
                 match value {
-                    Ok(v) => return Ok(Some(crate::rvals::from_serializable_value(v))),
-                    Err(std::sync::mpsc::TryRecvError::Empty) => return Ok(None),
+                    Ok(v) => Ok(Some(crate::rvals::from_serializable_value(v))),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => Ok(None),
                     Err(e) => Err(SteelErr::new(ErrorKind::Generic, e.to_string())),
                 }
             },

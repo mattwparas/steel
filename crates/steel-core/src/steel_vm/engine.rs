@@ -17,6 +17,7 @@ use crate::{
     containers::RegisterValue,
     gc::unsafe_erased_pointers::{
         BorrowedObject, CustomReference, OpaqueReferenceNursery, ReadOnlyBorrowedObject,
+        ReferenceMarker,
     },
     parser::{
         ast::ExprKind,
@@ -107,15 +108,28 @@ pub struct LifetimeGuard<'a> {
 
 impl<'a> Drop for LifetimeGuard<'a> {
     fn drop(&mut self) {
+        println!("Freeing nursery!");
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::free_all();
     }
 }
 
 impl<'a> LifetimeGuard<'a> {
-    pub fn with_immutable_reference<T: CustomReference + 'a, EXT: CustomReference + 'static>(
+    pub fn with_immutable_reference<
+        'b: 'a,
+        T: CustomReference + 'b,
+        EXT: CustomReference + 'static,
+    >(
         self,
         obj: &'a T,
-    ) -> Self {
+    ) -> Self
+    where
+        T: ReferenceMarker<'b, Static = EXT>,
+    {
+        assert_eq!(
+            crate::gc::unsafe_erased_pointers::type_id::<T>(),
+            std::any::TypeId::of::<EXT>()
+        );
+
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_ro_object::<T, EXT>(
             obj,
         );
@@ -123,10 +137,17 @@ impl<'a> LifetimeGuard<'a> {
         self
     }
 
-    pub fn with_mut_reference<T: CustomReference + 'a, EXT: CustomReference + 'static>(
+    pub fn with_mut_reference<'b: 'a, T: CustomReference + 'b, EXT: CustomReference + 'static>(
         self,
         obj: &'a mut T,
-    ) -> Self {
+    ) -> Self
+    where
+        T: ReferenceMarker<'b, Static = EXT>,
+    {
+        assert_eq!(
+            crate::gc::unsafe_erased_pointers::type_id::<T>(),
+            std::any::TypeId::of::<EXT>()
+        );
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_rw_object::<T, EXT>(
             obj,
         );
@@ -136,7 +157,7 @@ impl<'a> LifetimeGuard<'a> {
 
     pub fn consume<T>(self, mut thunk: impl FnMut(&mut Engine, Vec<SteelVal>) -> T) -> T {
         let values =
-            crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::drain_to_steelvals();
+            crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::drain_weak_references_to_steelvals();
 
         thunk(self.engine, values)
     }
@@ -582,10 +603,23 @@ impl Engine {
         self.compile_and_run_raw_program(input)
     }
 
-    pub fn with_immutable_reference<'a, T: CustomReference + 'a, EXT: CustomReference + 'static>(
+    pub fn with_immutable_reference<
+        'a,
+        'b: 'a,
+        T: CustomReference + 'b,
+        EXT: CustomReference + 'static,
+    >(
         &'a mut self,
         obj: &'a T,
-    ) -> LifetimeGuard<'a> {
+    ) -> LifetimeGuard<'a>
+    where
+        T: ReferenceMarker<'b, Static = EXT>,
+    {
+        assert_eq!(
+            crate::gc::unsafe_erased_pointers::type_id::<T>(),
+            std::any::TypeId::of::<EXT>()
+        );
+
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_ro_object::<T, EXT>(
             obj,
         );
@@ -593,10 +627,18 @@ impl Engine {
         LifetimeGuard { engine: self }
     }
 
-    pub fn with_mut_reference<'a, T: CustomReference + 'a, EXT: CustomReference + 'static>(
+    pub fn with_mut_reference<'a, 'b: 'a, T: CustomReference + 'b, EXT: CustomReference + 'static>(
         &'a mut self,
         obj: &'a mut T,
-    ) -> LifetimeGuard<'a> {
+    ) -> LifetimeGuard<'a>
+    where
+        T: ReferenceMarker<'b, Static = EXT>,
+    {
+        assert_eq!(
+            crate::gc::unsafe_erased_pointers::type_id::<T>(),
+            std::any::TypeId::of::<EXT>()
+        );
+
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_rw_object::<T, EXT>(
             obj,
         );
@@ -605,92 +647,26 @@ impl Engine {
     }
 
     // Tie the lifetime of this object to the scope of this execution
-    pub fn run_with_reference<
-        'a,
-        'b: 'a,
-        T: CustomReference + 'b,
-        EXT: CustomReference + 'static,
-    >(
+    pub fn run_with_reference<'a, 'b: 'a, T: CustomReference + 'b, EXT: CustomReference + 'static>(
         &'a mut self,
         obj: &'a mut T,
         bind_to: &'a str,
         script: &'a str,
-    ) -> Result<SteelVal> {
-        // todo!()
+    ) -> Result<SteelVal>
+    where
+        T: ReferenceMarker<'b, Static = EXT>,
+    {
+        self.with_mut_reference(obj).consume(|engine, args| {
+            let mut args = args.into_iter();
 
-        crate::gc::unsafe_erased_pointers::MutableReferenceNursery::new().retain_reference(
-            obj,
-            |wrapped| {
-                // todo!();
+            engine.register_value(bind_to, args.next().unwrap());
 
-                let mut scope = ();
+            let res = engine.compile_and_run_raw_program(script);
 
-                // Allocate the token to tie all references to this lifetime
-                let _token = OpaqueReferenceNursery::tie_lifetime(&mut scope);
+            engine.register_value(bind_to, SteelVal::Void);
 
-                let extended = unsafe {
-                    std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(wrapped)
-                };
-
-                self.register_value(
-                    bind_to,
-                    SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>())),
-                );
-
-                let res = self.compile_and_run_raw_program(script);
-
-                // Wipe out the value from existence at all
-                self.register_value(bind_to, SteelVal::Void);
-
-                res.map(|x| x.into_iter().next().unwrap())
-            },
-        )
-    }
-
-    pub fn run_with_references<
-        'a,
-        'b: 'a,
-        T: CustomReference + 'b,
-        EXT: CustomReference + 'static,
-        T2: CustomReference + 'b,
-        EXT2: CustomReference + 'static,
-    >(
-        &'a mut self,
-        obj: &'a mut T,
-        obj2: &'a mut T2,
-        mut thunk: impl FnMut(&mut Engine, SteelVal, SteelVal) -> Result<SteelVal>,
-    ) -> Result<SteelVal> {
-        crate::gc::unsafe_erased_pointers::MutableReferenceArena::new().retain_reference(
-            obj,
-            obj2,
-            |wrapped1, wrapped2| {
-                // todo!();
-
-                let mut scope = ();
-                let mut scope2 = ();
-
-                // Allocate the token to tie all references to this lifetime
-                let _token = OpaqueReferenceNursery::tie_lifetime(&mut scope);
-                let _token2 = OpaqueReferenceNursery::tie_lifetime(&mut scope2);
-
-                let extended = unsafe {
-                    std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(wrapped1)
-                };
-
-                let extended2 = unsafe {
-                    std::mem::transmute::<BorrowedObject<T2>, BorrowedObject<EXT2>>(wrapped2)
-                };
-
-                let steelval1 =
-                    SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
-                let steelval2 =
-                    SteelVal::Reference(Box::new(extended2.into_opaque_reference::<'static>()));
-
-                let res = thunk(self, steelval1, steelval2);
-
-                res
-            },
-        )
+            res.map(|x| x.into_iter().next().unwrap())
+        })
     }
 
     pub fn run_thunk_with_reference<
@@ -702,33 +678,15 @@ impl Engine {
         &'a mut self,
         obj: &'a mut T,
         mut thunk: impl FnMut(&mut Engine, SteelVal) -> Result<SteelVal>,
-    ) -> Result<SteelVal> {
-        crate::gc::unsafe_erased_pointers::MutableReferenceNursery::new().retain_reference(
-            obj,
-            |wrapped1| {
-                // todo!();
+    ) -> Result<SteelVal>
+    where
+        T: ReferenceMarker<'b, Static = EXT>,
+    {
+        self.with_mut_reference(obj).consume(|engine, args| {
+            let mut args = args.into_iter();
 
-                let mut scope = ();
-
-                // Allocate the token to tie all references to this lifetime
-                let _token = OpaqueReferenceNursery::tie_lifetime(&mut scope);
-
-                let extended = unsafe {
-                    std::mem::transmute::<BorrowedObject<T>, BorrowedObject<EXT>>(wrapped1)
-                };
-
-                let steelval1 =
-                    SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
-
-                let res = thunk(self, steelval1);
-
-                // Wipe out the value from existence at all
-                // self.register_value(bind_to, SteelVal::Void);
-                // self.register_value(bind_to2, SteelVal::Void);
-
-                res
-            },
-        )
+            thunk(engine, args.into_iter().next().unwrap())
+        })
     }
 
     pub fn run_thunk_with_ro_reference<
@@ -740,31 +698,15 @@ impl Engine {
         &'a mut self,
         obj: &'a T,
         mut thunk: impl FnMut(&mut Engine, SteelVal) -> Result<SteelVal>,
-    ) -> Result<SteelVal> {
-        crate::gc::unsafe_erased_pointers::MutableReferenceNursery::new().retain_readonly_reference(
-            obj,
-            |wrapped1| {
-                // todo!();
+    ) -> Result<SteelVal>
+    where
+        T: ReferenceMarker<'b, Static = EXT>,
+    {
+        self.with_immutable_reference(obj).consume(|engine, args| {
+            let mut args = args.into_iter();
 
-                let mut scope = ();
-
-                // Allocate the token to tie all references to this lifetime
-                let _token = OpaqueReferenceNursery::tie_lifetime(&mut scope);
-
-                let extended = unsafe {
-                    std::mem::transmute::<ReadOnlyBorrowedObject<T>, ReadOnlyBorrowedObject<EXT>>(
-                        wrapped1,
-                    )
-                };
-
-                let steelval1 =
-                    SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
-
-                let res = thunk(self, steelval1);
-
-                res
-            },
-        )
+            thunk(engine, args.into_iter().next().unwrap())
+        })
     }
 
     /// Instantiates a new engine instance with all the primitive functions enabled.
@@ -1590,4 +1532,101 @@ pub(crate) fn raise_error_to_string(sources: &Sources, error: SteelErr) -> Optio
     // println!("Unable to locate source and span information for this error: {error}");
 
     None
+}
+
+#[cfg(test)]
+mod engine_api_tests {
+    use crate::custom_reference;
+
+    use super::*;
+
+    struct ReferenceStruct {
+        value: usize,
+    }
+
+    impl ReferenceStruct {
+        pub fn get_value(&mut self) -> usize {
+            self.value
+        }
+
+        pub fn get_value_immutable(&self) -> usize {
+            self.value
+        }
+    }
+
+    impl CustomReference for ReferenceStruct {}
+    custom_reference!(ReferenceStruct);
+
+    #[test]
+    fn test_references_in_engine() {
+        let mut engine = Engine::new();
+        let mut external_object = ReferenceStruct { value: 10 };
+
+        engine.register_fn("external-get-value", ReferenceStruct::get_value);
+
+        {
+            let res = engine
+                .run_with_reference::<ReferenceStruct, ReferenceStruct>(
+                    &mut external_object,
+                    "*external*",
+                    "(external-get-value *external*)",
+                )
+                .unwrap();
+
+            assert_eq!(res, SteelVal::IntV(10));
+        }
+    }
+
+    #[test]
+    fn test_references_in_engine_get_removed_after_lifetime() {
+        let mut engine = Engine::new();
+        let mut external_object = ReferenceStruct { value: 10 };
+
+        engine.register_fn("external-get-value", ReferenceStruct::get_value);
+
+        let res = engine
+            .run_with_reference::<ReferenceStruct, ReferenceStruct>(
+                &mut external_object,
+                "*external*",
+                "(external-get-value *external*)",
+            )
+            .unwrap();
+
+        assert_eq!(res, SteelVal::IntV(10));
+
+        // Afterwards, the value should be gone
+        assert_eq!(engine.extract_value("*external*").unwrap(), SteelVal::Void);
+    }
+
+    #[test]
+    fn test_immutable_references_in_engine_get_removed_after_lifetime() {
+        let mut engine = Engine::new();
+        let external_object = ReferenceStruct { value: 10 };
+
+        engine.register_fn("external-get-value", ReferenceStruct::get_value);
+
+        engine.register_fn(
+            "external-get-value-imm",
+            ReferenceStruct::get_value_immutable,
+        );
+
+        let res = engine
+            .run_thunk_with_ro_reference::<ReferenceStruct, ReferenceStruct>(
+                &external_object,
+                |mut engine, value| {
+                    engine.register_value("*external*", value);
+                    engine
+                        .compile_and_run_raw_program("(external-get-value-imm *external*)")
+                        .map(|x| x.into_iter().next().unwrap())
+                },
+            )
+            .unwrap();
+
+        assert_eq!(res, SteelVal::IntV(10));
+
+        // This absolutely has to fail, otherwise we're in trouble.
+        assert!(engine
+            .compile_and_run_raw_program("(external-get-value-imm *external*)")
+            .is_err());
+    }
 }

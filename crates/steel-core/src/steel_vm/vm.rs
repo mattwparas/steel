@@ -462,7 +462,7 @@ impl SteelThread {
                     // Drop the pop count along with everything else we're doing
                     vm_instance.pop_count -= 1;
 
-                    if let Some(handler) = last.handler.clone() {
+                    if let Some(handler) = last.handler {
                         // Drop the stack BACK to where it was on this level
                         vm_instance.thread.stack.truncate(last.sp);
 

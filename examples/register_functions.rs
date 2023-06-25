@@ -65,7 +65,7 @@ pub fn main() {
     assert_eq!("applesauce".to_string(), bar);
 
     let baz: Result<String, String> = vm.extract("baz").unwrap();
-    println!("baz: {:?}", baz);
+    println!("baz: {baz:?}");
     assert_eq!("bananas".to_string(), baz.unwrap());
 
     // let res: SteelVal = vm.extract("res").unwrap();

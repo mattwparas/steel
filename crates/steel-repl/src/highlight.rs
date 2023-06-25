@@ -124,7 +124,7 @@ impl Highlighter for RustylineHelper {
                 }
                 TokenType::Identifier(ident) => {
                     // If its a free identifier, nix it?
-                    if self.engine.borrow().global_exists(&ident) {
+                    if self.engine.borrow().global_exists(ident) {
                         // println!("before length: {}", token.source().as_bytes().len());
                         let highlighted = format!("{}", token.source().bright_blue());
                         // println!("After length: {}", highlighted.as_bytes().len());
