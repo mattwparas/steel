@@ -1225,7 +1225,12 @@ impl SteelVal {
     pub fn is_function(&self) -> bool {
         matches!(
             self,
-            BoxedFunction(_) | Closure(_) | FuncV(_) | ContractedFunction(_) | BuiltIn(_)
+            BoxedFunction(_)
+                | Closure(_)
+                | FuncV(_)
+                | ContractedFunction(_)
+                | BuiltIn(_)
+                | MutFunc(_)
         )
     }
 

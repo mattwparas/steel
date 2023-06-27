@@ -233,6 +233,7 @@ Note: In steel, there are only proper lists. Pairs do not exist directly. "#,
     examples: &[("> (cons 1 2)", "'(1 2)"), ("> (cons 1 '())", "'(1)")],
 };
 
+// Do away with improper lists?
 fn cons(args: &mut [SteelVal]) -> Result<SteelVal> {
     if args.len() != 2 {
         stop!(ArityMismatch => "cons takes only two arguments")
@@ -469,13 +470,24 @@ pub(crate) const APPEND_DOC: DocTemplate<'static> = DocTemplate {
 };
 
 fn append(args: &mut [SteelVal]) -> Result<SteelVal> {
-    arity_check!(append, args, 2);
+    if let Some((first, rest)) = args.split_first_mut() {
+        let initial = if let SteelVal::ListV(ref mut l) = first {
+            l
+        } else {
+            stop!(TypeMismatch => "append expects a list, found: {}", &args[0]);
+        };
 
-    if let (SteelVal::ListV(r), SteelVal::ListV(l)) = (args[1].clone(), &mut args[0]) {
-        l.append_mut(r);
-        Ok(SteelVal::ListV(l.clone()))
+        for value in rest {
+            if let SteelVal::ListV(r) = value {
+                initial.append_mut(r.clone());
+            } else {
+                stop!(TypeMismatch => "append expects a list, found: {}", value);
+            }
+        }
+
+        return Ok(SteelVal::ListV(initial.clone()));
     } else {
-        stop!(TypeMismatch => "append expects two lists, found: {:?} and {:?}", &args[0], &args[1]);
+        return Ok(SteelVal::ListV(List::new()));
     }
 }
 

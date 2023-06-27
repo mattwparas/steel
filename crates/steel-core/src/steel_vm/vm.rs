@@ -3930,10 +3930,26 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
                     None
                     // ctx.stack.push(continuation);
                 }
+                // TODO: Reuse the allocation for apply
                 SteelVal::FuncV(f) => {
                     let args = l.into_iter().cloned().collect::<Vec<_>>();
 
                     let result = f(&args).map_err(|e| e.set_span_if_none(ctx.current_span()));
+
+                    Some(result)
+                }
+                SteelVal::MutFunc(f) => {
+                    let mut args = l.into_iter().cloned().collect::<Vec<_>>();
+
+                    let result = f(&mut args).map_err(|e| e.set_span_if_none(ctx.current_span()));
+
+                    Some(result)
+                }
+                SteelVal::BoxedFunction(f) => {
+                    let mut args = l.into_iter().cloned().collect::<Vec<_>>();
+
+                    let result =
+                        f.func()(&args).map_err(|e| e.set_span_if_none(ctx.current_span()));
 
                     Some(result)
                 }

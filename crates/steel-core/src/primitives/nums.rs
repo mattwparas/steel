@@ -1,4 +1,6 @@
-use crate::rvals::{Result, SteelVal};
+use num::ToPrimitive;
+
+use crate::rvals::{as_underlying_type, Custom, IntoSteelVal, Result, SteelVal};
 use crate::stop;
 
 pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
@@ -315,7 +317,8 @@ impl NumOperations {
     }
 
     pub fn adder() -> SteelVal {
-        SteelVal::FuncV(add_primitive_faster)
+        // SteelVal::FuncV(add_primitive_faster)
+        SteelVal::FuncV(special_add)
     }
 
     pub fn multiply() -> SteelVal {
@@ -330,6 +333,68 @@ impl NumOperations {
 
     pub fn subtract() -> SteelVal {
         SteelVal::FuncV(subtract_primitive)
+    }
+}
+
+// Lets try big ints first
+impl Custom for num::BigInt {}
+impl Custom for num::BigRational {}
+
+pub fn special_add(args: &[SteelVal]) -> Result<SteelVal> {
+    let mut sum_int = 0;
+    let mut sum_float = 0.0;
+    let mut found_float = false;
+
+    // Hoping this does not allocate
+    let mut big_int_sum = num::BigInt::default();
+    let mut found_big_int = false;
+
+    for arg in args {
+        match arg {
+            SteelVal::IntV(n) => {
+                sum_int += n;
+
+                if let Some(right_side) = sum_int.checked_add(*n) {
+                    sum_int = right_side;
+                } else {
+                    // If we overflowed, just promote to big int
+                    big_int_sum += *n;
+                }
+            }
+            SteelVal::NumV(n) => {
+                sum_float += n;
+                found_float = true;
+            }
+            // We've promoted to heap allocated numbers
+            SteelVal::Custom(c) => {
+                let guard = c.borrow();
+
+                if let Some(value) = as_underlying_type::<num::BigInt>(guard.as_ref()) {
+                    big_int_sum += value;
+                    found_big_int = true;
+                } else if let Some(_) = as_underlying_type::<num::BigRational>(guard.as_ref()) {
+                    todo!("Internal error: rationals are not yet supported");
+                } else {
+                    stop!(TypeMismatch => "+ expected a number, found: {:?}", arg);
+                }
+            }
+            _ => {
+                crate::steel_vm::vm::cold();
+                let e = format!("+ expected a number, found {arg:?}");
+                stop!(TypeMismatch => e);
+            }
+        }
+    }
+
+    if found_float {
+        Ok(SteelVal::NumV(
+            sum_float + sum_int as f64 + big_int_sum.to_f64().unwrap(),
+        ))
+    } else if found_big_int {
+        big_int_sum += sum_int;
+        big_int_sum.into_steelval()
+    } else {
+        Ok(SteelVal::IntV(sum_int))
     }
 }
 
