@@ -3913,13 +3913,17 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
             match arg1 {
                 SteelVal::Closure(closure) => {
                     for arg in l {
-                        // println!("Arg: {:?}", arg);
                         ctx.thread.stack.push(arg.clone());
                     }
 
                     // TODO: Fix this unwrap
-                    ctx.handle_function_call_closure(closure.clone(), l.len())
-                        .unwrap();
+                    let res = ctx.handle_function_call_closure(closure.clone(), l.len());
+
+                    if res.is_err() {
+                        // This is explicitly unreachable, since we're checking
+                        // that this is an error variant
+                        return Some(res.map(|_| unreachable!()));
+                    }
 
                     None
                 }
@@ -3978,9 +3982,12 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
                         })
                     });
 
+                    // TODO: Check if this is right - I think we really just want to return the value?
                     if let Some(result) = result {
-                        // TODO: unwrap here
-                        ctx.thread.stack.push(result.unwrap());
+                        match result {
+                            Ok(value) => ctx.thread.stack.push(value),
+                            e @ Err(_) => return Some(e),
+                        }
                     }
 
                     // ctx.ip += 1;

@@ -121,6 +121,10 @@ impl BuiltInModule {
         }
     }
 
+    pub fn documentation(&self) -> &InternalDocumentation {
+        &self.docs
+    }
+
     pub fn set_name(&mut self, name: String) {
         self.name = name.into();
     }
@@ -246,6 +250,8 @@ impl BuiltInModule {
         self
     }
 
+    // pub fn docs(&self) ->
+
     pub fn get_doc(&self, definition: String) {
         if let Some(value) = self.docs.get(&definition) {
             println!("{value}")
@@ -363,6 +369,10 @@ impl InternalDocumentation {
 
     pub fn get(&self, definition: &str) -> Option<&Documentation<'static>> {
         self.definitions.get(definition)
+    }
+
+    pub fn definitions(&self) -> &im_rc::HashMap<Cow<'static, str>, Documentation<'static>> {
+        &self.definitions
     }
 }
 

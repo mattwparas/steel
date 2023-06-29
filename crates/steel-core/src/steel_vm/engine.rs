@@ -46,7 +46,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Default)]
 pub struct ModuleContainer {
     modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
-    // external_modules: ImmutableHashMap<Rc<str>, ExternalModule>,
 }
 
 impl ModuleContainer {
@@ -57,6 +56,10 @@ impl ModuleContainer {
     pub fn get(&mut self, key: &str) -> Option<BuiltInModule> {
         self.modules.get(key).cloned()
     }
+
+    pub fn inner(&self) -> &ImmutableHashMap<Rc<str>, BuiltInModule> {
+        &self.modules
+    }
 }
 
 #[derive(Clone)]
@@ -64,8 +67,6 @@ pub struct Engine {
     virtual_machine: SteelThread,
     compiler: Compiler,
     constants: Option<ImmutableHashMap<InternedString, SteelVal>>,
-    // modules: ImmutableHashMap<Rc<str>, Rc<BuiltInModule>>,
-    // external_modules: ImmutableHashMap<Rc<str>, *mut BuiltInModule>,
     modules: ModuleContainer,
     sources: Sources,
     dylibs: DylibContainers,
@@ -108,7 +109,6 @@ pub struct LifetimeGuard<'a> {
 
 impl<'a> Drop for LifetimeGuard<'a> {
     fn drop(&mut self) {
-        println!("Freeing nursery!");
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::free_all();
     }
 }
@@ -234,6 +234,10 @@ impl Engine {
         }
 
         log::info!("Successfully loaded modules!");
+    }
+
+    pub fn builtin_modules(&self) -> &ModuleContainer {
+        &self.modules
     }
 
     /// Function to access a kernel level execution environment

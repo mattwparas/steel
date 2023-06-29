@@ -339,6 +339,7 @@ pub fn register_builtin_modules(engine: &mut Engine) {
     engine.register_fn("##__module-get", BuiltInModule::get);
     engine.register_fn("%module-get%", BuiltInModule::get);
     engine.register_fn("%doc?", BuiltInModule::get_doc);
+    // engine.register_fn("%module-docs", BuiltInModule::docs);
     engine.register_value("%list-modules!", SteelVal::BuiltIn(list_modules));
     engine.register_fn("%module/lookup-function", BuiltInModule::search);
     engine.register_fn("%string->render-markdown", render_as_md);

@@ -1706,6 +1706,7 @@ dependencies = [
  "autocfg",
  "num-integer",
  "num-traits",
+ "serde",
 ]
 
 [[package]]
@@ -2724,6 +2725,7 @@ name = "steel-parser"
 version = "0.2.0"
 dependencies = [
  "logos",
+ "num-bigint",
  "serde",
  "serde_derive",
 ]
