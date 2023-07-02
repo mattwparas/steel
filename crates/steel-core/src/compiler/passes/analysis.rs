@@ -1718,7 +1718,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             // Otherwise, we've hit a free variable at this point
             self.info.insert(&a.syn, semantic_info);
 
-            log::warn!("Found free var: {}", a);
+            // log::warn!("Found free var: {}", a);
         }
     }
 }

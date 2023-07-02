@@ -35,6 +35,8 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(STRING_TO_SYMBOL_DEFINITION)
         .register_native_fn_definition(STARTS_WITH_DEFINITION)
         .register_native_fn_definition(ENDS_WITH_DEFINITION)
+        .register_native_fn_definition(TRIM_END_MATCHES_DEFINITION)
+        .register_native_fn_definition(TRIM_START_MATCHES_DEFINITION)
         .register_fn("char-upcase", char_upcase);
     module
 }
@@ -198,6 +200,16 @@ pub fn trim_start(value: &SteelString) -> String {
 #[function(name = "trim-end")]
 pub fn trim_end(value: &SteelString) -> String {
     value.trim_end().into()
+}
+
+#[function(name = "trim-end-matches")]
+pub fn trim_end_matches(value: &SteelString, pat: &SteelString) -> String {
+    value.trim_end_matches(pat.as_str()).into()
+}
+
+#[function(name = "trim-start-matches")]
+pub fn trim_start_matches(value: &SteelString, pat: &SteelString) -> String {
+    value.trim_start_matches(pat.as_str()).into()
 }
 
 /// Returns a list of strings from the original string split on the whitespace
