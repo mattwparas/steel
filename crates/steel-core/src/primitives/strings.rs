@@ -23,7 +23,6 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(TO_STRING_DEFINITION)
         .register_native_fn_definition(STRING_TO_LIST_DEFINITION)
         .register_native_fn_definition(STRING_TO_UPPER_DEFINITION)
-        .register_native_fn_definition(STRING_TO_UPPER_DEFINITION)
         .register_native_fn_definition(STRING_TO_LOWER_DEFINITION)
         .register_native_fn_definition(STRING_LENGTH_DEFINITION)
         .register_native_fn_definition(TRIM_DEFINITION)
@@ -202,11 +201,33 @@ pub fn trim_end(value: &SteelString) -> String {
     value.trim_end().into()
 }
 
+/// Returns a new string with the given `pat` repeatedly removed from the end
+/// of the string
+///
+/// ```
+/// (trim-end-matches string? string?) -> string?
+/// ```
+///
+/// # Examples
+/// ```scheme
+/// > (trim-end-matches "123foo1bar123123" "123") ;; => "123foo1bar"
+/// ```
 #[function(name = "trim-end-matches")]
 pub fn trim_end_matches(value: &SteelString, pat: &SteelString) -> String {
     value.trim_end_matches(pat.as_str()).into()
 }
 
+/// Returns a new string with the given `pat` repeatedly removed from the start
+/// of the string
+///
+/// ```
+/// (trim-start-matches string? string?) -> string?
+/// ```
+///
+/// # Examples
+/// ```scheme
+/// > (trim-start-matches "123foo1bar123123" "123") ;; => "foo1bar123123"
+/// ```
 #[function(name = "trim-start-matches")]
 pub fn trim_start_matches(value: &SteelString, pat: &SteelString) -> String {
     value.trim_start_matches(pat.as_str()).into()
