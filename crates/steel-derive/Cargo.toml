@@ -3,9 +3,7 @@ name = "steel-derive"
 version = "0.2.0"
 authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
 edition = "2021"
-
 license = "MIT OR Apache-2.0"
-authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
 repository = "https://github.com/mattwparas/steel"
 description = "Derive macros for use within steel"
 
