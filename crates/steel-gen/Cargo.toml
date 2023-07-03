@@ -2,7 +2,7 @@
 name = "steel-gen"
 version = "0.2.0"
 edition = "2021"
-license = "MIT or Apache-2.0"
+license = "MIT OR Apache-2.0"
 authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
 repository = "https://github.com/mattwparas/steel"
 description = "Code generation crates for use within steel"
