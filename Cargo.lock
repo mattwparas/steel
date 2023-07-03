@@ -2626,23 +2626,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
 
 [[package]]
-name = "steel-cli"
-version = "0.2.0"
-dependencies = [
- "clap 4.1.4",
- "dlopen",
- "dlopen_derive",
- "env_logger",
- "log",
- "once_cell",
- "serde",
- "steel-core",
- "steel-derive",
- "steel-doc",
- "steel-repl",
-]
-
-[[package]]
 name = "steel-core"
 version = "0.2.0"
 dependencies = [
@@ -2718,6 +2701,23 @@ dependencies = [
  "itertools",
  "serde",
  "serde_derive",
+]
+
+[[package]]
+name = "steel-interpreter"
+version = "0.2.0"
+dependencies = [
+ "clap 4.1.4",
+ "dlopen",
+ "dlopen_derive",
+ "env_logger",
+ "log",
+ "once_cell",
+ "serde",
+ "steel-core",
+ "steel-derive",
+ "steel-doc",
+ "steel-repl",
 ]
 
 [[package]]
