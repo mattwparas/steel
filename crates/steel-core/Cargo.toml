@@ -3,6 +3,10 @@ name = "steel-core"
 version = "0.2.0"
 authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
 edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/mattwparas/steel"
+description = "Core compiler and VM implementation for steel"
+
 
 [lib]
 name = "steel"
@@ -72,6 +76,7 @@ env_logger = "0.10.0"
 steel-gen = { path = "../steel-gen", version = "0.2.0" }
 
 [features]
+default = ["modules"]
 # this effectively enable the feature `no-color` of colored when testing with
 # `cargo test --features colors_off`
 colors_off = ["colored/no-color"]

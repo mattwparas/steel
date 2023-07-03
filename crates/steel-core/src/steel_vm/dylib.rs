@@ -1,4 +1,4 @@
-#![allow(non_camel_case_types)]
+#![allow(non_camel_case_types, unused)]
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},

@@ -359,7 +359,7 @@ impl ModuleManager {
     #[cfg(not(feature = "modules"))]
     pub(crate) fn expand_expressions(
         &mut self,
-        global_macro_map: &mut HashMap<String, SteelMacro>,
+        global_macro_map: &mut HashMap<InternedString, SteelMacro>,
         exprs: Vec<ExprKind>,
     ) -> Result<Vec<ExprKind>> {
         let non_macro_expressions = extract_macro_defs(exprs, global_macro_map)?;
