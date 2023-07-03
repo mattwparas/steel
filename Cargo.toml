@@ -4,6 +4,8 @@ version = "0.2.0"
 authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/mattwparas/steel"
+description = "Steel repl and command line interface"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [[bin]]
@@ -40,5 +42,5 @@ members = [
 ]
 
 [profile.release]
-debug = true
+debug = false
 lto = true
