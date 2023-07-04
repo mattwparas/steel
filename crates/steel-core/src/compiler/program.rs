@@ -405,6 +405,7 @@ lazy_static::lazy_static! {
     pub static ref CONTRACT_OUT: InternedString = "contract/out".into();
     pub static ref PROVIDE: InternedString = "provide".into();
     pub static ref FOR_SYNTAX: InternedString = "for-syntax".into();
+    pub static ref PREFIX_IN: InternedString = "prefix-in".into();
     pub static ref DATUM_SYNTAX: InternedString = "datum->syntax".into();
     pub static ref IF: InternedString = "if".into();
     pub static ref DEFINE: InternedString = "define".into();

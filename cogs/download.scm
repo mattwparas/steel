@@ -14,12 +14,20 @@
 (define *COG_DIR* (path-from-steel-home "cogs"))
 (define *NATIVE_SOURCES_DIR* (path-from-steel-home "sources"))
 
+;; Most likely should use gix here instead of shelling out to git?
 ;; Use the sha to pin to a specific commit, if interested
 (define (git-clone package-name https-address installation-dir #:sha (*sha* void))
   (define resulting-path (string-append installation-dir "/" package-name))
   ;; Git clone command, run against specific directory. For now we're going to
   ;; naively install them all into the same spot.
   (~> (command "git" (list "clone" https-address resulting-path)) (spawn-process) (Ok->value) (wait))
+  ;; If we have a SHA, check out that commit
+  (when (not (void? *sha*))
+    (~> (command "git" (list "checkout" *sha*))
+        (in-directory resulting-path)
+        (spawn-process)
+        (Ok->value)
+        (wait)))
 
   resulting-path)
 
@@ -47,10 +55,16 @@
 ; (git-clone "im-lists" "https://github.com/mattwparas/im-lists.git" *NATIVE_SOURCES_DIR*)
 
 ;; Download and install the library!
-(define (download-and-install-library library-name git-url)
-  (~> (git-clone library-name git-url *NATIVE_SOURCES_DIR*)
-      (run-dylib-installation installation-directory)))
+; (define (download-and-install-library library-name git-url)
+;   (~> (git-clone library-name git-url *NATIVE_SOURCES_DIR*)
+;       (run-dylib-installation installation-directory)))
 
 ;; TODO: Publish steel in its currently form, extremely experimental.
 ;; Once steel is in a stable position, dylibs can reference the dependency by version
 ;; on crates.io
+
+;;
+(git-clone "helix-configuration"
+           "https://github.com/mattwparas/helix-config.git"
+           *COG_DIR*
+           #:sha "ae01ad7a3e7a48dad0ddbe8b812ab162aba31732")
