@@ -341,7 +341,7 @@ impl Custom for num::BigInt {}
 impl Custom for num::BigRational {}
 
 pub fn special_add(args: &[SteelVal]) -> Result<SteelVal> {
-    let mut sum_int = 0;
+    let mut sum_int: isize = 0;
     let mut sum_float = 0.0;
     let mut found_float = false;
 
@@ -352,7 +352,7 @@ pub fn special_add(args: &[SteelVal]) -> Result<SteelVal> {
     for arg in args {
         match arg {
             SteelVal::IntV(n) => {
-                sum_int += n;
+                // sum_int += n;
 
                 if let Some(right_side) = sum_int.checked_add(*n) {
                     sum_int = right_side;

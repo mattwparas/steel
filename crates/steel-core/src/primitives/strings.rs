@@ -204,7 +204,7 @@ pub fn trim_end(value: &SteelString) -> String {
 /// Returns a new string with the given `pat` repeatedly removed from the end
 /// of the string
 ///
-/// ```
+/// ```scheme
 /// (trim-end-matches string? string?) -> string?
 /// ```
 ///
@@ -220,7 +220,7 @@ pub fn trim_end_matches(value: &SteelString, pat: &SteelString) -> String {
 /// Returns a new string with the given `pat` repeatedly removed from the start
 /// of the string
 ///
-/// ```
+/// ```scheme
 /// (trim-start-matches string? string?) -> string?
 /// ```
 ///
