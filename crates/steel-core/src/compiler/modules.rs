@@ -1,3 +1,4 @@
+#![allow(unused)]
 use crate::{
     compiler::{passes::VisitorMutRefUnit, program::PROVIDE},
     expr_list,

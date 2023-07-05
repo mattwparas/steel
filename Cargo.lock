@@ -2627,7 +2627,7 @@ checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
 
 [[package]]
 name = "steel-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "abi_stable",
  "anyhow",
@@ -2688,7 +2688,7 @@ dependencies = [
 
 [[package]]
 name = "steel-doc"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "steel-core",
 ]
@@ -2705,7 +2705,7 @@ dependencies = [
 
 [[package]]
 name = "steel-interpreter"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "clap 4.1.4",
  "dlopen",
@@ -2732,7 +2732,7 @@ dependencies = [
 
 [[package]]
 name = "steel-repl"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "colored",
  "rustyline",
