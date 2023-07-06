@@ -27,7 +27,10 @@ use crate::{
     },
     rerrs::ErrorKind,
     rvals::FromSteelVal,
-    steel_vm::{builtin::Arity, vm::threads::threading_module},
+    steel_vm::{
+        builtin::{get_function_name, Arity},
+        vm::threads::threading_module,
+    },
     values::{
         closed::HeapRef,
         functions::{attach_contract_struct, get_contract},
@@ -797,6 +800,20 @@ fn arity(value: SteelVal) -> UnRecoverableResult {
             ))
             // .ok_or(steelerr!(TypeMismatch => "Unable to find the arity for the give function"))
             .into(),
+
+        // Lookup the function signature metadata, return the arity payload
+        SteelVal::FuncV(f) => {
+            let metadata = get_function_name(f);
+
+            metadata
+                .map(|x| x.arity)
+                .ok_or(SteelErr::new(
+                    ErrorKind::TypeMismatch,
+                    "Unable to find the arity for the given function".to_string(),
+                ))
+                .and_then(|x| x.into_steelval())
+                .into()
+        }
 
         // Ok(SteelVal::IntV(f.get_arity()))
         _ => steelerr!(TypeMismatch => "Unable to find the arity for the given function").into(),

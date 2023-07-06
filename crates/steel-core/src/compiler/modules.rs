@@ -33,7 +33,7 @@ use log::{debug, info, log_enabled};
 
 use super::{
     passes::mangle::{collect_globals, NameMangler, NameUnMangler},
-    program::{CONTRACT_OUT, FOR_SYNTAX, PREFIX_IN},
+    program::{CONTRACT_OUT, FOR_SYNTAX, ONLY_IN, PREFIX_IN},
 };
 
 const OPTION: &str = include_str!("../scheme/modules/option.scm");
@@ -163,10 +163,24 @@ impl ModuleManager {
             .map(|x| "mangler".to_string() + x.path.get_path().to_str().unwrap())
             .collect::<Vec<_>>();
 
+        let mut explicit_requires = HashSet::new();
+
         for require_object in &module_builder.require_objects
         // .chain(module_builder.built_ins.iter())
         {
             let path = require_object.path.get_path();
+            explicit_requires.clear();
+
+            // If there _are_ explicit identifiers to import, limit what we import to what
+            // is in the set
+            for ident in &require_object.idents_to_import {
+                match ident {
+                    MaybeRenamed::Normal(i) => {
+                        explicit_requires.insert(i.atom_identifier().unwrap());
+                    }
+                    MaybeRenamed::Renamed(_, _) => {}
+                }
+            }
 
             // println!("{:?}", path);
             let module = if let Some(module) = module_builder.compiled_modules.get(path.as_ref()) {
@@ -201,6 +215,15 @@ impl ModuleManager {
 
                                         let name = l.args.get(1).unwrap();
 
+                                        if !explicit_requires.is_empty()
+                                            && !name
+                                                .atom_identifier()
+                                                .map(|x| explicit_requires.contains(x))
+                                                .unwrap_or_default()
+                                        {
+                                            continue;
+                                        }
+
                                         // TODO: THe contract has to get mangled with the prefix as well?
                                         let contract = l.args.get(2).unwrap();
 
@@ -230,15 +253,15 @@ impl ModuleManager {
 
                                         let define = ExprKind::Define(Box::new(Define::new(
                                             owned_name,
-                                            expr_list![
-                                                ExprKind::ident("bind/c"),
-                                                contract.clone(),
-                                                hash_get,
-                                                ExprKind::Quote(Box::new(Quote::new(
-                                                    name.clone(),
-                                                    SyntaxObject::default(TokenType::Quote)
-                                                ))),
-                                            ],
+                                            // expr_list![
+                                            // ExprKind::ident("bind/c"),
+                                            // contract.clone(),
+                                            hash_get,
+                                            // ExprKind::Quote(Box::new(Quote::new(
+                                            // name.clone(),
+                                            // SyntaxObject::default(TokenType::Quote)
+                                            // ))),
+                                            // ],
                                             SyntaxObject::default(TokenType::Define),
                                         )));
 
@@ -253,6 +276,15 @@ impl ModuleManager {
                             }
                         }
                         ExprKind::Atom(_) => {
+                            if !explicit_requires.is_empty()
+                                && !provide
+                                    .atom_identifier()
+                                    .map(|x| explicit_requires.contains(x))
+                                    .unwrap_or_default()
+                            {
+                                continue;
+                            }
+
                             let hash_get = expr_list![
                                 ExprKind::ident("hash-get"),
                                 ExprKind::atom("__module-".to_string() + &other_module_prefix),
@@ -512,9 +544,22 @@ impl CompiledModule {
         // ;; Refresh the module definition in this namespace
         // (define a-module.rkt-b (hash-get 'b b-module.rkt-b))
 
+        let mut explicit_requires = HashSet::new();
+
         // TODO: This is the same as the top level, they should be merged
         for require_object in &self.require_objects {
             let path = require_object.path.get_path();
+
+            explicit_requires.clear();
+
+            for ident in &require_object.idents_to_import {
+                match ident {
+                    MaybeRenamed::Normal(i) => {
+                        explicit_requires.insert(i.atom_identifier().unwrap());
+                    }
+                    MaybeRenamed::Renamed(_, _) => {}
+                }
+            }
 
             // println!("{:?}", path);
             // println!("{:?}", modules.keys().collect::<Vec<_>>());
@@ -537,6 +582,14 @@ impl CompiledModule {
                                         let name = l.args.get(1).unwrap();
                                         let contract = l.args.get(2).unwrap();
 
+                                        if !explicit_requires.is_empty()
+                                            && !name
+                                                .atom_identifier()
+                                                .map(|x| explicit_requires.contains(x))
+                                                .unwrap_or_default()
+                                        {
+                                            continue;
+                                        }
                                         // Since this is now bound to be in the scope of the current working module, we also want
                                         // this to be mangled. In the event we do something like, qualify the import, then we might
                                         // have to mangle this differently
@@ -558,15 +611,15 @@ impl CompiledModule {
                                                 prefix.clone()
                                                     + name.atom_identifier().unwrap().resolve(),
                                             ),
-                                            expr_list![
-                                                ExprKind::ident("bind/c"),
-                                                contract.clone(),
-                                                hash_get,
-                                                ExprKind::Quote(Box::new(Quote::new(
-                                                    name.clone(),
-                                                    SyntaxObject::default(TokenType::Quote)
-                                                ))),
-                                            ],
+                                            // expr_list![
+                                            // ExprKind::ident("bind/c"),
+                                            // contract.clone(),
+                                            hash_get,
+                                            // ExprKind::Quote(Box::new(Quote::new(
+                                            // name.clone(),
+                                            // SyntaxObject::default(TokenType::Quote)
+                                            // ))),
+                                            // ],
                                             SyntaxObject::default(TokenType::Define),
                                         )));
 
@@ -581,6 +634,15 @@ impl CompiledModule {
                             }
                         }
                         ExprKind::Atom(_) => {
+                            if !explicit_requires.is_empty()
+                                && !provide
+                                    .atom_identifier()
+                                    .map(|x| explicit_requires.contains(x))
+                                    .unwrap_or_default()
+                            {
+                                continue;
+                            }
+
                             let provide_ident = provide.atom_identifier().unwrap();
 
                             // Since this is now bound to be in the scope of the current working module, we also want
@@ -789,7 +851,7 @@ impl CompiledModule {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum MaybeRenamed {
     Normal(ExprKind),
     Renamed(ExprKind, ExprKind),
@@ -1110,7 +1172,7 @@ impl<'a> ModuleBuilder<'a> {
 
     fn compile_module(&mut self) -> Result<ExprKind> {
         let mut ast = std::mem::take(&mut self.source_ast);
-        let provides = std::mem::take(&mut self.provides);
+        let mut provides = std::mem::take(&mut self.provides);
 
         // let mut ast = self.source_ast.clone();
         // let provides = self.provides.clone();
@@ -1158,13 +1220,17 @@ impl<'a> ModuleBuilder<'a> {
             })
             .collect::<Result<Vec<_>>>()?;
 
+        // Expand provides for any macros that exist within there
+        provides = provides
+            .into_iter()
+            .map(|x| {
+                expand(x, &self.macro_map).and_then(|x| {
+                    expand_kernel(x, self.kernel.as_mut(), self.builtin_modules.clone())
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
         let mut mangled_asts = Vec::new();
-        // let mangled_prefixes = self
-        //     .require_objects
-        //     .iter()
-        //     .filter(|x| !x.for_syntax)
-        //     .map(|x| "mangler".to_string() + x.path.get_path().to_str().unwrap())
-        //     .collect::<Vec<_>>();
 
         // Look for the modules in the requires for syntax
         for require_for_syntax in self
@@ -1182,6 +1248,24 @@ impl<'a> ModuleBuilder<'a> {
             // ast.pretty_print();
 
             ast = ast
+                .into_iter()
+                .map(|x| {
+                    // First expand the in scope macros
+                    // These are macros
+                    let mut expander = Expander::new(&in_scope_macros);
+                    let first_round_expanded = expander.expand(x)?;
+
+                    if expander.changed {
+                        expand(first_round_expanded, &module.macro_map)
+                    } else {
+                        Ok(first_round_expanded)
+                    }
+
+                    // expand(x, &module.macro_map)
+                })
+                .collect::<Result<_>>()?;
+
+            provides = provides
                 .into_iter()
                 .map(|x| {
                     // First expand the in scope macros
@@ -1429,6 +1513,46 @@ impl<'a> ModuleBuilder<'a> {
             // (with-prefix <xyz>)
             ExprKind::List(l) => {
                 match l.first_ident() {
+                    Some(x) if *x == *ONLY_IN => {
+                        if l.args.len() < 2 {
+                            stop!(BadSyntax => "only-in expects a require-spec and optionally a list of ids to bind (maybe renamed)");
+                        }
+
+                        self.parse_require_object_inner(home, r, &l.args[1], require_object)?;
+
+                        for remaining in &l.args[2..] {
+                            match remaining {
+                                ExprKind::Atom(_) => {
+                                    require_object
+                                        .idents_to_import
+                                        .push(MaybeRenamed::Normal(remaining.clone()));
+                                }
+                                ExprKind::List(l) => {
+                                    if l.len() != 2 {
+                                        stop!(BadSyntax => "Expected a pair when renaming required identifiers");
+                                    }
+
+                                    let from = &l.args[0];
+                                    let to = &l.args[1];
+
+                                    if from.atom_identifier().is_none()
+                                        || to.atom_identifier().is_none()
+                                    {
+                                        stop!(BadSyntax => "only-in expected identifiers to rename");
+                                    }
+
+                                    // (<from> <to>)
+                                    require_object
+                                        .idents_to_import
+                                        .push(MaybeRenamed::Renamed(from.clone(), to.clone()));
+                                }
+                                _ => {
+                                    stop!(BadSyntax => "unexpected syntax in only-in form during module requires")
+                                }
+                            }
+                        }
+                    }
+
                     Some(x) if *x == *PREFIX_IN => {
                         if l.args.len() != 3 {
                             stop!(BadSyntax => "prefix-in expects a prefix to prefix a given file or module"; r.location.span; r.location.source.clone());
@@ -1518,101 +1642,6 @@ impl<'a> ModuleBuilder<'a> {
                         let require_object = self.parse_require_object(&home, r, atom)?;
 
                         self.require_objects.push(require_object);
-
-                        // match atom {
-                        //     ExprKind::Atom(Atom {
-                        //         syn:
-                        //             SyntaxObject {
-                        //                 ty: TokenType::StringLiteral(s),
-                        //                 ..
-                        //             },
-                        //     }) => {
-                        //         // Try this?
-                        //         if let Some(lib) = BUILT_INS.iter().find(|x| x.0 == s.as_str()) {
-                        //             self.built_ins.push(PathBuf::from(lib.0));
-                        //             continue;
-                        //         }
-
-                        //         let mut current = self.name.clone();
-                        //         if current.is_file() {
-                        //             current.pop();
-                        //         }
-                        //         current.push(s);
-
-                        //         // // If the path exists on its own, we can continue
-                        //         // // But theres the case where we're searching for a module on the STEEL_PATH
-                        //         if !current.exists() {
-                        //             if let Some(mut home) = home.clone() {
-                        //                 home.push(s);
-                        //                 current = home;
-
-                        //                 log::info!("Searching STEEL_HOME for {:?}", current);
-                        //             } else {
-                        //                 stop!(Generic => format!("Module not found: {:?}", self.name))
-                        //             }
-                        //         }
-
-                        //         // Get the absolute path and store that
-                        //         // current = std::fs::canonicalize(&current)?;
-                        //         // let new_path = PathBuf::new()
-                        //         self.requires.push(current)
-                        //     }
-
-                        //     // TODO: Requires with qualifiers, that aren't just for-syntax
-                        //     // Perhaps like:
-                        //     // (with-prefix <xyz>)
-                        //     ExprKind::List(l) => {
-                        //         match l.first_ident() {
-                        //             Some(x) if *x == *PREFIX_IN => {
-                        //                 if l.args.len() != 2 {
-                        //                     stop!(BadSyntax => "prefix-in expects a prefix to prefix a given file or module"; r.location.span; r.location.source.clone());
-                        //                 }
-
-                        //                 todo!()
-                        //             }
-
-                        //             Some(x) if *x == *FOR_SYNTAX => {
-                        //                 // We're expecting something like (for-syntax "foo")
-                        //                 if l.args.len() != 2 {
-                        //                     stop!(BadSyntax => "for-syntax expects one string literal referring to a file or module"; r.location.span; r.location.source.clone());
-                        //                 }
-
-                        //                 if let Some(path) = l.args[1].string_literal() {
-                        //                     let mut current = self.name.clone();
-                        //                     if current.is_file() {
-                        //                         current.pop();
-                        //                     }
-                        //                     current.push(path);
-
-                        //                     if !current.exists() {
-                        //                         if let Some(mut home) = home.clone() {
-                        //                             home.push(path);
-                        //                             current = home;
-
-                        //                             log::info!(
-                        //                                 "Searching STEEL_HOME for {:?}",
-                        //                                 current
-                        //                             );
-                        //                         } else {
-                        //                             stop!(Generic => format!("Module not found: {:?}", self.name))
-                        //                         }
-                        //                     }
-
-                        //                     self.requires_for_syntax.push(current);
-                        //                 } else {
-                        //                     stop!(BadSyntax => "for-syntax expects a string literal referring to a file or module"; r.location.span; r.location.source.clone());
-                        //                 }
-                        //             }
-                        //             _ => {
-                        //                 stop!(BadSyntax => "require accepts either a string literal or a for-syntax expression"; r.location.span; r.location.source.clone())
-                        //             }
-                        //         }
-                        //     }
-
-                        //     _ => {
-                        //         stop!(Generic => "require expected a string literal referring to a file/module"; r.location.span; r.location.source.clone())
-                        //     }
-                        // }
                     }
                 }
                 _ => exprs_without_requires.push(expr),

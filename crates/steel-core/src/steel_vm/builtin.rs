@@ -66,6 +66,17 @@ pub enum Arity {
     Range(usize),
 }
 
+impl Custom for Arity {
+    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+        Some(Ok(match self {
+            Arity::Exact(a) => format!("(Arity::Exact {a})"),
+            Arity::AtLeast(a) => format!("(Arity::AtLeast {a})"),
+            Arity::AtMost(a) => format!("(Arity::AtMost {a})"),
+            Arity::Range(a) => format!("(Arity::Range {a})"),
+        }))
+    }
+}
+
 impl Custom for FunctionSignatureMetadata {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
         Some(Ok(format!(

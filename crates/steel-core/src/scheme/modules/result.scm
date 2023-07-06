@@ -1,4 +1,6 @@
 (require-builtin "steel/core/result")
+(require "steel/contracts/contract.scm"
+         (for-syntax "steel/contracts/contract.scm"))
 
 (provide Result?
          Ok
@@ -8,9 +10,9 @@
          Result/c
          ; (contract/out unwrap-ok (->/c Ok? any/c))
          unwrap-ok
-         (contract/out unwrap-err (->/c Err? any/c))
-         (contract/out map-ok (->/c Result? (->/c any/c any/c) Result?))
-         (contract/out map-err (->/c Result? (->/c any/c any/c) Result?))
+         (contract/out unwrap-err (->c Err? any/c))
+         (contract/out map-ok (->c Result? (->c any/c any/c) Result?))
+         (contract/out map-err (->c Result? (->c any/c any/c) Result?))
          unwrap-or)
 
 ; (struct Ok (value) #:transparent)

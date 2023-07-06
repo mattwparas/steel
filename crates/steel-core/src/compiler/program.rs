@@ -406,6 +406,7 @@ lazy_static::lazy_static! {
     pub static ref PROVIDE: InternedString = "provide".into();
     pub static ref FOR_SYNTAX: InternedString = "for-syntax".into();
     pub static ref PREFIX_IN: InternedString = "prefix-in".into();
+    pub static ref ONLY_IN: InternedString = "only-in".into();
     pub static ref DATUM_SYNTAX: InternedString = "datum->syntax".into();
     pub static ref IF: InternedString = "if".into();
     pub static ref DEFINE: InternedString = "define".into();
