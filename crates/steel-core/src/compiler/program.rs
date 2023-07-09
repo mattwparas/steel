@@ -403,6 +403,7 @@ lazy_static::lazy_static! {
     pub static ref UNREADABLE_MODULE_GET: InternedString = "##__module-get".into();
     pub static ref STANDARD_MODULE_GET: InternedString = "%module-get%".into();
     pub static ref CONTRACT_OUT: InternedString = "contract/out".into();
+    pub static ref REQUIRE_IDENT_SPEC: InternedString = "%require-ident-spec".into();
     pub static ref PROVIDE: InternedString = "provide".into();
     pub static ref FOR_SYNTAX: InternedString = "for-syntax".into();
     pub static ref PREFIX_IN: InternedString = "prefix-in".into();

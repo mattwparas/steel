@@ -1,6 +1,7 @@
 #![allow(unused)]
 
 use crate::values::functions::SerializedLambda;
+use crate::values::structs::UserDefinedStruct;
 use crate::values::{closed::Heap, contracts::ContractType};
 use crate::{
     compiler::constants::ConstantMap,
@@ -1131,6 +1132,7 @@ impl<'a> VmCore<'a> {
         // let mut cur_inst;
 
         if self.depth > 64 {
+            // TODO: Unwind the callstack? Patch over to the VM call stack rather than continue to do recursive calls?
             stop!(Generic => "stack overflow! The rust call stack is currently used for transducers, so we impose a hard recursion limit of 64"; self.current_span());
         }
 
@@ -2073,43 +2075,35 @@ impl<'a> VmCore<'a> {
     }
 
     fn enclosing_span(&self) -> Option<Span> {
-        // todo!("Fix me!")
-
-        if self.thread.stack_frames.len() > 2 {
+        if self.thread.stack_frames.len() > 1 {
             let back_two = self.thread.stack_frames.len() - 2;
 
+            if let [second, last] = &self.thread.stack_frames[self.thread.stack_frames.len() - 2..]
+            {
+                // todo!();
+
+                let id = second.function.id;
+                let spans = self.thread.function_interner.spans.get(&second.function.id);
+
+                spans
+                    .and_then(|x| {
+                        if last.ip > 2 {
+                            x.get(last.ip - 2)
+                        } else {
+                            None
+                        }
+                    })
+                    .copied()
+            } else {
+                todo!()
+            }
+        } else {
             self.thread
                 .stack_frames
-                .get(back_two)
-                .and_then(|frame| {
-                    self.thread
-                        .function_interner
-                        .spans
-                        .get(&frame.function.id)
-                        .and_then(|x| {
-                            if frame.ip > 0 {
-                                x.get(frame.ip - 1)
-                            } else {
-                                None
-                            }
-                        })
-                })
-                .or_else(|| self.root_spans.get(self.ip))
+                .last()
+                .and_then(|frame| self.root_spans.get(frame.ip - 2))
                 .copied()
-            // .unwrap_or_default()
-        } else {
-            None
         }
-
-        // self.thread.stack_frames
-
-        // self.thread.stack_frames.last().and_then(|x| {
-        //     if x.ip > 0 {
-        //         x.spans.get(x.ip - 1).copied()
-        //     } else {
-        //         None
-        //     }
-        // })
     }
 
     #[inline(always)]
@@ -2755,11 +2749,11 @@ impl<'a> VmCore<'a> {
             BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
             FuncV(f) => self.call_primitive_func(f, payload_size),
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
-            // FutureFunc(f) => self.call_future_func(f, payload_size),
             ContractedFunction(cf) => self.call_contracted_function_tail_call(&cf, payload_size),
             ContinuationFunction(cc) => self.call_continuation(&cc),
             Closure(closure) => self.new_handle_tail_call_closure(closure, payload_size),
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
+            CustomStruct(s) => self.call_custom_struct(&s.borrow(), payload_size),
             _ => {
                 // println!("{:?}", self.stack);
                 // println!("{:?}", self.stack_index);
@@ -2908,6 +2902,15 @@ impl<'a> VmCore<'a> {
 
         self.ip += 1;
         Ok(())
+    }
+
+    // TODO: Clean up function calls and create a nice calling convention API?
+    fn call_custom_struct(&mut self, s: &UserDefinedStruct, payload_size: usize) -> Result<()> {
+        if let Some(procedure) = s.maybe_proc() {
+            self.handle_global_function_call(procedure.clone(), payload_size)
+        } else {
+            stop!(Generic => "Attempted to call struct as a function - no procedure found!");
+        }
     }
 
     // #[inline(always)]
@@ -3232,6 +3235,13 @@ impl<'a> VmCore<'a> {
 
                 self.ip += 4;
             }
+            CustomStruct(s) => {
+                if let Some(proc) = s.borrow().maybe_proc() {
+                    return self.handle_lazy_function_call(proc.clone(), local, const_value);
+                } else {
+                    stop!(Generic => "attempted to call struct as function, but the struct does not have a function to call!")
+                }
+            }
             // BuiltIn(func) => {
             //     let args = [local, const_value];
             //     let result =
@@ -3500,6 +3510,7 @@ impl<'a> VmCore<'a> {
             // CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
             Contract(c) => self.call_contract(&c, payload_size)?,
             BuiltIn(f) => self.call_builtin_func(*f, payload_size)?,
+            // CustomStruct(s) => self.call_custom_struct_global(&s.borrow(), payload_size)?,
             _ => {
                 // Explicitly mark this as unlikely
                 cold();
@@ -3520,17 +3531,16 @@ impl<'a> VmCore<'a> {
         use SteelVal::*;
 
         match stack_func {
-            Closure(closure) => self.handle_function_call_closure_jit(closure, payload_size)?,
-            FuncV(f) => self.call_primitive_func(f, payload_size)?,
-            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size)?,
-            MutFunc(f) => self.call_primitive_mut_func(f, payload_size)?,
-            FutureFunc(f) => self.call_future_func(f, payload_size)?,
-            ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size)?,
-            ContinuationFunction(cc) => self.call_continuation(&cc)?,
-            // #[cfg(feature = "jit")]
-            // CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
-            Contract(c) => self.call_contract(&c, payload_size)?,
-            BuiltIn(f) => self.call_builtin_func(f, payload_size)?,
+            Closure(closure) => self.handle_function_call_closure_jit(closure, payload_size),
+            FuncV(f) => self.call_primitive_func(f, payload_size),
+            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
+            MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
+            FutureFunc(f) => self.call_future_func(f, payload_size),
+            ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size),
+            ContinuationFunction(cc) => self.call_continuation(&cc),
+            Contract(c) => self.call_contract(&c, payload_size),
+            BuiltIn(f) => self.call_builtin_func(f, payload_size),
+            CustomStruct(s) => self.call_custom_struct(&s.borrow(), payload_size),
             _ => {
                 // Explicitly mark this as unlikely
                 cold();
@@ -3539,7 +3549,6 @@ impl<'a> VmCore<'a> {
                 stop!(BadSyntax => "Function application not a procedure or function type not supported"; self.current_span());
             }
         }
-        Ok(())
     }
 
     #[inline(always)]
@@ -3632,24 +3641,24 @@ impl<'a> VmCore<'a> {
         use SteelVal::*;
 
         match stack_func {
-            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size)?,
-            FuncV(f) => self.call_primitive_func(f, payload_size)?,
-            FutureFunc(f) => self.call_future_func(f, payload_size)?,
-            MutFunc(f) => self.call_primitive_mut_func(f, payload_size)?,
-            ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size)?,
-            ContinuationFunction(cc) => self.call_continuation(&cc)?,
-            Closure(closure) => self.handle_function_call_closure(closure, payload_size)?,
+            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
+            FuncV(f) => self.call_primitive_func(f, payload_size),
+            FutureFunc(f) => self.call_future_func(f, payload_size),
+            MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
+            ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size),
+            ContinuationFunction(cc) => self.call_continuation(&cc),
+            Closure(closure) => self.handle_function_call_closure(closure, payload_size),
             // #[cfg(feature = "jit")]
             // CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
-            Contract(c) => self.call_contract(&c, payload_size)?,
-            BuiltIn(f) => self.call_builtin_func(f, payload_size)?,
+            Contract(c) => self.call_contract(&c, payload_size),
+            BuiltIn(f) => self.call_builtin_func(f, payload_size),
+            CustomStruct(s) => self.call_custom_struct(&s.borrow(), payload_size),
             _ => {
                 println!("{stack_func:?}");
                 println!("stack: {:?}", self.thread.stack);
                 stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {stack_func}"); self.current_span());
             }
         }
-        Ok(())
     }
 
     // #[inline(always)]
@@ -3995,6 +4004,10 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
                     None
                 }
 
+                // SteelVal::CustomStruct(s) => {
+                //     let args = l.into_iter().cloned().collect::<Vec<_>>();
+
+                // }
                 _ => {
                     builtin_stop!(Generic => format!("apply expects a function, found: {arg1}"));
                 }

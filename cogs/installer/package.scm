@@ -6,8 +6,8 @@
 ;; Storing versions in a manifest would be nice - a project has an associated manifest that pins versions.
 
 ;; Load in contracts for stress testing
-(require "contracts/contract.scm"
-         (for-syntax "contracts/contract.scm")
+(require "../contracts/contract.scm"
+         (for-syntax "../contracts/contract.scm")
          "steel/result")
 
 (define (append-with-separator path)
@@ -96,5 +96,3 @@
   (transduce cogs-to-install
              (flat-mapping parse-cog)
              (into-for-each (lambda (x) (check-install-package installed-cogs x)))))
-
-(main)

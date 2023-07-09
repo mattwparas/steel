@@ -34,7 +34,7 @@ use crate::{
     values::{
         closed::HeapRef,
         functions::{attach_contract_struct, get_contract},
-        structs::make_struct_type,
+        structs::{build_type_id_module, make_struct_type},
     },
 };
 use crate::{
@@ -69,16 +69,6 @@ macro_rules! ensure_tonicity_two {
 
         }
     }};
-}
-
-fn is_void() -> SteelVal {
-    SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-        Ok(if let Some(SteelVal::Void) = args.first() {
-            SteelVal::BoolV(true)
-        } else {
-            SteelVal::BoolV(false)
-        })
-    })
 }
 
 macro_rules! gen_pred {
@@ -250,6 +240,7 @@ thread_local! {
     pub static PROCESS_MODULE: BuiltInModule = process_module();
     pub static RANDOM_MODULE: BuiltInModule = random_module();
     pub static RESULT_MODULE: BuiltInModule = build_result_structs();
+    pub static TYPE_ID_MODULE: BuiltInModule = build_type_id_module();
     pub static OPTION_MODULE: BuiltInModule = build_option_structs();
     pub static PRELUDE_MODULE: BuiltInModule = prelude();
     pub static TIME_MODULE: BuiltInModule = time_module();
@@ -295,6 +286,7 @@ pub fn prelude() -> BuiltInModule {
         .with_module(PROCESS_MODULE.with(|x| x.clone()))
         .with_module(RESULT_MODULE.with(|x| x.clone()))
         .with_module(OPTION_MODULE.with(|x| x.clone()))
+        .with_module(TYPE_ID_MODULE.with(|x| x.clone()))
         .with_module(TIME_MODULE.with(|x| x.clone()))
         .with_module(THREADING_MODULE.with(|x| x.clone()))
 }
@@ -388,6 +380,7 @@ pub fn register_builtin_modules(engine: &mut Engine) {
         .register_module(PROCESS_MODULE.with(|x| x.clone()))
         .register_module(RESULT_MODULE.with(|x| x.clone()))
         .register_module(OPTION_MODULE.with(|x| x.clone()))
+        .register_module(TYPE_ID_MODULE.with(|x| x.clone()))
         .register_module(PRELUDE_MODULE.with(|x| x.clone()))
         .register_module(TIME_MODULE.with(|x| x.clone()))
         .register_module(STRING_COLORS_MODULE.with(|x| x.clone()))
@@ -430,6 +423,7 @@ pub static ALL_MODULES: &str = r#"
     (require-builtin steel/process)
     (require-builtin steel/core/result)
     (require-builtin steel/core/option)
+    (require-builtin steel/core/types)
     (require-builtin steel/threads)
 "#;
 
@@ -481,50 +475,121 @@ fn vector_module() -> BuiltInModule {
     module
 }
 
+#[steel_derive::function(name = "int?", constant = true)]
+fn intp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::BoolV(_))
+}
+
+#[steel_derive::function(name = "integer?", constant = true)]
+fn integerp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::BoolV(_))
+}
+
+#[steel_derive::function(name = "float?", constant = true)]
+fn floatp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::NumV(_))
+}
+
+#[steel_derive::function(name = "number?", constant = true)]
+fn numberp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::NumV(_) | SteelVal::IntV(_))
+}
+
+#[steel_derive::function(name = "string?", constant = true)]
+fn stringp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::StringV(_))
+}
+
+#[steel_derive::function(name = "list?", constant = true)]
+fn listp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::ListV(_))
+}
+
+#[steel_derive::function(name = "vector?", constant = true)]
+fn vectorp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::VectorV(_))
+}
+
+#[steel_derive::function(name = "symbol?", constant = true)]
+fn symbolp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::SymbolV(_))
+}
+
+#[steel_derive::function(name = "hash?", constant = true)]
+fn hashp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::HashMapV(_))
+}
+
+#[steel_derive::function(name = "continuation?", constant = true)]
+fn continuationp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::ContinuationFunction(_))
+}
+
+#[steel_derive::function(name = "boolean?", constant = true)]
+fn booleanp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::BoolV(_))
+}
+
+#[steel_derive::function(name = "bool?", constant = true)]
+fn boolp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::BoolV(_))
+}
+
+#[steel_derive::function(name = "void?", constant = true)]
+fn voidp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::Void)
+}
+
+#[steel_derive::function(name = "function?", constant = true)]
+fn functionp(value: &SteelVal) -> bool {
+    matches!(
+        value,
+        SteelVal::Closure(_)
+            | SteelVal::FuncV(_)
+            | SteelVal::ContractedFunction(_)
+            | SteelVal::BoxedFunction(_)
+            | SteelVal::ContinuationFunction(_)
+            | SteelVal::MutFunc(_)
+            | SteelVal::BuiltIn(_)
+    )
+}
+
+#[steel_derive::function(name = "procedure?", constant = true)]
+fn procedurep(value: &SteelVal) -> bool {
+    matches!(
+        value,
+        SteelVal::Closure(_)
+            | SteelVal::FuncV(_)
+            | SteelVal::ContractedFunction(_)
+            | SteelVal::BoxedFunction(_)
+            | SteelVal::ContinuationFunction(_)
+            | SteelVal::MutFunc(_)
+            | SteelVal::BuiltIn(_)
+    )
+}
 fn identity_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/identity");
     module
-        .register_value("int?", gen_pred!(IntV))
-        .register_value("float?", gen_pred!(NumV))
-        .register_value("number?", gen_pred!(NumV, IntV))
-        .register_value("string?", gen_pred!(StringV))
-        .register_value("symbol?", gen_pred!(SymbolV))
-        .register_value("vector?", gen_pred!(VectorV))
-        // .register_value("struct?", gen_pred!(StructV))
-        .register_value("list?", gen_pred!(ListV))
-        .register_value("hash?", gen_pred!(HashMapV))
+        // .register_value("int?", gen_pred!(IntV))
+        .register_native_fn_definition(INTEGERP_DEFINITION)
+        .register_native_fn_definition(INTP_DEFINITION)
+        .register_native_fn_definition(FLOATP_DEFINITION)
+        .register_native_fn_definition(NUMBERP_DEFINITION)
+        .register_native_fn_definition(NUMBERP_DEFINITION)
+        .register_native_fn_definition(STRINGP_DEFINITION)
+        .register_native_fn_definition(LISTP_DEFINITION)
+        .register_native_fn_definition(VECTORP_DEFINITION)
+        .register_native_fn_definition(SYMBOLP_DEFINITION)
+        .register_native_fn_definition(HASHP_DEFINITION)
+        .register_native_fn_definition(CONTINUATIONP_DEFINITION)
+        .register_native_fn_definition(BOOLEANP_DEFINITION)
+        .register_native_fn_definition(BOOLP_DEFINITION)
+        .register_native_fn_definition(VOIDP_DEFINITION)
         .register_value("mutable-vector?", gen_pred!(MutableVector))
-        // .register_value("pair?", gen_pred!(ListV))
-        .register_value("integer?", gen_pred!(IntV))
-        .register_value("boolean?", gen_pred!(BoolV))
         .register_value("char?", gen_pred!(CharV))
-        .register_value("void?", is_void())
-        .register_value("continuation?", gen_pred!(ContinuationFunction))
         .register_value("future?", gen_pred!(FutureV))
-        .register_value(
-            "function?",
-            gen_pred!(
-                Closure,
-                FuncV,
-                ContractedFunction,
-                BoxedFunction,
-                ContinuationFunction,
-                MutFunc,
-                BuiltIn
-            ),
-        )
-        .register_value(
-            "procedure?",
-            gen_pred!(
-                Closure,
-                FuncV,
-                ContractedFunction,
-                BoxedFunction,
-                ContinuationFunction,
-                MutFunc,
-                BuiltIn
-            ),
-        )
+        .register_native_fn_definition(FUNCTIONP_DEFINITION)
+        .register_native_fn_definition(PROCEDUREP_DEFINITION)
         .register_value(
             "atom?",
             gen_pred!(NumV, IntV, StringV, SymbolV, BoolV, CharV),
@@ -787,10 +852,39 @@ fn sandboxed_meta_module() -> BuiltInModule {
     module
 }
 
+fn lookup_function_name(value: SteelVal) -> Option<SteelVal> {
+    match value {
+        SteelVal::BoxedFunction(f) => f.name().map(|x| x.into_steelval().unwrap()),
+        SteelVal::FuncV(f) => get_function_name(f).map(|x| x.name.into_steelval().unwrap()),
+        _ => None,
+    }
+}
+
 // Only works with fixed size arity functions
 fn arity(value: SteelVal) -> UnRecoverableResult {
     match value {
-        SteelVal::Closure(c) => Ok(SteelVal::IntV(c.arity() as isize)).into(),
+        SteelVal::Closure(c) => {
+            // Ok(SteelVal::IntV(c.arity() as isize)).into()
+
+            if let Some(SteelVal::CustomStruct(s)) = c.get_contract_information() {
+                let guard = s.borrow();
+                if guard.name.resolve() == "FunctionContract" {
+                    if let SteelVal::ListV(l) = &guard.fields[0] {
+                        Ok(SteelVal::IntV(l.len() as isize)).into()
+                    } else {
+                        steelerr!(TypeMismatch => "Unable to find the arity for the given function")
+                            .into()
+                    }
+                } else if guard.name.resolve() == "FlatContract" {
+                    Ok(SteelVal::IntV(1)).into()
+                } else {
+                    // This really shouldn't happen
+                    Ok(SteelVal::IntV(c.arity() as isize)).into()
+                }
+            } else {
+                Ok(SteelVal::IntV(c.arity() as isize)).into()
+            }
+        }
         SteelVal::BoxedFunction(f) => f
             .get_arity()
             .map(|x| SteelVal::IntV(x as isize))
@@ -879,6 +973,7 @@ fn meta_module() -> BuiltInModule {
         .register_fn("env-var", get_environment_variable)
         .register_fn("set-env-var!", std::env::set_var::<String, String>)
         .register_fn("arity?", arity)
+        .register_fn("function-name", lookup_function_name)
         .register_fn("multi-arity?", is_multi_arity)
         .register_value("make-struct-type", SteelVal::FuncV(make_struct_type))
         // .register_fn("struct-properties", UserDefinedStruct::properties)

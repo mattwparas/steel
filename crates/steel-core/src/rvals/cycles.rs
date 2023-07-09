@@ -83,7 +83,8 @@ impl CycleDetector {
                 {
                     if guard
                         .get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
-                        .is_some()
+                        .and_then(|x| x.as_bool())
+                        .unwrap_or_default()
                     {
                         write!(f, "({}", guard.name)?;
 
@@ -182,7 +183,8 @@ impl CycleDetector {
                     {
                         if s.borrow()
                             .get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
-                            .is_some()
+                            .and_then(|x| x.as_bool())
+                            .unwrap_or_default()
                         {
                             write!(f, "({}", guard.name)?;
 

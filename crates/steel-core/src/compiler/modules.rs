@@ -33,7 +33,7 @@ use log::{debug, info, log_enabled};
 
 use super::{
     passes::mangle::{collect_globals, NameMangler, NameUnMangler},
-    program::{CONTRACT_OUT, FOR_SYNTAX, ONLY_IN, PREFIX_IN},
+    program::{CONTRACT_OUT, FOR_SYNTAX, ONLY_IN, PREFIX_IN, REQUIRE_IDENT_SPEC},
 };
 
 const OPTION: &str = include_str!("../scheme/modules/option.scm");
@@ -106,7 +106,7 @@ impl ModuleManager {
 
         module_builder.compile()?;
 
-        println!("{:#?}", self.compiled_modules);
+        // println!("{:#?}", self.compiled_modules);
 
         Ok(())
     }
@@ -163,7 +163,7 @@ impl ModuleManager {
             .map(|x| "mangler".to_string() + x.path.get_path().to_str().unwrap())
             .collect::<Vec<_>>();
 
-        let mut explicit_requires = HashSet::new();
+        let mut explicit_requires = HashMap::new();
 
         for require_object in &module_builder.require_objects
         // .chain(module_builder.built_ins.iter())
@@ -176,9 +176,15 @@ impl ModuleManager {
             for ident in &require_object.idents_to_import {
                 match ident {
                     MaybeRenamed::Normal(i) => {
-                        explicit_requires.insert(i.atom_identifier().unwrap());
+                        explicit_requires.insert(i.atom_identifier().unwrap().clone(), None);
                     }
-                    MaybeRenamed::Renamed(_, _) => {}
+
+                    MaybeRenamed::Renamed(from, to) => {
+                        explicit_requires.insert(
+                            from.atom_identifier().unwrap().clone(),
+                            Some(to.atom_identifier().unwrap().clone()),
+                        );
+                    }
                 }
             }
 
@@ -218,7 +224,7 @@ impl ModuleManager {
                                         if !explicit_requires.is_empty()
                                             && !name
                                                 .atom_identifier()
-                                                .map(|x| explicit_requires.contains(x))
+                                                .map(|x| explicit_requires.contains_key(x))
                                                 .unwrap_or_default()
                                         {
                                             continue;
@@ -239,6 +245,86 @@ impl ModuleManager {
                                         ];
 
                                         let mut owned_name = name.clone();
+
+                                        // If we have the alias listed, we should use it
+                                        if !explicit_requires.is_empty() {
+                                            if let Some(alias) = explicit_requires
+                                                .get(provide.atom_identifier().unwrap())
+                                                .copied()
+                                                .flatten()
+                                            {
+                                                *owned_name.atom_identifier_mut().unwrap() =
+                                                    alias.clone();
+                                            }
+                                        }
+
+                                        if let Some(prefix) = &require_object.prefix {
+                                            if let Some(existing) = owned_name.atom_identifier_mut()
+                                            {
+                                                let mut prefixed_identifier = prefix.clone();
+                                                prefixed_identifier.push_str(existing.resolve());
+
+                                                // Update the existing identifier to point to a new one with the prefix applied
+                                                *existing = prefixed_identifier.into();
+                                            }
+                                        }
+
+                                        let define = ExprKind::Define(Box::new(Define::new(
+                                            owned_name,
+                                            // expr_list![
+                                            // ExprKind::ident("bind/c"),
+                                            // contract.clone(),
+                                            hash_get,
+                                            // ExprKind::Quote(Box::new(Quote::new(
+                                            // name.clone(),
+                                            // SyntaxObject::default(TokenType::Quote)
+                                            // ))),
+                                            // ],
+                                            SyntaxObject::default(TokenType::Define),
+                                        )));
+
+                                        require_defines.push(define);
+                                    }
+                                    x if x == *REQUIRE_IDENT_SPEC => {
+                                        // Directly expand into define/contract, but with the value just being the hash get below
+
+                                        // (bind/c contract name 'name)
+
+                                        let name = l.args.get(1).unwrap();
+
+                                        if !explicit_requires.is_empty()
+                                            && !name
+                                                .atom_identifier()
+                                                .map(|x| explicit_requires.contains_key(x))
+                                                .unwrap_or_default()
+                                        {
+                                            continue;
+                                        }
+
+                                        let hash_get = expr_list![
+                                            ExprKind::ident("hash-get"),
+                                            ExprKind::atom(
+                                                "__module-".to_string() + &other_module_prefix
+                                            ),
+                                            ExprKind::Quote(Box::new(Quote::new(
+                                                name.clone(),
+                                                SyntaxObject::default(TokenType::Quote)
+                                            ))),
+                                        ];
+
+                                        let mut owned_name = name.clone();
+
+                                        // If we have the alias listed, we should use it
+                                        if !explicit_requires.is_empty() {
+                                            if let Some(alias) = explicit_requires
+                                                .get(provide.atom_identifier().unwrap())
+                                                .copied()
+                                                .flatten()
+                                            {
+                                                *owned_name.atom_identifier_mut().unwrap() =
+                                                    alias.clone();
+                                            }
+                                        }
 
                                         if let Some(prefix) = &require_object.prefix {
                                             if let Some(existing) = owned_name.atom_identifier_mut()
@@ -268,7 +354,7 @@ impl ModuleManager {
                                         require_defines.push(define);
                                     }
                                     _ => {
-                                        stop!(TypeMismatch => "provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
+                                        stop!(TypeMismatch => "foo provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
                                     }
                                 }
                             } else {
@@ -279,7 +365,7 @@ impl ModuleManager {
                             if !explicit_requires.is_empty()
                                 && !provide
                                     .atom_identifier()
-                                    .map(|x| explicit_requires.contains(x))
+                                    .map(|x| explicit_requires.contains_key(x))
                                     .unwrap_or_default()
                             {
                                 continue;
@@ -295,6 +381,17 @@ impl ModuleManager {
                             ];
 
                             let mut owned_provide = provide.clone();
+
+                            // If we have the alias listed, we should use it
+                            if !explicit_requires.is_empty() {
+                                if let Some(alias) = explicit_requires
+                                    .get(provide.atom_identifier().unwrap())
+                                    .copied()
+                                    .flatten()
+                                {
+                                    *owned_provide.atom_identifier_mut().unwrap() = alias.clone();
+                                }
+                            }
 
                             // TODO: If there is a prefix applied, use it here?
                             if let Some(prefix) = &require_object.prefix {
@@ -544,7 +641,7 @@ impl CompiledModule {
         // ;; Refresh the module definition in this namespace
         // (define a-module.rkt-b (hash-get 'b b-module.rkt-b))
 
-        let mut explicit_requires = HashSet::new();
+        let mut explicit_requires = HashMap::new();
 
         // TODO: This is the same as the top level, they should be merged
         for require_object in &self.require_objects {
@@ -555,9 +652,14 @@ impl CompiledModule {
             for ident in &require_object.idents_to_import {
                 match ident {
                     MaybeRenamed::Normal(i) => {
-                        explicit_requires.insert(i.atom_identifier().unwrap());
+                        explicit_requires.insert(i.atom_identifier().unwrap().clone(), None);
                     }
-                    MaybeRenamed::Renamed(_, _) => {}
+                    MaybeRenamed::Renamed(from, to) => {
+                        explicit_requires.insert(
+                            from.atom_identifier().unwrap().clone(),
+                            Some(to.atom_identifier().unwrap().clone()),
+                        );
+                    }
                 }
             }
 
@@ -579,17 +681,40 @@ impl CompiledModule {
 
                                         // (bind/c contract name 'name)
 
-                                        let name = l.args.get(1).unwrap();
+                                        let mut name = l.args.get(1).unwrap().clone();
                                         let contract = l.args.get(2).unwrap();
 
                                         if !explicit_requires.is_empty()
                                             && !name
                                                 .atom_identifier()
-                                                .map(|x| explicit_requires.contains(x))
+                                                .map(|x| explicit_requires.contains_key(x))
                                                 .unwrap_or_default()
                                         {
                                             continue;
                                         }
+
+                                        // If we have the alias listed, we should use it
+                                        if !explicit_requires.is_empty() {
+                                            if let Some(alias) = explicit_requires
+                                                .get(name.atom_identifier().unwrap())
+                                                .copied()
+                                                .flatten()
+                                            {
+                                                *name.atom_identifier_mut().unwrap() =
+                                                    alias.clone();
+                                            }
+                                        }
+
+                                        if let Some(prefix) = &require_object.prefix {
+                                            if let Some(existing) = name.atom_identifier_mut() {
+                                                let mut prefixed_identifier = prefix.clone();
+                                                prefixed_identifier.push_str(existing.resolve());
+
+                                                // Update the existing identifier to point to a new one with the prefix applied
+                                                *existing = prefixed_identifier.into();
+                                            }
+                                        }
+
                                         // Since this is now bound to be in the scope of the current working module, we also want
                                         // this to be mangled. In the event we do something like, qualify the import, then we might
                                         // have to mangle this differently
@@ -626,7 +751,7 @@ impl CompiledModule {
                                         provide_definitions.push(define);
                                     }
                                     _ => {
-                                        stop!(TypeMismatch => "provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
+                                        stop!(TypeMismatch => "foo provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
                                     }
                                 }
                             } else {
@@ -637,10 +762,34 @@ impl CompiledModule {
                             if !explicit_requires.is_empty()
                                 && !provide
                                     .atom_identifier()
-                                    .map(|x| explicit_requires.contains(x))
+                                    .map(|x| explicit_requires.contains_key(x))
                                     .unwrap_or_default()
                             {
                                 continue;
+                            }
+
+                            // Mangle with a prefix if necessary
+                            let mut provide = provide.clone();
+
+                            // If we have the alias listed, we should use it
+                            if !explicit_requires.is_empty() {
+                                if let Some(alias) = explicit_requires
+                                    .get(provide.atom_identifier().unwrap())
+                                    .copied()
+                                    .flatten()
+                                {
+                                    *provide.atom_identifier_mut().unwrap() = alias.clone();
+                                }
+                            }
+
+                            if let Some(prefix) = &require_object.prefix {
+                                if let Some(existing) = provide.atom_identifier_mut() {
+                                    let mut prefixed_identifier = prefix.clone();
+                                    prefixed_identifier.push_str(existing.resolve());
+
+                                    // Update the existing identifier to point to a new one with the prefix applied
+                                    *existing = prefixed_identifier.into();
+                                }
                             }
 
                             let provide_ident = provide.atom_identifier().unwrap();
@@ -703,19 +852,37 @@ impl CompiledModule {
             .iter()
             .flat_map(|x| &x.list().unwrap().args[1..])
             .cloned()
+            .map(|x| (x.clone(), x))
             .collect();
 
         for provide in &mut provides {
-            match provide {
+            match &provide.1 {
                 ExprKind::List(l) => {
                     if let Some(qualifier) = l.first_ident() {
                         match qualifier {
+                            x if *x == *REQUIRE_IDENT_SPEC => {
+                                // *provide = expand(l.get(2).unwrap().clone(), global_macro_map)?;
+
+                                // *provide = expand(l.)
+
+                                provide.0 = l.get(1).unwrap().clone();
+                                provide.1 = expand(l.get(2).unwrap().clone(), global_macro_map)?;
+
+                                continue;
+
+                                // name_unmangler.unmangle_expr(provide);
+                            }
                             x if *x == *CONTRACT_OUT => {
                                 // Update the item to point to just the name
                                 //
                                 // *provide = l.get(1).unwrap().clone();
+                                // {
+                                //     println!("---------");
+                                //     println!("Provide expr: {}", l.to_string());
+                                // }
 
-                                *provide = expand(
+                                provide.0 = l.get(1).unwrap().clone();
+                                provide.1 = expand(
                                     expr_list![
                                         ExprKind::ident("bind/c"),
                                         l.get(2).unwrap().clone(),
@@ -730,11 +897,11 @@ impl CompiledModule {
 
                                 // println!("-------- {}", provide.to_pretty(60));
 
-                                name_unmangler.unmangle_expr(provide);
+                                name_unmangler.unmangle_expr(&mut provide.1);
                                 // continue;
                             }
                             _ => {
-                                stop!(TypeMismatch => "provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
+                                stop!(TypeMismatch => "bar provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
                             }
                         }
                     } else {
@@ -753,7 +920,11 @@ impl CompiledModule {
         // We want one without the mangled version, for the actual provides
         let un_mangled = provides.clone();
 
-        name_mangler.mangle_vars(&mut provides);
+        let left_unmangled: Vec<_> = un_mangled.into_iter().map(|x| x.0).collect();
+
+        let mut right: Vec<_> = provides.into_iter().map(|x| x.1).collect();
+
+        name_mangler.mangle_vars(&mut right);
         // name_unmangler.unmangle_vars(&mut provides);
 
         let mut hash_body = vec![ExprKind::ident("hash")];
@@ -763,8 +934,10 @@ impl CompiledModule {
         // hash_body.push(ExprKind::atom("#:module-name"));
         // hash_body.push(ExprKind::atom(prefix.clone()));
 
+        // left_unmangled.pretty_print();
+
         hash_body.extend(
-            un_mangled
+            left_unmangled
                 .into_iter()
                 .map(|x| {
                     if let ExprKind::Atom(_) = x {
@@ -773,6 +946,20 @@ impl CompiledModule {
                             SyntaxObject::default(TokenType::Quote),
                         )))
                     } else if let ExprKind::List(l) = x {
+                        if let Some(qualifier) = l.first_ident() {
+                            match qualifier {
+                                x if *x == *REQUIRE_IDENT_SPEC => {
+                                    todo!()
+                                }
+                                _ => {
+                                    return ExprKind::Quote(Box::new(Quote::new(
+                                        l.get(2).unwrap().clone(),
+                                        SyntaxObject::default(TokenType::Quote),
+                                    )))
+                                }
+                            }
+                        }
+
                         // Then this is a contract out, and we should handle it here
 
                         ExprKind::Quote(Box::new(Quote::new(
@@ -787,7 +974,7 @@ impl CompiledModule {
                         panic!("TODO this shouldn't be possible")
                     }
                 })
-                .interleave(provides),
+                .interleave(right),
         );
 
         let module_define = ExprKind::Define(Box::new(Define::new(
@@ -1385,11 +1572,12 @@ impl<'a> ModuleBuilder<'a> {
                                 // TODO -> remove this clone
                                 self.provides_for_syntax.push(l.args[1].clone());
                             }
-                            x if x == *CONTRACT_OUT => {
+                            x if x == *CONTRACT_OUT || x == *REQUIRE_IDENT_SPEC => {
                                 normal_provides.push(expr);
                             }
                             _ => {
-                                stop!(TypeMismatch => "provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
+                                normal_provides.push(expr);
+                                // stop!(TypeMismatch => "provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
                             }
                         }
                     } else {

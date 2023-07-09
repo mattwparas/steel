@@ -1155,6 +1155,7 @@ impl Hash for SteelVal {
             IntV(i) => i.hash(state),
             CharV(c) => c.hash(state),
             ListV(l) => l.hash(state),
+            CustomStruct(s) => s.borrow().hash(state),
             // Pair(cell) => {
             //     cell.hash(state);
             // }
@@ -1219,6 +1220,7 @@ impl SteelVal {
                 | Closure(_)
                 | ListV(_)
                 | FuncV(_)
+                | CustomStruct(_)
         )
     }
 
@@ -1366,6 +1368,25 @@ impl SteelVal {
         match self {
             Self::SymbolV(v) => Ok(v.to_string()),
             _ => Err(err()),
+        }
+    }
+
+    pub fn as_isize(&self) -> Option<isize> {
+        match self {
+            Self::IntV(i) => Some(*i),
+            _ => None,
+        }
+    }
+
+    pub fn as_usize(&self) -> Option<usize> {
+        self.as_isize()
+            .and_then(|x| if x >= 0 { Some(x as usize) } else { None })
+    }
+
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Self::BoolV(b) => Some(*b),
+            _ => None,
         }
     }
 

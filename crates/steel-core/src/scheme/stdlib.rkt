@@ -490,3 +490,7 @@
         (displayln (quote expr) " = " result)
         result)]))
 
+(define-syntax contract/out
+  (syntax-rules ()
+    [(contract/out name contract)
+     (%require-ident-spec name (bind/c contract name 'name))]))

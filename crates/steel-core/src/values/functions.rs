@@ -323,7 +323,9 @@ pub fn get_contract(args: &[SteelVal]) -> crate::rvals::Result<SteelVal> {
     if let SteelVal::Closure(closure) = &args[0] {
         closure.get_contract_information().into_steelval()
     } else {
-        stop!(TypeMismatch => "get-contract-struct! expects a function in the first position")
+        Ok(SteelVal::BoolV(false))
+
+        // stop!(TypeMismatch => "get-contract-struct! expects a function in the first position, found: {}", &args[0])
     }
 }
 

@@ -32,13 +32,23 @@ enum StringOrMagicNumber {
 }
 
 // If they're built in, we want to package the values alongside the
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub enum Properties {
     BuiltIn,
     Local(Gc<im_rc::HashMap<SteelVal, SteelVal>>),
 }
 
-#[derive(Clone, Debug)]
+impl Properties {
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Local(l), Self::Local(r)) => Gc::ptr_eq(l, r),
+            (Self::BuiltIn, Self::BuiltIn) => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Hash)]
 pub struct UserDefinedStruct {
     // Consider using an interned string here directly, rather than
     // a fake arc string.
@@ -46,15 +56,17 @@ pub struct UserDefinedStruct {
     pub(crate) name: InternedString,
     pub(crate) fields: smallvec::SmallVec<[SteelVal; 5]>,
     pub(crate) properties: Properties, // pub(crate) properties: Gc<im_rc::HashMap<SteelVal, SteelVal>>,
+
+    // Whether to treat this struct as a procedure
+    pub(crate) proc: Option<usize>,
 }
 
 // TODO: This could blow the stack for big trees...
 impl PartialEq for UserDefinedStruct {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name
-            // && self.len == other.len
             && self.fields == other.fields
-        // && Gc::ptr_eq(&self.properties, &other.properties)
+            && Properties::ptr_eq(&self.properties, &other.properties)
     }
 }
 
@@ -244,15 +256,27 @@ impl UserDefinedStruct {
             throw!(ArityMismatch => "struct constructor expects at least one argument"),
         )?;
 
+        let (proc, rest) = rest.split_first().ok_or_else(
+            throw!(ArityMismatch => "struct constructor expects at least one argument"),
+        )?;
+
         // TODO: Don't use a hashmap for these properties. Probably best to have some kind of fixed purpose
         // data structure? A hashmap is also fine, but something that is required to be constructed with only
         // constants could be helpful.
         if let SteelVal::HashMapV(properties) = options.clone() {
+            // Don't do this - we don't want to have to do a hash every time?
+            // let proc = PROC_PROPERTY.with(|property_keyword| {
+            //     properties
+            //         .get(property_keyword)
+            //         .and_then(|value| value.as_usize())
+            // });
+
             Ok(Self {
                 name,
                 fields: rest.into(),
                 // len: fields.len(),
                 properties: Properties::Local(properties),
+                proc: proc.as_usize(),
             })
         } else {
             stop!(TypeMismatch => format!("struct constructor expected a hashmap, found: {options}"))
@@ -294,12 +318,17 @@ impl UserDefinedStruct {
         //     || self.name == ERR_RESULT_LABEL.with(|x| Rc::clone(x))
     }
 
+    pub(crate) fn maybe_proc(&self) -> Option<&SteelVal> {
+        self.proc.as_ref().map(|s| &self.fields[*s])
+    }
+
     fn new_with_options(name: InternedString, properties: Properties, rest: &[SteelVal]) -> Self {
         Self {
             name,
             fields: rest.into(),
             // len: rest.len() + 1,
             properties,
+            proc: None,
         }
     }
 
@@ -585,6 +614,71 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
     ]))
 }
 
+/*
+TODO:
+
+Create something like a type-id - dispatch from there to the proper implementation by consulting
+the VTable.
+
+Implementing a trait for a type should error if the trait is already implemented, and the predicate
+for checking if a trait is implemented should just consult the table.
+
+There should be a way to move things over
+
+
+*/
+
+// Implement internal thing here?
+struct SteelTrait {
+    name: InternedString,
+    method_names: Vec<InternedString>,
+}
+
+struct SteelTraitImplementation {}
+
+// // Return the method associated
+// fn dispatch(t: &SteelTrait, value: &SteelVal) -> SteelVal {
+//     match value {
+//         SteelVal::CustomStruct(s) => {
+//             todo!()
+//         }
+//         _ => {
+//             todo!()
+//         }
+//     }
+// }
+
+fn new_type_id(type_name: InternedString, address_or_name: SteelVal) -> Result<SteelVal> {
+    UserDefinedStruct::constructor_thunk(*TYPE_ID, 2)(&[
+        type_name.as_u32().into_steelval().unwrap(),
+        address_or_name,
+    ])
+}
+
+#[steel_derive::function(name = "value->type-id")]
+fn custom_type_id(value: &SteelVal) -> Result<SteelVal> {
+    match value {
+        SteelVal::CustomStruct(s) => {
+            let guard = s.borrow();
+
+            match &guard.properties {
+                Properties::BuiltIn => {
+                    // Return a special struct representing the type id for the type id
+                    new_type_id(
+                        guard.name,
+                        SteelVal::IntV((-1 * (guard.name.as_u32() as isize))),
+                    )
+                }
+                Properties::Local(p) => {
+                    // Return a special struct representing the type id for the type id
+                    new_type_id(guard.name, SteelVal::IntV((p.as_ptr() as usize) as isize))
+                }
+            }
+        }
+        _ => todo!(),
+    }
+}
+
 // Thread local v-table reference.
 // Rather than have structs hold their options directly, we will include a map which
 // is just a weak reference to the original arc. Then, in order to access the vtable, we use the Arc'd
@@ -592,6 +686,8 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
 // the entry in the vtable should be alive for as long as the struct is legally allowed to be accessed.
 pub struct VTable {
     map: fxhash::FxHashMap<InternedString, Gc<im_rc::HashMap<SteelVal, SteelVal>>>,
+
+    traits: fxhash::FxHashMap<InternedString, fxhash::FxHashMap<InternedString, Vec<SteelVal>>>,
 }
 
 impl VTable {
@@ -602,6 +698,8 @@ impl VTable {
     fn get(name: &InternedString) -> Option<Gc<im_rc::HashMap<SteelVal, SteelVal>>> {
         VTABLE.with(|x| x.read().unwrap().map.get(name).cloned())
     }
+
+    // fn define_trait()
 }
 
 // Probably just... intern the strings instead? I have an interner, it might be useful to
@@ -611,6 +709,7 @@ lazy_static::lazy_static! {
     pub static ref ERR_RESULT_LABEL: InternedString = "Err".into();
     pub static ref SOME_OPTION_LABEL: InternedString = "Some".into();
     pub static ref NONE_OPTION_LABEL: InternedString = "None".into();
+    pub static ref TYPE_ID: InternedString = "TypeId".into();
 }
 
 // TODO: Just make these Arc'd and lazy static instead of thread local.
@@ -631,9 +730,11 @@ thread_local! {
         map.insert("Err".into(), result_options.clone());
         map.insert("Some".into(), result_options.clone());
         map.insert("None".into(), result_options.clone());
+        map.insert("TypeId".into(), result_options.clone());
 
         Arc::new(std::sync::RwLock::new(VTable {
-            map
+            map,
+            traits: fxhash::FxHashMap::default()
         }))
     };
 
@@ -685,6 +786,32 @@ thread_local! {
             0,
         )))
     };
+}
+
+pub(crate) fn build_type_id_module() -> BuiltInModule {
+    let mut module = BuiltInModule::new("steel/core/types");
+
+    let name = *TYPE_ID;
+
+    // Build the getter for the first index
+    let getter = UserDefinedStruct::getter_prototype_index(name, 0);
+    let predicate = UserDefinedStruct::predicate(name);
+
+    let constructor = Arc::new(UserDefinedStruct::constructor_thunk(name, 2));
+
+    module
+        // .register_value(
+        //     "TypeId",
+        //     SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+        //         constructor,
+        //         Some(name.resolve().to_string().into()),
+        //         Some(2),
+        //     ))),
+        // )
+        .register_value("TypeId?", predicate)
+        .register_native_fn_definition(CUSTOM_TYPE_ID_DEFINITION);
+
+    module
 }
 
 pub(crate) fn build_result_structs() -> BuiltInModule {

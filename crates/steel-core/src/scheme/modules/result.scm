@@ -1,6 +1,6 @@
 (require-builtin "steel/core/result")
-(require "steel/contracts/contract.scm"
-         (for-syntax "steel/contracts/contract.scm"))
+; (require "steel/contracts/contract.scm"
+;          (for-syntax "steel/contracts/contract.scm"))
 
 (provide Result?
          Ok
@@ -10,9 +10,9 @@
          Result/c
          ; (contract/out unwrap-ok (->/c Ok? any/c))
          unwrap-ok
-         (contract/out unwrap-err (->c Err? any/c))
-         (contract/out map-ok (->c Result? (->c any/c any/c) Result?))
-         (contract/out map-err (->c Result? (->c any/c any/c) Result?))
+         (contract/out unwrap-err (->/c Err? any/c))
+         (contract/out map-ok (->/c Result? (->c any/c any/c) Result?))
+         (contract/out map-err (->/c Result? (->/c any/c any/c) Result?))
          unwrap-or)
 
 ; (struct Ok (value) #:transparent)
@@ -50,3 +50,8 @@
 
 (define (unwrap-or result value)
   (if (Ok? result) (Ok->value result) value))
+
+; (define-syntax contract/out/test
+;   (syntax-rules ()
+;     [(contract/out/test name contract)
+;      (%require-ident-spec name (bind-contract-to-function contract name 'name))]))

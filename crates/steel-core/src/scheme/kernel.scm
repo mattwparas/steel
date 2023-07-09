@@ -2,10 +2,7 @@
 (define (enumerate start accum lst)
   (if (empty? lst)
       (reverse accum)
-      (enumerate (+ start 1)
-                 (cons (list (car lst) start)
-                       accum)
-                 (cdr lst))))
+      (enumerate (+ start 1) (cons (list (car lst) start) accum) (cdr lst))))
 
 (define (hash->list hm)
   (transduce (transduce hm (into-list))
@@ -15,14 +12,15 @@
                         (if (symbol? (car pair))
                             ;; TODO: @Matt - this causes a parser error
                             ;; (cons `(quote ,(car x)) (cdr x))
-                            (list (list 'quote (car pair))
-                                  (list 'quote (cadr pair)))
+                            (list (list 'quote (car pair)) (list 'quote (cadr pair)))
                             pair)))
              (flattening)
              (into-list)))
 
-(define (mutable-keyword? x) (equal? x '#:mutable))
-(define (transparent-keyword? x) (equal? x '#:transparent))
+(define (mutable-keyword? x)
+  (equal? x '#:mutable))
+(define (transparent-keyword? x)
+  (equal? x '#:transparent))
 
 ;; Macro for creating a new struct, in the form of:
 ;; `(struct <struct-name> (fields ...) options ...)`
@@ -47,42 +45,47 @@
 ;; printing them will result in an opaque struct that does not list the fields
 (define (struct struct-name fields . options)
 
-  ;; Add a field for storing the options.
-  (define field-count (+ 1 (length fields)))
+  ;; Add a field for storing the options, and for the index to the func
+  (define field-count (+ 2 (length fields)))
   ;; Mark whether this is actually a mutable and transparent struct, and
   ;; then drain the values from the
   (define mutable? (contains? mutable-keyword? options))
   (define transparent? (contains? transparent-keyword? options))
+
   (define options-without-single-keywords
     (transduce options
                (filtering (lambda (x) (not (mutable-keyword? x))))
                (filtering (lambda (x) (not (transparent-keyword? x))))
                (into-list)))
 
-  (define extra-options (hash '#:mutable mutable?
-                              '#:transparent transparent?
-                              '#:fields fields))
+  (define extra-options (hash '#:mutable mutable? '#:transparent transparent? '#:fields fields))
 
   (when (not (list? fields))
     (error! "struct expects a list of field names, found " fields))
 
   (when (not (symbol? struct-name))
-    (error! "struct expects an identifier as the first argument, found "
-            struct-name))
+    (error! "struct expects an identifier as the first argument, found " struct-name))
 
   (when (odd? (length options-without-single-keywords))
     (error! "struct options are malformed - each option requires a value"))
 
   ;; Update the options-map to have the fields included
-  (let* ((options-map (apply hash options-without-single-keywords))
-         (options-map (hash-union options-map extra-options)))
+  (let* ([options-map (apply hash options-without-single-keywords)]
+         [options-map (hash-union options-map extra-options)]
+         [maybe-procedure-field (hash-try-get options-map '#:prop:procedure)])
+
+    (when (and maybe-procedure-field (> maybe-procedure-field (length fields)))
+      (error! "struct #:prop:procedure cannot refer to an index that is out of bounds"))
+
     `(begin
        (define ,(concat-symbols '___ struct-name '-options___)
          (hash ,@(hash->list options-map)))
        (define ,struct-name 'unintialized)
-       (define ,(concat-symbols struct-name '?) 'uninitialized)
-       ,@(map (lambda (field) `(define ,(concat-symbols struct-name '- field)
-                                 'uninitialized))
+       (define ,(concat-symbols struct-name '?)
+         'uninitialized)
+       ,@(map (lambda (field)
+                `(define ,(concat-symbols struct-name '- field)
+                   'uninitialized))
               fields)
        ;; If we're mutable, set up the identifiers to later be `set!`
        ;; below in the same scope
@@ -93,29 +96,27 @@
                   fields)
              (list))
 
-       (let ((prototypes (make-struct-type (quote ,struct-name) ,field-count)))
-         (let ((constructor-proto (list-ref prototypes 0))
-               (predicate-proto (list-ref prototypes 1))
-               (getter-proto (list-ref prototypes 2))
-               (setter-proto (list-ref prototypes 3)))
+       (let ([prototypes (make-struct-type (quote ,struct-name) ,field-count)])
+         (let ([constructor-proto (list-ref prototypes 0)]
+               [predicate-proto (list-ref prototypes 1)]
+               [getter-proto (list-ref prototypes 2)]
+               [setter-proto (list-ref prototypes 3)])
 
-           ,(new-make-constructor struct-name fields)
+           ,(new-make-constructor struct-name maybe-procedure-field fields)
            ,(new-make-predicate struct-name fields)
            ,@(new-make-getters struct-name fields)
            ;; If this is a mutable struct, generate the setters
            ,@(if mutable? (new-make-setters struct-name fields) (list))
            void)))))
 
-
 (define (new-make-predicate struct-name fields)
   `(set! ,(concat-symbols struct-name '?) predicate-proto))
 
-
-(define (new-make-constructor struct-name fields)
-  `(set! ,struct-name
-         (lambda ,fields
-           (constructor-proto
-            ,(concat-symbols '___ struct-name '-options___) ,@fields))))
+(define (new-make-constructor struct-name procedure-index fields)
+  `(set!
+    ,struct-name
+    (lambda ,fields
+      (constructor-proto ,(concat-symbols '___ struct-name '-options___) ,procedure-index ,@fields))))
 
 (define (new-make-getters struct-name fields)
   (map (lambda (field)
@@ -126,29 +127,25 @@
 (define (new-make-setters struct-name fields)
   (map (lambda (field)
          `(set! ,(concat-symbols 'set- struct-name '- (car field) '!)
-                (lambda (this value)
-                  (setter-proto this ,(list-ref field 1) value))))
+                (lambda (this value) (setter-proto this ,(list-ref field 1) value))))
        (enumerate 0 '() fields)))
 
-
-
 (define (%make-memoize f)
-    (lambda n
-        (let ((previous-value (%memo-table-ref %memo-table f n)))
-            (if (and (Ok? previous-value) (Ok->value previous-value))
-                (begin
-                    ; (displayln "READ VALUE: " previous-value " with args " n)
-                    (Ok->value previous-value))
-                (let ((new-value (apply f n)))
-                    ; (displayln "SETTING VALUE " new-value " with args " n)
-                    (%memo-table-set! %memo-table f n new-value)
-                    new-value)))))
-
+  (lambda n
+    (let ([previous-value (%memo-table-ref %memo-table f n)])
+      (if (and (Ok? previous-value) (Ok->value previous-value))
+          (begin
+            ; (displayln "READ VALUE: " previous-value " with args " n)
+            (Ok->value previous-value))
+          (let ([new-value (apply f n)])
+            ; (displayln "SETTING VALUE " new-value " with args " n)
+            (%memo-table-set! %memo-table f n new-value)
+            new-value)))))
 
 ;; TODO: Come back to this once theres something to attach it to
 ; (define (@doc expr comment)
 ;   (if (equal? (car expr) 'define)
-;       `(begin 
+;       `(begin
 ;           (define ,(concat-symbols '__doc- (second expr)) ,comment)
 ;           ,expr
 ;        )
@@ -166,10 +163,8 @@
 ;              #t
 ;              (default-loop (cdr args) #f))]))
 
-
 ; (define (non-default-after-default? args)
 ;   (default-loop args #f))
-
 
 ; (define (%test-lambda% args body)
 ;                                         ;   (->/c non-default-after-default? any/c any/c)
@@ -215,13 +210,11 @@
 ;                void)
 ;            (let (,@bindings) ,body)))))
 
-
-
-                                        ; (define (keyword? symbol)
-                                        ;     (unless (symbol? symbol) (return! #false))
-                                        ;     (let ((symbol-as-list (-> symbol (symbol->string) (string->list))))
-                                        ;       (and (equal? (list-ref symbol-as-list 0) #\#)
-                                        ;            (equal? (list-ref symbol-as-list 1) #\:))))
+; (define (keyword? symbol)
+;     (unless (symbol? symbol) (return! #false))
+;     (let ((symbol-as-list (-> symbol (symbol->string) (string->list))))
+;       (and (equal? (list-ref symbol-as-list 0) #\#)
+;            (equal? (list-ref symbol-as-list 1) #\:))))
 
 ; (define (keyword? symbol)
 ;   (and (symbol? symbol) (-> symbol (symbol->string) (starts-with? "#:"))))
@@ -238,7 +231,6 @@
 
 ; (define (take-while pred? lst)
 ;   (reverse (take-while-accum pred? lst '())))
-
 
 ; (define (all func lst)
 ;   (if (null? lst)
@@ -305,36 +297,34 @@
 ;      (let ((!!dummy-rest-arg!! (apply hash !!dummy-rest-arg!!)))
 ;        (let (,@bindings) ,body))))
 
+; (let ((keyword-args (drop-while (lambda (x) (not (keyword? x))) args))
+;       (non-keyword-args (take-while (lambda (x) (not (keyword? x))) args)))
+;     (when (odd? (length keyword-args))
+;         (error! "keyword arguments malformed - each option requires a value"))
 
-                                        ; (let ((keyword-args (drop-while (lambda (x) (not (keyword? x))) args))
-                                        ;       (non-keyword-args (take-while (lambda (x) (not (keyword? x))) args)))
-                                        ;     (when (odd? (length keyword-args))
-                                        ;         (error! "keyword arguments malformed - each option requires a value"))
+;     (let ((keyword-map (apply hash keyword-args)))
+;         (when (not (all keyword? (hash-keys->list keyword-map)))
+;             (error! "Non keyword arguments found after the first keyword argument"))
 
-                                        ;     (let ((keyword-map (apply hash keyword-args)))
-                                        ;         (when (not (all keyword? (hash-keys->list keyword-map)))
-                                        ;             (error! "Non keyword arguments found after the first keyword argument"))
+;         (let ((bindings
+;                 (transduce
+;                   keyword-map
+;                    (mapping (lambda (x)
+;                         (let* ((keyword (list-ref x 0))
+;                                (original-var-name (list-ref x 1))
+;                                (expr (if (pair? original-var-name) (list-ref original-var-name 1) original-var-name))
+;                                (var-name (if (pair? original-var-name) (list-ref original-var-name 0) original-var-name)))
 
-                                        ;         (let ((bindings
-                                        ;                 (transduce
-                                        ;                   keyword-map
-                                        ;                    (mapping (lambda (x)
-                                        ;                         (let* ((keyword (list-ref x 0))
-                                        ;                                (original-var-name (list-ref x 1))
-                                        ;                                (expr (if (pair? original-var-name) (list-ref original-var-name 1) original-var-name))
-                                        ;                                (var-name (if (pair? original-var-name) (list-ref original-var-name 0) original-var-name)))
+;                             `(,var-name (let ((,var-name (hash-try-get !!dummy-rest-arg!! (quote ,keyword))))
+;                                           (if (hash-contains? !!dummy-rest-arg!! (quote ,keyword))
+;                                               ,var-name
+;                                               (if
+;                                                 ,(pair? original-var-name)
+;                                                 ,expr
+;                                                 (error! "Function application missing required keyword argument: " (quote ,keyword)))))))))
+;                    (into-list))))
+;             `(lambda (,@non-keyword-args . !!dummy-rest-arg!!)
+;                 (let ((!!dummy-rest-arg!! (apply hash !!dummy-rest-arg!!)))
+;                     (let (,@bindings) ,body)))))))
 
-                                        ;                             `(,var-name (let ((,var-name (hash-try-get !!dummy-rest-arg!! (quote ,keyword))))
-                                        ;                                           (if (hash-contains? !!dummy-rest-arg!! (quote ,keyword))
-                                        ;                                               ,var-name
-                                        ;                                               (if
-                                        ;                                                 ,(pair? original-var-name)
-                                        ;                                                 ,expr
-                                        ;                                                 (error! "Function application missing required keyword argument: " (quote ,keyword)))))))))
-                                        ;                    (into-list))))
-                                        ;             `(lambda (,@non-keyword-args . !!dummy-rest-arg!!)
-                                        ;                 (let ((!!dummy-rest-arg!! (apply hash !!dummy-rest-arg!!)))
-                                        ;                     (let (,@bindings) ,body)))))))
-
-
-                                        ; (define test (%lambda-keyword% (a b #:transparent [transparent #t]) (if transparent (begin (displayln "hello world") (+ a b)) (+ a b 10))))
+; (define test (%lambda-keyword% (a b #:transparent [transparent #t]) (if transparent (begin (displayln "hello world") (+ a b)) (+ a b 10))))
