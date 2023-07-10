@@ -46,7 +46,7 @@
 (define (struct struct-name fields . options)
 
   ;; Add a field for storing the options, and for the index to the func
-  (define field-count (+ 2 (length fields)))
+  (define field-count (length fields))
   ;; Mark whether this is actually a mutable and transparent struct, and
   ;; then drain the values from the
   (define mutable? (contains? mutable-keyword? options))
@@ -81,6 +81,8 @@
        (define ,(concat-symbols '___ struct-name '-options___)
          (hash ,@(hash->list options-map)))
        (define ,struct-name 'unintialized)
+       (define ,(concat-symbols 'struct: struct-name)
+         'uninitialized)
        (define ,(concat-symbols struct-name '?)
          'uninitialized)
        ,@(map (lambda (field)
@@ -97,12 +99,19 @@
              (list))
 
        (let ([prototypes (make-struct-type (quote ,struct-name) ,field-count)])
-         (let ([constructor-proto (list-ref prototypes 0)]
-               [predicate-proto (list-ref prototypes 1)]
-               [getter-proto (list-ref prototypes 2)]
-               [setter-proto (list-ref prototypes 3)])
+         (let ([struct-type-descriptor (list-ref prototypes 0)]
+               [constructor-proto (list-ref prototypes 1)]
+               [predicate-proto (list-ref prototypes 2)]
+               [getter-proto (list-ref prototypes 3)]
+               [setter-proto (list-ref prototypes 4)])
 
-           ,(new-make-constructor struct-name maybe-procedure-field fields)
+           (set! ,(concat-symbols 'struct: struct-name) struct-type-descriptor)
+           (#%vtable-update-entry! struct-type-descriptor
+                                   ,maybe-procedure-field
+                                   ,(concat-symbols '___ struct-name '-options___))
+
+           (set! ,struct-name constructor-proto)
+
            ,(new-make-predicate struct-name fields)
            ,@(new-make-getters struct-name fields)
            ;; If this is a mutable struct, generate the setters
@@ -112,11 +121,11 @@
 (define (new-make-predicate struct-name fields)
   `(set! ,(concat-symbols struct-name '?) predicate-proto))
 
-(define (new-make-constructor struct-name procedure-index fields)
-  `(set!
-    ,struct-name
-    (lambda ,fields
-      (constructor-proto ,(concat-symbols '___ struct-name '-options___) ,procedure-index ,@fields))))
+; (define (new-make-constructor struct-name procedure-index fields)
+;   `(set!
+;     ,struct-name
+;     (lambda ,fields
+;       (constructor-proto ,(concat-symbols '___ struct-name '-options___) ,procedure-index ,@fields))))
 
 (define (new-make-getters struct-name fields)
   (map (lambda (field)

@@ -477,12 +477,12 @@ fn vector_module() -> BuiltInModule {
 
 #[steel_derive::function(name = "int?", constant = true)]
 fn intp(value: &SteelVal) -> bool {
-    matches!(value, SteelVal::BoolV(_))
+    matches!(value, SteelVal::IntV(_))
 }
 
 #[steel_derive::function(name = "integer?", constant = true)]
 fn integerp(value: &SteelVal) -> bool {
-    matches!(value, SteelVal::BoolV(_))
+    matches!(value, SteelVal::IntV(_))
 }
 
 #[steel_derive::function(name = "float?", constant = true)]

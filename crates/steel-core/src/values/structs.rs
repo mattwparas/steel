@@ -3,7 +3,10 @@
 
 use im_rc::HashMap;
 
+use crate::compiler::map::SymbolMap;
 use crate::parser::interner::InternedString;
+use crate::rvals::Custom;
+use crate::steel_vm::register_fn::RegisterFn;
 use crate::throw;
 use crate::{
     core::utils::Boxed,
@@ -31,6 +34,26 @@ enum StringOrMagicNumber {
     Magic(usize),
 }
 
+pub struct VTableEntry {
+    name: InternedString,
+    properties: Gc<im_rc::HashMap<SteelVal, SteelVal>>,
+    proc: Option<usize>,
+    transparent: bool,
+    mutable: bool,
+}
+
+impl VTableEntry {
+    pub fn new(name: InternedString, proc: Option<usize>) -> Self {
+        Self {
+            name,
+            proc,
+            properties: DEFAULT_PROPERTIES.with(|x| x.clone()),
+            transparent: false,
+            mutable: false,
+        }
+    }
+}
+
 // If they're built in, we want to package the values alongside the
 #[derive(Debug, Clone, Hash)]
 pub enum Properties {
@@ -48,25 +71,30 @@ impl Properties {
     }
 }
 
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+// Wrap the usize, store this and this only. We use this as an index into the VTable.
+pub struct StructTypeDescriptor(usize);
+
+impl Custom for StructTypeDescriptor {}
+
 #[derive(Clone, Debug, Hash)]
 pub struct UserDefinedStruct {
-    // Consider using an interned string here directly, rather than
-    // a fake arc string.
-    // pub(crate) name: Arc<String>,
     pub(crate) name: InternedString,
-    pub(crate) fields: smallvec::SmallVec<[SteelVal; 5]>,
-    pub(crate) properties: Properties, // pub(crate) properties: Gc<im_rc::HashMap<SteelVal, SteelVal>>,
 
-    // Whether to treat this struct as a procedure
-    pub(crate) proc: Option<usize>,
+    // TODO: Consider using... just a vec here.
+    pub(crate) fields: smallvec::SmallVec<[SteelVal; 5]>,
+
+    // Type Descriptor. Use this as an index into the VTable to find anything that we need.
+    pub(crate) type_descriptor: StructTypeDescriptor,
 }
 
 // TODO: This could blow the stack for big trees...
 impl PartialEq for UserDefinedStruct {
     fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
+        self.type_descriptor == other.type_descriptor
+            && self.name == other.name
             && self.fields == other.fields
-            && Properties::ptr_eq(&self.properties, &other.properties)
+        // && Properties::ptr_eq(&self.properties, &other.properties)
     }
 }
 
@@ -251,43 +279,69 @@ impl ImmutableMaybeHeapVec {
 }
 
 impl UserDefinedStruct {
-    fn new(name: InternedString, fields: &[SteelVal]) -> Result<Self> {
-        let (options, rest) = fields.split_first().ok_or_else(
-            throw!(ArityMismatch => "struct constructor expects at least one argument"),
-        )?;
+    fn new(
+        name: InternedString,
+        type_descriptor: StructTypeDescriptor,
+        fields: &[SteelVal],
+    ) -> Self {
+        // let (options, rest) = fields.split_first().ok_or_else(
+        //     throw!(ArityMismatch => "struct constructor expects at least one argument"),
+        // )?;
 
-        let (proc, rest) = rest.split_first().ok_or_else(
-            throw!(ArityMismatch => "struct constructor expects at least one argument"),
-        )?;
+        // let (proc, rest) = rest.split_first().ok_or_else(
+        //     throw!(ArityMismatch => "struct constructor expects at least one argument"),
+        // )?;
+
+        // todo!()
+
+        Self {
+            name,
+            fields: fields.into(),
+            // properties: Properties::BuiltIn,
+            // proc: None,
+            type_descriptor,
+        }
+
+        // Ok(Self {
+
+        // })
 
         // TODO: Don't use a hashmap for these properties. Probably best to have some kind of fixed purpose
         // data structure? A hashmap is also fine, but something that is required to be constructed with only
         // constants could be helpful.
-        if let SteelVal::HashMapV(properties) = options.clone() {
-            // Don't do this - we don't want to have to do a hash every time?
-            // let proc = PROC_PROPERTY.with(|property_keyword| {
-            //     properties
-            //         .get(property_keyword)
-            //         .and_then(|value| value.as_usize())
-            // });
+        // if let SteelVal::HashMapV(properties) = options.clone() {
+        // Don't do this - we don't want to have to do a hash every time?
+        // let proc = PROC_PROPERTY.with(|property_keyword| {
+        //     properties
+        //         .get(property_keyword)
+        //         .and_then(|value| value.as_usize())
+        // });
 
-            Ok(Self {
-                name,
-                fields: rest.into(),
-                // len: fields.len(),
-                properties: Properties::Local(properties),
-                proc: proc.as_usize(),
-            })
-        } else {
-            stop!(TypeMismatch => format!("struct constructor expected a hashmap, found: {options}"))
-        }
+        // Ok(Self {
+        // name,
+        // fields: rest.into(),
+        // len: fields.len(),
+        // properties: Properties::Local(properties),
+        // proc: proc.as_usize(),
+        // type_descriptor,
+        // })
+        // } else {
+        // stop!(TypeMismatch => format!("struct constructor expected a hashmap, found: {options}"))
+        // }
     }
 
     pub(crate) fn get(&self, val: &SteelVal) -> Option<SteelVal> {
-        match &self.properties {
-            Properties::BuiltIn => VTable::get(&self.name).and_then(|x| x.get(val).cloned()),
-            Properties::Local(p) => p.get(val).cloned(),
-        }
+        VTABLE.with(|x| {
+            x.borrow().entries[self.type_descriptor.0]
+                .properties
+                .get(val)
+                .cloned()
+        })
+
+        // match &self.properties {
+        // Properties::BuiltIn => VTable::get(&self.name).and_then(|x| x.get(val).cloned()),
+        // Properties::Local(p) => p.get(val).cloned(),
+        // }
     }
 
     #[inline(always)]
@@ -319,16 +373,29 @@ impl UserDefinedStruct {
     }
 
     pub(crate) fn maybe_proc(&self) -> Option<&SteelVal> {
-        self.proc.as_ref().map(|s| &self.fields[*s])
+        // self.proc.as_ref().map(|s| &self.fields[*s])
+
+        VTABLE.with(|x| {
+            x.borrow().entries[self.type_descriptor.0]
+                .proc
+                .as_ref()
+                .map(|s| &self.fields[*s])
+        })
     }
 
-    fn new_with_options(name: InternedString, properties: Properties, rest: &[SteelVal]) -> Self {
+    fn new_with_options(
+        name: InternedString,
+        properties: Properties,
+        type_descriptor: StructTypeDescriptor,
+        rest: &[SteelVal],
+    ) -> Self {
         Self {
             name,
             fields: rest.into(),
             // len: rest.len() + 1,
-            properties,
-            proc: None,
+            // properties,
+            // proc: None,
+            type_descriptor,
         }
     }
 
@@ -336,6 +403,7 @@ impl UserDefinedStruct {
         name: InternedString,
         // options: Properties,
         len: usize,
+        descriptor: StructTypeDescriptor,
     ) -> impl Fn(&[SteelVal]) -> Result<SteelVal> {
         move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != len {
@@ -348,7 +416,8 @@ impl UserDefinedStruct {
                 stop!(ArityMismatch => error_message);
             }
 
-            let new_struct = UserDefinedStruct::new_with_options(name, Properties::BuiltIn, args);
+            let new_struct =
+                UserDefinedStruct::new_with_options(name, Properties::BuiltIn, descriptor, args);
 
             Ok(SteelVal::CustomStruct(Gc::new(RefCell::new(new_struct))))
         }
@@ -359,6 +428,7 @@ impl UserDefinedStruct {
         // options: Gc<HashMap<SteelVal, SteelVal>>,
         // options: Properties,
         len: usize,
+        descriptor: StructTypeDescriptor,
     ) -> SteelVal {
         // let out_name = Arc::clone(&name);
 
@@ -373,7 +443,8 @@ impl UserDefinedStruct {
                 stop!(ArityMismatch => error_message);
             }
 
-            let new_struct = UserDefinedStruct::new_with_options(name, Properties::BuiltIn, args);
+            let new_struct =
+                UserDefinedStruct::new_with_options(name, Properties::BuiltIn, descriptor, args);
 
             Ok(SteelVal::CustomStruct(Gc::new(RefCell::new(new_struct))))
         };
@@ -385,7 +456,11 @@ impl UserDefinedStruct {
         )))
     }
 
-    fn constructor(name: InternedString, len: usize) -> SteelVal {
+    fn constructor(
+        name: InternedString,
+        len: usize,
+        type_descriptor: StructTypeDescriptor,
+    ) -> SteelVal {
         // let out_name = Arc::clone(&name);
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
@@ -401,7 +476,7 @@ impl UserDefinedStruct {
 
             // Definitely use interned symbols for these. Otherwise we're going to be doing A LOT of
             // arc cloning, and we don't want that.
-            let new_struct = UserDefinedStruct::new(name, args)?;
+            let new_struct = UserDefinedStruct::new(name, type_descriptor, args);
 
             Ok(SteelVal::CustomStruct(Gc::new(RefCell::new(new_struct))))
         };
@@ -599,18 +674,28 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
         stop!(TypeMismatch => format!("make-struct-type expected an integer for the field count, found: {}", &args[0]));
     }?;
 
+    // Make a slot in the VTable for this struct
+    let struct_type_descriptor = VTable::new_entry(name, None);
+
     // Build out the constructor and the predicate
-    let struct_constructor = UserDefinedStruct::constructor(name, *field_count as usize);
+    let struct_constructor =
+        UserDefinedStruct::constructor(name, *field_count as usize, struct_type_descriptor);
     let struct_predicate = UserDefinedStruct::predicate(name);
 
     let getter_prototype = UserDefinedStruct::getter_prototype(name);
     let setter_prototype = UserDefinedStruct::setter_prototype(name);
 
+    // We do not have the properties yet. Should probably intern the
+    // let struct_type_id = new_type_id(name, address_or_name)
+
     Ok(SteelVal::ListV(im_lists::list![
+        // Convert this into a descriptor before we're done
+        struct_type_descriptor.into_steelval().unwrap(),
         struct_constructor,
         struct_predicate,
         getter_prototype,
-        setter_prototype
+        setter_prototype,
+        // struct_type_descriptor,
     ]))
 }
 
@@ -648,36 +733,36 @@ struct SteelTraitImplementation {}
 //     }
 // }
 
-fn new_type_id(type_name: InternedString, address_or_name: SteelVal) -> Result<SteelVal> {
-    UserDefinedStruct::constructor_thunk(*TYPE_ID, 2)(&[
-        type_name.as_u32().into_steelval().unwrap(),
-        address_or_name,
-    ])
-}
+// fn new_type_id(type_name: InternedString, address_or_name: SteelVal) -> Result<SteelVal> {
+//     UserDefinedStruct::constructor_thunk(*TYPE_ID, 2)(&[
+//         type_name.as_u32().into_steelval().unwrap(),
+//         address_or_name,
+//     ])
+// }
 
-#[steel_derive::function(name = "value->type-id")]
-fn custom_type_id(value: &SteelVal) -> Result<SteelVal> {
-    match value {
-        SteelVal::CustomStruct(s) => {
-            let guard = s.borrow();
+// #[steel_derive::function(name = "value->type-id")]
+// fn custom_type_id(value: &SteelVal) -> Result<SteelVal> {
+//     match value {
+//         SteelVal::CustomStruct(s) => {
+//             let guard = s.borrow();
 
-            match &guard.properties {
-                Properties::BuiltIn => {
-                    // Return a special struct representing the type id for the type id
-                    new_type_id(
-                        guard.name,
-                        SteelVal::IntV((-1 * (guard.name.as_u32() as isize))),
-                    )
-                }
-                Properties::Local(p) => {
-                    // Return a special struct representing the type id for the type id
-                    new_type_id(guard.name, SteelVal::IntV((p.as_ptr() as usize) as isize))
-                }
-            }
-        }
-        _ => todo!(),
-    }
-}
+//             match &guard.properties {
+//                 Properties::BuiltIn => {
+//                     // Return a special struct representing the type id for the type id
+//                     new_type_id(
+//                         guard.name,
+//                         SteelVal::IntV((-1 * (guard.name.as_u32() as isize))),
+//                     )
+//                 }
+//                 Properties::Local(p) => {
+//                     // Return a special struct representing the type id for the type id
+//                     new_type_id(guard.name, SteelVal::IntV((p.as_ptr() as usize) as isize))
+//                 }
+//             }
+//         }
+//         _ => todo!(),
+//     }
+// }
 
 // Thread local v-table reference.
 // Rather than have structs hold their options directly, we will include a map which
@@ -688,15 +773,47 @@ pub struct VTable {
     map: fxhash::FxHashMap<InternedString, Gc<im_rc::HashMap<SteelVal, SteelVal>>>,
 
     traits: fxhash::FxHashMap<InternedString, fxhash::FxHashMap<InternedString, Vec<SteelVal>>>,
+
+    entries: Vec<VTableEntry>,
 }
 
 impl VTable {
     fn insert(name: InternedString, options: Gc<im_rc::HashMap<SteelVal, SteelVal>>) {
-        VTABLE.with(|x| x.write().unwrap().map.insert(name, options));
+        VTABLE.with(|x| x.borrow_mut().map.insert(name, options));
     }
 
     fn get(name: &InternedString) -> Option<Gc<im_rc::HashMap<SteelVal, SteelVal>>> {
-        VTABLE.with(|x| x.read().unwrap().map.get(name).cloned())
+        VTABLE.with(|x| x.borrow().map.get(name).cloned())
+    }
+
+    // Returns a type descriptor, in this case it is just a usize
+    fn new_entry(name: InternedString, proc: Option<usize>) -> StructTypeDescriptor {
+        VTABLE.with(|x| {
+            let mut guard = x.borrow_mut();
+            let length = guard.entries.len();
+
+            guard.entries.push(VTableEntry::new(name, proc));
+
+            StructTypeDescriptor(length)
+        })
+    }
+
+    //
+    fn set_entry(
+        descriptor: &StructTypeDescriptor,
+        proc: Option<usize>,
+        properties: Gc<im_rc::HashMap<SteelVal, SteelVal>>,
+    ) {
+        VTABLE.with(|x| {
+            let mut guard = x.borrow_mut();
+
+            let index = descriptor.0;
+
+            let value = &mut guard.entries[index];
+
+            value.proc = proc;
+            value.properties = properties;
+        })
     }
 
     // fn define_trait()
@@ -710,6 +827,9 @@ lazy_static::lazy_static! {
     pub static ref SOME_OPTION_LABEL: InternedString = "Some".into();
     pub static ref NONE_OPTION_LABEL: InternedString = "None".into();
     pub static ref TYPE_ID: InternedString = "TypeId".into();
+
+
+    pub static ref STRUCT_DEFINITIONS: Arc<std::sync::RwLock<SymbolMap>> = Arc::new(std::sync::RwLock::new(SymbolMap::default()));
 }
 
 // TODO: Just make these Arc'd and lazy static instead of thread local.
@@ -718,7 +838,7 @@ thread_local! {
     // Consult this to get values. It is possible, the vtable is _not_ populated for a given thread.
     // The only way that can happen is if a struct is constructed on another thread?
     // The value inside should explicitly be a thread safe value.
-    pub static VTABLE: Arc<std::sync::RwLock<VTable>> = {
+    pub static VTABLE: Rc<RefCell<VTable>> = {
 
         let mut map = fxhash::FxHashMap::default();
 
@@ -732,11 +852,19 @@ thread_local! {
         map.insert("None".into(), result_options.clone());
         map.insert("TypeId".into(), result_options.clone());
 
-        Arc::new(std::sync::RwLock::new(VTable {
+        Rc::new(RefCell::new(VTable {
             map,
-            traits: fxhash::FxHashMap::default()
+            traits: fxhash::FxHashMap::default(),
+            entries: Vec::new(),
         }))
     };
+
+    pub static DEFAULT_PROPERTIES: Gc<im_rc::HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::HashMap::new());
+
+    pub static OK_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*OK_RESULT_LABEL, None);
+    pub static ERR_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*ERR_RESULT_LABEL, None);
+    pub static SOME_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*SOME_OPTION_LABEL, None);
+    pub static NONE_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*NONE_OPTION_LABEL, None);
 
 
     // pub static OK_RESULT_LABEL: Rc<String> = Rc::new("Ok".into());
@@ -749,6 +877,7 @@ thread_local! {
             *OK_RESULT_LABEL,
             // RESULT_OPTIONS.with(|x| Gc::clone(x)),
             1,
+            OK_DESCRIPTOR.with(|x| *x),
         )))
     };
 
@@ -759,6 +888,7 @@ thread_local! {
             *ERR_RESULT_LABEL,
             // RESULT_OPTIONS.with(|x| Gc::clone(x)),
             1,
+            ERR_DESCRIPTOR.with(|x| *x),
         )))
     };
 
@@ -774,6 +904,7 @@ thread_local! {
             *SOME_OPTION_LABEL,
             // OPTION_OPTIONS.with(|x| Gc::clone(x)),
             1,
+            SOME_DESCRIPTOR.with(|x| *x),
         )))
     };
 
@@ -784,6 +915,7 @@ thread_local! {
             *NONE_OPTION_LABEL,
             // OPTION_OPTIONS.with(|x| Gc::clone(x)),
             0,
+            NONE_DESCRIPTOR.with(|x| *x),
         )))
     };
 }
@@ -793,13 +925,20 @@ pub(crate) fn build_type_id_module() -> BuiltInModule {
 
     let name = *TYPE_ID;
 
+    let type_descriptor = VTable::new_entry(name, None);
+
     // Build the getter for the first index
     let getter = UserDefinedStruct::getter_prototype_index(name, 0);
     let predicate = UserDefinedStruct::predicate(name);
 
-    let constructor = Arc::new(UserDefinedStruct::constructor_thunk(name, 2));
+    let constructor = Arc::new(UserDefinedStruct::constructor_thunk(
+        name,
+        2,
+        type_descriptor,
+    ));
 
     module
+        .register_fn("#%vtable-update-entry!", VTable::set_entry)
         // .register_value(
         //     "TypeId",
         //     SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
@@ -808,8 +947,8 @@ pub(crate) fn build_type_id_module() -> BuiltInModule {
         //         Some(2),
         //     ))),
         // )
-        .register_value("TypeId?", predicate)
-        .register_native_fn_definition(CUSTOM_TYPE_ID_DEFINITION);
+        .register_value("TypeId?", predicate);
+    // .register_native_fn_definition(CUSTOM_TYPE_ID_DEFINITION);
 
     module
 }
@@ -825,6 +964,8 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
         let getter = UserDefinedStruct::getter_prototype_index(name, 0);
         let predicate = UserDefinedStruct::predicate(name);
 
+        // VTable::set_entry(OK_DESCRIPTOR, None, )
+
         module
             .register_value(
                 "Ok",
@@ -833,6 +974,7 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
                         // Rc::clone(&name),
                         name, // RESULT_OPTIONS.with(|x| Gc::clone(x)),
                         1,
+                        OK_DESCRIPTOR.with(|x| *x),
                     )),
                     // Some(Rc::clone(&name)),
                     Some(name.resolve().to_string().into()),
@@ -860,6 +1002,7 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
                         // Rc::clone(&name),
                         name, // RESULT_OPTIONS.with(|x| Gc::clone(x)),
                         1,
+                        ERR_DESCRIPTOR.with(|x| *x),
                     )),
                     Some(name.resolve().to_string().into()),
                     Some(1),
@@ -892,6 +1035,7 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
                         // Rc::clone(&name),
                         name, // OPTION_OPTIONS.with(|x| Gc::clone(x)),
                         1,
+                        SOME_DESCRIPTOR.with(|x| *x),
                     )),
                     Some(name.resolve().to_string().into()),
                     Some(1),
@@ -914,6 +1058,7 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
                     Arc::new(UserDefinedStruct::constructor_thunk(
                         name, // OPTION_OPTIONS.with(|x| Gc::clone(x)),
                         1,
+                        NONE_DESCRIPTOR.with(|x| *x),
                     )),
                     Some(name.resolve().to_string().into()),
                     Some(0),

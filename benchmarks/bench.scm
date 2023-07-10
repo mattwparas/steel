@@ -1,71 +1,52 @@
 (define print displayln)
 
-
 (define (build-release)
-    (~> (command "cargo" '("build" "--release"))
-        (spawn-process)
-        (Ok->value)
-        (wait)))
+  (~> (command "cargo" '("build" "--release")) (spawn-process) (Ok->value) (wait)))
 
 (define (run-bench args)
-    (~> (command "hyperfine" args)
-        (spawn-process)
-        (Ok->value)
-        (wait)))
+  (~> (command "hyperfine" args) (spawn-process) (Ok->value) (wait)))
 
-(define *interpreter-map*
-    (hash "py" "python3.10"
-          "scm" "../target/release/steel"
-          "lua" "lua"))
+(define *interpreter-map* (hash "py" "python3.10" "scm" "../target/release/steel" "lua" "lua"))
 
 (define (extension->interpreter ext)
-    (hash-get *interpreter-map* ext))
+  (hash-get *interpreter-map* ext))
 
 (define (combine-interpreter-and-path interpreter path)
-    (string-append (string-append interpreter " ") path))
+  (string-append (string-append interpreter " ") path))
 
 (define (path->command-fragment path)
-    (define interpreter (~> path 
-                          (path->extension) 
-                          (extension->interpreter)))
-    (if (list? interpreter)
-        (map (lambda (interp) (combine-interpreter-and-path interp path)) interpreter)
-        (combine-interpreter-and-path interpreter path)))
+  (define interpreter (~> path (path->extension) (extension->interpreter)))
+  (if (list? interpreter)
+      (map (lambda (interp) (combine-interpreter-and-path interp path)) interpreter)
+      (combine-interpreter-and-path interpreter path)))
 
 (define (directory->bench-command dir)
-    (flatten (map path->command-fragment (read-dir dir))))
+  (flatten (map path->command-fragment (read-dir dir))))
 
 (define (bench-group dir . options)
-    (run-bench (append (filter (lambda (x) (not (ends-with? x ".lua"))) (directory->bench-command dir)) options)))
+  (run-bench (append (filter (lambda (x) (not (ends-with? x ".lua"))) (directory->bench-command dir))
+                     options)))
 
 (define *benches*
-    '(
-        ("startup" "--warmup" "10" "--min-runs" "100" "--export-markdown" "warmup.md")
-        ("map" "--warmup" "10")
-        ("ack" "--warmup" "10")
-        ("fib" "--warmup" "10" "--min-runs" "40" "--export-markdown" "fib.md")
-
-
-
-    )
-
-)
+  '(("startup" "--warmup" "10" "--min-runs" "100") ("map" "--warmup" "10")
+                                                   ("ack" "--warmup" "10")
+                                                   ("fib" "--warmup" "10" "--min-runs" "40")
+                                                   ("bin-trees" "--warmup" "10")))
 
 (define (main)
-    (print "Building steel for release...")
-    (build-release)
-    (print "Running benches...")
-    (transduce *benches* 
-               (mapping (lambda (args) 
-                                    (newline)    
-                                    (apply bench-group args)))
-               (into-list))
+  (print "Building steel for release...")
+  (build-release)
+  (print "Running benches...")
+  (transduce *benches*
+             (mapping (lambda (args)
+                        (newline)
+                        (apply bench-group args)))
+             (into-list))
 
-    ; (bench-group "bin-trees")
-    (print "Done"))
+  ; (bench-group "bin-trees")
+  (print "Done"))
 
 (main)
-
 
 ; (define (main)
 ;     (displayln "Building steel for release...")
