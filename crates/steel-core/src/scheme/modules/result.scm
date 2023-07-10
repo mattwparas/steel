@@ -11,7 +11,7 @@
          ; (contract/out unwrap-ok (->/c Ok? any/c))
          unwrap-ok
          (contract/out unwrap-err (->/c Err? any/c))
-         (contract/out map-ok (->/c Result? (->c any/c any/c) Result?))
+         (contract/out map-ok (->/c Result? (->/c any/c any/c) Result?))
          (contract/out map-err (->/c Result? (->/c any/c any/c) Result?))
          unwrap-or)
 
