@@ -798,7 +798,7 @@ impl VTable {
         })
     }
 
-    //
+    // Updates the entry with the now available property information
     fn set_entry(
         descriptor: &StructTypeDescriptor,
         proc: Option<usize>,
@@ -812,6 +812,17 @@ impl VTable {
             let value = &mut guard.entries[index];
 
             value.proc = proc;
+
+            // TODO: Lift these strings to the thread local
+            value.transparent = properties
+                .get(&TRANSPARENT_KEY.with(|x| x.clone()))
+                .and_then(|x| x.as_bool())
+                .unwrap_or_default();
+            value.mutable = properties
+                .get(&MUTABLE_KEY.with(|x| x.clone()))
+                .and_then(|x| x.as_bool())
+                .unwrap_or_default();
+
             value.properties = properties;
         })
     }
@@ -834,6 +845,9 @@ lazy_static::lazy_static! {
 
 // TODO: Just make these Arc'd and lazy static instead of thread local.
 thread_local! {
+
+    pub static TRANSPARENT_KEY: SteelVal = SteelVal::SymbolV("#:transparent".into());
+    pub static MUTABLE_KEY: SteelVal = SteelVal::SymbolV("#:mutable".into());
 
     // Consult this to get values. It is possible, the vtable is _not_ populated for a given thread.
     // The only way that can happen is if a struct is constructed on another thread?
