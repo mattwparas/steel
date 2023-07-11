@@ -860,6 +860,10 @@ thread_local! {
     };
 
     pub static DEFAULT_PROPERTIES: Gc<im_rc::HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::HashMap::new());
+    pub static STANDARD_OPTIONS: Gc<im_rc::HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
+            SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
+    });
+
 
     pub static OK_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*OK_RESULT_LABEL, None);
     pub static ERR_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*ERR_RESULT_LABEL, None);
@@ -964,6 +968,17 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
         let getter = UserDefinedStruct::getter_prototype_index(name, 0);
         let predicate = UserDefinedStruct::predicate(name);
 
+        VTable::set_entry(
+            &OK_DESCRIPTOR.with(|x| *x),
+            None,
+            STANDARD_OPTIONS.with(|x| x.clone()),
+        );
+
+        VTable::set_entry(
+            &ERR_DESCRIPTOR.with(|x| *x),
+            None,
+            STANDARD_OPTIONS.with(|x| x.clone()),
+        );
         // VTable::set_entry(OK_DESCRIPTOR, None, )
 
         module
@@ -1018,6 +1033,18 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
 pub(crate) fn build_option_structs() -> BuiltInModule {
     // Build module
     let mut module = BuiltInModule::new("steel/core/option".to_string());
+
+    VTable::set_entry(
+        &SOME_DESCRIPTOR.with(|x| *x),
+        None,
+        STANDARD_OPTIONS.with(|x| x.clone()),
+    );
+
+    VTable::set_entry(
+        &NONE_DESCRIPTOR.with(|x| *x),
+        None,
+        STANDARD_OPTIONS.with(|x| x.clone()),
+    );
 
     {
         // let name = SOME_OPTION_LABEL.with(|x| Rc::clone(x));
