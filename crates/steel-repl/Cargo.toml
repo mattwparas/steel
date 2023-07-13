@@ -1,6 +1,6 @@
 [package]
 name = "steel-repl"
-version = "0.4.0"
+version.workspace = true
 authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
@@ -13,7 +13,5 @@ description = "REPL library for steel"
 rustyline = "10.1.1"
 rustyline-derive = "0.7.0"
 colored = "2.0.0"
-# steel = { path = "../steel", features = ["modules", "jit"] }
-steel-core = { path = "../steel-core", version = "0.4.0", features = ["modules"] }
-# ctrlc = "3.2.2"
+steel-core = { workspace = true }
 steel-parser = { path = "../steel-parser", version = "0.2.0"}

@@ -1239,6 +1239,10 @@ impl SteelVal {
     pub fn is_contract(&self) -> bool {
         matches!(self, Contract(_))
     }
+
+    pub fn empty_hashmap() -> SteelVal {
+        SteelVal::HashMapV(Gc::new(HashMap::new()))
+    }
 }
 
 impl SteelVal {

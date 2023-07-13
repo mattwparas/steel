@@ -1,21 +1,27 @@
 [package]
 name = "steel-interpreter"
-version = "0.4.0"
+version.workspace = true
 authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/mattwparas/steel"
 description = "Steel repl and command line interface"
 
+[workspace.package]
+version = "0.4.0"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [[bin]]
 name = "steel"
 path = "src/main.rs"
 
+[workspace.dependencies]
+# This has to line up with the workspace version above
+steel-core = { path = "./crates/steel-core", version = "0.4.0", features = ["web", "sqlite", "blocking_requests", "dylibs"] }
+
 [dependencies]
 once_cell = "1.17.0"
-steel-core = { path = "./crates/steel-core", version = "0.4.0", features = ["web", "sqlite", "blocking_requests", "dylibs"] }
-# steel-core = { path = "./crates/steel-core", version = "0.2.0", feautres = [] }
+steel-core = { workspace = true } 
 steel-derive = { path = "./crates/steel-derive", version = "0.2.0"}
 steel-repl = { path = "./crates/steel-repl", version = "0.4.0" }
 env_logger = "0.10.0"
