@@ -17,7 +17,7 @@ declare_const_ref_functions!(
     // HM_TRY_GET => hm_try_get,
     // HM_LENGTH => hm_length,
     // HM_CONTAINS => steel_hash_contains,
-    HM_KEYS_TO_LIST => keys_to_list,
+    // HM_KEYS_TO_LIST => keys_to_list,
     HM_VALUES_TO_LIST => values_to_list,
     HM_KEYS_TO_VEC => keys_to_vector,
     HM_VALUES_TO_VEC => values_to_vector,
@@ -37,7 +37,7 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
         .register_native_fn_definition(HASH_TRY_GET_DEFINITION)
         .register_native_fn_definition(HASH_LENGTH_DEFINITION)
         .register_native_fn_definition(HASH_CONTAINS_DEFINITION)
-        .register_value_with_doc("hash-keys->list", HM_KEYS_TO_LIST, HASH_KEYS_TO_LIST_DOC)
+        .register_native_fn_definition(KEYS_TO_LIST_DEFINITION)
         .register_value("hash-keys->vector", HM_KEYS_TO_VEC)
         .register_value_with_doc(
             "hash-values->list",
@@ -155,7 +155,7 @@ pub fn hash_insert(
 ///
 /// # Examples
 /// ```scheme
-/// > (hash-get (hash 'a 10 'b 20) 'b) ;; => 20
+/// > (hash-ref (hash 'a 10 'b 20) 'b) ;; => 20
 /// ```
 #[function(name = "hash-ref")]
 pub fn hash_ref(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> Result<SteelVal> {
@@ -228,25 +228,22 @@ pub fn hash_contains(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> R
     }
 }
 
-const HASH_KEYS_TO_LIST_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(hash-keys->list? map) -> (listof hashable?)?",
-    params: &["map : hash?"],
-    description: r#"Returns the keys of the given hash map as a list"#,
-    examples: &[("> (hash-keys->list? (hash 'a 10 'b 20) 'a)", r#"=> '(a b)"#)],
-};
-
-pub fn keys_to_list(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => "hm-keys->list takes 1 argument")
-    }
-
-    let hashmap = &args[0];
-
-    if let SteelVal::HashMapV(hm) = hashmap {
-        Ok(SteelVal::ListV(hm.keys().cloned().collect()))
-    } else {
-        stop!(TypeMismatch => "hm-keys->list takes a hashmap")
-    }
+/// Returns the keys of the given hash map as a list.
+///
+/// ```scheme
+/// (hash-keys->list map) -> (listof hashable?)
+/// ```
+///
+/// * map : hash?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (hash-keys->list? (hash 'a 'b 20)) ;; => '(a b)
+/// ```
+#[function(name = "hash-keys->list")]
+pub fn keys_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
+    Ok(SteelVal::ListV(hashmap.keys().cloned().collect()))
 }
 
 const HASH_VALUES_TO_LIST_DOC: DocTemplate<'static> = DocTemplate {

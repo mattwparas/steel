@@ -15,7 +15,7 @@ fn char_upcase(c: char) -> char {
 ///
 /// Strings in Steel are immutable, fixed length arrays of characters. They are heap allocated,
 /// and are implemented under the hood as referenced counted rust `Strings`.
-// #[steel_derive::define_module(name = "steel/strings")]
+#[steel_derive::define_module(name = "steel/strings")]
 pub fn string_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/strings");
     module
