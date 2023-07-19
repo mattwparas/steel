@@ -21,3 +21,4 @@
 (symbol? "nop")
 (vector? '(1 2 3))
 (list? 'a)
+list
