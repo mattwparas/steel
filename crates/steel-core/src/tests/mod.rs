@@ -87,6 +87,7 @@ test_harness_success! {
     permutations,
     quicksort,
     read,
+    require_alias,
     require_only_in,
     require_prefix,
     result,
