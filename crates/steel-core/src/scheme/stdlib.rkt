@@ -353,12 +353,12 @@
 (define (zero? n) (= n 0))
 
 ;; currently broken, doesn't work properly
-(defn (take lst n)
-  (defn (loop x l acc)
-    (if (= x 0)
-        acc
-        (loop (- x 1) (cdr l) (cons (car l) acc))))
-  (loop n lst (list)))
+; (defn (take lst n)
+;   (defn (loop x l acc)
+;     (if (= x 0)
+;         acc
+;         (loop (- x 1) (cdr l) (cons (car l) acc))))
+;   (loop n lst (list)))
 
 (define (drop lst n)
   (define (loop x l)

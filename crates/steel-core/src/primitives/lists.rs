@@ -14,7 +14,6 @@ use crate::core::utils::{
 };
 
 declare_const_ref_functions! {
-    LENGTH => length,
     REVERSE => reverse,
     LAST => last,
     TRY_LIST_REF => try_list_ref,
@@ -80,7 +79,7 @@ pub fn list_module() -> BuiltInModule {
         .register_native_fn_definition(NEW_DEFINITION)
         .register_value_with_doc("cons", crate::primitives::lists::CONS, CONS_DOC)
         .register_native_fn_definition(RANGE_DEFINITION)
-        .register_value_with_doc("length", crate::primitives::lists::LENGTH, LENGTH_DOC)
+        .register_native_fn_definition(LENGTH_DEFINITION)
         .register_value_with_doc("last", crate::primitives::lists::LAST, LAST_DOC)
         .register_native_fn_definition(IS_EMPTY_DEFINITION)
         .register_native_fn_definition(FIRST_DEFINITION)
@@ -98,7 +97,8 @@ pub fn list_module() -> BuiltInModule {
         .register_value_with_doc("apply", TEST_APPLY, APPLY_DOC)
         .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE)
         .register_native_fn_definition(SECOND_DEFINITION)
-        .register_native_fn_definition(THIRD_DEFINITION);
+        .register_native_fn_definition(THIRD_DEFINITION)
+        .register_native_fn_definition(TAKE_DEFINITION);
 
     module
 }
@@ -277,28 +277,19 @@ fn range(lower: isize, upper: isize) -> Result<SteelVal> {
     ))
 }
 
-pub(crate) const LENGTH_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(length l) -> int?",
-    params: &["l : list?"],
-    description: r#"Returns the length of the list."#,
-    examples: &[
-        ("λ > (length (list 1 2 3 4 5))", "=> 5"),
-        ("λ > (length (range 0 10))", "=> 10"),
-    ],
-};
-
-fn length(args: &[SteelVal]) -> Result<SteelVal> {
-    arity_check!(length, args, 1);
-
-    if let SteelVal::ListV(l) = &args[0] {
-        Ok(l.len().into())
-    } else {
-        stop!(TypeMismatch => "length expects a list, found: {:?}", &args[0])
-    }
-}
-
+/// Returns the length of the list.
+///
+/// (length l) -> int?
+///
+/// * l : list?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (length (list 10 20 30)) ;; => 3
+/// ```
 #[steel_derive::function(name = "length")]
-fn custom_length(list: &List<SteelVal>) -> usize {
+fn length(list: &List<SteelVal>) -> usize {
     list.len()
 }
 
@@ -448,17 +439,25 @@ fn rest(args: &mut [SteelVal]) -> Result<SteelVal> {
     }
 }
 
-pub fn take(args: &[SteelVal]) -> Result<SteelVal> {
-    arity_check!(take, args, 2);
-
-    if let (SteelVal::ListV(l), SteelVal::IntV(n)) = (&args[0], &args[1]) {
-        if *n < 0 {
-            stop!(Generic => "take expects a positive integer")
-        } else {
-            Ok(SteelVal::ListV(l.take(*n as usize)))
-        }
+/// Returns the first n elements of the list l as a new list.
+///
+/// (take l n) -> list?
+///
+/// * l : list?
+/// * n : (and/c positive? int?)
+///
+/// # Examples
+///
+/// ```scheme
+/// > (take '(1 2 3 4) 2) ;; => '(0 1)
+/// > (take (range 0 10) 4) ;; => '(0 1 2 3)
+/// ```
+#[steel_derive::function(name = "take", constant = true)]
+fn take(list: &List<SteelVal>, n: isize) -> Result<SteelVal> {
+    if n < 0 {
+        stop!(Generic => "take expects a positive integer")
     } else {
-        stop!(TypeMismatch => "take expects a list in the first position, and a positive integer in the second position")
+        Ok(SteelVal::ListV(list.take(n as usize)))
     }
 }
 
