@@ -54,6 +54,7 @@ rand = "0.8.5"
 num = "0.4.0"
 
 abi_stable = "0.11.1"
+async-ffi = { version = "0.4.1", features = ["abi_stable"] }
 which = "4.4.0"
 
 rusqlite =  { version = "0.28.0", features = ["bundled"], optional = true }

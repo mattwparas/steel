@@ -161,6 +161,13 @@ impl<'a> LifetimeGuard<'a> {
 
         thunk(self.engine, values)
     }
+
+    pub fn consume_once<T>(self, mut thunk: impl FnOnce(&mut Engine, Vec<SteelVal>) -> T) -> T {
+        let values =
+            crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::drain_weak_references_to_steelvals();
+
+        thunk(self.engine, values)
+    }
 }
 
 impl RegisterValue for Engine {

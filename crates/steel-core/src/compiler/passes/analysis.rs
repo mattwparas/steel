@@ -970,6 +970,11 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             }
         }
 
+        // TODO: Log the fact we have an empty begin body, or figure out what that is
+        if begin.exprs.is_empty() {
+            return;
+        }
+
         let last = begin.exprs.len() - 1;
         // let stack_offset = self.stack_offset;
 

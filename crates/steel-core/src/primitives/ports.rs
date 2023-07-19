@@ -125,7 +125,7 @@ pub fn is_output(maybe_port: &SteelVal) -> bool {
     }
 }
 
-#[function(name = "read-line-to-string")]
+#[function(name = "read-line-from-port")]
 pub fn read_line_to_string(port: &Gc<SteelPort>) -> Result<SteelVal> {
     let res = port.read_line();
 

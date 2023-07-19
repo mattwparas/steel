@@ -34,6 +34,7 @@ enum StringOrMagicNumber {
     Magic(usize),
 }
 
+// #[derive(Debug)]
 pub struct VTableEntry {
     name: InternedString,
     properties: Gc<im_rc::HashMap<SteelVal, SteelVal>>,

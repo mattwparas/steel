@@ -9,7 +9,9 @@ use std::{
 use crate::{
     gc::{unsafe_erased_pointers::OpaqueReference, Gc},
     rerrs::ErrorKind,
-    rvals::{as_underlying_type, Custom, CustomType, IntoSteelVal, Result, SRef, SteelVal},
+    rvals::{
+        as_underlying_type, Custom, CustomType, FutureResult, IntoSteelVal, Result, SRef, SteelVal,
+    },
     values::functions::{BoxedDynFunction, StaticOrRcStr},
     SteelErr,
 };
@@ -18,6 +20,9 @@ use abi_stable::{
     std_types::{RBoxError, RCowStr, RHashMap, RResult, RSlice, RStr, RString, RVec, Tuple2},
     StableAbi,
 };
+use futures::FutureExt;
+
+pub use async_ffi::{FfiFuture, FutureExt as FfiFutureExt};
 
 #[macro_export]
 macro_rules! ffi_try {
@@ -31,7 +36,7 @@ macro_rules! ffi_try {
 
 /// This creates an external module this is _mostly_ safe.
 #[repr(C)]
-#[derive(StableAbi, Clone, Debug)]
+#[derive(StableAbi, Debug)]
 pub struct FFIModule {
     // Name of the module - let this be set by the dylib
     name: RString,
@@ -135,6 +140,27 @@ impl From<bool> for FFIValue {
 impl<T: Into<FFIValue>> IntoFFIVal for T {
     fn into_ffi_val(self) -> RResult<FFIValue, RBoxError> {
         RResult::ROk(self.into())
+    }
+}
+
+// use async_ffi::FutureExt as FFIFutureExt;
+// impl<F: Future<Output = FFIValue>> IntoFFIVal for F {
+//     fn into_ffi_val(self) -> RResult<FFIValue, RBoxError> {
+//         RResult::ROk(FFIValue::Future {
+//             fut: self.into_ffi(),
+//         })
+//     }
+// }
+
+// impl<T: IntoFFIVal, F: Future<Output = T>> From<F> for FFIValue {
+//     fn from(value: F) -> FFIValue {
+//         todo!()
+//     }
+// }
+
+impl From<FfiFuture<RResult<FFIValue, RBoxError>>> for FFIValue {
+    fn from(value: FfiFuture<RResult<FFIValue, RBoxError>>) -> Self {
+        FFIValue::Future { fut: value }
     }
 }
 
@@ -261,6 +287,7 @@ impl<T: CustomType + 'static> From<T> for FFIValue {
 pub struct Wrapper<ARGS>(PhantomData<ARGS>);
 pub struct WrapperRef<ARGS>(PhantomData<ARGS>);
 pub struct WrapperMut<ARGS>(PhantomData<ARGS>);
+pub struct WrapperMutRef<ARGS>(PhantomData<ARGS>);
 
 pub trait AsRefFFIVal: Sized {
     type Nursery: Default;
@@ -321,6 +348,12 @@ impl<T: IntoFFIVal> IntoFFIVal for Vec<T> {
         }
 
         RResult::ROk(FFIValue::Vector(output))
+    }
+}
+
+impl IntoFFIVal for RResult<FFIValue, RBoxError> {
+    fn into_ffi_val(self) -> RResult<FFIValue, RBoxError> {
+        self
     }
 }
 
@@ -385,6 +418,43 @@ macro_rules! impl_register_fn_ffi {
                     // let res = func($({
                     //     ffi_try!(<$param>::from_ffi_val());
                     // },)*);
+
+                    res.into_ffi_val()
+                };
+
+                self.register_value(
+                    name,
+                    FFIValue::BoxedFunction(FFIBoxedDynFunction {
+                        name: RString::from(name),
+                        arity: 0,
+                        function: Arc::new(f),
+                    }),
+                );
+
+                self
+            }
+        }
+
+
+        impl<RET: IntoFFIVal, SELF: AsRefFFIVal, $($param: FromFFIVal,)* FN: Fn(&mut SELF, $($param),*) -> RET + SendSyncStatic>
+            RegisterFFIFn<FN, WrapperMutRef<(SELF, $($param,)*)>, RET> for FFIModule
+        {
+            fn register_fn(&mut self, name: &str, func: FN) -> &mut Self {
+                let f = move |args: RVec<FFIValue>| -> RResult<FFIValue, RBoxError> {
+                    if  args.len() != $arg_count + 1 {
+                        let error: Box<dyn std::error::Error + Send + Sync> = "arity mismatch".into();
+
+                        let rbox = RBoxError::from_box(error);
+
+                        return RResult::RErr(rbox);
+                    }
+
+                    let mut arg_iter = args.into_iter();
+                    let rarg1 = arg_iter.next().unwrap();
+
+                    let mut arg1 = ffi_try!(<SELF>::as_mut_ref(&rarg1));
+
+                    let res = func(&mut arg1, $(ffi_try!(<$param>::from_ffi_val(arg_iter.next().unwrap())),)*);
 
                     res.into_ffi_val()
                 };
@@ -513,7 +583,7 @@ macro_rules! declare_module {
 
 /// Values that are safe to cross the FFI Boundary.
 #[repr(C)]
-#[derive(StableAbi, Clone)]
+#[derive(StableAbi)]
 pub enum FFIValue {
     BoxedFunction(FFIBoxedDynFunction),
     BoolV(bool),
@@ -535,6 +605,10 @@ pub enum FFIValue {
         custom: OpaqueFFIValue,
     },
     HashMap(RHashMap<FFIValue, FFIValue>),
+    Future {
+        #[sabi(unsafe_opaque_field)]
+        fut: FfiFuture<RResult<FFIValue, RBoxError>>,
+    }, // Future(Pin<RBox<dyn Future<Output = RResult<FFIValue, RBoxError>>>>),
 }
 
 impl std::hash::Hash for FFIValue {
@@ -574,6 +648,8 @@ impl std::fmt::Debug for FFIValue {
             FFIValue::StringV(s) => write!(f, "{}", s),
             FFIValue::Vector(v) => write!(f, "{:?}", v),
             FFIValue::HashMap(h) => write!(f, "{:?}", h),
+            FFIValue::Future { .. } => write!(f, "#<future>"),
+            _ => todo!(),
         }
     }
 }
@@ -611,6 +687,17 @@ impl FFIValue {
                 .collect::<Result<im_rc::HashMap<_, _>>>()
                 .map(Gc::new)
                 .map(SteelVal::HashMapV),
+
+            // FFIValue::Future { fut } => Ok(SteelVal::FutureV(Gc::new(Sharedfut.map(|x| {
+            //     match x {
+            //         RResult::ROk(v) => {
+            //             v.
+            //         }
+            //         RResult::RErr(_) => {
+            //             todo!()
+            //         }
+            //     }
+            // })))
             _v => {
                 todo!("Missing enum variant not accounted for during FFIValue -> SteelVal conversion!")
             }
@@ -652,6 +739,17 @@ impl IntoSteelVal for FFIValue {
                 .collect::<Result<im_rc::HashMap<_, _>>>()
                 .map(Gc::new)
                 .map(SteelVal::HashMapV),
+
+            // Attempt to move this across the FFI Boundary... We'll see how successful it is.
+            FFIValue::Future { fut } => Ok(SteelVal::FutureV(Gc::new(FutureResult::new(
+                Box::pin(async {
+                    fut.map(|x| match x {
+                        RResult::ROk(v) => v.into_steelval(),
+                        RResult::RErr(e) => Err(SteelErr::new(ErrorKind::Generic, e.to_string())),
+                    })
+                    .await
+                }),
+            )))),
         }
     }
 }
@@ -703,6 +801,8 @@ pub fn as_ffi_value(value: &SteelVal) -> Result<FFIValue> {
             .map(as_ffi_value)
             .collect::<Result<_>>()
             .map(FFIValue::Vector),
+
+        SteelVal::StringV(s) => Ok(FFIValue::StringV(s.as_str().into())),
 
         _ => {
             stop!(TypeMismatch => "Cannot proceed with the conversion from steelval to FFI Value. This will only succeed for a subset of values deemed as FFI-safe-enough: {:?}", value)

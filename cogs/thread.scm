@@ -103,9 +103,201 @@
 ;   (channel->send sender "and we're done")
 ;   (time/sleep-ms 500))
 
-(let ([tasks (map (lambda (_)
-                    (spawn-thread! (lambda ()
-                                     (time/sleep-ms 2000)
-                                     (displayln (thread::current/id)))))
-                  (range 0 10))])
-  (map thread-join! tasks))
+; (let ([tasks (map (lambda (_)
+;                     (spawn-thread! (lambda ()
+;                                      (time/sleep-ms 2000)
+;                                      (displayln (thread::current/id)))))
+;                   (range 0 10))])
+;   (map thread-join! tasks))
+
+(require-builtin steel/process)
+
+; (define (port-stream)
+;   (let ((head (read-line-from-port my-port)))
+;     (if (equal? 'eof head)
+;         empty-stream
+;         (stream-cons head (lambda () (port-stream))))))
+
+(define (pipe-stdout channel port)
+  (let ([head (read-line-from-port port)])
+    (displayln head)
+    (if (equal? 'eof head)
+        'eof
+        (begin
+          (channel->send channel head)
+          (pipe-stdout channel port)))))
+
+(define (with-stdout-piped command)
+  (set-piped-stdout! command)
+  command)
+
+(require "steel/result")
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; BEGIN EXPERIMENT WITH LIVE PRINTING SUBPROCESS STUFF
+; (define (message-passing-sub-process)
+;   (define channels (make-channels))
+;   (define sender (list-ref channels 0))
+;   (define receiver (list-ref channels 1))
+
+;   ;; Worker thread, listen to requests
+;   (record-thread-handle (spawn-thread! (lambda ()
+;                                          (define child-process
+;                                            ; (command "cargo" '("run" "--" "sleep.scm"))
+;                                            (~> (command "cargo" '("run" "--" "sleep.scm"))
+;                                                (with-stdout-piped)
+;                                                (spawn-process)
+;                                                (Ok->value)))
+
+;                                          (define child-stdout (child-stdout child-process))
+
+;                                          ;; Send stuff along the channel until there is no more stuff
+;                                          ;; to send
+;                                          (pipe-stdout sender child-stdout)
+
+;                                          (wait child-process)
+
+;                                          (channel->send sender 'eof)
+
+;                                          ; (wait child-process)
+;                                          )))
+
+;   channels)
+
+; (require "steel/result")
+
+; (define (read-loop receiver)
+;   (let ([message (channel->try-recv receiver)])
+;     (cond
+;       [(Ok? message)
+;        (let ([inner-message (unwrap-ok message)])
+;          ;; #false would mean we don't have anything to read
+;          ;; on the channel, but the thread is not yet finished.
+;          (when (string? inner-message)
+;            (display inner-message))
+
+;          (unless (equal? 'eof inner-message)
+
+;            (time/sleep-ms 7)
+
+;            (read-loop receiver)))
+
+;        ; (if (thread-finished? (car *CHILD_THREADS*))
+;        ; (read-loop receiver)
+
+;        ; (displayln "finished")
+
+;        ; (read-loop receiver))
+;        ]
+;       [else (displayln "finished")])))
+
+; (define keep-alive #f)
+
+; (define (main)
+
+;   (define sender-and-receiver (message-passing-sub-process))
+
+;   ;; If this gets dropped, it is game over
+;   (define sender (list-ref sender-and-receiver 0))
+;   (define receiver (list-ref sender-and-receiver 1))
+
+;   (read-loop receiver)
+
+;   (displayln "finished"))
+
+; (main)
+
+;; END EXPERIMENT WITH LIVE PRINTING STUFF
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; (while (not (~> (channel->try-recv receiver) (unwrap-ok)))
+;        (begin
+;          (displayln)
+;          (time/sleep-ms delay-ms))))
+
+(define (message-passing-sub-process)
+  (define channels (make-channels))
+  (define sender (list-ref channels 0))
+  (define receiver (list-ref channels 1))
+
+  (define command-channels (make-channels))
+  (define command-sender (list-ref channels 0))
+  (define command-receiver (list-ref channels 1))
+
+  ;; Worker thread, listen to requests
+  (record-thread-handle
+   (spawn-thread! (lambda ()
+                    (define child-process
+                      ; (command "cargo" '("run" "--" "sleep.scm"))
+                      (~> (command "bash" '()) (with-stdout-piped) (spawn-process) (Ok->value)))
+
+                    (define child-stdout (child-stdout child-process))
+                    (define child-stdin (child-stdin child-process))
+
+                    (write-line! child-stdin "ls")
+
+                    ;; Send stuff along the channel until there is no more stuff
+                    ;; to send
+                    (pipe-stdout sender child-stdout)
+
+                    ; (channel->send sender 'eof)
+
+                    (write-line! child-stdin "ls")
+
+                    (pipe-stdout sender child-stdout)
+
+                    (channel->send sender 'eof)
+
+                    ; (pipe-stdout sender child-stdout)
+
+                    ; (wait child-process)
+
+                    ; (channel->send sender 'eof)
+
+                    ; (wait child-process)
+                    )))
+
+  channels)
+
+(define (read-loop receiver)
+  (let ([message (channel->try-recv receiver)])
+    (cond
+      [(Ok? message)
+       (let ([inner-message (unwrap-ok message)])
+         ;; #false would mean we don't have anything to read
+         ;; on the channel, but the thread is not yet finished.
+         (when (string? inner-message)
+           (display inner-message))
+
+         (unless (equal? 'eof inner-message)
+
+           (time/sleep-ms 7)
+
+           (read-loop receiver)))
+
+       ; (if (thread-finished? (car *CHILD_THREADS*))
+       ; (read-loop receiver)
+
+       ; (displayln "finished")
+
+       ; (read-loop receiver))
+       ]
+      [else (displayln "finished")])))
+
+(define keep-alive #f)
+
+(define (main)
+
+  (define sender-and-receiver (message-passing-sub-process))
+
+  ;; If this gets dropped, it is game over
+  (define sender (list-ref sender-and-receiver 0))
+  (define receiver (list-ref sender-and-receiver 1))
+
+  (read-loop receiver)
+
+  (thread-join! (car *CHILD_THREADS*))
+
+  (displayln "finished"))
+
+(main)

@@ -114,6 +114,7 @@ fn parse_str<'a>(lex: &mut Lexer<'a, TokenType<&'a str>>) -> Option<String> {
         .or(Some(slice))
         .map(|x| x.replace("\\\"", "\""))
         .map(|x| x.replace("\\n", "\n"))
+        .map(|x| x.replace("\\r", "\r"))
     // .map(|x| x.to_string())
 }
 
@@ -229,7 +230,7 @@ pub enum TokenType<S> {
 
     // #[regex(r#"b?"(\\.|[^\\"])*""#, parse_str)] // "
     // #[regex(r#"(?:[^"]|\\")*", parse_str)] // "
-    #[regex(r#""([^"\\]|\\t|\\u|\\n|\\")*""#, parse_str)]
+    #[regex(r#""([^"\\]|\\t|\\u|\\n|\\r|\\")*""#, parse_str)]
     StringLiteral(String),
 
     #[error]

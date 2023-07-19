@@ -1206,6 +1206,11 @@ impl SteelVal {
         }
     }
 
+    #[inline(always)]
+    pub fn is_future(&self) -> bool {
+        matches!(self, SteelVal::FutureV(_))
+    }
+
     pub fn is_hashable(&self) -> bool {
         matches!(
             self,
@@ -1390,6 +1395,13 @@ impl SteelVal {
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             Self::BoolV(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    pub fn as_future(&self) -> Option<Shared<BoxedFutureResult>> {
+        match self {
+            Self::FutureV(v) => Some(v.clone().unwrap().into_shared()),
             _ => None,
         }
     }

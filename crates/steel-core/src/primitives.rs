@@ -403,7 +403,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a List<SteelVal> {
         if let SteelVal::ListV(l) = val {
             Ok(l)
         } else {
-            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel string", val))
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel list", val))
         }
     }
 }
