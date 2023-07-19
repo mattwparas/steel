@@ -87,6 +87,9 @@ test_harness_success! {
     permutations,
     quicksort,
     read,
+    require_only_in,
+    require_prefix,
+    result,
     search,
     set_local,
     set_tail_call,
@@ -109,5 +112,6 @@ test_harness_success! {
 test_harness_failure! {
     function_used_before_definition,
     identifier_used_before_definition,
-    local_struct_inaccessible
+    local_struct_inaccessible,
+    require_only_in_missing_identifier,
 }

@@ -249,7 +249,7 @@ impl ModuleManager {
                                         // If we have the alias listed, we should use it
                                         if !explicit_requires.is_empty() {
                                             if let Some(alias) = explicit_requires
-                                                .get(provide.atom_identifier().unwrap())
+                                                .get(name.atom_identifier().unwrap())
                                                 .copied()
                                                 .flatten()
                                             {
@@ -317,7 +317,7 @@ impl ModuleManager {
                                         // If we have the alias listed, we should use it
                                         if !explicit_requires.is_empty() {
                                             if let Some(alias) = explicit_requires
-                                                .get(provide.atom_identifier().unwrap())
+                                                .get(name.atom_identifier().unwrap())
                                                 .copied()
                                                 .flatten()
                                             {

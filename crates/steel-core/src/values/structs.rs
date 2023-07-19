@@ -1099,7 +1099,7 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
                 SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
                     Arc::new(UserDefinedStruct::constructor_thunk(
                         name, // OPTION_OPTIONS.with(|x| Gc::clone(x)),
-                        1,
+                        0,
                         NONE_DESCRIPTOR.with(|x| *x),
                     )),
                     Some(name.resolve().to_string().into()),
