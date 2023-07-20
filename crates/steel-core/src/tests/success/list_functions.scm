@@ -9,7 +9,9 @@
 
 ;; Type handling
 (with-handler (lambda (err) void) (append 10 20) (assert! #t))
-(with-handler (lambda (err) void) (first 10) (assert! #t))
-(with-handler (lambda (err) void) (reverse 100) (assert! #t))
-(with-handler (lambda (err) void) (length 10) (assert! #t))
+(with-handler (lambda (err) void)
+              (first (hash)) ;; TODO have to use non const values here
+              (assert! #t))
+(with-handler (lambda (err) void) (reverse (hash)) (assert! #t))
+(with-handler (lambda (err) void) (length (vector)) (assert! #t))
 (with-handler (lambda (err) void) (empty? 100) (assert! #t))

@@ -1,4 +1,4 @@
-#![allow(non_camel_case_types, unused)]
+#![allow(non_camel_case_types)]
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -11,14 +11,9 @@ use abi_stable::{
     std_types::RBox,
     StableAbi,
 };
-use dlopen::wrapper::{Container, WrapperApi};
-use dlopen_derive::WrapperApi;
 use once_cell::sync::Lazy;
 
 use super::ffi::FFIModule;
-
-static LOADED_DYLIBS: Lazy<Arc<Mutex<Vec<(String, Container<ModuleApi>)>>>> =
-    Lazy::new(|| Arc::new(Mutex::new(Vec::new())));
 
 // The new and improved loading of modules
 static LOADED_MODULES: Lazy<Arc<Mutex<Vec<(String, GenerateModule_Ref)>>>> =
@@ -46,17 +41,16 @@ pub fn load_root_module_in_directory(file: &Path) -> Result<GenerateModule_Ref, 
     GenerateModule_Ref::load_from_file(file)
 }
 
-#[derive(WrapperApi, Clone)]
-struct ModuleApi {
-    generate_module: extern "C" fn() -> RBox<FFIModule>,
-    // build_module: fn(module: &mut BuiltInModule),
-    // free_module: fn(ptr: *mut BuiltInModule),
-}
+// // TODO: @Matt -> Remove this, drop the dependency on dlopen
+// #[derive(WrapperApi, Clone)]
+// struct ModuleApi {
+//     generate_module: extern "C" fn() -> RBox<FFIModule>,
+//     // build_module: fn(module: &mut BuiltInModule),
+//     // free_module: fn(ptr: *mut BuiltInModule),
+// }
 
 #[derive(Clone)]
-pub(crate) struct DylibContainers {
-    // containers: Arc<Mutex<Vec<(String, Container<ModuleApi>)>>>,
-}
+pub(crate) struct DylibContainers {}
 
 impl DylibContainers {
     pub fn new() -> Self {
@@ -74,7 +68,7 @@ impl DylibContainers {
         // let home = std::env::var("STEEL_HOME");
 
         if let Some(home) = home {
-            let guard = LOADED_DYLIBS.lock().unwrap();
+            // let guard = LOADED_DYLIBS.lock().unwrap();
             let mut module_guard = LOADED_MODULES.lock().unwrap();
 
             let mut home = PathBuf::from(home);
@@ -97,29 +91,13 @@ impl DylibContainers {
 
                     let module_name = path_name.to_string();
 
-                    if guard.iter().find(|x| x.0 == path_name).is_some() {
-                        // println!("Module already exists, skipping");
-
+                    if module_guard.iter().find(|x| x.0 == path_name).is_some() {
                         continue;
                     }
 
                     // Load the module in
-                    if true {
-                        let container = load_root_module_in_directory(&path).unwrap();
-
-                        module_guard.push((module_name, container));
-                    } else {
-                        // // Load in the dylib
-                        // let cont: Container<ModuleApi> = unsafe { Container::load(path) }
-                        //     .expect("Could not open library or load symbols");
-
-                        // // Keep the container alive for the duration of the program
-                        // // This should probably just get wrapped up with the engine as well, when registering modules, directly
-                        // // register an external dylib
-                        // // self.containers.push(Rc::new(cont));
-
-                        // guard.push((module_name, cont));
-                    }
+                    let container = load_root_module_in_directory(&path).unwrap();
+                    module_guard.push((module_name, container));
                 }
             } else {
                 log::warn!(target: "dylibs", "$STEEL_HOME/native directory does not exist")

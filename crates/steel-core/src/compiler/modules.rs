@@ -1174,11 +1174,11 @@ impl<'a> ModuleBuilder<'a> {
             info!("Provides for-syntax: {:?}", self.provides_for_syntax);
         }
 
-        if self.provides.is_empty() && !self.main {
-            self.visited.insert(self.name.clone());
-            // println!("getting inside here!");
-            return Ok(Vec::new());
-        }
+        // if self.provides.is_empty() && !self.main {
+        //     self.visited.insert(self.name.clone());
+
+        //     return Ok(Vec::new());
+        // }
 
         if self.visited.contains(&self.name) {
             stop!(Generic => format!("circular dependency found during module resolution with: {:?}", self.name))
@@ -1208,9 +1208,11 @@ impl<'a> ModuleBuilder<'a> {
         if self.require_objects.is_empty() && !self.main {
             // We're at a leaf, put into the cache
             // println!("putting {:?} in the cache", self.name);
-            if !self.provides.is_empty() {
-                new_exprs.push(self.compile_module()?);
-            }
+            // if !self.provides.is_empty() {
+            new_exprs.push(self.compile_module()?);
+            // } else {
+            // println!("SKIPPING");
+            // }
         } else {
             // TODO come back for parsing built ins
             for module in self
@@ -1407,6 +1409,9 @@ impl<'a> ModuleBuilder<'a> {
             })
             .collect::<Result<Vec<_>>>()?;
 
+        // @Matt - provide expansion
+        // TODO: Extend the provides with any provides that are yielded from the above
+
         // Expand provides for any macros that exist within there
         provides = provides
             .into_iter()
@@ -1452,6 +1457,9 @@ impl<'a> ModuleBuilder<'a> {
                 })
                 .collect::<Result<_>>()?;
 
+            // @Matt - provide expansion
+            // TODO: Do the same here. Extend the provides with any provides that are yielded from the above expansion
+
             provides = provides
                 .into_iter()
                 .map(|x| {
@@ -1469,6 +1477,16 @@ impl<'a> ModuleBuilder<'a> {
                     // expand(x, &module.macro_map)
                 })
                 .collect::<Result<_>>()?;
+        }
+
+        // TODO: @Matt - fix this hack
+        {
+            self.source_ast = ast;
+            self.provides = provides;
+            self.collect_provides();
+
+            provides = std::mem::take(&mut self.provides);
+            ast = std::mem::take(&mut self.source_ast);
         }
 
         // Put the mangled asts at the top
@@ -1600,30 +1618,48 @@ impl<'a> ModuleBuilder<'a> {
         let mut non_provides = Vec::new();
         let exprs = std::mem::take(&mut self.source_ast);
 
-        for mut expr in exprs {
-            if let ExprKind::List(l) = &mut expr {
-                if let Some(provide) = l.first_ident() {
-                    if *provide == *PROVIDE {
-                        if l.len() == 1 {
-                            stop!(Generic => "provide expects at least one identifier to provide");
+        fn walk(
+            module_builder: &mut ModuleBuilder,
+            exprs: Vec<ExprKind>,
+            non_provides: &mut Vec<ExprKind>,
+        ) -> Result<()> {
+            for mut expr in exprs {
+                match &mut expr {
+                    ExprKind::List(l) => {
+                        if let Some(provide) = l.first_ident() {
+                            if *provide == *PROVIDE {
+                                if l.len() == 1 {
+                                    stop!(Generic => "provide expects at least one identifier to provide");
+                                }
+
+                                // Swap out the value inside the list
+                                let args = std::mem::take(&mut l.args);
+
+                                let filtered =
+                                    module_builder.filter_out_for_syntax_provides(args)?;
+
+                                l.args = filtered;
+
+                                module_builder.provides.push(expr);
+
+                                continue;
+                            }
                         }
-
-                        // Swap out the value inside the list
-                        let args = std::mem::take(&mut l.args);
-
-                        let filtered = self.filter_out_for_syntax_provides(args)?;
-
-                        l.args = filtered;
-
-                        self.provides.push(expr);
-
-                        continue;
                     }
+                    ExprKind::Begin(b) => {
+                        let exprs = std::mem::take(&mut b.exprs);
+                        walk(module_builder, exprs, non_provides)?;
+                    }
+                    _ => {}
                 }
+
+                non_provides.push(expr);
             }
 
-            non_provides.push(expr)
+            Ok(())
         }
+
+        walk(self, exprs, &mut non_provides)?;
 
         self.source_ast = non_provides;
         Ok(())
@@ -1821,20 +1857,51 @@ impl<'a> ModuleBuilder<'a> {
             })
             .ok();
 
-        for expr in exprs {
-            match &expr {
-                // Include require/for-syntax here
-                // This way we have some understanding of what dependencies a file has
-                ExprKind::Require(r) => {
-                    for atom in &r.modules {
-                        let require_object = self.parse_require_object(&home, r, atom)?;
+        fn walk(
+            module_builder: &mut ModuleBuilder,
+            home: &Option<PathBuf>,
+            exprs_without_requires: &mut Vec<ExprKind>,
+            exprs: Vec<ExprKind>,
+        ) -> Result<()> {
+            for expr in exprs {
+                match expr {
+                    // Include require/for-syntax here
+                    // This way we have some understanding of what dependencies a file has
+                    ExprKind::Require(r) => {
+                        for atom in &r.modules {
+                            // TODO: Consider making this not a reference for r
+                            let require_object =
+                                module_builder.parse_require_object(&home, &r, atom)?;
 
-                        self.require_objects.push(require_object);
+                            module_builder.require_objects.push(require_object);
+                        }
                     }
+                    ExprKind::Begin(b) => {
+                        walk(module_builder, home, exprs_without_requires, b.exprs)?
+                    }
+                    _ => exprs_without_requires.push(expr),
                 }
-                _ => exprs_without_requires.push(expr),
             }
+
+            Ok(())
         }
+
+        walk(self, &home, &mut exprs_without_requires, exprs)?;
+
+        // for expr in exprs {
+        //     match &expr {
+        //         // Include require/for-syntax here
+        //         // This way we have some understanding of what dependencies a file has
+        //         ExprKind::Require(r) => {
+        //             for atom in &r.modules {
+        //                 let require_object = self.parse_require_object(&home, r, atom)?;
+
+        //                 self.require_objects.push(require_object);
+        //             }
+        //         }
+        //         _ => exprs_without_requires.push(expr),
+        //     }
+        // }
 
         // println!("Exprs without requires: {:?}", exprs_without_requires);
 

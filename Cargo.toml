@@ -17,7 +17,7 @@ path = "src/main.rs"
 
 [workspace.dependencies]
 # This has to line up with the workspace version above
-steel-core = { path = "./crates/steel-core", version = "0.4.0", features = ["web", "sqlite", "blocking_requests", "dylibs"] }
+steel-core = { path = "./crates/steel-core", version = "0.4.0", features = ["web", "sqlite", "blocking_requests", "dylibs", "markdown"] }
 
 [dependencies]
 once_cell = "1.17.0"
@@ -27,8 +27,8 @@ steel-repl = { path = "./crates/steel-repl", version = "0.4.0" }
 env_logger = "0.10.0"
 log = "0.4.17"
 clap = { version = "4.1.4", features = ["derive"] }
-dlopen = "0.1.8"
-dlopen_derive = "0.1.4"
+# dlopen = "0.1.8"
+# dlopen_derive = "0.1.4"
 steel-doc = { path = "./crates/steel-doc", version = "0.4.0"}
 
 # [[bin]]

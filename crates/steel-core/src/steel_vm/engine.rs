@@ -3,11 +3,12 @@
 use super::{
     builtin::BuiltInModule,
     dylib::DylibContainers,
-    ffi::FFIModule,
-    ffi::FFIWrappedModule,
     primitives::{register_builtin_modules, register_builtin_modules_without_io, CONSTANTS},
     vm::SteelThread,
 };
+
+#[cfg(feature = "dylibs")]
+use super::{ffi::FFIModule, ffi::FFIWrappedModule};
 use crate::{
     compiler::{
         compiler::Compiler,
@@ -804,7 +805,7 @@ impl Engine {
         self
     }
 
-    // TODO: Lets see if this can _not_ segfault!
+    #[cfg(feature = "dylibs")]
     pub fn register_external_module(
         &mut self,
         module: abi_stable::std_types::RBox<FFIModule>,
