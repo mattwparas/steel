@@ -108,6 +108,7 @@ test_harness_success! {
     stack_test_with_contract,
     string_append,
     structs,
+    threads,
     transducer_over_streams,
     trie_sort,
     y_combinator,
