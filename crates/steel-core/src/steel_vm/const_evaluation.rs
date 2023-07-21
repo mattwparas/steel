@@ -25,6 +25,7 @@ use std::{
 use im_rc::HashMap;
 
 use log::debug;
+use steel_parser::tokens::MaybeBigInt;
 
 use super::cache::MemoizationTable;
 
@@ -180,7 +181,7 @@ fn steelval_to_atom(value: &SteelVal) -> Option<TokenType<InternedString>> {
         SteelVal::BoolV(b) => Some(TokenType::BooleanLiteral(*b)),
         SteelVal::NumV(n) => Some(TokenType::NumberLiteral(*n)),
         SteelVal::CharV(c) => Some(TokenType::CharacterLiteral(*c)),
-        SteelVal::IntV(i) => Some(TokenType::IntegerLiteral(*i)),
+        SteelVal::IntV(i) => Some(TokenType::IntegerLiteral(MaybeBigInt::Small(*i))),
         SteelVal::StringV(s) => Some(TokenType::StringLiteral(s.to_string())),
         _ => None,
     }
@@ -228,7 +229,7 @@ impl<'a> ConstantEvaluator<'a> {
             TokenType::NumberLiteral(n) => Some(SteelVal::NumV(*n)),
             TokenType::StringLiteral(s) => Some(SteelVal::StringV(s.clone().into())),
             TokenType::CharacterLiteral(c) => Some(SteelVal::CharV(*c)),
-            TokenType::IntegerLiteral(n) => Some(SteelVal::IntV(*n)),
+            TokenType::IntegerLiteral(MaybeBigInt::Small(n)) => Some(SteelVal::IntV(*n)),
             _ => None,
         }
     }

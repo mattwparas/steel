@@ -1,6 +1,6 @@
 use num::ToPrimitive;
 
-use crate::rvals::{as_underlying_type, Custom, IntoSteelVal, Result, SteelVal};
+use crate::rvals::{Custom, IntoSteelVal, Result, SteelVal};
 use crate::stop;
 
 pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
@@ -336,9 +336,13 @@ impl NumOperations {
     }
 }
 
-// Lets try big ints first
-impl Custom for num::BigInt {}
 impl Custom for num::BigRational {}
+
+impl IntoSteelVal for num::BigInt {
+    fn into_steelval(self) -> Result<SteelVal> {
+        Ok(SteelVal::BigNum(crate::gc::Gc::new(self)))
+    }
+}
 
 pub fn special_add(args: &[SteelVal]) -> Result<SteelVal> {
     let mut sum_int: isize = 0;
@@ -359,25 +363,19 @@ pub fn special_add(args: &[SteelVal]) -> Result<SteelVal> {
                 } else {
                     // If we overflowed, just promote to big int
                     big_int_sum += *n;
+                    found_big_int = true;
                 }
             }
             SteelVal::NumV(n) => {
                 sum_float += n;
                 found_float = true;
             }
-            // We've promoted to heap allocated numbers
-            SteelVal::Custom(c) => {
-                let guard = c.borrow();
 
-                if let Some(value) = as_underlying_type::<num::BigInt>(guard.as_ref()) {
-                    big_int_sum += value;
-                    found_big_int = true;
-                } else if let Some(_) = as_underlying_type::<num::BigRational>(guard.as_ref()) {
-                    todo!("Internal error: rationals are not yet supported");
-                } else {
-                    stop!(TypeMismatch => "+ expected a number, found: {:?}", arg);
-                }
+            SteelVal::BigNum(b) => {
+                big_int_sum += b.as_ref();
+                found_big_int = true;
             }
+
             _ => {
                 crate::steel_vm::vm::cold();
                 let e = format!("+ expected a number, found {arg:?}");

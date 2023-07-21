@@ -17,6 +17,7 @@ use std::{
 
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
+use steel_parser::tokens::MaybeBigInt;
 
 use super::{ast::Quote, interner::InternedString, parser::Parser};
 
@@ -398,7 +399,7 @@ impl MacroPattern {
                     TokenType::BooleanLiteral(b) => {
                         pattern_vec.push(MacroPattern::BooleanLiteral(b));
                     }
-                    TokenType::IntegerLiteral(i) => {
+                    TokenType::IntegerLiteral(MaybeBigInt::Small(i)) => {
                         pattern_vec.push(MacroPattern::IntLiteral(i));
                     }
                     TokenType::CharacterLiteral(c) => {
@@ -495,7 +496,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                     ExprKind::Atom(Atom {
                         syn:
                             SyntaxObject {
-                                ty: TokenType::IntegerLiteral(s),
+                                ty: TokenType::IntegerLiteral(MaybeBigInt::Small(s)),
                                 ..
                             },
                     }) if s == i => continue,
@@ -663,7 +664,7 @@ mod match_vec_pattern_tests {
 
     fn atom_int(n: isize) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::IntegerLiteral(
-            n,
+            MaybeBigInt::Small(n),
         ))))
     }
 
@@ -815,7 +816,7 @@ mod collect_bindings_tests {
 
     fn atom_int(n: isize) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::IntegerLiteral(
-            n,
+            MaybeBigInt::Small(n),
         ))))
     }
 
@@ -1016,7 +1017,7 @@ mod macro_case_expand_test {
 
     fn atom_int(n: isize) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::IntegerLiteral(
-            n,
+            MaybeBigInt::Small(n),
         ))))
     }
 

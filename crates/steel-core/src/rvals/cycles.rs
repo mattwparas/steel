@@ -54,6 +54,7 @@ impl CycleDetector {
             NumV(x) => write!(f, "{x:?}"),
             IntV(x) => write!(f, "{x}"),
             StringV(s) => write!(f, "{s:?}"),
+            BigNum(b) => write!(f, "{}", b.as_ref()),
             CharV(c) => write!(f, "#\\{c}"),
             FuncV(func) => {
                 if let Some(name) = get_function_name(*func) {
@@ -251,6 +252,7 @@ impl CycleDetector {
             BoxedIterator(_) => write!(f, "#<iterator>"),
             Boxed(b) => write!(f, "'#&{}", b.get()),
             Reference(x) => write!(f, "{}", x.format()?),
+            BigNum(b) => write!(f, "{}", b.as_ref()),
         }
     }
 

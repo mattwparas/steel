@@ -165,6 +165,8 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
 #[cfg(test)]
 mod rename_visitor_tests {
 
+    use steel_parser::tokens::MaybeBigInt;
+
     use super::TokenType::*;
     use super::*;
     use crate::parser::ast::{Atom, Define, If, LambdaFunction, List};
@@ -177,7 +179,7 @@ mod rename_visitor_tests {
 
     fn atom_int(n: isize) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::IntegerLiteral(
-            n,
+            MaybeBigInt::Small(n),
         ))))
     }
 
@@ -190,7 +192,7 @@ mod rename_visitor_tests {
             ExprKind::List(List::new(vec![
                 ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier("+".into())))),
                 ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier("x".into())))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
+                atom_int(10),
             ])),
             SyntaxObject::default(TokenType::Lambda),
         )));
@@ -202,7 +204,7 @@ mod rename_visitor_tests {
             ExprKind::List(List::new(vec![
                 ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier("+".into())))),
                 ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier("##x".into())))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
+                atom_int(10),
             ])),
             SyntaxObject::default(TokenType::Lambda),
         )));
@@ -221,8 +223,8 @@ mod rename_visitor_tests {
             ExprKind::Atom(Atom::new(SyntaxObject::default(BooleanLiteral(true)))),
             ExprKind::If(Box::new(If::new(
                 ExprKind::Atom(Atom::new(SyntaxObject::default(BooleanLiteral(false)))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(10)))),
-                ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(20)))),
+                atom_int(10),
+                atom_int(20),
                 SyntaxObject::default(If),
             ))),
             SyntaxObject::default(If),

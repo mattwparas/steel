@@ -17,6 +17,7 @@ use pretty::RcDoc;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::ops::Deref;
+use steel_parser::tokens::MaybeBigInt;
 
 use crate::{
     rerrs::SteelErr,
@@ -84,7 +85,7 @@ impl ExprKind {
 
     pub fn integer_literal(value: isize, span: Span) -> ExprKind {
         ExprKind::Atom(crate::parser::ast::Atom::new(SyntaxObject::new(
-            TokenType::IntegerLiteral(value),
+            TokenType::IntegerLiteral(MaybeBigInt::Small(value)),
             span,
         )))
     }
@@ -272,8 +273,13 @@ impl TryFrom<&SteelVal> for ExprKind {
                 NumberLiteral(*x),
             )))),
             IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                IntegerLiteral(*x),
+                IntegerLiteral(MaybeBigInt::Small(*x)),
             )))),
+
+            BigNum(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                IntegerLiteral(MaybeBigInt::Big(x.unwrap())),
+            )))),
+
             VectorV(lst) => {
                 let items: std::result::Result<Vec<Self>, Self::Error> =
                     lst.iter().map(Self::try_from).collect();

@@ -223,10 +223,11 @@ pub enum TokenType<S> {
     #[regex(r#"[+-]?[0-9][0-9_]*\."#, |lex| lex.slice().parse())] // "
     NumberLiteral(f64),
 
-    #[regex("[+-]?[0-9][0-9_]*", priority = 2, callback = |lex| lex.slice().parse())] // "
-    #[regex("[+-]?0b[0-1][0-1_]*", |lex| lex.slice().parse())] // "
-    #[regex("[+-]?0x[0-9a-fA-F][0-9a-fA-F_]*", |lex| lex.slice().parse())] // "
-    IntegerLiteral(isize),
+    #[regex("[+-]?[0-9][0-9_]*", priority = 3, callback = |lex| lex.slice().parse())] // "
+    #[regex("[+-]?0b[0-1][0-1_]*", priority = 2, callback = |lex| lex.slice().parse())] // "
+    #[regex("[+-]?0x[0-9a-fA-F][0-9a-fA-F_]*", callback = |lex| lex.slice().parse())]
+    // "
+    IntegerLiteral(MaybeBigInt),
 
     // #[regex(r#"b?"(\\.|[^\\"])*""#, parse_str)] // "
     // #[regex(r#"(?:[^"]|\\")*", parse_str)] // "
@@ -236,6 +237,36 @@ pub enum TokenType<S> {
     #[error]
     #[regex(r"[ \t\n\f]+", logos::skip)] // "
     Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum MaybeBigInt {
+    Small(isize),
+    Big(num_bigint::BigInt),
+}
+
+impl FromStr for MaybeBigInt {
+    type Err = <num_bigint::BigInt as FromStr>::Err;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse::<isize>()
+            .map(MaybeBigInt::Small)
+            .or_else(|_| s.parse::<num_bigint::BigInt>().map(MaybeBigInt::Big))
+    }
+}
+
+impl std::fmt::Display for MaybeBigInt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Small(s) => write!(f, "{s}"),
+            Self::Big(b) => write!(f, "{b}"),
+        }
+    }
+}
+
+#[test]
+fn check_token_size() {
+    println!("{}", std::mem::size_of::<TokenType<&str>>());
 }
 
 impl<'a> TokenType<&'a str> {
@@ -251,6 +282,7 @@ impl<'a> TokenType<&'a str> {
             NumberLiteral(x) => NumberLiteral(x),
             IntegerLiteral(x) => IntegerLiteral(x),
             StringLiteral(x) => StringLiteral(x),
+            // BigIntegerLiteral(x) => BigIntegerLiteral(x),
             QuoteTick => QuoteTick,
             Unquote => Unquote,
             QuasiQuote => QuasiQuote,
@@ -285,6 +317,7 @@ impl<'a> TokenType<&'a str> {
             NumberLiteral(x) => NumberLiteral(x),
             IntegerLiteral(x) => IntegerLiteral(x),
             StringLiteral(x) => StringLiteral(x),
+            // BigIntegerLiteral(x) => BigIntegerLiteral(x),
             QuoteTick => QuoteTick,
             Unquote => Unquote,
             QuasiQuote => QuasiQuote,
@@ -345,6 +378,7 @@ impl<T: fmt::Display> fmt::Display for TokenType<T> {
             NumberLiteral(x) => write!(f, "{x:?}"),
             IntegerLiteral(x) => write!(f, "{x}"),
             StringLiteral(x) => write!(f, "\"{x}\""),
+            // BigIntegerLiteral(x) => write!(f, "{x}"),
             Keyword(x) => write!(f, "{x}"),
             QuoteTick => write!(f, "'"),
             Unquote => write!(f, ","),

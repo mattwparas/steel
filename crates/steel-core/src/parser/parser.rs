@@ -15,7 +15,10 @@ use std::{
     rc::Rc,
     sync::{Arc, Mutex},
 };
-use steel_parser::lexer::{OwnedTokenStream, ToOwnedString};
+use steel_parser::{
+    lexer::{OwnedTokenStream, ToOwnedString},
+    tokens::MaybeBigInt,
+};
 use thiserror::Error;
 
 use crate::parser::span::Span;
@@ -310,7 +313,10 @@ impl TryFrom<SyntaxObject> for SteelVal {
             BooleanLiteral(x) => Ok(BoolV(x)),
             Identifier(x) => Ok(SymbolV(x.into())),
             NumberLiteral(x) => Ok(NumV(x)),
-            IntegerLiteral(x) => Ok(IntV(x)),
+            IntegerLiteral(MaybeBigInt::Small(x)) => Ok(IntV(x)),
+
+            IntegerLiteral(MaybeBigInt::Big(b)) => b.into_steelval(),
+
             StringLiteral(x) => Ok(StringV(x.into())),
             Keyword(x) => Ok(SymbolV(x.into())),
             QuoteTick => {
@@ -1219,7 +1225,9 @@ mod parser_tests {
     }
 
     fn int(num: isize) -> ExprKind {
-        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(num))))
+        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(
+            MaybeBigInt::Small(num),
+        ))))
     }
 
     fn character(c: char) -> ExprKind {

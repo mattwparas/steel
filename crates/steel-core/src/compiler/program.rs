@@ -1,9 +1,3 @@
-use crate::parser::{
-    ast::ExprKind,
-    interner::InternedString,
-    parser::{RawSyntaxObject, SyntaxObject},
-    tokens::TokenType,
-};
 use crate::rvals::Result;
 use crate::{
     compiler::constants::ConstantMap,
@@ -11,9 +5,19 @@ use crate::{
     stop, SteelVal,
 };
 use crate::{core::instructions::DenseInstruction, parser::span::Span};
+use crate::{
+    parser::{
+        ast::ExprKind,
+        interner::InternedString,
+        parser::{RawSyntaxObject, SyntaxObject},
+        tokens::TokenType,
+    },
+    rvals::IntoSteelVal,
+};
 
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, convert::TryInto, rc::Rc, time::SystemTime};
+use steel_parser::tokens::MaybeBigInt;
 
 #[cfg(feature = "profiling")]
 use std::time::Instant;
@@ -31,7 +35,9 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
         TokenType::NumberLiteral(n) => Ok(SteelVal::NumV(*n)),
         TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.into())),
         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
-        TokenType::IntegerLiteral(n) => Ok(SteelVal::IntV(*n)),
+        TokenType::IntegerLiteral(MaybeBigInt::Small(n)) => Ok(SteelVal::IntV(*n)),
+        // TODO: @Matt - This doesn't need to happen at all. It will just lead to unnecessary cloning.
+        TokenType::IntegerLiteral(MaybeBigInt::Big(b)) => b.clone().into_steelval(),
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
         TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
         what => {

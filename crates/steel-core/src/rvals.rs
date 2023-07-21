@@ -68,6 +68,7 @@ use futures::FutureExt;
 use futures::{future::Shared, task::noop_waker_ref};
 
 use im_lists::list::List;
+use steel_parser::tokens::MaybeBigInt;
 
 use self::cycles::CycleDetector;
 
@@ -591,7 +592,7 @@ impl Syntax {
                 TokenType::NumberLiteral(*x),
             )))),
             IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                TokenType::IntegerLiteral(*x),
+                TokenType::IntegerLiteral(MaybeBigInt::Small(*x)),
             )))),
             VectorV(lst) => {
                 let items: Result<Vec<ExprKind>> =
@@ -636,7 +637,7 @@ impl Syntax {
                 span,
             )))),
             IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                TokenType::IntegerLiteral(*x),
+                TokenType::IntegerLiteral(MaybeBigInt::Small(*x)),
                 span,
             )))),
             VectorV(lst) => {
@@ -870,6 +871,8 @@ pub enum SteelVal {
 
     // TODO: This itself, needs to be boxed unfortunately.
     Reference(Box<OpaqueReference<'static>>),
+
+    BigNum(Gc<num::BigInt>),
 }
 
 // TODO: Consider unboxed value types, for optimized usages when compiling segments of code.
@@ -1449,6 +1452,7 @@ impl PartialEq for SteelVal {
         match (self, other) {
             (Void, Void) => true,
             (BoolV(l), BoolV(r)) => l == r,
+            (BigNum(l), BigNum(r)) => l == r,
             // (NumV(l), NumV(r)) => l == r,
             (IntV(l), IntV(r)) => l == r,
             // (NumV(l), IntV(r)) => *l == *r as f64,

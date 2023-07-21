@@ -1,5 +1,6 @@
 #![allow(unused)]
 
+use crate::primitives::nums::special_add;
 use crate::values::functions::SerializedLambda;
 use crate::values::structs::UserDefinedStruct;
 use crate::values::{closed::Heap, contracts::ContractType};
@@ -36,12 +37,15 @@ use lazy_static::lazy_static;
 
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
+use num::ToPrimitive;
 use slotmap::DefaultKey;
 use smallvec::SmallVec;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
 
-use crate::rvals::{from_serializable_value, into_serializable_value, IntoSteelVal};
+use crate::rvals::{
+    as_underlying_type, from_serializable_value, into_serializable_value, IntoSteelVal,
+};
 
 pub(crate) mod threads;
 pub(crate) use threads::{spawn_thread, thread_join};
@@ -5051,7 +5055,7 @@ fn add_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 
 // OpCode::ADD
 fn add_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    handler_inline_primitive_payload!(ctx, add_primitive_faster, payload);
+    handler_inline_primitive_payload!(ctx, special_add, payload);
     Ok(())
 }
 
@@ -5522,10 +5526,31 @@ fn lte_handler_none_int(_: &mut VmCore<'_>, l: SteelVal, r: isize) -> Result<boo
 #[inline(always)]
 fn add_handler_none_none(l: &SteelVal, r: &SteelVal) -> Result<SteelVal> {
     match (l, r) {
-        (SteelVal::IntV(l), SteelVal::IntV(r)) => Ok(SteelVal::IntV(l + r)),
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => {
+            if let Some(res) = l.checked_add(*r) {
+                Ok(SteelVal::IntV(res))
+            } else {
+                let mut big = num::BigInt::default();
+
+                big += *l;
+                big += *r;
+
+                big.into_steelval()
+            }
+        }
         (SteelVal::IntV(l), SteelVal::NumV(r)) => Ok(SteelVal::NumV(*l as f64 + r)),
         (SteelVal::NumV(l), SteelVal::IntV(r)) => Ok(SteelVal::NumV(l + *r as f64)),
         (SteelVal::NumV(l), SteelVal::NumV(r)) => Ok(SteelVal::NumV(l + r)),
+
+        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => (l.as_ref() + r.as_ref()).into_steelval(),
+
+        (SteelVal::IntV(l), SteelVal::BigNum(r)) => (r.as_ref() + *l).into_steelval(),
+
+        (SteelVal::BigNum(l), SteelVal::IntV(r)) => (l.as_ref() + *r).into_steelval(),
+
+        (SteelVal::NumV(l), SteelVal::BigNum(r)) => Ok(SteelVal::NumV(r.to_f64().unwrap() + *l)),
+        (SteelVal::BigNum(l), SteelVal::NumV(r)) => Ok(SteelVal::NumV(l.to_f64().unwrap() + *r)),
+
         _ => stop!(TypeMismatch => "+ expected two numbers, found: {} and {}", l, r),
     }
 }

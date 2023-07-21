@@ -1,4 +1,5 @@
 use log::{debug, log_enabled};
+use steel_parser::tokens::MaybeBigInt;
 
 use crate::parser::{
     ast::{Atom, Begin, ExprKind, LambdaFunction, List, Set},
@@ -381,7 +382,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                 if let ExprKind::Define(d) = &exprs[i] {
                     top_level_arguments.push(d.name.clone());
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                        TokenType::IntegerLiteral(123),
+                        TokenType::IntegerLiteral(MaybeBigInt::Small(123)),
                     ))));
                     let name_prime =
                         atom("_____".to_string() + name.resolve() + i.to_string().as_str());
@@ -399,7 +400,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                 if let ExprKind::Define(d) = &exprs[i] {
                     top_level_arguments.push(d.name.clone());
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                        TokenType::IntegerLiteral(123),
+                        TokenType::IntegerLiteral(MaybeBigInt::Small(123)),
                     ))));
                     let name_prime =
                         atom("_____".to_string() + name.resolve() + i.to_string().as_str());
@@ -428,7 +429,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                 if let ExprKind::Define(d) = &exprs[i] {
                     top_level_arguments.push(d.name.clone());
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                        TokenType::IntegerLiteral(123),
+                        TokenType::IntegerLiteral(MaybeBigInt::Small(123)),
                     ))));
                     let name_prime =
                         atom("_____".to_string() + name.resolve() + i.to_string().as_str());
@@ -574,7 +575,9 @@ mod flatten_begin_test {
     }
 
     fn int(num: isize) -> ExprKind {
-        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(num))))
+        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(
+            MaybeBigInt::Small(num),
+        ))))
     }
 
     #[test]
