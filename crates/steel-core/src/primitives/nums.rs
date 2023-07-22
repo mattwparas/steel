@@ -19,11 +19,15 @@ pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
             SteelVal::IntV(n) => {
                 if found_float {
                     sum_float *= *n as f64;
+                } else if found_bignum {
+                    bignum *= *n;
                 } else if let Some(res) = isize::checked_mul(sum_int, *n) {
                     sum_int = res
                 } else {
-                    found_float = true;
-                    sum_float *= *n as f64;
+                    found_bignum = true;
+
+                    bignum += sum_int;
+                    bignum *= *n;
                 }
             }
             SteelVal::NumV(n) => {
@@ -33,12 +37,30 @@ pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
                 }
                 sum_float *= n;
             }
+            SteelVal::BigNum(n) => {
+                // If we have a float already, just stay in float
+                if found_float {
+                    sum_float *= n.to_f64().unwrap();
+                // If we haven't found a float, but we have promoted to bignum, we can stay
+                // in bignum
+                } else if found_bignum {
+                    bignum *= n.as_ref();
+                } else {
+                    // Promote to bignum
+                    bignum = n.unwrap();
+                    bignum *= sum_int;
+
+                    found_bignum = true;
+                }
+            }
             _ => stop!(TypeMismatch => "* expected a number"),
         }
     }
 
     if found_float {
         Ok(SteelVal::NumV(sum_float))
+    } else if found_bignum {
+        bignum.into_steelval()
     } else {
         Ok(SteelVal::IntV(sum_int))
     }

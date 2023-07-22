@@ -9,4 +9,5 @@
 ;; Promotion from int -> bignum, one over int max
 (assert! (equal? (+ 1 9223372036854775807) 9223372036854775808))
 
-(assert! (equal? (* 2 9223372036854775807) 18446744073709551616))
+;; Promotion from int -> bignum, with multiplication
+(assert! (equal? (* 2 9223372036854775807) 18446744073709551614))
