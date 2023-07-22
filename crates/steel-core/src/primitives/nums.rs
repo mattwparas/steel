@@ -1,4 +1,4 @@
-use num::ToPrimitive;
+use num::{Integer, ToPrimitive};
 
 use crate::rvals::{Custom, IntoSteelVal, Result, SteelVal};
 use crate::stop;
@@ -10,7 +10,9 @@ pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 
     let mut sum_int = 1;
     let mut sum_float = 1.0;
+    let mut bignum = num::BigInt::default();
     let mut found_float = false;
+    let mut found_bignum = false;
 
     for arg in args {
         match arg {
@@ -230,10 +232,13 @@ impl NumOperations {
             if args.len() != 1 {
                 stop!(ArityMismatch => "even? takes one argument")
             }
-            if let SteelVal::IntV(n) = &args[0] {
-                Ok(SteelVal::BoolV(n & 1 == 0))
-            } else {
-                stop!(TypeMismatch => format!("even? requires an integer, found: {:?}", &args[0]))
+
+            match &args[0] {
+                SteelVal::IntV(n) => Ok(SteelVal::BoolV(n & 1 == 0)),
+                SteelVal::BigNum(n) => Ok(SteelVal::BoolV(n.is_even())),
+                _ => {
+                    stop!(TypeMismatch => format!("even? requires an integer, found: {:?}", &args[0]))
+                }
             }
         })
     }
@@ -241,13 +246,15 @@ impl NumOperations {
     pub fn odd() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
-                stop!(ArityMismatch => "even? takes one argument")
+                stop!(ArityMismatch => "odd? takes one argument")
             }
 
-            if let SteelVal::IntV(n) = &args[0] {
-                Ok(SteelVal::BoolV(n & 1 == 1))
-            } else {
-                stop!(TypeMismatch => "odd? requires an integer")
+            match &args[0] {
+                SteelVal::IntV(n) => Ok(SteelVal::BoolV(n & 1 == 1)),
+                SteelVal::BigNum(n) => Ok(SteelVal::BoolV(n.is_odd())),
+                _ => {
+                    stop!(TypeMismatch => format!("odd? requires an integer, found: {:?}", &args[0]))
+                }
             }
         })
     }

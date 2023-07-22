@@ -327,11 +327,11 @@ pub fn register_builtin_modules_without_io(engine: &mut Engine) {
 }
 
 fn render_as_md(text: String) {
-    if cfg!(markdown) {
-        println!("{}", termimad::text(&text))
-    } else {
-        println!("{}", text)
-    }
+    #[cfg(feature = "markdown")]
+    println!("{}", termimad::text(&text));
+
+    #[cfg(not(feature = "markdown"))]
+    println!("{}", text);
 }
 
 pub fn register_builtin_modules(engine: &mut Engine) {

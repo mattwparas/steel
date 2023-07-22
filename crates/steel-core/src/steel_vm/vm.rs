@@ -5489,7 +5489,15 @@ fn multiply_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
 fn multiply_handler_int_none(_: &mut VmCore<'_>, l: isize, r: SteelVal) -> Result<SteelVal> {
     match r {
         SteelVal::NumV(r) => Ok(SteelVal::NumV(l as f64 * r)),
-        SteelVal::IntV(n) => Ok(SteelVal::IntV(l * n)),
+        SteelVal::IntV(n) => {
+            if let Some(res) = l.checked_mul(n) {
+                Ok(SteelVal::IntV(res))
+            } else {
+                let mut res = num::BigInt::from(l);
+                res *= n;
+                Ok(SteelVal::BigNum(Gc::new(res)))
+            }
+        }
         _ => stop!(TypeMismatch => "multiply expected an number, found: {}", r),
     }
 }

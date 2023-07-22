@@ -436,11 +436,11 @@ pub struct MarkdownDoc<'a>(pub &'a str);
 
 impl<'a> std::fmt::Display for MarkdownDoc<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if cfg!(markdown) {
-            write!(f, "{}", termimad::text(self.0))
-        } else {
-            write!(f, "{}", self.0)
-        }
+        #[cfg(feature = "markdown")]
+        return write!(f, "{}", termimad::text(self.0));
+
+        #[cfg(not(feature = "markdown"))]
+        return write!(f, "{}", self.0);
     }
 }
 
