@@ -11,3 +11,6 @@
 
 ;; Promotion from int -> bignum, with multiplication
 (assert! (equal? (* 2 9223372036854775807) 18446744073709551614))
+
+(assert! (equal? (- -1) 1))
+(assert! (equal? (- -9223372036854775808) 9223372036854775808))

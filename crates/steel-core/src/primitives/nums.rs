@@ -1,3 +1,4 @@
+use num::bigint::ToBigInt;
 use num::{Integer, ToPrimitive};
 
 use crate::rvals::{Custom, IntoSteelVal, Result, SteelVal};
@@ -105,6 +106,31 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
         stop!(ArityMismatch => "- requires at least one argument")
     }
 
+    if args.len() == 1 {
+        match &args[0] {
+            SteelVal::IntV(n) => {
+                if let Some(res) = 0isize.checked_sub(*n) {
+                    return Ok(SteelVal::IntV(res));
+                } else {
+                    let mut zero = num::BigInt::from(0);
+
+                    zero -= *n;
+
+                    return zero.into_steelval();
+                }
+            }
+            SteelVal::NumV(n) => {
+                return Ok(SteelVal::NumV(0.0 - n));
+            }
+            SteelVal::BigNum(n) => {
+                return (0isize - n.as_ref()).into_steelval();
+            }
+            _ => {
+                stop!(TypeMismatch => format!("'-' expected a number type, found: {}", &args[0]))
+            }
+        }
+    }
+
     let mut sum_int = 0;
     let mut sum_float = 0.0;
     let mut found_float = false;
@@ -115,6 +141,7 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
         match first {
             SteelVal::IntV(n) => {
                 sum_int = *n;
+
                 // sum_float = *n as f64;
             }
             SteelVal::NumV(n) => {
