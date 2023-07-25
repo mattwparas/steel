@@ -154,6 +154,13 @@ impl ModuleManager {
             .map(|x| expand(x, global_macro_map))
             .collect::<Result<Vec<_>>>()?;
 
+        {
+            module_builder.source_ast = ast;
+            module_builder.collect_provides();
+
+            ast = std::mem::take(&mut module_builder.source_ast);
+        }
+
         let mut require_defines = Vec::new();
 
         let mut mangled_prefixes = module_builder

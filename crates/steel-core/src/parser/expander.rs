@@ -7,6 +7,7 @@ use crate::parser::tokens::TokenType;
 use crate::parser::span::Span;
 
 use crate::rvals::Result;
+use std::fmt::DebugStruct;
 use std::{
     collections::HashMap,
     fs::File,
@@ -217,9 +218,14 @@ impl SteelMacro {
             {
                 if case.recursive_match(expr) {
                     return Ok(case);
+                } else {
+                    // println!("Recursive match failed: case didn't match {:?}", case.args);
                 }
             } else {
                 // println!("Case didn't match: {:?}", case.args);
+                // dbg!(case.has_ellipses());
+                // dbg!(case.arity());
+                // dbg!(expr.len());
             }
         }
 
@@ -303,7 +309,7 @@ impl MacroCase {
     fn arity(&self) -> usize {
         self.args
             .iter()
-            .map(|x| if let MacroPattern::Many(_) = x { 2 } else { 1 })
+            .map(|x| if let MacroPattern::Many(_) = x { 1 } else { 1 })
             .sum()
     }
 
@@ -318,7 +324,7 @@ impl MacroCase {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub enum MacroPattern {
     Single(InternedString),
     Syntax(InternedString),
@@ -330,6 +336,25 @@ pub enum MacroPattern {
     FloatLiteral(f64),
     BooleanLiteral(bool),
     QuotedExpr(Box<Quote>),
+}
+
+impl std::fmt::Debug for MacroPattern {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MacroPattern::Single(s) => f.debug_tuple("Single").field(&s.resolve()).finish(),
+            MacroPattern::Syntax(s) => f.debug_tuple("Syntax").field(&s.resolve()).finish(),
+            MacroPattern::Many(m) => f.debug_tuple("Many").field(&m.resolve()).finish(),
+            MacroPattern::Nested(n) => f.debug_tuple("Nested").field(n).finish(),
+            MacroPattern::CharacterLiteral(c) => {
+                f.debug_tuple("CharacterLiteral").field(c).finish()
+            }
+            MacroPattern::IntLiteral(i) => f.debug_tuple("IntLiteral").field(i).finish(),
+            MacroPattern::StringLiteral(s) => f.debug_tuple("StringLiteral").field(s).finish(),
+            MacroPattern::FloatLiteral(fl) => f.debug_tuple("FloatLiteral").field(fl).finish(),
+            MacroPattern::BooleanLiteral(b) => f.debug_tuple("BooleanLiteral").field(b).finish(),
+            MacroPattern::QuotedExpr(s) => f.debug_tuple("QuotedExpr").field(s).finish(),
+        }
+    }
 }
 
 impl MacroPattern {
@@ -463,6 +488,9 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
 
     for pat in args {
         if let Some(val) = token_iter.next() {
+            // dbg!(&pat);
+            // dbg!(&val);
+
             match pat {
                 MacroPattern::Single(_) | MacroPattern::Many(_) => continue,
                 MacroPattern::Syntax(v) => match val {
@@ -557,6 +585,12 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                             return false;
                         }
                     } else {
+                        // if let Some(inner) = val.atom_identifier() {
+                        //     dbg!(inner.resolve());
+                        // }
+
+                        // dbg!(&vec);
+
                         debug!("Matching failed - atom does not match list");
                         return false;
                     }

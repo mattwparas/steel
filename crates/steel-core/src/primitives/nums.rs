@@ -1,4 +1,3 @@
-use num::bigint::ToBigInt;
 use num::{Integer, ToPrimitive};
 
 use crate::rvals::{Custom, IntoSteelVal, Result, SteelVal};

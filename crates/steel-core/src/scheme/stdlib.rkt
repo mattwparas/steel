@@ -54,6 +54,34 @@
          (begin e2 ...)
          (cond c1 ...))]))
 
+(define-syntax case
+  (syntax-rules (else)
+    [(case (key ...)
+       clauses ...)
+     (let ((atom-key (key ...)))
+       (case atom-key clauses ...))]
+    [(case key
+       (else result1 result2 ...))
+     (begin result1 result2 ...)]
+    [(case key
+       ((atoms ...) result1 result2 ...))
+     (when (member key '(atoms ...))
+         (begin result1 result2 ...))]
+
+; [(case key
+;        ((atoms ...) result1 ...)
+;        clause clauses ...)
+;      (if (member key '(atoms ...))
+;          (begin result1 ...)
+;          (case key clause clauses ...))]
+        
+    [(case key
+       ((atoms ...) result1 result2 ...)
+       clause clauses ...)
+     (if (member key '(atoms ...))
+         (begin result1 result2 ...)
+         (case key clause clauses ...))]))
+
 (define-syntax while
   (syntax-rules (do)
     [(while cond do body ...)

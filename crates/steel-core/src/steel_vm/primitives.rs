@@ -50,6 +50,7 @@ use crate::{
 use crate::primitives::web::{requests::requests_module, websockets::websockets_module};
 
 use itertools::Itertools;
+use num::Signed;
 
 macro_rules! ensure_tonicity_two {
     ($check_fn:expr) => {{
@@ -627,6 +628,16 @@ fn contract_module() -> BuiltInModule {
     module
 }
 
+#[steel_derive::function(name = "abs", constant = true)]
+fn abs(number: &SteelVal) -> Result<SteelVal> {
+    match number {
+        SteelVal::IntV(i) => Ok(SteelVal::IntV(i.abs())),
+        SteelVal::NumV(n) => Ok(SteelVal::NumV(n.abs())),
+        SteelVal::BigNum(n) => n.abs().into_steelval(),
+        _ => stop!(TypeMismatch => "abs expects a number type, found: {}", number),
+    }
+}
+
 fn number_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/numbers");
     module
@@ -638,7 +649,8 @@ fn number_module() -> BuiltInModule {
         .register_value("even?", NumOperations::even())
         .register_value("odd?", NumOperations::odd())
         .register_fn("quotient", quotient)
-        .register_value("arithmetic-shift", NumOperations::arithmetic_shift());
+        .register_value("arithmetic-shift", NumOperations::arithmetic_shift())
+        .register_native_fn_definition(ABS_DEFINITION);
     module
 }
 

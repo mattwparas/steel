@@ -1476,6 +1476,17 @@ where
 }
 
 #[inline]
+fn parse_named_let<I>(
+    mut value_iter: I,
+    syn: SyntaxObject,
+) -> std::result::Result<ExprKind, ParseError>
+where
+    I: Iterator<Item = ExprKind>,
+{
+    todo!()
+}
+
+#[inline]
 fn parse_let<I>(mut value_iter: I, syn: SyntaxObject) -> std::result::Result<ExprKind, ParseError>
 where
     I: Iterator<Item = ExprKind>,

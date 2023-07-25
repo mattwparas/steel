@@ -1,11 +1,4 @@
-use crate::parser::{
-    ast::{ExprKind, If},
-    interner::InternedString,
-    kernel::Kernel,
-    parser::SyntaxObject,
-    tokens::TokenType,
-    tryfrom_visitor::TryFromExprKindForSteelVal,
-};
+use crate::compiler::passes::reader::MultipleArityFunctions;
 use crate::rvals::{Result, SteelVal};
 use crate::{
     compiler::compiler::OptLevel,
@@ -14,6 +7,18 @@ use crate::{
         span_visitor::get_span,
         visitors::{ConsumingVisitor, VisitorMut},
     },
+};
+use crate::{
+    parser::{
+        ast::{ExprKind, If},
+        interner::InternedString,
+        kernel::Kernel,
+        parser::SyntaxObject,
+        tokens::TokenType,
+        tryfrom_visitor::TryFromExprKindForSteelVal,
+    },
+    rerrs::ErrorKind,
+    SteelErr,
 };
 use std::{
     cell::RefCell,
@@ -594,10 +599,24 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             } // ExprKind::
         }
 
-        if let ExprKind::LambdaFunction(l) = func_expr {
-            // unimplemented!()
+        if let ExprKind::LambdaFunction(mut l) = func_expr {
+            // It is possible at this point, that multi arity functions have not yet been expanded.
+            // We need to check if thats the case here
+            if !l.rest {
+                use crate::compiler::passes::Folder;
 
-            if l.args.len() != args.len() {
+                if let ExprKind::LambdaFunction(out_lambda) =
+                    MultipleArityFunctions::new().visit_lambda_function(l)
+                {
+                    l = out_lambda;
+                } else {
+                    unreachable!();
+                }
+            }
+
+            if l.args.len() != args.len() && !l.rest {
+                println!("{}", l);
+
                 let m = format!(
                     "Anonymous function expected {} arguments, found {}",
                     l.args.len(),
@@ -608,14 +627,57 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
             let mut new_env = ConstantEnv::new_subexpression(Rc::downgrade(&self.bindings));
 
-            for (var, arg) in l.args.iter().zip(args.iter()) {
-                let identifier = var.atom_identifier_or_else(
+            if l.rest {
+                if let Some((l_last, l_start)) = l.args.split_last() {
+                    let non_list_bindings = &args[0..l_start.len()];
+                    // let list_binding = &args[l_start.len()..];
+
+                    // If this is a rest arg, bind differently
+                    for (var, arg) in l_start.iter().zip(non_list_bindings) {
+                        let identifier = var.atom_identifier_or_else(
+                            throw!(BadSyntax => format!("lambda expects an identifier for the arguments: {var}"); l.location.span),
+                        )?;
+                        if let Some(c) = self.to_constant(arg) {
+                            new_env.bind(identifier, c);
+                        } else {
+                            new_env.bind_non_constant(identifier);
+                        }
+                    }
+
+                    let last_identifier = l_last.atom_identifier_or_else(
+                            throw!(BadSyntax => format!("lambda expects an identifier for the arguments: {l_last}"); l.location.span),
+                        )?;
+
+                    let mut rest_args = Vec::new();
+
+                    for arg in &args[l_start.len()..] {
+                        if let Some(c) = self.to_constant(arg) {
+                            rest_args.push(c);
+                        } else {
+                            new_env.bind_non_constant(last_identifier);
+                            break;
+                        }
+                    }
+
+                    // If the length is the same, we didn't need to break early, meaning
+                    // the whole list is constant values
+                    if rest_args.len() == args[l_start.len()..].len() {
+                        let list = SteelVal::ListV(rest_args.into());
+
+                        new_env.bind(last_identifier, list);
+                    }
+                }
+            } else {
+                // If this is a rest arg, bind differently
+                for (var, arg) in l.args.iter().zip(args.iter()) {
+                    let identifier = var.atom_identifier_or_else(
                     throw!(BadSyntax => format!("lambda expects an identifier for the arguments: {var}"); l.location.span),
                 )?;
-                if let Some(c) = self.to_constant(arg) {
-                    new_env.bind(identifier, c);
-                } else {
-                    new_env.bind_non_constant(identifier);
+                    if let Some(c) = self.to_constant(arg) {
+                        new_env.bind(identifier, c);
+                    } else {
+                        new_env.bind_non_constant(identifier);
+                    }
                 }
             }
 
@@ -679,7 +741,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
             // TODO only do this if all of the args are constant as well
             // Find a better way to do this
-            if self.to_constant(&output).is_some() {
+            if let Some(value_output) = self.to_constant(&output) {
                 let mut non_constant_arguments: Vec<_> = args
                     .into_iter()
                     .filter(|x| self.to_constant(x).is_none())
@@ -691,7 +753,14 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                 self.bindings = parent;
                 if non_constant_arguments.is_empty() {
                     // println!("Returning here!");
-                    return Ok(output);
+                    return ExprKind::try_from(&value_output)
+                        .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
+                        .map(|x| {
+                            ExprKind::Quote(Box::new(Quote::new(
+                                x,
+                                SyntaxObject::default(TokenType::Quote),
+                            )))
+                        });
                 } else {
                     non_constant_arguments.push(output);
                     // TODO come up witih a better location
@@ -708,8 +777,14 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             // let constructed_func = ExprKind::LambdaFunction(
             //     LambdaFunction::new(actually_used_variables, output, l.location).into(),
             // );
-            let constructed_func =
-                ExprKind::LambdaFunction(LambdaFunction::new(l.args, output, l.location).into());
+
+            let func = if l.rest {
+                LambdaFunction::new_with_rest_arg(l.args, output, l.location)
+            } else {
+                LambdaFunction::new(l.args, output, l.location)
+            };
+
+            let constructed_func = ExprKind::LambdaFunction(func.into());
 
             // Insert the visited function at the beginning of the args
             args.insert(0, constructed_func);
