@@ -7,7 +7,6 @@ use crate::parser::tokens::TokenType;
 use crate::parser::span::Span;
 
 use crate::rvals::Result;
-use std::fmt::DebugStruct;
 use std::{
     collections::HashMap,
     fs::File,

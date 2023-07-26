@@ -149,17 +149,26 @@ impl<'a> ConstantEvaluatorManager<'a> {
 
     pub fn run(&mut self, input: Vec<ExprKind>) -> Result<Vec<ExprKind>> {
         self.changed = false;
+
+        let mut expr_level_sets = Vec::with_capacity(input.len());
+
         // Collect the set expressions, ignore them for the constant folding
         for expr in &input {
-            CollectSet::new(&mut self.set_idents).visit(expr);
+            let mut collector = CollectSet::new(&mut self.set_idents);
+
+            collector.visit(expr);
+
+            expr_level_sets.push(collector.expr_level_set_idents);
         }
 
         input
             .into_iter()
-            .map(|x| {
+            .zip(expr_level_sets)
+            .map(|(x, set)| {
                 let mut eval = ConstantEvaluator::new(
                     Rc::clone(&self.global_env),
                     &self.set_idents,
+                    &set,
                     self.opt_level,
                     self.memoization_table,
                     self.kernel,
@@ -175,6 +184,7 @@ impl<'a> ConstantEvaluatorManager<'a> {
 struct ConstantEvaluator<'a> {
     bindings: SharedEnv,
     set_idents: &'a HashSet<InternedString>,
+    expr_level_set_idents: &'a HashSet<InternedString>,
     changed: bool,
     opt_level: OptLevel,
     memoization_table: &'a mut MemoizationTable,
@@ -196,6 +206,7 @@ impl<'a> ConstantEvaluator<'a> {
     fn new(
         bindings: Rc<RefCell<ConstantEnv>>,
         set_idents: &'a HashSet<InternedString>,
+        expr_level_set_idents: &'a HashSet<InternedString>,
         opt_level: OptLevel,
         memoization_table: &'a mut MemoizationTable,
         kernel: &'a mut Option<Kernel>,
@@ -203,6 +214,7 @@ impl<'a> ConstantEvaluator<'a> {
         Self {
             bindings,
             set_idents,
+            expr_level_set_idents,
             changed: false,
             opt_level,
             memoization_table,
@@ -226,7 +238,7 @@ impl<'a> ConstantEvaluator<'a> {
             TokenType::BooleanLiteral(b) => Some((*b).into()),
             TokenType::Identifier(s) => {
                 // If we found a set identifier, skip it
-                if self.set_idents.get(s).is_some() {
+                if self.set_idents.get(s).is_some() || self.expr_level_set_idents.contains(s) {
                     return None;
                 };
                 self.bindings.borrow_mut().get(s)
@@ -684,8 +696,6 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             let parent = Rc::clone(&self.bindings);
             self.bindings = Rc::new(RefCell::new(new_env));
 
-            // println!("VISITING THIS BODY: {}", &l.body);
-
             let output = self.visit(l.body)?;
 
             // Unwind the 'recursion'
@@ -698,6 +708,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             let mut non_constant_arguments = Vec::new();
 
             let span = l.location.span;
+
             for (var, arg) in l.args.iter().zip(args.iter()) {
                 let identifier = var.atom_identifier_or_else(
                     throw!(BadSyntax => format!("lambda expects an identifier for the arguments: {var}"); span),
@@ -720,8 +731,6 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
             // Found no arguments are there are no non constant arguments
             if actually_used_arguments.is_empty() && non_constant_arguments.is_empty() {
-                // println!("Returning in here");
-
                 debug!("Found no used arguments or non constant arguments, returning the body");
 
                 // Unwind the recursion before we bail out
@@ -834,13 +843,21 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
     }
 }
 
+// TODO: If the value is local, we need to exclude it:
+// entering and exiting a scope should push and pop it off.
 struct CollectSet<'a> {
     set_idents: &'a mut HashSet<InternedString>,
+    scopes: quickscope::ScopeSet<InternedString>,
+    pub expr_level_set_idents: HashSet<InternedString>,
 }
 
 impl<'a> CollectSet<'a> {
     fn new(set_idents: &'a mut HashSet<InternedString>) -> Self {
-        Self { set_idents }
+        Self {
+            set_idents,
+            scopes: quickscope::ScopeSet::default(),
+            expr_level_set_idents: HashSet::new(),
+        }
     }
 }
 
@@ -859,7 +876,17 @@ impl<'a> VisitorMut for CollectSet<'a> {
     }
 
     fn visit_lambda_function(&mut self, lambda_function: &LambdaFunction) -> Self::Output {
+        self.scopes.push_layer();
+
+        for arg in &lambda_function.args {
+            if let Some(ident) = arg.atom_identifier() {
+                self.scopes.define(*ident);
+            }
+        }
+
         self.visit(&lambda_function.body);
+
+        self.scopes.pop_layer();
     }
 
     fn visit_begin(&mut self, begin: &Begin) -> Self::Output {
@@ -890,7 +917,17 @@ impl<'a> VisitorMut for CollectSet<'a> {
         if let Ok(identifier) = s.variable.atom_identifier_or_else(
             throw!(BadSyntax => "set expects an identifier"; s.location.span),
         ) {
-            self.set_idents.insert(*identifier);
+            if !self.scopes.contains(identifier) {
+                // println!("NOT IN SCOPE: {}", identifier.resolve());
+
+                self.set_idents.insert(*identifier);
+            } else {
+                self.expr_level_set_idents.insert(*identifier);
+
+                // println!("IN SCOPE: {}", identifier.resolve());
+            }
+
+            // self.set_idents.insert(*identifier);
         }
 
         self.visit(&s.expr);
@@ -899,7 +936,17 @@ impl<'a> VisitorMut for CollectSet<'a> {
     fn visit_require(&mut self, _s: &crate::parser::ast::Require) -> Self::Output {}
 
     fn visit_let(&mut self, l: &crate::parser::ast::Let) -> Self::Output {
+        self.scopes.push_layer();
         l.bindings.iter().for_each(|x| self.visit(&x.1));
+
+        for (arg, _) in &l.bindings {
+            if let Some(ident) = arg.atom_identifier() {
+                self.scopes.define(*ident);
+            }
+        }
+
         self.visit(&l.body_expr);
+
+        self.scopes.pop_layer();
     }
 }

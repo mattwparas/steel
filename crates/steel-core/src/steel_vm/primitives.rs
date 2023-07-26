@@ -638,6 +638,16 @@ fn abs(number: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+#[steel_derive::function(name = "expt", constant = true)]
+fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
+    match (left, right) {
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => Ok(SteelVal::IntV(l.pow(*r as u32))),
+        _ => {
+            stop!(Generic => "Finish implementing expt")
+        }
+    }
+}
+
 fn number_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/numbers");
     module
@@ -650,7 +660,8 @@ fn number_module() -> BuiltInModule {
         .register_value("odd?", NumOperations::odd())
         .register_fn("quotient", quotient)
         .register_value("arithmetic-shift", NumOperations::arithmetic_shift())
-        .register_native_fn_definition(ABS_DEFINITION);
+        .register_native_fn_definition(ABS_DEFINITION)
+        .register_native_fn_definition(EXPT_DEFINITION);
     module
 }
 

@@ -5,7 +5,9 @@ use crate::stop;
 
 pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     if args.is_empty() {
-        stop!(ArityMismatch => "* requires at least one argument")
+        // stop!(ArityMismatch => "* requires at least one argument")
+
+        return Ok(SteelVal::IntV(1));
     }
 
     let mut sum_int = 1;
