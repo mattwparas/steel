@@ -224,3 +224,14 @@ fn test_runner() {
 
     run(args).unwrap()
 }
+
+#[test]
+fn r5rs_test_suite() {
+    let args = Args {
+        action: None,
+        default_file: Some(PathBuf::from("cogs/r5rs.scm")),
+        arguments: vec![],
+    };
+
+    run(args).unwrap()
+}

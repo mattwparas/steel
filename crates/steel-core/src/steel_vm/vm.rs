@@ -3791,6 +3791,7 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
             }
         }
         SteelVal::ContinuationFunction(_) => {}
+        SteelVal::FuncV(_) => {}
         _ => {
             builtin_stop!(Generic => format!("call/cc expects a function, found: {function}"); ctx.current_span())
         }
@@ -3852,6 +3853,7 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
             ctx.ip += 1;
             // ctx.stack.push(continuation);
         }
+        SteelVal::FuncV(f) => return Some(f(&[continuation])),
 
         _ => {
             builtin_stop!(Generic => format!("call/cc expects a function, found: {function}"));
