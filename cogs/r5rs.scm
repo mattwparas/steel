@@ -136,22 +136,13 @@
               '(10 5 4 16 9 8)
               `(10 5 ,(expt 2 2) ,@(map (lambda (n) (expt n 2)) '(4 3)) 8))
 
-;; TODO: Free identifiers causing issues here
-
 (check-equal? "more complex unquote"
               '(a `(b ,(+ 1 2) ,(foo 4 d) e) f)
               `(a `(b ,(+ 1 2) ,(foo ,(+ 1 3) d) e) f))
 
-;; So this first one works, because we're double quasiquoted.
-;; The first quasiquote pushes a quasiquote on,
-;; and the second pushes a _second_ quasiquote
-;; depth on. So now we're two unquotes out of the top level.
-(skip-compile (check-equal? "more complex unquote"
-                            '(a `(b ,(+ 1 2) ,(foo 4 d) e) f)
-                            `(a `(b ,(+ 1 2) ,(foo ,(+ 1 3) d) e) f))
-              (check-equal? "double unquote and quote"
-                            '(a `(b ,x ,'y d) e)
-                            (let ([name1 'x] [name2 'y]) `(a `(b ,,name1 ,',name2 d) e))))
+(check-equal? "double unquote and quote"
+              '(a `(b ,x ,'y d) e)
+              (let ([name1 'x] [name2 'y]) `(a `(b ,,name1 ,',name2 d) e)))
 
 (check-equal? "named quasiquote" '(list 3 4) (quasiquote (list (unquote (+ 1 2)) 4)))
 
@@ -164,10 +155,6 @@
               (check-equal #t (let ([p (lambda (x) x)]) (eqv? p p))))
 
 (check-equal? "Symbols are interned" #t (eq? 'a 'a))
-
-; (let ([name1 (quote x)] [name2 (quote y)])
-;   (quasiquote (a (quasiquote (b (unquote (#%unquote name1)) (unquote (quote (#%unquote name2))) d))
-;                  e)))
 
 ;; TODO: With constant evaluation, these do end up being the same thing
 (check-equal? "lists don't get interned" #f (eq? (list 'a) (list 'a)))
@@ -197,14 +184,15 @@
 
 ;; TODO: Figure these comments ones out
 
+(check-equal? "equality with float and int" #f (equal? 2.0 2))
+
 (skip-compile (check-equal #f (eqv? 2 2.0))
-              (check-equal #f (equal? 2.0 2))
               ;; TODO: Add make-vector function
               (check-equal #t (equal? (make-vector 5 'a) (make-vector 5 'a))))
 
 (check-equal? "max over ints" 4 (max 3 4))
 
-;;(check-equal 4 (max 3.9 4))
+(check-equal? "max with float and int" 4 (max 3.9 4))
 
 (check-equal? "Addition binop" 7 (+ 3 4))
 
@@ -373,14 +361,15 @@
 (check-equal? "substring just the first character" "a" (substring "abc" 0 1))
 (check-equal? "substring a larger chunk" "bc" (substring "abc" 1 3))
 
-(skip-compile (check-equal #t (string=? "a" (string #\a)))
-              (check-equal #f (string=? "a" (string #\b)))
-              (check-equal #t (string<? "a" "aa"))
-              (check-equal #f (string<? "aa" "a"))
-              (check-equal #f (string<? "a" "a"))
-              (check-equal #t (string<=? "a" "aa"))
-              (check-equal #t (string<=? "a" "a"))
-              (check-equal #t (string=? "a" (make-string 1 #\a)))
+(check-equal? "string-equality with constructor, equal" #t (string=? "a" (string #\a)))
+(check-equal? "string-equality with constructor, not equal" #f (string=? "a" (string #\b)))
+(check-equal? "string<, true" #t (string<? "a" "aa"))
+(check-equal? "string<, false" #f (string<? "aa" "a"))
+(check-equal? "string<, same strings" #f (string<? "a" "a"))
+(check-equal? "string <=, true" #t (string<=? "a" "aa"))
+(check-equal? "string <=, same string" #t (string<=? "a" "a"))
+
+(skip-compile (check-equal #t (string=? "a" (make-string 1 #\a)))
               (check-equal #f (string=? "a" (make-string 1 #\b))))
 
 (check-equal? "string-append with empty string" "abc" (string-append "abc" ""))

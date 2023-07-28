@@ -38,8 +38,32 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(TRIM_START_MATCHES_DEFINITION)
         .register_native_fn_definition(STRING_REF_DEFINITION)
         .register_native_fn_definition(SUBSTRING_DEFINITION)
+        .register_native_fn_definition(STRING_EQUALS_DEFINITION)
+        .register_native_fn_definition(STRING_LESS_THAN_DEFINITION)
+        .register_native_fn_definition(STRING_LESS_THAN_EQUAL_TO_DEFINITION)
+        .register_native_fn_definition(STRING_CONSTRUCTOR_DEFINITION)
         .register_fn("char-upcase", char_upcase);
     module
+}
+
+#[function(name = "string")]
+pub fn string_constructor(rest: RestArgsIter<'_, &char>) -> Result<SteelVal> {
+    rest.collect::<Result<String>>().map(|x| x.into())
+}
+
+#[function(name = "string<=?", constant = true)]
+pub fn string_less_than_equal_to(left: &SteelString, right: &SteelString) -> bool {
+    left <= right
+}
+
+#[function(name = "string<?", constant = true)]
+pub fn string_less_than(left: &SteelString, right: &SteelString) -> bool {
+    left < right
+}
+
+#[function(name = "string=?", constant = true)]
+pub fn string_equals(left: &SteelString, right: &SteelString) -> bool {
+    left == right
 }
 
 #[function(name = "string-ref", constant = true)]
