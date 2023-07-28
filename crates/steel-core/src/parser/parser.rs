@@ -589,14 +589,14 @@ impl<'a> Parser<'a> {
     }
 
     fn increment_quasiquote_context_if_not_in_quote_context(&mut self) {
-        println!("INCREMENTING");
+        // println!("INCREMENTING");
         if !self.quote_context {
             self.quasiquote_depth += 1;
         }
     }
 
     fn decrement_quasiquote_context_if_not_in_quote_context(&mut self) {
-        println!("DECREMENTING");
+        // println!("DECREMENTING");
         if !self.quote_context {
             self.quasiquote_depth -= 1;
         }
@@ -668,7 +668,7 @@ impl<'a> Parser<'a> {
                             current_frame.push(quote_inner?);
                         }
                         TokenType::Unquote => {
-                            println!("Entering context: Unquote");
+                            // println!("Entering context: Unquote");
 
                             // This could underflow and panic - if its negative then we have a problem. Maybe just use an isize and let it underflow?
                             self.decrement_quasiquote_context_if_not_in_quote_context();
@@ -680,8 +680,8 @@ impl<'a> Parser<'a> {
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                                 .map(|x| {
-                                    dbg!(self.quasiquote_depth);
-                                    dbg!(self.quote_context);
+                                    // dbg!(self.quasiquote_depth);
+                                    // dbg!(self.quote_context);
                                     if self.quasiquote_depth == 0 && !self.quote_context {
                                         self.construct_raw_unquote(x, token.span)
                                     } else {
@@ -700,7 +700,7 @@ impl<'a> Parser<'a> {
                             current_frame.push(quote_inner?);
                         }
                         TokenType::QuasiQuote => {
-                            println!("Entering context: Quasiquote");
+                            // println!("Entering context: Quasiquote");
 
                             self.increment_quasiquote_context_if_not_in_quote_context();
 
@@ -730,7 +730,7 @@ impl<'a> Parser<'a> {
                             current_frame.push(quote_inner?);
                         }
                         TokenType::UnquoteSplice => {
-                            println!("Entering context: UnquoteSplicing");
+                            // println!("Entering context: UnquoteSplicing");
 
                             self.decrement_quasiquote_context_if_not_in_quote_context();
 
@@ -932,9 +932,9 @@ impl<'a> Parser<'a> {
                                         return Ok(ExprKind::List(List::new(current_frame)));
                                     }
                                     _ => {
-                                        dbg!(self.quasiquote_depth);
-                                        println!("=> {}", List::new(current_frame.clone()));
-                                        println!("----------------------------------------");
+                                        // dbg!(self.quasiquote_depth);
+                                        // println!("=> {}", List::new(current_frame.clone()));
+                                        // println!("----------------------------------------");
 
                                         if self.quasiquote_depth > 0 {
                                             // TODO/HACK - @Matt
@@ -949,7 +949,7 @@ impl<'a> Parser<'a> {
                                                 );
                                             }
 
-                                            println!("Should still be quoted here");
+                                            // println!("Should still be quoted here");
 
                                             return Ok(ExprKind::List(List::new(current_frame)));
                                         }
@@ -1109,7 +1109,7 @@ impl<'a> Parser<'a> {
                             .next()
                             .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                             .map(|x| {
-                                dbg!(&self.quasiquote_depth);
+                                // dbg!(&self.quasiquote_depth);
                                 if self.quasiquote_depth == 0 && !self.quote_context {
                                     self.construct_raw_unquote(x, res.span)
                                 } else {
@@ -1211,7 +1211,7 @@ impl<'a> Iterator for Parser<'a> {
             && self.shorthand_quote_stack.is_empty()
             && self.context.is_empty()
         {
-            println!("RESETTING QUASIQUOTE DEPTH");
+            // println!("RESETTING QUASIQUOTE DEPTH");
             self.quasiquote_depth = 0;
             self.comment_buffer.clear();
         }

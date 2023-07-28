@@ -605,7 +605,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                     _ => return false,
                 },
                 MacroPattern::QuotedExpr(q) => {
-                    println!("MATCHING QUOTED EXPR: {}", q);
+                    // println!("MATCHING QUOTED EXPR: {}", q);
                     match val {
                         ExprKind::Quote(boxed_q) if q == boxed_q => continue,
                         _ => {
@@ -615,7 +615,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                 }
                 // TODO: Come back here and do constants
                 MacroPattern::Quote(q) => {
-                    println!("MATCHING QUOTE {} with val: {}", q, val);
+                    // println!("MATCHING QUOTE {} with val: {}", q, val);
                     match val {
                         ExprKind::Quote(_) => return true,
 
