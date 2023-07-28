@@ -3,14 +3,47 @@
     [(steel/base) 
       (require-builtin steel/base)]))
 
+
+; (define-syntax quasiquote
+;   (syntax-rules (unquote unquote-splicing)
+;     ((_ ((unquote x) . xs))          (cons x (quasiquote xs)))
+;     ((_ ((unquote-splicing x) . xs)) (append x (quasiquote xs)))
+;     ((_ (unquote x))                 x)
+;     ((_ (x  . xs))                   (cons (quasiquote x) (quasiquote xs)))
+;     ((_ x)                           (quote x))))
+
 (define-syntax quasiquote
-  (syntax-rules (unquote unquote-splicing)
-    ((quasiquote (unquote x))                         x)
-    ((quasiquote ((unquote x) xs ...))          (cons x (quasiquote (xs ...))))
+  (syntax-rules (unquote unquote-splicing #%unquote #%unquote-splicing #%quote)
+
+   
+    ((quasiquote ((quote x) xs ...)) (cons (list 'quote (quasiquote x)) (quasiquote (xs ...))))
+
+    ((quasiquote (quote x)) (list 'quote (quasiquote x)))
+    
+    ((quasiquote ((unquote x) xs ...))          (cons (list 'unquote (quasiquote x)) (quasiquote (xs ...))))
+    ((quasiquote (unquote x)) (list 'unquote (quasiquote x)))
+
+    ; ((quasiquote ((#%unquote x) xs ...))          (cons x (quasiquote (xs ...))))
+    
+    ((quasiquote ((#%unquote x) xs ...))          (cons x (quasiquote (xs ...))))
+    ((quasiquote (#%unquote x))                         x)
+
     ((quasiquote ((unquote-splicing x)))        (append x '()))
     ((quasiquote ((unquote-splicing x) xs ...)) (append x (quasiquote (xs ...))))
     ((quasiquote (x xs ...))                   (cons (quasiquote x) (quasiquote (xs ...))))
-    ((quasiquote x)                           'x)))
+    ((quasiquote x)                          'x)))
+
+
+;; Raw quasiquote, expands to
+; (define-syntax #%quasiquote
+;   (syntax-rules (unquote unquote-splicing)
+;     ((#%quasiquote (unquote x))                         x)
+;     ((#%quasiquote ((unquote x) xs ...))          (cons x (#%quasiquote (xs ...))))
+;     ((#%quasiquote ((unquote-splicing x)))        (append x '()))
+;     ((#%quasiquote ((unquote-splicing x) xs ...)) (append x (#%quasiquote (xs ...))))
+;     ((#%quasiquote (x xs ...))                   (cons (#%quasiquote x) (#%quasiquote (xs ...))))
+;     ((#%quasiquote x)                           'x)))
+    
 
 (define-syntax or
   (syntax-rules ()
@@ -298,10 +331,36 @@
              (cdr lst))))
 
 
-(define (map func lst)
-  (if (null? lst) 
-      '() 
-      (transduce lst (mapping func) (into-list))))
+; (define (map-many func lst . lsts)
+
+; (define (crunch composer remaining-lists)
+;   (if (null? lsts) composer (crunch (compose composer (zipping (car remaining-lists))) (cdr remaining-lists))))
+
+
+;   (if (null? lsts)
+;       (map func lst)
+;       ;; Handle the case for many lists
+;       (let ([composed-transducer (crunch (compose) lsts)])
+;         (transduce lst composed-transducer (mapping (lambda (x) (apply func x))) (into-list)))))
+
+
+(define (map func lst . lsts)
+
+  (cond [(null? lst) '()]
+        [(null? lsts) (transduce lst (mapping func) (into-list))]
+        [else =>
+          (define (crunch composer remaining-lists)
+            (if (null? remaining-lists) composer (crunch (compose composer (zipping (car remaining-lists))) (cdr remaining-lists))))
+          (if (null? lsts)
+              (map func lst)
+              ;; Handle the case for many lists
+              (let ([composed-transducer (crunch (compose) lsts)])
+                (transduce lst composed-transducer (mapping (lambda (x) (apply func x))) (into-list))))]))
+
+
+  ; (if (null? lst) 
+  ;     '()
+  ;     (transduce lst (mapping func) (into-list))))
 
 
 (define foldr (lambda (func accum lst)

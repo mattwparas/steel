@@ -130,6 +130,19 @@ impl ExprKind {
         }
     }
 
+    pub fn define_syntax_ident(&self) -> bool {
+        match self {
+            Self::Atom(Atom {
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::DefineSyntax,
+                        ..
+                    },
+            }) => true,
+            _ => false,
+        }
+    }
+
     pub fn atom_identifier_mut(&mut self) -> Option<&mut InternedString> {
         match self {
             Self::Atom(Atom {

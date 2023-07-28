@@ -432,8 +432,11 @@ lazy_static::lazy_static! {
     pub static ref AS_KEYWORD: InternedString = "as".into();
     pub static ref SYNTAX_CONST_IF: InternedString = "syntax-const-if".into();
     pub static ref UNQUOTE: InternedString = "unquote".into();
+    pub static ref RAW_UNQUOTE: InternedString = "#%unquote".into();
     pub static ref UNQUOTE_SPLICING: InternedString = "unquote-splicing".into();
+    pub static ref RAW_UNQUOTE_SPLICING: InternedString = "#%unquote-splicing".into();
     pub static ref QUASIQUOTE: InternedString = "quasiquote".into();
+    pub static ref RAW_QUOTE: InternedString = "#%quote".into();
 }
 
 pub fn inline_num_operations(instructions: &mut [Instruction]) {

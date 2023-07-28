@@ -335,7 +335,12 @@ pub enum MacroPattern {
     FloatLiteral(f64),
     BooleanLiteral(bool),
     QuotedExpr(Box<Quote>),
+    Quote(InternedString),
 }
+
+// pub enum QuotedLiteral {
+
+// }
 
 impl std::fmt::Debug for MacroPattern {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -352,6 +357,7 @@ impl std::fmt::Debug for MacroPattern {
             MacroPattern::FloatLiteral(fl) => f.debug_tuple("FloatLiteral").field(fl).finish(),
             MacroPattern::BooleanLiteral(b) => f.debug_tuple("BooleanLiteral").field(b).finish(),
             MacroPattern::QuotedExpr(s) => f.debug_tuple("QuotedExpr").field(s).finish(),
+            MacroPattern::Quote(i) => f.debug_tuple("Quote").field(&i.resolve()).finish(),
         }
     }
 }
@@ -435,6 +441,44 @@ impl MacroPattern {
                     TokenType::StringLiteral(s) => {
                         pattern_vec.push(MacroPattern::StringLiteral(s));
                     }
+                    // TODO: Crunch the quoted values here, and pull them in so that this
+                    // holds a body of possible quoted values
+                    TokenType::Quote => {
+                        // pattern_vec.push(MacroPattern::Quote);
+                        // match peek_token_iter.peek() {
+                        //     Some(ExprKind::Atom(Atom {
+                        //         syn:
+                        //             SyntaxObject {
+                        //                 ty: TokenType::Ellipses,
+                        //                 ..
+                        //             },
+                        //     })) => {
+                        //         peek_token_iter.next();
+                        //         pattern_vec.push(MacroPattern::Many(t.clone()));
+                        //     }
+                        //     _ => {
+                        //         pattern_vec.push(MacroPattern::Single(t.clone()));
+                        //     }
+                        // }
+
+                        let next = peek_token_iter.next();
+
+                        match next {
+                            Some(ExprKind::Atom(Atom {
+                                syn:
+                                    SyntaxObject {
+                                        ty: TokenType::Identifier(s),
+                                        ..
+                                    },
+                            })) => {
+                                pattern_vec.push(MacroPattern::Quote(s));
+                            }
+                            _ => {
+                                stop!(TypeMismatch => "syntax-rules with quote don't yet support arbitrary constants yet")
+                                // pattern_vec.push(MacroPattern::Single(t.clone()));
+                            }
+                        }
+                    }
                     _ => {
                         stop!(BadSyntax => "syntax-rules requires identifiers in the pattern"; span);
                     }
@@ -492,6 +536,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
 
             match pat {
                 MacroPattern::Single(_) | MacroPattern::Many(_) => continue,
+                // TODO: @Matt - if the atom is bound locally, then do not match on this
                 MacroPattern::Syntax(v) => match val {
                     ExprKind::Atom(Atom {
                         syn:
@@ -559,10 +604,46 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                     }) if s == b => continue,
                     _ => return false,
                 },
-                MacroPattern::QuotedExpr(q) => match val {
-                    ExprKind::Quote(boxed_q) if q == boxed_q => continue,
-                    _ => return false,
-                },
+                MacroPattern::QuotedExpr(q) => {
+                    println!("MATCHING QUOTED EXPR: {}", q);
+                    match val {
+                        ExprKind::Quote(boxed_q) if q == boxed_q => continue,
+                        _ => {
+                            return false;
+                        }
+                    }
+                }
+                // TODO: Come back here and do constants
+                MacroPattern::Quote(q) => {
+                    println!("MATCHING QUOTE {} with val: {}", q, val);
+                    match val {
+                        ExprKind::Quote(_) => return true,
+
+                        // ExprKind::Atom(Atom {
+                        //     syn:
+                        //         SyntaxObject {
+                        //             ty: TokenType::Quote | TokenType::QuoteTick,
+                        //             ..
+                        //         },
+                        // }) => {
+                        //     println!("MATCHING ON QUOTE");
+                        //     continue;
+                        // }
+
+                        // ExprKind::Atom(Atom {
+                        //     syn:
+                        //         SyntaxObject {
+                        //             ty: TokenType::Identifier(s),
+                        //             ..
+                        //         },
+                        // }) if s.resolve() == "QUOTE" => {
+                        //     println!("MATCHING ON QUOTE");
+                        //     continue;
+                        // }
+                        // ExprKind::Quote()
+                        _ => return false,
+                    }
+                }
                 MacroPattern::Nested(vec) => {
                     if let ExprKind::List(l) = val {
                         // TODO more elegant let* case
@@ -583,12 +664,17 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                             debug!("Matching failed due to child not matching");
                             return false;
                         }
+                    } else if let ExprKind::Quote(q) = val {
+                        // TODO: Come back here
+                        return matches!(vec.as_slice(), &[MacroPattern::Quote(_)]);
+                        // return true;
                     } else {
                         // if let Some(inner) = val.atom_identifier() {
                         //     dbg!(inner.resolve());
                         // }
 
                         // dbg!(&vec);
+                        // dbg!(&val);
 
                         debug!("Matching failed - atom does not match list");
                         return false;
@@ -666,13 +752,35 @@ pub fn collect_bindings(
 
                 if let ExprKind::List(l) = child {
                     collect_bindings(children, l, bindings)?;
+                } else if let ExprKind::Quote(q) = child {
+                    if let &[MacroPattern::Quote(x)] = children.as_slice() {
+                        bindings.insert(x, q.expr.clone());
+                    } else {
+                        stop!(BadSyntax => "macro expected a list of values, not including keywords, found: {}", child)
+                    }
                 } else {
                     // println!("Args: {:?}", args);
                     // println!("List: {}", list);
                     // println!("Current pattern: {:?}", arg);
+
+                    // println!("{:?}", children);
+
                     stop!(BadSyntax => "macro expected a list of values, not including keywords, found: {}", child)
                 }
             }
+
+            MacroPattern::Quote(s) => {
+                if let Some(e) = token_iter.next() {
+                    if let ExprKind::Quote(inner) = e {
+                        bindings.insert(*s, inner.expr.clone());
+                    } else {
+                        stop!(Generic => "something went wrong with macro expansion")
+                    }
+                } else {
+                    stop!(ArityMismatch => "macro invocation expected a value, found none");
+                }
+            }
+
             // Matching on literals
             _ => {
                 // println!("Skipping pattern literal: {:?}", arg);

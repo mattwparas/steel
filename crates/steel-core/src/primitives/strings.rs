@@ -36,8 +36,32 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(ENDS_WITH_DEFINITION)
         .register_native_fn_definition(TRIM_END_MATCHES_DEFINITION)
         .register_native_fn_definition(TRIM_START_MATCHES_DEFINITION)
+        .register_native_fn_definition(STRING_REF_DEFINITION)
+        .register_native_fn_definition(SUBSTRING_DEFINITION)
         .register_fn("char-upcase", char_upcase);
     module
+}
+
+#[function(name = "string-ref", constant = true)]
+pub fn string_ref(value: &SteelString, index: usize) -> Result<SteelVal> {
+    if index >= value.len() {
+        stop!(Generic => "string-ref: index out of bounds: index: {}, string length: {}", index, value);
+    }
+
+    Ok(SteelVal::CharV(value.as_str().chars().nth(index).unwrap()))
+}
+
+#[function(name = "substring", constant = true)]
+pub fn substring(value: &SteelString, i: usize, j: usize) -> Result<SteelVal> {
+    if i >= value.len() {
+        stop!(Generic => "substring: index out of bounds: left bound: {}, string length: {}", i, value.len());
+    }
+
+    if i > j {
+        stop!(Generic => "substring: left bound must be less than or equal to the right bound: left: {}, right: {}", i, j);
+    }
+
+    Ok(SteelVal::StringV(value[i..j].into()))
 }
 
 /// Concatenatives all of the inputs to their string representation, separated by spaces.

@@ -2,13 +2,16 @@
 
 use super::{
     builtin::BuiltInModule,
-    dylib::DylibContainers,
     primitives::{register_builtin_modules, register_builtin_modules_without_io, CONSTANTS},
     vm::SteelThread,
 };
 
 #[cfg(feature = "dylibs")]
 use super::{ffi::FFIModule, ffi::FFIWrappedModule};
+
+#[cfg(feature = "dylibs")]
+use super::dylib::DylibContainers;
+
 use crate::{
     compiler::{
         compiler::Compiler,
@@ -70,6 +73,7 @@ pub struct Engine {
     constants: Option<ImmutableHashMap<InternedString, SteelVal>>,
     modules: ModuleContainer,
     sources: Sources,
+    #[cfg(feature = "dylibs")]
     dylibs: DylibContainers,
 }
 
@@ -192,6 +196,7 @@ impl Engine {
             constants: None,
             modules: ModuleContainer::default(),
             sources: Sources::new(),
+            #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
         };
 
@@ -231,6 +236,7 @@ impl Engine {
     }
 
     /// Load dylibs from the given path and make them
+    #[cfg(feature = "dylibs")]
     pub fn load_modules_from_directory(&mut self, directory: String) {
         log::info!("Loading modules from directory: {}", &directory);
         self.dylibs.load_modules_from_directory(Some(directory));
@@ -272,6 +278,7 @@ impl Engine {
             constants: None,
             modules: ModuleContainer::default(),
             sources: Sources::new(),
+            #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
         };
 
@@ -385,6 +392,7 @@ impl Engine {
             constants: None,
             modules: ModuleContainer::default(),
             sources: Sources::new(),
+            #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
         };
 
@@ -448,6 +456,7 @@ impl Engine {
             constants: None,
             modules: ModuleContainer::default(),
             sources: Sources::new(),
+            #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
         };
 
@@ -508,6 +517,7 @@ impl Engine {
             constants: None,
             modules: ModuleContainer::default(),
             sources: Sources::new(),
+            #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
         }
     }

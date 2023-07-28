@@ -3,10 +3,13 @@
          (for-syntax check-err?)
          (for-syntax test-module)
          get-test-stats
-         (for-syntax check))
+         (for-syntax check)
+         (for-syntax skip-compile))
 
 (define *SUCCESS-COUNT* 0)
 (define *FAILURE-COUNT* 0)
+
+(define *FAILED-TO-COMPILE* 0)
 
 ;; Failed tests
 (define *failures* '())
@@ -17,6 +20,9 @@
 (define (mark-failed name)
   (set! *FAILURE-COUNT* (+ *FAILURE-COUNT* 1))
   (set! *failures* (cons name *failures*)))
+
+(define (mark-skipped)
+  (set! *FAILED-TO-COMPILE* (+ *FAILED-TO-COMPILE* 1)))
 
 (define (print-success name)
   (display "test > " name " ... ")
@@ -71,8 +77,24 @@
      (begin
        expr ...)]))
 
+(define-syntax skip-compile
+  (syntax-rules ()
+    [(skip-compile) (begin)]
+    [(skip-compile expr) (mark-skipped)]
+    [(skip-compile expr exprs ...)
+     (begin
+       (mark-skipped)
+       (skip-compile exprs ...))]))
+
 (define (get-test-stats)
-  (hash 'success-count *SUCCESS-COUNT* 'failure-count *FAILURE-COUNT* 'failures *failures*))
+  (hash 'success-count
+        *SUCCESS-COUNT*
+        'failure-count
+        *FAILURE-COUNT*
+        'failures
+        *failures*
+        'failed-to-compile
+        *FAILED-TO-COMPILE*))
 
 ; (test-module
 ; (check-equal? "Checks that the expressions make sense"

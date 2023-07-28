@@ -88,7 +88,7 @@
 (check-equal? "or true on the first, second not true" #t (or (= 2 2) (< 2 1)))
 
 ;; TODO
-; (check-equal? '(b c) (or (memq 'b '(a b c)) (/ 3 0)))
+(skip-compile (check-equal? '(b c) (or (memq 'b '(a b c)) (/ 3 0))))
 
 (check-equal? "basic let" 6 (let ([x 2] [y 3]) (* x y)))
 
@@ -112,29 +112,19 @@
 (check-equal? "Redefine top level with interior define, stays the same" 1 let*-def)
 
 ;; TODO: `do` macro
-; (check-equal '#(0 1 2 3 4)
-;  (do ((vec (make-vector 5))
-;       (i 0 (+ i 1)))
-;      ((= i 5) vec)
-;    (vector-set! vec i i)))
-
-; (check-equal 25
-;     (let ((x '(1 3 5 7 9)))
-;       (do ((x x (cdr x))
-;            (sum 0 (+ sum (car x))))
-;           ((null? x)
-;            sum))))
-
-;; TODO named `let`
-; (check-equal '((6 1 3) (-5 -2))
-;     (let loop ((numbers '(3 -2 1 6 -5)) (nonneg '()) (neg '()))
-;       (cond
-;        ((null? numbers)
-;         (list nonneg neg))
-;        ((>= (car numbers) 0)
-;         (loop (cdr numbers) (cons (car numbers) nonneg) neg))
-;        ((< (car numbers) 0)
-;         (loop (cdr numbers) nonneg (cons (car numbers) neg))))))
+(skip-compile
+ (check-equal '#(0 1 2 3 4)
+              (do ((vec (make-vector 5)) (i 0 (+ i 1))) ((= i 5) vec) (vector-set! vec i i)))
+ (check-equal 25
+              (let ([x '(1 3 5 7 9)]) (do ((x x (cdr x)) (sum 0 (+ sum (car x)))) ((null? x) sum))))
+ ;; TODO named `let`
+ ; (check-equal '((6 1 3) (-5 -2))
+ ;              (let loop ([numbers '(3 -2 1 6 -5)] [nonneg '()] [neg '()])
+ ;                (cond
+ ;                  [(null? numbers) (list nonneg neg)]
+ ;                  [(>= (car numbers) 0) (loop (cdr numbers) (cons (car numbers) nonneg) neg)]
+ ;                  [(< (car numbers) 0) (loop (cdr numbers) nonneg (cons (car numbers) neg))])))
+ )
 
 (check-equal? "simple quasiquote and unquote" '(list 3 4) `(list ,(+ 1 2) 4))
 
@@ -148,30 +138,36 @@
 
 ;; TODO: Free identifiers causing issues here
 
-; (check-equal? "more complex unquote"
-;               '(a `(b ,(+ 1 2) ,(foo 4 d) e) f)
-;               `(a `(b ,(+ 1 2) ,(foo ,(+ 1 3) d) e) f))
+(check-equal? "more complex unquote"
+              '(a `(b ,(+ 1 2) ,(foo 4 d) e) f)
+              `(a `(b ,(+ 1 2) ,(foo ,(+ 1 3) d) e) f))
 
-; (check-equal? "double unquote and quote"
-;               '(a `(b ,x ,'y d) e)
-;               (let ([name1 'x] [name2 'y]) `(a `(b ,,name1 ,',name2 d) e)))
+;; So this first one works, because we're double quasiquoted.
+;; The first quasiquote pushes a quasiquote on,
+;; and the second pushes a _second_ quasiquote
+;; depth on. So now we're two unquotes out of the top level.
+(skip-compile (check-equal? "more complex unquote"
+                            '(a `(b ,(+ 1 2) ,(foo 4 d) e) f)
+                            `(a `(b ,(+ 1 2) ,(foo ,(+ 1 3) d) e) f))
+              (check-equal? "double unquote and quote"
+                            '(a `(b ,x ,'y d) e)
+                            (let ([name1 'x] [name2 'y]) `(a `(b ,,name1 ,',name2 d) e))))
 
 (check-equal? "named quasiquote" '(list 3 4) (quasiquote (list (unquote (+ 1 2)) 4)))
 
 ;; TODO: Add eqv?
-; (check-equal? #t (eqv? 'a 'a))
-
-; (check-equal #f (eqv? 'a 'b))
-
-; (check-equal #t (eqv? '() '()))
-
-; (check-equal #f (eqv? (cons 1 2) (cons 1 2)))
-
-; (check-equal #f (eqv? (lambda () 1) (lambda () 2)))
-
-; (check-equal #t (let ((p (lambda (x) x))) (eqv? p p)))
+(skip-compile (check-equal? #t (eqv? 'a 'a))
+              (check-equal #f (eqv? 'a 'b))
+              (check-equal #t (eqv? '() '()))
+              (check-equal #f (eqv? (cons 1 2) (cons 1 2)))
+              (check-equal #f (eqv? (lambda () 1) (lambda () 2)))
+              (check-equal #t (let ([p (lambda (x) x)]) (eqv? p p))))
 
 (check-equal? "Symbols are interned" #t (eq? 'a 'a))
+
+; (let ([name1 (quote x)] [name2 (quote y)])
+;   (quasiquote (a (quasiquote (b (unquote (#%unquote name1)) (unquote (quote (#%unquote name2))) d))
+;                  e)))
 
 ;; TODO: With constant evaluation, these do end up being the same thing
 (check-equal? "lists don't get interned" #f (eq? (list 'a) (list 'a)))
@@ -201,12 +197,10 @@
 
 ;; TODO: Figure these comments ones out
 
-;;(check-equal #f (eqv? 2 2.0))
-
-;;(check-equal #f (equal? 2.0 2))
-
-;; TODO: Add make-vector function
-; (check-equal #t (equal? (make-vector 5 'a) (make-vector 5 'a)))
+(skip-compile (check-equal #f (eqv? 2 2.0))
+              (check-equal #f (equal? 2.0 2))
+              ;; TODO: Add make-vector function
+              (check-equal #t (equal? (make-vector 5 'a) (make-vector 5 'a))))
 
 (check-equal? "max over ints" 4 (max 3 4))
 
@@ -234,49 +228,28 @@
 
 ;; TODO: Adjust the below check-equals
 
-; (check-equal 1 (modulo 13 4))
-
-; (check-equal 1 (remainder 13 4))
-
-; (check-equal 3 (modulo -13 4))
-
-; (check-equal -1 (remainder -13 4))
-
-; (check-equal -3 (modulo 13 -4))
-
-; (check-equal 1 (remainder 13 -4))
-
-; (check-equal -1 (modulo -13 -4))
-
-; (check-equal -1 (remainder -13 -4))
-
-; (check-equal 4 (gcd 32 -36))
-
-; (check-equal 288 (lcm 32 -36))
-
-;; TODO: Add string->number
-
-; (check-equal? "basic string->number" 100 (string->number "100"))
-
-; (check-equal? "string->number with radix" 256 (string->number "100" 16))
-
-; (check-equal? "string->number with different base" 127 (string->number "177" 8))
-
-; (check-equal? "string->number base 2" 5 (string->number "101" 2))
-
-; (check-equal? "string->number with scientific notation" 100.0 (string->number "1e2"))
-
-;; TODO: Add number->string
-
-; (check-equal? "basic number->string" "100" (number->string 100))
-
-; (check-equal? "number->string with different base" "100" (number->string 256 16))
-
-; (check-equal? "number->string base 16 doesn't work" "ff" (number->string 255 16))
-
-; (check-equal? "number->string base 8" "177" (number->string 127 8))
-
-; (check-equal? "number->string base 2" "101" (number->string 5 2))
+(skip-compile (check-equal 1 (modulo 13 4))
+              (check-equal 1 (remainder 13 4))
+              (check-equal 3 (modulo -13 4))
+              (check-equal -1 (remainder -13 4))
+              (check-equal -3 (modulo 13 -4))
+              (check-equal 1 (remainder 13 -4))
+              (check-equal -1 (modulo -13 -4))
+              (check-equal -1 (remainder -13 -4))
+              (check-equal 4 (gcd 32 -36))
+              (check-equal 288 (lcm 32 -36))
+              ; TODO: Add string->number
+              (check-equal? "basic string->number" 100 (string->number "100"))
+              (check-equal? "string->number with radix" 256 (string->number "100" 16))
+              (check-equal? "string->number with different base" 127 (string->number "177" 8))
+              (check-equal? "string->number base 2" 5 (string->number "101" 2))
+              (check-equal? "string->number with scientific notation" 100.0 (string->number "1e2"))
+              ; TODO: Add number->string
+              (check-equal? "basic number->string" "100" (number->string 100))
+              (check-equal? "number->string with different base" "100" (number->string 256 16))
+              (check-equal? "number->string base 16 doesn't work" "ff" (number->string 255 16))
+              (check-equal? "number->string base 8" "177" (number->string 127 8))
+              (check-equal? "number->string base 2" "101" (number->string 5 2)))
 
 (check-equal? "integers are truthy" #f (not 3))
 
@@ -353,23 +326,18 @@
 
 (check-equal? "simple list-ref" 'c (list-ref '(a b c d) 2))
 
-; (check-equal '(a b c) (memq 'a '(a b c)))
-
-; (check-equal '(b c) (memq 'b '(a b c)))
-
-; (check-equal #f (memq 'a '(b c d)))
-
-; (check-equal #f (memq (list 'a) '(b (a) c)))
+(skip-compile (check-equal '(a b c) (memq 'a '(a b c)))
+              (check-equal '(b c) (memq 'b '(a b c)))
+              (check-equal #f (memq 'a '(b c d)))
+              (check-equal #f (memq (list 'a) '(b (a) c))))
 
 (check-equal? "simple member" '((a) c) (member (list 'a) '(b (a) c)))
 
-; (check-equal '(101 102) (memv 101 '(100 101 102)))
+(skip-compile (check-equal '(101 102) (memv 101 '(100 101 102)))
+              (check-equal #f (assq (list 'a) '(((a)) ((b)) ((c)))))
+              (check-equal '(5 7) (assv 5 '((2 3) (5 7) (11 13)))))
 
-; (check-equal #f (assq (list 'a) '(((a)) ((b)) ((c)))))
-
-; (check-equal '((a)) (assoc (list 'a) '(((a)) ((b)) ((c)))))
-
-; (check-equal '(5 7) (assv 5 '((2 3) (5 7) (11 13))))
+(check-equal? "assoc" '((a)) (assoc (list 'a) '(((a)) ((b)) ((c)))))
 
 (check-equal? "symbol predicate" #t (symbol? 'foo))
 
@@ -397,33 +365,23 @@
 
 (check-equal? "string length correctly reported for standard string" 3 (string-length "abc"))
 
-; (check-equal #\a (string-ref "abc" 0))
+(check-equal? "string indexing into first character" #\a (string-ref "abc" 0))
 
-; (check-equal #\c (string-ref "abc" 2))
+(check-equal? "string indexing into last character" #\c (string-ref "abc" 2))
 
-; (check-equal #t (string=? "a" (string #\a)))
+(check-equal? "empty substring" "" (substring "abc" 0 0))
+(check-equal? "substring just the first character" "a" (substring "abc" 0 1))
+(check-equal? "substring a larger chunk" "bc" (substring "abc" 1 3))
 
-; (check-equal #f (string=? "a" (string #\b)))
-
-; (check-equal #t (string<? "a" "aa"))
-
-; (check-equal #f (string<? "aa" "a"))
-
-; (check-equal #f (string<? "a" "a"))
-
-; (check-equal #t (string<=? "a" "aa"))
-
-; (check-equal #t (string<=? "a" "a"))
-
-; (check-equal #t (string=? "a" (make-string 1 #\a)))
-
-; (check-equal #f (string=? "a" (make-string 1 #\b)))
-
-; (check-equal "" (substring "abc" 0 0))
-
-; (check-equal "a" (substring "abc" 0 1))
-
-; (check-equal "bc" (substring "abc" 1 3))
+(skip-compile (check-equal #t (string=? "a" (string #\a)))
+              (check-equal #f (string=? "a" (string #\b)))
+              (check-equal #t (string<? "a" "aa"))
+              (check-equal #f (string<? "aa" "a"))
+              (check-equal #f (string<? "a" "a"))
+              (check-equal #t (string<=? "a" "aa"))
+              (check-equal #t (string<=? "a" "a"))
+              (check-equal #t (string=? "a" (make-string 1 #\a)))
+              (check-equal #f (string=? "a" (make-string 1 #\b))))
 
 (check-equal? "string-append with empty string" "abc" (string-append "abc" ""))
 
@@ -431,14 +389,12 @@
 
 (check-equal? "string-append with two non empty strings" "abc" (string-append "a" "bc"))
 
-; (check-equal '#(0 ("Sue" "Sue") "Anna")
-;       (let ([vec (vector 0 '(2 2 2 2) "Anna")])
-;         (vector-set! vec 1 '("Sue" "Sue"))
-;         vec))
-
-; (check-equal '(dah dah didah) (vector->list '#(dah dah didah)))
-
-; (check-equal '#(dididit dah) (list->vector '(dididit dah)))
+(skip-compile (check-equal '#(0 ("Sue" "Sue") "Anna")
+                           (let ([vec (vector 0 '(2 2 2 2) "Anna")])
+                             (vector-set! vec 1 '("Sue" "Sue"))
+                             vec))
+              (check-equal '(dah dah didah) (vector->list '#(dah dah didah)))
+              (check-equal '#(dididit dah) (list->vector '(dididit dah))))
 
 (check-equal? "function correctly identified as a procedure" #t (procedure? car))
 
@@ -470,14 +426,12 @@
 
 (check-equal? "map with multiple list arguments" '(5 7 9) (map + '(1 2 3) '(4 5 6)))
 
-; (check-equal '#(0 1 4 9 16)
-;       (let ([v (make-vector 5)])
-;         (for-each (lambda (i) (vector-set! v i (* i i))) '(0 1 2 3 4))
-;         v))
-
-; (check-equal 3 (force (delay (+ 1 2))))
-
-; (check-equal '(3 3) (let ([p (delay (+ 1 2))]) (list (force p) (force p))))
+(skip-compile (check-equal '#(0 1 4 9 16)
+                           (let ([v (make-vector 5)])
+                             (for-each (lambda (i) (vector-set! v i (* i i))) '(0 1 2 3 4))
+                             v))
+              (check-equal 3 (force (delay (+ 1 2))))
+              (check-equal '(3 3) (let ([p (delay (+ 1 2))]) (list (force p) (force p)))))
 
 (check-equal? "using else as a variable"
               'ok
@@ -496,24 +450,22 @@
 
 ; (check-equal '(,foo) (let ([unquote 1]) `(,foo)))
 
-; (check-equal '(,@foo) (let ([unquote-splicing 1]) `(,@foo)))
-
-; (check-equal 'ok
-;       (let ([... 2])
-;         (let-syntax ([s (syntax-rules ()
-;                           [(_ x ...) 'bad]
-;                           [(_ . r) 'ok])])
-;           (s a b c))))
-
-; (check-equal 'ok
-;       (let ()
-;         (let-syntax () (define internal-def 'ok))
-;         internal-def))
-
-; (check-equal 'ok
-;       (let ()
-;         (letrec-syntax () (define internal-def 'ok))
-;         internal-def))
+(skip-compile (check-equal? "Override unquote in a local context" '(,foo) (let ([unquote 1]) `(,foo)))
+              (check-equal '(,@foo) (let ([unquote-splicing 1]) `(,@foo)))
+              ; (check-equal 'ok
+              ;              (let ([... 2])
+              ;                (let-syntax ([s (syntax-rules ()
+              ;                                  [(_ x ...) 'bad]
+              ;                                  [(_ . r) 'ok])])
+              ;                  (s a b c))))
+              (check-equal 'ok
+                           (let ()
+                             (let-syntax () (define internal-def 'ok))
+                             internal-def))
+              (check-equal 'ok
+                           (let ()
+                             (letrec-syntax () (define internal-def 'ok))
+                             internal-def)))
 
 ; TODO: This causes a free identifier error
 (check-equal? "mutation within local function"
@@ -551,30 +503,40 @@
                      (set! y 3)
                      (list x y))))))
 
-; (check-equal '(a b c)
-;       (let* ([path '()] [add (lambda (s) (set! path (cons s path)))])
-;         (dynamic-wind (lambda () (add 'a)) (lambda () (add 'b)) (lambda () (add 'c)))
-;         (reverse path)))
+(skip-compile
+ (check-equal '(a b c)
+              (let* ([path '()] [add (lambda (s) (set! path (cons s path)))])
+                (dynamic-wind (lambda () (add 'a)) (lambda () (add 'b)) (lambda () (add 'c)))
+                (reverse path)))
+ (check-equal '(connect talk1 disconnect connect talk2 disconnect)
+              (let ([path '()] [c #f])
+                (let ([add (lambda (s) (set! path (cons s path)))])
+                  (dynamic-wind (lambda () (add 'connect))
+                                (lambda ()
+                                  (add (call-with-current-continuation (lambda (c0)
+                                                                         (set! c c0)
+                                                                         'talk1))))
+                                (lambda () (add 'disconnect)))
+                  (if (< (length path) 4) (c 'talk2) (reverse path)))))
+ ; (check-equal 2
+ ;              (let-syntax ([foo (syntax-rules :::
+ ;                                  []
+ ;                                  [(foo ... args :::) (args ::: ...)])])
+ ;                (foo 3 - 5)))
+ ; (check-equal
+ ;  '(5 4 1 2 3)
+ ;  (let-syntax ([foo (syntax-rules ()
+ ;                      [(foo args ... penultimate ultimate) (list ultimate penultimate args ...)])])
+ ;    (foo 1 2 3 4 5)))
+ )
 
-; (check-equal '(connect talk1 disconnect connect talk2 disconnect)
-;       (let ([path '()] [c #f])
-;         (let ([add (lambda (s) (set! path (cons s path)))])
-;           (dynamic-wind (lambda () (add 'connect))
-;                         (lambda ()
-;                           (add (call-with-current-continuation (lambda (c0)
-;                                                                  (set! c c0)
-;                                                                  'talk1))))
-;                         (lambda () (add 'disconnect)))
-;           (if (< (length path) 4) (c 'talk2) (reverse path)))))
+;; -------------- Report ------------------
 
-; (check-equal 2
-;       (let-syntax ([foo (syntax-rules :::
-;                           []
-;                           [(foo ... args :::) (args ::: ...)])])
-;         (foo 3 - 5)))
+(require "lists/lists.scm")
+(define r5rs-test-stats (get-test-stats))
 
-; (check-equal
-;  '(5 4 1 2 3)
-;  (let-syntax ([foo (syntax-rules ()
-;                      [(foo args ... penultimate ultimate) (list ultimate penultimate args ...)])])
-;    (foo 1 2 3 4 5)))
+(displayln "Passed: " (hash-ref r5rs-test-stats 'success-count))
+(displayln "Skipped compilation (expected failure): " (hash-ref r5rs-test-stats 'failed-to-compile))
+(displayln "Failed: " (hash-ref r5rs-test-stats 'failure-count))
+
+(for-each (lambda (x) (displayln "    > " x)) (hash-ref r5rs-test-stats 'failures))
