@@ -1,6 +1,6 @@
 [package]
 name = "steel-sys-info"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 
 
@@ -11,6 +11,6 @@ crate-type = ["cdylib"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-steel-core = { path = "../steel-core", version = "0.2.0", features = ["modules", "anyhow", "blocking_requests"] }
+steel-core = { workspace = true }
 abi_stable = "0.11.1"
 sys-info = "0.9.1"

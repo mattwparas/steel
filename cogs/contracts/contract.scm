@@ -4,15 +4,19 @@
          make-contract
          bind-contract-to-function
          FlatContract
+         FlatContract?
          FlatContract-predicate
+         FlatContract-name
          FunctionContract
+         FunctionContract?
          FunctionContract-pre-conditions
          FunctionContract-post-condition
+         contract->string
          (for-syntax ->c)
          (for-syntax define/c))
 
 ;; struct definitions
-(struct FlatContract (predicate name))
+(struct FlatContract (predicate name) #:prop:procedure 0)
 ;; Contract Attachment - use this for understanding where something happened
 (struct ContractAttachmentLocation (type name))
 
@@ -82,7 +86,8 @@
 
 ;; Applies a flat contract to the given argument
 (define (apply-flat-contract flat-contract arg)
-  (if ((FlatContract-predicate flat-contract) arg)
+  ; ((FlatContract-predicate flat-contract) arg)
+  (if (flat-contract arg)
       #true
       (ContractViolation
        (to-string "Contract violation: found in the application of a flat contract for"
@@ -161,6 +166,13 @@
   ; (displayln arguments)
 
   ; (log/warn! "Contract: " self-contract)
+
+  (unless (equal? (length arguments) (length (FunctionContract-pre-conditions self-contract)))
+    (error-with-span span
+                     "Arity mismatch, function expected "
+                     (length (FunctionContract-pre-conditions self-contract))
+                     "Found: "
+                     (length arguments)))
 
   (transduce
    arguments
@@ -461,7 +473,7 @@
       (let ([resulting-lambda-function
              (lambda args
 
-               ;  (define span (current-function-span))
+               ; (define span (current-function-span))
 
                (apply-contracted-function
                 contracted-function
@@ -605,6 +617,13 @@
      (define name
        ((bind-contract-to-function (make-function-contract (make-contract contract 'contract))
                                    (lambda () expr))))]))
+
+(provide (for-syntax contract/out/test))
+
+(define-syntax contract/out/test
+  (syntax-rules ()
+    [(contract/out/test name contract)
+     (%require-ident-spec name (bind-contract-to-function contract name 'name))]))
 
 ; (define/c (blagh x)
 ;   (->c string? string?)

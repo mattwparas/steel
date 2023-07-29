@@ -92,7 +92,7 @@ impl<'a> Iterator for TokenStream<'a> {
 mod tests {
     use super::*;
     use crate::span::Span;
-    use crate::tokens::TokenType::*;
+    use crate::tokens::{MaybeBigInt, TokenType::*};
 
     #[test]
     fn test_chars() {
@@ -220,7 +220,7 @@ mod tests {
         assert_eq!(
             s.next(),
             Some(Token {
-                ty: IntegerLiteral(0),
+                ty: IntegerLiteral(MaybeBigInt::Small(0)),
                 source: "0",
                 span: Span::new(0, 1, None),
             })
@@ -229,7 +229,7 @@ mod tests {
         assert_eq!(
             s.next(),
             Some(Token {
-                ty: IntegerLiteral(0),
+                ty: IntegerLiteral(MaybeBigInt::Small(0)),
                 source: "-0",
                 span: Span::new(2, 4, None),
             })
@@ -256,7 +256,7 @@ mod tests {
         assert_eq!(
             s.next(),
             Some(Token {
-                ty: IntegerLiteral(999),
+                ty: IntegerLiteral(MaybeBigInt::Small(999)),
                 source: "999",
                 span: Span::new(15, 18, None),
             })
@@ -395,6 +395,38 @@ mod tests {
                 span: Span::new(30, 31, None),
             },
         ];
+
+        assert_eq!(res, expected);
+    }
+
+    #[test]
+    fn test_bigint() {
+        let s = TokenStream::new("9223372036854775808", true, None); // isize::MAX + 1
+        let res: Vec<Token<&str>> = s.collect();
+
+        let expected_bigint = "9223372036854775808".parse().unwrap();
+
+        let expected: Vec<Token<&str>> = vec![Token {
+            ty: IntegerLiteral(MaybeBigInt::Big(expected_bigint)),
+            source: "9223372036854775808",
+            span: Span::new(0, 19, None),
+        }];
+
+        assert_eq!(res, expected);
+    }
+
+    #[test]
+    fn negative_test_bigint() {
+        let s = TokenStream::new("-9223372036854775809", true, None); // isize::MIN - 1
+        let res: Vec<Token<&str>> = s.collect();
+
+        let expected_bigint = "-9223372036854775809".parse().unwrap();
+
+        let expected: Vec<Token<&str>> = vec![Token {
+            ty: IntegerLiteral(MaybeBigInt::Big(expected_bigint)),
+            source: "-9223372036854775809",
+            span: Span::new(0, 20, None),
+        }];
 
         assert_eq!(res, expected);
     }

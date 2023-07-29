@@ -1,25 +1,35 @@
-use crate::rvals::{Result, SteelVal};
+use num::{Integer, ToPrimitive};
+
+use crate::rvals::{Custom, IntoSteelVal, Result, SteelVal};
 use crate::stop;
 
 pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     if args.is_empty() {
-        stop!(ArityMismatch => "* requires at least one argument")
+        // stop!(ArityMismatch => "* requires at least one argument")
+
+        return Ok(SteelVal::IntV(1));
     }
 
     let mut sum_int = 1;
     let mut sum_float = 1.0;
+    let mut bignum = num::BigInt::default();
     let mut found_float = false;
+    let mut found_bignum = false;
 
     for arg in args {
         match arg {
             SteelVal::IntV(n) => {
                 if found_float {
                     sum_float *= *n as f64;
+                } else if found_bignum {
+                    bignum *= *n;
                 } else if let Some(res) = isize::checked_mul(sum_int, *n) {
                     sum_int = res
                 } else {
-                    found_float = true;
-                    sum_float *= *n as f64;
+                    found_bignum = true;
+
+                    bignum += sum_int;
+                    bignum *= *n;
                 }
             }
             SteelVal::NumV(n) => {
@@ -29,12 +39,30 @@ pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
                 }
                 sum_float *= n;
             }
+            SteelVal::BigNum(n) => {
+                // If we have a float already, just stay in float
+                if found_float {
+                    sum_float *= n.to_f64().unwrap();
+                // If we haven't found a float, but we have promoted to bignum, we can stay
+                // in bignum
+                } else if found_bignum {
+                    bignum *= n.as_ref();
+                } else {
+                    // Promote to bignum
+                    bignum = n.unwrap();
+                    bignum *= sum_int;
+
+                    found_bignum = true;
+                }
+            }
             _ => stop!(TypeMismatch => "* expected a number"),
         }
     }
 
     if found_float {
         Ok(SteelVal::NumV(sum_float))
+    } else if found_bignum {
+        bignum.into_steelval()
     } else {
         Ok(SteelVal::IntV(sum_int))
     }
@@ -79,6 +107,31 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
         stop!(ArityMismatch => "- requires at least one argument")
     }
 
+    if args.len() == 1 {
+        match &args[0] {
+            SteelVal::IntV(n) => {
+                if let Some(res) = 0isize.checked_sub(*n) {
+                    return Ok(SteelVal::IntV(res));
+                } else {
+                    let mut zero = num::BigInt::from(0);
+
+                    zero -= *n;
+
+                    return zero.into_steelval();
+                }
+            }
+            SteelVal::NumV(n) => {
+                return Ok(SteelVal::NumV(0.0 - n));
+            }
+            SteelVal::BigNum(n) => {
+                return (0isize - n.as_ref()).into_steelval();
+            }
+            _ => {
+                stop!(TypeMismatch => format!("'-' expected a number type, found: {}", &args[0]))
+            }
+        }
+    }
+
     let mut sum_int = 0;
     let mut sum_float = 0.0;
     let mut found_float = false;
@@ -89,6 +142,7 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
         match first {
             SteelVal::IntV(n) => {
                 sum_int = *n;
+
                 // sum_float = *n as f64;
             }
             SteelVal::NumV(n) => {
@@ -228,10 +282,13 @@ impl NumOperations {
             if args.len() != 1 {
                 stop!(ArityMismatch => "even? takes one argument")
             }
-            if let SteelVal::IntV(n) = &args[0] {
-                Ok(SteelVal::BoolV(n & 1 == 0))
-            } else {
-                stop!(TypeMismatch => format!("even? requires an integer, found: {:?}", &args[0]))
+
+            match &args[0] {
+                SteelVal::IntV(n) => Ok(SteelVal::BoolV(n & 1 == 0)),
+                SteelVal::BigNum(n) => Ok(SteelVal::BoolV(n.is_even())),
+                _ => {
+                    stop!(TypeMismatch => format!("even? requires an integer, found: {:?}", &args[0]))
+                }
             }
         })
     }
@@ -239,13 +296,15 @@ impl NumOperations {
     pub fn odd() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
-                stop!(ArityMismatch => "even? takes one argument")
+                stop!(ArityMismatch => "odd? takes one argument")
             }
 
-            if let SteelVal::IntV(n) = &args[0] {
-                Ok(SteelVal::BoolV(n & 1 == 1))
-            } else {
-                stop!(TypeMismatch => "odd? requires an integer")
+            match &args[0] {
+                SteelVal::IntV(n) => Ok(SteelVal::BoolV(n & 1 == 1)),
+                SteelVal::BigNum(n) => Ok(SteelVal::BoolV(n.is_odd())),
+                _ => {
+                    stop!(TypeMismatch => format!("odd? requires an integer, found: {:?}", &args[0]))
+                }
             }
         })
     }
@@ -315,7 +374,8 @@ impl NumOperations {
     }
 
     pub fn adder() -> SteelVal {
-        SteelVal::FuncV(add_primitive_faster)
+        // SteelVal::FuncV(add_primitive_faster)
+        SteelVal::FuncV(special_add)
     }
 
     pub fn multiply() -> SteelVal {
@@ -330,6 +390,66 @@ impl NumOperations {
 
     pub fn subtract() -> SteelVal {
         SteelVal::FuncV(subtract_primitive)
+    }
+}
+
+impl Custom for num::BigRational {}
+
+impl IntoSteelVal for num::BigInt {
+    fn into_steelval(self) -> Result<SteelVal> {
+        Ok(SteelVal::BigNum(crate::gc::Gc::new(self)))
+    }
+}
+
+pub fn special_add(args: &[SteelVal]) -> Result<SteelVal> {
+    let mut sum_int: isize = 0;
+    let mut sum_float = 0.0;
+    let mut found_float = false;
+
+    // Hoping this does not allocate
+    let mut big_int_sum = num::BigInt::default();
+    let mut found_big_int = false;
+
+    for arg in args {
+        match arg {
+            SteelVal::IntV(n) => {
+                // sum_int += n;
+
+                if let Some(right_side) = sum_int.checked_add(*n) {
+                    sum_int = right_side;
+                } else {
+                    // If we overflowed, just promote to big int
+                    big_int_sum += *n;
+                    found_big_int = true;
+                }
+            }
+            SteelVal::NumV(n) => {
+                sum_float += n;
+                found_float = true;
+            }
+
+            SteelVal::BigNum(b) => {
+                big_int_sum += b.as_ref();
+                found_big_int = true;
+            }
+
+            _ => {
+                crate::steel_vm::vm::cold();
+                let e = format!("+ expected a number, found {arg:?}");
+                stop!(TypeMismatch => e);
+            }
+        }
+    }
+
+    if found_float {
+        Ok(SteelVal::NumV(
+            sum_float + sum_int as f64 + big_int_sum.to_f64().unwrap(),
+        ))
+    } else if found_big_int {
+        big_int_sum += sum_int;
+        big_int_sum.into_steelval()
+    } else {
+        Ok(SteelVal::IntV(sum_int))
     }
 }
 

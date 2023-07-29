@@ -65,20 +65,6 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             action: None,
             arguments,
         } => {
-            // let core_libraries = &[
-            //     steel::stdlib::PRELUDE,
-            //     steel::stdlib::DISPLAY,
-            //     steel::stdlib::CONTRACTS,
-            // ];
-
-            // for core in core_libraries {
-            //     let res = vm.compile_and_run_raw_program(core);
-            //     if let Err(e) = res {
-            //         eprintln!("{}", e);
-            //         return;
-            //     }
-            // }
-
             vm.register_value(
                 "std::env::args",
                 steel::SteelVal::ListV(
@@ -136,20 +122,6 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
                 }),
             ..
         } => {
-            // let core_libraries = &[
-            //     steel::stdlib::PRELUDE,
-            //     steel::stdlib::DISPLAY,
-            //     steel::stdlib::CONTRACTS,
-            // ];
-
-            // for core in core_libraries {
-            //     let res = vm.compile_and_run_raw_program(core);
-            //     if let Err(e) = res {
-            //         eprintln!("{e}");
-            //         return Ok(());
-            //     }
-            // }
-
             let contents = fs::read_to_string(&path)?;
 
             let program = vm.emit_raw_program(&contents, path.clone());
@@ -172,20 +144,6 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             }),
             ..
         } => {
-            // let core_libraries = &[
-            //     steel::stdlib::PRELUDE,
-            //     steel::stdlib::DISPLAY,
-            //     steel::stdlib::CONTRACTS,
-            // ];
-
-            // for core in core_libraries {
-            //     let res = vm.compile_and_run_raw_program(core);
-            //     if let Err(e) = res {
-            //         eprintln!("{e}");
-            //         return Ok(());
-            //     }
-            // }
-
             let contents = fs::read_to_string(path.clone())?;
 
             let res = vm.emit_fully_expanded_ast_to_string(&contents, Some(path.clone()));
@@ -262,6 +220,17 @@ fn test_runner() {
         action: None,
         default_file: Some(PathBuf::from("cogs/test-runner.scm")),
         arguments: vec!["cogs/".to_string()],
+    };
+
+    run(args).unwrap()
+}
+
+#[test]
+fn r5rs_test_suite() {
+    let args = Args {
+        action: None,
+        default_file: Some(PathBuf::from("cogs/r5rs.scm")),
+        arguments: vec![],
     };
 
     run(args).unwrap()

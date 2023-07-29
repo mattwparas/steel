@@ -1,19 +1,22 @@
 [package]
 name = "steel-core"
-version = "0.2.0"
+# version = "0.4.0"
+version.workspace = true
 authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
 edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/mattwparas/steel"
+description = "Core compiler and VM implementation for steel"
+
 
 [lib]
 name = "steel"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 thiserror = "1.0.38"
 im-rc = "15.1.0"
 colored = "2.0.0"
-# rand = "0.8.1"
 codespan-reporting = "0.11.1"
 logos = "0.12.1"
 itertools = "0.10.5"
@@ -24,19 +27,12 @@ serde = { version = "1.0.152", features = ["derive", "rc"] }
 serde_derive = "1.0.152"
 bincode = "1.3.3"
 pretty = "0.11.3"
-# Cranelift JIT
-cranelift = { version = "0.84.0", optional = true }
-cranelift-module = { version = "0.84.0", optional = true }
-cranelift-jit = { version = "0.84.0", optional = true }
-# lazy_static = "1.4.0"
 im-lists = "0.4.0"
 quickscope = "0.2.0"
 lasso = { version = "0.6.0", features = ["multi-threaded", "serialize"] }
 once_cell = "1.17.0"
 fxhash = "0.2.1"
-dlopen = "0.1.8"
-dlopen_derive = "0.1.4"
-termimad = "0.21.0"
+termimad = { version = "0.21.0", optional = true }
 smallvec = "1.10.0"
 lazy_static = "1.4.0"
 steel-gen = { path = "../steel-gen", version = "0.2.0" }
@@ -46,24 +42,30 @@ chrono = "0.4.23"
 slotmap = "1.0.6"
 weak-table = "0.3.2"
 rand = "0.8.5"
-
-abi_stable = "0.11.1"
+num = "0.4.0"
 which = "4.4.0"
+radix_fmt = "1.0.0"
 
+
+# FFI for dylibs
+abi_stable = { version = "0.11.1", optional = true }
+async-ffi = { version = "0.4.1", features = ["abi_stable"], optional = true }
+# Cranelift JIT
+cranelift = { version = "0.84.0", optional = true }
+cranelift-module = { version = "0.84.0", optional = true }
+cranelift-jit = { version = "0.84.0", optional = true }
+
+# Embedded dependencies for various popular libraries
 rusqlite =  { version = "0.28.0", features = ["bundled"], optional = true }
-
 reqwest = { version = "0.11.14", features = ["blocking", "json"], optional = true }
 url = { version = "2.3.1", optional = true }
 tungstenite = { version = "0.18.0", features = ["rustls-tls-native-roots"], optional = true }
-
 anyhow = { version = "1", optional = true }
-
 ureq = { version = "2.6.2", features = ["json"], optional = true }
 
 [dev-dependencies]
 proptest = "1.1.0"
 criterion = "0.4.0"
-# steel = { path = ".", features = ["modules", "jit"] }
 steel-core = { path = ".", features = ["modules"] }
 env_logger = "0.10.0"
 
@@ -71,8 +73,7 @@ env_logger = "0.10.0"
 steel-gen = { path = "../steel-gen", version = "0.2.0" }
 
 [features]
-# this effectively enable the feature `no-color` of colored when testing with
-# `cargo test --features colors_off`
+default = ["modules"]
 colors_off = ["colored/no-color"]
 modules = []
 jit = ["dep:cranelift", "dep:cranelift-module", "dep:cranelift-jit"]
@@ -82,10 +83,9 @@ web = ["dep:reqwest", "dep:url", "dep:tungstenite"]
 sqlite = ["dep:rusqlite"]
 unsafe-internals = []
 anyhow = ["dep:anyhow"]
-dylibs = []
+dylibs = ["dep:abi_stable", "dep:async-ffi"]
 blocking_requests = ["dep:ureq"]
-
-# dylibs = ["dep:dlopen", "dep:dlopen_derive"]
+markdown = ["dep:termimad"]
 
 
 [[bench]]

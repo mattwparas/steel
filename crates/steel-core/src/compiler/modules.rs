@@ -1,8 +1,9 @@
+#![allow(unused)]
 use crate::{
     compiler::{passes::VisitorMutRefUnit, program::PROVIDE},
     expr_list,
     parser::{
-        ast::{Atom, Begin, Define, ExprKind, List, Quote},
+        ast::{AstTools, Atom, Begin, Define, ExprKind, List, Quote},
         expand_visitor::expand_kernel,
         interner::InternedString,
         kernel::Kernel,
@@ -14,6 +15,7 @@ use crate::{
 use crate::{parser::expand_visitor::Expander, rvals::Result};
 
 use std::{
+    borrow::Cow,
     collections::{HashMap, HashSet},
     io::Read,
     path::PathBuf,
@@ -30,8 +32,8 @@ use itertools::Itertools;
 use log::{debug, info, log_enabled};
 
 use super::{
-    passes::mangle::{collect_globals, NameMangler},
-    program::{CONTRACT_OUT, FOR_SYNTAX},
+    passes::mangle::{collect_globals, NameMangler, NameUnMangler},
+    program::{CONTRACT_OUT, FOR_SYNTAX, ONLY_IN, PREFIX_IN, REQUIRE_IDENT_SPEC},
 };
 
 const OPTION: &str = include_str!("../scheme/modules/option.scm");
@@ -80,7 +82,7 @@ impl ModuleManager {
     pub(crate) fn add_module(
         &mut self,
         path: PathBuf,
-        _global_macro_map: &mut HashMap<InternedString, SteelMacro>,
+        global_macro_map: &mut HashMap<InternedString, SteelMacro>,
         kernel: &mut Option<Kernel>,
         sources: &mut Sources,
         builtin_modules: ModuleContainer,
@@ -99,11 +101,12 @@ impl ModuleManager {
             sources,
             kernel,
             builtin_modules,
+            global_macro_map,
         )?;
 
         module_builder.compile()?;
 
-        println!("{:#?}", self.compiled_modules);
+        // println!("{:#?}", self.compiled_modules);
 
         Ok(())
     }
@@ -137,6 +140,7 @@ impl ModuleManager {
             sources,
             kernel,
             builtin_modules,
+            global_macro_map,
         )?;
 
         let mut module_statements = module_builder.compile()?;
@@ -150,15 +154,49 @@ impl ModuleManager {
             .map(|x| expand(x, global_macro_map))
             .collect::<Result<Vec<_>>>()?;
 
+        {
+            module_builder.source_ast = ast;
+            module_builder.collect_provides();
+
+            ast = std::mem::take(&mut module_builder.source_ast);
+        }
+
         let mut require_defines = Vec::new();
 
-        for path in module_builder
-            .requires
+        let mut mangled_prefixes = module_builder
+            .require_objects
             .iter()
-            .chain(module_builder.built_ins.iter())
+            .filter(|x| !x.for_syntax)
+            .map(|x| "mangler".to_string() + x.path.get_path().to_str().unwrap())
+            .collect::<Vec<_>>();
+
+        let mut explicit_requires = HashMap::new();
+
+        for require_object in &module_builder.require_objects
+        // .chain(module_builder.built_ins.iter())
         {
+            let path = require_object.path.get_path();
+            explicit_requires.clear();
+
+            // If there _are_ explicit identifiers to import, limit what we import to what
+            // is in the set
+            for ident in &require_object.idents_to_import {
+                match ident {
+                    MaybeRenamed::Normal(i) => {
+                        explicit_requires.insert(i.atom_identifier().unwrap().clone(), None);
+                    }
+
+                    MaybeRenamed::Renamed(from, to) => {
+                        explicit_requires.insert(
+                            from.atom_identifier().unwrap().clone(),
+                            Some(to.atom_identifier().unwrap().clone()),
+                        );
+                    }
+                }
+            }
+
             // println!("{:?}", path);
-            let module = if let Some(module) = module_builder.compiled_modules.get(path) {
+            let module = if let Some(module) = module_builder.compiled_modules.get(path.as_ref()) {
                 module
             } else {
                 log::info!("No provides found for module, skipping: {:?}", path);
@@ -189,6 +227,17 @@ impl ModuleManager {
                                         // (bind/c contract name 'name)
 
                                         let name = l.args.get(1).unwrap();
+
+                                        if !explicit_requires.is_empty()
+                                            && !name
+                                                .atom_identifier()
+                                                .map(|x| explicit_requires.contains_key(x))
+                                                .unwrap_or_default()
+                                        {
+                                            continue;
+                                        }
+
+                                        // TODO: THe contract has to get mangled with the prefix as well?
                                         let contract = l.args.get(2).unwrap();
 
                                         let hash_get = expr_list![
@@ -202,24 +251,117 @@ impl ModuleManager {
                                             ))),
                                         ];
 
+                                        let mut owned_name = name.clone();
+
+                                        // If we have the alias listed, we should use it
+                                        if !explicit_requires.is_empty() {
+                                            if let Some(alias) = explicit_requires
+                                                .get(name.atom_identifier().unwrap())
+                                                .copied()
+                                                .flatten()
+                                            {
+                                                *owned_name.atom_identifier_mut().unwrap() =
+                                                    alias.clone();
+                                            }
+                                        }
+
+                                        if let Some(prefix) = &require_object.prefix {
+                                            if let Some(existing) = owned_name.atom_identifier_mut()
+                                            {
+                                                let mut prefixed_identifier = prefix.clone();
+                                                prefixed_identifier.push_str(existing.resolve());
+
+                                                // Update the existing identifier to point to a new one with the prefix applied
+                                                *existing = prefixed_identifier.into();
+                                            }
+                                        }
+
                                         let define = ExprKind::Define(Box::new(Define::new(
-                                            name.clone(),
-                                            expr_list![
-                                                ExprKind::ident("bind/c"),
-                                                contract.clone(),
-                                                hash_get,
-                                                ExprKind::Quote(Box::new(Quote::new(
-                                                    name.clone(),
-                                                    SyntaxObject::default(TokenType::Quote)
-                                                ))),
-                                            ],
+                                            owned_name,
+                                            // expr_list![
+                                            // ExprKind::ident("bind/c"),
+                                            // contract.clone(),
+                                            hash_get,
+                                            // ExprKind::Quote(Box::new(Quote::new(
+                                            // name.clone(),
+                                            // SyntaxObject::default(TokenType::Quote)
+                                            // ))),
+                                            // ],
+                                            SyntaxObject::default(TokenType::Define),
+                                        )));
+
+                                        require_defines.push(define);
+                                    }
+                                    x if x == *REQUIRE_IDENT_SPEC => {
+                                        // Directly expand into define/contract, but with the value just being the hash get below
+
+                                        // (bind/c contract name 'name)
+
+                                        let name = l.args.get(1).unwrap();
+
+                                        if !explicit_requires.is_empty()
+                                            && !name
+                                                .atom_identifier()
+                                                .map(|x| explicit_requires.contains_key(x))
+                                                .unwrap_or_default()
+                                        {
+                                            continue;
+                                        }
+
+                                        let hash_get = expr_list![
+                                            ExprKind::ident("hash-get"),
+                                            ExprKind::atom(
+                                                "__module-".to_string() + &other_module_prefix
+                                            ),
+                                            ExprKind::Quote(Box::new(Quote::new(
+                                                name.clone(),
+                                                SyntaxObject::default(TokenType::Quote)
+                                            ))),
+                                        ];
+
+                                        let mut owned_name = name.clone();
+
+                                        // If we have the alias listed, we should use it
+                                        if !explicit_requires.is_empty() {
+                                            if let Some(alias) = explicit_requires
+                                                .get(name.atom_identifier().unwrap())
+                                                .copied()
+                                                .flatten()
+                                            {
+                                                *owned_name.atom_identifier_mut().unwrap() =
+                                                    alias.clone();
+                                            }
+                                        }
+
+                                        if let Some(prefix) = &require_object.prefix {
+                                            if let Some(existing) = owned_name.atom_identifier_mut()
+                                            {
+                                                let mut prefixed_identifier = prefix.clone();
+                                                prefixed_identifier.push_str(existing.resolve());
+
+                                                // Update the existing identifier to point to a new one with the prefix applied
+                                                *existing = prefixed_identifier.into();
+                                            }
+                                        }
+
+                                        let define = ExprKind::Define(Box::new(Define::new(
+                                            owned_name,
+                                            // expr_list![
+                                            // ExprKind::ident("bind/c"),
+                                            // contract.clone(),
+                                            hash_get,
+                                            // ExprKind::Quote(Box::new(Quote::new(
+                                            // name.clone(),
+                                            // SyntaxObject::default(TokenType::Quote)
+                                            // ))),
+                                            // ],
                                             SyntaxObject::default(TokenType::Define),
                                         )));
 
                                         require_defines.push(define);
                                     }
                                     _ => {
-                                        stop!(TypeMismatch => "provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
+                                        stop!(TypeMismatch => "foo provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
                                     }
                                 }
                             } else {
@@ -227,6 +369,15 @@ impl ModuleManager {
                             }
                         }
                         ExprKind::Atom(_) => {
+                            if !explicit_requires.is_empty()
+                                && !provide
+                                    .atom_identifier()
+                                    .map(|x| explicit_requires.contains_key(x))
+                                    .unwrap_or_default()
+                            {
+                                continue;
+                            }
+
                             let hash_get = expr_list![
                                 ExprKind::ident("hash-get"),
                                 ExprKind::atom("__module-".to_string() + &other_module_prefix),
@@ -236,8 +387,32 @@ impl ModuleManager {
                                 ))),
                             ];
 
+                            let mut owned_provide = provide.clone();
+
+                            // If we have the alias listed, we should use it
+                            if !explicit_requires.is_empty() {
+                                if let Some(alias) = explicit_requires
+                                    .get(provide.atom_identifier().unwrap())
+                                    .copied()
+                                    .flatten()
+                                {
+                                    *owned_provide.atom_identifier_mut().unwrap() = alias.clone();
+                                }
+                            }
+
+                            // TODO: If there is a prefix applied, use it here?
+                            if let Some(prefix) = &require_object.prefix {
+                                if let Some(existing) = owned_provide.atom_identifier_mut() {
+                                    let mut prefixed_identifier = prefix.clone();
+                                    prefixed_identifier.push_str(existing.resolve());
+
+                                    // Update the existing identifier to point to a new one with the prefix applied
+                                    *existing = prefixed_identifier.into();
+                                }
+                            }
+
                             let define = ExprKind::Define(Box::new(Define::new(
-                                provide.clone(),
+                                owned_provide,
                                 hash_get,
                                 SyntaxObject::default(TokenType::Define),
                             )));
@@ -256,10 +431,15 @@ impl ModuleManager {
 
         // TODO: Move this to the lower level as well
         // It seems we're only doing this expansion at the top level, but we _should_ do this at the lower level as well
-        for require_for_syntax in &module_builder.requires_for_syntax {
+        for require_for_syntax in module_builder
+            .require_objects
+            .iter()
+            .filter(|x| x.for_syntax)
+            .map(|x| x.path.get_path())
+        {
             let (module, in_scope_macros) = Self::find_in_scope_macros(
                 &self.compiled_modules,
-                require_for_syntax,
+                require_for_syntax.as_ref(),
                 &mut mangled_asts,
             );
 
@@ -286,6 +466,40 @@ impl ModuleManager {
                 .collect::<Result<_>>()?;
         }
 
+        // dbg!(mangled_prefixes.len());
+        // dbg!(module_statements.len());
+        // println!("------------------");
+        // module_statements.pretty_print();
+        // println!("------------------");
+
+        // let duped_prefixes = mangled_prefixes
+        //     .clone()
+        //     .into_iter()
+        //     .interleave(mangled_prefixes.into_iter());
+
+        // let mut module_statements = duped_prefixes
+        //     .into_iter()
+        //     .zip(module_statements.into_iter())
+        //     .map(|(prefix, require_define)| {
+        //         println!("---- Unmangling: {prefix} ----");
+
+        //         let mut expanded = expand(require_define, global_macro_map)?;
+
+        //         let mut name_unmangler = NameUnMangler::new(&prefix);
+
+        //         name_unmangler.unmangle_expr(&mut expanded);
+
+        //         println!("--- {}", expanded.to_pretty(60));
+
+        //         Ok(expanded)
+        //     })
+        //     .collect::<Result<Vec<_>>>()?;
+
+        // println!("before expanding global macros");
+        // println!("----------");
+        // module_statements.pretty_print();
+        // println!("----------");
+
         // Include the mangled asts in the resulting asts returned
         // module_statements.append(&mut mangled_asts);
 
@@ -297,6 +511,9 @@ impl ModuleManager {
         // solved with scoped imports of the standard library explicitly
         module_statements.append(&mut ast);
 
+        // @Matt 7/4/23
+        // TODO: With mangling, this could cause problems. We'll want to un-mangle quotes AFTER the macro has been expanded,
+        // in order to preserve the existing behavior.
         module_statements
             .into_iter()
             .map(|x| expand(x, global_macro_map))
@@ -359,7 +576,7 @@ impl ModuleManager {
     #[cfg(not(feature = "modules"))]
     pub(crate) fn expand_expressions(
         &mut self,
-        global_macro_map: &mut HashMap<String, SteelMacro>,
+        global_macro_map: &mut HashMap<InternedString, SteelMacro>,
         exprs: Vec<ExprKind>,
     ) -> Result<Vec<ExprKind>> {
         let non_macro_expressions = extract_macro_defs(exprs, global_macro_map)?;
@@ -375,7 +592,7 @@ pub struct CompiledModule {
     name: PathBuf,
     provides: Vec<ExprKind>,
     // TODO: Change this to be an ID instead of a string directly
-    requires: Vec<PathBuf>,
+    require_objects: Vec<RequireObject>,
     provides_for_syntax: Vec<InternedString>,
     macro_map: HashMap<InternedString, SteelMacro>,
     ast: Vec<ExprKind>,
@@ -387,7 +604,7 @@ impl CompiledModule {
     pub fn new(
         name: PathBuf,
         provides: Vec<ExprKind>,
-        requires: Vec<PathBuf>,
+        require_objects: Vec<RequireObject>,
         provides_for_syntax: Vec<InternedString>,
         macro_map: HashMap<InternedString, SteelMacro>,
         ast: Vec<ExprKind>,
@@ -395,7 +612,7 @@ impl CompiledModule {
         Self {
             name,
             provides,
-            requires,
+            require_objects,
             provides_for_syntax,
             macro_map,
             ast,
@@ -407,15 +624,19 @@ impl CompiledModule {
         &self.provides
     }
 
-    pub fn get_requires(&self) -> &[PathBuf] {
-        &self.requires
-    }
+    // pub fn get_requires(&self) -> &[PathBuf] {
+    //     &self.requires
+    // }
 
     pub fn set_emitted(&mut self, emitted: bool) {
         self.emitted = emitted;
     }
 
-    fn to_top_level_module(&self, modules: &HashMap<PathBuf, CompiledModule>) -> Result<ExprKind> {
+    fn to_top_level_module(
+        &self,
+        modules: &HashMap<PathBuf, CompiledModule>,
+        global_macro_map: &HashMap<InternedString, SteelMacro>,
+    ) -> Result<ExprKind> {
         let mut globals = collect_globals(&self.ast);
 
         let mut exprs = self.ast.clone();
@@ -427,11 +648,31 @@ impl CompiledModule {
         // ;; Refresh the module definition in this namespace
         // (define a-module.rkt-b (hash-get 'b b-module.rkt-b))
 
+        let mut explicit_requires = HashMap::new();
+
         // TODO: This is the same as the top level, they should be merged
-        for path in &self.requires {
+        for require_object in &self.require_objects {
+            let path = require_object.path.get_path();
+
+            explicit_requires.clear();
+
+            for ident in &require_object.idents_to_import {
+                match ident {
+                    MaybeRenamed::Normal(i) => {
+                        explicit_requires.insert(i.atom_identifier().unwrap().clone(), None);
+                    }
+                    MaybeRenamed::Renamed(from, to) => {
+                        explicit_requires.insert(
+                            from.atom_identifier().unwrap().clone(),
+                            Some(to.atom_identifier().unwrap().clone()),
+                        );
+                    }
+                }
+            }
+
             // println!("{:?}", path);
             // println!("{:?}", modules.keys().collect::<Vec<_>>());
-            let module = modules.get(path).unwrap();
+            let module = modules.get(path.as_ref()).unwrap();
 
             let other_module_prefix = "mangler".to_string() + module.name.to_str().unwrap();
 
@@ -447,8 +688,39 @@ impl CompiledModule {
 
                                         // (bind/c contract name 'name)
 
-                                        let name = l.args.get(1).unwrap();
+                                        let mut name = l.args.get(1).unwrap().clone();
                                         let contract = l.args.get(2).unwrap();
+
+                                        if !explicit_requires.is_empty()
+                                            && !name
+                                                .atom_identifier()
+                                                .map(|x| explicit_requires.contains_key(x))
+                                                .unwrap_or_default()
+                                        {
+                                            continue;
+                                        }
+
+                                        // If we have the alias listed, we should use it
+                                        if !explicit_requires.is_empty() {
+                                            if let Some(alias) = explicit_requires
+                                                .get(name.atom_identifier().unwrap())
+                                                .copied()
+                                                .flatten()
+                                            {
+                                                *name.atom_identifier_mut().unwrap() =
+                                                    alias.clone();
+                                            }
+                                        }
+
+                                        if let Some(prefix) = &require_object.prefix {
+                                            if let Some(existing) = name.atom_identifier_mut() {
+                                                let mut prefixed_identifier = prefix.clone();
+                                                prefixed_identifier.push_str(existing.resolve());
+
+                                                // Update the existing identifier to point to a new one with the prefix applied
+                                                *existing = prefixed_identifier.into();
+                                            }
+                                        }
 
                                         // Since this is now bound to be in the scope of the current working module, we also want
                                         // this to be mangled. In the event we do something like, qualify the import, then we might
@@ -471,22 +743,22 @@ impl CompiledModule {
                                                 prefix.clone()
                                                     + name.atom_identifier().unwrap().resolve(),
                                             ),
-                                            expr_list![
-                                                ExprKind::ident("bind/c"),
-                                                contract.clone(),
-                                                hash_get,
-                                                ExprKind::Quote(Box::new(Quote::new(
-                                                    name.clone(),
-                                                    SyntaxObject::default(TokenType::Quote)
-                                                ))),
-                                            ],
+                                            // expr_list![
+                                            // ExprKind::ident("bind/c"),
+                                            // contract.clone(),
+                                            hash_get,
+                                            // ExprKind::Quote(Box::new(Quote::new(
+                                            // name.clone(),
+                                            // SyntaxObject::default(TokenType::Quote)
+                                            // ))),
+                                            // ],
                                             SyntaxObject::default(TokenType::Define),
                                         )));
 
                                         provide_definitions.push(define);
                                     }
                                     _ => {
-                                        stop!(TypeMismatch => "provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
+                                        stop!(TypeMismatch => "foo provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
                                     }
                                 }
                             } else {
@@ -494,6 +766,39 @@ impl CompiledModule {
                             }
                         }
                         ExprKind::Atom(_) => {
+                            if !explicit_requires.is_empty()
+                                && !provide
+                                    .atom_identifier()
+                                    .map(|x| explicit_requires.contains_key(x))
+                                    .unwrap_or_default()
+                            {
+                                continue;
+                            }
+
+                            // Mangle with a prefix if necessary
+                            let mut provide = provide.clone();
+
+                            // If we have the alias listed, we should use it
+                            if !explicit_requires.is_empty() {
+                                if let Some(alias) = explicit_requires
+                                    .get(provide.atom_identifier().unwrap())
+                                    .copied()
+                                    .flatten()
+                                {
+                                    *provide.atom_identifier_mut().unwrap() = alias.clone();
+                                }
+                            }
+
+                            if let Some(prefix) = &require_object.prefix {
+                                if let Some(existing) = provide.atom_identifier_mut() {
+                                    let mut prefixed_identifier = prefix.clone();
+                                    prefixed_identifier.push_str(existing.resolve());
+
+                                    // Update the existing identifier to point to a new one with the prefix applied
+                                    *existing = prefixed_identifier.into();
+                                }
+                            }
+
                             let provide_ident = provide.atom_identifier().unwrap();
 
                             // Since this is now bound to be in the scope of the current working module, we also want
@@ -532,6 +837,11 @@ impl CompiledModule {
         // 1. Defined locally in this file
         // 2. Required by another file
         let mut name_mangler = NameMangler::new(globals, prefix.clone());
+
+        // Afterwards, walk through and unmangle any quoted values, since these
+        // were intended to be used with non mangled values.
+        let mut name_unmangler = NameUnMangler::new(&prefix);
+
         name_mangler.mangle_vars(&mut exprs);
 
         // The provide definitions should also be mangled
@@ -549,19 +859,56 @@ impl CompiledModule {
             .iter()
             .flat_map(|x| &x.list().unwrap().args[1..])
             .cloned()
+            .map(|x| (x.clone(), x))
             .collect();
 
         for provide in &mut provides {
-            match provide {
+            match &provide.1 {
                 ExprKind::List(l) => {
                     if let Some(qualifier) = l.first_ident() {
                         match qualifier {
+                            x if *x == *REQUIRE_IDENT_SPEC => {
+                                // *provide = expand(l.get(2).unwrap().clone(), global_macro_map)?;
+
+                                // *provide = expand(l.)
+
+                                provide.0 = l.get(1).unwrap().clone();
+                                provide.1 = expand(l.get(2).unwrap().clone(), global_macro_map)?;
+
+                                continue;
+
+                                // name_unmangler.unmangle_expr(provide);
+                            }
                             x if *x == *CONTRACT_OUT => {
                                 // Update the item to point to just the name
-                                *provide = l.get(1).unwrap().clone();
+                                //
+                                // *provide = l.get(1).unwrap().clone();
+                                // {
+                                //     println!("---------");
+                                //     println!("Provide expr: {}", l.to_string());
+                                // }
+
+                                provide.0 = l.get(1).unwrap().clone();
+                                provide.1 = expand(
+                                    expr_list![
+                                        ExprKind::ident("bind/c"),
+                                        l.get(2).unwrap().clone(),
+                                        l.get(1).unwrap().clone(),
+                                        ExprKind::Quote(Box::new(Quote::new(
+                                            l.get(1).unwrap().clone(),
+                                            SyntaxObject::default(TokenType::Quote)
+                                        ))),
+                                    ],
+                                    global_macro_map,
+                                )?;
+
+                                // println!("-------- {}", provide.to_pretty(60));
+
+                                name_unmangler.unmangle_expr(&mut provide.1);
+                                // continue;
                             }
                             _ => {
-                                stop!(TypeMismatch => "provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
+                                stop!(TypeMismatch => "bar provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
                             }
                         }
                     } else {
@@ -580,7 +927,12 @@ impl CompiledModule {
         // We want one without the mangled version, for the actual provides
         let un_mangled = provides.clone();
 
-        name_mangler.mangle_vars(&mut provides);
+        let left_unmangled: Vec<_> = un_mangled.into_iter().map(|x| x.0).collect();
+
+        let mut right: Vec<_> = provides.into_iter().map(|x| x.1).collect();
+
+        name_mangler.mangle_vars(&mut right);
+        // name_unmangler.unmangle_vars(&mut provides);
 
         let mut hash_body = vec![ExprKind::ident("hash")];
 
@@ -589,16 +941,47 @@ impl CompiledModule {
         // hash_body.push(ExprKind::atom("#:module-name"));
         // hash_body.push(ExprKind::atom(prefix.clone()));
 
+        // left_unmangled.pretty_print();
+
         hash_body.extend(
-            un_mangled
+            left_unmangled
                 .into_iter()
                 .map(|x| {
-                    ExprKind::Quote(Box::new(Quote::new(
-                        x,
-                        SyntaxObject::default(TokenType::Quote),
-                    )))
+                    if let ExprKind::Atom(_) = x {
+                        ExprKind::Quote(Box::new(Quote::new(
+                            x,
+                            SyntaxObject::default(TokenType::Quote),
+                        )))
+                    } else if let ExprKind::List(l) = x {
+                        if let Some(qualifier) = l.first_ident() {
+                            match qualifier {
+                                x if *x == *REQUIRE_IDENT_SPEC => {
+                                    todo!()
+                                }
+                                _ => {
+                                    return ExprKind::Quote(Box::new(Quote::new(
+                                        l.get(2).unwrap().clone(),
+                                        SyntaxObject::default(TokenType::Quote),
+                                    )))
+                                }
+                            }
+                        }
+
+                        // Then this is a contract out, and we should handle it here
+
+                        ExprKind::Quote(Box::new(Quote::new(
+                            l.get(2).unwrap().clone(),
+                            SyntaxObject::default(TokenType::Quote),
+                        )))
+                        // ExprKind::Quote(Box::new(Quote::new(
+                        //     x,
+                        //     SyntaxObject::default(TokenType::Quote),
+                        // )))
+                    } else {
+                        panic!("TODO this shouldn't be possible")
+                    }
                 })
-                .interleave(provides),
+                .interleave(right),
         );
 
         let module_define = ExprKind::Define(Box::new(Define::new(
@@ -606,6 +989,8 @@ impl CompiledModule {
             ExprKind::List(List::new(hash_body)),
             SyntaxObject::default(TokenType::Quote),
         )));
+
+        // println!("------ {}", module_define.to_pretty(60));
 
         exprs.push(module_define);
 
@@ -660,14 +1045,71 @@ impl CompiledModule {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+enum MaybeRenamed {
+    Normal(ExprKind),
+    Renamed(ExprKind, ExprKind),
+}
+
+#[derive(Debug, Clone)]
+pub struct RequireObject {
+    path: PathOrBuiltIn,
+    for_syntax: bool,
+    idents_to_import: Vec<MaybeRenamed>,
+    prefix: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+enum PathOrBuiltIn {
+    BuiltIn(&'static str),
+    Path(PathBuf),
+}
+
+impl PathOrBuiltIn {
+    pub fn get_path(&self) -> Cow<'_, PathBuf> {
+        match self {
+            Self::Path(p) => Cow::Borrowed(p),
+            Self::BuiltIn(p) => Cow::Owned(PathBuf::from(p)),
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone)]
+struct RequireObjectBuilder {
+    path: Option<PathOrBuiltIn>,
+    for_syntax: bool,
+    idents_to_import: Vec<MaybeRenamed>,
+    // Built up prefix
+    prefix: Option<String>,
+}
+
+impl RequireObjectBuilder {
+    fn build(self) -> Result<RequireObject> {
+        let path = self
+            .path
+            .ok_or_else(crate::throw!(Generic => "require must have a path!"))?;
+
+        Ok(RequireObject {
+            path,
+            for_syntax: self.for_syntax,
+            idents_to_import: self.idents_to_import,
+            prefix: self.prefix,
+        })
+    }
+}
+
 struct ModuleBuilder<'a> {
     name: PathBuf,
     main: bool,
     source_ast: Vec<ExprKind>,
     macro_map: HashMap<InternedString, SteelMacro>,
-    requires: Vec<PathBuf>,
-    requires_for_syntax: Vec<PathBuf>,
-    built_ins: Vec<PathBuf>,
+    // TODO: Change the requires / requires_for_syntax to just be a require enum?
+
+    // requires: Vec<PathBuf>,
+    // requires_for_syntax: Vec<PathBuf>,
+    require_objects: Vec<RequireObject>,
+
+    // built_ins: Vec<PathBuf>,
     provides: Vec<ExprKind>,
     provides_for_syntax: Vec<ExprKind>,
     compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
@@ -676,6 +1118,7 @@ struct ModuleBuilder<'a> {
     sources: &'a mut Sources,
     kernel: &'a mut Option<Kernel>,
     builtin_modules: ModuleContainer,
+    global_macro_map: &'a HashMap<InternedString, SteelMacro>,
 }
 
 impl<'a> ModuleBuilder<'a> {
@@ -690,6 +1133,7 @@ impl<'a> ModuleBuilder<'a> {
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
+        global_macro_map: &'a HashMap<InternedString, SteelMacro>,
     ) -> Result<Self> {
         // TODO don't immediately canonicalize the path unless we _know_ its coming from a path
         // change the path to not always be required
@@ -706,9 +1150,10 @@ impl<'a> ModuleBuilder<'a> {
             main: true,
             source_ast,
             macro_map: HashMap::new(),
-            requires: Vec::new(),
-            requires_for_syntax: Vec::new(),
-            built_ins: Vec::new(),
+            // requires: Vec::new(),
+            require_objects: Vec::new(),
+            // requires_for_syntax: Vec::new(),
+            // built_ins: Vec::new(),
             provides: Vec::new(),
             provides_for_syntax: Vec::new(),
             compiled_modules,
@@ -717,6 +1162,7 @@ impl<'a> ModuleBuilder<'a> {
             sources,
             kernel,
             builtin_modules,
+            global_macro_map,
         })
     }
 
@@ -728,18 +1174,18 @@ impl<'a> ModuleBuilder<'a> {
         self.collect_provides()?;
 
         if log_enabled!(log::Level::Info) {
-            info!("Requires: {:#?}", self.requires);
-            info!("Requires for-syntax: {:?}", self.requires_for_syntax);
+            info!("Requires: {:#?}", self.require_objects);
+            // info!("Requires for-syntax: {:?}", self.requires_for_syntax);
 
             info!("Provides: {:#?}", self.provides);
             info!("Provides for-syntax: {:?}", self.provides_for_syntax);
         }
 
-        if self.provides.is_empty() && !self.main {
-            self.visited.insert(self.name.clone());
-            // println!("getting inside here!");
-            return Ok(Vec::new());
-        }
+        // if self.provides.is_empty() && !self.main {
+        //     self.visited.insert(self.name.clone());
+
+        //     return Ok(Vec::new());
+        // }
 
         if self.visited.contains(&self.name) {
             stop!(Generic => format!("circular dependency found during module resolution with: {:?}", self.name))
@@ -766,20 +1212,27 @@ impl<'a> ModuleBuilder<'a> {
         let mut new_exprs = Vec::new();
 
         // TODO include built ins here
-        if self.requires.is_empty() && self.built_ins.is_empty() && !self.main {
+        if self.require_objects.is_empty() && !self.main {
             // We're at a leaf, put into the cache
             // println!("putting {:?} in the cache", self.name);
-            if !self.provides.is_empty() {
-                new_exprs.push(self.compile_module()?);
-            }
+            // if !self.provides.is_empty() {
+            new_exprs.push(self.compile_module()?);
+            // } else {
+            // println!("SKIPPING");
+            // }
         } else {
             // TODO come back for parsing built ins
-            for module in &self.built_ins {
+            for module in self
+                .require_objects
+                .iter()
+                .filter(|x| matches!(x.path, PathOrBuiltIn::BuiltIn(_)))
+                .map(|x| x.path.get_path())
+            {
                 // We've established nothing has changed with this file
                 // Check to see if its in the cache first
                 // Otherwise go ahead and compile
                 // If we already have compiled this module, get it from the cache
-                if let Some(_m) = self.compiled_modules.get(module) {
+                if let Some(_m) = self.compiled_modules.get(module.as_ref()) {
                     debug!("Getting {:?} from the module cache", module);
                     // println!("Already found in the cache: {:?}", module);
                     // new_exprs.push(m.to_module_ast_node());
@@ -795,7 +1248,7 @@ impl<'a> ModuleBuilder<'a> {
                     .1;
 
                 let mut new_module = ModuleBuilder::new_built_in(
-                    module.clone(),
+                    module.into_owned(),
                     input,
                     self.compiled_modules,
                     self.visited,
@@ -803,13 +1256,14 @@ impl<'a> ModuleBuilder<'a> {
                     self.sources,
                     self.kernel,
                     self.builtin_modules.clone(),
+                    self.global_macro_map,
                 )?;
 
                 // Walk the tree and compile any dependencies
                 // This will eventually put the module in the cache
                 let mut module_exprs = new_module.compile()?;
 
-                debug!("Inside {:?} - append {:?}", self.name, module);
+                // debug!("Inside {:?} - append {:?}", self.name, module);
                 if log_enabled!(log::Level::Debug) {
                     debug!(
                         "appending with {:?}",
@@ -831,24 +1285,30 @@ impl<'a> ModuleBuilder<'a> {
             }
 
             // At this point, requires should be fully qualified (absolute) paths
-            for module in &self.requires {
-                let last_modified = std::fs::metadata(module)?.modified()?;
+
+            for module in self
+                .require_objects
+                .iter()
+                .filter(|x| matches!(x.path, PathOrBuiltIn::Path(_)))
+                .map(|x| x.path.get_path())
+            {
+                let last_modified = std::fs::metadata(module.as_ref())?.modified()?;
 
                 // Check if we should compile based on the last time modified
                 // If we're unable to get information, we want to compile
-                let should_recompile = if let Some(cached_modified) = self.file_metadata.get(module)
-                {
-                    &last_modified != cached_modified
-                } else {
-                    true
-                };
+                let should_recompile =
+                    if let Some(cached_modified) = self.file_metadata.get(module.as_ref()) {
+                        &last_modified != cached_modified
+                    } else {
+                        true
+                    };
 
                 // We've established nothing has changed with this file
                 // Check to see if its in the cache first
                 // Otherwise go ahead and compile
                 if !should_recompile {
                     // If we already have compiled this module, get it from the cache
-                    if let Some(_m) = self.compiled_modules.get(module) {
+                    if let Some(_m) = self.compiled_modules.get(module.as_ref()) {
                         debug!("Getting {:?} from the module cache", module);
                         // println!("Already found in the cache: {:?}", module);
                         // new_exprs.push(m.to_module_ast_node());
@@ -858,20 +1318,21 @@ impl<'a> ModuleBuilder<'a> {
                 }
 
                 let mut new_module = ModuleBuilder::new_from_path(
-                    module.clone(),
+                    module.into_owned(),
                     self.compiled_modules,
                     self.visited,
                     self.file_metadata,
                     self.sources,
                     self.kernel,
                     self.builtin_modules.clone(),
+                    self.global_macro_map,
                 )?;
 
                 // Walk the tree and compile any dependencies
                 // This will eventually put the module in the cache
                 let mut module_exprs = new_module.compile()?;
 
-                debug!("Inside {:?} - append {:?}", self.name, module);
+                // debug!("Inside {:?} - append {:?}", self.name, module);
                 if log_enabled!(log::Level::Debug) {
                     debug!(
                         "appending with {:?}",
@@ -907,17 +1368,17 @@ impl<'a> ModuleBuilder<'a> {
 
     fn compile_module(&mut self) -> Result<ExprKind> {
         let mut ast = std::mem::take(&mut self.source_ast);
-        let provides = std::mem::take(&mut self.provides);
+        let mut provides = std::mem::take(&mut self.provides);
 
         // let mut ast = self.source_ast.clone();
         // let provides = self.provides.clone();
 
         // Clone the requires... I suppose
-        let mut requires = self.requires.clone();
+        let requires = self.require_objects.clone();
 
         // println!("built ins: {:?}", self.built_ins);
 
-        requires.append(&mut self.built_ins.clone());
+        // requires.append(&mut self.built_ins.clone());
 
         // TODO -> qualified requires as well
         // qualified requires should be able to adjust the names of the exported functions
@@ -939,10 +1400,11 @@ impl<'a> ModuleBuilder<'a> {
             "Into compiled module: provides for syntax: {:?}",
             self.provides_for_syntax
         );
-        info!(
-            "Into compiled module: requires for syntax: {:?}",
-            self.requires_for_syntax
-        );
+
+        // info!(
+        //     "Into compiled module: requires for syntax: {:?}",
+        //     self.requires_for_syntax
+        // );
 
         // Expand first with the macros from *this* module
         ast = ast
@@ -954,13 +1416,31 @@ impl<'a> ModuleBuilder<'a> {
             })
             .collect::<Result<Vec<_>>>()?;
 
+        // @Matt - provide expansion
+        // TODO: Extend the provides with any provides that are yielded from the above
+
+        // Expand provides for any macros that exist within there
+        provides = provides
+            .into_iter()
+            .map(|x| {
+                expand(x, &self.macro_map).and_then(|x| {
+                    expand_kernel(x, self.kernel.as_mut(), self.builtin_modules.clone())
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
         let mut mangled_asts = Vec::new();
 
         // Look for the modules in the requires for syntax
-        for require_for_syntax in &self.requires_for_syntax {
+        for require_for_syntax in self
+            .require_objects
+            .iter()
+            .filter(|x| x.for_syntax)
+            .map(|x| x.path.get_path())
+        {
             let (module, in_scope_macros) = ModuleManager::find_in_scope_macros(
                 self.compiled_modules,
-                require_for_syntax,
+                require_for_syntax.as_ref(),
                 &mut mangled_asts,
             );
 
@@ -983,15 +1463,70 @@ impl<'a> ModuleBuilder<'a> {
                     // expand(x, &module.macro_map)
                 })
                 .collect::<Result<_>>()?;
+
+            // @Matt - provide expansion
+            // TODO: Do the same here. Extend the provides with any provides that are yielded from the above expansion
+
+            provides = provides
+                .into_iter()
+                .map(|x| {
+                    // First expand the in scope macros
+                    // These are macros
+                    let mut expander = Expander::new(&in_scope_macros);
+                    let first_round_expanded = expander.expand(x)?;
+
+                    if expander.changed {
+                        expand(first_round_expanded, &module.macro_map)
+                    } else {
+                        Ok(first_round_expanded)
+                    }
+
+                    // expand(x, &module.macro_map)
+                })
+                .collect::<Result<_>>()?;
+        }
+
+        // TODO: @Matt - fix this hack
+        {
+            self.source_ast = ast;
+            self.provides = provides;
+            self.collect_provides();
+
+            provides = std::mem::take(&mut self.provides);
+            ast = std::mem::take(&mut self.source_ast);
         }
 
         // Put the mangled asts at the top
         // then include the ast there
         mangled_asts.append(&mut ast);
 
+        // let duped_prefixes = mangled_prefixes
+        //     .clone()
+        //     .into_iter()
+        //     .interleave(mangled_prefixes.into_iter());
+
+        // let mut mangled_asts = duped_prefixes
+        //     .into_iter()
+        //     .zip(mangled_asts.into_iter())
+        //     .map(|(prefix, require_define)| {
+        //         println!("---- Unmangling: {prefix} ----");
+
+        //         let mut expanded = expand(require_define, self.global_macro_map)?;
+
+        //         let mut name_unmangler = NameUnMangler::new(&prefix);
+
+        //         name_unmangler.unmangle_expr(&mut expanded);
+
+        //         println!("--- {}", expanded.to_pretty(60));
+
+        //         Ok(expanded)
+        //     })
+        //     .collect::<Result<Vec<_>>>()?;
+
         // Take ast, expand with self modules, then expand with each of the require for-syntaxes
         // Then mangle the require-for-syntax, include the mangled directly in the ast
 
+        // TODO: Come back here - we're going to need to figure out the require objects
         let mut module = CompiledModule::new(
             self.name.clone(),
             provides,
@@ -1010,7 +1545,7 @@ impl<'a> ModuleBuilder<'a> {
 
         // let result = module.to_module_ast_node();
 
-        let result = module.to_top_level_module(self.compiled_modules)?;
+        let result = module.to_top_level_module(self.compiled_modules, self.global_macro_map)?;
 
         // println!(
         //     "Into compiled module inserted into the cache: {:?}",
@@ -1062,11 +1597,12 @@ impl<'a> ModuleBuilder<'a> {
                                 // TODO -> remove this clone
                                 self.provides_for_syntax.push(l.args[1].clone());
                             }
-                            x if x == *CONTRACT_OUT => {
+                            x if x == *CONTRACT_OUT || x == *REQUIRE_IDENT_SPEC => {
                                 normal_provides.push(expr);
                             }
                             _ => {
-                                stop!(TypeMismatch => "provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
+                                normal_provides.push(expr);
+                                // stop!(TypeMismatch => "provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
                             }
                         }
                     } else {
@@ -1089,32 +1625,228 @@ impl<'a> ModuleBuilder<'a> {
         let mut non_provides = Vec::new();
         let exprs = std::mem::take(&mut self.source_ast);
 
-        for mut expr in exprs {
-            if let ExprKind::List(l) = &mut expr {
-                if let Some(provide) = l.first_ident() {
-                    if *provide == *PROVIDE {
-                        if l.len() == 1 {
-                            stop!(Generic => "provide expects at least one identifier to provide");
+        fn walk(
+            module_builder: &mut ModuleBuilder,
+            exprs: Vec<ExprKind>,
+            non_provides: &mut Vec<ExprKind>,
+        ) -> Result<()> {
+            for mut expr in exprs {
+                match &mut expr {
+                    ExprKind::List(l) => {
+                        if let Some(provide) = l.first_ident() {
+                            if *provide == *PROVIDE {
+                                if l.len() == 1 {
+                                    stop!(Generic => "provide expects at least one identifier to provide");
+                                }
+
+                                // Swap out the value inside the list
+                                let args = std::mem::take(&mut l.args);
+
+                                let filtered =
+                                    module_builder.filter_out_for_syntax_provides(args)?;
+
+                                l.args = filtered;
+
+                                module_builder.provides.push(expr);
+
+                                continue;
+                            }
+                        }
+                    }
+                    ExprKind::Begin(b) => {
+                        let exprs = std::mem::take(&mut b.exprs);
+                        walk(module_builder, exprs, non_provides)?;
+                    }
+                    _ => {}
+                }
+
+                non_provides.push(expr);
+            }
+
+            Ok(())
+        }
+
+        walk(self, exprs, &mut non_provides)?;
+
+        self.source_ast = non_provides;
+        Ok(())
+    }
+
+    fn parse_require_object(
+        &mut self,
+        home: &Option<PathBuf>,
+        r: &crate::parser::ast::Require,
+        atom: &ExprKind,
+    ) -> Result<RequireObject> {
+        let mut object = RequireObjectBuilder::default();
+
+        self.parse_require_object_inner(home, r, atom, &mut object)
+            .and_then(|_| object.build())
+    }
+
+    // TODO: Recursively crunch the requires to gather up the necessary information
+    fn parse_require_object_inner(
+        &mut self,
+        home: &Option<PathBuf>,
+        r: &crate::parser::ast::Require,
+        atom: &ExprKind,
+        require_object: &mut RequireObjectBuilder,
+    ) -> Result<()> {
+        match atom {
+            ExprKind::Atom(Atom {
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::StringLiteral(s),
+                        ..
+                    },
+            }) => {
+                if require_object.path.is_some() {
+                    stop!(Generic => "require object only expects one path!")
+                }
+
+                // Try this?
+                if let Some(lib) = BUILT_INS.iter().find(|x| x.0 == s.as_str()) {
+                    // self.built_ins.push(PathBuf::from(lib.0));
+
+                    require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0));
+
+                    return Ok(());
+                    // continue;
+                }
+
+                let mut current = self.name.clone();
+                if current.is_file() {
+                    current.pop();
+                }
+                current.push(s);
+
+                // // If the path exists on its own, we can continue
+                // // But theres the case where we're searching for a module on the STEEL_PATH
+                if !current.exists() {
+                    if let Some(mut home) = home.clone() {
+                        home.push(s);
+                        current = home;
+
+                        log::info!("Searching STEEL_HOME for {:?}", current);
+                    } else {
+                        stop!(Generic => format!("Module not found: {:?}", self.name))
+                    }
+                }
+
+                // Get the absolute path and store that
+                // self.requires.push(current)
+
+                require_object.path = Some(PathOrBuiltIn::Path(current));
+            }
+
+            // TODO: Requires with qualifiers, that aren't just for-syntax
+            // Perhaps like:
+            // (with-prefix <xyz>)
+            ExprKind::List(l) => {
+                match l.first_ident() {
+                    Some(x) if *x == *ONLY_IN => {
+                        if l.args.len() < 2 {
+                            stop!(BadSyntax => "only-in expects a require-spec and optionally a list of ids to bind (maybe renamed)");
                         }
 
-                        // Swap out the value inside the list
-                        let args = std::mem::take(&mut l.args);
+                        self.parse_require_object_inner(home, r, &l.args[1], require_object)?;
 
-                        let filtered = self.filter_out_for_syntax_provides(args)?;
+                        for remaining in &l.args[2..] {
+                            match remaining {
+                                ExprKind::Atom(_) => {
+                                    require_object
+                                        .idents_to_import
+                                        .push(MaybeRenamed::Normal(remaining.clone()));
+                                }
+                                ExprKind::List(l) => {
+                                    if l.len() != 2 {
+                                        stop!(BadSyntax => "Expected a pair when renaming required identifiers");
+                                    }
 
-                        l.args = filtered;
+                                    let from = &l.args[0];
+                                    let to = &l.args[1];
 
-                        self.provides.push(expr);
+                                    if from.atom_identifier().is_none()
+                                        || to.atom_identifier().is_none()
+                                    {
+                                        stop!(BadSyntax => "only-in expected identifiers to rename");
+                                    }
 
-                        continue;
+                                    // (<from> <to>)
+                                    require_object
+                                        .idents_to_import
+                                        .push(MaybeRenamed::Renamed(from.clone(), to.clone()));
+                                }
+                                _ => {
+                                    stop!(BadSyntax => "unexpected syntax in only-in form during module requires")
+                                }
+                            }
+                        }
+                    }
+
+                    Some(x) if *x == *PREFIX_IN => {
+                        if l.args.len() != 3 {
+                            stop!(BadSyntax => "prefix-in expects a prefix to prefix a given file or module"; r.location.span; r.location.source.clone());
+                        }
+
+                        if let Some(prefix) = l.args[1].atom_identifier() {
+                            match &mut require_object.prefix {
+                                Some(existing_prefix) => {
+                                    // Append the new symbol to the existing prefix
+                                    existing_prefix.push_str(prefix.resolve());
+                                }
+                                None => {
+                                    require_object.prefix = Some(prefix.resolve().to_string());
+                                }
+                            }
+
+                            self.parse_require_object_inner(home, r, &l.args[2], require_object)?;
+                        } else {
+                            stop!(TypeMismatch => "prefix-in expects an identifier to use for the prefix");
+                        }
+                    }
+
+                    Some(x) if *x == *FOR_SYNTAX => {
+                        // We're expecting something like (for-syntax "foo")
+                        if l.args.len() != 2 {
+                            stop!(BadSyntax => "for-syntax expects one string literal referring to a file or module"; r.location.span; r.location.source.clone());
+                        }
+
+                        if let Some(path) = l.args[1].string_literal() {
+                            let mut current = self.name.clone();
+                            if current.is_file() {
+                                current.pop();
+                            }
+                            current.push(path);
+
+                            if !current.exists() {
+                                if let Some(mut home) = home.clone() {
+                                    home.push(path);
+                                    current = home;
+
+                                    log::info!("Searching STEEL_HOME for {:?}", current);
+                                } else {
+                                    stop!(Generic => format!("Module not found: {:?}", self.name))
+                                }
+                            }
+
+                            require_object.for_syntax = true;
+                            require_object.path = Some(PathOrBuiltIn::Path(current));
+                        } else {
+                            stop!(BadSyntax => "for-syntax expects a string literal referring to a file or module"; r.location.span; r.location.source.clone());
+                        }
+                    }
+                    _ => {
+                        stop!(BadSyntax => "require accepts either a string literal or a for-syntax expression"; r.location.span; r.location.source.clone())
                     }
                 }
             }
 
-            non_provides.push(expr)
+            _ => {
+                stop!(Generic => "require expected a string literal referring to a file/module"; r.location.span; r.location.source.clone())
+            }
         }
 
-        self.source_ast = non_provides;
         Ok(())
     }
 
@@ -1132,100 +1864,51 @@ impl<'a> ModuleBuilder<'a> {
             })
             .ok();
 
-        for expr in exprs {
-            match &expr {
-                // Include require/for-syntax here
-                // This way we have some understanding of what dependencies a file has
-                ExprKind::Require(r) => {
-                    for atom in &r.modules {
-                        match atom {
-                            ExprKind::Atom(Atom {
-                                syn:
-                                    SyntaxObject {
-                                        ty: TokenType::StringLiteral(s),
-                                        ..
-                                    },
-                            }) => {
-                                // Try this?
-                                if let Some(lib) = BUILT_INS.iter().find(|x| x.0 == s.as_str()) {
-                                    self.built_ins.push(PathBuf::from(lib.0));
-                                    continue;
-                                }
+        fn walk(
+            module_builder: &mut ModuleBuilder,
+            home: &Option<PathBuf>,
+            exprs_without_requires: &mut Vec<ExprKind>,
+            exprs: Vec<ExprKind>,
+        ) -> Result<()> {
+            for expr in exprs {
+                match expr {
+                    // Include require/for-syntax here
+                    // This way we have some understanding of what dependencies a file has
+                    ExprKind::Require(r) => {
+                        for atom in &r.modules {
+                            // TODO: Consider making this not a reference for r
+                            let require_object =
+                                module_builder.parse_require_object(&home, &r, atom)?;
 
-                                let mut current = self.name.clone();
-                                if current.is_file() {
-                                    current.pop();
-                                }
-                                current.push(s);
-
-                                // // If the path exists on its own, we can continue
-                                // // But theres the case where we're searching for a module on the STEEL_PATH
-                                if !current.exists() {
-                                    if let Some(mut home) = home.clone() {
-                                        home.push(s);
-                                        current = home;
-
-                                        log::info!("Searching STEEL_HOME for {:?}", current);
-                                    } else {
-                                        stop!(Generic => format!("Module not found: {:?}", self.name))
-                                    }
-                                }
-
-                                // Get the absolute path and store that
-                                // current = std::fs::canonicalize(&current)?;
-                                // let new_path = PathBuf::new()
-                                self.requires.push(current)
-                            }
-
-                            ExprKind::List(l) => {
-                                match l.first_ident() {
-                                    Some(x) if *x == *FOR_SYNTAX => {
-                                        // We're expecting something like (for-syntax "foo")
-                                        if l.args.len() != 2 {
-                                            stop!(BadSyntax => "for-syntax expects one string literal referring to a file or module"; r.location.span; r.location.source.clone());
-                                        }
-
-                                        if let Some(path) = l.args[1].string_literal() {
-                                            let mut current = self.name.clone();
-                                            if current.is_file() {
-                                                current.pop();
-                                            }
-                                            current.push(path);
-
-                                            if !current.exists() {
-                                                if let Some(mut home) = home.clone() {
-                                                    home.push(path);
-                                                    current = home;
-
-                                                    log::info!(
-                                                        "Searching STEEL_HOME for {:?}",
-                                                        current
-                                                    );
-                                                } else {
-                                                    stop!(Generic => format!("Module not found: {:?}", self.name))
-                                                }
-                                            }
-
-                                            self.requires_for_syntax.push(current);
-                                        } else {
-                                            stop!(BadSyntax => "for-syntax expects a string literal referring to a file or module"; r.location.span; r.location.source.clone());
-                                        }
-                                    }
-                                    _ => {
-                                        stop!(BadSyntax => "require accepts either a string literal or a for-syntax expression"; r.location.span; r.location.source.clone())
-                                    }
-                                }
-                            }
-
-                            _ => {
-                                stop!(Generic => "require expected a string literal referring to a file/module"; r.location.span; r.location.source.clone())
-                            }
+                            module_builder.require_objects.push(require_object);
                         }
                     }
+                    ExprKind::Begin(b) => {
+                        walk(module_builder, home, exprs_without_requires, b.exprs)?
+                    }
+                    _ => exprs_without_requires.push(expr),
                 }
-                _ => exprs_without_requires.push(expr),
             }
+
+            Ok(())
         }
+
+        walk(self, &home, &mut exprs_without_requires, exprs)?;
+
+        // for expr in exprs {
+        //     match &expr {
+        //         // Include require/for-syntax here
+        //         // This way we have some understanding of what dependencies a file has
+        //         ExprKind::Require(r) => {
+        //             for atom in &r.modules {
+        //                 let require_object = self.parse_require_object(&home, r, atom)?;
+
+        //                 self.require_objects.push(require_object);
+        //             }
+        //         }
+        //         _ => exprs_without_requires.push(expr),
+        //     }
+        // }
 
         // println!("Exprs without requires: {:?}", exprs_without_requires);
 
@@ -1243,6 +1926,7 @@ impl<'a> ModuleBuilder<'a> {
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
+        global_macro_map: &'a HashMap<InternedString, SteelMacro>,
     ) -> Result<Self> {
         ModuleBuilder::raw(
             name,
@@ -1252,6 +1936,7 @@ impl<'a> ModuleBuilder<'a> {
             sources,
             kernel,
             builtin_modules,
+            global_macro_map,
         )
         .parse_builtin(input)
     }
@@ -1264,6 +1949,8 @@ impl<'a> ModuleBuilder<'a> {
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
+
+        global_macro_map: &'a HashMap<InternedString, SteelMacro>,
     ) -> Result<Self> {
         ModuleBuilder::raw(
             name,
@@ -1273,6 +1960,7 @@ impl<'a> ModuleBuilder<'a> {
             sources,
             kernel,
             builtin_modules,
+            global_macro_map,
         )
         .parse_from_path()
     }
@@ -1285,15 +1973,15 @@ impl<'a> ModuleBuilder<'a> {
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
+
+        global_macro_map: &'a HashMap<InternedString, SteelMacro>,
     ) -> Self {
         ModuleBuilder {
             name,
             main: false,
             source_ast: Vec::new(),
             macro_map: HashMap::new(),
-            requires: Vec::new(),
-            requires_for_syntax: Vec::new(),
-            built_ins: Vec::new(),
+            require_objects: Vec::new(),
             provides: Vec::new(),
             provides_for_syntax: Vec::new(),
             compiled_modules,
@@ -1302,6 +1990,7 @@ impl<'a> ModuleBuilder<'a> {
             sources,
             kernel,
             builtin_modules,
+            global_macro_map,
         }
     }
 

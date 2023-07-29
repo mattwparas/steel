@@ -2,6 +2,10 @@
 name = "steel-parser"
 version = "0.2.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
+repository = "https://github.com/mattwparas/steel"
+description = "Parser for use within steel"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -9,3 +13,4 @@ edition = "2021"
 logos = "0.12.1"
 serde = { version = "1.0.152", features = ["derive", "rc"] }
 serde_derive = "1.0.152"
+num-bigint = { version = "0.4.0", features = ["serde"] }

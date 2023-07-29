@@ -1,4 +1,6 @@
 (require-builtin "steel/core/result")
+; (require "steel/contracts/contract.scm"
+;          (for-syntax "steel/contracts/contract.scm"))
 
 (provide Result?
          Ok
@@ -48,3 +50,8 @@
 
 (define (unwrap-or result value)
   (if (Ok? result) (Ok->value result) value))
+
+; (define-syntax contract/out/test
+;   (syntax-rules ()
+;     [(contract/out/test name contract)
+;      (%require-ident-spec name (bind-contract-to-function contract name 'name))]))

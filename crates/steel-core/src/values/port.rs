@@ -3,6 +3,8 @@ use std::fs::OpenOptions;
 use std::io;
 use std::io::prelude::*;
 use std::io::{BufReader, BufWriter, Stdin, Stdout};
+use std::process::ChildStdin;
+use std::process::ChildStdout;
 
 // use serr::{SErr, SResult};
 // use utils::chars::Chars;
@@ -31,14 +33,19 @@ thread_local! {
     // pub static STANDARD_OUT: SteelPort = SteelPort::StringOutput(Rc::new(RefCell::new(BufWriter::new(Vec::new()))));
 }
 
+// TODO: Probably replace this with dynamic dispatch over writers?
 #[derive(Debug, Clone)]
 pub enum SteelPort {
     FileInput(String, RcRefCell<BufReader<File>>),
     FileOutput(String, RcRefCell<BufWriter<File>>),
     StdInput(RcRefCell<Stdin>),
     StdOutput(RcRefCell<Stdout>),
+    ChildStdOutput(RcRefCell<BufReader<ChildStdout>>),
+    ChildStdInput(RcRefCell<BufWriter<ChildStdin>>),
     // StringInput(RcRefCell<BufReader<&[u8]>>),
     StringOutput(RcRefCell<BufWriter<Vec<u8>>>),
+    // DynWriter(Rc<RefCell<Box<dyn Write>>>),
+    // DynReader(Rc<RefCell<Box<dyn Read>>>),
     Closed,
 }
 
@@ -137,6 +144,18 @@ impl SteelPort {
         match self {
             SteelPort::FileInput(_, br) => port_read_str_fn!(br, read_line),
             SteelPort::StdInput(br) => port_read_str_fn!(br, read_line),
+
+            SteelPort::ChildStdOutput(br) => {
+                // let buf_reader = BufReader::new(br.borrow_mut().as_mut());
+
+                port_read_str_fn!(br, read_line)
+
+                // todo!()
+
+                // buf_reader
+            }
+
+            // SteelPort::ChildStdOutput(br) => port_read_str_fn!(br, read_line),
             // FIXME: fix this and the functions below
             _x => stop!(Generic => "read-line"),
         }
@@ -246,6 +265,7 @@ impl SteelPort {
         match self {
             SteelPort::FileOutput(_, br) => write_string!(br),
             SteelPort::StdOutput(br) => write_string!(br),
+            SteelPort::ChildStdInput(br) => write_string!(br),
             _x => stop!(Generic => "write-string"),
         };
 

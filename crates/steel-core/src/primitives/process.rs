@@ -1,7 +1,13 @@
-use std::process::{Child, Command, ExitStatus};
+use std::cell::RefCell;
+use std::io::{BufReader, BufWriter};
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::rc::Rc;
 
 use im_lists::list::List;
 
+use crate::gc::Gc;
+use crate::values::port::SteelPort;
+use crate::SteelVal;
 use crate::{rvals::Custom, steel_vm::builtin::BuiltInModule};
 use crate::{steel_vm::register_fn::RegisterFn, SteelErr};
 
@@ -11,10 +17,13 @@ pub fn process_module() -> BuiltInModule {
     module
         .register_fn("command", CommandBuilder::new)
         .register_fn("set-current-dir!", CommandBuilder::current_dir)
+        .register_fn("set-piped-stdout!", CommandBuilder::stdout_piped)
         .register_fn("spawn-process", CommandBuilder::spawn_process)
         .register_fn("wait", ChildProcess::wait)
         .register_fn("wait->stdout", ChildProcess::wait_with_stdout)
-        .register_fn("which", binary_exists_on_path);
+        .register_fn("which", binary_exists_on_path)
+        .register_fn("child-stdout", ChildProcess::stdout)
+        .register_fn("child-stdin", ChildProcess::stdin);
 
     module
 }
@@ -52,6 +61,37 @@ impl ChildProcess {
         Self { child: Some(child) }
     }
 
+    pub fn stdout(&mut self) -> Option<SteelVal> {
+        let stdout = self
+            .child
+            .as_mut()
+            .and_then(|x| x.stdout.take())
+            .and_then(|x| {
+                Some(SteelVal::PortV(Gc::new(SteelPort::ChildStdOutput(
+                    Rc::new(RefCell::new(BufReader::new(x))),
+                ))))
+            });
+
+        stdout
+
+        //     todo!()
+    }
+
+    pub fn stdin(&mut self) -> Option<SteelVal> {
+        let stdout = self
+            .child
+            .as_mut()
+            .and_then(|x| x.stdin.take())
+            .and_then(|x| {
+                Some(SteelVal::PortV(Gc::new(SteelPort::ChildStdInput(Rc::new(
+                    RefCell::new(BufWriter::new(x)),
+                )))))
+            });
+
+        stdout
+
+        //     todo!()
+    }
     pub fn wait(&mut self) -> Result<ProcessExitStatus, SteelErr> {
         self.child
             .take()
@@ -85,6 +125,12 @@ impl CommandBuilder {
 
     pub fn current_dir(&mut self, directory: String) {
         self.command.current_dir(directory);
+    }
+
+    pub fn stdout_piped(&mut self) {
+        self.command.stdout(Stdio::piped());
+        self.command.stderr(Stdio::piped());
+        self.command.stdin(Stdio::piped());
     }
 
     pub fn spawn_process(&mut self) -> Result<ChildProcess, SteelErr> {

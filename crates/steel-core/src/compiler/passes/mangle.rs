@@ -41,6 +41,43 @@ pub fn collect_globals(exprs: &[ExprKind]) -> HashSet<InternedString> {
     global_defs
 }
 
+pub struct NameUnMangler<'a> {
+    prefix: &'a str,
+}
+
+impl<'a> NameUnMangler<'a> {
+    pub fn new(prefix: &'a str) -> Self {
+        Self { prefix }
+    }
+
+    pub fn unmangle_vars(&mut self, exprs: &mut [ExprKind]) {
+        for expr in exprs {
+            self.visit(expr);
+        }
+    }
+
+    pub fn unmangle_expr(&mut self, expr: &mut ExprKind) {
+        self.visit(expr);
+    }
+}
+
+impl<'a> VisitorMutRefUnit for NameUnMangler<'a> {
+    #[inline]
+    fn visit_quote(&mut self, q: &mut Quote) {
+        if let Some(expression) = q.expr.atom_identifier_mut() {
+            // TODO: Should roll up this into one thing, since strip prefix checks if
+            // it starts with the right value
+            if expression.resolve().starts_with(self.prefix) {
+                *expression = expression
+                    .resolve()
+                    .strip_prefix(self.prefix)
+                    .unwrap()
+                    .into();
+            }
+        }
+    }
+}
+
 pub struct NameMangler {
     globals: HashSet<InternedString>,
     prefix: String,

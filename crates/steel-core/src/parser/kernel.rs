@@ -3,10 +3,13 @@ use std::{collections::HashSet, convert::TryFrom};
 use steel_parser::tokens::TokenType;
 
 use crate::{
-    compiler::{passes::analysis::SemanticAnalysis, program::STRUCT_KEYWORD},
+    compiler::{
+        passes::analysis::SemanticAnalysis,
+        program::{DEFINE_VALUES, STRUCT_KEYWORD},
+    },
     expr_list,
     parser::{
-        ast::{from_list_repr_to_ast, Atom, Set},
+        ast::{from_list_repr_to_ast, AstTools, Atom, Set},
         parser::SyntaxObject,
     },
     rvals::Result,
@@ -53,6 +56,7 @@ impl Kernel {
         let mut macros = HashSet::new();
         // macros.insert("%better-lambda%".to_string());
         macros.insert(*STRUCT_KEYWORD);
+        macros.insert(*DEFINE_VALUES);
 
         Kernel {
             macros,

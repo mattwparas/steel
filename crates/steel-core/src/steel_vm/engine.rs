@@ -2,12 +2,16 @@
 
 use super::{
     builtin::BuiltInModule,
-    dylib::DylibContainers,
-    ffi::FFIModule,
-    ffi::FFIWrappedModule,
     primitives::{register_builtin_modules, register_builtin_modules_without_io, CONSTANTS},
     vm::SteelThread,
 };
+
+#[cfg(feature = "dylibs")]
+use super::{ffi::FFIModule, ffi::FFIWrappedModule};
+
+#[cfg(feature = "dylibs")]
+use super::dylib::DylibContainers;
+
 use crate::{
     compiler::{
         compiler::Compiler,
@@ -46,7 +50,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Default)]
 pub struct ModuleContainer {
     modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
-    // external_modules: ImmutableHashMap<Rc<str>, ExternalModule>,
 }
 
 impl ModuleContainer {
@@ -57,6 +60,10 @@ impl ModuleContainer {
     pub fn get(&mut self, key: &str) -> Option<BuiltInModule> {
         self.modules.get(key).cloned()
     }
+
+    pub fn inner(&self) -> &ImmutableHashMap<Rc<str>, BuiltInModule> {
+        &self.modules
+    }
 }
 
 #[derive(Clone)]
@@ -64,10 +71,9 @@ pub struct Engine {
     virtual_machine: SteelThread,
     compiler: Compiler,
     constants: Option<ImmutableHashMap<InternedString, SteelVal>>,
-    // modules: ImmutableHashMap<Rc<str>, Rc<BuiltInModule>>,
-    // external_modules: ImmutableHashMap<Rc<str>, *mut BuiltInModule>,
     modules: ModuleContainer,
     sources: Sources,
+    #[cfg(feature = "dylibs")]
     dylibs: DylibContainers,
 }
 
@@ -108,7 +114,6 @@ pub struct LifetimeGuard<'a> {
 
 impl<'a> Drop for LifetimeGuard<'a> {
     fn drop(&mut self) {
-        println!("Freeing nursery!");
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::free_all();
     }
 }
@@ -161,6 +166,13 @@ impl<'a> LifetimeGuard<'a> {
 
         thunk(self.engine, values)
     }
+
+    pub fn consume_once<T>(self, mut thunk: impl FnOnce(&mut Engine, Vec<SteelVal>) -> T) -> T {
+        let values =
+            crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::drain_weak_references_to_steelvals();
+
+        thunk(self.engine, values)
+    }
 }
 
 impl RegisterValue for Engine {
@@ -184,6 +196,7 @@ impl Engine {
             constants: None,
             modules: ModuleContainer::default(),
             sources: Sources::new(),
+            #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
         };
 
@@ -223,6 +236,7 @@ impl Engine {
     }
 
     /// Load dylibs from the given path and make them
+    #[cfg(feature = "dylibs")]
     pub fn load_modules_from_directory(&mut self, directory: String) {
         log::info!("Loading modules from directory: {}", &directory);
         self.dylibs.load_modules_from_directory(Some(directory));
@@ -234,6 +248,10 @@ impl Engine {
         }
 
         log::info!("Successfully loaded modules!");
+    }
+
+    pub fn builtin_modules(&self) -> &ModuleContainer {
+        &self.modules
     }
 
     /// Function to access a kernel level execution environment
@@ -260,6 +278,7 @@ impl Engine {
             constants: None,
             modules: ModuleContainer::default(),
             sources: Sources::new(),
+            #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
         };
 
@@ -373,6 +392,7 @@ impl Engine {
             constants: None,
             modules: ModuleContainer::default(),
             sources: Sources::new(),
+            #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
         };
 
@@ -436,6 +456,7 @@ impl Engine {
             constants: None,
             modules: ModuleContainer::default(),
             sources: Sources::new(),
+            #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
         };
 
@@ -496,6 +517,7 @@ impl Engine {
             constants: None,
             modules: ModuleContainer::default(),
             sources: Sources::new(),
+            #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
         }
     }
@@ -793,7 +815,7 @@ impl Engine {
         self
     }
 
-    // TODO: Lets see if this can _not_ segfault!
+    #[cfg(feature = "dylibs")]
     pub fn register_external_module(
         &mut self,
         module: abi_stable::std_types::RBox<FFIModule>,

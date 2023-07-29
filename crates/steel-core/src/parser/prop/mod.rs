@@ -150,7 +150,7 @@ fn tokentype_strategy() -> impl Strategy<Value = TokenType<InternedString>> {
         any::<char>().prop_map(CharacterLiteral),
         string_strategy().prop_map(StringLiteral),
         ident_strategy().prop_map(Identifier),
-        any::<isize>().prop_map(IntegerLiteral),
+        any::<isize>().prop_map(|x| IntegerLiteral(steel_parser::tokens::MaybeBigInt::Small(x))),
         any::<bool>().prop_map(BooleanLiteral),
         any::<f64>().prop_map(NumberLiteral)
     ]

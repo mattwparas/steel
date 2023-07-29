@@ -1,5 +1,7 @@
 use crate::{
-    compiler::program::{QUASIQUOTE, UNQUOTE, UNQUOTE_SPLICING},
+    compiler::program::{
+        QUASIQUOTE, RAW_QUOTE, RAW_UNQUOTE, RAW_UNQUOTE_SPLICING, UNQUOTE, UNQUOTE_SPLICING,
+    },
     parser::lexer::TokenStream,
     rvals::IntoSteelVal,
 };
@@ -15,7 +17,10 @@ use std::{
     rc::Rc,
     sync::{Arc, Mutex},
 };
-use steel_parser::lexer::{OwnedTokenStream, ToOwnedString};
+use steel_parser::{
+    lexer::{OwnedTokenStream, ToOwnedString},
+    tokens::MaybeBigInt,
+};
 use thiserror::Error;
 
 use crate::parser::span::Span;
@@ -310,7 +315,10 @@ impl TryFrom<SyntaxObject> for SteelVal {
             BooleanLiteral(x) => Ok(BoolV(x)),
             Identifier(x) => Ok(SymbolV(x.into())),
             NumberLiteral(x) => Ok(NumV(x)),
-            IntegerLiteral(x) => Ok(IntV(x)),
+            IntegerLiteral(MaybeBigInt::Small(x)) => Ok(IntV(x)),
+
+            IntegerLiteral(MaybeBigInt::Big(b)) => b.into_steelval(),
+
             StringLiteral(x) => Ok(StringV(x.into())),
             Keyword(x) => Ok(SymbolV(x.into())),
             QuoteTick => {
@@ -404,6 +412,8 @@ impl ToOwnedString<InternedString> for InternString {
 pub struct Parser<'a> {
     tokenizer: OwnedTokenStream<'a, InternedString, InternString>,
     quote_stack: Vec<usize>,
+    quasiquote_depth: isize,
+    quote_context: bool,
     shorthand_quote_stack: Vec<usize>,
     source_name: Option<Rc<PathBuf>>,
     context: Vec<ParsingContext>,
@@ -411,7 +421,7 @@ pub struct Parser<'a> {
     collecting_comments: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 enum ParsingContext {
     // Inside of a quote. Expressions should be parsed without being coerced into a typed variant of the AST
     Quote(usize),
@@ -459,6 +469,8 @@ impl<'a> Parser<'a> {
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
             quote_stack: Vec::new(),
+            quasiquote_depth: 0,
+            quote_context: false,
             shorthand_quote_stack: Vec::new(),
             source_name: None,
             context: Vec::new(),
@@ -475,6 +487,8 @@ impl<'a> Parser<'a> {
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
             quote_stack: Vec::new(),
+            quasiquote_depth: 0,
+            quote_context: false,
             shorthand_quote_stack: Vec::new(),
             source_name: Some(Rc::from(source_name)),
             context: Vec::new(),
@@ -488,6 +502,8 @@ impl<'a> Parser<'a> {
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
             quote_stack: Vec::new(),
+            quasiquote_depth: 0,
+            quote_context: false,
             shorthand_quote_stack: Vec::new(),
             source_name: None,
             context: Vec::new(),
@@ -528,6 +544,14 @@ impl<'a> Parser<'a> {
         vec![q, val]
     }
 
+    fn construct_fake_quote(&mut self, val: ExprKind, span: Span) -> ExprKind {
+        let q = {
+            let rc_val = TokenType::Identifier(*RAW_QUOTE);
+            ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
+        };
+
+        ExprKind::List(List::new(vec![q, val]))
+    }
     // Reader macro for `
     fn construct_quasiquote(&mut self, val: ExprKind, span: Span) -> ExprKind {
         let q = {
@@ -548,6 +572,14 @@ impl<'a> Parser<'a> {
         ExprKind::List(List::new(vec![q, val]))
     }
 
+    fn construct_raw_unquote(&mut self, val: ExprKind, span: Span) -> ExprKind {
+        let q = {
+            let rc_val = TokenType::Identifier(*RAW_UNQUOTE);
+            ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
+        };
+
+        ExprKind::List(List::new(vec![q, val]))
+    }
     // Reader macro for ,@
     fn construct_unquote_splicing(&mut self, val: ExprKind, span: Span) -> ExprKind {
         let q = {
@@ -558,11 +590,38 @@ impl<'a> Parser<'a> {
         ExprKind::List(List::new(vec![q, val]))
     }
 
+    // Reader macro for ,@
+    fn construct_raw_unquote_splicing(&mut self, val: ExprKind, span: Span) -> ExprKind {
+        let q = {
+            let rc_val = TokenType::Identifier(*RAW_UNQUOTE_SPLICING);
+            ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
+        };
+
+        ExprKind::List(List::new(vec![q, val]))
+    }
+
+    fn increment_quasiquote_context_if_not_in_quote_context(&mut self) {
+        // println!("INCREMENTING");
+        if !self.quote_context {
+            self.quasiquote_depth += 1;
+        }
+    }
+
+    fn decrement_quasiquote_context_if_not_in_quote_context(&mut self) {
+        // println!("DECREMENTING");
+        if !self.quote_context {
+            self.quasiquote_depth -= 1;
+        }
+    }
+
     fn read_from_tokens(&mut self) -> Result<ExprKind> {
         let mut stack: Vec<Vec<ExprKind>> = Vec::new();
         let mut current_frame: Vec<ExprKind> = Vec::new();
 
         self.quote_stack = Vec::new();
+
+        // println!("READING FROM TOKENS");
+        // self.quasiquote_depth = 0;
 
         loop {
             match self.tokenizer.next() {
@@ -579,6 +638,12 @@ impl<'a> Parser<'a> {
                             // self.quote_stack.push(current_frame.len());
                             self.shorthand_quote_stack.push(current_frame.len());
 
+                            let last_context = self.quote_context;
+
+                            if self.quasiquote_depth == 0 {
+                                self.quote_context = true;
+                            }
+
                             // println!("Entering context: Quote Tick in read from tokens");
 
                             self.context
@@ -587,9 +652,17 @@ impl<'a> Parser<'a> {
                             let quote_inner = self
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                                .map(|x| self.construct_quote(x, token.span));
+                                .map(|x| {
+                                    // if self.quasiquote_depth == 0 {
+                                    self.construct_quote(x, token.span)
+                                    // } else {
+                                    // self.construct_fake_quote(x, token.span)
+                                    // }
+                                });
                             // self.quote_stack.pop();
                             self.shorthand_quote_stack.pop();
+
+                            self.quote_context = last_context;
 
                             // println!(
                             //     "Exiting Context: {:?} in read from tokens",
@@ -609,15 +682,28 @@ impl<'a> Parser<'a> {
                         TokenType::Unquote => {
                             // println!("Entering context: Unquote");
 
+                            // This could underflow and panic - if its negative then we have a problem. Maybe just use an isize and let it underflow?
+                            self.decrement_quasiquote_context_if_not_in_quote_context();
+
                             self.context
                                 .push(ParsingContext::UnquoteTick(current_frame.len()));
 
                             let quote_inner = self
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                                .map(|x| self.construct_unquote(x, token.span));
+                                .map(|x| {
+                                    // dbg!(self.quasiquote_depth);
+                                    // dbg!(self.quote_context);
+                                    if self.quasiquote_depth == 0 && !self.quote_context {
+                                        self.construct_raw_unquote(x, token.span)
+                                    } else {
+                                        self.construct_unquote(x, token.span)
+                                    }
+                                });
 
                             let popped_value = self.context.pop();
+
+                            self.increment_quasiquote_context_if_not_in_quote_context();
 
                             if let Some(popped) = popped_value {
                                 debug_assert!(matches!(popped, ParsingContext::UnquoteTick(_)))
@@ -627,6 +713,8 @@ impl<'a> Parser<'a> {
                         }
                         TokenType::QuasiQuote => {
                             // println!("Entering context: Quasiquote");
+
+                            self.increment_quasiquote_context_if_not_in_quote_context();
 
                             self.context
                                 .push(ParsingContext::QuasiquoteTick(current_frame.len()));
@@ -644,6 +732,8 @@ impl<'a> Parser<'a> {
 
                             let popped_value = self.context.pop();
 
+                            self.decrement_quasiquote_context_if_not_in_quote_context();
+
                             if let Some(popped) = popped_value {
                                 // println!("Popped: {:?}", popped);
                                 debug_assert!(matches!(popped, ParsingContext::QuasiquoteTick(_)))
@@ -654,17 +744,27 @@ impl<'a> Parser<'a> {
                         TokenType::UnquoteSplice => {
                             // println!("Entering context: UnquoteSplicing");
 
+                            self.decrement_quasiquote_context_if_not_in_quote_context();
+
                             self.context
                                 .push(ParsingContext::UnquoteSplicingTick(current_frame.len()));
 
                             let quote_inner = self
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                                .map(|x| self.construct_unquote_splicing(x, token.span));
+                                .map(|x| {
+                                    if self.quasiquote_depth == 0 && !self.quote_context {
+                                        self.construct_raw_unquote_splicing(x, token.span)
+                                    } else {
+                                        self.construct_unquote_splicing(x, token.span)
+                                    }
+                                });
 
                             // self.context.pop();
 
                             let popped_value = self.context.pop();
+
+                            self.increment_quasiquote_context_if_not_in_quote_context();
 
                             if let Some(popped) = popped_value {
                                 debug_assert!(matches!(
@@ -685,12 +785,19 @@ impl<'a> Parser<'a> {
                             // As we close the current context, we check what our current state is -
 
                             if let Some(mut prev_frame) = stack.pop() {
-                                match self.context.last() {
+                                match self.context.last().cloned() {
                                     // TODO: Change this -> This should really be just Some(ParsingContext::Quote)
                                     // If we have _anything_ then we should check if we need to parse it differently. If we're at the last_quote_index,
                                     // then we can pop it off inside there.
                                     Some(ParsingContext::Quote(last_quote_index))
                                     | Some(ParsingContext::Quasiquote(last_quote_index)) => {
+                                        // Exit quasiquote context
+                                        // if let Some(ParsingContext::Quasiquote(_)) =
+                                        //     self.context.last()
+                                        // {
+                                        //     self.decrement_quasiquote_context_if_not_in_quote_context();
+                                        // }
+
                                         // println!(
                                         //     "Q/QQ: Stack length: {:?}, last_quote_index: {:?}",
                                         //     stack.len(),
@@ -699,7 +806,7 @@ impl<'a> Parser<'a> {
 
                                         // let last_quote_index = *last_quote_index;
 
-                                        if stack.len() <= *last_quote_index {
+                                        if stack.len() <= last_quote_index {
                                             self.context.pop();
                                             // println!("Exiting Context: {:?}", self.context.pop());
                                         }
@@ -761,6 +868,12 @@ impl<'a> Parser<'a> {
                                                 );
                                             }
                                             _ => {
+                                                // if let Some(ParsingContext::QuasiquoteTick(_)) =
+                                                //     self.context.last()
+                                                // {
+                                                //     self.decrement_quasiquote_context_if_not_in_quote_context();
+                                                // }
+
                                                 // println!("Converting to list inside quote tick");
                                                 prev_frame
                                                     .push(ExprKind::List(List::new(current_frame)))
@@ -772,6 +885,10 @@ impl<'a> Parser<'a> {
                                     // but still treat it as a normal expression
                                     Some(ParsingContext::UnquoteTick(_))
                                     | Some(ParsingContext::UnquoteSplicingTick(_)) => {
+                                        // self.quasiquote_depth += 1;
+
+                                        // self.increment_quasiquote_context_if_not_in_quote_context();
+
                                         // println!(
                                         //     "UQ/UQS: Stack length: {:?}, last_quote_index: {:?}",
                                         //     stack.len(),
@@ -792,13 +909,17 @@ impl<'a> Parser<'a> {
 
                                     Some(ParsingContext::Unquote(last_quote_index))
                                     | Some(ParsingContext::UnquoteSplicing(last_quote_index)) => {
+                                        // self.quasiquote_depth += 1;
+
+                                        // self.increment_quasiquote_context_if_not_in_quote_context();
+
                                         // println!(
                                         //     "UQ/UQS: Stack length: {:?}, last_quote_index: {:?}",
                                         //     stack.len(),
                                         //     last_quote_index
                                         // );
 
-                                        if stack.len() <= *last_quote_index {
+                                        if stack.len() <= last_quote_index {
                                             // println!("Exiting Context: {:?}", self.context.pop());
                                             self.context.pop();
                                         }
@@ -829,8 +950,30 @@ impl<'a> Parser<'a> {
                                         return Ok(ExprKind::List(List::new(current_frame)));
                                     }
                                     _ => {
+                                        // dbg!(self.quasiquote_depth);
+                                        // println!("=> {}", List::new(current_frame.clone()));
+                                        // println!("----------------------------------------");
+
+                                        if self.quasiquote_depth > 0 {
+                                            // TODO/HACK - @Matt
+                                            // If we're in a define syntax situation, go ahead and just return a normal one
+                                            if current_frame
+                                                .first()
+                                                .map(|x| x.define_syntax_ident())
+                                                .unwrap_or_default()
+                                            {
+                                                return ExprKind::try_from(current_frame).map_err(
+                                                    |x| x.set_source(self.source_name.clone()),
+                                                );
+                                            }
+
+                                            // println!("Should still be quoted here");
+
+                                            return Ok(ExprKind::List(List::new(current_frame)));
+                                        }
+
                                         return ExprKind::try_from(current_frame)
-                                            .map_err(|x| x.set_source(self.source_name.clone()))
+                                            .map_err(|x| x.set_source(self.source_name.clone()));
                                     }
                                 }
                             }
@@ -850,14 +993,17 @@ impl<'a> Parser<'a> {
                                         self.context.push(ParsingContext::Quote(stack.len()))
                                     }
                                     TokenType::Identifier(ident) if *ident == *UNQUOTE => {
-                                        self.context.push(ParsingContext::Unquote(stack.len()))
+                                        self.context.push(ParsingContext::Unquote(stack.len()));
+                                        self.decrement_quasiquote_context_if_not_in_quote_context();
                                     }
                                     TokenType::Identifier(ident) if *ident == *QUASIQUOTE => {
-                                        self.context.push(ParsingContext::Quasiquote(stack.len()))
+                                        self.context.push(ParsingContext::Quasiquote(stack.len()));
+                                        self.increment_quasiquote_context_if_not_in_quote_context();
                                     }
                                     TokenType::Identifier(ident) if *ident == *UNQUOTE_SPLICING => {
                                         self.context
-                                            .push(ParsingContext::UnquoteSplicing(stack.len()))
+                                            .push(ParsingContext::UnquoteSplicing(stack.len()));
+                                        self.decrement_quasiquote_context_if_not_in_quote_context();
                                     }
                                     _ => {}
                                 }
@@ -936,6 +1082,14 @@ impl<'a> Parser<'a> {
                         // See if this does the job
                         self.shorthand_quote_stack.push(0);
 
+                        let last = self.quote_context;
+
+                        if self.quasiquote_depth == 0 {
+                            self.quote_context = true;
+                        }
+
+                        // self.quote_context = true;
+
                         // println!("Entering Context: Quote Tick");
                         self.context.push(ParsingContext::QuoteTick(0));
 
@@ -952,6 +1106,8 @@ impl<'a> Parser<'a> {
                             debug_assert!(matches!(popped, ParsingContext::QuoteTick(_)))
                         }
 
+                        self.quote_context = last;
+
                         // println!("Exiting context: {:?}", self.context.pop());
                         // println!("Result: {:?}", value);
 
@@ -965,12 +1121,23 @@ impl<'a> Parser<'a> {
                         // println!("Entering Context: Unquote");
                         self.context.push(ParsingContext::UnquoteTick(0));
 
+                        self.decrement_quasiquote_context_if_not_in_quote_context();
+
                         let value = self
                             .next()
                             .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                            .map(|x| self.construct_unquote(x, res.span));
+                            .map(|x| {
+                                // dbg!(&self.quasiquote_depth);
+                                if self.quasiquote_depth == 0 && !self.quote_context {
+                                    self.construct_raw_unquote(x, res.span)
+                                } else {
+                                    self.construct_unquote(x, res.span)
+                                }
+                            });
 
                         let popped_value = self.context.pop();
+
+                        self.increment_quasiquote_context_if_not_in_quote_context();
 
                         if let Some(popped) = popped_value {
                             debug_assert!(matches!(popped, ParsingContext::UnquoteTick(_)))
@@ -984,12 +1151,22 @@ impl<'a> Parser<'a> {
                         // println!("Entering Context: Unquotesplicing");
                         self.context.push(ParsingContext::UnquoteSplicingTick(0));
 
+                        self.decrement_quasiquote_context_if_not_in_quote_context();
+
                         let value = self
                             .next()
                             .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                            .map(|x| self.construct_unquote_splicing(x, res.span));
+                            .map(|x| {
+                                if self.quasiquote_depth == 0 && !self.quote_context {
+                                    self.construct_raw_unquote_splicing(x, res.span)
+                                } else {
+                                    self.construct_unquote_splicing(x, res.span)
+                                }
+                            });
 
                         let popped_value = self.context.pop();
+
+                        self.increment_quasiquote_context_if_not_in_quote_context();
 
                         if let Some(popped) = popped_value {
                             debug_assert!(matches!(popped, ParsingContext::UnquoteSplicingTick(_)))
@@ -1001,8 +1178,10 @@ impl<'a> Parser<'a> {
                     }
 
                     TokenType::QuasiQuote => {
-                        // println!("Entering Context: Quasiquote");
+                        // println!("Entering Context: Quasiquote - top level");
                         self.context.push(ParsingContext::QuasiquoteTick(0));
+
+                        self.increment_quasiquote_context_if_not_in_quote_context();
 
                         let value = self
                             .next()
@@ -1018,6 +1197,8 @@ impl<'a> Parser<'a> {
                         if let Some(popped) = popped_value {
                             debug_assert!(matches!(popped, ParsingContext::QuasiquoteTick(_)))
                         }
+
+                        self.decrement_quasiquote_context_if_not_in_quote_context();
 
                         // println!("Exiting context: {:?}", self.context.pop());
 
@@ -1054,6 +1235,8 @@ impl<'a> Iterator for Parser<'a> {
             && self.shorthand_quote_stack.is_empty()
             && self.context.is_empty()
         {
+            // println!("RESETTING QUASIQUOTE DEPTH");
+            self.quasiquote_depth = 0;
             self.comment_buffer.clear();
         }
 
@@ -1219,7 +1402,9 @@ mod parser_tests {
     }
 
     fn int(num: isize) -> ExprKind {
-        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(num))))
+        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(
+            MaybeBigInt::Small(num),
+        ))))
     }
 
     fn character(c: char) -> ExprKind {
@@ -1252,6 +1437,26 @@ mod parser_tests {
     fn assert_parse_is_err(s: &str) {
         let a: Result<Vec<ExprKind>> = Parser::new(s, None).collect();
         assert!(a.is_err());
+    }
+
+    #[test]
+    fn check_resulting_parsing() {
+        let expr = r#"`(a `(b ,(+ 1 2) ,(foo ,(+ 1 3) d) e) f)"#;
+
+        let a: Result<Vec<ExprKind>> = Parser::new(expr, None).collect();
+        let a = a.unwrap();
+
+        println!("{}", a[0]);
+    }
+
+    #[test]
+    fn check_double_unquote_parsing() {
+        let expr = r#"(let ([name1 'x] [name2 'y]) `(a `(b ,,name1 ,',name2 d) e))"#;
+
+        let a: Result<Vec<ExprKind>> = Parser::new(expr, None).collect();
+        let a = a.unwrap();
+
+        println!("{}", a[0]);
     }
 
     #[test]

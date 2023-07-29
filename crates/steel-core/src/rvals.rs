@@ -68,6 +68,7 @@ use futures::FutureExt;
 use futures::{future::Shared, task::noop_waker_ref};
 
 use im_lists::list::List;
+use steel_parser::tokens::MaybeBigInt;
 
 use self::cycles::CycleDetector;
 
@@ -591,7 +592,7 @@ impl Syntax {
                 TokenType::NumberLiteral(*x),
             )))),
             IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                TokenType::IntegerLiteral(*x),
+                TokenType::IntegerLiteral(MaybeBigInt::Small(*x)),
             )))),
             VectorV(lst) => {
                 let items: Result<Vec<ExprKind>> =
@@ -636,7 +637,7 @@ impl Syntax {
                 span,
             )))),
             IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                TokenType::IntegerLiteral(*x),
+                TokenType::IntegerLiteral(MaybeBigInt::Small(*x)),
                 span,
             )))),
             VectorV(lst) => {
@@ -870,6 +871,8 @@ pub enum SteelVal {
 
     // TODO: This itself, needs to be boxed unfortunately.
     Reference(Box<OpaqueReference<'static>>),
+
+    BigNum(Gc<num::BigInt>),
 }
 
 // TODO: Consider unboxed value types, for optimized usages when compiling segments of code.
@@ -1155,6 +1158,7 @@ impl Hash for SteelVal {
             IntV(i) => i.hash(state),
             CharV(c) => c.hash(state),
             ListV(l) => l.hash(state),
+            CustomStruct(s) => s.borrow().hash(state),
             // Pair(cell) => {
             //     cell.hash(state);
             // }
@@ -1205,6 +1209,11 @@ impl SteelVal {
         }
     }
 
+    #[inline(always)]
+    pub fn is_future(&self) -> bool {
+        matches!(self, SteelVal::FutureV(_))
+    }
+
     pub fn is_hashable(&self) -> bool {
         matches!(
             self,
@@ -1219,18 +1228,28 @@ impl SteelVal {
                 | Closure(_)
                 | ListV(_)
                 | FuncV(_)
+                | CustomStruct(_)
         )
     }
 
     pub fn is_function(&self) -> bool {
         matches!(
             self,
-            BoxedFunction(_) | Closure(_) | FuncV(_) | ContractedFunction(_) | BuiltIn(_)
+            BoxedFunction(_)
+                | Closure(_)
+                | FuncV(_)
+                | ContractedFunction(_)
+                | BuiltIn(_)
+                | MutFunc(_)
         )
     }
 
     pub fn is_contract(&self) -> bool {
         matches!(self, Contract(_))
+    }
+
+    pub fn empty_hashmap() -> SteelVal {
+        SteelVal::HashMapV(Gc::new(HashMap::new()))
     }
 }
 
@@ -1364,6 +1383,32 @@ impl SteelVal {
         }
     }
 
+    pub fn as_isize(&self) -> Option<isize> {
+        match self {
+            Self::IntV(i) => Some(*i),
+            _ => None,
+        }
+    }
+
+    pub fn as_usize(&self) -> Option<usize> {
+        self.as_isize()
+            .and_then(|x| if x >= 0 { Some(x as usize) } else { None })
+    }
+
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Self::BoolV(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    pub fn as_future(&self) -> Option<Shared<BoxedFutureResult>> {
+        match self {
+            Self::FutureV(v) => Some(v.clone().unwrap().into_shared()),
+            _ => None,
+        }
+    }
+
     // pub fn custom_or_else<E, F: FnOnce() -> E>(
     //     &self,
     //     err: F,
@@ -1407,6 +1452,7 @@ impl PartialEq for SteelVal {
         match (self, other) {
             (Void, Void) => true,
             (BoolV(l), BoolV(r)) => l == r,
+            (BigNum(l), BigNum(r)) => l == r,
             // (NumV(l), NumV(r)) => l == r,
             (IntV(l), IntV(r)) => l == r,
             // (NumV(l), IntV(r)) => *l == *r as f64,

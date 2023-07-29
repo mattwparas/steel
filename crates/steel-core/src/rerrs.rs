@@ -141,7 +141,7 @@ impl From<ParseError> for Repr {
 #[derive(Debug, Error, Clone, PartialEq)]
 #[repr(C)]
 pub struct SteelErr {
-    repr: Repr,
+    repr: Box<Repr>,
 }
 
 impl fmt::Display for SteelErr {
@@ -158,7 +158,9 @@ impl Custom for SteelErr {
 
 impl SteelErr {
     fn _new(repr: Repr) -> Self {
-        SteelErr { repr }
+        SteelErr {
+            repr: Box::new(repr),
+        }
     }
 
     pub fn kind(&self) -> ErrorKind {
@@ -175,13 +177,13 @@ impl SteelErr {
 
     pub fn new(kind: ErrorKind, message: String) -> Self {
         SteelErr {
-            repr: Repr {
+            repr: Box::new(Repr {
                 kind,
                 message,
                 span: None,
                 // source: None,
                 stack_trace: None,
-            },
+            }),
         }
     }
 

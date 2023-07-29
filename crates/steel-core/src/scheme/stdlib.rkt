@@ -3,14 +3,52 @@
     [(steel/base) 
       (require-builtin steel/base)]))
 
+
+; (define-syntax quasiquote
+;   (syntax-rules (unquote unquote-splicing)
+;     ((_ ((unquote x) . xs))          (cons x (quasiquote xs)))
+;     ((_ ((unquote-splicing x) . xs)) (append x (quasiquote xs)))
+;     ((_ (unquote x))                 x)
+;     ((_ (x  . xs))                   (cons (quasiquote x) (quasiquote xs)))
+;     ((_ x)                           (quote x))))
+
 (define-syntax quasiquote
-  (syntax-rules (unquote unquote-splicing)
-    ((quasiquote (unquote x))                         x)
-    ((quasiquote ((unquote x) xs ...))          (cons x (quasiquote (xs ...))))
-    ((quasiquote ((unquote-splicing x)))        (append x '()))
-    ((quasiquote ((unquote-splicing x) xs ...)) (append x (quasiquote (xs ...))))
+  (syntax-rules (unquote unquote-splicing #%unquote #%unquote-splicing #%quote)
+
+   
+    ((quasiquote ((quote x) xs ...)) (cons (list 'quote (quasiquote x)) (quasiquote (xs ...))))
+
+    ((quasiquote (quote x)) (list 'quote (quasiquote x)))
+    
+    ((quasiquote ((unquote x) xs ...))          (cons (list 'unquote (quasiquote x)) (quasiquote (xs ...))))
+    ((quasiquote (unquote x)) (list 'unquote (quasiquote x)))
+
+    ; ((quasiquote ((#%unquote x) xs ...))          (cons x (quasiquote (xs ...))))
+    
+    ((quasiquote ((#%unquote x) xs ...))          (cons x (quasiquote (xs ...))))
+    ((quasiquote (#%unquote x))                         x)
+
+    
+    ((quasiquote ((#%unquote-splicing x)))        (append x '()))
+    ((quasiquote ((#%unquote-splicing x) xs ...)) (append x (quasiquote (xs ...))))
+
+    ;; TODO: Do unquote-splicing as well, follow the same rules as unquote
+    ((quasiquote ((unquote-splicing x)))        (append (list (list 'unquote-splicing (quasiquote x))) '()))
+    ((quasiquote ((unquote-splicing x) xs ...)) (append (list (list 'unquote-splicing (quasiquote x))) (quasiquote (xs ...))))
     ((quasiquote (x xs ...))                   (cons (quasiquote x) (quasiquote (xs ...))))
-    ((quasiquote x)                           'x)))
+    ((quasiquote x)                          'x)))
+
+
+;; Raw quasiquote, expands to
+; (define-syntax #%quasiquote
+;   (syntax-rules (unquote unquote-splicing)
+;     ((#%quasiquote (unquote x))                         x)
+;     ((#%quasiquote ((unquote x) xs ...))          (cons x (#%quasiquote (xs ...))))
+;     ((#%quasiquote ((unquote-splicing x)))        (append x '()))
+;     ((#%quasiquote ((unquote-splicing x) xs ...)) (append x (#%quasiquote (xs ...))))
+;     ((#%quasiquote (x xs ...))                   (cons (#%quasiquote x) (#%quasiquote (xs ...))))
+;     ((#%quasiquote x)                           'x)))
+    
 
 (define-syntax or
   (syntax-rules ()
@@ -53,6 +91,34 @@
      (if e1
          (begin e2 ...)
          (cond c1 ...))]))
+
+(define-syntax case
+  (syntax-rules (else)
+    [(case (key ...)
+       clauses ...)
+     (let ((atom-key (key ...)))
+       (case atom-key clauses ...))]
+    [(case key
+       (else result1 result2 ...))
+     (begin result1 result2 ...)]
+    [(case key
+       ((atoms ...) result1 result2 ...))
+     (when (member key '(atoms ...))
+         (begin result1 result2 ...))]
+
+; [(case key
+;        ((atoms ...) result1 ...)
+;        clause clauses ...)
+;      (if (member key '(atoms ...))
+;          (begin result1 ...)
+;          (case key clause clauses ...))]
+        
+    [(case key
+       ((atoms ...) result1 result2 ...)
+       clause clauses ...)
+     (if (member key '(atoms ...))
+         (begin result1 result2 ...)
+         (case key clause clauses ...))]))
 
 (define-syntax while
   (syntax-rules (do)
@@ -270,10 +336,36 @@
              (cdr lst))))
 
 
-(define (map func lst)
-  (if (null? lst) 
-      '() 
-      (transduce lst (mapping func) (into-list))))
+; (define (map-many func lst . lsts)
+
+; (define (crunch composer remaining-lists)
+;   (if (null? lsts) composer (crunch (compose composer (zipping (car remaining-lists))) (cdr remaining-lists))))
+
+
+;   (if (null? lsts)
+;       (map func lst)
+;       ;; Handle the case for many lists
+;       (let ([composed-transducer (crunch (compose) lsts)])
+;         (transduce lst composed-transducer (mapping (lambda (x) (apply func x))) (into-list)))))
+
+
+(define (map func lst . lsts)
+
+  (cond [(null? lst) '()]
+        [(null? lsts) (transduce lst (mapping func) (into-list))]
+        [else =>
+          (define (crunch composer remaining-lists)
+            (if (null? remaining-lists) composer (crunch (compose composer (zipping (car remaining-lists))) (cdr remaining-lists))))
+          (if (null? lsts)
+              (map func lst)
+              ;; Handle the case for many lists
+              (let ([composed-transducer (crunch (compose) lsts)])
+                (transduce lst composed-transducer (mapping (lambda (x) (apply func x))) (into-list))))]))
+
+
+  ; (if (null? lst) 
+  ;     '()
+  ;     (transduce lst (mapping func) (into-list))))
 
 
 (define foldr (lambda (func accum lst)
@@ -297,9 +389,17 @@
 
 (define mem-helper (lambda (pred op) (lambda (acc next) (if (and (not acc) (pred (op next))) next acc))))
 ;; (define memq (lambda (obj lst)       (fold (mem-helper (curry eq? obj) id) #f lst)))
-;; (define memv (lambda (obj lst)       (fold (mem-helper (curry eqv? obj) id) #f lst)))
-(define member (lambda (obj lst)     (fold (mem-helper (curry equal? obj) id) #f lst)))
+; (define memv (lambda (obj lst)       (fold (mem-helper (curry eqv? obj) id) #f lst)))
+; (define member (lambda (obj lst)     (fold (mem-helper (curry equal? obj) id) #f lst)))
 
+(define member
+  (lambda (x los)
+    (cond
+      ((null? los) #f)
+      ((equal? x (car los)) los)
+      (else (member x (cdr los))))))
+
+      
 (define (contains? pred? lst)
     ; (displayln lst)
     (cond [(empty? lst) #f]
@@ -345,12 +445,12 @@
 (define (zero? n) (= n 0))
 
 ;; currently broken, doesn't work properly
-(defn (take lst n)
-  (defn (loop x l acc)
-    (if (= x 0)
-        acc
-        (loop (- x 1) (cdr l) (cons (car l) acc))))
-  (loop n lst (list)))
+; (defn (take lst n)
+;   (defn (loop x l acc)
+;     (if (= x 0)
+;         acc
+;         (loop (- x 1) (cdr l) (cons (car l) acc))))
+;   (loop n lst (list)))
 
 (define (drop lst n)
   (define (loop x l)
@@ -482,3 +582,17 @@
         (displayln (quote expr) " = " result)
         result)]))
 
+(define-syntax contract/out
+  (syntax-rules ()
+    [(contract/out name contract)
+     (%require-ident-spec name (bind/c contract name 'name))]))
+
+
+(define (force promise) (promise))
+
+;; syntax
+(define-syntax delay
+  (syntax-rules ()
+    ((delay expr)
+     (lambda ()
+        expr))))

@@ -1,11 +1,4 @@
-use crate::parser::{
-    ast::{ExprKind, If},
-    interner::InternedString,
-    kernel::Kernel,
-    parser::SyntaxObject,
-    tokens::TokenType,
-    tryfrom_visitor::TryFromExprKindForSteelVal,
-};
+use crate::compiler::passes::reader::MultipleArityFunctions;
 use crate::rvals::{Result, SteelVal};
 use crate::{
     compiler::compiler::OptLevel,
@@ -14,6 +7,18 @@ use crate::{
         span_visitor::get_span,
         visitors::{ConsumingVisitor, VisitorMut},
     },
+};
+use crate::{
+    parser::{
+        ast::{ExprKind, If},
+        interner::InternedString,
+        kernel::Kernel,
+        parser::SyntaxObject,
+        tokens::TokenType,
+        tryfrom_visitor::TryFromExprKindForSteelVal,
+    },
+    rerrs::ErrorKind,
+    SteelErr,
 };
 use std::{
     cell::RefCell,
@@ -25,6 +30,7 @@ use std::{
 use im_rc::HashMap;
 
 use log::debug;
+use steel_parser::tokens::MaybeBigInt;
 
 use super::cache::MemoizationTable;
 
@@ -143,17 +149,26 @@ impl<'a> ConstantEvaluatorManager<'a> {
 
     pub fn run(&mut self, input: Vec<ExprKind>) -> Result<Vec<ExprKind>> {
         self.changed = false;
+
+        let mut expr_level_sets = Vec::with_capacity(input.len());
+
         // Collect the set expressions, ignore them for the constant folding
         for expr in &input {
-            CollectSet::new(&mut self.set_idents).visit(expr);
+            let mut collector = CollectSet::new(&mut self.set_idents);
+
+            collector.visit(expr);
+
+            expr_level_sets.push(collector.expr_level_set_idents);
         }
 
         input
             .into_iter()
-            .map(|x| {
+            .zip(expr_level_sets)
+            .map(|(x, set)| {
                 let mut eval = ConstantEvaluator::new(
                     Rc::clone(&self.global_env),
                     &self.set_idents,
+                    &set,
                     self.opt_level,
                     self.memoization_table,
                     self.kernel,
@@ -169,6 +184,7 @@ impl<'a> ConstantEvaluatorManager<'a> {
 struct ConstantEvaluator<'a> {
     bindings: SharedEnv,
     set_idents: &'a HashSet<InternedString>,
+    expr_level_set_idents: &'a HashSet<InternedString>,
     changed: bool,
     opt_level: OptLevel,
     memoization_table: &'a mut MemoizationTable,
@@ -180,7 +196,7 @@ fn steelval_to_atom(value: &SteelVal) -> Option<TokenType<InternedString>> {
         SteelVal::BoolV(b) => Some(TokenType::BooleanLiteral(*b)),
         SteelVal::NumV(n) => Some(TokenType::NumberLiteral(*n)),
         SteelVal::CharV(c) => Some(TokenType::CharacterLiteral(*c)),
-        SteelVal::IntV(i) => Some(TokenType::IntegerLiteral(*i)),
+        SteelVal::IntV(i) => Some(TokenType::IntegerLiteral(MaybeBigInt::Small(*i))),
         SteelVal::StringV(s) => Some(TokenType::StringLiteral(s.to_string())),
         _ => None,
     }
@@ -190,6 +206,7 @@ impl<'a> ConstantEvaluator<'a> {
     fn new(
         bindings: Rc<RefCell<ConstantEnv>>,
         set_idents: &'a HashSet<InternedString>,
+        expr_level_set_idents: &'a HashSet<InternedString>,
         opt_level: OptLevel,
         memoization_table: &'a mut MemoizationTable,
         kernel: &'a mut Option<Kernel>,
@@ -197,6 +214,7 @@ impl<'a> ConstantEvaluator<'a> {
         Self {
             bindings,
             set_idents,
+            expr_level_set_idents,
             changed: false,
             opt_level,
             memoization_table,
@@ -220,7 +238,7 @@ impl<'a> ConstantEvaluator<'a> {
             TokenType::BooleanLiteral(b) => Some((*b).into()),
             TokenType::Identifier(s) => {
                 // If we found a set identifier, skip it
-                if self.set_idents.get(s).is_some() {
+                if self.set_idents.get(s).is_some() || self.expr_level_set_idents.contains(s) {
                     return None;
                 };
                 self.bindings.borrow_mut().get(s)
@@ -228,7 +246,7 @@ impl<'a> ConstantEvaluator<'a> {
             TokenType::NumberLiteral(n) => Some(SteelVal::NumV(*n)),
             TokenType::StringLiteral(s) => Some(SteelVal::StringV(s.clone().into())),
             TokenType::CharacterLiteral(c) => Some(SteelVal::CharV(*c)),
-            TokenType::IntegerLiteral(n) => Some(SteelVal::IntV(*n)),
+            TokenType::IntegerLiteral(MaybeBigInt::Small(n)) => Some(SteelVal::IntV(*n)),
             _ => None,
         }
     }
@@ -301,6 +319,43 @@ impl<'a> ConstantEvaluator<'a> {
     ) -> Result<ExprKind> {
         if evaluated_func.is_function() {
             match evaluated_func {
+                SteelVal::MutFunc(f) => {
+                    // println!(
+                    //     "Evaluating function!: {} with args: {:?}",
+                    //     func.atom_identifier().unwrap().resolve(),
+                    //     args
+                    // );
+
+                    // TODO: Clean this up - we shouldn't even enter this section of the code w/o having
+                    // the actual atom itself.
+                    // let output = if let Some(output) = self
+                    //     .memoization_table
+                    //     .get(SteelVal::FuncV(f), args.to_vec())
+                    // {
+                    //     // println!("Function result found in the cache!");
+                    //     // println!("{:#?}", self.memoization_table);
+
+                    //     output
+                    // } else {
+                    // println!("Not found in the cache, adding...");
+                    // println!("{:#?}", self.memoization_table);
+
+                    let mut args = args.to_vec();
+
+                    let output = f(&mut args)
+                        .map_err(|e| e.set_span_if_none(func.atom_syntax_object().unwrap().span))?;
+
+                    // self.memoization_table.insert(
+                    //     SteelVal::FuncV(f),
+                    //     args.to_vec(),
+                    //     output.clone(),
+                    // );
+
+                    // output
+                    // };
+
+                    self.handle_output(output, func, &evaluated_func, raw_args)
+                }
                 SteelVal::FuncV(f) => {
                     // println!(
                     //     "Evaluating function!: {} with args: {:?}",
@@ -593,10 +648,24 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             } // ExprKind::
         }
 
-        if let ExprKind::LambdaFunction(l) = func_expr {
-            // unimplemented!()
+        if let ExprKind::LambdaFunction(mut l) = func_expr {
+            // It is possible at this point, that multi arity functions have not yet been expanded.
+            // We need to check if thats the case here
+            if !l.rest {
+                use crate::compiler::passes::Folder;
 
-            if l.args.len() != args.len() {
+                if let ExprKind::LambdaFunction(out_lambda) =
+                    MultipleArityFunctions::new().visit_lambda_function(l)
+                {
+                    l = out_lambda;
+                } else {
+                    unreachable!();
+                }
+            }
+
+            if l.args.len() != args.len() && !l.rest {
+                println!("{}", l);
+
                 let m = format!(
                     "Anonymous function expected {} arguments, found {}",
                     l.args.len(),
@@ -607,21 +676,62 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
             let mut new_env = ConstantEnv::new_subexpression(Rc::downgrade(&self.bindings));
 
-            for (var, arg) in l.args.iter().zip(args.iter()) {
-                let identifier = var.atom_identifier_or_else(
+            if l.rest {
+                if let Some((l_last, l_start)) = l.args.split_last() {
+                    let non_list_bindings = &args[0..l_start.len()];
+                    // let list_binding = &args[l_start.len()..];
+
+                    // If this is a rest arg, bind differently
+                    for (var, arg) in l_start.iter().zip(non_list_bindings) {
+                        let identifier = var.atom_identifier_or_else(
+                            throw!(BadSyntax => format!("lambda expects an identifier for the arguments: {var}"); l.location.span),
+                        )?;
+                        if let Some(c) = self.to_constant(arg) {
+                            new_env.bind(identifier, c);
+                        } else {
+                            new_env.bind_non_constant(identifier);
+                        }
+                    }
+
+                    let last_identifier = l_last.atom_identifier_or_else(
+                            throw!(BadSyntax => format!("lambda expects an identifier for the arguments: {l_last}"); l.location.span),
+                        )?;
+
+                    let mut rest_args = Vec::new();
+
+                    for arg in &args[l_start.len()..] {
+                        if let Some(c) = self.to_constant(arg) {
+                            rest_args.push(c);
+                        } else {
+                            new_env.bind_non_constant(last_identifier);
+                            break;
+                        }
+                    }
+
+                    // If the length is the same, we didn't need to break early, meaning
+                    // the whole list is constant values
+                    if rest_args.len() == args[l_start.len()..].len() {
+                        let list = SteelVal::ListV(rest_args.into());
+
+                        new_env.bind(last_identifier, list);
+                    }
+                }
+            } else {
+                // If this is a rest arg, bind differently
+                for (var, arg) in l.args.iter().zip(args.iter()) {
+                    let identifier = var.atom_identifier_or_else(
                     throw!(BadSyntax => format!("lambda expects an identifier for the arguments: {var}"); l.location.span),
                 )?;
-                if let Some(c) = self.to_constant(arg) {
-                    new_env.bind(identifier, c);
-                } else {
-                    new_env.bind_non_constant(identifier);
+                    if let Some(c) = self.to_constant(arg) {
+                        new_env.bind(identifier, c);
+                    } else {
+                        new_env.bind_non_constant(identifier);
+                    }
                 }
             }
 
             let parent = Rc::clone(&self.bindings);
             self.bindings = Rc::new(RefCell::new(new_env));
-
-            // println!("VISITING THIS BODY: {}", &l.body);
 
             let output = self.visit(l.body)?;
 
@@ -635,6 +745,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             let mut non_constant_arguments = Vec::new();
 
             let span = l.location.span;
+
             for (var, arg) in l.args.iter().zip(args.iter()) {
                 let identifier = var.atom_identifier_or_else(
                     throw!(BadSyntax => format!("lambda expects an identifier for the arguments: {var}"); span),
@@ -657,8 +768,6 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
             // Found no arguments are there are no non constant arguments
             if actually_used_arguments.is_empty() && non_constant_arguments.is_empty() {
-                // println!("Returning in here");
-
                 debug!("Found no used arguments or non constant arguments, returning the body");
 
                 // Unwind the recursion before we bail out
@@ -678,7 +787,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
             // TODO only do this if all of the args are constant as well
             // Find a better way to do this
-            if self.to_constant(&output).is_some() {
+            if let Some(value_output) = self.to_constant(&output) {
                 let mut non_constant_arguments: Vec<_> = args
                     .into_iter()
                     .filter(|x| self.to_constant(x).is_none())
@@ -690,7 +799,14 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                 self.bindings = parent;
                 if non_constant_arguments.is_empty() {
                     // println!("Returning here!");
-                    return Ok(output);
+                    return ExprKind::try_from(&value_output)
+                        .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
+                        .map(|x| {
+                            ExprKind::Quote(Box::new(Quote::new(
+                                x,
+                                SyntaxObject::default(TokenType::Quote),
+                            )))
+                        });
                 } else {
                     non_constant_arguments.push(output);
                     // TODO come up witih a better location
@@ -707,8 +823,14 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             // let constructed_func = ExprKind::LambdaFunction(
             //     LambdaFunction::new(actually_used_variables, output, l.location).into(),
             // );
-            let constructed_func =
-                ExprKind::LambdaFunction(LambdaFunction::new(l.args, output, l.location).into());
+
+            let func = if l.rest {
+                LambdaFunction::new_with_rest_arg(l.args, output, l.location)
+            } else {
+                LambdaFunction::new(l.args, output, l.location)
+            };
+
+            let constructed_func = ExprKind::LambdaFunction(func.into());
 
             // Insert the visited function at the beginning of the args
             args.insert(0, constructed_func);
@@ -758,13 +880,21 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
     }
 }
 
+// TODO: If the value is local, we need to exclude it:
+// entering and exiting a scope should push and pop it off.
 struct CollectSet<'a> {
     set_idents: &'a mut HashSet<InternedString>,
+    scopes: quickscope::ScopeSet<InternedString>,
+    pub expr_level_set_idents: HashSet<InternedString>,
 }
 
 impl<'a> CollectSet<'a> {
     fn new(set_idents: &'a mut HashSet<InternedString>) -> Self {
-        Self { set_idents }
+        Self {
+            set_idents,
+            scopes: quickscope::ScopeSet::default(),
+            expr_level_set_idents: HashSet::new(),
+        }
     }
 }
 
@@ -783,7 +913,17 @@ impl<'a> VisitorMut for CollectSet<'a> {
     }
 
     fn visit_lambda_function(&mut self, lambda_function: &LambdaFunction) -> Self::Output {
+        self.scopes.push_layer();
+
+        for arg in &lambda_function.args {
+            if let Some(ident) = arg.atom_identifier() {
+                self.scopes.define(*ident);
+            }
+        }
+
         self.visit(&lambda_function.body);
+
+        self.scopes.pop_layer();
     }
 
     fn visit_begin(&mut self, begin: &Begin) -> Self::Output {
@@ -814,7 +954,17 @@ impl<'a> VisitorMut for CollectSet<'a> {
         if let Ok(identifier) = s.variable.atom_identifier_or_else(
             throw!(BadSyntax => "set expects an identifier"; s.location.span),
         ) {
-            self.set_idents.insert(*identifier);
+            if !self.scopes.contains(identifier) {
+                // println!("NOT IN SCOPE: {}", identifier.resolve());
+
+                self.set_idents.insert(*identifier);
+            } else {
+                self.expr_level_set_idents.insert(*identifier);
+
+                // println!("IN SCOPE: {}", identifier.resolve());
+            }
+
+            // self.set_idents.insert(*identifier);
         }
 
         self.visit(&s.expr);
@@ -823,7 +973,17 @@ impl<'a> VisitorMut for CollectSet<'a> {
     fn visit_require(&mut self, _s: &crate::parser::ast::Require) -> Self::Output {}
 
     fn visit_let(&mut self, l: &crate::parser::ast::Let) -> Self::Output {
+        self.scopes.push_layer();
         l.bindings.iter().for_each(|x| self.visit(&x.1));
+
+        for (arg, _) in &l.bindings {
+            if let Some(ident) = arg.atom_identifier() {
+                self.scopes.define(*ident);
+            }
+        }
+
         self.visit(&l.body_expr);
+
+        self.scopes.pop_layer();
     }
 }

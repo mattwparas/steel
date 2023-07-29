@@ -70,6 +70,10 @@ pub struct MultipleArityFunctions {
 }
 
 impl MultipleArityFunctions {
+    pub fn new() -> Self {
+        MultipleArityFunctions { dot: ".".into() }
+    }
+
     pub fn expand_multiple_arity_functions(exprs: Vec<ExprKind>) -> Vec<ExprKind> {
         MultipleArityFunctions { dot: ".".into() }.fold(exprs)
     }

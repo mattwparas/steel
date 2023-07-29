@@ -15,14 +15,13 @@ fn char_upcase(c: char) -> char {
 ///
 /// Strings in Steel are immutable, fixed length arrays of characters. They are heap allocated,
 /// and are implemented under the hood as referenced counted rust `Strings`.
-// #[steel_derive::define_module(name = "steel/strings")]
+#[steel_derive::define_module(name = "steel/strings")]
 pub fn string_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/strings");
     module
         .register_native_fn_definition(STRING_APPEND_DEFINITION)
         .register_native_fn_definition(TO_STRING_DEFINITION)
         .register_native_fn_definition(STRING_TO_LIST_DEFINITION)
-        .register_native_fn_definition(STRING_TO_UPPER_DEFINITION)
         .register_native_fn_definition(STRING_TO_UPPER_DEFINITION)
         .register_native_fn_definition(STRING_TO_LOWER_DEFINITION)
         .register_native_fn_definition(STRING_LENGTH_DEFINITION)
@@ -35,8 +34,148 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(STRING_TO_SYMBOL_DEFINITION)
         .register_native_fn_definition(STARTS_WITH_DEFINITION)
         .register_native_fn_definition(ENDS_WITH_DEFINITION)
+        .register_native_fn_definition(TRIM_END_MATCHES_DEFINITION)
+        .register_native_fn_definition(TRIM_START_MATCHES_DEFINITION)
+        .register_native_fn_definition(STRING_REF_DEFINITION)
+        .register_native_fn_definition(SUBSTRING_DEFINITION)
+        .register_native_fn_definition(STRING_EQUALS_DEFINITION)
+        .register_native_fn_definition(STRING_LESS_THAN_DEFINITION)
+        .register_native_fn_definition(STRING_LESS_THAN_EQUAL_TO_DEFINITION)
+        .register_native_fn_definition(STRING_CONSTRUCTOR_DEFINITION)
+        .register_native_fn_definition(STRING_TO_NUMBER_DEFINITION)
+        .register_native_fn_definition(NUMBER_TO_STRING_DEFINITION)
         .register_fn("char-upcase", char_upcase);
     module
+}
+
+fn number_to_string_impl(value: &SteelVal, radix: Option<u32>) -> Result<SteelVal> {
+    match value {
+        SteelVal::IntV(v) => {
+            if let Some(radix) = radix {
+                Ok(SteelVal::StringV(
+                    radix_fmt::radix(*v, radix as u8).to_string().into(),
+                ))
+            } else {
+                Ok(SteelVal::StringV(v.to_string().into()))
+            }
+        }
+        SteelVal::NumV(n) => Ok(SteelVal::StringV(n.to_string().into())),
+        SteelVal::BigNum(n) => Ok(SteelVal::StringV(n.to_string().into())),
+        _ => stop!(TypeMismatch => "number->string expects a number type, found: {}", value),
+    }
+}
+
+#[function(name = "number->string", constant = true)]
+pub fn number_to_string(value: &SteelVal, mut rest: RestArgsIter<'_, isize>) -> Result<SteelVal> {
+    let radix = rest.next();
+
+    let radix = if let Some(radix) = radix {
+        let radix = radix?;
+
+        if radix < 2 || radix > 16 {
+            stop!(ContractViolation => "radix value given to string->number must be between 2 and 16, found: {}", radix);
+        }
+
+        Some(radix as u32)
+    } else {
+        None
+    };
+
+    number_to_string_impl(value, radix)
+}
+
+fn string_to_number_impl(value: &str, radix: Option<u32>) -> Result<SteelVal> {
+    let expr = crate::parser::parser::Parser::parse(value)?;
+
+    if expr.len() != 1 {
+        // stop!(Generic => "")
+        return Ok(SteelVal::BoolV(false));
+    }
+
+    let number = expr.into_iter().next().unwrap();
+
+    let svalue = SteelVal::try_from(number)?;
+
+    match &svalue {
+        SteelVal::IntV(v) => {
+            if let Some(radix) = radix {
+                match isize::from_str_radix(value, radix) {
+                    Ok(parsed) => Ok(SteelVal::IntV(parsed)),
+                    Err(_) => Ok(SteelVal::BoolV(false)),
+                }
+            } else {
+                Ok(SteelVal::IntV(*v))
+            }
+        }
+        SteelVal::NumV(_) | SteelVal::BigNum(_) => Ok(svalue),
+        _ => Ok(SteelVal::BoolV(false)),
+    }
+}
+
+#[function(name = "string->number", constant = true)]
+pub fn string_to_number(
+    value: &SteelString,
+    mut rest: RestArgsIter<'_, isize>,
+) -> Result<SteelVal> {
+    let radix = rest.next();
+
+    let radix = if let Some(radix) = radix {
+        let radix = radix?;
+
+        if radix < 2 || radix > 16 {
+            stop!(ContractViolation => "radix value given to string->number must be between 2 and 16, found: {}", radix);
+        }
+
+        Some(radix as u32)
+    } else {
+        None
+    };
+    match string_to_number_impl(value.as_str(), radix) {
+        Ok(v) => Ok(v),
+        Err(_) => Ok(SteelVal::BoolV(false)),
+    }
+}
+
+#[function(name = "string")]
+pub fn string_constructor(rest: RestArgsIter<'_, char>) -> Result<SteelVal> {
+    rest.collect::<Result<String>>().map(|x| x.into())
+}
+
+#[function(name = "string<=?", constant = true)]
+pub fn string_less_than_equal_to(left: &SteelString, right: &SteelString) -> bool {
+    left <= right
+}
+
+#[function(name = "string<?", constant = true)]
+pub fn string_less_than(left: &SteelString, right: &SteelString) -> bool {
+    left < right
+}
+
+#[function(name = "string=?", constant = true)]
+pub fn string_equals(left: &SteelString, right: &SteelString) -> bool {
+    left == right
+}
+
+#[function(name = "string-ref", constant = true)]
+pub fn string_ref(value: &SteelString, index: usize) -> Result<SteelVal> {
+    if index >= value.len() {
+        stop!(Generic => "string-ref: index out of bounds: index: {}, string length: {}", index, value);
+    }
+
+    Ok(SteelVal::CharV(value.as_str().chars().nth(index).unwrap()))
+}
+
+#[function(name = "substring", constant = true)]
+pub fn substring(value: &SteelString, i: usize, j: usize) -> Result<SteelVal> {
+    if i >= value.len() {
+        stop!(Generic => "substring: index out of bounds: left bound: {}, string length: {}", i, value.len());
+    }
+
+    if i > j {
+        stop!(Generic => "substring: left bound must be less than or equal to the right bound: left: {}, right: {}", i, j);
+    }
+
+    Ok(SteelVal::StringV(value[i..j].into()))
 }
 
 /// Concatenatives all of the inputs to their string representation, separated by spaces.
@@ -198,6 +337,38 @@ pub fn trim_start(value: &SteelString) -> String {
 #[function(name = "trim-end")]
 pub fn trim_end(value: &SteelString) -> String {
     value.trim_end().into()
+}
+
+/// Returns a new string with the given `pat` repeatedly removed from the end
+/// of the string
+///
+/// ```scheme
+/// (trim-end-matches string? string?) -> string?
+/// ```
+///
+/// # Examples
+/// ```scheme
+/// > (trim-end-matches "123foo1bar123123" "123") ;; => "123foo1bar"
+/// ```
+#[function(name = "trim-end-matches")]
+pub fn trim_end_matches(value: &SteelString, pat: &SteelString) -> String {
+    value.trim_end_matches(pat.as_str()).into()
+}
+
+/// Returns a new string with the given `pat` repeatedly removed from the start
+/// of the string
+///
+/// ```scheme
+/// (trim-start-matches string? string?) -> string?
+/// ```
+///
+/// # Examples
+/// ```scheme
+/// > (trim-start-matches "123foo1bar123123" "123") ;; => "foo1bar123123"
+/// ```
+#[function(name = "trim-start-matches")]
+pub fn trim_start_matches(value: &SteelString, pat: &SteelString) -> String {
+    value.trim_start_matches(pat.as_str()).into()
 }
 
 /// Returns a list of strings from the original string split on the whitespace

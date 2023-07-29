@@ -1,9 +1,3 @@
-use crate::parser::{
-    ast::ExprKind,
-    interner::InternedString,
-    parser::{RawSyntaxObject, SyntaxObject},
-    tokens::TokenType,
-};
 use crate::rvals::Result;
 use crate::{
     compiler::constants::ConstantMap,
@@ -11,9 +5,19 @@ use crate::{
     stop, SteelVal,
 };
 use crate::{core::instructions::DenseInstruction, parser::span::Span};
+use crate::{
+    parser::{
+        ast::ExprKind,
+        interner::InternedString,
+        parser::{RawSyntaxObject, SyntaxObject},
+        tokens::TokenType,
+    },
+    rvals::IntoSteelVal,
+};
 
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, convert::TryInto, rc::Rc, time::SystemTime};
+use steel_parser::tokens::MaybeBigInt;
 
 #[cfg(feature = "profiling")]
 use std::time::Instant;
@@ -31,7 +35,9 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
         TokenType::NumberLiteral(n) => Ok(SteelVal::NumV(*n)),
         TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.into())),
         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
-        TokenType::IntegerLiteral(n) => Ok(SteelVal::IntV(*n)),
+        TokenType::IntegerLiteral(MaybeBigInt::Small(n)) => Ok(SteelVal::IntV(*n)),
+        // TODO: @Matt - This doesn't need to happen at all. It will just lead to unnecessary cloning.
+        TokenType::IntegerLiteral(MaybeBigInt::Big(b)) => b.clone().into_steelval(),
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
         TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
         what => {
@@ -403,8 +409,11 @@ lazy_static::lazy_static! {
     pub static ref UNREADABLE_MODULE_GET: InternedString = "##__module-get".into();
     pub static ref STANDARD_MODULE_GET: InternedString = "%module-get%".into();
     pub static ref CONTRACT_OUT: InternedString = "contract/out".into();
+    pub static ref REQUIRE_IDENT_SPEC: InternedString = "%require-ident-spec".into();
     pub static ref PROVIDE: InternedString = "provide".into();
     pub static ref FOR_SYNTAX: InternedString = "for-syntax".into();
+    pub static ref PREFIX_IN: InternedString = "prefix-in".into();
+    pub static ref ONLY_IN: InternedString = "only-in".into();
     pub static ref DATUM_SYNTAX: InternedString = "datum->syntax".into();
     pub static ref IF: InternedString = "if".into();
     pub static ref DEFINE: InternedString = "define".into();
@@ -420,11 +429,15 @@ lazy_static::lazy_static! {
     pub static ref DOC_MACRO: InternedString = "@doc".into();
     pub static ref REQUIRE_BUILTIN: InternedString = "require-builtin".into();
     pub static ref STRUCT_KEYWORD: InternedString = "struct".into();
+    pub static ref DEFINE_VALUES: InternedString = "define-values".into();
     pub static ref AS_KEYWORD: InternedString = "as".into();
     pub static ref SYNTAX_CONST_IF: InternedString = "syntax-const-if".into();
     pub static ref UNQUOTE: InternedString = "unquote".into();
+    pub static ref RAW_UNQUOTE: InternedString = "#%unquote".into();
     pub static ref UNQUOTE_SPLICING: InternedString = "unquote-splicing".into();
+    pub static ref RAW_UNQUOTE_SPLICING: InternedString = "#%unquote-splicing".into();
     pub static ref QUASIQUOTE: InternedString = "quasiquote".into();
+    pub static ref RAW_QUOTE: InternedString = "#%quote".into();
 }
 
 pub fn inline_num_operations(instructions: &mut [Instruction]) {

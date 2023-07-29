@@ -970,6 +970,11 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             }
         }
 
+        // TODO: Log the fact we have an empty begin body, or figure out what that is
+        if begin.exprs.is_empty() {
+            return;
+        }
+
         let last = begin.exprs.len() - 1;
         // let stack_offset = self.stack_offset;
 
@@ -1718,7 +1723,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             // Otherwise, we've hit a free variable at this point
             self.info.insert(&a.syn, semantic_info);
 
-            log::warn!("Found free var: {}", a);
+            // log::warn!("Found free var: {}", a);
         }
     }
 }
@@ -2610,6 +2615,11 @@ impl<'a> VisitorMutRefUnit for FunctionCallCollector<'a> {
                             if !self.functions.contains_key(function)
                                 && !self.constants.contains_key(function)
                             {
+                                // Remove this function from the possible list
+                                self.context
+                                    .as_ref()
+                                    .and_then(|ctx| self.functions.remove(ctx));
+
                                 mangle = true;
                             } else {
                                 // Mark that this

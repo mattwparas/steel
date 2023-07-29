@@ -17,6 +17,7 @@ use std::{
 
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
+use steel_parser::tokens::MaybeBigInt;
 
 use super::{ast::Quote, interner::InternedString, parser::Parser};
 
@@ -216,9 +217,14 @@ impl SteelMacro {
             {
                 if case.recursive_match(expr) {
                     return Ok(case);
+                } else {
+                    // println!("Recursive match failed: case didn't match {:?}", case.args);
                 }
             } else {
                 // println!("Case didn't match: {:?}", case.args);
+                // dbg!(case.has_ellipses());
+                // dbg!(case.arity());
+                // dbg!(expr.len());
             }
         }
 
@@ -302,7 +308,7 @@ impl MacroCase {
     fn arity(&self) -> usize {
         self.args
             .iter()
-            .map(|x| if let MacroPattern::Many(_) = x { 2 } else { 1 })
+            .map(|x| if let MacroPattern::Many(_) = x { 1 } else { 1 })
             .sum()
     }
 
@@ -317,7 +323,7 @@ impl MacroCase {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub enum MacroPattern {
     Single(InternedString),
     Syntax(InternedString),
@@ -329,6 +335,31 @@ pub enum MacroPattern {
     FloatLiteral(f64),
     BooleanLiteral(bool),
     QuotedExpr(Box<Quote>),
+    Quote(InternedString),
+}
+
+// pub enum QuotedLiteral {
+
+// }
+
+impl std::fmt::Debug for MacroPattern {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MacroPattern::Single(s) => f.debug_tuple("Single").field(&s.resolve()).finish(),
+            MacroPattern::Syntax(s) => f.debug_tuple("Syntax").field(&s.resolve()).finish(),
+            MacroPattern::Many(m) => f.debug_tuple("Many").field(&m.resolve()).finish(),
+            MacroPattern::Nested(n) => f.debug_tuple("Nested").field(n).finish(),
+            MacroPattern::CharacterLiteral(c) => {
+                f.debug_tuple("CharacterLiteral").field(c).finish()
+            }
+            MacroPattern::IntLiteral(i) => f.debug_tuple("IntLiteral").field(i).finish(),
+            MacroPattern::StringLiteral(s) => f.debug_tuple("StringLiteral").field(s).finish(),
+            MacroPattern::FloatLiteral(fl) => f.debug_tuple("FloatLiteral").field(fl).finish(),
+            MacroPattern::BooleanLiteral(b) => f.debug_tuple("BooleanLiteral").field(b).finish(),
+            MacroPattern::QuotedExpr(s) => f.debug_tuple("QuotedExpr").field(s).finish(),
+            MacroPattern::Quote(i) => f.debug_tuple("Quote").field(&i.resolve()).finish(),
+        }
+    }
 }
 
 impl MacroPattern {
@@ -398,7 +429,7 @@ impl MacroPattern {
                     TokenType::BooleanLiteral(b) => {
                         pattern_vec.push(MacroPattern::BooleanLiteral(b));
                     }
-                    TokenType::IntegerLiteral(i) => {
+                    TokenType::IntegerLiteral(MaybeBigInt::Small(i)) => {
                         pattern_vec.push(MacroPattern::IntLiteral(i));
                     }
                     TokenType::CharacterLiteral(c) => {
@@ -409,6 +440,44 @@ impl MacroPattern {
                     }
                     TokenType::StringLiteral(s) => {
                         pattern_vec.push(MacroPattern::StringLiteral(s));
+                    }
+                    // TODO: Crunch the quoted values here, and pull them in so that this
+                    // holds a body of possible quoted values
+                    TokenType::Quote => {
+                        // pattern_vec.push(MacroPattern::Quote);
+                        // match peek_token_iter.peek() {
+                        //     Some(ExprKind::Atom(Atom {
+                        //         syn:
+                        //             SyntaxObject {
+                        //                 ty: TokenType::Ellipses,
+                        //                 ..
+                        //             },
+                        //     })) => {
+                        //         peek_token_iter.next();
+                        //         pattern_vec.push(MacroPattern::Many(t.clone()));
+                        //     }
+                        //     _ => {
+                        //         pattern_vec.push(MacroPattern::Single(t.clone()));
+                        //     }
+                        // }
+
+                        let next = peek_token_iter.next();
+
+                        match next {
+                            Some(ExprKind::Atom(Atom {
+                                syn:
+                                    SyntaxObject {
+                                        ty: TokenType::Identifier(s),
+                                        ..
+                                    },
+                            })) => {
+                                pattern_vec.push(MacroPattern::Quote(s));
+                            }
+                            _ => {
+                                stop!(TypeMismatch => "syntax-rules with quote don't yet support arbitrary constants yet")
+                                // pattern_vec.push(MacroPattern::Single(t.clone()));
+                            }
+                        }
                     }
                     _ => {
                         stop!(BadSyntax => "syntax-rules requires identifiers in the pattern"; span);
@@ -462,8 +531,12 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
 
     for pat in args {
         if let Some(val) = token_iter.next() {
+            // dbg!(&pat);
+            // dbg!(&val);
+
             match pat {
                 MacroPattern::Single(_) | MacroPattern::Many(_) => continue,
+                // TODO: @Matt - if the atom is bound locally, then do not match on this
                 MacroPattern::Syntax(v) => match val {
                     ExprKind::Atom(Atom {
                         syn:
@@ -495,7 +568,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                     ExprKind::Atom(Atom {
                         syn:
                             SyntaxObject {
-                                ty: TokenType::IntegerLiteral(s),
+                                ty: TokenType::IntegerLiteral(MaybeBigInt::Small(s)),
                                 ..
                             },
                     }) if s == i => continue,
@@ -531,10 +604,46 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                     }) if s == b => continue,
                     _ => return false,
                 },
-                MacroPattern::QuotedExpr(q) => match val {
-                    ExprKind::Quote(boxed_q) if q == boxed_q => continue,
-                    _ => return false,
-                },
+                MacroPattern::QuotedExpr(q) => {
+                    // println!("MATCHING QUOTED EXPR: {}", q);
+                    match val {
+                        ExprKind::Quote(boxed_q) if q == boxed_q => continue,
+                        _ => {
+                            return false;
+                        }
+                    }
+                }
+                // TODO: Come back here and do constants
+                MacroPattern::Quote(q) => {
+                    // println!("MATCHING QUOTE {} with val: {}", q, val);
+                    match val {
+                        ExprKind::Quote(_) => return true,
+
+                        // ExprKind::Atom(Atom {
+                        //     syn:
+                        //         SyntaxObject {
+                        //             ty: TokenType::Quote | TokenType::QuoteTick,
+                        //             ..
+                        //         },
+                        // }) => {
+                        //     println!("MATCHING ON QUOTE");
+                        //     continue;
+                        // }
+
+                        // ExprKind::Atom(Atom {
+                        //     syn:
+                        //         SyntaxObject {
+                        //             ty: TokenType::Identifier(s),
+                        //             ..
+                        //         },
+                        // }) if s.resolve() == "QUOTE" => {
+                        //     println!("MATCHING ON QUOTE");
+                        //     continue;
+                        // }
+                        // ExprKind::Quote()
+                        _ => return false,
+                    }
+                }
                 MacroPattern::Nested(vec) => {
                     if let ExprKind::List(l) = val {
                         // TODO more elegant let* case
@@ -555,7 +664,18 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                             debug!("Matching failed due to child not matching");
                             return false;
                         }
+                    } else if let ExprKind::Quote(q) = val {
+                        // TODO: Come back here
+                        return matches!(vec.as_slice(), &[MacroPattern::Quote(_)]);
+                        // return true;
                     } else {
+                        // if let Some(inner) = val.atom_identifier() {
+                        //     dbg!(inner.resolve());
+                        // }
+
+                        // dbg!(&vec);
+                        // dbg!(&val);
+
                         debug!("Matching failed - atom does not match list");
                         return false;
                     }
@@ -632,13 +752,35 @@ pub fn collect_bindings(
 
                 if let ExprKind::List(l) = child {
                     collect_bindings(children, l, bindings)?;
+                } else if let ExprKind::Quote(q) = child {
+                    if let &[MacroPattern::Quote(x)] = children.as_slice() {
+                        bindings.insert(x, q.expr.clone());
+                    } else {
+                        stop!(BadSyntax => "macro expected a list of values, not including keywords, found: {}", child)
+                    }
                 } else {
                     // println!("Args: {:?}", args);
                     // println!("List: {}", list);
                     // println!("Current pattern: {:?}", arg);
+
+                    // println!("{:?}", children);
+
                     stop!(BadSyntax => "macro expected a list of values, not including keywords, found: {}", child)
                 }
             }
+
+            MacroPattern::Quote(s) => {
+                if let Some(e) = token_iter.next() {
+                    if let ExprKind::Quote(inner) = e {
+                        bindings.insert(*s, inner.expr.clone());
+                    } else {
+                        stop!(Generic => "something went wrong with macro expansion")
+                    }
+                } else {
+                    stop!(ArityMismatch => "macro invocation expected a value, found none");
+                }
+            }
+
             // Matching on literals
             _ => {
                 // println!("Skipping pattern literal: {:?}", arg);
@@ -663,7 +805,7 @@ mod match_vec_pattern_tests {
 
     fn atom_int(n: isize) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::IntegerLiteral(
-            n,
+            MaybeBigInt::Small(n),
         ))))
     }
 
@@ -815,7 +957,7 @@ mod collect_bindings_tests {
 
     fn atom_int(n: isize) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::IntegerLiteral(
-            n,
+            MaybeBigInt::Small(n),
         ))))
     }
 
@@ -1016,7 +1158,7 @@ mod macro_case_expand_test {
 
     fn atom_int(n: isize) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::IntegerLiteral(
-            n,
+            MaybeBigInt::Small(n),
         ))))
     }
 

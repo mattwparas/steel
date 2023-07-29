@@ -66,6 +66,17 @@ pub enum Arity {
     Range(usize),
 }
 
+impl Custom for Arity {
+    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+        Some(Ok(match self {
+            Arity::Exact(a) => format!("(Arity::Exact {a})"),
+            Arity::AtLeast(a) => format!("(Arity::AtLeast {a})"),
+            Arity::AtMost(a) => format!("(Arity::AtMost {a})"),
+            Arity::Range(a) => format!("(Arity::Range {a})"),
+        }))
+    }
+}
+
 impl Custom for FunctionSignatureMetadata {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
         Some(Ok(format!(
@@ -119,6 +130,10 @@ impl BuiltInModule {
             version: env!("CARGO_PKG_VERSION"),
             fn_ptr_table: HashMap::new(),
         }
+    }
+
+    pub fn documentation(&self) -> &InternalDocumentation {
+        &self.docs
     }
 
     pub fn set_name(&mut self, name: String) {
@@ -246,6 +261,8 @@ impl BuiltInModule {
         self
     }
 
+    // pub fn docs(&self) ->
+
     pub fn get_doc(&self, definition: String) {
         if let Some(value) = self.docs.get(&definition) {
             println!("{value}")
@@ -364,6 +381,10 @@ impl InternalDocumentation {
     pub fn get(&self, definition: &str) -> Option<&Documentation<'static>> {
         self.definitions.get(definition)
     }
+
+    pub fn definitions(&self) -> &im_rc::HashMap<Cow<'static, str>, Documentation<'static>> {
+        &self.definitions
+    }
 }
 
 // pub(crate) const LAST_DOC: &'static str = r#"
@@ -415,7 +436,11 @@ pub struct MarkdownDoc<'a>(pub &'a str);
 
 impl<'a> std::fmt::Display for MarkdownDoc<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", termimad::text(self.0))
+        #[cfg(feature = "markdown")]
+        return write!(f, "{}", termimad::text(self.0));
+
+        #[cfg(not(feature = "markdown"))]
+        return write!(f, "{}", self.0);
     }
 }
 

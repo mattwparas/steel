@@ -54,6 +54,7 @@ impl CycleDetector {
             NumV(x) => write!(f, "{x:?}"),
             IntV(x) => write!(f, "{x}"),
             StringV(s) => write!(f, "{s:?}"),
+            BigNum(b) => write!(f, "{}", b.as_ref()),
             CharV(c) => write!(f, "#\\{c}"),
             FuncV(func) => {
                 if let Some(name) = get_function_name(*func) {
@@ -66,7 +67,7 @@ impl CycleDetector {
             SymbolV(s) => write!(f, "{s}"),
             VectorV(lst) => {
                 let mut iter = lst.iter();
-                write!(f, "(")?;
+                write!(f, "'#(")?;
                 if let Some(last) = iter.next_back() {
                     for item in iter {
                         self.format_with_cycles(item, f)?;
@@ -83,7 +84,8 @@ impl CycleDetector {
                 {
                     if guard
                         .get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
-                        .is_some()
+                        .and_then(|x| x.as_bool())
+                        .unwrap_or_default()
                     {
                         write!(f, "({}", guard.name)?;
 
@@ -162,7 +164,7 @@ impl CycleDetector {
             SymbolV(s) => write!(f, "{s}"),
             VectorV(lst) => {
                 let mut iter = lst.iter();
-                write!(f, "(")?;
+                write!(f, "'#(")?;
                 if let Some(last) = iter.next_back() {
                     for item in iter {
                         self.format_with_cycles(item, f)?;
@@ -182,7 +184,8 @@ impl CycleDetector {
                     {
                         if s.borrow()
                             .get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
-                            .is_some()
+                            .and_then(|x| x.as_bool())
+                            .unwrap_or_default()
                         {
                             write!(f, "({}", guard.name)?;
 
@@ -249,6 +252,7 @@ impl CycleDetector {
             BoxedIterator(_) => write!(f, "#<iterator>"),
             Boxed(b) => write!(f, "'#&{}", b.get()),
             Reference(x) => write!(f, "{}", x.format()?),
+            BigNum(b) => write!(f, "{}", b.as_ref()),
         }
     }
 

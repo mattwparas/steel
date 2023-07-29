@@ -23,6 +23,15 @@ pub struct ThreadHandle {
     handle: Option<std::thread::JoinHandle<std::result::Result<(), String>>>,
 }
 
+impl ThreadHandle {
+    pub fn is_finished(&self) -> bool {
+        self.handle
+            .as_ref()
+            .map(|x| x.is_finished())
+            .unwrap_or(true)
+    }
+}
+
 impl crate::rvals::Custom for ThreadHandle {}
 
 pub(crate) fn thread_join(handle: &mut ThreadHandle) -> Result<()> {
@@ -303,6 +312,7 @@ pub fn threading_module() -> BuiltInModule {
             SteelVal::BuiltIn(crate::steel_vm::vm::spawn_thread),
         )
         .register_fn("thread-join!", crate::steel_vm::vm::thread_join)
+        .register_fn("thread-finished?", ThreadHandle::is_finished)
         .register_fn("make-channels", || {
             let (left, right) = std::sync::mpsc::channel::<SerializableSteelVal>();
 

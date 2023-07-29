@@ -312,6 +312,8 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
     }
 
     fn visit_syntax_rules(&mut self, l: super::ast::SyntaxRules) -> Self::Output {
+        dbg!(l.to_string());
+
         stop!(Generic => "unexpected syntax-rules definition"; l.location.span)
     }
 
@@ -429,6 +431,8 @@ impl ConsumingVisitor for RewriteSpan {
     }
 
     fn visit_syntax_rules(&mut self, l: super::ast::SyntaxRules) -> Self::Output {
+        dbg!(l.to_string());
+
         stop!(Generic => "unexpected syntax-rules definition"; l.location.span)
     }
 

@@ -3,8 +3,10 @@ pub mod cache;
 pub(crate) mod const_evaluation;
 pub mod contract_checker;
 mod contracts;
+#[cfg(feature = "dylibs")]
 pub mod dylib;
 pub mod engine;
+#[cfg(feature = "dylibs")]
 pub mod ffi;
 mod lazy_stream;
 mod meta;
