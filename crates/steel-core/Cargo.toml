@@ -44,6 +44,7 @@ weak-table = "0.3.2"
 rand = "0.8.5"
 num = "0.4.0"
 which = "4.4.0"
+radix_fmt = "1.0.0"
 
 
 # FFI for dylibs

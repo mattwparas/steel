@@ -8,10 +8,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // let mut builder = env_logger::Builder::new();
 
-    // let log_targets = ["steel::parser::expander"];
+    // let log_targets = ["steel::steel_vm::const_evaluation"];
 
     // for target in log_targets {
-    // builder.filter(Some(target), log::LevelFilter::Trace);
+    //     builder.filter(Some(target), log::LevelFilter::Trace);
     // }
 
     // builder.init();

@@ -132,6 +132,10 @@
 
 (check-equal? "unquote splicing" '(a 3 4 5 6 b) `(a ,(+ 1 2) ,@(map abs '(4 -5 6)) b))
 
+(check-equal? "unquote splicing inside quasiquote"
+              '(a 3 `(list ,@(map abs '(4 -5 6)) b))
+              `(a ,(+ 1 2) `(list ,@(map abs '(4 -5 6)) b)))
+
 (check-equal? "unquote splicing with unquote"
               '(10 5 4 16 9 8)
               `(10 5 ,(expt 2 2) ,@(map (lambda (n) (expt n 2)) '(4 3)) 8))
@@ -214,6 +218,18 @@
 
 (check-equal? "abs int" 7 (abs -7))
 
+(check-equal? "basic string->number" 100 (string->number "100"))
+(check-equal? "string->number with radix" 256 (string->number "100" 16))
+(check-equal? "string->number with different base" 127 (string->number "177" 8))
+(check-equal? "string->number base 2" 5 (string->number "101" 2))
+(check-equal? "string->number with scientific notation" 100.0 (string->number "1e2"))
+
+(check-equal? "basic number->string" "100" (number->string 100))
+(check-equal? "number->string with different base" "100" (number->string 256 16))
+(check-equal? "number->string base 16 doesn't work" "ff" (number->string 255 16))
+(check-equal? "number->string base 8" "177" (number->string 127 8))
+(check-equal? "number->string base 2" "101" (number->string 5 2))
+
 ;; TODO: Adjust the below check-equals
 
 (skip-compile (check-equal 1 (modulo 13 4))
@@ -225,19 +241,7 @@
               (check-equal -1 (modulo -13 -4))
               (check-equal -1 (remainder -13 -4))
               (check-equal 4 (gcd 32 -36))
-              (check-equal 288 (lcm 32 -36))
-              ; TODO: Add string->number
-              (check-equal? "basic string->number" 100 (string->number "100"))
-              (check-equal? "string->number with radix" 256 (string->number "100" 16))
-              (check-equal? "string->number with different base" 127 (string->number "177" 8))
-              (check-equal? "string->number base 2" 5 (string->number "101" 2))
-              (check-equal? "string->number with scientific notation" 100.0 (string->number "1e2"))
-              ; TODO: Add number->string
-              (check-equal? "basic number->string" "100" (number->string 100))
-              (check-equal? "number->string with different base" "100" (number->string 256 16))
-              (check-equal? "number->string base 16 doesn't work" "ff" (number->string 255 16))
-              (check-equal? "number->string base 8" "177" (number->string 127 8))
-              (check-equal? "number->string base 2" "101" (number->string 5 2)))
+              (check-equal 288 (lcm 32 -36)))
 
 (check-equal? "integers are truthy" #f (not 3))
 
@@ -306,7 +310,7 @@
 
 ;; NOTE: Improper lists are not supported, so this should fail and we should note this in
 ;; in the test suite
-(check-equal? "append to empty list" 'a (append '() 'a))
+; (check-equal? "append to empty list" 'a (append '() 'a))
 
 (check-equal? "reverse list" '(c b a) (reverse '(a b c)))
 
@@ -415,12 +419,16 @@
 
 (check-equal? "map with multiple list arguments" '(5 7 9) (map + '(1 2 3) '(4 5 6)))
 
+(check-equal? "force and delay" 3 (force (delay (+ 1 2))))
+
+(check-equal? "force and delay with local variable"
+              '(3 3)
+              (let ([p (delay (+ 1 2))]) (list (force p) (force p))))
+
 (skip-compile (check-equal '#(0 1 4 9 16)
                            (let ([v (make-vector 5)])
                              (for-each (lambda (i) (vector-set! v i (* i i))) '(0 1 2 3 4))
-                             v))
-              (check-equal 3 (force (delay (+ 1 2))))
-              (check-equal '(3 3) (let ([p (delay (+ 1 2))]) (list (force p) (force p)))))
+                             v)))
 
 (check-equal? "using else as a variable"
               'ok

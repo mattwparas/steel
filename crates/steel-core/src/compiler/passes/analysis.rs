@@ -2615,6 +2615,11 @@ impl<'a> VisitorMutRefUnit for FunctionCallCollector<'a> {
                             if !self.functions.contains_key(function)
                                 && !self.constants.contains_key(function)
                             {
+                                // Remove this function from the possible list
+                                self.context
+                                    .as_ref()
+                                    .and_then(|ctx| self.functions.remove(ctx));
+
                                 mangle = true;
                             } else {
                                 // Mark that this

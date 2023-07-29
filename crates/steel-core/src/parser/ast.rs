@@ -1492,11 +1492,95 @@ where
 fn parse_named_let<I>(
     mut value_iter: I,
     syn: SyntaxObject,
+    name: ExprKind,
 ) -> std::result::Result<ExprKind, ParseError>
 where
     I: Iterator<Item = ExprKind>,
 {
-    todo!()
+    let pairs = if let ExprKind::List(l) = value_iter.next().ok_or_else(|| {
+        ParseError::SyntaxError(
+            "named let expects a list of argument id and init expr pairs, found none".to_string(),
+            syn.span,
+            None,
+        )
+    })? {
+        l.args
+    } else {
+        return Err(ParseError::SyntaxError(
+            "named let expects a list of variable bindings pairs in the second position"
+                .to_string(),
+            syn.span,
+            None,
+        ));
+    };
+
+    let body_exprs: Vec<_> = value_iter.collect();
+
+    if body_exprs.is_empty() {
+        return Err(ParseError::SyntaxError(
+            "let expects an expression, found none".to_string(),
+            syn.span,
+            None,
+        ));
+    }
+
+    let body = if body_exprs.len() == 1 {
+        body_exprs[0].clone()
+    } else {
+        ExprKind::Begin(Begin::new(
+            body_exprs,
+            SyntaxObject::default(TokenType::Begin),
+        ))
+    };
+
+    let mut arguments = Vec::with_capacity(pairs.len());
+
+    // insert args at the end
+    // put the function in the inside
+    let mut application_args = Vec::with_capacity(pairs.len());
+
+    for pair in pairs {
+        if let ExprKind::List(l) = pair {
+            let pair = l.args;
+
+            if pair.len() != 2 {
+                return Err(ParseError::SyntaxError(
+                    format!("let expected a list of variable binding pairs, found a pair with length {}",
+                    pair.len()),
+                    syn.span, None
+                ));
+            }
+
+            let identifier = pair[0].clone();
+            let application_arg = pair[1].clone();
+
+            arguments.push(identifier);
+            application_args.push(application_arg);
+        } else {
+            return Err(ParseError::SyntaxError(
+                "let expected a list of variable binding pairs".to_string(),
+                syn.span,
+                None,
+            ));
+        }
+    }
+
+    // This is the body of the define
+    let function: ExprKind = LambdaFunction::new(arguments, body, syn.clone()).into();
+
+    let define: ExprKind = Define::new(name.clone(), function, syn.clone()).into();
+
+    let application: ExprKind = {
+        let mut application = vec![name];
+        application.append(&mut application_args);
+        List::new(application).into()
+    };
+
+    let begin = ExprKind::Begin(Begin::new(vec![define, application], syn.clone()));
+
+    // Wrap the whole thing inside of an empty function application, to create a new scope
+
+    Ok(List::new(vec![LambdaFunction::new(vec![], begin, syn).into()]).into())
 }
 
 #[inline]
@@ -1506,7 +1590,7 @@ where
 {
     value_iter.next();
 
-    let let_pairs = if let ExprKind::List(l) = value_iter.next().ok_or_else(|| {
+    let let_pairs = match value_iter.next().ok_or_else(|| {
         ParseError::SyntaxError(
             "let expected a list of variable bindings pairs in the second position, found none"
                 .to_string(),
@@ -1514,13 +1598,17 @@ where
             None,
         )
     })? {
-        l.args
-    } else {
-        return Err(ParseError::SyntaxError(
-            "let expects a list of variable bindings pairs in the second position".to_string(),
-            syn.span,
-            None,
-        ));
+        // Standard let
+        ExprKind::List(l) => l.args,
+        // Named let
+        name @ ExprKind::Atom(_) => return parse_named_let(value_iter, syn, name),
+        _ => {
+            return Err(ParseError::SyntaxError(
+                "let expects a list of variable bindings pairs in the second position".to_string(),
+                syn.span,
+                None,
+            ));
+        }
     };
 
     let body_exprs: Vec<_> = value_iter.collect();

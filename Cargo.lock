@@ -2368,6 +2368,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "radix_fmt"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce082a9940a7ace2ad4a8b7d0b1eac6aa378895f18be598230c5f2284ac05426"
+
+[[package]]
 name = "radix_trie"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3088,6 +3094,7 @@ dependencies = [
  "pretty",
  "proptest",
  "quickscope",
+ "radix_fmt",
  "rand",
  "reqwest",
  "rusqlite",

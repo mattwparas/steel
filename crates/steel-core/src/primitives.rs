@@ -364,6 +364,28 @@ impl<'a> PrimitiveAsRef<'a> for &'a char {
     }
 }
 
+impl<'a> PrimitiveAsRef<'a> for char {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::CharV(c) = val {
+            Ok(*c)
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel character", val))
+        }
+    }
+}
+
+impl<'a> PrimitiveAsRef<'a> for isize {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::IntV(i) = val {
+            Ok(*i)
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel character", val))
+        }
+    }
+}
+
 impl<'a> PrimitiveAsRef<'a> for &'a Gc<Vector<SteelVal>> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {

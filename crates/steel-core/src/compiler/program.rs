@@ -429,6 +429,7 @@ lazy_static::lazy_static! {
     pub static ref DOC_MACRO: InternedString = "@doc".into();
     pub static ref REQUIRE_BUILTIN: InternedString = "require-builtin".into();
     pub static ref STRUCT_KEYWORD: InternedString = "struct".into();
+    pub static ref DEFINE_VALUES: InternedString = "define-values".into();
     pub static ref AS_KEYWORD: InternedString = "as".into();
     pub static ref SYNTAX_CONST_IF: InternedString = "syntax-const-if".into();
     pub static ref UNQUOTE: InternedString = "unquote".into();

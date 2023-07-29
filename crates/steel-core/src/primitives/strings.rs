@@ -42,12 +42,102 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(STRING_LESS_THAN_DEFINITION)
         .register_native_fn_definition(STRING_LESS_THAN_EQUAL_TO_DEFINITION)
         .register_native_fn_definition(STRING_CONSTRUCTOR_DEFINITION)
+        .register_native_fn_definition(STRING_TO_NUMBER_DEFINITION)
+        .register_native_fn_definition(NUMBER_TO_STRING_DEFINITION)
         .register_fn("char-upcase", char_upcase);
     module
 }
 
+fn number_to_string_impl(value: &SteelVal, radix: Option<u32>) -> Result<SteelVal> {
+    match value {
+        SteelVal::IntV(v) => {
+            if let Some(radix) = radix {
+                Ok(SteelVal::StringV(
+                    radix_fmt::radix(*v, radix as u8).to_string().into(),
+                ))
+            } else {
+                Ok(SteelVal::StringV(v.to_string().into()))
+            }
+        }
+        SteelVal::NumV(n) => Ok(SteelVal::StringV(n.to_string().into())),
+        SteelVal::BigNum(n) => Ok(SteelVal::StringV(n.to_string().into())),
+        _ => stop!(TypeMismatch => "number->string expects a number type, found: {}", value),
+    }
+}
+
+#[function(name = "number->string", constant = true)]
+pub fn number_to_string(value: &SteelVal, mut rest: RestArgsIter<'_, isize>) -> Result<SteelVal> {
+    let radix = rest.next();
+
+    let radix = if let Some(radix) = radix {
+        let radix = radix?;
+
+        if radix < 2 || radix > 16 {
+            stop!(ContractViolation => "radix value given to string->number must be between 2 and 16, found: {}", radix);
+        }
+
+        Some(radix as u32)
+    } else {
+        None
+    };
+
+    number_to_string_impl(value, radix)
+}
+
+fn string_to_number_impl(value: &str, radix: Option<u32>) -> Result<SteelVal> {
+    let expr = crate::parser::parser::Parser::parse(value)?;
+
+    if expr.len() != 1 {
+        // stop!(Generic => "")
+        return Ok(SteelVal::BoolV(false));
+    }
+
+    let number = expr.into_iter().next().unwrap();
+
+    let svalue = SteelVal::try_from(number)?;
+
+    match &svalue {
+        SteelVal::IntV(v) => {
+            if let Some(radix) = radix {
+                match isize::from_str_radix(value, radix) {
+                    Ok(parsed) => Ok(SteelVal::IntV(parsed)),
+                    Err(_) => Ok(SteelVal::BoolV(false)),
+                }
+            } else {
+                Ok(SteelVal::IntV(*v))
+            }
+        }
+        SteelVal::NumV(_) | SteelVal::BigNum(_) => Ok(svalue),
+        _ => Ok(SteelVal::BoolV(false)),
+    }
+}
+
+#[function(name = "string->number", constant = true)]
+pub fn string_to_number(
+    value: &SteelString,
+    mut rest: RestArgsIter<'_, isize>,
+) -> Result<SteelVal> {
+    let radix = rest.next();
+
+    let radix = if let Some(radix) = radix {
+        let radix = radix?;
+
+        if radix < 2 || radix > 16 {
+            stop!(ContractViolation => "radix value given to string->number must be between 2 and 16, found: {}", radix);
+        }
+
+        Some(radix as u32)
+    } else {
+        None
+    };
+    match string_to_number_impl(value.as_str(), radix) {
+        Ok(v) => Ok(v),
+        Err(_) => Ok(SteelVal::BoolV(false)),
+    }
+}
+
 #[function(name = "string")]
-pub fn string_constructor(rest: RestArgsIter<'_, &char>) -> Result<SteelVal> {
+pub fn string_constructor(rest: RestArgsIter<'_, char>) -> Result<SteelVal> {
     rest.collect::<Result<String>>().map(|x| x.into())
 }
 

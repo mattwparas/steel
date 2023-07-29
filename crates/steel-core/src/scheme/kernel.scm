@@ -151,6 +151,16 @@
             (%memo-table-set! %memo-table f n new-value)
             new-value)))))
 
+;; need gensym here
+
+(define (define-values bindings expr)
+  `(begin
+     (define #%proto-define-values-binding-gensym__ ,expr)
+     ,@(map (lambda (binding-index-pair)
+              `(define ,(car binding-index-pair)
+                 ,(list-ref binding-index-pair 1)))
+            (enumerate 0 '() bindings))))
+
 ;; TODO: Come back to this once theres something to attach it to
 ; (define (@doc expr comment)
 ;   (if (equal? (car expr) 'define)

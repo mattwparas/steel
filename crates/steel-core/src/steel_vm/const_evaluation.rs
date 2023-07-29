@@ -319,6 +319,43 @@ impl<'a> ConstantEvaluator<'a> {
     ) -> Result<ExprKind> {
         if evaluated_func.is_function() {
             match evaluated_func {
+                SteelVal::MutFunc(f) => {
+                    // println!(
+                    //     "Evaluating function!: {} with args: {:?}",
+                    //     func.atom_identifier().unwrap().resolve(),
+                    //     args
+                    // );
+
+                    // TODO: Clean this up - we shouldn't even enter this section of the code w/o having
+                    // the actual atom itself.
+                    // let output = if let Some(output) = self
+                    //     .memoization_table
+                    //     .get(SteelVal::FuncV(f), args.to_vec())
+                    // {
+                    //     // println!("Function result found in the cache!");
+                    //     // println!("{:#?}", self.memoization_table);
+
+                    //     output
+                    // } else {
+                    // println!("Not found in the cache, adding...");
+                    // println!("{:#?}", self.memoization_table);
+
+                    let mut args = args.to_vec();
+
+                    let output = f(&mut args)
+                        .map_err(|e| e.set_span_if_none(func.atom_syntax_object().unwrap().span))?;
+
+                    // self.memoization_table.insert(
+                    //     SteelVal::FuncV(f),
+                    //     args.to_vec(),
+                    //     output.clone(),
+                    // );
+
+                    // output
+                    // };
+
+                    self.handle_output(output, func, &evaluated_func, raw_args)
+                }
                 SteelVal::FuncV(f) => {
                     // println!(
                     //     "Evaluating function!: {} with args: {:?}",

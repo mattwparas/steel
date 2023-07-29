@@ -1,5 +1,7 @@
 use crate::{
-    compiler::program::{QUASIQUOTE, RAW_QUOTE, RAW_UNQUOTE, UNQUOTE, UNQUOTE_SPLICING},
+    compiler::program::{
+        QUASIQUOTE, RAW_QUOTE, RAW_UNQUOTE, RAW_UNQUOTE_SPLICING, UNQUOTE, UNQUOTE_SPLICING,
+    },
     parser::lexer::TokenStream,
     rvals::IntoSteelVal,
 };
@@ -588,6 +590,16 @@ impl<'a> Parser<'a> {
         ExprKind::List(List::new(vec![q, val]))
     }
 
+    // Reader macro for ,@
+    fn construct_raw_unquote_splicing(&mut self, val: ExprKind, span: Span) -> ExprKind {
+        let q = {
+            let rc_val = TokenType::Identifier(*RAW_UNQUOTE_SPLICING);
+            ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
+        };
+
+        ExprKind::List(List::new(vec![q, val]))
+    }
+
     fn increment_quasiquote_context_if_not_in_quote_context(&mut self) {
         // println!("INCREMENTING");
         if !self.quote_context {
@@ -740,7 +752,18 @@ impl<'a> Parser<'a> {
                             let quote_inner = self
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                                .map(|x| self.construct_unquote_splicing(x, token.span));
+                                .map(|x| 
+                                    
+                                    // self.construct_unquote_splicing(x, token.span)
+                                
+                                
+                                    if self.quasiquote_depth == 0 && !self.quote_context {
+                                        self.construct_raw_unquote_splicing(x, token.span)
+                                    } else {
+                                        self.construct_unquote_splicing(x, token.span)
+                                    }
+                                
+                                );
 
                             // self.context.pop();
 
@@ -985,7 +1008,7 @@ impl<'a> Parser<'a> {
                                     TokenType::Identifier(ident) if *ident == *UNQUOTE_SPLICING => {
                                         self.context
                                             .push(ParsingContext::UnquoteSplicing(stack.len()));
-                                        self.increment_quasiquote_context_if_not_in_quote_context();
+                                        self.decrement_quasiquote_context_if_not_in_quote_context();
                                     }
                                     _ => {}
                                 }
@@ -1138,7 +1161,13 @@ impl<'a> Parser<'a> {
                         let value = self
                             .next()
                             .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                            .map(|x| self.construct_unquote_splicing(x, res.span));
+                            .map(|x| 
+                                if self.quasiquote_depth == 0 && !self.quote_context {
+                                    self.construct_raw_unquote_splicing(x, res.span)
+                                } else {
+                                    self.construct_unquote_splicing(x, res.span)
+                                }
+                            );
 
                         let popped_value = self.context.pop();
 
@@ -1154,7 +1183,7 @@ impl<'a> Parser<'a> {
                     }
 
                     TokenType::QuasiQuote => {
-                        println!("Entering Context: Quasiquote - top level");
+                        // println!("Entering Context: Quasiquote - top level");
                         self.context.push(ParsingContext::QuasiquoteTick(0));
 
                         self.increment_quasiquote_context_if_not_in_quote_context();
