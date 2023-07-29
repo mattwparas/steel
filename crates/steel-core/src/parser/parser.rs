@@ -752,18 +752,13 @@ impl<'a> Parser<'a> {
                             let quote_inner = self
                                 .next()
                                 .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                                .map(|x| 
-                                    
-                                    // self.construct_unquote_splicing(x, token.span)
-                                
-                                
+                                .map(|x| {
                                     if self.quasiquote_depth == 0 && !self.quote_context {
                                         self.construct_raw_unquote_splicing(x, token.span)
                                     } else {
                                         self.construct_unquote_splicing(x, token.span)
                                     }
-                                
-                                );
+                                });
 
                             // self.context.pop();
 
@@ -1161,13 +1156,13 @@ impl<'a> Parser<'a> {
                         let value = self
                             .next()
                             .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
-                            .map(|x| 
+                            .map(|x| {
                                 if self.quasiquote_depth == 0 && !self.quote_context {
                                     self.construct_raw_unquote_splicing(x, res.span)
                                 } else {
                                     self.construct_unquote_splicing(x, res.span)
                                 }
-                            );
+                            });
 
                         let popped_value = self.context.pop();
 
