@@ -10,7 +10,7 @@ description = "Steel repl and command line interface"
 include = ["/src/**/*", "/Cargo.toml", "/README.md", "LICENSE*"]
 
 [workspace.package]
-version = "0.4.0"
+version = "0.5.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [[bin]]
@@ -19,17 +19,17 @@ path = "src/main.rs"
 
 [workspace.dependencies]
 # This has to line up with the workspace version above
-steel-core = { path = "./crates/steel-core", version = "0.4.0", features = ["web", "sqlite", "blocking_requests", "dylibs", "markdown"] }
+steel-core = { path = "./crates/steel-core", version = "0.5.0", features = ["web", "sqlite", "blocking_requests", "dylibs", "markdown", "colors"] }
 
 [dependencies]
 once_cell = "1.17.0"
 steel-core = { workspace = true } 
 steel-derive = { path = "./crates/steel-derive", version = "0.4.0"}
-steel-repl = { path = "./crates/steel-repl", version = "0.4.0" }
+steel-repl = { path = "./crates/steel-repl", version = "0.5.0" }
 env_logger = "0.10.0"
 log = "0.4.17"
 clap = { version = "4.1.4", features = ["derive"] }
-steel-doc = { path = "./crates/steel-doc", version = "0.4.0"}
+steel-doc = { path = "./crates/steel-doc", version = "0.5.0"}
 
 [dev-dependencies]
 serde = { version = "1.0.152", features = ["derive"] }

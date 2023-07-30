@@ -10,7 +10,6 @@ use super::{
 use crate::{
     parser::span::Span,
     primitives::{
-        colors::string_coloring_module,
         contracts,
         hashmaps::hashmap_module,
         hashmaps::{HM_CONSTRUCT, HM_GET, HM_INSERT},
@@ -48,6 +47,9 @@ use crate::{
 
 #[cfg(feature = "web")]
 use crate::primitives::web::{requests::requests_module, websockets::websockets_module};
+
+#[cfg(feature = "colors")]
+use crate::primitives::colors::string_coloring_module;
 
 use itertools::Itertools;
 use num::Signed;
@@ -256,6 +258,7 @@ thread_local! {
     #[cfg(feature = "blocking_requests")]
     pub static BLOCKING_REQUESTS_MODULE: BuiltInModule = crate::primitives::blocking_requests::blocking_requests_module();
 
+    #[cfg(feature = "colors")]
     pub static STRING_COLORS_MODULE: BuiltInModule = string_coloring_module();
 
     #[cfg(feature = "sqlite")]
@@ -388,9 +391,11 @@ pub fn register_builtin_modules(engine: &mut Engine) {
         .register_module(TYPE_ID_MODULE.with(|x| x.clone()))
         .register_module(PRELUDE_MODULE.with(|x| x.clone()))
         .register_module(TIME_MODULE.with(|x| x.clone()))
-        .register_module(STRING_COLORS_MODULE.with(|x| x.clone()))
         .register_module(RANDOM_MODULE.with(|x| x.clone()))
         .register_module(THREADING_MODULE.with(|x| x.clone()));
+
+    #[cfg(feature = "colors")]
+    engine.register_module(STRING_COLORS_MODULE.with(|x| x.clone()));
 
     #[cfg(feature = "web")]
     engine
@@ -800,9 +805,12 @@ fn io_module() -> BuiltInModule {
     module
         .register_value("display", IoFunctions::display())
         .register_value("displayln", IoFunctions::displayln())
-        .register_value("display-color", IoFunctions::display_color())
         .register_value("newline", IoFunctions::newline())
         .register_value("read-to-string", IoFunctions::read_to_string());
+
+    #[cfg(feature = "colors")]
+    module.register_value("display-color", IoFunctions::display_color());
+
     module
 }
 

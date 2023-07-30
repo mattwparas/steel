@@ -1,3 +1,4 @@
+#[cfg(feature = "colors")]
 use colored::Colorize;
 
 use crate::stop;
@@ -94,6 +95,7 @@ impl IoFunctions {
         })
     }
 
+    #[cfg(feature = "colors")]
     pub fn display_color() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() == 2 {
