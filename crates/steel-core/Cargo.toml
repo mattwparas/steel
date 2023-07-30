@@ -37,7 +37,7 @@ smallvec = "1.10.0"
 lazy_static = "1.4.0"
 steel-gen = { path = "../steel-gen", version = "0.2.0" }
 steel-parser = { path = "../steel-parser", version = "0.4.0" }
-steel-derive = { path = "../steel-derive", version = "0.2.0" }
+steel-derive = { path = "../steel-derive", version = "0.4.0" }
 chrono = "0.4.23"
 slotmap = "1.0.6"
 weak-table = "0.3.2"
