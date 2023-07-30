@@ -614,7 +614,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                     }
                 }
                 // TODO: Come back here and do constants
-                MacroPattern::Quote(q) => {
+                MacroPattern::Quote(_q) => {
                     // println!("MATCHING QUOTE {} with val: {}", q, val);
                     match val {
                         ExprKind::Quote(_) => return true,
@@ -664,7 +664,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                             debug!("Matching failed due to child not matching");
                             return false;
                         }
-                    } else if let ExprKind::Quote(q) = val {
+                    } else if let ExprKind::Quote(_) = val {
                         // TODO: Come back here
                         return matches!(vec.as_slice(), &[MacroPattern::Quote(_)]);
                         // return true;

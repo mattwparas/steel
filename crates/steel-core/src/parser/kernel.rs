@@ -9,7 +9,7 @@ use crate::{
     },
     expr_list,
     parser::{
-        ast::{from_list_repr_to_ast, AstTools, Atom, Set},
+        ast::{from_list_repr_to_ast, Atom, Set},
         parser::SyntaxObject,
     },
     rvals::Result,

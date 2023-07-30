@@ -1,7 +1,5 @@
 use crate::{
-    compiler::program::{
-        QUASIQUOTE, RAW_QUOTE, RAW_UNQUOTE, RAW_UNQUOTE_SPLICING, UNQUOTE, UNQUOTE_SPLICING,
-    },
+    compiler::program::{QUASIQUOTE, RAW_UNQUOTE, RAW_UNQUOTE_SPLICING, UNQUOTE, UNQUOTE_SPLICING},
     parser::lexer::TokenStream,
     rvals::IntoSteelVal,
 };
@@ -544,14 +542,6 @@ impl<'a> Parser<'a> {
         vec![q, val]
     }
 
-    fn construct_fake_quote(&mut self, val: ExprKind, span: Span) -> ExprKind {
-        let q = {
-            let rc_val = TokenType::Identifier(*RAW_QUOTE);
-            ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
-        };
-
-        ExprKind::List(List::new(vec![q, val]))
-    }
     // Reader macro for `
     fn construct_quasiquote(&mut self, val: ExprKind, span: Span) -> ExprKind {
         let q = {
