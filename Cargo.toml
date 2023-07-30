@@ -7,6 +7,8 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/mattwparas/steel"
 description = "Steel repl and command line interface"
 
+include = ["/src/**/*", "/Cargo.toml", "/README.md", "LICENSE*"]
+
 [workspace.package]
 version = "0.4.0"
 
