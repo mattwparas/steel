@@ -509,10 +509,10 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                     ty: TokenType::Identifier(s),
                     ..
                 },
-        })) = l.first()
+        })) = l.first().cloned()
         {
             if let Some(map) = &mut self.map {
-                if *s == *DOC_MACRO {
+                if s == *DOC_MACRO {
                     if l.len() != 3 {
                         stop!(BadSyntax => "Malformed @doc statement!")
                     }
@@ -614,14 +614,18 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                     }
                 }
 
-                if map.contains_macro(s) {
-                    let expanded = map.expand(s, ExprKind::List(l.clone()))?;
+                if map.contains_macro(&s) {
+                    let expanded = map.expand(&s, ExprKind::List(l))?;
+                    self.changed = true;
+                    return self.visit(expanded);
+                } else if map.contains_syntax_object_macro(&s) {
+                    let expanded = map.expand_syntax_object(&s, ExprKind::List(l))?;
                     self.changed = true;
                     return self.visit(expanded);
                 }
             }
 
-            if *s == *REQUIRE_BUILTIN {
+            if s == *REQUIRE_BUILTIN {
                 match &l.args[1..] {
                     [ExprKind::Atom(Atom {
                         syn:

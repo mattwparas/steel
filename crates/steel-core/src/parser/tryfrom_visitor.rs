@@ -219,14 +219,14 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
     }
 
     fn visit_begin(&mut self, begin: super::ast::Begin) -> Self::Output {
-        let raw: SteelVal = ExprKind::Begin(b.clone()).into()?;
+        let raw: SteelVal = ExprKind::Begin(begin.clone()).try_into()?;
 
         let span = begin.location.span;
         let mut exprs = vec![SteelVal::try_from(begin.location)?];
         for expr in begin.exprs {
             exprs.push(self.visit(expr)?);
         }
-        Ok(Syntax::raw(raw, SteelVal::ListV(exprs.into()), span).into())
+        Ok(Syntax::proto(raw, SteelVal::ListV(exprs.into()), span).into())
     }
 
     fn visit_return(&mut self, r: Box<super::ast::Return>) -> Self::Output {

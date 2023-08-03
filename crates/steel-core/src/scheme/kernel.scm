@@ -161,6 +161,11 @@
                  ,(list-ref binding-index-pair 1)))
             (enumerate 0 '() bindings))))
 
+(define (#%better-lambda expr)
+  (displayln "Expanding: " expr)
+  (displayln "unwrapping one level..." (syntax-e expr))
+  (quasisyntax (list 10 20 30)))
+
 ;; TODO: Come back to this once theres something to attach it to
 ; (define (@doc expr comment)
 ;   (if (equal? (car expr) 'define)

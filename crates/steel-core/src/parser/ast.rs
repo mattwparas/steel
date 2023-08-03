@@ -308,7 +308,9 @@ impl TryFrom<&SteelVal> for ExprKind {
             SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                 Identifier(x.as_str().into()),
             )))),
-            SyntaxObject(_) => todo!("Implement conversion"),
+            SyntaxObject(s) => s
+                .to_exprkind()
+                .map_err(|_| "Unable to convert syntax object back to exprkind"),
             Custom(_) => {
                 // TODO: if the returned object is a custom type, check
                 // to see if its a Syntax struct to replace the span with

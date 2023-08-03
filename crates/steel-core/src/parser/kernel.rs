@@ -5,7 +5,7 @@ use steel_parser::tokens::TokenType;
 use crate::{
     compiler::{
         passes::analysis::SemanticAnalysis,
-        program::{DEFINE_VALUES, STRUCT_KEYWORD},
+        program::{BETTER_LAMBDA, DEFINE_VALUES, STRUCT_KEYWORD},
     },
     expr_list,
     parser::{
@@ -36,6 +36,7 @@ pub(crate) fn fresh_kernel_image() -> Engine {
 #[derive(Clone)]
 pub struct Kernel {
     macros: HashSet<InternedString>,
+    syntax_object_macros: HashSet<InternedString>,
     constants: HashSet<InternedString>,
     engine: Box<Engine>,
 }
@@ -58,8 +59,12 @@ impl Kernel {
         macros.insert(*STRUCT_KEYWORD);
         macros.insert(*DEFINE_VALUES);
 
+        let mut syntax_object_macros = HashSet::new();
+        syntax_object_macros.insert(*BETTER_LAMBDA);
+
         Kernel {
             macros,
+            syntax_object_macros,
             constants: HashSet::new(),
             engine: Box::new(engine),
         }
@@ -154,17 +159,75 @@ impl Kernel {
         self.macros.contains(ident)
     }
 
+    pub fn contains_syntax_object_macro(&self, ident: &InternedString) -> bool {
+        self.syntax_object_macros.contains(ident)
+    }
+
     pub fn call_function(&mut self, ident: &InternedString, args: &[SteelVal]) -> Result<SteelVal> {
         let function = self.engine.extract_value(ident.resolve())?;
 
         self.engine.call_function_with_args(function, args.to_vec())
     }
 
-    pub fn expand(&mut self, ident: &InternedString, expr: ExprKind) -> Result<ExprKind> {
+    pub(crate) fn expand_syntax_object(
+        &mut self,
+        ident: &InternedString,
+        expr: ExprKind,
+    ) -> Result<ExprKind> {
         let span = get_span(&expr);
 
         let syntax_objects =
             super::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(expr.clone())?;
+
+        let function = self.engine.extract_value(ident.resolve())?;
+
+        // if let SteelVal::ListV(list) = syntax_objects {
+        // let mut iter = list.into_iter();
+        // Drop the macro name
+        // iter.next();
+
+        // let arguments = iter.collect();
+
+        // log::info!(target: "kernel", "Expanding: {:?} with arguments: {:?}", ident, arguments);
+
+        let result = self
+            .engine
+            .call_function_with_args(function, vec![syntax_objects])
+            .map_err(|x| x.set_span(span))?;
+
+        // let expr = ExprKind::try_from(&result);
+
+        // println!("Expanded to: {:?}", result.to_string());
+
+        // println!("Expanded to: {:#?}", expr);
+
+        // TODO: try to understand what is actually happening here
+        let ast_version = ExprKind::try_from(&result)
+            .map(from_list_repr_to_ast)
+            .unwrap()
+            .unwrap();
+
+        // println!("{}")
+        // println!("{}", ast_version.to_pretty(60));
+
+        Ok(ast_version)
+
+        // Ok(
+        //     crate::parser::parser::Parser::parse(result.to_string().trim_start_matches('\''))?
+        //         .into_iter()
+        //         .next()
+        //         .unwrap(),
+        // )
+        // } else {
+        // stop!(TypeMismatch => "call-function-in-env expects a list for the arguments")
+        // }
+    }
+
+    pub fn expand(&mut self, ident: &InternedString, expr: ExprKind) -> Result<ExprKind> {
+        let span = get_span(&expr);
+
+        // let syntax_objects =
+        // super::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(expr.clone())?;
 
         // println!("{:?}", syntax_objects);
 
@@ -173,6 +236,8 @@ impl Kernel {
         //     crate::rvals::Syntax::steelval_to_exprkind(&syntax_objects)
         //         .map(from_list_repr_to_ast)??
         // );
+
+        // if &["%better-lambda%"].contains(ident.resolve())
 
         let args = SteelVal::try_from(expr)?;
 
