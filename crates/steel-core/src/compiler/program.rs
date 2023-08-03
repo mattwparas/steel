@@ -415,6 +415,7 @@ lazy_static::lazy_static! {
     pub static ref PREFIX_IN: InternedString = "prefix-in".into();
     pub static ref ONLY_IN: InternedString = "only-in".into();
     pub static ref DATUM_SYNTAX: InternedString = "datum->syntax".into();
+    pub static ref SYNTAX_SPAN: InternedString = "#%syntax-span".into();
     pub static ref IF: InternedString = "if".into();
     pub static ref DEFINE: InternedString = "define".into();
     pub static ref LET: InternedString = "let".into();
@@ -438,6 +439,12 @@ lazy_static::lazy_static! {
     pub static ref RAW_UNQUOTE_SPLICING: InternedString = "#%unquote-splicing".into();
     pub static ref QUASIQUOTE: InternedString = "quasiquote".into();
     pub static ref RAW_QUOTE: InternedString = "#%quote".into();
+    pub static ref QUASISYNTAX: InternedString = "quasisyntax".into();
+    pub static ref UNSYNTAX: InternedString = "unsyntax".into();
+    pub static ref RAW_UNSYNTAX: InternedString = "#%unsyntax".into();
+    pub static ref UNSYNTAX_SPLICING: InternedString = "unsyntax-splicing".into();
+    pub static ref RAW_UNSYNTAX_SPLICING: InternedString = "#%unsyntax-splicing".into();
+    pub static ref SYNTAX_QUOTE: InternedString = "syntax".into();
 }
 
 pub fn inline_num_operations(instructions: &mut [Instruction]) {

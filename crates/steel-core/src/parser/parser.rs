@@ -350,6 +350,18 @@ impl TryFrom<SyntaxObject> for SteelVal {
             Ellipses => Ok(SymbolV("...".into())),
             Set => Ok(SymbolV("set!".into())),
             Require => Ok(SymbolV("require".into())),
+            QuasiQuoteSyntax => {
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#`".to_string()).with_span(span))
+            }
+            UnquoteSyntax => {
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#,".to_string()).with_span(span))
+            }
+            QuoteSyntax => {
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#'".to_string()).with_span(span))
+            }
+            UnquoteSpliceSyntax => {
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#,@".to_string()).with_span(span))
+            }
         }
     }
 }
@@ -526,6 +538,17 @@ impl<'a> Parser<'a> {
             val,
             SyntaxObject::new(TokenType::Quote, span),
         )))
+    }
+
+    fn expand_reader_macro(
+        &mut self,
+        token: TokenType<InternedString>,
+        val: ExprKind,
+        span: Span,
+    ) -> ExprKind {
+        let q = ExprKind::Atom(Atom::new(SyntaxObject::new(token, span)));
+
+        ExprKind::List(List::new(vec![q, val]))
     }
 
     fn construct_quote_vec(&mut self, val: ExprKind, span: Span) -> Vec<ExprKind> {

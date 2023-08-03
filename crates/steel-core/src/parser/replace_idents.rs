@@ -1,3 +1,4 @@
+use crate::compiler::program::{QUASISYNTAX, SYNTAX_QUOTE, SYNTAX_SPAN};
 use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
 use crate::parser::visitors::ConsumingVisitor;
@@ -25,6 +26,7 @@ pub fn replace_identifiers(
     span: Span,
 ) -> Result<ExprKind> {
     let rewrite_spans = RewriteSpan::new(span).visit(expr)?;
+
     ReplaceExpressions::new(bindings).visit(rewrite_spans)
 }
 
@@ -204,6 +206,51 @@ impl<'a> ReplaceExpressions<'a> {
             _ => Ok(None),
         }
     }
+
+    // TODO: @Matt - Come back here
+    fn vec_syntax_span_object(&self, vec_exprs: &[ExprKind]) -> Result<Option<ExprKind>> {
+        if vec_exprs.len() != 2 {
+            return Ok(None);
+            // stop!(ArityMismatch => "#%syntax-span requires 2 arguments, found: {}", vec_exprs.len());
+        }
+
+        match vec_exprs.get(0) {
+            Some(ExprKind::Atom(Atom {
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::Identifier(check),
+                        ..
+                    },
+            })) if *check == *SYNTAX_SPAN => {
+                let expr_to_extract_span = vec_exprs.get(1).unwrap();
+
+                // dbg!(&expr_to_extract_span);
+
+                let span = crate::parser::span_visitor::get_span(expr_to_extract_span);
+
+                // dbg!(&span);
+
+                let start = ExprKind::integer_literal(span.start as isize, span);
+                let end = ExprKind::integer_literal(span.end as isize, span);
+
+                let source_id = if let Some(source) = span.source_id() {
+                    ExprKind::integer_literal(source.0 as isize, span)
+                } else {
+                    ExprKind::bool_lit(false)
+                };
+
+                Ok(Some(ExprKind::Quote(Box::new(super::ast::Quote::new(
+                    ExprKind::List(super::ast::List::new(vec![start, end, source_id])),
+                    SyntaxObject::default(TokenType::Quote),
+                )))))
+
+                // Ok(Some(ExprKind::List(List::new(vec![
+
+                // ]))))
+            }
+            _ => Ok(None),
+        }
+    }
 }
 
 fn reserved_token_type_to_ident(token: &mut TokenType<InternedString>) {
@@ -308,6 +355,11 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
             .into_iter()
             .map(|e| self.visit(e))
             .collect::<Result<Vec<_>>>()?;
+
+        if let Some(expanded) = self.vec_syntax_span_object(&l.args)? {
+            return Ok(expanded);
+        }
+
         Ok(ExprKind::List(l))
     }
 
@@ -422,6 +474,12 @@ impl ConsumingVisitor for RewriteSpan {
     }
 
     fn visit_list(&mut self, mut l: super::ast::List) -> Self::Output {
+        // if let Some(first) = l.first_ident() {
+        //     if *first == *QUASISYNTAX || *first == *SYNTAX_QUOTE {
+        //         return Ok(ExprKind::List(l));
+        //     }
+        // }
+
         l.args = l
             .args
             .into_iter()

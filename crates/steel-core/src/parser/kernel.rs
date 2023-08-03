@@ -163,13 +163,15 @@ impl Kernel {
     pub fn expand(&mut self, ident: &InternedString, expr: ExprKind) -> Result<ExprKind> {
         let span = get_span(&expr);
 
-        // let syntax_objects = SyntaxObjectFromExprKind::try_from_expr_kind(expr.clone())?;
+        let syntax_objects =
+            super::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(expr.clone())?;
 
         // println!("{:?}", syntax_objects);
 
         // println!(
         //     "{:?}",
-        //     crate::rvals::Syntax::steelval_to_exprkind(&syntax_objects).map(from_list_repr_to_ast)
+        //     crate::rvals::Syntax::steelval_to_exprkind(&syntax_objects)
+        //         .map(from_list_repr_to_ast)??
         // );
 
         let args = SteelVal::try_from(expr)?;

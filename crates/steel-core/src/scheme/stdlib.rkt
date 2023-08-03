@@ -39,17 +39,87 @@
     ((quasiquote x)                          'x)))
 
 
-;; Raw quasiquote, expands to
-; (define-syntax #%quasiquote
-;   (syntax-rules (unquote unquote-splicing)
-;     ((#%quasiquote (unquote x))                         x)
-;     ((#%quasiquote ((unquote x) xs ...))          (cons x (#%quasiquote (xs ...))))
-;     ((#%quasiquote ((unquote-splicing x)))        (append x '()))
-;     ((#%quasiquote ((unquote-splicing x) xs ...)) (append x (#%quasiquote (xs ...))))
-;     ((#%quasiquote (x xs ...))                   (cons (#%quasiquote x) (#%quasiquote (xs ...))))
-;     ((#%quasiquote x)                           'x)))
-    
+(define-syntax #%proto-syntax-object
+  (syntax-rules ()
+    [(#%proto-syntax-object x)
+     (#%syntax/raw 'x 'x
+       (#%syntax-span x))]))
 
+;; TODO: @Matt
+;; Bootstrap this by expanding first, then expanding the resulting
+;; TODO: Add syntax->span in the macro expander as a special case function.
+;; That just inlines the span object '(left right <source-id>)
+;; And then also calls the constructor for the 
+(define-syntax quasisyntax
+  (syntax-rules (syntax unsyntax unsyntax-splicing #%unsyntax #%unsyntax-splicing #%internal-crunch)
+
+    
+   
+    ((quasisyntax ((syntax x) xs ...)) (cons (list 'syntax (quasisyntax x)) (quasisyntax (xs ...))))
+
+    ((quasisyntax (syntax x)) (list 'quote (quasisyntax x)))
+    
+    ((quasisyntax ((unsyntax x) xs ...))          (cons (list 'unsyntax (quasisyntax x)) (quasisyntax (xs ...))))
+    ((quasisyntax (unsyntax x)) (list 'unsyntax (quasisyntax x)))
+
+    ; ((quasiquote ((#%unquote x) xs ...))          (cons x (quasiquote (xs ...))))
+    
+    ((quasisyntax ((#%unsyntax x) xs ...))          (cons x (quasisyntax (xs ...))))
+    ((quasisyntax (#%unsyntax x))                         x)
+
+    
+    ((quasisyntax ((#%unsyntax-splicing x)))        (append x '()))
+    ((quasisyntax ((#%unsyntax-splicing x) xs ...)) (append x (quasisyntax (xs ...))))
+
+    ;; TODO: Do unquote-splicing as well, follow the same rules as unquote
+    ((quasisyntax ((unsyntax-splicing x)))        (append (list (list 'unsyntax-splicing (quasisyntax x))) '()))
+    ((quasisyntax ((unsyntax-splicing x) xs ...)) (append (list (list 'unsyntax-splicing (quasisyntax x))) (quasisyntax (xs ...))))
+
+    
+    ((quasisyntax #%internal-crunch ()) (list))                   
+                                              ; (list
+                                                  ; (#%syntax/raw
+                                                  ;   (quote x)
+                                                    
+                                                  ;   (cons (quasisyntax x) (quasisyntax #%internal-crunch (xs ...)))
+
+                                                  ;   (#%syntax-span x)))
+
+    ((quasisyntax #%internal-crunch (x xs ...))                   
+                                              ; (list
+                                                  ; (#%syntax/raw
+                                                    ; (quote x)
+                                                    
+                                                    (cons (quasisyntax x) (quasisyntax #%internal-crunch (xs ...)))
+                                                    )
+
+                                                    ; (#%syntax-span x)))
+    
+    ((quasisyntax (x xs ...))                   
+                                              ; (list
+                                                  (#%syntax/raw
+                                                    (quote (x xs ...))
+                                                    
+                                                    (cons (quasisyntax x) (quasisyntax #%internal-crunch (xs ...)))
+
+                                                    (#%syntax-span (x xs ...))))
+                                                    ; )
+                                                    
+                                                    
+    ; ((quasisyntax x)                          'x)))
+
+    ; ((quasisyntax (quote ()))     '())
+    ((quasisyntax x)                          
+                                              (if (empty? 'x)
+                                                  (list)
+                                                  (#%syntax/raw 'x 'x (#%syntax-span x)))
+    
+    
+    
+    
+    )))
+
+    
 (define-syntax or
   (syntax-rules ()
     [(or) #f]

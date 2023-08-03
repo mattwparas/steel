@@ -139,7 +139,13 @@ impl CycleDetector {
             BuiltIn(_) => write!(f, "#<function>"),
             ReducerV(_) => write!(f, "#<reducer>"),
             MutableVector(v) => write!(f, "{:?}", v.as_ref().borrow()),
-            SyntaxObject(s) => write!(f, "#<syntax:{:?} {:?}>", s.span, s.syntax),
+            SyntaxObject(s) => {
+                if let Some(raw) = &s.raw {
+                    write!(f, "#<syntax:{:?} {:?}>", s.span, raw)
+                } else {
+                    write!(f, "#<syntax:{:?} {:?}>", s.span, s.syntax)
+                }
+            }
             BoxedIterator(_) => write!(f, "#<iterator>"),
             Boxed(b) => write!(f, "'#&{}", b.get()),
             Reference(x) => write!(f, "{}", x.format()?),
@@ -248,7 +254,13 @@ impl CycleDetector {
             BuiltIn(_) => write!(f, "#<function>"),
             ReducerV(_) => write!(f, "#<reducer>"),
             MutableVector(v) => write!(f, "{:?}", v.as_ref().borrow()),
-            SyntaxObject(s) => write!(f, "#<syntax:{:?} {:?}>", s.span, s.syntax),
+            SyntaxObject(s) => {
+                if let Some(raw) = &s.raw {
+                    write!(f, "#<syntax:{:?} {:?}>", s.span, raw)
+                } else {
+                    write!(f, "#<syntax:{:?} {:?}>", s.span, s.syntax)
+                }
+            }
             BoxedIterator(_) => write!(f, "#<iterator>"),
             Boxed(b) => write!(f, "'#&{}", b.get()),
             Reference(x) => write!(f, "{}", x.format()?),

@@ -551,25 +551,39 @@ impl<T: CustomType + 'static> AsRefMutSteelVal for T {
 
 #[derive(Debug, Clone)]
 pub struct Syntax {
+    raw: Option<SteelVal>,
     syntax: SteelVal,
     span: Span,
-    // source: Option<Rc<PathBuf>>,
 }
 
 impl Syntax {
     pub fn new(syntax: SteelVal, span: Span) -> Syntax {
+        // dbg!(&syntax);
+
         Self {
+            raw: None,
             syntax,
             span,
-            // source: None,
         }
+    }
+
+    pub fn proto(raw: SteelVal, syntax: SteelVal, span: Span) -> Syntax {
+        Self {
+            raw: Some(raw),
+            syntax,
+            span,
+        }
+    }
+
+    pub fn syntax_e(&self) -> SteelVal {
+        self.syntax.clone()
     }
 
     pub fn new_with_source(syntax: SteelVal, span: Span) -> Syntax {
         Self {
+            raw: None,
             syntax,
             span,
-            // source,
         }
     }
 
