@@ -1,5 +1,12 @@
-use std::{collections::HashSet, convert::TryFrom};
+use std::{
+    cell::RefCell,
+    collections::HashSet,
+    convert::TryFrom,
+    rc::Rc,
+    sync::{Arc, RwLock},
+};
 
+use im_lists::list::List;
 use steel_parser::tokens::TokenType;
 
 use crate::{
@@ -12,7 +19,8 @@ use crate::{
         ast::{from_list_repr_to_ast, Atom, Set},
         parser::SyntaxObject,
     },
-    rvals::Result,
+    rvals::{Result, SteelString},
+    steel_vm::register_fn::RegisterFn,
 };
 use crate::{stdlib::KERNEL, steel_vm::engine::Engine, SteelVal};
 
@@ -27,6 +35,12 @@ pub(crate) fn fresh_kernel_image() -> Engine {
     KERNEL_IMAGE.with(|x| x.clone())
 }
 
+// Internal set of transformers that we'll embed
+#[derive(Clone, Debug)]
+struct Transformers {
+    set: Arc<RwLock<HashSet<InternedString>>>,
+}
+
 /// The Kernel is an engine context used to evaluate defmacro style macros
 /// It lives inside the compiler, so in theory there could be tiers of kernels
 /// Note: this will be called along side syntax rules style macros. In this case macro
@@ -35,8 +49,8 @@ pub(crate) fn fresh_kernel_image() -> Engine {
 /// for structs.
 #[derive(Clone)]
 pub struct Kernel {
-    macros: HashSet<InternedString>,
-    syntax_object_macros: HashSet<InternedString>,
+    // macros: HashSet<InternedString>,
+    transformers: Transformers,
     constants: HashSet<InternedString>,
     engine: Box<Engine>,
 }
@@ -51,20 +65,43 @@ impl Kernel {
     pub fn new() -> Self {
         let mut engine = fresh_kernel_image();
 
+        let transformers = Transformers {
+            set: Arc::new(RwLock::new(HashSet::default())),
+        };
+
+        let embedded_transformer_object = transformers.clone();
+        engine.register_fn("register-macro-transformer!", move |name: String| {
+            embedded_transformer_object
+                .set
+                .write()
+                .unwrap()
+                .insert(name.as_str().into())
+        });
+
+        let embedded_transformer_object = transformers.clone();
+        engine.register_fn("current-macro-transformers!", move || -> SteelVal {
+            embedded_transformer_object
+                .set
+                .read()
+                .unwrap()
+                .iter()
+                .map(|x| x.resolve().to_string())
+                .map(|x| SteelVal::SymbolV(x.into()))
+                .collect::<im_lists::list::List<SteelVal>>()
+                .into()
+        });
+
         // Run the script for building the core interface for structs
         engine.compile_and_run_raw_program(KERNEL).unwrap();
 
-        let mut macros = HashSet::new();
+        // let mut macros = HashSet::new();
         // macros.insert("%better-lambda%".to_string());
-        macros.insert(*STRUCT_KEYWORD);
-        macros.insert(*DEFINE_VALUES);
-
-        let mut syntax_object_macros = HashSet::new();
-        syntax_object_macros.insert(*BETTER_LAMBDA);
+        // macros.insert(*STRUCT_KEYWORD);
+        // macros.insert(*DEFINE_VALUES);
 
         Kernel {
-            macros,
-            syntax_object_macros,
+            // macros,
+            transformers,
             constants: HashSet::new(),
             engine: Box::new(engine),
         }
@@ -155,12 +192,14 @@ impl Kernel {
         // todo!("Run through every expression, and memoize them by calling (set! <ident> (make-memoize <ident>))")
     }
 
-    pub fn contains_macro(&self, ident: &InternedString) -> bool {
-        self.macros.contains(ident)
-    }
-
     pub fn contains_syntax_object_macro(&self, ident: &InternedString) -> bool {
-        self.syntax_object_macros.contains(ident)
+        // self.syntax_object_macros.contains(ident)
+
+        self.transformers.set.read().unwrap().contains(ident)
+
+        // self.engine.extract_value()
+
+        // todo!()
     }
 
     pub fn call_function(&mut self, ident: &InternedString, args: &[SteelVal]) -> Result<SteelVal> {
@@ -221,67 +260,5 @@ impl Kernel {
         // } else {
         // stop!(TypeMismatch => "call-function-in-env expects a list for the arguments")
         // }
-    }
-
-    pub fn expand(&mut self, ident: &InternedString, expr: ExprKind) -> Result<ExprKind> {
-        let span = get_span(&expr);
-
-        // let syntax_objects =
-        // super::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(expr.clone())?;
-
-        // println!("{:?}", syntax_objects);
-
-        // println!(
-        //     "{:?}",
-        //     crate::rvals::Syntax::steelval_to_exprkind(&syntax_objects)
-        //         .map(from_list_repr_to_ast)??
-        // );
-
-        // if &["%better-lambda%"].contains(ident.resolve())
-
-        let args = SteelVal::try_from(expr)?;
-
-        let function = self.engine.extract_value(ident.resolve())?;
-
-        if let SteelVal::ListV(list) = args {
-            let mut iter = list.into_iter();
-            // Drop the macro name
-            iter.next();
-
-            let arguments = iter.collect();
-
-            log::info!(target: "kernel", "Expanding: {:?} with arguments: {:?}", ident, arguments);
-
-            let result = self
-                .engine
-                .call_function_with_args(function, arguments)
-                .map_err(|x| x.set_span(span))?;
-
-            // let expr = ExprKind::try_from(&result);
-
-            // println!("Expanded to: {:?}", result.to_string());
-
-            // println!("Expanded to: {:#?}", expr);
-
-            // TODO: try to understand what is actually happening here
-            let ast_version = ExprKind::try_from(&result)
-                .map(from_list_repr_to_ast)
-                .unwrap()
-                .unwrap();
-
-            // println!("{}")
-            // println!("{}", ast_version.to_pretty(60));
-
-            Ok(ast_version)
-
-            // Ok(
-            //     crate::parser::parser::Parser::parse(result.to_string().trim_start_matches('\''))?
-            //         .into_iter()
-            //         .next()
-            //         .unwrap(),
-            // )
-        } else {
-            stop!(TypeMismatch => "call-function-in-env expects a list for the arguments")
-        }
     }
 }

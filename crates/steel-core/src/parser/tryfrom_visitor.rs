@@ -268,7 +268,10 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
 
     fn visit_atom(&mut self, a: Atom) -> Self::Output {
         let span = a.syn.span;
-        Ok(Syntax::new_with_source(SteelVal::try_from(a.syn)?, span).into())
+
+        let atom = SteelVal::try_from(a.syn)?;
+
+        Ok(Syntax::proto(atom.clone(), atom, span).into())
     }
 
     fn visit_list(&mut self, l: super::ast::List) -> Self::Output {

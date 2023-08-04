@@ -592,7 +592,7 @@ impl Syntax {
     }
 
     pub fn syntax_datum(&self) -> SteelVal {
-        self.syntax.clone()
+        self.raw.clone().unwrap()
     }
 
     pub(crate) fn steelval_to_exprkind(value: &SteelVal) -> Result<ExprKind> {

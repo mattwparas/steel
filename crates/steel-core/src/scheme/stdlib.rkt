@@ -666,3 +666,8 @@
     ((delay expr)
      (lambda ()
         expr))))
+
+
+(define values list)
+(define (call-with-values producer consumer)
+  (apply consumer (producer)))

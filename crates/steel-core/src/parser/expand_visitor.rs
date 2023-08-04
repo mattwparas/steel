@@ -614,11 +614,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                     }
                 }
 
-                if map.contains_macro(&s) {
-                    let expanded = map.expand(&s, ExprKind::List(l))?;
-                    self.changed = true;
-                    return self.visit(expanded);
-                } else if map.contains_syntax_object_macro(&s) {
+                if map.contains_syntax_object_macro(&s) {
                     let expanded = map.expand_syntax_object(&s, ExprKind::List(l))?;
                     self.changed = true;
                     return self.visit(expanded);

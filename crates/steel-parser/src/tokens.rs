@@ -154,7 +154,7 @@ pub enum TokenType<S> {
 
     #[token("if")]
     If,
-    #[regex("(define)|(defn)")]
+    #[regex("(define)|(defn)|(#%define)")]
     Define,
     #[token("let")]
     Let,

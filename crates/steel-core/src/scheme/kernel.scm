@@ -1,3 +1,41 @@
+;; The kernel for Steel.
+;; This contains core forms that are expanded during the last phase of macro expansion
+;; Macros that are exported from the kernel and applied on code externally are defined via
+;; the form `(#%define-syntax <macro> <body>)`.
+;;
+;; This makes this function publicly available for the kernel to expand
+;; forms with.
+
+; (define *transformer-functions* (hashset))
+
+(define-syntax #%define-syntax
+  (syntax-rules ()
+
+    [(#%define-syntax (name arg) expr)
+     (begin
+       (register-macro-transformer! (symbol->string 'name))
+       (define (name arg)
+         expr))]
+
+    [(#%define-syntax (name arg)
+       exprs ...)
+     (begin
+       (register-macro-transformer! (symbol->string 'name))
+       (define (name arg)
+         exprs ...))]
+
+    [(#%define-syntax name expr)
+     (begin
+       (register-macro-transformer! (symbol->string 'name))
+       (define name expr))]))
+
+;; Kernal-lambda -> Used in the meantime while `lambda` finds its way out of the reserved keywords.
+(define-syntax klambda
+  (syntax-rules ()
+    [(klambda () expr exprs ...) (#%plain-lambda () expr exprs ...)]
+    [(klambda (x xs ...) expr exprs ...) (#%plain-lambda (x xs ...) expr exprs ...)]
+    [(klambda x expr exprs ...) (#%plain-lambda x expr exprs ...)]))
+
 ;; Enumerate the given list starting at index `start`
 (define (enumerate start accum lst)
   (if (empty? lst)
@@ -22,6 +60,16 @@
 (define (transparent-keyword? x)
   (equal? x '#:transparent))
 
+(#%define-syntax (struct expr)
+  (define unwrapped (syntax-e expr))
+  (define struct-name (syntax->datum (second unwrapped)))
+  (define fields (syntax->datum (third unwrapped)))
+  (define options
+    (let ([raw (cdddr unwrapped)])
+      (displayln raw)
+      (if (empty? raw) raw (map syntax->datum raw))))
+  (struct-impl struct-name fields options))
+
 ;; Macro for creating a new struct, in the form of:
 ;; `(struct <struct-name> (fields ...) options ...)`
 ;; The options can consist of the following:
@@ -43,7 +91,7 @@
 ;; By default, structs are immutable, which means setter functions will not
 ;; be generated. Also by default, structs are not transparent, which means
 ;; printing them will result in an opaque struct that does not list the fields
-(define (struct struct-name fields . options)
+(define (struct-impl struct-name fields options)
 
   ;; Add a field for storing the options, and for the index to the func
   (define field-count (length fields))
@@ -151,20 +199,47 @@
             (%memo-table-set! %memo-table f n new-value)
             new-value)))))
 
-;; need gensym here
+(define *gensym-counter* 0)
+(define (gensym)
+  (set! *gensym-counter* (+ 1 *gensym-counter*))
+  (string->symbol (string-append "##gensym" (to-string *gensym-counter*))))
 
-(define (define-values bindings expr)
+;; TODO: @Matt -> for whatever reason, using ~> plus (lambda (x) ...) generates a stack overflow... look into that
+(define (make-unreadable symbol)
+  (~>> symbol (symbol->string) (string-append "##") (string->symbol)))
+
+; (define (define-values bindings expr)
+;   `(begin
+;      (define ,(make-unreadable '#%proto-define-values-binding-gensym__)
+;        ,expr)
+;      ,@(map (lambda (binding-index-pair)
+;               `(define ,(car binding-index-pair)
+;                  ,(list-ref binding-index-pair 1)))
+;             (enumerate 0 '() bindings))))
+
+(#%define-syntax (define-values expr)
+  (displayln expr)
+  (define underlying (syntax-e expr))
+  (define bindings (syntax->datum (second underlying)))
+  (define expression (third underlying))
+
+  (define unreadable-list-name (make-unreadable '#%proto-define-values-binding-gensym__))
+
   `(begin
-     (define #%proto-define-values-binding-gensym__ ,expr)
+     (define ,unreadable-list-name ,expression)
      ,@(map (lambda (binding-index-pair)
               `(define ,(car binding-index-pair)
-                 ,(list-ref binding-index-pair 1)))
+                 (list-ref ,unreadable-list-name ,(list-ref binding-index-pair 1))))
             (enumerate 0 '() bindings))))
 
-(define (#%better-lambda expr)
+(#%define-syntax (#%better-lambda expr)
   (displayln "Expanding: " expr)
   (displayln "unwrapping one level..." (syntax-e expr))
   (quasisyntax (list 10 20 30)))
+
+;; TODO: make this not so suspect, but it does work!
+(#%define-syntax (#%current-kernel-transformers expr)
+  (cons 'list (map (lambda (x) (list 'quote x)) (current-macro-transformers!))))
 
 ;; TODO: Come back to this once theres something to attach it to
 ; (define (@doc expr comment)
