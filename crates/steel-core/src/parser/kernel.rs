@@ -24,7 +24,11 @@ use crate::{
 };
 use crate::{stdlib::KERNEL, steel_vm::engine::Engine, SteelVal};
 
-use super::{ast::ExprKind, interner::InternedString, span_visitor::get_span};
+use super::{
+    ast::{ExprKind, TryFromSteelValVisitorForExprKind},
+    interner::InternedString,
+    span_visitor::get_span,
+};
 
 thread_local! {
     // pub(crate) static KERNEL_IMAGE: Engine = Engine::new_kernel();
@@ -241,10 +245,12 @@ impl Kernel {
         // println!("Expanded to: {:#?}", expr);
 
         // TODO: try to understand what is actually happening here
-        let ast_version = ExprKind::try_from(&result)
-            .map(from_list_repr_to_ast)
-            .unwrap()
-            .unwrap();
+        // let ast_version = ExprKind::try_from(&result)
+        //     .map(from_list_repr_to_ast)
+        //     .unwrap()
+        //     .unwrap();
+
+        let ast_version = TryFromSteelValVisitorForExprKind::root(&result).unwrap();
 
         // println!("{}")
         // println!("{}", ast_version.to_pretty(60));
