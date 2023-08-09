@@ -83,7 +83,11 @@ pub struct UserDefinedStruct {
     pub(crate) name: InternedString,
 
     // TODO: Consider using... just a vec here.
+    #[cfg(feature = "smallvec")]
     pub(crate) fields: smallvec::SmallVec<[SteelVal; 5]>,
+
+    #[cfg(not(feature = "smallvec"))]
+    pub(crate) fields: Vec<SteelVal>,
 
     // Type Descriptor. Use this as an index into the VTable to find anything that we need.
     pub(crate) type_descriptor: StructTypeDescriptor,

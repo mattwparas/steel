@@ -39,7 +39,6 @@ use lazy_static::lazy_static;
 use log::{debug, log_enabled};
 use num::ToPrimitive;
 use slotmap::DefaultKey;
-use smallvec::SmallVec;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
 
