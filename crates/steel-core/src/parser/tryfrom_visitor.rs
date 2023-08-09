@@ -240,25 +240,27 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
     // like this: '(a b c) => '(a b c)
     // '(a b 'c) => '(a b 'c) --- currently this ends up as '(a b c)
     fn visit_quote(&mut self, quote: Box<super::ast::Quote>) -> Self::Output {
+        dbg!(&quote);
+
         let span = quote.location.span;
 
-        if self.inside_quote {
-            let raw = SteelVal::try_from(ExprKind::Quote(quote.clone()))?;
-            Ok(Syntax::proto(
-                raw,
-                SteelVal::ListV(im_lists::list![
-                    SteelVal::SymbolV("quote".into()),
-                    self.visit(quote.expr)?
-                ]),
-                span,
-            )
-            .into())
-        } else {
-            self.inside_quote = true;
-            let res = self.visit(quote.expr);
-            self.inside_quote = false;
-            res
-        }
+        // if self.inside_quote {
+        let raw = SteelVal::try_from(ExprKind::Quote(quote.clone()))?;
+        Ok(Syntax::proto(
+            raw,
+            SteelVal::ListV(im_lists::list![
+                SteelVal::SymbolV("quote".into()),
+                self.visit(quote.expr)?
+            ]),
+            span,
+        )
+        .into())
+        // } else {
+        // self.inside_quote = true;
+        // let res = self.visit(quote.expr);
+        // self.inside_quote = false;
+        // res
+        // }
     }
 
     fn visit_macro(&mut self, _m: super::ast::Macro) -> Self::Output {

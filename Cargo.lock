@@ -3084,7 +3084,6 @@ dependencies = [
  "fxhash",
  "im-lists",
  "im-rc",
- "itertools",
  "lasso",
  "lazy_static",
  "log",
@@ -3108,7 +3107,6 @@ dependencies = [
  "steel-gen",
  "steel-parser",
  "termimad",
- "thiserror",
  "tungstenite",
  "ureq",
  "url",
@@ -3137,7 +3135,6 @@ name = "steel-gen"
 version = "0.2.0"
 dependencies = [
  "codegen",
- "itertools",
  "serde",
  "serde_derive",
 ]

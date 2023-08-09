@@ -51,7 +51,7 @@ use crate::primitives::web::{requests::requests_module, websockets::websockets_m
 #[cfg(feature = "colors")]
 use crate::primitives::colors::string_coloring_module;
 
-use itertools::Itertools;
+// use itertools::Itertools;
 use num::Signed;
 
 macro_rules! ensure_tonicity_two {
@@ -62,10 +62,15 @@ macro_rules! ensure_tonicity_two {
                 stop!(ArityMismatch => "expected at least one argument");
             }
 
-            for (left, right) in args.iter().tuple_windows() {
-                if !$check_fn(left, right) {
-                    return Ok(SteelVal::BoolV(false))
+            for window in args.windows(2) {
+                if let &[left, right] = &window {
+                    if !$check_fn(&left, &right) {
+                        return Ok(SteelVal::BoolV(false))
+                    }
+                } else {
+                    unreachable!()
                 }
+
             }
 
             Ok(SteelVal::BoolV(true))
@@ -693,10 +698,12 @@ pub fn gte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
         stop!(ArityMismatch => "expected at least one argument");
     }
 
-    for (left, right) in args.iter().tuple_windows() {
-        match left.partial_cmp(right) {
-            None | Some(Ordering::Less) => return Ok(SteelVal::BoolV(false)),
-            _ => continue,
+    for window in args.windows(2) {
+        if let &[left, right] = &window {
+            match left.partial_cmp(&right) {
+                None | Some(Ordering::Less) => return Ok(SteelVal::BoolV(false)),
+                _ => continue,
+            }
         }
     }
 

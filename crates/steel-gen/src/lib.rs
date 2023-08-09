@@ -3,9 +3,8 @@
 
 pub mod opcode;
 pub mod permutations;
-use std::borrow::Cow;
+use std::{borrow::Cow, fmt::Write};
 
-use itertools::Itertools;
 pub use opcode::OpCode;
 
 use codegen::{Function, Scope};
@@ -767,6 +766,30 @@ impl Pattern {
         patterns
     }
 }
+
+pub trait IteratorExtensions: Iterator {
+    fn join(&mut self, sep: &str) -> String
+    where
+        Self::Item: std::fmt::Display,
+    {
+        match self.next() {
+            None => String::new(),
+            Some(first_elt) => {
+                // estimate lower bound of capacity needed
+                let (lower, _) = self.size_hint();
+                let mut result = String::with_capacity(sep.len() * lower);
+                write!(&mut result, "{}", first_elt).unwrap();
+                self.for_each(|elt| {
+                    result.push_str(sep);
+                    write!(&mut result, "{}", elt).unwrap();
+                });
+                result
+            }
+        }
+    }
+}
+
+impl<T> IteratorExtensions for T where T: Iterator {}
 
 // struct SuperInstructionMap {
 //     map: std::collections::HashMap<Vec<Pattern>, for<'r> fn (&'r mut VmCore<'_>, usize) -> Result<()>>

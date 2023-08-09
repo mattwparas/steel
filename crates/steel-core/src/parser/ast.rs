@@ -10,9 +10,9 @@ use crate::{
     },
 };
 
-use std::{convert::TryFrom, sync::atomic::Ordering};
+use std::{convert::TryFrom, sync::atomic::Ordering, fmt::Write};
 
-use itertools::Itertools;
+// use itertools::Itertools;
 use pretty::RcDoc;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -45,6 +45,29 @@ impl AstTools for Vec<&ExprKind> {
         println!("{}", self.iter().map(|x| x.to_pretty(60)).join("\n\n"))
     }
 }
+
+pub trait IteratorExtensions: Iterator {
+    fn join(&mut self, sep: &str) -> String
+        where Self::Item: std::fmt::Display
+    {
+        match self.next() {
+            None => String::new(),
+            Some(first_elt) => {
+                // estimate lower bound of capacity needed
+                let (lower, _) = self.size_hint();
+                let mut result = String::with_capacity(sep.len() * lower);
+                write!(&mut result, "{}", first_elt).unwrap();
+                self.for_each(|elt| {
+                    result.push_str(sep);
+                    write!(&mut result, "{}", elt).unwrap();
+                });
+                result
+            }
+        }
+    }
+}
+
+impl<T> IteratorExtensions for T where T: Iterator {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ExprKind {
@@ -79,6 +102,13 @@ macro_rules! expr_list {
 }
 
 impl ExprKind {
+    pub fn quoted_list() -> ExprKind {
+        ExprKind::Quote(Box::new(Quote::new(
+            Self::empty(),
+            SyntaxObject::default(TokenType::QuoteTick),
+        )))
+    }
+
     pub fn empty() -> ExprKind {
         ExprKind::List(List::new(Vec::new()))
     }
@@ -273,6 +303,7 @@ pub(crate) fn from_list_repr_to_ast(expr: ExprKind) -> Result<ExprKind, ParseErr
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct TryFromSteelValVisitorForExprKind {
     pub(crate) qq_depth: usize,
     pub(crate) quoted: bool,
@@ -328,9 +359,21 @@ impl TryFromSteelValVisitorForExprKind {
                 stop!(Generic => "Can't convert from Custom Type to expression!")
             }
             ListV(l) => {
+
+                // dbg!(&self);
+                // dbg!(&l);
+                
                 // Rooted - things operate as normal
                 if self.qq_depth == 0 {
-                    let maybe_special_form = l.first().and_then(|x| x.as_string());
+                    // let maybe_special_form = l.first().and_then(|x| x.as_symbol());
+
+                    
+                    let maybe_special_form = l.first().and_then(|x| {
+                        x.as_symbol()
+                            .or_else(|| x.as_syntax_object().and_then(|x| x.syntax.as_symbol()))
+                    });
+
+                    // dbg!(&maybe_special_form);
 
                     match maybe_special_form {
                         Some(x) if x.as_str() == "quote" => {
@@ -343,11 +386,14 @@ impl TryFromSteelValVisitorForExprKind {
 
                             self.quoted = true;
 
+
                             let return_value = Ok(l
                                 .into_iter()
                                 .map(|x| self.visit(x))
                                 .collect::<std::result::Result<Vec<_>, _>>()?
                                 .try_into()?);
+
+                            // dbg!(&return_value);
 
                             self.quoted = false;
 
@@ -355,6 +401,13 @@ impl TryFromSteelValVisitorForExprKind {
                         } // "quasiquote" => {
                         //     self.qq_depth += 1;
                         // }
+
+
+                        // Empty list, just return as a quoted list
+                        // None => {
+                            // return Ok(ExprKind::empty());
+                        // }
+
                         _ => {}
                     }
                 }

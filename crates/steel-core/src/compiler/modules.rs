@@ -10,7 +10,7 @@ use crate::{
         parser::{ParseError, Parser, Sources, SyntaxObject},
         tokens::TokenType,
     },
-    steel_vm::engine::ModuleContainer,
+    steel_vm::{engine::ModuleContainer, transducers::interleave},
 };
 use crate::{parser::expand_visitor::Expander, rvals::Result};
 
@@ -28,8 +28,10 @@ use std::time::SystemTime;
 
 use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
-use itertools::Itertools;
+// use itertools::Itertools;
 use log::{debug, info, log_enabled};
+
+use crate::parser::ast::IteratorExtensions;
 
 use super::{
     passes::mangle::{collect_globals, NameMangler, NameUnMangler},
@@ -943,46 +945,44 @@ impl CompiledModule {
 
         // left_unmangled.pretty_print();
 
-        hash_body.extend(
-            left_unmangled
-                .into_iter()
-                .map(|x| {
-                    if let ExprKind::Atom(_) = x {
-                        ExprKind::Quote(Box::new(Quote::new(
-                            x,
-                            SyntaxObject::default(TokenType::Quote),
-                        )))
-                    } else if let ExprKind::List(l) = x {
-                        if let Some(qualifier) = l.first_ident() {
-                            match qualifier {
-                                x if *x == *REQUIRE_IDENT_SPEC => {
-                                    todo!()
-                                }
-                                _ => {
-                                    return ExprKind::Quote(Box::new(Quote::new(
-                                        l.get(2).unwrap().clone(),
-                                        SyntaxObject::default(TokenType::Quote),
-                                    )))
-                                }
+        hash_body.extend(interleave(
+            left_unmangled.into_iter().map(|x| {
+                if let ExprKind::Atom(_) = x {
+                    ExprKind::Quote(Box::new(Quote::new(
+                        x,
+                        SyntaxObject::default(TokenType::Quote),
+                    )))
+                } else if let ExprKind::List(l) = x {
+                    if let Some(qualifier) = l.first_ident() {
+                        match qualifier {
+                            x if *x == *REQUIRE_IDENT_SPEC => {
+                                todo!()
+                            }
+                            _ => {
+                                return ExprKind::Quote(Box::new(Quote::new(
+                                    l.get(2).unwrap().clone(),
+                                    SyntaxObject::default(TokenType::Quote),
+                                )))
                             }
                         }
-
-                        // Then this is a contract out, and we should handle it here
-
-                        ExprKind::Quote(Box::new(Quote::new(
-                            l.get(2).unwrap().clone(),
-                            SyntaxObject::default(TokenType::Quote),
-                        )))
-                        // ExprKind::Quote(Box::new(Quote::new(
-                        //     x,
-                        //     SyntaxObject::default(TokenType::Quote),
-                        // )))
-                    } else {
-                        panic!("TODO this shouldn't be possible")
                     }
-                })
-                .interleave(right),
-        );
+
+                    // Then this is a contract out, and we should handle it here
+
+                    ExprKind::Quote(Box::new(Quote::new(
+                        l.get(2).unwrap().clone(),
+                        SyntaxObject::default(TokenType::Quote),
+                    )))
+                    // ExprKind::Quote(Box::new(Quote::new(
+                    //     x,
+                    //     SyntaxObject::default(TokenType::Quote),
+                    // )))
+                } else {
+                    panic!("TODO this shouldn't be possible")
+                }
+            }),
+            right,
+        ));
 
         let module_define = ExprKind::Define(Box::new(Define::new(
             ExprKind::atom("__module-".to_string() + &prefix),

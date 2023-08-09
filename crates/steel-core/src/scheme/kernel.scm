@@ -66,7 +66,7 @@
   (define fields (syntax->datum (third unwrapped)))
   (define options
     (let ([raw (cdddr unwrapped)])
-      (displayln raw)
+      ; (displayln raw)
       (if (empty? raw) raw (map syntax->datum raw))))
   (struct-impl struct-name fields options))
 
@@ -218,7 +218,7 @@
 ;             (enumerate 0 '() bindings))))
 
 (#%define-syntax (define-values expr)
-  (displayln expr)
+  ; (displayln expr)
   (define underlying (syntax-e expr))
   (define bindings (syntax->datum (second underlying)))
   (define expression (third underlying))
@@ -233,13 +233,20 @@
             (enumerate 0 '() bindings))))
 
 (#%define-syntax (#%better-lambda expr)
-  (displayln "Expanding: " expr)
-  (displayln "unwrapping one level..." (syntax-e expr))
+  ; (displayln "Expanding: " expr)
+  ; (displayln "unwrapping one level..." (syntax-e expr))
   (quasisyntax (list 10 20 30)))
 
 ;; TODO: make this not so suspect, but it does work!
 (#%define-syntax (#%current-kernel-transformers expr)
   (cons 'list (map (lambda (x) (list 'quote x)) (current-macro-transformers!))))
+
+(#%define-syntax (#%fake-lambda expr)
+  (define underlying (syntax-e expr))
+  (define rest (cdr underlying))
+  ; (displayln rest)
+  ; (displayln (syntax-e (list-ref rest 1)))
+  (cons '#%plain-lambda rest))
 
 ;; TODO: Come back to this once theres something to attach it to
 ; (define (@doc expr comment)

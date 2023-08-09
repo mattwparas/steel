@@ -1,4 +1,4 @@
-use itertools::Itertools;
+// use itertools::Itertools;
 
 use crate::parser::ast::ExprKind;
 use crate::steel_vm::engine::ModuleContainer;
@@ -311,10 +311,9 @@ fn expand_keyword_arguments(
 
     // From the keyword args, group them into pairs
     let keyword_map = keyword_args
-        .into_iter()
         .chunks(2)
         .into_iter()
-        .map(|mut x| (x.next().unwrap(), x.next().unwrap()))
+        .map(|x| (x[0], x[1]))
         .collect::<Vec<_>>();
 
     if !keyword_map.iter().map(|x| x.0).all(|x| {

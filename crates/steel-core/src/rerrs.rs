@@ -1,6 +1,6 @@
 use crate::{parser::parser::ParseError, rvals::Custom, steel_vm::vm::DehydratedStackTrace};
 use std::{convert::Infallible, fmt::Formatter};
-use thiserror::Error;
+// use thiserror::Error;
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use codespan_reporting::files::SimpleFile;
@@ -138,11 +138,13 @@ impl From<ParseError> for Repr {
     }
 }
 
-#[derive(Debug, Error, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct SteelErr {
     repr: Box<Repr>,
 }
+
+impl std::error::Error for SteelErr {}
 
 impl fmt::Display for SteelErr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {

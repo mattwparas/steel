@@ -601,7 +601,7 @@ impl ast::TryFromSteelValVisitorForExprKind {
         // let source = self.source.clone();
         match &value.syntax {
             // Mutual recursion case
-            SyntaxObject(s) => s.to_exprkind(),
+            SyntaxObject(s) => self.visit_syntax_object(s),
             BoolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
                 TokenType::BooleanLiteral(*x),
                 span,
@@ -630,9 +630,17 @@ impl ast::TryFromSteelValVisitorForExprKind {
             )))),
 
             ListV(l) => {
+                // dbg!(&self);
+                // dbg!(&l);
+
                 // Rooted - things operate as normal
                 if self.qq_depth == 0 {
-                    let maybe_special_form = l.first().and_then(|x| x.as_string());
+                    let maybe_special_form = l.first().and_then(|x| {
+                        x.as_symbol()
+                            .or_else(|| x.as_syntax_object().and_then(|x| x.syntax.as_symbol()))
+                    });
+
+                    // dbg!(&maybe_special_form);
 
                     match maybe_special_form {
                         Some(x) if x.as_str() == "quote" => {
@@ -656,6 +664,9 @@ impl ast::TryFromSteelValVisitorForExprKind {
                             return Ok(return_value);
                         } // "quasiquote" => {
                         //     self.qq_depth += 1;
+                        // }
+                        // None => {
+                        // return Ok(ExprKind::empty());
                         // }
                         _ => {}
                     }
@@ -681,7 +692,7 @@ impl ast::TryFromSteelValVisitorForExprKind {
 #[derive(Debug, Clone)]
 pub struct Syntax {
     raw: Option<SteelVal>,
-    syntax: SteelVal,
+    pub(crate) syntax: SteelVal,
     span: Span,
 }
 
@@ -1555,6 +1566,20 @@ impl SteelVal {
     pub fn as_string(&self) -> Option<&SteelString> {
         match self {
             Self::StringV(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn as_symbol(&self) -> Option<&SteelString> {
+        match self {
+            Self::SymbolV(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn as_syntax_object(&self) -> Option<&Syntax> {
+        match self {
+            Self::SyntaxObject(s) => Some(s),
             _ => None,
         }
     }

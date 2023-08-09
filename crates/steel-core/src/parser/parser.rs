@@ -19,7 +19,6 @@ use steel_parser::{
     lexer::{OwnedTokenStream, ToOwnedString},
     tokens::MaybeBigInt,
 };
-use thiserror::Error;
 
 use crate::parser::span::Span;
 
@@ -366,23 +365,32 @@ impl TryFrom<SyntaxObject> for SteelVal {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ParseError {
-    // #[error("Parse: Error reading tokens: {0}")]
-    // TokenError(#[from] TokenError),
-    #[error("Parse: Unexpected token: {0:?}")]
     Unexpected(TokenType<String>, Option<Rc<PathBuf>>),
-    #[error("Parse: Unexpected EOF")]
     UnexpectedEOF(Option<Rc<PathBuf>>),
-    #[error("Parse: Unexpected character: {0:?}")]
     UnexpectedChar(char, Span, Option<Rc<PathBuf>>),
-    #[error("Parse: Incomplete String: {0}")]
     IncompleteString(String, Span, Option<Rc<PathBuf>>),
-    #[error("Parse: Syntax Error: {0}")]
     SyntaxError(String, Span, Option<Rc<PathBuf>>),
-    #[error("Parse: Arity mismatch: {0}")]
     ArityMismatch(String, Span, Option<Rc<PathBuf>>),
 }
+
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParseError::Unexpected(l, _) => write!(f, "Parse: Unexpected token: {:?}", l),
+            ParseError::UnexpectedEOF(_) => write!(f, "Parse: Unexpected EOF"),
+            ParseError::UnexpectedChar(l, _, _) => {
+                write!(f, "Parse: Unexpected character: {:?}", l)
+            }
+            ParseError::IncompleteString(l, _, _) => write!(f, "Parse: Incomplete String: {}", l),
+            ParseError::SyntaxError(l, _, _) => write!(f, "Parse: Syntax Error: {}", l),
+            ParseError::ArityMismatch(l, _, _) => write!(f, "Parse: Arity mismatch: {}", l),
+        }
+    }
+}
+
+impl std::error::Error for ParseError {}
 
 impl ParseError {
     pub fn span(&self) -> Option<Span> {
