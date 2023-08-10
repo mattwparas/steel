@@ -147,7 +147,7 @@ impl CycleDetector {
                 }
             }
             BoxedIterator(_) => write!(f, "#<iterator>"),
-            Boxed(b) => write!(f, "'#&{}", b.get()),
+            Boxed(b) => write!(f, "'#&{}", b.borrow()),
             Reference(x) => write!(f, "{}", x.format()?),
         }
     }
@@ -262,7 +262,7 @@ impl CycleDetector {
                 }
             }
             BoxedIterator(_) => write!(f, "#<iterator>"),
-            Boxed(b) => write!(f, "'#&{}", b.get()),
+            Boxed(b) => write!(f, "'#&{}", b.borrow()),
             Reference(x) => write!(f, "{}", x.format()?),
             BigNum(b) => write!(f, "{}", b.as_ref()),
         }

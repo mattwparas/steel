@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::{cell::RefCell, cmp::Ordering};
 
 use super::{
     builtin::BuiltInModule,
@@ -8,6 +8,7 @@ use super::{
     vm::{get_test_mode, list_modules, set_test_mode, VmCore},
 };
 use crate::{
+    gc::Gc,
     parser::span::Span,
     primitives::{
         contracts,
@@ -964,6 +965,16 @@ fn is_multi_arity(value: SteelVal) -> UnRecoverableResult {
     }
 }
 
+#[steel_derive::function(name = "unbox")]
+fn unbox(value: &Gc<RefCell<SteelVal>>) -> SteelVal {
+    value.borrow().clone()
+}
+
+#[steel_derive::function(name = "set-box!")]
+fn set_box(value: &Gc<RefCell<SteelVal>>, update_to: SteelVal) {
+    *value.borrow_mut() = update_to;
+}
+
 fn meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta");
     module
@@ -1019,12 +1030,16 @@ fn meta_module() -> BuiltInModule {
         .register_fn("multi-arity?", is_multi_arity)
         .register_value("make-struct-type", SteelVal::FuncV(make_struct_type))
         // .register_fn("struct-properties", UserDefinedStruct::properties)
-        .register_value(
-            "box",
-            SteelVal::BuiltIn(crate::primitives::meta_ops::steel_box),
-        )
-        .register_fn("unbox", HeapRef::get)
-        .register_fn("set-box!", HeapRef::set_interior_mut)
+        // .register_value(
+        //     "box",
+        //     SteelVal::BuiltIn(crate::primitives::meta_ops::steel_box),
+        // )
+        // .register_fn("unbox", HeapRef::get)
+        // .register_fn("set-box!", HeapRef::set_interior_mut)
+        .register_fn("box", SteelVal::boxed)
+        .register_native_fn_definition(UNBOX_DEFINITION)
+        .register_native_fn_definition(SET_BOX_DEFINITION)
+        // .register_fn("unbox", |value: SteelVal| )
         .register_value(
             "attach-contract-struct!",
             SteelVal::FuncV(attach_contract_struct),

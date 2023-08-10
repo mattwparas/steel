@@ -7,6 +7,7 @@ use crate::{
     values::functions::BoxedDynFunction,
 };
 use im_rc::HashMap;
+use once_cell::sync::Lazy;
 
 /// A module to be consumed by the Steel Engine for later on demand access by scripts
 /// to refresh the primitives that are being used. For instance, the VM should have support
@@ -95,10 +96,8 @@ impl RegisterValue for BuiltInModule {
     }
 }
 
-lazy_static::lazy_static! {
-    pub static ref MODULE_GET: InternedString = "%module-get%".into();
-    pub static ref VOID: InternedString = "void".into();
-}
+pub static MODULE_GET: Lazy<InternedString> = Lazy::new(|| "%module-get%".into());
+pub static VOID: Lazy<InternedString> = Lazy::new(|| "void".into());
 
 // Global function table
 thread_local! {

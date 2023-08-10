@@ -33,11 +33,11 @@ use std::{cell::RefCell, collections::HashMap, iter::Iterator, rc::Rc};
 use super::builtin::DocTemplate;
 
 use im_lists::list::List;
-use lazy_static::lazy_static;
 
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
 use num::ToPrimitive;
+use once_cell::sync::Lazy;
 use slotmap::DefaultKey;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
@@ -4429,10 +4429,9 @@ macro_rules! opcode_to_function {
     };
 }
 
-lazy_static! {
-    static ref SUPER_PATTERNS: std::collections::HashMap<Vec<OpCode>, for<'r> fn(&'r mut VmCore<'_>) -> Result<()>> =
-        create_super_instruction_map();
-}
+static SUPER_PATTERNS: Lazy<
+    std::collections::HashMap<Vec<OpCode>, for<'r> fn(&'r mut VmCore<'_>) -> Result<()>>,
+> = Lazy::new(|| create_super_instruction_map());
 
 // lazy_static! {
 //     static ref SUPER_PATTERNS: std::collections::HashMap<

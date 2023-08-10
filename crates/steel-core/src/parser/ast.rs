@@ -537,7 +537,6 @@ pub trait ToDoc {
 
 impl ToDoc for ExprKind {
     fn to_doc(&self) -> RcDoc<()> {
-        // unimplemented!()
         match self {
             ExprKind::Atom(a) => a.to_doc(),
             ExprKind::If(i) => i.to_doc(),

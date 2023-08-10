@@ -693,6 +693,34 @@ impl Engine {
         })
     }
 
+    pub fn run_with_reference_from_path<
+        'a,
+        'b: 'a,
+        T: CustomReference + 'b,
+        EXT: CustomReference + 'static,
+    >(
+        &'a mut self,
+        obj: &'a mut T,
+        bind_to: &'a str,
+        script: &'a str,
+        path: PathBuf,
+    ) -> Result<SteelVal>
+    where
+        T: ReferenceMarker<'b, Static = EXT>,
+    {
+        self.with_mut_reference(obj).consume(move |engine, args| {
+            let mut args = args.into_iter();
+
+            engine.register_value(bind_to, args.next().unwrap());
+
+            let res = engine.compile_and_run_raw_program_with_path(script, path.clone());
+
+            engine.register_value(bind_to, SteelVal::Void);
+
+            res.map(|x| x.into_iter().next().unwrap())
+        })
+    }
+
     pub fn run_thunk_with_reference<
         'a,
         'b: 'a,

@@ -8,11 +8,11 @@ use crate::{
     steel_vm::vm::VmCore,
 };
 
-use futures::future::join_all;
+use futures_util::future::join_all;
 
 // use async_compat::Compat;
 
-use futures::FutureExt;
+use futures_util::FutureExt;
 
 pub struct MetaOperations {}
 impl MetaOperations {
@@ -184,20 +184,20 @@ impl MetaOperations {
     }
 }
 
-pub(crate) fn steel_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
-    if args.len() != 1 {
-        builtin_stop!(ArityMismatch => "box takes one argument, found: {}", args.len())
-    }
+// pub(crate) fn steel_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+//     if args.len() != 1 {
+//         builtin_stop!(ArityMismatch => "box takes one argument, found: {}", args.len())
+//     }
 
-    let arg = args[0].clone();
+//     let arg = args[0].clone();
 
-    // Allocate the variable directly on the heap
-    let allocated_var = ctx.thread.heap.allocate(
-        arg,
-        ctx.thread.stack.iter(),
-        ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
-        ctx.thread.global_env.roots(),
-    );
+//     // Allocate the variable directly on the heap
+//     let allocated_var = ctx.thread.heap.allocate(
+//         arg,
+//         ctx.thread.stack.iter(),
+//         ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
+//         ctx.thread.global_env.roots(),
+//     );
 
-    Some(Ok(SteelVal::Boxed(allocated_var)))
-}
+//     Some(Ok(SteelVal::Boxed(allocated_var)))
+// }

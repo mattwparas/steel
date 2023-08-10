@@ -399,53 +399,61 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
     }
 }
 
-lazy_static::lazy_static! {
-    static ref PLUS: InternedString = "+".into();
-    static ref MINUS: InternedString = "-".into();
-    static ref DIV: InternedString = "/".into();
-    static ref STAR: InternedString = "*".into();
-    static ref EQUAL: InternedString = "equal?".into();
-    static ref LTE: InternedString = "<=".into();
-    pub static ref UNREADABLE_MODULE_GET: InternedString = "##__module-get".into();
-    pub static ref STANDARD_MODULE_GET: InternedString = "%module-get%".into();
-    pub static ref CONTRACT_OUT: InternedString = "contract/out".into();
-    pub static ref REQUIRE_IDENT_SPEC: InternedString = "%require-ident-spec".into();
-    pub static ref PROVIDE: InternedString = "provide".into();
-    pub static ref FOR_SYNTAX: InternedString = "for-syntax".into();
-    pub static ref PREFIX_IN: InternedString = "prefix-in".into();
-    pub static ref ONLY_IN: InternedString = "only-in".into();
-    pub static ref DATUM_SYNTAX: InternedString = "datum->syntax".into();
-    pub static ref SYNTAX_SPAN: InternedString = "#%syntax-span".into();
-    pub static ref IF: InternedString = "if".into();
-    pub static ref DEFINE: InternedString = "define".into();
-    pub static ref LET: InternedString = "let".into();
-    pub static ref QUOTE: InternedString = "quote".into();
-    pub static ref RETURN: InternedString = "return!".into();
-    pub static ref REQUIRE: InternedString = "require".into();
-    pub static ref SET: InternedString = "set!".into();
-    pub static ref LAMBDA: InternedString = "lambda".into();
-    pub static ref LAMBDA_SYMBOL: InternedString = "λ".into();
-    pub static ref LAMBDA_FN: InternedString = "fn".into();
-    pub static ref BEGIN: InternedString = "begin".into();
-    pub static ref DOC_MACRO: InternedString = "@doc".into();
-    pub static ref REQUIRE_BUILTIN: InternedString = "require-builtin".into();
-    pub static ref STRUCT_KEYWORD: InternedString = "struct".into();
-    pub static ref BETTER_LAMBDA: InternedString = "#%better-lambda".into();
-    pub static ref DEFINE_VALUES: InternedString = "define-values".into();
-    pub static ref AS_KEYWORD: InternedString = "as".into();
-    pub static ref SYNTAX_CONST_IF: InternedString = "syntax-const-if".into();
-    pub static ref UNQUOTE: InternedString = "unquote".into();
-    pub static ref RAW_UNQUOTE: InternedString = "#%unquote".into();
-    pub static ref UNQUOTE_SPLICING: InternedString = "unquote-splicing".into();
-    pub static ref RAW_UNQUOTE_SPLICING: InternedString = "#%unquote-splicing".into();
-    pub static ref QUASIQUOTE: InternedString = "quasiquote".into();
-    pub static ref RAW_QUOTE: InternedString = "#%quote".into();
-    pub static ref QUASISYNTAX: InternedString = "quasisyntax".into();
-    pub static ref UNSYNTAX: InternedString = "unsyntax".into();
-    pub static ref RAW_UNSYNTAX: InternedString = "#%unsyntax".into();
-    pub static ref UNSYNTAX_SPLICING: InternedString = "unsyntax-splicing".into();
-    pub static ref RAW_UNSYNTAX_SPLICING: InternedString = "#%unsyntax-splicing".into();
-    pub static ref SYNTAX_QUOTE: InternedString = "syntax".into();
+macro_rules! define_symbols {
+    ($($name:tt => $str:expr,) * ) => {
+        $(
+            pub static $name: once_cell::sync::Lazy<InternedString> = once_cell::sync::Lazy::new(|| $str.into());
+        )*
+    };
+}
+
+define_symbols! {
+    PLUS => "+",
+    MINUS => "-",
+    DIV => "/",
+    STAR => "*",
+    EQUAL => "equal?",
+    LTE => "<=",
+    UNREADABLE_MODULE_GET => "##__module-get",
+    STANDARD_MODULE_GET => "%module-get%",
+    CONTRACT_OUT => "contract/out",
+    REQUIRE_IDENT_SPEC => "%require-ident-spec",
+    PROVIDE => "provide",
+    FOR_SYNTAX => "for-syntax",
+    PREFIX_IN => "prefix-in",
+    ONLY_IN => "only-in",
+    DATUM_SYNTAX => "datum->syntax",
+    SYNTAX_SPAN => "#%syntax-span",
+    IF => "if",
+    DEFINE => "define",
+    LET => "let",
+    QUOTE =>"quote",
+    RETURN => "return!",
+    REQUIRE => "require",
+    SET => "set!",
+    LAMBDA => "lambda",
+    LAMBDA_SYMBOL => "λ",
+    LAMBDA_FN => "fn",
+    BEGIN => "begin",
+    DOC_MACRO => "@doc",
+    REQUIRE_BUILTIN => "require-builtin",
+    STRUCT_KEYWORD => "struct",
+    BETTER_LAMBDA => "#%better-lambda",
+    DEFINE_VALUES => "define-values",
+    AS_KEYWORD => "as",
+    SYNTAX_CONST_IF => "syntax-const-if",
+    UNQUOTE => "unquote",
+    RAW_UNQUOTE => "#%unquote",
+    UNQUOTE_SPLICING => "unquote-splicing",
+    RAW_UNQUOTE_SPLICING => "#%unquote-splicing",
+    QUASIQUOTE => "quasiquote",
+    RAW_QUOTE => "#%quote",
+    QUASISYNTAX => "quasisyntax",
+    UNSYNTAX => "unsyntax",
+    RAW_UNSYNTAX => "#%unsyntax",
+    UNSYNTAX_SPLICING => "unsyntax-splicing",
+    RAW_UNSYNTAX_SPLICING => "#%unsyntax-splicing",
+    SYNTAX_QUOTE => "syntax",
 }
 
 pub fn inline_num_operations(instructions: &mut [Instruction]) {

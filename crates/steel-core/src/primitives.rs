@@ -355,6 +355,17 @@ impl FromSteelVal for SteelString {
     }
 }
 
+impl<'a> PrimitiveAsRef<'a> for &'a Gc<RefCell<SteelVal>> {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::Boxed(c) = val {
+            Ok(c)
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel boxed value", val))
+        }
+    }
+}
+
 impl<'a> PrimitiveAsRef<'a> for &'a char {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {

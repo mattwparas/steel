@@ -64,8 +64,9 @@ use SteelVal::*;
 
 use im_rc::{HashMap, Vector};
 
-use futures::FutureExt;
-use futures::{future::Shared, task::noop_waker_ref};
+use futures_task::noop_waker_ref;
+use futures_util::future::Shared;
+use futures_util::FutureExt;
 
 use im_lists::list::List;
 use steel_parser::tokens::MaybeBigInt;
@@ -1021,7 +1022,8 @@ pub enum SteelVal {
     SyntaxObject(Gc<Syntax>),
 
     // Mutable storage, with Gc backing
-    Boxed(HeapRef),
+    // Boxed(HeapRef),
+    Boxed(Gc<RefCell<SteelVal>>),
 
     // TODO: This itself, needs to be boxed unfortunately.
     Reference(Box<OpaqueReference<'static>>),
@@ -1245,6 +1247,10 @@ pub fn iterator_next(args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 impl SteelVal {
+    pub fn boxed(value: SteelVal) -> SteelVal {
+        SteelVal::Boxed(Gc::new(RefCell::new(value)))
+    }
+
     pub(crate) fn ptr_eq(&self, other: &SteelVal) -> bool {
         match (self, other) {
             (BoolV(l), BoolV(r)) => l == r,
