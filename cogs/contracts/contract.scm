@@ -273,7 +273,10 @@
                                   ;; try to investigate whats going on
                                   ; (displayln function)
                                   ; (displayln span)
-                                  (raise-error-with-span err span))
+                                  ;; TODO: Check if this is the right error reporting?
+                                  (raise-error err)
+                                  ; (raise-error-with-span err span)
+                                  )
                                 (apply function validated-arguments))]
 
           [self-contract contract]
@@ -395,21 +398,21 @@
   (let ([updated-preconditions
          (transduce
           (FunctionContract-pre-conditions contract)
-          (mapping
-           (lambda (c)
-             (cond
-               [(FlatContract? c)
-                =>
-                c]
-               [(FunctionContract? c)
-                =>
-                (FunctionContract (FunctionContract-pre-conditions c)
-                                  (FunctionContract-post-condition c)
-                                  (ContractAttachmentLocation 'DOMAIN name)
-                                  (FunctionContract-parents c))]
-               [else
-                =>
-                (error "Unexpected value found in bind-contract-to-function preconditions: " c)])))
+          (mapping (lambda (c)
+                     (cond
+                       [(FlatContract? c)
+                        =>
+                        c]
+                       [(FunctionContract? c)
+                        =>
+                        (FunctionContract (FunctionContract-pre-conditions c)
+                                          (FunctionContract-post-condition c)
+                                          (ContractAttachmentLocation 'DOMAIN name)
+                                          (FunctionContract-parents c))]
+                       [else
+                        =>
+                        (error "Unexpected value found in bind-contract-to-function preconditions: "
+                               c)])))
           (into-list))]
 
         [updated-postcondition
@@ -604,7 +607,9 @@
 ;; Macro for basic usage of contracts
 (define-syntax define/c
   (syntax-rules ()
-    [(define/c (name args ...) contract body ...)
+    [(define/c (name args ...)
+       contract
+       body ...)
      (begin
        (define name
          (lambda (args ...)
@@ -613,7 +618,9 @@
        void)
      ;  (define name (bind/c contract (lambda (args ...) body ...) 'name))
      ]
-    [(define/c name contract expr)
+    [(define/c name
+       contract
+       expr)
      (define name
        ((bind-contract-to-function (make-function-contract (make-contract contract 'contract))
                                    (lambda () expr))))]))

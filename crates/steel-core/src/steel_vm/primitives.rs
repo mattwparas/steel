@@ -997,6 +997,7 @@ fn meta_module() -> BuiltInModule {
         )
         .register_value("error-with-span", error_with_src_loc())
         .register_value("raise-error-with-span", error_from_error_with_span())
+        .register_value("raise-error", raise_error_from_error())
         .register_value("call/cc", SteelVal::BuiltIn(super::vm::call_cc))
         .register_value(
             "call-with-exception-handler",
@@ -1117,11 +1118,25 @@ pub fn error_from_error_with_span() -> SteelVal {
             stop!(ArityMismatch => "raise-error-with-span expects at least 2 arguments - the error object and the span")
         }
 
-        let steel_error = SteelErr::from_steelval(&args[0])?;
+        let mut steel_error = SteelErr::from_steelval(&args[0])?;
+
+        // steel_error.span()
+
+        if let Some(span) = steel_error.span() {
+            steel_error.push_span_context_to_stack_trace_if_trace_exists(span);
+        }
 
         let span = Span::from_steelval(&args[1])?;
 
         Err(steel_error.with_span(span))
+    })
+}
+
+pub fn raise_error_from_error() -> SteelVal {
+    SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+        let steel_error = SteelErr::from_steelval(&args[0])?;
+
+        Err(steel_error)
     })
 }
 

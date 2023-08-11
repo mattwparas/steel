@@ -109,6 +109,10 @@ impl DehydratedStackTrace {
     pub fn trace(&self) -> &[DehydratedCallContext] {
         &self.stack_trace
     }
+
+    pub fn push(&mut self, context: DehydratedCallContext) {
+        self.stack_trace.push(context)
+    }
 }
 
 // // Eventually expand this to other kinds of continuations
