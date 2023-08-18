@@ -7,7 +7,10 @@ use super::{
     engine::Engine,
 };
 use crate::{
-    gc::unsafe_erased_pointers::{BorrowedObject, OpaqueReferenceNursery, ReadOnlyBorrowedObject},
+    gc::unsafe_erased_pointers::{
+        BorrowedObject, OpaqueReferenceNursery, ReadOnlyBorrowedObject, ReadOnlyTemporary,
+        Temporary,
+    },
     rvals::{
         AsRefMutSteelValFromRef, AsRefSteelVal, AsRefSteelValFromUnsized, AsSlice, FromSteelVal,
         IntoSteelVal, Result, SteelVal,
@@ -34,6 +37,13 @@ pub trait RegisterFn<FN, ARGS, RET> {
     fn register_owned_fn(&mut self, name: String, func: FN) -> &mut Self {
         self
     }
+}
+
+pub trait RegisterFnBorrowed<FN, ARGS, RET> {
+    fn register_fn_borrowed(&mut self, name: &'static str, func: FN) -> &mut Self;
+    // fn register_owned_fn(&mut self, name: String, func: FN) -> &mut Self {
+    //     self
+    // }
 }
 
 pub trait SendSyncStatic: Send + Sync + 'static {}
@@ -621,14 +631,21 @@ impl<
             // Allocate the rooted object here
             OpaqueReferenceNursery::allocate(temp_borrow.into_opaque_reference());
 
-            let borrowed = BorrowedObject { ptr: weak_ptr };
+            let borrow_flag = args[0]
+                .get_borrow_flag_if_borrowed_object::<SELFSTAT>()
+                .unwrap();
+
+            // Mark as borrowed now
+            borrow_flag.set(true);
+
+            let mut borrowed = BorrowedObject::new(weak_ptr).with_parent_flag(borrow_flag);
 
             let extended = unsafe {
                 std::mem::transmute::<BorrowedObject<RET>, BorrowedObject<STATICRET>>(borrowed)
             };
 
             let return_value =
-                SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
+                SteelVal::Reference(Rc::new(extended.into_opaque_reference::<'static>()));
 
             Ok(return_value)
 
@@ -696,7 +713,13 @@ impl<
             // Allocate the rooted object here
             OpaqueReferenceNursery::allocate(temp_borrow.into_opaque_reference());
 
-            let borrowed = ReadOnlyBorrowedObject { ptr: weak_ptr };
+            let borrow_flag = args[0]
+                .get_borrow_count_if_borrowed_object::<SELFSTAT>()
+                .unwrap();
+
+            borrow_flag.set(borrow_flag.get() + 1);
+
+            let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, borrow_flag);
 
             let extended = unsafe {
                 std::mem::transmute::<ReadOnlyBorrowedObject<RET>, ReadOnlyBorrowedObject<STATICRET>>(
@@ -705,7 +728,7 @@ impl<
             };
 
             let return_value =
-                SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
+                SteelVal::Reference(Rc::new(extended.into_opaque_reference::<'static>()));
 
             Ok(return_value)
         };
@@ -766,7 +789,13 @@ impl<
             // Allocate the rooted object here
             OpaqueReferenceNursery::allocate(temp_borrow.into_opaque_reference());
 
-            let borrowed = ReadOnlyBorrowedObject { ptr: weak_ptr };
+            let borrow_flag = args[0]
+                .get_borrow_count_if_borrowed_object::<SELFSTAT>()
+                .unwrap();
+
+            borrow_flag.set(borrow_flag.get() + 1);
+
+            let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, borrow_flag);
 
             let extended = unsafe {
                 std::mem::transmute::<ReadOnlyBorrowedObject<RET>, ReadOnlyBorrowedObject<STATICRET>>(
@@ -775,7 +804,143 @@ impl<
             };
 
             let return_value =
-                SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
+                SteelVal::Reference(Rc::new(extended.into_opaque_reference::<'static>()));
+
+            Ok(return_value)
+        };
+
+        self.register_value(
+            name,
+            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+                Arc::new(f),
+                Some(name),
+                Some(1),
+            ))),
+        )
+    }
+}
+
+impl<
+        'a,
+        SELF: AsRefSteelValFromRef + 'a,
+        SELFSTAT: AsRefSteelValFromRef + 'static,
+        RET: AsRefSteelValFromRef + 'a,
+        RETSTAT: AsRefSteelValFromRef + 'static,
+        ARG: FromSteelVal,
+        FN: (Fn(&'a SELF, ARG) -> RET) + SendSyncStatic,
+    > RegisterFnBorrowed<FN, MarkerWrapper9<(SELF, ARG, SELFSTAT, RET, RETSTAT)>, RET>
+    for BuiltInModule
+{
+    fn register_fn_borrowed(&mut self, name: &'static str, func: FN) -> &mut Self {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+
+            if args.len() != 2 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
+            }
+
+            // If this value is
+            let mut input = <SELF>::as_ref_from_ref(&args[0])?;
+            let arg = ARG::from_steelval(&args[1])?;
+
+            let res = func(input, arg);
+
+            // let lifted = unsafe { std::mem::transmute::<RET, RETSTAT>(res) };
+
+            // lifted.into_steelval()
+
+            let erased = res;
+
+            // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
+            // So here we should have a weak reference to the existing lifetime?
+            let wrapped = Rc::new(erased);
+            let weak_ptr = Rc::downgrade(&wrapped);
+
+            let temporary_borrowed_object =
+                crate::gc::unsafe_erased_pointers::Temporary { ptr: wrapped };
+
+            let temp_borrow = unsafe {
+                std::mem::transmute::<Temporary<RET>, Temporary<RETSTAT>>(temporary_borrowed_object)
+            };
+
+            // Allocate the rooted object here
+            OpaqueReferenceNursery::allocate(temp_borrow.into_opaque_reference());
+
+            let borrowed = ReadOnlyTemporary { ptr: weak_ptr };
+
+            let extended = unsafe {
+                std::mem::transmute::<ReadOnlyTemporary<RET>, ReadOnlyTemporary<RETSTAT>>(borrowed)
+            };
+
+            let return_value =
+                SteelVal::Reference(Rc::new(extended.into_opaque_reference::<'static>()));
+
+            Ok(return_value)
+        };
+
+        self.register_value(
+            name,
+            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+                Arc::new(f),
+                Some(name),
+                Some(1),
+            ))),
+        )
+    }
+}
+
+impl<
+        'a,
+        SELF: AsRefSteelValFromRef + 'a,
+        SELFSTAT: AsRefSteelValFromRef + 'static,
+        RET: AsRefSteelValFromRef + 'a,
+        RETSTAT: AsRefSteelValFromRef + 'static,
+        FN: (Fn(&'a SELF) -> RET) + SendSyncStatic,
+    > RegisterFnBorrowed<FN, MarkerWrapper9<(SELF, SELFSTAT, RET, RETSTAT)>, RET>
+    for BuiltInModule
+{
+    fn register_fn_borrowed(&mut self, name: &'static str, func: FN) -> &mut Self {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+
+            if args.len() != 1 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
+            }
+
+            // If this value is
+            let mut input = <SELF>::as_ref_from_ref(&args[0])?;
+
+            let res = func(input);
+
+            // let lifted = unsafe { std::mem::transmute::<RET, RETSTAT>(res) };
+
+            // lifted.into_steelval()
+
+            let erased = res;
+
+            // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
+            // So here we should have a weak reference to the existing lifetime?
+            let wrapped = Rc::new(erased);
+            let weak_ptr = Rc::downgrade(&wrapped);
+
+            let temporary_borrowed_object =
+                crate::gc::unsafe_erased_pointers::Temporary { ptr: wrapped };
+
+            let temp_borrow = unsafe {
+                std::mem::transmute::<Temporary<RET>, Temporary<RETSTAT>>(temporary_borrowed_object)
+            };
+
+            // Allocate the rooted object here
+            OpaqueReferenceNursery::allocate(temp_borrow.into_opaque_reference());
+
+            let borrowed = ReadOnlyTemporary { ptr: weak_ptr };
+
+            let extended = unsafe {
+                std::mem::transmute::<ReadOnlyTemporary<RET>, ReadOnlyTemporary<RETSTAT>>(borrowed)
+            };
+
+            let return_value =
+                SteelVal::Reference(Rc::new(extended.into_opaque_reference::<'static>()));
 
             Ok(return_value)
         };
@@ -986,14 +1151,20 @@ impl<
             // Allocate the rooted object here
             OpaqueReferenceNursery::allocate(temp_borrow.into_opaque_reference());
 
-            let borrowed = BorrowedObject { ptr: weak_ptr };
+            let borrow_flag = args[0]
+                .get_borrow_flag_if_borrowed_object::<SELFSTAT>()
+                .unwrap();
+
+            borrow_flag.set(true);
+
+            let borrowed = BorrowedObject::new(weak_ptr).with_parent_flag(borrow_flag);
 
             let extended = unsafe {
                 std::mem::transmute::<BorrowedObject<RET>, BorrowedObject<STATICRET>>(borrowed)
             };
 
             let return_value =
-                SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
+                SteelVal::Reference(Rc::new(extended.into_opaque_reference::<'static>()));
 
             Ok(return_value)
 
@@ -1062,7 +1233,16 @@ impl<
             // Allocate the rooted object here
             OpaqueReferenceNursery::allocate(temp_borrow.into_opaque_reference());
 
-            let borrowed = ReadOnlyBorrowedObject { ptr: weak_ptr };
+            let borrow_flag = args[0]
+                .get_borrow_count_if_borrowed_object::<SELFSTAT>()
+                .unwrap();
+
+            borrow_flag.set(borrow_flag.get() + 1);
+
+            // TODO: Mark the parent as borrowed -> Can't be access again until
+            // the child value is out of scope. We shouldn't have a problem with RO values
+            // from this point, since everything can be read
+            let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, borrow_flag);
 
             let extended = unsafe {
                 std::mem::transmute::<ReadOnlyBorrowedObject<RET>, ReadOnlyBorrowedObject<STATICRET>>(
@@ -1071,7 +1251,7 @@ impl<
             };
 
             let return_value =
-                SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
+                SteelVal::Reference(Rc::new(extended.into_opaque_reference::<'static>()));
 
             Ok(return_value)
         };
@@ -1133,7 +1313,13 @@ impl<
             // Allocate the rooted object here
             OpaqueReferenceNursery::allocate(temp_borrow.into_opaque_reference());
 
-            let borrowed = ReadOnlyBorrowedObject { ptr: weak_ptr };
+            let borrow_flag = args[0]
+                .get_borrow_count_if_borrowed_object::<SELFSTAT>()
+                .unwrap();
+
+            borrow_flag.set(borrow_flag.get() + 1);
+
+            let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, borrow_flag);
 
             let extended = unsafe {
                 std::mem::transmute::<ReadOnlyBorrowedObject<RET>, ReadOnlyBorrowedObject<STATICRET>>(
@@ -1142,7 +1328,7 @@ impl<
             };
 
             let return_value =
-                SteelVal::Reference(Box::new(extended.into_opaque_reference::<'static>()));
+                SteelVal::Reference(Rc::new(extended.into_opaque_reference::<'static>()));
 
             Ok(return_value)
         };
@@ -1461,6 +1647,8 @@ pub struct MarkerWrapper5<ARGS>(PhantomData<ARGS>);
 pub struct MarkerWrapper6<ARGS>(PhantomData<ARGS>);
 pub struct MarkerWrapper7<ARGS>(PhantomData<ARGS>);
 pub struct MarkerWrapper8<ARGS>(PhantomData<ARGS>);
+
+pub struct MarkerWrapper9<ARGS>(PhantomData<ARGS>);
 
 impl<
         A: AsRefSteelVal,

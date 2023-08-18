@@ -280,6 +280,7 @@ pub mod unsafe_erased_pointers {
     can lead to undefined behavior.
     */
 
+    use std::cell::Cell;
     use std::rc::{Rc, Weak};
     use std::{any::Any, cell::RefCell, marker::PhantomData};
 
@@ -316,13 +317,13 @@ pub mod unsafe_erased_pointers {
             let wrapped = Rc::new(RefCell::new(erased));
             let weak_ptr = Rc::downgrade(&wrapped);
 
-            let borrowed = BorrowedObject { ptr: weak_ptr };
+            let borrowed = BorrowedObject::new(weak_ptr);
 
             let erased2 = original_b as *mut _;
             let wrapped2 = Rc::new(RefCell::new(erased2));
             let weak_ptr2 = Rc::downgrade(&wrapped2);
 
-            let borrowed2 = BorrowedObject { ptr: weak_ptr2 };
+            let borrowed2 = BorrowedObject::new(weak_ptr2);
 
             thunk(borrowed, borrowed2)
         }
@@ -351,7 +352,7 @@ pub mod unsafe_erased_pointers {
             let wrapped = Rc::new(RefCell::new(erased));
             let weak_ptr = Rc::downgrade(&wrapped);
 
-            let borrowed = ReadOnlyBorrowedObject { ptr: weak_ptr };
+            let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, Rc::new(Cell::new(0)));
 
             thunk(borrowed)
         }
@@ -368,7 +369,7 @@ pub mod unsafe_erased_pointers {
             let wrapped = Rc::new(RefCell::new(erased));
             let weak_ptr = Rc::downgrade(&wrapped);
 
-            let borrowed = BorrowedObject { ptr: weak_ptr };
+            let borrowed = BorrowedObject::new(weak_ptr);
 
             thunk(borrowed)
         }
@@ -475,6 +476,13 @@ pub mod unsafe_erased_pointers {
         pub(crate) ptr: Rc<RefCell<*const T>>,
     }
 
+    // Not a reference explicitly. This might contain a reference, but on its own it is a
+    // value type. This should probably only deal with immutable references for now.
+    pub(crate) struct Temporary<T> {
+        pub(crate) ptr: Rc<T>,
+    }
+
+    impl<T> CustomReference for Temporary<T> {}
     impl<T> CustomReference for TemporaryObject<T> {}
     impl<T> CustomReference for ReadOnlyTemporaryObject<T> {}
 
@@ -494,16 +502,67 @@ pub mod unsafe_erased_pointers {
         }
     }
 
+    impl<T: 'static> Temporary<T> {
+        pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
+            OpaqueReference {
+                inner: Rc::new(self),
+            }
+        }
+    }
+
+    pub struct ReadOnlyTemporary<T> {
+        pub(crate) ptr: Weak<T>,
+    }
+
+    impl<T> CustomReference for ReadOnlyTemporary<T> {}
+
+    impl<T> Clone for ReadOnlyTemporary<T> {
+        fn clone(&self) -> Self {
+            Self {
+                ptr: Weak::clone(&self.ptr),
+            }
+        }
+    }
+
+    impl<T: 'static> ReadOnlyTemporary<T> {
+        pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
+            OpaqueReference {
+                inner: Rc::new(self),
+            }
+        }
+    }
+
     pub struct ReadOnlyBorrowedObject<T> {
         pub(crate) ptr: Weak<RefCell<*const T>>,
+        pub(crate) parent_borrow_count: Rc<Cell<BorrowFlag>>,
     }
 
     impl<T> CustomReference for ReadOnlyBorrowedObject<T> {}
+
+    impl<T> ReadOnlyBorrowedObject<T> {
+        pub fn new(
+            ptr: Weak<RefCell<*const T>>,
+            parent_borrow_count: Rc<Cell<BorrowFlag>>,
+        ) -> Self {
+            Self {
+                ptr,
+                parent_borrow_count,
+            }
+        }
+    }
+
+    impl<T> Drop for ReadOnlyBorrowedObject<T> {
+        fn drop(&mut self) {
+            self.parent_borrow_count
+                .set(self.parent_borrow_count.get() - 1);
+        }
+    }
 
     impl<T> Clone for ReadOnlyBorrowedObject<T> {
         fn clone(&self) -> Self {
             Self {
                 ptr: Weak::clone(&self.ptr),
+                parent_borrow_count: Rc::clone(&self.parent_borrow_count),
             }
         }
     }
@@ -516,8 +575,111 @@ pub mod unsafe_erased_pointers {
         }
     }
 
+    type BorrowFlag = isize;
+    const UNUSED: BorrowFlag = 0;
+
+    #[inline(always)]
+    fn is_writing(x: BorrowFlag) -> bool {
+        x < UNUSED
+    }
+
+    #[inline(always)]
+    fn is_reading(x: BorrowFlag) -> bool {
+        x > UNUSED
+    }
+
     pub struct BorrowedObject<T> {
         pub(crate) ptr: Weak<RefCell<*mut T>>,
+        // TODO: This might need to just be a direct reference to the parent?
+        pub(crate) parent_borrow_flag: Rc<Cell<bool>>,
+        pub(crate) child_borrow_flag: Rc<Cell<bool>>,
+        // TODO:
+        // This really should be the way to do things...
+        pub(crate) borrow_count: Rc<Cell<BorrowFlag>>,
+    }
+
+    impl<T> Drop for BorrowedObject<T> {
+        fn drop(&mut self) {
+            // We're not borrowing anymore, so we can do this
+            self.parent_borrow_flag.set(false);
+        }
+    }
+
+    impl<T> BorrowedObject<T> {
+        pub fn new(ptr: Weak<RefCell<*mut T>>) -> Self {
+            Self {
+                ptr,
+                parent_borrow_flag: Rc::new(Cell::new(false)),
+                child_borrow_flag: Rc::new(Cell::new(false)),
+                borrow_count: Rc::new(Cell::new(0)),
+            }
+        }
+
+        pub fn with_parent_flag(mut self, parent_borrow_flag: Rc<Cell<bool>>) -> Self {
+            self.parent_borrow_flag = parent_borrow_flag;
+
+            self
+        }
+    }
+
+    impl SteelVal {
+        pub(crate) fn get_borrow_flag_if_borrowed_object<T: AsRefMutSteelValFromRef + 'static>(
+            &self,
+        ) -> crate::rvals::Result<Rc<Cell<bool>>> {
+            if let SteelVal::Reference(v) = self {
+                let res = v.inner.as_any_ref();
+
+                if res.is::<BorrowedObject<T>>() {
+                    let borrowed_object = res.downcast_ref::<BorrowedObject<T>>().unwrap();
+
+                    Ok(Rc::clone(&borrowed_object.child_borrow_flag))
+                } else {
+                    let error_message = format!(
+                        "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
+                        self,
+                        std::any::type_name::<Self>()
+                    );
+                    Err(SteelErr::new(ErrorKind::ConversionError, error_message))
+                }
+            } else {
+                let error_message = format!(
+                    "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
+                    self,
+                    std::any::type_name::<Self>()
+                );
+
+                Err(SteelErr::new(ErrorKind::ConversionError, error_message))
+            }
+        }
+
+        pub(crate) fn get_borrow_count_if_borrowed_object<T: AsRefMutSteelValFromRef + 'static>(
+            &self,
+        ) -> crate::rvals::Result<Rc<Cell<BorrowFlag>>> {
+            if let SteelVal::Reference(v) = self {
+                let res = v.inner.as_any_ref();
+
+                if res.is::<BorrowedObject<T>>() {
+                    let borrowed_object = res.downcast_ref::<BorrowedObject<T>>().unwrap();
+
+                    Ok(Rc::clone(&borrowed_object.borrow_count))
+                } else {
+                    let error_message = format!(
+                        "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
+                        self,
+                        std::any::type_name::<Self>()
+                    );
+                    Err(SteelErr::new(ErrorKind::ConversionError, error_message))
+                }
+            } else {
+                let error_message = format!(
+                    "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
+                    self,
+                    std::any::type_name::<Self>()
+                );
+
+                Err(SteelErr::new(ErrorKind::ConversionError, error_message))
+            }
+        }
     }
 
     impl<T> CustomReference for BorrowedObject<T> {}
@@ -526,6 +688,9 @@ pub mod unsafe_erased_pointers {
         fn clone(&self) -> Self {
             Self {
                 ptr: Weak::clone(&self.ptr),
+                parent_borrow_flag: Rc::clone(&self.parent_borrow_flag),
+                child_borrow_flag: Rc::clone(&self.child_borrow_flag),
+                borrow_count: Rc::clone(&self.borrow_count),
             }
         }
     }
@@ -584,7 +749,7 @@ pub mod unsafe_erased_pointers {
             let wrapped = Rc::new(RefCell::new(erased));
             let weak_ptr = Rc::downgrade(&wrapped);
 
-            let borrowed = BorrowedObject { ptr: weak_ptr };
+            let borrowed = BorrowedObject::new(weak_ptr);
 
             NURSERY.with(|x| x.memory.borrow_mut().push(Box::new(wrapped)));
             NURSERY.with(|x| {
@@ -604,7 +769,7 @@ pub mod unsafe_erased_pointers {
             let wrapped = Rc::new(RefCell::new(erased));
             let weak_ptr = Rc::downgrade(&wrapped);
 
-            let borrowed = ReadOnlyBorrowedObject { ptr: weak_ptr };
+            let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, Rc::new(Cell::new(0)));
 
             NURSERY.with(|x| x.memory.borrow_mut().push(Box::new(wrapped)));
 
@@ -631,7 +796,7 @@ pub mod unsafe_erased_pointers {
                 x.weak_values
                     .borrow_mut()
                     .drain(..)
-                    .map(Box::new)
+                    .map(Rc::new)
                     .map(SteelVal::Reference)
                     .collect()
             });
@@ -684,6 +849,12 @@ pub mod unsafe_erased_pointers {
                 if res.is::<BorrowedObject<T>>() {
                     let borrowed_object = res.downcast_ref::<BorrowedObject<T>>().unwrap();
 
+                    if borrowed_object.borrow_count.get() > 0
+                        || borrowed_object.child_borrow_flag.get()
+                    {
+                        stop!(Generic => "Value is already borrowed!")
+                    }
+
                     let guard = borrowed_object.ptr.upgrade().ok_or_else(
                         throw!(Generic => "opaque reference pointer dropped before use!"),
                     );
@@ -725,6 +896,17 @@ pub mod unsafe_erased_pointers {
                     );
 
                     return guard.map(|x| unsafe { &*(*x.borrow()) });
+                } else if res.is::<ReadOnlyTemporary<T>>() {
+                    let borrowed_object = res.downcast_ref::<ReadOnlyTemporary<T>>().unwrap();
+
+                    // return Ok(borrowed_object.clone());
+
+                    let guard = borrowed_object.ptr.upgrade().ok_or_else(
+                        throw!(Generic => "opaque reference pointer dropped before use!"),
+                    );
+
+                    // Super suspect but we'll move on for now
+                    return guard.map(|x| unsafe { &*(Rc::as_ptr(&x)) });
                 } else {
                     let error_message = format!(
                         "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",

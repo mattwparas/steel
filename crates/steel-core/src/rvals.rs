@@ -1,7 +1,10 @@
 pub mod cycles;
 
 use crate::{
-    gc::{unsafe_erased_pointers::OpaqueReference, Gc},
+    gc::{
+        unsafe_erased_pointers::{BorrowedObject, OpaqueReference},
+        Gc,
+    },
     parser::{
         ast::{self, Atom, ExprKind},
         parser::SyntaxObject,
@@ -1026,7 +1029,7 @@ pub enum SteelVal {
     Boxed(Gc<RefCell<SteelVal>>),
 
     // TODO: This itself, needs to be boxed unfortunately.
-    Reference(Box<OpaqueReference<'static>>),
+    Reference(Rc<OpaqueReference<'static>>),
 
     BigNum(Gc<num::BigInt>),
 }
