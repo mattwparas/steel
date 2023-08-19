@@ -1580,8 +1580,6 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
     RegisterFn<FN, MarkerWrapper8<SELF>, RET> for BuiltInModule
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
-        // use std::Borrow();
-
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
@@ -1590,6 +1588,38 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
             let mut input = <SELF>::as_ref_from_ref(&args[0])?;
 
             let res = func(&mut input);
+
+            res.into_steelval()
+        };
+
+        self.register_value(
+            name,
+            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+                Arc::new(f),
+                Some(name),
+                Some(1),
+            ))),
+        )
+    }
+}
+
+impl<
+        RET: IntoSteelVal,
+        ARG: FromSteelVal,
+        SELF: AsRefSteelValFromRef,
+        FN: Fn(&SELF, ARG) -> RET + SendSyncStatic,
+    > RegisterFn<FN, MarkerWrapper8<(SELF, ARG)>, RET> for BuiltInModule
+{
+    fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+            }
+
+            let mut input = <SELF>::as_ref_from_ref(&args[0])?;
+            let arg = <ARG>::from_steelval(&args[1])?;
+
+            let res = func(&mut input, arg);
 
             res.into_steelval()
         };

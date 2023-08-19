@@ -3257,7 +3257,7 @@ impl<'a> VmCore<'a> {
             //     self.ip += 4;
             // }
             _ => {
-                println!("{stack_func:?}");
+                log::error!("{stack_func:?}");
                 stop!(BadSyntax => format!("Function application not a procedure or function type not supported, {stack_func}"); self.current_span());
             }
         }
@@ -3521,8 +3521,8 @@ impl<'a> VmCore<'a> {
             _ => {
                 // Explicitly mark this as unlikely
                 cold();
-                println!("{stack_func:?}");
-                println!("Stack: {:?}", self.thread.stack);
+                log::error!("{stack_func:?}");
+                log::error!("Stack: {:?}", self.thread.stack);
                 stop!(BadSyntax => "Function application not a procedure or function type not supported"; self.current_span());
             }
         }
@@ -3551,8 +3551,8 @@ impl<'a> VmCore<'a> {
             _ => {
                 // Explicitly mark this as unlikely
                 cold();
-                println!("{stack_func:?}");
-                println!("Stack: {:?}", self.thread.stack);
+                log::error!("{stack_func:?}");
+                log::error!("Stack: {:?}", self.thread.stack);
                 stop!(BadSyntax => "Function application not a procedure or function type not supported"; self.current_span());
             }
         }
@@ -3574,8 +3574,8 @@ impl<'a> VmCore<'a> {
             FuncV(f) => f(args),
             FutureFunc(f) => Ok(SteelVal::FutureV(Gc::new(f(args)?))),
             _ => {
-                println!("{stack_func:?}");
-                println!("Stack: {:?}", self.thread.stack);
+                log::error!("{stack_func:?}");
+                log::error!("Stack: {:?}", self.thread.stack);
                 stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {stack_func}"); self.current_span());
             }
         }
@@ -3624,8 +3624,8 @@ impl<'a> VmCore<'a> {
             }
             // BuiltIn(f) => f(self, args),
             _ => {
-                println!("{stack_func:?}");
-                println!("Stack: {:?}", self.thread.stack);
+                log::error!("Lazy push: {stack_func:?}");
+                log::error!("Stack: {:?}", self.thread.stack);
                 stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {stack_func}"); self.current_span());
             }
         }
@@ -3661,8 +3661,8 @@ impl<'a> VmCore<'a> {
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
             CustomStruct(s) => self.call_custom_struct(&s.borrow(), payload_size),
             _ => {
-                println!("{stack_func:?}");
-                println!("stack: {:?}", self.thread.stack);
+                log::error!("{stack_func:?}");
+                log::error!("stack: {:?}", self.thread.stack);
                 stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {stack_func}"); self.current_span());
             }
         }

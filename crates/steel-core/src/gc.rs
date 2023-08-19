@@ -905,7 +905,10 @@ pub mod unsafe_erased_pointers {
                         throw!(Generic => "opaque reference pointer dropped before use!"),
                     );
 
-                    // Super suspect but we'll move on for now
+                    // TODO: @Matt -> We really do not want to have this here
+                    // The way to fix it is to have a separate trait, with a return type
+                    // more akin to a an owned borrow of some kind (like Ref from borrow() on refcell)
+                    // This is super suspect but we'll move on for now
                     return guard.map(|x| unsafe { &*(Rc::as_ptr(&x)) });
                 } else {
                     let error_message = format!(
