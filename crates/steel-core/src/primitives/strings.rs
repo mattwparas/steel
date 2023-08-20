@@ -45,7 +45,7 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(STRING_TO_NUMBER_DEFINITION)
         .register_native_fn_definition(NUMBER_TO_STRING_DEFINITION)
         .register_fn("char-upcase", char_upcase)
-        // .register_fn("char-whitespace?", char::is_whitespace);
+        .register_fn("char-whitespace?", char::is_whitespace);
     module
 }
 
