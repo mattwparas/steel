@@ -489,6 +489,12 @@ impl IntoSteelVal for String {
     }
 }
 
+impl IntoSteelVal for SteelString {
+    fn into_steelval(self) -> Result<SteelVal, SteelErr> {
+        Ok(SteelVal::StringV(self))
+    }
+}
+
 impl From<String> for Gc<SteelVal> {
     fn from(val: String) -> Gc<SteelVal> {
         Gc::new(val.into())

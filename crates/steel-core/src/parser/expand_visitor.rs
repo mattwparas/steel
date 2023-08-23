@@ -522,8 +522,6 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                     let comment = args.next().unwrap();
                     let top_level_define = args.next().unwrap();
 
-                    // println!("Expanding: {}", top_level_define);
-
                     match &top_level_define {
                         // A classic @doc case
                         // (@doc "comment" (define <name> <body>))
@@ -540,12 +538,22 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                                 d.name.atom_identifier().unwrap().to_string() + "__ast__",
                             );
 
+                            // Include the metadata table
+                            let metadata_table_addition = ExprKind::List(List::new(vec![
+                                ExprKind::atom("#%function-ptr-table-add"),
+                                ExprKind::atom("#%function-ptr-table"),
+                                ExprKind::atom(d.name.atom_identifier().unwrap().clone()),
+                                ExprKind::atom(
+                                    d.name.atom_identifier().unwrap().to_string() + "__doc__",
+                                ),
+                            ]));
+
                             let expanded_expr = self.visit(top_level_define)?;
 
                             let quoted_ast = define_quoted_ast_node(ast_name, &expanded_expr);
 
                             return Ok(ExprKind::Begin(Begin::new(
-                                vec![doc_expr, quoted_ast, expanded_expr],
+                                vec![doc_expr, quoted_ast, expanded_expr, metadata_table_addition],
                                 SyntaxObject::default(TokenType::Begin),
                             )));
                         }

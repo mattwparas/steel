@@ -33,7 +33,7 @@ use crate::{
     },
     values::{
         closed::HeapRef,
-        functions::{attach_contract_struct, get_contract},
+        functions::{attach_contract_struct, get_contract, LambdaMetadataTable},
         structs::{build_type_id_module, make_struct_type},
     },
 };
@@ -978,6 +978,12 @@ fn set_box(value: &Gc<RefCell<SteelVal>>, update_to: SteelVal) {
 fn meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta");
     module
+        .register_value(
+            "#%function-ptr-table",
+            LambdaMetadataTable::new().into_steelval().unwrap(),
+        )
+        .register_fn("#%function-ptr-table-add", LambdaMetadataTable::add)
+        .register_fn("#%function-ptr-table-get", LambdaMetadataTable::get)
         .register_value("assert!", MetaOperations::assert_truthy())
         .register_value("active-object-count", MetaOperations::active_objects())
         .register_value("inspect-bytecode", MetaOperations::inspect_bytecode())

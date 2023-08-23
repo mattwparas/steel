@@ -17,9 +17,7 @@ name = "steel"
 im-rc = "15.1.0"
 codespan-reporting = "0.11.1"
 logos = "0.12.1"
-# itertools = "0.10.5"
 log = "0.4.17"
-# futures = { version = "0.3.28", default-features = false, features = ["std"] }
 
 futures-util = "0.3.28"
 futures-task = "0.3.28"
