@@ -170,7 +170,7 @@ impl CycleDetector {
             SymbolV(s) => write!(f, "{s}"),
             VectorV(lst) => {
                 let mut iter = lst.iter();
-                write!(f, "'#(")?;
+                write!(f, "(")?;
                 if let Some(last) = iter.next_back() {
                     for item in iter {
                         self.format_with_cycles(item, f)?;
