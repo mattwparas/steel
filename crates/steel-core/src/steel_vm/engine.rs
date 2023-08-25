@@ -68,6 +68,12 @@ impl ModuleContainer {
     }
 }
 
+pub struct EngineStatistics {
+    pub rooted_count: usize,
+    pub constants_count: usize,
+    pub sources_size: usize,
+}
+
 #[derive(Clone)]
 pub struct Engine {
     virtual_machine: SteelThread,
@@ -522,6 +528,10 @@ impl Engine {
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
         }
+    }
+
+    pub fn report_engine_stats(&self) -> EngineStatistics {
+        todo!()
     }
 
     /// Instantiates a new engine instance with all primitive functions enabled.

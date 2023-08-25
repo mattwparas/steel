@@ -71,6 +71,13 @@ impl InterierSources {
         }
     }
 
+    pub fn size_in_bytes(&self) -> usize {
+        self.sources
+            .iter()
+            .map(|x| std::mem::size_of_val(&*x))
+            .sum()
+    }
+
     pub fn add_source(&mut self, source: String, path: Option<PathBuf>) -> SourceId {
         let index = self.sources.len();
         self.sources.push(source);
