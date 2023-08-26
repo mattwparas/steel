@@ -3,19 +3,16 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-
 use steel_parser::tokens::TokenType;
 
 use crate::{
-    compiler::{
-        passes::analysis::SemanticAnalysis,
-    },
+    compiler::passes::analysis::SemanticAnalysis,
     expr_list,
     parser::{
         ast::{Atom, Set},
         parser::SyntaxObject,
     },
-    rvals::{Result},
+    rvals::Result,
     steel_vm::register_fn::RegisterFn,
 };
 use crate::{stdlib::KERNEL, steel_vm::engine::Engine, SteelVal};

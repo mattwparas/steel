@@ -4,13 +4,14 @@
 //! is not paid to those pipes!
 use abi_stable::std_types::{
     RBoxError,
-    RResult::{self}, RVec,
+    RResult::{self},
+    RVec,
 };
 // use ansi_parser::AnsiParser;
 // use ansitok::{parse_ansi, AnsiIterator, Element};
 use portable_pty::{Child, CommandBuilder, NativePtySystem, PtyPair, PtySize, PtySystem};
 use std::{
-    io::{Read},
+    io::Read,
     sync::{
         mpsc::{channel, Sender},
         Arc,

@@ -3,10 +3,7 @@
 //! pipes involved and it is easy to get blocked/deadlocked if care and attention
 //! is not paid to those pipes!
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
-use std::{
-    io::{Read},
-    sync::mpsc::channel,
-};
+use std::{io::Read, sync::mpsc::channel};
 
 fn main() {
     let pty_system = NativePtySystem::default();

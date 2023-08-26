@@ -1,10 +1,7 @@
 pub mod cycles;
 
 use crate::{
-    gc::{
-        unsafe_erased_pointers::{OpaqueReference},
-        Gc,
-    },
+    gc::{unsafe_erased_pointers::OpaqueReference, Gc},
     parser::{
         ast::{self, Atom, ExprKind},
         parser::SyntaxObject,
@@ -14,13 +11,13 @@ use crate::{
     rerrs::{ErrorKind, SteelErr},
     steel_vm::vm::{BuiltInSignature, Continuation},
     values::port::SteelPort,
-    values::{functions::BoxedDynFunction, structs::UserDefinedStruct},
     values::{
         contracts::{ContractType, ContractedFunction},
         functions::ByteCodeLambda,
         lazy_stream::LazyStream,
         transducers::{Reducer, Transducer},
     },
+    values::{functions::BoxedDynFunction, structs::UserDefinedStruct},
 };
 
 // #[cfg(feature = "jit")]

@@ -1,10 +1,8 @@
-use crate::{stop};
+use crate::rvals::{poll_future, Result, SteelVal};
+use crate::stop;
 use crate::{
     gc::{get_object_count, Gc},
     rvals::FutureResult,
-};
-use crate::{
-    rvals::{poll_future, Result, SteelVal},
 };
 
 use futures_util::future::join_all;
