@@ -32,7 +32,6 @@ use crate::{
         vm::threads::threading_module,
     },
     values::{
-        closed::HeapRef,
         functions::{attach_contract_struct, get_contract, LambdaMetadataTable},
         structs::{build_type_id_module, make_struct_type},
     },

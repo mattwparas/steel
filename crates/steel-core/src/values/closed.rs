@@ -5,7 +5,6 @@ use std::{
 
 use crate::{
     gc::Gc,
-    rvals::{AsRefSteelVal, SRef},
     values::{
         contracts::{ContractType, FunctionKind},
         functions::ByteCodeLambda,

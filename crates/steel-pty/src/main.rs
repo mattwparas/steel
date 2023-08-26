@@ -4,7 +4,7 @@
 //! is not paid to those pipes!
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use std::{
-    io::{BufRead, BufReader, Read},
+    io::{Read},
     sync::mpsc::channel,
 };
 

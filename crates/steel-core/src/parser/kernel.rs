@@ -1,25 +1,21 @@
 use std::{
-    cell::RefCell,
     collections::HashSet,
-    convert::TryFrom,
-    rc::Rc,
     sync::{Arc, RwLock},
 };
 
-use im_lists::list::List;
+
 use steel_parser::tokens::TokenType;
 
 use crate::{
     compiler::{
         passes::analysis::SemanticAnalysis,
-        program::{BETTER_LAMBDA, DEFINE_VALUES, STRUCT_KEYWORD},
     },
     expr_list,
     parser::{
-        ast::{from_list_repr_to_ast, Atom, Set},
+        ast::{Atom, Set},
         parser::SyntaxObject,
     },
-    rvals::{Result, SteelString},
+    rvals::{Result},
     steel_vm::register_fn::RegisterFn,
 };
 use crate::{stdlib::KERNEL, steel_vm::engine::Engine, SteelVal};

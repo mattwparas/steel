@@ -1,4 +1,4 @@
-use crate::compiler::program::{QUASISYNTAX, SYNTAX_QUOTE, SYNTAX_SPAN};
+use crate::compiler::program::{SYNTAX_SPAN};
 use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
 use crate::parser::visitors::ConsumingVisitor;

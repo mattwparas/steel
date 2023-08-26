@@ -3,18 +3,16 @@
 //! pipes involved and it is easy to get blocked/deadlocked if care and attention
 //! is not paid to those pipes!
 use abi_stable::std_types::{
-    RBoxError, RBoxError_,
-    RResult::{self, RErr},
-    RString, RVec,
+    RBoxError,
+    RResult::{self}, RVec,
 };
 // use ansi_parser::AnsiParser;
 // use ansitok::{parse_ansi, AnsiIterator, Element};
 use portable_pty::{Child, CommandBuilder, NativePtySystem, PtyPair, PtySize, PtySystem};
 use std::{
-    io::{BufRead, BufReader, Read},
+    io::{Read},
     sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc::{channel, Receiver, Sender},
+        mpsc::{channel, Sender},
         Arc,
     },
 };
@@ -190,8 +188,8 @@ pub fn action_to_ffi_value(action: Action) -> FFIValue {
         },
         Action::Esc(esc) => match esc {
             termwiz::escape::Esc::Unspecified {
-                intermediate,
-                control,
+                intermediate: _,
+                control: _,
             } => FFIValue::Void,
             termwiz::escape::Esc::Code(c) => match c {
                 // termwiz::escape::EscCode::FullReset => todo!(),

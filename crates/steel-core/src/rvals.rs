@@ -2,7 +2,7 @@ pub mod cycles;
 
 use crate::{
     gc::{
-        unsafe_erased_pointers::{BorrowedObject, OpaqueReference},
+        unsafe_erased_pointers::{OpaqueReference},
         Gc,
     },
     parser::{
@@ -14,7 +14,7 @@ use crate::{
     rerrs::{ErrorKind, SteelErr},
     steel_vm::vm::{BuiltInSignature, Continuation},
     values::port::SteelPort,
-    values::{closed::HeapRef, functions::BoxedDynFunction, structs::UserDefinedStruct},
+    values::{functions::BoxedDynFunction, structs::UserDefinedStruct},
     values::{
         contracts::{ContractType, ContractedFunction},
         functions::ByteCodeLambda,
