@@ -3800,18 +3800,12 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
         }
     }
 
-    // Ok(())
-
-    // if std::env::var("CODE_GEN_V2").is_ok() {
-    //     ctx.ip += 1;
-    // }
-
     let continuation = ctx.construct_continuation_function();
 
     match function {
         SteelVal::Closure(closure) => {
             if ctx.thread.stack_frames.len() == STACK_LIMIT {
-                println!("stack frame at exit: {:?}", ctx.thread.stack);
+                log::error!("stack frame at exit: {:?}", ctx.thread.stack);
                 builtin_stop!(Generic => "call/cc: stack overflowed!"; ctx.current_span());
             }
 

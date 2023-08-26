@@ -10,7 +10,7 @@ use crate::{
     },
 };
 
-use std::{convert::TryFrom, sync::atomic::Ordering, fmt::Write};
+use std::{convert::TryFrom, fmt::Write, sync::atomic::Ordering};
 
 // use itertools::Itertools;
 use pretty::RcDoc;
@@ -48,7 +48,8 @@ impl AstTools for Vec<&ExprKind> {
 
 pub trait IteratorExtensions: Iterator {
     fn join(&mut self, sep: &str) -> String
-        where Self::Item: std::fmt::Display
+    where
+        Self::Item: std::fmt::Display,
     {
         match self.next() {
             None => String::new(),
@@ -359,15 +360,8 @@ impl TryFromSteelValVisitorForExprKind {
                 stop!(Generic => "Can't convert from Custom Type to expression!")
             }
             ListV(l) => {
-
-                // dbg!(&self);
-                // dbg!(&l);
-                
                 // Rooted - things operate as normal
                 if self.qq_depth == 0 {
-                    // let maybe_special_form = l.first().and_then(|x| x.as_symbol());
-
-                    
                     let maybe_special_form = l.first().and_then(|x| {
                         x.as_symbol()
                             .or_else(|| x.as_syntax_object().and_then(|x| x.syntax.as_symbol()))
@@ -386,7 +380,6 @@ impl TryFromSteelValVisitorForExprKind {
 
                             self.quoted = true;
 
-
                             let return_value = Ok(l
                                 .into_iter()
                                 .map(|x| self.visit(x))
@@ -402,12 +395,10 @@ impl TryFromSteelValVisitorForExprKind {
                         //     self.qq_depth += 1;
                         // }
 
-
                         // Empty list, just return as a quoted list
                         // None => {
-                            // return Ok(ExprKind::empty());
+                        // return Ok(ExprKind::empty());
                         // }
-
                         _ => {}
                     }
                 }
@@ -426,27 +417,9 @@ impl TryFromSteelValVisitorForExprKind {
             CharV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                 CharacterLiteral(*x),
             )))),
-            unknown => stop!(Generic => "Unable to convert from value to expression: {:?}", unknown)
-            // PortV(_) => stop!(Generic => "Can't convert from port to expression!"),
-            // Closure(_) => stop!(Generic => "Can't convert from bytecode closure to expression"),
-            // HashMapV(_) => stop!(Generic => "Can't convert from hashmap to expression!"),
-            // HashSetV(_) => stop!(Generic => "Can't convert from hashset to expression!"),
-            // IterV(_) => stop!(Generic => "Can't convert from iterator to expression!"),
-            // FutureFunc(_) => Err("Can't convert from future function to expression!"),
-            // FutureV(_) => Err("Can't convert future to expression!"),
-            // StreamV(_) => Err("Can't convert from stream to expression!"),
-            // Contract(_) => Err("Can't convert from contract to expression!"),
-            // ContractedFunction(_) => Err("Can't convert from contracted function to expression!"),
-            // BoxedFunction(_) => Err("Can't convert from boxed function to expression!"),
-            // ContinuationFunction(_) => Err("Can't convert from continuation to expression!"),
-            // MutFunc(_) => Err("Can't convert from function to expression!"),
-            // BuiltIn(_) => Err("Can't convert from function to expression!"),
-            // ReducerV(_) => Err("Can't convert from reducer to expression!"),
-            // MutableVector(_) => Err("Can't convert from vector to expression!"),
-            // CustomStruct(_) => Err("Can't convert from struct to expression!"),
-            // BoxedIterator(_) => Err("Can't convert from boxed iterator to expression!"),
-            // Boxed(_) => Err("Can't convert from boxed steel val to expression!"),
-            // Reference(_) => Err("Can't convert from opaque reference type to expression!"),
+            unknown => {
+                stop!(Generic => "Unable to convert from value to expression: {:?}", unknown)
+            }
         }
     }
 }
