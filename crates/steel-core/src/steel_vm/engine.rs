@@ -43,7 +43,6 @@ use crate::{
 use std::{collections::HashMap, path::PathBuf, rc::Rc, sync::Arc};
 
 use im_rc::HashMap as ImmutableHashMap;
-// use itertools::Itertools;
 use lasso::ThreadedRodeo;
 use serde::{Deserialize, Serialize};
 
