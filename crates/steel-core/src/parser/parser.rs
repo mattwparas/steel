@@ -122,6 +122,10 @@ impl Sources {
         self.sources.lock().unwrap().add_source(source, path)
     }
 
+    pub fn size_in_bytes(&self) -> usize {
+        self.sources.lock().unwrap().size_in_bytes()
+    }
+
     // pub fn get(&self, source_id: SourceId) -> MutexGuard<'_, InteriorSources> {
     //     let guard = self.sources.lock().unwrap();
 
@@ -555,7 +559,7 @@ impl<'a> Parser<'a> {
         )))
     }
 
-    fn expand_reader_macro(
+    fn _expand_reader_macro(
         &mut self,
         token: TokenType<InternedString>,
         val: ExprKind,

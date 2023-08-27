@@ -151,13 +151,13 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
 }
 
 pub struct SyntaxObjectFromExprKind {
-    inside_quote: bool,
+    _inside_quote: bool,
 }
 
 impl SyntaxObjectFromExprKind {
     pub fn try_from_expr_kind(e: ExprKind) -> Result<SteelVal> {
         SyntaxObjectFromExprKind {
-            inside_quote: false,
+            _inside_quote: false,
         }
         .visit(e)
     }

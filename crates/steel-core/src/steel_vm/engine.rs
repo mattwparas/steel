@@ -68,6 +68,7 @@ impl ModuleContainer {
     }
 }
 
+#[derive(Debug)]
 pub struct EngineStatistics {
     pub rooted_count: usize,
     pub constants_count: usize,
@@ -531,7 +532,11 @@ impl Engine {
     }
 
     pub fn report_engine_stats(&self) -> EngineStatistics {
-        todo!()
+        EngineStatistics {
+            rooted_count: self.globals().len(),
+            constants_count: self.compiler.constant_map.len(),
+            sources_size: self.sources.size_in_bytes(),
+        }
     }
 
     /// Instantiates a new engine instance with all primitive functions enabled.

@@ -291,18 +291,18 @@ impl TryFrom<ExprKind> for SteelVal {
 
 /// Convert this ExprKind into a typed version of the AST
 /// TODO: Matt -> actually do a full visitor on the AST
-pub(crate) fn from_list_repr_to_ast(expr: ExprKind) -> Result<ExprKind, ParseError> {
-    if let ExprKind::List(l) = expr {
-        ExprKind::try_from(
-            l.args
-                .into_iter()
-                .map(from_list_repr_to_ast)
-                .collect::<Result<Vec<_>, ParseError>>()?,
-        )
-    } else {
-        Ok(expr)
-    }
-}
+// pub(crate) fn from_list_repr_to_ast(expr: ExprKind) -> Result<ExprKind, ParseError> {
+//     if let ExprKind::List(l) = expr {
+//         ExprKind::try_from(
+//             l.args
+//                 .into_iter()
+//                 .map(from_list_repr_to_ast)
+//                 .collect::<Result<Vec<_>, ParseError>>()?,
+//         )
+//     } else {
+//         Ok(expr)
+//     }
+// }
 
 #[derive(Debug)]
 pub(crate) struct TryFromSteelValVisitorForExprKind {
