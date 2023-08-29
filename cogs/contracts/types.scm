@@ -3,6 +3,7 @@
 
 (provide contract?
          listof
+         hashof
          non-empty-listof
          </c
          >/c
@@ -26,6 +27,15 @@
                      [(list? lst) (loop pred lst)]
                      [else #f]))
                  (list 'listof (contract-or-procedure-name pred))))
+
+(define (hashof key-pred value-pred)
+  (make-contract
+   (lambda (hashmap)
+     ;; For hashof - we want to assert that both all of the keys and all of the values abide by
+     ;; a specific predicate
+     (and ((listof key-pred) (hash-keys->list hashmap))
+          ((listof value-pred) (hash-values->list hashmap))))
+   (list 'hashof (contract-or-procedure-name key-pred) (contract-or-procedure-name value-pred))))
 
 (define (contract-or-procedure-name x)
   (cond

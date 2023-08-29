@@ -2252,6 +2252,10 @@ impl<'a> VisitorMutUnitRef<'a> for UnusedArguments<'a> {
     }
 }
 
+// TODO: If its _not_ a pure function, we need to both assert that the function
+// does not escape, and then find the captured arguments, assert that those also
+// are immutable captures, and then modify the callsites to pass in those variables
+// as well.
 struct LiftPureFunctionsToGlobalScope<'a> {
     analysis: &'a Analysis,
     lifted_functions: Vec<ExprKind>,

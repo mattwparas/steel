@@ -2,6 +2,7 @@
 #![allow(clippy::type_complexity)]
 
 use im_rc::HashMap;
+use once_cell::sync::Lazy;
 
 use crate::compiler::map::SymbolMap;
 use crate::parser::interner::InternedString;
@@ -83,7 +84,11 @@ pub struct UserDefinedStruct {
     pub(crate) name: InternedString,
 
     // TODO: Consider using... just a vec here.
+    #[cfg(feature = "smallvec")]
     pub(crate) fields: smallvec::SmallVec<[SteelVal; 5]>,
+
+    #[cfg(not(feature = "smallvec"))]
+    pub(crate) fields: Vec<SteelVal>,
 
     // Type Descriptor. Use this as an index into the VTable to find anything that we need.
     pub(crate) type_descriptor: StructTypeDescriptor,
@@ -831,18 +836,14 @@ impl VTable {
     // fn define_trait()
 }
 
-// Probably just... intern the strings instead? I have an interner, it might be useful to
-// just use that directly. Resolve shouldn't be that difficult in this case.
-lazy_static::lazy_static! {
-    pub static ref OK_RESULT_LABEL: InternedString = "Ok".into();
-    pub static ref ERR_RESULT_LABEL: InternedString = "Err".into();
-    pub static ref SOME_OPTION_LABEL: InternedString = "Some".into();
-    pub static ref NONE_OPTION_LABEL: InternedString = "None".into();
-    pub static ref TYPE_ID: InternedString = "TypeId".into();
+pub static OK_RESULT_LABEL: Lazy<InternedString> = Lazy::new(|| "Ok".into());
+pub static SOME_OPTION_LABEL: Lazy<InternedString> = Lazy::new(|| "Some".into());
+pub static ERR_RESULT_LABEL: Lazy<InternedString> = Lazy::new(|| "Err".into());
+pub static NONE_OPTION_LABEL: Lazy<InternedString> = Lazy::new(|| "None".into());
+pub static TYPE_ID: Lazy<InternedString> = Lazy::new(|| "TypeId".into());
 
-
-    pub static ref STRUCT_DEFINITIONS: Arc<std::sync::RwLock<SymbolMap>> = Arc::new(std::sync::RwLock::new(SymbolMap::default()));
-}
+pub static STRUCT_DEFINITIONS: Lazy<Arc<std::sync::RwLock<SymbolMap>>> =
+    Lazy::new(|| Arc::new(std::sync::RwLock::new(SymbolMap::default())));
 
 // TODO: Just make these Arc'd and lazy static instead of thread local.
 thread_local! {

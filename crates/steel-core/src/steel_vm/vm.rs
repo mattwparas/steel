@@ -33,13 +33,12 @@ use std::{cell::RefCell, collections::HashMap, iter::Iterator, rc::Rc};
 use super::builtin::DocTemplate;
 
 use im_lists::list::List;
-use lazy_static::lazy_static;
 
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
 use num::ToPrimitive;
+use once_cell::sync::Lazy;
 use slotmap::DefaultKey;
-use smallvec::SmallVec;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
 
@@ -109,6 +108,10 @@ impl DehydratedStackTrace {
 
     pub fn trace(&self) -> &[DehydratedCallContext] {
         &self.stack_trace
+    }
+
+    pub fn push(&mut self, context: DehydratedCallContext) {
+        self.stack_trace.push(context)
     }
 }
 
@@ -3254,7 +3257,7 @@ impl<'a> VmCore<'a> {
             //     self.ip += 4;
             // }
             _ => {
-                println!("{stack_func:?}");
+                log::error!("{stack_func:?}");
                 stop!(BadSyntax => format!("Function application not a procedure or function type not supported, {stack_func}"); self.current_span());
             }
         }
@@ -3518,8 +3521,8 @@ impl<'a> VmCore<'a> {
             _ => {
                 // Explicitly mark this as unlikely
                 cold();
-                println!("{stack_func:?}");
-                println!("Stack: {:?}", self.thread.stack);
+                log::error!("{stack_func:?}");
+                log::error!("Stack: {:?}", self.thread.stack);
                 stop!(BadSyntax => "Function application not a procedure or function type not supported"; self.current_span());
             }
         }
@@ -3548,8 +3551,8 @@ impl<'a> VmCore<'a> {
             _ => {
                 // Explicitly mark this as unlikely
                 cold();
-                println!("{stack_func:?}");
-                println!("Stack: {:?}", self.thread.stack);
+                log::error!("{stack_func:?}");
+                log::error!("Stack: {:?}", self.thread.stack);
                 stop!(BadSyntax => "Function application not a procedure or function type not supported"; self.current_span());
             }
         }
@@ -3571,8 +3574,8 @@ impl<'a> VmCore<'a> {
             FuncV(f) => f(args),
             FutureFunc(f) => Ok(SteelVal::FutureV(Gc::new(f(args)?))),
             _ => {
-                println!("{stack_func:?}");
-                println!("Stack: {:?}", self.thread.stack);
+                log::error!("{stack_func:?}");
+                log::error!("Stack: {:?}", self.thread.stack);
                 stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {stack_func}"); self.current_span());
             }
         }
@@ -3621,8 +3624,8 @@ impl<'a> VmCore<'a> {
             }
             // BuiltIn(f) => f(self, args),
             _ => {
-                println!("{stack_func:?}");
-                println!("Stack: {:?}", self.thread.stack);
+                log::error!("Lazy push: {stack_func:?}");
+                log::error!("Stack: {:?}", self.thread.stack);
                 stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {stack_func}"); self.current_span());
             }
         }
@@ -3658,8 +3661,8 @@ impl<'a> VmCore<'a> {
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
             CustomStruct(s) => self.call_custom_struct(&s.borrow(), payload_size),
             _ => {
-                println!("{stack_func:?}");
-                println!("stack: {:?}", self.thread.stack);
+                log::error!("{stack_func:?}");
+                log::error!("stack: {:?}", self.thread.stack);
                 stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {stack_func}"); self.current_span());
             }
         }
@@ -3797,18 +3800,12 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
         }
     }
 
-    // Ok(())
-
-    // if std::env::var("CODE_GEN_V2").is_ok() {
-    //     ctx.ip += 1;
-    // }
-
     let continuation = ctx.construct_continuation_function();
 
     match function {
         SteelVal::Closure(closure) => {
             if ctx.thread.stack_frames.len() == STACK_LIMIT {
-                println!("stack frame at exit: {:?}", ctx.thread.stack);
+                log::error!("stack frame at exit: {:?}", ctx.thread.stack);
                 builtin_stop!(Generic => "call/cc: stack overflowed!"; ctx.current_span());
             }
 
@@ -4430,10 +4427,9 @@ macro_rules! opcode_to_function {
     };
 }
 
-lazy_static! {
-    static ref SUPER_PATTERNS: std::collections::HashMap<Vec<OpCode>, for<'r> fn(&'r mut VmCore<'_>) -> Result<()>> =
-        create_super_instruction_map();
-}
+static SUPER_PATTERNS: Lazy<
+    std::collections::HashMap<Vec<OpCode>, for<'r> fn(&'r mut VmCore<'_>) -> Result<()>>,
+> = Lazy::new(|| create_super_instruction_map());
 
 // lazy_static! {
 //     static ref SUPER_PATTERNS: std::collections::HashMap<

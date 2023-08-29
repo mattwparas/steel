@@ -19,7 +19,6 @@ use steel_parser::{
     lexer::{OwnedTokenStream, ToOwnedString},
     tokens::MaybeBigInt,
 };
-use thiserror::Error;
 
 use crate::parser::span::Span;
 
@@ -72,6 +71,13 @@ impl InterierSources {
         }
     }
 
+    pub fn size_in_bytes(&self) -> usize {
+        self.sources
+            .iter()
+            .map(|x| std::mem::size_of_val(&*x))
+            .sum()
+    }
+
     pub fn add_source(&mut self, source: String, path: Option<PathBuf>) -> SourceId {
         let index = self.sources.len();
         self.sources.push(source);
@@ -114,6 +120,10 @@ impl Sources {
 
     pub fn add_source(&mut self, source: String, path: Option<PathBuf>) -> SourceId {
         self.sources.lock().unwrap().add_source(source, path)
+    }
+
+    pub fn size_in_bytes(&self) -> usize {
+        self.sources.lock().unwrap().size_in_bytes()
     }
 
     // pub fn get(&self, source_id: SourceId) -> MutexGuard<'_, InteriorSources> {
@@ -350,27 +360,48 @@ impl TryFrom<SyntaxObject> for SteelVal {
             Ellipses => Ok(SymbolV("...".into())),
             Set => Ok(SymbolV("set!".into())),
             Require => Ok(SymbolV("require".into())),
+            QuasiQuoteSyntax => {
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#`".to_string()).with_span(span))
+            }
+            UnquoteSyntax => {
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#,".to_string()).with_span(span))
+            }
+            QuoteSyntax => {
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#'".to_string()).with_span(span))
+            }
+            UnquoteSpliceSyntax => {
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#,@".to_string()).with_span(span))
+            }
         }
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Error)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ParseError {
-    // #[error("Parse: Error reading tokens: {0}")]
-    // TokenError(#[from] TokenError),
-    #[error("Parse: Unexpected token: {0:?}")]
     Unexpected(TokenType<String>, Option<Rc<PathBuf>>),
-    #[error("Parse: Unexpected EOF")]
     UnexpectedEOF(Option<Rc<PathBuf>>),
-    #[error("Parse: Unexpected character: {0:?}")]
     UnexpectedChar(char, Span, Option<Rc<PathBuf>>),
-    #[error("Parse: Incomplete String: {0}")]
     IncompleteString(String, Span, Option<Rc<PathBuf>>),
-    #[error("Parse: Syntax Error: {0}")]
     SyntaxError(String, Span, Option<Rc<PathBuf>>),
-    #[error("Parse: Arity mismatch: {0}")]
     ArityMismatch(String, Span, Option<Rc<PathBuf>>),
 }
+
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParseError::Unexpected(l, _) => write!(f, "Parse: Unexpected token: {:?}", l),
+            ParseError::UnexpectedEOF(_) => write!(f, "Parse: Unexpected EOF"),
+            ParseError::UnexpectedChar(l, _, _) => {
+                write!(f, "Parse: Unexpected character: {:?}", l)
+            }
+            ParseError::IncompleteString(l, _, _) => write!(f, "Parse: Incomplete String: {}", l),
+            ParseError::SyntaxError(l, _, _) => write!(f, "Parse: Syntax Error: {}", l),
+            ParseError::ArityMismatch(l, _, _) => write!(f, "Parse: Arity mismatch: {}", l),
+        }
+    }
+}
+
+impl std::error::Error for ParseError {}
 
 impl ParseError {
     pub fn span(&self) -> Option<Span> {
@@ -526,6 +557,17 @@ impl<'a> Parser<'a> {
             val,
             SyntaxObject::new(TokenType::Quote, span),
         )))
+    }
+
+    fn _expand_reader_macro(
+        &mut self,
+        token: TokenType<InternedString>,
+        val: ExprKind,
+        span: Span,
+    ) -> ExprKind {
+        let q = ExprKind::Atom(Atom::new(SyntaxObject::new(token, span)));
+
+        ExprKind::List(List::new(vec![q, val]))
     }
 
     fn construct_quote_vec(&mut self, val: ExprKind, span: Span) -> Vec<ExprKind> {

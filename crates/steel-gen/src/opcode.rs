@@ -61,8 +61,6 @@ pub enum OpCode {
     ALLOC,
     READALLOC,
     SETALLOC,
-    // GIMMICK,
-    // MOVEREADLOCALCALLGLOBAL,
     DynSuperInstruction,
     Arity,
     LetVar,

@@ -1,8 +1,10 @@
 use crate::gc::Gc;
 use crate::rvals::{Result, SteelVal};
-use itertools::Itertools;
+// use itertools::Itertools;
 use std::collections::HashMap;
 use std::fmt;
+
+use crate::parser::ast::IteratorExtensions;
 
 use super::functions::ByteCodeLambda;
 

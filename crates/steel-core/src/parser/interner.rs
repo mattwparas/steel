@@ -111,11 +111,11 @@ impl From<InternedString> for SteelString {
 // impl Dese
 
 use lasso::ThreadedRodeo;
-use once_cell::sync::OnceCell;
+use std::sync::OnceLock;
 
 use crate::{rvals::SteelString, SteelVal};
 
-static INTERNER: OnceCell<Arc<ThreadedRodeo>> = OnceCell::new();
+static INTERNER: OnceLock<Arc<ThreadedRodeo>> = OnceLock::new();
 
 pub fn take_interner() -> Arc<ThreadedRodeo> {
     // INTERNER.take().unwrap()

@@ -105,7 +105,7 @@ impl Span {
                     span = Span::new(s.start(), span.end(), s.source_id);
                 }
                 if s.end() > span.end() {
-                    span = Span::new(s.start(), s.end(), s.source_id);
+                    span = Span::new(span.start(), s.end(), s.source_id);
                 }
             }
             span

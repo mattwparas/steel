@@ -139,9 +139,15 @@ impl CycleDetector {
             BuiltIn(_) => write!(f, "#<function>"),
             ReducerV(_) => write!(f, "#<reducer>"),
             MutableVector(v) => write!(f, "{:?}", v.as_ref().borrow()),
-            SyntaxObject(s) => write!(f, "#<syntax:{:?} {:?}>", s.span, s.syntax),
+            SyntaxObject(s) => {
+                if let Some(raw) = &s.raw {
+                    write!(f, "#<syntax:{:?} {:?}>", s.span, raw)
+                } else {
+                    write!(f, "#<syntax:{:?} {:?}>", s.span, s.syntax)
+                }
+            }
             BoxedIterator(_) => write!(f, "#<iterator>"),
-            Boxed(b) => write!(f, "'#&{}", b.get()),
+            Boxed(b) => write!(f, "'#&{}", b.borrow()),
             Reference(x) => write!(f, "{}", x.format()?),
         }
     }
@@ -164,7 +170,7 @@ impl CycleDetector {
             SymbolV(s) => write!(f, "{s}"),
             VectorV(lst) => {
                 let mut iter = lst.iter();
-                write!(f, "'#(")?;
+                write!(f, "(")?;
                 if let Some(last) = iter.next_back() {
                     for item in iter {
                         self.format_with_cycles(item, f)?;
@@ -248,9 +254,15 @@ impl CycleDetector {
             BuiltIn(_) => write!(f, "#<function>"),
             ReducerV(_) => write!(f, "#<reducer>"),
             MutableVector(v) => write!(f, "{:?}", v.as_ref().borrow()),
-            SyntaxObject(s) => write!(f, "#<syntax:{:?} {:?}>", s.span, s.syntax),
+            SyntaxObject(s) => {
+                if let Some(raw) = &s.raw {
+                    write!(f, "#<syntax:{:?} {:?}>", s.span, raw)
+                } else {
+                    write!(f, "#<syntax:{:?} {:?}>", s.span, s.syntax)
+                }
+            }
             BoxedIterator(_) => write!(f, "#<iterator>"),
-            Boxed(b) => write!(f, "'#&{}", b.get()),
+            Boxed(b) => write!(f, "'#&{}", b.borrow()),
             Reference(x) => write!(f, "{}", x.format()?),
             BigNum(b) => write!(f, "{}", b.as_ref()),
         }

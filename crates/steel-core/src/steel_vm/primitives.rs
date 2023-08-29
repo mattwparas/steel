@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::{cell::RefCell, cmp::Ordering};
 
 use super::{
     builtin::BuiltInModule,
@@ -8,6 +8,7 @@ use super::{
     vm::{get_test_mode, list_modules, set_test_mode, VmCore},
 };
 use crate::{
+    gc::Gc,
     parser::span::Span,
     primitives::{
         contracts,
@@ -31,8 +32,7 @@ use crate::{
         vm::threads::threading_module,
     },
     values::{
-        closed::HeapRef,
-        functions::{attach_contract_struct, get_contract},
+        functions::{attach_contract_struct, get_contract, LambdaMetadataTable},
         structs::{build_type_id_module, make_struct_type},
     },
 };
@@ -51,7 +51,7 @@ use crate::primitives::web::{requests::requests_module, websockets::websockets_m
 #[cfg(feature = "colors")]
 use crate::primitives::colors::string_coloring_module;
 
-use itertools::Itertools;
+// use itertools::Itertools;
 use num::Signed;
 
 macro_rules! ensure_tonicity_two {
@@ -62,10 +62,15 @@ macro_rules! ensure_tonicity_two {
                 stop!(ArityMismatch => "expected at least one argument");
             }
 
-            for (left, right) in args.iter().tuple_windows() {
-                if !$check_fn(left, right) {
-                    return Ok(SteelVal::BoolV(false))
+            for window in args.windows(2) {
+                if let &[left, right] = &window {
+                    if !$check_fn(&left, &right) {
+                        return Ok(SteelVal::BoolV(false))
+                    }
+                } else {
+                    unreachable!()
                 }
+
             }
 
             Ok(SteelVal::BoolV(true))
@@ -693,10 +698,12 @@ pub fn gte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
         stop!(ArityMismatch => "expected at least one argument");
     }
 
-    for (left, right) in args.iter().tuple_windows() {
-        match left.partial_cmp(right) {
-            None | Some(Ordering::Less) => return Ok(SteelVal::BoolV(false)),
-            _ => continue,
+    for window in args.windows(2) {
+        if let &[left, right] = &window {
+            match left.partial_cmp(&right) {
+                None | Some(Ordering::Less) => return Ok(SteelVal::BoolV(false)),
+                _ => continue,
+            }
         }
     }
 
@@ -957,9 +964,25 @@ fn is_multi_arity(value: SteelVal) -> UnRecoverableResult {
     }
 }
 
+#[steel_derive::function(name = "unbox")]
+fn unbox(value: &Gc<RefCell<SteelVal>>) -> SteelVal {
+    value.borrow().clone()
+}
+
+#[steel_derive::function(name = "set-box!")]
+fn set_box(value: &Gc<RefCell<SteelVal>>, update_to: SteelVal) {
+    *value.borrow_mut() = update_to;
+}
+
 fn meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta");
     module
+        .register_value(
+            "#%function-ptr-table",
+            LambdaMetadataTable::new().into_steelval().unwrap(),
+        )
+        .register_fn("#%function-ptr-table-add", LambdaMetadataTable::add)
+        .register_fn("#%function-ptr-table-get", LambdaMetadataTable::get)
         .register_value("assert!", MetaOperations::assert_truthy())
         .register_value("active-object-count", MetaOperations::active_objects())
         .register_value("inspect-bytecode", MetaOperations::inspect_bytecode())
@@ -979,6 +1002,7 @@ fn meta_module() -> BuiltInModule {
         )
         .register_value("error-with-span", error_with_src_loc())
         .register_value("raise-error-with-span", error_from_error_with_span())
+        .register_value("raise-error", raise_error_from_error())
         .register_value("call/cc", SteelVal::BuiltIn(super::vm::call_cc))
         .register_value(
             "call-with-exception-handler",
@@ -1012,12 +1036,16 @@ fn meta_module() -> BuiltInModule {
         .register_fn("multi-arity?", is_multi_arity)
         .register_value("make-struct-type", SteelVal::FuncV(make_struct_type))
         // .register_fn("struct-properties", UserDefinedStruct::properties)
-        .register_value(
-            "box",
-            SteelVal::BuiltIn(crate::primitives::meta_ops::steel_box),
-        )
-        .register_fn("unbox", HeapRef::get)
-        .register_fn("set-box!", HeapRef::set_interior_mut)
+        // .register_value(
+        //     "box",
+        //     SteelVal::BuiltIn(crate::primitives::meta_ops::steel_box),
+        // )
+        // .register_fn("unbox", HeapRef::get)
+        // .register_fn("set-box!", HeapRef::set_interior_mut)
+        .register_fn("box", SteelVal::boxed)
+        .register_native_fn_definition(UNBOX_DEFINITION)
+        .register_native_fn_definition(SET_BOX_DEFINITION)
+        // .register_fn("unbox", |value: SteelVal| )
         .register_value(
             "attach-contract-struct!",
             SteelVal::FuncV(attach_contract_struct),
@@ -1047,6 +1075,8 @@ fn syntax_module() -> BuiltInModule {
         .register_fn("syntax->datum", crate::rvals::Syntax::syntax_datum)
         .register_fn("syntax-loc", crate::rvals::Syntax::syntax_loc)
         .register_fn("syntax/loc", crate::rvals::Syntax::new)
+        .register_fn("#%syntax/raw", crate::rvals::Syntax::proto)
+        .register_fn("syntax-e", crate::rvals::Syntax::syntax_e)
         .register_value("syntax?", gen_pred!(SyntaxObject));
     module
 }
@@ -1093,11 +1123,25 @@ pub fn error_from_error_with_span() -> SteelVal {
             stop!(ArityMismatch => "raise-error-with-span expects at least 2 arguments - the error object and the span")
         }
 
-        let steel_error = SteelErr::from_steelval(&args[0])?;
+        let mut steel_error = SteelErr::from_steelval(&args[0])?;
+
+        // steel_error.span()
+
+        if let Some(span) = steel_error.span() {
+            steel_error.push_span_context_to_stack_trace_if_trace_exists(span);
+        }
 
         let span = Span::from_steelval(&args[1])?;
 
         Err(steel_error.with_span(span))
+    })
+}
+
+pub fn raise_error_from_error() -> SteelVal {
+    SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+        let steel_error = SteelErr::from_steelval(&args[0])?;
+
+        Err(steel_error)
     })
 }
 

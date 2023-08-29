@@ -20,7 +20,7 @@ use abi_stable::{
     std_types::{RBoxError, RCowStr, RHashMap, RResult, RSlice, RStr, RString, RVec, Tuple2},
     StableAbi,
 };
-use futures::FutureExt;
+use futures_util::FutureExt;
 
 pub use async_ffi::{FfiFuture, FutureExt as FfiFutureExt};
 

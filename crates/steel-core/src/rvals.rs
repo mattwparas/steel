@@ -3,7 +3,7 @@ pub mod cycles;
 use crate::{
     gc::{unsafe_erased_pointers::OpaqueReference, Gc},
     parser::{
-        ast::{Atom, ExprKind},
+        ast::{self, Atom, ExprKind},
         parser::SyntaxObject,
         span::Span,
         tokens::TokenType,
@@ -11,13 +11,13 @@ use crate::{
     rerrs::{ErrorKind, SteelErr},
     steel_vm::vm::{BuiltInSignature, Continuation},
     values::port::SteelPort,
-    values::{closed::HeapRef, functions::BoxedDynFunction, structs::UserDefinedStruct},
     values::{
         contracts::{ContractType, ContractedFunction},
         functions::ByteCodeLambda,
         lazy_stream::LazyStream,
         transducers::{Reducer, Transducer},
     },
+    values::{functions::BoxedDynFunction, structs::UserDefinedStruct},
 };
 
 // #[cfg(feature = "jit")]
@@ -64,8 +64,9 @@ use SteelVal::*;
 
 use im_rc::{HashMap, Vector};
 
-use futures::FutureExt;
-use futures::{future::Shared, task::noop_waker_ref};
+use futures_task::noop_waker_ref;
+use futures_util::future::Shared;
+use futures_util::FutureExt;
 
 use im_lists::list::List;
 use steel_parser::tokens::MaybeBigInt;
@@ -547,29 +548,183 @@ impl<T: CustomType + 'static> AsRefMutSteelVal for T {
     }
 }
 
+// ListV(l) => {
+//     // Rooted - things operate as normal
+//     if self.qq_depth == 0 {
+//         let maybe_special_form = l.first().and_then(|x| x.as_string());
+
+//         match maybe_special_form {
+//             Some(x) if x.as_str() == "quote" => {
+//                 if self.quoted {
+//                     let items: std::result::Result<Vec<ExprKind>, &'static str> =
+//                         l.iter().map(|x| self.visit(x)).collect();
+
+//                     return Ok(ExprKind::List(List::new(items?)));
+//                 }
+
+//                 self.quoted = true;
+
+//                 let return_value = l
+//                     .into_iter()
+//                     .map(|x| self.visit(x))
+//                     .collect::<std::result::Result<Vec<_>, _>>()?
+//                     .try_into()
+//                     .map_err(|_| {
+//                         "parse error! If you're running into this, please file an issue"
+//                     });
+
+//                 self.quoted = false;
+
+//                 return return_value;
+//             } // "quasiquote" => {
+//             //     self.qq_depth += 1;
+//             // }
+//             _ => {}
+//         }
+//     }
+
+//     l.into_iter()
+//         .map(|x| self.visit(x))
+//         .collect::<std::result::Result<Vec<_>, _>>()?
+//         .try_into()
+//         .map_err(|_| "If you're running into this, please file an issue")
+
+//     // If we're not quoted, we need to just return this pushed down to an ast
+//     // let items: std::result::Result<Vec<ExprKind>, &'static str> =
+//     // l.iter().map(|x| self.visit(x)).collect();
+
+//     // Ok(ExprKind::List(List::new(items?)))
+// }
+
+impl ast::TryFromSteelValVisitorForExprKind {
+    pub fn visit_syntax_object(&mut self, value: &Syntax) -> Result<ExprKind> {
+        let span = value.span;
+        // let source = self.source.clone();
+        match &value.syntax {
+            // Mutual recursion case
+            SyntaxObject(s) => self.visit_syntax_object(s),
+            BoolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
+                TokenType::BooleanLiteral(*x),
+                span,
+            )))),
+            NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
+                TokenType::NumberLiteral(*x),
+                span,
+            )))),
+            IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
+                TokenType::IntegerLiteral(MaybeBigInt::Small(*x)),
+                span,
+            )))),
+            VectorV(lst) => {
+                let items: Result<Vec<ExprKind>> = lst.iter().map(|x| self.visit(x)).collect();
+                Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
+            }
+            StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
+                TokenType::StringLiteral(x.to_string()),
+                span,
+            )))),
+            // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
+            // MacroV(_) => Err("Can't convert from Macro to expression!"),
+            SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
+                TokenType::Identifier(x.as_str().into()),
+                span,
+            )))),
+
+            ListV(l) => {
+                // dbg!(&self);
+                // dbg!(&l);
+
+                // Rooted - things operate as normal
+                if self.qq_depth == 0 {
+                    let maybe_special_form = l.first().and_then(|x| {
+                        x.as_symbol()
+                            .or_else(|| x.as_syntax_object().and_then(|x| x.syntax.as_symbol()))
+                    });
+
+                    // dbg!(&maybe_special_form);
+
+                    match maybe_special_form {
+                        Some(x) if x.as_str() == "quote" => {
+                            if self.quoted {
+                                let items: std::result::Result<Vec<ExprKind>, _> =
+                                    l.iter().map(|x| self.visit(x)).collect();
+
+                                return Ok(ExprKind::List(ast::List::new(items?)));
+                            }
+
+                            self.quoted = true;
+
+                            let return_value = l
+                                .into_iter()
+                                .map(|x| self.visit(x))
+                                .collect::<std::result::Result<Vec<_>, _>>()?
+                                .try_into()?;
+
+                            self.quoted = false;
+
+                            return Ok(return_value);
+                        } // "quasiquote" => {
+                        //     self.qq_depth += 1;
+                        // }
+                        // None => {
+                        // return Ok(ExprKind::empty());
+                        // }
+                        _ => {}
+                    }
+                }
+
+                Ok(l.into_iter()
+                    .map(|x| self.visit(x))
+                    .collect::<std::result::Result<Vec<_>, _>>()?
+                    .try_into()?)
+            }
+
+            CharV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
+                TokenType::CharacterLiteral(*x),
+                span,
+            )))),
+            _ => stop!(ConversionError => "unable to convert {:?} to expression", &value.syntax),
+        }
+    }
+}
+
 // TODO: Replace this with RawSyntaxObject<SteelVal>
 
 #[derive(Debug, Clone)]
 pub struct Syntax {
-    syntax: SteelVal,
+    raw: Option<SteelVal>,
+    pub(crate) syntax: SteelVal,
     span: Span,
-    // source: Option<Rc<PathBuf>>,
 }
 
 impl Syntax {
     pub fn new(syntax: SteelVal, span: Span) -> Syntax {
+        // dbg!(&syntax);
+
         Self {
+            raw: None,
             syntax,
             span,
-            // source: None,
         }
+    }
+
+    pub fn proto(raw: SteelVal, syntax: SteelVal, span: Span) -> Syntax {
+        Self {
+            raw: Some(raw),
+            syntax,
+            span,
+        }
+    }
+
+    pub fn syntax_e(&self) -> SteelVal {
+        self.syntax.clone()
     }
 
     pub fn new_with_source(syntax: SteelVal, span: Span) -> Syntax {
         Self {
+            raw: None,
             syntax,
             span,
-            // source,
         }
     }
 
@@ -578,7 +733,7 @@ impl Syntax {
     }
 
     pub fn syntax_datum(&self) -> SteelVal {
-        self.syntax.clone()
+        self.raw.clone().unwrap()
     }
 
     pub(crate) fn steelval_to_exprkind(value: &SteelVal) -> Result<ExprKind> {
@@ -867,10 +1022,11 @@ pub enum SteelVal {
     SyntaxObject(Gc<Syntax>),
 
     // Mutable storage, with Gc backing
-    Boxed(HeapRef),
+    // Boxed(HeapRef),
+    Boxed(Gc<RefCell<SteelVal>>),
 
     // TODO: This itself, needs to be boxed unfortunately.
-    Reference(Box<OpaqueReference<'static>>),
+    Reference(Rc<OpaqueReference<'static>>),
 
     BigNum(Gc<num::BigInt>),
 }
@@ -1091,6 +1247,10 @@ pub fn iterator_next(args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 impl SteelVal {
+    pub fn boxed(value: SteelVal) -> SteelVal {
+        SteelVal::Boxed(Gc::new(RefCell::new(value)))
+    }
+
     pub(crate) fn ptr_eq(&self, other: &SteelVal) -> bool {
         match (self, other) {
             (BoolV(l), BoolV(r)) => l == r,
@@ -1405,6 +1565,27 @@ impl SteelVal {
     pub fn as_future(&self) -> Option<Shared<BoxedFutureResult>> {
         match self {
             Self::FutureV(v) => Some(v.clone().unwrap().into_shared()),
+            _ => None,
+        }
+    }
+
+    pub fn as_string(&self) -> Option<&SteelString> {
+        match self {
+            Self::StringV(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn as_symbol(&self) -> Option<&SteelString> {
+        match self {
+            Self::SymbolV(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn as_syntax_object(&self) -> Option<&Syntax> {
+        match self {
+            Self::SyntaxObject(s) => Some(s),
             _ => None,
         }
     }

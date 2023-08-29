@@ -1,5 +1,5 @@
 use im_lists::list::List;
-use itertools::Itertools;
+// use itertools::Itertools;
 
 // use super::{evaluation_progress::EvaluationProgress, stack::StackFrame, vm::VmCore};
 use super::{
@@ -16,8 +16,89 @@ use crate::{
     values::transducers::{Reducer, Transducers},
 };
 
-use std::rc::Rc;
 use std::{cell::RefCell, convert::TryInto};
+use std::{iter::Fuse, rc::Rc};
+
+/// An iterator adaptor that alternates elements from two iterators until both
+/// run out.
+///
+/// This iterator is *fused*.
+///
+/// See [`.interleave()`](crate::Itertools::interleave) for more information.
+#[derive(Clone, Debug)]
+#[must_use = "iterator adaptors are lazy and do nothing unless consumed"]
+pub struct Interleave<I, J> {
+    a: Fuse<I>,
+    b: Fuse<J>,
+    flag: bool,
+}
+
+/// Create an iterator that interleaves elements in `i` and `j`.
+///
+/// [`IntoIterator`] enabled version of `[Itertools::interleave]`.
+pub fn interleave<I, J>(
+    i: I,
+    j: J,
+) -> Interleave<<I as IntoIterator>::IntoIter, <J as IntoIterator>::IntoIter>
+where
+    I: IntoIterator,
+    J: IntoIterator<Item = I::Item>,
+{
+    Interleave {
+        a: i.into_iter().fuse(),
+        b: j.into_iter().fuse(),
+        flag: false,
+    }
+}
+
+impl<I, J> Iterator for Interleave<I, J>
+where
+    I: Iterator,
+    J: Iterator<Item = I::Item>,
+{
+    type Item = I::Item;
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.flag = !self.flag;
+        if self.flag {
+            match self.a.next() {
+                None => self.b.next(),
+                r => r,
+            }
+        } else {
+            match self.b.next() {
+                None => self.a.next(),
+                r => r,
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        add(self.a.size_hint(), self.b.size_hint())
+    }
+}
+
+/// `SizeHint` is the return type of `Iterator::size_hint()`.
+pub type SizeHint = (usize, Option<usize>);
+
+/// Add `SizeHint` correctly.
+#[inline]
+pub fn add(a: SizeHint, b: SizeHint) -> SizeHint {
+    let min = a.0.saturating_add(b.0);
+    let max = match (a.1, b.1) {
+        (Some(x), Some(y)) => x.checked_add(y),
+        _ => None,
+    };
+
+    (min, max)
+}
+
+impl<I, J> std::iter::FusedIterator for Interleave<I, J>
+where
+    I: Iterator,
+    J: Iterator<Item = I::Item>,
+{
+}
 
 /// Generates the take transducer - wrapper around the take iterator
 macro_rules! generate_take {
@@ -381,7 +462,7 @@ impl<'global, 'a> VmCore<'a> {
                             Box::new(std::iter::once(Err(err)))
                         }
                     };
-                    Box::new(iter.interleave(other))
+                    Box::new(interleave(iter, other))
                 }
             }
         }

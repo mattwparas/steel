@@ -336,6 +336,7 @@ pub fn function(
 
     let arity_number = type_vec.len();
 
+    // TODO: Might be able to handle types with lifetimes here, both coming in and leaving
     let conversion_functions = type_vec.clone().into_iter().map(|x| {
         if let Type::Reference(_) = *x {
             quote! { primitive_as_ref }

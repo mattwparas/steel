@@ -151,13 +151,13 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
 }
 
 pub struct SyntaxObjectFromExprKind {
-    inside_quote: bool,
+    _inside_quote: bool,
 }
 
 impl SyntaxObjectFromExprKind {
     pub fn try_from_expr_kind(e: ExprKind) -> Result<SteelVal> {
         SyntaxObjectFromExprKind {
-            inside_quote: false,
+            _inside_quote: false,
         }
         .visit(e)
     }
@@ -167,6 +167,8 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
     type Output = Result<SteelVal>;
 
     fn visit_if(&mut self, f: Box<super::ast::If>) -> Self::Output {
+        let raw = SteelVal::try_from(ExprKind::If(f.clone()))?;
+
         let span = f.location.span;
 
         let expr = [
@@ -175,10 +177,14 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
             self.visit(f.then_expr)?,
             self.visit(f.else_expr)?,
         ];
-        Ok(Syntax::new_with_source(SteelVal::ListV(expr.into_iter().collect()), span).into())
+        // Ok(Syntax::new_with_source(SteelVal::ListV(expr.into_iter().collect()), span).into())
+
+        Ok(Syntax::proto(raw, SteelVal::ListV(expr.into_iter().collect()), span).into())
     }
 
     fn visit_define(&mut self, define: Box<super::ast::Define>) -> Self::Output {
+        let raw: SteelVal = ExprKind::Define(define.clone()).try_into()?;
+
         let span = define.location.span;
 
         let expr = [
@@ -186,13 +192,15 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
             self.visit(define.name)?,
             self.visit(define.body)?,
         ];
-        Ok(Syntax::new_with_source(SteelVal::ListV(expr.into_iter().collect()), span).into())
+        Ok(Syntax::proto(raw, SteelVal::ListV(expr.into_iter().collect()), span).into())
     }
 
     fn visit_lambda_function(
         &mut self,
         lambda_function: Box<super::ast::LambdaFunction>,
     ) -> Self::Output {
+        let raw = SteelVal::try_from(ExprKind::LambdaFunction(lambda_function.clone()))?;
+
         let span = lambda_function.location.span;
 
         let args = lambda_function
@@ -207,16 +215,18 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
             self.visit(lambda_function.body)?,
         ];
 
-        Ok(Syntax::new_with_source(SteelVal::ListV(expr.into_iter().collect()), span).into())
+        Ok(Syntax::proto(raw, SteelVal::ListV(expr.into_iter().collect()), span).into())
     }
 
     fn visit_begin(&mut self, begin: super::ast::Begin) -> Self::Output {
+        let raw: SteelVal = ExprKind::Begin(begin.clone()).try_into()?;
+
         let span = begin.location.span;
         let mut exprs = vec![SteelVal::try_from(begin.location)?];
         for expr in begin.exprs {
             exprs.push(self.visit(expr)?);
         }
-        Ok(Syntax::new_with_source(SteelVal::ListV(exprs.into()), span).into())
+        Ok(Syntax::proto(raw, SteelVal::ListV(exprs.into()), span).into())
     }
 
     fn visit_return(&mut self, r: Box<super::ast::Return>) -> Self::Output {
@@ -230,25 +240,27 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
     // like this: '(a b c) => '(a b c)
     // '(a b 'c) => '(a b 'c) --- currently this ends up as '(a b c)
     fn visit_quote(&mut self, quote: Box<super::ast::Quote>) -> Self::Output {
+        dbg!(&quote);
+
         let span = quote.location.span;
 
-        if self.inside_quote {
-            // self.visit(quote.expr)
-
-            Ok(Syntax::new_with_source(
-                SteelVal::ListV(im_lists::list![
-                    SteelVal::SymbolV("quote".into()),
-                    self.visit(quote.expr)?
-                ]),
-                span,
-            )
-            .into())
-        } else {
-            self.inside_quote = true;
-            let res = self.visit(quote.expr);
-            self.inside_quote = false;
-            res
-        }
+        // if self.inside_quote {
+        let raw = SteelVal::try_from(ExprKind::Quote(quote.clone()))?;
+        Ok(Syntax::proto(
+            raw,
+            SteelVal::ListV(im_lists::list![
+                SteelVal::SymbolV("quote".into()),
+                self.visit(quote.expr)?
+            ]),
+            span,
+        )
+        .into())
+        // } else {
+        // self.inside_quote = true;
+        // let res = self.visit(quote.expr);
+        // self.inside_quote = false;
+        // res
+        // }
     }
 
     fn visit_macro(&mut self, _m: super::ast::Macro) -> Self::Output {
@@ -258,10 +270,15 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
 
     fn visit_atom(&mut self, a: Atom) -> Self::Output {
         let span = a.syn.span;
-        Ok(Syntax::new_with_source(SteelVal::try_from(a.syn)?, span).into())
+
+        let atom = SteelVal::try_from(a.syn)?;
+
+        Ok(Syntax::proto(atom.clone(), atom, span).into())
     }
 
     fn visit_list(&mut self, l: super::ast::List) -> Self::Output {
+        let raw = SteelVal::try_from(ExprKind::List(l.clone()))?;
+
         let items: std::result::Result<List<_>, SteelErr> =
             l.args.into_iter().map(|x| self.visit(x)).collect();
 
@@ -283,7 +300,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
         // TODO: we're currently erasing the source here... This isn't what we want to do but we don't have
         // a great model to access the source otherwise
         log::warn!("Erasing the source information during kernel level expansion");
-        Ok(Syntax::new_with_source(items.into(), span).into())
+        Ok(Syntax::proto(raw, items.into(), span).into())
     }
 
     fn visit_syntax_rules(&mut self, _l: super::ast::SyntaxRules) -> Self::Output {
@@ -292,9 +309,11 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
     }
 
     fn visit_set(&mut self, s: Box<super::ast::Set>) -> Self::Output {
+        let raw: SteelVal = ExprKind::Set(s.clone()).try_into()?;
+
         let span = s.location.span;
         let expr = [SteelVal::try_from(s.location)?, self.visit(s.expr)?];
-        Ok(Syntax::new_with_source(SteelVal::ListV(expr.into_iter().collect()), span).into())
+        Ok(Syntax::proto(raw, SteelVal::ListV(expr.into_iter().collect()), span).into())
     }
 
     fn visit_require(&mut self, _s: super::ast::Require) -> Self::Output {

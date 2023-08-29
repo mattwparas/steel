@@ -43,9 +43,10 @@ use crate::{
 use std::{collections::HashMap, path::PathBuf, rc::Rc, sync::Arc};
 
 use im_rc::HashMap as ImmutableHashMap;
-use itertools::Itertools;
 use lasso::ThreadedRodeo;
 use serde::{Deserialize, Serialize};
+
+use crate::parser::ast::IteratorExtensions;
 
 #[derive(Clone, Default)]
 pub struct ModuleContainer {
@@ -64,6 +65,13 @@ impl ModuleContainer {
     pub fn inner(&self) -> &ImmutableHashMap<Rc<str>, BuiltInModule> {
         &self.modules
     }
+}
+
+#[derive(Debug)]
+pub struct EngineStatistics {
+    pub rooted_count: usize,
+    pub constants_count: usize,
+    pub sources_size: usize,
 }
 
 #[derive(Clone)]
@@ -522,6 +530,14 @@ impl Engine {
         }
     }
 
+    pub fn report_engine_stats(&self) -> EngineStatistics {
+        EngineStatistics {
+            rooted_count: self.globals().len(),
+            constants_count: self.compiler.constant_map.len(),
+            sources_size: self.sources.size_in_bytes(),
+        }
+    }
+
     /// Instantiates a new engine instance with all primitive functions enabled.
     /// This excludes the prelude and contract files.
     ///
@@ -684,6 +700,34 @@ impl Engine {
             engine.register_value(bind_to, args.next().unwrap());
 
             let res = engine.compile_and_run_raw_program(script);
+
+            engine.register_value(bind_to, SteelVal::Void);
+
+            res.map(|x| x.into_iter().next().unwrap())
+        })
+    }
+
+    pub fn run_with_reference_from_path<
+        'a,
+        'b: 'a,
+        T: CustomReference + 'b,
+        EXT: CustomReference + 'static,
+    >(
+        &'a mut self,
+        obj: &'a mut T,
+        bind_to: &'a str,
+        script: &'a str,
+        path: PathBuf,
+    ) -> Result<SteelVal>
+    where
+        T: ReferenceMarker<'b, Static = EXT>,
+    {
+        self.with_mut_reference(obj).consume(move |engine, args| {
+            let mut args = args.into_iter();
+
+            engine.register_value(bind_to, args.next().unwrap());
+
+            let res = engine.compile_and_run_raw_program_with_path(script, path.clone());
 
             engine.register_value(bind_to, SteelVal::Void);
 

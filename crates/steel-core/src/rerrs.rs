@@ -1,6 +1,7 @@
+use crate::steel_vm::vm::DehydratedCallContext;
 use crate::{parser::parser::ParseError, rvals::Custom, steel_vm::vm::DehydratedStackTrace};
 use std::{convert::Infallible, fmt::Formatter};
-use thiserror::Error;
+// use thiserror::Error;
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use codespan_reporting::files::SimpleFile;
@@ -138,11 +139,13 @@ impl From<ParseError> for Repr {
     }
 }
 
-#[derive(Debug, Error, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct SteelErr {
     repr: Box<Repr>,
 }
+
+impl std::error::Error for SteelErr {}
 
 impl fmt::Display for SteelErr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -225,6 +228,12 @@ impl SteelErr {
 
     pub fn stack_trace(&self) -> &Option<DehydratedStackTrace> {
         &self.repr.stack_trace
+    }
+
+    pub fn push_span_context_to_stack_trace_if_trace_exists(&mut self, span: Span) {
+        if let Some(stacktrace) = &mut self.repr.stack_trace {
+            stacktrace.push(DehydratedCallContext::new(Some(span)))
+        }
     }
 
     pub fn emit_result(&self, file_name: &str, file_content: &str) {

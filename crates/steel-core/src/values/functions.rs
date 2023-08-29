@@ -2,6 +2,7 @@
 
 use std::{
     cell::{Cell, RefCell},
+    collections::HashMap,
     convert::TryFrom,
     hash::Hasher,
     rc::Rc,
@@ -16,7 +17,8 @@ use crate::{
     parser::{parser::SyntaxObjectId, span::Span},
     rvals::{
         from_serializable_value, into_serializable_value, AsRefSteelVal, BoxedFunctionSignature,
-        FunctionSignature, IntoSteelVal, MutFunctionSignature, SerializableSteelVal,
+        Custom, FunctionSignature, IntoSteelVal, MutFunctionSignature, SerializableSteelVal,
+        SteelString,
     },
     steel_vm::{
         register_fn::SendSyncStatic,
@@ -41,6 +43,43 @@ use super::{closed::HeapRef, structs::UserDefinedStruct};
 // struct Blagh {
 //     body: Rc<RefCell<[DenseInstruction]>>,
 // }
+
+// Keep track of this metadata table for getting the docs associated
+// with a given function?
+pub struct LambdaMetadataTable {
+    fn_ptr_table: HashMap<usize, SteelString>,
+}
+
+impl Custom for LambdaMetadataTable {}
+
+impl LambdaMetadataTable {
+    pub fn new() -> Self {
+        Self {
+            fn_ptr_table: HashMap::new(),
+        }
+    }
+
+    pub fn add(&mut self, function: SteelVal, doc: SteelString) {
+        if let SteelVal::Closure(b) = function {
+            self.fn_ptr_table.insert(b.id, doc);
+        }
+    }
+
+    pub fn get(&self, function: SteelVal) -> Option<SteelString> {
+        if let SteelVal::Closure(b) = function {
+            self.fn_ptr_table.get(&b.id).cloned()
+        } else {
+            None
+        }
+    }
+
+    // TODO: This will need to get called in other places
+    pub fn collect_garbage(&mut self, keep_set: impl Iterator<Item = usize>) {
+        let set = keep_set.collect::<std::collections::HashSet<_>>();
+
+        self.fn_ptr_table.retain(|k, _| set.contains(k));
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct ByteCodeLambda {

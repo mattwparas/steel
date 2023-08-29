@@ -140,9 +140,21 @@ pub enum TokenType<S> {
     #[token(",@")]
     UnquoteSplice,
 
+    #[token("#'")]
+    QuoteSyntax,
+
+    #[token("#`")]
+    QuasiQuoteSyntax,
+
+    #[token("#,")]
+    UnquoteSyntax,
+
+    #[token("#,@")]
+    UnquoteSpliceSyntax,
+
     #[token("if")]
     If,
-    #[regex("(define)|(defn)")]
+    #[regex("(define)|(defn)|(#%define)")]
     Define,
     #[token("let")]
     Let,
@@ -302,6 +314,10 @@ impl<'a> TokenType<&'a str> {
             Ellipses => Ellipses,
             Set => Set,
             Require => Require,
+            QuasiQuoteSyntax => QuasiQuoteSyntax,
+            UnquoteSyntax => UnquoteSyntax,
+            QuoteSyntax => QuoteSyntax,
+            UnquoteSpliceSyntax => UnquoteSpliceSyntax,
         }
     }
 
@@ -337,6 +353,10 @@ impl<'a> TokenType<&'a str> {
             Ellipses => Ellipses,
             Set => Set,
             Require => Require,
+            QuasiQuoteSyntax => QuasiQuoteSyntax,
+            UnquoteSyntax => UnquoteSyntax,
+            QuoteSyntax => QuoteSyntax,
+            UnquoteSpliceSyntax => UnquoteSpliceSyntax,
         }
     }
 }
@@ -384,6 +404,10 @@ impl<T: fmt::Display> fmt::Display for TokenType<T> {
             Unquote => write!(f, ","),
             QuasiQuote => write!(f, "`"),
             UnquoteSplice => write!(f, ",@"),
+            QuoteSyntax => write!(f, "#'"),
+            QuasiQuoteSyntax => write!(f, "#`"),
+            UnquoteSyntax => write!(f, "#,"),
+            UnquoteSpliceSyntax => write!(f, "#,@"),
             Error => write!(f, "error"),
             Comment => write!(f, ""),
             If => write!(f, "if"),

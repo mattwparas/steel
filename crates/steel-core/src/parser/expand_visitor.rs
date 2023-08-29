@@ -1,4 +1,4 @@
-use itertools::Itertools;
+// use itertools::Itertools;
 
 use crate::parser::ast::ExprKind;
 use crate::steel_vm::engine::ModuleContainer;
@@ -220,7 +220,7 @@ fn _expand_default_arguments(
         if let ExprKind::List(_) = argument {
             found_pair = true;
         } else if found_pair {
-            stop!(BadSyntax => "Non default argument aoccurs after a default argument"; lambda_function.location.span)
+            stop!(BadSyntax => "Non default argument occurs after a default argument"; lambda_function.location.span)
         }
     }
 
@@ -311,10 +311,9 @@ fn expand_keyword_arguments(
 
     // From the keyword args, group them into pairs
     let keyword_map = keyword_args
-        .into_iter()
         .chunks(2)
         .into_iter()
-        .map(|mut x| (x.next().unwrap(), x.next().unwrap()))
+        .map(|x| (x[0], x[1]))
         .collect::<Vec<_>>();
 
     if !keyword_map.iter().map(|x| x.0).all(|x| {
@@ -509,10 +508,10 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                     ty: TokenType::Identifier(s),
                     ..
                 },
-        })) = l.first()
+        })) = l.first().cloned()
         {
             if let Some(map) = &mut self.map {
-                if *s == *DOC_MACRO {
+                if s == *DOC_MACRO {
                     if l.len() != 3 {
                         stop!(BadSyntax => "Malformed @doc statement!")
                     }
@@ -522,8 +521,6 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
 
                     let comment = args.next().unwrap();
                     let top_level_define = args.next().unwrap();
-
-                    // println!("Expanding: {}", top_level_define);
 
                     match &top_level_define {
                         // A classic @doc case
@@ -541,12 +538,22 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                                 d.name.atom_identifier().unwrap().to_string() + "__ast__",
                             );
 
+                            // Include the metadata table
+                            let metadata_table_addition = ExprKind::List(List::new(vec![
+                                ExprKind::atom("#%function-ptr-table-add"),
+                                ExprKind::atom("#%function-ptr-table"),
+                                ExprKind::atom(d.name.atom_identifier().unwrap().clone()),
+                                ExprKind::atom(
+                                    d.name.atom_identifier().unwrap().to_string() + "__doc__",
+                                ),
+                            ]));
+
                             let expanded_expr = self.visit(top_level_define)?;
 
                             let quoted_ast = define_quoted_ast_node(ast_name, &expanded_expr);
 
                             return Ok(ExprKind::Begin(Begin::new(
-                                vec![doc_expr, quoted_ast, expanded_expr],
+                                vec![doc_expr, quoted_ast, expanded_expr, metadata_table_addition],
                                 SyntaxObject::default(TokenType::Begin),
                             )));
                         }
@@ -614,14 +621,14 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                     }
                 }
 
-                if map.contains_macro(s) {
-                    let expanded = map.expand(s, ExprKind::List(l.clone()))?;
+                if map.contains_syntax_object_macro(&s) {
+                    let expanded = map.expand_syntax_object(&s, ExprKind::List(l))?;
                     self.changed = true;
                     return self.visit(expanded);
                 }
             }
 
-            if *s == *REQUIRE_BUILTIN {
+            if s == *REQUIRE_BUILTIN {
                 match &l.args[1..] {
                     [ExprKind::Atom(Atom {
                         syn:

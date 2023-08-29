@@ -5,7 +5,6 @@ use std::{
 
 use crate::{
     gc::Gc,
-    rvals::{AsRefSteelVal, SRef},
     values::{
         contracts::{ContractType, FunctionKind},
         functions::ByteCodeLambda,
@@ -169,20 +168,20 @@ impl HeapRef {
     }
 }
 
-impl AsRefSteelVal for HeapRef {
-    type Nursery = ();
+// impl AsRefSteelVal for HeapRef {
+//     type Nursery = ();
 
-    fn as_ref<'b, 'a: 'b>(
-        val: &'a SteelVal,
-        _nursery: &mut Self::Nursery,
-    ) -> crate::rvals::Result<SRef<'b, Self>> {
-        if let SteelVal::Boxed(s) = val {
-            Ok(SRef::Temporary(s))
-        } else {
-            stop!(TypeMismatch => "Value cannot be referenced as a syntax object")
-        }
-    }
-}
+//     fn as_ref<'b, 'a: 'b>(
+//         val: &'a SteelVal,
+//         _nursery: &mut Self::Nursery,
+//     ) -> crate::rvals::Result<SRef<'b, Self>> {
+//         if let SteelVal::Boxed(s) = val {
+//             Ok(SRef::Temporary(s))
+//         } else {
+//             stop!(TypeMismatch => "Value cannot be referenced as a syntax object")
+//         }
+//     }
+// }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HeapAllocated {
