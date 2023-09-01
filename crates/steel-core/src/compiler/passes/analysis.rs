@@ -3843,7 +3843,7 @@ mod analysis_pass_tests {
             let free_vars = analysis.find_free_identifiers();
 
             for var in free_vars {
-                crate::rerrs::report_error(
+                crate::rerrs::report_info(
                     ErrorKind::FreeIdentifier.to_error_code(),
                     "input.rkt",
                     script,
