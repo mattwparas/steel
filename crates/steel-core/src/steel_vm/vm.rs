@@ -2346,7 +2346,11 @@ impl<'a> VmCore<'a> {
                 .last()
                 .and_then(|x| self.thread.function_interner.spans.get(&x.function.id))
             {
-                spans[self.ip..forward_jump_index].into()
+                if forward_jump_index >= spans.len() {
+                    self.root_spans[self.ip..forward_jump_index].into()
+                } else {
+                    spans[self.ip..forward_jump_index].into()
+                }
             } else {
                 self.root_spans[self.ip..forward_jump_index].into()
             };
@@ -2527,7 +2531,11 @@ impl<'a> VmCore<'a> {
                 .last()
                 .and_then(|x| self.thread.function_interner.spans.get(&x.function.id))
             {
-                spans[self.ip..forward_jump_index].into()
+                if forward_jump_index >= spans.len() {
+                    self.root_spans[self.ip..forward_jump_index].into()
+                } else {
+                    spans[self.ip..forward_jump_index].into()
+                }
             } else {
                 self.root_spans[self.ip..forward_jump_index].into()
             };

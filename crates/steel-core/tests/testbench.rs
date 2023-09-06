@@ -15,6 +15,18 @@ fn basic_test() {
     );
 }
 
+// Fixes issue reported https://github.com/mattwparas/steel/issues/73
+#[test]
+fn top_level_error_allows_redefining() {
+    let mut evaluator = Engine::new();
+
+    evaluator.run("(define (x) (- x 2))").unwrap();
+
+    evaluator.run("(x)").unwrap_err();
+
+    evaluator.run("(define (x) (- x 2))").unwrap();
+}
+
 #[test]
 fn module_test() {
     let mut evaluator = Engine::new();
