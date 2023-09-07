@@ -15,6 +15,7 @@ use crate::{
     rvals::IntoSteelVal,
 };
 
+use im_lists::list::List;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, convert::TryInto, rc::Rc, time::SystemTime};
 use steel_parser::tokens::MaybeBigInt;
@@ -504,6 +505,69 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
     }
 }
 
+pub const fn sequence_to_opcode(pattern: &[(OpCode, usize)]) -> &'static [steel_gen::Pattern] {
+    match pattern {
+        &[(OpCode::MOVEREADLOCAL, _)] => &[steel_gen::Pattern::Single(OpCode::MOVEREADLOCAL)],
+        _ => todo!(),
+    }
+}
+
+pub fn tile_super_instructions(instructions: &mut [Instruction]) {
+    // TODO: The windowing here requires that we need to allocate a list side by side with the instructions.
+    // This isn't ideal, I'd like to be able to avoid allocating this, but we can't update the elements and borrow at the same time.
+    // - To fix this, I can manually fetch indices rather than use the windowing, and manually replicate this without windows.
+    pub fn tile<const N: usize>(instructions: &mut [Instruction]) {
+        // let mut list: List<(usize, OpCode)> = List::new();
+
+        let mut buffer = [(OpCode::VOID, 0); N];
+
+        let mut pattern_buffer = Vec::with_capacity(N);
+
+        // Cell::from_mut()
+
+        if N > instructions.len() {
+            return;
+        }
+
+        for i in 0..instructions.len() - N {
+            for j in 0..N {
+                buffer[j] = (
+                    instructions[i + j].op_code,
+                    instructions[i + j].payload_size,
+                );
+            }
+
+            // If this is a candidate to match the pattern, let's try to apply it!
+            if let Some(op_code) = steel_gen::opcode::sequence_to_opcode(&buffer) {
+                // panic!("Found a match!");
+
+                // Check if this pattern genuinely matches one of the code gen'd ones
+                steel_gen::Pattern::from_opcodes_with_buffer(&buffer, &mut pattern_buffer);
+
+                if crate::steel_vm::vm::pattern_exists(&pattern_buffer) {
+                    // list.cons_mut((i, op_code));
+
+                    // panic!("Applying optimization!");
+
+                    instructions[i].op_code = op_code;
+
+                    continue;
+                }
+            }
+        }
+
+        // for (index, op) in list {
+        //     instructions[index].op_code = op;
+        // }
+    }
+
+    // Super instruction tiling here!
+    tile::<5>(instructions);
+    tile::<4>(instructions);
+    tile::<3>(instructions);
+    tile::<2>(instructions);
+}
+
 pub fn merge_conditions_with_if(instructions: &mut [Instruction]) {
     for i in 0..instructions.len() - 1 {
         let condition = instructions.get(i);
@@ -894,6 +958,9 @@ impl RawProgramWithSymbols {
             specialize_read_local(instructions);
 
             merge_conditions_with_if(instructions);
+
+            // Apply the super instruction tiling!
+            tile_super_instructions(instructions);
 
             // specialize_exit_jmp(instructions);
 

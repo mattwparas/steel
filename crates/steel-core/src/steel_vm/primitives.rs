@@ -977,6 +977,7 @@ fn set_box(value: &Gc<RefCell<SteelVal>>, update_to: SteelVal) {
 fn meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta");
     module
+        .register_fn("#%black-box", || {})
         .register_value(
             "#%function-ptr-table",
             LambdaMetadataTable::new().into_steelval().unwrap(),

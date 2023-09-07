@@ -2252,6 +2252,21 @@ impl<'a> VisitorMutUnitRef<'a> for UnusedArguments<'a> {
     }
 }
 
+/// Takes functions that have one argument that is used one time, and inline the function
+/// body and replace the call site.
+// struct InlineFunctionsWithArgumentsUsedOnce<'a> {
+//     analysis: &'a Analysis,
+//     functions_to_inline: FxHashMap<InternedString, ExprKind>,
+// }
+
+// struct FunctionInliner {
+//     variable_to_substitute: ExprKind,
+// }
+
+// impl FunctionInliner {
+
+// }
+
 // TODO: If its _not_ a pure function, we need to both assert that the function
 // does not escape, and then find the captured arguments, assert that those also
 // are immutable captures, and then modify the callsites to pass in those variables
@@ -2298,6 +2313,12 @@ impl<'a> VisitorMutRefUnit for LiftPureFunctionsToGlobalScope<'a> {
                         // We don't need to lift top level functions to the top level already
                         if info.depth == 1 {
                             return;
+                        }
+
+                        for arg in info.arguments().values() {
+                            if arg.mutated {
+                                return;
+                            }
                         }
 
                         // If we have no captured variables, this is a pure function for our purposes

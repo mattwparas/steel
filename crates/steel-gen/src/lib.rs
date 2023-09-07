@@ -144,11 +144,17 @@ impl StackToSSAConverter {
                 .map(|x| format!("{x}").to_lowercase())
                 .join("_"),
         );
+
+        function.vis("pub(crate)");
+
         function.arg("ctx", codegen::Type::new("&mut VmCore<'_>"));
         function.arg("payload", codegen::Type::new("usize"));
         function.ret(codegen::Type::new("Result<()>"));
 
         let mut lines = FunctionLines::default();
+
+        lines.line("use OpCode::*;");
+        lines.line("use steel_gen::Pattern::*;");
 
         let mut max_local_offset_read = 0;
         let mut max_ip_read = 0;
@@ -176,6 +182,14 @@ impl StackToSSAConverter {
                     self.local_offset = Some(*n);
                     lines.line("ctx.ip += 1;");
                 }
+
+                Single(PUSHCONST) => {
+                    let local = self.push();
+                    lines.line(format!(
+                        "let {local} = opcode_to_ssa_handler!(PUSHCONST)(ctx)?;"
+                    ));
+                }
+
                 // Single(LetVar) => {
                 //     let local = self.pop();
                 //     function.line(format!("ctx.stack.push({}.into());", local));
@@ -484,7 +498,8 @@ impl StackToSSAConverter {
                             let local = self.push_with_hint(TypeHint::Bool);
 
                             lines.line(format!("let {local} = {left} == {right};"));
-                            lines.line("ctx.ip += 1;");
+                            // TODO: This is going to need to be
+                            // lines.line("ctx.ip += 1;");
                             max_ip_read += 1;
                         }
                         (TypeHint::Int, TypeHint::Int) => {
@@ -555,6 +570,20 @@ impl StackToSSAConverter {
                             push_binop(&mut lines, local, call, left, right);
                         }
                         (_, _) => todo!(),
+                    }
+                }
+
+                Double(ADDIMMEDIATE, imm) => {
+                    let right = self.pop();
+
+                    lines.line("ctx.ip += 2;");
+
+                    match right.type_hint {
+                        TypeHint::Int => todo!(),
+                        TypeHint::Bool => todo!(),
+                        TypeHint::Float => todo!(),
+                        TypeHint::Void => todo!(),
+                        TypeHint::None => todo!(),
                     }
                 }
 
@@ -735,22 +764,40 @@ impl<'a> std::fmt::Display for Call<'a> {
 
 // READCAPTURED, TAILCALL
 
+// TODO:
+
+// Code Gen the match statement on the instruction that we will use to do a sliding window opt
+// pub fn identify_pattern(instructions: &mut [Instruction], pattern: &[(OpCode, usize)]) {
+//     todo!()
+// }
+
 impl Pattern {
     pub fn from_opcodes(op_codes: &[(OpCode, usize)]) -> Vec<Pattern> {
+        let mut buffer: Vec<Pattern> = Vec::new();
+
+        Self::from_opcodes_with_buffer(op_codes, &mut buffer);
+
+        buffer
+    }
+
+    pub fn from_opcodes_with_buffer(op_codes: &[(OpCode, usize)], patterns: &mut Vec<Pattern>) {
         use OpCode::*;
 
-        let mut patterns: Vec<Pattern> = Vec::new();
+        patterns.clear();
+
         let iter = op_codes.iter();
 
         for op in iter {
             match op {
                 (
                     LOADINT0 | LOADINT1 | LOADINT2 | READLOCAL0 | READLOCAL1 | READLOCAL2
-                    | READLOCAL3 | MOVEREADLOCAL0 | MOVEREADLOCAL1 | MOVEREADLOCAL2
+                    | READLOCAL3 | MOVEREADLOCAL0 | MOVEREADLOCAL1 | MOVEREADLOCAL2 | PUSHCONST
                     | MOVEREADLOCAL3 | IF | PUSH | READCAPTURED | TAILCALL,
                     _,
                 ) => patterns.push(Pattern::Single(op.0)),
-                (READLOCAL | MOVEREADLOCAL, n) => patterns.push(Pattern::Double(op.0, *n)),
+                (READLOCAL | MOVEREADLOCAL | ADDIMMEDIATE, n) => {
+                    patterns.push(Pattern::Double(op.0, *n))
+                }
                 (ADD | SUB | MUL | DIV | EQUAL | LTE, 2) => patterns.push(Pattern::Double(op.0, 2)),
                 (BEGINSCOPE, n) => patterns.push(Pattern::Double(op.0, *n)),
                 (CALLGLOBAL, n) => {
@@ -762,8 +809,6 @@ impl Pattern {
                 }
             }
         }
-
-        patterns
     }
 }
 
@@ -795,74 +840,128 @@ impl<T> IteratorExtensions for T where T: Iterator {}
 //     map: std::collections::HashMap<Vec<Pattern>, for<'r> fn (&'r mut VmCore<'_>, usize) -> Result<()>>
 // }
 
-pub fn generate_opcode_map(patterns: Vec<Vec<(OpCode, usize)>>) -> String {
+pub fn generate_opcode_map() -> String {
+    let patterns = opcode::PATTERNS;
+
     let mut global_scope = Scope::new();
 
-    let mut generate = codegen::Function::new("generate_dynamic_op_codes");
-    generate.ret(codegen::Type::new("SuperInstructionMap"));
-    generate.vis("pub(crate)");
+    // let mut generate = codegen::Function::new("generate_dynamic_op_codes");
+    // generate.ret(codegen::Type::new("SuperInstructionMap"));
+    // generate.vis("pub(crate)");
 
-    generate.line("use OpCode::*;");
-    generate.line("use steel_gen::Pattern::*;");
+    // generate.line("use OpCode::*;");
+    // generate.line("use steel_gen::Pattern::*;");
 
-    generate.line("let mut map = SuperInstructionMap::new();");
+    // generate.line("let mut map = SuperInstructionMap::new();");
 
     let mut converter = StackToSSAConverter::new();
 
+    let mut pattern_exists_function = codegen::Function::new("pattern_exists");
+    pattern_exists_function.ret(codegen::Type::new("bool"));
+    pattern_exists_function.vis("pub(crate)");
+
+    pattern_exists_function.arg("pattern", codegen::Type::new("&[steel_gen::Pattern]"));
+
+    pattern_exists_function.line("use OpCode::*;");
+    pattern_exists_function.line("use steel_gen::Pattern::*;");
+
+    pattern_exists_function.line("match pattern {");
+
+    let mut vm_match_loop_function = codegen::Function::new("vm_match_dynamic_super_instruction");
+
+    vm_match_loop_function.vis("pub(crate)");
+
+    vm_match_loop_function.arg("ctx", codegen::Type::new("&mut VmCore<'_>"));
+    vm_match_loop_function.ret(codegen::Type::new("Result<()>"));
+    vm_match_loop_function.arg("instr", codegen::Type::new("DenseInstruction"));
+
+    vm_match_loop_function.line("match instr {");
+
     for pattern in patterns {
+        let original_pattern = pattern;
         let pattern = Pattern::from_opcodes(&pattern);
+
+        if pattern.is_empty() {
+            dbg!("Pattern produced empty result: {:?}", original_pattern);
+            continue;
+        }
+
         let generated_name = pattern
             .iter()
             .map(|x| format!("{x}").to_lowercase())
             .join("_");
         let generated_function = converter.process_sequence(&pattern);
 
-        let mut scope = Scope::new();
+        // let mut scope = Scope::new();
 
-        scope.push_fn(generated_function);
+        global_scope.push_fn(generated_function);
 
-        generate.line(scope.to_string());
-        generate.line(format!("map.insert(vec!{pattern:?}, {generated_name});"));
+        // generate.line(scope.to_string());
+        // generate.line(format!("map.insert(vec!{pattern:?}, {generated_name});"));
 
         converter.reset();
 
-        // let block = Block::new(before)
+        pattern_exists_function.line(format!("&{pattern:?} => true,"));
 
-        // generate.push_block(block)
+        if let Some(op_code) = opcode::sequence_to_opcode(original_pattern) {
+            dbg!(&original_pattern);
+
+            vm_match_loop_function.line(format!(
+                "DenseInstruction {{ op_code: OpCode::{:?}, payload_size, .. }} => dynamic::{}(ctx, payload_size as usize),",
+                op_code, generated_name
+            ));
+        };
     }
 
+    pattern_exists_function.line("_ => false,");
+    pattern_exists_function.line("}");
+
+    vm_match_loop_function.line("_ => {");
+    vm_match_loop_function
+        .line("crate::core::instructions::pretty_print_dense_instructions(&ctx.instructions);");
+    vm_match_loop_function
+        .line(r#"panic!("Unhandled opcode: {:?} @ {}", ctx.instructions[ctx.ip], ctx.ip);"#);
+
+    vm_match_loop_function.line("}");
+    vm_match_loop_function.line("}");
+
+    global_scope.push_fn(pattern_exists_function);
+    global_scope.push_fn(vm_match_loop_function);
+
     // Return the map now
-    generate.line("map");
+    // generate.line("map");
 
     // This gives me the interface to the super instruction stuff
     let top_level_definition = r#"
 
-    pub(crate) struct SuperInstructionMap {
-        map: std::collections::HashMap<Vec<steel_gen::Pattern>, for<'r> fn (&'r mut VmCore<'_>, usize) -> Result<()>>
+pub(crate) struct SuperInstructionMap {
+    map: std::collections::HashMap<Vec<steel_gen::Pattern>, for<'r> fn (&'r mut VmCore<'_>, usize) -> Result<()>>
+}
+
+impl SuperInstructionMap {
+    pub(crate) fn new() -> Self {
+        Self { map: std::collections::HashMap::new() }
     }
 
-    impl SuperInstructionMap {
-        pub(crate) fn new() -> Self {
-            Self { map: std::collections::HashMap::new() }
-        }
-
-        pub(crate) fn insert(&mut self, pattern: Vec<steel_gen::Pattern>, func: for<'r> fn (&'r mut VmCore<'_>, usize) -> Result<()>) {
-            self.map.insert(pattern, func);
-        }
-
-        pub(crate) fn get(&self, op_codes: &[(OpCode, usize)]) -> Option<for<'r> fn (&'r mut VmCore<'_>, usize) -> Result<()>> {
-            let pattern = steel_gen::Pattern::from_opcodes(&op_codes);
-            self.map.get(&pattern).copied()
-        }
+    pub(crate) fn insert(&mut self, pattern: Vec<steel_gen::Pattern>, func: for<'r> fn (&'r mut VmCore<'_>, usize) -> Result<()>) {
+        self.map.insert(pattern, func);
     }
-    
-    lazy_static! {
-        pub(crate) static ref DYNAMIC_SUPER_PATTERNS: SuperInstructionMap = generate_dynamic_op_codes();
+
+    pub(crate) fn get(&self, op_codes: &[(OpCode, usize)]) -> Option<for<'r> fn (&'r mut VmCore<'_>, usize) -> Result<()>> {
+        let pattern = steel_gen::Pattern::from_opcodes(&op_codes);
+        self.map.get(&pattern).copied()
     }
+}
+
+pub(crate) static DYNAMIC_SUPER_PATTERNS: once_cell::sync::Lazy<SuperInstructionMap> = once_cell::sync::Lazy::new(|| generate_dynamic_op_codes());
+
+pub(crate) fn generate_dynamic_op_codes() -> SuperInstructionMap {
+    SuperInstructionMap::new()
+}
     
     "#;
 
-    global_scope.push_fn(generate);
+    // global_scope.push_fn(generate);
 
     format!("{}\n{}", top_level_definition, global_scope.to_string())
 }
@@ -918,12 +1017,12 @@ fn test_generation() {
     use OpCode::*;
 
     // TODO: Come up with better way for this to make it in
-    let patterns: Vec<Vec<(OpCode, usize)>> = vec![vec![
-        (MOVEREADLOCAL0, 0),
-        (LOADINT2, 225),
-        (SUB, 2),
-        (CALLGLOBAL, 1),
-    ]];
+    // let patterns: &'static [&'static [(OpCode, usize)]] = &[&[
+    //     (MOVEREADLOCAL0, 0),
+    //     (LOADINT2, 225),
+    //     (SUB, 2),
+    //     (CALLGLOBAL, 1),
+    // ]];
 
-    println!("{}", generate_opcode_map(patterns));
+    println!("{}", generate_opcode_map());
 }

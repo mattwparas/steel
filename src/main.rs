@@ -6,15 +6,15 @@ use steel_interpreter::Args;
 fn main() -> Result<(), Box<dyn Error>> {
     // env_logger::init();
 
-    // let mut builder = env_logger::Builder::new();
+    let mut builder = env_logger::Builder::new();
 
-    // let log_targets = ["steel::steel_vm::const_evaluation"];
+    let log_targets = ["super-instructions"];
 
-    // for target in log_targets {
-    //     builder.filter(Some(target), log::LevelFilter::Trace);
-    // }
+    for target in log_targets {
+        builder.filter(Some(target), log::LevelFilter::Trace);
+    }
 
-    // builder.init();
+    builder.init();
 
     let clap_args = Args::parse();
 

@@ -1,5 +1,7 @@
 // use itertools::Itertools;
 
+use crate::compiler::passes::reader::MultipleArityFunctions;
+use crate::compiler::passes::Folder;
 use crate::parser::ast::ExprKind;
 use crate::steel_vm::engine::ModuleContainer;
 use crate::{compiler::program::REQUIRE_BUILTIN, rvals::Result};
@@ -266,8 +268,29 @@ fn expand_keyword_arguments(
 ) -> Result<Box<super::ast::LambdaFunction>> {
     // todo!()
 
+    // TODO: Check if this already has a rest argument - if so, the generated code will need to be changed.
+    // The naive generated code will not handle rest arguments with keyword arguments, which can be a concern.
+    // In addition, this naively assumes that keyword arguments cannot be applied before positional arguments - which
+    // on its own is not the worst restriction, and perhaps we can leave that in place.
+    //
+    // If there are rest arguments though, we'll need to split the rest argument list into two - the first half will then get
+    // applied to the hashmap list, while the rest of the arguments will get applied to the correct place.
+
+    // We don't want to do this! This is going to allocate extra!
+    let lambda_function = MultipleArityFunctions::new()
+        .visit_lambda_function(lambda_function)
+        .into_lambda_function()
+        .unwrap();
+
+    // If this already has a rest arguments, we need to slice out the
+    // remaining function values from the keywords, and then bind those to whatever variable in the original
+    // list before we create the hash. Making the hash itself is also not exactly my favorite pattern - we need
+    // to allocate extra stuff - what we should probably do is create a special keyword allocation that we
+    // can consistently reuse inside the VM. If we can reuse that allocation repeatedly, we should be able
+    // to avoid much of the overhead of the allocation.
+
     // TODO: Can partition these directly into the two groups
-    let keyword_args: Vec<&ExprKind> = lambda_function
+    let mut keyword_args: Vec<&ExprKind> = lambda_function
         .args
         .iter()
         .skip_while(|x| {
@@ -283,12 +306,22 @@ fn expand_keyword_arguments(
         })
         .collect();
 
+    // If there is a rest argument, we'll want to grab it for later use in the expansion
+    let mut rest_arg_expr = None;
+
     // Bail out if theres no keyword args
     if keyword_args.is_empty() {
         return Ok(lambda_function);
     }
 
-    if keyword_args.len() % 2 != 0 {
+    if (keyword_args.len() % 2 != 0 && !lambda_function.rest)
+        || (lambda_function.rest && keyword_args.len() - 1 % 2 != 0)
+    {
+        // The last argument is going to be the rest argument
+        if lambda_function.rest {
+            rest_arg_expr = keyword_args.pop();
+        }
+
         stop!(Generic => "keyword arguments malformed - each option requires a value"; lambda_function.location.span)
     }
 
@@ -327,6 +360,8 @@ fn expand_keyword_arguments(
             })
         )
     }) {
+        dbg!(&keyword_map);
+
         stop!(Generic => "Non keyword arguments found after the first keyword argument"; lambda_function.location.span)
     }
 
@@ -411,6 +446,7 @@ fn expand_keyword_arguments(
             expr_list![
                 ExprKind::ident("apply"),
                 ExprKind::ident("%keyword-hash"), // This shouldn't be `hash` directly - something with a specific error
+                // TODO: do like, `(take x !!dummy-rest-arg!!)`
                 ExprKind::ident("!!dummy-rest-arg!!"),
             ],
         ],

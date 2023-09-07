@@ -145,7 +145,13 @@ impl TryFrom<ByteCodeLambda> for SerializedLambda {
     fn try_from(value: ByteCodeLambda) -> Result<Self, Self::Error> {
         Ok(SerializedLambda {
             id: value.id,
+
+            #[cfg(not(feature = "dynamic"))]
             body_exp: value.body_exp.into_iter().cloned().collect(),
+
+            #[cfg(feature = "dynamic")]
+            body_exp: value.body_exp.borrow().iter().cloned().collect(),
+
             arity: value.arity,
             is_multi_arity: value.is_multi_arity,
             captures: value

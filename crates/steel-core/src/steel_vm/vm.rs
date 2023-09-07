@@ -77,6 +77,8 @@ pub fn unlikely(b: bool) -> bool {
 const STACK_LIMIT: usize = 1000000;
 const _JIT_THRESHOLD: usize = 100;
 
+const USE_SUPER_INSTRUCTIONS: bool = false;
+
 #[repr(C)]
 #[derive(Clone, Debug, Copy, PartialEq)]
 pub struct DehydratedCallContext {
@@ -253,6 +255,7 @@ pub struct SteelThread {
     profiler: OpCodeOccurenceProfiler,
     function_interner: FunctionInterner,
     super_instructions: Vec<Rc<DynamicBlock>>,
+
     pub(crate) heap: Heap,
     // If contracts are set to off - contract construction results in a no-op,
     // so we don't need generics on the thread
@@ -316,6 +319,7 @@ impl SteelThread {
             profiler: OpCodeOccurenceProfiler::new(),
             function_interner: FunctionInterner::default(),
             super_instructions: Vec::new(),
+
             heap: Heap::new(),
             runtime_options: RunTimeOptions::new(),
             stack_frames: Vec::with_capacity(128),
@@ -729,7 +733,7 @@ impl DynamicBlock {
 
         let mut header_func = None;
 
-        println!("{basic_block:#?}");
+        log::debug!(target: "super-instructions", "{basic_block:#?}");
 
         if let Some(first) = handlers.peek() {
             header_func = op_code_requires_payload(first.0);
@@ -748,6 +752,8 @@ impl DynamicBlock {
         }
 
         let handlers = handlers.map(|x| OP_CODE_TABLE[x.0 as usize]).collect();
+
+        // println!("{:?}", )
 
         Self {
             basic_block,
@@ -1235,20 +1241,28 @@ impl<'a> VmCore<'a> {
                 self.thread.stack_frames.last().map(|x| x.function.as_ref()),
             ) {
                 // if count > 1000 {
-                println!("Found a hot pattern, creating super instruction...");
+                log::debug!(target: "super-instructions", "Found a hot pattern, creating super instruction...");
 
-                // Index of the starting opcode
-                let start = pat.pattern.start;
+                log::debug!(target: "super-instructions", "{:#?}", pat);
 
-                let id = self.thread.super_instructions.len();
+                if USE_SUPER_INSTRUCTIONS {
+                    // Index of the starting opcode
+                    let start = pat.pattern.start;
 
-                let guard = self.thread.stack_frames.last_mut().unwrap();
+                    let id = self.thread.super_instructions.len();
 
-                // Next run should get the new sequence of opcodes
-                let (head, _) = guard.function.update_to_super_instruction(start, id);
+                    let guard = self.thread.stack_frames.last_mut().unwrap();
 
-                let block = DynamicBlock::construct_basic_block(head, pat);
-                self.thread.super_instructions.push(Rc::new(block));
+                    // Next run should get the new sequence of opcodes
+                    let (head, _) = guard.function.update_to_super_instruction(start, id);
+
+                    let block = DynamicBlock::construct_basic_block(head, pat);
+
+                    self.thread.super_instructions.push(Rc::new(block));
+                }
+                // self.thread.super_instructions.push(Rc::new(|ctx| {
+                //     block.call(ctx);
+                // }))
 
                 // let
                 // }
@@ -1281,6 +1295,7 @@ impl<'a> VmCore<'a> {
                 } => {
                     self.cut_sequence();
 
+                    // TODO: Store in a different spot? So that we can avoid cloning on every iteration?
                     let super_instruction =
                         { self.thread.super_instructions[payload_size as usize].clone() };
 
@@ -1809,6 +1824,11 @@ impl<'a> VmCore<'a> {
 
                     let last_stack_frame = self.thread.stack_frames.last().unwrap();
 
+                    #[cfg(feature = "dynamic")]
+                    {
+                        last_stack_frame.function.increment_call_count();
+                    }
+
                     self.instructions = last_stack_frame.function.body_exp();
                     // self.spans = last_stack_frame.function.spans();
                     self.sp = last_stack_frame.sp;
@@ -2018,12 +2038,17 @@ impl<'a> VmCore<'a> {
                     // log::warn!("Hitting a pass - this shouldn't happen");
                     self.ip += 1;
                 }
+
+                // match_dynamic_super_instructions!()
                 _ => {
-                    crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-                    panic!(
-                        "Unhandled opcode: {:?} @ {}",
-                        self.instructions[self.ip], self.ip
-                    );
+                    // TODO: Dispatch on the function here for super instructions!
+                    dynamic::vm_match_dynamic_super_instruction(self, instr)?;
+
+                    // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+                    // panic!(
+                    //     "Unhandled opcode: {:?} @ {}",
+                    //     self.instructions[self.ip], self.ip
+                    // );
                 }
             }
         }
@@ -2736,24 +2761,27 @@ impl<'a> VmCore<'a> {
             &self.instructions,
             self.thread.stack_frames.last().map(|x| x.function.as_ref()),
         ) {
-            println!("Found a hot pattern, creating super instruction...");
+            log::debug!(target: "super-instructions", "Found a hot pattern, creating super instruction...");
+            log::debug!(target: "super-instructions", "{:#?}", pat);
 
-            // Index of the starting opcode
-            let start = pat.pattern.start;
+            if USE_SUPER_INSTRUCTIONS {
+                // Index of the starting opcode
+                let start = pat.pattern.start;
 
-            let id = self.thread.super_instructions.len();
+                let id = self.thread.super_instructions.len();
 
-            let guard = self.thread.stack_frames.last_mut().unwrap();
+                let guard = self.thread.stack_frames.last_mut().unwrap();
 
-            // We don't want to repeatedly thrash by calculating hashes for the block pattern, so
-            // we mark the tail of the block directly on the function itself.
-            // guard.function.mark_block_tail(self.ip);
+                // We don't want to repeatedly thrash by calculating hashes for the block pattern, so
+                // we mark the tail of the block directly on the function itself.
+                // guard.function.mark_block_tail(self.ip);
 
-            // Next run should get the new sequence of opcodes
-            let (head, _) = guard.function.update_to_super_instruction(start, id);
+                // Next run should get the new sequence of opcodes
+                let (head, _) = guard.function.update_to_super_instruction(start, id);
 
-            let block = DynamicBlock::construct_basic_block(head, pat);
-            self.thread.super_instructions.push(Rc::new(block));
+                let block = DynamicBlock::construct_basic_block(head, pat);
+                self.thread.super_instructions.push(Rc::new(block));
+            }
         }
     }
 
@@ -4081,6 +4109,109 @@ impl OpCodeOccurenceProfiler {
         self.time.clear();
     }
 
+    // Process the op code and the associated payload
+    // TODO: Get this to just use offsets, don't actually clone the instruction set directly
+    #[cfg(feature = "dynamic")]
+    pub fn process_opcode(
+        &mut self,
+        opcode: &OpCode,
+        // payload: usize,
+        index: usize,
+        instructions: &[DenseInstruction],
+        function: Option<&ByteCodeLambda>,
+    ) -> Option<InstructionPattern> {
+        // *self.occurrences.entry((*opcode, payload)).or_default() += 1;
+
+        let function = function?;
+
+        // Trace once it becomes hot
+        let call_count = function.call_count();
+        // If we're in the special zone, profile, otherwise don't
+        if call_count < 1000 || call_count > 10000 {
+            self.starting_index = None;
+            self.ending_index = None;
+            return None;
+        }
+
+        match opcode {
+            OpCode::SDEF | OpCode::EDEF => return None,
+            _ => {}
+        }
+
+        if self.starting_index.is_none() {
+            self.starting_index = Some(index);
+        }
+
+        self.ending_index = Some(index);
+
+        match opcode {
+            OpCode::JMP
+            | OpCode::IF
+            // | OpCode::CALLGLOBAL
+            | OpCode::CALLGLOBALTAIL
+            | OpCode::TAILCALL
+            | OpCode::TCOJMP
+            | OpCode::POPPURE
+            | OpCode::LTEIMMEDIATEIF
+            // | OpCode::FUNC 
+            => {
+
+                let block_pattern = BlockPattern {
+                    start: self.starting_index.unwrap(),
+                    end: index
+                };
+
+                let mut guard = function.blocks.borrow_mut();
+
+
+                if let Some((_, metadata)) = guard.iter_mut().find(|x| x.0 == block_pattern) {
+
+                    // self.sample_count += 1;
+                    // println!("Sampling on op code: {:?}", opcode);
+
+                    metadata.count += 1;
+                    metadata.length = index - block_pattern.start;
+                    // self.last_sequence = Some(pattern);
+
+                    if metadata.count > 1000 && !metadata.created {
+                        metadata.created = true;
+
+                        // println!("{} {}", block_pattern.start, index);
+
+                        let sequence = instructions[block_pattern.start..=index]
+                            .iter()
+                            .map(|x| (x.op_code, x.payload_size as usize))
+                            .filter(|x| !x.0.is_ephemeral_opcode() && x.0 != OpCode::POPPURE)
+                            .collect();
+
+                        self.starting_index = None;
+                        self.ending_index = None;
+
+
+                        // println!("Pattern finished");
+
+                        return Some(InstructionPattern::new(sequence, block_pattern));
+                    }
+
+                } else if index - block_pattern.start > 2 {
+                    guard.push((block_pattern, BlockMetadata::default()));
+                }
+
+                self.starting_index = None;
+                self.ending_index = None;
+
+                // println!("Pattern finished");
+            }
+            _ => {
+                // println!("Updating end to be: {}", index);
+                self.ending_index = Some(index);
+                // self.sequence.push((*opcode, index));
+            }
+        }
+
+        None
+    }
+
     #[cfg(feature = "dynamic")]
     pub fn cut_sequence(
         &mut self,
@@ -4096,6 +4227,7 @@ impl OpCodeOccurenceProfiler {
 
         // Trace once it becomes hot
         let call_count = function.call_count();
+
         // If we're in the special zone, profile, otherwise don't
         if !(1000..=10000).contains(&call_count) {
             self.starting_index = None;
@@ -4159,7 +4291,11 @@ impl OpCodeOccurenceProfiler {
     // pub fn report_basic_blocks(&self) {
     //     println!("--------------- Basic Blocks ---------------");
 
-    //     let mut blocks = self.basic_blocks.iter().collect::<Vec<_>>();
+    //     let mut blocks = self
+    //         .super_instructions
+    //         .basic_blocks
+    //         .iter()
+    //         .collect::<Vec<_>>();
 
     //     blocks.sort_by_key(|x| x.1);
     //     blocks.reverse();
@@ -4291,7 +4427,7 @@ fn op_code_requires_payload(
 // on the main VM context. In order to construct these sequences, we will need to be able
 // to grab a basic block from the running sequence, and directly patch an instruction set
 // on the fly, to transfer context over to that sequence.
-static OP_CODE_TABLE: [for<'r> fn(&'r mut VmCore<'_>) -> Result<()>; 58] = [
+static OP_CODE_TABLE: [for<'r> fn(&'r mut VmCore<'_>) -> Result<()>; 66] = [
     void_handler,
     push_handler,
     if_handler,   // If
@@ -4303,6 +4439,7 @@ static OP_CODE_TABLE: [for<'r> fn(&'r mut VmCore<'_>) -> Result<()>; 58] = [
     dummy, // sdef
     dummy, // edef
     dummy, // pop
+    dummy, // popn
     dummy, // pass
     push_const_handler,
     dummy, // ndefs,
@@ -4351,7 +4488,14 @@ static OP_CODE_TABLE: [for<'r> fn(&'r mut VmCore<'_>) -> Result<()>; 58] = [
     set_alloc_handler,
     // dummy,                               // gimmick
     // move_read_local_call_global_handler, // movereadlocalcallglobal,
-    dummy, // dynsuperinstruction
+    dummy, // dynsuperinstruction,
+    dummy,
+    dummy,
+    dummy,
+    dummy,
+    dummy,
+    binop_add_handler,
+    dummy,
 ];
 
 macro_rules! opcode_to_function {
@@ -4726,6 +4870,14 @@ fn handle_local_0_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
     Ok(value)
 }
 
+#[inline(always)]
+fn handle_local_1_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
+    let offset = ctx.get_offset();
+    let value = ctx.thread.stack[offset + 1].clone();
+    ctx.ip += 1;
+    Ok(value)
+}
+
 // OpCode::VOID
 fn void_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.thread.stack.push(SteelVal::Void);
@@ -4777,6 +4929,13 @@ fn push_const_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.thread.stack.push(val);
     ctx.ip += 1;
     Ok(())
+}
+
+fn push_const_handler_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    let val = ctx.constants.get(payload_size as usize);
+    ctx.ip += 1;
+    Ok(val)
 }
 
 // OpCode::PUSHCONST
@@ -5056,6 +5215,36 @@ macro_rules! handler_inline_primitive_payload {
 // OpCode::ADD
 fn add_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     handler_inline_primitive!(ctx, add_primitive);
+    Ok(())
+}
+
+fn binop_add_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let last_index = ctx.thread.stack.len() - 2;
+
+    let right = ctx.thread.stack.pop().unwrap();
+    let left = ctx.thread.stack.last().unwrap();
+
+    let result = match add_handler_none_none(left, &right) {
+        Ok(value) => value,
+        Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
+    };
+
+    // let result = match $name(&mut $ctx.thread.stack[last_index..]) {
+    //     Ok(value) => value,
+    //     Err(e) => return Err(e.set_span_if_none($ctx.current_span())),
+    // };
+
+    // This is the old way... lets see if the below way improves the speed
+    // $ctx.thread.stack.truncate(last_index);
+    // $ctx.thread.stack.push(result);
+
+    // self.thread.stack.truncate(last_index + 1);
+    // *self.thread.stack.last_mut().unwrap() = result;
+
+    *ctx.thread.stack.last_mut().unwrap() = result;
+
+    ctx.ip += 2;
+
     Ok(())
 }
 
@@ -5569,6 +5758,9 @@ fn add_handler_none_none(l: &SteelVal, r: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+pub(crate) use dynamic::pattern_exists;
+
+#[macro_use]
 #[cfg(feature = "dynamic")]
 mod dynamic {
     use super::*;
@@ -5670,6 +5862,10 @@ mod dynamic {
             call_global_handler_with_args
         };
 
+        (PUSHCONST) => {
+            push_const_handler_no_stack
+        };
+
         (MOVEREADLOCAL0) => {
             handle_move_local_0_no_stack
         };
@@ -5680,6 +5876,10 @@ mod dynamic {
 
         (READLOCAL0) => {
             handle_local_0_no_stack
+        };
+
+        (READLOCAL1) => {
+            handle_local_1_no_stack
         };
     }
 

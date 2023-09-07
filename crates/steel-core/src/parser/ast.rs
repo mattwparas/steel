@@ -103,6 +103,14 @@ macro_rules! expr_list {
 }
 
 impl ExprKind {
+    pub fn into_lambda_function(self) -> Option<Box<LambdaFunction>> {
+        if let ExprKind::LambdaFunction(func) = self {
+            Some(func)
+        } else {
+            None
+        }
+    }
+
     pub fn quoted_list() -> ExprKind {
         ExprKind::Quote(Box::new(Quote::new(
             Self::empty(),

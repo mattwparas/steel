@@ -1652,6 +1652,7 @@ impl PartialEq for SteelVal {
             (ListV(l), ListV(r)) => l == r,
             (CustomStruct(l), CustomStruct(r)) => l == r,
             (FuncV(l), FuncV(r)) => *l as usize == *r as usize,
+            (Custom(l), Custom(r)) => Gc::ptr_eq(l, r),
             //TODO
             (_, _) => false, // (l, r) => {
                              //     let left = unwrap!(l, usize);

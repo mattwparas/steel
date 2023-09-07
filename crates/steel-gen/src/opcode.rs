@@ -1,77 +1,157 @@
 use serde::{Deserialize, Serialize};
 
-#[repr(u8)]
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Serialize, Deserialize, Eq, PartialOrd, Ord)]
-pub enum OpCode {
-    VOID = 0,
-    PUSH = 1,
-    IF = 2,
-    JMP = 3,
-    FUNC = 4,
-    SCLOSURE = 5,
-    ECLOSURE = 6,
-    BIND,
-    SDEF,
-    EDEF,
-    POPPURE,
-    POPN,
-    PASS,
-    PUSHCONST,
-    NDEFS,
-    PANIC,
-    TAILCALL,
-    SET,
-    READLOCAL,
-    READLOCAL0,
-    READLOCAL1,
-    READLOCAL2,
-    READLOCAL3,
-    SETLOCAL,
-    COPYCAPTURESTACK,
-    COPYCAPTURECLOSURE,
-    COPYHEAPCAPTURECLOSURE,
-    FIRSTCOPYHEAPCAPTURECLOSURE,
-    TCOJMP,
-    CALLGLOBAL,
-    CALLGLOBALTAIL,
-    LOADINT0, // Load const 0
-    LOADINT1,
-    LOADINT2,
-    CGLOCALCONST,
-    MOVEREADLOCAL,
-    MOVEREADLOCAL0,
-    MOVEREADLOCAL1,
-    MOVEREADLOCAL2,
-    MOVEREADLOCAL3,
-    READCAPTURED,
-    BEGINSCOPE,
-    LETENDSCOPE,
-    PUREFUNC,
-    ADD,
-    SUB,
-    MUL,
-    DIV,
-    EQUAL,
-    LTE,
-    NEWSCLOSURE,
-    ADDREGISTER,
-    SUBREGISTER,
-    LTEREGISTER,
-    SUBREGISTER1,
-    ALLOC,
-    READALLOC,
-    SETALLOC,
-    DynSuperInstruction,
-    Arity,
-    LetVar,
-    ADDIMMEDIATE,
-    SUBIMMEDIATE,
-    LTEIMMEDIATE,
-    BINOPADD,
-    LTEIMMEDIATEIF,
+macro_rules! declare_opcodes {
+
+    ( { $($variant:tt);* } { $( [ $super:tt => $(($k:path, $v:expr),)* ] );* } ) => {
+        #[repr(u8)]
+        #[derive(Copy, Clone, Debug, Hash, PartialEq, Serialize, Deserialize, Eq, PartialOrd, Ord)]
+        pub enum OpCode {
+            $($variant),*
+
+            ,
+
+            $($super),*
+        }
+
+        // $( const $super: &'static [(TestOpCode, usize)] = &[ $($v),* ]; )*
+
+        pub const fn op_code_to_super_instruction_pattern(op_code: OpCode) -> Option<&'static [(OpCode, usize)]> {
+            match op_code {
+                $(OpCode::$super => Some( &[ $(($k, $v)),* ]) ),* ,
+                _ => None
+            }
+        }
+
+        pub const fn sequence_to_opcode(pattern: &[(OpCode, usize)]) -> Option<OpCode> {
+            match pattern {
+                $(&[ $(($k, _)),* ] => Some(OpCode::$super) ),* ,
+                _ => None
+            }
+        }
+
+        pub static PATTERNS: &'static [&'static [(OpCode, usize)]] = &[
+                $( &[ $(($k, $v)),* ] ),* ,
+        ];
+    }
+
 }
 
+declare_opcodes! {
+    {
+        VOID;
+        PUSH;
+        IF;
+        JMP;
+        FUNC;
+        SCLOSURE;
+        ECLOSURE;
+        BIND;
+        SDEF;
+        EDEF;
+        POPPURE;
+        POPN;
+        PASS;
+        PUSHCONST;
+        NDEFS;
+        PANIC;
+        TAILCALL;
+        SET;
+        READLOCAL;
+        READLOCAL0;
+        READLOCAL1;
+        READLOCAL2;
+        READLOCAL3;
+        SETLOCAL;
+        COPYCAPTURESTACK;
+        COPYCAPTURECLOSURE;
+        COPYHEAPCAPTURECLOSURE;
+        FIRSTCOPYHEAPCAPTURECLOSURE;
+        TCOJMP;
+        CALLGLOBAL;
+        CALLGLOBALTAIL;
+        LOADINT0; // Load const 0
+        LOADINT1;
+        LOADINT2;
+        CGLOCALCONST;
+        MOVEREADLOCAL;
+        MOVEREADLOCAL0;
+        MOVEREADLOCAL1;
+        MOVEREADLOCAL2;
+        MOVEREADLOCAL3;
+        READCAPTURED;
+        BEGINSCOPE;
+        LETENDSCOPE;
+        PUREFUNC;
+        ADD;
+        SUB;
+        MUL;
+        DIV;
+        EQUAL;
+        LTE;
+        NEWSCLOSURE;
+        ADDREGISTER;
+        SUBREGISTER;
+        LTEREGISTER;
+        SUBREGISTER1;
+        ALLOC;
+        READALLOC;
+        SETALLOC;
+        DynSuperInstruction;
+        Arity;
+        LetVar;
+        ADDIMMEDIATE;
+        SUBIMMEDIATE;
+        LTEIMMEDIATE;
+        BINOPADD;
+        LTEIMMEDIATEIF
+    }
+
+    // Super instructions
+    {
+        // [ FooBarBaz => (OpCode::VOID, 0), (OpCode::VOID, 0), (OpCode::VOID, 0), ];
+
+        [ ReadLocal1PushConstEqualIf => (OpCode::READLOCAL1, 1),
+                                        (OpCode::PUSHCONST, 335),
+                                        (OpCode::EQUAL, 2),
+                                        (OpCode::PASS, 0),
+                                        (OpCode::IF, 8),
+        ]
+
+        // [ MOVERLLIS2CG => (OpCode::MOVEREADLOCAL, 0), (OpCode::LOADINT2, 225), (OpCode::SUB, 2), (OpCode::CALLGLOBAL, 1), ];
+
+        // [ MOVERLLIS2CGFOO => (OpCode::MOVEREADLOCAL, 1), (OpCode::LOADINT2, 225), (OpCode::SUB, 2), (OpCode::CALLGLOBAL, 1), ]
+
+
+        //         (MOVEREADLOCAL0, 0),
+        //         (LOADINT2, 225),
+        //         (SUB, 2),
+        //         (CALLGLOBAL, 1),
+
+    }
+}
+
+// // expansion
+// enum EntryPoints {
+//     SomeLibCallback(u64),
+
+//     A(),
+//     B(),
+// }
+
 impl OpCode {
+    /// Is this op code created as part of the aggregation of multiple op codes?
+    pub fn is_super_instruction(&self) -> bool {
+        // TODO: Check where super instructions start!
+
+        return *self as u32 > Self::LTEIMMEDIATEIF as u32;
+    }
+
+    /// Statically create the mapping we need for super instruction. Also, as part of the op code map generating,
+    /// the macro used for calling super instructions should also be generated.
+    pub fn super_instructions(&self) -> &'static [&'static [(OpCode, usize)]] {
+        todo!()
+    }
+
     pub fn is_ephemeral_opcode(&self) -> bool {
         use OpCode::*;
 
