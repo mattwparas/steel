@@ -1,5 +1,7 @@
 #![allow(unused)]
 
+use crate::primitives::lists::cons;
+use crate::primitives::lists::new as new_list;
 use crate::primitives::nums::special_add;
 use crate::values::functions::SerializedLambda;
 use crate::values::structs::UserDefinedStruct;
@@ -1354,6 +1356,23 @@ impl<'a> VmCore<'a> {
 
                     self.ip += 2;
                 }
+
+                // Specialization of specific library functions!
+                DenseInstruction {
+                    op_code: OpCode::CONS,
+                    ..
+                } => {
+                    cons_handler(self)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::LIST,
+                    payload_size,
+                    ..
+                } => {
+                    list_handler(self, payload_size as usize)?;
+                }
+
                 DenseInstruction {
                     op_code: OpCode::ADDREGISTER,
                     ..
@@ -5245,6 +5264,16 @@ fn binop_add_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 
     ctx.ip += 2;
 
+    Ok(())
+}
+
+fn cons_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, cons, 2);
+    Ok(())
+}
+
+fn list_handler(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, new_list, payload);
     Ok(())
 }
 

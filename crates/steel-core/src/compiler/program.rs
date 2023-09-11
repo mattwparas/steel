@@ -1,3 +1,4 @@
+use crate::primitives::lists::CONS;
 use crate::rvals::Result;
 use crate::{
     compiler::constants::ConstantMap,
@@ -47,51 +48,6 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
         }
     }
 }
-
-// pub fn gimmick_super_instruction(instructions: &mut [Instruction]) {
-//     for i in 0..instructions.len() {
-//         let read_local = instructions.get(i);
-//         let load_int = instructions.get(i + 1);
-//         let lte = instructions.get(i + 2);
-//         let pass_instr = instructions.get(i + 3);
-//         let if_instr = instructions.get(i + 4);
-
-//         match (read_local, load_int, lte, pass_instr, if_instr) {
-//             (
-//                 Some(Instruction {
-//                     op_code: OpCode::READLOCAL,
-//                     ..
-//                 }),
-//                 Some(Instruction {
-//                     op_code: OpCode::LOADINT2,
-//                     ..
-//                 }),
-//                 Some(Instruction {
-//                     op_code: OpCode::LTE,
-//                     ..
-//                 }),
-//                 Some(Instruction {
-//                     op_code: OpCode::PASS,
-//                     ..
-//                 }),
-//                 // HAS to be arity 2 in this case
-//                 Some(Instruction {
-//                     op_code: OpCode::IF,
-//                     ..
-//                 }),
-//             ) => {
-//                 if let Some(x) = instructions.get_mut(i) {
-//                     x.op_code = OpCode::GIMMICK;
-//                 }
-
-//                 instructions[i + 1].op_code = OpCode::PASS;
-//                 instructions[i + 2].op_code = OpCode::PASS;
-//                 instructions[i + 4].op_code = OpCode::PASS;
-//             }
-//             _ => {}
-//         }
-//     }
-// }
 
 // pub fn move_read_local_call_global(instructions: &mut [Instruction]) {
 //     for i in 0..instructions.len() {
@@ -345,6 +301,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                 Some(Instruction {
                     op_code: OpCode::PUSH,
                     payload_size: index,
+                    contents: Some(ident),
                     ..
                 }),
                 Some(Instruction {
@@ -356,9 +313,29 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                 let arity = *arity;
                 let index = *index;
 
-                // println!("Converting call global");
-                // println!("Arity: {}", arity);
-                // println!("Index: {}", index);
+                if let TokenType::Identifier(ident) = ident.ty {
+                    match ident {
+                        _ if ident == *CONS_SYMBOL => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::CONS;
+                                x.payload_size = 2;
+                                continue;
+                            }
+                        }
+
+                        // Specialize lists, cons, hashmap, etc. - anything that we expect to be used often in
+                        // real code.
+                        _ if ident == *LIST_SYMBOL => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::LIST;
+                                x.payload_size = arity;
+                                continue;
+                            }
+                        }
+
+                        _ => {}
+                    }
+                }
 
                 if let Some(x) = instructions.get_mut(i) {
                     x.op_code = OpCode::CALLGLOBAL;
@@ -374,6 +351,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                 Some(Instruction {
                     op_code: OpCode::PUSH,
                     payload_size: index,
+                    contents: Some(ident),
                     ..
                 }),
                 Some(Instruction {
@@ -384,6 +362,24 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
             ) => {
                 let arity = *arity;
                 let index = *index;
+
+                if let TokenType::Identifier(ident) = ident.ty {
+                    match ident {
+                        _ if ident == *CONS_SYMBOL => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::CONS;
+                                x.payload_size = 2;
+                                continue;
+                            }
+                        }
+
+                        // Specialize lists, cons, hashmap, etc. - anything that we expect to be used often in
+                        // real code.
+                        _ if ident == *LIST_SYMBOL => {}
+
+                        _ => {}
+                    }
+                }
 
                 if let Some(x) = instructions.get_mut(i) {
                     x.op_code = OpCode::CALLGLOBALTAIL;
@@ -455,6 +451,8 @@ define_symbols! {
     UNSYNTAX_SPLICING => "unsyntax-splicing",
     RAW_UNSYNTAX_SPLICING => "#%unsyntax-splicing",
     SYNTAX_QUOTE => "syntax",
+    CONS_SYMBOL => "cons",
+    LIST_SYMBOL => "list",
 }
 
 pub fn inline_num_operations(instructions: &mut [Instruction]) {
@@ -513,9 +511,6 @@ pub const fn sequence_to_opcode(pattern: &[(OpCode, usize)]) -> &'static [steel_
 }
 
 pub fn tile_super_instructions(instructions: &mut [Instruction]) {
-    // TODO: The windowing here requires that we need to allocate a list side by side with the instructions.
-    // This isn't ideal, I'd like to be able to avoid allocating this, but we can't update the elements and borrow at the same time.
-    // - To fix this, I can manually fetch indices rather than use the windowing, and manually replicate this without windows.
     pub fn tile<const N: usize>(instructions: &mut [Instruction]) {
         // let mut list: List<(usize, OpCode)> = List::new();
 
@@ -539,15 +534,11 @@ pub fn tile_super_instructions(instructions: &mut [Instruction]) {
 
             // If this is a candidate to match the pattern, let's try to apply it!
             if let Some(op_code) = steel_gen::opcode::sequence_to_opcode(&buffer) {
-                // panic!("Found a match!");
-
                 // Check if this pattern genuinely matches one of the code gen'd ones
                 steel_gen::Pattern::from_opcodes_with_buffer(&buffer, &mut pattern_buffer);
 
                 if crate::steel_vm::vm::pattern_exists(&pattern_buffer) {
-                    // list.cons_mut((i, op_code));
-
-                    // panic!("Applying optimization!");
+                    log::debug!(target: "super-instructions", "Applying tiling for: {:?}", op_code);
 
                     instructions[i].op_code = op_code;
 
@@ -562,6 +553,11 @@ pub fn tile_super_instructions(instructions: &mut [Instruction]) {
     }
 
     // Super instruction tiling here!
+
+    tile::<9>(instructions);
+    tile::<8>(instructions);
+    tile::<7>(instructions);
+    tile::<6>(instructions);
     tile::<5>(instructions);
     tile::<4>(instructions);
     tile::<3>(instructions);
@@ -958,6 +954,8 @@ impl RawProgramWithSymbols {
             specialize_read_local(instructions);
 
             merge_conditions_with_if(instructions);
+
+            specialize_constants(instructions).unwrap();
 
             // Apply the super instruction tiling!
             tile_super_instructions(instructions);

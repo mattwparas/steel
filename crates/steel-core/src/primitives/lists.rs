@@ -234,7 +234,7 @@ Note: In steel, there are only proper lists. Pairs do not exist directly. "#,
 };
 
 // Do away with improper lists?
-fn cons(args: &mut [SteelVal]) -> Result<SteelVal> {
+pub fn cons(args: &mut [SteelVal]) -> Result<SteelVal> {
     if args.len() != 2 {
         stop!(ArityMismatch => "cons takes only two arguments")
     }

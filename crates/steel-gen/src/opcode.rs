@@ -88,6 +88,8 @@ declare_opcodes! {
         DIV;
         EQUAL;
         LTE;
+        CONS; // Cons should be... probably specialized
+        LIST;
         NEWSCLOSURE;
         ADDREGISTER;
         SUBREGISTER;
@@ -108,14 +110,48 @@ declare_opcodes! {
 
     // Super instructions
     {
-        // [ FooBarBaz => (OpCode::VOID, 0), (OpCode::VOID, 0), (OpCode::VOID, 0), ];
 
-        [ ReadLocal1PushConstEqualIf => (OpCode::READLOCAL1, 1),
-                                        (OpCode::PUSHCONST, 335),
-                                        (OpCode::EQUAL, 2),
-                                        (OpCode::PASS, 0),
-                                        (OpCode::IF, 8),
+
+        [
+            CaseLambdaDispatch =>
+                                  (OpCode::BEGINSCOPE, 0),
+                                  (OpCode::READLOCAL0, 0),
+                                  (OpCode::CALLGLOBAL, 1),
+                                  (OpCode::Arity, 92),
+                                  (OpCode::READLOCAL1, 1),
+                                  (OpCode::LOADINT0, 0),
+                                  (OpCode::CALLGLOBAL, 2),
+                                  (OpCode::Arity, 181),
+                                  (OpCode::IF, 22),
+        ];
+
+        [
+            ReadLocal1PushConstEqualIf => (OpCode::READLOCAL1, 1),
+                                          (OpCode::PUSHCONST, 335),
+                                          (OpCode::EQUAL, 2),
+                                          (OpCode::PASS, 0),
+                                          (OpCode::IF, 8),
         ]
+
+        // 16    READLOCAL0         : 0      ##args
+        // 17    CALLGLOBAL         : 1      length
+        // 18    Arity              : 82     length
+        // 19    READLOCAL1         : 1      l
+        // 20    LOADINT0           : 274    0
+        // 21    CALLGLOBAL         : 2      =
+        // 22    Arity              : 180    =
+        // 23    IF                 : 22
+
+        // [
+        //     CaseLambdaDispatch => (OpCode::READLOCAL0, 0),
+        //                           (OpCode::CALLGLOBAL, 1),
+        //                           (OpCode::Arity, 92),
+        //                           (OpCode::READLOCAL1, 1),
+        //                           (OpCode::LOADINT0, 0),
+        //                           (OpCode::CALLGLOBAL, 2),
+        //                           (OpCode::Arity, 181),
+        //                           (OpCode::IF, 22),
+        // ]
 
         // [ MOVERLLIS2CG => (OpCode::MOVEREADLOCAL, 0), (OpCode::LOADINT2, 225), (OpCode::SUB, 2), (OpCode::CALLGLOBAL, 1), ];
 

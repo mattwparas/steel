@@ -22,7 +22,7 @@ enum TypeHint {
     None,
 }
 
-#[derive(Clone, Debug)]
+#[derive(PartialEq, Clone, Debug)]
 struct LocalVariable {
     id: u16,
     type_hint: TypeHint,
@@ -296,7 +296,16 @@ impl StackToSSAConverter {
                     } else {
                         let local = self.push();
                         let var = self.stack.get(0).unwrap();
-                        lines.line(format!("let {local} = {var}.clone();"));
+
+                        if &local == var {
+                            lines.line(format!(
+                                "let {} = {}(ctx)?;",
+                                local,
+                                op_code_to_handler(*op)
+                            ));
+                        } else {
+                            lines.line(format!("let {local} = {var}.clone();"));
+                        }
                     }
                 }
                 Single(READLOCAL1) => {
@@ -314,7 +323,25 @@ impl StackToSSAConverter {
                     } else {
                         let local = self.push();
                         let var = self.stack.get(1).unwrap();
-                        lines.line(format!("let {local} = {var}.clone();"));
+
+                        if &local == var {
+                            // let local = self.pop();
+
+                            let var = self.stack.get(0).unwrap();
+
+                            lines.line(format!("let {local} = {var}.clone();"));
+                            lines.line("ctx.ip += 1;")
+
+                            // lines.line(format!(
+                            //     "let {} = {}(ctx)?;",
+                            //     local,
+                            //     op_code_to_handler(*op)
+                            // ));
+                        } else {
+                            lines.line(format!("let {local} = {var}.clone();"));
+                        }
+
+                        // lines.line(format!("let {local} = {var}.clone();"));
                     }
                 }
                 Single(READLOCAL2) => {
@@ -690,9 +717,9 @@ impl StackToSSAConverter {
 
         // Emit the assert for bounds checking purposes
         if max_local_offset_read > 0 {
-            function.line(format!(
-                "assert!(ctx.sp + {max_local_offset_read} < ctx.thread.stack.len());"
-            ));
+            // function.line(format!(
+            //     "assert!(ctx.sp + {max_local_offset_read} < ctx.thread.stack.len());"
+            // ));
         }
 
         if max_ip_read > 0 {
@@ -800,6 +827,12 @@ impl Pattern {
                 }
                 (ADD | SUB | MUL | DIV | EQUAL | LTE, 2) => patterns.push(Pattern::Double(op.0, 2)),
                 (BEGINSCOPE, n) => patterns.push(Pattern::Double(op.0, *n)),
+                // TODO: Need to introduce a hint to say that these are builtins - these _must_ be builtins
+                // or else this hint will fail! If it isn't a primitive function, we're violating the conditions
+                // for these op codes, since our basic block will switch.
+                //
+                // Even better - this can be speculative! We attempt to call a builtin, but if its not,
+                // we just fall through to the normal calling behavior!
                 (CALLGLOBAL, n) => {
                     // let arity = iter.next().unwrap();
                     patterns.push(Pattern::Double(CALLGLOBAL, *n))
