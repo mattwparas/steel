@@ -1,5 +1,6 @@
 use lasso::Key;
 use lasso::Spur;
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::{fmt, sync::Arc};
 
@@ -111,11 +112,11 @@ impl From<InternedString> for SteelString {
 // impl Dese
 
 use lasso::ThreadedRodeo;
-use std::sync::OnceLock;
+// use std::sync::OnceLock;
 
 use crate::{rvals::SteelString, SteelVal};
 
-static INTERNER: OnceLock<Arc<ThreadedRodeo>> = OnceLock::new();
+static INTERNER: OnceCell<Arc<ThreadedRodeo>> = OnceCell::new();
 
 pub fn take_interner() -> Arc<ThreadedRodeo> {
     // INTERNER.take().unwrap()
