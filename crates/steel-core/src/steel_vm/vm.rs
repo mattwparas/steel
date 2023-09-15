@@ -2060,14 +2060,15 @@ impl<'a> VmCore<'a> {
 
                 // match_dynamic_super_instructions!()
                 _ => {
+                    #[cfg(feature = "dynamic")]
                     // TODO: Dispatch on the function here for super instructions!
                     dynamic::vm_match_dynamic_super_instruction(self, instr)?;
 
-                    // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-                    // panic!(
-                    //     "Unhandled opcode: {:?} @ {}",
-                    //     self.instructions[self.ip], self.ip
-                    // );
+                    crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+                    panic!(
+                        "Unhandled opcode: {:?} @ {}",
+                        self.instructions[self.ip], self.ip
+                    );
                 }
             }
         }
@@ -3742,6 +3743,19 @@ pub fn current_function_span(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Resu
     }
 }
 
+/// Inspect the locals at the given function. Probably need to provide a way to
+/// loop this back into the sources, in order to resolve any span information.
+pub fn breakpoint(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    let offset = ctx.get_offset();
+
+    println!("----- Locals -----");
+    for (slot, i) in (offset..ctx.thread.stack.len()).enumerate() {
+        println!("x{} = {:?}", slot, &ctx.thread.stack[i]);
+    }
+
+    Some(Ok(SteelVal::Void))
+}
+
 pub fn call_with_exception_handler(
     ctx: &mut VmCore,
     args: &[SteelVal],
@@ -5272,9 +5286,17 @@ fn cons_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     Ok(())
 }
 
+fn cons_handler_no_stack(ctx: &mut VmCore<'_>) -> Result<()> {
+    todo!()
+}
+
 fn list_handler(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
     handler_inline_primitive_payload!(ctx, new_list, payload);
     Ok(())
+}
+
+fn list_handler_no_stack(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    todo!()
 }
 
 // OpCode::ADD
@@ -5787,6 +5809,7 @@ fn add_handler_none_none(l: &SteelVal, r: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+#[cfg(feature = "dynamic")]
 pub(crate) use dynamic::pattern_exists;
 
 #[macro_use]
