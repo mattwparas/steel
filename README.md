@@ -9,7 +9,7 @@ An embeddable and extensible scheme dialect built in Rust.
 
 ![Actions Status](https://github.com/mattwparas/steel/workflows/Build/badge.svg) 
 [![Coverage Status](https://coveralls.io/repos/github/mattwparas/steel/badge.svg?branch=master)](https://coveralls.io/github/mattwparas/steel?branch=master)
-[![Discord Chat](https://img.shields.io/discord/1152443025419665470.svg?logo=discord&label=discord)](https://discord.gg/WwFRXdN6HU)
+[![Discord Chat](https://img.shields.io/discord/1152443024715034675.svg?logo=discord&label=discord)](https://discord.gg/WwFRXdN6HU)
 
 
 <a href="https://mattwparas.github.io/steel-playground/dev">
