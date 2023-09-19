@@ -2411,6 +2411,30 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
                                 define.name,
                                 info.captured_vars
                             );
+
+                            for (var, _) in info.captured_vars() {
+                                log::info!(target: "lambda-lifting", "{}", var.resolve());
+                            }
+
+                            if info.captured_vars().len() == 1 {
+                                // TODO: Check if the number of captured vars is 1, and if that 1 is equivalent to the
+                                // define name. If it is, then we should just mark this as a pure local function, because
+                                // then we can lift it and be happy about it!
+
+                                for (_, info) in info.captured_vars() {
+                                    if info.id == define.name_id().unwrap() {
+                                        log::info!(target: "lambda-lifting", "Local define where it only captures itself!");
+
+                                        functions.push((
+                                            index,
+                                            define.name.atom_identifier().unwrap().to_string(),
+                                            define.name_id().unwrap(),
+                                        ));
+                                    }
+                                }
+                            }
+
+                            // println!("{}", define.body);
                         } else {
                             log::info!(target: "lambda-lifting", "Found a pure local function: {}", define.name);
                             functions.push((

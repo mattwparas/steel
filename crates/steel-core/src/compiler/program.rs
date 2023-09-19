@@ -29,6 +29,8 @@ use log::{debug, log_enabled};
 
 use super::{compiler::DebruijnIndicesInterner, map::SymbolMap};
 
+const TILE_SUPER_INSTRUCTIONS: bool = false;
+
 /// evaluates an atom expression in given environment
 fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
     match &t.ty {
@@ -556,14 +558,16 @@ pub fn tile_super_instructions(instructions: &mut [Instruction]) {
 
         // Super instruction tiling here!
 
-        tile::<9>(instructions);
-        tile::<8>(instructions);
-        tile::<7>(instructions);
-        tile::<6>(instructions);
-        tile::<5>(instructions);
-        tile::<4>(instructions);
-        tile::<3>(instructions);
-        tile::<2>(instructions);
+        if TILE_SUPER_INSTRUCTIONS {
+            tile::<9>(instructions);
+            tile::<8>(instructions);
+            tile::<7>(instructions);
+            tile::<6>(instructions);
+            tile::<5>(instructions);
+            tile::<4>(instructions);
+            tile::<3>(instructions);
+            tile::<2>(instructions);
+        }
     }
 }
 

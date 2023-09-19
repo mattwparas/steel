@@ -610,6 +610,9 @@ impl Compiler {
 
         let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
+        // let mut expanded_statements =
+        //     self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
+
         let mut analysis = Analysis::from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
 

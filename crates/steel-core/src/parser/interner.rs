@@ -131,6 +131,14 @@ pub fn get_interner() -> Option<&'static Arc<ThreadedRodeo>> {
     INTERNER.get()
 }
 
+pub fn add_interner(interner: Arc<ThreadedRodeo>) {
+    let guard = INTERNER.get().unwrap();
+
+    for key in interner.strings() {
+        guard.get_or_intern(key);
+    }
+}
+
 #[test]
 fn test_initialization() {
     INTERNER.get_or_init(|| Arc::new(ThreadedRodeo::new()));

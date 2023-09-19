@@ -755,8 +755,6 @@ impl DynamicBlock {
 
         let handlers = handlers.map(|x| OP_CODE_TABLE[x.0 as usize]).collect();
 
-        // println!("{:?}", )
-
         Self {
             basic_block,
             handlers,
