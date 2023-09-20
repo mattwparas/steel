@@ -39,8 +39,11 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(STRING_REF_DEFINITION)
         .register_native_fn_definition(SUBSTRING_DEFINITION)
         .register_native_fn_definition(STRING_EQUALS_DEFINITION)
+        .register_native_fn_definition(STRING_CI_EQUALS_DEFINITION)
         .register_native_fn_definition(STRING_LESS_THAN_DEFINITION)
+        .register_native_fn_definition(STRING_CI_LESS_THAN_DEFINITION)
         .register_native_fn_definition(STRING_LESS_THAN_EQUAL_TO_DEFINITION)
+        .register_native_fn_definition(STRING_CI_LESS_THAN_EQUAL_TO_DEFINITION)
         .register_native_fn_definition(STRING_CONSTRUCTOR_DEFINITION)
         .register_native_fn_definition(STRING_TO_NUMBER_DEFINITION)
         .register_native_fn_definition(NUMBER_TO_STRING_DEFINITION)
@@ -147,14 +150,29 @@ pub fn string_less_than_equal_to(left: &SteelString, right: &SteelString) -> boo
     left <= right
 }
 
+#[function(name = "string-ci<=?", constant = true)]
+pub fn string_ci_less_than_equal_to(left: &SteelString, right: &SteelString) -> bool {
+    left.to_lowercase() <= right.to_lowercase()
+}
+
 #[function(name = "string<?", constant = true)]
 pub fn string_less_than(left: &SteelString, right: &SteelString) -> bool {
     left < right
 }
 
+#[function(name = "string-ci<?", constant = true)]
+pub fn string_ci_less_than(left: &SteelString, right: &SteelString) -> bool {
+    left.to_lowercase() < right.to_lowercase()
+}
+
 #[function(name = "string=?", constant = true)]
 pub fn string_equals(left: &SteelString, right: &SteelString) -> bool {
     left == right
+}
+
+#[function(name = "string-ci=?", constant = true)]
+pub fn string_ci_equals(left: &SteelString, right: &SteelString) -> bool {
+    left.to_lowercase() == right.to_lowercase()
 }
 
 #[function(name = "string-ref", constant = true)]
