@@ -373,6 +373,14 @@
 (check-equal? "string <=, true" #t (string<=? "a" "aa"))
 (check-equal? "string <=, same string" #t (string<=? "a" "a"))
 
+(check-equal? "case-insensitive string-equality with constructor, equal" #t (string-ci=? "A" (string #\a)))
+(check-equal? "case-insensitive string-equality with constructor, not equal" #f (string-ci=? "A" (string #\b)))
+(check-equal? "case-insensitive string<, true" #t (string-ci<? "A" "aa"))
+(check-equal? "case-insensitive string<, false" #f (string-ci<? "AA" "a"))
+(check-equal? "case-insensitive string<, same strings" #f (string-ci<? "A" "a"))
+(check-equal? "case-insensitive string <=, true" #t (string-ci<=? "A" "aa"))
+(check-equal? "case-insensitive string <=, same string" #t (string-ci<=? "A" "a"))
+
 (skip-compile (check-equal #t (string=? "a" (make-string 1 #\a)))
               (check-equal #f (string=? "a" (make-string 1 #\b))))
 
