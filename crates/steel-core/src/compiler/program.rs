@@ -436,6 +436,7 @@ define_symbols! {
     BEGIN => "begin",
     DOC_MACRO => "@doc",
     REQUIRE_BUILTIN => "require-builtin",
+    REQUIRE_DYLIB => "#%require-dylib",
     STRUCT_KEYWORD => "struct",
     BETTER_LAMBDA => "#%better-lambda",
     DEFINE_VALUES => "define-values",

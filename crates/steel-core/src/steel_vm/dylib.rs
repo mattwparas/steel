@@ -1,6 +1,9 @@
 #![allow(non_camel_case_types)]
 use std::{
+    cell::RefCell,
+    collections::HashMap,
     path::{Path, PathBuf},
+    rc::Rc,
     sync::{Arc, Mutex},
 };
 
@@ -13,11 +16,17 @@ use abi_stable::{
 };
 use once_cell::sync::Lazy;
 
-use super::ffi::FFIModule;
+use crate::rvals::{IntoSteelVal, SteelString, SteelVal};
+
+use super::{builtin::BuiltInModule, ffi::FFIModule};
 
 // The new and improved loading of modules
 static LOADED_MODULES: Lazy<Arc<Mutex<Vec<(String, GenerateModule_Ref)>>>> =
     Lazy::new(|| Arc::new(Mutex::new(Vec::new())));
+
+thread_local! {
+    static BUILT_DYLIBS: Rc<RefCell<HashMap<String, BuiltInModule>>> = Rc::new(RefCell::new(HashMap::new()));
+}
 
 #[repr(C)]
 #[derive(StableAbi)]
@@ -41,16 +50,18 @@ pub fn load_root_module_in_directory(file: &Path) -> Result<GenerateModule_Ref, 
     GenerateModule_Ref::load_from_file(file)
 }
 
-// // TODO: @Matt -> Remove this, drop the dependency on dlopen
-// #[derive(WrapperApi, Clone)]
-// struct ModuleApi {
-//     generate_module: extern "C" fn() -> RBox<FFIModule>,
-//     // build_module: fn(module: &mut BuiltInModule),
-//     // free_module: fn(ptr: *mut BuiltInModule),
-// }
-
 #[derive(Clone)]
 pub(crate) struct DylibContainers {}
+
+#[steel_derive::function(name = "#%get-dylib")]
+pub fn load_module(target: &SteelString) -> crate::rvals::Result<SteelVal> {
+    match DylibContainers::load_module(target.clone()) {
+        Some(container) => container.into_steelval(),
+        None => {
+            stop!(Generic => format!("dylib not found: {} or dylibs are not enabled for this instance of the steel runtime", target))
+        }
+    }
+}
 
 impl DylibContainers {
     pub fn new() -> Self {
@@ -59,86 +70,88 @@ impl DylibContainers {
         }
     }
 
-    // TODO: @Matt - make these load modules lazily. Loading all modules right at the start
-    // could be fairly burdensome from a startup time standpoint, and also requires modules to be separated from the standard ones.
-    pub fn load_modules_from_directory(&mut self, home: Option<String>) {
-        #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+    // home should... probably just be $STEEL_HOME?
+    pub fn load_module(target: SteelString) -> Option<BuiltInModule> {
+        #[cfg(not(feature = "dylibs"))]
+        {
+            None // TODO: This _should_ just error instead!
+        }
 
-        // let home = std::env::var("STEEL_HOME");
+        #[cfg(feature = "dylibs")]
+        {
+            if let Some(module) = BUILT_DYLIBS.with(|x| x.borrow().get(target.as_str()).cloned()) {
+                return Some(module);
+            }
 
-        if let Some(home) = home {
-            // let guard = LOADED_DYLIBS.lock().unwrap();
-            let mut module_guard = LOADED_MODULES.lock().unwrap();
+            let home = std::env::var("STEEL_HOME").ok();
 
-            let mut home = PathBuf::from(home);
-            home.push("native");
+            if let Some(home) = home {
+                // let guard = LOADED_DYLIBS.lock().unwrap();
+                let mut module_guard = LOADED_MODULES.lock().unwrap();
 
-            if home.exists() {
-                let paths = std::fs::read_dir(home).unwrap();
+                let mut home = PathBuf::from(home);
+                home.push("native");
 
-                for path in paths {
-                    // println!("{:?}", path);
+                if home.exists() {
+                    let paths = std::fs::read_dir(home).unwrap();
 
-                    let path = path.unwrap().path();
+                    for path in paths {
+                        // println!("{:?}", path);
 
-                    if path.extension().unwrap() != "so" && path.extension().unwrap() != "dylib" {
-                        continue;
+                        let path = path.unwrap().path();
+
+                        if path.extension().unwrap() != "so" && path.extension().unwrap() != "dylib"
+                        {
+                            continue;
+                        }
+
+                        let path_name = path
+                            .file_stem()
+                            // .file_name()
+                            .and_then(|x| x.to_str())
+                            .unwrap();
+                        log::info!(target: "dylibs", "Loading dylib: {}", path_name);
+
+                        // Didn't match! skip it
+                        if path_name != target.as_str() {
+                            continue;
+                        }
+
+                        let module_name = path_name.to_string();
+
+                        if module_guard.iter().find(|x| x.0 == path_name).is_some() {
+                            continue;
+                        }
+
+                        // Load the module in
+                        let container = load_root_module_in_directory(&path).unwrap();
+
+                        let dylib_module = container.generate_module()();
+
+                        module_guard.push((module_name, container));
+
+                        let external_module =
+                            crate::steel_vm::ffi::FFIWrappedModule::new(dylib_module)
+                                .expect("dylib failed to load!")
+                                .build();
+
+                        BUILT_DYLIBS.with(|x| {
+                            x.borrow_mut()
+                                .insert(target.to_string(), external_module.clone())
+                        });
+
+                        log::info!(target: "dylibs", "Registering dylib: {} - {}", path_name, target);
+
+                        return Some(external_module);
                     }
-
-                    let path_name = path.file_name().and_then(|x| x.to_str()).unwrap();
-                    log::info!(target: "dylibs", "Loading dylib: {}", path_name);
-
-                    let module_name = path_name.to_string();
-
-                    if module_guard.iter().find(|x| x.0 == path_name).is_some() {
-                        continue;
-                    }
-
-                    // Load the module in
-                    let container = load_root_module_in_directory(&path).unwrap();
-                    module_guard.push((module_name, container));
+                } else {
+                    log::warn!(target: "dylibs", "$STEEL_HOME/native directory does not exist")
                 }
             } else {
-                log::warn!(target: "dylibs", "$STEEL_HOME/native directory does not exist")
+                log::warn!(target: "dylibs", "STEEL_HOME variable missing - unable to read shared dylibs")
             }
-        } else {
-            log::warn!(target: "dylibs", "STEEL_HOME variable missing - unable to read shared dylibs")
+
+            None
         }
-
-        // self.containers = Arc::clone(&LOADED_DYLIBS);
-
-        #[cfg(feature = "profiling")]
-        if log::log_enabled!(target: "pipeline_time", log::Level::Debug) {
-            log::debug!(target: "pipeline_time", "Dylib loading time: {:?}", now.elapsed());
-        }
-    }
-
-    // TODO: This should be lazily loaded on the first require-builtin
-    // For now, we can just load everything at the start when the interpreter boots up
-    pub fn load_modules(&mut self) {
-        self.load_modules_from_directory(std::env::var("STEEL_HOME").ok())
-    }
-
-    // pub fn modules(&self) -> Vec<*const BuiltInModule> {
-    //     LOADED_DYLIBS
-    //         .lock()
-    //         .unwrap()
-    //         .iter()
-    //         .map(|x| x.1.generate_module())
-    //         .collect()
-    // }
-
-    pub fn modules(&self) -> Vec<RBox<FFIModule>> {
-        LOADED_MODULES
-            .lock()
-            .unwrap()
-            .iter()
-            .map(|x| {
-                // let mut module = BuiltInModule::raw();
-                x.1.generate_module()()
-                // module
-            })
-            .collect()
     }
 }

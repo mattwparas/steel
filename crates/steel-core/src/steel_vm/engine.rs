@@ -40,7 +40,12 @@ use crate::{
     values::functions::BoxedDynFunction,
     SteelErr,
 };
-use std::{collections::HashMap, path::PathBuf, rc::Rc, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    rc::Rc,
+    sync::Arc,
+};
 
 use im_rc::HashMap as ImmutableHashMap;
 use lasso::ThreadedRodeo;
@@ -51,6 +56,8 @@ use crate::parser::ast::IteratorExtensions;
 #[derive(Clone, Default)]
 pub struct ModuleContainer {
     modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
+    // Modules that... might eventually be a dynamic library
+    maybe_module: HashSet<String>,
 }
 
 impl ModuleContainer {
@@ -227,35 +234,7 @@ impl Engine {
 
         log::info!(target: "kernel", "Loaded prelude in the kernel!");
 
-        #[cfg(feature = "dylibs")]
-        {
-            vm.dylibs.load_modules();
-
-            let modules = vm.dylibs.modules();
-
-            for module in modules {
-                vm.register_external_module(module).unwrap();
-            }
-
-            log::info!(target: "kernel", "Loaded dylibs in the kernel!");
-        }
-
         vm
-    }
-
-    /// Load dylibs from the given path and make them
-    #[cfg(feature = "dylibs")]
-    pub fn load_modules_from_directory(&mut self, directory: String) {
-        log::info!("Loading modules from directory: {}", &directory);
-        self.dylibs.load_modules_from_directory(Some(directory));
-
-        let modules = self.dylibs.modules();
-
-        for module in modules {
-            self.register_external_module(module).unwrap();
-        }
-
-        log::info!("Successfully loaded modules!");
     }
 
     pub fn builtin_modules(&self) -> &ModuleContainer {
@@ -304,20 +283,6 @@ impl Engine {
             }
 
             log::info!(target: "kernel", "Loaded prelude in the kernel!");
-
-            #[cfg(feature = "dylib")]
-            {
-                vm.dylibs.load_modules();
-
-                let modules = vm.dylibs.modules();
-
-                for module in modules {
-                    vm.register_external_module(module).unwrap();
-                    // vm.register_module(module);
-                }
-
-                log::info!(target: "kernel", "Loaded dylibs in the kernel!");
-            }
 
             let sources = vm.sources.clone();
 
@@ -559,18 +524,6 @@ impl Engine {
 
         vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
             .unwrap();
-
-        #[cfg(feature = "dylibs")]
-        {
-            vm.dylibs.load_modules();
-
-            let modules = vm.dylibs.modules();
-
-            for module in modules {
-                vm.register_external_module(module).unwrap();
-                // vm.register_module(module);
-            }
-        }
 
         // vm.dylibs.load_modules(&mut vm);
 

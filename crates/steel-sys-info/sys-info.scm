@@ -1,4 +1,12 @@
-(require-builtin steel/sys-info)
+(#%require-dylib "libsteel_sys_info"
+                 (only-in mem-info
+                          MemoryInfo-total
+                          MemoryInfo-avail
+                          MemoryInfo-free
+                          MemoryInfo-buffers
+                          MemoryInfo-cached
+                          MemoryInfo-swap-total
+                          MemoryInfo-swap-free))
 
 (define (current-memory-usage #:memory-info (memory-info (mem-info)))
   (- (MemoryInfo-total memory-info) (MemoryInfo-free memory-info) (MemoryInfo-cached memory-info)))

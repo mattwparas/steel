@@ -107,7 +107,11 @@ impl SteelPort {
     }
 
     pub fn new_textual_file_output(path: &str) -> Result<SteelPort> {
-        let file = OpenOptions::new().truncate(true).write(true).open(path)?;
+        let file = OpenOptions::new()
+            .truncate(true)
+            .write(true)
+            .create(true)
+            .open(path)?;
 
         Ok(SteelPort::FileOutput(
             path.to_string(),

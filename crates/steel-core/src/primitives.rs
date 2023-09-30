@@ -31,7 +31,7 @@ pub mod blocking_requests;
 pub mod colors;
 
 pub use control::ControlOperations;
-pub use fs::FsFunctions;
+pub use fs::fs_module;
 use im_lists::list::List;
 pub use io::IoFunctions;
 pub use meta_ops::MetaOperations;

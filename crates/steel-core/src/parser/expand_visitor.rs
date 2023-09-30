@@ -2,7 +2,9 @@
 
 use crate::compiler::passes::reader::MultipleArityFunctions;
 use crate::compiler::passes::Folder;
+use crate::compiler::program::REQUIRE_DYLIB;
 use crate::parser::ast::ExprKind;
+use crate::steel_vm::builtin::BuiltInModule;
 use crate::steel_vm::engine::ModuleContainer;
 use crate::{compiler::program::REQUIRE_BUILTIN, rvals::Result};
 use crate::{compiler::program::STRUCT_KEYWORD, parser::visitors::ConsumingVisitor};
@@ -664,6 +666,69 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                 }
             }
 
+            //
+            if s == *REQUIRE_DYLIB {
+                match &l.args[1..] {
+                    [ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::StringLiteral(dylib_name),
+                                ..
+                            },
+                    }), ExprKind::List(List { args, .. })] => {
+                        // TODO: if it can't be found, the module needs to be marked as `MaybeDylib`
+                        // and use the binds that are listed in the dylib require spec, something like:
+                        // (require-builtin steel/obviouslydylib/sqlite (only-in ... ... ...)) <-
+                        // Then, we can _attempt_ to load the dylib at runtime. If we can't we move on, and
+                        // otherwise we can error if the identifiers are not lining up.
+                        // (require-dylib "<name>.so" (onlt-in <spec> ))
+
+                        // if let Some(module) = self.builtin_modules.get(s.as_str()) {
+                        //     return Ok(module.to_syntax(None));
+                        // } else {
+                        //     stop!(BadSyntax => "require-builtin: module not found: {}", s);
+                        // }
+
+                        match args.as_slice() {
+                            [ExprKind::Atom(Atom {
+                                syn:
+                                    SyntaxObject {
+                                        ty: TokenType::Identifier(s),
+                                        ..
+                                    },
+                            }), rest @ ..]
+                                if s.resolve() == "only-in" =>
+                            {
+                                // self.builtin_modules.
+
+                                let mut names = Vec::with_capacity(rest.len());
+
+                                for expr in rest {
+                                    if let Some(identifier) = expr.atom_identifier() {
+                                        names.push(identifier);
+                                    } else {
+                                        stop!(BadSyntax => "require-dylib `only-in` modifier expects identifiers")
+                                    }
+                                }
+
+                                return Ok(BuiltInModule::dylib_to_syntax(
+                                    dylib_name.as_str(),
+                                    names.iter().map(|x| x.resolve()),
+                                    None,
+                                ));
+                            }
+                            _ => {
+                                stop!(BadSyntax => "require-dylib expects on `only-in` modifier")
+                            }
+                        }
+                    }
+
+                    _ => {
+                        stop!(BadSyntax => "require-dylib malformed")
+                    }
+                }
+            }
+
             if s == *REQUIRE_BUILTIN {
                 match &l.args[1..] {
                     [ExprKind::Atom(Atom {
@@ -673,6 +738,11 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                                 ..
                             },
                     })] => {
+                        // TODO: if it can't be found, the module needs to be marked as `MaybeDylib`
+                        // and use the binds that are listed in the dylib require spec, something like:
+                        // (require-builtin steel/obviouslydylib/sqlite (only-in ... ... ...)) <-
+                        // Then, we can _attempt_ to load the dylib at runtime. If we can't we move on, and
+                        // otherwise we can error if the identifiers are not lining up.
                         if let Some(module) = self.builtin_modules.get(s.as_str()) {
                             return Ok(module.to_syntax(None));
                         } else {
@@ -750,29 +820,6 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                         stop!(ArityMismatch => "require-builtin malformed - follows the pattern (require-builtin \"<module>\") or (require-builtin \"<module>\" as <prefix>")
                     }
                 }
-
-                // if l.args.len() != 2 {
-                //     stop!(ArityMismatch => "require-builtin expects one argument - the name of the module to include")
-                // }
-
-                // match &l.args[1] {
-                //     ExprKind::Atom(Atom {
-                //         syn:
-                //             SyntaxObject {
-                //                 ty: TokenType::StringLiteral(s),
-                //                 ..
-                //             },
-                //     }) => {
-                //         if let Some(module) = self.builtin_modules.get(s) {
-                //             return Ok(module.to_syntax());
-                //         } else {
-                //             stop!(BadSyntax => "require-builtin: module not found: {}", s);
-                //         }
-                //     }
-                //     other => {
-                //         stop!(TypeMismatch => format!("require-builtin expects a string referring to the name of the module, found: {}", other))
-                //     }
-                // }
             }
         }
 

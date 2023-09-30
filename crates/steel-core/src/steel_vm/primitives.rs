@@ -3,6 +3,7 @@ use std::{cell::RefCell, cmp::Ordering};
 use super::{
     builtin::BuiltInModule,
     cache::WeakMemoizationTable,
+    dylib::LOAD_MODULE_DEFINITION,
     engine::Engine,
     register_fn::RegisterFn,
     vm::{get_test_mode, list_modules, set_test_mode, VmCore},
@@ -11,7 +12,7 @@ use crate::{
     gc::Gc,
     parser::span::Span,
     primitives::{
-        contracts,
+        contracts, fs_module,
         hashmaps::hashmap_module,
         hashmaps::{HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,
@@ -22,8 +23,8 @@ use crate::{
         random::random_module,
         string_module,
         time::time_module,
-        ControlOperations, FsFunctions, IoFunctions, MetaOperations, NumOperations,
-        StreamOperations, SymbolOperations, VectorOperations,
+        ControlOperations, IoFunctions, MetaOperations, NumOperations, StreamOperations,
+        SymbolOperations, VectorOperations,
     },
     rerrs::ErrorKind,
     rvals::FromSteelVal,
@@ -51,7 +52,6 @@ use crate::primitives::web::{requests::requests_module, websockets::websockets_m
 #[cfg(feature = "colors")]
 use crate::primitives::colors::string_coloring_module;
 
-// use itertools::Itertools;
 use num::Signed;
 
 macro_rules! ensure_tonicity_two {
@@ -837,28 +837,6 @@ fn constants_module() -> BuiltInModule {
     module
 }
 
-fn fs_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/filesystem");
-    module
-        .register_value("is-dir?", FsFunctions::is_dir())
-        .register_value("is-file?", FsFunctions::is_file())
-        .register_value("read-dir", FsFunctions::read_dir())
-        .register_value("path-exists?", FsFunctions::path_exists())
-        .register_value(
-            "copy-directory-recursively!",
-            FsFunctions::copy_directory_recursively(),
-        )
-        .register_value("delete-directory!", FsFunctions::delete_directory())
-        .register_value("create-directory!", FsFunctions::create_dir_all())
-        .register_value("file-name", FsFunctions::file_name())
-        .register_value("current-directory", FsFunctions::current_dir())
-        .register_value(
-            "path->extension",
-            SteelVal::FuncV(FsFunctions::get_extension),
-        );
-    module
-}
-
 fn get_environment_variable(var: String) -> Result<SteelVal> {
     std::env::var(var)
         .map(|x| x.into_steelval().unwrap())
@@ -984,6 +962,8 @@ fn meta_module() -> BuiltInModule {
         )
         .register_fn("#%function-ptr-table-add", LambdaMetadataTable::add)
         .register_fn("#%function-ptr-table-get", LambdaMetadataTable::get)
+        // .register_fn("#%get-dylib", DylibContainers::load_module)
+        .register_native_fn_definition(LOAD_MODULE_DEFINITION)
         .register_value("assert!", MetaOperations::assert_truthy())
         .register_value("active-object-count", MetaOperations::active_objects())
         .register_value("inspect-bytecode", MetaOperations::inspect_bytecode())
