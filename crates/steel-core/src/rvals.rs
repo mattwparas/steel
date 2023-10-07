@@ -1283,6 +1283,7 @@ impl SteelVal {
             (MutFunc(l), MutFunc(r)) => *l as usize == *r as usize,
             (BuiltIn(l), BuiltIn(r)) => *l as usize == *r as usize,
             (MutableVector(l), MutableVector(r)) => Gc::ptr_eq(l, r),
+            (BigNum(l), BigNum(r)) => Gc::ptr_eq(l, r),
             (_, _) => false,
         }
     }
