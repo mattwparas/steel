@@ -27,7 +27,7 @@ use crate::{
         SymbolOperations, VectorOperations,
     },
     rerrs::ErrorKind,
-    rvals::FromSteelVal,
+    rvals::{FromSteelVal, NUMBER_EQUALITY_DEFINITION},
     steel_vm::{
         builtin::{get_function_name, Arity},
         vm::threads::threading_module,
@@ -751,7 +751,11 @@ fn equality_module() -> BuiltInModule {
                 |a: &SteelVal, b: &SteelVal| a.ptr_eq(b)
             )),
         )
-        .register_value("=", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a == b)));
+        .register_native_fn_definition(NUMBER_EQUALITY_DEFINITION);
+
+    // TODO: Replace this with just numeric equality!
+    // .register_value("=", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a == b)));
+
     module
 }
 

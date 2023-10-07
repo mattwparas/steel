@@ -1608,7 +1608,7 @@ impl<'a> ModuleBuilder<'a> {
                 current.push(s);
 
                 // // If the path exists on its own, we can continue
-                // // But theres the case where we're searching for a module on the STEEL_PATH
+                // // But theres the case where we're searching for a module on the STEEL_HOME
                 if !current.exists() {
                     if let Some(mut home) = home.clone() {
                         home.push(s);

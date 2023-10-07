@@ -69,6 +69,7 @@ use futures_util::future::Shared;
 use futures_util::FutureExt;
 
 use im_lists::list::List;
+use num::ToPrimitive;
 use steel_parser::tokens::MaybeBigInt;
 
 use self::cycles::CycleDetector;
@@ -1255,6 +1256,9 @@ impl SteelVal {
 
     pub(crate) fn ptr_eq(&self, other: &SteelVal) -> bool {
         match (self, other) {
+            // Integers are a special case of ptr eq -> if integers are equal? they are also eq?
+            (IntV(l), IntV(r)) => l == r,
+            (NumV(l), NumV(r)) => l == r,
             (BoolV(l), BoolV(r)) => l == r,
             (VectorV(l), VectorV(r)) => Gc::ptr_eq(l, r),
             (Void, Void) => true,
@@ -1281,6 +1285,7 @@ impl SteelVal {
             (MutFunc(l), MutFunc(r)) => *l as usize == *r as usize,
             (BuiltIn(l), BuiltIn(r)) => *l as usize == *r as usize,
             (MutableVector(l), MutableVector(r)) => Gc::ptr_eq(l, r),
+            (BigNum(l), BigNum(r)) => Gc::ptr_eq(l, r),
             (_, _) => false,
         }
     }
@@ -1629,6 +1634,46 @@ impl SteelVal {
 
 impl Eq for SteelVal {}
 
+fn integer_float_equality(int: isize, float: f64) -> bool {
+    let converted = float as isize;
+
+    if float == converted as f64 {
+        int == converted
+    } else {
+        false
+    }
+}
+
+fn bignum_float_equality(bigint: &Gc<num::BigInt>, float: f64) -> bool {
+    if float.fract() == 0.0 {
+        if let Some(promoted) = bigint.to_f64() {
+            promoted == float
+        } else {
+            false
+        }
+    } else {
+        false
+    }
+}
+
+#[steel_derive::function(name = "=", constant = true)]
+pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
+    let result = match (left, right) {
+        (IntV(l), IntV(r)) => l == r,
+        (NumV(l), NumV(r)) => l == r,
+        (IntV(l), NumV(r)) | (NumV(r), IntV(l)) => integer_float_equality(*l, *r),
+        (BigNum(l), BigNum(r)) => l == r,
+        (BigNum(l), NumV(r)) | (NumV(r), BigNum(l)) => bignum_float_equality(l, *r),
+
+        // Should be impossible to have an integer and a bignum be the same value
+        (IntV(_), BigNum(_)) | (BigNum(_), IntV(_)) => false,
+
+        _ => stop!(TypeMismatch => "= expects two numbers, found: {:?} and {:?}", left, right),
+    };
+
+    Ok(SteelVal::BoolV(result))
+}
+
 // TODO add tests
 impl PartialEq for SteelVal {
     fn eq(&self, other: &Self) -> bool {
@@ -1638,6 +1683,10 @@ impl PartialEq for SteelVal {
             (BigNum(l), BigNum(r)) => l == r,
             // (NumV(l), NumV(r)) => l == r,
             (IntV(l), IntV(r)) => l == r,
+
+            // Floats shouls also be considered equal
+            (NumV(l), NumV(r)) => l == r,
+
             // (NumV(l), IntV(r)) => *l == *r as f64,
             // (IntV(l), NumV(r)) => *l as f64 == *r,
             (StringV(l), StringV(r)) => l == r,

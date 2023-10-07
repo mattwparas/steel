@@ -9,6 +9,8 @@ An embeddable and extensible scheme dialect built in Rust.
 
 ![Actions Status](https://github.com/mattwparas/steel/workflows/Build/badge.svg) 
 [![Coverage Status](https://coveralls.io/repos/github/mattwparas/steel/badge.svg?branch=master)](https://coveralls.io/github/mattwparas/steel?branch=master)
+[![Discord Chat](https://img.shields.io/discord/1152443024715034675.svg?logo=discord&label=discord)](https://discord.gg/WwFRXdN6HU)
+
 
 <a href="https://mattwparas.github.io/steel-playground/dev">
     <b>Try it on the Playground</b>
@@ -443,3 +445,5 @@ at your option.
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
 dual licensed as above, without any additional terms or conditions.
+
+See [CONTRIBUTING.md].

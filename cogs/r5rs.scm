@@ -190,6 +190,14 @@
 
 (check-equal? "equality with float and int" #f (equal? 2.0 2))
 
+(check-equal? "numeric equality with float and int" #t (= 1 1.0))
+
+(check-equal? "pointer equality with int and int" #t (eq? 1 1))
+
+(check-equal? "pointer equality with floats" #t (eq? 1.0 1.0))
+
+(check-equal? "numeric equality with float and float" #t (= 1.0 1.0))
+
 (skip-compile (check-equal #f (eqv? 2 2.0))
               ;; TODO: Add make-vector function
               (check-equal #t (equal? (make-vector 5 'a) (make-vector 5 'a))))
@@ -372,6 +380,24 @@
 (check-equal? "string<, same strings" #f (string<? "a" "a"))
 (check-equal? "string <=, true" #t (string<=? "a" "aa"))
 (check-equal? "string <=, same string" #t (string<=? "a" "a"))
+(check-equal? "string>, true" #t (string>? "aa" "a"))
+(check-equal? "string>, false" #f (string>? "a" "aa"))
+(check-equal? "string>, same strings" #f (string>? "a" "a"))
+(check-equal? "string >=, true" #t (string>=? "aa" "a"))
+(check-equal? "string >=, same string" #t (string>=? "a" "a"))
+
+(check-equal? "case-insensitive string-equality with constructor, equal" #t (string-ci=? "A" (string #\a)))
+(check-equal? "case-insensitive string-equality with constructor, not equal" #f (string-ci=? "A" (string #\b)))
+(check-equal? "case-insensitive string<, true" #t (string-ci<? "A" "aa"))
+(check-equal? "case-insensitive string<, false" #f (string-ci<? "AA" "a"))
+(check-equal? "case-insensitive string<, same strings" #f (string-ci<? "A" "a"))
+(check-equal? "case-insensitive string <=, true" #t (string-ci<=? "A" "aa"))
+(check-equal? "case-insensitive string <=, same string" #t (string-ci<=? "A" "a"))
+(check-equal? "case-insensitive string>, true" #t (string-ci>? "aa" "A"))
+(check-equal? "case-insensitive string>, false" #f (string-ci>? "a" "AA"))
+(check-equal? "case-insensitive string>, same strings" #f (string-ci>? "A" "a"))
+(check-equal? "case-insensitive string >=, true" #t (string-ci>=? "aa" "A"))
+(check-equal? "case-insensitive string >=, same string" #t (string-ci>=? "a" "A"))
 
 (skip-compile (check-equal #t (string=? "a" (make-string 1 #\a)))
               (check-equal #f (string=? "a" (make-string 1 #\b))))
@@ -457,11 +483,13 @@
               ;                  (s a b c))))
               (check-equal 'ok
                            (let ()
-                             (let-syntax () (define internal-def 'ok))
+                             (let-syntax ()
+                               (define internal-def 'ok))
                              internal-def))
               (check-equal 'ok
                            (let ()
-                             (letrec-syntax () (define internal-def 'ok))
+                             (letrec-syntax ()
+                               (define internal-def 'ok))
                              internal-def)))
 
 ; TODO: This causes a free identifier error
