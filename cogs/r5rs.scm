@@ -190,6 +190,14 @@
 
 (check-equal? "equality with float and int" #f (equal? 2.0 2))
 
+(check-equal? "numeric equality with float and int" #t (= 1 1.0))
+
+(check-equal? "pointer equality with int and int" #t (eq? 1 1))
+
+(check-equal? "pointer equality with floats" #t (eq? 1.0 1.0))
+
+(check-equal? "numeric equality with float and float" #t (= 1.0 1.0))
+
 (skip-compile (check-equal #f (eqv? 2 2.0))
               ;; TODO: Add make-vector function
               (check-equal #t (equal? (make-vector 5 'a) (make-vector 5 'a))))
@@ -475,11 +483,13 @@
               ;                  (s a b c))))
               (check-equal 'ok
                            (let ()
-                             (let-syntax () (define internal-def 'ok))
+                             (let-syntax ()
+                               (define internal-def 'ok))
                              internal-def))
               (check-equal 'ok
                            (let ()
-                             (letrec-syntax () (define internal-def 'ok))
+                             (letrec-syntax ()
+                               (define internal-def 'ok))
                              internal-def)))
 
 ; TODO: This causes a free identifier error
