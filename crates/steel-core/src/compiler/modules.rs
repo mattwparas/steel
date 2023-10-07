@@ -280,15 +280,7 @@ impl ModuleManager {
 
                                         let define = ExprKind::Define(Box::new(Define::new(
                                             owned_name,
-                                            // expr_list![
-                                            // ExprKind::ident("bind/c"),
-                                            // contract.clone(),
                                             hash_get,
-                                            // ExprKind::Quote(Box::new(Quote::new(
-                                            // name.clone(),
-                                            // SyntaxObject::default(TokenType::Quote)
-                                            // ))),
-                                            // ],
                                             SyntaxObject::default(TokenType::Define),
                                         )));
 
@@ -348,15 +340,7 @@ impl ModuleManager {
 
                                         let define = ExprKind::Define(Box::new(Define::new(
                                             owned_name,
-                                            // expr_list![
-                                            // ExprKind::ident("bind/c"),
-                                            // contract.clone(),
                                             hash_get,
-                                            // ExprKind::Quote(Box::new(Quote::new(
-                                            // name.clone(),
-                                            // SyntaxObject::default(TokenType::Quote)
-                                            // ))),
-                                            // ],
                                             SyntaxObject::default(TokenType::Define),
                                         )));
 
@@ -467,43 +451,6 @@ impl ModuleManager {
                 })
                 .collect::<Result<_>>()?;
         }
-
-        // dbg!(mangled_prefixes.len());
-        // dbg!(module_statements.len());
-        // println!("------------------");
-        // module_statements.pretty_print();
-        // println!("------------------");
-
-        // let duped_prefixes = mangled_prefixes
-        //     .clone()
-        //     .into_iter()
-        //     .interleave(mangled_prefixes.into_iter());
-
-        // let mut module_statements = duped_prefixes
-        //     .into_iter()
-        //     .zip(module_statements.into_iter())
-        //     .map(|(prefix, require_define)| {
-        //         println!("---- Unmangling: {prefix} ----");
-
-        //         let mut expanded = expand(require_define, global_macro_map)?;
-
-        //         let mut name_unmangler = NameUnMangler::new(&prefix);
-
-        //         name_unmangler.unmangle_expr(&mut expanded);
-
-        //         println!("--- {}", expanded.to_pretty(60));
-
-        //         Ok(expanded)
-        //     })
-        //     .collect::<Result<Vec<_>>>()?;
-
-        // println!("before expanding global macros");
-        // println!("----------");
-        // module_statements.pretty_print();
-        // println!("----------");
-
-        // Include the mangled asts in the resulting asts returned
-        // module_statements.append(&mut mangled_asts);
 
         // Include the defines from the modules now imported
         module_statements.append(&mut require_defines);
@@ -745,15 +692,7 @@ impl CompiledModule {
                                                 prefix.clone()
                                                     + name.atom_identifier().unwrap().resolve(),
                                             ),
-                                            // expr_list![
-                                            // ExprKind::ident("bind/c"),
-                                            // contract.clone(),
                                             hash_get,
-                                            // ExprKind::Quote(Box::new(Quote::new(
-                                            // name.clone(),
-                                            // SyntaxObject::default(TokenType::Quote)
-                                            // ))),
-                                            // ],
                                             SyntaxObject::default(TokenType::Define),
                                         )));
 
@@ -828,10 +767,6 @@ impl CompiledModule {
                         }
                     }
                 }
-
-                // exprs.push(define);
-
-                // todo!()
             }
         }
 
@@ -1169,23 +1104,43 @@ impl<'a> ModuleBuilder<'a> {
     fn compile(&mut self) -> Result<Vec<ExprKind>> {
         debug!(target: "requires", "Visiting: {:?}", self.name);
 
+        // @Matt - 10/3/23
+        // This has a relatively fatal flaw at the moment:
+        /*
+
+            (define-syntax register-plugin
+              (syntax-rules ()
+                [(register-plugin plugin-path identifiers ...)
+                 (begin
+                   (require plugin-path
+                            (only-in identifiers ...))
+                   (provide identifiers ...))]))
+        */
+        // This will fail to compile - anything that expands into a require will fail since
+        // require is more or less a top level primitive. What we need to do is figure
+        // out a way to have this be recursive - the whole compilation step should
+        // go again once we discover that there is another require. It shouldn't be too bad,
+        // but the base case has to be figured out such that we don't get infinite recursion.
+        // I think the condition is probably something along the following:
+        //
+        // - Did we expand anything
+        // - Are there require statements
+        //
+        // If we expanded anything, we then should check for require statements... maybe
+
+        let mut new_exprs = Vec::new();
+
+        // self.source_ast.pretty_print();
+
         self.collect_requires()?;
-        // let contains_provides = self.contains_provides();
         self.collect_provides()?;
 
         if log_enabled!(log::Level::Info) {
             info!("Requires: {:#?}", self.require_objects);
-            // info!("Requires for-syntax: {:?}", self.requires_for_syntax);
 
             info!("Provides: {:#?}", self.provides);
             info!("Provides for-syntax: {:?}", self.provides_for_syntax);
         }
-
-        // if self.provides.is_empty() && !self.main {
-        //     self.visited.insert(self.name.clone());
-
-        //     return Ok(Vec::new());
-        // }
 
         if self.visited.contains(&self.name) {
             stop!(Generic => format!("circular dependency found during module resolution with: {:?}", self.name))
@@ -1209,17 +1164,11 @@ impl<'a> ModuleBuilder<'a> {
         }
 
         self.extract_macro_defs()?;
-        let mut new_exprs = Vec::new();
 
         // TODO include built ins here
         if self.require_objects.is_empty() && !self.main {
             // We're at a leaf, put into the cache
-            // println!("putting {:?} in the cache", self.name);
-            // if !self.provides.is_empty() {
             new_exprs.push(self.compile_module()?);
-            // } else {
-            // println!("SKIPPING");
-            // }
         } else {
             // TODO come back for parsing built ins
             for module in self
@@ -1354,57 +1303,22 @@ impl<'a> ModuleBuilder<'a> {
             }
         }
 
-        // Define the actual
-
-        // println!("compiling: {}", self.name);
-
-        // println!(
-        //     "Exiting with {:?}",
-        //     new_exprs.iter().map(|x| x.to_string()).collect::<Vec<_>>()
-        // );
+        // new_exprs.pretty_print();
 
         Ok(new_exprs)
     }
 
+    // TODO: This should run again on itself, probably
     fn compile_module(&mut self) -> Result<ExprKind> {
         let mut ast = std::mem::take(&mut self.source_ast);
         let mut provides = std::mem::take(&mut self.provides);
-
-        // let mut ast = self.source_ast.clone();
-        // let provides = self.provides.clone();
-
         // Clone the requires... I suppose
         let requires = self.require_objects.clone();
-
-        // println!("built ins: {:?}", self.built_ins);
-
-        // requires.append(&mut self.built_ins.clone());
-
-        // TODO -> qualified requires as well
-        // qualified requires should be able to adjust the names of the exported functions
-
-        // for require in &self.requires {
-        // @Matt 10/8/22
-        // Here, instead of building out the entire AST node, just insert a reference to the module at the top level
-        // Something like: (require <module_name>)
-
-        // let m = self
-        //     .compiled_modules
-        //     .get(require)
-        //     .unwrap()
-        //     .to_module_ast_node();
-        // requires.push(m);
-        // }
 
         info!(
             "Into compiled module: provides for syntax: {:?}",
             self.provides_for_syntax
         );
-
-        // info!(
-        //     "Into compiled module: requires for syntax: {:?}",
-        //     self.requires_for_syntax
-        // );
 
         // Expand first with the macros from *this* module
         ast = ast
@@ -1415,9 +1329,6 @@ impl<'a> ModuleBuilder<'a> {
                 })
             })
             .collect::<Result<Vec<_>>>()?;
-
-        // @Matt - provide expansion
-        // TODO: Extend the provides with any provides that are yielded from the above
 
         // Expand provides for any macros that exist within there
         provides = provides
@@ -1444,8 +1355,6 @@ impl<'a> ModuleBuilder<'a> {
                 &mut mangled_asts,
             );
 
-            // ast.pretty_print();
-
             ast = ast
                 .into_iter()
                 .map(|x| {
@@ -1459,13 +1368,8 @@ impl<'a> ModuleBuilder<'a> {
                     } else {
                         Ok(first_round_expanded)
                     }
-
-                    // expand(x, &module.macro_map)
                 })
                 .collect::<Result<_>>()?;
-
-            // @Matt - provide expansion
-            // TODO: Do the same here. Extend the provides with any provides that are yielded from the above expansion
 
             provides = provides
                 .into_iter()
@@ -1480,17 +1384,34 @@ impl<'a> ModuleBuilder<'a> {
                     } else {
                         Ok(first_round_expanded)
                     }
-
-                    // expand(x, &module.macro_map)
                 })
                 .collect::<Result<_>>()?;
         }
+
+        // let requires_before = self.require_objects.len();
+
+        // self.collect_requires()?;
+
+        // if self.require_objects.len() > requires_before {
+        //     println!("EXPANDED INTO A REQUIRE");
+        // }
+
+        // TODO: Check HERE for whether there are more requires than were previously found.
+        // If so, we should go back and compile the module again
 
         // TODO: @Matt - fix this hack
         {
             self.source_ast = ast;
             self.provides = provides;
             self.collect_provides();
+
+            // let requires_before = self.require_objects.len();
+
+            // self.collect_requires()?;
+
+            // if self.require_objects.len() > requires_before {
+            //     println!("EXPANDED INTO A REQUIRE");
+            // }
 
             provides = std::mem::take(&mut self.provides);
             ast = std::mem::take(&mut self.source_ast);
@@ -1499,29 +1420,6 @@ impl<'a> ModuleBuilder<'a> {
         // Put the mangled asts at the top
         // then include the ast there
         mangled_asts.append(&mut ast);
-
-        // let duped_prefixes = mangled_prefixes
-        //     .clone()
-        //     .into_iter()
-        //     .interleave(mangled_prefixes.into_iter());
-
-        // let mut mangled_asts = duped_prefixes
-        //     .into_iter()
-        //     .zip(mangled_asts.into_iter())
-        //     .map(|(prefix, require_define)| {
-        //         println!("---- Unmangling: {prefix} ----");
-
-        //         let mut expanded = expand(require_define, self.global_macro_map)?;
-
-        //         let mut name_unmangler = NameUnMangler::new(&prefix);
-
-        //         name_unmangler.unmangle_expr(&mut expanded);
-
-        //         println!("--- {}", expanded.to_pretty(60));
-
-        //         Ok(expanded)
-        //     })
-        //     .collect::<Result<Vec<_>>>()?;
 
         // Take ast, expand with self modules, then expand with each of the require for-syntaxes
         // Then mangle the require-for-syntax, include the mangled directly in the ast
@@ -1541,18 +1439,7 @@ impl<'a> ModuleBuilder<'a> {
 
         module.set_emitted(true);
 
-        // dbg!(&module);
-
-        // let result = module.to_module_ast_node();
-
         let result = module.to_top_level_module(self.compiled_modules, self.global_macro_map)?;
-
-        // println!(
-        //     "Into compiled module inserted into the cache: {:?}",
-        //     self.name
-        // );
-
-        // debug!("Adding {:?} to the module cache", self.name);
 
         self.compiled_modules.insert(self.name.clone(), module);
 
@@ -1894,23 +1781,6 @@ impl<'a> ModuleBuilder<'a> {
         }
 
         walk(self, &home, &mut exprs_without_requires, exprs)?;
-
-        // for expr in exprs {
-        //     match &expr {
-        //         // Include require/for-syntax here
-        //         // This way we have some understanding of what dependencies a file has
-        //         ExprKind::Require(r) => {
-        //             for atom in &r.modules {
-        //                 let require_object = self.parse_require_object(&home, r, atom)?;
-
-        //                 self.require_objects.push(require_object);
-        //             }
-        //         }
-        //         _ => exprs_without_requires.push(expr),
-        //     }
-        // }
-
-        // println!("Exprs without requires: {:?}", exprs_without_requires);
 
         self.source_ast = exprs_without_requires;
         Ok(())

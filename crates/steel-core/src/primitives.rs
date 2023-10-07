@@ -30,6 +30,8 @@ pub mod blocking_requests;
 #[cfg(feature = "colors")]
 pub mod colors;
 
+pub use lists::UnRecoverableResult;
+
 pub use control::ControlOperations;
 pub use fs::fs_module;
 use im_lists::list::List;

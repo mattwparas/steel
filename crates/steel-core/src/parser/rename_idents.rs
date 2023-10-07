@@ -149,8 +149,10 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
         self.visit(&mut s.expr);
     }
 
-    fn visit_require(&mut self, _s: &mut super::ast::Require) -> Self::Output {
-        todo!()
+    fn visit_require(&mut self, s: &mut super::ast::Require) -> Self::Output {
+        for module in &mut s.modules {
+            self.visit(module);
+        }
     }
 
     fn visit_let(&mut self, l: &mut super::ast::Let) -> Self::Output {

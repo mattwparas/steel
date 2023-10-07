@@ -34,7 +34,7 @@ declare_const_mut_ref_functions! {
 // const LENGTH: SteelVal = SteelVal::FuncV(length);
 // const NEW: SteelVal = SteelVal::FuncV(new);
 
-pub(crate) struct UnRecoverableResult(Result<SteelVal>);
+pub struct UnRecoverableResult(Result<SteelVal>);
 
 impl IntoSteelVal for UnRecoverableResult {
     #[inline(always)]

@@ -943,6 +943,16 @@ pub fn into_serializable_value(val: SteelVal) -> Result<SerializableSteelVal> {
     }
 }
 
+// struct SteelHashMap(Gc<HashMap<SteelVal, SteelVal>>);
+
+// impl Deref for SteelHashMap {
+//     type Target = HashMap<SteelVal, SteelVal>;
+
+//     fn deref(&self) -> &Self::Target {
+//         &self.0
+//     }
+// }
+
 /// A value as represented in the runtime.
 #[derive(Clone)]
 pub enum SteelVal {
@@ -974,21 +984,13 @@ pub enum SteelVal {
     // Embedded HashSet
     HashSetV(Gc<im_rc::HashSet<SteelVal>>),
     /// Represents a scheme-only struct
-    // StructV(Gc<SteelStruct>),
-    /// Alternative implementation of a scheme-only struct
     CustomStruct(Gc<RefCell<UserDefinedStruct>>),
-    // Represents a special rust closure
-    // StructClosureV(Box<SteelStruct>, StructClosureSignature),
-    // StructClosureV(Box<StructClosure>),
     /// Represents a port object
     PortV(Gc<SteelPort>),
     /// Generic iterator wrapper
     IterV(Gc<Transducer>),
     /// Reducers
     ReducerV(Gc<Reducer>),
-    // Reducer(Reducer)
-    // Generic IntoIter wrapper
-    // Promise(Gc<SteelVal>),
     /// Async Function wrapper
     FutureFunc(BoxedAsyncFunctionSignature),
     // Boxed Future Result
