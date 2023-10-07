@@ -69,7 +69,6 @@ use futures_util::future::Shared;
 use futures_util::FutureExt;
 
 use im_lists::list::List;
-use num::Float;
 use steel_parser::tokens::MaybeBigInt;
 
 use self::cycles::CycleDetector;
