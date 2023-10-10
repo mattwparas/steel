@@ -439,7 +439,7 @@ impl Compiler {
 
         // This is definitely broken still
         semantic
-            // .replace_anonymous_function_calls_with_plain_lets();
+            .elide_single_argument_lambda_applications()
             .lift_pure_local_functions()
             .lift_all_local_functions();
 
@@ -600,7 +600,7 @@ impl Compiler {
 
         // This is definitely broken still
         semantic
-            // .replace_anonymous_function_calls_with_plain_lets();
+            .elide_single_argument_lambda_applications()
             .lift_pure_local_functions()
             .lift_all_local_functions();
 

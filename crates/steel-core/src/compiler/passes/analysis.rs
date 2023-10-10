@@ -2255,6 +2255,86 @@ impl<'a> VisitorMutRefUnit for LiftPureFunctionsToGlobalScope<'a> {
     }
 }
 
+struct ElideSingleArgumentLambdaApplications<'a> {
+    analysis: &'a Analysis,
+    re_run_analysis: bool,
+}
+
+impl<'a> VisitorMutRefUnit for ElideSingleArgumentLambdaApplications<'a> {
+    fn visit(&mut self, expr: &mut ExprKind) {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            application @ ExprKind::List(_) => {
+                if let ExprKind::List(l) = application {
+                    for expr in &mut l.args {
+                        self.visit(expr);
+                    }
+
+                    if !l.is_anonymous_function_call() {
+                        return;
+                    }
+
+                    if l.args.len() != 2 {
+                        return;
+                    }
+
+                    if l.args[1].atom_identifier().is_none() {
+                        return;
+                    }
+
+                    let mut replacement: Option<ExprKind> = None;
+
+                    if let ExprKind::LambdaFunction(lf) = &l.args[0] {
+                        if lf.args.len() != 1 {
+                            return;
+                        }
+
+                        if let Some(info) = self.analysis.get_function_info(&lf) {
+                            for arg in info.arguments().values() {
+                                if arg.mutated {
+                                    return;
+                                }
+                            }
+
+                            if !info.captured_vars.is_empty() {
+                                return;
+                            }
+
+                            if let ExprKind::List(lst) = &lf.body {
+                                if lst.len() == 2
+                                    && lst.args[0].atom_identifier().is_some()
+                                    && lst.args[1].atom_identifier() == lf.args[0].atom_identifier()
+                                {
+                                    self.re_run_analysis = true;
+
+                                    replacement = Some(lst.args[0].clone());
+                                }
+                            }
+                        }
+                    } else {
+                        unreachable!();
+                    }
+
+                    if let Some(replacement) = replacement {
+                        l.args[0] = replacement;
+                    }
+                }
+            }
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Let(l) => self.visit_let(l),
+        }
+    }
+}
+
 struct LiftLocallyDefinedFunctions<'a> {
     analysis: &'a Analysis,
     lifted_functions: Vec<ExprKind>,
@@ -2970,6 +3050,38 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         unused.unused_args
+    }
+
+    /// Converts function applications of the form:
+    ///
+    /// ((lambda (x) (global-function-call x)) foo)
+    ///
+    /// Into:
+    ///
+    /// (global-function-call foo)
+    ///
+    /// Note: It is important to run this before lambda lifting, since currently
+    /// all `lets` are implemented naively as lambdas.
+    pub fn elide_single_argument_lambda_applications(&mut self) -> &mut Self {
+        let mut elider = ElideSingleArgumentLambdaApplications {
+            analysis: &self.analysis,
+            re_run_analysis: false,
+        };
+
+        for expr in self.exprs.iter_mut() {
+            elider.visit(expr);
+        }
+
+        if elider.re_run_analysis {
+            log::debug!(
+                "Re-running the semantic analysis after modifications during lambda lifting"
+            );
+
+            self.analysis = Analysis::from_exprs(self.exprs);
+            self.analysis.populate_captures(self.exprs);
+        }
+
+        self
     }
 
     // TODO: Right now this lifts and renames, but it does not handle

@@ -207,9 +207,9 @@
 ;; TODO add the single argument case
 (define-syntax f>
   (syntax-rules ()
+    [(f> fun) fun]
     [(f> fun args* ...)
-     (lambda (x) (fun x args* ...))]
-    [(f> fun) fun]))
+     (lambda (x) (fun x args* ...))]))
 
 (define-syntax ->
   (syntax-rules ()
@@ -223,6 +223,7 @@
     [(~> a) a]
     [(~> a (b c ...)) ((f> b c ...) a)]
     [(~> a (b)) ((f> b) a)]
+    [(~> a b) ((f> b) a)]
     [(~> a b c ...) (~> (~> a b) c ...)]))
 
 (define-syntax l>
