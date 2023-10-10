@@ -1,5 +1,5 @@
 #[cfg(not(target_os = "windows"))]
-pub const PRELUDE: &str = include_str!("scheme/stdlib.rkt");
+pub const PRELUDE: &str = include_str!("scheme/stdlib.scm");
 // pub const PRELUDE: &str = include_str!("scheme/test.rkt");
 #[cfg(not(target_os = "windows"))]
 pub const TRIESORT: &str = include_str!("scheme/trie.rkt");
@@ -19,7 +19,7 @@ pub const DISPLAY: &str = include_str!("scheme/display.rkt");
 pub const KERNEL: &str = include_str!("scheme/kernel.scm");
 
 #[cfg(target_os = "windows")]
-pub const PRELUDE: &str = include_str!(r#"scheme\stdlib.rkt"#);
+pub const PRELUDE: &str = include_str!(r#"scheme\stdlib.scm"#);
 #[cfg(target_os = "windows")]
 pub const TRIESORT: &str = include_str!(r#"scheme\trie.rkt"#);
 #[cfg(target_os = "windows")]
