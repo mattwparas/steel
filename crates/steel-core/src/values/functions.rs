@@ -99,7 +99,7 @@ pub struct ByteCodeLambda {
     call_count: Cell<usize>,
 
     pub(crate) is_multi_arity: bool,
-    captures: Vec<SteelVal>,
+    pub(crate) captures: Vec<SteelVal>,
     pub(crate) heap_allocated: RefCell<Vec<HeapRef>>,
     // pub(crate) spans: Rc<[Span]>,
     #[cfg(feature = "dynamic")]
@@ -123,6 +123,7 @@ impl std::hash::Hash for ByteCodeLambda {
         self.id.hash(state);
         // self.body_exp.as_ptr().hash(state);
         self.arity.hash(state);
+
         // self.sub_expression_env.as_ptr().hash(state);
     }
 }
@@ -142,7 +143,7 @@ pub struct SerializedLambda {
 impl TryFrom<ByteCodeLambda> for SerializedLambda {
     type Error = SteelErr;
 
-    fn try_from(value: ByteCodeLambda) -> Result<Self, Self::Error> {
+    fn try_from(mut value: ByteCodeLambda) -> Result<Self, Self::Error> {
         Ok(SerializedLambda {
             id: value.id,
 
@@ -154,8 +155,7 @@ impl TryFrom<ByteCodeLambda> for SerializedLambda {
 
             arity: value.arity,
             is_multi_arity: value.is_multi_arity,
-            captures: value
-                .captures
+            captures: std::mem::take(&mut value.captures)
                 .into_iter()
                 .map(into_serializable_value)
                 .collect::<Result<_, Self::Error>>()?,

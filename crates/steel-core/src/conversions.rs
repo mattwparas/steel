@@ -56,7 +56,7 @@ impl<T: IntoSteelVal + Clone> IntoSteelVal for List<T> {
 impl FromSteelVal for Gc<im_rc::HashMap<SteelVal, SteelVal>> {
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::HashMapV(hm) = val {
-            Ok(hm.clone())
+            Ok(hm.0.clone())
         } else {
             stop!(TypeMismatch => "Unable to convert Steelval to HashMap, found: {}", val);
         }
@@ -249,7 +249,7 @@ impl<K: IntoSteelVal, V: IntoSteelVal> IntoSteelVal for HashMap<K, V> {
         for (key, val) in self.drain() {
             hm.insert(key.into_steelval()?, val.into_steelval()?);
         }
-        Ok(SteelVal::HashMapV(Gc::new(hm)))
+        Ok(SteelVal::HashMapV(Gc::new(hm).into()))
     }
 }
 
@@ -258,7 +258,7 @@ impl<K: FromSteelVal + Eq + std::hash::Hash, V: FromSteelVal> FromSteelVal for H
         // todo!()
         if let SteelVal::HashMapV(hm) = val {
             let mut h = HashMap::new();
-            for (key, value) in hm.unwrap().into_iter() {
+            for (key, value) in hm.0.unwrap().into_iter() {
                 h.insert(K::from_steelval(&key)?, V::from_steelval(&value)?);
             }
             Ok(h)
@@ -315,7 +315,7 @@ impl<K: IntoSteelVal> IntoSteelVal for HashSet<K> {
         for value in self.drain() {
             hs.insert(value.into_steelval()?);
         }
-        Ok(SteelVal::HashSetV(Gc::new(hs)))
+        Ok(SteelVal::HashSetV(Gc::new(hs).into()))
     }
 }
 
@@ -323,7 +323,7 @@ impl<K: FromSteelVal + Eq + std::hash::Hash> FromSteelVal for HashSet<K> {
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::HashSetV(hs) = val {
             let mut h = HashSet::new();
-            for k in hs.unwrap().into_iter() {
+            for k in hs.0.unwrap().into_iter() {
                 h.insert(K::from_steelval(&k)?);
             }
             Ok(h)
@@ -401,20 +401,26 @@ mod conversion_tests {
         input.insert("foo".to_string(), "bar".to_string());
         input.insert("foo2".to_string(), "bar2".to_string());
 
-        let expected = SteelVal::HashMapV(Gc::new(im_rc::hashmap! {
-            SteelVal::StringV("foo".into()) => SteelVal::StringV("bar".into()),
-            SteelVal::StringV("foo2".into()) => SteelVal::StringV("bar2".into())
-        }));
+        let expected = SteelVal::HashMapV(
+            Gc::new(im_rc::hashmap! {
+                SteelVal::StringV("foo".into()) => SteelVal::StringV("bar".into()),
+                SteelVal::StringV("foo2".into()) => SteelVal::StringV("bar2".into())
+            })
+            .into(),
+        );
 
         assert_eq!(input.into_steelval().unwrap(), expected);
     }
 
     #[test]
     fn hashmap_from_steelval_hashmap() {
-        let input = SteelVal::HashMapV(Gc::new(im_rc::hashmap! {
-            SteelVal::StringV("foo".into()) => SteelVal::StringV("bar".into()),
-            SteelVal::StringV("foo2".into()) => SteelVal::StringV("bar2".into())
-        }));
+        let input = SteelVal::HashMapV(
+            Gc::new(im_rc::hashmap! {
+                SteelVal::StringV("foo".into()) => SteelVal::StringV("bar".into()),
+                SteelVal::StringV("foo2".into()) => SteelVal::StringV("bar2".into())
+            })
+            .into(),
+        );
 
         let mut expected = HashMap::new();
         expected.insert("foo".to_string(), "bar".to_string());
@@ -432,20 +438,26 @@ mod conversion_tests {
         input.insert("foo".to_string());
         input.insert("bar".to_string());
 
-        let expected = SteelVal::HashSetV(Gc::new(im_rc::hashset! {
-            SteelVal::StringV("foo".into()),
-            SteelVal::StringV("bar".into())
-        }));
+        let expected = SteelVal::HashSetV(
+            Gc::new(im_rc::hashset! {
+                SteelVal::StringV("foo".into()),
+                SteelVal::StringV("bar".into())
+            })
+            .into(),
+        );
 
         assert_eq!(input.into_steelval().unwrap(), expected);
     }
 
     #[test]
     fn hashset_from_steelval_hashset() {
-        let input = SteelVal::HashSetV(Gc::new(im_rc::hashset! {
-            SteelVal::StringV("foo".into()),
-            SteelVal::StringV("bar".into())
-        }));
+        let input = SteelVal::HashSetV(
+            Gc::new(im_rc::hashset! {
+                SteelVal::StringV("foo".into()),
+                SteelVal::StringV("bar".into())
+            })
+            .into(),
+        );
 
         let mut expected = HashSet::new();
         expected.insert("foo".to_string());

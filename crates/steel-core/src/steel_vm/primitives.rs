@@ -52,6 +52,7 @@ use crate::primitives::web::{requests::requests_module, websockets::websockets_m
 #[cfg(feature = "colors")]
 use crate::primitives::colors::string_coloring_module;
 
+use im_lists::list::List;
 use num::Signed;
 
 macro_rules! ensure_tonicity_two {
@@ -344,6 +345,8 @@ fn render_as_md(text: String) {
 }
 
 pub fn register_builtin_modules(engine: &mut Engine) {
+    engine.register_value("std::env::args", SteelVal::ListV(List::new()));
+
     engine.register_fn("##__module-get", BuiltInModule::get);
     engine.register_fn("%module-get%", BuiltInModule::get);
     engine.register_fn("%doc?", BuiltInModule::get_doc);

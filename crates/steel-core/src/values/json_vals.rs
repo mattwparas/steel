@@ -79,7 +79,7 @@ impl TryFrom<Map<String, Value>> for SteelVal {
         for (key, value) in map {
             hm.insert(SteelVal::SymbolV(key.into()), value.try_into()?);
         }
-        Ok(SteelVal::HashMapV(Gc::new(hm)))
+        Ok(SteelVal::HashMapV(Gc::new(hm).into()))
     }
 }
 
@@ -202,10 +202,13 @@ mod json_tests {
 
         let result = apply_function(string_to_jsexpr(), args);
 
-        let expected = SteelVal::HashMapV(Gc::new(hashmap! {
-            SymbolV("a".into()) => StringV("applesauce".into()),
-            SymbolV("b".into()) => StringV("bananas".into())
-        }));
+        let expected = SteelVal::HashMapV(
+            Gc::new(hashmap! {
+                SymbolV("a".into()) => StringV("applesauce".into()),
+                SymbolV("b".into()) => StringV("bananas".into())
+            })
+            .into(),
+        );
 
         assert_eq!(result.unwrap(), expected);
     }

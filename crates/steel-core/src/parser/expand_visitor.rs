@@ -70,6 +70,7 @@ impl<'a> Expander<'a> {
     }
 }
 
+// TODO: See if we can do this without blowing the stack
 impl<'a> ConsumingVisitor for Expander<'a> {
     type Output = Result<ExprKind>;
 

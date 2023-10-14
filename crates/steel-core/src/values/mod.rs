@@ -7,4 +7,8 @@ pub(crate) mod lazy_stream;
 pub(crate) mod port;
 pub(crate) mod structs;
 pub(crate) mod transducers;
+
+pub use closed::RootToken;
+pub use closed::RootedSteelVal;
+
 // pub(crate) mod upvalue;

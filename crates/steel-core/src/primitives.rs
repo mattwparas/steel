@@ -47,7 +47,7 @@ pub use strings::string_module;
 
 pub use nums::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
 
-use crate::rvals::{FunctionSignature, PrimitiveAsRef, SteelVal};
+use crate::rvals::{FunctionSignature, PrimitiveAsRef, SteelHashMap, SteelHashSet, SteelVal};
 use crate::values::port::SteelPort;
 use crate::{
     rerrs::{ErrorKind, SteelErr},
@@ -416,6 +416,17 @@ impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashSet<SteelVal>> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::HashSetV(p) = val {
+            Ok(&p.0)
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel hashset", val))
+        }
+    }
+}
+
+impl<'a> PrimitiveAsRef<'a> for &'a SteelHashSet {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::HashSetV(p) = val {
             Ok(p)
         } else {
             crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel hashset", val))
@@ -475,6 +486,17 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelString {
 }
 
 impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashMap<SteelVal, SteelVal>> {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::HashMapV(hm) = val {
+            Ok(&hm.0)
+        } else {
+            crate::stop!(ConversionError => format!("Canto convert steel value: {} to hashmap", val))
+        }
+    }
+}
+
+impl<'a> PrimitiveAsRef<'a> for &'a SteelHashMap {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::HashMapV(hm) = val {

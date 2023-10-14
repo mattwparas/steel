@@ -585,7 +585,7 @@ impl SteelThread {
 #[derive(Clone, Debug)]
 pub struct Continuation {
     pub(crate) stack: Vec<SteelVal>,
-    current_frame: StackFrame,
+    pub(crate) current_frame: StackFrame,
     instructions: Rc<[DenseInstruction]>,
     pub(crate) stack_frames: Vec<StackFrame>,
     ip: usize,
@@ -849,6 +849,19 @@ impl<'a> VmCore<'a> {
         }
     }
 
+    // Grab the continuation - but this continuation can only be played once
+    fn new_oneshot_continuation_from_state(&mut self) -> Continuation {
+        Continuation {
+            stack: std::mem::take(&mut self.thread.stack),
+            instructions: Rc::clone(&self.instructions),
+            current_frame: self.thread.current_frame.clone(),
+            stack_frames: std::mem::take(&mut self.thread.stack_frames),
+            ip: self.ip,
+            sp: self.sp,
+            pop_count: self.pop_count,
+        }
+    }
+
     pub fn snapshot_stack_trace(&self) -> DehydratedStackTrace {
         DehydratedStackTrace::new(
             self.thread
@@ -884,6 +897,10 @@ impl<'a> VmCore<'a> {
     fn construct_continuation_function(&self) -> SteelVal {
         let captured_continuation = self.new_continuation_from_state();
         SteelVal::ContinuationFunction(Gc::new(captured_continuation))
+    }
+
+    fn construct_oneshot_continuation_function(&self) -> SteelVal {
+        todo!()
     }
 
     // Reset state FULLY
@@ -3831,6 +3848,10 @@ pub fn call_with_exception_handler(
     }
 
     Some(Ok(SteelVal::Void))
+}
+
+pub fn oneshot_call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    todo!("Create continuation that can only be used once!")
 }
 
 pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {

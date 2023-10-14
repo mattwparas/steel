@@ -12,6 +12,7 @@ use crate::{
     steel_vm::vm::{BuiltInSignature, Continuation},
     values::port::SteelPort,
     values::{
+        closed::HeapContext,
         contracts::{ContractType, ContractedFunction},
         functions::ByteCodeLambda,
         lazy_stream::LazyStream,
@@ -72,7 +73,7 @@ use im_lists::list::List;
 use num::ToPrimitive;
 use steel_parser::tokens::MaybeBigInt;
 
-use self::cycles::CycleDetector;
+use self::cycles::{CycleDetector, IterativeDropHandler};
 
 pub type RcRefSteelVal = Rc<RefCell<SteelVal>>;
 pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
@@ -157,6 +158,14 @@ pub trait Custom: private::Sealed {
     fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         None
     }
+
+    fn visit(&self, _context: &mut HeapContext) {}
+
+    fn as_iterator(&self) -> Option<Box<dyn Iterator<Item = SteelVal>>> {
+        None
+    }
+
+    fn drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
 }
 
 pub trait CustomType {
@@ -175,7 +184,11 @@ pub trait CustomType {
     fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         None
     }
-    // fn as_underlying_type<'a>(&'a self) -> Option<&'a Self>;
+
+    // Implement visit for anything that holds steel values
+    fn visit(&self, _context: &mut HeapContext) {}
+
+    fn drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
 }
 
 impl<T: Custom + 'static> CustomType for T {
@@ -196,6 +209,9 @@ impl<T: Custom + 'static> CustomType for T {
     fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         self.into_serializable_steelval()
     }
+
+    // Implement visit for anything that holds steel values
+    fn visit(&self, _context: &mut HeapContext) {}
 }
 
 impl<T: CustomType + 'static> IntoSteelVal for T {
@@ -693,7 +709,7 @@ impl ast::TryFromSteelValVisitorForExprKind {
 
 #[derive(Debug, Clone)]
 pub struct Syntax {
-    raw: Option<SteelVal>,
+    pub(crate) raw: Option<SteelVal>,
     pub(crate) syntax: SteelVal,
     span: Span,
 }
@@ -887,11 +903,14 @@ pub fn from_serializable_value(val: SerializableSteelVal) -> SteelVal {
         SerializableSteelVal::Void => SteelVal::Void,
         SerializableSteelVal::StringV(s) => SteelVal::StringV(s.into()),
         SerializableSteelVal::FuncV(f) => SteelVal::FuncV(f),
-        SerializableSteelVal::HashMapV(h) => SteelVal::HashMapV(Gc::new(
-            h.into_iter()
-                .map(|(k, v)| (from_serializable_value(k), from_serializable_value(v)))
-                .collect(),
-        )),
+        SerializableSteelVal::HashMapV(h) => SteelVal::HashMapV(
+            Gc::new(
+                h.into_iter()
+                    .map(|(k, v)| (from_serializable_value(k), from_serializable_value(v)))
+                    .collect::<HashMap<_, _>>(),
+            )
+            .into(),
+        ),
         SerializableSteelVal::VectorV(v) => {
             SteelVal::ListV(v.into_iter().map(from_serializable_value).collect())
         }
@@ -922,7 +941,7 @@ pub fn into_serializable_value(val: SteelVal) -> Result<SerializableSteelVal> {
         SteelVal::SymbolV(s) => Ok(SerializableSteelVal::SymbolV(s.to_string())),
 
         SteelVal::HashMapV(v) => Ok(SerializableSteelVal::HashMapV(
-            v.unwrap()
+            v.0.unwrap()
                 .into_iter()
                 .map(|(k, v)| {
                     let kprime = into_serializable_value(k)?;
@@ -944,15 +963,39 @@ pub fn into_serializable_value(val: SteelVal) -> Result<SerializableSteelVal> {
     }
 }
 
-// struct SteelHashMap(Gc<HashMap<SteelVal, SteelVal>>);
+#[derive(Clone, PartialEq)]
+pub struct SteelHashMap(pub(crate) Gc<HashMap<SteelVal, SteelVal>>);
 
-// impl Deref for SteelHashMap {
-//     type Target = HashMap<SteelVal, SteelVal>;
+impl Deref for SteelHashMap {
+    type Target = HashMap<SteelVal, SteelVal>;
 
-//     fn deref(&self) -> &Self::Target {
-//         &self.0
-//     }
-// }
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<Gc<HashMap<SteelVal, SteelVal>>> for SteelHashMap {
+    fn from(value: Gc<HashMap<SteelVal, SteelVal>>) -> Self {
+        SteelHashMap(value)
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub struct SteelHashSet(pub(crate) Gc<im_rc::HashSet<SteelVal>>);
+
+impl Deref for SteelHashSet {
+    type Target = im_rc::HashSet<SteelVal>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<Gc<im_rc::HashSet<SteelVal>>> for SteelHashSet {
+    fn from(value: Gc<im_rc::HashSet<SteelVal>>) -> Self {
+        SteelHashSet(value)
+    }
+}
 
 /// A value as represented in the runtime.
 #[derive(Clone)]
@@ -981,9 +1024,9 @@ pub enum SteelVal {
     /// Container for a type that implements the `Custom Type` trait. (trait object)
     Custom(Gc<RefCell<Box<dyn CustomType>>>),
     // Embedded HashMap
-    HashMapV(Gc<HashMap<SteelVal, SteelVal>>),
+    HashMapV(SteelHashMap),
     // Embedded HashSet
-    HashSetV(Gc<im_rc::HashSet<SteelVal>>),
+    HashSetV(SteelHashSet),
     /// Represents a scheme-only struct
     CustomStruct(Gc<RefCell<UserDefinedStruct>>),
     /// Represents a port object
@@ -1032,6 +1075,21 @@ pub enum SteelVal {
     Reference(Rc<OpaqueReference<'static>>),
 
     BigNum(Gc<num::BigInt>),
+}
+
+impl SteelVal {
+    // pub(crate) fn children_mut<'a>(&'a mut self) -> impl IntoIterator<Item = SteelVal> {
+    //     match self {
+    //         Self::CustomStruct(inner) => {
+    //             if let Some(inner) = inner.get_mut() {
+    //                 std::mem::take(&mut inner.borrow_mut().fields)
+    //             } else {
+    //                 std::iter::empty()
+    //             }
+    //         }
+    //         _ => todo!(),
+    //     }
+    // }
 }
 
 // TODO: Consider unboxed value types, for optimized usages when compiling segments of code.
@@ -1187,6 +1245,23 @@ impl Chunks {
     }
 }
 
+pub struct OpaqueIterator {
+    root: SteelVal,
+    iterator: BuiltInDataStructureIterator,
+}
+
+impl Custom for OpaqueIterator {
+    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+        Some(Ok(format!("#<iterator>")))
+    }
+
+    fn visit(&self, context: &mut HeapContext) {
+        context.visit(&self.root)
+    }
+}
+
+// TODO: Convert this to just a generic custom type. This does not have to be
+// a special enum variant.
 pub enum BuiltInDataStructureIterator {
     List(im_lists::list::ConsumingIter<SteelVal, im_lists::shared::RcPointer, 256, 1>),
     Vector(im_rc::vector::ConsumingIter<SteelVal>),
@@ -1266,8 +1341,8 @@ impl SteelVal {
             (FuncV(l), FuncV(r)) => *l as usize == *r as usize,
             (SymbolV(l), SymbolV(r)) => Rc::ptr_eq(l, r),
             (SteelVal::Custom(l), SteelVal::Custom(r)) => Gc::ptr_eq(l, r),
-            (HashMapV(l), HashMapV(r)) => Gc::ptr_eq(l, r),
-            (HashSetV(l), HashSetV(r)) => Gc::ptr_eq(l, r),
+            (HashMapV(l), HashMapV(r)) => Gc::ptr_eq(&l.0, &r.0),
+            (HashSetV(l), HashSetV(r)) => Gc::ptr_eq(&l.0, &r.0),
             (PortV(l), PortV(r)) => Gc::ptr_eq(l, r),
             (Closure(l), Closure(r)) => Gc::ptr_eq(l, r),
             (IterV(l), IterV(r)) => Gc::ptr_eq(l, r),
@@ -1416,7 +1491,7 @@ impl SteelVal {
     }
 
     pub fn empty_hashmap() -> SteelVal {
-        SteelVal::HashMapV(Gc::new(HashMap::new()))
+        SteelVal::HashMapV(Gc::new(HashMap::new()).into())
     }
 }
 

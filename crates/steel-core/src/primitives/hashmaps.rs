@@ -87,7 +87,7 @@ pub fn hm_construct(args: &[SteelVal]) -> Result<SteelVal> {
         }
     }
 
-    Ok(SteelVal::HashMapV(Gc::new(hm)))
+    Ok(SteelVal::HashMapV(Gc::new(hm).into()))
 }
 
 pub fn hm_construct_keywords(args: &[SteelVal]) -> Result<SteelVal> {
@@ -111,7 +111,7 @@ pub fn hm_construct_keywords(args: &[SteelVal]) -> Result<SteelVal> {
         }
     }
 
-    Ok(SteelVal::HashMapV(Gc::new(hm)))
+    Ok(SteelVal::HashMapV(Gc::new(hm).into()))
 }
 
 /// Returns a new hashmap with the additional key value pair added. Performs a functional update,
@@ -140,7 +140,7 @@ pub fn hash_insert(
     value: SteelVal,
 ) -> Result<SteelVal> {
     if key.is_hashable() {
-        Ok(SteelVal::HashMapV(Gc::new(map.update(key, value))))
+        Ok(SteelVal::HashMapV(Gc::new(map.update(key, value)).into()))
     } else {
         stop!(TypeMismatch => "hash key not hashable: {:?}", key)
     }
@@ -309,9 +309,9 @@ pub fn clear(args: &[SteelVal]) -> Result<SteelVal> {
     let hashmap = &args[0];
 
     if let SteelVal::HashMapV(hm) = hashmap {
-        let mut hm = hm.unwrap();
+        let mut hm = hm.0.unwrap();
         hm.clear();
-        Ok(SteelVal::HashMapV(Gc::new(hm)))
+        Ok(SteelVal::HashMapV(Gc::new(hm).into()))
     } else {
         stop!(TypeMismatch => "hm-clear takes a hashmap")
     }
@@ -341,9 +341,9 @@ pub fn hm_union(args: &[SteelVal]) -> Result<SteelVal> {
 
     if let SteelVal::HashMapV(hml) = left {
         if let SteelVal::HashMapV(hmr) = right {
-            let hml = hml.unwrap();
-            let hmr = hmr.unwrap();
-            Ok(SteelVal::HashMapV(Gc::new(hml.union(hmr))))
+            let hml = hml.0.unwrap();
+            let hmr = hmr.0.unwrap();
+            Ok(SteelVal::HashMapV(Gc::new(hml.union(hmr)).into()))
         } else {
             stop!(TypeMismatch => "hash-union takes a hashmap, found {}", right)
         }
@@ -368,10 +368,13 @@ mod hashmap_tests {
             StringV("bar2".into()),
         ];
         let res = hm_construct(&args);
-        let expected = SteelVal::HashMapV(Gc::new(hashmap! {
-            StringV("foo".into()) => StringV("bar".into()),
-            StringV("foo2".into()) => StringV("bar2".into())
-        }));
+        let expected = SteelVal::HashMapV(
+            Gc::new(hashmap! {
+                StringV("foo".into()) => StringV("bar".into()),
+                StringV("foo2".into()) => StringV("bar2".into())
+            })
+            .into(),
+        );
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -388,33 +391,42 @@ mod hashmap_tests {
             StringV("bar2".into()),
         ];
         let res = hm_construct(&args);
-        let expected = SteelVal::HashMapV(Gc::new(hashmap! {
-            StringV("foo".into()) => StringV("bar".into()),
-            StringV("foo2".into()) => StringV("bar2".into())
-        }));
+        let expected = SteelVal::HashMapV(
+            Gc::new(hashmap! {
+                StringV("foo".into()) => StringV("bar".into()),
+                StringV("foo2".into()) => StringV("bar2".into())
+            })
+            .into(),
+        );
         assert_eq!(res.unwrap(), expected);
     }
 
     #[test]
     fn hm_insert_from_empty() {
         let args = [
-            HashMapV(Gc::new(hashmap![])),
+            HashMapV(Gc::new(hashmap![]).into()),
             StringV("foo".into()),
             StringV("bar".into()),
         ];
         let res = steel_hash_insert(&args);
-        let expected = SteelVal::HashMapV(Gc::new(hashmap! {
-            StringV("foo".into()) => StringV("bar".into())
-        }));
+        let expected = SteelVal::HashMapV(
+            Gc::new(hashmap! {
+                StringV("foo".into()) => StringV("bar".into())
+            })
+            .into(),
+        );
         assert_eq!(res.unwrap(), expected);
     }
 
     #[test]
     fn hm_get_found() {
         let args = [
-            HashMapV(Gc::new(hashmap! {
-                StringV("foo".into()) => StringV("bar".into())
-            })),
+            HashMapV(
+                Gc::new(hashmap! {
+                    StringV("foo".into()) => StringV("bar".into())
+                })
+                .into(),
+            ),
             StringV("foo".into()),
         ];
         let res = steel_hash_ref(&args);
@@ -425,9 +437,12 @@ mod hashmap_tests {
     #[test]
     fn hm_get_error() {
         let args = [
-            HashMapV(Gc::new(hashmap! {
-                StringV("foo".into()) => StringV("bar".into())
-            })),
+            HashMapV(
+                Gc::new(hashmap! {
+                    StringV("foo".into()) => StringV("bar".into())
+                })
+                .into(),
+            ),
             StringV("garbage".into()),
         ];
         let res = steel_hash_ref(&args);
@@ -437,9 +452,12 @@ mod hashmap_tests {
     #[test]
     fn hm_try_get_found() {
         let args = [
-            HashMapV(Gc::new(hashmap! {
-                StringV("foo".into()) => StringV("bar".into())
-            })),
+            HashMapV(
+                Gc::new(hashmap! {
+                    StringV("foo".into()) => StringV("bar".into())
+                })
+                .into(),
+            ),
             StringV("foo".into()),
         ];
         let res = steel_hash_try_get(&args);
@@ -450,9 +468,12 @@ mod hashmap_tests {
     #[test]
     fn hm_try_get_error() {
         let args = [
-            HashMapV(Gc::new(hashmap! {
-                StringV("foo".into()) => StringV("bar".into())
-            })),
+            HashMapV(
+                Gc::new(hashmap! {
+                    StringV("foo".into()) => StringV("bar".into())
+                })
+                .into(),
+            ),
             StringV("garbage".into()),
         ];
         let res = steel_hash_contains(&args);
@@ -463,9 +484,12 @@ mod hashmap_tests {
     #[test]
     fn hm_contains_true() {
         let args = [
-            HashMapV(Gc::new(hashmap! {
-                StringV("foo".into()) => StringV("bar".into())
-            })),
+            HashMapV(
+                Gc::new(hashmap! {
+                    StringV("foo".into()) => StringV("bar".into())
+                })
+                .into(),
+            ),
             StringV("foo".into()),
         ];
         let res = steel_hash_contains(&args);
@@ -476,9 +500,12 @@ mod hashmap_tests {
     #[test]
     fn hm_contains_false() {
         let args = [
-            HashMapV(Gc::new(hashmap! {
-                StringV("foo".into()) => StringV("bar".into())
-            })),
+            HashMapV(
+                Gc::new(hashmap! {
+                    StringV("foo".into()) => StringV("bar".into())
+                })
+                .into(),
+            ),
             StringV("bar".into()),
         ];
         let res = steel_hash_contains(&args);
@@ -488,11 +515,14 @@ mod hashmap_tests {
 
     #[test]
     fn hm_keys_to_vector_normal() {
-        let args = vec![HashMapV(Gc::new(hashmap! {
-            StringV("foo".into()) => StringV("bar".into()),
-            StringV("bar".into()) => StringV("baz".into()),
-            StringV("baz".into()) => StringV("quux".into())
-        }))];
+        let args = vec![HashMapV(
+            Gc::new(hashmap! {
+                StringV("foo".into()) => StringV("bar".into()),
+                StringV("bar".into()) => StringV("baz".into()),
+                StringV("baz".into()) => StringV("quux".into())
+            })
+            .into(),
+        )];
         let res = keys_to_vector(&args);
         let expected = SteelVal::VectorV(Gc::new(
             vec![
@@ -544,11 +574,14 @@ mod hashmap_tests {
 
     #[test]
     fn hm_values_to_vector_normal() {
-        let args = vec![HashMapV(Gc::new(hashmap! {
-            StringV("foo".into()) => StringV("bar".into()),
-            StringV("bar".into()) => StringV("baz".into()),
-            StringV("baz".into()) => StringV("quux".into())
-        }))];
+        let args = vec![HashMapV(
+            Gc::new(hashmap! {
+                StringV("foo".into()) => StringV("bar".into()),
+                StringV("bar".into()) => StringV("baz".into()),
+                StringV("baz".into()) => StringV("quux".into())
+            })
+            .into(),
+        )];
         let res = values_to_vector(&args);
         let expected = SteelVal::VectorV(Gc::new(
             vec![

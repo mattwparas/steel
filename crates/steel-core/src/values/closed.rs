@@ -16,6 +16,79 @@ const GC_THRESHOLD: usize = 256;
 const GC_GROW_FACTOR: usize = 2;
 const _RESET_LIMIT: usize = 5;
 
+thread_local! {
+    static ROOTS: RefCell<Roots> = RefCell::new(Roots::default());
+}
+
+#[derive(Default)]
+pub struct Roots {
+    generation: usize,
+    offset: usize,
+    roots: fxhash::FxHashMap<(usize, usize), SteelVal>,
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct RootToken {
+    generation: usize,
+    offset: usize,
+}
+
+impl Drop for RootToken {
+    fn drop(&mut self) {
+        ROOTS.with(|x| x.borrow_mut().free(self))
+    }
+}
+
+#[derive(Debug)]
+pub struct RootedSteelVal {
+    value: SteelVal,
+    token: RootToken,
+}
+
+impl RootedSteelVal {
+    pub fn value(&self) -> &SteelVal {
+        &self.value
+    }
+}
+
+impl Roots {
+    fn root(&mut self, value: SteelVal) -> RootToken {
+        let generation = self.generation;
+        let offset = self.offset;
+
+        self.offset += 1;
+
+        self.roots.insert((generation, offset), value);
+
+        RootToken { generation, offset }
+    }
+
+    fn free(&mut self, token: &RootToken) {
+        self.roots.remove(&(token.generation, token.offset));
+    }
+
+    fn increment_generation(&mut self) {
+        self.generation += 1;
+    }
+}
+
+impl SteelVal {
+    pub fn mark_rooted(&self) -> RootToken {
+        ROOTS.with(|x| x.borrow_mut().root(self.clone()))
+    }
+
+    // If we're storing in an external struct that could escape
+    // the runtime, we probably want to be marked as rooted
+    pub fn as_rooted(&self) -> RootedSteelVal {
+        let token = self.mark_rooted();
+
+        RootedSteelVal {
+            token,
+            value: self.clone(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Heap {
     memory: Vec<Rc<RefCell<HeapAllocated>>>,
@@ -104,6 +177,8 @@ impl Heap {
             }
         }
 
+        ROOTS.with(|x| x.borrow().roots.values().for_each(traverse));
+
         // println!("Freeing heap");
 
         // TODO -> move destructors to another thread?
@@ -132,6 +207,8 @@ impl Heap {
 
         // put them back as unreachable
         self.memory.iter().for_each(|x| x.borrow_mut().reset());
+
+        ROOTS.with(|x| x.borrow_mut().increment_generation());
     }
 }
 
@@ -210,6 +287,14 @@ impl HeapAllocated {
     }
 }
 
+pub struct HeapContext;
+
+impl HeapContext {
+    pub fn visit(&mut self, val: &SteelVal) {
+        traverse(val)
+    }
+}
+
 // Use this function to traverse and find all reachable things
 // 'reachable' should be values living in the heap, stack, and in the
 fn traverse(val: &SteelVal) {
@@ -230,8 +315,17 @@ fn traverse(val: &SteelVal) {
                 traverse(value)
             }
         }
-        // SteelVal::HashMapV(_) => {}
-        // SteelVal::HashSetV(_) => {}
+        SteelVal::HashMapV(h) => {
+            for (key, value) in h.iter() {
+                traverse(key);
+                traverse(value);
+            }
+        }
+        SteelVal::HashSetV(s) => {
+            for key in s.iter() {
+                traverse(key);
+            }
+        }
         // SteelVal::StructV(_) => {}
         // SteelVal::PortV(_) => {}
         SteelVal::Closure(c) => {
@@ -241,6 +335,10 @@ fn traverse(val: &SteelVal) {
 
             for capture in c.captures() {
                 traverse(capture);
+            }
+
+            if let Some(contract) = c.get_contract_information().as_ref() {
+                traverse(contract);
             }
         }
         // SteelVal::IterV(_) => {}
@@ -273,9 +371,29 @@ fn traverse(val: &SteelVal) {
                 }
             }
         }
-        _ => {
-            // println!("Traverse bottoming out on: {}", val);
-        }
+        SteelVal::BoolV(_) => {}
+        SteelVal::NumV(_) => {}
+        SteelVal::IntV(_) => {}
+        SteelVal::CharV(_) => {}
+        SteelVal::Void => {}
+        SteelVal::StringV(_) => {}
+        SteelVal::FuncV(_) => {}
+        SteelVal::SymbolV(_) => {}
+        SteelVal::Custom(c) => c.borrow().visit(&mut HeapContext),
+        SteelVal::CustomStruct(_) => todo!(),
+        SteelVal::PortV(_) => todo!(),
+        SteelVal::IterV(_) => todo!(),
+        SteelVal::ReducerV(_) => todo!(),
+        SteelVal::FutureFunc(_) => todo!(),
+        SteelVal::FutureV(_) => todo!(),
+        SteelVal::BoxedFunction(_) => todo!(),
+        SteelVal::MutFunc(_) => todo!(),
+        SteelVal::BuiltIn(_) => todo!(),
+        SteelVal::BoxedIterator(_) => todo!(),
+        SteelVal::SyntaxObject(_) => todo!(),
+        SteelVal::Boxed(_) => todo!(),
+        SteelVal::Reference(_) => todo!(),
+        SteelVal::BigNum(_) => todo!(),
     }
 }
 

@@ -6,7 +6,7 @@ use once_cell::sync::Lazy;
 
 use crate::compiler::map::SymbolMap;
 use crate::parser::interner::InternedString;
-use crate::rvals::Custom;
+use crate::rvals::{Custom, SteelHashMap};
 use crate::steel_vm::register_fn::RegisterFn;
 use crate::throw;
 use crate::{
@@ -22,6 +22,7 @@ use crate::{
     SteelErr,
 };
 use crate::{steel_vm::builtin::BuiltInModule, stop};
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::{
     cell::{Ref, RefCell},
@@ -115,7 +116,7 @@ impl std::fmt::Display for UserDefinedStruct {
             //     write!(f, " {}", self.fields[i])?;
             // }
 
-            for i in &self.fields {
+            for i in self.fields.iter() {
                 write!(f, " {}", i)?;
             }
 
@@ -302,7 +303,7 @@ impl UserDefinedStruct {
 
         Self {
             name,
-            fields: fields.into(),
+            fields: fields.iter().cloned().collect(),
             // properties: Properties::BuiltIn,
             // proc: None,
             type_descriptor,
@@ -397,7 +398,7 @@ impl UserDefinedStruct {
     ) -> Self {
         Self {
             name,
-            fields: rest.into(),
+            fields: rest.into_iter().cloned().collect(),
             // len: rest.len() + 1,
             // properties,
             // proc: None,

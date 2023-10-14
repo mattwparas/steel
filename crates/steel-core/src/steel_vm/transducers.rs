@@ -535,9 +535,9 @@ impl<'global, 'a> VmCore<'a> {
                             stop!(TypeMismatch => format!("Unable to convert: {other} to pair that can be used to construct a hashmap"));
                         }
                     }
-                }).collect::<Result<im_rc::HashMap<_, _>>>().map(|x| SteelVal::HashMapV(Gc::new(x)))
+                }).collect::<Result<im_rc::HashMap<_, _>>>().map(|x| SteelVal::HashMapV(Gc::new(x).into()))
             },
-            Reducer::HashSet => iter.collect::<Result<im_rc::HashSet<_>>>().map(|x| SteelVal::HashSetV(Gc::new(x))),
+            Reducer::HashSet => iter.collect::<Result<im_rc::HashSet<_>>>().map(|x| SteelVal::HashSetV(Gc::new(x).into())),
             Reducer::String => todo!(),
             Reducer::Last => iter.last().unwrap_or_else(|| stop!(Generic => "`last` found empty list - `last` requires at least one element in the sequence")),
             Reducer::ForEach(f) => {
