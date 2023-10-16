@@ -34,7 +34,10 @@ use crate::{
         parser::{ParseError, Parser, Sources},
     },
     rerrs::{back_trace, back_trace_to_string},
-    rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
+    rvals::{
+        cycles::{install_printer, print_in_engine, PRINT_IN_ENGINE_DEFINITION},
+        FromSteelVal, IntoSteelVal, Result, SteelVal,
+    },
     steel_vm::register_fn::RegisterFn,
     stop, throw,
     values::functions::BoxedDynFunction,
@@ -745,6 +748,18 @@ impl Engine {
     /// vm.run(r#"(+ 1 2 3)"#).unwrap();
     /// ```
     pub fn new() -> Self {
+        let mut engine = fresh_kernel_image();
+
+        // Touch the printer to initialize it
+        install_printer();
+        engine.register_fn("print-in-engine", print_in_engine);
+
+        engine.compiler.kernel = Some(Kernel::new());
+
+        engine
+    }
+
+    pub(crate) fn new_printer() -> Self {
         let mut engine = fresh_kernel_image();
 
         engine.compiler.kernel = Some(Kernel::new());

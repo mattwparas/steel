@@ -6,6 +6,7 @@ use super::{
     builtin::{Arity, FunctionSignatureMetadata},
     engine::Engine,
 };
+use crate::values::lists::List;
 use crate::{
     gc::unsafe_erased_pointers::{
         BorrowedObject, OpaqueReferenceNursery, ReadOnlyBorrowedObject, ReadOnlyTemporary,
@@ -26,7 +27,6 @@ use crate::{
     values::functions::BoxedDynFunction,
 };
 use futures_util::FutureExt;
-use im_lists::list::List;
 
 use crate::containers::RegisterValue;
 

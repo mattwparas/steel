@@ -38,16 +38,20 @@ use super::{
     program::{CONTRACT_OUT, FOR_SYNTAX, ONLY_IN, PREFIX_IN, REQUIRE_IDENT_SPEC},
 };
 
-const OPTION: &str = include_str!("../scheme/modules/option.scm");
-const OPTION_NAME: &str = "steel/option";
+static OPTION: &str = include_str!("../scheme/modules/option.scm");
+static OPTION_NAME: &str = "steel/option";
 
-const RESULT: &str = include_str!("../scheme/modules/result.scm");
-const RESULT_NAME: &str = "steel/result";
+static RESULT: &str = include_str!("../scheme/modules/result.scm");
+static RESULT_NAME: &str = "steel/result";
 
-// const DICT: &str = include_str!("../scheme/modules/test.rkt");
-// const TEST_NAME: &str = "std::test";
+static CONTRACT: &str = include_str!("../scheme/modules/contracts.scm");
+static CONTRACT_NAME: &str = "#%private/steel/contract";
 
-static BUILT_INS: &[(&str, &str)] = &[(OPTION_NAME, OPTION), (RESULT_NAME, RESULT)];
+static BUILT_INS: &[(&str, &str)] = &[
+    (OPTION_NAME, OPTION),
+    (RESULT_NAME, RESULT),
+    (CONTRACT_NAME, CONTRACT),
+];
 
 /// Manages the modules
 /// keeps some visited state on the manager for traversal
@@ -201,7 +205,8 @@ impl ModuleManager {
             let module = if let Some(module) = module_builder.compiled_modules.get(path.as_ref()) {
                 module
             } else {
-                log::info!("No provides found for module, skipping: {:?}", path);
+                log::info!(target: "modules", "No provides found for module, skipping: {:?}", path);
+
                 continue;
             };
 
@@ -423,11 +428,19 @@ impl ModuleManager {
             .filter(|x| x.for_syntax)
             .map(|x| x.path.get_path())
         {
-            let (module, in_scope_macros) = Self::find_in_scope_macros(
+            let (module, mut in_scope_macros) = Self::find_in_scope_macros(
                 &self.compiled_modules,
                 require_for_syntax.as_ref(),
                 &mut mangled_asts,
             );
+
+            // dbg!(&in_scope_macros);
+
+            // for (key, value) in &mut in_scope_macros {
+            //     for line in value.exprs_mut() {
+            //         println!("{}", line);
+            //     }
+            // }
 
             // ast = ast.into_iter().map(|x| )
 
@@ -450,6 +463,11 @@ impl ModuleManager {
                     // expand(x, &module.macro_map)
                 })
                 .collect::<Result<_>>()?;
+
+            // TODO: @Matt 10/16/12
+            // This won't work if the macros expand to other private macros.
+            // Tracking issue here: <TODO>
+            global_macro_map.extend(in_scope_macros);
         }
 
         // Include the defines from the modules now imported
@@ -1135,12 +1153,12 @@ impl<'a> ModuleBuilder<'a> {
         self.collect_requires()?;
         self.collect_provides()?;
 
-        if log_enabled!(log::Level::Info) {
-            info!("Requires: {:#?}", self.require_objects);
+        // if log_enabled!(log::Level::Info) {
+        info!(target: "requires", "Requires: {:#?}", self.require_objects);
 
-            info!("Provides: {:#?}", self.provides);
-            info!("Provides for-syntax: {:?}", self.provides_for_syntax);
-        }
+        info!(target: "requires", "Provides: {:#?}", self.provides);
+        info!(target: "requires", "Provides for-syntax: {:?}", self.provides_for_syntax);
+        // }
 
         if self.visited.contains(&self.name) {
             stop!(Generic => format!("circular dependency found during module resolution with: {:?}", self.name))
@@ -1228,8 +1246,11 @@ impl<'a> ModuleBuilder<'a> {
                 // ast.append(&mut module_exprs);
                 // new_module.source_ast = ast;
 
+                // Probably want to evaluate a module even if it has no provides?
                 if !new_module.provides.is_empty() {
                     new_exprs.push(new_module.compile_module()?);
+                } else {
+                    log::debug!(target: "requires", "Found no provides, skipping compilation of module: {:?}", new_module.name);
                 }
             }
 
@@ -1284,6 +1305,7 @@ impl<'a> ModuleBuilder<'a> {
                 // debug!("Inside {:?} - append {:?}", self.name, module);
                 if log_enabled!(log::Level::Debug) {
                     debug!(
+                        target: "modules",
                         "appending with {:?}",
                         module_exprs.iter().map(|x| x.to_string()).join(" SEP ")
                     );
@@ -1297,9 +1319,25 @@ impl<'a> ModuleBuilder<'a> {
                 // ast.append(&mut module_exprs);
                 // new_module.source_ast = ast;
 
+                dbg!(&new_module.name);
+                dbg!(&new_module.compiled_modules.contains_key(&new_module.name));
+
+                // If we need to, revisit because there are new provides
                 if !new_module.provides.is_empty() {
                     new_exprs.push(new_module.compile_module()?);
+                // If the module hasn't yet been compiled, compile it anyway
+                } else if !new_module.compiled_modules.contains_key(&new_module.name) {
+                    // else if !new_module.compiled_modules.contains_key(&new_module.name) {
+                    new_exprs.push(new_module.compile_module()?);
+                } else {
+                    log::debug!(target: "requires", "Found no provides, skipping compilation of module: {:?}", new_module.name);
+                    log::debug!(target: "requires", "Module already in the cache: {}", new_module.compiled_modules.contains_key(&new_module.name));
+                    log::debug!(target: "requires", "Compiled modules: {:?}", new_module.compiled_modules.keys().collect::<Vec<_>>());
                 }
+
+                // else {
+                //     log::debug!(target: "requires", "Found no provides, skipping compilation of module: {:?}", new_module.name);
+                // }
             }
         }
 
@@ -1316,6 +1354,7 @@ impl<'a> ModuleBuilder<'a> {
         let requires = self.require_objects.clone();
 
         info!(
+            target: "requires",
             "Into compiled module: provides for syntax: {:?}",
             self.provides_for_syntax
         );
@@ -1403,6 +1442,7 @@ impl<'a> ModuleBuilder<'a> {
         {
             self.source_ast = ast;
             self.provides = provides;
+
             self.collect_provides();
 
             // let requires_before = self.require_objects.len();
@@ -1440,6 +1480,8 @@ impl<'a> ModuleBuilder<'a> {
         module.set_emitted(true);
 
         let result = module.to_top_level_module(self.compiled_modules, self.global_macro_map)?;
+
+        log::debug!(target: "requires", "Adding compiled module: {:?}", self.name);
 
         self.compiled_modules.insert(self.name.clone(), module);
 
@@ -1700,25 +1742,35 @@ impl<'a> ModuleBuilder<'a> {
                         }
 
                         if let Some(path) = l.args[1].string_literal() {
-                            let mut current = self.name.clone();
-                            if current.is_file() {
-                                current.pop();
-                            }
-                            current.push(path);
+                            if let Some(lib) = BUILT_INS.iter().find(|x| x.0 == path) {
+                                // self.built_ins.push(PathBuf::from(lib.0));
 
-                            if !current.exists() {
-                                if let Some(mut home) = home.clone() {
-                                    home.push(path);
-                                    current = home;
+                                require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0));
+                                require_object.for_syntax = true;
 
-                                    log::info!("Searching STEEL_HOME for {:?}", current);
-                                } else {
-                                    stop!(Generic => format!("Module not found: {:?}", self.name))
+                                return Ok(());
+                                // continue;
+                            } else {
+                                let mut current = self.name.clone();
+                                if current.is_file() {
+                                    current.pop();
                                 }
-                            }
+                                current.push(path);
 
-                            require_object.for_syntax = true;
-                            require_object.path = Some(PathOrBuiltIn::Path(current));
+                                if !current.exists() {
+                                    if let Some(mut home) = home.clone() {
+                                        home.push(path);
+                                        current = home;
+
+                                        log::info!("Searching STEEL_HOME for {:?}", current);
+                                    } else {
+                                        stop!(Generic => format!("Module not found: {:?}", self.name))
+                                    }
+                                }
+
+                                require_object.for_syntax = true;
+                                require_object.path = Some(PathOrBuiltIn::Path(current));
+                            }
                         } else {
                             stop!(BadSyntax => "for-syntax expects a string literal referring to a file or module"; r.location.span; r.location.source.clone());
                         }

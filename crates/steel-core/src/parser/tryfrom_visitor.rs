@@ -1,4 +1,4 @@
-use im_lists::list::List;
+use crate::values::lists::List;
 
 use crate::{parser::ast::ExprKind, rvals::Syntax};
 
@@ -84,10 +84,9 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
         if self.inside_quote {
             // self.visit(quote.expr)
 
-            Ok(SteelVal::ListV(im_lists::list![
-                SteelVal::SymbolV("quote".into()),
-                self.visit(quote.expr)?
-            ]))
+            Ok(SteelVal::ListV(
+                vec![SteelVal::SymbolV("quote".into()), self.visit(quote.expr)?].into(),
+            ))
         } else {
             self.inside_quote = true;
             let res = self.visit(quote.expr);
@@ -248,10 +247,9 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
         let raw = SteelVal::try_from(ExprKind::Quote(quote.clone()))?;
         Ok(Syntax::proto(
             raw,
-            SteelVal::ListV(im_lists::list![
-                SteelVal::SymbolV("quote".into()),
-                self.visit(quote.expr)?
-            ]),
+            SteelVal::ListV(
+                vec![SteelVal::SymbolV("quote".into()), self.visit(quote.expr)?].into(),
+            ),
             span,
         )
         .into())

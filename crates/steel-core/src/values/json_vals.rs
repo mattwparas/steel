@@ -1,15 +1,13 @@
+use crate::values::lists::List;
 use crate::{
     gc::Gc,
     rerrs::SteelErr,
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
     throw,
 };
-use im_lists::list::List;
 use im_rc::HashMap;
 use serde_json::{Map, Number, Value};
 use std::convert::{TryFrom, TryInto};
-
-// use list
 
 pub fn string_to_jsexpr() -> SteelVal {
     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {

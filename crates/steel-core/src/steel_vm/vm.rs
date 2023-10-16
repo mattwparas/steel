@@ -34,7 +34,7 @@ use std::{cell::RefCell, collections::HashMap, iter::Iterator, rc::Rc};
 
 use super::builtin::DocTemplate;
 
-use im_lists::list::List;
+use crate::values::lists::List;
 
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};

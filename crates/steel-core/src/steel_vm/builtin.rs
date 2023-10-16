@@ -212,7 +212,7 @@ impl BuiltInModule {
         }
     }
 
-    pub fn bound_identifiers(&self) -> im_lists::list::List<SteelVal> {
+    pub fn bound_identifiers(&self) -> crate::values::lists::List<SteelVal> {
         self.values
             .keys()
             .map(|x| SteelVal::StringV(x.to_string().into()))

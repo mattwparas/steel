@@ -695,15 +695,18 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
     // We do not have the properties yet. Should probably intern the
     // let struct_type_id = new_type_id(name, address_or_name)
 
-    Ok(SteelVal::ListV(im_lists::list![
-        // Convert this into a descriptor before we're done
-        struct_type_descriptor.into_steelval().unwrap(),
-        struct_constructor,
-        struct_predicate,
-        getter_prototype,
-        setter_prototype,
-        // struct_type_descriptor,
-    ]))
+    Ok(SteelVal::ListV(
+        vec![
+            // Convert this into a descriptor before we're done
+            struct_type_descriptor.into_steelval().unwrap(),
+            struct_constructor,
+            struct_predicate,
+            getter_prototype,
+            setter_prototype,
+            // struct_type_descriptor,
+        ]
+        .into(),
+    ))
 }
 
 /*

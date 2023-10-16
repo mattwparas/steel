@@ -16,6 +16,7 @@ use crate::{
         contracts::{ContractType, ContractedFunction},
         functions::ByteCodeLambda,
         lazy_stream::LazyStream,
+        // lists::ListDropHandler,
         transducers::{Reducer, Transducer},
     },
     values::{functions::BoxedDynFunction, structs::UserDefinedStruct},
@@ -49,9 +50,9 @@ macro_rules! list {
     ) };
 
     ( $($x:expr),* ) => {{
-        $crate::rvals::SteelVal::ListV(im_lists::list![$(
+        $crate::rvals::SteelVal::ListV(vec![$(
             $crate::rvals::IntoSteelVal::into_steelval($x).unwrap()
-        ), *])
+        ), *].into())
     }};
 
     ( $($x:expr ,)* ) => {{
@@ -69,7 +70,9 @@ use futures_task::noop_waker_ref;
 use futures_util::future::Shared;
 use futures_util::FutureExt;
 
-use im_lists::list::List;
+use im_lists::handler::{DefaultDropHandler, DropHandler};
+
+use crate::values::lists::List;
 use num::ToPrimitive;
 use steel_parser::tokens::MaybeBigInt;
 
@@ -963,6 +966,26 @@ pub fn into_serializable_value(val: SteelVal) -> Result<SerializableSteelVal> {
     }
 }
 
+#[derive(Clone, PartialEq, Eq)]
+pub struct SteelMutableVector(pub(crate) Gc<RefCell<Vec<SteelVal>>>);
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct SteelVector(pub(crate) Gc<im_rc::Vector<SteelVal>>);
+
+impl Deref for SteelVector {
+    type Target = im_rc::Vector<SteelVal>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<Gc<im_rc::Vector<SteelVal>>> for SteelVector {
+    fn from(value: Gc<im_rc::Vector<SteelVal>>) -> Self {
+        SteelVector(value)
+    }
+}
+
 #[derive(Clone, PartialEq)]
 pub struct SteelHashMap(pub(crate) Gc<HashMap<SteelVal, SteelVal>>);
 
@@ -1012,7 +1035,7 @@ pub enum SteelVal {
     CharV(char),
     /// Vectors are represented as `im_rc::Vector`'s, which are immutable
     /// data structures
-    VectorV(Gc<Vector<SteelVal>>),
+    VectorV(SteelVector),
     /// Void return value
     Void,
     /// Represents strings
@@ -1054,7 +1077,7 @@ pub enum SteelVal {
     // #[cfg(feature = "jit")]
     // CompiledFunction(Box<JitFunctionPointer>),
     // List
-    ListV(List<SteelVal>),
+    ListV(crate::values::lists::List<SteelVal>),
     // Mutable functions
     MutFunc(MutFunctionSignature),
     // Built in functions
@@ -1263,7 +1286,7 @@ impl Custom for OpaqueIterator {
 // TODO: Convert this to just a generic custom type. This does not have to be
 // a special enum variant.
 pub enum BuiltInDataStructureIterator {
-    List(im_lists::list::ConsumingIter<SteelVal, im_lists::shared::RcPointer, 256, 1>),
+    List(crate::values::lists::ConsumingIterator<SteelVal>),
     Vector(im_rc::vector::ConsumingIter<SteelVal>),
     Set(im_rc::hashset::ConsumingIter<SteelVal>),
     Map(im_rc::hashmap::ConsumingIter<(SteelVal, SteelVal)>),
@@ -1296,7 +1319,7 @@ impl Iterator for BuiltInDataStructureIterator {
             Self::Vector(v) => v.next(),
             Self::String(s) => s.remaining.next().map(SteelVal::CharV),
             Self::Set(s) => s.next(),
-            Self::Map(s) => s.next().map(|x| SteelVal::ListV(im_lists::list![x.0, x.1])),
+            Self::Map(s) => s.next().map(|x| SteelVal::ListV(vec![x.0, x.1].into())),
             Self::Opaque(s) => s.next(),
         }
     }
@@ -1335,7 +1358,7 @@ impl SteelVal {
             (IntV(l), IntV(r)) => l == r,
             (NumV(l), NumV(r)) => l == r,
             (BoolV(l), BoolV(r)) => l == r,
-            (VectorV(l), VectorV(r)) => Gc::ptr_eq(l, r),
+            (VectorV(l), VectorV(r)) => Gc::ptr_eq(&l.0, &r.0),
             (Void, Void) => true,
             (StringV(l), StringV(r)) => Rc::ptr_eq(l, r),
             (FuncV(l), FuncV(r)) => *l as usize == *r as usize,
@@ -1549,7 +1572,7 @@ impl SteelVal {
         err: F,
     ) -> std::result::Result<Vector<SteelVal>, E> {
         match self {
-            Self::VectorV(v) => Ok(v.unwrap()),
+            Self::VectorV(v) => Ok(v.0.unwrap()),
             _ => Err(err()),
         }
     }
@@ -1880,7 +1903,7 @@ mod or_else_tests {
 
     #[test]
     fn vector_or_else_test_good() {
-        let input = SteelVal::VectorV(Gc::new(vector![SteelVal::IntV(1)]));
+        let input: SteelVal = vector![SteelVal::IntV(1)].into();
         assert_eq!(
             input.vector_or_else(throw!(Generic => "test")).unwrap(),
             vector![SteelVal::IntV(1)]

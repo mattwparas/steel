@@ -32,9 +32,9 @@ pub mod colors;
 
 pub use lists::UnRecoverableResult;
 
+use crate::values::lists::List;
 pub use control::ControlOperations;
 pub use fs::fs_module;
-use im_lists::list::List;
 pub use io::IoFunctions;
 pub use meta_ops::MetaOperations;
 pub use nums::NumOperations;
@@ -47,7 +47,9 @@ pub use strings::string_module;
 
 pub use nums::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
 
-use crate::rvals::{FunctionSignature, PrimitiveAsRef, SteelHashMap, SteelHashSet, SteelVal};
+use crate::rvals::{
+    FunctionSignature, PrimitiveAsRef, SteelHashMap, SteelHashSet, SteelVal, SteelVector,
+};
 use crate::values::port::SteelPort;
 use crate::{
     rerrs::{ErrorKind, SteelErr},
@@ -405,6 +407,17 @@ impl<'a> PrimitiveAsRef<'a> for &'a Gc<Vector<SteelVal>> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::VectorV(p) = val {
+            Ok(&p.0)
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel vector", val))
+        }
+    }
+}
+
+impl<'a> PrimitiveAsRef<'a> for &'a SteelVector {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::VectorV(p) = val {
             Ok(p)
         } else {
             crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel vector", val))
@@ -549,7 +562,7 @@ impl IntoSteelVal for bool {
 
 impl From<Vector<SteelVal>> for SteelVal {
     fn from(val: Vector<SteelVal>) -> SteelVal {
-        SteelVal::VectorV(Gc::new(val))
+        SteelVal::VectorV(Gc::new(val).into())
     }
 }
 

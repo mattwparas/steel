@@ -1,4 +1,5 @@
-use im_lists::list::List;
+// use im_lists::list::List;
+use crate::values::lists::List;
 // use itertools::Itertools;
 
 // use super::{evaluation_progress::EvaluationProgress, stack::StackFrame, vm::VmCore};
@@ -207,7 +208,7 @@ impl<'global, 'a> VmCore<'a> {
             SteelVal::HashSetV(hs) => Ok(Box::new(hs.iter().cloned().map(Ok))),
             SteelVal::HashMapV(hm) => {
                 Ok(Box::new(hm.iter().map(|x| {
-                    Ok(SteelVal::ListV(im_lists::list![x.0.clone(), x.1.clone()]))
+                    Ok(SteelVal::ListV(vec![x.0.clone(), x.1.clone()].into()))
                 })))
             }
             SteelVal::MutableVector(v) => {
@@ -297,7 +298,7 @@ impl<'global, 'a> VmCore<'a> {
                                         Ok(x) => {
                                             match x {
                                                 SteelVal::VectorV(v) => {
-                                                    Box::new(v.unwrap().into_iter().map(Ok))
+                                                    Box::new(v.0.unwrap().into_iter().map(Ok))
                                                 }
                                                 // TODO this needs to be fixed
                                                 SteelVal::StringV(s) => Box::new(
@@ -337,7 +338,7 @@ impl<'global, 'a> VmCore<'a> {
                                 Ok(x) => {
                                     match x {
                                         SteelVal::VectorV(v) => {
-                                            Box::new(v.unwrap().into_iter().map(Ok))
+                                            Box::new(v.0.unwrap().into_iter().map(Ok))
                                         }
                                         // TODO this needs to be fixed
                                         SteelVal::StringV(s) => Box::new(
@@ -377,7 +378,7 @@ impl<'global, 'a> VmCore<'a> {
                 Transducers::Extend(collection) => {
                     let extender: Box<dyn Iterator<Item = Result<SteelVal>>> =
                         match collection.clone() {
-                            SteelVal::VectorV(v) => Box::new(v.unwrap().into_iter().map(Ok)),
+                            SteelVal::VectorV(v) => Box::new(v.0.unwrap().into_iter().map(Ok)),
                             // TODO this needs to be fixed
                             SteelVal::StringV(s) => Box::new(
                                 s.chars()
@@ -406,15 +407,14 @@ impl<'global, 'a> VmCore<'a> {
                 Transducers::Take(num) => generate_take!(iter, num, cur_inst_span),
                 Transducers::Drop(num) => generate_drop!(iter, num, cur_inst_span),
                 Transducers::Enumerating => Box::new(iter.enumerate().map(|x| {
-                    Ok(SteelVal::ListV(im_lists::list!(
-                        SteelVal::IntV(x.0 as isize),
-                        x.1?
-                    )))
+                    Ok(SteelVal::ListV(
+                        vec![SteelVal::IntV(x.0 as isize), x.1?].into(),
+                    ))
                 })),
                 Transducers::Zipping(collection) => {
                     let zipped: Box<dyn Iterator<Item = Result<SteelVal>>> =
                         match collection.clone() {
-                            SteelVal::VectorV(v) => Box::new(v.unwrap().into_iter().map(Ok)),
+                            SteelVal::VectorV(v) => Box::new(v.0.unwrap().into_iter().map(Ok)),
                             // TODO this needs to be fixed
                             SteelVal::StringV(s) => Box::new(
                                 s.chars()
@@ -436,13 +436,13 @@ impl<'global, 'a> VmCore<'a> {
                         };
                     Box::new(
                         iter.zip(zipped)
-                            .map(|x| Ok(SteelVal::ListV(im_lists::list!(x.0?, x.1?)))),
+                            .map(|x| Ok(SteelVal::ListV(vec![x.0?, x.1?].into()))),
                     )
                 }
                 Transducers::Interleaving(collection) => {
                     let other: Box<dyn Iterator<Item = Result<SteelVal>>> = match collection.clone()
                     {
-                        SteelVal::VectorV(v) => Box::new(v.unwrap().into_iter().map(Ok)),
+                        SteelVal::VectorV(v) => Box::new(v.0.unwrap().into_iter().map(Ok)),
                         // TODO this needs to be fixed
                         SteelVal::StringV(s) => Box::new(
                             s.chars()
@@ -525,7 +525,7 @@ impl<'global, 'a> VmCore<'a> {
                         }
                         SteelVal::VectorV(l) => {
                             if l.len() != 2 {
-                                stop!(Generic => format!("Hashmap iterator expects an iterable with two elements, found: {l:?}"));
+                                stop!(Generic => format!("Hashmap iterator expects an iterable with two elements, found: {:?}", &l.0));
                             } else {
                                 let mut iter = l.iter();
                                 Ok((iter.next().cloned().unwrap(), iter.next().cloned().unwrap()))

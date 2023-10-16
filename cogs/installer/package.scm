@@ -10,6 +10,8 @@
          (for-syntax "../contracts/contract.scm")
          "steel/result")
 
+(provide package-installer-main)
+
 (define (append-with-separator path)
   (if (ends-with? path "/") (string-append path "cogs") (string-append path "/cogs")))
 
@@ -84,7 +86,6 @@
 (define (parse-cogs-from-command-line)
   (if (empty? std::env::args) (list (current-directory)) std::env::args))
 
-(provide package-installer-main)
 (define (package-installer-main)
 
   (define cogs-to-install (parse-cogs-from-command-line))

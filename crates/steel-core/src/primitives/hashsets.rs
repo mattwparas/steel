@@ -1,10 +1,10 @@
 use crate::stop;
+use crate::values::lists::List;
 use crate::{
     core::utils::declare_const_ref_functions,
     rvals::{Result, SteelVal},
 };
 use crate::{gc::Gc, steel_vm::builtin::BuiltInModule};
-use im_lists::list::List;
 use im_rc::HashSet;
 
 use crate::primitives::VectorOperations;
@@ -318,15 +318,12 @@ mod hashset_tests {
             .into(),
         )];
         let res = keys_to_vector(&args);
-        let expected = SteelVal::VectorV(Gc::new(
-            vec![
-                SteelVal::StringV("foo".into()),
-                SteelVal::StringV("bar".into()),
-                SteelVal::StringV("baz".into()),
-            ]
-            .into_iter()
-            .collect(),
-        ));
+        let expected = im_rc::vector![
+            SteelVal::StringV("foo".into()),
+            SteelVal::StringV("bar".into()),
+            SteelVal::StringV("baz".into()),
+        ]
+        .into();
 
         // pull out the vectors and sort them
         // let unwrapped_expected: SteelVal = (*expected).clone();

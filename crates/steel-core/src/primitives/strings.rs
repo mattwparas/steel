@@ -1,4 +1,4 @@
-use im_lists::list::List;
+use crate::values::lists::List;
 
 use crate::rvals::{RestArgsIter, Result, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
@@ -639,11 +639,14 @@ mod string_operation_tests {
         let args = vec![SteelVal::StringV("foo".into())];
         let res = steel_string_to_list(&args);
 
-        let expected = SteelVal::ListV(list![
-            SteelVal::CharV('f'),
-            SteelVal::CharV('o'),
-            SteelVal::CharV('o')
-        ]);
+        let expected = SteelVal::ListV(
+            vec![
+                SteelVal::CharV('f'),
+                SteelVal::CharV('o'),
+                SteelVal::CharV('o'),
+            ]
+            .into(),
+        );
 
         assert_eq!(res.unwrap(), expected);
     }
@@ -710,7 +713,7 @@ mod string_operation_tests {
         let args = vec![SteelVal::StringV("foo".into())];
         let res = steel_split_whitespace(&args);
 
-        let expected = SteelVal::ListV(list![SteelVal::StringV("foo".into())]);
+        let expected = SteelVal::ListV(vec![SteelVal::StringV("foo".into())].into());
 
         assert_eq!(res.unwrap(), expected);
     }
@@ -720,11 +723,14 @@ mod string_operation_tests {
         let args = vec![SteelVal::StringV("foo bar baz".into())];
         let res = steel_split_whitespace(&args);
 
-        let expected = SteelVal::ListV(list![
-            SteelVal::StringV("foo".into()),
-            SteelVal::StringV("bar".into()),
-            SteelVal::StringV("baz".into())
-        ]);
+        let expected = SteelVal::ListV(
+            vec![
+                SteelVal::StringV("foo".into()),
+                SteelVal::StringV("bar".into()),
+                SteelVal::StringV("baz".into()),
+            ]
+            .into(),
+        );
         assert_eq!(res.unwrap(), expected);
     }
 }

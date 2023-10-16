@@ -524,15 +524,12 @@ mod hashmap_tests {
             .into(),
         )];
         let res = keys_to_vector(&args);
-        let expected = SteelVal::VectorV(Gc::new(
-            vec![
-                SteelVal::StringV("foo".into()),
-                SteelVal::StringV("bar".into()),
-                SteelVal::StringV("baz".into()),
-            ]
-            .into_iter()
-            .collect(),
-        ));
+        let expected = im_rc::vector![
+            SteelVal::StringV("foo".into()),
+            SteelVal::StringV("bar".into()),
+            SteelVal::StringV("baz".into()),
+        ]
+        .into();
 
         // pull out the vectors and sort them
         // let unwrapped_res: SteelVal = (*res.unwrap()).clone();
@@ -583,15 +580,12 @@ mod hashmap_tests {
             .into(),
         )];
         let res = values_to_vector(&args);
-        let expected = SteelVal::VectorV(Gc::new(
-            vec![
-                SteelVal::StringV("bar".into()),
-                SteelVal::StringV("baz".into()),
-                SteelVal::StringV("quux".into()),
-            ]
-            .into_iter()
-            .collect(),
-        ));
+        let expected = im_rc::vector![
+            SteelVal::StringV("bar".into()),
+            SteelVal::StringV("baz".into()),
+            SteelVal::StringV("quux".into()),
+        ]
+        .into();
 
         // pull out the vectors and sort them
 

@@ -1,4 +1,4 @@
-use im_lists::list::List;
+use crate::values::lists::List;
 
 use crate::{
     gc::Gc,
@@ -34,7 +34,9 @@ impl IntoSteelVal for SteelVal {
 //     }
 // }
 
-impl<T: FromSteelVal + Clone> FromSteelVal for List<T> {
+impl<T: FromSteelVal + Clone, D: im_lists::handler::DropHandler<Self>> FromSteelVal
+    for im_lists::list::GenericList<T, im_lists::shared::RcPointer, 256, 1, D>
+{
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::ListV(l) = val {
             l.iter().map(T::from_steelval).collect()
@@ -44,7 +46,9 @@ impl<T: FromSteelVal + Clone> FromSteelVal for List<T> {
     }
 }
 
-impl<T: IntoSteelVal + Clone> IntoSteelVal for List<T> {
+impl<T: IntoSteelVal + Clone, D: im_lists::handler::DropHandler<Self>> IntoSteelVal
+    for im_lists::list::GenericList<T, im_lists::shared::RcPointer, 256, 1, D>
+{
     fn into_steelval(self) -> Result<SteelVal> {
         self.into_iter()
             .map(|x| x.into_steelval())
@@ -124,10 +128,9 @@ impl<T: FromSteelVal + Clone> AsRefSteelValFromUnsized<T> for T {
 
 impl<A: IntoSteelVal, B: IntoSteelVal> IntoSteelVal for (A, B) {
     fn into_steelval(self) -> Result<SteelVal> {
-        Ok(SteelVal::ListV(im_lists::list![
-            self.0.into_steelval()?,
-            self.1.into_steelval()?
-        ]))
+        Ok(SteelVal::ListV(
+            vec![self.0.into_steelval()?, self.1.into_steelval()?].into(),
+        ))
     }
 }
 
@@ -364,14 +367,14 @@ mod conversion_tests {
         //     Some(Gc::new(ConsCell::new(SteelVal::IntV(2), None))),
         // )));
 
-        let expected = list![SteelVal::IntV(1), SteelVal::IntV(2)].into();
+        let expected = SteelVal::ListV(vec![SteelVal::IntV(1), SteelVal::IntV(2)].into());
 
         assert_eq!(input_vec.into_steelval().unwrap(), expected)
     }
 
     #[test]
     fn vec_from_list() {
-        let input_list = SteelVal::ListV(list![SteelVal::IntV(1), SteelVal::IntV(2)]);
+        let input_list = SteelVal::ListV(vec![SteelVal::IntV(1), SteelVal::IntV(2)].into());
 
         let expected = vec![1, 2];
         let result = <Vec<i32>>::from_steelval(&input_list).unwrap();
@@ -381,8 +384,7 @@ mod conversion_tests {
 
     #[test]
     fn vec_from_vector() {
-        let input_vector =
-            SteelVal::VectorV(Gc::new(vector![SteelVal::IntV(1), SteelVal::IntV(2)]));
+        let input_vector = vector![SteelVal::IntV(1), SteelVal::IntV(2)].into();
 
         let expected = vec![1, 2];
         let result = <Vec<i32>>::from_steelval(&input_vector).unwrap();

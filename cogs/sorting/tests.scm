@@ -4,9 +4,11 @@
          "trie-sort.scm"
          "quick-sort.scm")
 
-(provide __module__)
+; (provide __module__)
 
-(define __module__ "tests")
+; (define __module__ "tests")
+
+; (displayln "Hello world!")
 
 (test-module "trie-sort-tests"
              (check-equal? "basic sorting"

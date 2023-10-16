@@ -84,7 +84,7 @@ impl Kernel {
                 .iter()
                 .map(|x| x.resolve().to_string())
                 .map(|x| SteelVal::SymbolV(x.into()))
-                .collect::<im_lists::list::List<SteelVal>>()
+                .collect::<crate::values::lists::List<SteelVal>>()
                 .into()
         });
 

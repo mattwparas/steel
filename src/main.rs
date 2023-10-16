@@ -8,7 +8,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut builder = env_logger::Builder::new();
 
-    let log_targets = ["super-instructions", "lambda-lifting", "dylibs"];
+    let log_targets = [
+        // "requires",
+        // "modules",
+        "super-instructions",
+        "lambda-lifting",
+        "dylibs",
+    ];
 
     for target in log_targets {
         builder.filter(Some(target), log::LevelFilter::Trace);
