@@ -57,7 +57,7 @@ static BUILT_INS: &[(&str, &str)] = &[
 /// keeps some visited state on the manager for traversal
 /// Also keeps track of the metadata for each file in order to determine
 /// if it needs to be recompiled
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ModuleManager {
     compiled_modules: HashMap<PathBuf, CompiledModule>,
     file_metadata: HashMap<PathBuf, SystemTime>,
@@ -554,11 +554,10 @@ impl ModuleManager {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CompiledModule {
     name: PathBuf,
     provides: Vec<ExprKind>,
-    // TODO: Change this to be an ID instead of a string directly
     require_objects: Vec<RequireObject>,
     provides_for_syntax: Vec<InternedString>,
     macro_map: HashMap<InternedString, SteelMacro>,
@@ -998,13 +997,13 @@ impl CompiledModule {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 enum MaybeRenamed {
     Normal(ExprKind),
     Renamed(ExprKind, ExprKind),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RequireObject {
     path: PathOrBuiltIn,
     for_syntax: bool,
@@ -1012,9 +1011,9 @@ pub struct RequireObject {
     prefix: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 enum PathOrBuiltIn {
-    BuiltIn(&'static str),
+    BuiltIn(Cow<'static, str>),
     Path(PathBuf),
 }
 
@@ -1022,7 +1021,7 @@ impl PathOrBuiltIn {
     pub fn get_path(&self) -> Cow<'_, PathBuf> {
         match self {
             Self::Path(p) => Cow::Borrowed(p),
-            Self::BuiltIn(p) => Cow::Owned(PathBuf::from(p)),
+            Self::BuiltIn(p) => Cow::Owned(PathBuf::from(p.to_string())),
         }
     }
 }
@@ -1637,7 +1636,7 @@ impl<'a> ModuleBuilder<'a> {
                 if let Some(lib) = BUILT_INS.iter().find(|x| x.0 == s.as_str()) {
                     // self.built_ins.push(PathBuf::from(lib.0));
 
-                    require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0));
+                    require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0.into()));
 
                     return Ok(());
                     // continue;
@@ -1745,7 +1744,7 @@ impl<'a> ModuleBuilder<'a> {
                             if let Some(lib) = BUILT_INS.iter().find(|x| x.0 == path) {
                                 // self.built_ins.push(PathBuf::from(lib.0));
 
-                                require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0));
+                                require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0.into()));
                                 require_object.for_syntax = true;
 
                                 return Ok(());

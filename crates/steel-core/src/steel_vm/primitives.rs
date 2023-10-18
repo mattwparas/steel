@@ -3,7 +3,6 @@ use std::{cell::RefCell, cmp::Ordering};
 use super::{
     builtin::BuiltInModule,
     cache::WeakMemoizationTable,
-    dylib::LOAD_MODULE_DEFINITION,
     engine::Engine,
     register_fn::RegisterFn,
     vm::{get_test_mode, list_modules, set_test_mode, VmCore},
@@ -33,6 +32,7 @@ use crate::{
         vm::threads::threading_module,
     },
     values::{
+        closed::HeapRef,
         functions::{attach_contract_struct, get_contract, LambdaMetadataTable},
         structs::{build_type_id_module, make_struct_type},
     },
@@ -230,7 +230,7 @@ thread_local! {
     pub static STRING_MODULE: BuiltInModule = string_module();
     pub static VECTOR_MODULE: BuiltInModule = vector_module();
     pub static STREAM_MODULE: BuiltInModule = stream_module();
-    pub static CONTRACT_MODULE: BuiltInModule = contract_module();
+    // pub static CONTRACT_MODULE: BuiltInModule = contract_module();
     pub static IDENTITY_MODULE: BuiltInModule = identity_module();
     pub static NUMBER_MODULE: BuiltInModule = number_module();
     pub static EQUALITY_MODULE: BuiltInModule = equality_module();
@@ -279,7 +279,7 @@ pub fn prelude() -> BuiltInModule {
         .with_module(STRING_MODULE.with(|x| x.clone()))
         .with_module(VECTOR_MODULE.with(|x| x.clone()))
         .with_module(STREAM_MODULE.with(|x| x.clone()))
-        .with_module(CONTRACT_MODULE.with(|x| x.clone()))
+        // .with_module(CONTRACT_MODULE.with(|x| x.clone()))
         .with_module(IDENTITY_MODULE.with(|x| x.clone()))
         .with_module(NUMBER_MODULE.with(|x| x.clone()))
         .with_module(EQUALITY_MODULE.with(|x| x.clone()))
@@ -319,7 +319,7 @@ pub fn register_builtin_modules_without_io(engine: &mut Engine) {
         .register_module(STRING_MODULE.with(|x| x.clone()))
         .register_module(VECTOR_MODULE.with(|x| x.clone()))
         .register_module(STREAM_MODULE.with(|x| x.clone()))
-        .register_module(CONTRACT_MODULE.with(|x| x.clone()))
+        // .register_module(CONTRACT_MODULE.with(|x| x.clone()))
         .register_module(IDENTITY_MODULE.with(|x| x.clone()))
         .register_module(NUMBER_MODULE.with(|x| x.clone()))
         .register_module(EQUALITY_MODULE.with(|x| x.clone()))
@@ -379,7 +379,7 @@ pub fn register_builtin_modules(engine: &mut Engine) {
         .register_module(STRING_MODULE.with(|x| x.clone()))
         .register_module(VECTOR_MODULE.with(|x| x.clone()))
         .register_module(STREAM_MODULE.with(|x| x.clone()))
-        .register_module(CONTRACT_MODULE.with(|x| x.clone()))
+        // .register_module(CONTRACT_MODULE.with(|x| x.clone()))
         .register_module(IDENTITY_MODULE.with(|x| x.clone()))
         .register_module(NUMBER_MODULE.with(|x| x.clone()))
         .register_module(EQUALITY_MODULE.with(|x| x.clone()))
@@ -425,7 +425,7 @@ pub static ALL_MODULES: &str = r#"
     (require-builtin steel/symbols)
     (require-builtin steel/vectors)
     (require-builtin steel/streams)
-    (require-builtin steel/contracts)
+    ;; (require-builtin steel/contracts)
     (require-builtin steel/identity)
     (require-builtin steel/numbers)
     (require-builtin steel/equality)
@@ -453,7 +453,7 @@ pub static SANDBOXED_MODULES: &str = r#"
     (require-builtin steel/symbols)
     (require-builtin steel/vectors)
     (require-builtin steel/streams)
-    (require-builtin steel/contracts)
+    ;; (require-builtin steel/contracts)
     (require-builtin steel/identity)
     (require-builtin steel/numbers)
     (require-builtin steel/equality)
@@ -564,7 +564,7 @@ fn functionp(value: &SteelVal) -> bool {
         value,
         SteelVal::Closure(_)
             | SteelVal::FuncV(_)
-            | SteelVal::ContractedFunction(_)
+            // | SteelVal::ContractedFunction(_)
             | SteelVal::BoxedFunction(_)
             | SteelVal::ContinuationFunction(_)
             | SteelVal::MutFunc(_)
@@ -578,7 +578,7 @@ fn procedurep(value: &SteelVal) -> bool {
         value,
         SteelVal::Closure(_)
             | SteelVal::FuncV(_)
-            | SteelVal::ContractedFunction(_)
+            // | SteelVal::ContractedFunction(_)
             | SteelVal::BoxedFunction(_)
             | SteelVal::ContinuationFunction(_)
             | SteelVal::MutFunc(_)
@@ -626,20 +626,20 @@ fn stream_module() -> BuiltInModule {
     module
 }
 
-fn contract_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/contracts");
-    module
-        .register_value("bind/c", contracts::BIND_CONTRACT_TO_FUNCTION)
-        .register_value("make-flat/c", contracts::MAKE_FLAT_CONTRACT)
-        .register_value(
-            "make-dependent-function/c",
-            contracts::MAKE_DEPENDENT_CONTRACT,
-        )
-        .register_value("make-function/c", contracts::MAKE_FUNCTION_CONTRACT)
-        .register_value("make/c", contracts::MAKE_C);
+// fn contract_module() -> BuiltInModule {
+//     let mut module = BuiltInModule::new("steel/contracts");
+//     module
+//         .register_value("bind/c", contracts::BIND_CONTRACT_TO_FUNCTION)
+//         .register_value("make-flat/c", contracts::MAKE_FLAT_CONTRACT)
+//         .register_value(
+//             "make-dependent-function/c",
+//             contracts::MAKE_DEPENDENT_CONTRACT,
+//         )
+//         .register_value("make-function/c", contracts::MAKE_FUNCTION_CONTRACT)
+//         .register_value("make/c", contracts::MAKE_C);
 
-    module
-}
+//     module
+// }
 
 #[steel_derive::function(name = "abs", constant = true)]
 fn abs(number: &SteelVal) -> Result<SteelVal> {
@@ -894,7 +894,7 @@ fn arity(value: SteelVal) -> UnRecoverableResult {
             // Ok(SteelVal::IntV(c.arity() as isize)).into()
 
             if let Some(SteelVal::CustomStruct(s)) = c.get_contract_information() {
-                let guard = s.borrow();
+                let guard = s;
                 if guard.name.resolve() == "FunctionContract" {
                     if let SteelVal::ListV(l) = &guard.fields[0] {
                         Ok(SteelVal::IntV(l.len() as isize)).into()
@@ -949,6 +949,28 @@ fn is_multi_arity(value: SteelVal) -> UnRecoverableResult {
     }
 }
 
+#[steel_derive::function(name = "#%unbox")]
+fn unbox_mutable(value: &HeapRef) -> SteelVal {
+    value.get()
+}
+
+#[steel_derive::function(name = "#%set-box!")]
+fn set_box_mutable(value: &HeapRef, update: SteelVal) -> SteelVal {
+    value.set_and_return(update)
+}
+
+// TODO: Handle arity issues!!!
+fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    let allocated_var = ctx.thread.heap.allocate(
+        args[0].clone(), // TODO: Could actually move off of the stack entirely
+        ctx.thread.stack.iter(),
+        ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
+        ctx.thread.global_env.roots(),
+    );
+
+    Some(Ok(SteelVal::HeapAllocated(allocated_var)))
+}
+
 #[steel_derive::function(name = "unbox")]
 fn unbox(value: &Gc<RefCell<SteelVal>>) -> SteelVal {
     value.borrow().clone()
@@ -969,8 +991,6 @@ fn meta_module() -> BuiltInModule {
         )
         .register_fn("#%function-ptr-table-add", LambdaMetadataTable::add)
         .register_fn("#%function-ptr-table-get", LambdaMetadataTable::get)
-        // .register_fn("#%get-dylib", DylibContainers::load_module)
-        .register_native_fn_definition(LOAD_MODULE_DEFINITION)
         .register_value("assert!", MetaOperations::assert_truthy())
         .register_value("active-object-count", MetaOperations::active_objects())
         .register_value("inspect-bytecode", MetaOperations::inspect_bytecode())
@@ -1034,6 +1054,10 @@ fn meta_module() -> BuiltInModule {
         .register_fn("box", SteelVal::boxed)
         .register_native_fn_definition(UNBOX_DEFINITION)
         .register_native_fn_definition(SET_BOX_DEFINITION)
+        .register_value("#%box", SteelVal::BuiltIn(make_mutable_box))
+        // TODO: Deprecate these at some point
+        .register_native_fn_definition(SET_BOX_MUTABLE_DEFINITION)
+        .register_native_fn_definition(UNBOX_MUTABLE_DEFINITION)
         // .register_fn("unbox", |value: SteelVal| )
         .register_value(
             "attach-contract-struct!",
@@ -1041,6 +1065,10 @@ fn meta_module() -> BuiltInModule {
         )
         .register_value("get-contract-struct", SteelVal::FuncV(get_contract))
         .register_fn("current-os!", || std::env::consts::OS);
+
+    #[cfg(feature = "dylibs")]
+    module.register_native_fn_definition(crate::steel_vm::dylib::LOAD_MODULE_DEFINITION);
+
     module
 }
 

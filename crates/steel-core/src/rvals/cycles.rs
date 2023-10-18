@@ -57,11 +57,30 @@ impl CycleDetector {
     }
 
     fn start_format(self, val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
+        // println!("STARTING FORMAT");
+
         for node in &self.values {
             let id = match &node {
                 SteelVal::CustomStruct(c) => {
+                    // println!("FOUND CUSTOM STRUCT");
+
                     let ptr_addr = c.as_ptr() as usize;
                     self.cycles.get(&ptr_addr).unwrap()
+                }
+                SteelVal::HeapAllocated(b) => {
+                    // println!("FOUND HEAP ALLOCATED");
+
+                    // let ptr_addr = b.as_ptr_usize();
+
+                    // self.cycles.get(&ptr_addr).unwrap()
+
+                    // if let Some(value) = self.cycles.get(&ptr_addr) {
+                    // value
+                    // } else {
+                    // Get the object that THIS points to
+                    let ptr_addr = b.get().as_ptr_usize().unwrap();
+                    self.cycles.get(&ptr_addr).unwrap()
+                    // }
                 }
                 _ => {
                     unreachable!()
@@ -111,7 +130,7 @@ impl CycleDetector {
             }
             Custom(x) => write!(f, "#<{}>", x.borrow().display()?),
             CustomStruct(s) => {
-                let guard = s.borrow();
+                let guard = s;
 
                 {
                     if guard
@@ -141,8 +160,6 @@ impl CycleDetector {
             FutureFunc(_) => write!(f, "#<future-func>"),
             FutureV(_) => write!(f, "#<future>"),
             StreamV(_) => write!(f, "#<stream>"),
-            Contract(c) => write!(f, "{}", **c),
-            ContractedFunction(_) => write!(f, "#<contracted-function>"),
             BoxedFunction(b) => {
                 if let Some(name) = b.name() {
                     write!(f, "#<function:{}>", name)
@@ -181,6 +198,7 @@ impl CycleDetector {
             BoxedIterator(_) => write!(f, "#<iterator>"),
             Boxed(b) => write!(f, "'#&{}", b.borrow()),
             Reference(x) => write!(f, "{}", x.format()?),
+            HeapAllocated(b) => write!(f, "'#&{}", b.get()),
         }
     }
 
@@ -217,11 +235,10 @@ impl CycleDetector {
                 if let Some(id) = self.cycles.get(&(s.as_ptr() as usize)) {
                     write!(f, "#{id}#")
                 } else {
-                    let guard = s.borrow();
+                    let guard = s;
 
                     {
-                        if s.borrow()
-                            .get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
+                        if s.get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
                             .and_then(|x| x.as_bool())
                             .unwrap_or_default()
                         {
@@ -249,8 +266,6 @@ impl CycleDetector {
             FutureV(_) => write!(f, "#<future>"),
             // Promise(_) => write!(f, "#<promise>"),
             StreamV(_) => write!(f, "#<stream>"),
-            Contract(c) => write!(f, "{}", **c),
-            ContractedFunction(_) => write!(f, "#<contracted-function>"),
             BoxedFunction(b) => {
                 if let Some(name) = b.name() {
                     write!(f, "#<function:{}>", name)
@@ -297,6 +312,16 @@ impl CycleDetector {
             Boxed(b) => write!(f, "'#&{}", b.borrow()),
             Reference(x) => write!(f, "{}", x.format()?),
             BigNum(b) => write!(f, "{}", b.as_ref()),
+            HeapAllocated(b) => {
+                if let Some(id) = b.get().as_ptr_usize().and_then(|x| self.cycles.get(&x)) {
+                    write!(f, "#{id}#")
+                } else {
+                    write!(f, "'#&{}", b.get())
+                }
+            }
+
+            SteelVal::Custom(_) => todo!(),
+            SteelVal::SyntaxObject(_) => todo!(),
         }
     }
 
@@ -325,10 +350,25 @@ impl CycleDetector {
         match val {
             SteelVal::CustomStruct(s) => {
                 if !self.add(s.as_ptr() as usize, val) {
-                    for val in s.borrow().fields.iter() {
+                    for val in s.fields.iter() {
                         self.visit(val);
                     }
                 }
+            }
+            SteelVal::HeapAllocated(b) => {
+                if !self.add(b.as_ptr_usize(), val) {
+                    // if let Some(obj_ptr) = b.get().as_ptr_usize() {
+                    // if !self.add(obj_ptr, val) {
+                    self.visit(&b.get())
+                    // }
+                    // }
+                }
+
+                // if let Some(obj_ptr) = b.get().as_ptr_usize() {
+                //     if !self.add(obj_ptr, val) {
+                //         self.visit(&b.get())
+                //     }
+                // }
             }
             SteelVal::ListV(l) => {
                 for val in l {
@@ -346,81 +386,6 @@ impl CycleDetector {
     }
 }
 
-thread_local! {
-    pub static DROP_BUFFER: RefCell<VecDeque<SteelVal>> = RefCell::new(VecDeque::with_capacity(128));
-    pub static FORMAT_BUFFER: RefCell<VecDeque<SteelVal>> = RefCell::new(VecDeque::with_capacity(128));
-}
-
-impl Drop for SteelVector {
-    fn drop(&mut self) {
-        if self.0.is_empty() {
-            return;
-        }
-
-        if let Some(inner) = self.0.get_mut() {
-            DROP_BUFFER
-                .try_with(|drop_buffer| {
-                    if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                        for value in std::mem::take(inner) {
-                            drop_buffer.push_back(value);
-                        }
-
-                        IterativeDropHandler::bfs(&mut drop_buffer);
-                    }
-                })
-                .ok();
-        }
-    }
-}
-
-impl Drop for SteelHashMap {
-    fn drop(&mut self) {
-        if self.0.is_empty() {
-            return;
-        }
-
-        if let Some(inner) = self.0.get_mut() {
-            DROP_BUFFER
-                .try_with(|drop_buffer| {
-                    if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                        for (key, value) in std::mem::take(inner) {
-                            drop_buffer.push_back(key);
-                            drop_buffer.push_back(value);
-                        }
-
-                        IterativeDropHandler::bfs(&mut drop_buffer);
-                    }
-                })
-                .ok();
-        }
-    }
-}
-
-impl Drop for UserDefinedStruct {
-    fn drop(&mut self) {
-        if self.fields.is_empty() {
-            return;
-        }
-
-        if DROP_BUFFER
-            .try_with(|drop_buffer| {
-                if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                    for value in std::mem::take(&mut self.fields) {
-                        drop_buffer.push_back(value);
-                    }
-
-                    IterativeDropHandler::bfs(&mut drop_buffer);
-                }
-            })
-            .is_err()
-        {
-            let mut buffer = std::mem::take(&mut self.fields).into();
-
-            IterativeDropHandler::bfs(&mut buffer);
-        }
-    }
-}
-
 fn replace_with_void(value: &mut SteelVal) -> SteelVal {
     std::mem::replace(value, SteelVal::Void)
 }
@@ -431,42 +396,125 @@ impl SteelVal {
     }
 }
 
-impl Drop for LazyStream {
-    fn drop(&mut self) {
-        if self.initial_value == SteelVal::Void && self.stream_thunk == SteelVal::Void {
-            return;
-        }
+#[cfg(not(feature = "without-drop-protection"))]
+pub(crate) mod drop_impls {
 
-        DROP_BUFFER
-            .try_with(|drop_buffer| {
-                if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                    drop_buffer.push_back(self.initial_value.make_void());
-                    drop_buffer.push_back(self.stream_thunk.make_void());
+    use super::*;
 
-                    IterativeDropHandler::bfs(&mut drop_buffer);
-                }
-            })
-            .ok();
+    thread_local! {
+        pub static DROP_BUFFER: RefCell<VecDeque<SteelVal>> = RefCell::new(VecDeque::with_capacity(128));
+        pub static FORMAT_BUFFER: RefCell<VecDeque<SteelVal>> = RefCell::new(VecDeque::with_capacity(128));
     }
-}
 
-impl Drop for ByteCodeLambda {
-    fn drop(&mut self) {
-        if self.captures.is_empty() {
-            return;
+    impl Drop for SteelVector {
+        fn drop(&mut self) {
+            if self.0.is_empty() {
+                return;
+            }
+
+            if let Some(inner) = self.0.get_mut() {
+                DROP_BUFFER
+                    .try_with(|drop_buffer| {
+                        if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
+                            for value in std::mem::take(inner) {
+                                drop_buffer.push_back(value);
+                            }
+
+                            IterativeDropHandler::bfs(&mut drop_buffer);
+                        }
+                    })
+                    .ok();
+            }
         }
+    }
 
-        DROP_BUFFER
-            .try_with(|drop_buffer| {
-                if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                    for value in std::mem::take(&mut self.captures) {
-                        drop_buffer.push_back(value);
+    impl Drop for SteelHashMap {
+        fn drop(&mut self) {
+            if self.0.is_empty() {
+                return;
+            }
+
+            if let Some(inner) = self.0.get_mut() {
+                DROP_BUFFER
+                    .try_with(|drop_buffer| {
+                        if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
+                            for (key, value) in std::mem::take(inner) {
+                                drop_buffer.push_back(key);
+                                drop_buffer.push_back(value);
+                            }
+
+                            IterativeDropHandler::bfs(&mut drop_buffer);
+                        }
+                    })
+                    .ok();
+            }
+        }
+    }
+
+    impl Drop for UserDefinedStruct {
+        fn drop(&mut self) {
+            if self.fields.is_empty() {
+                return;
+            }
+
+            if DROP_BUFFER
+                .try_with(|drop_buffer| {
+                    if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
+                        // for value in std::mem::take(&mut self.fields) {
+                        //     drop_buffer.push_back(value);
+                        // }
+
+                        drop_buffer.extend(Vec::from(std::mem::take(&mut self.fields)));
+
+                        IterativeDropHandler::bfs(&mut drop_buffer);
                     }
+                })
+                .is_err()
+            {
+                let mut buffer = Vec::from(std::mem::take(&mut self.fields)).into();
 
-                    IterativeDropHandler::bfs(&mut drop_buffer);
-                }
-            })
-            .ok();
+                IterativeDropHandler::bfs(&mut buffer);
+            }
+        }
+    }
+
+    impl Drop for LazyStream {
+        fn drop(&mut self) {
+            if self.initial_value == SteelVal::Void && self.stream_thunk == SteelVal::Void {
+                return;
+            }
+
+            DROP_BUFFER
+                .try_with(|drop_buffer| {
+                    if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
+                        drop_buffer.push_back(self.initial_value.make_void());
+                        drop_buffer.push_back(self.stream_thunk.make_void());
+
+                        IterativeDropHandler::bfs(&mut drop_buffer);
+                    }
+                })
+                .ok();
+        }
+    }
+
+    impl Drop for ByteCodeLambda {
+        fn drop(&mut self) {
+            if self.captures.is_empty() {
+                return;
+            }
+
+            DROP_BUFFER
+                .try_with(|drop_buffer| {
+                    if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
+                        for value in std::mem::take(&mut self.captures) {
+                            drop_buffer.push_back(value);
+                        }
+
+                        IterativeDropHandler::bfs(&mut drop_buffer);
+                    }
+                })
+                .ok();
+        }
     }
 }
 
@@ -553,9 +601,9 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
         }
     }
 
-    fn visit_steel_struct(&mut self, steel_struct: Gc<RefCell<UserDefinedStruct>>) {
-        if let Ok(inner) = steel_struct.try_unwrap() {
-            for value in std::mem::take(&mut inner.borrow_mut().fields) {
+    fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) {
+        if let Ok(mut inner) = steel_struct.try_unwrap() {
+            for value in Vec::from(std::mem::take(&mut inner.fields)) {
                 self.push_back(value);
             }
         }
@@ -603,11 +651,6 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
             self.push_back(replace_with_void(&mut inner.stream_thunk));
         }
     }
-
-    // Let it go for these, these are slated to be removed anyway
-    fn visit_contract(&mut self, contract: Gc<ContractType>) {}
-
-    fn visit_contracted_function(&mut self, function: Gc<ContractedFunction>) {}
 
     // Walk the whole thing! This includes the stack and all the stack frames
     fn visit_continuation(&mut self, continuation: Gc<Continuation>) {
@@ -675,6 +718,10 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
         if let Ok(mut inner) = Rc::try_unwrap(reference) {
             inner.drop_mut(self);
         }
+    }
+
+    fn visit_heap_allocated(&mut self, heap_ref: HeapRef) -> Self::Output {
+        todo!()
     }
 }
 
@@ -767,7 +814,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleDetectorBFS<'a> {
         todo!()
     }
 
-    fn visit_steel_struct(&mut self, steel_struct: Gc<RefCell<UserDefinedStruct>>) -> Self::Output {
+    fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output {
         todo!()
     }
 
@@ -792,14 +839,6 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleDetectorBFS<'a> {
     }
 
     fn visit_stream(&mut self, stream: Gc<LazyStream>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_contract(&mut self, contract: Gc<ContractType>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_contracted_function(&mut self, function: Gc<ContractedFunction>) -> Self::Output {
         todo!()
     }
 
@@ -849,6 +888,10 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleDetectorBFS<'a> {
     fn visit_bignum(&mut self, bignum: Gc<BigInt>) -> Self::Output {
         todo!()
     }
+
+    fn visit_heap_allocated(&mut self, heap_ref: HeapRef) -> Self::Output {
+        todo!()
+    }
 }
 
 pub trait BreadthFirstSearchSteelValVisitor {
@@ -885,8 +928,6 @@ pub trait BreadthFirstSearchSteelValVisitor {
                 FutureFunc(f) => self.visit_future_function(f),
                 FutureV(f) => self.visit_future(f),
                 StreamV(s) => self.visit_stream(s),
-                Contract(c) => self.visit_contract(c),
-                SteelVal::ContractedFunction(f) => self.visit_contracted_function(f),
                 BoxedFunction(b) => self.visit_boxed_function(b),
                 ContinuationFunction(c) => self.visit_continuation(c),
                 ListV(l) => self.visit_list(l),
@@ -898,6 +939,7 @@ pub trait BreadthFirstSearchSteelValVisitor {
                 Boxed(b) => self.visit_boxed_value(b),
                 Reference(r) => self.visit_reference_value(r),
                 BigNum(b) => self.visit_bignum(b),
+                HeapAllocated(b) => self.visit_heap_allocated(b),
             };
         }
 
@@ -917,15 +959,13 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_custom_type(&mut self, custom_type: Gc<RefCell<Box<dyn CustomType>>>) -> Self::Output;
     fn visit_hash_map(&mut self, hashmap: SteelHashMap) -> Self::Output;
     fn visit_hash_set(&mut self, hashset: SteelHashSet) -> Self::Output;
-    fn visit_steel_struct(&mut self, steel_struct: Gc<RefCell<UserDefinedStruct>>) -> Self::Output;
+    fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output;
     fn visit_port(&mut self, port: Gc<SteelPort>) -> Self::Output;
     fn visit_transducer(&mut self, transducer: Gc<Transducer>) -> Self::Output;
     fn visit_reducer(&mut self, reducer: Gc<Reducer>) -> Self::Output;
     fn visit_future_function(&mut self, function: BoxedAsyncFunctionSignature) -> Self::Output;
     fn visit_future(&mut self, future: Gc<FutureResult>) -> Self::Output;
     fn visit_stream(&mut self, stream: Gc<LazyStream>) -> Self::Output;
-    fn visit_contract(&mut self, contract: Gc<ContractType>) -> Self::Output;
-    fn visit_contracted_function(&mut self, function: Gc<ContractedFunction>) -> Self::Output;
     fn visit_boxed_function(&mut self, function: Rc<BoxedDynFunction>) -> Self::Output;
     fn visit_continuation(&mut self, continuation: Gc<Continuation>) -> Self::Output;
     fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output;
@@ -940,6 +980,7 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_boxed_value(&mut self, boxed_value: Gc<RefCell<SteelVal>>) -> Self::Output;
     fn visit_reference_value(&mut self, reference: Rc<OpaqueReference<'static>>) -> Self::Output;
     fn visit_bignum(&mut self, bignum: Gc<BigInt>) -> Self::Output;
+    fn visit_heap_allocated(&mut self, heap_ref: HeapRef) -> Self::Output;
 }
 
 enum PrintAction {

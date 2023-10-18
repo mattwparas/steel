@@ -11,6 +11,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let log_targets = [
         // "requires",
         // "modules",
+        "gc",
+        "kernel",
         "super-instructions",
         "lambda-lifting",
         "dylibs",

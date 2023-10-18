@@ -15,10 +15,7 @@ use crate::{
         MutFunctionSignature, SteelHashMap, SteelHashSet, SteelString, Syntax,
     },
     steel_vm::vm::{BuiltInSignature, Continuation},
-    values::{
-        contracts::{ContractType, FunctionKind},
-        functions::ByteCodeLambda,
-    },
+    values::functions::ByteCodeLambda,
     SteelVal,
 };
 
@@ -34,7 +31,7 @@ use super::{
 
 const GC_THRESHOLD: usize = 256;
 const GC_GROW_FACTOR: usize = 2;
-const _RESET_LIMIT: usize = 5;
+const RESET_LIMIT: usize = 5;
 
 thread_local! {
     static ROOTS: RefCell<Roots> = RefCell::new(Roots::default());
@@ -173,6 +170,14 @@ impl Heap {
             self.threshold = (self.threshold + self.memory.len()) * GC_GROW_FACTOR;
 
             self.count += 1;
+
+            // Drive it down!
+            if self.count > RESET_LIMIT {
+                self.threshold = GC_THRESHOLD;
+                self.count = 0;
+
+                self.memory.shrink_to(GC_THRESHOLD);
+            }
         }
     }
 
@@ -231,7 +236,7 @@ impl Heap {
         //         .collect::<Vec<_>>()
         // );
 
-        log::info!(target: "gc", "Sweeping");
+        log::info!(target: "gc", "--- Sweeping ---");
         let prior_len = self.memory.len();
 
         // sweep
@@ -242,6 +247,7 @@ impl Heap {
         let amount_freed = prior_len - after_len;
 
         log::info!(target: "gc", "Freed objects: {:?}", amount_freed);
+        log::info!(target: "gc", "Objects alive: {:?}", after_len);
 
         // put them back as unreachable
         self.memory.iter().for_each(|x| x.borrow_mut().reset());
@@ -260,6 +266,10 @@ impl HeapRef {
         self.inner.upgrade().unwrap().borrow().value.clone()
     }
 
+    pub fn as_ptr_usize(&self) -> usize {
+        self.inner.as_ptr() as usize
+    }
+
     pub fn set(&mut self, value: SteelVal) -> SteelVal {
         let inner = self.inner.upgrade().unwrap();
 
@@ -267,6 +277,13 @@ impl HeapRef {
 
         inner.borrow_mut().value = value;
         ret
+    }
+
+    pub fn set_and_return(&self, value: SteelVal) -> SteelVal {
+        let inner = self.inner.upgrade().unwrap();
+
+        let mut guard = inner.borrow_mut();
+        std::mem::replace(&mut guard.value, value)
     }
 
     pub(crate) fn set_interior_mut(&self, value: SteelVal) -> SteelVal {
@@ -278,7 +295,7 @@ impl HeapRef {
         ret
     }
 
-    fn strong_ptr(&self) -> Rc<RefCell<HeapAllocated>> {
+    pub(crate) fn strong_ptr(&self) -> Rc<RefCell<HeapAllocated>> {
         self.inner.upgrade().unwrap()
     }
 }
@@ -386,14 +403,14 @@ fn traverse(val: &SteelVal) {
             traverse(&s.stream_thunk);
         }
         // SteelVal::BoxV(_) => {}
-        SteelVal::Contract(c) => visit_contract_type(c),
-        SteelVal::ContractedFunction(c) => {
-            visit_function_contract(&c.contract);
-            if let SteelVal::Closure(func) = &c.function {
-                visit_closure(func);
-            }
-            // visit_closure(&c.function);
-        }
+        // SteelVal::Contract(c) => visit_contract_type(c),
+        // SteelVal::ContractedFunction(c) => {
+        //     visit_function_contract(&c.contract);
+        //     if let SteelVal::Closure(func) = &c.function {
+        //         visit_closure(func);
+        //     }
+        //     // visit_closure(&c.function);
+        // }
         SteelVal::ContinuationFunction(c) => {
             for root in c.stack.iter() {
                 traverse(root);
@@ -432,33 +449,34 @@ fn traverse(val: &SteelVal) {
         SteelVal::Boxed(_) => todo!(),
         SteelVal::Reference(_) => todo!(),
         SteelVal::BigNum(_) => todo!(),
+        SteelVal::HeapAllocated(_) => todo!(),
     }
 }
 
-fn visit_function_contract(f: &FunctionKind) {
-    match f {
-        FunctionKind::Basic(f) => {
-            for pre_condition in f.pre_conditions() {
-                visit_contract_type(pre_condition)
-            }
-            visit_contract_type(f.post_condition());
-        }
-        FunctionKind::Dependent(_dc) => {
-            unimplemented!()
-        }
-    }
-}
+// fn visit_function_contract(f: &FunctionKind) {
+//     match f {
+//         FunctionKind::Basic(f) => {
+//             for pre_condition in f.pre_conditions() {
+//                 visit_contract_type(pre_condition)
+//             }
+//             visit_contract_type(f.post_condition());
+//         }
+//         FunctionKind::Dependent(_dc) => {
+//             unimplemented!()
+//         }
+//     }
+// }
 
-fn visit_contract_type(contract: &ContractType) {
-    match contract {
-        ContractType::Flat(f) => {
-            traverse(f.predicate());
-        }
-        ContractType::Function(f) => {
-            visit_function_contract(f);
-        }
-    }
-}
+// fn visit_contract_type(contract: &ContractType) {
+//     match contract {
+//         ContractType::Flat(f) => {
+//             traverse(f.predicate());
+//         }
+//         ContractType::Function(f) => {
+//             visit_function_contract(f);
+//         }
+//     }
+// }
 
 fn visit_closure(c: &Gc<ByteCodeLambda>) {
     for heap_ref in c.heap_allocated.borrow().iter() {
@@ -482,7 +500,7 @@ fn mark_heap_ref(heap_ref: &Rc<RefCell<HeapAllocated>>) {
     traverse(&heap_ref.borrow().value);
 }
 
-struct MarkAndSweepContext<'a> {
+pub struct MarkAndSweepContext<'a> {
     queue: &'a mut VecDeque<SteelVal>,
 }
 
@@ -543,8 +561,9 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     fn visit_function_pointer(&mut self, _ptr: FunctionSignature) -> Self::Output {}
     fn visit_symbol(&mut self, _symbol: SteelString) -> Self::Output {}
 
+    // TODO: Come back to this
     fn visit_custom_type(&mut self, custom_type: Gc<RefCell<Box<dyn CustomType>>>) -> Self::Output {
-        todo!()
+        custom_type.borrow().visit_children(self);
     }
 
     fn visit_hash_map(&mut self, hashmap: SteelHashMap) -> Self::Output {
@@ -560,8 +579,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
         }
     }
 
-    fn visit_steel_struct(&mut self, steel_struct: Gc<RefCell<UserDefinedStruct>>) -> Self::Output {
-        for field in &steel_struct.borrow().fields {
+    fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output {
+        for field in steel_struct.fields.iter() {
             self.push_back(field.clone());
         }
     }
@@ -606,17 +625,6 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     fn visit_stream(&mut self, stream: Gc<LazyStream>) -> Self::Output {
         self.push_back(stream.initial_value.clone());
         self.push_back(stream.stream_thunk.clone());
-    }
-
-    fn visit_contract(&mut self, contract: Gc<ContractType>) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_contracted_function(
-        &mut self,
-        function: Gc<super::contracts::ContractedFunction>,
-    ) -> Self::Output {
-        todo!()
     }
 
     fn visit_boxed_function(&mut self, _function: Rc<BoxedDynFunction>) -> Self::Output {}
@@ -676,4 +684,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     fn visit_reference_value(&mut self, reference: Rc<OpaqueReference<'static>>) -> Self::Output {}
 
     fn visit_bignum(&mut self, _bignum: Gc<BigInt>) -> Self::Output {}
+
+    fn visit_heap_allocated(&mut self, heap_ref: HeapRef) -> Self::Output {
+        self.mark_heap_reference(&heap_ref.strong_ptr());
+    }
 }

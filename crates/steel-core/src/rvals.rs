@@ -12,8 +12,8 @@ use crate::{
     steel_vm::vm::{BuiltInSignature, Continuation},
     values::port::SteelPort,
     values::{
-        closed::HeapContext,
-        contracts::{ContractType, ContractedFunction},
+        closed::{HeapContext, HeapRef, MarkAndSweepContext},
+        // contracts::{ContractType, ContractedFunction},
         functions::ByteCodeLambda,
         lazy_stream::LazyStream,
         // lists::ListDropHandler,
@@ -192,6 +192,8 @@ pub trait CustomType {
     fn visit(&self, _context: &mut HeapContext) {}
 
     fn drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
+
+    fn visit_children(&self, _context: &mut MarkAndSweepContext) {}
 }
 
 impl<T: Custom + 'static> CustomType for T {
@@ -1051,7 +1053,7 @@ pub enum SteelVal {
     // Embedded HashSet
     HashSetV(SteelHashSet),
     /// Represents a scheme-only struct
-    CustomStruct(Gc<RefCell<UserDefinedStruct>>),
+    CustomStruct(Gc<UserDefinedStruct>),
     /// Represents a port object
     PortV(Gc<SteelPort>),
     /// Generic iterator wrapper
@@ -1066,9 +1068,9 @@ pub enum SteelVal {
     StreamV(Gc<LazyStream>),
 
     /// Contract
-    Contract(Gc<ContractType>),
+    // Contract(Gc<ContractType>),
     /// Contracted Function
-    ContractedFunction(Gc<ContractedFunction>),
+    // ContractedFunction(Gc<ContractedFunction>),
     /// Custom closure
     BoxedFunction(Rc<BoxedDynFunction>),
     // Continuation
@@ -1094,6 +1096,8 @@ pub enum SteelVal {
     // Boxed(HeapRef),
     Boxed(Gc<RefCell<SteelVal>>),
 
+    HeapAllocated(HeapRef),
+
     // TODO: This itself, needs to be boxed unfortunately.
     Reference(Rc<OpaqueReference<'static>>),
 
@@ -1101,6 +1105,56 @@ pub enum SteelVal {
 }
 
 impl SteelVal {
+    pub fn as_box(&self) -> Option<HeapRef> {
+        if let SteelVal::HeapAllocated(heap_ref) = self {
+            Some(heap_ref.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn as_box_to_inner(&self) -> Option<SteelVal> {
+        self.as_box().map(|x| x.get())
+    }
+
+    pub fn as_ptr_usize(&self) -> Option<usize> {
+        match self {
+            // Closure(_) => todo!(),
+            // BoolV(_) => todo!(),
+            // NumV(_) => todo!(),
+            // IntV(_) => todo!(),
+            // CharV(_) => todo!(),
+            // VectorV(_) => todo!(),
+            // Void => todo!(),
+            // StringV(_) => todo!(),
+            // FuncV(_) => todo!(),
+            // SymbolV(_) => todo!(),
+            // SteelVal::Custom(_) => todo!(),
+            // HashMapV(_) => todo!(),
+            // HashSetV(_) => todo!(),
+            CustomStruct(c) => Some(c.as_ptr() as usize),
+            // PortV(_) => todo!(),
+            // IterV(_) => todo!(),
+            // ReducerV(_) => todo!(),
+            // FutureFunc(_) => todo!(),
+            // FutureV(_) => todo!(),
+            // StreamV(_) => todo!(),
+            // BoxedFunction(_) => todo!(),
+            // ContinuationFunction(_) => todo!(),
+            // ListV(_) => todo!(),
+            // MutFunc(_) => todo!(),
+            // BuiltIn(_) => todo!(),
+            // MutableVector(_) => todo!(),
+            // BoxedIterator(_) => todo!(),
+            // SteelVal::SyntaxObject(_) => todo!(),
+            // Boxed(_) => todo!(),
+            HeapAllocated(h) => Some(h.as_ptr_usize()),
+            // Reference(_) => todo!(),
+            // BigNum(_) => todo!(),
+            _ => None,
+        }
+    }
+
     // pub(crate) fn children_mut<'a>(&'a mut self) -> impl IntoIterator<Item = SteelVal> {
     //     match self {
     //         Self::CustomStruct(inner) => {
@@ -1374,8 +1428,8 @@ impl SteelVal {
             (FutureFunc(l), FutureFunc(r)) => Rc::ptr_eq(l, r),
             (FutureV(l), FutureV(r)) => Gc::ptr_eq(l, r),
             (StreamV(l), StreamV(r)) => Gc::ptr_eq(l, r),
-            (Contract(l), Contract(r)) => Gc::ptr_eq(l, r),
-            (SteelVal::ContractedFunction(l), SteelVal::ContractedFunction(r)) => Gc::ptr_eq(l, r),
+            // (Contract(l), Contract(r)) => Gc::ptr_eq(l, r),
+            // (SteelVal::ContractedFunction(l), SteelVal::ContractedFunction(r)) => Gc::ptr_eq(l, r),
             (BoxedFunction(l), BoxedFunction(r)) => Rc::ptr_eq(l, r),
             (ContinuationFunction(l), ContinuationFunction(r)) => Gc::ptr_eq(l, r),
             // (CompiledFunction(_), CompiledFunction(_)) => todo!(),
@@ -1423,7 +1477,7 @@ impl Hash for SteelVal {
             IntV(i) => i.hash(state),
             CharV(c) => c.hash(state),
             ListV(l) => l.hash(state),
-            CustomStruct(s) => s.borrow().hash(state),
+            CustomStruct(s) => s.hash(state),
             // Pair(cell) => {
             //     cell.hash(state);
             // }
@@ -1503,15 +1557,15 @@ impl SteelVal {
             BoxedFunction(_)
                 | Closure(_)
                 | FuncV(_)
-                | ContractedFunction(_)
+                // | ContractedFunction(_)
                 | BuiltIn(_)
                 | MutFunc(_)
         )
     }
 
-    pub fn is_contract(&self) -> bool {
-        matches!(self, Contract(_))
-    }
+    // pub fn is_contract(&self) -> bool {
+    //     matches!(self, Contract(_))
+    // }
 
     pub fn empty_hashmap() -> SteelVal {
         SteelVal::HashMapV(Gc::new(HashMap::new()).into())
@@ -1611,15 +1665,15 @@ impl SteelVal {
         }
     }
 
-    pub fn contract_or_else<E, F: FnOnce() -> E>(
-        &self,
-        err: F,
-    ) -> std::result::Result<Gc<ContractType>, E> {
-        match self {
-            Self::Contract(c) => Ok(c.clone()),
-            _ => Err(err()),
-        }
-    }
+    // pub fn contract_or_else<E, F: FnOnce() -> E>(
+    //     &self,
+    //     err: F,
+    // ) -> std::result::Result<Gc<ContractType>, E> {
+    //     match self {
+    //         Self::Contract(c) => Ok(c.clone()),
+    //         _ => Err(err()),
+    //     }
+    // }
 
     pub fn closure_or_else<E, F: FnOnce() -> E>(
         &self,
@@ -1795,8 +1849,8 @@ impl PartialEq for SteelVal {
             (HashSetV(l), HashSetV(r)) => l == r,
             (HashMapV(l), HashMapV(r)) => l == r,
             (Closure(l), Closure(r)) => l == r,
-            (ContractedFunction(l), ContractedFunction(r)) => l == r,
-            (Contract(l), Contract(r)) => l == r,
+            // (ContractedFunction(l), ContractedFunction(r)) => l == r,
+            // (Contract(l), Contract(r)) => l == r,
             (IterV(l), IterV(r)) => l == r,
             (ListV(l), ListV(r)) => l == r,
             (CustomStruct(l), CustomStruct(r)) => l == r,

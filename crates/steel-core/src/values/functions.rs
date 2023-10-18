@@ -24,8 +24,9 @@ use crate::{
         register_fn::SendSyncStatic,
         vm::{BlockMetadata, BlockPattern, BuiltInSignature},
     },
-    values::contracts::ContractedFunction,
-    SteelErr, SteelVal,
+    // values::contracts::ContractedFunction,
+    SteelErr,
+    SteelVal,
 };
 
 use super::{closed::HeapRef, structs::UserDefinedStruct};
@@ -106,7 +107,7 @@ pub struct ByteCodeLambda {
     pub(crate) blocks: RefCell<Vec<(BlockPattern, BlockMetadata)>>,
 
     // This is a little suspicious, but it should give us the necessary information to attach a struct of metadata
-    contract: RefCell<Option<Gc<RefCell<UserDefinedStruct>>>>,
+    contract: RefCell<Option<Gc<UserDefinedStruct>>>,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -322,7 +323,7 @@ impl ByteCodeLambda {
     //     self.cant_be_compiled.get()
     // }
 
-    pub fn attach_contract_information(&self, steel_struct: Gc<RefCell<UserDefinedStruct>>) {
+    pub fn attach_contract_information(&self, steel_struct: Gc<UserDefinedStruct>) {
         let mut guard = self.contract.borrow_mut();
 
         *guard = Some(steel_struct);

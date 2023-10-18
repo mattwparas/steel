@@ -6,9 +6,7 @@
 ;; Storing versions in a manifest would be nice - a project has an associated manifest that pins versions.
 
 ;; Load in contracts for stress testing
-(require "../contracts/contract.scm"
-         (for-syntax "../contracts/contract.scm")
-         "steel/result")
+(require "steel/result")
 
 (provide package-installer-main)
 
@@ -18,8 +16,8 @@
 ;; Should make this lazy?
 (define *STEEL_HOME* (~> "STEEL_HOME" (env-var) (unwrap-ok) (append-with-separator)))
 
-(define/c (parse-cog module)
-  (->c string? list?)
+(define/contract (parse-cog module)
+  (->/c string? list?)
   (if (is-dir? module)
       (let ([cog-path (string-append module "/cog.scm")])
         (if (is-file? cog-path)
@@ -30,14 +28,14 @@
       (error! "Unable to locate the module " module)))
 
 ;; Parses a cog file directly into a hashmap
-(define/c (parse-cog-file path)
-  (->c string? hash?)
+(define/contract (parse-cog-file path)
+  (->/c string? hash?)
   (define contents (let ([file (open-input-file path)]) (read-port-to-string file)))
   (transduce (read! contents) (mapping cdr) (into-hashmap)))
 
 ;; Discover the cogs located at the path, return as a list of hash maps
-(define/c (discover-cogs path)
-  (->c string? hash?)
+(define/contract (discover-cogs path)
+  (->/c string? hash?)
   (when (not (path-exists? path))
     (displayln "cogs directory does not exist, creating now...")
     (create-directory! path))
@@ -49,22 +47,22 @@
              (into-hashmap)))
 
 ;; Given a package spec, install that package directly to the file system
-(define/c (install-package package)
-  (->c hash? string?)
+(define/contract (install-package package)
+  (->/c hash? string?)
   (define destination
     (string-append *STEEL_HOME* "/" (symbol->string (hash-get package 'package-name))))
   (copy-directory-recursively! (hash-get package 'path) destination)
   destination)
 
 ;; Given a package pec, uninstall that package by deleting the contents of the installation
-(define/c (uninstall-package package)
-  (->c hash? string?)
+(define/contract (uninstall-package package)
+  (->/c hash? string?)
   (define destination
     (string-append *STEEL_HOME* "/" (symbol->string (hash-get package 'package-name))))
   (displayln destination))
 
-(define/c (install-package-and-log cog-to-install)
-  (->c hash? void?)
+(define/contract (install-package-and-log cog-to-install)
+  (->/c hash? void?)
   (let ([output-dir (install-package cog-to-install)])
     (display-color "✅ Installed package to: " 'green)
     (displayln output-dir)

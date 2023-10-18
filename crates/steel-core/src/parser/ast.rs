@@ -494,8 +494,8 @@ impl TryFrom<&SteelVal> for ExprKind {
             FutureV(_) => Err("Can't convert future to expression!"),
             // Promise(_) => Err("Can't convert from promise to expression!"),
             StreamV(_) => Err("Can't convert from stream to expression!"),
-            Contract(_) => Err("Can't convert from contract to expression!"),
-            ContractedFunction(_) => Err("Can't convert from contracted function to expression!"),
+            // Contract(_) => Err("Can't convert from contract to expression!"),
+            // ContractedFunction(_) => Err("Can't convert from contracted function to expression!"),
             BoxedFunction(_) => Err("Can't convert from boxed function to expression!"),
             ContinuationFunction(_) => Err("Can't convert from continuation to expression!"),
             // #[cfg(feature = "jit")]
@@ -508,6 +508,8 @@ impl TryFrom<&SteelVal> for ExprKind {
             BoxedIterator(_) => Err("Can't convert from boxed iterator to expression!"),
             Boxed(_) => Err("Can't convert from boxed steel val to expression!"),
             Reference(_) => Err("Can't convert from opaque reference type to expression!"),
+            SteelVal::SyntaxObject(_) => todo!(),
+            HeapAllocated(_) => todo!(),
         }
     }
 }

@@ -3,14 +3,14 @@
 use crate::primitives::lists::cons;
 use crate::primitives::lists::new as new_list;
 use crate::primitives::nums::special_add;
+use crate::values::closed::Heap;
 use crate::values::functions::SerializedLambda;
 use crate::values::structs::UserDefinedStruct;
-use crate::values::{closed::Heap, contracts::ContractType};
 use crate::{
     compiler::constants::ConstantMap,
     core::{instructions::DenseInstruction, opcode::OpCode},
     rvals::FutureResult,
-    values::contracts::ContractedFunction,
+    // values::contracts::ContractedFunction,
 };
 use crate::{
     compiler::program::Executable,
@@ -962,10 +962,10 @@ impl<'a> VmCore<'a> {
                 let arg_vec = [arg];
                 func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
-            SteelVal::ContractedFunction(cf) => {
-                let arg_vec = vec![arg];
-                cf.apply(arg_vec, cur_inst_span, self)
-            }
+            // SteelVal::ContractedFunction(cf) => {
+            //     let arg_vec = vec![arg];
+            //     cf.apply(arg_vec, cur_inst_span, self)
+            // }
             SteelVal::MutFunc(func) => {
                 let mut arg_vec: Vec<_> = vec![arg];
                 func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
@@ -997,10 +997,10 @@ impl<'a> VmCore<'a> {
                 let arg_vec = [arg1, arg2];
                 func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
-            SteelVal::ContractedFunction(cf) => {
-                let arg_vec = vec![arg1, arg2];
-                cf.apply(arg_vec, cur_inst_span, self)
-            }
+            // SteelVal::ContractedFunction(cf) => {
+            //     let arg_vec = vec![arg1, arg2];
+            //     cf.apply(arg_vec, cur_inst_span, self)
+            // }
             SteelVal::MutFunc(func) => {
                 let mut arg_vec: Vec<_> = vec![arg1, arg2];
                 func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
@@ -1031,10 +1031,10 @@ impl<'a> VmCore<'a> {
                 let arg_vec: Vec<_> = args.into_iter().collect();
                 func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
-            SteelVal::ContractedFunction(cf) => {
-                let arg_vec: Vec<_> = args.into_iter().collect();
-                cf.apply(arg_vec, cur_inst_span, self)
-            }
+            // SteelVal::ContractedFunction(cf) => {
+            //     let arg_vec: Vec<_> = args.into_iter().collect();
+            //     cf.apply(arg_vec, cur_inst_span, self)
+            // }
             SteelVal::MutFunc(func) => {
                 let mut arg_vec: Vec<_> = args.into_iter().collect();
                 func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
@@ -2168,7 +2168,13 @@ impl<'a> VmCore<'a> {
             self.thread
                 .stack_frames
                 .last()
-                .and_then(|frame| self.root_spans.get(frame.ip - 2))
+                .and_then(|frame| {
+                    if frame.ip > 2 {
+                        self.root_spans.get(frame.ip - 2)
+                    } else {
+                        None
+                    }
+                })
                 .copied()
         }
     }
@@ -2827,11 +2833,11 @@ impl<'a> VmCore<'a> {
             BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
             FuncV(f) => self.call_primitive_func(f, payload_size),
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
-            ContractedFunction(cf) => self.call_contracted_function_tail_call(&cf, payload_size),
+            // ContractedFunction(cf) => self.call_contracted_function_tail_call(&cf, payload_size),
             ContinuationFunction(cc) => self.call_continuation(&cc),
             Closure(closure) => self.new_handle_tail_call_closure(closure, payload_size),
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
-            CustomStruct(s) => self.call_custom_struct(&s.borrow(), payload_size),
+            CustomStruct(s) => self.call_custom_struct(&s, payload_size),
             _ => {
                 // println!("{:?}", self.stack);
                 // println!("{:?}", self.stack_index);
@@ -3039,60 +3045,60 @@ impl<'a> VmCore<'a> {
     }
 
     // #[inline(always)]
-    fn call_contracted_function(
-        &mut self,
-        cf: &ContractedFunction,
-        payload_size: usize,
-    ) -> Result<()> {
-        if let Some(arity) = cf.arity() {
-            if arity != payload_size {
-                stop!(ArityMismatch => format!("function expected {arity} arguments, found {payload_size}"); self.current_span());
-            }
-        }
+    // fn call_contracted_function(
+    //     &mut self,
+    //     cf: &ContractedFunction,
+    //     payload_size: usize,
+    // ) -> Result<()> {
+    //     if let Some(arity) = cf.arity() {
+    //         if arity != payload_size {
+    //             stop!(ArityMismatch => format!("function expected {arity} arguments, found {payload_size}"); self.current_span());
+    //         }
+    //     }
 
-        // if A::enforce_contracts() {
-        let args = self
-            .thread
-            .stack
-            .split_off(self.thread.stack.len() - payload_size);
+    //     // if A::enforce_contracts() {
+    //     let args = self
+    //         .thread
+    //         .stack
+    //         .split_off(self.thread.stack.len() - payload_size);
 
-        let result = cf.apply(args, &self.current_span(), self)?;
+    //     let result = cf.apply(args, &self.current_span(), self)?;
 
-        self.thread.stack.push(result);
-        self.ip += 1;
-        Ok(())
-        // } else {
-        //     self.handle_function_call(cf.function.clone(), payload_size)
-        // }
-    }
+    //     self.thread.stack.push(result);
+    //     self.ip += 1;
+    //     Ok(())
+    //     // } else {
+    //     //     self.handle_function_call(cf.function.clone(), payload_size)
+    //     // }
+    // }
 
-    // #[inline(always)]
-    fn call_contracted_function_tail_call(
-        &mut self,
-        cf: &ContractedFunction,
-        payload_size: usize,
-    ) -> Result<()> {
-        if let Some(arity) = cf.arity() {
-            if arity != payload_size {
-                stop!(ArityMismatch => format!("function expected {arity} arguments, found {payload_size}"); self.current_span());
-            }
-        }
+    // // #[inline(always)]
+    // fn call_contracted_function_tail_call(
+    //     &mut self,
+    //     cf: &ContractedFunction,
+    //     payload_size: usize,
+    // ) -> Result<()> {
+    //     if let Some(arity) = cf.arity() {
+    //         if arity != payload_size {
+    //             stop!(ArityMismatch => format!("function expected {arity} arguments, found {payload_size}"); self.current_span());
+    //         }
+    //     }
 
-        // if A::enforce_contracts() {
-        let args = self
-            .thread
-            .stack
-            .split_off(self.thread.stack.len() - payload_size);
+    //     // if A::enforce_contracts() {
+    //     let args = self
+    //         .thread
+    //         .stack
+    //         .split_off(self.thread.stack.len() - payload_size);
 
-        let result = cf.apply(args, &self.current_span(), self)?;
+    //     let result = cf.apply(args, &self.current_span(), self)?;
 
-        self.thread.stack.push(result);
-        self.ip += 1;
-        Ok(())
-        // } else {
-        // self.handle_tail_call(cf.function.clone(), payload_size)
-        // }
-    }
+    //     self.thread.stack.push(result);
+    //     self.ip += 1;
+    //     Ok(())
+    //     // } else {
+    //     // self.handle_tail_call(cf.function.clone(), payload_size)
+    //     // }
+    // }
 
     fn call_future_func_on_stack(
         &mut self,
@@ -3284,22 +3290,22 @@ impl<'a> VmCore<'a> {
                 self.thread.stack.push(result);
                 self.ip += 4;
             }
-            ContractedFunction(cf) => {
-                if let Some(arity) = cf.arity() {
-                    if arity != 2 {
-                        stop!(ArityMismatch => format!("function expected {} arguments, found {}", arity, 2); self.current_span());
-                    }
-                }
+            // ContractedFunction(cf) => {
+            //     if let Some(arity) = cf.arity() {
+            //         if arity != 2 {
+            //             stop!(ArityMismatch => format!("function expected {} arguments, found {}", arity, 2); self.current_span());
+            //         }
+            //     }
 
-                // if A::enforce_contracts() {
-                let result = cf.apply(vec![local, const_value], &self.current_span(), self)?;
+            //     // if A::enforce_contracts() {
+            //     let result = cf.apply(vec![local, const_value], &self.current_span(), self)?;
 
-                self.thread.stack.push(result);
-                self.ip += 4;
-                // } else {
-                // self.handle_lazy_function_call(cf.function.clone(), local, const_value)?;
-                // }
-            }
+            //     self.thread.stack.push(result);
+            //     self.ip += 4;
+            //     // } else {
+            //     // self.handle_lazy_function_call(cf.function.clone(), local, const_value)?;
+            //     // }
+            // }
             // Contract(c) => self.call_contract(c, payload_size, span)?,
             ContinuationFunction(_cc) => {
                 unimplemented!("calling continuation lazily not yet handled");
@@ -3314,7 +3320,7 @@ impl<'a> VmCore<'a> {
                 self.ip += 4;
             }
             CustomStruct(s) => {
-                if let Some(proc) = s.borrow().maybe_proc() {
+                if let Some(proc) = s.maybe_proc() {
                     return self.handle_lazy_function_call(proc.clone(), local, const_value);
                 } else {
                     stop!(Generic => "attempted to call struct as function, but the struct does not have a function to call!")
@@ -3582,11 +3588,11 @@ impl<'a> VmCore<'a> {
             BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size)?,
             MutFunc(f) => self.call_primitive_mut_func(*f, payload_size)?,
             FutureFunc(f) => self.call_future_func(f.clone(), payload_size)?,
-            ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size)?,
+            // ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size)?,
             ContinuationFunction(cc) => self.call_continuation(&cc)?,
             // #[cfg(feature = "jit")]
             // CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
-            Contract(c) => self.call_contract(&c, payload_size)?,
+            // Contract(c) => self.call_contract(&c, payload_size)?,
             BuiltIn(f) => self.call_builtin_func(*f, payload_size)?,
             // CustomStruct(s) => self.call_custom_struct_global(&s.borrow(), payload_size)?,
             _ => {
@@ -3614,11 +3620,11 @@ impl<'a> VmCore<'a> {
             BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
             FutureFunc(f) => self.call_future_func(f, payload_size),
-            ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size),
+            // ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size),
             ContinuationFunction(cc) => self.call_continuation(&cc),
-            Contract(c) => self.call_contract(&c, payload_size),
+            // Contract(c) => self.call_contract(&c, payload_size),
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
-            CustomStruct(s) => self.call_custom_struct(&s.borrow(), payload_size),
+            CustomStruct(s) => self.call_custom_struct(&s, payload_size),
             _ => {
                 // Explicitly mark this as unlikely
                 cold();
@@ -3705,14 +3711,14 @@ impl<'a> VmCore<'a> {
     }
 
     // #[inline(always)]
-    fn call_contract(&mut self, contract: &Gc<ContractType>, payload_size: usize) -> Result<()> {
-        match contract.as_ref() {
-            ContractType::Flat(f) => self.handle_function_call(f.predicate.clone(), payload_size),
-            _ => {
-                stop!(BadSyntax => "Function application not a procedure - cannot apply function contract to argument");
-            }
-        }
-    }
+    // fn call_contract(&mut self, contract: &Gc<ContractType>, payload_size: usize) -> Result<()> {
+    //     match contract.as_ref() {
+    //         ContractType::Flat(f) => self.handle_function_call(f.predicate.clone(), payload_size),
+    //         _ => {
+    //             stop!(BadSyntax => "Function application not a procedure - cannot apply function contract to argument");
+    //         }
+    //     }
+    // }
 
     // #[inline(always)]
     fn handle_function_call(&mut self, stack_func: SteelVal, payload_size: usize) -> Result<()> {
@@ -3723,14 +3729,14 @@ impl<'a> VmCore<'a> {
             FuncV(f) => self.call_primitive_func(f, payload_size),
             FutureFunc(f) => self.call_future_func(f, payload_size),
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
-            ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size),
+            // ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size),
             ContinuationFunction(cc) => self.call_continuation(&cc),
             Closure(closure) => self.handle_function_call_closure(closure, payload_size),
             // #[cfg(feature = "jit")]
             // CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
-            Contract(c) => self.call_contract(&c, payload_size),
+            // Contract(c) => self.call_contract(&c, payload_size),
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
-            CustomStruct(s) => self.call_custom_struct(&s.borrow(), payload_size),
+            CustomStruct(s) => self.call_custom_struct(&s, payload_size),
             _ => {
                 log::error!("{stack_func:?}");
                 log::error!("stack: {:?}", self.thread.stack);

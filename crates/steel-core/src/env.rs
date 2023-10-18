@@ -61,7 +61,7 @@ impl Env {
     }
 
     /// Get the value located at that index
-    pub fn _repl_get_idx(&self, idx: usize) -> &SteelVal {
+    pub fn repl_get_idx(&self, idx: usize) -> &SteelVal {
         &self.bindings_vec[idx]
     }
 

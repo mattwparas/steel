@@ -32,6 +32,7 @@ pub mod colors;
 
 pub use lists::UnRecoverableResult;
 
+use crate::values::closed::HeapRef;
 use crate::values::lists::List;
 pub use control::ControlOperations;
 pub use fs::fs_module;
@@ -370,6 +371,17 @@ impl<'a> PrimitiveAsRef<'a> for &'a Gc<RefCell<SteelVal>> {
     }
 }
 
+impl<'a> PrimitiveAsRef<'a> for &'a HeapRef {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::HeapAllocated(b) = val {
+            Ok(b)
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel box", val))
+        }
+    }
+}
+
 impl<'a> PrimitiveAsRef<'a> for &'a char {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
@@ -398,7 +410,7 @@ impl<'a> PrimitiveAsRef<'a> for isize {
         if let SteelVal::IntV(i) = val {
             Ok(*i)
         } else {
-            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel character", val))
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel int", val))
         }
     }
 }

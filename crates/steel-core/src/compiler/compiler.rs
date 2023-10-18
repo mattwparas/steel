@@ -269,6 +269,33 @@ pub struct SerializableCompiler {
     pub(crate) constant_map: SerializableConstantMap,
     pub(crate) macro_env: HashMap<InternedString, SteelMacro>,
     pub(crate) opt_level: OptLevel,
+    pub(crate) module_manager: ModuleManager,
+}
+
+impl SerializableCompiler {
+    pub(crate) fn into_compiler(self) -> Compiler {
+        let mut compiler = Compiler::default();
+
+        compiler.symbol_map = self.symbol_map;
+        compiler.constant_map = ConstantMap::from_serialized(self.constant_map).unwrap();
+        compiler.macro_env = self.macro_env;
+        compiler.opt_level = self.opt_level;
+        compiler.module_manager = self.module_manager;
+
+        compiler
+    }
+}
+
+impl Compiler {
+    pub(crate) fn into_serializable_compiler(self) -> Result<SerializableCompiler> {
+        Ok(SerializableCompiler {
+            symbol_map: self.symbol_map,
+            constant_map: self.constant_map.into_serializable_map(),
+            macro_env: self.macro_env,
+            opt_level: self.opt_level,
+            module_manager: self.module_manager,
+        })
+    }
 }
 
 impl Default for Compiler {

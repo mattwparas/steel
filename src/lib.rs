@@ -2,7 +2,7 @@ extern crate steel;
 extern crate steel_derive;
 extern crate steel_repl;
 
-use steel::steel_vm::engine::Engine;
+use steel::steel_vm::engine::{install_bin_file, Engine};
 use steel_doc::walk_dir;
 use steel_repl::repl::repl_base;
 
@@ -47,6 +47,11 @@ enum EmitAction {
 
 pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
     let mut vm = Engine::new();
+
+    // let mut vm = Engine::top_level_load_from_bootstrap(include_bytes!(concat!(
+    //     env!("OUT_DIR"),
+    //     "/bootstrap.bin"
+    // )));
 
     vm.register_value("std::env::args", steel::SteelVal::ListV(vec![].into()));
 
@@ -165,11 +170,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
                 }),
             ..
         } => {
-            let core_libraries = &[
-                steel::stdlib::PRELUDE,
-                steel::stdlib::DISPLAY,
-                steel::stdlib::CONTRACTS,
-            ];
+            let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::DISPLAY];
 
             for core in core_libraries {
                 let res = vm.compile_and_run_raw_program(core);

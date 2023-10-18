@@ -150,20 +150,25 @@
          (let ([struct-type-descriptor (list-ref prototypes 0)]
                [constructor-proto (list-ref prototypes 1)]
                [predicate-proto (list-ref prototypes 2)]
-               [getter-proto (list-ref prototypes 3)]
-               [setter-proto (list-ref prototypes 4)])
+               [getter-proto (list-ref prototypes 3)])
 
            (set! ,(concat-symbols 'struct: struct-name) struct-type-descriptor)
            (#%vtable-update-entry! struct-type-descriptor
                                    ,maybe-procedure-field
                                    ,(concat-symbols '___ struct-name '-options___))
 
-           (set! ,struct-name constructor-proto)
+           ,(if mutable?
+                `(set! ,struct-name
+                       (lambda ,fields (constructor-proto ,@(map (lambda (x) `(#%box ,x)) fields))))
+
+                `(set! ,struct-name constructor-proto))
 
            ,(new-make-predicate struct-name fields)
-           ,@(new-make-getters struct-name fields)
+           ,@(if mutable?
+                 (mutable-make-getters struct-name fields)
+                 (new-make-getters struct-name fields))
            ;; If this is a mutable struct, generate the setters
-           ,@(if mutable? (new-make-setters struct-name fields) (list))
+           ,@(if mutable? (mutable-make-setters struct-name fields) (list))
            void)))))
 
 (define (new-make-predicate struct-name fields)
@@ -174,6 +179,18 @@
 ;     ,struct-name
 ;     (lambda ,fields
 ;       (constructor-proto ,(concat-symbols '___ struct-name '-options___) ,procedure-index ,@fields))))
+
+(define (mutable-make-getters struct-name fields)
+  (map (lambda (field)
+         `(set! ,(concat-symbols struct-name '- (car field))
+                (lambda (this) (#%unbox (getter-proto this ,(list-ref field 1))))))
+       (enumerate 0 '() fields)))
+
+(define (mutable-make-setters struct-name fields)
+  (map (lambda (field)
+         `(set! ,(concat-symbols 'set- struct-name '- (car field) '!)
+                (lambda (this value) (#%set-box! (getter-proto this ,(list-ref field 1)) value))))
+       (enumerate 0 '() fields)))
 
 (define (new-make-getters struct-name fields)
   (map (lambda (field)

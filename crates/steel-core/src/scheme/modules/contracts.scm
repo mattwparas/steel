@@ -1,6 +1,6 @@
-(provide make-function-contract
-         make-contract
-         bind-contract-to-function
+(provide make-function/c
+         make/c
+         bind/c
          FlatContract
          FlatContract?
          FlatContract-predicate
@@ -10,8 +10,8 @@
          FunctionContract-pre-conditions
          FunctionContract-post-condition
          contract->string
-         (for-syntax ->c)
-         (for-syntax define/c))
+         (for-syntax ->/c)
+         (for-syntax define/contract))
 
 ;; struct definitions
 (struct FlatContract (predicate name) #:prop:procedure 0)
@@ -77,7 +77,7 @@
 ;;@doc
 ;; Creates a `FunctionContract` from the list of conditions, splitting out the
 ;; preconditions and the postconditions
-(define make-function-contract
+(define make-function/c
   (lambda conditions
     (%plain-let ((split (split-last conditions)))
                 (FunctionContract (first split) (second split) void '()))))
@@ -172,8 +172,8 @@
                               (ContractAttachmentLocation 'DOMAIN (ContractedFunction-name arg))
                               #:parents (cons parent (FunctionContract-parents parent)))])
 
-                     (bind-contract-to-function fc arg name span))))
-               (bind-contract-to-function contract arg name span))]
+                     (bind/c fc arg name span))))
+               (bind/c contract arg name span))]
           [else
            =>
            (error! "Unexpected value in pre conditions: " contract)]))))
@@ -249,52 +249,49 @@
                                        #:contract-attachment-location contract-attachment-location
                                        #:parents (cons parent (FunctionContract-parents pre-parent))))
 
-               (bind-contract-to-function fc original-function name span))
-             (bind-contract-to-function contract output name span))]
+               (bind/c fc original-function name span))
+             (bind/c contract output name span))]
         [else
          =>
          (error! "Unhandled value in post condition: " contract)]))))
 
-(define (bind-contract-to-function contract function name . span)
+(define (bind/c contract function name . span)
   (define post-condition (FunctionContract-post-condition contract))
 
   (let ([updated-preconditions
-         (transduce
-          (FunctionContract-pre-conditions contract)
-          (mapping (lambda (c)
-                     (cond
-                       [(FlatContract? c)
-                        =>
-                        c]
-                       [(FunctionContract? c)
-                        =>
-                        (FunctionContract (FunctionContract-pre-conditions c)
-                                          (FunctionContract-post-condition c)
-                                          (ContractAttachmentLocation 'DOMAIN name)
-                                          (FunctionContract-parents c))]
-                       [else
-                        =>
-                        (error "Unexpected value found in bind-contract-to-function preconditions: "
-                               c)])))
-          (into-list))]
+         (transduce (FunctionContract-pre-conditions contract)
+                    (mapping (lambda (c)
+                               (cond
+                                 [(FlatContract? c)
+                                  =>
+                                  c]
+                                 [(FunctionContract? c)
+                                  =>
+                                  (FunctionContract (FunctionContract-pre-conditions c)
+                                                    (FunctionContract-post-condition c)
+                                                    (ContractAttachmentLocation 'DOMAIN name)
+                                                    (FunctionContract-parents c))]
+                                 [else
+                                  =>
+                                  (error "Unexpected value found in bind/c preconditions: " c)])))
+                    (into-list))]
 
-        [updated-postcondition
-         (cond
-           [(FlatContract? post-condition)
-            =>
-            post-condition]
-           [(FunctionContract? post-condition)
-            =>
+        [updated-postcondition (cond
+                                 [(FlatContract? post-condition)
+                                  =>
+                                  post-condition]
+                                 [(FunctionContract? post-condition)
+                                  =>
 
-            (FunctionContract (FunctionContract-pre-conditions post-condition)
-                              (FunctionContract-post-condition post-condition)
-                              (ContractAttachmentLocation 'RANGE name)
-                              (FunctionContract-parents post-condition))]
-           [else
-            =>
+                                  (FunctionContract (FunctionContract-pre-conditions post-condition)
+                                                    (FunctionContract-post-condition post-condition)
+                                                    (ContractAttachmentLocation 'RANGE name)
+                                                    (FunctionContract-parents post-condition))]
+                                 [else
+                                  =>
 
-            (error "Unexpected value found in bind-contract-to-function post condition: "
-                   post-condition)])])
+                                  (error "Unexpected value found in bind/c post condition: "
+                                         post-condition)])])
 
     (let ([contracted-function
            (ContractedFunction (FunctionContract updated-preconditions
@@ -326,7 +323,7 @@
                                  (ContractedFunction-contract contracted-function))
         resulting-lambda-function))))
 
-(define (make-contract contract name)
+(define (make/c contract name)
   (cond
     [(FlatContract? contract) contract]
     [(FunctionContract? contract) contract]
@@ -334,85 +331,73 @@
      =>
      (FlatContract contract name)]))
 
-(define-syntax ->c
+(define-syntax ->/c
   (syntax-rules ()
-    [(->c r) (make-function-contract (make-contract r 'r))]
-    [(->c a b) (make-function-contract (make-contract a 'a) (make-contract b 'b))]
-    [(->c a b c)
-     (make-function-contract (make-contract a 'a) (make-contract b 'b) (make-contract c 'c))]
-    [(->c a b c d)
-     (make-function-contract (make-contract a 'a)
-                             (make-contract b 'b)
-                             (make-contract c 'c)
-                             (make-contract d 'd))]
-    [(->c a b c d e)
-     (make-function-contract (make-contract a 'a)
-                             (make-contract b 'b)
-                             (make-contract c 'c)
-                             (make-contract d 'd)
-                             (make-contract e 'e))]
-    [(->c a b c d e f)
-     (make-function-contract (make-contract a 'a)
-                             (make-contract b 'b)
-                             (make-contract c 'c)
-                             (make-contract d 'd)
-                             (make-contract e 'e)
-                             (make-contract f 'f))]
-    [(->c a b c d e f g)
-     (make-function-contract (make-contract a 'a)
-                             (make-contract b 'b)
-                             (make-contract c 'c)
-                             (make-contract d 'd)
-                             (make-contract e 'e)
-                             (make-contract f 'f)
-                             (make-contract g 'g))]
-    [(->c a b c d e f g h)
-     (make-function-contract (make-contract a 'a)
-                             (make-contract b 'b)
-                             (make-contract c 'c)
-                             (make-contract d 'd)
-                             (make-contract e 'e)
-                             (make-contract f 'f)
-                             (make-contract g 'g)
-                             (make-contract h 'h))]
-    [(->c a b c d e f g h i)
-     (make-function-contract (make-contract a 'a)
-                             (make-contract b 'b)
-                             (make-contract c 'c)
-                             (make-contract d 'd)
-                             (make-contract e 'e)
-                             (make-contract f 'f)
-                             (make-contract g 'g)
-                             (make-contract h 'h)
-                             (make-contract i 'i))]))
+    [(->/c r) (make-function/c (make/c r 'r))]
+    [(->/c a b) (make-function/c (make/c a 'a) (make/c b 'b))]
+    [(->/c a b c) (make-function/c (make/c a 'a) (make/c b 'b) (make/c c 'c))]
+    [(->/c a b c d) (make-function/c (make/c a 'a) (make/c b 'b) (make/c c 'c) (make/c d 'd))]
+    [(->/c a b c d e)
+     (make-function/c (make/c a 'a) (make/c b 'b) (make/c c 'c) (make/c d 'd) (make/c e 'e))]
+    [(->/c a b c d e f)
+     (make-function/c (make/c a 'a)
+                      (make/c b 'b)
+                      (make/c c 'c)
+                      (make/c d 'd)
+                      (make/c e 'e)
+                      (make/c f 'f))]
+    [(->/c a b c d e f g)
+     (make-function/c (make/c a 'a)
+                      (make/c b 'b)
+                      (make/c c 'c)
+                      (make/c d 'd)
+                      (make/c e 'e)
+                      (make/c f 'f)
+                      (make/c g 'g))]
+    [(->/c a b c d e f g h)
+     (make-function/c (make/c a 'a)
+                      (make/c b 'b)
+                      (make/c c 'c)
+                      (make/c d 'd)
+                      (make/c e 'e)
+                      (make/c f 'f)
+                      (make/c g 'g)
+                      (make/c h 'h))]
+    [(->/c a b c d e f g h i)
+     (make-function/c (make/c a 'a)
+                      (make/c b 'b)
+                      (make/c c 'c)
+                      (make/c d 'd)
+                      (make/c e 'e)
+                      (make/c f 'f)
+                      (make/c g 'g)
+                      (make/c h 'h)
+                      (make/c i 'i))]))
 
 ;; Macro for basic usage of contracts
-(define-syntax define/c
+(define-syntax define/contract
   (syntax-rules ()
-    [(define/c (name args ...)
+    [(define/contract (name args ...)
        contract
        body ...)
      (begin
        (define name
          (lambda (args ...)
            body ...))
-       (set! name (bind-contract-to-function contract name 'name))
+       (set! name (bind/c contract name 'name))
        void)
      ;  (define name (bind/c contract (lambda (args ...) body ...) 'name))
      ]
-    [(define/c name
+    [(define/contract name
        contract
        expr)
-     (define name
-       ((bind-contract-to-function (make-function-contract (make-contract contract 'contract))
-                                   (lambda () expr))))]))
+     (define name ((bind/c (make-function/c (make/c contract 'contract)) (lambda () expr))))]))
 
 (provide (for-syntax contract/out/test))
 
 (define-syntax contract/out/test
   (syntax-rules ()
-    [(contract/out/test name contract)
-     (%require-ident-spec name (bind-contract-to-function contract name 'name))]))
+    [(contract/out/test name contract) (%require-ident-spec name (bind/c contract name 'name))]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;; Types ;;;;;;;;;;;;;;;;;;;;;;
 
@@ -436,15 +421,15 @@
 
 ;; Contract combinators
 (define (listof pred)
-  (make-contract (lambda (lst)
-                   (cond
-                     [(null? lst) #t]
-                     [(list? lst) (loop pred lst)]
-                     [else #f]))
-                 (list 'listof (contract-or-procedure-name pred))))
+  (make/c (lambda (lst)
+            (cond
+              [(null? lst) #t]
+              [(list? lst) (loop pred lst)]
+              [else #f]))
+          (list 'listof (contract-or-procedure-name pred))))
 
 (define (hashof key-pred value-pred)
-  (make-contract
+  (make/c
    (lambda (hashmap)
      ;; For hashof - we want to assert that both all of the keys and all of the values abide by
      ;; a specific predicate
@@ -461,42 +446,42 @@
 
 ;; Like listof, however requires that the list is non empty as well
 (define (non-empty-listof pred)
-  (make-contract (lambda (lst)
-                   (cond
-                     [(null? lst)
-                      (displayln "getting here?")
-                      #f]
-                     [(list? lst) (loop pred lst)]
-                     [else #f]))
-                 (list 'non-empty-listof (contract-or-procedure-name pred))))
+  (make/c (lambda (lst)
+            (cond
+              [(null? lst)
+               (displayln "getting here?")
+               #f]
+              [(list? lst) (loop pred lst)]
+              [else #f]))
+          (list 'non-empty-listof (contract-or-procedure-name pred))))
 
 ;; Contracts for <
 (define (</c n)
-  (make-contract (fn (x) (< x n)) (list '</c n)))
+  (make/c (fn (x) (< x n)) (list '</c n)))
 
 ;; Contracts for >
 (define (>/c n)
-  (make-contract (fn (x) (> x n)) (list '>/c n)))
+  (make/c (fn (x) (> x n)) (list '>/c n)))
 
 ;; Contracts for <=
 (define (<=/c n)
-  (make-contract (fn (x) (<= x n)) (list '<=/c n)))
+  (make/c (fn (x) (<= x n)) (list '<=/c n)))
 
 ;; Contracts for >=
 (define (>=/c n)
-  (make-contract (fn (x) (>= x n)) (list '>=/c n)))
+  (make/c (fn (x) (>= x n)) (list '>=/c n)))
 
 ;; Satisfies any single value
 (define (any/c x)
-  (make-contract (fn (x) #t) 'any/c))
+  (make/c (fn (x) #t) 'any/c))
 
 ;; produces a function compatible with contract definitions
 (define (and/c x y)
-  (make-contract (lambda (z) (and (x z) (y z))) (list 'and/c x y)))
+  (make/c (lambda (z) (and (x z) (y z))) (list 'and/c x y)))
 
 ;; produces a function compatible with contract definitions
 (define (or/c x y)
-  (make-contract (lambda (z) (or (x z) (y z))) (list 'or/c x y)))
+  (make/c (lambda (z) (or (x z) (y z))) (list 'or/c x y)))
 
 (define combinators (hashset listof non-empty-listof </c >/c <=/c >=/c any/c and/c or/c))
 
@@ -512,7 +497,8 @@
 ;; TODO: Come back to this - I think I need to be very specific about the then-contract and else-contract
 ;; and how they get applied
 ; (define (if/c predicate then-contract else-contract)
-;     (make-contract
+;     (make/c
+
 ;         (lambda (x) (if (predicate x)
 ;                         (then-contract predicate)
 ;                         (else-contract predicate)))

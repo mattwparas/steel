@@ -573,9 +573,9 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                                 SyntaxObject::default(TokenType::Define),
                             )));
 
-                            let ast_name = ExprKind::atom(
-                                d.name.atom_identifier().unwrap().to_string() + "__ast__",
-                            );
+                            // let ast_name = ExprKind::atom(
+                            // d.name.atom_identifier().unwrap().to_string() + "__ast__",
+                            // );
 
                             // Include the metadata table
                             let metadata_table_addition = ExprKind::List(List::new(vec![
@@ -589,10 +589,10 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
 
                             let expanded_expr = self.visit(top_level_define)?;
 
-                            let quoted_ast = define_quoted_ast_node(ast_name, &expanded_expr);
+                            // let quoted_ast = define_quoted_ast_node(ast_name, &expanded_expr);
 
                             return Ok(ExprKind::Begin(Begin::new(
-                                vec![doc_expr, quoted_ast, expanded_expr, metadata_table_addition],
+                                vec![doc_expr, expanded_expr, metadata_table_addition],
                                 SyntaxObject::default(TokenType::Begin),
                             )));
                         }
@@ -612,16 +612,16 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                                     SyntaxObject::default(TokenType::Define),
                                 )));
 
-                                let ast_name = ExprKind::atom(
-                                    d.name.atom_identifier().unwrap().to_string() + "__ast__",
-                                );
+                                // let ast_name = ExprKind::atom(
+                                // d.name.atom_identifier().unwrap().to_string() + "__ast__",
+                                // );
 
                                 let expanded_expr = self.visit(top_level_define)?;
 
-                                let quoted_ast = define_quoted_ast_node(ast_name, &expanded_expr);
+                                // let quoted_ast = define_quoted_ast_node(ast_name, &expanded_expr);
 
                                 return Ok(ExprKind::Begin(Begin::new(
-                                    vec![doc_expr, quoted_ast, expanded_expr],
+                                    vec![doc_expr, expanded_expr],
                                     SyntaxObject::default(TokenType::Begin),
                                 )));
                             }
@@ -640,13 +640,13 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                                     SyntaxObject::default(TokenType::Define),
                                 )));
 
-                                let ast_name = ExprKind::atom(struct_name.to_string() + "__ast__");
+                                // let ast_name = ExprKind::atom(struct_name.to_string() + "__ast__");
 
-                                let quoted_ast =
-                                    define_quoted_ast_node(ast_name, &top_level_define);
+                                // let quoted_ast =
+                                // define_quoted_ast_node(ast_name, &top_level_define);
 
                                 return Ok(ExprKind::Begin(Begin::new(
-                                    vec![doc_expr, quoted_ast, self.visit(top_level_define)?],
+                                    vec![doc_expr, self.visit(top_level_define)?],
                                     SyntaxObject::default(TokenType::Begin),
                                 )));
                             }

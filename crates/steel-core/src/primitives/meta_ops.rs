@@ -25,16 +25,16 @@ impl MetaOperations {
                         );
                         Ok(SteelVal::Void)
                     }
-                    SteelVal::ContractedFunction(c) => {
-                        if let SteelVal::Closure(bytecode_lambda) = &c.function {
-                            crate::core::instructions::pretty_print_dense_instructions(
-                                &bytecode_lambda.body_exp(),
-                            );
-                            Ok(SteelVal::Void)
-                        } else {
-                            stop!(TypeMismatch => "inspect-bytecode expects a closure object");
-                        }
-                    }
+                    // SteelVal::ContractedFunction(c) => {
+                    //     if let SteelVal::Closure(bytecode_lambda) = &c.function {
+                    //         crate::core::instructions::pretty_print_dense_instructions(
+                    //             &bytecode_lambda.body_exp(),
+                    //         );
+                    //         Ok(SteelVal::Void)
+                    //     } else {
+                    //         stop!(TypeMismatch => "inspect-bytecode expects a closure object");
+                    //     }
+                    // }
                     _ => {
                         stop!(TypeMismatch => "inspect-bytecode expects a closure object");
                     }

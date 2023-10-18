@@ -303,7 +303,7 @@ impl UserDefinedStruct {
 
         Self {
             name,
-            fields: fields.iter().cloned().collect(),
+            fields: fields.to_vec(),
             // properties: Properties::BuiltIn,
             // proc: None,
             type_descriptor,
@@ -398,7 +398,7 @@ impl UserDefinedStruct {
     ) -> Self {
         Self {
             name,
-            fields: rest.into_iter().cloned().collect(),
+            fields: rest.to_vec(),
             // len: rest.len() + 1,
             // properties,
             // proc: None,
@@ -426,7 +426,7 @@ impl UserDefinedStruct {
             let new_struct =
                 UserDefinedStruct::new_with_options(name, Properties::BuiltIn, descriptor, args);
 
-            Ok(SteelVal::CustomStruct(Gc::new(RefCell::new(new_struct))))
+            Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
         }
     }
 
@@ -453,7 +453,7 @@ impl UserDefinedStruct {
             let new_struct =
                 UserDefinedStruct::new_with_options(name, Properties::BuiltIn, descriptor, args);
 
-            Ok(SteelVal::CustomStruct(Gc::new(RefCell::new(new_struct))))
+            Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
         };
 
         SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
@@ -485,7 +485,7 @@ impl UserDefinedStruct {
             // arc cloning, and we don't want that.
             let new_struct = UserDefinedStruct::new(name, type_descriptor, args);
 
-            Ok(SteelVal::CustomStruct(Gc::new(RefCell::new(new_struct))))
+            Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
         };
 
         SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
@@ -506,7 +506,7 @@ impl UserDefinedStruct {
                 stop!(ArityMismatch => error_message);
             }
             Ok(SteelVal::BoolV(match &args[0] {
-                SteelVal::CustomStruct(my_struct) if my_struct.borrow().name == name => true,
+                SteelVal::CustomStruct(my_struct) if my_struct.name == name => true,
                 // SteelVal::CustomStruct(my_struct) if my_struct.name == name => true,
                 _ => false,
             }))
@@ -533,7 +533,7 @@ impl UserDefinedStruct {
 
             match (&steel_struct, &idx) {
                 (SteelVal::CustomStruct(s), SteelVal::IntV(idx)) => {
-                    if s.borrow().name != name {
+                    if s.name != name {
                         // println!("{}, {}", s.borrow().name.resolve(), name.resolve());
 
                         stop!(TypeMismatch => format!("Struct getter expected {}, found {:?}, {:?}", name, &s, &steel_struct));
@@ -543,8 +543,7 @@ impl UserDefinedStruct {
                         stop!(Generic => "struct-ref expected a non negative index");
                     }
 
-                    s.borrow()
-                        .fields
+                    s.fields
                         .get(*idx as usize)
                         .cloned()
                         .ok_or_else(throw!(Generic => "struct-ref: index out of bounds"))
@@ -580,12 +579,11 @@ impl UserDefinedStruct {
                 SteelVal::CustomStruct(s) => {
                     // println!("{}, {}", s.borrow().name.resolve(), name.resolve());
 
-                    if s.borrow().name != name {
+                    if s.name != name {
                         stop!(TypeMismatch => format!("Struct getter expected {}, found {:?}, {:?}", name, &s, &steel_struct));
                     }
 
-                    s.borrow()
-                        .fields
+                    s.fields
                         .get(index)
                         .cloned()
                         .ok_or_else(throw!(Generic => "struct-ref: index out of bounds"))
@@ -604,56 +602,6 @@ impl UserDefinedStruct {
             // Some(out_name),
             Some(name.resolve().to_string().into()),
             Some(1),
-        )))
-    }
-
-    fn setter_prototype(name: InternedString) -> SteelVal {
-        // let out_name = Arc::clone(&name);
-
-        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 3 {
-                stop!(ArityMismatch => "struct-ref expected 3 arguments");
-            }
-
-            let steel_struct = &args[0].clone();
-            let idx = &args[1].clone();
-            let arg = &args[2].clone();
-
-            match (&steel_struct, &idx) {
-                (SteelVal::CustomStruct(s), SteelVal::IntV(idx)) => {
-                    if s.borrow().name != name {
-                        stop!(TypeMismatch => format!("Struct setter expected {}, found {}", name, &s.borrow().name));
-                    }
-
-                    if *idx < 0 {
-                        stop!(Generic => "struct-ref expected a non negative index");
-                    }
-                    if *idx as usize >= s.borrow().fields.len() {
-                        stop!(Generic => "struct-ref: index out of bounds");
-                    }
-
-                    let mut guard = s.borrow_mut();
-
-                    let old = guard.fields[*idx as usize].clone();
-
-                    guard.fields[*idx as usize] = arg.clone();
-
-                    Ok(old)
-                }
-                _ => {
-                    let error_message = format!(
-                        "struct-ref expected a struct and an int, found: {steel_struct} and {idx}"
-                    );
-                    stop!(TypeMismatch => error_message)
-                }
-            }
-        };
-
-        SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
-            Arc::new(f),
-            // Some(out_name),
-            Some(name.resolve().to_string().into()),
-            Some(3),
         )))
     }
 
@@ -690,7 +638,6 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
     let struct_predicate = UserDefinedStruct::predicate(name);
 
     let getter_prototype = UserDefinedStruct::getter_prototype(name);
-    let setter_prototype = UserDefinedStruct::setter_prototype(name);
 
     // We do not have the properties yet. Should probably intern the
     // let struct_type_id = new_type_id(name, address_or_name)
@@ -702,7 +649,6 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
             struct_constructor,
             struct_predicate,
             getter_prototype,
-            setter_prototype,
             // struct_type_descriptor,
         ]
         .into(),
@@ -1146,10 +1092,10 @@ impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for std::result::Result<T, E
 impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for std::result::Result<T, E> {
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::CustomStruct(s) = val {
-            if s.borrow().is_ok() {
-                Ok(Ok(T::from_steelval(s.borrow().fields.get(0).unwrap())?))
-            } else if s.borrow().is_err() {
-                Ok(Err(E::from_steelval(s.borrow().fields.get(0).unwrap())?))
+            if s.is_ok() {
+                Ok(Ok(T::from_steelval(s.fields.get(0).unwrap())?))
+            } else if s.is_err() {
+                Ok(Err(E::from_steelval(s.fields.get(0).unwrap())?))
             } else {
                 stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type: {val:?}"))
             }

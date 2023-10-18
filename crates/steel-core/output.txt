@@ -1,0 +1,6 @@
+test range-big ... bench:          73 ns/iter (+/- 1)
+
+test map-big ... bench:      424146 ns/iter (+/- 1702)
+
+test transducer-map ... bench:      977324 ns/iter (+/- 4113)
+

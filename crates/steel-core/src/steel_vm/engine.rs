@@ -14,7 +14,7 @@ use super::dylib::DylibContainers;
 
 use crate::{
     compiler::{
-        compiler::Compiler,
+        compiler::{Compiler, SerializableCompiler},
         modules::CompiledModule,
         program::{Executable, RawProgramWithSymbols, SerializableRawProgramWithSymbols},
     },
@@ -44,6 +44,7 @@ use crate::{
     SteelErr,
 };
 use std::{
+    cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
     path::PathBuf,
     rc::Rc,
@@ -55,6 +56,15 @@ use lasso::ThreadedRodeo;
 use serde::{Deserialize, Serialize};
 
 use crate::parser::ast::IteratorExtensions;
+
+thread_local! {
+    static KERNEL_BIN_FILE: Cell<Option<&'static [u8]>> = Cell::new(None);
+}
+
+// Install the binary file to be used during bootup
+pub fn install_bin_file(bin: &'static [u8]) {
+    KERNEL_BIN_FILE.with(|x| x.set(Some(bin)));
+}
 
 #[derive(Clone, Default)]
 pub struct ModuleContainer {
@@ -113,18 +123,26 @@ struct BootstrapImage {
 // Pre compiled programs along with the global state to set before we start any further processing
 #[derive(Serialize, Deserialize)]
 struct StartupBootstrapImage {
-    interner: Arc<ThreadedRodeo>,
     syntax_object_id: usize,
     function_id: usize,
     sources: Sources,
-    programs: Vec<SerializableRawProgramWithSymbols>,
-    macros: HashMap<InternedString, SteelMacro>,
+    pre_kernel_programs: Vec<SerializableRawProgramWithSymbols>,
+    post_kernel_programs: Vec<SerializableRawProgramWithSymbols>,
+    kernel: Option<KernelImage>,
+    compiler: Option<SerializableCompiler>,
 }
 
-// #[test]
-fn run_bootstrap() {
-    Engine::create_bootstrap_from_programs();
+#[derive(Serialize, Deserialize)]
+struct KernelImage {
+    // Kernel macros
+    compiler: SerializableCompiler,
+    sources: Sources,
+    kernel_source: SerializableRawProgramWithSymbols,
 }
+
+// fn steel_create_bootstrap() {
+//     Engine::create_bootstrap_from_programs("src/boot/bootstrap.bin".into());
+// }
 
 pub struct LifetimeGuard<'a> {
     engine: &'a mut Engine,
@@ -225,11 +243,7 @@ impl Engine {
 
         log::info!(target:"kernel", "Registered modules in the kernel!");
 
-        let core_libraries = [
-            crate::stdlib::PRELUDE,
-            crate::stdlib::CONTRACTS,
-            crate::stdlib::DISPLAY,
-        ];
+        let core_libraries = [crate::stdlib::PRELUDE, crate::stdlib::DISPLAY];
 
         for core in core_libraries.into_iter() {
             vm.compile_and_run_raw_program(core).unwrap();
@@ -334,10 +348,12 @@ impl Engine {
     fn load_from_bootstrap(vm: &mut Engine) -> Option<Vec<RawProgramWithSymbols>> {
         if matches!(option_env!("STEEL_BOOTSTRAP"), Some("false") | None) {
             return None;
+        } else {
+            println!("LOADING A KERNEL FROM THE BIN FILE");
         }
 
         let bootstrap: StartupBootstrapImage =
-            bincode::deserialize(include_bytes!("../boot/bootstrap.bin")).unwrap();
+            bincode::deserialize(KERNEL_BIN_FILE.with(|x| x.get())?).unwrap();
 
         // Set the syntax object id to be AFTER the previous items have been parsed
         SYNTAX_OBJECT_ID.store(
@@ -348,24 +364,22 @@ impl Engine {
         crate::compiler::code_gen::FUNCTION_ID
             .store(bootstrap.function_id, std::sync::atomic::Ordering::Relaxed);
 
-        // Set up the interner to have this latest state
-        if crate::parser::interner::initialize_with(bootstrap.interner).is_err() {
-            return None;
-        }
-
         vm.sources = bootstrap.sources;
-        vm.compiler.macro_env = bootstrap.macros;
+        // vm.compiler.macro_env = bootstrap.macros;
+
+        todo!();
 
         Some(
             bootstrap
-                .programs
+                .pre_kernel_programs
                 .into_iter()
                 .map(SerializableRawProgramWithSymbols::into_raw_program)
                 .collect(),
         )
     }
 
-    fn create_bootstrap_from_programs() {
+    // Create kernel bootstrap
+    pub fn create_kernel_bootstrap_from_programs(output_path: PathBuf) {
         let mut vm = Engine {
             virtual_machine: SteelThread::new(),
             compiler: Compiler::default(),
@@ -383,27 +397,13 @@ impl Engine {
         let bootstrap_sources = [
             crate::steel_vm::primitives::ALL_MODULES,
             crate::stdlib::PRELUDE,
-            crate::stdlib::CONTRACTS,
             crate::stdlib::DISPLAY,
         ];
 
         for source in bootstrap_sources {
-            // let id = vm.sources.add_source(source.to_string(), None);
-
-            // Could fail here
-            // let parsed: Vec<ExprKind> = Parser::new(source, Some(id))
-            //     .collect::<std::result::Result<_, _>>()
-            //     .unwrap();
-
             let raw_program = vm.emit_raw_program_no_path(source).unwrap();
-
             programs.push(raw_program.clone());
-
             vm.run_raw_program(raw_program).unwrap();
-
-            // asts.push(parsed.clone());
-
-            // vm.run_raw_program_from_exprs(parsed).unwrap();
         }
 
         // Grab the last value of the offset
@@ -412,21 +412,205 @@ impl Engine {
             crate::compiler::code_gen::FUNCTION_ID.load(std::sync::atomic::Ordering::Relaxed);
 
         let bootstrap = StartupBootstrapImage {
-            interner: take_interner(),
             syntax_object_id,
             function_id,
             sources: vm.sources,
-            programs: programs
+            pre_kernel_programs: programs
                 .into_iter()
                 .map(RawProgramWithSymbols::into_serializable_program)
                 .collect::<Result<_>>()
                 .unwrap(),
-            macros: vm.compiler.macro_env,
+            // macros: vm.compiler.macro_env,
+            post_kernel_programs: Vec::new(),
+            kernel: None,
+            compiler: None,
         };
 
         // Encode to something implementing `Write`
-        let mut f = std::fs::File::create("src/boot/bootstrap.bin").unwrap();
+        let mut f = std::fs::File::create(output_path).unwrap();
         bincode::serialize_into(&mut f, &bootstrap).unwrap();
+    }
+
+    pub fn create_new_engine_from_bootstrap(output_path: PathBuf) {
+        let mut vm = Engine {
+            virtual_machine: SteelThread::new(),
+            compiler: Compiler::default(),
+            constants: None,
+            modules: ModuleContainer::default(),
+            sources: Sources::new(),
+            #[cfg(feature = "dylibs")]
+            dylibs: DylibContainers::new(),
+        };
+
+        register_builtin_modules(&mut vm);
+
+        let mut pre_kernel_programs = Vec::new();
+
+        let bootstrap_sources = [
+            crate::steel_vm::primitives::ALL_MODULES,
+            crate::stdlib::PRELUDE,
+            crate::stdlib::DISPLAY,
+        ];
+
+        for source in bootstrap_sources {
+            let raw_program = vm.emit_raw_program_no_path(source).unwrap();
+            pre_kernel_programs.push(raw_program.clone());
+            vm.run_raw_program(raw_program).unwrap();
+        }
+
+        // This will be our new top level engine
+        let mut top_level_engine = vm.clone();
+
+        let sources = vm.sources.clone();
+
+        vm.register_fn("report-error!", move |error: SteelErr| {
+            raise_error(&sources, error);
+        });
+
+        let (kernel, kernel_program) = Kernel::bootstrap(vm);
+
+        // Create kernel for the compiler for the top level vm
+        top_level_engine.compiler.kernel = Some(kernel);
+
+        let builtin_modules =
+            ["(require \"#%private/steel/contract\" (for-syntax \"#%private/steel/contract\"))"];
+
+        let mut post_kernel_programs = Vec::new();
+
+        for source in builtin_modules {
+            let raw_program = top_level_engine.emit_raw_program_no_path(source).unwrap();
+            post_kernel_programs.push(raw_program.clone());
+            top_level_engine.run_raw_program(raw_program).unwrap();
+        }
+
+        // Grab the last value of the offset
+        let syntax_object_id = SYNTAX_OBJECT_ID.load(std::sync::atomic::Ordering::Relaxed);
+        let function_id =
+            crate::compiler::code_gen::FUNCTION_ID.load(std::sync::atomic::Ordering::Relaxed);
+
+        let kernel_sources = top_level_engine
+            .compiler
+            .kernel
+            .as_ref()
+            .unwrap()
+            .engine
+            .sources
+            .clone();
+        let bootstrap = StartupBootstrapImage {
+            syntax_object_id,
+            function_id,
+            sources: top_level_engine.sources,
+            pre_kernel_programs: pre_kernel_programs
+                .into_iter()
+                .map(RawProgramWithSymbols::into_serializable_program)
+                .collect::<Result<_>>()
+                .unwrap(),
+            post_kernel_programs: post_kernel_programs
+                .into_iter()
+                .map(RawProgramWithSymbols::into_serializable_program)
+                .collect::<Result<_>>()
+                .unwrap(),
+            kernel: Some(KernelImage {
+                compiler: top_level_engine
+                    .compiler
+                    .kernel
+                    .take()
+                    .unwrap()
+                    .engine
+                    .compiler
+                    .into_serializable_compiler()
+                    .unwrap(),
+                sources: kernel_sources,
+                kernel_source: kernel_program.into_serializable_program().unwrap(),
+            }),
+            compiler: Some(
+                top_level_engine
+                    .compiler
+                    .into_serializable_compiler()
+                    .unwrap(),
+            ),
+        };
+
+        // Encode to something implementing `Write`
+        let mut f = std::fs::File::create(output_path).unwrap();
+        bincode::serialize_into(&mut f, &bootstrap).unwrap();
+    }
+
+    pub fn top_level_load_from_bootstrap(bin: &[u8]) -> Engine {
+        let bootstrap: StartupBootstrapImage = bincode::deserialize(bin).unwrap();
+
+        // This is going to be the kernel
+        let mut vm = Engine {
+            virtual_machine: SteelThread::new(),
+            compiler: Compiler::default(),
+            constants: None,
+            modules: ModuleContainer::default(),
+            sources: Sources::new(),
+            #[cfg(feature = "dylibs")]
+            dylibs: DylibContainers::new(),
+        };
+
+        // Register the modules
+        register_builtin_modules(&mut vm);
+
+        // Set the syntax object id to be AFTER the previous items have been parsed
+        SYNTAX_OBJECT_ID.store(
+            bootstrap.syntax_object_id,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+
+        crate::compiler::code_gen::FUNCTION_ID
+            .store(bootstrap.function_id, std::sync::atomic::Ordering::Relaxed);
+
+        let bootstrap_kernel = bootstrap.kernel.unwrap();
+
+        vm.sources = bootstrap_kernel.sources;
+        vm.compiler = bootstrap_kernel.compiler.into_compiler();
+
+        // TODO: Only need to bring around the last constant map
+        for program in bootstrap
+            .pre_kernel_programs
+            .into_iter()
+            .map(SerializableRawProgramWithSymbols::into_raw_program)
+        {
+            vm.compiler.constant_map = program.constant_map.clone();
+            vm.virtual_machine.constant_map = program.constant_map.clone();
+
+            vm.run_raw_program(program).unwrap();
+        }
+
+        log::info!(target: "kernel", "Loaded prelude in the kernel!");
+
+        let sources = vm.sources.clone();
+
+        vm.register_fn("report-error!", move |error: SteelErr| {
+            raise_error(&sources, error);
+        });
+
+        // Now we're going to set up the top level environment
+        let mut kernel = Kernel::initialize_post_bootstrap(vm.clone());
+
+        kernel
+            .engine
+            .run_raw_program(bootstrap_kernel.kernel_source.into_raw_program())
+            .unwrap();
+
+        vm.sources = bootstrap.sources;
+        vm.compiler = bootstrap.compiler.unwrap().into_compiler();
+        vm.compiler.kernel = Some(kernel);
+
+        for program in bootstrap
+            .post_kernel_programs
+            .into_iter()
+            .map(SerializableRawProgramWithSymbols::into_raw_program)
+        {
+            vm.compiler.constant_map = program.constant_map.clone();
+            vm.virtual_machine.constant_map = program.constant_map.clone();
+
+            vm.run_raw_program(program).unwrap();
+        }
+
+        vm
     }
 
     fn create_bootstrap() {
@@ -447,9 +631,7 @@ impl Engine {
         let bootstrap_sources = [
             crate::steel_vm::primitives::ALL_MODULES,
             crate::stdlib::PRELUDE,
-            crate::stdlib::CONTRACTS,
             crate::stdlib::DISPLAY,
-            // crate::stdlib::KERNEL,
         ];
 
         for source in bootstrap_sources {
@@ -552,11 +734,7 @@ impl Engine {
         vm.compile_and_run_raw_program(crate::steel_vm::primitives::SANDBOXED_MODULES)
             .unwrap();
 
-        let core_libraries = [
-            crate::stdlib::PRELUDE,
-            crate::stdlib::CONTRACTS,
-            crate::stdlib::DISPLAY,
-        ];
+        let core_libraries = [crate::stdlib::PRELUDE, crate::stdlib::DISPLAY];
 
         for core in core_libraries.into_iter() {
             vm.compile_and_run_raw_program(core).unwrap();
@@ -751,10 +929,14 @@ impl Engine {
         let mut engine = fresh_kernel_image();
 
         // Touch the printer to initialize it
-        install_printer();
-        engine.register_fn("print-in-engine", print_in_engine);
+        // install_printer();
+        // engine.register_fn("print-in-engine", print_in_engine);
 
         engine.compiler.kernel = Some(Kernel::new());
+
+        engine
+            .run("(require \"#%private/steel/contract\" (for-syntax \"#%private/steel/contract\"))")
+            .unwrap();
 
         engine
     }
@@ -779,11 +961,7 @@ impl Engine {
     /// vm.run("(+ 1 2 3)").unwrap();
     /// ```
     pub fn with_prelude(mut self) -> Result<Self> {
-        let core_libraries = &[
-            crate::stdlib::PRELUDE,
-            crate::stdlib::DISPLAY,
-            crate::stdlib::CONTRACTS,
-        ];
+        let core_libraries = &[crate::stdlib::PRELUDE, crate::stdlib::DISPLAY];
 
         for core in core_libraries {
             self.compile_and_run_raw_program(core)?;
@@ -805,11 +983,7 @@ impl Engine {
     /// vm.run("(+ 1 2 3)").unwrap();
     /// ```
     pub fn register_prelude(&mut self) -> Result<&mut Self> {
-        let core_libraries = &[
-            crate::stdlib::PRELUDE,
-            crate::stdlib::DISPLAY,
-            crate::stdlib::CONTRACTS,
-        ];
+        let core_libraries = &[crate::stdlib::PRELUDE, crate::stdlib::DISPLAY];
 
         for core in core_libraries {
             self.compile_and_run_raw_program(core)?;

@@ -86,7 +86,7 @@ pub fn map(args: &[SteelVal]) -> Result<SteelVal> {
         Closure(_)
         | FuncV(_)
         | BoxedFunction(_)
-        | ContractedFunction(_)
+        // | ContractedFunction(_)
         | BuiltIn(_)
         | MutFunc(_) => {
             let mut transducer = Transducer::new();
@@ -123,7 +123,7 @@ pub fn flat_map(args: &[SteelVal]) -> Result<SteelVal> {
         Closure(_)
         | FuncV(_)
         | BoxedFunction(_)
-        | ContractedFunction(_)
+        // | ContractedFunction(_)
         | BuiltIn(_)
         | MutFunc(_) => {
             let mut transducer = Transducer::new();
@@ -155,7 +155,7 @@ pub fn filter(args: &[SteelVal]) -> Result<SteelVal> {
         Closure(_)
         | FuncV(_)
         | BoxedFunction(_)
-        | ContractedFunction(_)
+        // | ContractedFunction(_)
         | BuiltIn(_)
         | MutFunc(_) => {
             let mut transducer = Transducer::new();
