@@ -12,7 +12,7 @@ use crate::{
     steel_vm::vm::{BuiltInSignature, Continuation},
     values::port::SteelPort,
     values::{
-        closed::{HeapContext, HeapRef, MarkAndSweepContext},
+        closed::{HeapRef, MarkAndSweepContext},
         // contracts::{ContractType, ContractedFunction},
         functions::ByteCodeLambda,
         lazy_stream::LazyStream,
@@ -26,7 +26,7 @@ use crate::{
 // use crate::jit::sig::JitFunctionPointer;
 
 use std::{
-    any::Any,
+    any::{Any, TypeId},
     cell::{Ref, RefCell, RefMut},
     cmp::Ordering,
     convert::TryInto,
@@ -162,13 +162,13 @@ pub trait Custom: private::Sealed {
         None
     }
 
-    fn visit(&self, _context: &mut HeapContext) {}
-
     fn as_iterator(&self) -> Option<Box<dyn Iterator<Item = SteelVal>>> {
         None
     }
 
-    fn drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
+    fn gc_drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
+
+    fn gc_visit_children(&self, _context: &mut MarkAndSweepContext) {}
 }
 
 pub trait CustomType {
@@ -179,6 +179,7 @@ pub trait CustomType {
     fn name(&self) -> &str {
         std::any::type_name::<Self>()
     }
+    fn inner_type_id(&self) -> TypeId;
     // fn new_steel_val(&self) -> SteelVal;
     fn display(&self) -> std::result::Result<String, std::fmt::Error> {
         Ok(format!("#<{}>", self.name().to_string()))
@@ -189,11 +190,11 @@ pub trait CustomType {
     }
 
     // Implement visit for anything that holds steel values
-    fn visit(&self, _context: &mut HeapContext) {}
-
     fn drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
 
     fn visit_children(&self, _context: &mut MarkAndSweepContext) {}
+
+    fn visit_children_for_equality(&self) {}
 }
 
 impl<T: Custom + 'static> CustomType for T {
@@ -202,6 +203,9 @@ impl<T: Custom + 'static> CustomType for T {
     }
     fn as_any_ref_mut(&mut self) -> &mut dyn Any {
         self as &mut dyn Any
+    }
+    fn inner_type_id(&self) -> TypeId {
+        std::any::TypeId::of::<Self>()
     }
     fn display(&self) -> std::result::Result<String, std::fmt::Error> {
         if let Some(formatted) = self.fmt() {
@@ -215,8 +219,16 @@ impl<T: Custom + 'static> CustomType for T {
         self.into_serializable_steelval()
     }
 
-    // Implement visit for anything that holds steel values
-    fn visit(&self, _context: &mut HeapContext) {}
+    fn drop_mut(&mut self, drop_handler: &mut IterativeDropHandler) {
+        self.gc_drop_mut(drop_handler)
+    }
+
+    fn visit_children(&self, context: &mut MarkAndSweepContext) {
+        self.gc_visit_children(context)
+    }
+
+    // TODO: Equality visitor
+    fn visit_children_for_equality(&self) {}
 }
 
 impl<T: CustomType + 'static> IntoSteelVal for T {
@@ -488,6 +500,18 @@ impl AsRefSteelVal for List<SteelVal> {
 
     fn as_ref<'b, 'a: 'b>(val: &'a SteelVal, _nursery: &mut ()) -> Result<SRef<'b, Self>> {
         if let SteelVal::ListV(l) = val {
+            Ok(SRef::Temporary(l))
+        } else {
+            stop!(TypeMismatch => "Value cannot be referenced as a list")
+        }
+    }
+}
+
+impl AsRefSteelVal for UserDefinedStruct {
+    type Nursery = ();
+
+    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal, _nursery: &mut ()) -> Result<SRef<'b, Self>> {
+        if let SteelVal::CustomStruct(l) = val {
             Ok(SRef::Temporary(l))
         } else {
             stop!(TypeMismatch => "Value cannot be referenced as a list")
@@ -1067,10 +1091,6 @@ pub enum SteelVal {
 
     StreamV(Gc<LazyStream>),
 
-    /// Contract
-    // Contract(Gc<ContractType>),
-    /// Contracted Function
-    // ContractedFunction(Gc<ContractedFunction>),
     /// Custom closure
     BoxedFunction(Rc<BoxedDynFunction>),
     // Continuation
@@ -1085,7 +1105,7 @@ pub enum SteelVal {
     // Built in functions
     BuiltIn(BuiltInSignature),
     // Mutable vector
-    MutableVector(Gc<RefCell<Vec<SteelVal>>>),
+    MutableVector(HeapRef<Vec<SteelVal>>),
     // This should delegate to the underlying iterator - can allow for faster raw iteration if possible
     // Should allow for polling just a raw "next" on underlying elements
     BoxedIterator(Gc<RefCell<BuiltInDataStructureIterator>>),
@@ -1096,7 +1116,7 @@ pub enum SteelVal {
     // Boxed(HeapRef),
     Boxed(Gc<RefCell<SteelVal>>),
 
-    HeapAllocated(HeapRef),
+    HeapAllocated(HeapRef<SteelVal>),
 
     // TODO: This itself, needs to be boxed unfortunately.
     Reference(Rc<OpaqueReference<'static>>),
@@ -1105,7 +1125,7 @@ pub enum SteelVal {
 }
 
 impl SteelVal {
-    pub fn as_box(&self) -> Option<HeapRef> {
+    pub fn as_box(&self) -> Option<HeapRef<SteelVal>> {
         if let SteelVal::HeapAllocated(heap_ref) = self {
             Some(heap_ref.clone())
         } else {
@@ -1141,7 +1161,7 @@ impl SteelVal {
             // StreamV(_) => todo!(),
             // BoxedFunction(_) => todo!(),
             // ContinuationFunction(_) => todo!(),
-            // ListV(_) => todo!(),
+            ListV(l) => Some(l.as_ptr_usize()),
             // MutFunc(_) => todo!(),
             // BuiltIn(_) => todo!(),
             // MutableVector(_) => todo!(),
@@ -1331,10 +1351,6 @@ impl Custom for OpaqueIterator {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
         Some(Ok(format!("#<iterator>")))
     }
-
-    fn visit(&self, context: &mut HeapContext) {
-        context.visit(&self.root)
-    }
 }
 
 // TODO: Convert this to just a generic custom type. This does not have to be
@@ -1436,7 +1452,7 @@ impl SteelVal {
             (ListV(l), ListV(r)) => l.ptr_eq(r),
             (MutFunc(l), MutFunc(r)) => *l as usize == *r as usize,
             (BuiltIn(l), BuiltIn(r)) => *l as usize == *r as usize,
-            (MutableVector(l), MutableVector(r)) => Gc::ptr_eq(l, r),
+            (MutableVector(l), MutableVector(r)) => HeapRef::ptr_eq(l, r),
             (BigNum(l), BigNum(r)) => Gc::ptr_eq(l, r),
             (_, _) => false,
         }

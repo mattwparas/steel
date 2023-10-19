@@ -3,6 +3,7 @@ use std::{cell::RefCell, ops::DerefMut};
 use crate::gc::Gc;
 use crate::rvals::SteelVal::*;
 use crate::rvals::{Result, SteelVal};
+use crate::steel_vm::vm::VmCore;
 use crate::stop;
 use im_rc::Vector;
 
@@ -18,11 +19,11 @@ impl VectorOperations {
 
     // TODO
     pub fn mut_vec_construct() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            Ok(SteelVal::MutableVector(Gc::new(RefCell::new(
-                args.to_vec(),
-            ))))
-        })
+        SteelVal::BuiltIn(
+            |ctx: &mut VmCore, args: &[SteelVal]| -> Option<Result<SteelVal>> {
+                Some(Ok(ctx.make_mutable_vector(args.to_vec())))
+            },
+        )
     }
 
     pub fn mut_vec_to_list() -> SteelVal {
@@ -34,9 +35,10 @@ impl VectorOperations {
             let vec = &args[0];
 
             if let SteelVal::MutableVector(v) = vec {
-                let mut guard = v.borrow_mut();
+                let ptr = v.strong_ptr();
+                let guard = &mut ptr.borrow_mut().value;
 
-                let new = std::mem::replace(guard.deref_mut(), Vec::new());
+                let new = std::mem::replace(guard, Vec::new());
 
                 Ok(SteelVal::ListV(new.into()))
 
@@ -74,7 +76,7 @@ impl VectorOperations {
             let vec = args[0].clone();
 
             if let SteelVal::MutableVector(v) = vec {
-                Ok(SteelVal::IntV(v.borrow().len() as isize))
+                Ok(SteelVal::IntV(v.get().len() as isize))
             } else {
                 stop!(TypeMismatch => "mut-vec-length expects a mutable vector, found: {:?}", vec);
             }
@@ -97,14 +99,18 @@ impl VectorOperations {
                         stop!(Generic => "vector-set! expects a positive integer, found: {:?}", vec);
                     }
 
-                    if i as usize > v.borrow().len() {
-                        stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, v.borrow().len());
+                    let ptr = v.strong_ptr();
+
+                    let guard = &mut ptr.borrow_mut().value;
+
+                    if i as usize > guard.len() {
+                        stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
                     }
 
                     // TODO: disallow cyclical references on construction
 
                     // Update the vector position
-                    v.borrow_mut()[i as usize] = args[2].clone();
+                    guard[i as usize] = args[2].clone();
 
                     Ok(SteelVal::Void)
                 } else {
@@ -131,12 +137,16 @@ impl VectorOperations {
                         stop!(Generic => "mut-vector-ref expects a positive integer, found: {:?}", vec);
                     }
 
-                    if i as usize >= v.borrow().len() {
-                        stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, v.borrow().len());
+                    let ptr = v.strong_ptr();
+
+                    let guard = &mut ptr.borrow_mut().value;
+
+                    if i as usize >= guard.len() {
+                        stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
                     }
 
                     // Grab the value out of the vector
-                    Ok(v.borrow()[i as usize].clone())
+                    Ok(guard[i as usize].clone())
                 } else {
                     stop!(TypeMismatch => "mut-vector-ref expects an integer, found: {:?}", pos);
                 }
@@ -161,7 +171,7 @@ impl VectorOperations {
                 // }
 
                 // TODO: disallow cyclical references on construction
-                v.borrow_mut().push(args[1].clone());
+                v.strong_ptr().borrow_mut().value.push(args[1].clone());
                 Ok(SteelVal::Void)
             } else {
                 stop!(TypeMismatch => "vector-push! expects a vector, found: {:?}", vec);
@@ -180,7 +190,10 @@ impl VectorOperations {
 
             if let SteelVal::MutableVector(left) = vec {
                 if let SteelVal::MutableVector(right) = other_vec {
-                    left.borrow_mut().append(&mut right.borrow_mut());
+                    left.strong_ptr()
+                        .borrow_mut()
+                        .value
+                        .append(&mut right.strong_ptr().borrow_mut().value);
                     Ok(SteelVal::Void)
                 } else {
                     stop!(TypeMismatch => "vetor-append! expects a vector in the second position, found: {:?}", other_vec);
@@ -201,36 +214,6 @@ impl VectorOperations {
             Gc::new(arg.collect::<Vector<SteelVal>>()).into(),
         ))
     }
-
-    // TODO
-    // mutation semantics are much more difficult than functional ones?
-    // maybe for vectors use Rc<RefCell<SteelVal>> insides?
-    // this would ensure that the insides can get mutated safely
-    // COW would be cool though, because then I can ensure that if more than one
-    // variable points to a location, then it changes only the reference that I want
-    // to be changed
-    //
-    // Mutation functions have to have a different signature and run time
-    // behavior, otherwise things don't work properly
-    // pub fn vec_set_bang() -> SteelVal {
-    //     SteelVal::FuncV(|args: &[Gc<SteelVal>]| -> Result<Gc<SteelVal>> {
-    //         if args.len() != 3 {
-    //             stop!(ArityMismatch => "vector-set! takes 3 arguments");
-    //         } else {
-    //             // unimplemented!();
-    //             // let vec_to_be_mut = Gc::clone(&args[0]);
-
-    //             // let vec_to_be_mut = Gc::make_mut(&args[0]);
-
-    //             let _idx = Gc::clone(&args[1]);
-    //             let _new_value = Gc::clone(&args[2]);
-
-    //             panic!("Internal Compiler Error - vector-set! not implemented")
-
-    //             // unimplemented!()
-    //         }
-    //     })
-    // }
 
     pub fn vec_append() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {

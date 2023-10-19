@@ -26,7 +26,7 @@ use crate::{
         SymbolOperations, VectorOperations,
     },
     rerrs::ErrorKind,
-    rvals::{FromSteelVal, NUMBER_EQUALITY_DEFINITION},
+    rvals::{cycles::BreadthFirstSearchSteelValVisitor, FromSteelVal, NUMBER_EQUALITY_DEFINITION},
     steel_vm::{
         builtin::{get_function_name, Arity},
         vm::threads::threading_module,
@@ -34,7 +34,7 @@ use crate::{
     values::{
         closed::HeapRef,
         functions::{attach_contract_struct, get_contract, LambdaMetadataTable},
-        structs::{build_type_id_module, make_struct_type},
+        structs::{build_type_id_module, make_struct_type, UserDefinedStruct},
     },
 };
 use crate::{
@@ -53,6 +53,7 @@ use crate::primitives::web::{requests::requests_module, websockets::websockets_m
 use crate::primitives::colors::string_coloring_module;
 
 use crate::values::lists::List;
+use im_rc::HashMap;
 use num::Signed;
 
 macro_rules! ensure_tonicity_two {
@@ -255,6 +256,9 @@ thread_local! {
     pub static TIME_MODULE: BuiltInModule = time_module();
     pub static THREADING_MODULE: BuiltInModule = threading_module();
 
+    pub static MUTABLE_HASH_MODULE: BuiltInModule = mutable_hashmap_module();
+    pub static MUTABLE_VECTOR_MODULE: BuiltInModule = mutable_vector_module();
+
     #[cfg(feature = "web")]
     pub static WEBSOCKETS_MODULE: BuiltInModule = websockets_module();
 
@@ -401,6 +405,10 @@ pub fn register_builtin_modules(engine: &mut Engine) {
         .register_module(TIME_MODULE.with(|x| x.clone()))
         .register_module(RANDOM_MODULE.with(|x| x.clone()))
         .register_module(THREADING_MODULE.with(|x| x.clone()));
+
+    // Private module
+    engine.register_module(MUTABLE_HASH_MODULE.with(|x| x.clone()));
+    engine.register_module(MUTABLE_VECTOR_MODULE.with(|x| x.clone()));
 
     #[cfg(feature = "colors")]
     engine.register_module(STRING_COLORS_MODULE.with(|x| x.clone()));
@@ -949,13 +957,122 @@ fn is_multi_arity(value: SteelVal) -> UnRecoverableResult {
     }
 }
 
+struct MutableVector {
+    vector: Vec<SteelVal>,
+}
+
+impl MutableVector {
+    fn new() -> Self {
+        Self { vector: Vec::new() }
+    }
+
+    fn vector_push(&mut self, value: SteelVal) {
+        self.vector.push(value);
+    }
+
+    fn vector_pop(&mut self) -> Option<SteelVal> {
+        self.vector.pop()
+    }
+
+    fn vector_set(&mut self, index: usize, value: SteelVal) {
+        self.vector[index] = value;
+    }
+
+    fn vector_ref(&self, index: usize) -> SteelVal {
+        self.vector[index].clone()
+    }
+
+    fn vector_len(&self) -> usize {
+        self.vector.len()
+    }
+
+    fn vector_to_list(&self) -> SteelVal {
+        SteelVal::ListV(self.vector.clone().into())
+    }
+
+    fn vector_is_empty(&self) -> bool {
+        self.vector.is_empty()
+    }
+
+    fn vector_from_list(lst: List<SteelVal>) -> Self {
+        Self {
+            vector: lst.into_iter().collect(),
+        }
+    }
+}
+
+impl crate::rvals::Custom for MutableVector {
+    fn gc_visit_children(&self, context: &mut crate::values::closed::MarkAndSweepContext) {
+        for value in &self.vector {
+            context.push_back(value.clone());
+        }
+    }
+}
+
+struct MutableHashTable {
+    table: HashMap<SteelVal, SteelVal>,
+}
+
+impl crate::rvals::Custom for MutableHashTable {
+    fn gc_visit_children(&self, context: &mut crate::values::closed::MarkAndSweepContext) {
+        for (key, value) in &self.table {
+            context.push_back(key.clone());
+            context.push_back(value.clone());
+        }
+    }
+}
+
+impl MutableHashTable {
+    pub fn new() -> Self {
+        Self {
+            table: HashMap::new(),
+        }
+    }
+
+    pub fn insert(&mut self, key: SteelVal, value: SteelVal) {
+        self.table.insert(key, value);
+    }
+
+    pub fn get(&self, key: SteelVal) -> Option<SteelVal> {
+        self.table.get(&key).cloned()
+    }
+}
+
+fn mutable_vector_module() -> BuiltInModule {
+    let mut module = BuiltInModule::new("#%private/steel/mvector");
+
+    module
+        .register_fn("make-mutable-vector", MutableVector::new)
+        .register_fn("mutable-vector-ref", MutableVector::vector_ref)
+        .register_fn("mutable-vector-set!", MutableVector::vector_set)
+        .register_fn("mutable-vector-pop!", MutableVector::vector_pop)
+        .register_fn("mutable-vector-push!", MutableVector::vector_push)
+        .register_fn("mutable-vector-len", MutableVector::vector_len)
+        .register_fn("mutable-vector->list", MutableVector::vector_to_list)
+        .register_fn("mutable-vector-empty?", MutableVector::vector_is_empty)
+        .register_fn("mutable-vector-from-list", MutableVector::vector_from_list);
+
+    module
+}
+
+fn mutable_hashmap_module() -> BuiltInModule {
+    let mut module = BuiltInModule::new("#%private/steel/mhash");
+
+    module
+        .register_fn("mhash", MutableHashTable::new)
+        .register_fn("mhash-set!", MutableHashTable::insert)
+        .register_fn("mhash-ref", MutableHashTable::get);
+
+    module
+}
+
 #[steel_derive::function(name = "#%unbox")]
-fn unbox_mutable(value: &HeapRef) -> SteelVal {
+fn unbox_mutable(value: &HeapRef<SteelVal>) -> SteelVal {
     value.get()
 }
 
 #[steel_derive::function(name = "#%set-box!")]
-fn set_box_mutable(value: &HeapRef, update: SteelVal) -> SteelVal {
+fn set_box_mutable(value: &HeapRef<SteelVal>, update: SteelVal) -> SteelVal {
     value.set_and_return(update)
 }
 
@@ -999,6 +1116,10 @@ fn meta_module() -> BuiltInModule {
         .register_value("poll!", MetaOperations::poll_value())
         .register_value("block-on", MetaOperations::block_on())
         .register_value("join!", MetaOperations::join_futures())
+        .register_fn(
+            "#%struct-property-ref",
+            |value: &UserDefinedStruct, key: SteelVal| UserDefinedStruct::get(value, &key),
+        )
         // .register_value("struct-ref", struct_ref())
         // .register_value("struct->list", struct_to_list())
         // .register_value("struct->vector", struct_to_vector())

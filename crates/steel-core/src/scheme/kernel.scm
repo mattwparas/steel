@@ -50,7 +50,7 @@
                         (if (symbol? (car pair))
                             ;; TODO: @Matt - this causes a parser error
                             ;; (cons `(quote ,(car x)) (cdr x))
-                            (list (list 'quote (car pair)) (list 'quote (cadr pair)))
+                            (list (list 'quote (car pair)) (cadr pair))
                             pair)))
              (flattening)
              (into-list)))
@@ -68,6 +68,7 @@
     (let ([raw (cdddr unwrapped)])
       ; (displayln raw)
       (if (empty? raw) raw (map syntax->datum raw))))
+
   (struct-impl struct-name fields options))
 
 ;; Macro for creating a new struct, in the form of:
@@ -106,7 +107,8 @@
                (filtering (lambda (x) (not (transparent-keyword? x))))
                (into-list)))
 
-  (define extra-options (hash '#:mutable mutable? '#:transparent transparent? '#:fields fields))
+  (define extra-options
+    (hash '#:mutable mutable? '#:transparent transparent? '#:fields (list 'quote fields)))
 
   (when (not (list? fields))
     (error! "struct expects a list of field names, found " fields))

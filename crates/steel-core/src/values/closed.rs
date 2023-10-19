@@ -108,7 +108,8 @@ impl SteelVal {
 
 #[derive(Clone)]
 pub struct Heap {
-    memory: Vec<Rc<RefCell<HeapAllocated>>>,
+    memory: Vec<Rc<RefCell<HeapAllocated<SteelVal>>>>,
+    vectors: Vec<Rc<RefCell<HeapAllocated<Vec<SteelVal>>>>>,
     count: usize,
     threshold: usize,
     mark_and_sweep_queue: VecDeque<SteelVal>,
@@ -118,6 +119,7 @@ impl Heap {
     pub fn new() -> Self {
         Heap {
             memory: Vec::with_capacity(256),
+            vectors: Vec::with_capacity(256),
             count: 0,
             threshold: GC_THRESHOLD,
             mark_and_sweep_queue: VecDeque::with_capacity(256),
@@ -133,7 +135,7 @@ impl Heap {
         roots: impl Iterator<Item = &'a SteelVal>,
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: impl Iterator<Item = &'a SteelVal>,
-    ) -> HeapRef {
+    ) -> HeapRef<SteelVal> {
         self.collect(roots, live_functions, globals);
 
         let pointer = Rc::new(RefCell::new(HeapAllocated::new(value)));
@@ -144,39 +146,86 @@ impl Heap {
         HeapRef { inner: weak_ptr }
     }
 
+    // Allocate a vector explicitly onto the heap
+    pub fn allocate_vector<'a>(
+        &mut self,
+        values: Vec<SteelVal>,
+        roots: impl Iterator<Item = &'a SteelVal>,
+        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
+        globals: impl Iterator<Item = &'a SteelVal>,
+    ) -> HeapRef<Vec<SteelVal>> {
+        self.collect(roots, live_functions, globals);
+
+        let pointer = Rc::new(RefCell::new(HeapAllocated::new(values)));
+        let weak_ptr = Rc::downgrade(&pointer);
+
+        self.vectors.push(pointer);
+
+        HeapRef { inner: weak_ptr }
+    }
+
+    // TODO: Call this in more areas in the VM to attempt to free memory more carefully
+    // Also - come up with generational scheme if possible
     pub fn collect<'a>(
         &mut self,
         roots: impl Iterator<Item = &'a SteelVal>,
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: impl Iterator<Item = &'a SteelVal>,
     ) {
-        if self.memory.len() > self.threshold {
+        let memory_size = self.memory.len() + self.vectors.len();
+
+        if memory_size > self.threshold {
             log::info!(target: "gc", "Freeing memory");
 
+            let original_length = memory_size;
+
+            // Do at least one small collection, where we immediately drop
+            // anything that has weak counts of 0, meaning there are no alive
+            // references and we can avoid doing a full collection
+            //
+            // In the event that the collection does not yield a substantial
+            // change in the heap size, we should also enqueue a larger mark and
+            // sweep collection.
             let mut changed = true;
             while changed {
                 log::info!(target: "gc", "Small collection");
-                let prior_len = self.memory.len();
+                let prior_len = self.memory.len() + self.vectors.len();
                 log::info!(target: "gc", "Previous length: {:?}", prior_len);
                 self.memory.retain(|x| Rc::weak_count(x) > 0);
-                let after = self.memory.len();
+                self.vectors.retain(|x| Rc::weak_count(x) > 0);
+                let after = self.memory.len() + self.vectors.len();
                 log::info!(target: "gc", "Objects freed: {:?}", prior_len - after);
                 changed = prior_len != after;
             }
 
-            // TODO fix the garbage collector
-            self.mark_and_sweep(roots, live_functions, globals);
+            let post_small_collection_size = self.memory.len() + self.vectors.len();
 
-            self.threshold = (self.threshold + self.memory.len()) * GC_GROW_FACTOR;
+            // Mark + Sweep!
+            if post_small_collection_size as f64 > (0.25 * original_length as f64) {
+                log::info!(target: "gc", "---- Post small collection, running mark and sweep - heap size filled: {:?} ----", post_small_collection_size as f64 / original_length as f64);
+
+                // TODO fix the garbage collector
+                self.mark_and_sweep(roots, live_functions, globals);
+            } else {
+                log::info!(target: "gc", "---- Skipping mark and sweep - heap size filled: {:?} ----", post_small_collection_size as f64 / original_length as f64);
+            }
+
+            // self.mark_and_sweep(roots, live_functions, globals);
+
+            self.threshold =
+                (self.threshold + self.memory.len() + self.vectors.len()) * GC_GROW_FACTOR;
 
             self.count += 1;
 
             // Drive it down!
             if self.count > RESET_LIMIT {
+                log::info!(target: "gc", "Shrinking the heap");
+
                 self.threshold = GC_THRESHOLD;
                 self.count = 0;
 
                 self.memory.shrink_to(GC_THRESHOLD);
+                self.vectors.shrink_to(GC_THRESHOLD);
             }
         }
     }
@@ -237,10 +286,11 @@ impl Heap {
         // );
 
         log::info!(target: "gc", "--- Sweeping ---");
-        let prior_len = self.memory.len();
+        let prior_len = self.memory.len() + self.vectors.len();
 
         // sweep
         self.memory.retain(|x| x.borrow().is_reachable());
+        self.vectors.retain(|x| x.borrow().is_reachable());
 
         let after_len = self.memory.len();
 
@@ -256,13 +306,17 @@ impl Heap {
     }
 }
 
+pub trait HeapAble: Clone + std::fmt::Debug + PartialEq + Eq {}
+impl HeapAble for SteelVal {}
+impl HeapAble for Vec<SteelVal> {}
+
 #[derive(Clone, Debug)]
-pub struct HeapRef {
-    inner: Weak<RefCell<HeapAllocated>>,
+pub struct HeapRef<T: HeapAble> {
+    inner: Weak<RefCell<HeapAllocated<T>>>,
 }
 
-impl HeapRef {
-    pub fn get(&self) -> SteelVal {
+impl<T: HeapAble> HeapRef<T> {
+    pub fn get(&self) -> T {
         self.inner.upgrade().unwrap().borrow().value.clone()
     }
 
@@ -270,7 +324,7 @@ impl HeapRef {
         self.inner.as_ptr() as usize
     }
 
-    pub fn set(&mut self, value: SteelVal) -> SteelVal {
+    pub fn set(&mut self, value: T) -> T {
         let inner = self.inner.upgrade().unwrap();
 
         let ret = { inner.borrow().value.clone() };
@@ -279,14 +333,14 @@ impl HeapRef {
         ret
     }
 
-    pub fn set_and_return(&self, value: SteelVal) -> SteelVal {
+    pub fn set_and_return(&self, value: T) -> T {
         let inner = self.inner.upgrade().unwrap();
 
         let mut guard = inner.borrow_mut();
         std::mem::replace(&mut guard.value, value)
     }
 
-    pub(crate) fn set_interior_mut(&self, value: SteelVal) -> SteelVal {
+    pub(crate) fn set_interior_mut(&self, value: T) -> T {
         let inner = self.inner.upgrade().unwrap();
 
         let ret = { inner.borrow().value.clone() };
@@ -295,34 +349,23 @@ impl HeapRef {
         ret
     }
 
-    pub(crate) fn strong_ptr(&self) -> Rc<RefCell<HeapAllocated>> {
+    pub(crate) fn strong_ptr(&self) -> Rc<RefCell<HeapAllocated<T>>> {
         self.inner.upgrade().unwrap()
+    }
+
+    pub(crate) fn ptr_eq(&self, other: &Self) -> bool {
+        Weak::ptr_eq(&self.inner, &other.inner)
     }
 }
 
-// impl AsRefSteelVal for HeapRef {
-//     type Nursery = ();
-
-//     fn as_ref<'b, 'a: 'b>(
-//         val: &'a SteelVal,
-//         _nursery: &mut Self::Nursery,
-//     ) -> crate::rvals::Result<SRef<'b, Self>> {
-//         if let SteelVal::Boxed(s) = val {
-//             Ok(SRef::Temporary(s))
-//         } else {
-//             stop!(TypeMismatch => "Value cannot be referenced as a syntax object")
-//         }
-//     }
-// }
-
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HeapAllocated {
+pub struct HeapAllocated<T: Clone + std::fmt::Debug + PartialEq + Eq> {
     pub(crate) reachable: bool,
-    pub(crate) value: SteelVal,
+    pub(crate) value: T,
 }
 
-impl HeapAllocated {
-    pub fn new(value: SteelVal) -> Self {
+impl<T: Clone + std::fmt::Debug + PartialEq + Eq> HeapAllocated<T> {
+    pub fn new(value: T) -> Self {
         Self {
             reachable: false,
             value,
@@ -342,170 +385,12 @@ impl HeapAllocated {
     }
 }
 
-pub struct HeapContext;
-
-impl HeapContext {
-    pub fn visit(&mut self, val: &SteelVal) {
-        traverse(val)
-    }
-}
-
-// Use this function to traverse and find all reachable things
-// 'reachable' should be values living in the heap, stack, and in the
-fn traverse(val: &SteelVal) {
-    match val {
-        // SteelVal::Pair(_) => {}
-        SteelVal::VectorV(v) => {
-            for value in v.iter() {
-                traverse(value)
-            }
-        }
-        SteelVal::ListV(v) => {
-            for value in v.iter() {
-                traverse(value)
-            }
-        }
-        SteelVal::MutableVector(v) => {
-            for value in v.borrow().iter() {
-                traverse(value)
-            }
-        }
-        SteelVal::HashMapV(h) => {
-            for (key, value) in h.iter() {
-                traverse(key);
-                traverse(value);
-            }
-        }
-        SteelVal::HashSetV(s) => {
-            for key in s.iter() {
-                traverse(key);
-            }
-        }
-        // SteelVal::StructV(_) => {}
-        // SteelVal::PortV(_) => {}
-        SteelVal::Closure(c) => {
-            for heap_ref in c.heap_allocated.borrow().iter() {
-                mark_heap_ref(&heap_ref.strong_ptr())
-            }
-
-            for capture in c.captures() {
-                traverse(capture);
-            }
-
-            if let Some(contract) = c.get_contract_information().as_ref() {
-                traverse(contract);
-            }
-        }
-        // SteelVal::IterV(_) => {}
-        // SteelVal::FutureV(_) => {}
-        SteelVal::StreamV(s) => {
-            traverse(&s.initial_value);
-            traverse(&s.stream_thunk);
-        }
-        // SteelVal::BoxV(_) => {}
-        // SteelVal::Contract(c) => visit_contract_type(c),
-        // SteelVal::ContractedFunction(c) => {
-        //     visit_function_contract(&c.contract);
-        //     if let SteelVal::Closure(func) = &c.function {
-        //         visit_closure(func);
-        //     }
-        //     // visit_closure(&c.function);
-        // }
-        SteelVal::ContinuationFunction(c) => {
-            for root in c.stack.iter() {
-                traverse(root);
-            }
-
-            for function in c.stack_frames.iter().map(|x| &x.function) {
-                for heap_ref in function.heap_allocated.borrow().iter() {
-                    mark_heap_ref(&heap_ref.strong_ptr())
-                }
-
-                for capture in function.captures() {
-                    traverse(capture);
-                }
-            }
-        }
-        SteelVal::BoolV(_) => {}
-        SteelVal::NumV(_) => {}
-        SteelVal::IntV(_) => {}
-        SteelVal::CharV(_) => {}
-        SteelVal::Void => {}
-        SteelVal::StringV(_) => {}
-        SteelVal::FuncV(_) => {}
-        SteelVal::SymbolV(_) => {}
-        SteelVal::Custom(c) => c.borrow().visit(&mut HeapContext),
-        SteelVal::CustomStruct(_) => todo!(),
-        SteelVal::PortV(_) => todo!(),
-        SteelVal::IterV(_) => todo!(),
-        SteelVal::ReducerV(_) => todo!(),
-        SteelVal::FutureFunc(_) => todo!(),
-        SteelVal::FutureV(_) => todo!(),
-        SteelVal::BoxedFunction(_) => todo!(),
-        SteelVal::MutFunc(_) => todo!(),
-        SteelVal::BuiltIn(_) => todo!(),
-        SteelVal::BoxedIterator(_) => todo!(),
-        SteelVal::SyntaxObject(_) => todo!(),
-        SteelVal::Boxed(_) => todo!(),
-        SteelVal::Reference(_) => todo!(),
-        SteelVal::BigNum(_) => todo!(),
-        SteelVal::HeapAllocated(_) => todo!(),
-    }
-}
-
-// fn visit_function_contract(f: &FunctionKind) {
-//     match f {
-//         FunctionKind::Basic(f) => {
-//             for pre_condition in f.pre_conditions() {
-//                 visit_contract_type(pre_condition)
-//             }
-//             visit_contract_type(f.post_condition());
-//         }
-//         FunctionKind::Dependent(_dc) => {
-//             unimplemented!()
-//         }
-//     }
-// }
-
-// fn visit_contract_type(contract: &ContractType) {
-//     match contract {
-//         ContractType::Flat(f) => {
-//             traverse(f.predicate());
-//         }
-//         ContractType::Function(f) => {
-//             visit_function_contract(f);
-//         }
-//     }
-// }
-
-fn visit_closure(c: &Gc<ByteCodeLambda>) {
-    for heap_ref in c.heap_allocated.borrow().iter() {
-        mark_heap_ref(&heap_ref.strong_ptr());
-    }
-
-    for capture in c.captures() {
-        traverse(capture);
-    }
-}
-
-fn mark_heap_ref(heap_ref: &Rc<RefCell<HeapAllocated>>) {
-    if heap_ref.borrow().is_reachable() {
-        return;
-    }
-
-    {
-        heap_ref.borrow_mut().mark_reachable();
-    }
-
-    traverse(&heap_ref.borrow().value);
-}
-
 pub struct MarkAndSweepContext<'a> {
     queue: &'a mut VecDeque<SteelVal>,
 }
 
 impl<'a> MarkAndSweepContext<'a> {
-    fn mark_heap_reference(&mut self, heap_ref: &Rc<RefCell<HeapAllocated>>) {
+    fn mark_heap_reference(&mut self, heap_ref: &Rc<RefCell<HeapAllocated<SteelVal>>>) {
         if heap_ref.borrow().is_reachable() {
             return;
         }
@@ -515,6 +400,21 @@ impl<'a> MarkAndSweepContext<'a> {
         }
 
         self.push_back(heap_ref.borrow().value.clone());
+    }
+
+    // Visit the heap vector, mark it as visited!
+    fn mark_heap_vector(&mut self, heap_vector: &Rc<RefCell<HeapAllocated<Vec<SteelVal>>>>) {
+        if heap_vector.borrow().is_reachable() {
+            return;
+        }
+
+        {
+            heap_vector.borrow_mut().mark_reachable();
+        }
+
+        for value in heap_vector.borrow().value.iter() {
+            self.push_back(value.clone());
+        }
     }
 }
 
@@ -653,10 +553,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
 
     fn visit_mutable_function(&mut self, _function: MutFunctionSignature) -> Self::Output {}
 
-    fn visit_mutable_vector(&mut self, vector: Gc<RefCell<Vec<SteelVal>>>) -> Self::Output {
-        for value in vector.borrow_mut().iter() {
-            self.push_back(value.clone());
-        }
+    fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output {
+        self.mark_heap_vector(&vector.strong_ptr())
     }
 
     fn visit_builtin_function(&mut self, _function: BuiltInSignature) -> Self::Output {}
@@ -685,7 +583,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
 
     fn visit_bignum(&mut self, _bignum: Gc<BigInt>) -> Self::Output {}
 
-    fn visit_heap_allocated(&mut self, heap_ref: HeapRef) -> Self::Output {
+    fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output {
         self.mark_heap_reference(&heap_ref.strong_ptr());
     }
 }

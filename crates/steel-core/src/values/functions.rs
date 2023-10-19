@@ -101,7 +101,7 @@ pub struct ByteCodeLambda {
 
     pub(crate) is_multi_arity: bool,
     pub(crate) captures: Vec<SteelVal>,
-    pub(crate) heap_allocated: RefCell<Vec<HeapRef>>,
+    pub(crate) heap_allocated: RefCell<Vec<HeapRef<SteelVal>>>,
     // pub(crate) spans: Rc<[Span]>,
     #[cfg(feature = "dynamic")]
     pub(crate) blocks: RefCell<Vec<(BlockPattern, BlockMetadata)>>,
@@ -192,7 +192,7 @@ impl ByteCodeLambda {
         arity: usize,
         is_multi_arity: bool,
         captures: Vec<SteelVal>,
-        heap_allocated: Vec<HeapRef>,
+        heap_allocated: Vec<HeapRef<SteelVal>>,
     ) -> ByteCodeLambda {
         // debug_assert_eq!(body_exp.len(), spans.len());
 
@@ -243,7 +243,7 @@ impl ByteCodeLambda {
         self.captures = captures;
     }
 
-    pub fn set_heap_allocated(&mut self, heap_allocated: Vec<HeapRef>) {
+    pub fn set_heap_allocated(&mut self, heap_allocated: Vec<HeapRef<SteelVal>>) {
         self.heap_allocated = RefCell::new(heap_allocated);
     }
 
@@ -295,7 +295,7 @@ impl ByteCodeLambda {
         self.arity
     }
 
-    pub fn heap_allocated(&self) -> &RefCell<Vec<HeapRef>> {
+    pub fn heap_allocated(&self) -> &RefCell<Vec<HeapRef<SteelVal>>> {
         &self.heap_allocated
     }
 

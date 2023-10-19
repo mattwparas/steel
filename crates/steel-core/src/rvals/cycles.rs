@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 use num::BigInt;
 
@@ -81,6 +81,11 @@ impl CycleDetector {
                     let ptr_addr = b.get().as_ptr_usize().unwrap();
                     self.cycles.get(&ptr_addr).unwrap()
                     // }
+                }
+                SteelVal::ListV(l) => {
+                    let ptr_addr = l.as_ptr_usize();
+
+                    self.cycles.get(&ptr_addr).unwrap()
                 }
                 _ => {
                     unreachable!()
@@ -187,7 +192,7 @@ impl CycleDetector {
             MutFunc(_) => write!(f, "#<function>"),
             BuiltIn(_) => write!(f, "#<function>"),
             ReducerV(_) => write!(f, "#<reducer>"),
-            MutableVector(v) => write!(f, "{:?}", v.as_ref().borrow()),
+            MutableVector(v) => write!(f, "{:?}", v.get()),
             SyntaxObject(s) => {
                 if let Some(raw) = &s.raw {
                     write!(f, "#<syntax:{:?} {:?}>", s.span, raw)
@@ -300,7 +305,7 @@ impl CycleDetector {
             MutFunc(_) => write!(f, "#<function>"),
             BuiltIn(_) => write!(f, "#<function>"),
             ReducerV(_) => write!(f, "#<reducer>"),
-            MutableVector(v) => write!(f, "{:?}", v.as_ref().borrow()),
+            MutableVector(v) => write!(f, "{:?}", v.get()),
             SyntaxObject(s) => {
                 if let Some(raw) = &s.raw {
                     write!(f, "#<syntax:{:?} {:?}>", s.span, raw)
@@ -371,8 +376,10 @@ impl CycleDetector {
                 // }
             }
             SteelVal::ListV(l) => {
-                for val in l {
-                    self.visit(val);
+                if !self.add(l.as_ptr_usize(), val) {
+                    for val in l {
+                        self.visit(val);
+                    }
                 }
             }
             SteelVal::HashMapV(h) => {
@@ -685,14 +692,14 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
     // TODO: When this gets replaced with heap storage, then we can do this more
     // effectively!
-    fn visit_mutable_vector(&mut self, vector: Gc<RefCell<Vec<SteelVal>>>) {
-        if let Ok(inner) = vector.try_unwrap() {
-            let inner = inner.into_inner();
+    fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) {
+        // if let Ok(inner) = vector.try_unwrap() {
+        //     let inner = inner.into_inner();
 
-            for value in inner {
-                self.push_back(value);
-            }
-        }
+        //     for value in inner {
+        //         self.push_back(value);
+        //     }
+        // }
     }
 
     // TODO: Once the root is added back to this, bring it back
@@ -720,7 +727,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
         }
     }
 
-    fn visit_heap_allocated(&mut self, heap_ref: HeapRef) -> Self::Output {
+    fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output {
         todo!()
     }
 }
@@ -858,7 +865,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleDetectorBFS<'a> {
         todo!()
     }
 
-    fn visit_mutable_vector(&mut self, vector: Gc<RefCell<Vec<SteelVal>>>) -> Self::Output {
+    fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output {
         todo!()
     }
 
@@ -889,7 +896,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleDetectorBFS<'a> {
         todo!()
     }
 
-    fn visit_heap_allocated(&mut self, heap_ref: HeapRef) -> Self::Output {
+    fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output {
         todo!()
     }
 }
@@ -970,7 +977,7 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_continuation(&mut self, continuation: Gc<Continuation>) -> Self::Output;
     fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output;
     fn visit_mutable_function(&mut self, function: MutFunctionSignature) -> Self::Output;
-    fn visit_mutable_vector(&mut self, vector: Gc<RefCell<Vec<SteelVal>>>) -> Self::Output;
+    fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output;
     fn visit_builtin_function(&mut self, function: BuiltInSignature) -> Self::Output;
     fn visit_boxed_iterator(
         &mut self,
@@ -980,10 +987,208 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_boxed_value(&mut self, boxed_value: Gc<RefCell<SteelVal>>) -> Self::Output;
     fn visit_reference_value(&mut self, reference: Rc<OpaqueReference<'static>>) -> Self::Output;
     fn visit_bignum(&mut self, bignum: Gc<BigInt>) -> Self::Output;
-    fn visit_heap_allocated(&mut self, heap_ref: HeapRef) -> Self::Output;
+    fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output;
 }
 
-enum PrintAction {
-    Value(SteelVal),
-    String(&'static str),
+struct RecursiveEqualityHandler<'a> {
+    left: EqualityVisitor<'a>,
+    right: EqualityVisitor<'a>,
+}
+
+impl<'a> RecursiveEqualityHandler<'a> {
+    pub fn compare_equality(left: SteelVal, right: SteelVal) {}
+
+    fn visit(&mut self) -> bool {
+        while let (Some(left), Some(right)) = (self.left.pop_front(), self.right.pop_front()) {
+            match (left, right) {
+                (Closure(l), Closure(r)) => {
+                    if l != r {
+                        return false;
+                    }
+
+                    self.left.visit_closure(l)
+                }
+                (BoolV(l), BoolV(r)) => {
+                    if l != r {
+                        return false;
+                    }
+                }
+                (NumV(l), NumV(r)) => {
+                    if l != r {
+                        return false;
+                    }
+                }
+                (IntV(l), IntV(r)) => {
+                    if l != r {
+                        return false;
+                    }
+                }
+                (CharV(l), CharV(r)) => {
+                    if l != r {
+                        return false;
+                    }
+                }
+                (VectorV(l), VectorV(r)) => self.left.visit_immutable_vector(l),
+                (Void, Void) => self.left.visit_void(),
+                (StringV(l), StringV(r)) => self.left.visit_string(l),
+                (FuncV(l), FuncV(r)) => self.left.visit_function_pointer(l),
+                (SymbolV(l), SymbolV(r)) => self.left.visit_symbol(l),
+                (SteelVal::Custom(l), SteelVal::Custom(r)) => {
+                    if l.borrow().inner_type_id() != r.borrow().inner_type_id() {
+                        return false;
+                    }
+
+                    // Go down to the next level
+                    self.left.visit_custom_type(l);
+                    self.right.visit_custom_type(r);
+                }
+                // HashMapV(h) => self.visit_hash_map(h),
+                // HashSetV(s) => self.visit_hash_set(s),
+                // CustomStruct(c) => self.visit_steel_struct(c),
+                // PortV(p) => self.visit_port(p),
+                // IterV(t) => self.visit_transducer(t),
+                // ReducerV(r) => self.visit_reducer(r),
+                // FutureFunc(f) => self.visit_future_function(f),
+                // FutureV(f) => self.visit_future(f),
+                // StreamV(s) => self.visit_stream(s),
+                // BoxedFunction(b) => self.visit_boxed_function(b),
+                // ContinuationFunction(c) => self.visit_continuation(c),
+                // ListV(l) => self.visit_list(l),
+                // MutFunc(m) => self.visit_mutable_function(m),
+                // BuiltIn(b) => self.visit_builtin_function(b),
+                // MutableVector(b) => self.visit_mutable_vector(b),
+                // BoxedIterator(b) => self.visit_boxed_iterator(b),
+                // SteelVal::SyntaxObject(s) => self.visit_syntax_object(s),
+                // Boxed(b) => self.visit_boxed_value(b),
+                // Reference(r) => self.visit_reference_value(r),
+                // BigNum(b) => self.visit_bignum(b),
+                // HeapAllocated(b) => self.visit_heap_allocated(b),
+                (_, _) => {
+                    return false;
+                }
+            }
+        }
+
+        false
+    }
+}
+
+struct EqualityVisitor<'a> {
+    // TODO: Keep a cycle collector around as well?
+    queue: &'a mut VecDeque<SteelVal>,
+
+    // Mark each node that we've visited, if we encounter any mutable objects
+    // on the way, then we'll start using the visited set. But we'll optimistically
+    // assume that there are no mutable objects, and we won't start using this
+    // until we absolutely have to.
+    visited: &'a mut fxhash::FxHashSet<usize>,
+}
+
+impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
+    type Output = ();
+
+    fn default_output(&mut self) -> Self::Output {}
+
+    fn pop_front(&mut self) -> Option<SteelVal> {
+        todo!()
+    }
+
+    fn push_back(&mut self, value: SteelVal) {
+        todo!()
+    }
+
+    fn visit_closure(&mut self, closure: Gc<ByteCodeLambda>) -> Self::Output {
+        todo!()
+    }
+
+    // Leaf nodes, we don't need to do anything here
+    fn visit_bool(&mut self, boolean: bool) -> Self::Output {}
+    fn visit_float(&mut self, float: f64) -> Self::Output {}
+    fn visit_int(&mut self, int: isize) -> Self::Output {}
+    fn visit_char(&mut self, c: char) -> Self::Output {}
+    fn visit_void(&mut self) -> Self::Output {}
+    fn visit_string(&mut self, string: SteelString) -> Self::Output {}
+    fn visit_function_pointer(&mut self, ptr: FunctionSignature) -> Self::Output {}
+    fn visit_symbol(&mut self, symbol: SteelString) -> Self::Output {}
+    fn visit_port(&mut self, port: Gc<SteelPort>) -> Self::Output {}
+    fn visit_boxed_function(&mut self, function: Rc<BoxedDynFunction>) -> Self::Output {}
+    fn visit_mutable_function(&mut self, function: MutFunctionSignature) -> Self::Output {}
+    fn visit_builtin_function(&mut self, function: BuiltInSignature) -> Self::Output {}
+
+    fn visit_immutable_vector(&mut self, vector: SteelVector) -> Self::Output {
+        todo!()
+    }
+
+    fn visit_custom_type(&mut self, custom_type: Gc<RefCell<Box<dyn CustomType>>>) -> Self::Output {
+        todo!()
+    }
+
+    fn visit_hash_map(&mut self, hashmap: SteelHashMap) -> Self::Output {
+        todo!()
+    }
+
+    fn visit_hash_set(&mut self, hashset: SteelHashSet) -> Self::Output {
+        todo!()
+    }
+
+    fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output {
+        todo!()
+    }
+
+    fn visit_transducer(&mut self, transducer: Gc<Transducer>) -> Self::Output {
+        todo!()
+    }
+
+    fn visit_reducer(&mut self, reducer: Gc<Reducer>) -> Self::Output {
+        todo!()
+    }
+
+    fn visit_future_function(&mut self, function: BoxedAsyncFunctionSignature) -> Self::Output {
+        todo!()
+    }
+
+    fn visit_future(&mut self, future: Gc<FutureResult>) -> Self::Output {
+        todo!()
+    }
+
+    fn visit_stream(&mut self, stream: Gc<LazyStream>) -> Self::Output {
+        todo!()
+    }
+
+    fn visit_continuation(&mut self, continuation: Gc<Continuation>) -> Self::Output {
+        todo!()
+    }
+
+    fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output {
+        todo!()
+    }
+
+    fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output {
+        todo!()
+    }
+
+    fn visit_boxed_iterator(
+        &mut self,
+        iterator: Gc<RefCell<BuiltInDataStructureIterator>>,
+    ) -> Self::Output {
+        todo!()
+    }
+
+    fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) -> Self::Output {
+        todo!()
+    }
+
+    fn visit_boxed_value(&mut self, boxed_value: Gc<RefCell<SteelVal>>) -> Self::Output {
+        todo!()
+    }
+
+    fn visit_reference_value(&mut self, reference: Rc<OpaqueReference<'static>>) -> Self::Output {
+        todo!()
+    }
+
+    fn visit_bignum(&mut self, bignum: Gc<BigInt>) -> Self::Output {}
+
+    fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output {
+        todo!()
+    }
 }

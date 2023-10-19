@@ -371,7 +371,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a Gc<RefCell<SteelVal>> {
     }
 }
 
-impl<'a> PrimitiveAsRef<'a> for &'a HeapRef {
+impl<'a> PrimitiveAsRef<'a> for &'a HeapRef<SteelVal> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::HeapAllocated(b) = val {
@@ -459,7 +459,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelHashSet {
     }
 }
 
-impl<'a> PrimitiveAsRef<'a> for &'a Gc<RefCell<Vec<SteelVal>>> {
+impl<'a> PrimitiveAsRef<'a> for &'a HeapRef<Vec<SteelVal>> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::MutableVector(p) = val {

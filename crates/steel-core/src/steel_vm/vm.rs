@@ -835,6 +835,36 @@ impl<'a> VmCore<'a> {
         })
     }
 
+    pub fn make_box(&mut self, value: SteelVal) -> SteelVal {
+        let allocated_var = self.thread.heap.allocate(
+            value,
+            self.thread.stack.iter(),
+            self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
+            self.thread.global_env.roots(),
+        );
+
+        SteelVal::HeapAllocated(allocated_var)
+    }
+
+    pub fn make_mutable_vector(&mut self, values: Vec<SteelVal>) -> SteelVal {
+        let allocated_var = self.thread.heap.allocate_vector(
+            values,
+            self.thread.stack.iter(),
+            self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
+            self.thread.global_env.roots(),
+        );
+
+        SteelVal::MutableVector(allocated_var)
+    }
+
+    fn gc_collect(&mut self) {
+        self.thread.heap.collect(
+            self.thread.stack.iter(),
+            self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
+            self.thread.global_env.roots(),
+        );
+    }
+
     // #[inline(always)]
     fn new_continuation_from_state(&self) -> Continuation {
         Continuation {
