@@ -8,6 +8,7 @@ use crate::{
         tokens::TokenType::{self, *},
         tryfrom_visitor::TryFromExprKindForSteelVal,
     },
+    steel_vm::primitives::MODULE_IDENTIFIERS,
 };
 
 use std::{convert::TryFrom, fmt::Write, sync::atomic::Ordering};
@@ -41,6 +42,12 @@ impl AstTools for Vec<ExprKind> {
 }
 
 impl AstTools for Vec<&ExprKind> {
+    fn pretty_print(&self) {
+        println!("{}", self.iter().map(|x| x.to_pretty(60)).join("\n\n"))
+    }
+}
+
+impl AstTools for &mut Vec<ExprKind> {
     fn pretty_print(&self) {
         println!("{}", self.iter().map(|x| x.to_pretty(60)).join("\n\n"))
     }
@@ -836,8 +843,13 @@ impl Define {
     pub(crate) fn is_a_builtin_definition(&self) -> bool {
         if let ExprKind::List(l) = &self.body {
             match l.first_ident() {
-                Some(func) if *func == *UNREADABLE_MODULE_GET => return true,
-                Some(func) if *func == *STANDARD_MODULE_GET => return true,
+                Some(func) if *func == *UNREADABLE_MODULE_GET || *func == *STANDARD_MODULE_GET => {
+                    // return true
+
+                    if let Some(module) = l.second_ident() {
+                        return MODULE_IDENTIFIERS.contains(module);
+                    }
+                }
                 _ => {}
             }
         }
@@ -1124,6 +1136,21 @@ impl List {
                     ..
                 },
         })) = self.args.first()
+        {
+            Some(s)
+        } else {
+            None
+        }
+    }
+
+    pub fn second_ident(&self) -> Option<&InternedString> {
+        if let Some(ExprKind::Atom(Atom {
+            syn:
+                SyntaxObject {
+                    ty: TokenType::Identifier(s),
+                    ..
+                },
+        })) = self.args.get(1)
         {
             Some(s)
         } else {

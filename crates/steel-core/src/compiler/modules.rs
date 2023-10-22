@@ -1,6 +1,12 @@
 #![allow(unused)]
 use crate::{
-    compiler::{passes::VisitorMutRefUnit, program::PROVIDE},
+    compiler::{
+        passes::{
+            analysis::{Analysis, SemanticAnalysis},
+            VisitorMutRefUnit,
+        },
+        program::PROVIDE,
+    },
     expr_list,
     parser::{
         ast::{AstTools, Atom, Begin, Define, ExprKind, List, Quote},
@@ -52,6 +58,8 @@ static BUILT_INS: &[(&str, &str)] = &[
     (RESULT_NAME, RESULT),
     (CONTRACT_NAME, CONTRACT),
 ];
+
+pub(crate) const MANGLER_SEPARATOR: &str = "__%#__";
 
 /// Manages the modules
 /// keeps some visited state on the manager for traversal
@@ -173,7 +181,9 @@ impl ModuleManager {
             .require_objects
             .iter()
             .filter(|x| !x.for_syntax)
-            .map(|x| "mangler".to_string() + x.path.get_path().to_str().unwrap())
+            .map(|x| {
+                "mangler".to_string() + x.path.get_path().to_str().unwrap() + MANGLER_SEPARATOR
+            })
             .collect::<Vec<_>>();
 
         let mut explicit_requires = HashMap::new();
@@ -220,7 +230,8 @@ impl ModuleManager {
                     // Would be nice if this could be handled by some macro expansion...
                     // See if contract/out
 
-                    let other_module_prefix = "mangler".to_string() + module.name.to_str().unwrap();
+                    let other_module_prefix =
+                        "mangler".to_string() + module.name.to_str().unwrap() + MANGLER_SEPARATOR;
 
                     // TODO: Expand the contract out into something we expect
                     // Otherwise, this is going to blow up
@@ -248,7 +259,7 @@ impl ModuleManager {
                                         let contract = l.args.get(2).unwrap();
 
                                         let hash_get = expr_list![
-                                            ExprKind::ident("hash-get"),
+                                            ExprKind::ident("%proto-hash-get%"),
                                             ExprKind::atom(
                                                 "__module-".to_string() + &other_module_prefix
                                             ),
@@ -308,7 +319,7 @@ impl ModuleManager {
                                         }
 
                                         let hash_get = expr_list![
-                                            ExprKind::ident("hash-get"),
+                                            ExprKind::ident("%proto-hash-get%"),
                                             ExprKind::atom(
                                                 "__module-".to_string() + &other_module_prefix
                                             ),
@@ -370,7 +381,7 @@ impl ModuleManager {
                             }
 
                             let hash_get = expr_list![
-                                ExprKind::ident("hash-get"),
+                                ExprKind::ident("%proto-hash-get%"),
                                 ExprKind::atom("__module-".to_string() + &other_module_prefix),
                                 ExprKind::Quote(Box::new(Quote::new(
                                     provide.clone(),
@@ -496,7 +507,7 @@ impl ModuleManager {
             .get(require_for_syntax)
             .expect(&format!("Module missing!: {:?}", require_for_syntax));
 
-        let prefix = "mangler".to_string() + module.name.to_str().unwrap();
+        let prefix = "mangler".to_string() + module.name.to_str().unwrap() + MANGLER_SEPARATOR;
 
         let globals = collect_globals(&module.ast);
 
@@ -608,7 +619,7 @@ impl CompiledModule {
         let mut exprs = self.ast.clone();
         let mut provide_definitions = Vec::new();
 
-        let prefix = "mangler".to_string() + self.name.to_str().unwrap();
+        let prefix = "mangler".to_string() + self.name.to_str().unwrap() + MANGLER_SEPARATOR;
 
         // Now we should be able to set up a series of requires with the right style
         // ;; Refresh the module definition in this namespace
@@ -640,7 +651,8 @@ impl CompiledModule {
             // println!("{:?}", modules.keys().collect::<Vec<_>>());
             let module = modules.get(path.as_ref()).unwrap();
 
-            let other_module_prefix = "mangler".to_string() + module.name.to_str().unwrap();
+            let other_module_prefix =
+                "mangler".to_string() + module.name.to_str().unwrap() + MANGLER_SEPARATOR;
 
             for provide_expr in &module.provides {
                 // For whatever reason, the value coming into module.provides is an expression like: (provide expr...)
@@ -694,7 +706,7 @@ impl CompiledModule {
                                         globals.insert(*name.atom_identifier().unwrap());
 
                                         let hash_get = expr_list![
-                                            ExprKind::ident("hash-get"),
+                                            ExprKind::ident("%proto-hash-get%"),
                                             ExprKind::atom(
                                                 "__module-".to_string() + &other_module_prefix
                                             ),
@@ -767,7 +779,7 @@ impl CompiledModule {
                             let define = ExprKind::Define(Box::new(Define::new(
                                 ExprKind::atom(prefix.clone() + provide_ident.resolve()),
                                 expr_list![
-                                    ExprKind::ident("hash-get"),
+                                    ExprKind::ident("%proto-hash-get%"),
                                     ExprKind::atom("__module-".to_string() + &other_module_prefix),
                                     ExprKind::Quote(Box::new(Quote::new(
                                         provide.clone(),
@@ -949,6 +961,18 @@ impl CompiledModule {
         // Construct the overall definition
         // TODO: Perhaps mangle these as well, especially if they have contracts associated with them
         provide_definitions.append(&mut exprs);
+
+        // Try this out?
+        // let mut analysis = Analysis::from_exprs(&provide_definitions);
+        // let mut semantic = SemanticAnalysis::from_analysis(&mut provide_definitions, analysis);
+
+        // // This is definitely broken still
+        // semantic
+        // .remove_unused_globals_with_prefix("mangler")
+        // .replace_non_shadowed_globals_with_builtins()
+        // .remove_unused_globals_with_prefix("mangler");
+
+        // println!("------ {}", provide_definitions.to_pretty(60));
 
         Ok(ExprKind::Begin(Begin::new(
             provide_definitions,
@@ -1478,7 +1502,16 @@ impl<'a> ModuleBuilder<'a> {
 
         module.set_emitted(true);
 
-        let result = module.to_top_level_module(self.compiled_modules, self.global_macro_map)?;
+        let mut result =
+            module.to_top_level_module(self.compiled_modules, self.global_macro_map)?;
+
+        // let mut analysis = Analysis::from_exprs(&[result]);
+
+        // let mut semantic = SemanticAnalysis::from_analysis(&mut result, analysis);
+
+        // // This is definitely broken still
+        // semantic
+        //     .remove_unused_globals_with_prefix("mangler");
 
         log::debug!(target: "requires", "Adding compiled module: {:?}", self.name);
 
@@ -1927,10 +1960,18 @@ impl<'a> ModuleBuilder<'a> {
     fn parse_from_path(mut self) -> Result<Self> {
         log::info!("Opening: {:?}", self.name);
 
-        let mut file = std::fs::File::open(&self.name)?;
+        let mut file = std::fs::File::open(&self.name).map_err(|err| {
+            let mut err = crate::SteelErr::from(err);
+            err.prepend_message(&format!("Attempting to load module from: {:?}", self.name));
+            err
+        })?;
         self.file_metadata
             .insert(self.name.clone(), file.metadata()?.modified()?);
-        let mut exprs = String::new();
+
+        // TODO: DEFAULT MODULE LOADER PREFIX
+        // let mut exprs = String::new();
+
+        let mut exprs = PRELUDE_STRING.to_string();
 
         // Add the modules here:
 
@@ -1955,6 +1996,8 @@ impl<'a> ModuleBuilder<'a> {
 
         Ok(self)
     }
-
-    // fn search_index
 }
+
+// pub static PRELUDE_STRING: &str = "";
+
+pub static PRELUDE_STRING: &str = "(require-builtin steel/base) (require \"#%private/steel/contract\" (for-syntax \"#%private/steel/contract\")) ";

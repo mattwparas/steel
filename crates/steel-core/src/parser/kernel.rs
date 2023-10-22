@@ -208,18 +208,58 @@ impl Kernel {
         let subset = analysis
             .exprs
             .iter()
-            .filter(|expr| {
-                if let ExprKind::Define(define) = expr {
-                    if let ExprKind::LambdaFunction(_) = &define.body {
-                        let name = define.name.atom_identifier().unwrap().clone();
+            .filter_map(|expr| {
+                match expr {
+                    ExprKind::Define(define) => {
+                        if let ExprKind::LambdaFunction(_) = &define.body {
+                            let name = define.name.atom_identifier().unwrap().clone();
 
-                        return result.contains_key(&name);
+                            return if result.contains_key(&name) {
+                                Some(expr.clone())
+                            } else {
+                                None
+                            };
+                        }
                     }
+                    ExprKind::Begin(b) => {
+                        let begin = b
+                            .exprs
+                            .iter()
+                            .filter(|expr| {
+                                if let ExprKind::Define(define) = expr {
+                                    if let ExprKind::LambdaFunction(_) = &define.body {
+                                        let name = define.name.atom_identifier().unwrap().clone();
+
+                                        return result.contains_key(&name);
+                                    }
+                                }
+
+                                false
+                            })
+                            .cloned()
+                            .collect();
+
+                        return Some(ExprKind::Begin(crate::parser::ast::Begin::new(
+                            begin,
+                            b.location.clone(),
+                        )));
+                    }
+
+                    _ => {}
                 }
 
-                false
+                return None;
+
+                // TODO: Also check begin statements here as well
+                // if let ExprKind::Define(define) = expr {
+                //     if let ExprKind::LambdaFunction(_) = &define.body {
+                //         let name = define.name.atom_identifier().unwrap().clone();
+
+                //         return result.contains_key(&name);
+                //     }
+                // }
             })
-            .cloned()
+            // .cloned()
             .collect::<Vec<_>>();
 
         log::debug!("Loading constant functions");

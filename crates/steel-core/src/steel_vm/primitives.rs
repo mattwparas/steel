@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
     gc::Gc,
-    parser::span::Span,
+    parser::{interner::InternedString, span::Span},
     primitives::{
         contracts, fs_module,
         hashmaps::hashmap_module,
@@ -55,6 +55,7 @@ use crate::primitives::colors::string_coloring_module;
 use crate::values::lists::List;
 use im_rc::HashMap;
 use num::Signed;
+use once_cell::sync::Lazy;
 
 macro_rules! ensure_tonicity_two {
     ($check_fn:expr) => {{
@@ -309,6 +310,8 @@ pub fn register_builtin_modules_without_io(engine: &mut Engine) {
     engine.register_fn("##__module-get", BuiltInModule::get);
     engine.register_fn("%module-get%", BuiltInModule::get);
 
+    engine.register_fn("load-from-module!", BuiltInModule::get);
+
     engine.register_value("%proto-hash%", HM_CONSTRUCT);
     engine.register_value("%proto-hash-insert%", HM_INSERT);
     engine.register_value("%proto-hash-get%", HM_GET);
@@ -353,6 +356,9 @@ pub fn register_builtin_modules(engine: &mut Engine) {
 
     engine.register_fn("##__module-get", BuiltInModule::get);
     engine.register_fn("%module-get%", BuiltInModule::get);
+
+    engine.register_fn("load-from-module!", BuiltInModule::get);
+
     engine.register_fn("%doc?", BuiltInModule::get_doc);
     // engine.register_fn("%module-docs", BuiltInModule::docs);
     engine.register_value("%list-modules!", SteelVal::BuiltIn(list_modules));
@@ -425,6 +431,36 @@ pub fn register_builtin_modules(engine: &mut Engine) {
     engine.register_module(BLOCKING_REQUESTS_MODULE.with(|x| x.clone()));
 }
 
+pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::new(|| {
+    let mut set = fxhash::FxHashSet::default();
+
+    // TODO: Consolidate the prefixes and module names into one spot
+    set.insert("%-builtin-module-steel/hash".into());
+    set.insert("%-builtin-module-steel/sets".into());
+    set.insert("%-builtin-module-steel/lists".into());
+    set.insert("%-builtin-module-steel/strings".into());
+    set.insert("%-builtin-module-steel/vectors".into());
+    set.insert("%-builtin-module-steel/streams".into());
+    set.insert("%-builtin-module-steel/identity".into());
+    set.insert("%-builtin-module-steel/numbers".into());
+    set.insert("%-builtin-module-steel/equality".into());
+    set.insert("%-builtin-module-steel/ord".into());
+    set.insert("%-builtin-module-steel/transducers".into());
+    set.insert("%-builtin-module-steel/io".into());
+    set.insert("%-builtin-module-steel/filesystem".into());
+    set.insert("%-builtin-module-steel/ports".into());
+    set.insert("%-builtin-module-steel/meta".into());
+    set.insert("%-builtin-module-steel/constants".into());
+    set.insert("%-builtin-module-steel/syntax".into());
+    set.insert("%-builtin-module-steel/process".into());
+    set.insert("%-builtin-module-steel/core/result".into());
+    set.insert("%-builtin-module-steel/core/option".into());
+    set.insert("%-builtin-module-steel/threads".into());
+    set.insert("%-builtin-module-steel/base".into());
+
+    set
+});
+
 pub static ALL_MODULES: &str = r#"
     (require-builtin steel/hash)
     (require-builtin steel/sets)
@@ -433,7 +469,6 @@ pub static ALL_MODULES: &str = r#"
     (require-builtin steel/symbols)
     (require-builtin steel/vectors)
     (require-builtin steel/streams)
-    ;; (require-builtin steel/contracts)
     (require-builtin steel/identity)
     (require-builtin steel/numbers)
     (require-builtin steel/equality)
@@ -451,6 +486,60 @@ pub static ALL_MODULES: &str = r#"
     (require-builtin steel/core/option)
     (require-builtin steel/core/types)
     (require-builtin steel/threads)
+
+
+    (require-builtin steel/hash as #%prim.)
+    (require-builtin steel/sets as #%prim.)
+    (require-builtin steel/lists as #%prim.)
+    (require-builtin steel/strings as #%prim.)
+    (require-builtin steel/symbols as #%prim.)
+    (require-builtin steel/vectors as #%prim.)
+    (require-builtin steel/streams as #%prim.)
+    (require-builtin steel/identity as #%prim.)
+    (require-builtin steel/numbers as #%prim.)
+    (require-builtin steel/equality as #%prim.)
+    (require-builtin steel/ord as #%prim.)
+    (require-builtin steel/transducers as #%prim.)
+    (require-builtin steel/io as #%prim.)
+    (require-builtin steel/filesystem as #%prim.)
+    (require-builtin steel/ports as #%prim.)
+    (require-builtin steel/meta as #%prim.)
+    (require-builtin steel/json as #%prim.)
+    (require-builtin steel/constants as #%prim.)
+    (require-builtin steel/syntax as #%prim.)
+    (require-builtin steel/process as #%prim.)
+    (require-builtin steel/core/result as #%prim.)
+    (require-builtin steel/core/option as #%prim.)
+    (require-builtin steel/core/types as #%prim.)
+    (require-builtin steel/threads as #%prim.)
+
+"#;
+
+pub static ALL_MODULES_RESERVED: &str = r#"
+    (require-builtin steel/hash as #%prim.)
+    (require-builtin steel/sets as #%prim.)
+    (require-builtin steel/lists as #%prim.)
+    (require-builtin steel/strings as #%prim.)
+    (require-builtin steel/symbols as #%prim.)
+    (require-builtin steel/vectors as #%prim.)
+    (require-builtin steel/streams as #%prim.)
+    (require-builtin steel/identity as #%prim.)
+    (require-builtin steel/numbers as #%prim.)
+    (require-builtin steel/equality as #%prim.)
+    (require-builtin steel/ord as #%prim.)
+    (require-builtin steel/transducers as #%prim.)
+    (require-builtin steel/io as #%prim.)
+    (require-builtin steel/filesystem as #%prim.)
+    (require-builtin steel/ports as #%prim.)
+    (require-builtin steel/meta as #%prim.)
+    (require-builtin steel/json as #%prim.)
+    (require-builtin steel/constants as #%prim.)
+    (require-builtin steel/syntax as #%prim.)
+    (require-builtin steel/process as #%prim.)
+    (require-builtin steel/core/result as #%prim.)
+    (require-builtin steel/core/option as #%prim.)
+    (require-builtin steel/core/types as #%prim.)
+    (require-builtin steel/threads as #%prim.)
 "#;
 
 pub static SANDBOXED_MODULES: &str = r#"
@@ -461,7 +550,6 @@ pub static SANDBOXED_MODULES: &str = r#"
     (require-builtin steel/symbols)
     (require-builtin steel/vectors)
     (require-builtin steel/streams)
-    ;; (require-builtin steel/contracts)
     (require-builtin steel/identity)
     (require-builtin steel/numbers)
     (require-builtin steel/equality)
@@ -566,6 +654,11 @@ fn voidp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::Void)
 }
 
+#[steel_derive::function(name = "struct?", constant = true)]
+fn structp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::CustomStruct(_))
+}
+
 #[steel_derive::function(name = "function?", constant = true)]
 fn functionp(value: &SteelVal) -> bool {
     matches!(
@@ -611,6 +704,7 @@ fn identity_module() -> BuiltInModule {
         .register_native_fn_definition(BOOLEANP_DEFINITION)
         .register_native_fn_definition(BOOLP_DEFINITION)
         .register_native_fn_definition(VOIDP_DEFINITION)
+        .register_native_fn_definition(STRUCTP_DEFINITION)
         .register_value("mutable-vector?", gen_pred!(MutableVector))
         .register_value("char?", gen_pred!(CharV))
         .register_value("future?", gen_pred!(FutureV))
@@ -903,14 +997,14 @@ fn arity(value: SteelVal) -> UnRecoverableResult {
 
             if let Some(SteelVal::CustomStruct(s)) = c.get_contract_information() {
                 let guard = s;
-                if guard.name.resolve() == "FunctionContract" {
+                if guard.name().resolve() == "FunctionContract" {
                     if let SteelVal::ListV(l) = &guard.fields[0] {
                         Ok(SteelVal::IntV(l.len() as isize)).into()
                     } else {
                         steelerr!(TypeMismatch => "Unable to find the arity for the given function")
                             .into()
                     }
-                } else if guard.name.resolve() == "FlatContract" {
+                } else if guard.name().resolve() == "FlatContract" {
                     Ok(SteelVal::IntV(1)).into()
                 } else {
                     // This really shouldn't happen

@@ -107,8 +107,30 @@
                (filtering (lambda (x) (not (transparent-keyword? x))))
                (into-list)))
 
+  ;; Set up default values to go in the table
   (define extra-options
-    (hash '#:mutable mutable? '#:transparent transparent? '#:fields (list 'quote fields)))
+    (hash '#:mutable
+          mutable?
+          '#:transparent
+          transparent?
+          '#:fields
+          (list 'quote fields)
+          '#:name
+          (list 'quote struct-name)
+          '#:printer
+          (if transparent?
+              `(lambda (obj printer-function)
+                 (display "(")
+                 (printer-function (symbol->string ,(list 'quote struct-name)))
+                 ,@(map (lambda (field)
+                          `(begin
+                             (display " ")
+                             (printer-function (,(concat-symbols struct-name '- field) obj))))
+                        fields)
+
+                 (display ")"))
+
+              #f)))
 
   (when (not (list? fields))
     (error! "struct expects a list of field names, found " fields))

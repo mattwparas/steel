@@ -1843,47 +1843,43 @@ pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
 }
 
 // TODO add tests
-impl PartialEq for SteelVal {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Void, Void) => true,
-            (BoolV(l), BoolV(r)) => l == r,
-            (BigNum(l), BigNum(r)) => l == r,
-            // (NumV(l), NumV(r)) => l == r,
-            (IntV(l), IntV(r)) => l == r,
+// impl PartialEq for SteelVal {
+//     fn eq(&self, other: &Self) -> bool {
+//         match (self, other) {
+//             (Void, Void) => true,
+//             (BoolV(l), BoolV(r)) => l == r,
+//             (BigNum(l), BigNum(r)) => l == r,
+//             // (NumV(l), NumV(r)) => l == r,
+//             (IntV(l), IntV(r)) => l == r,
 
-            // Floats shouls also be considered equal
-            (NumV(l), NumV(r)) => l == r,
+//             // Floats shouls also be considered equal
+//             (NumV(l), NumV(r)) => l == r,
 
-            // (NumV(l), IntV(r)) => *l == *r as f64,
-            // (IntV(l), NumV(r)) => *l as f64 == *r,
-            (StringV(l), StringV(r)) => l == r,
-            (VectorV(l), VectorV(r)) => l == r,
-            (SymbolV(l), SymbolV(r)) => l == r,
-            (CharV(l), CharV(r)) => l == r,
-            // (Pair(_), Pair(_)) => collect_pair_into_vector(self) == collect_pair_into_vector(other),
-            (HashSetV(l), HashSetV(r)) => l == r,
-            (HashMapV(l), HashMapV(r)) => l == r,
-            (Closure(l), Closure(r)) => l == r,
-            // (ContractedFunction(l), ContractedFunction(r)) => l == r,
-            // (Contract(l), Contract(r)) => l == r,
-            (IterV(l), IterV(r)) => l == r,
-            (ListV(l), ListV(r)) => l == r,
-            (CustomStruct(l), CustomStruct(r)) => l == r,
-            (FuncV(l), FuncV(r)) => *l as usize == *r as usize,
-            (Custom(l), Custom(r)) => Gc::ptr_eq(l, r),
-            //TODO
-            (_, _) => false, // (l, r) => {
-                             //     let left = unwrap!(l, usize);
-                             //     let right = unwrap!(r, usize);
-                             //     match (left, right) {
-                             //         (Ok(l), Ok(r)) => l == r,
-                             //         (_, _) => false,
-                             //     }
-                             // }
-        }
-    }
-}
+//             (StringV(l), StringV(r)) => l == r,
+//             (VectorV(l), VectorV(r)) => l == r,
+//             (SymbolV(l), SymbolV(r)) => l == r,
+//             (CharV(l), CharV(r)) => l == r,
+//             (HashSetV(l), HashSetV(r)) => l == r,
+//             (HashMapV(l), HashMapV(r)) => l == r,
+//             (Closure(l), Closure(r)) => l == r,
+//             (IterV(l), IterV(r)) => l == r,
+//             (ListV(l), ListV(r)) => l == r,
+//             (CustomStruct(l), CustomStruct(r)) => l == r,
+//             (FuncV(l), FuncV(r)) => *l == *r,
+//             (Custom(l), Custom(r)) => Gc::ptr_eq(l, r),
+//             (HeapAllocated(l), HeapAllocated(r)) => l.get() == r.get(),
+//             //TODO
+//             (_, _) => false, // (l, r) => {
+//                              //     let left = unwrap!(l, usize);
+//                              //     let right = unwrap!(r, usize);
+//                              //     match (left, right) {
+//                              //         (Ok(l), Ok(r)) => l == r,
+//                              //         (_, _) => false,
+//                              //     }
+//                              // }
+//         }
+//     }
+// }
 
 // TODO add tests
 impl PartialOrd for SteelVal {

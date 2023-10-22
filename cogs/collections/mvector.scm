@@ -1,4 +1,14 @@
 (require-builtin #%private/steel/mvector as private.)
+; (require-builtin steel/base)
+
+;; Clean this up
+;; Make the built in API just use immutable-vector
+(provide vector?
+         immutable-vector?
+         mutable-vector?
+         make-vector
+         vector
+         mutable-vector->list)
 
 (struct MutableVector (inner)
   #:mutable
@@ -18,8 +28,25 @@
                                             (printer-function elem))
                                           1)
 
-                 (printer-function ")")
-                 (printer-function "\n")])))
+                 (printer-function ")")])))
+
+(define immutable-vector? (load-from-module! %-builtin-module-steel/identity 'vector?))
+(define mutable-vector? MutableVector?)
+
+(define vector? (lambda (x) (or (immutable-vector? x) (MutableVector? x))))
+
+(define make-vector
+  (case-lambda
+    [(k)
+     (when (< k 0)
+       (error "make-vector requires a positive integer, found " k))
+
+     (list->mutable-vector (map (lambda (_) void) (range 0 k)))]
+    [(k v)
+     (when (< k 0)
+       (error "make-vector requires a positive integer, found " k))
+
+     (list->mutable-vector (map (lambda (_) v) (range 0 k)))]))
 
 (define (make-mutable-vector)
   (MutableVector (private.make-mutable-vector)))
@@ -47,6 +74,8 @@
 
 (define (mut-vector . args)
   (MutableVector (private.mutable-vector-from-list args)))
+
+(define vector mut-vector)
 
 ;; TODO: Design iterator over this
 (struct MutableVectorIterator (vec idx) #:mutable #:printer (lambda (x) x))

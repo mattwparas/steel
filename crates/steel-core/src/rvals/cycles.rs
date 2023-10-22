@@ -1,4 +1,9 @@
-use std::collections::{HashSet, VecDeque};
+use std::{
+    cell::Cell,
+    collections::{HashSet, VecDeque},
+    marker::PhantomData,
+    thread::LocalKey,
+};
 
 use num::BigInt;
 
@@ -143,7 +148,7 @@ impl CycleDetector {
                         .and_then(|x| x.as_bool())
                         .unwrap_or_default()
                     {
-                        write!(f, "({}", guard.name)?;
+                        write!(f, "({}", guard.name())?;
 
                         for i in guard.fields.iter() {
                             write!(f, " ")?;
@@ -152,7 +157,7 @@ impl CycleDetector {
 
                         write!(f, ")")
                     } else {
-                        write!(f, "({})", guard.name)
+                        write!(f, "({})", guard.name())
                     }
                 }
             }
@@ -247,7 +252,7 @@ impl CycleDetector {
                             .and_then(|x| x.as_bool())
                             .unwrap_or_default()
                         {
-                            write!(f, "({}", guard.name)?;
+                            write!(f, "({}", guard.name())?;
 
                             for i in guard.fields.iter() {
                                 write!(f, " ")?;
@@ -256,7 +261,7 @@ impl CycleDetector {
 
                             write!(f, ")")
                         } else {
-                            write!(f, "({})", guard.name)
+                            write!(f, "({})", guard.name())
                         }
                     }
                 }
@@ -990,49 +995,152 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output;
 }
 
+thread_local! {
+    static LEFT_QUEUE: RefCell<VecDeque<SteelVal>> = RefCell::new(VecDeque::with_capacity(128));
+    static RIGHT_QUEUE: RefCell<VecDeque<SteelVal>> = RefCell::new(VecDeque::with_capacity(128));
+    static VISITED_SET: RefCell<fxhash::FxHashSet<usize>> = RefCell::new(fxhash::FxHashSet::default());
+    static EQ_DEPTH: Cell<usize> = Cell::new(0);
+}
+
+fn increment_eq_depth() {
+    #[cfg(feature = "sandbox")]
+    EQ_DEPTH.with(|x| x.set(x.get() + 1));
+}
+
+fn decrement_eq_depth() {
+    #[cfg(feature = "sandbox")]
+    EQ_DEPTH.with(|x| x.set(x.get() - 1));
+}
+
+fn reset_eq_depth() {
+    #[cfg(feature = "sandbox")]
+    EQ_DEPTH.with(|x| x.set(0));
+}
+
+fn eq_depth() -> usize {
+    #[cfg(feature = "sandbox")]
+    return EQ_DEPTH.with(|x| x.get());
+
+    #[cfg(not(feature = "sandbox"))]
+    0
+}
+
 struct RecursiveEqualityHandler<'a> {
     left: EqualityVisitor<'a>,
     right: EqualityVisitor<'a>,
+    visited: &'a mut fxhash::FxHashSet<usize>,
+    found_mutable_object: bool,
 }
 
 impl<'a> RecursiveEqualityHandler<'a> {
-    pub fn compare_equality(left: SteelVal, right: SteelVal) {}
+    pub fn compare_equality(&mut self, left: SteelVal, right: SteelVal) -> bool {
+        self.left.push_back(left);
+        self.right.push_back(right);
+
+        self.visit()
+    }
+
+    fn should_visit(&mut self, value: usize) -> bool {
+        if self.found_mutable_object && self.visited.insert(value) {
+            return true;
+        }
+
+        if !self.found_mutable_object {
+            return true;
+        }
+
+        return false;
+    }
 
     fn visit(&mut self) -> bool {
-        while let (Some(left), Some(right)) = (self.left.pop_front(), self.right.pop_front()) {
+        loop {
+            let (left, right) = match (self.left.pop_front(), self.right.pop_front()) {
+                (Some(l), Some(r)) => (l, r),
+                (None, None) => return true,
+                _ => return false,
+            };
+
             match (left, right) {
                 (Closure(l), Closure(r)) => {
                     if l != r {
                         return false;
                     }
 
-                    self.left.visit_closure(l)
+                    self.left.visit_closure(l);
+
+                    continue;
                 }
                 (BoolV(l), BoolV(r)) => {
                     if l != r {
                         return false;
                     }
+
+                    continue;
                 }
                 (NumV(l), NumV(r)) => {
                     if l != r {
                         return false;
                     }
+
+                    continue;
                 }
                 (IntV(l), IntV(r)) => {
                     if l != r {
                         return false;
                     }
+
+                    continue;
                 }
                 (CharV(l), CharV(r)) => {
                     if l != r {
                         return false;
                     }
+
+                    continue;
                 }
-                (VectorV(l), VectorV(r)) => self.left.visit_immutable_vector(l),
-                (Void, Void) => self.left.visit_void(),
-                (StringV(l), StringV(r)) => self.left.visit_string(l),
-                (FuncV(l), FuncV(r)) => self.left.visit_function_pointer(l),
-                (SymbolV(l), SymbolV(r)) => self.left.visit_symbol(l),
+                (VectorV(l), VectorV(r)) => {
+                    if l.len() != r.len() {
+                        return false;
+                    }
+
+                    // If these point to the same object, break early
+                    if Gc::ptr_eq(&l.0, &r.0) {
+                        continue;
+                    }
+
+                    // Should we visit these?
+                    if self.should_visit(l.0.as_ptr() as usize)
+                        && self.should_visit(r.0.as_ptr() as usize)
+                    {
+                        self.left.visit_immutable_vector(l);
+                        self.right.visit_immutable_vector(r);
+                    } else {
+                        return false;
+                    }
+
+                    continue;
+                }
+                (Void, Void) => {
+                    continue;
+                }
+                (StringV(l), StringV(r)) => {
+                    if l != r {
+                        return false;
+                    }
+                    continue;
+                }
+                (FuncV(l), FuncV(r)) => {
+                    if l != r {
+                        return false;
+                    }
+                    continue;
+                }
+                (SymbolV(l), SymbolV(r)) => {
+                    if l != r {
+                        return false;
+                    }
+                    continue;
+                }
                 (SteelVal::Custom(l), SteelVal::Custom(r)) => {
                     if l.borrow().inner_type_id() != r.borrow().inner_type_id() {
                         return false;
@@ -1041,47 +1149,185 @@ impl<'a> RecursiveEqualityHandler<'a> {
                     // Go down to the next level
                     self.left.visit_custom_type(l);
                     self.right.visit_custom_type(r);
+                    continue;
                 }
-                // HashMapV(h) => self.visit_hash_map(h),
-                // HashSetV(s) => self.visit_hash_set(s),
-                // CustomStruct(c) => self.visit_steel_struct(c),
-                // PortV(p) => self.visit_port(p),
+                (SteelVal::HashMapV(l), SteelVal::HashMapV(r)) => {
+                    if Gc::ptr_eq(&l.0, &r.0) {
+                        println!("Found ptr equality");
+
+                        continue;
+                    }
+
+                    if self.should_visit(l.0.as_ptr() as usize)
+                        && self.should_visit(r.0.as_ptr() as usize)
+                    {
+                        if l.len() != r.len() {
+                            return false;
+                        }
+
+                        // TODO: Implicitly here we are assuming that this key was even hashable
+                        // to begin with, since it ended up in the right spot, and didn't blow
+                        // the stack on a recursive structure.
+                        //
+                        // This still does not handle the pathological edge case of something like
+                        // (hash (hash (hash ...) value) value)
+                        //
+                        // In this case, we'll get a stack overflow, when trying to compare equality
+                        // with these maps if they're sufficiently deep.
+                        //
+                        // The issue is that if the two maps are equivalent, we need to check the
+                        // existence of each key in the left map with each key in the right map.
+                        // Doing so invokes an equality check, where we'll then invoke this logic
+                        // again. We could solve this by disallowing hashmaps as keys - then
+                        // we would not the same issue where putting a hashmap into the map
+                        // causes the equality checks to go off the rails.
+
+                        if eq_depth() > 512 {
+                            log::error!("Aborting eq checks before the stack overflows");
+
+                            return false;
+                        }
+
+                        for (key, value) in l.0.iter() {
+                            if let Some(right_value) = r.0.get(key) {
+                                self.left.push_back(value.clone());
+                                self.right.push_back(right_value.clone());
+                            } else {
+                                // We know that these are not equal, because the
+                                // key in the left map does not exist in the right
+                                return false;
+                            }
+                        }
+                    }
+
+                    continue;
+                }
+                (HashSetV(l), HashSetV(r)) => {
+                    if Gc::ptr_eq(&l.0, &r.0) {
+                        continue;
+                    }
+
+                    if self.should_visit(l.0.as_ptr() as usize)
+                        && self.should_visit(r.0.as_ptr() as usize)
+                    {
+                        if l.len() != r.len() {
+                            return false;
+                        }
+                        if eq_depth() > 512 {
+                            log::error!("Aborting eq checks before the stack overflows");
+
+                            return false;
+                        }
+
+                        for key in l.0.iter() {
+                            if !l.0.contains(key) {
+                                return false;
+                            }
+                        }
+                    }
+
+                    continue;
+                }
+                (CustomStruct(l), CustomStruct(r)) => {
+                    // If these are the same object, just continue
+                    if Gc::ptr_eq(&l, &r) {
+                        continue;
+                    }
+
+                    if self.should_visit(l.as_ptr() as usize)
+                        && self.should_visit(r.as_ptr() as usize)
+                    {
+                        // Check the top level equality indicators to make sure
+                        // that these two types are the same
+                        if !(l.type_descriptor == r.type_descriptor && l.name() == r.name()) {
+                            return false;
+                        }
+
+                        self.left.visit_steel_struct(l);
+                        self.right.visit_steel_struct(r);
+                    }
+
+                    continue;
+                }
+                // (PortV(_), PortV(_)) => {
+                // return
+                // }
                 // IterV(t) => self.visit_transducer(t),
                 // ReducerV(r) => self.visit_reducer(r),
-                // FutureFunc(f) => self.visit_future_function(f),
+                // (FutureFunc(l), FutureFunc(r)) => {
+                // if l != r {
+                // return false;
+                // }
+                // }
                 // FutureV(f) => self.visit_future(f),
                 // StreamV(s) => self.visit_stream(s),
-                // BoxedFunction(b) => self.visit_boxed_function(b),
+                // (BoxedFunction(l), BoxedFunction(r)) => {}
                 // ContinuationFunction(c) => self.visit_continuation(c),
-                // ListV(l) => self.visit_list(l),
+                (ListV(l), ListV(r)) => {
+                    // If we've reached the same object, we're good
+                    if l.ptr_eq(&r) {
+                        continue;
+                    }
+
+                    if self.should_visit(l.as_ptr_usize()) && self.should_visit(r.as_ptr_usize()) {
+                        if l.len() != r.len() {
+                            return false;
+                        }
+
+                        self.left.visit_list(l);
+                        self.right.visit_list(r);
+                    }
+
+                    continue;
+
+                    // if l.len() != r.len() {
+                    //     return false;
+                    // }
+
+                    // self.left.visit_list(l);
+                    // self.right.visit_list(r);
+                }
                 // MutFunc(m) => self.visit_mutable_function(m),
-                // BuiltIn(b) => self.visit_builtin_function(b),
+                (BuiltIn(l), BuiltIn(r)) => {
+                    if l != r {
+                        return false;
+                    }
+                    continue;
+                }
                 // MutableVector(b) => self.visit_mutable_vector(b),
                 // BoxedIterator(b) => self.visit_boxed_iterator(b),
                 // SteelVal::SyntaxObject(s) => self.visit_syntax_object(s),
                 // Boxed(b) => self.visit_boxed_value(b),
                 // Reference(r) => self.visit_reference_value(r),
-                // BigNum(b) => self.visit_bignum(b),
-                // HeapAllocated(b) => self.visit_heap_allocated(b),
+                (BigNum(l), BigNum(r)) => {
+                    if l != r {
+                        return false;
+                    }
+                    continue;
+                }
+                (HeapAllocated(l), HeapAllocated(r)) => {
+                    self.left.visit_heap_allocated(l);
+                    self.right.visit_heap_allocated(r);
+
+                    continue;
+                }
                 (_, _) => {
                     return false;
                 }
             }
-        }
 
-        false
+            // unreachable!();
+        }
     }
 }
 
 struct EqualityVisitor<'a> {
-    // TODO: Keep a cycle collector around as well?
-    queue: &'a mut VecDeque<SteelVal>,
-
     // Mark each node that we've visited, if we encounter any mutable objects
     // on the way, then we'll start using the visited set. But we'll optimistically
     // assume that there are no mutable objects, and we won't start using this
     // until we absolutely have to.
-    visited: &'a mut fxhash::FxHashSet<usize>,
+    // found_mutable_object: bool,
+    queue: &'a mut VecDeque<SteelVal>,
 }
 
 impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
@@ -1090,49 +1336,58 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
     fn default_output(&mut self) -> Self::Output {}
 
     fn pop_front(&mut self) -> Option<SteelVal> {
-        todo!()
+        self.queue.pop_front()
     }
 
     fn push_back(&mut self, value: SteelVal) {
-        todo!()
+        self.queue.push_back(value)
     }
 
-    fn visit_closure(&mut self, closure: Gc<ByteCodeLambda>) -> Self::Output {
-        todo!()
-    }
+    fn visit_closure(&mut self, _closure: Gc<ByteCodeLambda>) -> Self::Output {}
 
     // Leaf nodes, we don't need to do anything here
-    fn visit_bool(&mut self, boolean: bool) -> Self::Output {}
-    fn visit_float(&mut self, float: f64) -> Self::Output {}
-    fn visit_int(&mut self, int: isize) -> Self::Output {}
-    fn visit_char(&mut self, c: char) -> Self::Output {}
+    fn visit_bool(&mut self, _boolean: bool) -> Self::Output {}
+    fn visit_float(&mut self, _float: f64) -> Self::Output {}
+    fn visit_int(&mut self, _int: isize) -> Self::Output {}
+    fn visit_char(&mut self, _c: char) -> Self::Output {}
     fn visit_void(&mut self) -> Self::Output {}
-    fn visit_string(&mut self, string: SteelString) -> Self::Output {}
-    fn visit_function_pointer(&mut self, ptr: FunctionSignature) -> Self::Output {}
-    fn visit_symbol(&mut self, symbol: SteelString) -> Self::Output {}
-    fn visit_port(&mut self, port: Gc<SteelPort>) -> Self::Output {}
-    fn visit_boxed_function(&mut self, function: Rc<BoxedDynFunction>) -> Self::Output {}
-    fn visit_mutable_function(&mut self, function: MutFunctionSignature) -> Self::Output {}
-    fn visit_builtin_function(&mut self, function: BuiltInSignature) -> Self::Output {}
+    fn visit_string(&mut self, _string: SteelString) -> Self::Output {}
+    fn visit_function_pointer(&mut self, _ptr: FunctionSignature) -> Self::Output {}
+    fn visit_symbol(&mut self, _symbol: SteelString) -> Self::Output {}
+    fn visit_port(&mut self, _port: Gc<SteelPort>) -> Self::Output {}
+    fn visit_boxed_function(&mut self, _function: Rc<BoxedDynFunction>) -> Self::Output {}
+    fn visit_mutable_function(&mut self, _function: MutFunctionSignature) -> Self::Output {}
+    fn visit_builtin_function(&mut self, _function: BuiltInSignature) -> Self::Output {}
 
+    //
     fn visit_immutable_vector(&mut self, vector: SteelVector) -> Self::Output {
-        todo!()
+        // If we've found the mutable object, mark that this has been visited. Only
+        // if self.should_visit(vector.0.as_ptr() as usize) {
+        for value in vector.iter() {
+            self.push_back(value.clone());
+        }
+        // }
     }
 
+    // SHOULD SET MUTABLE HERE
     fn visit_custom_type(&mut self, custom_type: Gc<RefCell<Box<dyn CustomType>>>) -> Self::Output {
         todo!()
     }
 
     fn visit_hash_map(&mut self, hashmap: SteelHashMap) -> Self::Output {
-        todo!()
+        // TODO: See comment above
     }
 
     fn visit_hash_set(&mut self, hashset: SteelHashSet) -> Self::Output {
-        todo!()
+        // TODO: See comment above
     }
 
     fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output {
-        todo!()
+        // if self.should_visit(steel_struct.as_ptr() as usize) {
+        for value in steel_struct.fields.iter() {
+            self.push_back(value.clone());
+        }
+        // }
     }
 
     fn visit_transducer(&mut self, transducer: Gc<Transducer>) -> Self::Output {
@@ -1143,13 +1398,9 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
         todo!()
     }
 
-    fn visit_future_function(&mut self, function: BoxedAsyncFunctionSignature) -> Self::Output {
-        todo!()
-    }
-
-    fn visit_future(&mut self, future: Gc<FutureResult>) -> Self::Output {
-        todo!()
-    }
+    fn visit_future_function(&mut self, _function: BoxedAsyncFunctionSignature) -> Self::Output {}
+    fn visit_future(&mut self, _future: Gc<FutureResult>) -> Self::Output {}
+    fn visit_bignum(&mut self, bignum: Gc<BigInt>) -> Self::Output {}
 
     fn visit_stream(&mut self, stream: Gc<LazyStream>) -> Self::Output {
         todo!()
@@ -1160,7 +1411,9 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
     }
 
     fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output {
-        todo!()
+        for value in list {
+            self.push_back(value);
+        }
     }
 
     fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output {
@@ -1186,9 +1439,110 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
         todo!()
     }
 
-    fn visit_bignum(&mut self, bignum: Gc<BigInt>) -> Self::Output {}
-
+    // Should set mutable here
     fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output {
-        todo!()
+        // self.found_mutable_object = true;
+
+        // if self.should_visit(heap_ref.as_ptr_usize()) {
+        self.push_back(heap_ref.get());
+        // }
+    }
+}
+
+impl PartialEq for SteelVal {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Void, Void) => true,
+            (BoolV(l), BoolV(r)) => l == r,
+            (BigNum(l), BigNum(r)) => l == r,
+            (IntV(l), IntV(r)) => l == r,
+
+            // Floats shouls also be considered equal
+            (NumV(l), NumV(r)) => l == r,
+
+            (StringV(l), StringV(r)) => l == r,
+            // (VectorV(l), VectorV(r)) => l == r,
+            (SymbolV(l), SymbolV(r)) => l == r,
+            (CharV(l), CharV(r)) => l == r,
+            // (HashSetV(l), HashSetV(r)) => l == r,
+            // (HashMapV(l), HashMapV(r)) => l == r,
+            // (Closure(l), Closure(r)) => l == r,
+            // (IterV(l), IterV(r)) => l == r,
+            // (ListV(l), ListV(r)) => l == r,
+            // (CustomStruct(l), CustomStruct(r)) => l == r,
+            (FuncV(l), FuncV(r)) => *l == *r,
+            // (Custom(l), Custom(r)) => Gc::ptr_eq(l, r),
+            // (HeapAllocated(l), HeapAllocated(r)) => l.get() == r.get(),
+            (left, right) => LEFT_QUEUE.with(|left_queue| {
+                RIGHT_QUEUE.with(|right_queue| {
+                    VISITED_SET.with(|visited_set| {
+                        match (
+                            left_queue.try_borrow_mut(),
+                            right_queue.try_borrow_mut(),
+                            visited_set.try_borrow_mut(),
+                        ) {
+                            (Ok(mut left_queue), Ok(mut right_queue), Ok(mut visited_set)) => {
+                                let mut equality_handler = RecursiveEqualityHandler {
+                                    left: EqualityVisitor {
+                                        queue: &mut left_queue,
+                                    },
+                                    right: EqualityVisitor {
+                                        queue: &mut right_queue,
+                                    },
+                                    visited: &mut visited_set,
+                                    found_mutable_object: false,
+                                };
+
+                                let res =
+                                    equality_handler.compare_equality(left.clone(), right.clone());
+
+                                // EQ_DEPTH.with(|x| x.set(0));
+
+                                reset_eq_depth();
+
+                                // Clean up!
+                                equality_handler.left.queue.clear();
+                                equality_handler.right.queue.clear();
+                                equality_handler.visited.clear();
+
+                                res
+                            }
+                            _ => {
+                                let mut left_queue = VecDeque::new();
+                                let mut right_queue = VecDeque::new();
+
+                                let mut visited_set = fxhash::FxHashSet::default();
+
+                                // EQ_DEPTH.with(|x| x.set(x.get() + 1));
+
+                                increment_eq_depth();
+
+                                // println!("{}", EQ_DEPTH.with(|x| x.get()));
+
+                                let mut equality_handler = RecursiveEqualityHandler {
+                                    left: EqualityVisitor {
+                                        queue: &mut left_queue,
+                                    },
+                                    right: EqualityVisitor {
+                                        queue: &mut right_queue,
+                                    },
+                                    visited: &mut visited_set,
+                                    found_mutable_object: false,
+                                };
+
+                                let res =
+                                    equality_handler.compare_equality(left.clone(), right.clone());
+
+                                // EQ_DEPTH.with(|x| x.set(x.get() - 1));
+
+                                decrement_eq_depth();
+
+                                res
+                            }
+                        }
+                    })
+                })
+            }),
+        }
     }
 }

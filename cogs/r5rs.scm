@@ -116,15 +116,15 @@
  (check-equal '#(0 1 2 3 4)
               (do ((vec (make-vector 5)) (i 0 (+ i 1))) ((= i 5) vec) (vector-set! vec i i)))
  (check-equal 25
-              (let ([x '(1 3 5 7 9)]) (do ((x x (cdr x)) (sum 0 (+ sum (car x)))) ((null? x) sum))))
- ;; TODO named `let`
- ; (check-equal '((6 1 3) (-5 -2))
- ;              (let loop ([numbers '(3 -2 1 6 -5)] [nonneg '()] [neg '()])
- ;                (cond
- ;                  [(null? numbers) (list nonneg neg)]
- ;                  [(>= (car numbers) 0) (loop (cdr numbers) (cons (car numbers) nonneg) neg)]
- ;                  [(< (car numbers) 0) (loop (cdr numbers) nonneg (cons (car numbers) neg))])))
- )
+              (let ([x '(1 3 5 7 9)]) (do ((x x (cdr x)) (sum 0 (+ sum (car x)))) ((null? x) sum)))))
+
+(check-equal? "named let"
+              '((6 1 3) (-5 -2))
+              (let loop ([numbers '(3 -2 1 6 -5)] [nonneg '()] [neg '()])
+                (cond
+                  [(null? numbers) (list nonneg neg)]
+                  [(>= (car numbers) 0) (loop (cdr numbers) (cons (car numbers) nonneg) neg)]
+                  [(< (car numbers) 0) (loop (cdr numbers) nonneg (cons (car numbers) neg))])))
 
 (check-equal? "simple quasiquote and unquote" '(list 3 4) `(list ,(+ 1 2) 4))
 
@@ -386,8 +386,12 @@
 (check-equal? "string >=, true" #t (string>=? "aa" "a"))
 (check-equal? "string >=, same string" #t (string>=? "a" "a"))
 
-(check-equal? "case-insensitive string-equality with constructor, equal" #t (string-ci=? "A" (string #\a)))
-(check-equal? "case-insensitive string-equality with constructor, not equal" #f (string-ci=? "A" (string #\b)))
+(check-equal? "case-insensitive string-equality with constructor, equal"
+              #t
+              (string-ci=? "A" (string #\a)))
+(check-equal? "case-insensitive string-equality with constructor, not equal"
+              #f
+              (string-ci=? "A" (string #\b)))
 (check-equal? "case-insensitive string<, true" #t (string-ci<? "A" "aa"))
 (check-equal? "case-insensitive string<, false" #f (string-ci<? "AA" "a"))
 (check-equal? "case-insensitive string<, same strings" #f (string-ci<? "A" "a"))

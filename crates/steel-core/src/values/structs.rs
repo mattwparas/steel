@@ -80,9 +80,15 @@ pub struct StructTypeDescriptor(usize);
 
 impl Custom for StructTypeDescriptor {}
 
+impl StructTypeDescriptor {
+    fn name(&self) -> InternedString {
+        VTABLE.with(|x| x.borrow().entries[self.0].name)
+    }
+}
+
 #[derive(Clone, Debug, Hash)]
 pub struct UserDefinedStruct {
-    pub(crate) name: InternedString,
+    // pub(crate) name: InternedString,
 
     // TODO: Consider using... just a vec here.
     #[cfg(feature = "smallvec")]
@@ -95,13 +101,16 @@ pub struct UserDefinedStruct {
     pub(crate) type_descriptor: StructTypeDescriptor,
 }
 
+impl UserDefinedStruct {
+    pub fn name(&self) -> InternedString {
+        self.type_descriptor.name()
+    }
+}
+
 // TODO: This could blow the stack for big trees...
 impl PartialEq for UserDefinedStruct {
     fn eq(&self, other: &Self) -> bool {
-        self.type_descriptor == other.type_descriptor
-            && self.name == other.name
-            && self.fields == other.fields
-        // && Properties::ptr_eq(&self.properties, &other.properties)
+        self.type_descriptor == other.type_descriptor && self.fields == other.fields
     }
 }
 
@@ -111,7 +120,7 @@ impl std::fmt::Display for UserDefinedStruct {
             .get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
             .is_some()
         {
-            write!(f, "({}", self.name)?;
+            write!(f, "({}", self.type_descriptor.name())?;
             // for i in 0..self.len - 1 {
             //     write!(f, " {}", self.fields[i])?;
             // }
@@ -122,7 +131,7 @@ impl std::fmt::Display for UserDefinedStruct {
 
             write!(f, ")")
         } else {
-            write!(f, "({})", self.name)
+            write!(f, "({})", self.name())
         }
     }
 }
@@ -287,7 +296,7 @@ impl ImmutableMaybeHeapVec {
 
 impl UserDefinedStruct {
     fn new(
-        name: InternedString,
+        // name: InternedString,
         type_descriptor: StructTypeDescriptor,
         fields: &[SteelVal],
     ) -> Self {
@@ -302,7 +311,7 @@ impl UserDefinedStruct {
         // todo!()
 
         Self {
-            name,
+            // name,
             fields: fields.to_vec(),
             // properties: Properties::BuiltIn,
             // proc: None,
@@ -366,7 +375,7 @@ impl UserDefinedStruct {
     #[inline(always)]
     fn is_ok(&self) -> bool {
         // todo!()
-        self.name == *OK_RESULT_LABEL
+        self.type_descriptor.name() == *OK_RESULT_LABEL
         // Arc::ptr_eq(&self.name, &OK_RESULT_LABEL.with(|x| Rc::clone(x)))
         //     || self.name == OK_RESULT_LABEL.with(|x| Rc::clone(x))
     }
@@ -374,7 +383,7 @@ impl UserDefinedStruct {
     #[inline(always)]
     fn is_err(&self) -> bool {
         // todo!()
-        self.name == *ERR_RESULT_LABEL
+        self.type_descriptor.name() == *ERR_RESULT_LABEL
         // Arc::ptr_eq(&self.name, &ERR_RESULT_LABEL.with(|x| Rc::clone(x)))
         //     || self.name == ERR_RESULT_LABEL.with(|x| Rc::clone(x))
     }
@@ -391,13 +400,13 @@ impl UserDefinedStruct {
     }
 
     fn new_with_options(
-        name: InternedString,
+        // name: InternedString,
         properties: Properties,
         type_descriptor: StructTypeDescriptor,
         rest: &[SteelVal],
     ) -> Self {
         Self {
-            name,
+            // name,
             fields: rest.to_vec(),
             // len: rest.len() + 1,
             // properties,
@@ -407,7 +416,6 @@ impl UserDefinedStruct {
     }
 
     fn constructor_thunk(
-        name: InternedString,
         // options: Properties,
         len: usize,
         descriptor: StructTypeDescriptor,
@@ -416,7 +424,7 @@ impl UserDefinedStruct {
             if args.len() != len {
                 let error_message = format!(
                     "{} expected {} arguments, found {}",
-                    name.clone(),
+                    descriptor.name(),
                     args.len(),
                     len
                 );
@@ -424,14 +432,13 @@ impl UserDefinedStruct {
             }
 
             let new_struct =
-                UserDefinedStruct::new_with_options(name, Properties::BuiltIn, descriptor, args);
+                UserDefinedStruct::new_with_options(Properties::BuiltIn, descriptor, args);
 
             Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
         }
     }
 
     fn constructor_with_options(
-        name: InternedString,
         // options: Gc<HashMap<SteelVal, SteelVal>>,
         // options: Properties,
         len: usize,
@@ -443,7 +450,7 @@ impl UserDefinedStruct {
             if args.len() != len {
                 let error_message = format!(
                     "{} expected {} arguments, found {}",
-                    name.clone(),
+                    descriptor.name().clone(),
                     args.len(),
                     len
                 );
@@ -451,14 +458,14 @@ impl UserDefinedStruct {
             }
 
             let new_struct =
-                UserDefinedStruct::new_with_options(name, Properties::BuiltIn, descriptor, args);
+                UserDefinedStruct::new_with_options(Properties::BuiltIn, descriptor, args);
 
             Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
         };
 
         SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
-            Some(name.resolve().to_string().into()),
+            Some(descriptor.name().resolve().to_string().into()),
             Some(len),
         )))
     }
@@ -483,7 +490,7 @@ impl UserDefinedStruct {
 
             // Definitely use interned symbols for these. Otherwise we're going to be doing A LOT of
             // arc cloning, and we don't want that.
-            let new_struct = UserDefinedStruct::new(name, type_descriptor, args);
+            let new_struct = UserDefinedStruct::new(type_descriptor, args);
 
             Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
         };
@@ -496,17 +503,22 @@ impl UserDefinedStruct {
         )))
     }
 
-    fn predicate(name: InternedString) -> SteelVal {
+    fn predicate(descriptor: StructTypeDescriptor) -> SteelVal {
         // let out_name = Arc::clone(&name);
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
-                let error_message =
-                    format!("{}? expected one argument, found {}", name, args.len());
+                let error_message = format!(
+                    "{}? expected one argument, found {}",
+                    descriptor.name(),
+                    args.len()
+                );
                 stop!(ArityMismatch => error_message);
             }
             Ok(SteelVal::BoolV(match &args[0] {
-                SteelVal::CustomStruct(my_struct) if my_struct.name == name => true,
+                SteelVal::CustomStruct(my_struct) if my_struct.type_descriptor == descriptor => {
+                    true
+                }
                 // SteelVal::CustomStruct(my_struct) if my_struct.name == name => true,
                 _ => false,
             }))
@@ -515,17 +527,17 @@ impl UserDefinedStruct {
         SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
             // Some(out_name),
-            Some(name.resolve().to_string().into()),
+            Some(descriptor.name().resolve().to_string().into()),
             Some(1),
         )))
     }
 
-    fn getter_prototype(name: InternedString) -> SteelVal {
+    fn getter_prototype(descriptor: StructTypeDescriptor) -> SteelVal {
         // let out_name = Arc::clone(&name);
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
-                stop!(ArityMismatch => format!("{} expected two arguments", name));
+                stop!(ArityMismatch => format!("{} expected two arguments", descriptor.name()));
             }
 
             let steel_struct = &args[0].clone();
@@ -533,10 +545,10 @@ impl UserDefinedStruct {
 
             match (&steel_struct, &idx) {
                 (SteelVal::CustomStruct(s), SteelVal::IntV(idx)) => {
-                    if s.name != name {
+                    if s.type_descriptor != descriptor {
                         // println!("{}, {}", s.borrow().name.resolve(), name.resolve());
 
-                        stop!(TypeMismatch => format!("Struct getter expected {}, found {:?}, {:?}", name, &s, &steel_struct));
+                        stop!(TypeMismatch => format!("Struct getter expected {}, found {:?}, {:?}", descriptor.name(), &s, &steel_struct));
                     }
 
                     if *idx < 0 {
@@ -550,7 +562,10 @@ impl UserDefinedStruct {
                 }
                 _ => {
                     let error_message = format!(
-                        "{name} expected a struct and an int, found: {steel_struct} and {idx}"
+                        "{} expected a struct and an int, found: {} and {}",
+                        descriptor.name(),
+                        steel_struct,
+                        idx
                     );
                     stop!(TypeMismatch => error_message)
                 }
@@ -560,12 +575,12 @@ impl UserDefinedStruct {
         SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
             // Some(out_name),
-            Some(name.resolve().to_string().into()),
+            Some(descriptor.name().resolve().to_string().into()),
             Some(2),
         )))
     }
 
-    fn getter_prototype_index(name: InternedString, index: usize) -> SteelVal {
+    fn getter_prototype_index(descriptor: StructTypeDescriptor, index: usize) -> SteelVal {
         // let out_name = Arc::clone(&name);
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
@@ -579,8 +594,8 @@ impl UserDefinedStruct {
                 SteelVal::CustomStruct(s) => {
                     // println!("{}, {}", s.borrow().name.resolve(), name.resolve());
 
-                    if s.name != name {
-                        stop!(TypeMismatch => format!("Struct getter expected {}, found {:?}, {:?}", name, &s, &steel_struct));
+                    if s.type_descriptor != descriptor {
+                        stop!(TypeMismatch => format!("Struct getter expected {}, found {:?}, {:?}", descriptor.name(), &s, &steel_struct));
                     }
 
                     s.fields
@@ -590,7 +605,10 @@ impl UserDefinedStruct {
                 }
                 _ => {
                     let error_message = format!(
-                        "{name} expected a struct and an int, found: {steel_struct} and {index}"
+                        "{} expected a struct and an int, found: {} and {}",
+                        descriptor.name(),
+                        steel_struct,
+                        index
                     );
                     stop!(TypeMismatch => error_message)
                 }
@@ -599,8 +617,7 @@ impl UserDefinedStruct {
 
         SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
-            // Some(out_name),
-            Some(name.resolve().to_string().into()),
+            Some(descriptor.name().resolve().to_string().into()),
             Some(1),
         )))
     }
@@ -635,9 +652,9 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
     // Build out the constructor and the predicate
     let struct_constructor =
         UserDefinedStruct::constructor(name, *field_count as usize, struct_type_descriptor);
-    let struct_predicate = UserDefinedStruct::predicate(name);
+    let struct_predicate = UserDefinedStruct::predicate(struct_type_descriptor);
 
-    let getter_prototype = UserDefinedStruct::getter_prototype(name);
+    let getter_prototype = UserDefinedStruct::getter_prototype(struct_type_descriptor);
 
     // We do not have the properties yet. Should probably intern the
     // let struct_type_id = new_type_id(name, address_or_name)
@@ -844,8 +861,6 @@ thread_local! {
     // });
     pub static OK_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
             Rc::new(Box::new(UserDefinedStruct::constructor_thunk(
-            *OK_RESULT_LABEL,
-            // RESULT_OPTIONS.with(|x| Gc::clone(x)),
             1,
             OK_DESCRIPTOR.with(|x| *x),
         )))
@@ -854,9 +869,6 @@ thread_local! {
     pub static ERR_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
         // let name = ERR_RESULT_LABEL.with(|x| Rc::clone(x));
         Rc::new(Box::new(UserDefinedStruct::constructor_thunk(
-            // Rc::clone(&name),
-            *ERR_RESULT_LABEL,
-            // RESULT_OPTIONS.with(|x| Gc::clone(x)),
             1,
             ERR_DESCRIPTOR.with(|x| *x),
         )))
@@ -870,9 +882,6 @@ thread_local! {
     pub static SOME_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
         // let name = SOME_OPTION_LABEL.with(|x| Rc::clone(x));
         Rc::new(Box::new(UserDefinedStruct::constructor_thunk(
-            // Rc::clone(&name),
-            *SOME_OPTION_LABEL,
-            // OPTION_OPTIONS.with(|x| Gc::clone(x)),
             1,
             SOME_DESCRIPTOR.with(|x| *x),
         )))
@@ -881,9 +890,6 @@ thread_local! {
     pub static NONE_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
         // let name = NONE_LABEL.with(|x| Rc::clone(x));
         Rc::new(Box::new(UserDefinedStruct::constructor_thunk(
-            // Rc::clone(&name),
-            *NONE_OPTION_LABEL,
-            // OPTION_OPTIONS.with(|x| Gc::clone(x)),
             0,
             NONE_DESCRIPTOR.with(|x| *x),
         )))
@@ -898,14 +904,10 @@ pub(crate) fn build_type_id_module() -> BuiltInModule {
     let type_descriptor = VTable::new_entry(name, None);
 
     // Build the getter for the first index
-    let getter = UserDefinedStruct::getter_prototype_index(name, 0);
-    let predicate = UserDefinedStruct::predicate(name);
+    let getter = UserDefinedStruct::getter_prototype_index(type_descriptor, 0);
+    let predicate = UserDefinedStruct::predicate(type_descriptor);
 
-    let constructor = Arc::new(UserDefinedStruct::constructor_thunk(
-        name,
-        2,
-        type_descriptor,
-    ));
+    let constructor = Arc::new(UserDefinedStruct::constructor_thunk(2, type_descriptor));
 
     module
         .register_fn("#%vtable-update-entry!", VTable::set_entry)
@@ -930,9 +932,11 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
     {
         let name = *OK_RESULT_LABEL;
 
+        let type_descriptor = OK_DESCRIPTOR.with(|x| *x);
+
         // Build the getter for the first index
-        let getter = UserDefinedStruct::getter_prototype_index(name, 0);
-        let predicate = UserDefinedStruct::predicate(name);
+        let getter = UserDefinedStruct::getter_prototype_index(type_descriptor, 0);
+        let predicate = UserDefinedStruct::predicate(type_descriptor);
 
         VTable::set_entry(
             &OK_DESCRIPTOR.with(|x| *x),
@@ -945,7 +949,6 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
             None,
             STANDARD_OPTIONS.with(|x| x.clone()),
         );
-        // VTable::set_entry(OK_DESCRIPTOR, None, )
 
         module
             .register_value(
@@ -953,7 +956,6 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
                 SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
                     Arc::new(UserDefinedStruct::constructor_thunk(
                         // Rc::clone(&name),
-                        name, // RESULT_OPTIONS.with(|x| Gc::clone(x)),
                         1,
                         OK_DESCRIPTOR.with(|x| *x),
                     )),
@@ -969,11 +971,14 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
     {
         // let name = ERR_RESULT_LABEL.with(|x| Rc::clone(x));
         let name = *ERR_RESULT_LABEL;
+
+        let type_descriptor = ERR_DESCRIPTOR.with(|x| *x);
+
         // let constructor = UserDefinedStruct::constructor(Rc::clone(&name), 1);
-        let predicate = UserDefinedStruct::predicate(name);
+        let predicate = UserDefinedStruct::predicate(type_descriptor);
 
         // Build the getter for the first index
-        let getter = UserDefinedStruct::getter_prototype_index(name, 0);
+        let getter = UserDefinedStruct::getter_prototype_index(type_descriptor, 0);
 
         module
             .register_value(
@@ -981,7 +986,6 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
                 SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
                     Arc::new(UserDefinedStruct::constructor_thunk(
                         // Rc::clone(&name),
-                        name, // RESULT_OPTIONS.with(|x| Gc::clone(x)),
                         1,
                         ERR_DESCRIPTOR.with(|x| *x),
                     )),
@@ -1015,10 +1019,11 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
     {
         // let name = SOME_OPTION_LABEL.with(|x| Rc::clone(x));
         let name = *SOME_OPTION_LABEL;
+        let type_descriptor = SOME_DESCRIPTOR.with(|x| *x);
 
         // Build the getter for the first index
-        let getter = UserDefinedStruct::getter_prototype_index(name, 0);
-        let predicate = UserDefinedStruct::predicate(name);
+        let getter = UserDefinedStruct::getter_prototype_index(type_descriptor, 0);
+        let predicate = UserDefinedStruct::predicate(type_descriptor);
 
         module
             .register_value(
@@ -1026,7 +1031,6 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
                 SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
                     Arc::new(UserDefinedStruct::constructor_thunk(
                         // Rc::clone(&name),
-                        name, // OPTION_OPTIONS.with(|x| Gc::clone(x)),
                         1,
                         SOME_DESCRIPTOR.with(|x| *x),
                     )),
@@ -1041,15 +1045,14 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
     {
         // let name = NONE_LABEL.with(|x| Rc::clone(x));
         let name = *NONE_OPTION_LABEL;
-        // let constructor = UserDefinedStruct::constructor(Rc::clone(&name), 1);
-        let predicate = UserDefinedStruct::predicate(name);
+        let type_descriptor = NONE_DESCRIPTOR.with(|x| *x);
+        let predicate = UserDefinedStruct::predicate(type_descriptor);
 
         module
             .register_value(
                 "None",
                 SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
                     Arc::new(UserDefinedStruct::constructor_thunk(
-                        name, // OPTION_OPTIONS.with(|x| Gc::clone(x)),
                         0,
                         NONE_DESCRIPTOR.with(|x| *x),
                     )),

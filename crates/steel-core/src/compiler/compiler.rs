@@ -467,8 +467,15 @@ impl Compiler {
         // This is definitely broken still
         semantic
             .elide_single_argument_lambda_applications()
+            // .lift_pure_local_functions()
+            // .lift_all_local_functions()
+            .replace_non_shadowed_globals_with_builtins()
+            .remove_unused_globals_with_prefix("mangler")
             .lift_pure_local_functions()
             .lift_all_local_functions();
+
+        // TODO: Just run this... on each module in particular
+        // .remove_unused_globals_with_prefix("mangler");
 
         debug!("About to expand defines");
         let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
@@ -628,8 +635,11 @@ impl Compiler {
         // This is definitely broken still
         semantic
             .elide_single_argument_lambda_applications()
+            .replace_non_shadowed_globals_with_builtins()
+            .remove_unused_globals_with_prefix("mangler")
             .lift_pure_local_functions()
             .lift_all_local_functions();
+        // .remove_unused_globals_with_prefix("manglersteel/");
 
         // debug!("About to expand defines");
 
