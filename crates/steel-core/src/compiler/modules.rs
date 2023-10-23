@@ -53,10 +53,18 @@ static RESULT_NAME: &str = "steel/result";
 static CONTRACT: &str = include_str!("../scheme/modules/contracts.scm");
 static CONTRACT_NAME: &str = "#%private/steel/contract";
 
+static ITERATORS: &str = include_str!("../scheme/modules/iterators.scm");
+static ITERATORS_NAME: &str = "steel/iterators";
+
+static MUTABLE_VECTORS: &str = include_str!("../scheme/modules/mvector.scm");
+static MUTABLE_VECTORS_NAME: &str = "steel/mutable-vectors";
+
 static BUILT_INS: &[(&str, &str)] = &[
     (OPTION_NAME, OPTION),
     (RESULT_NAME, RESULT),
     (CONTRACT_NAME, CONTRACT),
+    (ITERATORS_NAME, ITERATORS),
+    (MUTABLE_VECTORS_NAME, MUTABLE_VECTORS),
 ];
 
 pub(crate) const MANGLER_SEPARATOR: &str = "__%#__";

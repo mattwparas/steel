@@ -1,3 +1,12 @@
+(require-builtin steel/base)
+
+(provide StreamIterator
+         IntoIterator
+         ITERATOR-FINISHED
+         iter-next
+         into-iter
+         iter-for-each)
+
 (struct StreamIterator
         (iter-instance stream-empty-function stream-first-function stream-next-function))
 

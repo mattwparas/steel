@@ -42,6 +42,8 @@
           (display (symbol->string (#%struct-property-ref obj '#:name)))
           (display ">")]))]
 
+    [(set? obj) (error "TODO: Implement printer for sets")]
+
     [(hash? obj)
      (display "'#hash(")
      ;; TODO: This should use the private transduce
