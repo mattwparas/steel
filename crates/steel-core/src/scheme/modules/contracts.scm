@@ -14,7 +14,9 @@
          (for-syntax define/contract))
 
 ;; struct definitions
-(struct FlatContract (predicate name) #:prop:procedure 0)
+(struct FlatContract (predicate name)
+  #:prop:procedure 0
+  #:printer (lambda (obj printer-function) (printer-function (contract->string obj))))
 ;; Contract Attachment - use this for understanding where something happened
 (struct ContractAttachmentLocation (type name))
 
@@ -22,7 +24,8 @@
 ;; the contract was attached, and a pointer to the parent contract. Can probably
 ;; replace parent with just a list of the parents since it can be shared
 ;; directly
-(struct FunctionContract (pre-conditions post-condition contract-attachment-location parents))
+(struct FunctionContract (pre-conditions post-condition contract-attachment-location parents)
+  #:printer (lambda (obj printer-function) (printer-function (contract->string obj))))
 
 (struct DependentPair (argument-name arguments thunk thunk-name))
 

@@ -317,7 +317,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
 
                 if let TokenType::Identifier(ident) = ident.ty {
                     match ident {
-                        _ if ident == *CONS_SYMBOL => {
+                        _ if ident == *CONS_SYMBOL || ident == *PRIM_CONS_SYMBOL => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::CONS;
                                 x.payload_size = 2;
@@ -327,7 +327,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
 
                         // Specialize lists, cons, hashmap, etc. - anything that we expect to be used often in
                         // real code.
-                        _ if ident == *LIST_SYMBOL => {
+                        _ if ident == *LIST_SYMBOL || ident == *PRIM_LIST_SYMBOL => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::LIST;
                                 x.payload_size = arity;
@@ -367,7 +367,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
 
                 if let TokenType::Identifier(ident) = ident.ty {
                     match ident {
-                        _ if ident == *CONS_SYMBOL => {
+                        _ if ident == *CONS_SYMBOL || ident == *PRIM_CONS_SYMBOL => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::CONS;
                                 x.payload_size = 2;
@@ -377,7 +377,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
 
                         // Specialize lists, cons, hashmap, etc. - anything that we expect to be used often in
                         // real code.
-                        _ if ident == *LIST_SYMBOL => {}
+                        _ if ident == *LIST_SYMBOL || ident == *PRIM_LIST_SYMBOL => {}
 
                         _ => {}
                     }
@@ -408,11 +408,17 @@ macro_rules! define_symbols {
 
 define_symbols! {
     PLUS => "+",
+    PRIM_PLUS => "#%prim.+",
     MINUS => "-",
+    PRIM_MINUS => "#%prim.-",
     DIV => "/",
+    PRIM_DIV => "#%prim./",
     STAR => "*",
+    PRIM_STAR => "#%prim.*",
     EQUAL => "equal?",
+    PRIM_EQUAL => "#%prim.equal?",
     LTE => "<=",
+    PRIM_LTE => "#%prim.<=",
     UNREADABLE_MODULE_GET => "##__module-get",
     STANDARD_MODULE_GET => "%module-get%",
     CONTRACT_OUT => "contract/out",
@@ -455,7 +461,9 @@ define_symbols! {
     RAW_UNSYNTAX_SPLICING => "#%unsyntax-splicing",
     SYNTAX_QUOTE => "syntax",
     CONS_SYMBOL => "cons",
+    PRIM_CONS_SYMBOL => "#%prim.cons",
     LIST_SYMBOL => "list",
+    PRIM_LIST_SYMBOL => "#%prim.list",
 }
 
 pub fn inline_num_operations(instructions: &mut [Instruction]) {
@@ -481,13 +489,15 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
         ) = (push, func)
         {
             let replaced = match *ident {
-                x if x == *PLUS && *payload_size == 2 => Some(OpCode::BINOPADD),
-                x if x == *PLUS => Some(OpCode::ADD),
-                x if x == *MINUS => Some(OpCode::SUB),
-                x if x == *DIV => Some(OpCode::DIV),
-                x if x == *STAR => Some(OpCode::MUL),
-                x if x == *EQUAL => Some(OpCode::EQUAL),
-                x if x == *LTE => Some(OpCode::LTE),
+                x if (x == *PLUS || x == *PRIM_PLUS) && *payload_size == 2 => {
+                    Some(OpCode::BINOPADD)
+                }
+                x if x == *PLUS || x == *PRIM_PLUS => Some(OpCode::ADD),
+                x if x == *MINUS || x == *PRIM_MINUS => Some(OpCode::SUB),
+                x if x == *DIV || x == *PRIM_DIV => Some(OpCode::DIV),
+                x if x == *STAR || x == *PRIM_STAR => Some(OpCode::MUL),
+                x if x == *EQUAL || x == *PRIM_EQUAL => Some(OpCode::EQUAL),
+                x if x == *LTE || x == *PRIM_LTE => Some(OpCode::LTE),
                 _ => None,
             };
 

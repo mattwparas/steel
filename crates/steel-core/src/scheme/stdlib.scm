@@ -418,17 +418,6 @@
              (func (car lst) accum) ; here's the change
              (cdr lst))))
 
-; (define (map-many func lst . lsts)
-
-; (define (crunch composer remaining-lists)
-;   (if (null? lsts) composer (crunch (compose composer (zipping (car remaining-lists))) (cdr remaining-lists))))
-
-;   (if (null? lsts)
-;       (map func lst)
-;       ;; Handle the case for many lists
-;       (let ([composed-transducer (crunch (compose) lsts)])
-;         (transduce lst composed-transducer (mapping (lambda (x) (apply func x))) (into-list)))))
-
 (define (map func lst . lsts)
 
   (cond

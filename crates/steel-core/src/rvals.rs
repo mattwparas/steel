@@ -1395,23 +1395,29 @@ impl Iterator for BuiltInDataStructureIterator {
     }
 }
 
-pub fn value_into_iterator(val: SteelVal) -> SteelVal {
+pub fn value_into_iterator(val: SteelVal) -> Option<SteelVal> {
     match val {
-        SteelVal::ListV(l) => BuiltInDataStructureIterator::List(l.into_iter()),
-        SteelVal::VectorV(v) => BuiltInDataStructureIterator::Vector((*v).clone().into_iter()),
-        SteelVal::StringV(s) => BuiltInDataStructureIterator::String(Chunks::new(s)),
-        SteelVal::HashSetV(s) => BuiltInDataStructureIterator::Set((*s).clone().into_iter()),
-        SteelVal::HashMapV(m) => BuiltInDataStructureIterator::Map((*m).clone().into_iter()),
-        _ => panic!("Haven't handled this case yet"),
+        SteelVal::ListV(l) => Some(BuiltInDataStructureIterator::List(l.into_iter())),
+        SteelVal::VectorV(v) => Some(BuiltInDataStructureIterator::Vector(
+            (*v).clone().into_iter(),
+        )),
+        SteelVal::StringV(s) => Some(BuiltInDataStructureIterator::String(Chunks::new(s))),
+        SteelVal::HashSetV(s) => Some(BuiltInDataStructureIterator::Set((*s).clone().into_iter())),
+        SteelVal::HashMapV(m) => Some(BuiltInDataStructureIterator::Map((*m).clone().into_iter())),
+        _ => None,
     }
-    .into_boxed_iterator()
+    .map(BuiltInDataStructureIterator::into_boxed_iterator)
+}
+
+thread_local! {
+    pub static ITERATOR_FINISHED: SteelVal = SteelVal::SymbolV("done".into());
 }
 
 pub fn iterator_next(args: &[SteelVal]) -> Result<SteelVal> {
     match &args[0] {
         SteelVal::BoxedIterator(b) => match b.borrow_mut().next() {
             Some(v) => Ok(v),
-            None => Ok(SteelVal::Void),
+            None => Ok(ITERATOR_FINISHED.with(|x| x.clone())),
         },
         _ => stop!(TypeMismatch => "Unexpected argument"),
     }

@@ -107,6 +107,21 @@
                (filtering (lambda (x) (not (transparent-keyword? x))))
                (into-list)))
 
+  (define default-printer-function
+    (if transparent?
+        `(lambda (obj printer-function)
+           (display "(")
+           (printer-function (symbol->string ,(list 'quote struct-name)))
+           ,@(map (lambda (field)
+                    `(begin
+                       (display " ")
+                       (printer-function (,(concat-symbols struct-name '- field) obj))))
+                  fields)
+
+           (display ")"))
+
+        #f))
+
   ;; Set up default values to go in the table
   (define extra-options
     (hash '#:mutable
@@ -116,21 +131,7 @@
           '#:fields
           (list 'quote fields)
           '#:name
-          (list 'quote struct-name)
-          '#:printer
-          (if transparent?
-              `(lambda (obj printer-function)
-                 (display "(")
-                 (printer-function (symbol->string ,(list 'quote struct-name)))
-                 ,@(map (lambda (field)
-                          `(begin
-                             (display " ")
-                             (printer-function (,(concat-symbols struct-name '- field) obj))))
-                        fields)
-
-                 (display ")"))
-
-              #f)))
+          (list 'quote struct-name)))
 
   (when (not (list? fields))
     (error! "struct expects a list of field names, found " fields))
@@ -144,6 +145,9 @@
   ;; Update the options-map to have the fields included
   (let* ([options-map (apply hash options-without-single-keywords)]
          [options-map (hash-union options-map extra-options)]
+         [options-map (if (hash-try-get options-map '#:printer)
+                          options-map
+                          (hash-insert options-map '#:printer default-printer-function))]
          [maybe-procedure-field (hash-try-get options-map '#:prop:procedure)])
 
     (when (and maybe-procedure-field (> maybe-procedure-field (length fields)))

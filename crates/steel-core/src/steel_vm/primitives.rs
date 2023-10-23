@@ -26,7 +26,10 @@ use crate::{
         SymbolOperations, VectorOperations,
     },
     rerrs::ErrorKind,
-    rvals::{cycles::BreadthFirstSearchSteelValVisitor, FromSteelVal, NUMBER_EQUALITY_DEFINITION},
+    rvals::{
+        cycles::BreadthFirstSearchSteelValVisitor, FromSteelVal, ITERATOR_FINISHED,
+        NUMBER_EQUALITY_DEFINITION,
+    },
     steel_vm::{
         builtin::{get_function_name, Arity},
         vm::threads::threading_module,
@@ -634,6 +637,11 @@ fn hashp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::HashMapV(_))
 }
 
+#[steel_derive::function(name = "set?", constant = true)]
+fn hashsetp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::HashSetV(_))
+}
+
 #[steel_derive::function(name = "continuation?", constant = true)]
 fn continuationp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::ContinuationFunction(_))
@@ -700,6 +708,7 @@ fn identity_module() -> BuiltInModule {
         .register_native_fn_definition(VECTORP_DEFINITION)
         .register_native_fn_definition(SYMBOLP_DEFINITION)
         .register_native_fn_definition(HASHP_DEFINITION)
+        .register_native_fn_definition(HASHSETP_DEFINITION)
         .register_native_fn_definition(CONTINUATIONP_DEFINITION)
         .register_native_fn_definition(BOOLEANP_DEFINITION)
         .register_native_fn_definition(BOOLP_DEFINITION)
@@ -1252,6 +1261,8 @@ fn meta_module() -> BuiltInModule {
         // .register_fn("get-value", super::meta::EngineWrapper::get_value)
         .register_fn("value->iterator", crate::rvals::value_into_iterator)
         .register_value("iter-next!", SteelVal::FuncV(crate::rvals::iterator_next))
+        // Check whether the iterator is done
+        .register_value("#%iterator-finished", ITERATOR_FINISHED.with(|x| x.clone()))
         .register_value("%iterator?", gen_pred!(BoxedIterator))
         .register_fn("env-var", get_environment_variable)
         .register_fn("set-env-var!", std::env::set_var::<String, String>)
