@@ -224,7 +224,7 @@ impl Engine {
     /// Has access to primitives and syntax rules, but will not defer to a child
     /// kernel in the compiler
     pub(crate) fn new_kernel() -> Self {
-        log::info!(target:"kernel", "Instantiating a new kernel");
+        log::debug!(target:"kernel", "Instantiating a new kernel");
 
         let mut vm = Engine {
             virtual_machine: SteelThread::new(),
@@ -241,7 +241,7 @@ impl Engine {
         vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
             .unwrap();
 
-        log::info!(target:"kernel", "Registered modules in the kernel!");
+        log::debug!(target:"kernel", "Registered modules in the kernel!");
 
         let core_libraries = [crate::stdlib::PRELUDE, crate::stdlib::DISPLAY];
 
@@ -249,7 +249,7 @@ impl Engine {
             vm.compile_and_run_raw_program(core).unwrap();
         }
 
-        log::info!(target: "kernel", "Loaded prelude in the kernel!");
+        log::debug!(target: "kernel", "Loaded prelude in the kernel!");
 
         vm
     }
@@ -278,7 +278,7 @@ impl Engine {
             return Engine::new_kernel();
         }
 
-        log::info!(target:"kernel", "Instantiating a new kernel");
+        log::debug!(target:"kernel", "Instantiating a new kernel");
 
         let mut vm = Engine {
             virtual_machine: SteelThread::new(),
@@ -303,7 +303,7 @@ impl Engine {
                 // vm.run_raw_program_from_exprs(ast).unwrap();
             }
 
-            log::info!(target: "kernel", "Loaded prelude in the kernel!");
+            log::debug!(target: "kernel", "Loaded prelude in the kernel!");
 
             let sources = vm.sources.clone();
 

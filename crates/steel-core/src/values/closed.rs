@@ -175,7 +175,7 @@ impl Heap {
         let memory_size = self.memory.len() + self.vectors.len();
 
         if memory_size > self.threshold {
-            log::info!(target: "gc", "Freeing memory");
+            log::debug!(target: "gc", "Freeing memory");
 
             let original_length = memory_size;
 
@@ -188,13 +188,13 @@ impl Heap {
             // sweep collection.
             let mut changed = true;
             while changed {
-                log::info!(target: "gc", "Small collection");
+                log::debug!(target: "gc", "Small collection");
                 let prior_len = self.memory.len() + self.vectors.len();
-                log::info!(target: "gc", "Previous length: {:?}", prior_len);
+                log::debug!(target: "gc", "Previous length: {:?}", prior_len);
                 self.memory.retain(|x| Rc::weak_count(x) > 0);
                 self.vectors.retain(|x| Rc::weak_count(x) > 0);
                 let after = self.memory.len() + self.vectors.len();
-                log::info!(target: "gc", "Objects freed: {:?}", prior_len - after);
+                log::debug!(target: "gc", "Objects freed: {:?}", prior_len - after);
                 changed = prior_len != after;
             }
 
@@ -202,12 +202,12 @@ impl Heap {
 
             // Mark + Sweep!
             if post_small_collection_size as f64 > (0.25 * original_length as f64) {
-                log::info!(target: "gc", "---- Post small collection, running mark and sweep - heap size filled: {:?} ----", post_small_collection_size as f64 / original_length as f64);
+                log::debug!(target: "gc", "---- Post small collection, running mark and sweep - heap size filled: {:?} ----", post_small_collection_size as f64 / original_length as f64);
 
                 // TODO fix the garbage collector
                 self.mark_and_sweep(roots, live_functions, globals);
             } else {
-                log::info!(target: "gc", "---- Skipping mark and sweep - heap size filled: {:?} ----", post_small_collection_size as f64 / original_length as f64);
+                log::debug!(target: "gc", "---- Skipping mark and sweep - heap size filled: {:?} ----", post_small_collection_size as f64 / original_length as f64);
             }
 
             // self.mark_and_sweep(roots, live_functions, globals);
@@ -236,7 +236,7 @@ impl Heap {
         function_stack: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: impl Iterator<Item = &'a SteelVal>,
     ) {
-        log::info!(target: "gc", "Marking the heap");
+        log::debug!(target: "gc", "Marking the heap");
 
         let mut context = MarkAndSweepContext {
             queue: &mut self.mark_and_sweep_queue,
@@ -285,7 +285,7 @@ impl Heap {
         //         .collect::<Vec<_>>()
         // );
 
-        log::info!(target: "gc", "--- Sweeping ---");
+        log::debug!(target: "gc", "--- Sweeping ---");
         let prior_len = self.memory.len() + self.vectors.len();
 
         // sweep
@@ -296,8 +296,8 @@ impl Heap {
 
         let amount_freed = prior_len - after_len;
 
-        log::info!(target: "gc", "Freed objects: {:?}", amount_freed);
-        log::info!(target: "gc", "Objects alive: {:?}", after_len);
+        log::debug!(target: "gc", "Freed objects: {:?}", amount_freed);
+        log::debug!(target: "gc", "Objects alive: {:?}", after_len);
 
         // put them back as unreachable
         self.memory.iter().for_each(|x| x.borrow_mut().reset());

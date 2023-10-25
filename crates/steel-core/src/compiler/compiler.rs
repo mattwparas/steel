@@ -598,7 +598,7 @@ impl Compiler {
         path: Option<PathBuf>,
         sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {
-        log::info!(target: "expansion-phase", "Expanding macros -> phase 0");
+        log::debug!(target: "expansion-phase", "Expanding macros -> phase 0");
 
         let mut expanded_statements =
             self.expand_expressions(exprs, path, sources, builtin_modules.clone())?;
@@ -613,14 +613,14 @@ impl Compiler {
             );
         }
 
-        log::info!(target: "expansion-phase", "Expanding macros -> phase 1");
+        log::debug!(target: "expansion-phase", "Expanding macros -> phase 1");
 
         expanded_statements = expanded_statements
             .into_iter()
             .map(|x| expand_kernel(x, self.kernel.as_mut(), builtin_modules.clone()))
             .collect::<Result<Vec<_>>>()?;
 
-        log::info!(target: "expansion-phase", "Beginning constant folding");
+        log::debug!(target: "expansion-phase", "Beginning constant folding");
 
         let mut expanded_statements =
             self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
@@ -646,7 +646,7 @@ impl Compiler {
 
         // debug!("About to expand defines");
 
-        log::info!(target: "expansion-phase", "Flattening begins, converting internal defines to let expressions");
+        log::debug!(target: "expansion-phase", "Flattening begins, converting internal defines to let expressions");
 
         let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
@@ -673,7 +673,7 @@ impl Compiler {
             );
         }
 
-        log::info!(target: "expansion-phase", "Expanding multiple arity functions");
+        log::debug!(target: "expansion-phase", "Expanding multiple arity functions");
 
         // TODO - make sure I want to keep this
         let expanded_statements =
@@ -688,7 +688,7 @@ impl Compiler {
         // Here we're gonna do the constant evaluation pass, using the kernel for execution of the
         // constant functions w/ memoization:
 
-        log::info!(target: "expansion-phase", "Generating instructions");
+        log::debug!(target: "expansion-phase", "Generating instructions");
 
         let instructions = self.generate_instructions_for_executable(expanded_statements)?;
 

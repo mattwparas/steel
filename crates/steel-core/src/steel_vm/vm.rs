@@ -2592,14 +2592,14 @@ impl<'a> VmCore<'a> {
             .closure_interner
             .get(&closure_id)
         {
-            log::info!("Fetching closure from cache");
+            log::trace!("Fetching closure from cache");
 
             let mut prototype = prototype.clone();
             prototype.set_captures(captures);
             prototype.set_heap_allocated(heap_vars);
             prototype
         } else {
-            log::info!("Constructing closure for the first time");
+            log::trace!("Constructing closure for the first time");
 
             debug_assert!(self.instructions[forward_index - 1].op_code == OpCode::ECLOSURE);
 
