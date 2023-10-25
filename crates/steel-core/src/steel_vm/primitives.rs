@@ -27,8 +27,8 @@ use crate::{
     },
     rerrs::ErrorKind,
     rvals::{
-        cycles::BreadthFirstSearchSteelValVisitor, FromSteelVal, ITERATOR_FINISHED,
-        NUMBER_EQUALITY_DEFINITION,
+        as_underlying_type, cycles::BreadthFirstSearchSteelValVisitor, FromSteelVal,
+        ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
     },
     steel_vm::{
         builtin::{get_function_name, Arity},
@@ -664,6 +664,15 @@ fn voidp(value: &SteelVal) -> bool {
 
 #[steel_derive::function(name = "struct?", constant = true)]
 fn structp(value: &SteelVal) -> bool {
+    if let SteelVal::CustomStruct(s) = value {
+        s.is_transparent()
+    } else {
+        false
+    }
+}
+
+#[steel_derive::function(name = "#%private-struct?", constant = true)]
+fn private_structp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::CustomStruct(_))
 }
 
@@ -714,6 +723,7 @@ fn identity_module() -> BuiltInModule {
         .register_native_fn_definition(BOOLP_DEFINITION)
         .register_native_fn_definition(VOIDP_DEFINITION)
         .register_native_fn_definition(STRUCTP_DEFINITION)
+        .register_native_fn_definition(PRIVATE_STRUCTP_DEFINITION)
         .register_value("mutable-vector?", gen_pred!(MutableVector))
         .register_value("char?", gen_pred!(CharV))
         .register_value("future?", gen_pred!(FutureV))
@@ -1108,6 +1118,21 @@ impl crate::rvals::Custom for MutableVector {
     fn gc_visit_children(&self, context: &mut crate::values::closed::MarkAndSweepContext) {
         for value in &self.vector {
             context.push_back(value.clone());
+        }
+    }
+
+    fn visit_equality(&self, visitor: &mut crate::rvals::cycles::EqualityVisitor) {
+        for value in &self.vector {
+            visitor.push_back(value.clone());
+        }
+    }
+
+    // Compare the two for equality otherwise
+    fn equality_hint(&self, other: &dyn crate::rvals::CustomType) -> bool {
+        if let Some(other) = as_underlying_type::<MutableVector>(other) {
+            self.vector.len() == other.vector.len()
+        } else {
+            false
         }
     }
 }

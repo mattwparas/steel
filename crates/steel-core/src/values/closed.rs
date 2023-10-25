@@ -562,7 +562,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     // TODO: Revisit this when the boxed iterator is cleaned up
     fn visit_boxed_iterator(
         &mut self,
-        iterator: Gc<RefCell<BuiltInDataStructureIterator>>,
+        _iterator: Gc<RefCell<BuiltInDataStructureIterator>>,
     ) -> Self::Output {
     }
 
@@ -579,7 +579,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     }
 
     // TODO: Revisit this
-    fn visit_reference_value(&mut self, reference: Rc<OpaqueReference<'static>>) -> Self::Output {}
+    fn visit_reference_value(&mut self, _reference: Rc<OpaqueReference<'static>>) -> Self::Output {}
 
     fn visit_bignum(&mut self, _bignum: Gc<BigInt>) -> Self::Output {}
 

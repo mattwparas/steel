@@ -1,5 +1,4 @@
 use std::{
-    char::REPLACEMENT_CHARACTER,
     collections::{hash_map, HashMap, HashSet},
     hash::BuildHasherDefault,
 };
@@ -11,6 +10,7 @@ use crate::{
     compiler::modules::MANGLER_SEPARATOR,
     parser::{
         ast::{Atom, Define, ExprKind, LambdaFunction, Let, List, Quote},
+        expander::SteelMacro,
         interner::InternedString,
         parser::{RawSyntaxObject, SyntaxObject, SyntaxObjectId},
         span::Span,
@@ -2499,6 +2499,20 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
     }
 }
 
+struct CollectReferences {
+    idents: fxhash::FxHashSet<InternedString>,
+}
+
+impl<'a> VisitorMutUnitRef<'a> for CollectReferences {
+    fn visit_atom(&mut self, a: &'a Atom) {
+        if let TokenType::Identifier(ident) = a.syn.ty {
+            if ident.resolve().starts_with("mangler") {
+                self.idents.insert(ident);
+            }
+        }
+    }
+}
+
 struct ReplaceBuiltinUsagesWithReservedPrimitiveReferences<'a> {
     analysis: &'a Analysis,
 }
@@ -2946,9 +2960,25 @@ impl<'a> SemanticAnalysis<'a> {
         self
     }
 
-    pub(crate) fn remove_unused_globals_with_prefix(&mut self, prefix: &str) -> &mut Self {
+    pub(crate) fn remove_unused_globals_with_prefix(
+        &mut self,
+        prefix: &str,
+        macros: &HashMap<InternedString, SteelMacro>,
+    ) -> &mut Self {
         let module_get_interned: InternedString = "%module-get%".into();
         let proto_hash_get: InternedString = "%proto-hash-get%".into();
+
+        let mut collected = CollectReferences {
+            idents: fxhash::FxHashSet::default(),
+        };
+
+        for steel_macro in macros.values() {
+            for expr in steel_macro.exprs() {
+                collected.visit(expr);
+            }
+        }
+
+        let found = collected.idents;
 
         self.exprs.retain_mut(|expression| {
             match expression {
@@ -2965,8 +2995,10 @@ impl<'a> SemanticAnalysis<'a> {
                                         define.body.list().and_then(|x| x.first_ident())
                                     {
                                         if *func == module_get_interned || *func == proto_hash_get {
-                                            // println!("Removing: {}", define);
-                                            // println!("{:#?}", analysis);
+                                            // If this is found inside of a macro, do not remove it
+                                            if found.contains(&name) {
+                                                return true;
+                                            }
 
                                             return false;
                                         }
@@ -2992,10 +3024,10 @@ impl<'a> SemanticAnalysis<'a> {
                                             if *func == module_get_interned
                                                 || *func == proto_hash_get
                                             {
-                                                // println!("Removing: {}", define);
-
-                                                // println!("{:#?}", analysis);
-
+                                                // If this is found inside of a macro, do not remove it
+                                                if found.contains(&name) {
+                                                    return true;
+                                                }
                                                 return false;
                                             }
                                         }

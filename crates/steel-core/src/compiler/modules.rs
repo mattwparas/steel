@@ -78,6 +78,7 @@ pub(crate) struct ModuleManager {
     compiled_modules: HashMap<PathBuf, CompiledModule>,
     file_metadata: HashMap<PathBuf, SystemTime>,
     visited: HashSet<PathBuf>,
+    custom_builtins: HashMap<String, String>,
 }
 
 impl ModuleManager {
@@ -89,7 +90,12 @@ impl ModuleManager {
             compiled_modules,
             file_metadata,
             visited: HashSet::new(),
+            custom_builtins: HashMap::new(),
         }
+    }
+
+    pub fn add_builtin_module(&mut self, module_name: String, text: String) {
+        self.custom_builtins.insert(module_name, text);
     }
 
     pub fn modules(&self) -> &HashMap<PathBuf, CompiledModule> {
@@ -975,8 +981,7 @@ impl CompiledModule {
         // let mut semantic = SemanticAnalysis::from_analysis(&mut provide_definitions, analysis);
 
         // // This is definitely broken still
-        // semantic
-        // .remove_unused_globals_with_prefix("mangler")
+        // semantic.remove_unused_globals_with_prefix("mangler");
         // .replace_non_shadowed_globals_with_builtins()
         // .remove_unused_globals_with_prefix("mangler");
 

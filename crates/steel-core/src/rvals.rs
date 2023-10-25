@@ -169,6 +169,12 @@ pub trait Custom: private::Sealed {
     fn gc_drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
 
     fn gc_visit_children(&self, _context: &mut MarkAndSweepContext) {}
+
+    fn visit_equality(&self, visitor: &mut cycles::EqualityVisitor) {}
+
+    fn equality_hint(&self, other: &dyn CustomType) -> bool {
+        true
+    }
 }
 
 pub trait CustomType {
@@ -194,7 +200,11 @@ pub trait CustomType {
 
     fn visit_children(&self, _context: &mut MarkAndSweepContext) {}
 
-    fn visit_children_for_equality(&self) {}
+    fn visit_children_for_equality(&self, _visitor: &mut cycles::EqualityVisitor) {}
+
+    fn check_equality_hint(&self, _other: &dyn CustomType) -> bool {
+        true
+    }
 }
 
 impl<T: Custom + 'static> CustomType for T {
@@ -228,7 +238,13 @@ impl<T: Custom + 'static> CustomType for T {
     }
 
     // TODO: Equality visitor
-    fn visit_children_for_equality(&self) {}
+    fn visit_children_for_equality(&self, visitor: &mut cycles::EqualityVisitor) {
+        self.visit_equality(visitor)
+    }
+
+    fn check_equality_hint(&self, other: &dyn CustomType) -> bool {
+        self.equality_hint(other)
+    }
 }
 
 impl<T: CustomType + 'static> IntoSteelVal for T {

@@ -470,7 +470,7 @@ impl Compiler {
             // .lift_pure_local_functions()
             // .lift_all_local_functions()
             .replace_non_shadowed_globals_with_builtins()
-            .remove_unused_globals_with_prefix("mangler")
+            .remove_unused_globals_with_prefix("mangler", &self.macro_env)
             .lift_pure_local_functions()
             .lift_all_local_functions();
 
@@ -636,7 +636,10 @@ impl Compiler {
         semantic
             .elide_single_argument_lambda_applications()
             .replace_non_shadowed_globals_with_builtins()
-            .remove_unused_globals_with_prefix("mangler")
+            // TODO: To get this to work, we have to check the macros to make sure those
+            // are safe to eliminate. In interactive mode, we'll
+            // be unable to optimize those away
+            .remove_unused_globals_with_prefix("mangler", &self.macro_env)
             .lift_pure_local_functions()
             .lift_all_local_functions();
         // .remove_unused_globals_with_prefix("manglersteel/");

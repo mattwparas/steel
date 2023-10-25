@@ -105,6 +105,12 @@ impl UserDefinedStruct {
     pub fn name(&self) -> InternedString {
         self.type_descriptor.name()
     }
+
+    pub fn is_transparent(&self) -> bool {
+        self.get(&TRANSPARENT_KEY.with(|x| x.clone()))
+            .and_then(|x| x.as_bool())
+            .unwrap_or_default()
+    }
 }
 
 // TODO: This could blow the stack for big trees...

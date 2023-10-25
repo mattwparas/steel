@@ -30,7 +30,7 @@
                (cdr obj))
      (display ")")]
 
-    [(struct? obj)
+    [(#%private-struct? obj)
 
      (let ([printer (#%struct-property-ref obj '#:printer)])
 
