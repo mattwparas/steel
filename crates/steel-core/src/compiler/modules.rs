@@ -1355,8 +1355,8 @@ impl<'a> ModuleBuilder<'a> {
                 // ast.append(&mut module_exprs);
                 // new_module.source_ast = ast;
 
-                dbg!(&new_module.name);
-                dbg!(&new_module.compiled_modules.contains_key(&new_module.name));
+                // dbg!(&new_module.name);
+                // dbg!(&new_module.compiled_modules.contains_key(&new_module.name));
 
                 // If we need to, revisit because there are new provides
                 if !new_module.provides.is_empty() {
