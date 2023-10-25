@@ -1602,7 +1602,8 @@ impl Engine {
     }
 
     pub fn get_module(&self, path: PathBuf) -> Result<SteelVal> {
-        let module_path = "__module-mangler".to_string() + path.as_os_str().to_str().unwrap();
+        let module_path =
+            "__module-mangler".to_string() + path.as_os_str().to_str().unwrap() + "__%#__";
 
         self.extract_value(&module_path)
     }
