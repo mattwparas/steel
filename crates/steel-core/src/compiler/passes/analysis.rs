@@ -3054,18 +3054,19 @@ impl<'a> SemanticAnalysis<'a> {
         };
 
         for steel_macro in macros.values() {
-            for expr in steel_macro.exprs() {
-                // println!("{}", expr);
-                collected.visit(expr);
+            if !steel_macro.is_mangled() {
+                for expr in steel_macro.exprs() {
+                    collected.visit(expr);
+                }
             }
         }
 
         for module in module_manager.modules() {
             for steel_macro in module.1.macro_map.values() {
-                for expr in steel_macro.exprs() {
-                    // println!("{}", expr);
-
-                    collected.visit(expr);
+                if !steel_macro.is_mangled() {
+                    for expr in steel_macro.exprs() {
+                        collected.visit(expr);
+                    }
                 }
             }
         }
@@ -3093,10 +3094,9 @@ impl<'a> SemanticAnalysis<'a> {
                                         if *func == module_get_interned || *func == proto_hash_get {
                                             // If this is found inside of a macro, do not remove it
                                             if found.contains(&name) {
-                                                        println!("----------- SKIPPING REMOVAL OF: {} -------------", name);
                                                 return true;
                                             }
-                                                    
+
                                             // println!("REMOVING: {}", name);
 
                                             return false;
@@ -3134,8 +3134,6 @@ impl<'a> SemanticAnalysis<'a> {
                                                 {
                                                     // If this is found inside of a macro, do not remove it
                                                     if found.contains(&name) {
-                                                        println!("----------- SKIPPING REMOVAL OF: {} -------------", name);
-
                                                         offset += 1;
                                                         return true;
                                                     }
