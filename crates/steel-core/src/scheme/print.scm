@@ -1,3 +1,8 @@
+(require-builtin steel/base)
+
+(provide displayln
+         display)
+
 (define (for-each func lst)
   (if (null? lst)
       void
@@ -7,62 +12,176 @@
           (return! void))
         (for-each func (cdr lst)))))
 
-(define (print obj)
+(define (display obj)
+
+  ;; Collect cycles
+  (define cycle-collector (#%private-cycle-collector obj))
+
+  (for-each (λ (obj)
+              (when (int? (#%private-cycle-collector-get cycle-collector obj))
+                (simple-display "#" (#%private-cycle-collector-get cycle-collector obj) "=")
+                (#%top-level-print obj cycle-collector)
+                (newline)))
+            (#%private-cycle-collector-values cycle-collector))
 
   ;; Symbols are funny
   (when (or (symbol? obj) (list? obj))
-    (display "'"))
+    (simple-display "'"))
 
-  (#%print obj)
-  (newline))
+  (#%print obj cycle-collector))
 
-(define (#%print obj)
+(define (displayln . objs)
+
   (cond
-    [(symbol? obj) (display (symbol->string obj))]
-    [(atom? obj) (display obj)]
-    [(function? obj) (display obj)]
+    [(= (length objs) 1)
+
+     (display (car objs))
+     (newline)]
+    [else
+
+     (for-each display objs)
+     (newline)]))
+
+(define (#%top-level-print obj collector)
+  (cond
+    [(symbol? obj) (simple-display (symbol->string obj))]
+    [(atom? obj) (simple-display obj)]
+    [(function? obj) (simple-display obj)]
+    ;; There is a cycle!
+    ; [(int? (#%private-cycle-collector-get collector obj))
+    ;  (simple-display "#" (#%private-cycle-collector-get collector obj) "#")]
     [(list? obj)
-     (display "(")
-     (#%print (car obj))
+     (simple-display "(")
+     (#%print (car obj) collector)
      (for-each (λ (obj)
-                 (display " ")
-                 (#%print obj))
+                 (simple-display " ")
+                 (#%print obj collector))
                (cdr obj))
-     (display ")")]
+     (simple-display ")")]
 
     [(#%private-struct? obj)
 
      (let ([printer (#%struct-property-ref obj '#:printer)])
 
        (cond
-         [(function? printer) (printer obj #%print)]
+         [(function? printer) (printer obj (lambda (x) (#%print x collector)))]
 
          [else
-          (display "#<")
-          (display (symbol->string (#%struct-property-ref obj '#:name)))
-          (display ">")]))]
+          (simple-display "#<")
+          (simple-display (symbol->string (#%struct-property-ref obj '#:name)))
+          (simple-display ">")]))]
 
-    [(set? obj) (error "TODO: Implement printer for sets")]
+    [(set? obj)
+     (cond
+       [(= (hashset-length obj) 0) (simple-display "(set)")]
+       [else
+        (simple-display "(set ")
+
+        (let ([set-as-list (hashset->list obj)])
+
+          (#%print (car set-as-list) collector)
+          (for-each (λ (obj)
+                      (simple-display " ")
+                      (#%print obj collector)
+                      collector)
+                    (cdr set-as-list))
+          (simple-display ")"))])]
 
     [(hash? obj)
-     (display "'#hash(")
+     (simple-display "'#hash(")
      ;; TODO: This should use the private transduce
      (let ([hash-as-list-of-pairs (transduce obj (into-list))])
 
-       (display "(")
-       (#%print (caar hash-as-list-of-pairs))
-       (display " . ")
-       (#%print (cadar hash-as-list-of-pairs))
-       (display ")")
+       (cond
+         [(empty? hash-as-list-of-pairs) (simple-display ")")]
+         [else
 
-       (for-each (λ (obj)
-                   (display " (")
-                   (#%print (car obj))
-                   (display " . ")
-                   (#%print (list-ref obj 1))
-                   (display ")"))
-                 (cdr hash-as-list-of-pairs))
+          (simple-display "(")
+          (#%print (caar hash-as-list-of-pairs) collector)
+          (simple-display " . ")
+          (#%print (cadar hash-as-list-of-pairs) collector)
+          (simple-display ")")
 
-       (display ")"))]
+          (for-each (λ (obj)
+                      (simple-display " (")
+                      (#%print (car obj) collector)
+                      (simple-display " . ")
+                      (#%print (list-ref obj 1) collector)
+                      (simple-display ")"))
+                    (cdr hash-as-list-of-pairs))
 
-    [else (error "Trying to print an unhandled object!: " obj)]))
+          (simple-display ")")]))]
+
+    [else (simple-displayln obj)]))
+
+(define (#%print obj collector)
+  (cond
+    [(symbol? obj) (simple-display (symbol->string obj))]
+    [(atom? obj) (simple-display obj)]
+    [(function? obj) (simple-display obj)]
+    ;; There is a cycle!
+    [(int? (#%private-cycle-collector-get collector obj))
+     (simple-display "#" (#%private-cycle-collector-get collector obj) "#")]
+    [(list? obj)
+     (simple-display "(")
+     (#%print (car obj) collector)
+     (for-each (λ (obj)
+                 (simple-display " ")
+                 (#%print obj collector))
+               (cdr obj))
+     (simple-display ")")]
+
+    [(#%private-struct? obj)
+
+     (let ([printer (#%struct-property-ref obj '#:printer)])
+
+       (cond
+         [(function? printer) (printer obj (lambda (x) (#%print x collector)))]
+
+         [else
+          (simple-display "#<")
+          (simple-display (symbol->string (#%struct-property-ref obj '#:name)))
+          (simple-display ">")]))]
+
+    [(set? obj)
+     (cond
+       [(= (hashset-length obj) 0) (simple-display "(set)")]
+       [else
+        (simple-display "(set ")
+
+        (let ([set-as-list (hashset->list obj)])
+
+          (#%print (car set-as-list) collector)
+          (for-each (λ (obj)
+                      (simple-display " ")
+                      (#%print obj collector)
+                      collector)
+                    (cdr set-as-list))
+          (simple-display ")"))])]
+
+    [(hash? obj)
+     (simple-display "'#hash(")
+     ;; TODO: This should use the private transduce
+     (let ([hash-as-list-of-pairs (transduce obj (into-list))])
+
+       (cond
+         [(empty? hash-as-list-of-pairs) (simple-display ")")]
+         [else
+
+          (simple-display "(")
+          (#%print (caar hash-as-list-of-pairs) collector)
+          (simple-display " . ")
+          (#%print (cadar hash-as-list-of-pairs) collector)
+          (simple-display ")")
+
+          (for-each (λ (obj)
+                      (simple-display " (")
+                      (#%print (car obj) collector)
+                      (simple-display " . ")
+                      (#%print (list-ref obj 1) collector)
+                      (simple-display ")"))
+                    (cdr hash-as-list-of-pairs))
+
+          (simple-display ")")]))]
+
+    [else (simple-displayln obj)]))

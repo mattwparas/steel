@@ -935,7 +935,11 @@ impl Engine {
         engine.compiler.kernel = Some(Kernel::new());
 
         engine
-            .run("(require \"#%private/steel/contract\" (for-syntax \"#%private/steel/contract\"))")
+            .run(
+                "(require \"#%private/steel/contract\" (for-syntax \"#%private/steel/contract\"))
+                (require \"#%private/steel/print\")
+                ",
+            )
             .unwrap();
 
         engine

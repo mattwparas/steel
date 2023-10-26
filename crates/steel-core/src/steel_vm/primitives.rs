@@ -27,8 +27,9 @@ use crate::{
     },
     rerrs::ErrorKind,
     rvals::{
-        as_underlying_type, cycles::BreadthFirstSearchSteelValVisitor, FromSteelVal,
-        ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
+        as_underlying_type,
+        cycles::{BreadthFirstSearchSteelValVisitor, SteelCycleCollector},
+        FromSteelVal, ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
     },
     steel_vm::{
         builtin::{get_function_name, Arity},
@@ -989,6 +990,8 @@ fn io_module() -> BuiltInModule {
     module
         .register_value("display", IoFunctions::display())
         .register_value("displayln", IoFunctions::displayln())
+        .register_value("simple-display", IoFunctions::display())
+        .register_value("simple-displayln", IoFunctions::displayln())
         .register_value("newline", IoFunctions::newline())
         .register_value("read-to-string", IoFunctions::read_to_string());
 
@@ -1285,6 +1288,12 @@ fn meta_module() -> BuiltInModule {
         )
         .register_fn("#%function-ptr-table-add", LambdaMetadataTable::add)
         .register_fn("#%function-ptr-table-get", LambdaMetadataTable::get)
+        .register_fn("#%private-cycle-collector", SteelCycleCollector::from_root)
+        .register_fn("#%private-cycle-collector-get", SteelCycleCollector::get)
+        .register_fn(
+            "#%private-cycle-collector-values",
+            SteelCycleCollector::values,
+        )
         .register_value("assert!", MetaOperations::assert_truthy())
         .register_value("active-object-count", MetaOperations::active_objects())
         .register_value("inspect-bytecode", MetaOperations::inspect_bytecode())

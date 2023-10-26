@@ -59,12 +59,16 @@ static ITERATORS_NAME: &str = "steel/iterators";
 static MUTABLE_VECTORS: &str = include_str!("../scheme/modules/mvector.scm");
 static MUTABLE_VECTORS_NAME: &str = "steel/mutable-vectors";
 
+static PRINTING: &str = include_str!("../scheme/print.scm");
+static PRINTING_NAME: &str = "#%private/steel/print";
+
 static BUILT_INS: &[(&str, &str)] = &[
     (OPTION_NAME, OPTION),
     (RESULT_NAME, RESULT),
     (CONTRACT_NAME, CONTRACT),
     (ITERATORS_NAME, ITERATORS),
     (MUTABLE_VECTORS_NAME, MUTABLE_VECTORS),
+    (PRINTING_NAME, PRINTING),
 ];
 
 pub(crate) const MANGLER_SEPARATOR: &str = "__%#__";
@@ -2017,4 +2021,7 @@ impl<'a> ModuleBuilder<'a> {
 
 // pub static PRELUDE_STRING: &str = "";
 
-pub static PRELUDE_STRING: &str = "(require-builtin steel/base) (require \"#%private/steel/contract\" (for-syntax \"#%private/steel/contract\")) ";
+pub static PRELUDE_STRING: &str = "(require-builtin steel/base) 
+(require \"#%private/steel/contract\" (for-syntax \"#%private/steel/contract\"))
+(require \"#%private/steel/print\")
+";

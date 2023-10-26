@@ -392,6 +392,91 @@ impl SteelVal {
     }
 }
 
+pub(crate) struct SteelCycleCollector {
+    cycles: fxhash::FxHashMap<usize, usize>,
+    values: List<SteelVal>,
+}
+
+impl Custom for SteelCycleCollector {}
+
+impl SteelCycleCollector {
+    pub fn from_root(value: SteelVal) -> Self {
+        let mut queue = VecDeque::new();
+
+        let mut collector = CycleCollector {
+            visited: fxhash::FxHashSet::default(),
+            cycles: fxhash::FxHashMap::default(),
+            values: Vec::new(),
+            queue: &mut queue,
+        };
+
+        collector.push_back(value);
+
+        collector.visit();
+
+        SteelCycleCollector {
+            cycles: collector.cycles,
+            values: collector.values.into(),
+        }
+    }
+
+    // Get the value
+    pub fn get(&self, node: SteelVal) -> Option<usize> {
+        match node {
+            SteelVal::CustomStruct(c) => {
+                let ptr_addr = c.as_ptr() as usize;
+                self.cycles.get(&ptr_addr)
+            }
+            SteelVal::HeapAllocated(b) => {
+                // Get the object that THIS points to
+                let ptr_addr = b.get().as_ptr_usize().unwrap();
+                self.cycles.get(&ptr_addr)
+            }
+            SteelVal::ListV(l) => {
+                let ptr_addr = l.as_ptr_usize();
+
+                self.cycles.get(&ptr_addr)
+            }
+            SteelVal::VectorV(l) => {
+                let ptr_addr = l.0.as_ptr() as usize;
+
+                self.cycles.get(&ptr_addr)
+            }
+            SteelVal::HashMapV(l) => {
+                let ptr_addr = l.0.as_ptr() as usize;
+
+                self.cycles.get(&ptr_addr)
+            }
+            SteelVal::HashSetV(l) => {
+                let ptr_addr = l.0.as_ptr() as usize;
+
+                self.cycles.get(&ptr_addr)
+            }
+            SteelVal::Custom(l) => {
+                let ptr_addr = l.0.as_ptr() as usize;
+
+                self.cycles.get(&ptr_addr)
+            }
+            SteelVal::Boxed(b) => {
+                let ptr_addr = b.as_ptr() as usize;
+
+                self.cycles.get(&ptr_addr)
+            }
+            SteelVal::SyntaxObject(s) => {
+                let ptr_addr = s.as_ptr() as usize;
+
+                self.cycles.get(&ptr_addr)
+            }
+            _ => None,
+        }
+        .copied()
+    }
+
+    pub fn values(&self) -> List<SteelVal> {
+        self.values.clone()
+    }
+}
+
 struct CycleCollector<'a> {
     // Keep a mapping of the pointer -> gensym
     visited: fxhash::FxHashSet<usize>,
