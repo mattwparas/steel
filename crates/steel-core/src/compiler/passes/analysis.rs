@@ -7,7 +7,7 @@ use im_rc::HashMap as ImmutableHashMap;
 use quickscope::ScopeMap;
 
 use crate::{
-    compiler::modules::MANGLER_SEPARATOR,
+    compiler::modules::{ModuleManager, MANGLER_SEPARATOR},
     parser::{
         ast::{Atom, Define, ExprKind, LambdaFunction, Let, List, Quote},
         expander::SteelMacro,
@@ -2513,13 +2513,44 @@ impl<'a> VisitorMutUnitRef<'a> for CollectReferences {
     }
 }
 
+struct ReplaceBuiltinUsagesInsideMacros<'a> {
+    identifiers_to_replace: &'a mut HashSet<InternedString>,
+}
+
+impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesInsideMacros<'a> {
+    fn visit_define(&mut self, define: &mut Define) {
+        self.visit(&mut define.body);
+    }
+
+    fn visit_atom(&mut self, a: &mut Atom) {
+        if let Some(ident) = a.ident_mut() {
+            // println!("CHECKING: {}", ident);
+
+            if self.identifiers_to_replace.contains(ident) {
+                if let Some((_, builtin_name)) = ident.resolve().split_once(MANGLER_SEPARATOR) {
+                    // println!("RENAMING: {}", ident);
+
+                    *ident = ("#%prim.".to_string() + builtin_name).into();
+                }
+            }
+        }
+    }
+}
+
 struct ReplaceBuiltinUsagesWithReservedPrimitiveReferences<'a> {
     analysis: &'a Analysis,
+    identifiers_to_replace: &'a mut HashSet<InternedString>,
 }
 
 impl<'a> ReplaceBuiltinUsagesWithReservedPrimitiveReferences<'a> {
-    pub fn new(analysis: &'a Analysis) -> Self {
-        Self { analysis }
+    pub fn new(
+        analysis: &'a Analysis,
+        identifiers_to_replace: &'a mut HashSet<InternedString>,
+    ) -> Self {
+        Self {
+            analysis,
+            identifiers_to_replace,
+        }
     }
 }
 
@@ -2541,6 +2572,8 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
                     if let Some((_, builtin_name)) = ident.resolve().split_once(MANGLER_SEPARATOR) {
                         // let original = *ident;
 
+                        self.identifiers_to_replace.insert(*ident);
+
                         *ident = ("#%prim.".to_string() + builtin_name).into();
 
                         // println!("top level - MUTATED IDENT TO BE: {} -> {}", original, ident);
@@ -2561,6 +2594,8 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
                                     ident.resolve().split_once(MANGLER_SEPARATOR)
                                 {
                                     // let original = *ident;
+
+                                    self.identifiers_to_replace.insert(*ident);
 
                                     *ident = ("#%prim.".to_string() + builtin_name).into();
 
@@ -2944,13 +2979,55 @@ impl<'a> SemanticAnalysis<'a> {
         self
     }
 
-    pub(crate) fn replace_non_shadowed_globals_with_builtins(&mut self) -> &mut Self {
-        let mut replacer = ReplaceBuiltinUsagesWithReservedPrimitiveReferences::new(&self.analysis);
+    pub(crate) fn replace_non_shadowed_globals_with_builtins(
+        &mut self,
+        macros: &mut HashMap<InternedString, SteelMacro>,
+        module_manager: &mut ModuleManager,
+        table: &mut HashSet<InternedString>,
+    ) -> &mut Self {
+        // for identifier in table.iter() {
+        //     println!("Table => {}", identifier);
+        // }
 
-        // replacer.visit()
+        let mut replacer =
+            ReplaceBuiltinUsagesWithReservedPrimitiveReferences::new(&self.analysis, table);
 
         for expr in self.exprs.iter_mut() {
             replacer.visit(expr);
+        }
+
+        // for identifier in replacer.identifiers_to_replace.iter() {
+        //     println!("Replaced => {}", identifier);
+        // }
+
+        let mut macro_replacer = ReplaceBuiltinUsagesInsideMacros {
+            identifiers_to_replace: replacer.identifiers_to_replace,
+        };
+
+        for steel_macro in macros.values_mut() {
+            if !steel_macro.is_mangled() {
+                for expr in steel_macro.exprs_mut() {
+                    macro_replacer.visit(expr);
+                }
+
+                steel_macro.mark_mangled();
+            }
+        }
+
+        for module in module_manager.modules_mut() {
+            for steel_macro in module.1.macro_map.values_mut() {
+                if !steel_macro.is_mangled() {
+                    for expr in steel_macro.exprs_mut() {
+                        macro_replacer.visit(expr);
+                    }
+                }
+
+                steel_macro.mark_mangled();
+            }
+        }
+
+        for expr in self.exprs.iter_mut() {
+            macro_replacer.visit(expr);
         }
 
         self.analysis = Analysis::from_exprs(self.exprs);
@@ -2964,9 +3041,13 @@ impl<'a> SemanticAnalysis<'a> {
         &mut self,
         prefix: &str,
         macros: &HashMap<InternedString, SteelMacro>,
+        module_manager: &ModuleManager,
     ) -> &mut Self {
         let module_get_interned: InternedString = "%module-get%".into();
         let proto_hash_get: InternedString = "%proto-hash-get%".into();
+
+        let steel_constant_module: InternedString = "%-builtin-module-steel/constants".into();
+        let void: InternedString = "void".into();
 
         let mut collected = CollectReferences {
             idents: fxhash::FxHashSet::default(),
@@ -2974,11 +3055,26 @@ impl<'a> SemanticAnalysis<'a> {
 
         for steel_macro in macros.values() {
             for expr in steel_macro.exprs() {
+                // println!("{}", expr);
                 collected.visit(expr);
             }
         }
 
+        for module in module_manager.modules() {
+            for steel_macro in module.1.macro_map.values() {
+                for expr in steel_macro.exprs() {
+                    // println!("{}", expr);
+
+                    collected.visit(expr);
+                }
+            }
+        }
+
         let found = collected.idents;
+
+        // for ident in &found {
+        //     println!("{}", ident);
+        // }
 
         self.exprs.retain_mut(|expression| {
             match expression {
@@ -2997,8 +3093,11 @@ impl<'a> SemanticAnalysis<'a> {
                                         if *func == module_get_interned || *func == proto_hash_get {
                                             // If this is found inside of a macro, do not remove it
                                             if found.contains(&name) {
+                                                        println!("----------- SKIPPING REMOVAL OF: {} -------------", name);
                                                 return true;
                                             }
+                                                    
+                                            // println!("REMOVING: {}", name);
 
                                             return false;
                                         }
@@ -3008,42 +3107,79 @@ impl<'a> SemanticAnalysis<'a> {
                         }
                     }
                 }
-                ExprKind::Begin(b) => b.exprs.retain_mut(|expression| {
-                    if let ExprKind::Define(define) = expression {
-                        if let Some(name) = define.name.atom_identifier() {
-                            if name.resolve().starts_with(prefix) {
-                                if let Some(analysis) = define
-                                    .name
-                                    .atom_syntax_object()
-                                    .and_then(|x| self.analysis.get(x))
-                                {
-                                    if analysis.usage_count == 0 {
-                                        if let Some(func) =
-                                            define.body.list().and_then(|x| x.first_ident())
-                                        {
-                                            if *func == module_get_interned
-                                                || *func == proto_hash_get
+                ExprKind::Begin(b) => {
+                    let mut offset = 0;
+                    let total_length = b.exprs.len();
+
+                    b.exprs.retain_mut(|expression| {
+                        if let ExprKind::Define(define) = expression {
+                            if let Some(name) = define.name.atom_identifier() {
+                                if name.resolve().starts_with(prefix) {
+                                    if let Some(analysis) = define
+                                        .name
+                                        .atom_syntax_object()
+                                        .and_then(|x| self.analysis.get(x))
+                                    {
+                                        if analysis.usage_count == 0 {
+                                            if let Some(func) =
+                                                define.body.list().and_then(|x| x.first_ident())
                                             {
-                                                // If this is found inside of a macro, do not remove it
-                                                if found.contains(&name) {
-                                                    return true;
+                                                // (%module-get%
+                                                //         %-builtin-module-steel/constants
+                                                //         (quote
+                                                //           void))
+
+                                                if *func == module_get_interned
+                                                    || *func == proto_hash_get
+                                                {
+                                                    // If this is found inside of a macro, do not remove it
+                                                    if found.contains(&name) {
+                                                        println!("----------- SKIPPING REMOVAL OF: {} -------------", name);
+
+                                                        offset += 1;
+                                                        return true;
+                                                    }
+
+                                                    // println!("REMOVING: {}", name);
+
+                                                    offset += 1;
+                                                    return false;
                                                 }
-                                                return false;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            if let ExprKind::List(l) = expression {
+                                if let Some(func) = l.first_ident() {
+                                    if *func == module_get_interned {
+                                        if l[1].atom_identifier() == Some(&steel_constant_module) {
+                                            if let ExprKind::Quote(q) = &l[2] {
+                                                if q.expr.atom_identifier() == Some(&void)
+                                                    && offset < total_length
+                                                {
+                                                    offset += 1;
+                                                    return false;
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    return true;
-                }),
+                        offset += 1;
+                        return true;
+                    });
+                }
                 _ => {}
             }
 
             return true;
         });
+
+        // self.exprs.push(ExprKind::ident("void"));
 
         log::debug!("Re-running the semantic analysis after removing unused globals");
 

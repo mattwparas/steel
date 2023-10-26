@@ -12,10 +12,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         // "requires",
         // "modules",
         "gc",
-        "kernel",
-        "super-instructions",
-        "lambda-lifting",
-        "dylibs",
+        // "kernel",
+        // "super-instructions",
+        // "lambda-lifting",
+        // "dylibs",
     ];
 
     for target in log_targets {

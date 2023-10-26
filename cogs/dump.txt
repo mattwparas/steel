@@ -1,0 +1,338 @@
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__hash -> #%prim.hash
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__#%vtable-update-entry! -> #%prim.#%vtable-update-entry!
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__void -> #%prim.void
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__list-ref -> #%prim.list-ref
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__list-ref -> #%prim.list-ref
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__list-ref -> #%prim.list-ref
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__list-ref -> #%prim.list-ref
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__make-struct-type -> #%prim.make-struct-type
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__list -> #%prim.list
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__void -> #%prim.void
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__null? -> #%prim.null?
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__list? -> #%prim.list?
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__append -> #%prim.append
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__car -> #%prim.car
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__cdr -> #%prim.cdr
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__list -> #%prim.list
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__= -> #%prim.=
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__length -> #%prim.length
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__first -> #%prim.first
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__push-back -> #%prim.push-back
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__empty? -> #%prim.empty?
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__list -> #%prim.list
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__< -> #%prim.<
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__first -> #%prim.first
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__cons -> #%prim.cons
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__equal? -> #%prim.equal?
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__first -> #%prim.first
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__cons -> #%prim.cons
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__first -> #%prim.first
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__rest -> #%prim.rest
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__cons -> #%prim.cons
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__first -> #%prim.first
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__rest -> #%prim.rest
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__first -> #%prim.first
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__push-back -> #%prim.push-back
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__empty? -> #%prim.empty?
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__list -> #%prim.list
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__rest -> #%prim.rest
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__< -> #%prim.<
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__first -> #%prim.first
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__cons -> #%prim.cons
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__rest -> #%prim.rest
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__equal? -> #%prim.equal?
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__first -> #%prim.first
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__cons -> #%prim.cons
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__rest -> #%prim.rest
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__first -> #%prim.first
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__first -> #%prim.first
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__first -> #%prim.first
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__rest -> #%prim.rest
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__cons -> #%prim.cons
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__first -> #%prim.first
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__rest -> #%prim.rest
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__string->list -> #%prim.string->list
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__< -> #%prim.<
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__= -> #%prim.=
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__length -> #%prim.length
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__first -> #%prim.first
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__first -> #%prim.first
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__rest -> #%prim.rest
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__cons -> #%prim.cons
+MUTATED IDENT TO BE: mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__list->string -> #%prim.list->string
+(define ##__lifted_pure_function78793
+  (λ (struct-type-descriptor
+      constructor-proto
+      predicate-proto
+      getter-proto)
+    (begin
+     (set! mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__struct:trie
+            struct-type-descriptor)
+          (#%prim.#%vtable-update-entry!
+             struct-type-descriptor
+             #false
+             mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#_____trie-options___)
+          (set! mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie
+            constructor-proto)
+          (set! mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie?
+            predicate-proto)
+          (set! mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-char
+            (λ (this)
+              (getter-proto this 0)))
+          (set! mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-children
+            (λ (this)
+              (getter-proto this 1)))
+          (set! mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-end-word?
+            (λ (this)
+              (getter-proto this 2)))
+          (set! mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-word-up-to
+            (λ (this)
+              (getter-proto this 3)))
+          #%prim.void)))
+
+(begin
+ (define mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#_____trie-options___
+        (#%prim.hash
+           (quote
+             #:mutable)
+           #false
+           (quote
+             #:transparent)
+           #false
+           (quote
+             #:fields)
+           (quote
+             (char children end-word? word-up-to))
+           (quote
+             #:printer)
+           #false
+           (quote
+             #:name)
+           (quote
+             trie)))
+      (define mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie
+        (quote
+          unintialized))
+      (define mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__struct:trie
+        (quote
+          uninitialized))
+      (define mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie?
+        (quote
+          uninitialized))
+      (define mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-char
+        (quote
+          uninitialized))
+      (define mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-children
+        (quote
+          uninitialized))
+      (define mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-end-word?
+        (quote
+          uninitialized))
+      (define mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-word-up-to
+        (quote
+          uninitialized))
+      (let ((prototypes (#%prim.make-struct-type
+             (quote
+               trie)
+             4)))
+        (##__lifted_pure_function78793
+           (#%prim.list-ref prototypes 0)
+           (#%prim.list-ref prototypes 1)
+           (#%prim.list-ref prototypes 2)
+           (#%prim.list-ref prototypes 3)))
+      (define mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__empty
+        (quote
+          ()))
+      (define mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__empty-trie
+        (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie
+           #%prim.void
+           mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__empty
+           #false
+           mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__empty))
+      (define mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__flatten
+        (λ (lst)
+          (if (#%prim.null? lst)
+            mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__empty
+            (if (#%prim.list? lst)
+              (#%prim.append
+                 (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__flatten
+                    (#%prim.car lst))
+                 (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__flatten
+                    (#%prim.cdr lst)))
+              (#%prim.list lst)))))
+      (define mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__create-children
+        (λ (char-list lst prefix-chars)
+          (if (#%prim.= (#%prim.length char-list) 1)
+            (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__handle-last-letter
+               char-list
+               lst
+               prefix-chars)
+            (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__handle-intern-letter
+               char-list
+               lst
+               prefix-chars))))
+      (define mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__handle-last-letter
+        (λ (char-list lst prefix-chars)
+          (let ((char (#%prim.first char-list)))
+            (let ((next-prefix (#%prim.push-back
+                   prefix-chars
+                   char)))
+              (if (#%prim.empty? lst)
+                (#%prim.list
+                   (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie
+                      char
+                      mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__empty
+                      #true
+                      next-prefix))
+                (if (#%prim.<
+                     char
+                     (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-char
+                        (#%prim.first lst)))
+                  (#%prim.cons
+                     (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie
+                        char
+                        mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__empty
+                        #true
+                        next-prefix)
+                     lst)
+                  (if (#%prim.equal?
+                       char
+                       (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-char
+                          (#%prim.first lst)))
+                    (#%prim.cons
+                       (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie
+                          char
+                          (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-children
+                             (#%prim.first lst))
+                          #true
+                          next-prefix)
+                       (#%prim.rest lst))
+                    (#%prim.cons
+                       (#%prim.first lst)
+                       (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__create-children
+                          char-list
+                          (#%prim.rest lst)
+                          prefix-chars)))))))))
+      (define mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__handle-intern-letter
+        (λ (char-list lst prefix-chars)
+          (let ((char (#%prim.first char-list)))
+            (let ((next-prefix (#%prim.push-back
+                   prefix-chars
+                   char)))
+              (if (#%prim.empty? lst)
+                (#%prim.list
+                   (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie
+                      char
+                      (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__create-children
+                         (#%prim.rest char-list)
+                         mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__empty
+                         next-prefix)
+                      #false
+                      next-prefix))
+                (if (#%prim.<
+                     char
+                     (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-char
+                        (#%prim.first lst)))
+                  (#%prim.cons
+                     (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie
+                        char
+                        (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__create-children
+                           (#%prim.rest char-list)
+                           mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__empty
+                           next-prefix)
+                        #false
+                        next-prefix)
+                     lst)
+                  (if (#%prim.equal?
+                       char
+                       (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-char
+                          (#%prim.first lst)))
+                    (#%prim.cons
+                       (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie
+                          char
+                          (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__create-children
+                             (#%prim.rest char-list)
+                             (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-children
+                                (#%prim.first lst))
+                             next-prefix)
+                          (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-end-word?
+                             (#%prim.first lst))
+                          (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-word-up-to
+                             (#%prim.first lst)))
+                       (#%prim.rest lst))
+                    (#%prim.cons
+                       (#%prim.first lst)
+                       (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__create-children
+                          char-list
+                          (#%prim.rest lst)
+                          prefix-chars)))))))))
+      (define mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__insert
+        (λ (root-trie word)
+          (let ((char-list (#%prim.string->list word)))
+            (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie
+               (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-char
+                  root-trie)
+               (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__create-children
+                  char-list
+                  (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-children
+                     root-trie)
+                  mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__empty)
+               (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-end-word?
+                  root-trie)
+               (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-word-up-to
+                  root-trie)))))
+      (define mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie<?
+        (λ (trie-node1 trie-node2)
+          (#%prim.<
+             (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-char
+                trie-node1)
+             (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-char
+                trie-node2))))
+      (define mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__build-trie-from-list-of-words
+        (λ (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie
+            list-of-words)
+          (if (#%prim.= (#%prim.length list-of-words) 1)
+            (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__insert
+               mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie
+               (#%prim.first list-of-words))
+            (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__build-trie-from-list-of-words
+               (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__insert
+                  mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie
+                  (#%prim.first list-of-words))
+               (#%prim.rest list-of-words)))))
+      (define mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-sort
+        (λ (list-of-words)
+          (let ((new-trie (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__build-trie-from-list-of-words
+                 mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__empty-trie
+                 list-of-words)))
+            (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__pre-order
+               new-trie))))
+      (define mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__pre-order
+        (λ (trie-node)
+          (if (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-end-word?
+               trie-node)
+            (#%prim.cons
+               (#%prim.list->string
+                  (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-word-up-to
+                     trie-node))
+               (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__flatten
+                  (map
+                     mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__pre-order
+                     (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-children
+                        trie-node))))
+            (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__flatten
+               (map
+                  mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__pre-order
+                  (mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-children
+                     trie-node))))))
+      (define __module-mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__
+        (hash
+           (quote
+             trie-sort)
+           mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__trie-sort)))
+
+(define trie-sort
+  (%proto-hash-get%
+     __module-mangler/home/matt/Documents/steel/cogs/sorting/trie-sort.scm__%#__
+     (quote
+       trie-sort)))

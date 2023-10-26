@@ -1356,8 +1356,20 @@ impl<'a> VmCore<'a> {
                 } => {
                     let last = self.thread.stack.pop().unwrap();
 
+                    // println!("-- POP N: {} -- ", payload_size);
+
                     // println!("popping: {}", payload_size);
                     // println!("Stack length: {:?}", self.thread.stack.len());
+
+                    // println!("{:#?}", self.thread.stack);
+
+                    // if payload_size as usize > self.thread.stack.len() {
+                    //     self.thread.stack.clear()
+                    // } else {
+                    //     self.thread
+                    //         .stack
+                    //         .truncate(self.thread.stack.len() - payload_size as usize);
+                    // }
 
                     self.thread
                         .stack
@@ -1371,9 +1383,19 @@ impl<'a> VmCore<'a> {
                 }
 
                 DenseInstruction {
+                    op_code: OpCode::POPSINGLE,
+                    ..
+                } => {
+                    self.thread.stack.pop();
+                    self.ip += 1;
+                }
+
+                DenseInstruction {
                     op_code: OpCode::POPPURE,
                     ..
                 } => {
+                    // println!("-- POP PURE --");
+
                     if let Some(r) = self.handle_pop_pure() {
                         return r;
                     }

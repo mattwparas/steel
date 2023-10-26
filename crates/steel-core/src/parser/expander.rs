@@ -149,6 +149,7 @@ pub struct SteelMacro {
     name: InternedString,
     special_forms: Vec<InternedString>,
     cases: Vec<MacroCase>,
+    mangled: bool,
 }
 
 impl SteelMacro {
@@ -162,6 +163,7 @@ impl SteelMacro {
             name,
             special_forms,
             cases,
+            mangled: false,
         }
     }
 
@@ -175,6 +177,14 @@ impl SteelMacro {
 
     pub fn exprs(&self) -> impl Iterator<Item = &ExprKind> {
         self.cases.iter().map(|x| &x.body)
+    }
+
+    pub fn mark_mangled(&mut self) {
+        self.mangled = true;
+    }
+
+    pub fn is_mangled(&self) -> bool {
+        self.mangled
     }
 
     pub fn parse_from_ast_macro(ast_macro: Macro) -> Result<Self> {
@@ -209,6 +219,7 @@ impl SteelMacro {
             name,
             special_forms,
             cases,
+            mangled: false,
         })
     }
 

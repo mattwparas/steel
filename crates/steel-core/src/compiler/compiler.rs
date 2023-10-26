@@ -261,6 +261,7 @@ pub struct Compiler {
     opt_level: OptLevel,
     pub(crate) kernel: Option<Kernel>,
     memoization_table: MemoizationTable,
+    mangled_identifiers: HashSet<InternedString>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -270,6 +271,7 @@ pub struct SerializableCompiler {
     pub(crate) macro_env: HashMap<InternedString, SteelMacro>,
     pub(crate) opt_level: OptLevel,
     pub(crate) module_manager: ModuleManager,
+    // pub(crate) mangled_identifiers:
 }
 
 impl SerializableCompiler {
@@ -324,6 +326,7 @@ impl Compiler {
             opt_level: OptLevel::Three,
             kernel: None,
             memoization_table: MemoizationTable::new(),
+            mangled_identifiers: HashSet::new(),
         }
     }
 
@@ -342,6 +345,7 @@ impl Compiler {
             opt_level: OptLevel::Three,
             kernel: Some(kernel),
             memoization_table: MemoizationTable::new(),
+            mangled_identifiers: HashSet::new(),
         }
     }
 
@@ -464,13 +468,19 @@ impl Compiler {
 
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
+        // let mut table = HashSet::new();
+
         // This is definitely broken still
         semantic
             .elide_single_argument_lambda_applications()
             // .lift_pure_local_functions()
             // .lift_all_local_functions()
-            .replace_non_shadowed_globals_with_builtins()
-            .remove_unused_globals_with_prefix("mangler", &self.macro_env)
+            .replace_non_shadowed_globals_with_builtins(
+                &mut self.macro_env,
+                &mut self.module_manager,
+                &mut self.mangled_identifiers,
+            )
+            .remove_unused_globals_with_prefix("mangler", &self.macro_env, &self.module_manager)
             .lift_pure_local_functions()
             .lift_all_local_functions();
 
@@ -632,14 +642,20 @@ impl Compiler {
 
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
+        // let mut table = HashSet::new();
+
         // This is definitely broken still
         semantic
             .elide_single_argument_lambda_applications()
-            .replace_non_shadowed_globals_with_builtins()
+            .replace_non_shadowed_globals_with_builtins(
+                &mut self.macro_env,
+                &mut self.module_manager,
+                &mut self.mangled_identifiers,
+            )
             // TODO: To get this to work, we have to check the macros to make sure those
             // are safe to eliminate. In interactive mode, we'll
             // be unable to optimize those away
-            .remove_unused_globals_with_prefix("mangler", &self.macro_env)
+            .remove_unused_globals_with_prefix("mangler", &self.macro_env, &self.module_manager)
             .lift_pure_local_functions()
             .lift_all_local_functions();
         // .remove_unused_globals_with_prefix("manglersteel/");
@@ -681,8 +697,30 @@ impl Compiler {
 
         log::info!(target: "expansion-phase", "Aggressive constant evaluation with memoization");
 
+        // let expanded_statements = expanded_statements
+        //     .into_iter()
+        //     .flat_map(|x| {
+        //         if let ExprKind::Begin(b) = x {
+        //             b.exprs.into_iter()
+        //         } else {
+        //             vec![x].into_iter()
+        //         }
+        //     })
+        //     .collect();
+
         let expanded_statements =
             self.apply_const_evaluation(constants, expanded_statements, true)?;
+
+        // let expanded_statements = expanded_statements
+        //     .into_iter()
+        //     .flat_map(|x| {
+        //         if let ExprKind::Begin(b) = x {
+        //             b.exprs.into_iter()
+        //         } else {
+        //             vec![x].into_iter()
+        //         }
+        //     })
+        //     .collect();
 
         // TODO:
         // Here we're gonna do the constant evaluation pass, using the kernel for execution of the

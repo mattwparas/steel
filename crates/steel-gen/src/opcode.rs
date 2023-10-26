@@ -50,6 +50,7 @@ declare_opcodes! {
         EDEF;
         POPPURE;
         POPN;
+        POPSINGLE;
         PASS;
         PUSHCONST;
         NDEFS;

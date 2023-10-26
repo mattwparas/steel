@@ -102,6 +102,10 @@ impl ModuleManager {
         &self.compiled_modules
     }
 
+    pub fn modules_mut(&mut self) -> &mut HashMap<PathBuf, CompiledModule> {
+        &mut self.compiled_modules
+    }
+
     pub(crate) fn default() -> Self {
         Self::new(HashMap::new(), HashMap::new())
     }
@@ -585,7 +589,7 @@ pub struct CompiledModule {
     provides: Vec<ExprKind>,
     require_objects: Vec<RequireObject>,
     provides_for_syntax: Vec<InternedString>,
-    macro_map: HashMap<InternedString, SteelMacro>,
+    pub(crate) macro_map: HashMap<InternedString, SteelMacro>,
     ast: Vec<ExprKind>,
     emitted: bool,
 }
