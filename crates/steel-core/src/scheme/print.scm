@@ -52,11 +52,12 @@
     ;  (simple-display "#" (#%private-cycle-collector-get collector obj) "#")]
     [(list? obj)
      (simple-display "(")
-     (#%print (car obj) collector)
-     (for-each (λ (obj)
-                 (simple-display " ")
-                 (#%print obj collector))
-               (cdr obj))
+     (when (not (empty? obj))
+       (#%print (car obj) collector)
+       (for-each (λ (obj)
+                   (simple-display " ")
+                   (#%print obj collector))
+                 (cdr obj)))
      (simple-display ")")]
 
     [(#%private-struct? obj)
@@ -124,11 +125,12 @@
      (simple-display "#" (#%private-cycle-collector-get collector obj) "#")]
     [(list? obj)
      (simple-display "(")
-     (#%print (car obj) collector)
-     (for-each (λ (obj)
-                 (simple-display " ")
-                 (#%print obj collector))
-               (cdr obj))
+     (when (not (empty? obj))
+       (#%print (car obj) collector)
+       (for-each (λ (obj)
+                   (simple-display " ")
+                   (#%print obj collector))
+                 (cdr obj)))
      (simple-display ")")]
 
     [(#%private-struct? obj)

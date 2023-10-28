@@ -1,5 +1,7 @@
 // use itertools::Itertools;
 
+use quickscope::ScopeSet;
+
 use crate::compiler::passes::reader::MultipleArityFunctions;
 use crate::compiler::passes::Folder;
 use crate::compiler::program::REQUIRE_DYLIB;
@@ -48,6 +50,7 @@ pub fn expand(expr: ExprKind, map: &HashMap<InternedString, SteelMacro>) -> Resu
     Expander {
         map,
         changed: false,
+        in_scope_values: ScopeSet::new(),
     }
     .visit(expr)
 }
@@ -55,6 +58,8 @@ pub fn expand(expr: ExprKind, map: &HashMap<InternedString, SteelMacro>) -> Resu
 pub struct Expander<'a> {
     map: &'a HashMap<InternedString, SteelMacro>,
     pub(crate) changed: bool,
+    // We're going to actually check if the macro is in scope
+    in_scope_values: ScopeSet<InternedString>,
 }
 
 impl<'a> Expander<'a> {
@@ -62,6 +67,7 @@ impl<'a> Expander<'a> {
         Self {
             map,
             changed: false,
+            in_scope_values: ScopeSet::new(),
         }
     }
 
@@ -90,7 +96,18 @@ impl<'a> ConsumingVisitor for Expander<'a> {
         &mut self,
         mut lambda_function: Box<super::ast::LambdaFunction>,
     ) -> Self::Output {
+        self.in_scope_values.push_layer();
+
+        for value in &lambda_function.args {
+            if let Some(ident) = value.atom_identifier() {
+                self.in_scope_values.define(*ident);
+            }
+        }
+
         lambda_function.body = self.visit(lambda_function.body)?;
+
+        self.in_scope_values.pop_layer();
+
         Ok(ExprKind::LambdaFunction(lambda_function))
     }
 
@@ -134,9 +151,17 @@ impl<'a> ConsumingVisitor for Expander<'a> {
         })) = l.first()
         {
             if let Some(m) = self.map.get(s) {
-                let expanded = m.expand(l.clone(), *sp)?;
-                self.changed = true;
-                return self.visit(expanded);
+                // If this macro has been overwritten by any local value, respect
+                // the local binding and do not expand the macro
+                if !self.in_scope_values.contains(s) {
+                    let expanded = m.expand(l.clone(), *sp)?;
+                    self.changed = true;
+                    return self.visit(expanded);
+                }
+
+                // let expanded = m.expand(l.clone(), *sp)?;
+                // self.changed = true;
+                // return self.visit(expanded);
             }
         }
 

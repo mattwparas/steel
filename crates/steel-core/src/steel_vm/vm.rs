@@ -3043,7 +3043,11 @@ impl<'a> VmCore<'a> {
     // TODO: Clean up function calls and create a nice calling convention API?
     fn call_custom_struct(&mut self, s: &UserDefinedStruct, payload_size: usize) -> Result<()> {
         if let Some(procedure) = s.maybe_proc() {
-            self.handle_global_function_call(procedure.clone(), payload_size)
+            if let SteelVal::HeapAllocated(h) = procedure {
+                self.handle_global_function_call(h.get(), payload_size)
+            } else {
+                self.handle_global_function_call(procedure.clone(), payload_size)
+            }
         } else {
             stop!(Generic => "Attempted to call struct as a function - no procedure found!");
         }
@@ -3682,7 +3686,7 @@ impl<'a> VmCore<'a> {
                 cold();
                 log::error!("{stack_func:?}");
                 log::error!("Stack: {:?}", self.thread.stack);
-                stop!(BadSyntax => "Function application not a procedure or function type not supported"; self.current_span());
+                stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); self.current_span());
             }
         }
     }
