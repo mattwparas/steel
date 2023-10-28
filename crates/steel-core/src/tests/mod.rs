@@ -86,6 +86,7 @@ test_harness_success! {
     maxsubseq,
     merge_sort,
     numbers,
+    ncsubseq,
     pascals,
     permutations,
     quicksort,
