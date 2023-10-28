@@ -344,7 +344,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
         Ok(Syntax::proto(raw, items.into(), span).into())
     }
 
-    fn visit_syntax_rules(&mut self, s: super::ast::SyntaxRules) -> Self::Output {
+    fn visit_syntax_rules(&mut self, _s: super::ast::SyntaxRules) -> Self::Output {
         // Ok(SteelVal::ListV(
         //     vec![
         //         SteelVal::SymbolV("syntax-rules".into()),

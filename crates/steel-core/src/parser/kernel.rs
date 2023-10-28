@@ -8,7 +8,7 @@ use steel_parser::tokens::TokenType;
 use crate::{
     compiler::{
         passes::analysis::SemanticAnalysis,
-        program::{RawProgramWithSymbols, SerializableRawProgramWithSymbols},
+        program::{RawProgramWithSymbols},
     },
     expr_list,
     parser::{

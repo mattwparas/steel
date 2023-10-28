@@ -4,22 +4,22 @@ use std::{
     rc::{Rc, Weak},
 };
 
-use crate::{rvals::SteelVector, values::lists::List};
+use crate::{
+    rvals::{OpaqueIterator, SteelVector},
+    values::lists::List,
+};
 use num::BigInt;
 
 use crate::{
     gc::{unsafe_erased_pointers::OpaqueReference, Gc},
     rvals::{
-        cycles::BreadthFirstSearchSteelValVisitor, BoxedAsyncFunctionSignature,
-        BuiltInDataStructureIterator, CustomType, FunctionSignature, FutureResult,
+        cycles::BreadthFirstSearchSteelValVisitor, BoxedAsyncFunctionSignature, CustomType, FunctionSignature, FutureResult,
         MutFunctionSignature, SteelHashMap, SteelHashSet, SteelString, Syntax,
     },
     steel_vm::vm::{BuiltInSignature, Continuation},
     values::functions::ByteCodeLambda,
     SteelVal,
 };
-
-use crate::rvals::SteelVal::*;
 
 use super::{
     functions::BoxedDynFunction,
@@ -219,7 +219,7 @@ impl Heap {
 
             // Drive it down!
             if self.count > RESET_LIMIT {
-                log::info!(target: "gc", "Shrinking the heap");
+                log::debug!(target: "gc", "Shrinking the heap");
 
                 self.threshold = GC_THRESHOLD;
                 self.count = 0;
@@ -560,10 +560,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     fn visit_builtin_function(&mut self, _function: BuiltInSignature) -> Self::Output {}
 
     // TODO: Revisit this when the boxed iterator is cleaned up
-    fn visit_boxed_iterator(
-        &mut self,
-        _iterator: Gc<RefCell<BuiltInDataStructureIterator>>,
-    ) -> Self::Output {
+    fn visit_boxed_iterator(&mut self, iterator: Gc<RefCell<OpaqueIterator>>) -> Self::Output {
+        self.push_back(iterator.borrow().root.clone());
     }
 
     fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) -> Self::Output {

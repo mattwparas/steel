@@ -623,11 +623,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
 
     fn visit_builtin_function(&mut self, _function: BuiltInSignature) -> Self::Output {}
 
-    fn visit_boxed_iterator(
-        &mut self,
-        _iterator: Gc<RefCell<BuiltInDataStructureIterator>>,
-    ) -> Self::Output {
-    }
+    fn visit_boxed_iterator(&mut self, _iterator: Gc<RefCell<OpaqueIterator>>) -> Self::Output {}
 
     fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) -> Self::Output {
         if !self.add(
@@ -956,7 +952,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
     fn visit_mutable_vector(&mut self, _vector: HeapRef<Vec<SteelVal>>) {}
 
     // TODO: Once the root is added back to this, bring it back
-    fn visit_boxed_iterator(&mut self, _iterator: Gc<RefCell<BuiltInDataStructureIterator>>) {}
+    fn visit_boxed_iterator(&mut self, _iterator: Gc<RefCell<OpaqueIterator>>) {}
 
     fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) {
         if let Ok(inner) = syntax_object.try_unwrap() {
@@ -1061,10 +1057,7 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_mutable_function(&mut self, function: MutFunctionSignature) -> Self::Output;
     fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output;
     fn visit_builtin_function(&mut self, function: BuiltInSignature) -> Self::Output;
-    fn visit_boxed_iterator(
-        &mut self,
-        iterator: Gc<RefCell<BuiltInDataStructureIterator>>,
-    ) -> Self::Output;
+    fn visit_boxed_iterator(&mut self, iterator: Gc<RefCell<OpaqueIterator>>) -> Self::Output;
     fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) -> Self::Output;
     fn visit_boxed_value(&mut self, boxed_value: Gc<RefCell<SteelVal>>) -> Self::Output;
     fn visit_reference_value(&mut self, reference: Rc<OpaqueReference<'static>>) -> Self::Output;
@@ -1533,11 +1526,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
         }
     }
 
-    fn visit_boxed_iterator(
-        &mut self,
-        _iterator: Gc<RefCell<BuiltInDataStructureIterator>>,
-    ) -> Self::Output {
-    }
+    fn visit_boxed_iterator(&mut self, _iterator: Gc<RefCell<OpaqueIterator>>) -> Self::Output {}
 
     fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) -> Self::Output {
         if let Some(raw) = syntax_object.raw.clone() {

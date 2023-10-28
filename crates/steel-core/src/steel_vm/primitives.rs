@@ -11,7 +11,7 @@ use crate::{
     gc::Gc,
     parser::{interner::InternedString, span::Span},
     primitives::{
-        contracts, fs_module,
+        fs_module,
         hashmaps::hashmap_module,
         hashmaps::{HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,

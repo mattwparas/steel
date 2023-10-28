@@ -515,8 +515,7 @@ impl TryFrom<&SteelVal> for ExprKind {
             BoxedIterator(_) => Err("Can't convert from boxed iterator to expression!"),
             Boxed(_) => Err("Can't convert from boxed steel val to expression!"),
             Reference(_) => Err("Can't convert from opaque reference type to expression!"),
-            SteelVal::SyntaxObject(_) => todo!(),
-            HeapAllocated(_) => todo!(),
+            HeapAllocated(_) => Err("Can't convert from heap allocated value to expression!"),
         }
     }
 }

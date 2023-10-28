@@ -2444,7 +2444,7 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
                             }
 
                             for (var, _) in info.captured_vars() {
-                                log::info!(target: "lambda-lifting", "{}", var.resolve());
+                                log::debug!(target: "lambda-lifting", "{}", var.resolve());
                             }
 
                             if info.captured_vars().len() == 1 {
@@ -4293,7 +4293,7 @@ mod analysis_pass_tests {
                 );
             }
 
-            let unused_args = analysis.find_unused_arguments();
+            let _unused_args = analysis.find_unused_arguments();
 
             // println!("Unused args: {unused_args:?}");
 

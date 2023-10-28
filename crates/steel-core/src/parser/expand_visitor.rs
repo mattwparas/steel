@@ -293,7 +293,7 @@ fn expand_keyword_arguments(
     // to avoid much of the overhead of the allocation.
 
     // TODO: Can partition these directly into the two groups
-    let mut keyword_args: Vec<&ExprKind> = lambda_function
+    let keyword_args: Vec<&ExprKind> = lambda_function
         .args
         .iter()
         .skip_while(|x| {
@@ -310,7 +310,8 @@ fn expand_keyword_arguments(
         .collect();
 
     // If there is a rest argument, we'll want to grab it for later use in the expansion
-    let mut rest_arg_expr = None;
+    // TODO: @Matt - Come back to this one
+    // let mut rest_arg_expr = None;
 
     // Bail out if theres no keyword args
     if keyword_args.is_empty() {
@@ -321,9 +322,9 @@ fn expand_keyword_arguments(
         || (lambda_function.rest && keyword_args.len() - 1 % 2 != 0)
     {
         // The last argument is going to be the rest argument
-        if lambda_function.rest {
-            rest_arg_expr = keyword_args.pop();
-        }
+        // if lambda_function.rest {
+        //     rest_arg_expr = keyword_args.pop();
+        // }
 
         stop!(Generic => "keyword arguments malformed - each option requires a value"; lambda_function.location.span)
     }
@@ -864,7 +865,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
     }
 }
 
-fn define_quoted_ast_node(ast_name: ExprKind, expanded_expr: &ExprKind) -> ExprKind {
+fn _define_quoted_ast_node(ast_name: ExprKind, expanded_expr: &ExprKind) -> ExprKind {
     ExprKind::Define(Box::new(Define::new(
         ast_name,
         ExprKind::Quote(Box::new(Quote::new(

@@ -12,7 +12,7 @@ macro_rules! time {
 
         let e = $e;
 
-        log::info!(target: "threads", "{}: {:?}", $label, now.elapsed());
+        log::debug!(target: "threads", "{}: {:?}", $label, now.elapsed());
 
         e
     }};

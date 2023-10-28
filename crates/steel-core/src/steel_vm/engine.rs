@@ -62,9 +62,9 @@ thread_local! {
 }
 
 // Install the binary file to be used during bootup
-pub fn install_bin_file(bin: &'static [u8]) {
-    KERNEL_BIN_FILE.with(|x| x.set(Some(bin)));
-}
+// pub fn install_bin_file(bin: &'static [u8]) {
+//     KERNEL_BIN_FILE.with(|x| x.set(Some(bin)));
+// }
 
 #[derive(Clone, Default)]
 pub struct ModuleContainer {
@@ -579,7 +579,7 @@ impl Engine {
             vm.run_raw_program(program).unwrap();
         }
 
-        log::info!(target: "kernel", "Loaded prelude in the kernel!");
+        log::debug!(target: "kernel", "Loaded prelude in the kernel!");
 
         let sources = vm.sources.clone();
 

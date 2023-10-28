@@ -70,8 +70,6 @@ use futures_task::noop_waker_ref;
 use futures_util::future::Shared;
 use futures_util::FutureExt;
 
-use im_lists::handler::{DefaultDropHandler, DropHandler};
-
 use crate::values::lists::List;
 use num::ToPrimitive;
 use steel_parser::tokens::MaybeBigInt;
@@ -170,9 +168,9 @@ pub trait Custom: private::Sealed {
 
     fn gc_visit_children(&self, _context: &mut MarkAndSweepContext) {}
 
-    fn visit_equality(&self, visitor: &mut cycles::EqualityVisitor) {}
+    fn visit_equality(&self, _visitor: &mut cycles::EqualityVisitor) {}
 
-    fn equality_hint(&self, other: &dyn CustomType) -> bool {
+    fn equality_hint(&self, _other: &dyn CustomType) -> bool {
         true
     }
 }
@@ -1124,7 +1122,7 @@ pub enum SteelVal {
     MutableVector(HeapRef<Vec<SteelVal>>),
     // This should delegate to the underlying iterator - can allow for faster raw iteration if possible
     // Should allow for polling just a raw "next" on underlying elements
-    BoxedIterator(Gc<RefCell<BuiltInDataStructureIterator>>),
+    BoxedIterator(Gc<RefCell<OpaqueIterator>>),
 
     SyntaxObject(Gc<Syntax>),
 
@@ -1359,7 +1357,7 @@ impl Chunks {
 }
 
 pub struct OpaqueIterator {
-    root: SteelVal,
+    pub(crate) root: SteelVal,
     iterator: BuiltInDataStructureIterator,
 }
 
@@ -1381,8 +1379,11 @@ pub enum BuiltInDataStructureIterator {
 }
 
 impl BuiltInDataStructureIterator {
-    pub fn into_boxed_iterator(self) -> SteelVal {
-        SteelVal::BoxedIterator(Gc::new(RefCell::new(self)))
+    pub fn into_boxed_iterator(self, value: SteelVal) -> SteelVal {
+        SteelVal::BoxedIterator(Gc::new(RefCell::new(OpaqueIterator {
+            root: value,
+            iterator: self,
+        })))
     }
 }
 
@@ -1412,6 +1413,7 @@ impl Iterator for BuiltInDataStructureIterator {
 }
 
 pub fn value_into_iterator(val: SteelVal) -> Option<SteelVal> {
+    let root = val.clone();
     match val {
         SteelVal::ListV(l) => Some(BuiltInDataStructureIterator::List(l.into_iter())),
         SteelVal::VectorV(v) => Some(BuiltInDataStructureIterator::Vector(
@@ -1422,7 +1424,7 @@ pub fn value_into_iterator(val: SteelVal) -> Option<SteelVal> {
         SteelVal::HashMapV(m) => Some(BuiltInDataStructureIterator::Map((*m).clone().into_iter())),
         _ => None,
     }
-    .map(BuiltInDataStructureIterator::into_boxed_iterator)
+    .map(|iterator| BuiltInDataStructureIterator::into_boxed_iterator(iterator, root))
 }
 
 thread_local! {
@@ -1431,7 +1433,7 @@ thread_local! {
 
 pub fn iterator_next(args: &[SteelVal]) -> Result<SteelVal> {
     match &args[0] {
-        SteelVal::BoxedIterator(b) => match b.borrow_mut().next() {
+        SteelVal::BoxedIterator(b) => match b.borrow_mut().iterator.next() {
             Some(v) => Ok(v),
             None => Ok(ITERATOR_FINISHED.with(|x| x.clone())),
         },

@@ -15,7 +15,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use log::{debug, error, info};
+use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use steel_parser::tokens::MaybeBigInt;
 
@@ -260,8 +260,8 @@ impl SteelMacro {
         let case_to_expand = self.match_case(&expr)?;
         let expanded_expr = case_to_expand.expand(expr, span)?;
 
-        if log::log_enabled!(log::Level::Info) {
-            info!("Macro Expansion: {}", expanded_expr);
+        if log::log_enabled!(log::Level::Debug) {
+            debug!("Macro Expansion: {}", expanded_expr);
         }
 
         Ok(expanded_expr)

@@ -1,4 +1,3 @@
-use crate::primitives::lists::CONS;
 use crate::rvals::Result;
 use crate::{
     compiler::constants::ConstantMap,
@@ -16,7 +15,6 @@ use crate::{
     rvals::IntoSteelVal,
 };
 
-use im_lists::list::List;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, convert::TryInto, rc::Rc, time::SystemTime};
 use steel_parser::tokens::MaybeBigInt;
@@ -29,7 +27,7 @@ use log::{debug, log_enabled};
 
 use super::{compiler::DebruijnIndicesInterner, map::SymbolMap};
 
-const TILE_SUPER_INSTRUCTIONS: bool = false;
+const _TILE_SUPER_INSTRUCTIONS: bool = false;
 
 /// evaluates an atom expression in given environment
 fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
@@ -523,7 +521,7 @@ pub const fn sequence_to_opcode(pattern: &[(OpCode, usize)]) -> &'static [steel_
     }
 }
 
-pub fn tile_super_instructions(instructions: &mut [Instruction]) {
+pub fn tile_super_instructions(_instructions: &mut [Instruction]) {
     #[cfg(feature = "dynamic")]
     {
         pub fn tile<const N: usize>(instructions: &mut [Instruction]) {
@@ -569,7 +567,7 @@ pub fn tile_super_instructions(instructions: &mut [Instruction]) {
 
         // Super instruction tiling here!
 
-        if TILE_SUPER_INSTRUCTIONS {
+        if _TILE_SUPER_INSTRUCTIONS {
             tile::<9>(instructions);
             tile::<8>(instructions);
             tile::<7>(instructions);

@@ -237,7 +237,7 @@ impl ModuleManager {
             let module = if let Some(module) = module_builder.compiled_modules.get(path.as_ref()) {
                 module
             } else {
-                log::info!(target: "modules", "No provides found for module, skipping: {:?}", path);
+                log::debug!(target: "modules", "No provides found for module, skipping: {:?}", path);
 
                 continue;
             };
@@ -1034,8 +1034,8 @@ impl CompiledModule {
         // TODO clean this up
         let res = ExprKind::List(List::new(body));
 
-        if log_enabled!(target: "requires", log::Level::Info) {
-            info!(target: "requires", "Module ast node: {}", res.to_string());
+        if log_enabled!(target: "requires", log::Level::Debug) {
+            debug!(target: "requires", "Module ast node: {}", res.to_string());
         }
 
         res
@@ -1197,12 +1197,11 @@ impl<'a> ModuleBuilder<'a> {
         self.collect_requires()?;
         self.collect_provides()?;
 
-        // if log_enabled!(log::Level::Info) {
-        info!(target: "requires", "Requires: {:#?}", self.require_objects);
-
-        info!(target: "requires", "Provides: {:#?}", self.provides);
-        info!(target: "requires", "Provides for-syntax: {:?}", self.provides_for_syntax);
-        // }
+        if log_enabled!(log::Level::Info) {
+            debug!(target: "requires", "Requires: {:#?}", self.require_objects);
+            debug!(target: "requires", "Provides: {:#?}", self.provides);
+            debug!(target: "requires", "Provides for-syntax: {:?}", self.provides_for_syntax);
+        }
 
         if self.visited.contains(&self.name) {
             stop!(Generic => format!("circular dependency found during module resolution with: {:?}", self.name))

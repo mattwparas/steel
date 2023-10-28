@@ -1,16 +1,7 @@
-use super::vm::VmCore;
-use crate::{
-    gc::Gc,
-    parser::span::Span,
-    rvals::{Result, SteelVal},
-    stop,
-    // values::contracts::{
-    //     Contract, ContractType, ContractedFunction, DependentContract, FlatContract,
-    //     FunctionContract, FunctionKind,
-    // },
-};
 
-use log::debug;
+
+
+
 
 // impl ContractedFunction {
 //     pub fn apply(
