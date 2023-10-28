@@ -475,17 +475,13 @@
                    =>
                    'ok])))
 
-; (check-equal '(,foo) (let ([unquote 1]) `(,foo)))
+(check-equal? "Override unquote in a local context" '(,foo) (let ([unquote 1]) `(,foo)))
+(check-equal? "Override unquote-splicing in a local context"
+              '(,@foo)
+              (let ([unquote-splicing 1]) `(,@foo)))
 
-(skip-compile (check-equal? "Override unquote in a local context" '(,foo) (let ([unquote 1]) `(,foo)))
-              (check-equal '(,@foo) (let ([unquote-splicing 1]) `(,@foo)))
-              ; (check-equal 'ok
-              ;              (let ([... 2])
-              ;                (let-syntax ([s (syntax-rules ()
-              ;                                  [(_ x ...) 'bad]
-              ;                                  [(_ . r) 'ok])])
-              ;                  (s a b c))))
-              (check-equal 'ok
+;; TODO: Implement let-syntax
+(skip-compile (check-equal 'ok
                            (let ()
                              (let-syntax ()
                                (define internal-def 'ok))
@@ -496,7 +492,6 @@
                                (define internal-def 'ok))
                              internal-def)))
 
-; TODO: This causes a free identifier error
 (check-equal? "mutation within local function"
               '(2 1)
               ((lambda ()
@@ -505,7 +500,6 @@
                      (set! x 2)
                      (list x y))))))
 
-; TODO: This causes a free identifier error
 (check-equal? "multiple levels of let with mutation"
               '(2 2)
               ((lambda ()
@@ -513,7 +507,6 @@
                    (set! x 2)
                    (let ([y x]) (list x y))))))
 
-; TODO: This causes a free identifier error
 (check-equal? "local mutation"
               '(1 2)
               ((lambda ()
@@ -522,7 +515,6 @@
                      (set! y 2)
                      (list x y))))))
 
-;; TODO: This causes a free identifier error
 (check-equal? "Multiple mutations inside local context"
               '(2 3)
               ((lambda ()
