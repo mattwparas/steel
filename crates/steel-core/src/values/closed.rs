@@ -13,8 +13,9 @@ use num::BigInt;
 use crate::{
     gc::{unsafe_erased_pointers::OpaqueReference, Gc},
     rvals::{
-        cycles::BreadthFirstSearchSteelValVisitor, BoxedAsyncFunctionSignature, CustomType, FunctionSignature, FutureResult,
-        MutFunctionSignature, SteelHashMap, SteelHashSet, SteelString, Syntax,
+        cycles::BreadthFirstSearchSteelValVisitor, BoxedAsyncFunctionSignature, CustomType,
+        FunctionSignature, FutureResult, MutFunctionSignature, SteelHashMap, SteelHashSet,
+        SteelString, Syntax,
     },
     steel_vm::vm::{BuiltInSignature, Continuation},
     values::functions::ByteCodeLambda,

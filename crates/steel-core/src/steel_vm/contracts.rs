@@ -1,8 +1,3 @@
-
-
-
-
-
 // impl ContractedFunction {
 //     pub fn apply(
 //         &self,

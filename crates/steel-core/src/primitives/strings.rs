@@ -504,7 +504,6 @@ pub fn string_append(mut rest: RestArgsIter<'_, &SteelString>) -> Result<SteelVa
 mod string_operation_tests {
     use super::*;
     use crate::rerrs::ErrorKind;
-    
 
     // TODO combine these 3 macros into one
     macro_rules! apply_tests_arity_too_many {

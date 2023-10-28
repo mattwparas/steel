@@ -6,10 +6,7 @@ use std::{
 use steel_parser::tokens::TokenType;
 
 use crate::{
-    compiler::{
-        passes::analysis::SemanticAnalysis,
-        program::{RawProgramWithSymbols},
-    },
+    compiler::{passes::analysis::SemanticAnalysis, program::RawProgramWithSymbols},
     expr_list,
     parser::{
         ast::{Atom, Set},

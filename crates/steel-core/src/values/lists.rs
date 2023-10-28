@@ -1,6 +1,6 @@
 use im_lists::handler::DropHandler;
 
-use crate::{SteelVal};
+use crate::SteelVal;
 
 #[cfg(feature = "without-drop-protection")]
 type DropHandlerChoice = im_lists::handler::DefaultDropHandler;
