@@ -112,6 +112,7 @@ test_harness_success! {
     structs,
     threads,
     transducer_over_streams,
+    tree_traversal,
     trie_sort,
     y_combinator,
 }
