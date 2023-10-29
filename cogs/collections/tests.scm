@@ -66,4 +66,7 @@
                            #true
                            (let ([foo (build-list-chain 0)])
 
-                             #true)))
+                             #true))
+             (check-equal? "dropping deep hashmap chain does't panic"
+                           #true
+                           (let ([foo (build-hashmap-chain 0)]) #true)))
