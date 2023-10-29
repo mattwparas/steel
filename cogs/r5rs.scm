@@ -524,12 +524,15 @@
                      (set! y 3)
                      (list x y))))))
 
-(skip-compile
- (check-equal '(a b c)
+; (skip-compile
+(check-equal? "Dyanmic wind"
+              '(a b c)
               (let* ([path '()] [add (lambda (s) (set! path (cons s path)))])
                 (dynamic-wind (lambda () (add 'a)) (lambda () (add 'b)) (lambda () (add 'c)))
                 (reverse path)))
- (check-equal '(connect talk1 disconnect connect talk2 disconnect)
+
+(check-equal? "Dynamic wind more complex"
+              '(connect talk1 disconnect connect talk2 disconnect)
               (let ([path '()] [c #f])
                 (let ([add (lambda (s) (set! path (cons s path)))])
                   (dynamic-wind (lambda () (add 'connect))
@@ -539,17 +542,18 @@
                                                                          'talk1))))
                                 (lambda () (add 'disconnect)))
                   (if (< (length path) 4) (c 'talk2) (reverse path)))))
- ; (check-equal 2
- ;              (let-syntax ([foo (syntax-rules :::
- ;                                  []
- ;                                  [(foo ... args :::) (args ::: ...)])])
- ;                (foo 3 - 5)))
- ; (check-equal
- ;  '(5 4 1 2 3)
- ;  (let-syntax ([foo (syntax-rules ()
- ;                      [(foo args ... penultimate ultimate) (list ultimate penultimate args ...)])])
- ;    (foo 1 2 3 4 5)))
- )
+; (check-equal 2
+;              (let-syntax ([foo (syntax-rules :::
+;                                  []
+;                                  [(foo ... args :::) (args ::: ...)])])
+;                (foo 3 - 5)))
+; (check-equal
+;  '(5 4 1 2 3)
+;  (let-syntax ([foo (syntax-rules ()
+;                      [(foo args ... penultimate ultimate) (list ultimate penultimate args ...)])])
+;    (foo 1 2 3 4 5)))
+
+; )
 
 ;; -------------- Report ------------------
 

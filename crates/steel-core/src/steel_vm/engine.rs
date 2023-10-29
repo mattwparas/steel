@@ -938,6 +938,7 @@ impl Engine {
             .run(
                 "(require \"#%private/steel/contract\" (for-syntax \"#%private/steel/contract\"))
                 (require \"#%private/steel/print\")
+                (require \"#%private/steel/control\" (for-syntax \"#%private/steel/control\"))
                 ",
             )
             .unwrap();

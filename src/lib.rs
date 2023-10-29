@@ -215,22 +215,33 @@ pub fn finish(result: Result<(), std::io::Error>) -> ! {
     process::exit(code);
 }
 
-// #[test]
-// fn test_runner() {
-//     let args = Args {
-//         action: None,
-//         default_file: Some(PathBuf::from("cogs/test-runner.scm")),
-//         arguments: vec!["cogs/".to_string()],
-//     };
+#[test]
+fn test_runner() {
+    let args = Args {
+        action: None,
+        default_file: Some(PathBuf::from("cogs/test-runner.scm")),
+        arguments: vec!["cogs/".to_string()],
+    };
 
-//     run(args).unwrap()
-// }
+    run(args).unwrap()
+}
 
 #[test]
 fn r5rs_test_suite() {
     let args = Args {
         action: None,
         default_file: Some(PathBuf::from("cogs/r5rs.scm")),
+        arguments: vec![],
+    };
+
+    run(args).unwrap()
+}
+
+#[test]
+fn r7rs_test_suite() {
+    let args = Args {
+        action: None,
+        default_file: Some(PathBuf::from("cogs/r7rs.scm")),
         arguments: vec![],
     };
 

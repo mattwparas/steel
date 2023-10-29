@@ -62,6 +62,9 @@ static MUTABLE_VECTORS_NAME: &str = "steel/mutable-vectors";
 static PRINTING: &str = include_str!("../scheme/print.scm");
 static PRINTING_NAME: &str = "#%private/steel/print";
 
+static DYNAMIC_WIND_NAME: &str = "#%private/steel/control";
+static DYNAMIC_WIND: &str = include_str!("../scheme/modules/parameters.scm");
+
 static BUILT_INS: &[(&str, &str)] = &[
     (OPTION_NAME, OPTION),
     (RESULT_NAME, RESULT),
@@ -69,6 +72,7 @@ static BUILT_INS: &[(&str, &str)] = &[
     (ITERATORS_NAME, ITERATORS),
     (MUTABLE_VECTORS_NAME, MUTABLE_VECTORS),
     (PRINTING_NAME, PRINTING),
+    (DYNAMIC_WIND_NAME, DYNAMIC_WIND),
 ];
 
 pub(crate) const MANGLER_SEPARATOR: &str = "__%#__";
@@ -2023,4 +2027,5 @@ impl<'a> ModuleBuilder<'a> {
 pub static PRELUDE_STRING: &str = "(require-builtin steel/base) 
 (require \"#%private/steel/contract\" (for-syntax \"#%private/steel/contract\"))
 (require \"#%private/steel/print\")
+(require \"#%private/steel/control\" (for-syntax \"#%private/steel/control\"))
 ";
