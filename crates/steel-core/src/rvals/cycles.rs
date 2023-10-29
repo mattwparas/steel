@@ -2,7 +2,10 @@ use std::{cell::Cell, collections::VecDeque};
 
 use num::BigInt;
 
-use crate::steel_vm::{builtin::get_function_name, engine::Engine};
+use crate::{
+    steel_vm::{builtin::get_function_name, engine::Engine},
+    values::lists::DEPTH,
+};
 
 use super::*;
 
@@ -788,7 +791,11 @@ pub struct IterativeDropHandler<'a> {
 
 impl<'a> IterativeDropHandler<'a> {
     pub fn bfs(drop_buffer: &'a mut VecDeque<SteelVal>) {
+        // println!("Current depth: {}", DEPTH.with(|x| x.get()));
+
+        // DEPTH.with(|x| x.set(x.get() + 1));
         IterativeDropHandler { drop_buffer }.visit();
+        // DEPTH.with(|x| x.set(x.get() - 1));
     }
 }
 
@@ -939,12 +946,28 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
         }
     }
 
-    fn visit_list(&mut self, list: List<SteelVal>) {
+    fn visit_list(&mut self, mut list: List<SteelVal>) {
+        // println!("VISITING LIST: {}", list.strong_count());
+        // println!("list: {:?}", list);
+
         if list.strong_count() == 1 {
-            for value in list {
+            for value in list.draining_iterator() {
+                // println!(
+                // "PUSHING BACK VALUE - queue size: {}",
+                // self.drop_buffer.len()
+                // );
+
+                // println!("enqueueing: {}", value);
+
                 self.push_back(value);
             }
         }
+
+        // if list.strong_count() == 1 {
+        //     for value in list {
+        //         self.push_back(value);
+        //     }
+        // }
     }
 
     // TODO: When this gets replaced with heap storage, then we can do this more
@@ -952,7 +975,11 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
     fn visit_mutable_vector(&mut self, _vector: HeapRef<Vec<SteelVal>>) {}
 
     // TODO: Once the root is added back to this, bring it back
-    fn visit_boxed_iterator(&mut self, _iterator: Gc<RefCell<OpaqueIterator>>) {}
+    fn visit_boxed_iterator(&mut self, iterator: Gc<RefCell<OpaqueIterator>>) {
+        if let Ok(inner) = iterator.try_unwrap() {
+            self.push_back(inner.into_inner().root)
+        }
+    }
 
     fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) {
         if let Ok(inner) = syntax_object.try_unwrap() {
@@ -977,6 +1004,51 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
     }
 
     fn visit_heap_allocated(&mut self, _heap_ref: HeapRef<SteelVal>) -> Self::Output {}
+
+    fn visit(&mut self) -> Self::Output {
+        let mut ret = self.default_output();
+
+        while let Some(value) = self.pop_front() {
+            ret = match value {
+                Closure(c) => self.visit_closure(c),
+                BoolV(b) => self.visit_bool(b),
+                NumV(n) => self.visit_float(n),
+                IntV(i) => self.visit_int(i),
+                CharV(c) => self.visit_char(c),
+                VectorV(v) => self.visit_immutable_vector(v),
+                Void => self.visit_void(),
+                StringV(s) => self.visit_string(s),
+                FuncV(f) => self.visit_function_pointer(f),
+                SymbolV(s) => self.visit_symbol(s),
+                SteelVal::Custom(c) => self.visit_custom_type(c),
+                HashMapV(h) => self.visit_hash_map(h),
+                HashSetV(s) => self.visit_hash_set(s),
+                CustomStruct(c) => self.visit_steel_struct(c),
+                PortV(p) => self.visit_port(p),
+                IterV(t) => self.visit_transducer(t),
+                ReducerV(r) => self.visit_reducer(r),
+                FutureFunc(f) => self.visit_future_function(f),
+                FutureV(f) => self.visit_future(f),
+                StreamV(s) => self.visit_stream(s),
+                BoxedFunction(b) => self.visit_boxed_function(b),
+                ContinuationFunction(c) => self.visit_continuation(c),
+                ListV(l) => self.visit_list(l),
+                MutFunc(m) => self.visit_mutable_function(m),
+                BuiltIn(b) => self.visit_builtin_function(b),
+                MutableVector(b) => self.visit_mutable_vector(b),
+                BoxedIterator(b) => self.visit_boxed_iterator(b),
+                SteelVal::SyntaxObject(s) => self.visit_syntax_object(s),
+                Boxed(b) => self.visit_boxed_value(b),
+                Reference(r) => self.visit_reference_value(r),
+                BigNum(b) => self.visit_bignum(b),
+                HeapAllocated(b) => self.visit_heap_allocated(b),
+            };
+        }
+
+        // println!("--- finished draining drop queue ----");
+
+        ret
+    }
 }
 
 pub trait BreadthFirstSearchSteelValVisitor {

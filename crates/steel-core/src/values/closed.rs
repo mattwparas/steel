@@ -137,7 +137,7 @@ impl Heap {
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: impl Iterator<Item = &'a SteelVal>,
     ) -> HeapRef<SteelVal> {
-        self.collect(roots, live_functions, globals);
+        self.collect(Some(value.clone()), roots, live_functions, globals);
 
         let pointer = Rc::new(RefCell::new(HeapAllocated::new(value)));
         let weak_ptr = Rc::downgrade(&pointer);
@@ -155,7 +155,7 @@ impl Heap {
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: impl Iterator<Item = &'a SteelVal>,
     ) -> HeapRef<Vec<SteelVal>> {
-        self.collect(roots, live_functions, globals);
+        self.collect(None, roots, live_functions, globals);
 
         let pointer = Rc::new(RefCell::new(HeapAllocated::new(values)));
         let weak_ptr = Rc::downgrade(&pointer);
@@ -169,6 +169,7 @@ impl Heap {
     // Also - come up with generational scheme if possible
     pub fn collect<'a>(
         &mut self,
+        root_value: Option<SteelVal>,
         roots: impl Iterator<Item = &'a SteelVal>,
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: impl Iterator<Item = &'a SteelVal>,
@@ -206,7 +207,7 @@ impl Heap {
                 log::debug!(target: "gc", "---- Post small collection, running mark and sweep - heap size filled: {:?} ----", post_small_collection_size as f64 / original_length as f64);
 
                 // TODO fix the garbage collector
-                self.mark_and_sweep(roots, live_functions, globals);
+                self.mark_and_sweep(root_value, roots, live_functions, globals);
             } else {
                 log::debug!(target: "gc", "---- Skipping mark and sweep - heap size filled: {:?} ----", post_small_collection_size as f64 / original_length as f64);
             }
@@ -233,6 +234,7 @@ impl Heap {
 
     fn mark_and_sweep<'a>(
         &mut self,
+        root_value: Option<SteelVal>,
         roots: impl Iterator<Item = &'a SteelVal>,
         function_stack: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: impl Iterator<Item = &'a SteelVal>,
@@ -242,6 +244,10 @@ impl Heap {
         let mut context = MarkAndSweepContext {
             queue: &mut self.mark_and_sweep_queue,
         };
+
+        if let Some(root_value) = root_value {
+            context.push_back(root_value);
+        }
 
         for root in roots {
             context.push_back(root.clone());

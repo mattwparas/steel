@@ -27,10 +27,10 @@
       (let f ([ls winders])
         (when (not (equal? ls tail))
           (begin
-            ;; TODO: This is wrong!
-            (displayln "FIRST" ls)
+            ;; TODO: This is probably wrong!
+            ; (displayln "FIRST" ls)
             (set! winders (cdr ls))
-            ((cdar ls))
+            ((Pair-right (car ls)))
             (f (cdr ls)))))
       (let f ([ls new])
         (when (not (equal? ls tail))

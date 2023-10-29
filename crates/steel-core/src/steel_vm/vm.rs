@@ -555,6 +555,12 @@ impl SteelThread {
                 //     self.profiler.sample_count
                 // );
 
+                // panic!("GETTING HERE")
+
+                // println!("GETTING HERE");
+
+                // while self.stack.pop().is_some() {}
+
                 // Clean up
                 self.stack.clear();
 
@@ -566,6 +572,8 @@ impl SteelThread {
                         execution_time.elapsed()
                     );
                 };
+
+                // println!("FINISHED");
 
                 return result;
             }
@@ -859,6 +867,7 @@ impl<'a> VmCore<'a> {
 
     fn gc_collect(&mut self) {
         self.thread.heap.collect(
+            None,
             self.thread.stack.iter(),
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
             self.thread.global_env.roots(),

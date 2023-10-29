@@ -1,4 +1,17 @@
-; #lang racket
+(provide dllist
+         dllink
+         insert-between
+         insert-before
+         insert-after
+         insert-head
+         insert-tail
+         remove-link
+         dllist-elements
+         dllist-head
+         dllist-tail
+         dllink-content
+         dllink-prev
+         dllink-next)
 
 (struct dllist (head tail) #:mutable #:transparent)
 (struct dllink (content prev next) #:mutable #:transparent)
@@ -42,18 +55,17 @@
 (define (run)
   (let ([dlist (dllist #f #f)])
     (insert-head dlist 1)
-    ; (displayln dlist)
+    (displayln dlist)
     (insert-tail dlist 4)
-    ; (displayln dlist)
+    (displayln dlist)
     (insert-after dlist (dllist-head dlist) 2)
-    ; (displayln dlist)
+    (displayln dlist)
     (let* ([next-to-last (insert-before dlist (dllist-tail dlist) 3)]
            [bad-link (insert-before dlist next-to-last 42)])
       (remove-link dlist bad-link))
-    ; (displayln dlist)
-    ; (displayln (dllist-elements dlist))
-    ; (displayln dlist))
-    ))
+    (displayln dlist)
+    (displayln (dllist-elements dlist))
+    (displayln dlist)))
 
 (define (loop)
   (run)
