@@ -28,7 +28,7 @@
   (when (or (symbol? obj) (list? obj))
     (simple-display "'"))
 
-  (#%print obj cycle-collector))
+  (#%top-level-print obj cycle-collector))
 
 (define (displayln . objs)
 
@@ -117,6 +117,10 @@
 
 (define (#%print obj collector)
   (cond
+    [(string? obj)
+     (display "\"")
+     (simple-display obj)
+     (display "\"")]
     [(symbol? obj) (simple-display (symbol->string obj))]
     [(atom? obj) (simple-display obj)]
     [(function? obj) (simple-display obj)]

@@ -36,14 +36,19 @@ fn finish_load_or_interrupt(vm: &mut Engine, exprs: String, path: PathBuf) {
     let res = vm.compile_and_run_raw_program_with_path(exprs.as_str(), path);
 
     match res {
-        Ok(r) => r.iter().for_each(|x| match x {
+        Ok(r) => r.into_iter().for_each(|x| match x {
             SteelVal::Void => {}
-            _ => println!("{} {}", "=>".bright_blue().bold(), x),
+            SteelVal::StringV(s) => {
+                println!("{} {:?}", "=>".bright_blue().bold(), s);
+            }
+            _ => {
+                print!("{} ", "=>".bright_blue().bold());
+                vm.call_function_by_name_with_args("displayln", vec![x])
+                    .unwrap();
+            }
         }),
         Err(e) => {
             vm.raise_error(e);
-            // e.emit_result(file_name.as_str(), exprs.as_str());
-            // eprintln!("{}", e.to_string().bright_red());
         }
     }
 }
@@ -54,9 +59,16 @@ fn finish_or_interrupt(vm: &mut Engine, line: String, print_time: bool) {
     let res = vm.compile_and_run_raw_program(&line);
 
     match res {
-        Ok(r) => r.iter().for_each(|x| match x {
+        Ok(r) => r.into_iter().for_each(|x| match x {
             SteelVal::Void => {}
-            _ => println!("{} {}", "=>".bright_blue().bold(), x),
+            SteelVal::StringV(s) => {
+                println!("{} {:?}", "=>".bright_blue().bold(), s);
+            }
+            _ => {
+                print!("{} ", "=>".bright_blue().bold());
+                vm.call_function_by_name_with_args("displayln", vec![x])
+                    .unwrap();
+            }
         }),
         Err(e) => {
             vm.raise_error(e);
