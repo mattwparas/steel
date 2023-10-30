@@ -2,10 +2,7 @@ use std::{cell::Cell, collections::VecDeque};
 
 use num::BigInt;
 
-use crate::{
-    steel_vm::{builtin::get_function_name, engine::Engine},
-    values::lists::DEPTH,
-};
+use crate::steel_vm::{builtin::get_function_name, engine::Engine};
 
 use super::*;
 
@@ -946,7 +943,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
         }
     }
 
-    fn visit_list(&mut self, mut list: List<SteelVal>) {
+    fn visit_list(&mut self, list: List<SteelVal>) {
         // println!("VISITING LIST: {}", list.strong_count());
         // println!("list: {:?}", list);
 

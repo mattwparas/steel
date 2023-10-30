@@ -138,6 +138,22 @@ macro_rules! from_for_isize {
     };
 }
 
+impl From<i64> for SteelVal {
+    fn from(value: i64) -> Self {
+        if let Ok(converted) = TryInto::<isize>::try_into(value) {
+            SteelVal::IntV(converted)
+        } else {
+            SteelVal::BigNum(Gc::new(value.into()))
+        }
+    }
+}
+
+impl IntoSteelVal for i64 {
+    fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
+        Ok(self.into())
+    }
+}
+
 impl From<char> for SteelVal {
     fn from(val: char) -> SteelVal {
         SteelVal::CharV(val)
