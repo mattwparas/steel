@@ -4,14 +4,22 @@ use clap::Parser;
 use steel_interpreter::Args;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    // env_logger::init();
+    env_logger::init();
 
     // let mut builder = env_logger::Builder::new();
 
-    // let log_targets = ["steel::steel_vm::const_evaluation"];
+    // let log_targets = [
+    // "requires",
+    // "modules",
+    // "gc",
+    // "kernel",
+    // "super-instructions",
+    // "lambda-lifting",
+    // "dylibs",
+    // ];
 
     // for target in log_targets {
-    //     builder.filter(Some(target), log::LevelFilter::Trace);
+    // builder.filter(Some(target), log::LevelFilter::Trace);
     // }
 
     // builder.init();

@@ -64,7 +64,7 @@
 ;; on crates.io
 
 ;;
-(git-clone "helix-configuration"
-           "https://github.com/mattwparas/helix-config.git"
-           *COG_DIR*
-           #:sha "ae01ad7a3e7a48dad0ddbe8b812ab162aba31732")
+; (git-clone "helix-configuration"
+;            "https://github.com/mattwparas/helix-config.git"
+;            *COG_DIR*
+;            #:sha "ae01ad7a3e7a48dad0ddbe8b812ab162aba31732")

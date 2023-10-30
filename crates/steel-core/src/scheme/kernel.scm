@@ -50,7 +50,7 @@
                         (if (symbol? (car pair))
                             ;; TODO: @Matt - this causes a parser error
                             ;; (cons `(quote ,(car x)) (cdr x))
-                            (list (list 'quote (car pair)) (list 'quote (cadr pair)))
+                            (list (list 'quote (car pair)) (cadr pair))
                             pair)))
              (flattening)
              (into-list)))
@@ -68,6 +68,7 @@
     (let ([raw (cdddr unwrapped)])
       ; (displayln raw)
       (if (empty? raw) raw (map syntax->datum raw))))
+
   (struct-impl struct-name fields options))
 
 ;; Macro for creating a new struct, in the form of:
@@ -106,7 +107,31 @@
                (filtering (lambda (x) (not (transparent-keyword? x))))
                (into-list)))
 
-  (define extra-options (hash '#:mutable mutable? '#:transparent transparent? '#:fields fields))
+  (define default-printer-function
+    (if transparent?
+        `(lambda (obj printer-function)
+           (display "(")
+           (printer-function (symbol->string ,(list 'quote struct-name)))
+           ,@(map (lambda (field)
+                    `(begin
+                       (display " ")
+                       (printer-function (,(concat-symbols struct-name '- field) obj))))
+                  fields)
+
+           (display ")"))
+
+        #f))
+
+  ;; Set up default values to go in the table
+  (define extra-options
+    (hash '#:mutable
+          mutable?
+          '#:transparent
+          transparent?
+          '#:fields
+          (list 'quote fields)
+          '#:name
+          (list 'quote struct-name)))
 
   (when (not (list? fields))
     (error! "struct expects a list of field names, found " fields))
@@ -120,6 +145,9 @@
   ;; Update the options-map to have the fields included
   (let* ([options-map (apply hash options-without-single-keywords)]
          [options-map (hash-union options-map extra-options)]
+         [options-map (if (hash-try-get options-map '#:printer)
+                          options-map
+                          (hash-insert options-map '#:printer default-printer-function))]
          [maybe-procedure-field (hash-try-get options-map '#:prop:procedure)])
 
     (when (and maybe-procedure-field (> maybe-procedure-field (length fields)))
@@ -150,20 +178,25 @@
          (let ([struct-type-descriptor (list-ref prototypes 0)]
                [constructor-proto (list-ref prototypes 1)]
                [predicate-proto (list-ref prototypes 2)]
-               [getter-proto (list-ref prototypes 3)]
-               [setter-proto (list-ref prototypes 4)])
+               [getter-proto (list-ref prototypes 3)])
 
            (set! ,(concat-symbols 'struct: struct-name) struct-type-descriptor)
            (#%vtable-update-entry! struct-type-descriptor
                                    ,maybe-procedure-field
                                    ,(concat-symbols '___ struct-name '-options___))
 
-           (set! ,struct-name constructor-proto)
+           ,(if mutable?
+                `(set! ,struct-name
+                       (lambda ,fields (constructor-proto ,@(map (lambda (x) `(#%box ,x)) fields))))
+
+                `(set! ,struct-name constructor-proto))
 
            ,(new-make-predicate struct-name fields)
-           ,@(new-make-getters struct-name fields)
+           ,@(if mutable?
+                 (mutable-make-getters struct-name fields)
+                 (new-make-getters struct-name fields))
            ;; If this is a mutable struct, generate the setters
-           ,@(if mutable? (new-make-setters struct-name fields) (list))
+           ,@(if mutable? (mutable-make-setters struct-name fields) (list))
            void)))))
 
 (define (new-make-predicate struct-name fields)
@@ -174,6 +207,18 @@
 ;     ,struct-name
 ;     (lambda ,fields
 ;       (constructor-proto ,(concat-symbols '___ struct-name '-options___) ,procedure-index ,@fields))))
+
+(define (mutable-make-getters struct-name fields)
+  (map (lambda (field)
+         `(set! ,(concat-symbols struct-name '- (car field))
+                (lambda (this) (#%unbox (getter-proto this ,(list-ref field 1))))))
+       (enumerate 0 '() fields)))
+
+(define (mutable-make-setters struct-name fields)
+  (map (lambda (field)
+         `(set! ,(concat-symbols 'set- struct-name '- (car field) '!)
+                (lambda (this value) (#%set-box! (getter-proto this ,(list-ref field 1)) value))))
+       (enumerate 0 '() fields)))
 
 (define (new-make-getters struct-name fields)
   (map (lambda (field)

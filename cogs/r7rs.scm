@@ -38,6 +38,38 @@
 (set-test-mode!)
 
 (require "lists/lists.scm")
+
+;;;; Parameters
+
+(define location (make-parameter "here"))
+
+(check-equal? "Simple parameterize"
+              "there"
+              (parameterize ([location "there"])
+                (location))) ;; "there"
+
+(check-equal? "parameter keeps original value" "here" (location)) ;; "here"
+
+(check-equal? "Parameter changes multiple times"
+              (list "in a house" "with a mouse" "in a house")
+              (parameterize ([location "in a house"])
+                (list (location)
+                      (parameterize ([location "with a mouse"])
+                        (location))
+                      (location)))) ;; '("in a house" "with a mouse" "in a house")
+
+(check-equal? "parameter keeps original value after" "here" (location)) ;; "here"
+
+(define (would-you-could-you?)
+  (and (not (equal? (location) "here")) (not (equal? (location) "there"))))
+
+(check-equal? "Parameters refer to the same location" #false (would-you-could-you?))
+
+(check-equal? "Parameters refer to the same location, changed to be the same"
+              #true
+              (parameterize ([location "on a bus"])
+                (would-you-could-you?)))
+
 (define r7rs-test-stats (get-test-stats))
 
 (displayln "Passed: " (hash-ref r7rs-test-stats 'success-count))

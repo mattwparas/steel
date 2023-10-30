@@ -1,4 +1,4 @@
-use im_lists::list::List;
+use crate::values::lists::List;
 
 use crate::{parser::ast::ExprKind, rvals::Syntax};
 
@@ -84,10 +84,9 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
         if self.inside_quote {
             // self.visit(quote.expr)
 
-            Ok(SteelVal::ListV(im_lists::list![
-                SteelVal::SymbolV("quote".into()),
-                self.visit(quote.expr)?
-            ]))
+            Ok(SteelVal::ListV(
+                vec![SteelVal::SymbolV("quote".into()), self.visit(quote.expr)?].into(),
+            ))
         } else {
             self.inside_quote = true;
             let res = self.visit(quote.expr);
@@ -96,9 +95,19 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
         }
     }
 
-    fn visit_macro(&mut self, _m: super::ast::Macro) -> Self::Output {
+    fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
         // TODO
-        stop!(Generic => "internal compiler error - could not translate macro to steel value")
+
+        Ok(SteelVal::ListV(
+            vec![
+                SteelVal::SymbolV("define-syntax".into()),
+                self.visit(*m.name)?,
+                self.visit_syntax_rules(m.syntax_rules)?,
+            ]
+            .into(),
+        ))
+
+        // stop!(Generic => "internal compiler error - could not translate macro to steel value")
     }
 
     fn visit_atom(&mut self, a: Atom) -> Self::Output {
@@ -112,9 +121,31 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
         Ok(items?.into())
     }
 
-    fn visit_syntax_rules(&mut self, _l: super::ast::SyntaxRules) -> Self::Output {
+    fn visit_syntax_rules(&mut self, s: super::ast::SyntaxRules) -> Self::Output {
+        Ok(SteelVal::ListV(
+            vec![
+                SteelVal::SymbolV("syntax-rules".into()),
+                SteelVal::ListV(
+                    s.syntax
+                        .into_iter()
+                        .map(|x| self.visit(x))
+                        .collect::<Result<_>>()?,
+                ),
+                SteelVal::ListV(
+                    s.patterns
+                        .into_iter()
+                        .map(|x| {
+                            Ok(SteelVal::ListV(
+                                vec![self.visit(x.pattern)?, self.visit(x.body)?].into(),
+                            ))
+                        })
+                        .collect::<Result<_>>()?,
+                ),
+            ]
+            .into(),
+        ))
         // TODO
-        stop!(Generic => "internal compiler error - could not translate syntax-rules to steel value")
+        // stop!(Generic => "internal compiler error - could not translate syntax-rules to steel value")
     }
 
     fn visit_set(&mut self, s: Box<super::ast::Set>) -> Self::Output {
@@ -122,8 +153,19 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
         Ok(SteelVal::ListV(expr.into_iter().collect()))
     }
 
-    fn visit_require(&mut self, _s: super::ast::Require) -> Self::Output {
-        stop!(Generic => "internal compiler error - could not translate require to steel value")
+    fn visit_require(&mut self, r: super::ast::Require) -> Self::Output {
+        // Just convert it into a list
+
+        // r.modules
+        Ok(SteelVal::ListV(List::cons(
+            SteelVal::SymbolV("require".into()),
+            r.modules
+                .into_iter()
+                .map(|x| self.visit(x))
+                .collect::<Result<_>>()?,
+        )))
+
+        // stop!(Generic => "internal compiler error - could not translate require to steel value")
     }
 
     fn visit_let(&mut self, l: Box<super::ast::Let>) -> Self::Output {
@@ -248,10 +290,9 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
         let raw = SteelVal::try_from(ExprKind::Quote(quote.clone()))?;
         Ok(Syntax::proto(
             raw,
-            SteelVal::ListV(im_lists::list![
-                SteelVal::SymbolV("quote".into()),
-                self.visit(quote.expr)?
-            ]),
+            SteelVal::ListV(
+                vec![SteelVal::SymbolV("quote".into()), self.visit(quote.expr)?].into(),
+            ),
             span,
         )
         .into())
@@ -299,11 +340,34 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
 
         // TODO: we're currently erasing the source here... This isn't what we want to do but we don't have
         // a great model to access the source otherwise
-        log::warn!("Erasing the source information during kernel level expansion");
+        log::trace!("Erasing the source information during kernel level expansion");
         Ok(Syntax::proto(raw, items.into(), span).into())
     }
 
-    fn visit_syntax_rules(&mut self, _l: super::ast::SyntaxRules) -> Self::Output {
+    fn visit_syntax_rules(&mut self, _s: super::ast::SyntaxRules) -> Self::Output {
+        // Ok(SteelVal::ListV(
+        //     vec![
+        //         SteelVal::SymbolV("syntax-rules".into()),
+        //         SteelVal::ListV(
+        //             s.syntax
+        //                 .into_iter()
+        //                 .map(|x| self.visit(x))
+        //                 .collect::<Result<_>>()?,
+        //         ),
+        //         SteelVal::ListV(
+        //             s.patterns
+        //                 .into_iter()
+        //                 .map(|x| {
+        //                     Ok(SteelVal::ListV(
+        //                         vec![self.visit(x.pattern)?, self.visit(x.body)?].into(),
+        //                     ))
+        //                 })
+        //                 .collect::<Result<_>>()?,
+        //         ),
+        //     ]
+        //     .into(),
+        // ))
+
         // TODO
         stop!(Generic => "internal compiler error - could not translate syntax-rules to steel value")
     }

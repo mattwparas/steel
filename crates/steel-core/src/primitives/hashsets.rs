@@ -1,10 +1,10 @@
 use crate::stop;
+use crate::values::lists::List;
 use crate::{
     core::utils::declare_const_ref_functions,
     rvals::{Result, SteelVal},
 };
 use crate::{gc::Gc, steel_vm::builtin::BuiltInModule};
-use im_lists::list::List;
 use im_rc::HashSet;
 
 use crate::primitives::VectorOperations;
@@ -47,7 +47,7 @@ pub fn hs_construct(args: &[SteelVal]) -> Result<SteelVal> {
         }
     }
 
-    Ok(SteelVal::HashSetV(Gc::new(hs)))
+    Ok(SteelVal::HashSetV(Gc::new(hs).into()))
 }
 
 pub fn hs_length(args: &[SteelVal]) -> Result<SteelVal> {
@@ -73,13 +73,13 @@ pub fn hs_insert(args: &[SteelVal]) -> Result<SteelVal> {
     let key = &args[1];
 
     if let SteelVal::HashSetV(hs) = hashset {
-        let mut hs = hs.unwrap();
+        let mut hs = hs.0.unwrap();
         if key.is_hashable() {
             hs.insert(key.clone());
         } else {
             stop!(TypeMismatch => "hash key not hashable!");
         }
-        Ok(SteelVal::HashSetV(Gc::new(hs)))
+        Ok(SteelVal::HashSetV(Gc::new(hs).into()))
     } else {
         stop!(TypeMismatch => "set insert takes a set")
     }
@@ -114,7 +114,7 @@ pub fn is_subset(args: &[SteelVal]) -> Result<SteelVal> {
 
     if let SteelVal::HashSetV(left) = left {
         if let SteelVal::HashSetV(right) = right {
-            Ok(SteelVal::BoolV(left.is_subset(right.as_ref())))
+            Ok(SteelVal::BoolV(left.is_subset(right.0.as_ref())))
         } else {
             stop!(TypeMismatch => "hash-subset? takes a hashset")
         }
@@ -163,9 +163,9 @@ pub fn clear(args: &[SteelVal]) -> Result<SteelVal> {
     let hashset = &args[0];
 
     if let SteelVal::HashSetV(hs) = hashset {
-        let mut hs = hs.unwrap();
+        let mut hs = hs.0.unwrap();
         hs.clear();
-        Ok(SteelVal::HashSetV(Gc::new(hs)))
+        Ok(SteelVal::HashSetV(Gc::new(hs).into()))
     } else {
         stop!(TypeMismatch => "hs-clear takes a hashmap")
     }
@@ -176,7 +176,9 @@ pub fn list_to_hashset(args: &[SteelVal]) -> Result<SteelVal> {
         stop!(ArityMismatch => "list->hashset takes one argument")
     }
     if let SteelVal::ListV(l) = &args[0] {
-        Ok(SteelVal::HashSetV(Gc::new(l.iter().cloned().collect())))
+        Ok(SteelVal::HashSetV(
+            Gc::new(l.iter().cloned().collect::<im_rc::HashSet<_>>()).into(),
+        ))
     } else {
         stop!(TypeMismatch => "list->hashset takes a hashset");
     }
@@ -197,17 +199,20 @@ mod hashset_tests {
             SteelVal::StringV("bar2".into()),
         ];
         let res = hs_construct(&args);
-        let expected = SteelVal::HashSetV(Gc::new(
-            vec![
-                SteelVal::StringV("foo".into()),
-                SteelVal::StringV("bar".into()),
-                SteelVal::StringV("foo2".into()),
-                SteelVal::StringV("bar2".into()),
-            ]
-            .into_iter()
-            .map(Gc::new)
-            .collect(),
-        ));
+        let expected = SteelVal::HashSetV(
+            Gc::new(
+                vec![
+                    SteelVal::StringV("foo".into()),
+                    SteelVal::StringV("bar".into()),
+                    SteelVal::StringV("foo2".into()),
+                    SteelVal::StringV("bar2".into()),
+                ]
+                .into_iter()
+                .map(Gc::new)
+                .collect::<im_rc::HashSet<_>>(),
+            )
+            .into(),
+        );
         assert_eq!(res.unwrap(), expected);
     }
 
@@ -224,45 +229,54 @@ mod hashset_tests {
             SteelVal::StringV("bar2".into()),
         ];
         let res = hs_construct(&args);
-        let expected = SteelVal::HashSetV(Gc::new(
-            vec![
-                SteelVal::StringV("foo".into()),
-                SteelVal::StringV("bar".into()),
-                SteelVal::StringV("foo2".into()),
-                SteelVal::StringV("bar2".into()),
-            ]
-            .into_iter()
-            .map(Gc::new)
-            .collect(),
-        ));
+        let expected = SteelVal::HashSetV(
+            Gc::new(
+                vec![
+                    SteelVal::StringV("foo".into()),
+                    SteelVal::StringV("bar".into()),
+                    SteelVal::StringV("foo2".into()),
+                    SteelVal::StringV("bar2".into()),
+                ]
+                .into_iter()
+                .map(Gc::new)
+                .collect::<im_rc::HashSet<_>>(),
+            )
+            .into(),
+        );
         assert_eq!(res.unwrap(), expected);
     }
 
     #[test]
     fn hs_insert_from_empty() {
         let args = [
-            SteelVal::HashSetV(Gc::new(vec![].into())),
+            SteelVal::HashSetV(Gc::new(im_rc::HashSet::new()).into()),
             SteelVal::StringV("foo".into()),
         ];
         let res = hs_insert(&args);
-        let expected = SteelVal::HashSetV(Gc::new(
-            vec![SteelVal::StringV("foo".into())]
-                .into_iter()
-                .map(Gc::new)
-                .collect(),
-        ));
+        let expected = SteelVal::HashSetV(
+            Gc::new(
+                vec![SteelVal::StringV("foo".into())]
+                    .into_iter()
+                    .map(Gc::new)
+                    .collect::<im_rc::HashSet<_>>(),
+            )
+            .into(),
+        );
         assert_eq!(res.unwrap(), expected);
     }
 
     #[test]
     fn hs_contains_true() {
         let args = [
-            SteelVal::HashSetV(Gc::new(
-                vec![SteelVal::StringV("foo".into())]
-                    .into_iter()
-                    .map(Gc::new)
-                    .collect(),
-            )),
+            SteelVal::HashSetV(
+                Gc::new(
+                    vec![SteelVal::StringV("foo".into())]
+                        .into_iter()
+                        .map(Gc::new)
+                        .collect::<im_rc::HashSet<_>>(),
+                )
+                .into(),
+            ),
             SteelVal::StringV("foo".into()),
         ];
         let res = hs_contains(&args);
@@ -273,12 +287,15 @@ mod hashset_tests {
     #[test]
     fn hs_contains_false() {
         let args = [
-            SteelVal::HashSetV(Gc::new(
-                vec![SteelVal::StringV("foo".into())]
-                    .into_iter()
-                    .map(Gc::new)
-                    .collect(),
-            )),
+            SteelVal::HashSetV(
+                Gc::new(
+                    vec![SteelVal::StringV("foo".into())]
+                        .into_iter()
+                        .map(Gc::new)
+                        .collect::<im_rc::HashSet<_>>(),
+                )
+                .into(),
+            ),
             SteelVal::StringV("bar".into()),
         ];
         let res = hs_contains(&args);
@@ -288,25 +305,25 @@ mod hashset_tests {
 
     #[test]
     fn hs_keys_to_vector_normal() {
-        let args = [SteelVal::HashSetV(Gc::new(
-            vec![
-                SteelVal::StringV("foo".into()),
-                SteelVal::StringV("bar".into()),
-                SteelVal::StringV("baz".into()),
-            ]
-            .into_iter()
-            .collect(),
-        ))];
+        let args = [SteelVal::HashSetV(
+            Gc::new(
+                vec![
+                    SteelVal::StringV("foo".into()),
+                    SteelVal::StringV("bar".into()),
+                    SteelVal::StringV("baz".into()),
+                ]
+                .into_iter()
+                .collect::<im_rc::HashSet<_>>(),
+            )
+            .into(),
+        )];
         let res = keys_to_vector(&args);
-        let expected = SteelVal::VectorV(Gc::new(
-            vec![
-                SteelVal::StringV("foo".into()),
-                SteelVal::StringV("bar".into()),
-                SteelVal::StringV("baz".into()),
-            ]
-            .into_iter()
-            .collect(),
-        ));
+        let expected = im_rc::vector![
+            SteelVal::StringV("foo".into()),
+            SteelVal::StringV("bar".into()),
+            SteelVal::StringV("baz".into()),
+        ]
+        .into();
 
         // pull out the vectors and sort them
         // let unwrapped_expected: SteelVal = (*expected).clone();

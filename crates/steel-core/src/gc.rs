@@ -98,7 +98,7 @@ impl<T> Gc<T> {
         Rc::as_ptr(&self.0)
     }
 
-    pub fn try_unwrap_(self) -> Result<T, Gc<T>> {
+    pub fn try_unwrap(self) -> Result<T, Gc<T>> {
         Rc::try_unwrap(self.0).map_err(|x| Gc(x))
     }
 
@@ -284,6 +284,7 @@ pub mod unsafe_erased_pointers {
     use std::rc::{Rc, Weak};
     use std::{any::Any, cell::RefCell, marker::PhantomData};
 
+    use crate::rvals::cycles::IterativeDropHandler;
     use crate::rvals::AsRefSteelValFromRef;
     use crate::{rerrs::ErrorKind, rvals::AsRefMutSteelValFromRef, SteelErr, SteelVal};
 
@@ -390,7 +391,9 @@ pub mod unsafe_erased_pointers {
 
     // TODO: Re-evaluate the necessity of this trait. Is it possible to overload it all into one? That could
     // help disambiguate the function call sites.
-    pub trait CustomReference {}
+    pub trait CustomReference {
+        fn walk(&self) {}
+    }
 
     /// Warning - you should not implement this trait yourself. Use the `custom_reference` macro instead.
     /// Implementing this incorrectly could lead to undefined behavior.
@@ -433,6 +436,8 @@ pub mod unsafe_erased_pointers {
         fn display(&self) -> std::result::Result<String, std::fmt::Error> {
             Ok(format!("#<{}>", self.name().to_string()))
         }
+        fn visit(&self) {}
+        fn drop_mut(&mut self, drop_handler: &mut IterativeDropHandler) {}
     }
 
     impl<'a, T: CustomReference + 'static> ReferenceCustomType for T {
@@ -448,6 +453,9 @@ pub mod unsafe_erased_pointers {
             // } else {
             Ok(format!("#<{}>", self.name().to_string()))
             // }
+        }
+        fn visit(&self) {
+            self.walk()
         }
     }
 
@@ -835,6 +843,12 @@ pub mod unsafe_erased_pointers {
     impl OpaqueReference<'static> {
         pub fn format(&self) -> std::result::Result<String, std::fmt::Error> {
             self.display()
+        }
+
+        pub fn drop_mut(&mut self, drop_handler: &mut IterativeDropHandler) {
+            if let Some(inner) = Rc::get_mut(&mut self.inner) {
+                inner.drop_mut(drop_handler);
+            }
         }
     }
 

@@ -91,9 +91,9 @@ fn ten_thousand_iterations_letrec(c: &mut Criterion) {
     benchmark_template(c, "ten-thousand-iterations-letrec", script, warmup);
 }
 
-fn trie_sort_without_optimizations(c: &mut Criterion) {
+fn trie_sort(c: &mut Criterion) {
     let mut vm = Engine::new();
-    vm.compile_and_run_raw_program(PRELUDE).unwrap();
+    // vm.compile_and_run_raw_program(PRELUDE).unwrap();
     vm.compile_and_run_raw_program(steel::stdlib::TRIESORT)
         .unwrap();
 
@@ -127,49 +127,13 @@ fn trie_sort_without_optimizations(c: &mut Criterion) {
     });
 }
 
-fn trie_sort_with_optimizations(c: &mut Criterion) {
-    let mut vm = Engine::new();
-    vm.compile_and_run_raw_program(PRELUDE).unwrap();
-    vm.compile_and_run_raw_program(steel::stdlib::TRIESORT)
-        .unwrap();
-
-    let warmup = "(define lst
-        (list
-         \"suppose\"
-         \"believe\"
-         \"changeable\"
-         \"absent\"
-         \"busy\"
-         \"float\"
-         \"debonair\"
-         \"throat\"
-         \"grey\"
-         \"use\"
-         \"measure\"
-         \"van\"
-         \"thirsty\"
-         \"notify\"
-         \"star\"))";
-
-    vm.compile_and_run_raw_program(black_box(warmup)).unwrap();
-
-    let script = "(trie-sort lst)";
-
-    let program = vm.emit_raw_program_no_path(script).unwrap();
-    let executable = vm.raw_program_to_executable(program).unwrap();
-
-    c.bench_function("trie-sort-with-optimizations", |b| {
-        b.iter(|| vm.run_executable(&executable))
-    });
-}
-
 fn fib_28(c: &mut Criterion) {
     // std::env::set_var("CODE_GEN_V2", "true");
 
     let mut vm = Engine::new();
-    vm.compile_and_run_raw_program(PRELUDE).unwrap();
+    // vm.compile_and_run_raw_program(PRELUDE).unwrap();
     vm.compile_and_run_raw_program(
-        "(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))",
+        "(define (fib n) (#%black-box) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))",
     )
     .unwrap();
 
@@ -239,164 +203,81 @@ fn register_function(c: &mut Criterion) {
     });
 }
 
-/*
+fn binary_trees(c: &mut Criterion) {
+    let mut vm = Engine::new();
+    vm.compile_and_run_raw_program(
+        r#"
 
-fn trie_sort(c: &mut Criterion) {
-    let mut interpreter = SteelInterpreter::new();
-    // interpreter.require(PRELUDE).unwrap();
-    // require the trie sort library
-    interpreter.require(steel::stdlib::TRIESORT).unwrap();
+; #lang racket/base
 
-    let warmup = "(define lst
-        (list
-         \"suppose\"
-         \"believe\"
-         \"changeable\"
-         \"absent\"
-         \"busy\"
-         \"float\"
-         \"debonair\"
-         \"throat\"
-         \"grey\"
-         \"use\"
-         \"measure\"
-         \"van\"
-         \"thirsty\"
-         \"notify\"
-         \"star\"))";
-    interpreter.evaluate(black_box(&warmup)).unwrap();
-    let script = "(trie-sort lst)";
-    c.bench_function("trie-sort", |b| {
-        b.iter(|| interpreter.evaluate(black_box(&script)))
+;;; The Computer Language Benchmarks Game
+;;; https://salsa.debian.org/benchmarksgame-team/benchmarksgame/
+
+;;; Derived from the Chicken variant by Sven Hartrumpf
+;;; contributed by Matthew Flatt
+;;; *reset*
+
+; (require racket/cmdline)
+
+(struct node (left val right))
+
+;; Instead of (define-struct leaf (val)):
+(define (leaf val)
+  (node #f val #f))
+(define (leaf? l)
+  (not (node-left l)))
+(define (leaf-val l)
+  node-val)
+
+(define (make item d)
+  (if (= d 0)
+      (leaf item)
+      (%plain-let ((item2 (* item 2)) (d2 (- d 1)))
+                  (node (make (- item2 1) d2) item (make item2 d2)))))
+
+(define (check t)
+  (if (leaf? t) 1 (+ 1 (+ (check (node-left t)) (check (node-right t))))))
+
+(define (iterate n m d sum)
+  (if (equal? n m) sum (iterate (+ n 1) m d (+ sum (check (make n d))))))
+
+(define (loop d end max-depth min-depth)
+  (if (>= d end)
+      void
+      (begin
+        (let ([iterations (arithmetic-shift 1 (+ (- max-depth d) min-depth))])
+          (displayln iterations " trees of depth " d " check: " (iterate 0 iterations d 0)))
+        (loop (+ 2 d) end max-depth min-depth))))
+
+(define (main n)
+  (let* ([min-depth 4] [max-depth (max (+ min-depth 2) n)])
+    (let ([stretch-depth (+ max-depth 1)])
+      (displayln "stretch tree of depth " stretch-depth " check: " (check (make 0 stretch-depth))))
+    (let ([long-lived-tree (make 0 max-depth)])
+      ; (begin
+      ; (define end )
+
+      (loop 4 (add1 max-depth) max-depth min-depth)
+
+      ; )
+
+      (displayln "long lived tree of depth " max-depth " check: " (check long-lived-tree)))))
+
+            
+        "#,
+    )
+    .unwrap();
+
+    let script = "(main 12)";
+    let program = vm.emit_raw_program_no_path(script).unwrap();
+    let executable = vm.raw_program_to_executable(program).unwrap();
+
+    let mut group = c.benchmark_group("binary-trees");
+    group.bench_function("binary-trees", |b| {
+        b.iter(|| vm.run_executable(&executable))
     });
+    group.finish();
 }
-
-fn merge_sort(c: &mut Criterion) {
-    let mut interpreter = SteelInterpreter::new();
-    // interpreter.require(PRELUDE).unwrap();
-    let warmup = "
-;;; -----------------------------------------------------------------
-;;; Merge two lists of numbers which are already in increasing order
-
-  (define merge-lists
-    (lambda (l1 l2)
-      (if (null? l1)
-          l2
-          (if (null? l2)
-              l1
-              (if (< (car l1) (car l2))
-                  (cons (car l1) (merge-lists (cdr l1) l2))
-                  (cons (car l2) (merge-lists (cdr l2) l1)))))))
-
-;;; -------------------------------------------------------------------
-;;; Given list l, output those tokens of l which are in even positions
-
-  (define even-numbers
-    (lambda (l)
-      (if (null? l)
-          '()
-          (if (null? (cdr l))
-              '()
-              (cons (car (cdr l)) (even-numbers (cdr (cdr l))))))))
-
-;;; -------------------------------------------------------------------
-;;; Given list l, output those tokens of l which are in odd positions
-
-  (define odd-numbers
-    (lambda (l)
-      (if (null? l)
-          '()
-          (if (null? (cdr l))
-              (list (car l))
-              (cons (car l) (odd-numbers (cdr (cdr l))))))))
-
-;;; ---------------------------------------------------------------------
-;;; Use the procedures above to create a simple and efficient merge-sort
-
-  (define merge-sort
-    (lambda (l)
-      (if (null? l)
-          l
-          (if (null? (cdr l))
-              l
-              (merge-lists
-                (merge-sort (odd-numbers l))
-                (merge-sort (even-numbers l)))))))
-    (define lst
-        (list
-            \"suppose\"
-            \"believe\"
-            \"changeable\"
-            \"absent\"
-            \"busy\"
-            \"float\"
-            \"debonair\"
-            \"throat\"
-            \"grey\"
-            \"use\"
-            \"measure\"
-            \"van\"
-            \"thirsty\"
-            \"notify\"
-            \"star\"))
-    ";
-    interpreter.evaluate(black_box(&warmup)).unwrap();
-    let script = "(merge-sort lst)";
-    c.bench_function("merge-sort", |b| {
-        b.iter(|| interpreter.evaluate(black_box(&script)))
-    });
-}
-
-fn struct_construct(c: &mut Criterion) {
-    let mut interpreter = SteelInterpreter::new();
-    // interpreter.require(PRELUDE).unwrap();
-    let warmup = "(struct node (left right))";
-    interpreter.evaluate(black_box(&warmup)).unwrap();
-    let script = "(node (list 1 2 3 4) (list 1 2 3 4))";
-    c.bench_function("struct-construct", |b| {
-        b.iter(|| interpreter.evaluate(black_box(&script)))
-    });
-}
-
-fn struct_construct_bigger(c: &mut Criterion) {
-    let mut interpreter = SteelInterpreter::new();
-    // interpreter.require(PRELUDE).unwrap();
-    let warmup = "(struct node (left right middle back))";
-    interpreter.evaluate(black_box(&warmup)).unwrap();
-    let script = "(node (list 1 2 3 4) (list 1 2 3 4) (list 1 2 3 4) (list 1 2 3 4))";
-    c.bench_function("struct-construct-big", |b| {
-        b.iter(|| interpreter.evaluate(black_box(&script)))
-    });
-}
-
-fn struct_get(c: &mut Criterion) {
-    let mut interpreter = SteelInterpreter::new();
-    // interpreter.require(PRELUDE).unwrap();
-    let warmup = "(struct node (left right)) (define test (node (list 1 2 3) (list 1 2 3)))";
-    interpreter.evaluate(black_box(&warmup)).unwrap();
-    let script = "(node-left test)";
-    c.bench_function("struct-get", |b| {
-        b.iter(|| interpreter.evaluate(black_box(&script)))
-    });
-}
-
-fn struct_set(c: &mut Criterion) {
-    let mut interpreter = SteelInterpreter::new();
-    // interpreter.require(PRELUDE).unwrap();
-    let warmup = "(struct node (left right)) (define test (node (list 1 2 3) (list 1 2 3)))";
-    interpreter.evaluate(black_box(&warmup)).unwrap();
-    let script = "(set-node-left! test (list 1 2 3))";
-    c.bench_function("struct-set", |b| {
-        b.iter(|| interpreter.evaluate(black_box(&script)))
-    });
-}
-
-// fn function_applications(c: &mut Criterion) {
-//     let mut interpreter = SteelInterpreter::new();
-//     interpreter.require(PRELUDE).unwrap();
-// }
-
-*/
 
 criterion_group!(
     benches,
@@ -406,12 +287,12 @@ criterion_group!(
     filter,
     ten_thousand_iterations,
     ten_thousand_iterations_letrec,
-    trie_sort_without_optimizations,
-    trie_sort_with_optimizations,
+    trie_sort,
     fib_28,
     engine_creation,
     register_function,
     multiple_transducers,
+    binary_trees,
     // fib_28_contract,
     ackermann // trie_sort,
               // merge_sort,

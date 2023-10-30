@@ -10,7 +10,8 @@ use crate::{
     gc::{unsafe_erased_pointers::OpaqueReference, Gc},
     rerrs::ErrorKind,
     rvals::{
-        as_underlying_type, Custom, CustomType, FutureResult, IntoSteelVal, Result, SRef, SteelVal,
+        as_underlying_type, Custom, CustomType, FutureResult, IntoSteelVal, Result, SRef,
+        SteelHashMap, SteelVal,
     },
     values::functions::{BoxedDynFunction, StaticOrRcStr},
     SteelErr,
@@ -685,8 +686,8 @@ impl FFIValue {
                 })
                 .collect::<Result<im_rc::HashMap<_, _>>>()
                 .map(Gc::new)
+                .map(SteelHashMap::from)
                 .map(SteelVal::HashMapV),
-
             // FFIValue::Future { fut } => Ok(SteelVal::FutureV(Gc::new(Sharedfut.map(|x| {
             //     match x {
             //         RResult::ROk(v) => {
@@ -737,6 +738,7 @@ impl IntoSteelVal for FFIValue {
                 })
                 .collect::<Result<im_rc::HashMap<_, _>>>()
                 .map(Gc::new)
+                .map(SteelHashMap::from)
                 .map(SteelVal::HashMapV),
 
             // Attempt to move this across the FFI Boundary... We'll see how successful it is.

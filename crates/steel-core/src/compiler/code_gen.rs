@@ -606,13 +606,24 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             return Ok(());
         }
 
-        for expr in &begin.exprs {
+        let (last, elements) = begin.exprs.split_last().unwrap();
+
+        // Just insert a single pop value from stack
+        // when
+        // for expr in &begin.exprs {
+        //     self.visit(expr)?;
+        // }
+
+        for expr in elements {
             self.visit(expr)?;
+            self.push(LabeledInstruction::builder(OpCode::POPSINGLE));
         }
 
-        if begin.exprs.len() > 1 {
-            self.push(LabeledInstruction::builder(OpCode::POPN).payload(begin.exprs.len() - 1));
-        }
+        self.visit(last)?;
+
+        // if begin.exprs.len() > 1 {
+        //     self.push(LabeledInstruction::builder(OpCode::POPN).payload(begin.exprs.len() - 1));
+        // }
 
         Ok(())
     }

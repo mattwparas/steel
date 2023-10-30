@@ -4,7 +4,8 @@
 
 use std::{cell::RefCell, convert::TryFrom, io::Write, rc::Rc};
 
-use im_lists::list::List;
+// use im_lists::list::List;
+use crate::values::lists::List;
 
 use crate::{
     parser::ast::ExprKind,
@@ -35,7 +36,7 @@ impl EngineWrapper {
     }
 
     //
-    pub(crate) fn modules(&self) -> List<String> {
+    pub(crate) fn modules(&self) -> Vec<String> {
         self.0
             .modules()
             .iter()
@@ -264,19 +265,21 @@ pub fn eval(program: String) -> List<SteelVal> {
     DEFAULT_OUTPUT_PORT.with(|x| *x.borrow_mut() = SteelPort::default_current_output_port());
 
     match res {
-        Ok(v) => im_lists::list![
+        Ok(v) => vec![
             SteelVal::ListV(v.into()),
             SteelVal::StringV(drain_custom_output_port().into()),
-            SteelVal::StringV("".into())
-        ],
+            SteelVal::StringV("".into()),
+        ]
+        .into(),
         Err(e) => {
             let report = e.emit_result_to_string("input.stl", &program);
 
-            im_lists::list![
+            vec![
                 SteelVal::ListV(List::new()),
                 SteelVal::StringV(drain_custom_output_port().into()),
-                SteelVal::StringV(report.into())
+                SteelVal::StringV(report.into()),
             ]
+            .into()
 
             // Err(e)
         }

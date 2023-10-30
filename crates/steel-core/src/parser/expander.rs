@@ -15,7 +15,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use log::{debug, error, info};
+use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use steel_parser::tokens::MaybeBigInt;
 
@@ -149,6 +149,7 @@ pub struct SteelMacro {
     name: InternedString,
     special_forms: Vec<InternedString>,
     cases: Vec<MacroCase>,
+    mangled: bool,
 }
 
 impl SteelMacro {
@@ -162,6 +163,7 @@ impl SteelMacro {
             name,
             special_forms,
             cases,
+            mangled: false,
         }
     }
 
@@ -171,6 +173,18 @@ impl SteelMacro {
 
     pub fn exprs_mut(&mut self) -> impl Iterator<Item = &mut ExprKind> {
         self.cases.iter_mut().map(|x| &mut x.body)
+    }
+
+    pub fn exprs(&self) -> impl Iterator<Item = &ExprKind> {
+        self.cases.iter().map(|x| &x.body)
+    }
+
+    pub fn mark_mangled(&mut self) {
+        self.mangled = true;
+    }
+
+    pub fn is_mangled(&self) -> bool {
+        self.mangled
     }
 
     pub fn parse_from_ast_macro(ast_macro: Macro) -> Result<Self> {
@@ -205,6 +219,7 @@ impl SteelMacro {
             name,
             special_forms,
             cases,
+            mangled: false,
         })
     }
 
@@ -245,8 +260,8 @@ impl SteelMacro {
         let case_to_expand = self.match_case(&expr)?;
         let expanded_expr = case_to_expand.expand(expr, span)?;
 
-        if log::log_enabled!(log::Level::Info) {
-            info!("Macro Expansion: {}", expanded_expr);
+        if log::log_enabled!(log::Level::Debug) {
+            debug!("Macro Expansion: {}", expanded_expr);
         }
 
         Ok(expanded_expr)

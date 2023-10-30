@@ -41,10 +41,10 @@ If you would like to install and use packages, please set the `STEEL_HOME` envir
 
 ## About
 
-`Steel` is an embeddable scheme interpreter, with a standalone cli included as well. Inspired largely by Racket and Clojure, the language seeks to be ergonomic scheme variant helpful for embedding in applications, or to be used on its own with high performance functions implemented in Rust. The language implementation itself contains a fairly powerful macro system based on the `syntax-rules` style and a bytecode virtual machine. At the moment, it is not explicitly compliant with any individual scheme specification.
+`Steel` is an embeddable scheme interpreter, with a standalone cli included as well. Inspired largely by Racket, the language seeks to be ergonomic scheme variant helpful for embedding in applications, or to be used on its own with high performance functions implemented in Rust. The language implementation itself contains a fairly powerful macro system based on the `syntax-rules` style and a bytecode virtual machine. At the moment, it is not explicitly compliant with any individual scheme specification.
 
 > **Warning**
-> The API is very unstable with no guarantees, and may change at any time while pre 1.0. There are undoubtedly bugs that exist, and I wouldn't consider Steel to be production ready. That being said, I do use it as a daily driver for many scripting tasks myself.
+> The API is unstable with no guarantees, and may change at any time while pre 1.0. There are undoubtedly bugs that exist, and any major bug reports will be addressed quickly. That being said, I do use it as a daily driver for many scripting tasks myself.
 
 ## Features
 

@@ -389,7 +389,9 @@ pub trait VisitorMutUnitRef<'a> {
     }
 
     #[inline]
-    fn visit_macro(&mut self, _m: &'a Macro) {}
+    fn visit_macro(&mut self, m: &'a Macro) {
+        self.visit_syntax_rules(&m.syntax_rules);
+    }
 
     #[inline]
     fn visit_atom(&mut self, _a: &'a Atom) {}
@@ -402,7 +404,11 @@ pub trait VisitorMutUnitRef<'a> {
     }
 
     #[inline]
-    fn visit_syntax_rules(&mut self, _l: &'a SyntaxRules) {}
+    fn visit_syntax_rules(&mut self, s: &'a SyntaxRules) {
+        for pattern in &s.patterns {
+            self.visit(&pattern.body);
+        }
+    }
 
     #[inline]
     fn visit_set(&mut self, s: &'a Set) {

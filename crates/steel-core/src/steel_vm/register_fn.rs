@@ -6,6 +6,7 @@ use super::{
     builtin::{Arity, FunctionSignatureMetadata},
     engine::Engine,
 };
+use crate::values::lists::List;
 use crate::{
     gc::unsafe_erased_pointers::{
         BorrowedObject, OpaqueReferenceNursery, ReadOnlyBorrowedObject, ReadOnlyTemporary,
@@ -26,7 +27,6 @@ use crate::{
     values::functions::BoxedDynFunction,
 };
 use futures_util::FutureExt;
-use im_lists::list::List;
 
 use crate::containers::RegisterValue;
 
@@ -187,7 +187,7 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendS
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref(&args[0])?;
@@ -219,7 +219,7 @@ impl<
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
@@ -377,7 +377,7 @@ impl<
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 4 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 4, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref(&args[0])?;
@@ -413,7 +413,7 @@ impl<
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 4 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 4, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref(&args[0])?;
@@ -523,7 +523,7 @@ impl<
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 3 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
@@ -556,7 +556,7 @@ impl<
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 3 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
@@ -2169,5 +2169,5 @@ mod generated_impls {
     }
 
     // TODO: Come up with better MarkerWrapper<ARGS>(PhantomData<ARGS>); -> This is gonna be nasty.
-    include!(concat!(env!("OUT_DIR"), "/generated.rs"));
+    // include!(concat!(env!("OUT_DIR"), "/generated.rs"));
 }

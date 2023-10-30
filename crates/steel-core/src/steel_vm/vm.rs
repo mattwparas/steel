@@ -1,14 +1,16 @@
 #![allow(unused)]
 
+use crate::primitives::lists::cons;
+use crate::primitives::lists::new as new_list;
 use crate::primitives::nums::special_add;
+use crate::values::closed::Heap;
 use crate::values::functions::SerializedLambda;
 use crate::values::structs::UserDefinedStruct;
-use crate::values::{closed::Heap, contracts::ContractType};
 use crate::{
     compiler::constants::ConstantMap,
     core::{instructions::DenseInstruction, opcode::OpCode},
     rvals::FutureResult,
-    values::contracts::ContractedFunction,
+    // values::contracts::ContractedFunction,
 };
 use crate::{
     compiler::program::Executable,
@@ -32,7 +34,7 @@ use std::{cell::RefCell, collections::HashMap, iter::Iterator, rc::Rc};
 
 use super::builtin::DocTemplate;
 
-use im_lists::list::List;
+use crate::values::lists::List;
 
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
@@ -76,6 +78,8 @@ pub fn unlikely(b: bool) -> bool {
 
 const STACK_LIMIT: usize = 1000000;
 const _JIT_THRESHOLD: usize = 100;
+
+const USE_SUPER_INSTRUCTIONS: bool = false;
 
 #[repr(C)]
 #[derive(Clone, Debug, Copy, PartialEq)]
@@ -253,6 +257,7 @@ pub struct SteelThread {
     profiler: OpCodeOccurenceProfiler,
     function_interner: FunctionInterner,
     super_instructions: Vec<Rc<DynamicBlock>>,
+
     pub(crate) heap: Heap,
     // If contracts are set to off - contract construction results in a no-op,
     // so we don't need generics on the thread
@@ -316,6 +321,7 @@ impl SteelThread {
             profiler: OpCodeOccurenceProfiler::new(),
             function_interner: FunctionInterner::default(),
             super_instructions: Vec::new(),
+
             heap: Heap::new(),
             runtime_options: RunTimeOptions::new(),
             stack_frames: Vec::with_capacity(128),
@@ -549,6 +555,12 @@ impl SteelThread {
                 //     self.profiler.sample_count
                 // );
 
+                // panic!("GETTING HERE")
+
+                // println!("GETTING HERE");
+
+                // while self.stack.pop().is_some() {}
+
                 // Clean up
                 self.stack.clear();
 
@@ -560,6 +572,8 @@ impl SteelThread {
                         execution_time.elapsed()
                     );
                 };
+
+                // println!("FINISHED");
 
                 return result;
             }
@@ -579,7 +593,7 @@ impl SteelThread {
 #[derive(Clone, Debug)]
 pub struct Continuation {
     pub(crate) stack: Vec<SteelVal>,
-    current_frame: StackFrame,
+    pub(crate) current_frame: StackFrame,
     instructions: Rc<[DenseInstruction]>,
     pub(crate) stack_frames: Vec<StackFrame>,
     ip: usize,
@@ -729,7 +743,7 @@ impl DynamicBlock {
 
         let mut header_func = None;
 
-        println!("{basic_block:#?}");
+        log::debug!(target: "super-instructions", "{basic_block:#?}");
 
         if let Some(first) = handlers.peek() {
             header_func = op_code_requires_payload(first.0);
@@ -829,6 +843,37 @@ impl<'a> VmCore<'a> {
         })
     }
 
+    pub fn make_box(&mut self, value: SteelVal) -> SteelVal {
+        let allocated_var = self.thread.heap.allocate(
+            value,
+            self.thread.stack.iter(),
+            self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
+            self.thread.global_env.roots(),
+        );
+
+        SteelVal::HeapAllocated(allocated_var)
+    }
+
+    pub fn make_mutable_vector(&mut self, values: Vec<SteelVal>) -> SteelVal {
+        let allocated_var = self.thread.heap.allocate_vector(
+            values,
+            self.thread.stack.iter(),
+            self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
+            self.thread.global_env.roots(),
+        );
+
+        SteelVal::MutableVector(allocated_var)
+    }
+
+    fn gc_collect(&mut self) {
+        self.thread.heap.collect(
+            None,
+            self.thread.stack.iter(),
+            self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
+            self.thread.global_env.roots(),
+        );
+    }
+
     // #[inline(always)]
     fn new_continuation_from_state(&self) -> Continuation {
         Continuation {
@@ -840,6 +885,19 @@ impl<'a> VmCore<'a> {
             sp: self.sp,
             pop_count: self.pop_count,
             // spans: Rc::clone(&self.spans),
+        }
+    }
+
+    // Grab the continuation - but this continuation can only be played once
+    fn new_oneshot_continuation_from_state(&mut self) -> Continuation {
+        Continuation {
+            stack: std::mem::take(&mut self.thread.stack),
+            instructions: Rc::clone(&self.instructions),
+            current_frame: self.thread.current_frame.clone(),
+            stack_frames: std::mem::take(&mut self.thread.stack_frames),
+            ip: self.ip,
+            sp: self.sp,
+            pop_count: self.pop_count,
         }
     }
 
@@ -878,6 +936,10 @@ impl<'a> VmCore<'a> {
     fn construct_continuation_function(&self) -> SteelVal {
         let captured_continuation = self.new_continuation_from_state();
         SteelVal::ContinuationFunction(Gc::new(captured_continuation))
+    }
+
+    fn construct_oneshot_continuation_function(&self) -> SteelVal {
+        todo!()
     }
 
     // Reset state FULLY
@@ -939,10 +1001,10 @@ impl<'a> VmCore<'a> {
                 let arg_vec = [arg];
                 func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
-            SteelVal::ContractedFunction(cf) => {
-                let arg_vec = vec![arg];
-                cf.apply(arg_vec, cur_inst_span, self)
-            }
+            // SteelVal::ContractedFunction(cf) => {
+            //     let arg_vec = vec![arg];
+            //     cf.apply(arg_vec, cur_inst_span, self)
+            // }
             SteelVal::MutFunc(func) => {
                 let mut arg_vec: Vec<_> = vec![arg];
                 func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
@@ -974,10 +1036,10 @@ impl<'a> VmCore<'a> {
                 let arg_vec = [arg1, arg2];
                 func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
-            SteelVal::ContractedFunction(cf) => {
-                let arg_vec = vec![arg1, arg2];
-                cf.apply(arg_vec, cur_inst_span, self)
-            }
+            // SteelVal::ContractedFunction(cf) => {
+            //     let arg_vec = vec![arg1, arg2];
+            //     cf.apply(arg_vec, cur_inst_span, self)
+            // }
             SteelVal::MutFunc(func) => {
                 let mut arg_vec: Vec<_> = vec![arg1, arg2];
                 func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
@@ -1008,10 +1070,10 @@ impl<'a> VmCore<'a> {
                 let arg_vec: Vec<_> = args.into_iter().collect();
                 func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
-            SteelVal::ContractedFunction(cf) => {
-                let arg_vec: Vec<_> = args.into_iter().collect();
-                cf.apply(arg_vec, cur_inst_span, self)
-            }
+            // SteelVal::ContractedFunction(cf) => {
+            //     let arg_vec: Vec<_> = args.into_iter().collect();
+            //     cf.apply(arg_vec, cur_inst_span, self)
+            // }
             SteelVal::MutFunc(func) => {
                 let mut arg_vec: Vec<_> = args.into_iter().collect();
                 func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
@@ -1235,20 +1297,28 @@ impl<'a> VmCore<'a> {
                 self.thread.stack_frames.last().map(|x| x.function.as_ref()),
             ) {
                 // if count > 1000 {
-                println!("Found a hot pattern, creating super instruction...");
+                log::debug!(target: "super-instructions", "Found a hot pattern, creating super instruction...");
 
-                // Index of the starting opcode
-                let start = pat.pattern.start;
+                log::debug!(target: "super-instructions", "{:#?}", pat);
 
-                let id = self.thread.super_instructions.len();
+                if USE_SUPER_INSTRUCTIONS {
+                    // Index of the starting opcode
+                    let start = pat.pattern.start;
 
-                let guard = self.thread.stack_frames.last_mut().unwrap();
+                    let id = self.thread.super_instructions.len();
 
-                // Next run should get the new sequence of opcodes
-                let (head, _) = guard.function.update_to_super_instruction(start, id);
+                    let guard = self.thread.stack_frames.last_mut().unwrap();
 
-                let block = DynamicBlock::construct_basic_block(head, pat);
-                self.thread.super_instructions.push(Rc::new(block));
+                    // Next run should get the new sequence of opcodes
+                    let (head, _) = guard.function.update_to_super_instruction(start, id);
+
+                    let block = DynamicBlock::construct_basic_block(head, pat);
+
+                    self.thread.super_instructions.push(Rc::new(block));
+                }
+                // self.thread.super_instructions.push(Rc::new(|ctx| {
+                //     block.call(ctx);
+                // }))
 
                 // let
                 // }
@@ -1281,6 +1351,7 @@ impl<'a> VmCore<'a> {
                 } => {
                     self.cut_sequence();
 
+                    // TODO: Store in a different spot? So that we can avoid cloning on every iteration?
                     let super_instruction =
                         { self.thread.super_instructions[payload_size as usize].clone() };
 
@@ -1294,8 +1365,20 @@ impl<'a> VmCore<'a> {
                 } => {
                     let last = self.thread.stack.pop().unwrap();
 
+                    // println!("-- POP N: {} -- ", payload_size);
+
                     // println!("popping: {}", payload_size);
                     // println!("Stack length: {:?}", self.thread.stack.len());
+
+                    // println!("{:#?}", self.thread.stack);
+
+                    // if payload_size as usize > self.thread.stack.len() {
+                    //     self.thread.stack.clear()
+                    // } else {
+                    //     self.thread
+                    //         .stack
+                    //         .truncate(self.thread.stack.len() - payload_size as usize);
+                    // }
 
                     self.thread
                         .stack
@@ -1309,9 +1392,19 @@ impl<'a> VmCore<'a> {
                 }
 
                 DenseInstruction {
+                    op_code: OpCode::POPSINGLE,
+                    ..
+                } => {
+                    self.thread.stack.pop();
+                    self.ip += 1;
+                }
+
+                DenseInstruction {
                     op_code: OpCode::POPPURE,
                     ..
                 } => {
+                    // println!("-- POP PURE --");
+
                     if let Some(r) = self.handle_pop_pure() {
                         return r;
                     }
@@ -1339,6 +1432,23 @@ impl<'a> VmCore<'a> {
 
                     self.ip += 2;
                 }
+
+                // Specialization of specific library functions!
+                DenseInstruction {
+                    op_code: OpCode::CONS,
+                    ..
+                } => {
+                    cons_handler(self)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::LIST,
+                    payload_size,
+                    ..
+                } => {
+                    list_handler(self, payload_size as usize)?;
+                }
+
                 DenseInstruction {
                     op_code: OpCode::ADDREGISTER,
                     ..
@@ -1809,6 +1919,11 @@ impl<'a> VmCore<'a> {
 
                     let last_stack_frame = self.thread.stack_frames.last().unwrap();
 
+                    #[cfg(feature = "dynamic")]
+                    {
+                        last_stack_frame.function.increment_call_count();
+                    }
+
                     self.instructions = last_stack_frame.function.body_exp();
                     // self.spans = last_stack_frame.function.spans();
                     self.sp = last_stack_frame.sp;
@@ -2018,7 +2133,13 @@ impl<'a> VmCore<'a> {
                     // log::warn!("Hitting a pass - this shouldn't happen");
                     self.ip += 1;
                 }
+
+                // match_dynamic_super_instructions!()
                 _ => {
+                    #[cfg(feature = "dynamic")]
+                    // TODO: Dispatch on the function here for super instructions!
+                    dynamic::vm_match_dynamic_super_instruction(self, instr)?;
+
                     crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
                     panic!(
                         "Unhandled opcode: {:?} @ {}",
@@ -2108,7 +2229,13 @@ impl<'a> VmCore<'a> {
             self.thread
                 .stack_frames
                 .last()
-                .and_then(|frame| self.root_spans.get(frame.ip - 2))
+                .and_then(|frame| {
+                    if frame.ip > 2 {
+                        self.root_spans.get(frame.ip - 2)
+                    } else {
+                        None
+                    }
+                })
                 .copied()
         }
     }
@@ -2496,14 +2623,14 @@ impl<'a> VmCore<'a> {
             .closure_interner
             .get(&closure_id)
         {
-            log::info!("Fetching closure from cache");
+            log::trace!("Fetching closure from cache");
 
             let mut prototype = prototype.clone();
             prototype.set_captures(captures);
             prototype.set_heap_allocated(heap_vars);
             prototype
         } else {
-            log::info!("Constructing closure for the first time");
+            log::trace!("Constructing closure for the first time");
 
             debug_assert!(self.instructions[forward_index - 1].op_code == OpCode::ECLOSURE);
 
@@ -2736,24 +2863,27 @@ impl<'a> VmCore<'a> {
             &self.instructions,
             self.thread.stack_frames.last().map(|x| x.function.as_ref()),
         ) {
-            println!("Found a hot pattern, creating super instruction...");
+            log::debug!(target: "super-instructions", "Found a hot pattern, creating super instruction...");
+            log::debug!(target: "super-instructions", "{:#?}", pat);
 
-            // Index of the starting opcode
-            let start = pat.pattern.start;
+            if USE_SUPER_INSTRUCTIONS {
+                // Index of the starting opcode
+                let start = pat.pattern.start;
 
-            let id = self.thread.super_instructions.len();
+                let id = self.thread.super_instructions.len();
 
-            let guard = self.thread.stack_frames.last_mut().unwrap();
+                let guard = self.thread.stack_frames.last_mut().unwrap();
 
-            // We don't want to repeatedly thrash by calculating hashes for the block pattern, so
-            // we mark the tail of the block directly on the function itself.
-            // guard.function.mark_block_tail(self.ip);
+                // We don't want to repeatedly thrash by calculating hashes for the block pattern, so
+                // we mark the tail of the block directly on the function itself.
+                // guard.function.mark_block_tail(self.ip);
 
-            // Next run should get the new sequence of opcodes
-            let (head, _) = guard.function.update_to_super_instruction(start, id);
+                // Next run should get the new sequence of opcodes
+                let (head, _) = guard.function.update_to_super_instruction(start, id);
 
-            let block = DynamicBlock::construct_basic_block(head, pat);
-            self.thread.super_instructions.push(Rc::new(block));
+                let block = DynamicBlock::construct_basic_block(head, pat);
+                self.thread.super_instructions.push(Rc::new(block));
+            }
         }
     }
 
@@ -2764,11 +2894,11 @@ impl<'a> VmCore<'a> {
             BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
             FuncV(f) => self.call_primitive_func(f, payload_size),
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
-            ContractedFunction(cf) => self.call_contracted_function_tail_call(&cf, payload_size),
+            // ContractedFunction(cf) => self.call_contracted_function_tail_call(&cf, payload_size),
             ContinuationFunction(cc) => self.call_continuation(&cc),
             Closure(closure) => self.new_handle_tail_call_closure(closure, payload_size),
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
-            CustomStruct(s) => self.call_custom_struct(&s.borrow(), payload_size),
+            CustomStruct(s) => self.call_custom_struct(&s, payload_size),
             _ => {
                 // println!("{:?}", self.stack);
                 // println!("{:?}", self.stack_index);
@@ -2922,7 +3052,11 @@ impl<'a> VmCore<'a> {
     // TODO: Clean up function calls and create a nice calling convention API?
     fn call_custom_struct(&mut self, s: &UserDefinedStruct, payload_size: usize) -> Result<()> {
         if let Some(procedure) = s.maybe_proc() {
-            self.handle_global_function_call(procedure.clone(), payload_size)
+            if let SteelVal::HeapAllocated(h) = procedure {
+                self.handle_global_function_call(h.get(), payload_size)
+            } else {
+                self.handle_global_function_call(procedure.clone(), payload_size)
+            }
         } else {
             stop!(Generic => "Attempted to call struct as a function - no procedure found!");
         }
@@ -2976,60 +3110,60 @@ impl<'a> VmCore<'a> {
     }
 
     // #[inline(always)]
-    fn call_contracted_function(
-        &mut self,
-        cf: &ContractedFunction,
-        payload_size: usize,
-    ) -> Result<()> {
-        if let Some(arity) = cf.arity() {
-            if arity != payload_size {
-                stop!(ArityMismatch => format!("function expected {arity} arguments, found {payload_size}"); self.current_span());
-            }
-        }
+    // fn call_contracted_function(
+    //     &mut self,
+    //     cf: &ContractedFunction,
+    //     payload_size: usize,
+    // ) -> Result<()> {
+    //     if let Some(arity) = cf.arity() {
+    //         if arity != payload_size {
+    //             stop!(ArityMismatch => format!("function expected {arity} arguments, found {payload_size}"); self.current_span());
+    //         }
+    //     }
 
-        // if A::enforce_contracts() {
-        let args = self
-            .thread
-            .stack
-            .split_off(self.thread.stack.len() - payload_size);
+    //     // if A::enforce_contracts() {
+    //     let args = self
+    //         .thread
+    //         .stack
+    //         .split_off(self.thread.stack.len() - payload_size);
 
-        let result = cf.apply(args, &self.current_span(), self)?;
+    //     let result = cf.apply(args, &self.current_span(), self)?;
 
-        self.thread.stack.push(result);
-        self.ip += 1;
-        Ok(())
-        // } else {
-        //     self.handle_function_call(cf.function.clone(), payload_size)
-        // }
-    }
+    //     self.thread.stack.push(result);
+    //     self.ip += 1;
+    //     Ok(())
+    //     // } else {
+    //     //     self.handle_function_call(cf.function.clone(), payload_size)
+    //     // }
+    // }
 
-    // #[inline(always)]
-    fn call_contracted_function_tail_call(
-        &mut self,
-        cf: &ContractedFunction,
-        payload_size: usize,
-    ) -> Result<()> {
-        if let Some(arity) = cf.arity() {
-            if arity != payload_size {
-                stop!(ArityMismatch => format!("function expected {arity} arguments, found {payload_size}"); self.current_span());
-            }
-        }
+    // // #[inline(always)]
+    // fn call_contracted_function_tail_call(
+    //     &mut self,
+    //     cf: &ContractedFunction,
+    //     payload_size: usize,
+    // ) -> Result<()> {
+    //     if let Some(arity) = cf.arity() {
+    //         if arity != payload_size {
+    //             stop!(ArityMismatch => format!("function expected {arity} arguments, found {payload_size}"); self.current_span());
+    //         }
+    //     }
 
-        // if A::enforce_contracts() {
-        let args = self
-            .thread
-            .stack
-            .split_off(self.thread.stack.len() - payload_size);
+    //     // if A::enforce_contracts() {
+    //     let args = self
+    //         .thread
+    //         .stack
+    //         .split_off(self.thread.stack.len() - payload_size);
 
-        let result = cf.apply(args, &self.current_span(), self)?;
+    //     let result = cf.apply(args, &self.current_span(), self)?;
 
-        self.thread.stack.push(result);
-        self.ip += 1;
-        Ok(())
-        // } else {
-        // self.handle_tail_call(cf.function.clone(), payload_size)
-        // }
-    }
+    //     self.thread.stack.push(result);
+    //     self.ip += 1;
+    //     Ok(())
+    //     // } else {
+    //     // self.handle_tail_call(cf.function.clone(), payload_size)
+    //     // }
+    // }
 
     fn call_future_func_on_stack(
         &mut self,
@@ -3221,22 +3355,22 @@ impl<'a> VmCore<'a> {
                 self.thread.stack.push(result);
                 self.ip += 4;
             }
-            ContractedFunction(cf) => {
-                if let Some(arity) = cf.arity() {
-                    if arity != 2 {
-                        stop!(ArityMismatch => format!("function expected {} arguments, found {}", arity, 2); self.current_span());
-                    }
-                }
+            // ContractedFunction(cf) => {
+            //     if let Some(arity) = cf.arity() {
+            //         if arity != 2 {
+            //             stop!(ArityMismatch => format!("function expected {} arguments, found {}", arity, 2); self.current_span());
+            //         }
+            //     }
 
-                // if A::enforce_contracts() {
-                let result = cf.apply(vec![local, const_value], &self.current_span(), self)?;
+            //     // if A::enforce_contracts() {
+            //     let result = cf.apply(vec![local, const_value], &self.current_span(), self)?;
 
-                self.thread.stack.push(result);
-                self.ip += 4;
-                // } else {
-                // self.handle_lazy_function_call(cf.function.clone(), local, const_value)?;
-                // }
-            }
+            //     self.thread.stack.push(result);
+            //     self.ip += 4;
+            //     // } else {
+            //     // self.handle_lazy_function_call(cf.function.clone(), local, const_value)?;
+            //     // }
+            // }
             // Contract(c) => self.call_contract(c, payload_size, span)?,
             ContinuationFunction(_cc) => {
                 unimplemented!("calling continuation lazily not yet handled");
@@ -3251,7 +3385,7 @@ impl<'a> VmCore<'a> {
                 self.ip += 4;
             }
             CustomStruct(s) => {
-                if let Some(proc) = s.borrow().maybe_proc() {
+                if let Some(proc) = s.maybe_proc() {
                     return self.handle_lazy_function_call(proc.clone(), local, const_value);
                 } else {
                     stop!(Generic => "attempted to call struct as function, but the struct does not have a function to call!")
@@ -3519,11 +3653,11 @@ impl<'a> VmCore<'a> {
             BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size)?,
             MutFunc(f) => self.call_primitive_mut_func(*f, payload_size)?,
             FutureFunc(f) => self.call_future_func(f.clone(), payload_size)?,
-            ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size)?,
+            // ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size)?,
             ContinuationFunction(cc) => self.call_continuation(&cc)?,
             // #[cfg(feature = "jit")]
             // CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
-            Contract(c) => self.call_contract(&c, payload_size)?,
+            // Contract(c) => self.call_contract(&c, payload_size)?,
             BuiltIn(f) => self.call_builtin_func(*f, payload_size)?,
             // CustomStruct(s) => self.call_custom_struct_global(&s.borrow(), payload_size)?,
             _ => {
@@ -3551,17 +3685,17 @@ impl<'a> VmCore<'a> {
             BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
             FutureFunc(f) => self.call_future_func(f, payload_size),
-            ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size),
+            // ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size),
             ContinuationFunction(cc) => self.call_continuation(&cc),
-            Contract(c) => self.call_contract(&c, payload_size),
+            // Contract(c) => self.call_contract(&c, payload_size),
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
-            CustomStruct(s) => self.call_custom_struct(&s.borrow(), payload_size),
+            CustomStruct(s) => self.call_custom_struct(&s, payload_size),
             _ => {
                 // Explicitly mark this as unlikely
                 cold();
                 log::error!("{stack_func:?}");
                 log::error!("Stack: {:?}", self.thread.stack);
-                stop!(BadSyntax => "Function application not a procedure or function type not supported"; self.current_span());
+                stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); self.current_span());
             }
         }
     }
@@ -3642,14 +3776,14 @@ impl<'a> VmCore<'a> {
     }
 
     // #[inline(always)]
-    fn call_contract(&mut self, contract: &Gc<ContractType>, payload_size: usize) -> Result<()> {
-        match contract.as_ref() {
-            ContractType::Flat(f) => self.handle_function_call(f.predicate.clone(), payload_size),
-            _ => {
-                stop!(BadSyntax => "Function application not a procedure - cannot apply function contract to argument");
-            }
-        }
-    }
+    // fn call_contract(&mut self, contract: &Gc<ContractType>, payload_size: usize) -> Result<()> {
+    //     match contract.as_ref() {
+    //         ContractType::Flat(f) => self.handle_function_call(f.predicate.clone(), payload_size),
+    //         _ => {
+    //             stop!(BadSyntax => "Function application not a procedure - cannot apply function contract to argument");
+    //         }
+    //     }
+    // }
 
     // #[inline(always)]
     fn handle_function_call(&mut self, stack_func: SteelVal, payload_size: usize) -> Result<()> {
@@ -3660,14 +3794,14 @@ impl<'a> VmCore<'a> {
             FuncV(f) => self.call_primitive_func(f, payload_size),
             FutureFunc(f) => self.call_future_func(f, payload_size),
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
-            ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size),
+            // ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size),
             ContinuationFunction(cc) => self.call_continuation(&cc),
             Closure(closure) => self.handle_function_call_closure(closure, payload_size),
             // #[cfg(feature = "jit")]
             // CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
-            Contract(c) => self.call_contract(&c, payload_size),
+            // Contract(c) => self.call_contract(&c, payload_size),
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
-            CustomStruct(s) => self.call_custom_struct(&s.borrow(), payload_size),
+            CustomStruct(s) => self.call_custom_struct(&s, payload_size),
             _ => {
                 log::error!("{stack_func:?}");
                 log::error!("stack: {:?}", self.thread.stack);
@@ -3693,6 +3827,19 @@ pub fn current_function_span(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Resu
         Some(s) => Some(Span::into_steelval(s)),
         None => Some(Ok(SteelVal::Void)),
     }
+}
+
+/// Inspect the locals at the given function. Probably need to provide a way to
+/// loop this back into the sources, in order to resolve any span information.
+pub fn breakpoint(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    let offset = ctx.get_offset();
+
+    println!("----- Locals -----");
+    for (slot, i) in (offset..ctx.thread.stack.len()).enumerate() {
+        println!("x{} = {:?}", slot, &ctx.thread.stack[i]);
+    }
+
+    Some(Ok(SteelVal::Void))
 }
 
 pub fn call_with_exception_handler(
@@ -3772,6 +3919,10 @@ pub fn call_with_exception_handler(
     }
 
     Some(Ok(SteelVal::Void))
+}
+
+pub fn oneshot_call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    todo!("Create continuation that can only be used once!")
 }
 
 pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
@@ -4081,6 +4232,109 @@ impl OpCodeOccurenceProfiler {
         self.time.clear();
     }
 
+    // Process the op code and the associated payload
+    // TODO: Get this to just use offsets, don't actually clone the instruction set directly
+    #[cfg(feature = "dynamic")]
+    pub fn process_opcode(
+        &mut self,
+        opcode: &OpCode,
+        // payload: usize,
+        index: usize,
+        instructions: &[DenseInstruction],
+        function: Option<&ByteCodeLambda>,
+    ) -> Option<InstructionPattern> {
+        // *self.occurrences.entry((*opcode, payload)).or_default() += 1;
+
+        let function = function?;
+
+        // Trace once it becomes hot
+        let call_count = function.call_count();
+        // If we're in the special zone, profile, otherwise don't
+        if call_count < 1000 || call_count > 10000 {
+            self.starting_index = None;
+            self.ending_index = None;
+            return None;
+        }
+
+        match opcode {
+            OpCode::SDEF | OpCode::EDEF => return None,
+            _ => {}
+        }
+
+        if self.starting_index.is_none() {
+            self.starting_index = Some(index);
+        }
+
+        self.ending_index = Some(index);
+
+        match opcode {
+            OpCode::JMP
+            | OpCode::IF
+            // | OpCode::CALLGLOBAL
+            | OpCode::CALLGLOBALTAIL
+            | OpCode::TAILCALL
+            | OpCode::TCOJMP
+            | OpCode::POPPURE
+            | OpCode::LTEIMMEDIATEIF
+            // | OpCode::FUNC 
+            => {
+
+                let block_pattern = BlockPattern {
+                    start: self.starting_index.unwrap(),
+                    end: index
+                };
+
+                let mut guard = function.blocks.borrow_mut();
+
+
+                if let Some((_, metadata)) = guard.iter_mut().find(|x| x.0 == block_pattern) {
+
+                    // self.sample_count += 1;
+                    // println!("Sampling on op code: {:?}", opcode);
+
+                    metadata.count += 1;
+                    metadata.length = index - block_pattern.start;
+                    // self.last_sequence = Some(pattern);
+
+                    if metadata.count > 1000 && !metadata.created {
+                        metadata.created = true;
+
+                        // println!("{} {}", block_pattern.start, index);
+
+                        let sequence = instructions[block_pattern.start..=index]
+                            .iter()
+                            .map(|x| (x.op_code, x.payload_size as usize))
+                            .filter(|x| !x.0.is_ephemeral_opcode() && x.0 != OpCode::POPPURE)
+                            .collect();
+
+                        self.starting_index = None;
+                        self.ending_index = None;
+
+
+                        // println!("Pattern finished");
+
+                        return Some(InstructionPattern::new(sequence, block_pattern));
+                    }
+
+                } else if index - block_pattern.start > 2 {
+                    guard.push((block_pattern, BlockMetadata::default()));
+                }
+
+                self.starting_index = None;
+                self.ending_index = None;
+
+                // println!("Pattern finished");
+            }
+            _ => {
+                // println!("Updating end to be: {}", index);
+                self.ending_index = Some(index);
+                // self.sequence.push((*opcode, index));
+            }
+        }
+
+        None
+    }
+
     #[cfg(feature = "dynamic")]
     pub fn cut_sequence(
         &mut self,
@@ -4096,6 +4350,7 @@ impl OpCodeOccurenceProfiler {
 
         // Trace once it becomes hot
         let call_count = function.call_count();
+
         // If we're in the special zone, profile, otherwise don't
         if !(1000..=10000).contains(&call_count) {
             self.starting_index = None;
@@ -4159,7 +4414,11 @@ impl OpCodeOccurenceProfiler {
     // pub fn report_basic_blocks(&self) {
     //     println!("--------------- Basic Blocks ---------------");
 
-    //     let mut blocks = self.basic_blocks.iter().collect::<Vec<_>>();
+    //     let mut blocks = self
+    //         .super_instructions
+    //         .basic_blocks
+    //         .iter()
+    //         .collect::<Vec<_>>();
 
     //     blocks.sort_by_key(|x| x.1);
     //     blocks.reverse();
@@ -4291,7 +4550,7 @@ fn op_code_requires_payload(
 // on the main VM context. In order to construct these sequences, we will need to be able
 // to grab a basic block from the running sequence, and directly patch an instruction set
 // on the fly, to transfer context over to that sequence.
-static OP_CODE_TABLE: [for<'r> fn(&'r mut VmCore<'_>) -> Result<()>; 58] = [
+static OP_CODE_TABLE: [for<'r> fn(&'r mut VmCore<'_>) -> Result<()>; 66] = [
     void_handler,
     push_handler,
     if_handler,   // If
@@ -4303,6 +4562,7 @@ static OP_CODE_TABLE: [for<'r> fn(&'r mut VmCore<'_>) -> Result<()>; 58] = [
     dummy, // sdef
     dummy, // edef
     dummy, // pop
+    dummy, // popn
     dummy, // pass
     push_const_handler,
     dummy, // ndefs,
@@ -4351,7 +4611,14 @@ static OP_CODE_TABLE: [for<'r> fn(&'r mut VmCore<'_>) -> Result<()>; 58] = [
     set_alloc_handler,
     // dummy,                               // gimmick
     // move_read_local_call_global_handler, // movereadlocalcallglobal,
-    dummy, // dynsuperinstruction
+    dummy, // dynsuperinstruction,
+    dummy,
+    dummy,
+    dummy,
+    dummy,
+    dummy,
+    binop_add_handler,
+    dummy,
 ];
 
 macro_rules! opcode_to_function {
@@ -4726,6 +4993,14 @@ fn handle_local_0_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
     Ok(value)
 }
 
+#[inline(always)]
+fn handle_local_1_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
+    let offset = ctx.get_offset();
+    let value = ctx.thread.stack[offset + 1].clone();
+    ctx.ip += 1;
+    Ok(value)
+}
+
 // OpCode::VOID
 fn void_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.thread.stack.push(SteelVal::Void);
@@ -4777,6 +5052,13 @@ fn push_const_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.thread.stack.push(val);
     ctx.ip += 1;
     Ok(())
+}
+
+fn push_const_handler_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    let val = ctx.constants.get(payload_size as usize);
+    ctx.ip += 1;
+    Ok(val)
 }
 
 // OpCode::PUSHCONST
@@ -5057,6 +5339,54 @@ macro_rules! handler_inline_primitive_payload {
 fn add_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     handler_inline_primitive!(ctx, add_primitive);
     Ok(())
+}
+
+fn binop_add_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    let last_index = ctx.thread.stack.len() - 2;
+
+    let right = ctx.thread.stack.pop().unwrap();
+    let left = ctx.thread.stack.last().unwrap();
+
+    let result = match add_handler_none_none(left, &right) {
+        Ok(value) => value,
+        Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
+    };
+
+    // let result = match $name(&mut $ctx.thread.stack[last_index..]) {
+    //     Ok(value) => value,
+    //     Err(e) => return Err(e.set_span_if_none($ctx.current_span())),
+    // };
+
+    // This is the old way... lets see if the below way improves the speed
+    // $ctx.thread.stack.truncate(last_index);
+    // $ctx.thread.stack.push(result);
+
+    // self.thread.stack.truncate(last_index + 1);
+    // *self.thread.stack.last_mut().unwrap() = result;
+
+    *ctx.thread.stack.last_mut().unwrap() = result;
+
+    ctx.ip += 2;
+
+    Ok(())
+}
+
+fn cons_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, cons, 2);
+    Ok(())
+}
+
+fn cons_handler_no_stack(ctx: &mut VmCore<'_>) -> Result<()> {
+    todo!()
+}
+
+fn list_handler(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, new_list, payload);
+    Ok(())
+}
+
+fn list_handler_no_stack(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    todo!()
 }
 
 // OpCode::ADD
@@ -5570,6 +5900,10 @@ fn add_handler_none_none(l: &SteelVal, r: &SteelVal) -> Result<SteelVal> {
 }
 
 #[cfg(feature = "dynamic")]
+pub(crate) use dynamic::pattern_exists;
+
+#[macro_use]
+#[cfg(feature = "dynamic")]
 mod dynamic {
     use super::*;
 
@@ -5670,6 +6004,10 @@ mod dynamic {
             call_global_handler_with_args
         };
 
+        (PUSHCONST) => {
+            push_const_handler_no_stack
+        };
+
         (MOVEREADLOCAL0) => {
             handle_move_local_0_no_stack
         };
@@ -5680,6 +6018,10 @@ mod dynamic {
 
         (READLOCAL0) => {
             handle_local_0_no_stack
+        };
+
+        (READLOCAL1) => {
+            handle_local_1_no_stack
         };
     }
 

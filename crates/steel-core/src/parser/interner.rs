@@ -4,16 +4,31 @@ use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::{fmt, sync::Arc};
 
-// #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
-// pub enum MaybeInternedString {
-//     Interned(InternedString),
-//     Uninterned(String),
-// }
-
-/// An interned string
-#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+// TODO: Serialize and Deserialize should resolve() -> Otherwise we're in for deep trouble
+// trying to serialize and deserialize this
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(transparent)]
 pub struct InternedString(Spur);
+
+impl Serialize for InternedString {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.resolve().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for InternedString {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let key = <&str>::deserialize(deserializer)?;
+
+        Ok(InternedString::from(key))
+    }
+}
 
 impl InternedString {
     pub fn from_static(ident: &'static str) -> Self {
@@ -119,7 +134,6 @@ use crate::{rvals::SteelString, SteelVal};
 static INTERNER: OnceCell<Arc<ThreadedRodeo>> = OnceCell::new();
 
 pub fn take_interner() -> Arc<ThreadedRodeo> {
-    // INTERNER.take().unwrap()
     Arc::clone(INTERNER.get().unwrap())
 }
 
@@ -129,6 +143,14 @@ pub fn initialize_with(interner: Arc<ThreadedRodeo>) -> Result<(), Arc<ThreadedR
 
 pub fn get_interner() -> Option<&'static Arc<ThreadedRodeo>> {
     INTERNER.get()
+}
+
+pub fn add_interner(interner: Arc<ThreadedRodeo>) {
+    let guard = INTERNER.get().unwrap();
+
+    for key in interner.strings() {
+        guard.get_or_intern(key);
+    }
 }
 
 #[test]

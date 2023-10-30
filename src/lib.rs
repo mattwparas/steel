@@ -48,6 +48,11 @@ enum EmitAction {
 pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
     let mut vm = Engine::new();
 
+    // let mut vm = Engine::top_level_load_from_bootstrap(include_bytes!(concat!(
+    //     env!("OUT_DIR"),
+    //     "/bootstrap.bin"
+    // )));
+
     vm.register_value("std::env::args", steel::SteelVal::ListV(vec![].into()));
 
     match clap_args {
@@ -165,11 +170,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
                 }),
             ..
         } => {
-            let core_libraries = &[
-                steel::stdlib::PRELUDE,
-                steel::stdlib::DISPLAY,
-                steel::stdlib::CONTRACTS,
-            ];
+            let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::DISPLAY];
 
             for core in core_libraries {
                 let res = vm.compile_and_run_raw_program(core);
@@ -230,6 +231,17 @@ fn r5rs_test_suite() {
     let args = Args {
         action: None,
         default_file: Some(PathBuf::from("cogs/r5rs.scm")),
+        arguments: vec![],
+    };
+
+    run(args).unwrap()
+}
+
+#[test]
+fn r7rs_test_suite() {
+    let args = Args {
+        action: None,
+        default_file: Some(PathBuf::from("cogs/r7rs.scm")),
         arguments: vec![],
     };
 

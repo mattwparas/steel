@@ -1,13 +1,15 @@
 (require "steel/tests/unit-test.scm"
-         (for-syntax "steel/tests/unit-test.scm")
-         "contract.scm"
-         (for-syntax "contract.scm"))
+         (for-syntax "steel/tests/unit-test.scm"))
 
 (provide foo)
 
-(define/c (foo x y) (->c even? odd? odd?) (+ x y))
+(define/contract (foo x y)
+  (->/c even? odd? odd?)
+  (+ x y))
 
-(define/c (simple-higher-order x func) (->c odd? (->c odd? even?) even?) (func x))
+(define/contract (simple-higher-order x func)
+  (->/c odd? (->/c odd? even?) even?)
+  (func x))
 
 (define (any? x)
   (displayln "***** CHECKING ANY? *****")
@@ -21,25 +23,20 @@
   (number? x))
 
 (define level1
-  (bind-contract-to-function
-   (make-function-contract (make-function-contract (FlatContract number-checker? 'number-checker?)))
-   (lambda ()
-     (lambda ()
-       (displayln "@@@@@@@@@@ CALLING FUNCTION @@@@@@@@@@@")
-       10))
-   'level1))
+  (bind/c (make-function/c (make-function/c (FlatContract number-checker? 'number-checker?)))
+          (lambda ()
+            (lambda ()
+              (displayln "@@@@@@@@@@ CALLING FUNCTION @@@@@@@@@@@")
+              10))
+          'level1))
 
 (define level2
-  (bind-contract-to-function
-   (make-function-contract (make-function-contract (FlatContract int-checker? 'int-checker)))
-   (lambda () (level1))
-   'level2))
+  (bind/c (make-function/c (make-function/c (FlatContract int-checker? 'int-checker)))
+          (lambda () (level1))
+          'level2))
 
 (define level3
-  (bind-contract-to-function
-   (make-function-contract (make-function-contract (FlatContract any? 'any?)))
-   (lambda () (level2))
-   'level3))
+  (bind/c (make-function/c (make-function/c (FlatContract any? 'any?))) (lambda () (level2)) 'level3))
 
 (test-module
  "check-basic-contract-checking"

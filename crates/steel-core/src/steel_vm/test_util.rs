@@ -1,17 +1,10 @@
 use super::engine::Engine;
-use crate::stdlib::{CONTRACTS, PRELUDE};
+use crate::stdlib::PRELUDE;
 
 #[test]
 fn prelude_parses() {
     let mut vm = Engine::new();
     vm.compile_and_run_raw_program(PRELUDE).unwrap();
-}
-
-#[test]
-fn contract_parses() {
-    let mut vm = Engine::new();
-    vm.compile_and_run_raw_program(PRELUDE).unwrap();
-    vm.compile_and_run_raw_program(CONTRACTS).unwrap();
 }
 
 #[cfg(test)]

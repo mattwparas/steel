@@ -7,7 +7,8 @@ use crate::{
     steel_vm::vm::VmCore,
 };
 use crate::{stop, throw};
-use im_lists::{list, list::List};
+
+use crate::values::lists::List;
 
 use crate::core::utils::{
     arity_check, declare_const_mut_ref_functions, declare_const_ref_functions,
@@ -34,7 +35,7 @@ declare_const_mut_ref_functions! {
 // const LENGTH: SteelVal = SteelVal::FuncV(length);
 // const NEW: SteelVal = SteelVal::FuncV(new);
 
-pub(crate) struct UnRecoverableResult(Result<SteelVal>);
+pub struct UnRecoverableResult(Result<SteelVal>);
 
 impl IntoSteelVal for UnRecoverableResult {
     #[inline(always)]
@@ -234,7 +235,7 @@ Note: In steel, there are only proper lists. Pairs do not exist directly. "#,
 };
 
 // Do away with improper lists?
-fn cons(args: &mut [SteelVal]) -> Result<SteelVal> {
+pub fn cons(args: &mut [SteelVal]) -> Result<SteelVal> {
     if args.len() != 2 {
         stop!(ArityMismatch => "cons takes only two arguments")
     }
@@ -245,7 +246,7 @@ fn cons(args: &mut [SteelVal]) -> Result<SteelVal> {
             // Consider moving in a default value instead of cloning?
             Ok(SteelVal::ListV(right.clone()))
         }
-        (left, right) => Ok(SteelVal::ListV(list![left, right.clone()])),
+        (left, right) => Ok(SteelVal::ListV(vec![left, right.clone()].into())),
     }
 }
 
@@ -582,7 +583,7 @@ mod list_operation_tests {
     fn cons_test_normal_input() {
         let mut args = [SteelVal::IntV(1), SteelVal::IntV(2)];
         let res = cons(&mut args);
-        let expected = SteelVal::ListV(list![SteelVal::IntV(1), SteelVal::IntV(2)]);
+        let expected = SteelVal::ListV(vec![SteelVal::IntV(1), SteelVal::IntV(2)].into());
 
         assert_eq!(res.unwrap(), expected);
     }
@@ -614,7 +615,10 @@ mod list_operation_tests {
 
     #[test]
     fn cons_with_non_empty_vector() {
-        let mut args = [SteelVal::IntV(1), SteelVal::ListV(list![SteelVal::IntV(2)])];
+        let mut args = [
+            SteelVal::IntV(1),
+            SteelVal::ListV(vec![SteelVal::IntV(2)].into()),
+        ];
         let res = cons(&mut args);
         let expected = crate::list![1i32, 2i32];
         assert_eq!(res.unwrap(), expected);
@@ -678,7 +682,7 @@ mod list_operation_tests {
 
     #[test]
     fn cdr_single_element_list() {
-        let mut args = [SteelVal::ListV(list![SteelVal::NumV(1.0)])];
+        let mut args = [SteelVal::ListV(vec![SteelVal::NumV(1.0)].into())];
         let res = cdr(&mut args);
         let expected = SteelVal::ListV(List::new());
         assert_eq!(res.unwrap(), expected);
@@ -708,11 +712,8 @@ mod list_operation_tests {
     fn range_test_normal_input() {
         let args = [SteelVal::IntV(0), SteelVal::IntV(3)];
         let res = steel_range(&args);
-        let expected = SteelVal::ListV(list![
-            SteelVal::IntV(0),
-            SteelVal::IntV(1),
-            SteelVal::IntV(2)
-        ]);
+        let expected =
+            SteelVal::ListV(vec![SteelVal::IntV(0), SteelVal::IntV(1), SteelVal::IntV(2)].into());
         assert_eq!(res.unwrap(), expected);
     }
 }

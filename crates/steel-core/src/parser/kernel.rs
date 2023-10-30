@@ -6,7 +6,7 @@ use std::{
 use steel_parser::tokens::TokenType;
 
 use crate::{
-    compiler::passes::analysis::SemanticAnalysis,
+    compiler::{passes::analysis::SemanticAnalysis, program::RawProgramWithSymbols},
     expr_list,
     parser::{
         ast::{Atom, Set},
@@ -24,7 +24,6 @@ use super::{
 };
 
 thread_local! {
-    // pub(crate) static KERNEL_IMAGE: Engine = Engine::new_kernel();
     pub(crate) static KERNEL_IMAGE: Engine = Engine::new_bootstrap_kernel();
 }
 
@@ -49,7 +48,7 @@ pub struct Kernel {
     // macros: HashSet<InternedString>,
     transformers: Transformers,
     constants: HashSet<InternedString>,
-    engine: Box<Engine>,
+    pub(crate) engine: Box<Engine>,
 }
 
 impl Default for Kernel {
@@ -84,7 +83,7 @@ impl Kernel {
                 .iter()
                 .map(|x| x.resolve().to_string())
                 .map(|x| SteelVal::SymbolV(x.into()))
-                .collect::<im_lists::list::List<SteelVal>>()
+                .collect::<crate::values::lists::List<SteelVal>>()
                 .into()
         });
 
@@ -95,6 +94,90 @@ impl Kernel {
         // macros.insert("%better-lambda%".to_string());
         // macros.insert(*STRUCT_KEYWORD);
         // macros.insert(*DEFINE_VALUES);
+
+        Kernel {
+            // macros,
+            transformers,
+            constants: HashSet::new(),
+            engine: Box::new(engine),
+        }
+    }
+
+    pub(crate) fn bootstrap(mut engine: Engine) -> (Self, RawProgramWithSymbols) {
+        let transformers = Transformers {
+            set: Arc::new(RwLock::new(HashSet::default())),
+        };
+
+        let embedded_transformer_object = transformers.clone();
+        engine.register_fn("register-macro-transformer!", move |name: String| {
+            embedded_transformer_object
+                .set
+                .write()
+                .unwrap()
+                .insert(name.as_str().into())
+        });
+
+        let embedded_transformer_object = transformers.clone();
+        engine.register_fn("current-macro-transformers!", move || -> SteelVal {
+            embedded_transformer_object
+                .set
+                .read()
+                .unwrap()
+                .iter()
+                .map(|x| x.resolve().to_string())
+                .map(|x| SteelVal::SymbolV(x.into()))
+                .collect::<crate::values::lists::List<SteelVal>>()
+                .into()
+        });
+
+        // Run the script for building the core interface for structs
+        // engine.compile_and_run_raw_program(KERNEL).unwrap();
+
+        let raw_program = engine.emit_raw_program_no_path(KERNEL).unwrap();
+        engine.run_raw_program(raw_program.clone()).unwrap();
+
+        // let mut macros = HashSet::new();
+        // macros.insert("%better-lambda%".to_string());
+        // macros.insert(*STRUCT_KEYWORD);
+        // macros.insert(*DEFINE_VALUES);
+
+        (
+            Kernel {
+                // macros,
+                transformers,
+                constants: HashSet::new(),
+                engine: Box::new(engine),
+            },
+            raw_program,
+        )
+    }
+
+    pub(crate) fn initialize_post_bootstrap(mut engine: Engine) -> Self {
+        let transformers = Transformers {
+            set: Arc::new(RwLock::new(HashSet::default())),
+        };
+
+        let embedded_transformer_object = transformers.clone();
+        engine.register_fn("register-macro-transformer!", move |name: String| {
+            embedded_transformer_object
+                .set
+                .write()
+                .unwrap()
+                .insert(name.as_str().into())
+        });
+
+        let embedded_transformer_object = transformers.clone();
+        engine.register_fn("current-macro-transformers!", move || -> SteelVal {
+            embedded_transformer_object
+                .set
+                .read()
+                .unwrap()
+                .iter()
+                .map(|x| x.resolve().to_string())
+                .map(|x| SteelVal::SymbolV(x.into()))
+                .collect::<crate::values::lists::List<SteelVal>>()
+                .into()
+        });
 
         Kernel {
             // macros,
@@ -122,18 +205,58 @@ impl Kernel {
         let subset = analysis
             .exprs
             .iter()
-            .filter(|expr| {
-                if let ExprKind::Define(define) = expr {
-                    if let ExprKind::LambdaFunction(_) = &define.body {
-                        let name = define.name.atom_identifier().unwrap().clone();
+            .filter_map(|expr| {
+                match expr {
+                    ExprKind::Define(define) => {
+                        if let ExprKind::LambdaFunction(_) = &define.body {
+                            let name = define.name.atom_identifier().unwrap().clone();
 
-                        return result.contains_key(&name);
+                            return if result.contains_key(&name) {
+                                Some(expr.clone())
+                            } else {
+                                None
+                            };
+                        }
                     }
+                    ExprKind::Begin(b) => {
+                        let begin = b
+                            .exprs
+                            .iter()
+                            .filter(|expr| {
+                                if let ExprKind::Define(define) = expr {
+                                    if let ExprKind::LambdaFunction(_) = &define.body {
+                                        let name = define.name.atom_identifier().unwrap().clone();
+
+                                        return result.contains_key(&name);
+                                    }
+                                }
+
+                                false
+                            })
+                            .cloned()
+                            .collect();
+
+                        return Some(ExprKind::Begin(crate::parser::ast::Begin::new(
+                            begin,
+                            b.location.clone(),
+                        )));
+                    }
+
+                    _ => {}
                 }
 
-                false
+                return None;
+
+                // TODO: Also check begin statements here as well
+                // if let ExprKind::Define(define) = expr {
+                //     if let ExprKind::LambdaFunction(_) = &define.body {
+                //         let name = define.name.atom_identifier().unwrap().clone();
+
+                //         return result.contains_key(&name);
+                //     }
+                // }
             })
-            .cloned()
+            // .cloned()
             .collect::<Vec<_>>();
 
         log::debug!("Loading constant functions");

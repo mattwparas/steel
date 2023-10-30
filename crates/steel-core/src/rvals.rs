@@ -12,9 +12,11 @@ use crate::{
     steel_vm::vm::{BuiltInSignature, Continuation},
     values::port::SteelPort,
     values::{
-        contracts::{ContractType, ContractedFunction},
+        closed::{HeapRef, MarkAndSweepContext},
+        // contracts::{ContractType, ContractedFunction},
         functions::ByteCodeLambda,
         lazy_stream::LazyStream,
+        // lists::ListDropHandler,
         transducers::{Reducer, Transducer},
     },
     values::{functions::BoxedDynFunction, structs::UserDefinedStruct},
@@ -24,7 +26,7 @@ use crate::{
 // use crate::jit::sig::JitFunctionPointer;
 
 use std::{
-    any::Any,
+    any::{Any, TypeId},
     cell::{Ref, RefCell, RefMut},
     cmp::Ordering,
     convert::TryInto,
@@ -48,9 +50,9 @@ macro_rules! list {
     ) };
 
     ( $($x:expr),* ) => {{
-        $crate::rvals::SteelVal::ListV(im_lists::list![$(
+        $crate::rvals::SteelVal::ListV(vec![$(
             $crate::rvals::IntoSteelVal::into_steelval($x).unwrap()
-        ), *])
+        ), *].into())
     }};
 
     ( $($x:expr ,)* ) => {{
@@ -68,11 +70,11 @@ use futures_task::noop_waker_ref;
 use futures_util::future::Shared;
 use futures_util::FutureExt;
 
-use im_lists::list::List;
+use crate::values::lists::List;
 use num::ToPrimitive;
 use steel_parser::tokens::MaybeBigInt;
 
-use self::cycles::CycleDetector;
+use self::cycles::{CycleDetector, IterativeDropHandler};
 
 pub type RcRefSteelVal = Rc<RefCell<SteelVal>>;
 pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
@@ -157,6 +159,20 @@ pub trait Custom: private::Sealed {
     fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         None
     }
+
+    fn as_iterator(&self) -> Option<Box<dyn Iterator<Item = SteelVal>>> {
+        None
+    }
+
+    fn gc_drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
+
+    fn gc_visit_children(&self, _context: &mut MarkAndSweepContext) {}
+
+    fn visit_equality(&self, _visitor: &mut cycles::EqualityVisitor) {}
+
+    fn equality_hint(&self, _other: &dyn CustomType) -> bool {
+        true
+    }
 }
 
 pub trait CustomType {
@@ -167,6 +183,7 @@ pub trait CustomType {
     fn name(&self) -> &str {
         std::any::type_name::<Self>()
     }
+    fn inner_type_id(&self) -> TypeId;
     // fn new_steel_val(&self) -> SteelVal;
     fn display(&self) -> std::result::Result<String, std::fmt::Error> {
         Ok(format!("#<{}>", self.name().to_string()))
@@ -175,7 +192,17 @@ pub trait CustomType {
     fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         None
     }
-    // fn as_underlying_type<'a>(&'a self) -> Option<&'a Self>;
+
+    // Implement visit for anything that holds steel values
+    fn drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
+
+    fn visit_children(&self, _context: &mut MarkAndSweepContext) {}
+
+    fn visit_children_for_equality(&self, _visitor: &mut cycles::EqualityVisitor) {}
+
+    fn check_equality_hint(&self, _other: &dyn CustomType) -> bool {
+        true
+    }
 }
 
 impl<T: Custom + 'static> CustomType for T {
@@ -184,6 +211,9 @@ impl<T: Custom + 'static> CustomType for T {
     }
     fn as_any_ref_mut(&mut self) -> &mut dyn Any {
         self as &mut dyn Any
+    }
+    fn inner_type_id(&self) -> TypeId {
+        std::any::TypeId::of::<Self>()
     }
     fn display(&self) -> std::result::Result<String, std::fmt::Error> {
         if let Some(formatted) = self.fmt() {
@@ -195,6 +225,23 @@ impl<T: Custom + 'static> CustomType for T {
 
     fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         self.into_serializable_steelval()
+    }
+
+    fn drop_mut(&mut self, drop_handler: &mut IterativeDropHandler) {
+        self.gc_drop_mut(drop_handler)
+    }
+
+    fn visit_children(&self, context: &mut MarkAndSweepContext) {
+        self.gc_visit_children(context)
+    }
+
+    // TODO: Equality visitor
+    fn visit_children_for_equality(&self, visitor: &mut cycles::EqualityVisitor) {
+        self.visit_equality(visitor)
+    }
+
+    fn check_equality_hint(&self, other: &dyn CustomType) -> bool {
+        self.equality_hint(other)
     }
 }
 
@@ -474,6 +521,18 @@ impl AsRefSteelVal for List<SteelVal> {
     }
 }
 
+impl AsRefSteelVal for UserDefinedStruct {
+    type Nursery = ();
+
+    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal, _nursery: &mut ()) -> Result<SRef<'b, Self>> {
+        if let SteelVal::CustomStruct(l) = val {
+            Ok(SRef::Temporary(l))
+        } else {
+            stop!(TypeMismatch => "Value cannot be referenced as a list")
+        }
+    }
+}
+
 // impl AsRefSteelVal for FunctionSignature {
 //     fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
 //         if let SteelVal::FuncV(f) = val {
@@ -693,7 +752,7 @@ impl ast::TryFromSteelValVisitorForExprKind {
 
 #[derive(Debug, Clone)]
 pub struct Syntax {
-    raw: Option<SteelVal>,
+    pub(crate) raw: Option<SteelVal>,
     pub(crate) syntax: SteelVal,
     span: Span,
 }
@@ -887,11 +946,14 @@ pub fn from_serializable_value(val: SerializableSteelVal) -> SteelVal {
         SerializableSteelVal::Void => SteelVal::Void,
         SerializableSteelVal::StringV(s) => SteelVal::StringV(s.into()),
         SerializableSteelVal::FuncV(f) => SteelVal::FuncV(f),
-        SerializableSteelVal::HashMapV(h) => SteelVal::HashMapV(Gc::new(
-            h.into_iter()
-                .map(|(k, v)| (from_serializable_value(k), from_serializable_value(v)))
-                .collect(),
-        )),
+        SerializableSteelVal::HashMapV(h) => SteelVal::HashMapV(
+            Gc::new(
+                h.into_iter()
+                    .map(|(k, v)| (from_serializable_value(k), from_serializable_value(v)))
+                    .collect::<HashMap<_, _>>(),
+            )
+            .into(),
+        ),
         SerializableSteelVal::VectorV(v) => {
             SteelVal::ListV(v.into_iter().map(from_serializable_value).collect())
         }
@@ -922,7 +984,7 @@ pub fn into_serializable_value(val: SteelVal) -> Result<SerializableSteelVal> {
         SteelVal::SymbolV(s) => Ok(SerializableSteelVal::SymbolV(s.to_string())),
 
         SteelVal::HashMapV(v) => Ok(SerializableSteelVal::HashMapV(
-            v.unwrap()
+            v.0.unwrap()
                 .into_iter()
                 .map(|(k, v)| {
                     let kprime = into_serializable_value(k)?;
@@ -944,6 +1006,60 @@ pub fn into_serializable_value(val: SteelVal) -> Result<SerializableSteelVal> {
     }
 }
 
+#[derive(Clone, PartialEq, Eq)]
+pub struct SteelMutableVector(pub(crate) Gc<RefCell<Vec<SteelVal>>>);
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct SteelVector(pub(crate) Gc<im_rc::Vector<SteelVal>>);
+
+impl Deref for SteelVector {
+    type Target = im_rc::Vector<SteelVal>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<Gc<im_rc::Vector<SteelVal>>> for SteelVector {
+    fn from(value: Gc<im_rc::Vector<SteelVal>>) -> Self {
+        SteelVector(value)
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub struct SteelHashMap(pub(crate) Gc<HashMap<SteelVal, SteelVal>>);
+
+impl Deref for SteelHashMap {
+    type Target = HashMap<SteelVal, SteelVal>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<Gc<HashMap<SteelVal, SteelVal>>> for SteelHashMap {
+    fn from(value: Gc<HashMap<SteelVal, SteelVal>>) -> Self {
+        SteelHashMap(value)
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub struct SteelHashSet(pub(crate) Gc<im_rc::HashSet<SteelVal>>);
+
+impl Deref for SteelHashSet {
+    type Target = im_rc::HashSet<SteelVal>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<Gc<im_rc::HashSet<SteelVal>>> for SteelHashSet {
+    fn from(value: Gc<im_rc::HashSet<SteelVal>>) -> Self {
+        SteelHashSet(value)
+    }
+}
+
 /// A value as represented in the runtime.
 #[derive(Clone)]
 pub enum SteelVal {
@@ -959,7 +1075,7 @@ pub enum SteelVal {
     CharV(char),
     /// Vectors are represented as `im_rc::Vector`'s, which are immutable
     /// data structures
-    VectorV(Gc<Vector<SteelVal>>),
+    VectorV(SteelVector),
     /// Void return value
     Void,
     /// Represents strings
@@ -971,25 +1087,17 @@ pub enum SteelVal {
     /// Container for a type that implements the `Custom Type` trait. (trait object)
     Custom(Gc<RefCell<Box<dyn CustomType>>>),
     // Embedded HashMap
-    HashMapV(Gc<HashMap<SteelVal, SteelVal>>),
+    HashMapV(SteelHashMap),
     // Embedded HashSet
-    HashSetV(Gc<im_rc::HashSet<SteelVal>>),
+    HashSetV(SteelHashSet),
     /// Represents a scheme-only struct
-    // StructV(Gc<SteelStruct>),
-    /// Alternative implementation of a scheme-only struct
-    CustomStruct(Gc<RefCell<UserDefinedStruct>>),
-    // Represents a special rust closure
-    // StructClosureV(Box<SteelStruct>, StructClosureSignature),
-    // StructClosureV(Box<StructClosure>),
+    CustomStruct(Gc<UserDefinedStruct>),
     /// Represents a port object
     PortV(Gc<SteelPort>),
     /// Generic iterator wrapper
     IterV(Gc<Transducer>),
     /// Reducers
     ReducerV(Gc<Reducer>),
-    // Reducer(Reducer)
-    // Generic IntoIter wrapper
-    // Promise(Gc<SteelVal>),
     /// Async Function wrapper
     FutureFunc(BoxedAsyncFunctionSignature),
     // Boxed Future Result
@@ -997,10 +1105,6 @@ pub enum SteelVal {
 
     StreamV(Gc<LazyStream>),
 
-    /// Contract
-    Contract(Gc<ContractType>),
-    /// Contracted Function
-    ContractedFunction(Gc<ContractedFunction>),
     /// Custom closure
     BoxedFunction(Rc<BoxedDynFunction>),
     // Continuation
@@ -1009,16 +1113,16 @@ pub enum SteelVal {
     // #[cfg(feature = "jit")]
     // CompiledFunction(Box<JitFunctionPointer>),
     // List
-    ListV(List<SteelVal>),
+    ListV(crate::values::lists::List<SteelVal>),
     // Mutable functions
     MutFunc(MutFunctionSignature),
     // Built in functions
     BuiltIn(BuiltInSignature),
     // Mutable vector
-    MutableVector(Gc<RefCell<Vec<SteelVal>>>),
+    MutableVector(HeapRef<Vec<SteelVal>>),
     // This should delegate to the underlying iterator - can allow for faster raw iteration if possible
     // Should allow for polling just a raw "next" on underlying elements
-    BoxedIterator(Gc<RefCell<BuiltInDataStructureIterator>>),
+    BoxedIterator(Gc<RefCell<OpaqueIterator>>),
 
     SyntaxObject(Gc<Syntax>),
 
@@ -1026,10 +1130,77 @@ pub enum SteelVal {
     // Boxed(HeapRef),
     Boxed(Gc<RefCell<SteelVal>>),
 
+    HeapAllocated(HeapRef<SteelVal>),
+
     // TODO: This itself, needs to be boxed unfortunately.
     Reference(Rc<OpaqueReference<'static>>),
 
     BigNum(Gc<num::BigInt>),
+}
+
+impl SteelVal {
+    pub fn as_box(&self) -> Option<HeapRef<SteelVal>> {
+        if let SteelVal::HeapAllocated(heap_ref) = self {
+            Some(heap_ref.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn as_box_to_inner(&self) -> Option<SteelVal> {
+        self.as_box().map(|x| x.get())
+    }
+
+    pub fn as_ptr_usize(&self) -> Option<usize> {
+        match self {
+            // Closure(_) => todo!(),
+            // BoolV(_) => todo!(),
+            // NumV(_) => todo!(),
+            // IntV(_) => todo!(),
+            // CharV(_) => todo!(),
+            // VectorV(_) => todo!(),
+            // Void => todo!(),
+            // StringV(_) => todo!(),
+            // FuncV(_) => todo!(),
+            // SymbolV(_) => todo!(),
+            // SteelVal::Custom(_) => todo!(),
+            // HashMapV(_) => todo!(),
+            // HashSetV(_) => todo!(),
+            CustomStruct(c) => Some(c.as_ptr() as usize),
+            // PortV(_) => todo!(),
+            // IterV(_) => todo!(),
+            // ReducerV(_) => todo!(),
+            // FutureFunc(_) => todo!(),
+            // FutureV(_) => todo!(),
+            // StreamV(_) => todo!(),
+            // BoxedFunction(_) => todo!(),
+            // ContinuationFunction(_) => todo!(),
+            ListV(l) => Some(l.as_ptr_usize()),
+            // MutFunc(_) => todo!(),
+            // BuiltIn(_) => todo!(),
+            // MutableVector(_) => todo!(),
+            // BoxedIterator(_) => todo!(),
+            // SteelVal::SyntaxObject(_) => todo!(),
+            // Boxed(_) => todo!(),
+            HeapAllocated(h) => Some(h.as_ptr_usize()),
+            // Reference(_) => todo!(),
+            // BigNum(_) => todo!(),
+            _ => None,
+        }
+    }
+
+    // pub(crate) fn children_mut<'a>(&'a mut self) -> impl IntoIterator<Item = SteelVal> {
+    //     match self {
+    //         Self::CustomStruct(inner) => {
+    //             if let Some(inner) = inner.get_mut() {
+    //                 std::mem::take(&mut inner.borrow_mut().fields)
+    //             } else {
+    //                 std::iter::empty()
+    //             }
+    //         }
+    //         _ => todo!(),
+    //     }
+    // }
 }
 
 // TODO: Consider unboxed value types, for optimized usages when compiling segments of code.
@@ -1185,8 +1356,21 @@ impl Chunks {
     }
 }
 
+pub struct OpaqueIterator {
+    pub(crate) root: SteelVal,
+    iterator: BuiltInDataStructureIterator,
+}
+
+impl Custom for OpaqueIterator {
+    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+        Some(Ok(format!("#<iterator>")))
+    }
+}
+
+// TODO: Convert this to just a generic custom type. This does not have to be
+// a special enum variant.
 pub enum BuiltInDataStructureIterator {
-    List(im_lists::list::ConsumingIter<SteelVal, im_lists::shared::RcPointer, 256, 1>),
+    List(crate::values::lists::ConsumingIterator<SteelVal>),
     Vector(im_rc::vector::ConsumingIter<SteelVal>),
     Set(im_rc::hashset::ConsumingIter<SteelVal>),
     Map(im_rc::hashmap::ConsumingIter<(SteelVal, SteelVal)>),
@@ -1195,8 +1379,11 @@ pub enum BuiltInDataStructureIterator {
 }
 
 impl BuiltInDataStructureIterator {
-    pub fn into_boxed_iterator(self) -> SteelVal {
-        SteelVal::BoxedIterator(Gc::new(RefCell::new(self)))
+    pub fn into_boxed_iterator(self, value: SteelVal) -> SteelVal {
+        SteelVal::BoxedIterator(Gc::new(RefCell::new(OpaqueIterator {
+            root: value,
+            iterator: self,
+        })))
     }
 }
 
@@ -1219,29 +1406,36 @@ impl Iterator for BuiltInDataStructureIterator {
             Self::Vector(v) => v.next(),
             Self::String(s) => s.remaining.next().map(SteelVal::CharV),
             Self::Set(s) => s.next(),
-            Self::Map(s) => s.next().map(|x| SteelVal::ListV(im_lists::list![x.0, x.1])),
+            Self::Map(s) => s.next().map(|x| SteelVal::ListV(vec![x.0, x.1].into())),
             Self::Opaque(s) => s.next(),
         }
     }
 }
 
-pub fn value_into_iterator(val: SteelVal) -> SteelVal {
+pub fn value_into_iterator(val: SteelVal) -> Option<SteelVal> {
+    let root = val.clone();
     match val {
-        SteelVal::ListV(l) => BuiltInDataStructureIterator::List(l.into_iter()),
-        SteelVal::VectorV(v) => BuiltInDataStructureIterator::Vector((*v).clone().into_iter()),
-        SteelVal::StringV(s) => BuiltInDataStructureIterator::String(Chunks::new(s)),
-        SteelVal::HashSetV(s) => BuiltInDataStructureIterator::Set((*s).clone().into_iter()),
-        SteelVal::HashMapV(m) => BuiltInDataStructureIterator::Map((*m).clone().into_iter()),
-        _ => panic!("Haven't handled this case yet"),
+        SteelVal::ListV(l) => Some(BuiltInDataStructureIterator::List(l.into_iter())),
+        SteelVal::VectorV(v) => Some(BuiltInDataStructureIterator::Vector(
+            (*v).clone().into_iter(),
+        )),
+        SteelVal::StringV(s) => Some(BuiltInDataStructureIterator::String(Chunks::new(s))),
+        SteelVal::HashSetV(s) => Some(BuiltInDataStructureIterator::Set((*s).clone().into_iter())),
+        SteelVal::HashMapV(m) => Some(BuiltInDataStructureIterator::Map((*m).clone().into_iter())),
+        _ => None,
     }
-    .into_boxed_iterator()
+    .map(|iterator| BuiltInDataStructureIterator::into_boxed_iterator(iterator, root))
+}
+
+thread_local! {
+    pub static ITERATOR_FINISHED: SteelVal = SteelVal::SymbolV("done".into());
 }
 
 pub fn iterator_next(args: &[SteelVal]) -> Result<SteelVal> {
     match &args[0] {
-        SteelVal::BoxedIterator(b) => match b.borrow_mut().next() {
+        SteelVal::BoxedIterator(b) => match b.borrow_mut().iterator.next() {
             Some(v) => Ok(v),
-            None => Ok(SteelVal::Void),
+            None => Ok(ITERATOR_FINISHED.with(|x| x.clone())),
         },
         _ => stop!(TypeMismatch => "Unexpected argument"),
     }
@@ -1258,14 +1452,14 @@ impl SteelVal {
             (IntV(l), IntV(r)) => l == r,
             (NumV(l), NumV(r)) => l == r,
             (BoolV(l), BoolV(r)) => l == r,
-            (VectorV(l), VectorV(r)) => Gc::ptr_eq(l, r),
+            (VectorV(l), VectorV(r)) => Gc::ptr_eq(&l.0, &r.0),
             (Void, Void) => true,
             (StringV(l), StringV(r)) => Rc::ptr_eq(l, r),
             (FuncV(l), FuncV(r)) => *l as usize == *r as usize,
             (SymbolV(l), SymbolV(r)) => Rc::ptr_eq(l, r),
             (SteelVal::Custom(l), SteelVal::Custom(r)) => Gc::ptr_eq(l, r),
-            (HashMapV(l), HashMapV(r)) => Gc::ptr_eq(l, r),
-            (HashSetV(l), HashSetV(r)) => Gc::ptr_eq(l, r),
+            (HashMapV(l), HashMapV(r)) => Gc::ptr_eq(&l.0, &r.0),
+            (HashSetV(l), HashSetV(r)) => Gc::ptr_eq(&l.0, &r.0),
             (PortV(l), PortV(r)) => Gc::ptr_eq(l, r),
             (Closure(l), Closure(r)) => Gc::ptr_eq(l, r),
             (IterV(l), IterV(r)) => Gc::ptr_eq(l, r),
@@ -1274,15 +1468,15 @@ impl SteelVal {
             (FutureFunc(l), FutureFunc(r)) => Rc::ptr_eq(l, r),
             (FutureV(l), FutureV(r)) => Gc::ptr_eq(l, r),
             (StreamV(l), StreamV(r)) => Gc::ptr_eq(l, r),
-            (Contract(l), Contract(r)) => Gc::ptr_eq(l, r),
-            (SteelVal::ContractedFunction(l), SteelVal::ContractedFunction(r)) => Gc::ptr_eq(l, r),
+            // (Contract(l), Contract(r)) => Gc::ptr_eq(l, r),
+            // (SteelVal::ContractedFunction(l), SteelVal::ContractedFunction(r)) => Gc::ptr_eq(l, r),
             (BoxedFunction(l), BoxedFunction(r)) => Rc::ptr_eq(l, r),
             (ContinuationFunction(l), ContinuationFunction(r)) => Gc::ptr_eq(l, r),
             // (CompiledFunction(_), CompiledFunction(_)) => todo!(),
             (ListV(l), ListV(r)) => l.ptr_eq(r),
             (MutFunc(l), MutFunc(r)) => *l as usize == *r as usize,
             (BuiltIn(l), BuiltIn(r)) => *l as usize == *r as usize,
-            (MutableVector(l), MutableVector(r)) => Gc::ptr_eq(l, r),
+            (MutableVector(l), MutableVector(r)) => HeapRef::ptr_eq(l, r),
             (BigNum(l), BigNum(r)) => Gc::ptr_eq(l, r),
             (_, _) => false,
         }
@@ -1323,7 +1517,7 @@ impl Hash for SteelVal {
             IntV(i) => i.hash(state),
             CharV(c) => c.hash(state),
             ListV(l) => l.hash(state),
-            CustomStruct(s) => s.borrow().hash(state),
+            CustomStruct(s) => s.hash(state),
             // Pair(cell) => {
             //     cell.hash(state);
             // }
@@ -1403,18 +1597,18 @@ impl SteelVal {
             BoxedFunction(_)
                 | Closure(_)
                 | FuncV(_)
-                | ContractedFunction(_)
+                // | ContractedFunction(_)
                 | BuiltIn(_)
                 | MutFunc(_)
         )
     }
 
-    pub fn is_contract(&self) -> bool {
-        matches!(self, Contract(_))
-    }
+    // pub fn is_contract(&self) -> bool {
+    //     matches!(self, Contract(_))
+    // }
 
     pub fn empty_hashmap() -> SteelVal {
-        SteelVal::HashMapV(Gc::new(HashMap::new()))
+        SteelVal::HashMapV(Gc::new(HashMap::new()).into())
     }
 }
 
@@ -1472,7 +1666,7 @@ impl SteelVal {
         err: F,
     ) -> std::result::Result<Vector<SteelVal>, E> {
         match self {
-            Self::VectorV(v) => Ok(v.unwrap()),
+            Self::VectorV(v) => Ok(v.0.unwrap()),
             _ => Err(err()),
         }
     }
@@ -1511,15 +1705,15 @@ impl SteelVal {
         }
     }
 
-    pub fn contract_or_else<E, F: FnOnce() -> E>(
-        &self,
-        err: F,
-    ) -> std::result::Result<Gc<ContractType>, E> {
-        match self {
-            Self::Contract(c) => Ok(c.clone()),
-            _ => Err(err()),
-        }
-    }
+    // pub fn contract_or_else<E, F: FnOnce() -> E>(
+    //     &self,
+    //     err: F,
+    // ) -> std::result::Result<Gc<ContractType>, E> {
+    //     match self {
+    //         Self::Contract(c) => Ok(c.clone()),
+    //         _ => Err(err()),
+    //     }
+    // }
 
     pub fn closure_or_else<E, F: FnOnce() -> E>(
         &self,
@@ -1673,46 +1867,43 @@ pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
 }
 
 // TODO add tests
-impl PartialEq for SteelVal {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Void, Void) => true,
-            (BoolV(l), BoolV(r)) => l == r,
-            (BigNum(l), BigNum(r)) => l == r,
-            // (NumV(l), NumV(r)) => l == r,
-            (IntV(l), IntV(r)) => l == r,
+// impl PartialEq for SteelVal {
+//     fn eq(&self, other: &Self) -> bool {
+//         match (self, other) {
+//             (Void, Void) => true,
+//             (BoolV(l), BoolV(r)) => l == r,
+//             (BigNum(l), BigNum(r)) => l == r,
+//             // (NumV(l), NumV(r)) => l == r,
+//             (IntV(l), IntV(r)) => l == r,
 
-            // Floats shouls also be considered equal
-            (NumV(l), NumV(r)) => l == r,
+//             // Floats shouls also be considered equal
+//             (NumV(l), NumV(r)) => l == r,
 
-            // (NumV(l), IntV(r)) => *l == *r as f64,
-            // (IntV(l), NumV(r)) => *l as f64 == *r,
-            (StringV(l), StringV(r)) => l == r,
-            (VectorV(l), VectorV(r)) => l == r,
-            (SymbolV(l), SymbolV(r)) => l == r,
-            (CharV(l), CharV(r)) => l == r,
-            // (Pair(_), Pair(_)) => collect_pair_into_vector(self) == collect_pair_into_vector(other),
-            (HashSetV(l), HashSetV(r)) => l == r,
-            (HashMapV(l), HashMapV(r)) => l == r,
-            (Closure(l), Closure(r)) => l == r,
-            (ContractedFunction(l), ContractedFunction(r)) => l == r,
-            (Contract(l), Contract(r)) => l == r,
-            (IterV(l), IterV(r)) => l == r,
-            (ListV(l), ListV(r)) => l == r,
-            (CustomStruct(l), CustomStruct(r)) => l == r,
-            (FuncV(l), FuncV(r)) => *l as usize == *r as usize,
-            //TODO
-            (_, _) => false, // (l, r) => {
-                             //     let left = unwrap!(l, usize);
-                             //     let right = unwrap!(r, usize);
-                             //     match (left, right) {
-                             //         (Ok(l), Ok(r)) => l == r,
-                             //         (_, _) => false,
-                             //     }
-                             // }
-        }
-    }
-}
+//             (StringV(l), StringV(r)) => l == r,
+//             (VectorV(l), VectorV(r)) => l == r,
+//             (SymbolV(l), SymbolV(r)) => l == r,
+//             (CharV(l), CharV(r)) => l == r,
+//             (HashSetV(l), HashSetV(r)) => l == r,
+//             (HashMapV(l), HashMapV(r)) => l == r,
+//             (Closure(l), Closure(r)) => l == r,
+//             (IterV(l), IterV(r)) => l == r,
+//             (ListV(l), ListV(r)) => l == r,
+//             (CustomStruct(l), CustomStruct(r)) => l == r,
+//             (FuncV(l), FuncV(r)) => *l == *r,
+//             (Custom(l), Custom(r)) => Gc::ptr_eq(l, r),
+//             (HeapAllocated(l), HeapAllocated(r)) => l.get() == r.get(),
+//             //TODO
+//             (_, _) => false, // (l, r) => {
+//                              //     let left = unwrap!(l, usize);
+//                              //     let right = unwrap!(r, usize);
+//                              //     match (left, right) {
+//                              //         (Ok(l), Ok(r)) => l == r,
+//                              //         (_, _) => false,
+//                              //     }
+//                              // }
+//         }
+//     }
+// }
 
 // TODO add tests
 impl PartialOrd for SteelVal {
@@ -1802,7 +1993,7 @@ mod or_else_tests {
 
     #[test]
     fn vector_or_else_test_good() {
-        let input = SteelVal::VectorV(Gc::new(vector![SteelVal::IntV(1)]));
+        let input: SteelVal = vector![SteelVal::IntV(1)].into();
         assert_eq!(
             input.vector_or_else(throw!(Generic => "test")).unwrap(),
             vector![SteelVal::IntV(1)]

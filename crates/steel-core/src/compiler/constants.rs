@@ -39,6 +39,10 @@ impl ConstantMap {
         ConstantMap(Rc::new(RefCell::new(Vec::new())))
     }
 
+    pub(crate) fn into_serializable_map(self) -> SerializableConstantMap {
+        SerializableConstantMap(self.to_bytes().unwrap())
+    }
+
     pub fn to_serializable_vec(&self) -> Vec<SerializableSteelVal> {
         self.0
             .borrow()
@@ -77,8 +81,14 @@ impl ConstantMap {
         Ok(result.unwrap())
     }
 
+    pub fn from_serialized(map: SerializableConstantMap) -> Result<Self> {
+        Self::from_bytes(&map.0)
+    }
+
     pub fn from_bytes(encoded: &[u8]) -> Result<ConstantMap> {
         let str_vector: Vec<String> = bincode::deserialize(encoded).unwrap();
+
+        // println!("{:?}", str_vector);
 
         str_vector
             .into_iter()

@@ -1,15 +1,13 @@
+use crate::values::lists::List;
 use crate::{
     gc::Gc,
     rerrs::SteelErr,
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
     throw,
 };
-use im_lists::list::List;
 use im_rc::HashMap;
 use serde_json::{Map, Number, Value};
 use std::convert::{TryFrom, TryInto};
-
-// use list
 
 pub fn string_to_jsexpr() -> SteelVal {
     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
@@ -79,7 +77,7 @@ impl TryFrom<Map<String, Value>> for SteelVal {
         for (key, value) in map {
             hm.insert(SteelVal::SymbolV(key.into()), value.try_into()?);
         }
-        Ok(SteelVal::HashMapV(Gc::new(hm)))
+        Ok(SteelVal::HashMapV(Gc::new(hm).into()))
     }
 }
 
@@ -202,10 +200,13 @@ mod json_tests {
 
         let result = apply_function(string_to_jsexpr(), args);
 
-        let expected = SteelVal::HashMapV(Gc::new(hashmap! {
-            SymbolV("a".into()) => StringV("applesauce".into()),
-            SymbolV("b".into()) => StringV("bananas".into())
-        }));
+        let expected = SteelVal::HashMapV(
+            Gc::new(hashmap! {
+                SymbolV("a".into()) => StringV("applesauce".into()),
+                SymbolV("b".into()) => StringV("bananas".into())
+            })
+            .into(),
+        );
 
         assert_eq!(result.unwrap(), expected);
     }

@@ -375,8 +375,16 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
         Ok(ExprKind::Set(s))
     }
 
-    fn visit_require(&mut self, s: super::ast::Require) -> Self::Output {
-        stop!(Generic => "unexpected require statement in replace idents"; s.location.span)
+    fn visit_require(&mut self, mut s: super::ast::Require) -> Self::Output {
+        s.modules = s
+            .modules
+            .into_iter()
+            .map(|x| self.visit(x))
+            .collect::<Result<_>>()?;
+
+        Ok(ExprKind::Require(s))
+
+        // stop!(Generic => "unexpected require statement in replace idents"; s.location.span)
     }
 
     fn visit_let(&mut self, mut l: Box<super::ast::Let>) -> Self::Output {
@@ -500,8 +508,16 @@ impl ConsumingVisitor for RewriteSpan {
         Ok(ExprKind::Set(s))
     }
 
-    fn visit_require(&mut self, s: super::ast::Require) -> Self::Output {
-        stop!(Generic => "unexpected require statement in replace idents"; s.location.span)
+    fn visit_require(&mut self, mut s: super::ast::Require) -> Self::Output {
+        s.modules = s
+            .modules
+            .into_iter()
+            .map(|x| self.visit(x))
+            .collect::<Result<_>>()?;
+
+        Ok(ExprKind::Require(s))
+
+        // stop!(Generic => "unexpected require statement in replace idents"; s.location.span)
     }
 
     fn visit_let(&mut self, mut l: Box<super::ast::Let>) -> Self::Output {

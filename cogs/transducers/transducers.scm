@@ -57,15 +57,13 @@
 
 ;; TODO: Come back to this when there is a better understanding
 ;; of how to implement let loop
-; (define (vector-reduce f identity vec)
-;   (let ((len (vector-length vec)))
-;     (let loop ((i 0) (acc identity))
-;       (if (= i len)
-;           acc
-;           (let ((acc (f acc (vector-ref vec i))))
-;             (if (reduced? acc)
-;                 (unreduce acc)
-;                 (loop (+ i 1) acc)))))))
+(define (vector-reduce f identity vec)
+  (let ([len (vector-length vec)])
+    (let loop ([i 0] [acc identity])
+      (if (= i len)
+          acc
+          (let ([acc (f acc (vector-ref vec i))])
+            (if (reduced? acc) (unreduce acc) (loop (+ i 1) acc)))))))
 
 ; (define (string-reduce f identity str)
 ;   (let ((len (string-length str)))
@@ -199,14 +197,10 @@
     [(xform f coll) (list-transduce xform f (f) coll)]
     [(xform f init coll) (let* ([xf (xform f)] [result (list-reduce xf init coll)]) (xf result))]))
 
-; (define vector-transduce
-;   (case-lambda
-;     ((xform f coll)
-;      (vector-transduce xform f (f) coll))
-;     ((xform f init coll)
-;      (let* ((xf (xform f))
-;             (result (vector-reduce xf init coll)))
-;        (xf result)))))
+(define vector-transduce
+  (case-lambda
+    [(xform f coll) (vector-transduce xform f (f) coll)]
+    [(xform f init coll) (let* ([xf (xform f)] [result (vector-reduce xf init coll)]) (xf result))]))
 
 ; (define string-transduce
 ;   (case-lambda

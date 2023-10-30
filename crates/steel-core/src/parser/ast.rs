@@ -8,6 +8,7 @@ use crate::{
         tokens::TokenType::{self, *},
         tryfrom_visitor::TryFromExprKindForSteelVal,
     },
+    steel_vm::primitives::MODULE_IDENTIFIERS,
 };
 
 use std::{convert::TryFrom, fmt::Write, sync::atomic::Ordering};
@@ -41,6 +42,12 @@ impl AstTools for Vec<ExprKind> {
 }
 
 impl AstTools for Vec<&ExprKind> {
+    fn pretty_print(&self) {
+        println!("{}", self.iter().map(|x| x.to_pretty(60)).join("\n\n"))
+    }
+}
+
+impl AstTools for &mut Vec<ExprKind> {
     fn pretty_print(&self) {
         println!("{}", self.iter().map(|x| x.to_pretty(60)).join("\n\n"))
     }
@@ -103,6 +110,14 @@ macro_rules! expr_list {
 }
 
 impl ExprKind {
+    pub fn into_lambda_function(self) -> Option<Box<LambdaFunction>> {
+        if let ExprKind::LambdaFunction(func) = self {
+            Some(func)
+        } else {
+            None
+        }
+    }
+
     pub fn quoted_list() -> ExprKind {
         ExprKind::Quote(Box::new(Quote::new(
             Self::empty(),
@@ -429,78 +444,90 @@ impl TryFromSteelValVisitorForExprKind {
 impl TryFrom<&SteelVal> for ExprKind {
     type Error = &'static str;
     fn try_from(r: &SteelVal) -> std::result::Result<Self, Self::Error> {
-        match r {
-            BoolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                BooleanLiteral(*x),
-            )))),
-            NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                NumberLiteral(*x),
-            )))),
-            IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                IntegerLiteral(MaybeBigInt::Small(*x)),
-            )))),
-
-            BigNum(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                IntegerLiteral(MaybeBigInt::Big(x.unwrap())),
-            )))),
-
-            VectorV(lst) => {
-                let items: std::result::Result<Vec<Self>, Self::Error> =
-                    lst.iter().map(Self::try_from).collect();
-                Ok(ExprKind::List(List::new(items?)))
+        fn inner_try_from(
+            r: &SteelVal,
+            depth: usize,
+        ) -> std::result::Result<ExprKind, &'static str> {
+            if depth > 64 {
+                return Err("Unable to convert steel val to exprkind - depth was too large!");
             }
-            Void => Err("Can't convert from Void to expression!"),
-            StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                StringLiteral(x.to_string()),
-            )))),
-            FuncV(_) => Err("Can't convert from Function to expression!"),
-            // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
-            // MacroV(_) => Err("Can't convert from Macro to expression!"),
-            SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                Identifier(x.as_str().into()),
-            )))),
-            SyntaxObject(s) => s
-                .to_exprkind()
-                .map_err(|_| "Unable to convert syntax object back to exprkind"),
-            Custom(_) => {
-                // TODO: if the returned object is a custom type, check
-                // to see if its a Syntax struct to replace the span with
-                Err("Can't convert from Custom Type to expression!")
-            }
-            ListV(l) => {
-                let items: std::result::Result<Vec<Self>, Self::Error> =
-                    l.iter().map(Self::try_from).collect();
 
-                Ok(ExprKind::List(List::new(items?)))
+            match r {
+                BoolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                    BooleanLiteral(*x),
+                )))),
+                NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                    NumberLiteral(*x),
+                )))),
+                IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                    IntegerLiteral(MaybeBigInt::Small(*x)),
+                )))),
+
+                BigNum(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                    IntegerLiteral(MaybeBigInt::Big(x.unwrap())),
+                )))),
+
+                VectorV(lst) => {
+                    let items: std::result::Result<Vec<ExprKind>, &'static str> =
+                        lst.iter().map(|x| inner_try_from(x, depth + 1)).collect();
+                    Ok(ExprKind::List(List::new(items?)))
+                }
+                Void => Err("Can't convert from Void to expression!"),
+                StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                    StringLiteral(x.to_string()),
+                )))),
+                FuncV(_) => Err("Can't convert from Function to expression!"),
+                // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
+                // MacroV(_) => Err("Can't convert from Macro to expression!"),
+                SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                    Identifier(x.as_str().into()),
+                )))),
+                SyntaxObject(s) => s
+                    .to_exprkind()
+                    .map_err(|_| "Unable to convert syntax object back to exprkind"),
+                Custom(_) => {
+                    // TODO: if the returned object is a custom type, check
+                    // to see if its a Syntax struct to replace the span with
+                    Err("Can't convert from Custom Type to expression!")
+                }
+                ListV(l) => {
+                    let items: std::result::Result<Vec<ExprKind>, &'static str> =
+                        l.iter().map(|x| inner_try_from(x, depth + 1)).collect();
+
+                    Ok(ExprKind::List(List::new(items?)))
+                }
+                CharV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                    CharacterLiteral(*x),
+                )))),
+                // StructClosureV(_) => Err("Can't convert from struct-function to expression!"),
+                PortV(_) => Err("Can't convert from port to expression!"),
+                Closure(_) => Err("Can't convert from bytecode closure to expression"),
+                HashMapV(_) => Err("Can't convert from hashmap to expression!"),
+                HashSetV(_) => Err("Can't convert from hashset to expression!"),
+                IterV(_) => Err("Can't convert from iterator to expression!"),
+                FutureFunc(_) => Err("Can't convert from future function to expression!"),
+                FutureV(_) => Err("Can't convert future to expression!"),
+                // Promise(_) => Err("Can't convert from promise to expression!"),
+                StreamV(_) => Err("Can't convert from stream to expression!"),
+                // Contract(_) => Err("Can't convert from contract to expression!"),
+                // ContractedFunction(_) => Err("Can't convert from contracted function to expression!"),
+                BoxedFunction(_) => Err("Can't convert from boxed function to expression!"),
+                ContinuationFunction(_) => Err("Can't convert from continuation to expression!"),
+                // #[cfg(feature = "jit")]
+                // CompiledFunction(_) => Err("Can't convert from function to expression!"),
+                MutFunc(_) => Err("Can't convert from function to expression!"),
+                BuiltIn(_) => Err("Can't convert from function to expression!"),
+                ReducerV(_) => Err("Can't convert from reducer to expression!"),
+                MutableVector(_) => Err("Can't convert from vector to expression!"),
+                CustomStruct(_) => Err("Can't convert from struct to expression!"),
+                BoxedIterator(_) => Err("Can't convert from boxed iterator to expression!"),
+                Boxed(_) => Err("Can't convert from boxed steel val to expression!"),
+                Reference(_) => Err("Can't convert from opaque reference type to expression!"),
+                HeapAllocated(_) => Err("Can't convert from heap allocated value to expression!"),
             }
-            CharV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                CharacterLiteral(*x),
-            )))),
-            // StructClosureV(_) => Err("Can't convert from struct-function to expression!"),
-            PortV(_) => Err("Can't convert from port to expression!"),
-            Closure(_) => Err("Can't convert from bytecode closure to expression"),
-            HashMapV(_) => Err("Can't convert from hashmap to expression!"),
-            HashSetV(_) => Err("Can't convert from hashset to expression!"),
-            IterV(_) => Err("Can't convert from iterator to expression!"),
-            FutureFunc(_) => Err("Can't convert from future function to expression!"),
-            FutureV(_) => Err("Can't convert future to expression!"),
-            // Promise(_) => Err("Can't convert from promise to expression!"),
-            StreamV(_) => Err("Can't convert from stream to expression!"),
-            Contract(_) => Err("Can't convert from contract to expression!"),
-            ContractedFunction(_) => Err("Can't convert from contracted function to expression!"),
-            BoxedFunction(_) => Err("Can't convert from boxed function to expression!"),
-            ContinuationFunction(_) => Err("Can't convert from continuation to expression!"),
-            // #[cfg(feature = "jit")]
-            // CompiledFunction(_) => Err("Can't convert from function to expression!"),
-            MutFunc(_) => Err("Can't convert from function to expression!"),
-            BuiltIn(_) => Err("Can't convert from function to expression!"),
-            ReducerV(_) => Err("Can't convert from reducer to expression!"),
-            MutableVector(_) => Err("Can't convert from vector to expression!"),
-            CustomStruct(_) => Err("Can't convert from struct to expression!"),
-            BoxedIterator(_) => Err("Can't convert from boxed iterator to expression!"),
-            Boxed(_) => Err("Can't convert from boxed steel val to expression!"),
-            Reference(_) => Err("Can't convert from opaque reference type to expression!"),
         }
+
+        inner_try_from(r, 0)
     }
 }
 
@@ -826,8 +853,13 @@ impl Define {
     pub(crate) fn is_a_builtin_definition(&self) -> bool {
         if let ExprKind::List(l) = &self.body {
             match l.first_ident() {
-                Some(func) if *func == *UNREADABLE_MODULE_GET => return true,
-                Some(func) if *func == *STANDARD_MODULE_GET => return true,
+                Some(func) if *func == *UNREADABLE_MODULE_GET || *func == *STANDARD_MODULE_GET => {
+                    // return true
+
+                    if let Some(module) = l.second_ident() {
+                        return MODULE_IDENTIFIERS.contains(module);
+                    }
+                }
                 _ => {}
             }
         }
@@ -1114,6 +1146,21 @@ impl List {
                     ..
                 },
         })) = self.args.first()
+        {
+            Some(s)
+        } else {
+            None
+        }
+    }
+
+    pub fn second_ident(&self) -> Option<&InternedString> {
+        if let Some(ExprKind::Atom(Atom {
+            syn:
+                SyntaxObject {
+                    ty: TokenType::Identifier(s),
+                    ..
+                },
+        })) = self.args.get(1)
         {
             Some(s)
         } else {

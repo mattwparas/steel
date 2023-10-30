@@ -116,15 +116,15 @@
  (check-equal '#(0 1 2 3 4)
               (do ((vec (make-vector 5)) (i 0 (+ i 1))) ((= i 5) vec) (vector-set! vec i i)))
  (check-equal 25
-              (let ([x '(1 3 5 7 9)]) (do ((x x (cdr x)) (sum 0 (+ sum (car x)))) ((null? x) sum))))
- ;; TODO named `let`
- ; (check-equal '((6 1 3) (-5 -2))
- ;              (let loop ([numbers '(3 -2 1 6 -5)] [nonneg '()] [neg '()])
- ;                (cond
- ;                  [(null? numbers) (list nonneg neg)]
- ;                  [(>= (car numbers) 0) (loop (cdr numbers) (cons (car numbers) nonneg) neg)]
- ;                  [(< (car numbers) 0) (loop (cdr numbers) nonneg (cons (car numbers) neg))])))
- )
+              (let ([x '(1 3 5 7 9)]) (do ((x x (cdr x)) (sum 0 (+ sum (car x)))) ((null? x) sum)))))
+
+(check-equal? "named let"
+              '((6 1 3) (-5 -2))
+              (let loop ([numbers '(3 -2 1 6 -5)] [nonneg '()] [neg '()])
+                (cond
+                  [(null? numbers) (list nonneg neg)]
+                  [(>= (car numbers) 0) (loop (cdr numbers) (cons (car numbers) nonneg) neg)]
+                  [(< (car numbers) 0) (loop (cdr numbers) nonneg (cons (car numbers) neg))])))
 
 (check-equal? "simple quasiquote and unquote" '(list 3 4) `(list ,(+ 1 2) 4))
 
@@ -386,8 +386,12 @@
 (check-equal? "string >=, true" #t (string>=? "aa" "a"))
 (check-equal? "string >=, same string" #t (string>=? "a" "a"))
 
-(check-equal? "case-insensitive string-equality with constructor, equal" #t (string-ci=? "A" (string #\a)))
-(check-equal? "case-insensitive string-equality with constructor, not equal" #f (string-ci=? "A" (string #\b)))
+(check-equal? "case-insensitive string-equality with constructor, equal"
+              #t
+              (string-ci=? "A" (string #\a)))
+(check-equal? "case-insensitive string-equality with constructor, not equal"
+              #f
+              (string-ci=? "A" (string #\b)))
 (check-equal? "case-insensitive string<, true" #t (string-ci<? "A" "aa"))
 (check-equal? "case-insensitive string<, false" #f (string-ci<? "AA" "a"))
 (check-equal? "case-insensitive string<, same strings" #f (string-ci<? "A" "a"))
@@ -471,17 +475,13 @@
                    =>
                    'ok])))
 
-; (check-equal '(,foo) (let ([unquote 1]) `(,foo)))
+(check-equal? "Override unquote in a local context" '(,foo) (let ([unquote 1]) `(,foo)))
+(check-equal? "Override unquote-splicing in a local context"
+              '(,@foo)
+              (let ([unquote-splicing 1]) `(,@foo)))
 
-(skip-compile (check-equal? "Override unquote in a local context" '(,foo) (let ([unquote 1]) `(,foo)))
-              (check-equal '(,@foo) (let ([unquote-splicing 1]) `(,@foo)))
-              ; (check-equal 'ok
-              ;              (let ([... 2])
-              ;                (let-syntax ([s (syntax-rules ()
-              ;                                  [(_ x ...) 'bad]
-              ;                                  [(_ . r) 'ok])])
-              ;                  (s a b c))))
-              (check-equal 'ok
+;; TODO: Implement let-syntax
+(skip-compile (check-equal 'ok
                            (let ()
                              (let-syntax ()
                                (define internal-def 'ok))
@@ -492,7 +492,6 @@
                                (define internal-def 'ok))
                              internal-def)))
 
-; TODO: This causes a free identifier error
 (check-equal? "mutation within local function"
               '(2 1)
               ((lambda ()
@@ -501,7 +500,6 @@
                      (set! x 2)
                      (list x y))))))
 
-; TODO: This causes a free identifier error
 (check-equal? "multiple levels of let with mutation"
               '(2 2)
               ((lambda ()
@@ -509,7 +507,6 @@
                    (set! x 2)
                    (let ([y x]) (list x y))))))
 
-; TODO: This causes a free identifier error
 (check-equal? "local mutation"
               '(1 2)
               ((lambda ()
@@ -518,7 +515,6 @@
                      (set! y 2)
                      (list x y))))))
 
-;; TODO: This causes a free identifier error
 (check-equal? "Multiple mutations inside local context"
               '(2 3)
               ((lambda ()
@@ -528,12 +524,15 @@
                      (set! y 3)
                      (list x y))))))
 
-(skip-compile
- (check-equal '(a b c)
+; (skip-compile
+(check-equal? "Dyanmic wind"
+              '(a b c)
               (let* ([path '()] [add (lambda (s) (set! path (cons s path)))])
                 (dynamic-wind (lambda () (add 'a)) (lambda () (add 'b)) (lambda () (add 'c)))
                 (reverse path)))
- (check-equal '(connect talk1 disconnect connect talk2 disconnect)
+
+(check-equal? "Dynamic wind more complex"
+              '(connect talk1 disconnect connect talk2 disconnect)
               (let ([path '()] [c #f])
                 (let ([add (lambda (s) (set! path (cons s path)))])
                   (dynamic-wind (lambda () (add 'connect))
@@ -543,17 +542,18 @@
                                                                          'talk1))))
                                 (lambda () (add 'disconnect)))
                   (if (< (length path) 4) (c 'talk2) (reverse path)))))
- ; (check-equal 2
- ;              (let-syntax ([foo (syntax-rules :::
- ;                                  []
- ;                                  [(foo ... args :::) (args ::: ...)])])
- ;                (foo 3 - 5)))
- ; (check-equal
- ;  '(5 4 1 2 3)
- ;  (let-syntax ([foo (syntax-rules ()
- ;                      [(foo args ... penultimate ultimate) (list ultimate penultimate args ...)])])
- ;    (foo 1 2 3 4 5)))
- )
+; (check-equal 2
+;              (let-syntax ([foo (syntax-rules :::
+;                                  []
+;                                  [(foo ... args :::) (args ::: ...)])])
+;                (foo 3 - 5)))
+; (check-equal
+;  '(5 4 1 2 3)
+;  (let-syntax ([foo (syntax-rules ()
+;                      [(foo args ... penultimate ultimate) (list ultimate penultimate args ...)])])
+;    (foo 1 2 3 4 5)))
+
+; )
 
 ;; -------------- Report ------------------
 

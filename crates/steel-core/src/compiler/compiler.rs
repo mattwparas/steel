@@ -261,6 +261,7 @@ pub struct Compiler {
     opt_level: OptLevel,
     pub(crate) kernel: Option<Kernel>,
     memoization_table: MemoizationTable,
+    mangled_identifiers: HashSet<InternedString>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -269,6 +270,34 @@ pub struct SerializableCompiler {
     pub(crate) constant_map: SerializableConstantMap,
     pub(crate) macro_env: HashMap<InternedString, SteelMacro>,
     pub(crate) opt_level: OptLevel,
+    pub(crate) module_manager: ModuleManager,
+    // pub(crate) mangled_identifiers:
+}
+
+impl SerializableCompiler {
+    pub(crate) fn into_compiler(self) -> Compiler {
+        let mut compiler = Compiler::default();
+
+        compiler.symbol_map = self.symbol_map;
+        compiler.constant_map = ConstantMap::from_serialized(self.constant_map).unwrap();
+        compiler.macro_env = self.macro_env;
+        compiler.opt_level = self.opt_level;
+        compiler.module_manager = self.module_manager;
+
+        compiler
+    }
+}
+
+impl Compiler {
+    pub(crate) fn into_serializable_compiler(self) -> Result<SerializableCompiler> {
+        Ok(SerializableCompiler {
+            symbol_map: self.symbol_map,
+            constant_map: self.constant_map.into_serializable_map(),
+            macro_env: self.macro_env,
+            opt_level: self.opt_level,
+            module_manager: self.module_manager,
+        })
+    }
 }
 
 impl Default for Compiler {
@@ -297,6 +326,7 @@ impl Compiler {
             opt_level: OptLevel::Three,
             kernel: None,
             memoization_table: MemoizationTable::new(),
+            mangled_identifiers: HashSet::new(),
         }
     }
 
@@ -315,6 +345,7 @@ impl Compiler {
             opt_level: OptLevel::Three,
             kernel: Some(kernel),
             memoization_table: MemoizationTable::new(),
+            mangled_identifiers: HashSet::new(),
         }
     }
 
@@ -437,11 +468,24 @@ impl Compiler {
 
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
+        // let mut table = HashSet::new();
+
         // This is definitely broken still
         semantic
-            // .replace_anonymous_function_calls_with_plain_lets();
-            .lift_pure_local_functions();
-        // .lift_all_local_functions();
+            .elide_single_argument_lambda_applications()
+            // .lift_pure_local_functions()
+            // .lift_all_local_functions()
+            .replace_non_shadowed_globals_with_builtins(
+                &mut self.macro_env,
+                &mut self.module_manager,
+                &mut self.mangled_identifiers,
+            )
+            .remove_unused_globals_with_prefix("mangler", &self.macro_env, &self.module_manager)
+            .lift_pure_local_functions()
+            .lift_all_local_functions();
+
+        // TODO: Just run this... on each module in particular
+        // .remove_unused_globals_with_prefix("mangler");
 
         debug!("About to expand defines");
         let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
@@ -564,7 +608,7 @@ impl Compiler {
         path: Option<PathBuf>,
         sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {
-        log::info!(target: "expansion-phase", "Expanding macros -> phase 0");
+        log::debug!(target: "expansion-phase", "Expanding macros -> phase 0");
 
         let mut expanded_statements =
             self.expand_expressions(exprs, path, sources, builtin_modules.clone())?;
@@ -579,14 +623,14 @@ impl Compiler {
             );
         }
 
-        log::info!(target: "expansion-phase", "Expanding macros -> phase 1");
+        log::debug!(target: "expansion-phase", "Expanding macros -> phase 1");
 
         expanded_statements = expanded_statements
             .into_iter()
             .map(|x| expand_kernel(x, self.kernel.as_mut(), builtin_modules.clone()))
             .collect::<Result<Vec<_>>>()?;
 
-        log::info!(target: "expansion-phase", "Beginning constant folding");
+        log::debug!(target: "expansion-phase", "Beginning constant folding");
 
         let mut expanded_statements =
             self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
@@ -598,17 +642,32 @@ impl Compiler {
 
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
+        // let mut table = HashSet::new();
+
         // This is definitely broken still
         semantic
-            // .replace_anonymous_function_calls_with_plain_lets();
-            .lift_pure_local_functions();
-        // .lift_all_local_functions();
+            .elide_single_argument_lambda_applications()
+            .replace_non_shadowed_globals_with_builtins(
+                &mut self.macro_env,
+                &mut self.module_manager,
+                &mut self.mangled_identifiers,
+            )
+            // TODO: To get this to work, we have to check the macros to make sure those
+            // are safe to eliminate. In interactive mode, we'll
+            // be unable to optimize those away
+            .remove_unused_globals_with_prefix("mangler", &self.macro_env, &self.module_manager)
+            .lift_pure_local_functions()
+            .lift_all_local_functions();
+        // .remove_unused_globals_with_prefix("manglersteel/");
 
         // debug!("About to expand defines");
 
-        log::info!(target: "expansion-phase", "Flattening begins, converting internal defines to let expressions");
+        log::debug!(target: "expansion-phase", "Flattening begins, converting internal defines to let expressions");
 
         let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
+
+        // let mut expanded_statements =
+        //     self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
 
         let mut analysis = Analysis::from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
@@ -630,7 +689,7 @@ impl Compiler {
             );
         }
 
-        log::info!(target: "expansion-phase", "Expanding multiple arity functions");
+        log::debug!(target: "expansion-phase", "Expanding multiple arity functions");
 
         // TODO - make sure I want to keep this
         let expanded_statements =
@@ -638,14 +697,36 @@ impl Compiler {
 
         log::info!(target: "expansion-phase", "Aggressive constant evaluation with memoization");
 
+        // let expanded_statements = expanded_statements
+        //     .into_iter()
+        //     .flat_map(|x| {
+        //         if let ExprKind::Begin(b) = x {
+        //             b.exprs.into_iter()
+        //         } else {
+        //             vec![x].into_iter()
+        //         }
+        //     })
+        //     .collect();
+
         let expanded_statements =
             self.apply_const_evaluation(constants, expanded_statements, true)?;
+
+        // let expanded_statements = expanded_statements
+        //     .into_iter()
+        //     .flat_map(|x| {
+        //         if let ExprKind::Begin(b) = x {
+        //             b.exprs.into_iter()
+        //         } else {
+        //             vec![x].into_iter()
+        //         }
+        //     })
+        //     .collect();
 
         // TODO:
         // Here we're gonna do the constant evaluation pass, using the kernel for execution of the
         // constant functions w/ memoization:
 
-        log::info!(target: "expansion-phase", "Generating instructions");
+        log::debug!(target: "expansion-phase", "Generating instructions");
 
         let instructions = self.generate_instructions_for_executable(expanded_statements)?;
 

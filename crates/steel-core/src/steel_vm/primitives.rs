@@ -9,9 +9,9 @@ use super::{
 };
 use crate::{
     gc::Gc,
-    parser::span::Span,
+    parser::{interner::InternedString, span::Span},
     primitives::{
-        contracts,
+        fs_module,
         hashmaps::hashmap_module,
         hashmaps::{HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,
@@ -22,18 +22,23 @@ use crate::{
         random::random_module,
         string_module,
         time::time_module,
-        ControlOperations, FsFunctions, IoFunctions, MetaOperations, NumOperations,
-        StreamOperations, SymbolOperations, VectorOperations,
+        ControlOperations, IoFunctions, MetaOperations, NumOperations, StreamOperations,
+        SymbolOperations, VectorOperations,
     },
     rerrs::ErrorKind,
-    rvals::{FromSteelVal, NUMBER_EQUALITY_DEFINITION},
+    rvals::{
+        as_underlying_type,
+        cycles::{BreadthFirstSearchSteelValVisitor, SteelCycleCollector},
+        FromSteelVal, ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
+    },
     steel_vm::{
         builtin::{get_function_name, Arity},
         vm::threads::threading_module,
     },
     values::{
+        closed::HeapRef,
         functions::{attach_contract_struct, get_contract, LambdaMetadataTable},
-        structs::{build_type_id_module, make_struct_type},
+        structs::{build_type_id_module, make_struct_type, UserDefinedStruct},
     },
 };
 use crate::{
@@ -51,8 +56,10 @@ use crate::primitives::web::{requests::requests_module, websockets::websockets_m
 #[cfg(feature = "colors")]
 use crate::primitives::colors::string_coloring_module;
 
-// use itertools::Itertools;
+use crate::values::lists::List;
+use im_rc::HashMap;
 use num::Signed;
+use once_cell::sync::Lazy;
 
 macro_rules! ensure_tonicity_two {
     ($check_fn:expr) => {{
@@ -146,6 +153,7 @@ macro_rules! gen_pred {
 }
 
 const LIST: &str = "list";
+const PRIM_LIST: &str = "#%prim.list";
 const CAR: &str = "car";
 const CDR: &str = "cdr";
 const CONS: &str = "cons";
@@ -170,56 +178,104 @@ const LIST_HUH: &str = "list?";
 const BOOLEAN_HUH: &str = "boolean?";
 const FUNCTION_HUH: &str = "function?";
 
+// TODO: Add the equivalent with prim in front
 pub const CONSTANTS: &[&str] = &[
     "+",
+    "#%prim.+",
     "i+",
+    "#%prim.i+",
     "f+",
+    "#%prim.f+",
     "*",
+    "#%prim.*",
     "/",
+    "#%prim./",
     "-",
+    "#%prim.-",
     CAR,
+    "#%prim.car",
     CDR,
+    "#%prim.cdr",
     FIRST,
+    "#%prim.first",
     REST,
+    "#%prim.rest",
     RANGE,
+    "#%prim.range",
     NULL_HUH,
+    "#%prim.null?",
     INT_HUH,
+    "#%prim.int?",
     FLOAT_HUH,
+    "#%prim.float?",
     NUMBER_HUH,
+    "#%prim.number?",
     STRING_HUH,
+    "#%prim.string?",
     SYMBOL_HUH,
+    "#%prim.symbol?",
     VECTOR_HUH,
+    "#%prim.vector?",
     LIST_HUH,
+    "#%prim.list?",
     INTEGER_HUH,
+    "#%prim.integer?",
     BOOLEAN_HUH,
+    "#%prim.boolean?",
     FUNCTION_HUH,
+    "#%prim.function?",
     "=",
+    "#%prim.=",
     "equal?",
+    "#%prim.equal?",
     ">",
+    "#%prim.>",
     ">=",
+    "#%prim.>=",
     "<",
+    "#%prim.<",
     "<=",
+    "#%prim.<=",
     "string-append",
+    "#%prim.string-append",
     "string->list",
+    "#%prim.string->list",
     "string-upcase",
+    "#%prim.string-upcase",
     "string-lowercase",
+    "#%prim.string-lowercase",
     "trim",
+    "#%prim.trim",
     "trim-start",
+    "#%prim.trim-start",
     "trim-end",
+    "#%prim.trim-end",
     "split-whitespace",
+    "#%prim.split-whitespace",
     "void",
+    "#%prim.void",
     "list->string",
+    "#%prim.list->string",
     "concat-symbols",
+    "#%prim.concat-symbols",
     "string->int",
+    "#%prim.string->int",
     "even?",
+    "#%prim.even?",
     "odd",
     CONS,
+    "#%prim.cons",
     APPEND,
+    "#%prim.append",
     PUSH_BACK,
     LENGTH,
+    "#%prim.length",
     REVERSE,
+    "#%prim.reverse",
     LIST_TO_STRING,
+    "#%prim.list->string",
     LIST,
+    PRIM_LIST,
 ];
 
 thread_local! {
@@ -229,7 +285,7 @@ thread_local! {
     pub static STRING_MODULE: BuiltInModule = string_module();
     pub static VECTOR_MODULE: BuiltInModule = vector_module();
     pub static STREAM_MODULE: BuiltInModule = stream_module();
-    pub static CONTRACT_MODULE: BuiltInModule = contract_module();
+    // pub static CONTRACT_MODULE: BuiltInModule = contract_module();
     pub static IDENTITY_MODULE: BuiltInModule = identity_module();
     pub static NUMBER_MODULE: BuiltInModule = number_module();
     pub static EQUALITY_MODULE: BuiltInModule = equality_module();
@@ -253,6 +309,9 @@ thread_local! {
     pub static PRELUDE_MODULE: BuiltInModule = prelude();
     pub static TIME_MODULE: BuiltInModule = time_module();
     pub static THREADING_MODULE: BuiltInModule = threading_module();
+
+    pub static MUTABLE_HASH_MODULE: BuiltInModule = mutable_hashmap_module();
+    pub static MUTABLE_VECTOR_MODULE: BuiltInModule = mutable_vector_module();
 
     #[cfg(feature = "web")]
     pub static WEBSOCKETS_MODULE: BuiltInModule = websockets_module();
@@ -278,7 +337,7 @@ pub fn prelude() -> BuiltInModule {
         .with_module(STRING_MODULE.with(|x| x.clone()))
         .with_module(VECTOR_MODULE.with(|x| x.clone()))
         .with_module(STREAM_MODULE.with(|x| x.clone()))
-        .with_module(CONTRACT_MODULE.with(|x| x.clone()))
+        // .with_module(CONTRACT_MODULE.with(|x| x.clone()))
         .with_module(IDENTITY_MODULE.with(|x| x.clone()))
         .with_module(NUMBER_MODULE.with(|x| x.clone()))
         .with_module(EQUALITY_MODULE.with(|x| x.clone()))
@@ -304,6 +363,8 @@ pub fn register_builtin_modules_without_io(engine: &mut Engine) {
     engine.register_fn("##__module-get", BuiltInModule::get);
     engine.register_fn("%module-get%", BuiltInModule::get);
 
+    engine.register_fn("load-from-module!", BuiltInModule::get);
+
     engine.register_value("%proto-hash%", HM_CONSTRUCT);
     engine.register_value("%proto-hash-insert%", HM_INSERT);
     engine.register_value("%proto-hash-get%", HM_GET);
@@ -318,7 +379,7 @@ pub fn register_builtin_modules_without_io(engine: &mut Engine) {
         .register_module(STRING_MODULE.with(|x| x.clone()))
         .register_module(VECTOR_MODULE.with(|x| x.clone()))
         .register_module(STREAM_MODULE.with(|x| x.clone()))
-        .register_module(CONTRACT_MODULE.with(|x| x.clone()))
+        // .register_module(CONTRACT_MODULE.with(|x| x.clone()))
         .register_module(IDENTITY_MODULE.with(|x| x.clone()))
         .register_module(NUMBER_MODULE.with(|x| x.clone()))
         .register_module(EQUALITY_MODULE.with(|x| x.clone()))
@@ -344,8 +405,13 @@ fn render_as_md(text: String) {
 }
 
 pub fn register_builtin_modules(engine: &mut Engine) {
+    engine.register_value("std::env::args", SteelVal::ListV(List::new()));
+
     engine.register_fn("##__module-get", BuiltInModule::get);
     engine.register_fn("%module-get%", BuiltInModule::get);
+
+    engine.register_fn("load-from-module!", BuiltInModule::get);
+
     engine.register_fn("%doc?", BuiltInModule::get_doc);
     // engine.register_fn("%module-docs", BuiltInModule::docs);
     engine.register_value("%list-modules!", SteelVal::BuiltIn(list_modules));
@@ -376,7 +442,7 @@ pub fn register_builtin_modules(engine: &mut Engine) {
         .register_module(STRING_MODULE.with(|x| x.clone()))
         .register_module(VECTOR_MODULE.with(|x| x.clone()))
         .register_module(STREAM_MODULE.with(|x| x.clone()))
-        .register_module(CONTRACT_MODULE.with(|x| x.clone()))
+        // .register_module(CONTRACT_MODULE.with(|x| x.clone()))
         .register_module(IDENTITY_MODULE.with(|x| x.clone()))
         .register_module(NUMBER_MODULE.with(|x| x.clone()))
         .register_module(EQUALITY_MODULE.with(|x| x.clone()))
@@ -399,6 +465,10 @@ pub fn register_builtin_modules(engine: &mut Engine) {
         .register_module(RANDOM_MODULE.with(|x| x.clone()))
         .register_module(THREADING_MODULE.with(|x| x.clone()));
 
+    // Private module
+    engine.register_module(MUTABLE_HASH_MODULE.with(|x| x.clone()));
+    engine.register_module(MUTABLE_VECTOR_MODULE.with(|x| x.clone()));
+
     #[cfg(feature = "colors")]
     engine.register_module(STRING_COLORS_MODULE.with(|x| x.clone()));
 
@@ -414,6 +484,36 @@ pub fn register_builtin_modules(engine: &mut Engine) {
     engine.register_module(BLOCKING_REQUESTS_MODULE.with(|x| x.clone()));
 }
 
+pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::new(|| {
+    let mut set = fxhash::FxHashSet::default();
+
+    // TODO: Consolidate the prefixes and module names into one spot
+    set.insert("%-builtin-module-steel/hash".into());
+    set.insert("%-builtin-module-steel/sets".into());
+    set.insert("%-builtin-module-steel/lists".into());
+    set.insert("%-builtin-module-steel/strings".into());
+    set.insert("%-builtin-module-steel/vectors".into());
+    set.insert("%-builtin-module-steel/streams".into());
+    set.insert("%-builtin-module-steel/identity".into());
+    set.insert("%-builtin-module-steel/numbers".into());
+    set.insert("%-builtin-module-steel/equality".into());
+    set.insert("%-builtin-module-steel/ord".into());
+    set.insert("%-builtin-module-steel/transducers".into());
+    set.insert("%-builtin-module-steel/io".into());
+    set.insert("%-builtin-module-steel/filesystem".into());
+    set.insert("%-builtin-module-steel/ports".into());
+    set.insert("%-builtin-module-steel/meta".into());
+    set.insert("%-builtin-module-steel/constants".into());
+    set.insert("%-builtin-module-steel/syntax".into());
+    set.insert("%-builtin-module-steel/process".into());
+    set.insert("%-builtin-module-steel/core/result".into());
+    set.insert("%-builtin-module-steel/core/option".into());
+    set.insert("%-builtin-module-steel/threads".into());
+    set.insert("%-builtin-module-steel/base".into());
+
+    set
+});
+
 pub static ALL_MODULES: &str = r#"
     (require-builtin steel/hash)
     (require-builtin steel/sets)
@@ -422,7 +522,6 @@ pub static ALL_MODULES: &str = r#"
     (require-builtin steel/symbols)
     (require-builtin steel/vectors)
     (require-builtin steel/streams)
-    (require-builtin steel/contracts)
     (require-builtin steel/identity)
     (require-builtin steel/numbers)
     (require-builtin steel/equality)
@@ -440,6 +539,60 @@ pub static ALL_MODULES: &str = r#"
     (require-builtin steel/core/option)
     (require-builtin steel/core/types)
     (require-builtin steel/threads)
+
+
+    (require-builtin steel/hash as #%prim.)
+    (require-builtin steel/sets as #%prim.)
+    (require-builtin steel/lists as #%prim.)
+    (require-builtin steel/strings as #%prim.)
+    (require-builtin steel/symbols as #%prim.)
+    (require-builtin steel/vectors as #%prim.)
+    (require-builtin steel/streams as #%prim.)
+    (require-builtin steel/identity as #%prim.)
+    (require-builtin steel/numbers as #%prim.)
+    (require-builtin steel/equality as #%prim.)
+    (require-builtin steel/ord as #%prim.)
+    (require-builtin steel/transducers as #%prim.)
+    (require-builtin steel/io as #%prim.)
+    (require-builtin steel/filesystem as #%prim.)
+    (require-builtin steel/ports as #%prim.)
+    (require-builtin steel/meta as #%prim.)
+    (require-builtin steel/json as #%prim.)
+    (require-builtin steel/constants as #%prim.)
+    (require-builtin steel/syntax as #%prim.)
+    (require-builtin steel/process as #%prim.)
+    (require-builtin steel/core/result as #%prim.)
+    (require-builtin steel/core/option as #%prim.)
+    (require-builtin steel/core/types as #%prim.)
+    (require-builtin steel/threads as #%prim.)
+
+"#;
+
+pub static ALL_MODULES_RESERVED: &str = r#"
+    (require-builtin steel/hash as #%prim.)
+    (require-builtin steel/sets as #%prim.)
+    (require-builtin steel/lists as #%prim.)
+    (require-builtin steel/strings as #%prim.)
+    (require-builtin steel/symbols as #%prim.)
+    (require-builtin steel/vectors as #%prim.)
+    (require-builtin steel/streams as #%prim.)
+    (require-builtin steel/identity as #%prim.)
+    (require-builtin steel/numbers as #%prim.)
+    (require-builtin steel/equality as #%prim.)
+    (require-builtin steel/ord as #%prim.)
+    (require-builtin steel/transducers as #%prim.)
+    (require-builtin steel/io as #%prim.)
+    (require-builtin steel/filesystem as #%prim.)
+    (require-builtin steel/ports as #%prim.)
+    (require-builtin steel/meta as #%prim.)
+    (require-builtin steel/json as #%prim.)
+    (require-builtin steel/constants as #%prim.)
+    (require-builtin steel/syntax as #%prim.)
+    (require-builtin steel/process as #%prim.)
+    (require-builtin steel/core/result as #%prim.)
+    (require-builtin steel/core/option as #%prim.)
+    (require-builtin steel/core/types as #%prim.)
+    (require-builtin steel/threads as #%prim.)
 "#;
 
 pub static SANDBOXED_MODULES: &str = r#"
@@ -450,7 +603,6 @@ pub static SANDBOXED_MODULES: &str = r#"
     (require-builtin steel/symbols)
     (require-builtin steel/vectors)
     (require-builtin steel/streams)
-    (require-builtin steel/contracts)
     (require-builtin steel/identity)
     (require-builtin steel/numbers)
     (require-builtin steel/equality)
@@ -535,6 +687,11 @@ fn hashp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::HashMapV(_))
 }
 
+#[steel_derive::function(name = "set?", constant = true)]
+fn hashsetp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::HashSetV(_))
+}
+
 #[steel_derive::function(name = "continuation?", constant = true)]
 fn continuationp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::ContinuationFunction(_))
@@ -555,13 +712,27 @@ fn voidp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::Void)
 }
 
+#[steel_derive::function(name = "struct?", constant = true)]
+fn structp(value: &SteelVal) -> bool {
+    if let SteelVal::CustomStruct(s) = value {
+        s.is_transparent()
+    } else {
+        false
+    }
+}
+
+#[steel_derive::function(name = "#%private-struct?", constant = true)]
+fn private_structp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::CustomStruct(_))
+}
+
 #[steel_derive::function(name = "function?", constant = true)]
 fn functionp(value: &SteelVal) -> bool {
     matches!(
         value,
         SteelVal::Closure(_)
             | SteelVal::FuncV(_)
-            | SteelVal::ContractedFunction(_)
+            // | SteelVal::ContractedFunction(_)
             | SteelVal::BoxedFunction(_)
             | SteelVal::ContinuationFunction(_)
             | SteelVal::MutFunc(_)
@@ -575,7 +746,7 @@ fn procedurep(value: &SteelVal) -> bool {
         value,
         SteelVal::Closure(_)
             | SteelVal::FuncV(_)
-            | SteelVal::ContractedFunction(_)
+            // | SteelVal::ContractedFunction(_)
             | SteelVal::BoxedFunction(_)
             | SteelVal::ContinuationFunction(_)
             | SteelVal::MutFunc(_)
@@ -596,10 +767,13 @@ fn identity_module() -> BuiltInModule {
         .register_native_fn_definition(VECTORP_DEFINITION)
         .register_native_fn_definition(SYMBOLP_DEFINITION)
         .register_native_fn_definition(HASHP_DEFINITION)
+        .register_native_fn_definition(HASHSETP_DEFINITION)
         .register_native_fn_definition(CONTINUATIONP_DEFINITION)
         .register_native_fn_definition(BOOLEANP_DEFINITION)
         .register_native_fn_definition(BOOLP_DEFINITION)
         .register_native_fn_definition(VOIDP_DEFINITION)
+        .register_native_fn_definition(STRUCTP_DEFINITION)
+        .register_native_fn_definition(PRIVATE_STRUCTP_DEFINITION)
         .register_value("mutable-vector?", gen_pred!(MutableVector))
         .register_value("char?", gen_pred!(CharV))
         .register_value("future?", gen_pred!(FutureV))
@@ -623,20 +797,20 @@ fn stream_module() -> BuiltInModule {
     module
 }
 
-fn contract_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/contracts");
-    module
-        .register_value("bind/c", contracts::BIND_CONTRACT_TO_FUNCTION)
-        .register_value("make-flat/c", contracts::MAKE_FLAT_CONTRACT)
-        .register_value(
-            "make-dependent-function/c",
-            contracts::MAKE_DEPENDENT_CONTRACT,
-        )
-        .register_value("make-function/c", contracts::MAKE_FUNCTION_CONTRACT)
-        .register_value("make/c", contracts::MAKE_C);
+// fn contract_module() -> BuiltInModule {
+//     let mut module = BuiltInModule::new("steel/contracts");
+//     module
+//         .register_value("bind/c", contracts::BIND_CONTRACT_TO_FUNCTION)
+//         .register_value("make-flat/c", contracts::MAKE_FLAT_CONTRACT)
+//         .register_value(
+//             "make-dependent-function/c",
+//             contracts::MAKE_DEPENDENT_CONTRACT,
+//         )
+//         .register_value("make-function/c", contracts::MAKE_FUNCTION_CONTRACT)
+//         .register_value("make/c", contracts::MAKE_C);
 
-    module
-}
+//     module
+// }
 
 #[steel_derive::function(name = "abs", constant = true)]
 fn abs(number: &SteelVal) -> Result<SteelVal> {
@@ -816,6 +990,8 @@ fn io_module() -> BuiltInModule {
     module
         .register_value("display", IoFunctions::display())
         .register_value("displayln", IoFunctions::displayln())
+        .register_value("simple-display", IoFunctions::display())
+        .register_value("simple-displayln", IoFunctions::displayln())
         .register_value("newline", IoFunctions::newline())
         .register_value("read-to-string", IoFunctions::read_to_string());
 
@@ -838,28 +1014,6 @@ fn sandboxed_io_module() -> BuiltInModule {
 fn constants_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/constants");
     module.register_value("void", SteelVal::Void);
-    module
-}
-
-fn fs_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/filesystem");
-    module
-        .register_value("is-dir?", FsFunctions::is_dir())
-        .register_value("is-file?", FsFunctions::is_file())
-        .register_value("read-dir", FsFunctions::read_dir())
-        .register_value("path-exists?", FsFunctions::path_exists())
-        .register_value(
-            "copy-directory-recursively!",
-            FsFunctions::copy_directory_recursively(),
-        )
-        .register_value("delete-directory!", FsFunctions::delete_directory())
-        .register_value("create-directory!", FsFunctions::create_dir_all())
-        .register_value("file-name", FsFunctions::file_name())
-        .register_value("current-directory", FsFunctions::current_dir())
-        .register_value(
-            "path->extension",
-            SteelVal::FuncV(FsFunctions::get_extension),
-        );
     module
 }
 
@@ -913,15 +1067,15 @@ fn arity(value: SteelVal) -> UnRecoverableResult {
             // Ok(SteelVal::IntV(c.arity() as isize)).into()
 
             if let Some(SteelVal::CustomStruct(s)) = c.get_contract_information() {
-                let guard = s.borrow();
-                if guard.name.resolve() == "FunctionContract" {
+                let guard = s;
+                if guard.name().resolve() == "FunctionContract" {
                     if let SteelVal::ListV(l) = &guard.fields[0] {
                         Ok(SteelVal::IntV(l.len() as isize)).into()
                     } else {
                         steelerr!(TypeMismatch => "Unable to find the arity for the given function")
                             .into()
                     }
-                } else if guard.name.resolve() == "FlatContract" {
+                } else if guard.name().resolve() == "FlatContract" {
                     Ok(SteelVal::IntV(1)).into()
                 } else {
                     // This really shouldn't happen
@@ -968,6 +1122,152 @@ fn is_multi_arity(value: SteelVal) -> UnRecoverableResult {
     }
 }
 
+struct MutableVector {
+    vector: Vec<SteelVal>,
+}
+
+impl MutableVector {
+    fn new() -> Self {
+        Self { vector: Vec::new() }
+    }
+
+    fn vector_push(&mut self, value: SteelVal) {
+        self.vector.push(value);
+    }
+
+    fn vector_pop(&mut self) -> Option<SteelVal> {
+        self.vector.pop()
+    }
+
+    fn vector_set(&mut self, index: usize, value: SteelVal) {
+        self.vector[index] = value;
+    }
+
+    fn vector_ref(&self, index: usize) -> SteelVal {
+        self.vector[index].clone()
+    }
+
+    fn vector_len(&self) -> usize {
+        self.vector.len()
+    }
+
+    fn vector_to_list(&self) -> SteelVal {
+        SteelVal::ListV(self.vector.clone().into())
+    }
+
+    fn vector_is_empty(&self) -> bool {
+        self.vector.is_empty()
+    }
+
+    fn vector_from_list(lst: List<SteelVal>) -> Self {
+        Self {
+            vector: lst.into_iter().collect(),
+        }
+    }
+}
+
+impl crate::rvals::Custom for MutableVector {
+    fn gc_visit_children(&self, context: &mut crate::values::closed::MarkAndSweepContext) {
+        for value in &self.vector {
+            context.push_back(value.clone());
+        }
+    }
+
+    fn visit_equality(&self, visitor: &mut crate::rvals::cycles::EqualityVisitor) {
+        for value in &self.vector {
+            visitor.push_back(value.clone());
+        }
+    }
+
+    // Compare the two for equality otherwise
+    fn equality_hint(&self, other: &dyn crate::rvals::CustomType) -> bool {
+        if let Some(other) = as_underlying_type::<MutableVector>(other) {
+            self.vector.len() == other.vector.len()
+        } else {
+            false
+        }
+    }
+}
+
+struct MutableHashTable {
+    table: HashMap<SteelVal, SteelVal>,
+}
+
+impl crate::rvals::Custom for MutableHashTable {
+    fn gc_visit_children(&self, context: &mut crate::values::closed::MarkAndSweepContext) {
+        for (key, value) in &self.table {
+            context.push_back(key.clone());
+            context.push_back(value.clone());
+        }
+    }
+}
+
+impl MutableHashTable {
+    pub fn new() -> Self {
+        Self {
+            table: HashMap::new(),
+        }
+    }
+
+    pub fn insert(&mut self, key: SteelVal, value: SteelVal) {
+        self.table.insert(key, value);
+    }
+
+    pub fn get(&self, key: SteelVal) -> Option<SteelVal> {
+        self.table.get(&key).cloned()
+    }
+}
+
+fn mutable_vector_module() -> BuiltInModule {
+    let mut module = BuiltInModule::new("#%private/steel/mvector");
+
+    module
+        .register_fn("make-mutable-vector", MutableVector::new)
+        .register_fn("mutable-vector-ref", MutableVector::vector_ref)
+        .register_fn("mutable-vector-set!", MutableVector::vector_set)
+        .register_fn("mutable-vector-pop!", MutableVector::vector_pop)
+        .register_fn("mutable-vector-push!", MutableVector::vector_push)
+        .register_fn("mutable-vector-len", MutableVector::vector_len)
+        .register_fn("mutable-vector->list", MutableVector::vector_to_list)
+        .register_fn("mutable-vector-empty?", MutableVector::vector_is_empty)
+        .register_fn("mutable-vector-from-list", MutableVector::vector_from_list);
+
+    module
+}
+
+fn mutable_hashmap_module() -> BuiltInModule {
+    let mut module = BuiltInModule::new("#%private/steel/mhash");
+
+    module
+        .register_fn("mhash", MutableHashTable::new)
+        .register_fn("mhash-set!", MutableHashTable::insert)
+        .register_fn("mhash-ref", MutableHashTable::get);
+
+    module
+}
+
+#[steel_derive::function(name = "#%unbox")]
+fn unbox_mutable(value: &HeapRef<SteelVal>) -> SteelVal {
+    value.get()
+}
+
+#[steel_derive::function(name = "#%set-box!")]
+fn set_box_mutable(value: &HeapRef<SteelVal>, update: SteelVal) -> SteelVal {
+    value.set_and_return(update)
+}
+
+// TODO: Handle arity issues!!!
+fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    let allocated_var = ctx.thread.heap.allocate(
+        args[0].clone(), // TODO: Could actually move off of the stack entirely
+        ctx.thread.stack.iter(),
+        ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
+        ctx.thread.global_env.roots(),
+    );
+
+    Some(Ok(SteelVal::HeapAllocated(allocated_var)))
+}
+
 #[steel_derive::function(name = "unbox")]
 fn unbox(value: &Gc<RefCell<SteelVal>>) -> SteelVal {
     value.borrow().clone()
@@ -981,12 +1281,19 @@ fn set_box(value: &Gc<RefCell<SteelVal>>, update_to: SteelVal) {
 fn meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta");
     module
+        .register_fn("#%black-box", || {})
         .register_value(
             "#%function-ptr-table",
             LambdaMetadataTable::new().into_steelval().unwrap(),
         )
         .register_fn("#%function-ptr-table-add", LambdaMetadataTable::add)
         .register_fn("#%function-ptr-table-get", LambdaMetadataTable::get)
+        .register_fn("#%private-cycle-collector", SteelCycleCollector::from_root)
+        .register_fn("#%private-cycle-collector-get", SteelCycleCollector::get)
+        .register_fn(
+            "#%private-cycle-collector-values",
+            SteelCycleCollector::values,
+        )
         .register_value("assert!", MetaOperations::assert_truthy())
         .register_value("active-object-count", MetaOperations::active_objects())
         .register_value("inspect-bytecode", MetaOperations::inspect_bytecode())
@@ -995,6 +1302,10 @@ fn meta_module() -> BuiltInModule {
         .register_value("poll!", MetaOperations::poll_value())
         .register_value("block-on", MetaOperations::block_on())
         .register_value("join!", MetaOperations::join_futures())
+        .register_fn(
+            "#%struct-property-ref",
+            |value: &UserDefinedStruct, key: SteelVal| UserDefinedStruct::get(value, &key),
+        )
         // .register_value("struct-ref", struct_ref())
         // .register_value("struct->list", struct_to_list())
         // .register_value("struct->vector", struct_to_vector())
@@ -1012,6 +1323,7 @@ fn meta_module() -> BuiltInModule {
             "call-with-exception-handler",
             SteelVal::BuiltIn(super::vm::call_with_exception_handler),
         )
+        .register_value("breakpoint!", SteelVal::BuiltIn(super::vm::breakpoint))
         .register_value(
             "call-with-current-continuation",
             SteelVal::BuiltIn(super::vm::call_cc),
@@ -1032,6 +1344,8 @@ fn meta_module() -> BuiltInModule {
         // .register_fn("get-value", super::meta::EngineWrapper::get_value)
         .register_fn("value->iterator", crate::rvals::value_into_iterator)
         .register_value("iter-next!", SteelVal::FuncV(crate::rvals::iterator_next))
+        // Check whether the iterator is done
+        .register_value("#%iterator-finished", ITERATOR_FINISHED.with(|x| x.clone()))
         .register_value("%iterator?", gen_pred!(BoxedIterator))
         .register_fn("env-var", get_environment_variable)
         .register_fn("set-env-var!", std::env::set_var::<String, String>)
@@ -1049,6 +1363,10 @@ fn meta_module() -> BuiltInModule {
         .register_fn("box", SteelVal::boxed)
         .register_native_fn_definition(UNBOX_DEFINITION)
         .register_native_fn_definition(SET_BOX_DEFINITION)
+        .register_value("#%box", SteelVal::BuiltIn(make_mutable_box))
+        // TODO: Deprecate these at some point
+        .register_native_fn_definition(SET_BOX_MUTABLE_DEFINITION)
+        .register_native_fn_definition(UNBOX_MUTABLE_DEFINITION)
         // .register_fn("unbox", |value: SteelVal| )
         .register_value(
             "attach-contract-struct!",
@@ -1056,6 +1374,10 @@ fn meta_module() -> BuiltInModule {
         )
         .register_value("get-contract-struct", SteelVal::FuncV(get_contract))
         .register_fn("current-os!", || std::env::consts::OS);
+
+    #[cfg(feature = "dylibs")]
+    module.register_native_fn_definition(crate::steel_vm::dylib::LOAD_MODULE_DEFINITION);
+
     module
 }
 

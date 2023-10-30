@@ -4,12 +4,13 @@ use std::{
 };
 
 use im_rc::HashMap as ImmutableHashMap;
-// use itertools::Itertools;
 use quickscope::ScopeMap;
 
 use crate::{
+    compiler::modules::{ModuleManager, MANGLER_SEPARATOR},
     parser::{
         ast::{Atom, Define, ExprKind, LambdaFunction, Let, List, Quote},
+        expander::SteelMacro,
         interner::InternedString,
         parser::{RawSyntaxObject, SyntaxObject, SyntaxObjectId},
         span::Span,
@@ -57,6 +58,7 @@ pub struct SemanticInformation {
     pub captured_from_enclosing: bool,
     pub heap_offset: Option<usize>,
     pub read_heap_offset: Option<usize>,
+    pub is_shadowed: bool,
 }
 
 impl SemanticInformation {
@@ -79,6 +81,7 @@ impl SemanticInformation {
             captured_from_enclosing: false,
             heap_offset: None,
             read_heap_offset: None,
+            is_shadowed: false,
         }
     }
 
@@ -311,6 +314,8 @@ impl Analysis {
         );
 
         if define.is_a_builtin_definition() {
+            println!("FOUND A BUILTIN: {}", name);
+
             semantic_info.mark_builtin();
         }
 
@@ -320,7 +325,7 @@ impl Analysis {
             semantic_info = semantic_info.shadows(shadowed_var.id)
         }
 
-        log::info!("Defining global: {:?}", define.name);
+        log::trace!("Defining global: {:?}", define.name);
         define_var(scope, define);
 
         self.insert(define.name.atom_syntax_object().unwrap(), semantic_info);
@@ -337,11 +342,20 @@ impl Analysis {
                     self.visit_top_level_define_function_without_body(&mut scope, define);
                 }
             }
+
+            if let ExprKind::Begin(b) = expr {
+                for expr in &b.exprs {
+                    if let ExprKind::Define(define) = expr {
+                        if define.body.lambda_function().is_some() {
+                            self.visit_top_level_define_function_without_body(&mut scope, define);
+                        }
+                    }
+                }
+            }
         }
 
         for expr in exprs {
             let mut pass = AnalysisPass::new(self, &mut scope);
-            // pass.visit(expr);
 
             if let ExprKind::Define(define) = expr {
                 if define.body.lambda_function().is_some() {
@@ -352,7 +366,6 @@ impl Analysis {
                     // Continue with the rest of the body here
                     pass.visit(&define.body);
                     pass.defining_context = None;
-                    // pass.defining_context_depth = 0;
                 } else {
                     pass.visit_top_level_define_value_without_body(define);
                     pass.visit(&define.body);
@@ -361,8 +374,6 @@ impl Analysis {
                 pass.visit(expr);
             }
         }
-
-        // log::info!("Global scope: {:?}", scope.iter_top().collect::<Vec<_>>());
     }
 
     pub fn get_function_info(&self, function: &LambdaFunction) -> Option<&FunctionInformation> {
@@ -576,15 +587,34 @@ impl<'a> AnalysisPass<'a> {
         // If this variable name is already in scope, we should mark that this variable
         // shadows the previous id
         if let Some(shadowed_var) = self.scope.get(name) {
-            semantic_info = semantic_info.shadows(shadowed_var.id)
+            // println!("FOUND SHADOWED VAR: {}", name);
+
+            semantic_info = semantic_info.shadows(shadowed_var.id);
+
+            if let Some(existing_analysis) = self.info.info.get_mut(&shadowed_var.id) {
+                if existing_analysis.builtin {
+                    // println!("FOUND A VALUE THAT SHADOWS AN EXISTING BUILTIN: {}", name);
+
+                    existing_analysis.is_shadowed = true;
+                }
+                // else {
+                // println!("DOES NOT SHADOW A BUILT IN: {}", name);
+                // }
+            }
         }
 
         if define.is_a_builtin_definition() {
+            // println!("FOUND A BUILTIN: {}", name);
+
             semantic_info.mark_builtin();
         }
 
+        // if let Some(shadowed_var) = self.scope.get(name) {
+        //     semantic_info = semantic_info.shadows(shadowed_var.id)
+        // }
+
         if let Some(aliases) = define.is_an_alias_definition() {
-            log::info!(
+            log::debug!(
                 "Found definition that aliases - {} aliases {}: {:?} -> {:?}",
                 define.name,
                 define.body,
@@ -594,7 +624,7 @@ impl<'a> AnalysisPass<'a> {
             semantic_info = semantic_info.aliases_to(aliases);
         }
 
-        log::info!("Defining global: {:?}", define.name);
+        log::trace!("Defining global: {:?}", define.name);
         define_var(self.scope, define);
 
         self.info.insert(name_syntax_object, semantic_info);
@@ -625,8 +655,8 @@ impl<'a> AnalysisPass<'a> {
         // If this variable name is already in scope, we should mark that this variable
         // shadows the previous id
         if let Some(shadowed_var) = self.scope.get(name) {
-            log::warn!("Redefining previous variable: {:?}", name);
-            semantic_info = semantic_info.shadows(shadowed_var.id)
+            log::debug!("Redefining previous variable: {:?}", name);
+            semantic_info = semantic_info.shadows(shadowed_var.id);
         }
 
         define_var(self.scope, define);
@@ -639,11 +669,6 @@ impl<'a> AnalysisPass<'a> {
     // and also defaulting them to be local identifiers. This way, in the event of a set!
     // we have something to refer to
     fn visit_func_args(&mut self, lambda_function: &LambdaFunction, depth: usize) {
-        // let function_info = self
-        //     .info
-        //     .function_info
-        //     .get(&lambda_function.syntax_object_id);
-
         let alloc_capture_count = self
             .info
             .function_info
@@ -724,7 +749,6 @@ impl<'a> AnalysisPass<'a> {
         let arguments = self
             .scope
             .iter_top()
-            // .cloned()
             .map(|x| (x.0.clone(), x.1.clone()))
             .collect::<FxHashMap<_, _>>();
 
@@ -743,38 +767,20 @@ impl<'a> AnalysisPass<'a> {
         for var in &lambda_function.args {
             let ident = var.atom_identifier().unwrap();
 
-            // let mut heap_offset = None;
-            // let mut read_heap_offset = None;
-
             let kind = if let Some(info) = captured_vars.get(ident) {
                 if info.mutated {
-                    // heap_offset = info.heap_offset;
-                    // read_heap_offset = info.read_heap_offset;
-
                     IdentifierStatus::HeapAllocated
                 } else {
                     IdentifierStatus::Captured
                 }
             } else if let Some(info) = self.info.get(var.atom_syntax_object().unwrap()) {
                 match info.kind {
-                    IdentifierStatus::HeapAllocated => {
-                        // heap_offset = info.heap_offset;
-                        // read_heap_offset = info.read_heap_offset;
-
-                        IdentifierStatus::HeapAllocated
-                    }
-                    // IdentifierStatus::Captured => IdentifierStatus::Captured,
+                    IdentifierStatus::HeapAllocated => IdentifierStatus::HeapAllocated,
                     _ => IdentifierStatus::Local,
                 }
             } else {
                 IdentifierStatus::Local
             };
-
-            // let kind = if captured_vars.contains_key(ident) {
-            //     IdentifierStatus::Captured
-            // } else {
-            //     IdentifierStatus::Local
-            // };
 
             let mut semantic_info =
                 SemanticInformation::new(kind, depth, var.atom_syntax_object().unwrap().span);
@@ -786,13 +792,8 @@ impl<'a> AnalysisPass<'a> {
 
             if count == 0 {
                 // TODO: Emit warning with the span
-                log::warn!("Found unused argument: {:?}", ident);
+                log::debug!("Found unused argument: {:?}", ident);
             }
-
-            // if kind == IdentifierStatus::HeapAllocated {
-            //     semantic_info = semantic_info.with_heap_offset(heap_offset.unwrap());
-            //     semantic_info = semantic_info.with_read_heap_offset(read_heap_offset.unwrap());
-            // }
 
             semantic_info = semantic_info.with_usage_count(count);
 
@@ -801,10 +802,6 @@ impl<'a> AnalysisPass<'a> {
             if let Some(shadowed_var) = self.scope.get(ident) {
                 semantic_info = semantic_info.shadows(shadowed_var.id)
             }
-
-            // if let Some(info) = self.info.get(&var.atom_syntax_object().unwrap()) {
-            //     println!("{:#?}", info);
-            // }
 
             self.info
                 .update_with(var.atom_syntax_object().unwrap(), semantic_info);
@@ -860,25 +857,11 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // the function call.
         let stack_offset = self.stack_offset;
 
-        // let mut last_used_vars = HashSet::new();
-
-        // // Find each variable that is actually referenced in this tail position
-        // // let mut last_used_vars = HashSet::new();
-        // std::mem::swap(
-        //     &mut self.ids_referenced_in_tail_position,
-        //     &mut last_used_vars,
-        // );
-
         for expr in &l.args[1..] {
             self.escape_analysis = true;
-            // self.stack_offset += 1;
             self.visit(expr);
 
-            // println!("Stack offset: {:?}", self.stack_offset);
-
             self.stack_offset += 1;
-            // println!("Visiting argument: {}", expr);
-            // self.escape_analysis = true;
         }
 
         if !l.is_empty() {
@@ -889,20 +872,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 self.escape_analysis = false;
             }
 
-            // println!(
-            //     "Visiting argument: {}, with tail call eligibility: {} and escape: {}",
-            //     &l.args[0], self.tail_call_eligible, self.escape_analysis
-            // );
-
             self.visit(&l.args[0]);
         }
-
-        // std::mem::swap(
-        //     &mut self.ids_referenced_in_tail_position,
-        //     &mut last_used_vars,
-        // );
-
-        // self.ids_referenced_in_tail_position = HashSet::new();
 
         self.stack_offset = stack_offset;
         self.tail_call_eligible = eligibility;
@@ -915,16 +886,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         if !l.is_empty() {
             // Mark the call site - see what happens
             let mut call_site_kind = if eligibility && self.scope.depth() > 1 {
-                // Update the last usage of any of these variables now...
-                // TODO: This doesn't seem like it will work.
-                // for id in self.scope.iter().map(|x| x.1).filter_map(|x| x.last_used) {
-                //     self.info.get_mut(&id).unwrap().last_usage = true;
-                // }
-
-                // for id in last_used_vars {
-                //     self.info.get_mut(&id).unwrap().last_usage = true;
-                // }
-
                 CallKind::TailCall
             } else {
                 CallKind::Normal
@@ -976,7 +937,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         }
 
         let last = begin.exprs.len() - 1;
-        // let stack_offset = self.stack_offset;
 
         // TODO: Clean up this bad pattern
         let eligibility = self.tail_call_eligible;
@@ -1008,7 +968,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             }
 
             self.tail_call_eligible = false;
-            // self.stack_offset += 1;
         }
 
         // Overall, 1 for the total
@@ -1018,7 +977,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         }
 
         self.tail_call_eligible = eligibility;
-        // self.stack_offset = stack_offset
     }
 
     #[allow(dead_code, unused)]
@@ -1059,7 +1017,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         for arg in l.local_bindings() {
             let name = arg.atom_identifier().unwrap();
             let id = arg.atom_syntax_object().unwrap().syntax_object_id;
-            // println!("Inserting local: {:?} at offset: {}", arg, stack_offset);
 
             let heap_alloc = if let Some(info) = self.info.let_info.get(&l.syntax_object_id) {
                 if let Some(info) = info.arguments.get(name) {
@@ -1157,7 +1114,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         {
             // TODO: see if this was necessary
             if function_info.escapes {
-                // println!("Function escapes!");
                 self.defining_context = None;
             }
 
@@ -1178,9 +1134,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // So for now, we sort by id, then map these directly to indices that will live in the
                 // corresponding captured closure
                 for (index, (key, value)) in sorted_vars.iter_mut().enumerate() {
-                    // value.capture_offset = Some(index);
-                    // value.read_capture_offset = Some(index);
-
                     // If we've already captured this variable, mark it as being captured from the enclosing environment
                     // TODO: If there is shadowing, this might not work?
                     if let Some(captured_var) = self.captures.get(key) {
@@ -1191,11 +1144,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         // notion that this is a fresh variable
                         // if let Some(analysis) = self.captures.contains_key_at_top(key) {
                         if self.captures.depth_of(key).unwrap() > 1 {
-                            // todo!()
-
-                            // if analysis.shadows.is_some() {
-                            // println!("Found a shadowed var!: {}", key);
-
                             value.capture_offset = Some(index);
                             value.read_capture_offset = Some(index);
                             let mut value = value.clone();
@@ -1204,7 +1152,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                             self.captures.define(key.clone(), value);
 
                             continue;
-                            // }
                         }
 
                         value.capture_offset = captured_var.read_capture_offset;
@@ -1213,9 +1160,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                         let mut value = value.clone();
                         value.captured_from_enclosing = true;
-
-                        // println!("Marking var as captured from the enclosing: {}", key);
-                        // println!("value: {:#?}", value);
 
                         self.captures.define(key.clone(), value)
                     } else {
@@ -1233,8 +1177,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 let mut captured_and_mutated =
                     vars.iter_mut().filter(|x| x.1.mutated).collect::<Vec<_>>();
                 captured_and_mutated.sort_by_key(|x| x.1.id);
-
-                // println!("Captured and mutated: {:?}", captured_and_mutated);
 
                 for (index, (key, value)) in captured_and_mutated.iter_mut().enumerate() {
                     // value.heap_offset = Some(index);
@@ -1261,8 +1203,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         // i.e. heap offset just patches in the read offset from the parent
                         value.heap_offset = self.captures.get(key).and_then(|x| x.read_heap_offset);
 
-                        value.read_heap_offset =
-                            self.captures.get(key).and_then(|x| x.read_heap_offset);
+                        // value.read_heap_offset =
+                        //     self.captures.get(key).and_then(|x| x.read_heap_offset);
 
                         value.read_heap_offset = Some(index);
 
@@ -1291,14 +1233,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             }
         }
 
-        // Before we enter this, these are all of the variables that should be reset after capturing
-        // let uncaptured_from_latest_layer: HashSet<String> = self
-        //     .scope
-        //     .iter_top()
-        //     .filter(|x| x.1.captured)
-        //     .map(|x| x.0.clone())
-        //     .collect();
-
         // We're entering a new scope since we've entered a lambda function
         self.scope.push_layer();
 
@@ -1314,20 +1248,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         self.defining_context_depth += 1;
 
-        // Try to extract the actual variables that are used
-        // Otherwise, we're capturing an insane amount of extra variables
-        // let mut used_vars = im_rc::HashSet::new();
-
-        // Save the state of things that have been used on the way down
-        // let mut overall_used_down = self.vars_used.clone();
-
         // Set the single used to this scope to be a new set
         self.vars_used = im_rc::HashSet::new();
-
-        // std::mem::swap(&mut self.vars_used, &mut used_vars);
-
-        // These are the possible captures that _could_ happen
-        // let possible_captures = self.get_possible_captures(&let_level_bindings);
 
         self.contains_lambda_func = false;
 
@@ -1337,11 +1259,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         let lambda_bottoms_out = !self.contains_lambda_func;
 
         self.contains_lambda_func = true;
-
-        // Put it back
-        // std::mem::swap(&mut self.vars_used, &mut used_vars);
-
-        // self.vars_used += used_vars.clone();
 
         for var in &self.vars_used {
             self.total_vars_used.insert(var.clone());
@@ -1356,16 +1273,15 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // Perhaps take the diff of the vars before visiting this, and after? Then reset the state after visiting this tree?
         let mut captured_vars = self.get_captured_vars(&let_level_bindings);
 
-        // println!("{:?}", )
-
         for (var, value) in self.captures.iter() {
             if let Some(scope_info) = captured_vars.get_mut(var) {
                 scope_info.captured_from_enclosing = value.captured_from_enclosing;
             }
         }
 
-        log::info!("Captured variables: {:?}", captured_vars);
-        // println!("Captured variables: {:?}", captured_vars);
+        if log::log_enabled!(log::Level::Trace) {
+            log::trace!("Captured variables: {:?}", captured_vars);
+        }
 
         // Get the arguments to get the counts
         // Pop the layer here - now, we check if any of the arguments below actually already exist
@@ -1374,8 +1290,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         // Pop off of the captures
         self.captures.pop_layer();
-
-        // println!("Captures: {:#?}", self.captures.iter().collect::<Vec<_>>());
 
         // Mark the last usage of the variable after the values go out of scope
         // TODO: This should get moved to every tail call -> if its a tail call, mark
@@ -1475,7 +1389,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                     // var.refers
                 } else {
-                    log::warn!("Unable to find var: {name} in info map to update to set!");
+                    log::debug!("Unable to find var: {name} in info map to update to set!");
                 }
             } else {
                 log::debug!("Variable not yet in scope: {name}");
@@ -1513,6 +1427,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         SemanticInformation::new(IdentifierStatus::Global, depth, a.syn.span)
                             .with_usage_count(1)
                             .refers_to(global_var.id);
+
+                    // if self.info.info.get(&global_var.id).unwrap().builtin {
+                    //     println!("FOUND USAGE OF BUILTIN: {}", ident);
+                    // }
 
                     // TODO: We _really_ should be providing the built-ins in a better way thats not
                     // passing around a thread local
@@ -1557,7 +1475,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 if let Some(stack_offset) = mut_ref.stack_offset {
                     semantic_info = semantic_info.with_offset(stack_offset);
                 } else {
-                    log::warn!("Stack offset missing from local define")
+                    log::debug!("Stack offset missing from local define")
                 }
 
                 if mut_ref.captured && mut_ref.mutated {
@@ -1639,14 +1557,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     // semantic_info = semantic_info.with_heap_offset(heap_offset);
                     semantic_info = semantic_info.with_read_heap_offset(heap_offset);
                 } else {
-                    log::warn!("Stack offset missing from local define")
+                    log::debug!("Stack offset missing from local define")
                 }
 
                 if let Some(heap_offset) = captured.heap_offset {
                     // semantic_info = semantic_info.with_heap_offset(heap_offset);
                     semantic_info = semantic_info.with_heap_offset(heap_offset);
                 } else {
-                    log::warn!("Stack offset missing from local define")
+                    log::debug!("Stack offset missing from local define")
                 }
 
                 // if semantic_info.kind == IdentifierStatus::HeapAllocated
@@ -1700,7 +1618,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 if let Some(stack_offset) = is_captured.stack_offset {
                     semantic_info = semantic_info.with_offset(stack_offset);
                 } else {
-                    log::warn!("Stack offset missing from local define")
+                    log::debug!("Stack offset missing from local define")
                 }
 
                 // println!("Variable {} refers to {}", ident, is_captured.id);
@@ -1710,43 +1628,69 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 return;
             }
 
-            let mut semantic_info =
-                SemanticInformation::new(IdentifierStatus::Free, depth, a.syn.span);
+            // TODO: Check if we've already marked it as free - also count its usage!
 
-            // TODO: We _really_ should be providing the built-ins in a better way thats not
-            // passing around a thread local
-            if crate::steel_vm::primitives::PRELUDE_MODULE.with(|x| x.contains(ident.resolve())) {
-                semantic_info.mark_builtin();
-                semantic_info.kind = IdentifierStatus::Global
+            if let Some(analysis) = self.info.info.get_mut(&a.syn.syntax_object_id) {
+                analysis.usage_count += 1;
+            } else {
+                let mut semantic_info =
+                    SemanticInformation::new(IdentifierStatus::Free, depth, a.syn.span);
+
+                // TODO: We _really_ should be providing the built-ins in a better way thats not
+                // passing around a thread local
+                if crate::steel_vm::primitives::PRELUDE_MODULE.with(|x| x.contains(ident.resolve()))
+                {
+                    semantic_info.mark_builtin();
+                    semantic_info.kind = IdentifierStatus::Global
+                }
+
+                // Otherwise, we've hit a free variable at this point
+                // TODO: WE don't need to do this?
+                self.info.insert(&a.syn, semantic_info);
             }
 
-            // Otherwise, we've hit a free variable at this point
-            self.info.insert(&a.syn, semantic_info);
+            // let mut semantic_info =
+            //     SemanticInformation::new(IdentifierStatus::Free, depth, a.syn.span);
 
-            // log::warn!("Found free var: {}", a);
+            // // TODO: We _really_ should be providing the built-ins in a better way thats not
+            // // passing around a thread local
+            // if crate::steel_vm::primitives::PRELUDE_MODULE.with(|x| x.contains(ident.resolve())) {
+            //     semantic_info.mark_builtin();
+            //     semantic_info.kind = IdentifierStatus::Global
+            // }
+
+            // // Otherwise, we've hit a free variable at this point
+            // // TODO: WE don't need to do this?
+            // self.info.insert(&a.syn, semantic_info);
+
+            // println!("Free identifier: {}", a);
         }
     }
 }
 
 impl<'a> VisitorMutUnitRef<'a> for Analysis {
     fn visit_atom(&mut self, a: &'a crate::parser::ast::Atom) {
-        log::info!(
-            "Id: {:?}, Atom: {:?}, Semantic Information: {:?}",
-            a.syn.syntax_object_id,
-            a.syn.ty,
-            self.get(&a.syn)
-        );
+        if log::log_enabled!(log::Level::Trace) {
+            log::trace!(
+                "Id: {:?}, Atom: {:?}, Semantic Information: {:?}",
+                a.syn.syntax_object_id,
+                a.syn.ty,
+                self.get(&a.syn)
+            );
+        }
     }
 
     fn visit_lambda_function(&mut self, lambda_function: &'a crate::parser::ast::LambdaFunction) {
         for arg in &lambda_function.args {
             if let Some(arg) = arg.atom_syntax_object() {
-                log::info!(
-                    "Id: {:?}, Atom in function argument: {:?}, Semantic Information: {:?}",
-                    arg.syntax_object_id,
-                    arg.ty,
-                    self.get(arg)
-                );
+                if log::log_enabled!(log::Level::Trace) {
+                    log::trace!(
+                        "Id: {:?}, Atom in function argument: {:?}, Semantic Information: {:?}",
+                        arg.syntax_object_id,
+                        arg.ty,
+                        self.get(arg)
+                    );
+                }
             }
         }
 
@@ -1769,7 +1713,7 @@ pub fn query_top_level_define<A: AsRef<str>>(
     }
 
     if found_defines.len() > 1 {
-        log::info!(
+        log::debug!(
             "Multiple defines found, unable to find one unique value to associate with a name"
         );
         return None;
@@ -2032,7 +1976,7 @@ where
 
                 if let ExprKind::Let(_) = &let_expr {
                     if (self.func)(self.analysis, let_expr) {
-                        log::info!("Modified let expression");
+                        log::debug!("Modified let expression");
                     }
                 }
             }
@@ -2084,7 +2028,7 @@ where
                         // In the state of the analysis
                         if (self.func)(self.analysis, list) {
                             // return self.visit(list);
-                            log::info!("Modified anonymous function call site!");
+                            log::debug!("Modified anonymous function call site!");
                         }
                     }
                 }
@@ -2252,6 +2196,21 @@ impl<'a> VisitorMutUnitRef<'a> for UnusedArguments<'a> {
     }
 }
 
+/// Takes functions that have one argument that is used one time, and inline the function
+/// body and replace the call site.
+// struct InlineFunctionsWithArgumentsUsedOnce<'a> {
+//     analysis: &'a Analysis,
+//     functions_to_inline: FxHashMap<InternedString, ExprKind>,
+// }
+
+// struct FunctionInliner {
+//     variable_to_substitute: ExprKind,
+// }
+
+// impl FunctionInliner {
+
+// }
+
 // TODO: If its _not_ a pure function, we need to both assert that the function
 // does not escape, and then find the captured arguments, assert that those also
 // are immutable captures, and then modify the callsites to pass in those variables
@@ -2300,8 +2259,19 @@ impl<'a> VisitorMutRefUnit for LiftPureFunctionsToGlobalScope<'a> {
                             return;
                         }
 
+                        for arg in info.arguments().values() {
+                            if arg.mutated {
+                                return;
+                            }
+                        }
+
                         // If we have no captured variables, this is a pure function for our purposes
                         if info.captured_vars.is_empty() {
+                            // TODO: If the function is of the shape:
+                            // (lambda (x) (function-call x))
+                            // Don't lift - just replace the lambda with the body, and replace the argument
+                            // with the right thing
+
                             // Name the closure something mangled, but something we can refer to later
                             let constructed_name = "##__lifted_pure_function".to_string()
                                 + l.syntax_object_id.to_string().as_ref();
@@ -2348,6 +2318,86 @@ impl<'a> VisitorMutRefUnit for LiftPureFunctionsToGlobalScope<'a> {
     }
 }
 
+struct ElideSingleArgumentLambdaApplications<'a> {
+    analysis: &'a Analysis,
+    re_run_analysis: bool,
+}
+
+impl<'a> VisitorMutRefUnit for ElideSingleArgumentLambdaApplications<'a> {
+    fn visit(&mut self, expr: &mut ExprKind) {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            application @ ExprKind::List(_) => {
+                if let ExprKind::List(l) = application {
+                    for expr in &mut l.args {
+                        self.visit(expr);
+                    }
+
+                    if !l.is_anonymous_function_call() {
+                        return;
+                    }
+
+                    if l.args.len() != 2 {
+                        return;
+                    }
+
+                    if l.args[1].atom_identifier().is_none() {
+                        return;
+                    }
+
+                    let mut replacement: Option<ExprKind> = None;
+
+                    if let ExprKind::LambdaFunction(lf) = &l.args[0] {
+                        if lf.args.len() != 1 {
+                            return;
+                        }
+
+                        if let Some(info) = self.analysis.get_function_info(&lf) {
+                            for arg in info.arguments().values() {
+                                if arg.mutated {
+                                    return;
+                                }
+                            }
+
+                            if !info.captured_vars.is_empty() {
+                                return;
+                            }
+
+                            if let ExprKind::List(lst) = &lf.body {
+                                if lst.len() == 2
+                                    && lst.args[0].atom_identifier().is_some()
+                                    && lst.args[1].atom_identifier() == lf.args[0].atom_identifier()
+                                {
+                                    self.re_run_analysis = true;
+
+                                    replacement = Some(lst.args[0].clone());
+                                }
+                            }
+                        }
+                    } else {
+                        unreachable!();
+                    }
+
+                    if let Some(replacement) = replacement {
+                        l.args[0] = replacement;
+                    }
+                }
+            }
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Let(l) => self.visit_let(l),
+        }
+    }
+}
+
 struct LiftLocallyDefinedFunctions<'a> {
     analysis: &'a Analysis,
     lifted_functions: Vec<ExprKind>,
@@ -2384,14 +2434,40 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
 
                     if ident_info.depth > 1 {
                         if !info.captured_vars.is_empty() {
-                            log::info!(
-                            target: "lambda-lifting",
-                                "Found a local function which captures variables: {} - captures vars: {:#?}",
-                                define.name,
-                                info.captured_vars
-                            );
+                            if log::log_enabled!(log::Level::Trace) {
+                                log::trace!(
+                                target: "lambda-lifting",
+                                    "Found a local function which captures variables: {} - captures vars: {:#?}",
+                                    define.name,
+                                    info.captured_vars
+                                );
+                            }
+
+                            for (var, _) in info.captured_vars() {
+                                log::debug!(target: "lambda-lifting", "{}", var.resolve());
+                            }
+
+                            if info.captured_vars().len() == 1 {
+                                // TODO: Check if the number of captured vars is 1, and if that 1 is equivalent to the
+                                // define name. If it is, then we should just mark this as a pure local function, because
+                                // then we can lift it and be happy about it!
+
+                                for (_, info) in info.captured_vars() {
+                                    if info.id == define.name_id().unwrap() {
+                                        log::trace!(target: "lambda-lifting", "Local define where it only captures itself!");
+
+                                        functions.push((
+                                            index,
+                                            define.name.atom_identifier().unwrap().to_string(),
+                                            define.name_id().unwrap(),
+                                        ));
+                                    }
+                                }
+                            }
+
+                            // println!("{}", define.body);
                         } else {
-                            log::info!(target: "lambda-lifting", "Found a pure local function: {}", define.name);
+                            log::trace!(target: "lambda-lifting", "Found a pure local function: {}", define.name);
                             functions.push((
                                 index,
                                 define.name.atom_identifier().unwrap().to_string(),
@@ -2419,6 +2495,119 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
 
             let removed_function = begin.exprs.remove(index);
             self.lifted_functions.push(removed_function);
+        }
+    }
+}
+
+struct CollectReferences {
+    idents: fxhash::FxHashSet<InternedString>,
+}
+
+impl<'a> VisitorMutUnitRef<'a> for CollectReferences {
+    fn visit_atom(&mut self, a: &'a Atom) {
+        if let TokenType::Identifier(ident) = a.syn.ty {
+            if ident.resolve().starts_with("mangler") {
+                self.idents.insert(ident);
+            }
+        }
+    }
+}
+
+struct ReplaceBuiltinUsagesInsideMacros<'a> {
+    identifiers_to_replace: &'a mut HashSet<InternedString>,
+}
+
+impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesInsideMacros<'a> {
+    fn visit_define(&mut self, define: &mut Define) {
+        self.visit(&mut define.body);
+    }
+
+    fn visit_atom(&mut self, a: &mut Atom) {
+        if let Some(ident) = a.ident_mut() {
+            // println!("CHECKING: {}", ident);
+
+            if self.identifiers_to_replace.contains(ident) {
+                if let Some((_, builtin_name)) = ident.resolve().split_once(MANGLER_SEPARATOR) {
+                    // println!("RENAMING: {}", ident);
+
+                    *ident = ("#%prim.".to_string() + builtin_name).into();
+                }
+            }
+        }
+    }
+}
+
+struct ReplaceBuiltinUsagesWithReservedPrimitiveReferences<'a> {
+    analysis: &'a Analysis,
+    identifiers_to_replace: &'a mut HashSet<InternedString>,
+}
+
+impl<'a> ReplaceBuiltinUsagesWithReservedPrimitiveReferences<'a> {
+    pub fn new(
+        analysis: &'a Analysis,
+        identifiers_to_replace: &'a mut HashSet<InternedString>,
+    ) -> Self {
+        Self {
+            analysis,
+            identifiers_to_replace,
+        }
+    }
+}
+
+impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferences<'a> {
+    #[inline]
+    fn visit_define(&mut self, define: &mut Define) {
+        // Don't visit the name!
+        self.visit(&mut define.body);
+    }
+
+    fn visit_atom(&mut self, a: &mut Atom) {
+        if let Some(info) = self.analysis.get(&a.syn) {
+            if info.builtin && !info.is_shadowed && info.shadows.is_none() {
+                // todo!()
+
+                // println!("FOUND UNSHADOWED USAGE OF BUILTIN: {}", a);
+
+                if let Some(ident) = a.ident_mut() {
+                    if let Some((_, builtin_name)) = ident.resolve().split_once(MANGLER_SEPARATOR) {
+                        // let original = *ident;
+
+                        self.identifiers_to_replace.insert(*ident);
+
+                        *ident = ("#%prim.".to_string() + builtin_name).into();
+
+                        // println!("top level - MUTATED IDENT TO BE: {} -> {}", original, ident);
+                    }
+                }
+            } else {
+                // Check if this _refers_ to a builtin
+
+                if let Some(refers_to) = info.refers_to {
+                    if let Some(info) = self.analysis.info.get(&refers_to) {
+                        if info.builtin && !info.is_shadowed && info.shadows.is_none() {
+                            // todo!()
+
+                            // println!("FOUND UNSHADOWED USAGE OF BUILTIN: {}", a);
+
+                            if let Some(ident) = a.ident_mut() {
+                                if let Some((_, builtin_name)) =
+                                    ident.resolve().split_once(MANGLER_SEPARATOR)
+                                {
+                                    // let original = *ident;
+
+                                    self.identifiers_to_replace.insert(*ident);
+
+                                    *ident = ("#%prim.".to_string() + builtin_name).into();
+
+                                    // println!("MUTATED IDENT TO BE: {} -> {}", original, ident);
+
+                                    // println!("{:#?}", info);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -2555,14 +2744,37 @@ impl<'a> FunctionCallCollector<'a> {
             should_mangle,
         };
 
+        // TODO: @Matt - This needs to get the
         for expr in exprs.iter() {
-            if let ExprKind::Define(define) = expr {
-                if let ExprKind::LambdaFunction(_) = &define.body {
-                    let name = define.name.atom_identifier().unwrap().clone();
+            match expr {
+                ExprKind::Define(define) => {
+                    if let ExprKind::LambdaFunction(_) = &define.body {
+                        let name = define.name.atom_identifier().unwrap().clone();
 
-                    collector.functions.entry(name).or_default();
+                        collector.functions.entry(name).or_default();
+                    }
                 }
+                ExprKind::Begin(b) => {
+                    for expr in &b.exprs {
+                        if let ExprKind::Define(define) = expr {
+                            if let ExprKind::LambdaFunction(_) = &define.body {
+                                let name = define.name.atom_identifier().unwrap().clone();
+
+                                collector.functions.entry(name).or_default();
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
+
+            // if let ExprKind::Define(define) = expr {
+            //     if let ExprKind::LambdaFunction(_) = &define.body {
+            //         let name = define.name.atom_identifier().unwrap().clone();
+
+            //         collector.functions.entry(name).or_default();
+            //     }
+            // }
         }
 
         for expr in exprs {
@@ -2694,8 +2906,6 @@ impl<'a> SemanticAnalysis<'a> {
     // Takes the function call, and inlines it at the call sites. In theory, with constant evaluation and
     // dead code elimination, this should help streamline some of the more complex cases. This is also just a start.
     pub fn inline_function_call<A: AsRef<str>>(&mut self, name: A) -> Result<(), SteelErr> {
-        // find_call_sites_and_mutate_with
-
         // TODO: Cloning here is expensive. We should strive to make these trees somehow share the nodes a bit more elegantly.
         // As it stands, each time we close a syntax tree, we're going to do a deep clone of the whole thing, which we really don't
         // want to do.
@@ -2761,10 +2971,217 @@ impl<'a> SemanticAnalysis<'a> {
 
             *self.exprs = lifter.lifted_functions;
 
-            log::info!("Re-running the analysis after lifting local functions");
+            log::debug!("Re-running the analysis after lifting local functions");
             self.analysis = Analysis::from_exprs(self.exprs);
             self.analysis.populate_captures(self.exprs);
         }
+
+        self
+    }
+
+    pub(crate) fn replace_non_shadowed_globals_with_builtins(
+        &mut self,
+        macros: &mut HashMap<InternedString, SteelMacro>,
+        module_manager: &mut ModuleManager,
+        table: &mut HashSet<InternedString>,
+    ) -> &mut Self {
+        // for identifier in table.iter() {
+        //     println!("Table => {}", identifier);
+        // }
+
+        let mut replacer =
+            ReplaceBuiltinUsagesWithReservedPrimitiveReferences::new(&self.analysis, table);
+
+        for expr in self.exprs.iter_mut() {
+            replacer.visit(expr);
+        }
+
+        // for identifier in replacer.identifiers_to_replace.iter() {
+        //     println!("Replaced => {}", identifier);
+        // }
+
+        let mut macro_replacer = ReplaceBuiltinUsagesInsideMacros {
+            identifiers_to_replace: replacer.identifiers_to_replace,
+        };
+
+        for steel_macro in macros.values_mut() {
+            if !steel_macro.is_mangled() {
+                for expr in steel_macro.exprs_mut() {
+                    macro_replacer.visit(expr);
+                }
+
+                steel_macro.mark_mangled();
+            }
+        }
+
+        for module in module_manager.modules_mut() {
+            for steel_macro in module.1.macro_map.values_mut() {
+                if !steel_macro.is_mangled() {
+                    for expr in steel_macro.exprs_mut() {
+                        macro_replacer.visit(expr);
+                    }
+                }
+
+                steel_macro.mark_mangled();
+            }
+        }
+
+        for expr in self.exprs.iter_mut() {
+            macro_replacer.visit(expr);
+        }
+
+        self.analysis = Analysis::from_exprs(self.exprs);
+
+        // replace.vi
+
+        self
+    }
+
+    pub(crate) fn remove_unused_globals_with_prefix(
+        &mut self,
+        prefix: &str,
+        macros: &HashMap<InternedString, SteelMacro>,
+        module_manager: &ModuleManager,
+    ) -> &mut Self {
+        let module_get_interned: InternedString = "%module-get%".into();
+        let proto_hash_get: InternedString = "%proto-hash-get%".into();
+
+        let steel_constant_module: InternedString = "%-builtin-module-steel/constants".into();
+        let void: InternedString = "void".into();
+
+        let mut collected = CollectReferences {
+            idents: fxhash::FxHashSet::default(),
+        };
+
+        for steel_macro in macros.values() {
+            if !steel_macro.is_mangled() {
+                for expr in steel_macro.exprs() {
+                    collected.visit(expr);
+                }
+            }
+        }
+
+        for module in module_manager.modules() {
+            for steel_macro in module.1.macro_map.values() {
+                if !steel_macro.is_mangled() {
+                    for expr in steel_macro.exprs() {
+                        collected.visit(expr);
+                    }
+                }
+            }
+        }
+
+        let found = collected.idents;
+
+        // for ident in &found {
+        //     println!("{}", ident);
+        // }
+
+        self.exprs.retain_mut(|expression| {
+            match expression {
+                ExprKind::Define(define) => {
+                    if let Some(name) = define.name.atom_identifier() {
+                        if name.resolve().starts_with(prefix) {
+                            if let Some(analysis) = define
+                                .name
+                                .atom_syntax_object()
+                                .and_then(|x| self.analysis.get(x))
+                            {
+                                if analysis.usage_count == 0 {
+                                    if let Some(func) =
+                                        define.body.list().and_then(|x| x.first_ident())
+                                    {
+                                        if *func == module_get_interned || *func == proto_hash_get {
+                                            // If this is found inside of a macro, do not remove it
+                                            if found.contains(&name) {
+                                                return true;
+                                            }
+
+                                            // println!("REMOVING: {}", name);
+
+                                            return false;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                ExprKind::Begin(b) => {
+                    let mut offset = 0;
+                    let total_length = b.exprs.len();
+
+                    b.exprs.retain_mut(|expression| {
+                        if let ExprKind::Define(define) = expression {
+                            if let Some(name) = define.name.atom_identifier() {
+                                if name.resolve().starts_with(prefix) {
+                                    if let Some(analysis) = define
+                                        .name
+                                        .atom_syntax_object()
+                                        .and_then(|x| self.analysis.get(x))
+                                    {
+                                        if analysis.usage_count == 0 {
+                                            if let Some(func) =
+                                                define.body.list().and_then(|x| x.first_ident())
+                                            {
+                                                // (%module-get%
+                                                //         %-builtin-module-steel/constants
+                                                //         (quote
+                                                //           void))
+
+                                                if *func == module_get_interned
+                                                    || *func == proto_hash_get
+                                                {
+                                                    // If this is found inside of a macro, do not remove it
+                                                    if found.contains(&name) {
+                                                        offset += 1;
+                                                        return true;
+                                                    }
+
+                                                    // println!("REMOVING: {}", name);
+
+                                                    offset += 1;
+                                                    return false;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            if let ExprKind::List(l) = expression {
+                                if let Some(func) = l.first_ident() {
+                                    if *func == module_get_interned {
+                                        if l[1].atom_identifier() == Some(&steel_constant_module) {
+                                            if let ExprKind::Quote(q) = &l[2] {
+                                                if q.expr.atom_identifier() == Some(&void)
+                                                    && offset < total_length
+                                                {
+                                                    offset += 1;
+                                                    return false;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        offset += 1;
+                        return true;
+                    });
+                }
+                _ => {}
+            }
+
+            return true;
+        });
+
+        // self.exprs.push(ExprKind::ident("void"));
+
+        log::debug!("Re-running the semantic analysis after removing unused globals");
+
+        self.analysis = Analysis::from_exprs(self.exprs);
 
         self
     }
@@ -2806,7 +3223,7 @@ impl<'a> SemanticAnalysis<'a> {
         self.find_let_call_sites_and_mutate_with(func);
 
         if re_run_analysis {
-            log::info!("Re-running the semantic analysis after modifying let call sites");
+            log::debug!("Re-running the semantic analysis after modifying let call sites");
 
             self.analysis = Analysis::from_exprs(self.exprs);
         }
@@ -2864,7 +3281,7 @@ impl<'a> SemanticAnalysis<'a> {
                     let analysis = analysis.get_function_info(f).unwrap();
 
                     if analysis.captured_vars.is_empty() {
-                        log::info!("Found a function that does not capture variables");
+                        log::debug!("Found a function that does not capture variables");
 
                         if f.args.is_empty() && arg_count == 0 {
                             // Take out the body of the function - we're going to want to use that now
@@ -2891,7 +3308,7 @@ impl<'a> SemanticAnalysis<'a> {
         self.find_anonymous_function_calls_and_mutate_with(func);
 
         if re_run_analysis {
-            log::info!("Re-running the semantic analysis after modifications");
+            log::debug!("Re-running the semantic analysis after modifications");
 
             self.analysis = Analysis::from_exprs(self.exprs);
         }
@@ -2923,7 +3340,7 @@ impl<'a> SemanticAnalysis<'a> {
                     *anon = ExprKind::Let(let_expr.into());
 
                     re_run_analysis = true;
-                    log::info!("Replaced anonymous function call with let");
+                    log::debug!("Replaced anonymous function call with let");
 
                     true
                 } else {
@@ -2939,7 +3356,7 @@ impl<'a> SemanticAnalysis<'a> {
         self.find_anonymous_function_calls_and_mutate_with(func);
 
         if re_run_analysis {
-            log::info!("Re-running the semantic analysis after modifications");
+            log::debug!("Re-running the semantic analysis after modifications");
 
             self.analysis = Analysis::from_exprs(self.exprs);
         }
@@ -3041,6 +3458,38 @@ impl<'a> SemanticAnalysis<'a> {
         unused.unused_args
     }
 
+    /// Converts function applications of the form:
+    ///
+    /// ((lambda (x) (global-function-call x)) foo)
+    ///
+    /// Into:
+    ///
+    /// (global-function-call foo)
+    ///
+    /// Note: It is important to run this before lambda lifting, since currently
+    /// all `lets` are implemented naively as lambdas.
+    pub fn elide_single_argument_lambda_applications(&mut self) -> &mut Self {
+        let mut elider = ElideSingleArgumentLambdaApplications {
+            analysis: &self.analysis,
+            re_run_analysis: false,
+        };
+
+        for expr in self.exprs.iter_mut() {
+            elider.visit(expr);
+        }
+
+        if elider.re_run_analysis {
+            log::debug!(
+                "Re-running the semantic analysis after modifications during lambda lifting"
+            );
+
+            self.analysis = Analysis::from_exprs(self.exprs);
+            self.analysis.populate_captures(self.exprs);
+        }
+
+        self
+    }
+
     // TODO: Right now this lifts and renames, but it does not handle
     // The extra arguments necessary for this to work
     pub fn lift_pure_local_functions(&mut self) -> &mut Self {
@@ -3067,7 +3516,7 @@ impl<'a> SemanticAnalysis<'a> {
                 .iter()
                 .map(|x| {
                     if let ExprKind::Define(d) = x {
-                        log::info!("Found a local function to lift: {}", d.name);
+                        log::debug!("Found a local function to lift: {}", d.name);
                         d.name.atom_syntax_object().unwrap().syntax_object_id
                     } else {
                         unreachable!()
@@ -3150,7 +3599,7 @@ impl<'a> SemanticAnalysis<'a> {
         *self.exprs = overall_lifted;
 
         if re_run_analysis {
-            log::info!(
+            log::debug!(
                 "Re-running the semantic analysis after modifications during lambda lifting"
             );
 
@@ -3772,14 +4221,6 @@ mod analysis_pass_tests {
     fn check_analysis_pass() {
         // let mut builder = Builder::new();
 
-        // builder
-        //     .is_test(true)
-        //     .filter(
-        //         Some("steel::compiler::passes::analysis"),
-        //         LevelFilter::Trace,
-        //     )
-        //     .init();
-
         let script = r#"
 
         (define + (%module-get%))
@@ -3852,49 +4293,39 @@ mod analysis_pass_tests {
                 );
             }
 
-            let unused_args = analysis.find_unused_arguments();
+            let _unused_args = analysis.find_unused_arguments();
 
-            println!("Unused args: {unused_args:?}");
+            // println!("Unused args: {unused_args:?}");
 
-            for var in analysis.unused_variables() {
-                crate::rerrs::report_warning(
-                    ErrorKind::FreeIdentifier.to_error_code(),
-                    "input.rkt",
-                    script,
-                    "Unused variable".to_string(),
-                    var.span,
-                );
-            }
-
-            for var in analysis.global_defs() {
-                crate::rerrs::report_info(
-                    ErrorKind::FreeIdentifier.to_error_code(),
-                    "input.rkt",
-                    script,
-                    "global var".to_string(),
-                    var.span,
-                );
-            }
-
-            // for var in analysis.built_ins() {
-            //     crate::rerrs::report_info(
+            // for var in analysis.unused_variables() {
+            //     crate::rerrs::report_warning(
             //         ErrorKind::FreeIdentifier.to_error_code(),
             //         "input.rkt",
             //         script,
-            //         format!("built in function"),
+            //         "Unused variable".to_string(),
             //         var.span,
             //     );
             // }
 
-            for var in analysis.last_usages() {
-                crate::rerrs::report_info(
-                    ErrorKind::FreeIdentifier.to_error_code(),
-                    "input.rkt",
-                    script,
-                    "last usage of variable".to_string(),
-                    var.span,
-                );
-            }
+            // for var in analysis.global_defs() {
+            //     crate::rerrs::report_info(
+            //         ErrorKind::FreeIdentifier.to_error_code(),
+            //         "input.rkt",
+            //         script,
+            //         "global var".to_string(),
+            //         var.span,
+            //     );
+            // }
+
+            // for var in analysis.last_usages() {
+            //     crate::rerrs::report_info(
+            //         ErrorKind::FreeIdentifier.to_error_code(),
+            //         "input.rkt",
+            //         script,
+            //         "last usage of variable".to_string(),
+            //         var.span,
+            //     );
+            // }
 
             analysis.lift_pure_local_functions();
             // analysis.lift_local_functions();
@@ -3925,21 +4356,5 @@ mod analysis_pass_tests {
                 "List id: {list_id}, list 4 id: {alias_list_4_id}, resolved alias id: {found:?}"
             );
         }
-
-        // println!("{}", exprs[0]);
-
-        // let function_definit
-
-        // analysis.find_call_sites_and_call(name, func)
-
-        // analysis.run(&exprs);
-
-        // for expr in &exprs {
-        //     analysis.visit(expr);
-        // }
-
-        // find_call_sites_and_modify_with("foo", &analysis, &mut exprs, |l| {
-        //     log::info!("Found a call site: {:?}", l.to_string())
-        // });
     }
 }

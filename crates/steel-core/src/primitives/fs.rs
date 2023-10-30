@@ -1,7 +1,8 @@
-use crate::rvals::{Result, SteelVal};
+use crate::rvals::{Custom, Result, SteelString, SteelVal};
+use crate::steel_vm::builtin::BuiltInModule;
 use crate::stop;
 use std::env::current_dir;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use std::fs;
 use std::io;
@@ -28,194 +29,124 @@ pub fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>)
     Ok(())
 }
 
-pub struct FsFunctions {}
-impl FsFunctions {
-    pub fn delete_directory() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() == 1 {
-                let source = if let SteelVal::StringV(s) = &args[0] {
-                    s
-                } else {
-                    stop!(TypeMismatch => format!("delete-directory! expects a string, found: {}", &args[0]))
-                };
-
-                std::fs::remove_dir_all(source.as_str())?;
-
-                Ok(SteelVal::Void)
-            } else {
-                stop!(ArityMismatch => format!("delete-directory! takes two arguments, found: {}", args.len()))
-            }
-        })
+impl Custom for PathBuf {
+    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+        Some(Ok(format!("#<Path:{:?}>", self)))
     }
+}
 
-    pub fn create_dir_all() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() == 1 {
-                let source = if let SteelVal::StringV(s) = &args[0] {
-                    s
-                } else {
-                    stop!(TypeMismatch => format!("create-directory! expects a string, found: {}", &args[0]))
-                };
+/// # steel/filesystem
+///
+/// Filesystem functions, mostly just thin wrappers around the `std::fs` functions in
+/// the Rust std library.
+#[steel_derive::define_module(name = "steel/filesystem")]
+pub fn fs_module() -> BuiltInModule {
+    let mut module = BuiltInModule::new("steel/filesystem");
+    module
+        .register_native_fn_definition(DELETE_DIRECTORY_DEFINITION)
+        .register_native_fn_definition(CREATE_DIRECTORY_DEFINITION)
+        .register_native_fn_definition(COPY_DIRECTORY_RECURSIVELY_DEFINITION)
+        .register_native_fn_definition(IS_DIR_DEFINITION)
+        .register_native_fn_definition(IS_FILE_DEFINITION)
+        .register_native_fn_definition(READ_DIR_DEFINITION)
+        .register_native_fn_definition(PATH_EXISTS_DEFINITION)
+        .register_native_fn_definition(FILE_NAME_DEFINITION)
+        .register_native_fn_definition(CURRENT_DIRECTORY_DEFINITION)
+        .register_native_fn_definition(GET_EXTENSION_DEFINITION);
+    module
+}
 
-                std::fs::create_dir_all(source.as_str())?;
+/// Deletes the directory
+#[steel_derive::function(name = "delete-directory!")]
+pub fn delete_directory(directory: &SteelString) -> Result<SteelVal> {
+    std::fs::remove_dir_all(directory.as_str())?;
+    Ok(SteelVal::Void)
+}
 
-                Ok(SteelVal::Void)
-            } else {
-                stop!(ArityMismatch => format!("create-directory! takes two arguments, found: {}", args.len()))
-            }
-        })
+/// Creates the directory
+#[steel_derive::function(name = "create-directory!")]
+pub fn create_directory(directory: &SteelString) -> Result<SteelVal> {
+    std::fs::create_dir_all(directory.as_str())?;
+
+    Ok(SteelVal::Void)
+}
+
+/// Recursively copies the directory from source to destination
+#[steel_derive::function(name = "copy-directory-recursively!")]
+pub fn copy_directory_recursively(
+    source: &SteelString,
+    destination: &SteelString,
+) -> Result<SteelVal> {
+    copy_recursively(source.as_str(), destination.as_str())?;
+
+    Ok(SteelVal::Void)
+}
+
+/// Checks if a path exists
+#[steel_derive::function(name = "path-exists?")]
+pub fn path_exists(path: &SteelString) -> Result<SteelVal> {
+    Ok(SteelVal::BoolV(Path::new(path.as_ref()).exists()))
+}
+
+/// Checks if a path is a file
+#[steel_derive::function(name = "is-file?")]
+pub fn is_file(path: &SteelString) -> Result<SteelVal> {
+    Ok(SteelVal::BoolV(Path::new(path.as_ref()).is_file()))
+}
+
+/// Checks if a path is a directory
+#[steel_derive::function(name = "is-dir?")]
+pub fn is_dir(path: &SteelString) -> Result<SteelVal> {
+    Ok(SteelVal::BoolV(Path::new(path.as_ref()).is_dir()))
+}
+
+/// Gets the extension from a path
+#[steel_derive::function(name = "path->extension")]
+pub fn get_extension(path: &SteelString) -> Result<SteelVal> {
+    if let Some(ext) = get_extension_from_filename(path) {
+        Ok(SteelVal::StringV(ext.into()))
+    } else {
+        Ok(SteelVal::Void)
     }
+}
 
-    pub fn copy_directory_recursively() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() == 2 {
-                let source = if let SteelVal::StringV(s) = &args[0] {
-                    s
-                } else {
-                    stop!(TypeMismatch => format!("copy-directory-recursively! expects a string, found: {}", &args[0]))
-                };
+/// Gets the filename for a given path
+#[steel_derive::function(name = "file-name")]
+pub fn file_name(path: &SteelString) -> Result<SteelVal> {
+    Ok(SteelVal::StringV(
+        Path::new(path.as_str())
+            .file_name()
+            .and_then(|x| x.to_str())
+            .unwrap_or("")
+            .into(),
+    ))
+}
 
-                let destination = if let SteelVal::StringV(s) = &args[1] {
-                    s
-                } else {
-                    stop!(TypeMismatch => format!("copy-directory-recursively! expects a string, found: {}", &args[0]))
-                };
-
-                copy_recursively(source.as_str(), destination.as_str())?;
-
-                Ok(SteelVal::Void)
-            } else {
-                stop!(ArityMismatch => format!("copy-directory-recursively! takes two arguments, found: {}", args.len()))
-            }
-        })
-    }
-
-    pub fn path_exists() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() == 1 {
-                if let SteelVal::StringV(s) = &args[0] {
-                    Ok(SteelVal::BoolV(Path::new(s.as_ref()).exists()))
-                } else {
-                    stop!(TypeMismatch => "path-exists? expects a string")
-                }
-            } else {
-                stop!(ArityMismatch => "path-exists? takes one argument")
-            }
-        })
-    }
-
-    pub fn is_file() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() == 1 {
-                // let path =
-
-                if let SteelVal::StringV(s) = &args[0] {
-                    Ok(SteelVal::BoolV(Path::new(s.as_ref()).is_file()))
-                } else {
-                    stop!(TypeMismatch => format!("is-file? expects a string, found: {}", &args[0]))
-                }
-            } else {
-                stop!(ArityMismatch => "is-file? takes one argument")
-            }
-        })
-    }
-
-    pub fn get_extension(args: &[SteelVal]) -> Result<SteelVal> {
-        if args.len() == 1 {
-            if let SteelVal::StringV(s) = &args[0] {
-                if let Some(ext) = get_extension_from_filename(s) {
-                    Ok(SteelVal::StringV(ext.into()))
-                } else {
-                    Ok(SteelVal::Void)
-
-                    // stop!(Generic => format!("path->extension expects a path that exists, found: {s}"))
-                }
-            } else {
-                stop!(TypeMismatch => format!("path->extension expects a string, found: {}", &args[0]))
-            }
-        } else {
-            stop!(ArityMismatch => format!("path->extension takes one argument, found: {}", args.len()))
+/// Returns the contents of the directory as a list
+#[steel_derive::function(name = "read-dir")]
+pub fn read_dir(path: &SteelString) -> Result<SteelVal> {
+    let p = Path::new(path.as_ref());
+    if p.is_dir() {
+        let iter = p.read_dir();
+        match iter {
+            Ok(i) => Ok(SteelVal::ListV(
+                i.into_iter()
+                    .map(|x| match x?.path().to_str() {
+                        Some(s) => Ok(SteelVal::StringV(s.into())),
+                        None => Ok(SteelVal::BoolV(false)),
+                    })
+                    .collect::<Result<_>>()?,
+            )),
+            Err(e) => stop!(Generic => e.to_string()),
         }
+    } else {
+        stop!(TypeMismatch => "read-dir expected a dir, found a file: {}", path)
     }
+}
 
-    pub fn is_dir() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() == 1 {
-                // let path =
-
-                if let SteelVal::StringV(s) = &args[0] {
-                    Ok(SteelVal::BoolV(Path::new(&s.to_string()).is_dir()))
-                } else {
-                    stop!(TypeMismatch => "is-dir? expects a string")
-                }
-            } else {
-                stop!(ArityMismatch => "is-dir? takes one argument")
-            }
-        })
-    }
-
-    pub fn file_name() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() == 1 {
-                if let SteelVal::StringV(s) = &args[0] {
-                    Ok(SteelVal::StringV(
-                        Path::new(s.as_str())
-                            .file_name()
-                            .and_then(|x| x.to_str())
-                            .unwrap_or("")
-                            .into(),
-                    ))
-                } else {
-                    stop!(TypeMismatch => "file-name expects a string")
-                }
-            } else {
-                stop!(ArityMismatch => "file-name takes one argument")
-            }
-        })
-    }
-
-    pub fn read_dir() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() == 1 {
-                // let path =
-
-                if let SteelVal::StringV(s) = &args[0] {
-                    let p = Path::new(s.as_ref());
-                    if p.is_dir() {
-                        let iter = p.read_dir();
-                        match iter {
-                            Ok(i) => Ok(SteelVal::ListV(
-                                i.into_iter()
-                                    .map(|x| match x?.path().to_str() {
-                                        Some(s) => Ok(SteelVal::StringV(s.into())),
-                                        None => Ok(SteelVal::BoolV(false)),
-                                    })
-                                    .collect::<Result<_>>()?,
-                            )),
-                            Err(e) => stop!(Generic => e.to_string()),
-                        }
-                    } else {
-                        stop!(TypeMismatch => "read-dir expected a dir, found a file")
-                    }
-                } else {
-                    stop!(TypeMismatch => "read-dir expects a string")
-                }
-            } else {
-                stop!(ArityMismatch => "read-dir takes one argument")
-            }
-        })
-    }
-
-    pub fn current_dir() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.is_empty() {
-                let path = current_dir()?;
-                Ok(SteelVal::StringV(path.to_str().unwrap_or("").into()))
-            // println!("The current directory is {}", path.display());
-            // Ok(())
-            } else {
-                stop!(ArityMismatch => "current-directory takes no arguments")
-            }
-        })
-    }
+/// Check the current working directory
+#[steel_derive::function(name = "current-directory")]
+pub fn current_directory() -> Result<SteelVal> {
+    let path = current_dir()?;
+    Ok(SteelVal::StringV(path.to_str().unwrap_or("").into()))
 }

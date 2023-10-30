@@ -18,6 +18,8 @@
                     (range 0 10))])
     (map (lambda (x) (unwrap-ok (thread-join! x))) tasks)))
 
+; (error "HELLO WORLD")
+
 (test-module
  "Basic threads works"
  (check-equal? "spawn-threads" (spawn-concurrent-tasks) (map (lambda (x) void) (range 0 10))))

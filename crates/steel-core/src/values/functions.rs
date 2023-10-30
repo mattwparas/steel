@@ -24,8 +24,9 @@ use crate::{
         register_fn::SendSyncStatic,
         vm::{BlockMetadata, BlockPattern, BuiltInSignature},
     },
-    values::contracts::ContractedFunction,
-    SteelErr, SteelVal,
+    // values::contracts::ContractedFunction,
+    SteelErr,
+    SteelVal,
 };
 
 use super::{closed::HeapRef, structs::UserDefinedStruct};
@@ -99,14 +100,14 @@ pub struct ByteCodeLambda {
     call_count: Cell<usize>,
 
     pub(crate) is_multi_arity: bool,
-    captures: Vec<SteelVal>,
-    pub(crate) heap_allocated: RefCell<Vec<HeapRef>>,
+    pub(crate) captures: Vec<SteelVal>,
+    pub(crate) heap_allocated: RefCell<Vec<HeapRef<SteelVal>>>,
     // pub(crate) spans: Rc<[Span]>,
     #[cfg(feature = "dynamic")]
     pub(crate) blocks: RefCell<Vec<(BlockPattern, BlockMetadata)>>,
 
     // This is a little suspicious, but it should give us the necessary information to attach a struct of metadata
-    contract: RefCell<Option<Gc<RefCell<UserDefinedStruct>>>>,
+    contract: RefCell<Option<Gc<UserDefinedStruct>>>,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -123,6 +124,7 @@ impl std::hash::Hash for ByteCodeLambda {
         self.id.hash(state);
         // self.body_exp.as_ptr().hash(state);
         self.arity.hash(state);
+
         // self.sub_expression_env.as_ptr().hash(state);
     }
 }
@@ -142,14 +144,19 @@ pub struct SerializedLambda {
 impl TryFrom<ByteCodeLambda> for SerializedLambda {
     type Error = SteelErr;
 
-    fn try_from(value: ByteCodeLambda) -> Result<Self, Self::Error> {
+    fn try_from(mut value: ByteCodeLambda) -> Result<Self, Self::Error> {
         Ok(SerializedLambda {
             id: value.id,
+
+            #[cfg(not(feature = "dynamic"))]
             body_exp: value.body_exp.into_iter().cloned().collect(),
+
+            #[cfg(feature = "dynamic")]
+            body_exp: value.body_exp.borrow().iter().cloned().collect(),
+
             arity: value.arity,
             is_multi_arity: value.is_multi_arity,
-            captures: value
-                .captures
+            captures: std::mem::take(&mut value.captures)
                 .into_iter()
                 .map(into_serializable_value)
                 .collect::<Result<_, Self::Error>>()?,
@@ -185,7 +192,7 @@ impl ByteCodeLambda {
         arity: usize,
         is_multi_arity: bool,
         captures: Vec<SteelVal>,
-        heap_allocated: Vec<HeapRef>,
+        heap_allocated: Vec<HeapRef<SteelVal>>,
     ) -> ByteCodeLambda {
         // debug_assert_eq!(body_exp.len(), spans.len());
 
@@ -236,7 +243,7 @@ impl ByteCodeLambda {
         self.captures = captures;
     }
 
-    pub fn set_heap_allocated(&mut self, heap_allocated: Vec<HeapRef>) {
+    pub fn set_heap_allocated(&mut self, heap_allocated: Vec<HeapRef<SteelVal>>) {
         self.heap_allocated = RefCell::new(heap_allocated);
     }
 
@@ -288,7 +295,7 @@ impl ByteCodeLambda {
         self.arity
     }
 
-    pub fn heap_allocated(&self) -> &RefCell<Vec<HeapRef>> {
+    pub fn heap_allocated(&self) -> &RefCell<Vec<HeapRef<SteelVal>>> {
         &self.heap_allocated
     }
 
@@ -316,7 +323,7 @@ impl ByteCodeLambda {
     //     self.cant_be_compiled.get()
     // }
 
-    pub fn attach_contract_information(&self, steel_struct: Gc<RefCell<UserDefinedStruct>>) {
+    pub fn attach_contract_information(&self, steel_struct: Gc<UserDefinedStruct>) {
         let mut guard = self.contract.borrow_mut();
 
         *guard = Some(steel_struct);

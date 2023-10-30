@@ -1,6 +1,12 @@
 #![allow(unused)]
 use crate::{
-    compiler::{passes::VisitorMutRefUnit, program::PROVIDE},
+    compiler::{
+        passes::{
+            analysis::{Analysis, SemanticAnalysis},
+            VisitorMutRefUnit,
+        },
+        program::PROVIDE,
+    },
     expr_list,
     parser::{
         ast::{AstTools, Atom, Begin, Define, ExprKind, List, Quote},
@@ -38,26 +44,49 @@ use super::{
     program::{CONTRACT_OUT, FOR_SYNTAX, ONLY_IN, PREFIX_IN, REQUIRE_IDENT_SPEC},
 };
 
-const OPTION: &str = include_str!("../scheme/modules/option.scm");
-const OPTION_NAME: &str = "steel/option";
+static OPTION: &str = include_str!("../scheme/modules/option.scm");
+static OPTION_NAME: &str = "steel/option";
 
-const RESULT: &str = include_str!("../scheme/modules/result.scm");
-const RESULT_NAME: &str = "steel/result";
+static RESULT: &str = include_str!("../scheme/modules/result.scm");
+static RESULT_NAME: &str = "steel/result";
 
-// const DICT: &str = include_str!("../scheme/modules/test.rkt");
-// const TEST_NAME: &str = "std::test";
+static CONTRACT: &str = include_str!("../scheme/modules/contracts.scm");
+static CONTRACT_NAME: &str = "#%private/steel/contract";
 
-static BUILT_INS: &[(&str, &str)] = &[(OPTION_NAME, OPTION), (RESULT_NAME, RESULT)];
+static ITERATORS: &str = include_str!("../scheme/modules/iterators.scm");
+static ITERATORS_NAME: &str = "steel/iterators";
+
+static MUTABLE_VECTORS: &str = include_str!("../scheme/modules/mvector.scm");
+static MUTABLE_VECTORS_NAME: &str = "steel/mutable-vectors";
+
+static PRINTING: &str = include_str!("../scheme/print.scm");
+static PRINTING_NAME: &str = "#%private/steel/print";
+
+static DYNAMIC_WIND_NAME: &str = "#%private/steel/control";
+static DYNAMIC_WIND: &str = include_str!("../scheme/modules/parameters.scm");
+
+static BUILT_INS: &[(&str, &str)] = &[
+    (OPTION_NAME, OPTION),
+    (RESULT_NAME, RESULT),
+    (CONTRACT_NAME, CONTRACT),
+    (ITERATORS_NAME, ITERATORS),
+    (MUTABLE_VECTORS_NAME, MUTABLE_VECTORS),
+    (PRINTING_NAME, PRINTING),
+    (DYNAMIC_WIND_NAME, DYNAMIC_WIND),
+];
+
+pub(crate) const MANGLER_SEPARATOR: &str = "__%#__";
 
 /// Manages the modules
 /// keeps some visited state on the manager for traversal
 /// Also keeps track of the metadata for each file in order to determine
 /// if it needs to be recompiled
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ModuleManager {
     compiled_modules: HashMap<PathBuf, CompiledModule>,
     file_metadata: HashMap<PathBuf, SystemTime>,
     visited: HashSet<PathBuf>,
+    custom_builtins: HashMap<String, String>,
 }
 
 impl ModuleManager {
@@ -69,11 +98,20 @@ impl ModuleManager {
             compiled_modules,
             file_metadata,
             visited: HashSet::new(),
+            custom_builtins: HashMap::new(),
         }
+    }
+
+    pub fn add_builtin_module(&mut self, module_name: String, text: String) {
+        self.custom_builtins.insert(module_name, text);
     }
 
     pub fn modules(&self) -> &HashMap<PathBuf, CompiledModule> {
         &self.compiled_modules
+    }
+
+    pub fn modules_mut(&mut self) -> &mut HashMap<PathBuf, CompiledModule> {
+        &mut self.compiled_modules
     }
 
     pub(crate) fn default() -> Self {
@@ -169,7 +207,9 @@ impl ModuleManager {
             .require_objects
             .iter()
             .filter(|x| !x.for_syntax)
-            .map(|x| "mangler".to_string() + x.path.get_path().to_str().unwrap())
+            .map(|x| {
+                "mangler".to_string() + x.path.get_path().to_str().unwrap() + MANGLER_SEPARATOR
+            })
             .collect::<Vec<_>>();
 
         let mut explicit_requires = HashMap::new();
@@ -201,7 +241,8 @@ impl ModuleManager {
             let module = if let Some(module) = module_builder.compiled_modules.get(path.as_ref()) {
                 module
             } else {
-                log::info!("No provides found for module, skipping: {:?}", path);
+                log::debug!(target: "modules", "No provides found for module, skipping: {:?}", path);
+
                 continue;
             };
 
@@ -215,7 +256,8 @@ impl ModuleManager {
                     // Would be nice if this could be handled by some macro expansion...
                     // See if contract/out
 
-                    let other_module_prefix = "mangler".to_string() + module.name.to_str().unwrap();
+                    let other_module_prefix =
+                        "mangler".to_string() + module.name.to_str().unwrap() + MANGLER_SEPARATOR;
 
                     // TODO: Expand the contract out into something we expect
                     // Otherwise, this is going to blow up
@@ -243,7 +285,7 @@ impl ModuleManager {
                                         let contract = l.args.get(2).unwrap();
 
                                         let hash_get = expr_list![
-                                            ExprKind::ident("hash-get"),
+                                            ExprKind::ident("%proto-hash-get%"),
                                             ExprKind::atom(
                                                 "__module-".to_string() + &other_module_prefix
                                             ),
@@ -280,15 +322,7 @@ impl ModuleManager {
 
                                         let define = ExprKind::Define(Box::new(Define::new(
                                             owned_name,
-                                            // expr_list![
-                                            // ExprKind::ident("bind/c"),
-                                            // contract.clone(),
                                             hash_get,
-                                            // ExprKind::Quote(Box::new(Quote::new(
-                                            // name.clone(),
-                                            // SyntaxObject::default(TokenType::Quote)
-                                            // ))),
-                                            // ],
                                             SyntaxObject::default(TokenType::Define),
                                         )));
 
@@ -311,7 +345,7 @@ impl ModuleManager {
                                         }
 
                                         let hash_get = expr_list![
-                                            ExprKind::ident("hash-get"),
+                                            ExprKind::ident("%proto-hash-get%"),
                                             ExprKind::atom(
                                                 "__module-".to_string() + &other_module_prefix
                                             ),
@@ -348,15 +382,7 @@ impl ModuleManager {
 
                                         let define = ExprKind::Define(Box::new(Define::new(
                                             owned_name,
-                                            // expr_list![
-                                            // ExprKind::ident("bind/c"),
-                                            // contract.clone(),
                                             hash_get,
-                                            // ExprKind::Quote(Box::new(Quote::new(
-                                            // name.clone(),
-                                            // SyntaxObject::default(TokenType::Quote)
-                                            // ))),
-                                            // ],
                                             SyntaxObject::default(TokenType::Define),
                                         )));
 
@@ -381,7 +407,7 @@ impl ModuleManager {
                             }
 
                             let hash_get = expr_list![
-                                ExprKind::ident("hash-get"),
+                                ExprKind::ident("%proto-hash-get%"),
                                 ExprKind::atom("__module-".to_string() + &other_module_prefix),
                                 ExprKind::Quote(Box::new(Quote::new(
                                     provide.clone(),
@@ -439,11 +465,19 @@ impl ModuleManager {
             .filter(|x| x.for_syntax)
             .map(|x| x.path.get_path())
         {
-            let (module, in_scope_macros) = Self::find_in_scope_macros(
+            let (module, mut in_scope_macros) = Self::find_in_scope_macros(
                 &self.compiled_modules,
                 require_for_syntax.as_ref(),
                 &mut mangled_asts,
             );
+
+            // dbg!(&in_scope_macros);
+
+            // for (key, value) in &mut in_scope_macros {
+            //     for line in value.exprs_mut() {
+            //         println!("{}", line);
+            //     }
+            // }
 
             // ast = ast.into_iter().map(|x| )
 
@@ -466,44 +500,12 @@ impl ModuleManager {
                     // expand(x, &module.macro_map)
                 })
                 .collect::<Result<_>>()?;
+
+            // TODO: @Matt 10/16/12
+            // This won't work if the macros expand to other private macros.
+            // Tracking issue here: <TODO>
+            global_macro_map.extend(in_scope_macros);
         }
-
-        // dbg!(mangled_prefixes.len());
-        // dbg!(module_statements.len());
-        // println!("------------------");
-        // module_statements.pretty_print();
-        // println!("------------------");
-
-        // let duped_prefixes = mangled_prefixes
-        //     .clone()
-        //     .into_iter()
-        //     .interleave(mangled_prefixes.into_iter());
-
-        // let mut module_statements = duped_prefixes
-        //     .into_iter()
-        //     .zip(module_statements.into_iter())
-        //     .map(|(prefix, require_define)| {
-        //         println!("---- Unmangling: {prefix} ----");
-
-        //         let mut expanded = expand(require_define, global_macro_map)?;
-
-        //         let mut name_unmangler = NameUnMangler::new(&prefix);
-
-        //         name_unmangler.unmangle_expr(&mut expanded);
-
-        //         println!("--- {}", expanded.to_pretty(60));
-
-        //         Ok(expanded)
-        //     })
-        //     .collect::<Result<Vec<_>>>()?;
-
-        // println!("before expanding global macros");
-        // println!("----------");
-        // module_statements.pretty_print();
-        // println!("----------");
-
-        // Include the mangled asts in the resulting asts returned
-        // module_statements.append(&mut mangled_asts);
 
         // Include the defines from the modules now imported
         module_statements.append(&mut require_defines);
@@ -531,7 +533,7 @@ impl ModuleManager {
             .get(require_for_syntax)
             .expect(&format!("Module missing!: {:?}", require_for_syntax));
 
-        let prefix = "mangler".to_string() + module.name.to_str().unwrap();
+        let prefix = "mangler".to_string() + module.name.to_str().unwrap() + MANGLER_SEPARATOR;
 
         let globals = collect_globals(&module.ast);
 
@@ -589,14 +591,13 @@ impl ModuleManager {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CompiledModule {
     name: PathBuf,
     provides: Vec<ExprKind>,
-    // TODO: Change this to be an ID instead of a string directly
     require_objects: Vec<RequireObject>,
     provides_for_syntax: Vec<InternedString>,
-    macro_map: HashMap<InternedString, SteelMacro>,
+    pub(crate) macro_map: HashMap<InternedString, SteelMacro>,
     ast: Vec<ExprKind>,
     emitted: bool,
 }
@@ -644,7 +645,7 @@ impl CompiledModule {
         let mut exprs = self.ast.clone();
         let mut provide_definitions = Vec::new();
 
-        let prefix = "mangler".to_string() + self.name.to_str().unwrap();
+        let prefix = "mangler".to_string() + self.name.to_str().unwrap() + MANGLER_SEPARATOR;
 
         // Now we should be able to set up a series of requires with the right style
         // ;; Refresh the module definition in this namespace
@@ -676,7 +677,8 @@ impl CompiledModule {
             // println!("{:?}", modules.keys().collect::<Vec<_>>());
             let module = modules.get(path.as_ref()).unwrap();
 
-            let other_module_prefix = "mangler".to_string() + module.name.to_str().unwrap();
+            let other_module_prefix =
+                "mangler".to_string() + module.name.to_str().unwrap() + MANGLER_SEPARATOR;
 
             for provide_expr in &module.provides {
                 // For whatever reason, the value coming into module.provides is an expression like: (provide expr...)
@@ -730,7 +732,7 @@ impl CompiledModule {
                                         globals.insert(*name.atom_identifier().unwrap());
 
                                         let hash_get = expr_list![
-                                            ExprKind::ident("hash-get"),
+                                            ExprKind::ident("%proto-hash-get%"),
                                             ExprKind::atom(
                                                 "__module-".to_string() + &other_module_prefix
                                             ),
@@ -745,15 +747,7 @@ impl CompiledModule {
                                                 prefix.clone()
                                                     + name.atom_identifier().unwrap().resolve(),
                                             ),
-                                            // expr_list![
-                                            // ExprKind::ident("bind/c"),
-                                            // contract.clone(),
                                             hash_get,
-                                            // ExprKind::Quote(Box::new(Quote::new(
-                                            // name.clone(),
-                                            // SyntaxObject::default(TokenType::Quote)
-                                            // ))),
-                                            // ],
                                             SyntaxObject::default(TokenType::Define),
                                         )));
 
@@ -811,7 +805,7 @@ impl CompiledModule {
                             let define = ExprKind::Define(Box::new(Define::new(
                                 ExprKind::atom(prefix.clone() + provide_ident.resolve()),
                                 expr_list![
-                                    ExprKind::ident("hash-get"),
+                                    ExprKind::ident("%proto-hash-get%"),
                                     ExprKind::atom("__module-".to_string() + &other_module_prefix),
                                     ExprKind::Quote(Box::new(Quote::new(
                                         provide.clone(),
@@ -828,10 +822,6 @@ impl CompiledModule {
                         }
                     }
                 }
-
-                // exprs.push(define);
-
-                // todo!()
             }
         }
 
@@ -998,6 +988,17 @@ impl CompiledModule {
         // TODO: Perhaps mangle these as well, especially if they have contracts associated with them
         provide_definitions.append(&mut exprs);
 
+        // Try this out?
+        // let mut analysis = Analysis::from_exprs(&provide_definitions);
+        // let mut semantic = SemanticAnalysis::from_analysis(&mut provide_definitions, analysis);
+
+        // // This is definitely broken still
+        // semantic.remove_unused_globals_with_prefix("mangler");
+        // .replace_non_shadowed_globals_with_builtins()
+        // .remove_unused_globals_with_prefix("mangler");
+
+        // println!("------ {}", provide_definitions.to_pretty(60));
+
         Ok(ExprKind::Begin(Begin::new(
             provide_definitions,
             SyntaxObject::default(TokenType::Begin),
@@ -1037,21 +1038,21 @@ impl CompiledModule {
         // TODO clean this up
         let res = ExprKind::List(List::new(body));
 
-        if log_enabled!(target: "requires", log::Level::Info) {
-            info!(target: "requires", "Module ast node: {}", res.to_string());
+        if log_enabled!(target: "requires", log::Level::Debug) {
+            debug!(target: "requires", "Module ast node: {}", res.to_string());
         }
 
         res
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 enum MaybeRenamed {
     Normal(ExprKind),
     Renamed(ExprKind, ExprKind),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RequireObject {
     path: PathOrBuiltIn,
     for_syntax: bool,
@@ -1059,9 +1060,9 @@ pub struct RequireObject {
     prefix: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 enum PathOrBuiltIn {
-    BuiltIn(&'static str),
+    BuiltIn(Cow<'static, str>),
     Path(PathBuf),
 }
 
@@ -1069,7 +1070,7 @@ impl PathOrBuiltIn {
     pub fn get_path(&self) -> Cow<'_, PathBuf> {
         match self {
             Self::Path(p) => Cow::Borrowed(p),
-            Self::BuiltIn(p) => Cow::Owned(PathBuf::from(p)),
+            Self::BuiltIn(p) => Cow::Owned(PathBuf::from(p.to_string())),
         }
     }
 }
@@ -1169,23 +1170,42 @@ impl<'a> ModuleBuilder<'a> {
     fn compile(&mut self) -> Result<Vec<ExprKind>> {
         debug!(target: "requires", "Visiting: {:?}", self.name);
 
+        // @Matt - 10/3/23
+        // This has a relatively fatal flaw at the moment:
+        /*
+
+            (define-syntax register-plugin
+              (syntax-rules ()
+                [(register-plugin plugin-path identifiers ...)
+                 (begin
+                   (require plugin-path
+                            (only-in identifiers ...))
+                   (provide identifiers ...))]))
+        */
+        // This will fail to compile - anything that expands into a require will fail since
+        // require is more or less a top level primitive. What we need to do is figure
+        // out a way to have this be recursive - the whole compilation step should
+        // go again once we discover that there is another require. It shouldn't be too bad,
+        // but the base case has to be figured out such that we don't get infinite recursion.
+        // I think the condition is probably something along the following:
+        //
+        // - Did we expand anything
+        // - Are there require statements
+        //
+        // If we expanded anything, we then should check for require statements... maybe
+
+        let mut new_exprs = Vec::new();
+
+        // self.source_ast.pretty_print();
+
         self.collect_requires()?;
-        // let contains_provides = self.contains_provides();
         self.collect_provides()?;
 
         if log_enabled!(log::Level::Info) {
-            info!("Requires: {:#?}", self.require_objects);
-            // info!("Requires for-syntax: {:?}", self.requires_for_syntax);
-
-            info!("Provides: {:#?}", self.provides);
-            info!("Provides for-syntax: {:?}", self.provides_for_syntax);
+            debug!(target: "requires", "Requires: {:#?}", self.require_objects);
+            debug!(target: "requires", "Provides: {:#?}", self.provides);
+            debug!(target: "requires", "Provides for-syntax: {:?}", self.provides_for_syntax);
         }
-
-        // if self.provides.is_empty() && !self.main {
-        //     self.visited.insert(self.name.clone());
-
-        //     return Ok(Vec::new());
-        // }
 
         if self.visited.contains(&self.name) {
             stop!(Generic => format!("circular dependency found during module resolution with: {:?}", self.name))
@@ -1209,17 +1229,11 @@ impl<'a> ModuleBuilder<'a> {
         }
 
         self.extract_macro_defs()?;
-        let mut new_exprs = Vec::new();
 
         // TODO include built ins here
         if self.require_objects.is_empty() && !self.main {
             // We're at a leaf, put into the cache
-            // println!("putting {:?} in the cache", self.name);
-            // if !self.provides.is_empty() {
             new_exprs.push(self.compile_module()?);
-            // } else {
-            // println!("SKIPPING");
-            // }
         } else {
             // TODO come back for parsing built ins
             for module in self
@@ -1279,8 +1293,11 @@ impl<'a> ModuleBuilder<'a> {
                 // ast.append(&mut module_exprs);
                 // new_module.source_ast = ast;
 
+                // Probably want to evaluate a module even if it has no provides?
                 if !new_module.provides.is_empty() {
                     new_exprs.push(new_module.compile_module()?);
+                } else {
+                    log::debug!(target: "requires", "Found no provides, skipping compilation of module: {:?}", new_module.name);
                 }
             }
 
@@ -1335,6 +1352,7 @@ impl<'a> ModuleBuilder<'a> {
                 // debug!("Inside {:?} - append {:?}", self.name, module);
                 if log_enabled!(log::Level::Debug) {
                     debug!(
+                        target: "modules",
                         "appending with {:?}",
                         module_exprs.iter().map(|x| x.to_string()).join(" SEP ")
                     );
@@ -1348,63 +1366,45 @@ impl<'a> ModuleBuilder<'a> {
                 // ast.append(&mut module_exprs);
                 // new_module.source_ast = ast;
 
+                // dbg!(&new_module.name);
+                // dbg!(&new_module.compiled_modules.contains_key(&new_module.name));
+
+                // If we need to, revisit because there are new provides
                 if !new_module.provides.is_empty() {
                     new_exprs.push(new_module.compile_module()?);
+                // If the module hasn't yet been compiled, compile it anyway
+                } else if !new_module.compiled_modules.contains_key(&new_module.name) {
+                    // else if !new_module.compiled_modules.contains_key(&new_module.name) {
+                    new_exprs.push(new_module.compile_module()?);
+                } else {
+                    log::debug!(target: "requires", "Found no provides, skipping compilation of module: {:?}", new_module.name);
+                    log::debug!(target: "requires", "Module already in the cache: {}", new_module.compiled_modules.contains_key(&new_module.name));
+                    log::debug!(target: "requires", "Compiled modules: {:?}", new_module.compiled_modules.keys().collect::<Vec<_>>());
                 }
+
+                // else {
+                //     log::debug!(target: "requires", "Found no provides, skipping compilation of module: {:?}", new_module.name);
+                // }
             }
         }
 
-        // Define the actual
-
-        // println!("compiling: {}", self.name);
-
-        // println!(
-        //     "Exiting with {:?}",
-        //     new_exprs.iter().map(|x| x.to_string()).collect::<Vec<_>>()
-        // );
+        // new_exprs.pretty_print();
 
         Ok(new_exprs)
     }
 
+    // TODO: This should run again on itself, probably
     fn compile_module(&mut self) -> Result<ExprKind> {
         let mut ast = std::mem::take(&mut self.source_ast);
         let mut provides = std::mem::take(&mut self.provides);
-
-        // let mut ast = self.source_ast.clone();
-        // let provides = self.provides.clone();
-
         // Clone the requires... I suppose
         let requires = self.require_objects.clone();
 
-        // println!("built ins: {:?}", self.built_ins);
-
-        // requires.append(&mut self.built_ins.clone());
-
-        // TODO -> qualified requires as well
-        // qualified requires should be able to adjust the names of the exported functions
-
-        // for require in &self.requires {
-        // @Matt 10/8/22
-        // Here, instead of building out the entire AST node, just insert a reference to the module at the top level
-        // Something like: (require <module_name>)
-
-        // let m = self
-        //     .compiled_modules
-        //     .get(require)
-        //     .unwrap()
-        //     .to_module_ast_node();
-        // requires.push(m);
-        // }
-
         info!(
+            target: "requires",
             "Into compiled module: provides for syntax: {:?}",
             self.provides_for_syntax
         );
-
-        // info!(
-        //     "Into compiled module: requires for syntax: {:?}",
-        //     self.requires_for_syntax
-        // );
 
         // Expand first with the macros from *this* module
         ast = ast
@@ -1415,9 +1415,6 @@ impl<'a> ModuleBuilder<'a> {
                 })
             })
             .collect::<Result<Vec<_>>>()?;
-
-        // @Matt - provide expansion
-        // TODO: Extend the provides with any provides that are yielded from the above
 
         // Expand provides for any macros that exist within there
         provides = provides
@@ -1444,8 +1441,6 @@ impl<'a> ModuleBuilder<'a> {
                 &mut mangled_asts,
             );
 
-            // ast.pretty_print();
-
             ast = ast
                 .into_iter()
                 .map(|x| {
@@ -1459,13 +1454,8 @@ impl<'a> ModuleBuilder<'a> {
                     } else {
                         Ok(first_round_expanded)
                     }
-
-                    // expand(x, &module.macro_map)
                 })
                 .collect::<Result<_>>()?;
-
-            // @Matt - provide expansion
-            // TODO: Do the same here. Extend the provides with any provides that are yielded from the above expansion
 
             provides = provides
                 .into_iter()
@@ -1480,17 +1470,35 @@ impl<'a> ModuleBuilder<'a> {
                     } else {
                         Ok(first_round_expanded)
                     }
-
-                    // expand(x, &module.macro_map)
                 })
                 .collect::<Result<_>>()?;
         }
+
+        // let requires_before = self.require_objects.len();
+
+        // self.collect_requires()?;
+
+        // if self.require_objects.len() > requires_before {
+        //     println!("EXPANDED INTO A REQUIRE");
+        // }
+
+        // TODO: Check HERE for whether there are more requires than were previously found.
+        // If so, we should go back and compile the module again
 
         // TODO: @Matt - fix this hack
         {
             self.source_ast = ast;
             self.provides = provides;
+
             self.collect_provides();
+
+            // let requires_before = self.require_objects.len();
+
+            // self.collect_requires()?;
+
+            // if self.require_objects.len() > requires_before {
+            //     println!("EXPANDED INTO A REQUIRE");
+            // }
 
             provides = std::mem::take(&mut self.provides);
             ast = std::mem::take(&mut self.source_ast);
@@ -1499,29 +1507,6 @@ impl<'a> ModuleBuilder<'a> {
         // Put the mangled asts at the top
         // then include the ast there
         mangled_asts.append(&mut ast);
-
-        // let duped_prefixes = mangled_prefixes
-        //     .clone()
-        //     .into_iter()
-        //     .interleave(mangled_prefixes.into_iter());
-
-        // let mut mangled_asts = duped_prefixes
-        //     .into_iter()
-        //     .zip(mangled_asts.into_iter())
-        //     .map(|(prefix, require_define)| {
-        //         println!("---- Unmangling: {prefix} ----");
-
-        //         let mut expanded = expand(require_define, self.global_macro_map)?;
-
-        //         let mut name_unmangler = NameUnMangler::new(&prefix);
-
-        //         name_unmangler.unmangle_expr(&mut expanded);
-
-        //         println!("--- {}", expanded.to_pretty(60));
-
-        //         Ok(expanded)
-        //     })
-        //     .collect::<Result<Vec<_>>>()?;
 
         // Take ast, expand with self modules, then expand with each of the require for-syntaxes
         // Then mangle the require-for-syntax, include the mangled directly in the ast
@@ -1541,18 +1526,18 @@ impl<'a> ModuleBuilder<'a> {
 
         module.set_emitted(true);
 
-        // dbg!(&module);
+        let mut result =
+            module.to_top_level_module(self.compiled_modules, self.global_macro_map)?;
 
-        // let result = module.to_module_ast_node();
+        // let mut analysis = Analysis::from_exprs(&[result]);
 
-        let result = module.to_top_level_module(self.compiled_modules, self.global_macro_map)?;
+        // let mut semantic = SemanticAnalysis::from_analysis(&mut result, analysis);
 
-        // println!(
-        //     "Into compiled module inserted into the cache: {:?}",
-        //     self.name
-        // );
+        // // This is definitely broken still
+        // semantic
+        //     .remove_unused_globals_with_prefix("mangler");
 
-        // debug!("Adding {:?} to the module cache", self.name);
+        log::debug!(target: "requires", "Adding compiled module: {:?}", self.name);
 
         self.compiled_modules.insert(self.name.clone(), module);
 
@@ -1708,7 +1693,7 @@ impl<'a> ModuleBuilder<'a> {
                 if let Some(lib) = BUILT_INS.iter().find(|x| x.0 == s.as_str()) {
                     // self.built_ins.push(PathBuf::from(lib.0));
 
-                    require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0));
+                    require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0.into()));
 
                     return Ok(());
                     // continue;
@@ -1813,25 +1798,35 @@ impl<'a> ModuleBuilder<'a> {
                         }
 
                         if let Some(path) = l.args[1].string_literal() {
-                            let mut current = self.name.clone();
-                            if current.is_file() {
-                                current.pop();
-                            }
-                            current.push(path);
+                            if let Some(lib) = BUILT_INS.iter().find(|x| x.0 == path) {
+                                // self.built_ins.push(PathBuf::from(lib.0));
 
-                            if !current.exists() {
-                                if let Some(mut home) = home.clone() {
-                                    home.push(path);
-                                    current = home;
+                                require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0.into()));
+                                require_object.for_syntax = true;
 
-                                    log::info!("Searching STEEL_HOME for {:?}", current);
-                                } else {
-                                    stop!(Generic => format!("Module not found: {:?}", self.name))
+                                return Ok(());
+                                // continue;
+                            } else {
+                                let mut current = self.name.clone();
+                                if current.is_file() {
+                                    current.pop();
                                 }
-                            }
+                                current.push(path);
 
-                            require_object.for_syntax = true;
-                            require_object.path = Some(PathOrBuiltIn::Path(current));
+                                if !current.exists() {
+                                    if let Some(mut home) = home.clone() {
+                                        home.push(path);
+                                        current = home;
+
+                                        log::info!("Searching STEEL_HOME for {:?}", current);
+                                    } else {
+                                        stop!(Generic => format!("Module not found: {:?}", self.name))
+                                    }
+                                }
+
+                                require_object.for_syntax = true;
+                                require_object.path = Some(PathOrBuiltIn::Path(current));
+                            }
                         } else {
                             stop!(BadSyntax => "for-syntax expects a string literal referring to a file or module"; r.location.span; r.location.source.clone());
                         }
@@ -1894,23 +1889,6 @@ impl<'a> ModuleBuilder<'a> {
         }
 
         walk(self, &home, &mut exprs_without_requires, exprs)?;
-
-        // for expr in exprs {
-        //     match &expr {
-        //         // Include require/for-syntax here
-        //         // This way we have some understanding of what dependencies a file has
-        //         ExprKind::Require(r) => {
-        //             for atom in &r.modules {
-        //                 let require_object = self.parse_require_object(&home, r, atom)?;
-
-        //                 self.require_objects.push(require_object);
-        //             }
-        //         }
-        //         _ => exprs_without_requires.push(expr),
-        //     }
-        // }
-
-        // println!("Exprs without requires: {:?}", exprs_without_requires);
 
         self.source_ast = exprs_without_requires;
         Ok(())
@@ -2006,10 +1984,18 @@ impl<'a> ModuleBuilder<'a> {
     fn parse_from_path(mut self) -> Result<Self> {
         log::info!("Opening: {:?}", self.name);
 
-        let mut file = std::fs::File::open(&self.name)?;
+        let mut file = std::fs::File::open(&self.name).map_err(|err| {
+            let mut err = crate::SteelErr::from(err);
+            err.prepend_message(&format!("Attempting to load module from: {:?}", self.name));
+            err
+        })?;
         self.file_metadata
             .insert(self.name.clone(), file.metadata()?.modified()?);
-        let mut exprs = String::new();
+
+        // TODO: DEFAULT MODULE LOADER PREFIX
+        // let mut exprs = String::new();
+
+        let mut exprs = PRELUDE_STRING.to_string();
 
         // Add the modules here:
 
@@ -2034,6 +2020,12 @@ impl<'a> ModuleBuilder<'a> {
 
         Ok(self)
     }
-
-    // fn search_index
 }
+
+// pub static PRELUDE_STRING: &str = "";
+
+pub static PRELUDE_STRING: &str = "(require-builtin steel/base) 
+(require \"#%private/steel/contract\" (for-syntax \"#%private/steel/contract\"))
+(require \"#%private/steel/print\")
+(require \"#%private/steel/control\" (for-syntax \"#%private/steel/control\"))
+";
