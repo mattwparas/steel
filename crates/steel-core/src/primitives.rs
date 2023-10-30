@@ -154,6 +154,29 @@ impl IntoSteelVal for i64 {
     }
 }
 
+impl FromSteelVal for i64 {
+    fn from_steelval(val: &SteelVal) -> crate::rvals::Result<Self> {
+        match val {
+            SteelVal::IntV(v) => (*v).try_into().map_err(|_err| {
+                SteelErr::new(
+                    ErrorKind::ConversionError,
+                    format!("Unable to convert i64 to isize: {}", v),
+                )
+            }),
+            SteelVal::BigNum(n) => n.as_ref().try_into().map_err(|_err| {
+                SteelErr::new(
+                    ErrorKind::ConversionError,
+                    format!("Unable to convert bignum to isize: {:?}", n),
+                )
+            }),
+            _ => Err(SteelErr::new(
+                ErrorKind::ConversionError,
+                format!("Unable to convert steelval to isize: {}", val),
+            )),
+        }
+    }
+}
+
 impl From<char> for SteelVal {
     fn from(val: char) -> SteelVal {
         SteelVal::CharV(val)
@@ -299,7 +322,7 @@ impl From<()> for SteelVal {
 from_f64!(f64, f32);
 from_for_isize!(i32, i16, i8, u8, u16, u32, u64, usize, isize);
 try_from_impl!(NumV => f64, f32);
-try_from_impl!(IntV => i64, i32, i16, i8, u8, u16, u32, u64, usize, isize);
+try_from_impl!(IntV => i32, i16, i8, u8, u16, u32, u64, usize, isize);
 
 impl TryFrom<SteelVal> for String {
     type Error = SteelErr;
