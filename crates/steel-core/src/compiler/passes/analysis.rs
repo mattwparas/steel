@@ -2515,6 +2515,7 @@ impl<'a> VisitorMutUnitRef<'a> for CollectReferences {
 
 struct ReplaceBuiltinUsagesInsideMacros<'a> {
     identifiers_to_replace: &'a mut HashSet<InternedString>,
+    analysis: &'a Analysis,
 }
 
 impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesInsideMacros<'a> {
@@ -2523,9 +2524,13 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesInsideMacros<'a> {
     }
 
     fn visit_atom(&mut self, a: &mut Atom) {
-        if let Some(ident) = a.ident_mut() {
-            // println!("CHECKING: {}", ident);
+        if let Some(info) = self.analysis.get(&a.syn) {
+            if info.kind != IdentifierStatus::Global || info.kind != IdentifierStatus::Free {
+                return;
+            }
+        }
 
+        if let Some(ident) = a.ident_mut() {
             if self.identifiers_to_replace.contains(ident) {
                 if let Some((_, builtin_name)) = ident.resolve().split_once(MANGLER_SEPARATOR) {
                     // println!("RENAMING: {}", ident);
@@ -2563,6 +2568,11 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
 
     fn visit_atom(&mut self, a: &mut Atom) {
         if let Some(info) = self.analysis.get(&a.syn) {
+            // Don't even touch non globals
+            if info.kind != IdentifierStatus::Global || info.kind != IdentifierStatus::Free {
+                return;
+            }
+
             if info.builtin && !info.is_shadowed && info.shadows.is_none() {
                 // todo!()
 
@@ -3002,6 +3012,7 @@ impl<'a> SemanticAnalysis<'a> {
 
         let mut macro_replacer = ReplaceBuiltinUsagesInsideMacros {
             identifiers_to_replace: replacer.identifiers_to_replace,
+            analysis: &self.analysis,
         };
 
         for steel_macro in macros.values_mut() {
