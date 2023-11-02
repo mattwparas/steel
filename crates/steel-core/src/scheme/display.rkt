@@ -19,7 +19,7 @@
 
 ; (make-struct Applesauce (a b c))
 
-(define println displayln)
+(define println simple-displayln)
   ; (displayln 
   ;   (if (custom-struct? x)
   ;     (if (struct-transparent? x)

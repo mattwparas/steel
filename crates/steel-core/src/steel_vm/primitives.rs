@@ -988,8 +988,8 @@ fn symbol_module() -> BuiltInModule {
 fn io_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/io");
     module
-        .register_value("display", IoFunctions::display())
-        .register_value("displayln", IoFunctions::displayln())
+        // .register_value("display", IoFunctions::display())
+        // .register_value("displayln", IoFunctions::displayln())
         .register_value("simple-display", IoFunctions::display())
         .register_value("simple-displayln", IoFunctions::displayln())
         .register_value("newline", IoFunctions::newline())

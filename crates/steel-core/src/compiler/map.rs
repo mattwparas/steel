@@ -45,6 +45,21 @@ impl SymbolMap {
         }
     }
 
+    pub fn add(&mut self, ident: &InternedString) -> usize {
+        let idx = self.map.len();
+
+        // if ident == "b" {
+        //     println!("Adding to map: {}", idx);
+        // }
+
+        self.map.insert(*ident, idx);
+
+        // Add the values so we can do a backwards resolution
+        self.values.push(*ident);
+
+        idx
+    }
+
     pub fn get_or_add(&mut self, ident: &InternedString) -> usize {
         // let rev_iter = self.values.iter().enumerate().rev();
 
@@ -59,26 +74,24 @@ impl SymbolMap {
 
         // idx
 
-        if let Some(idx) = self.map.get(ident) {
-            // if ident == "b" {
-            //     println!("Fetching from map: {}", idx);
-            // }
+        // if let Some(idx) = self.map.get(ident) {
+        //     // *idx
+        //     println!("Redefining: {} - {} => {}", ident, idx, self.values.len());
+        // }
+        // else {
+        let idx = self.values.len();
 
-            *idx
-        } else {
-            let idx = self.map.len();
+        // if ident == "b" {
+        //     println!("Adding to map: {}", idx);
+        // }
 
-            // if ident == "b" {
-            //     println!("Adding to map: {}", idx);
-            // }
+        self.map.insert(*ident, idx);
 
-            self.map.insert(*ident, idx);
+        // Add the values so we can do a backwards resolution
+        self.values.push(*ident);
 
-            // Add the values so we can do a backwards resolution
-            self.values.push(*ident);
-
-            idx
-        }
+        idx
+        // }
     }
 
     // fallible

@@ -35,6 +35,23 @@ impl RenameShadowedVariables {
 
     pub fn rename_shadowed_vars(exprs: &mut [ExprKind]) {
         let mut renamer = Self::new();
+
+        // for expr in exprs.iter() {
+        //     match expr {
+        //         ExprKind::Define(d) => {
+        //             d.name.atom_identifier().map(|x| renamer.scope.define(*x));
+        //         }
+        //         ExprKind::Begin(b) => {
+        //             for expr in &b.exprs {
+        //                 if let ExprKind::Define(d) = expr {
+        //                     d.name.atom_identifier().map(|x| renamer.scope.define(*x));
+        //                 }
+        //             }
+        //         }
+        //         _ => {}
+        //     }
+        // }
+
         for expr in exprs.iter_mut() {
             renamer.visit(expr);
         }

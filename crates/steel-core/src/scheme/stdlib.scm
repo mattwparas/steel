@@ -451,8 +451,6 @@
 (define max (lambda (x num-list) (fold (lambda (y z) (if (> y z) y z)) x (cons 0 num-list))))
 (define min (lambda (x num-list) (fold (lambda (y z) (if (< y z) y z)) x (cons 536870911 num-list))))
 
-(define empty? null?)
-
 (define mem-helper
   (lambda (pred op) (lambda (acc next) (if (and (not acc) (pred (op next))) next acc))))
 ;; (define memq (lambda (obj lst)       (fold (mem-helper (curry eq? obj) id) #f lst)))
@@ -687,7 +685,7 @@
 
 (define-syntax help
   (syntax-rules ()
-    [(help) (displayln "help expects an identifier to lookup documentation for")]
+    [(help) (simple-displayln "help expects an identifier to lookup documentation for")]
     [(help ident) (%doc? %-builtin-module-steel/base (quote ident))]
     [(help module ident) (%doc? (datum->syntax %-builtin-module- module) (quote ident))]))
 
@@ -695,7 +693,7 @@
   (syntax-rules ()
     [(dbg! expr)
      (let ([result expr])
-       (displayln (quote expr) " = " result)
+       (simple-displayln (quote expr) " = " result)
        result)]))
 
 (define-syntax contract/out

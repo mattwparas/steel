@@ -1,6 +1,6 @@
 (provide println)
 
-(define println displayln)
+(define println simple-displayln)
 
 ; (define/contract (struct-name s)
 ;   (->/c custom-struct? symbol?)

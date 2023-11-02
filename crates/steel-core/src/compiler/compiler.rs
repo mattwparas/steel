@@ -27,7 +27,7 @@ use std::{
 use std::{iter::Iterator, rc::Rc};
 
 // TODO: Replace the usages of hashmap with this directly
-use fxhash::FxHashMap;
+use fxhash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::rvals::{Result, SteelVal};
@@ -262,6 +262,7 @@ pub struct Compiler {
     pub(crate) kernel: Option<Kernel>,
     memoization_table: MemoizationTable,
     mangled_identifiers: HashSet<InternedString>,
+    reserved_global_identifier_list: FxHashSet<InternedString>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -327,6 +328,7 @@ impl Compiler {
             kernel: None,
             memoization_table: MemoizationTable::new(),
             mangled_identifiers: HashSet::new(),
+            reserved_global_identifier_list: FxHashSet::default(),
         }
     }
 
@@ -346,6 +348,7 @@ impl Compiler {
             kernel: Some(kernel),
             memoization_table: MemoizationTable::new(),
             mangled_identifiers: HashSet::new(),
+            reserved_global_identifier_list: FxHashSet::default(),
         }
     }
 
@@ -379,6 +382,10 @@ impl Compiler {
     /// If the name hasn't been registered, this will return `None`
     pub fn get_idx(&self, name: &str) -> Option<usize> {
         self.symbol_map.get(&InternedString::try_get(name)?).ok()
+    }
+
+    pub fn make_identifier_immutable(&mut self, name: &str) {
+        self.reserved_global_identifier_list.insert(name.into());
     }
 
     pub fn compile_executable_from_expressions(

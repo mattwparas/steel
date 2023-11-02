@@ -68,6 +68,13 @@ impl Env {
     #[inline]
     pub fn repl_define_idx(&mut self, idx: usize, val: SteelVal) {
         if idx < self.bindings_vec.len() {
+            // println!(
+            //     "Redefining value: {} - {} - {} => {}",
+            //     idx,
+            //     self.bindings_vec.len(),
+            //     self.bindings_vec[idx],
+            //     val
+            // );
             self.bindings_vec[idx] = val;
         } else {
             self.bindings_vec.push(val);

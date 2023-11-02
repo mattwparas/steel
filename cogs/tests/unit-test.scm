@@ -25,12 +25,12 @@
   (set! *FAILED-TO-COMPILE* (+ *FAILED-TO-COMPILE* 1)))
 
 (define (print-success name)
-  (display "test > " name " ... ")
+  (simple-display "test > " name " ... ")
   (display-color "Ok" 'green)
   (newline))
 
 (define (print-failure name)
-  (display "test > " name " ... ")
+  (simple-display "test > " name " ... ")
   (display-color "FAILED" 'red)
   (newline))
 
