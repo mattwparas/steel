@@ -92,7 +92,7 @@ impl DebruijnIndicesInterner {
                         ..
                     },
                 ) => {
-                    let idx = symbol_map.get_or_add(s);
+                    let idx = symbol_map.add(s);
                     self.flat_defines.insert(s.to_owned());
 
                     if let Some(x) = instructions.get_mut(i) {
@@ -111,7 +111,7 @@ impl DebruijnIndicesInterner {
                     },
                     ..,
                 ) => {
-                    let idx = symbol_map.get_or_add(s);
+                    let idx = symbol_map.add(s);
                     self.flat_defines.insert(s.to_owned());
 
                     if let Some(x) = instructions.get_mut(i) {
@@ -372,7 +372,7 @@ impl Compiler {
     /// Registers a name in the underlying symbol map and returns the idx that it maps to
     pub fn register(&mut self, name: &str) -> usize {
         let spur = name.into();
-        self.symbol_map.get_or_add(&spur)
+        self.symbol_map.add(&spur)
     }
 
     /// Get the index associated with a name in the underlying symbol map

@@ -32,13 +32,6 @@ impl SymbolMap {
         self.values.len()
     }
 
-    // pub fn add(&mut self, ident: &str) -> usize {
-    //     let idx = self.values.len();
-    //     self.values.push(ident.to_string());
-    //     // println!("`add`: {} @ {}", ident, idx);
-    //     idx
-    // }
-
     pub fn roll_back(&mut self, index: usize) {
         for value in self.values.drain(index..) {
             self.map.remove(&value);
@@ -46,68 +39,18 @@ impl SymbolMap {
     }
 
     pub fn add(&mut self, ident: &InternedString) -> usize {
-        let idx = self.map.len();
-
-        // if ident == "b" {
-        //     println!("Adding to map: {}", idx);
-        // }
-
-        self.map.insert(*ident, idx);
-
-        // Add the values so we can do a backwards resolution
-        self.values.push(*ident);
-
-        idx
-    }
-
-    pub fn get_or_add(&mut self, ident: &InternedString) -> usize {
-        // let rev_iter = self.values.iter().enumerate().rev();
-
-        // for (idx, val) in rev_iter {
-        //     if val == ident {
-        //         return idx;
-        //     }
-        // }
-
-        // let idx = self.values.len();
-        // self.values.push(ident.to_string());
-
-        // idx
-
-        // if let Some(idx) = self.map.get(ident) {
-        //     // *idx
-        //     println!("Redefining: {} - {} => {}", ident, idx, self.values.len());
-        // }
-        // else {
         let idx = self.values.len();
 
-        // if ident == "b" {
-        //     println!("Adding to map: {}", idx);
-        // }
-
         self.map.insert(*ident, idx);
 
         // Add the values so we can do a backwards resolution
         self.values.push(*ident);
 
         idx
-        // }
     }
 
     // fallible
     pub fn get(&self, ident: &InternedString) -> Result<usize> {
-        // let rev_iter = self.values.iter().enumerate().rev();
-
-        // for (idx, val) in rev_iter {
-        //     // println!("{}", idx);
-        //     if val == ident {
-        //         return Ok(idx);
-        //     }
-        // }
-        // let e = ident.to_string();
-        // // TODO come back to this - this is causing things to be renamed to 0 regardless
-        // stop!(FreeIdentifier => e)
-
         self.map
             .get(ident)
             .copied()

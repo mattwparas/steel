@@ -1,20 +1,5 @@
 use crate::rvals::{Result, SteelVal};
 
-// TODO
-pub const fn _new_void() -> SteelVal {
-    SteelVal::Void
-}
-
-// TODO
-pub const fn _new_true() -> SteelVal {
-    SteelVal::BoolV(true)
-}
-
-// TODO
-pub const fn _new_false() -> SteelVal {
-    SteelVal::BoolV(false)
-}
-
 #[allow(unused)]
 #[derive(Debug, Clone)]
 pub struct Env {
