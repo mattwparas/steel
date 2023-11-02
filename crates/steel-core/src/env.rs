@@ -1,20 +1,5 @@
 use crate::rvals::{Result, SteelVal};
 
-// TODO
-pub const fn _new_void() -> SteelVal {
-    SteelVal::Void
-}
-
-// TODO
-pub const fn _new_true() -> SteelVal {
-    SteelVal::BoolV(true)
-}
-
-// TODO
-pub const fn _new_false() -> SteelVal {
-    SteelVal::BoolV(false)
-}
-
 #[allow(unused)]
 #[derive(Debug, Clone)]
 pub struct Env {
@@ -68,6 +53,13 @@ impl Env {
     #[inline]
     pub fn repl_define_idx(&mut self, idx: usize, val: SteelVal) {
         if idx < self.bindings_vec.len() {
+            // println!(
+            //     "Redefining value: {} - {} - {} => {}",
+            //     idx,
+            //     self.bindings_vec.len(),
+            //     self.bindings_vec[idx],
+            //     val
+            // );
             self.bindings_vec[idx] = val;
         } else {
             self.bindings_vec.push(val);

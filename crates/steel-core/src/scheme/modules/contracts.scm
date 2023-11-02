@@ -451,9 +451,8 @@
 (define (non-empty-listof pred)
   (make/c (lambda (lst)
             (cond
-              [(null? lst)
-               (displayln "getting here?")
-               #f]
+              ; (displayln "getting here?")
+              [(null? lst) #f]
               [(list? lst) (loop pred lst)]
               [else #f]))
           (list 'non-empty-listof (contract-or-procedure-name pred))))

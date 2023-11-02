@@ -121,5 +121,6 @@ test_harness_failure! {
     function_used_before_definition,
     identifier_used_before_definition,
     local_struct_inaccessible,
+    global_env,
     require_only_in_missing_identifier,
 }

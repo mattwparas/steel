@@ -591,7 +591,8 @@ impl<T: CustomType + 'static> AsRefMutSteelVal for T {
                 Ok(RefMut::map(res, |x| x.downcast_mut::<T>().unwrap()))
             } else {
                 let error_message = format!(
-                    "Type Mismatch: Type of SteelVal did not match the given type: {}",
+                    "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
+                    val,
                     std::any::type_name::<Self>()
                 );
                 Err(SteelErr::new(ErrorKind::ConversionError, error_message))
@@ -599,7 +600,8 @@ impl<T: CustomType + 'static> AsRefMutSteelVal for T {
             // res
         } else {
             let error_message = format!(
-                "Type Mismatch: Type of SteelVal did not match the given type: {}",
+                "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
+                val,
                 std::any::type_name::<Self>()
             );
 
@@ -1139,6 +1141,18 @@ pub enum SteelVal {
 }
 
 impl SteelVal {
+    pub fn anonymous_boxed_function(
+        function: std::sync::Arc<
+            dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> + Send + Sync + 'static,
+        >,
+    ) -> SteelVal {
+        SteelVal::BoxedFunction(Rc::new(BoxedDynFunction {
+            function,
+            name: None,
+            arity: None,
+        }))
+    }
+
     pub fn as_box(&self) -> Option<HeapRef<SteelVal>> {
         if let SteelVal::HeapAllocated(heap_ref) = self {
             Some(heap_ref.clone())
