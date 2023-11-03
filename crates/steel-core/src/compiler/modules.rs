@@ -102,7 +102,11 @@ impl ModuleManager {
         }
     }
 
-    pub fn add_builtin_module(&mut self, module_name: String, text: String) {
+    pub fn add_builtin_module(&mut self, module_name: String, mut text: String) {
+        // Custom external builtins should be loaded with the prelude first, otherwise
+        // they'll need to handle a bunch of imports
+        text.insert_str(0, PRELUDE_STRING);
+
         self.custom_builtins.insert(module_name, text);
     }
 
@@ -142,6 +146,7 @@ impl ModuleManager {
             kernel,
             builtin_modules,
             global_macro_map,
+            &self.custom_builtins,
         )?;
 
         module_builder.compile()?;
@@ -181,6 +186,7 @@ impl ModuleManager {
             kernel,
             builtin_modules,
             global_macro_map,
+            &self.custom_builtins,
         )?;
 
         let mut module_statements = module_builder.compile()?;
@@ -1120,6 +1126,7 @@ struct ModuleBuilder<'a> {
     kernel: &'a mut Option<Kernel>,
     builtin_modules: ModuleContainer,
     global_macro_map: &'a HashMap<InternedString, SteelMacro>,
+    custom_builtins: &'a HashMap<String, String>,
 }
 
 impl<'a> ModuleBuilder<'a> {
@@ -1135,6 +1142,7 @@ impl<'a> ModuleBuilder<'a> {
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
         global_macro_map: &'a HashMap<InternedString, SteelMacro>,
+        custom_builtins: &'a HashMap<String, String>,
     ) -> Result<Self> {
         // TODO don't immediately canonicalize the path unless we _know_ its coming from a path
         // change the path to not always be required
@@ -1151,10 +1159,7 @@ impl<'a> ModuleBuilder<'a> {
             main: true,
             source_ast,
             macro_map: HashMap::new(),
-            // requires: Vec::new(),
             require_objects: Vec::new(),
-            // requires_for_syntax: Vec::new(),
-            // built_ins: Vec::new(),
             provides: Vec::new(),
             provides_for_syntax: Vec::new(),
             compiled_modules,
@@ -1164,6 +1169,7 @@ impl<'a> ModuleBuilder<'a> {
             kernel,
             builtin_modules,
             global_macro_map,
+            custom_builtins,
         })
     }
 
@@ -1258,8 +1264,15 @@ impl<'a> ModuleBuilder<'a> {
                 let input = BUILT_INS
                     .iter()
                     .find(|x| x.0 == module.to_str().unwrap())
-                    .unwrap()
-                    .1;
+                    .map(|x| x.1)
+                    .or_else(|| {
+                        self.custom_builtins
+                            .get(module.to_str().unwrap())
+                            .map(|x| x.as_str())
+                    })
+                    .ok_or_else(
+                        crate::throw!(Generic => "Unable to find builtin module: {:?}", module),
+                    )?;
 
                 let mut new_module = ModuleBuilder::new_built_in(
                     module.into_owned(),
@@ -1271,6 +1284,7 @@ impl<'a> ModuleBuilder<'a> {
                     self.kernel,
                     self.builtin_modules.clone(),
                     self.global_macro_map,
+                    self.custom_builtins,
                 )?;
 
                 // Walk the tree and compile any dependencies
@@ -1343,6 +1357,7 @@ impl<'a> ModuleBuilder<'a> {
                     self.kernel,
                     self.builtin_modules.clone(),
                     self.global_macro_map,
+                    self.custom_builtins,
                 )?;
 
                 // Walk the tree and compile any dependencies
@@ -1690,13 +1705,19 @@ impl<'a> ModuleBuilder<'a> {
                 }
 
                 // Try this?
-                if let Some(lib) = BUILT_INS.iter().find(|x| x.0 == s.as_str()) {
+                if let Some(lib) = BUILT_INS.into_iter().cloned().find(|x| x.0 == s.as_str()) {
                     // self.built_ins.push(PathBuf::from(lib.0));
 
                     require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0.into()));
 
                     return Ok(());
                     // continue;
+                }
+
+                if self.custom_builtins.contains_key(s) {
+                    require_object.path = Some(PathOrBuiltIn::BuiltIn(s.clone().into()));
+
+                    return Ok(());
                 }
 
                 let mut current = self.name.clone();
@@ -1806,6 +1827,12 @@ impl<'a> ModuleBuilder<'a> {
 
                                 return Ok(());
                                 // continue;
+                            } else if self.custom_builtins.contains_key(path) {
+                                require_object.path =
+                                    Some(PathOrBuiltIn::BuiltIn(Cow::Owned(path.to_string())));
+                                require_object.for_syntax = true;
+
+                                return Ok(());
                             } else {
                                 let mut current = self.name.clone();
                                 if current.is_file() {
@@ -1905,6 +1932,7 @@ impl<'a> ModuleBuilder<'a> {
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
         global_macro_map: &'a HashMap<InternedString, SteelMacro>,
+        custom_builtins: &'a HashMap<String, String>,
     ) -> Result<Self> {
         ModuleBuilder::raw(
             name,
@@ -1915,6 +1943,7 @@ impl<'a> ModuleBuilder<'a> {
             kernel,
             builtin_modules,
             global_macro_map,
+            custom_builtins,
         )
         .parse_builtin(input)
     }
@@ -1927,8 +1956,8 @@ impl<'a> ModuleBuilder<'a> {
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
-
         global_macro_map: &'a HashMap<InternedString, SteelMacro>,
+        custom_builtins: &'a HashMap<String, String>,
     ) -> Result<Self> {
         ModuleBuilder::raw(
             name,
@@ -1939,6 +1968,7 @@ impl<'a> ModuleBuilder<'a> {
             kernel,
             builtin_modules,
             global_macro_map,
+            custom_builtins,
         )
         .parse_from_path()
     }
@@ -1951,8 +1981,8 @@ impl<'a> ModuleBuilder<'a> {
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
-
         global_macro_map: &'a HashMap<InternedString, SteelMacro>,
+        custom_builtins: &'a HashMap<String, String>,
     ) -> Self {
         ModuleBuilder {
             name,
@@ -1969,6 +1999,7 @@ impl<'a> ModuleBuilder<'a> {
             kernel,
             builtin_modules,
             global_macro_map,
+            custom_builtins,
         }
     }
 

@@ -381,6 +381,10 @@ impl Compiler {
         self.symbol_map.get(&InternedString::try_get(name)?).ok()
     }
 
+    pub fn register_builtin(&mut self, name: String, contents: String) {
+        self.module_manager.add_builtin_module(name, contents);
+    }
+
     pub fn compile_executable_from_expressions(
         &mut self,
         exprs: Vec<ExprKind>,

@@ -85,6 +85,10 @@ impl ModuleContainer {
     pub fn inner(&self) -> &ImmutableHashMap<Rc<str>, BuiltInModule> {
         &self.modules
     }
+
+    pub(crate) fn inner_mut(&mut self) -> &mut ImmutableHashMap<Rc<str>, BuiltInModule> {
+        &mut self.modules
+    }
 }
 
 #[derive(Debug)]
@@ -219,6 +223,11 @@ impl RegisterValue for Engine {
     }
 }
 
+#[steel_derive::function(name = "#%get-dylib")]
+fn load_module_noop(target: &crate::rvals::SteelString) -> crate::rvals::Result<SteelVal> {
+    stop!(Generic => "This engine has not been given the capability to load dylibs")
+}
+
 impl Engine {
     /// Function to access a kernel level execution environment
     /// Has access to primitives and syntax rules, but will not defer to a child
@@ -256,6 +265,18 @@ impl Engine {
 
     pub fn builtin_modules(&self) -> &ModuleContainer {
         &self.modules
+    }
+
+    #[doc(hidden)]
+    pub fn disallow_dylib_loading(&mut self) -> &mut Self {
+        // This isn't amazing
+        let module = self.modules.inner_mut();
+
+        if let Some(builtin_module) = module.get_mut("steel/meta") {
+            builtin_module.register_native_fn_definition(LOAD_MODULE_NOOP_DEFINITION);
+        }
+
+        self
     }
 
     /// Function to access a kernel level execution environment
@@ -690,6 +711,11 @@ impl Engine {
             constants_count: self.compiler.constant_map.len(),
             sources_size: self.sources.size_in_bytes(),
         }
+    }
+
+    /// Registers a steel module
+    pub fn register_steel_module(&mut self, module_name: String, text: String) {
+        self.compiler.register_builtin(module_name, text);
     }
 
     /// Instantiates a new engine instance with all primitive functions enabled.
