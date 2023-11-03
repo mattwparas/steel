@@ -1375,6 +1375,7 @@ fn meta_module() -> BuiltInModule {
         .register_value("get-contract-struct", SteelVal::FuncV(get_contract))
         .register_fn("current-os!", || std::env::consts::OS);
 
+    // TODO: Remove
     #[cfg(feature = "dylibs")]
     module.register_native_fn_definition(crate::steel_vm::dylib::LOAD_MODULE_DEFINITION);
 

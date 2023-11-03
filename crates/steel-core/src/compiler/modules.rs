@@ -102,7 +102,11 @@ impl ModuleManager {
         }
     }
 
-    pub fn add_builtin_module(&mut self, module_name: String, text: String) {
+    pub fn add_builtin_module(&mut self, module_name: String, mut text: String) {
+        // Custom external builtins should be loaded with the prelude first, otherwise
+        // they'll need to handle a bunch of imports
+        text.insert_str(0, PRELUDE_STRING);
+
         self.custom_builtins.insert(module_name, text);
     }
 
