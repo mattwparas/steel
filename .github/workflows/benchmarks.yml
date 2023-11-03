@@ -36,6 +36,6 @@ jobs:
     - uses: rhysd/github-action-benchmark@v1
       with:
         tool: 'cargo'
-        output-file-path: output.txt
+        output-file-path: crates/steel-core/output.txt
         github-token: ${{secrets.GITHUB_TOKEN}}
         auto-push: true
