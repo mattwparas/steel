@@ -712,41 +712,22 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                         return matches!(vec.as_slice(), &[MacroPattern::Quote(_)]);
                         // return true;
                     } else {
-                        // if let Some(inner) = val.atom_identifier() {
-                        //     dbg!(inner.resolve());
-                        // }
-
-                        // dbg!(&vec);
-                        // dbg!(&val);
-
                         debug!("Matching failed - atom does not match list");
                         return false;
                     }
                 }
                 MacroPattern::ManyNested(vec) => {
-                    // dbg!(vec);
-                    // dbg!(pat);
-
-                    // println!("first => {}", val);
-
-                    // for maybe_next in token_iter {
-                    //     println!("... => {}", maybe_next);
-                    // }
-
                     if let ExprKind::List(l) = val {
-                        if match_vec_pattern(vec, l) {
-                            // println!("MATCHED THE FIRST ONE");
+                        if !match_vec_pattern(vec, l) {
+                            return false;
                         }
                     } else {
                         return false;
                     }
 
                     for maybe_next in token_iter {
-                        println!("... => {}", maybe_next);
-
                         if let ExprKind::List(l) = maybe_next {
                             if match_vec_pattern(vec, l) {
-                                // println!("MATCHED THE SECOND ONE");
                                 continue;
                             }
                         } else {
@@ -755,27 +736,6 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                     }
 
                     return true;
-
-                    //
-                    // if match_vec_pattern(vec, val) {
-                    //     println!("MATCHED THE FIRST ONE");
-                    // }
-
-                    // // This solves the destructuring test case
-                    // if vec.len() < l.len() && !vec.iter().any(|x| x.is_many()) {
-                    //     debug!("Matching failed - ellipses doesn't match up");
-                    //     return false;
-                    // }
-
-                    // // Make the recursive call on the next layer
-                    // if match_vec_pattern(vec, l) {
-                    //     continue;
-                    // } else {
-                    //     debug!("Matching failed due to child not matching");
-                    //     return false;
-                    // }
-
-                    // todo!("Implement destructuring of ellipses macros")
                 }
             }
         } else {
