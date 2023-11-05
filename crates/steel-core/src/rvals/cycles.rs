@@ -1269,7 +1269,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
                     continue;
                 }
                 (FuncV(l), FuncV(r)) => {
-                    if l != r {
+                    if l as usize != r as usize {
                         return false;
                     }
                     continue;
@@ -1434,7 +1434,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
                 }
                 // MutFunc(m) => self.visit_mutable_function(m),
                 (BuiltIn(l), BuiltIn(r)) => {
-                    if l != r {
+                    if l as usize != r as usize {
                         return false;
                     }
                     continue;
@@ -1642,7 +1642,7 @@ impl PartialEq for SteelVal {
             // (IterV(l), IterV(r)) => l == r,
             // (ListV(l), ListV(r)) => l == r,
             // (CustomStruct(l), CustomStruct(r)) => l == r,
-            (FuncV(l), FuncV(r)) => *l == *r,
+            (FuncV(l), FuncV(r)) => *l as usize == *r as usize,
             // (Custom(l), Custom(r)) => Gc::ptr_eq(l, r),
             // (HeapAllocated(l), HeapAllocated(r)) => l.get() == r.get(),
             (left, right) => LEFT_QUEUE.with(|left_queue| {
