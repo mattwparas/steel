@@ -1,4 +1,4 @@
-(require "fs/fs.scm")
+(require "steel/fs/fs.scm")
 
 (define shared-engine (Engine::new))
 
