@@ -511,8 +511,6 @@ impl MacroPattern {
                     }
                     TokenType::Ellipses => {
                         if let Some(MacroPattern::Nested(inner)) = pattern_vec.pop() {
-                            dbg!(&inner);
-
                             pattern_vec.push(MacroPattern::ManyNested(inner));
 
                             // stop!(BadSyntax => "syntax-rules does not yet support binding ellipses to list patterns"; span)
