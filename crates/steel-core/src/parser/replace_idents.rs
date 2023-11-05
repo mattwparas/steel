@@ -1,4 +1,4 @@
-use crate::compiler::passes::{VisitorMutControlFlow, VisitorMutUnitRef};
+use crate::compiler::passes::VisitorMutControlFlow;
 use crate::compiler::program::SYNTAX_SPAN;
 use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
@@ -218,87 +218,6 @@ impl<'a> ReplaceExpressions<'a> {
                         self.bindings.insert(key, value);
                     }
 
-                    /*
-
-                    for (index, expr) in l.args.iter().enumerate() {
-                        // TODO: Break this out into a visitor itself, and then
-                        match expr {
-                            ExprKind::Atom(a) => {
-                                // Check if we hit a variable that we have to then splice in, for all of the
-                                // expanded values
-                                if maybe_ellipses_position == Some(index) {
-                                    let expansion = a.ident().and_then(|x| self.bindings.get(x)).ok_or_else(throw!(BadSyntax => "unable to find variable associated with ellipses expansion: {}", a))?;
-
-                                    let found_list = expansion.list_or_else(throw!(BadSyntax => r#"It should be impossible for the bound
-                                        expression to be anything but a list in the ellipses expansion"#))?;
-
-                                    // Lift this out - is also used below
-                                    assert_initialized(
-                                        &mut expanded_expressions,
-                                        found_list,
-                                        variable_to_lookup,
-                                    );
-
-                                    let mut found_item_iter = found_list.iter();
-
-                                    for expr in expanded_expressions.iter_mut() {
-                                        let l = expr.list_mut_or_else(
-                                            throw!(BadSyntax => "unreachable!"),
-                                        )?;
-
-                                        let mut found_item_list = found_item_iter
-                                            .next()
-                                            .unwrap()
-                                            .clone()
-                                            .into_list_or_else(
-                                                throw!(BadSyntax => "unreachable!"),
-                                            )?;
-
-                                        let mut first_chunk = l.args[0..index].to_vec();
-
-                                        first_chunk.append(&mut found_item_list.args);
-                                        first_chunk.extend_from_slice(&l.args[index + 2..]);
-
-                                        l.args = first_chunk;
-                                    }
-                                } else {
-                                    if let ControlFlow::Break(_) = self
-                                        .ellipses_visit_atom_non_ellipses(
-                                            a,
-                                            &mut expanded_expressions,
-                                            variable_to_lookup,
-                                            index,
-                                        )?
-                                    {
-                                        continue;
-                                    }
-                                }
-                            }
-                            // TODO: @Matt
-                            // Figure out the recursive step here.
-                            // Steps are as follows:
-                            // - Walk until we find an expansion - that will seed the length of the root.
-                            // - Then, walk each of those and attempt to expand them accordingly, using
-                            //   the consuming iterator. That way we can
-                            _ => {
-                                // let width = if expanded_expressions.is_empty()
-                                //     && expanded_expressions.len() != found_list.len()
-                                // {
-                                //     expanded_expression.len()
-                                // } else {
-                                //     EllipsesExpanderVisitor::find_expansion_width(self.bindings, expr).ok_or_else(throw!(BadSyntax => "No pattern variables before ellipses in template: at {} in {}", expr, l))?;
-                                // };
-
-                                todo!()
-                                // let width = EllipsesExpanderVisitor::find_expansion_width(self.bindings, expr).ok_or_else(throw!(BadSyntax => "No pattern variables before ellipses in template: at {} in {}", expr, l))?;
-
-                                // stop!(BadSyntax => "macro expansion failed to unroll ellipses expansion at: {} within the expression: {}", expr, l);
-                            }
-                        }
-                    }
-
-                    */
-
                     let mut first_chunk = vec_exprs[0..ellipses_pos - 1].to_vec();
                     first_chunk.extend_from_slice(&expanded_expressions);
                     first_chunk.extend_from_slice(&vec_exprs[(ellipses_pos + 1)..]);
@@ -315,45 +234,6 @@ impl<'a> ReplaceExpressions<'a> {
         } else {
             Ok(vec_exprs)
         }
-    }
-
-    fn ellipses_visit_atom_non_ellipses(
-        &self,
-        a: &Atom,
-        expanded_expressions: &mut Vec<ExprKind>,
-        variable_to_lookup: &ExprKind,
-        index: usize,
-    ) -> Result<ControlFlow<()>> {
-        let expansion = a.ident().and_then(|x| self.bindings.get(x));
-        // Standard case, no ellipses, but need to destructure the results!
-
-        // .ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanded ellipses: {}", a)));
-
-        if let Some(expansion) = expansion {
-            if let ExprKind::List(found_list) = expansion {
-                // Initialize the expanded expressions to be a clone of the
-                // length of the first expansion
-                assert_initialized(expanded_expressions, found_list, variable_to_lookup);
-
-                let mut found_item_iter = found_list.iter();
-
-                for expr in expanded_expressions.iter_mut() {
-                    if let ExprKind::List(l) = expr {
-                        l.args[index] = found_item_iter.next().unwrap().clone();
-                    } else {
-                        unreachable!()
-                    }
-                }
-
-                // todo!("Start filling in this position with the destructuring!")
-            } else {
-                stop!(BadSyntax => "unexpected expression found during macro expansion: {}", expansion);
-            }
-        } else {
-            // Probably want to error, or figure out a better approach here.
-            return Ok(ControlFlow::Break(()));
-        }
-        Ok(ControlFlow::Continue(()))
     }
 
     fn vec_expr_syntax_const_if(&self, vec_exprs: &[ExprKind]) -> Result<Option<ExprKind>> {
@@ -509,16 +389,6 @@ impl<'a> ReplaceExpressions<'a> {
             }
             _ => Ok(None),
         }
-    }
-}
-
-fn assert_initialized(
-    expanded_expressions: &mut Vec<ExprKind>,
-    found_list: &super::ast::List,
-    variable_to_lookup: &ExprKind,
-) {
-    if expanded_expressions.is_empty() && expanded_expressions.len() != found_list.len() {
-        *expanded_expressions = vec![variable_to_lookup.clone(); found_list.len()];
     }
 }
 
