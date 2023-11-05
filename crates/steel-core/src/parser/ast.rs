@@ -266,6 +266,23 @@ impl ExprKind {
         }
     }
 
+    pub fn list_mut_or_else<E, F: FnOnce() -> E>(
+        &mut self,
+        err: F,
+    ) -> std::result::Result<&mut List, E> {
+        match self {
+            Self::List(l) => Ok(l),
+            _ => Err(err()),
+        }
+    }
+
+    pub fn into_list_or_else<E, F: FnOnce() -> E>(self, err: F) -> std::result::Result<List, E> {
+        match self {
+            Self::List(l) => Ok(l),
+            _ => Err(err()),
+        }
+    }
+
     pub fn unwrap_function(self) -> Option<Box<LambdaFunction>> {
         if let ExprKind::LambdaFunction(l) = self {
             Some(l)

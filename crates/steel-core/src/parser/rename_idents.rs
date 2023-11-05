@@ -119,12 +119,14 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
             //     return;
             // }
 
+            // println!("{}", a);
+
             if self.syntax.contains(&s) {
                 return;
             }
 
             if self.is_gensym(&s) {
-                // println!("Found gen sym: {}", &s);
+                // println!("Found gen sym: {}", s);
                 // println!("Syntax forms: {:?}", self.syntax);
                 // if self.syntax.contains(&s.as_str()) {
                 //     return;
