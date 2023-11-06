@@ -173,7 +173,7 @@ impl<'a> ReplaceExpressions<'a> {
                         throw!(BadSyntax => "macro expansion failed, expected list of expressions, found: {}, within {}", rest, super::ast::List::new(vec_exprs.clone()))
                     )?;
 
-                        println!("Falling back to list on var: {}", var);
+                        // println!("Falling back to list on var: {}", var);
 
                         res
                     };
@@ -215,7 +215,7 @@ impl<'a> ReplaceExpressions<'a> {
                         let template = variable_to_lookup.clone();
 
                         for (key, value) in self.fallback_bindings.iter() {
-                            println!("Marking single => {}", key);
+                            // println!("Marking single => {}", key);
 
                             if let ExprKind::List(expansion) = value {
                                 let new_binding = expansion
@@ -238,7 +238,7 @@ impl<'a> ReplaceExpressions<'a> {
                         self.bindings.insert(key, value);
                     }
 
-                    println!("Done!");
+                    // println!("Done!");
 
                     let mut first_chunk = vec_exprs[0..ellipses_pos - 1].to_vec();
                     first_chunk.extend_from_slice(&expanded_expressions);

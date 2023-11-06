@@ -870,7 +870,7 @@ pub fn collect_bindings(
                         MacroPattern::Many(ident) => {
                             let list_of_values = List::new(values_to_bind).into();
 
-                            println!("-- Binding: {} => {}", ident, list_of_values);
+                            // println!("-- Binding: {} => {}", ident, list_of_values);
 
                             bindings.insert(*ident, list_of_values);
                             binding_kind.insert(*ident, BindingKind::Many);
