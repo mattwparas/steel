@@ -114,23 +114,11 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
     fn visit_atom(&mut self, a: &mut super::ast::Atom) -> Self::Output {
         let token = a.syn.ty.clone();
         if let TokenType::Identifier(s) = token {
-            // If this is a special one, go ahead and don't mangle it
-            // if self.introduced_identifiers.contains(&s) {
-            //     return;
-            // }
-
-            // println!("{}", a);
-
             if self.syntax.contains(&s) {
                 return;
             }
 
             if self.is_gensym(&s) {
-                // println!("Found gen sym: {}", s);
-                // println!("Syntax forms: {:?}", self.syntax);
-                // if self.syntax.contains(&s.as_str()) {
-                //     return;
-                // }
                 a.syn.ty = TokenType::Identifier(("##".to_string() + s.resolve()).into());
             }
         }

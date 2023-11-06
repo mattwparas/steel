@@ -88,9 +88,6 @@ impl<'a> EllipsesExpanderVisitor<'a> {
 impl<'a> VisitorMutControlFlow for EllipsesExpanderVisitor<'a> {
     fn visit_atom(&mut self, a: &Atom) -> ControlFlow<()> {
         let expansion = a.ident().and_then(|x| self.bindings.get(x));
-        // Standard case, no ellipses, but need to destructure the results!
-
-        // .ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanded ellipses: {}", a)));
 
         if let Some(expansion) = expansion {
             if let ExprKind::List(found_list) = expansion {
@@ -110,15 +107,7 @@ impl<'a> VisitorMutControlFlow for EllipsesExpanderVisitor<'a> {
                         self.collected.insert(*(a.ident().unwrap()));
                     }
                 }
-
-                // return ControlFlow::Break(());
-            } else {
-                // TODO: Should actually return an error here!
-                // stop!(BadSyntax => "unexpected expression found during macro expansion: {}", expansion);
             }
-        } else {
-            // Probably want to error, or figure out a better approach here.
-            // return ControlFlow::Break(());
         }
         ControlFlow::Continue(())
     }
@@ -173,16 +162,9 @@ impl<'a> ReplaceExpressions<'a> {
                         throw!(BadSyntax => "macro expansion failed, expected list of expressions, found: {}, within {}", rest, super::ast::List::new(vec_exprs.clone()))
                     )?;
 
-                        // println!("Falling back to list on var: {}", var);
-
                         res
                     };
 
-                    // let list_of_exprs = rest.list_or_else(
-                    //     throw!(BadSyntax => "macro expansion failed, expected list of expressions, found: {}, within {}", rest, super::ast::List::new(vec_exprs.clone())),
-                    // )?;
-
-                    // TODO
                     let mut first_chunk = vec_exprs[0..ellipses_pos - 1].to_vec();
                     first_chunk.extend_from_slice(list_of_exprs);
                     first_chunk.extend_from_slice(&vec_exprs[(ellipses_pos + 1)..]);
@@ -190,16 +172,13 @@ impl<'a> ReplaceExpressions<'a> {
                 }
 
                 ExprKind::List(_) => {
-                    // The position that ellipses might exist
-                    // let maybe_ellipses_position: Option<usize> =
-                    // l.iter().position(check_ellipses).map(|x| x - 1);
-
                     let visitor = EllipsesExpanderVisitor::find_expansion_width_and_collect_ellipses_expanders(self.bindings, self.binding_kind, variable_to_lookup);
 
-                    let width = visitor.found_length.ok_or_else(throw!(BadSyntax => "No pattern variables before ellipses in template: at {} in {}", variable_to_lookup, ExprKind::List(super::ast::List::new(vec_exprs.clone()))))?;
+                    if let Some(error) = visitor.error {
+                        stop!(BadSyntax => error);
+                    }
 
-                    // We now know how wide the ellipses templating will expand to given the arguments provided
-                    // let mut expanded_expressions = vec![variable_to_lookup.clone(); width];
+                    let width = visitor.found_length.ok_or_else(throw!(BadSyntax => "No pattern variables before ellipses in template: at {} in {}", variable_to_lookup, ExprKind::List(super::ast::List::new(vec_exprs.clone()))))?;
 
                     let mut original_bindings: HashMap<_, _> = visitor
                         .collected
@@ -215,8 +194,6 @@ impl<'a> ReplaceExpressions<'a> {
                         let template = variable_to_lookup.clone();
 
                         for (key, value) in self.fallback_bindings.iter() {
-                            // println!("Marking single => {}", key);
-
                             if let ExprKind::List(expansion) = value {
                                 let new_binding = expansion
                                     .get(i)
@@ -238,15 +215,11 @@ impl<'a> ReplaceExpressions<'a> {
                         self.bindings.insert(key, value);
                     }
 
-                    // println!("Done!");
-
                     let mut first_chunk = vec_exprs[0..ellipses_pos - 1].to_vec();
                     first_chunk.extend_from_slice(&expanded_expressions);
                     first_chunk.extend_from_slice(&vec_exprs[(ellipses_pos + 1)..]);
 
                     Ok(first_chunk)
-
-                    // todo!("Implement expansion of ellipses patterns: {}", l);
                 }
 
                 _ => {
