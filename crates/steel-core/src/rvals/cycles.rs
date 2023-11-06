@@ -416,9 +416,16 @@ impl SteelCycleCollector {
 
         collector.visit();
 
-        SteelCycleCollector {
-            cycles: collector.cycles,
-            values: collector.values.into(),
+        if collector.found_mutable {
+            SteelCycleCollector {
+                cycles: collector.cycles,
+                values: collector.values.into(),
+            }
+        } else {
+            SteelCycleCollector {
+                cycles: fxhash::FxHashMap::default(),
+                values: List::new(),
+            }
         }
     }
 
@@ -539,12 +546,10 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
     fn visit_char(&mut self, _c: char) -> Self::Output {}
 
     fn visit_immutable_vector(&mut self, vector: SteelVector) -> Self::Output {
-        if self.found_mutable
-            && !self.add(
-                vector.0.as_ptr() as usize,
-                &SteelVal::VectorV(vector.clone()),
-            )
-        {
+        if !self.add(
+            vector.0.as_ptr() as usize,
+            &SteelVal::VectorV(vector.clone()),
+        ) {
             for value in vector.0.iter() {
                 self.push_back(value.clone());
             }
@@ -565,12 +570,10 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
     }
 
     fn visit_hash_map(&mut self, hashmap: SteelHashMap) -> Self::Output {
-        if self.found_mutable
-            && !self.add(
-                hashmap.0.as_ptr() as usize,
-                &SteelVal::HashMapV(hashmap.clone()),
-            )
-        {
+        if !self.add(
+            hashmap.0.as_ptr() as usize,
+            &SteelVal::HashMapV(hashmap.clone()),
+        ) {
             for (key, value) in hashmap.0.iter() {
                 self.push_back(key.clone());
                 self.push_back(value.clone());
@@ -579,12 +582,10 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
     }
 
     fn visit_hash_set(&mut self, hashset: SteelHashSet) -> Self::Output {
-        if self.found_mutable
-            && !self.add(
-                hashset.0.as_ptr() as usize,
-                &SteelVal::HashSetV(hashset.clone()),
-            )
-        {
+        if !self.add(
+            hashset.0.as_ptr() as usize,
+            &SteelVal::HashSetV(hashset.clone()),
+        ) {
             for key in hashset.0.iter() {
                 self.push_back(key.clone())
             }
@@ -592,12 +593,10 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
     }
 
     fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output {
-        if self.found_mutable
-            && !self.add(
-                steel_struct.as_ptr() as usize,
-                &SteelVal::CustomStruct(steel_struct.clone()),
-            )
-        {
+        if !self.add(
+            steel_struct.as_ptr() as usize,
+            &SteelVal::CustomStruct(steel_struct.clone()),
+        ) {
             for value in steel_struct.fields.iter() {
                 self.push_back(value.clone())
             }
@@ -614,7 +613,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
     fn visit_continuation(&mut self, _continuation: Gc<Continuation>) -> Self::Output {}
 
     fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output {
-        if self.found_mutable && !self.add(list.as_ptr_usize(), &SteelVal::ListV(list.clone())) {
+        if !self.add(list.as_ptr_usize(), &SteelVal::ListV(list.clone())) {
             for value in list {
                 self.push_back(value);
             }
@@ -625,12 +624,10 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
 
     // TODO: Figure out the mutable vector first
     fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output {
-        if self.found_mutable
-            && !self.add(
-                vector.as_ptr_usize(),
-                &SteelVal::MutableVector(vector.clone()),
-            )
-        {
+        if !self.add(
+            vector.as_ptr_usize(),
+            &SteelVal::MutableVector(vector.clone()),
+        ) {
             for value in vector.get().iter() {
                 self.push_back(value.clone());
             }
@@ -642,12 +639,10 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
     fn visit_boxed_iterator(&mut self, _iterator: Gc<RefCell<OpaqueIterator>>) -> Self::Output {}
 
     fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) -> Self::Output {
-        if self.found_mutable
-            && !self.add(
-                syntax_object.as_ptr() as usize,
-                &SteelVal::SyntaxObject(syntax_object.clone()),
-            )
-        {
+        if !self.add(
+            syntax_object.as_ptr() as usize,
+            &SteelVal::SyntaxObject(syntax_object.clone()),
+        ) {
             if let Some(raw) = syntax_object.raw.clone() {
                 self.push_back(raw);
             }
