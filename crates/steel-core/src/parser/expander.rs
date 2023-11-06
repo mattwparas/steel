@@ -907,7 +907,7 @@ pub fn collect_bindings(
                             }
                         }
                         MacroPattern::ManyNested(_) => {
-                            todo!()
+                            stop!(BadSyntax => "Internal compiler error - unexpected ellipses expansion found within ellipses expansion")
                         }
                         _ => {
                             continue;
