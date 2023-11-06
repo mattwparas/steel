@@ -1,3 +1,4 @@
+use crate::compiler::passes::VisitorMutControlFlow;
 use crate::compiler::program::SYNTAX_SPAN;
 use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
@@ -10,9 +11,11 @@ use crate::{
 
 use crate::rvals::Result;
 
+use super::expander::BindingKind;
 use super::{ast::Atom, interner::InternedString};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::ops::ControlFlow;
 
 // const DATUM_TO_SYNTAX: &str = "datum->syntax";
 // const SYNTAX_CONST_IF: &str = "syntax-const-if";
@@ -22,12 +25,14 @@ use std::collections::HashMap;
 
 pub fn replace_identifiers(
     expr: ExprKind,
-    bindings: &HashMap<InternedString, ExprKind>,
+    bindings: &mut HashMap<InternedString, ExprKind>,
+    binding_kind: &mut HashMap<InternedString, BindingKind>,
+    fallback_bindings: &mut HashMap<InternedString, ExprKind>,
     span: Span,
 ) -> Result<ExprKind> {
     let rewrite_spans = RewriteSpan::new(span).visit(expr)?;
 
-    ReplaceExpressions::new(bindings).visit(rewrite_spans)
+    ReplaceExpressions::new(bindings, binding_kind, fallback_bindings).visit(rewrite_spans)
 }
 
 // struct ConstExprKindTransformers {
@@ -35,8 +40,9 @@ pub fn replace_identifiers(
 // }
 
 pub struct ReplaceExpressions<'a> {
-    bindings: &'a HashMap<InternedString, ExprKind>,
-    // span: Span,
+    bindings: &'a mut HashMap<InternedString, ExprKind>,
+    fallback_bindings: &'a mut HashMap<InternedString, ExprKind>,
+    binding_kind: &'a mut HashMap<InternedString, BindingKind>,
 }
 
 fn check_ellipses(expr: &ExprKind) -> bool {
@@ -51,9 +57,73 @@ fn check_ellipses(expr: &ExprKind) -> bool {
     )
 }
 
+struct EllipsesExpanderVisitor<'a> {
+    bindings: &'a mut HashMap<InternedString, ExprKind>,
+    binding_kind: &'a mut HashMap<InternedString, BindingKind>,
+    found_length: Option<usize>,
+    collected: HashSet<InternedString>,
+    error: Option<String>,
+}
+
+impl<'a> EllipsesExpanderVisitor<'a> {
+    fn find_expansion_width_and_collect_ellipses_expanders(
+        bindings: &'a mut HashMap<InternedString, ExprKind>,
+        binding_kind: &'a mut HashMap<InternedString, BindingKind>,
+        expr: &ExprKind,
+    ) -> Self {
+        let mut visitor = Self {
+            bindings,
+            binding_kind,
+            found_length: None,
+            collected: HashSet::new(),
+            error: None,
+        };
+
+        VisitorMutControlFlow::visit(&mut visitor, expr);
+
+        visitor
+    }
+}
+
+impl<'a> VisitorMutControlFlow for EllipsesExpanderVisitor<'a> {
+    fn visit_atom(&mut self, a: &Atom) -> ControlFlow<()> {
+        let expansion = a.ident().and_then(|x| self.bindings.get(x));
+
+        if let Some(expansion) = expansion {
+            if let ExprKind::List(found_list) = expansion {
+                if let Some(BindingKind::Many) = a.ident().and_then(|x| self.binding_kind.get(x)) {
+                    if let Some(previously_seen_length) = self.found_length {
+                        // Check that the length is the same
+                        if previously_seen_length != found_list.len() {
+                            self.error =
+                                Some(format!("Mismatched lengths found in ellipses expansion"));
+                            return ControlFlow::Break(());
+                        }
+
+                        // Found this one, use it
+                        self.collected.insert(*(a.ident().unwrap()));
+                    } else {
+                        self.found_length = Some(found_list.len());
+                        self.collected.insert(*(a.ident().unwrap()));
+                    }
+                }
+            }
+        }
+        ControlFlow::Continue(())
+    }
+}
+
 impl<'a> ReplaceExpressions<'a> {
-    pub fn new(bindings: &'a HashMap<InternedString, ExprKind>) -> Self {
-        ReplaceExpressions { bindings }
+    pub fn new(
+        bindings: &'a mut HashMap<InternedString, ExprKind>,
+        binding_kind: &'a mut HashMap<InternedString, BindingKind>,
+        fallback_bindings: &'a mut HashMap<InternedString, ExprKind>,
+    ) -> Self {
+        ReplaceExpressions {
+            bindings,
+            binding_kind,
+            fallback_bindings,
+        }
     }
 
     fn expand_atom(&self, expr: Atom) -> ExprKind {
@@ -69,29 +139,93 @@ impl<'a> ReplaceExpressions<'a> {
         ExprKind::Atom(expr)
     }
 
-    fn expand_ellipses(&self, vec_exprs: Vec<ExprKind>) -> Result<Vec<ExprKind>> {
+    fn expand_ellipses(&mut self, vec_exprs: Vec<ExprKind>) -> Result<Vec<ExprKind>> {
         if let Some(ellipses_pos) = vec_exprs.iter().position(check_ellipses) {
             let variable_to_lookup = vec_exprs.get(ellipses_pos - 1).ok_or_else(
                 throw!(BadSyntax => "macro expansion failed, could not find variable when expanding ellipses")
             )?;
 
-            let var = variable_to_lookup.atom_identifier_or_else(
-                throw!(BadSyntax => "macro expansion failed at lookup!"),
-            )?;
+            match variable_to_lookup {
+                ExprKind::Atom(Atom {
+                    syn:
+                        SyntaxObject {
+                            ty: TokenType::Identifier(var),
+                            ..
+                        },
+                }) => {
+                    let rest = self.bindings.get(var).ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanding ellipses: {var}")))?;
 
-            let rest = self.bindings
-                .get(var)
-                .ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanding ellipses: {var}")))?;
+                    let list_of_exprs = if let ExprKind::List(list_of_exprs) = rest {
+                        list_of_exprs
+                    } else {
+                        let res = self.fallback_bindings.get(var).ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanding ellipses: {var}")))?.list_or_else(
+                        throw!(BadSyntax => "macro expansion failed, expected list of expressions, found: {}, within {}", rest, super::ast::List::new(vec_exprs.clone()))
+                    )?;
 
-            let list_of_exprs = rest.list_or_else(
-                throw!(BadSyntax => "macro expansion failed, expected list of expressions"),
-            )?;
+                        res
+                    };
 
-            // TODO
-            let mut first_chunk = vec_exprs[0..ellipses_pos - 1].to_vec();
-            first_chunk.extend_from_slice(list_of_exprs);
-            first_chunk.extend_from_slice(&vec_exprs[(ellipses_pos + 1)..]);
-            Ok(first_chunk)
+                    let mut first_chunk = vec_exprs[0..ellipses_pos - 1].to_vec();
+                    first_chunk.extend_from_slice(list_of_exprs);
+                    first_chunk.extend_from_slice(&vec_exprs[(ellipses_pos + 1)..]);
+                    Ok(first_chunk)
+                }
+
+                ExprKind::List(_) => {
+                    let visitor = EllipsesExpanderVisitor::find_expansion_width_and_collect_ellipses_expanders(self.bindings, self.binding_kind, variable_to_lookup);
+
+                    if let Some(error) = visitor.error {
+                        stop!(BadSyntax => error);
+                    }
+
+                    let width = visitor.found_length.ok_or_else(throw!(BadSyntax => "No pattern variables before ellipses in template: at {} in {}", variable_to_lookup, ExprKind::List(super::ast::List::new(vec_exprs.clone()))))?;
+
+                    let mut original_bindings: HashMap<_, _> = visitor
+                        .collected
+                        .iter()
+                        .flat_map(|x| self.bindings.get(x).map(|value| (*x, value.clone())))
+                        .collect();
+
+                    std::mem::swap(self.fallback_bindings, &mut original_bindings);
+
+                    let mut expanded_expressions = Vec::with_capacity(width);
+
+                    for i in 0..width {
+                        let template = variable_to_lookup.clone();
+
+                        for (key, value) in self.fallback_bindings.iter() {
+                            if let ExprKind::List(expansion) = value {
+                                let new_binding = expansion
+                                    .get(i)
+                                    .ok_or_else(throw!(BadSyntax => "Unreachable"))?;
+
+                                self.bindings.insert(*key, new_binding.clone());
+                            } else {
+                                stop!(BadSyntax => "Unexpected value found in ellipses expansion")
+                            }
+                        }
+
+                        expanded_expressions.push(self.visit(template)?);
+                    }
+
+                    std::mem::swap(self.fallback_bindings, &mut original_bindings);
+
+                    // Move the original bindings back in
+                    for (key, value) in original_bindings {
+                        self.bindings.insert(key, value);
+                    }
+
+                    let mut first_chunk = vec_exprs[0..ellipses_pos - 1].to_vec();
+                    first_chunk.extend_from_slice(&expanded_expressions);
+                    first_chunk.extend_from_slice(&vec_exprs[(ellipses_pos + 1)..]);
+
+                    Ok(first_chunk)
+                }
+
+                _ => {
+                    stop!(BadSyntax => "macro expansion failed at lookup!: {}", variable_to_lookup)
+                }
+            }
         } else {
             Ok(vec_exprs)
         }
@@ -607,7 +741,7 @@ mod replace_expressions_tests {
 
     #[test]
     fn test_expand_datum_syntax() {
-        let bindings = map! {
+        let mut bindings = map! {
             "##struct-name" => atom_identifier("apple"),
         };
 
@@ -619,14 +753,17 @@ mod replace_expressions_tests {
 
         let post_condition = atom_identifier("apple?");
 
-        let output = ReplaceExpressions::new(&bindings).visit(expr).unwrap();
+        let output =
+            ReplaceExpressions::new(&mut bindings, &mut HashMap::new(), &mut HashMap::new())
+                .visit(expr)
+                .unwrap();
 
         assert_eq!(output, post_condition);
     }
 
     #[test]
     fn test_expand_ellipses() {
-        let bindings = map! {
+        let mut bindings = map! {
             "apple" => atom_identifier("x"),
             "many" => ExprKind::List(List::new(vec![
                 atom_identifier("first"),
@@ -646,14 +783,17 @@ mod replace_expressions_tests {
             atom_identifier("second"),
         ]));
 
-        let output = ReplaceExpressions::new(&bindings).visit(expr).unwrap();
+        let output =
+            ReplaceExpressions::new(&mut bindings, &mut HashMap::new(), &mut HashMap::new())
+                .visit(expr)
+                .unwrap();
 
         assert_eq!(output, post_condition);
     }
 
     #[test]
     fn test_lambda_expression() {
-        let bindings = map! {
+        let mut bindings = map! {
             "apple" => atom_identifier("x"),
             "many" => ExprKind::List(List::new(vec![
                 atom_identifier("first-arg"),
@@ -675,7 +815,10 @@ mod replace_expressions_tests {
         )
         .into();
 
-        let output = ReplaceExpressions::new(&bindings).visit(expr).unwrap();
+        let output =
+            ReplaceExpressions::new(&mut bindings, &mut HashMap::new(), &mut HashMap::new())
+                .visit(expr)
+                .unwrap();
 
         assert_eq!(output, post_condition);
     }

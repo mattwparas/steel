@@ -56,6 +56,7 @@ impl CycleDetector {
             cycles: fxhash::FxHashMap::default(),
             values: Vec::new(),
             queue: &mut queue,
+            found_mutable: false,
         };
 
         bfs_detector.push_back(val.clone());
@@ -408,15 +409,23 @@ impl SteelCycleCollector {
             cycles: fxhash::FxHashMap::default(),
             values: Vec::new(),
             queue: &mut queue,
+            found_mutable: false,
         };
 
         collector.push_back(value);
 
         collector.visit();
 
-        SteelCycleCollector {
-            cycles: collector.cycles,
-            values: collector.values.into(),
+        if collector.found_mutable {
+            SteelCycleCollector {
+                cycles: collector.cycles,
+                values: collector.values.into(),
+            }
+        } else {
+            SteelCycleCollector {
+                cycles: fxhash::FxHashMap::default(),
+                values: List::new(),
+            }
         }
     }
 
@@ -489,6 +498,10 @@ struct CycleCollector<'a> {
 
     // Queue of items to check
     queue: &'a mut VecDeque<SteelVal>,
+
+    // Whether we found something mutable - if we haven't, then a cycle
+    // isn't even possible
+    found_mutable: bool,
 }
 
 impl<'a> CycleCollector<'a> {
@@ -651,6 +664,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
     fn visit_bignum(&mut self, _bignum: Gc<BigInt>) -> Self::Output {}
 
     fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output {
+        self.found_mutable = true;
+
         if !self.add(
             heap_ref.as_ptr_usize(),
             &SteelVal::HeapAllocated(heap_ref.clone()),

@@ -1,9 +1,11 @@
+use crate::steel_vm::builtin::BuiltInModule;
 use crate::steel_vm::register_fn::RegisterFn;
-use crate::{rvals::Custom, steel_vm::builtin::BuiltInModule};
 
+#[cfg(feature = "colors")]
 use colored::{ColoredString, Colorize};
 
-impl Custom for ColoredString {
+#[cfg(feature = "colors")]
+impl crate::rvals::Custom for ColoredString {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
         Some(Ok(format!("{}", self)))
     }
@@ -12,9 +14,20 @@ impl Custom for ColoredString {
 macro_rules! wrap_coloring {
     ($($name:ident),* $(,)?) => {
 
+
         $ (
+            #[cfg(feature = "colors")]
             fn $name(string: String) -> ColoredString {
                 string.$name()
+            }
+        ) *
+
+
+
+        $ (
+            #[cfg(not(feature = "colors"))]
+            fn $name(string: String) -> String {
+                string
             }
         ) *
 

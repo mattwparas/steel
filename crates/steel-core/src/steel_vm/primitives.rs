@@ -53,7 +53,6 @@ use crate::{
 #[cfg(feature = "web")]
 use crate::primitives::web::{requests::requests_module, websockets::websockets_module};
 
-#[cfg(feature = "colors")]
 use crate::primitives::colors::string_coloring_module;
 
 use crate::values::lists::List;
@@ -322,7 +321,6 @@ thread_local! {
     #[cfg(feature = "blocking_requests")]
     pub static BLOCKING_REQUESTS_MODULE: BuiltInModule = crate::primitives::blocking_requests::blocking_requests_module();
 
-    #[cfg(feature = "colors")]
     pub static STRING_COLORS_MODULE: BuiltInModule = string_coloring_module();
 
     #[cfg(feature = "sqlite")]
@@ -469,7 +467,6 @@ pub fn register_builtin_modules(engine: &mut Engine) {
     engine.register_module(MUTABLE_HASH_MODULE.with(|x| x.clone()));
     engine.register_module(MUTABLE_VECTOR_MODULE.with(|x| x.clone()));
 
-    #[cfg(feature = "colors")]
     engine.register_module(STRING_COLORS_MODULE.with(|x| x.clone()));
 
     #[cfg(feature = "web")]

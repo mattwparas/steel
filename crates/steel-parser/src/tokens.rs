@@ -77,7 +77,7 @@ fn parse_unicode_str(slice: &str) -> Option<char> {
         let uinitial: u32 = decoded.into();
         let result = char::try_from(uinitial).ok();
 
-        println!("{result:?}");
+        // println!("{result:?}");
         result
     } else {
         None
