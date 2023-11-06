@@ -27,11 +27,12 @@ pub fn replace_identifiers(
     expr: ExprKind,
     bindings: &mut HashMap<InternedString, ExprKind>,
     binding_kind: &mut HashMap<InternedString, BindingKind>,
+    fallback_bindings: &mut HashMap<InternedString, ExprKind>,
     span: Span,
 ) -> Result<ExprKind> {
     let rewrite_spans = RewriteSpan::new(span).visit(expr)?;
 
-    ReplaceExpressions::new(bindings, binding_kind).visit(rewrite_spans)
+    ReplaceExpressions::new(bindings, binding_kind, fallback_bindings).visit(rewrite_spans)
 }
 
 // struct ConstExprKindTransformers {
@@ -40,6 +41,7 @@ pub fn replace_identifiers(
 
 pub struct ReplaceExpressions<'a> {
     bindings: &'a mut HashMap<InternedString, ExprKind>,
+    fallback_bindings: &'a mut HashMap<InternedString, ExprKind>,
     binding_kind: &'a mut HashMap<InternedString, BindingKind>,
 }
 
@@ -126,10 +128,12 @@ impl<'a> ReplaceExpressions<'a> {
     pub fn new(
         bindings: &'a mut HashMap<InternedString, ExprKind>,
         binding_kind: &'a mut HashMap<InternedString, BindingKind>,
+        fallback_bindings: &'a mut HashMap<InternedString, ExprKind>,
     ) -> Self {
         ReplaceExpressions {
             bindings,
             binding_kind,
+            fallback_bindings,
         }
     }
 
@@ -162,9 +166,21 @@ impl<'a> ReplaceExpressions<'a> {
                 }) => {
                     let rest = self.bindings.get(var).ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanding ellipses: {var}")))?;
 
-                    let list_of_exprs = rest.list_or_else(
-                        throw!(BadSyntax => "macro expansion failed, expected list of expressions"),
+                    let list_of_exprs = if let ExprKind::List(list_of_exprs) = rest {
+                        list_of_exprs
+                    } else {
+                        let res = self.fallback_bindings.get(var).ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanding ellipses: {var}")))?.list_or_else(
+                        throw!(BadSyntax => "macro expansion failed, expected list of expressions, found: {}, within {}", rest, super::ast::List::new(vec_exprs.clone()))
                     )?;
+
+                        println!("Falling back to list on var: {}", var);
+
+                        res
+                    };
+
+                    // let list_of_exprs = rest.list_or_else(
+                    //     throw!(BadSyntax => "macro expansion failed, expected list of expressions, found: {}, within {}", rest, super::ast::List::new(vec_exprs.clone())),
+                    // )?;
 
                     // TODO
                     let mut first_chunk = vec_exprs[0..ellipses_pos - 1].to_vec();
@@ -185,18 +201,22 @@ impl<'a> ReplaceExpressions<'a> {
                     // We now know how wide the ellipses templating will expand to given the arguments provided
                     // let mut expanded_expressions = vec![variable_to_lookup.clone(); width];
 
-                    let original_bindings: HashMap<_, _> = visitor
+                    let mut original_bindings: HashMap<_, _> = visitor
                         .collected
                         .iter()
                         .flat_map(|x| self.bindings.get(x).map(|value| (*x, value.clone())))
                         .collect();
+
+                    std::mem::swap(self.fallback_bindings, &mut original_bindings);
 
                     let mut expanded_expressions = Vec::with_capacity(width);
 
                     for i in 0..width {
                         let template = variable_to_lookup.clone();
 
-                        for (key, value) in &original_bindings {
+                        for (key, value) in self.fallback_bindings.iter() {
+                            println!("Marking single => {}", key);
+
                             if let ExprKind::List(expansion) = value {
                                 let new_binding = expansion
                                     .get(i)
@@ -209,14 +229,16 @@ impl<'a> ReplaceExpressions<'a> {
                         }
 
                         expanded_expressions.push(self.visit(template)?);
-
-                        // self.bindings.insert(*key, value);
                     }
+
+                    std::mem::swap(self.fallback_bindings, &mut original_bindings);
 
                     // Move the original bindings back in
                     for (key, value) in original_bindings {
                         self.bindings.insert(key, value);
                     }
+
+                    println!("Done!");
 
                     let mut first_chunk = vec_exprs[0..ellipses_pos - 1].to_vec();
                     first_chunk.extend_from_slice(&expanded_expressions);
@@ -758,9 +780,10 @@ mod replace_expressions_tests {
 
         let post_condition = atom_identifier("apple?");
 
-        let output = ReplaceExpressions::new(&mut bindings, &mut HashMap::new())
-            .visit(expr)
-            .unwrap();
+        let output =
+            ReplaceExpressions::new(&mut bindings, &mut HashMap::new(), &mut HashMap::new())
+                .visit(expr)
+                .unwrap();
 
         assert_eq!(output, post_condition);
     }
@@ -787,9 +810,10 @@ mod replace_expressions_tests {
             atom_identifier("second"),
         ]));
 
-        let output = ReplaceExpressions::new(&mut bindings, &mut HashMap::new())
-            .visit(expr)
-            .unwrap();
+        let output =
+            ReplaceExpressions::new(&mut bindings, &mut HashMap::new(), &mut HashMap::new())
+                .visit(expr)
+                .unwrap();
 
         assert_eq!(output, post_condition);
     }
@@ -818,9 +842,10 @@ mod replace_expressions_tests {
         )
         .into();
 
-        let output = ReplaceExpressions::new(&mut bindings, &mut HashMap::new())
-            .visit(expr)
-            .unwrap();
+        let output =
+            ReplaceExpressions::new(&mut bindings, &mut HashMap::new(), &mut HashMap::new())
+                .visit(expr)
+                .unwrap();
 
         assert_eq!(output, post_condition);
     }

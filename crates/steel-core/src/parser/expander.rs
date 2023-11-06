@@ -190,9 +190,8 @@ impl SteelMacro {
     pub fn parse_from_ast_macro(ast_macro: Macro) -> Result<Self> {
         let name = *ast_macro
             .name
-            .atom_identifier_or_else(
-                throw!(BadSyntax => "macros only currently support identifiers as the name"; ast_macro.location.span),
-            )?;
+            .atom_identifier_or_else(throw!(BadSyntax => "macros only currently support 
+                    identifiers as the name"; ast_macro.location.span))?;
 
         let sp = ast_macro.location.span;
 
@@ -344,8 +343,15 @@ impl MacroCase {
         // clear the hashmap after each use?
         let mut bindings = HashMap::new();
         let mut binding_kind = HashMap::new();
+        let mut fallback_bindings = HashMap::new();
         collect_bindings(&self.args, &expr, &mut bindings, &mut binding_kind)?;
-        replace_identifiers(self.body.clone(), &mut bindings, &mut binding_kind, span)
+        replace_identifiers(
+            self.body.clone(),
+            &mut bindings,
+            &mut binding_kind,
+            &mut fallback_bindings,
+            span,
+        )
     }
 }
 
@@ -504,7 +510,8 @@ impl MacroPattern {
                                 pattern_vec.push(MacroPattern::Quote(s));
                             }
                             _ => {
-                                stop!(TypeMismatch => "syntax-rules with quote don't yet support arbitrary constants yet")
+                                stop!(TypeMismatch => "syntax-rules with quote don't 
+                                    yet support arbitrary constants yet")
                                 // pattern_vec.push(MacroPattern::Single(t.clone()));
                             }
                         }
@@ -512,8 +519,6 @@ impl MacroPattern {
                     TokenType::Ellipses => {
                         if let Some(MacroPattern::Nested(inner)) = pattern_vec.pop() {
                             pattern_vec.push(MacroPattern::ManyNested(inner));
-
-                            // stop!(BadSyntax => "syntax-rules does not yet support binding ellipses to list patterns"; span)
                         } else {
                             stop!(BadSyntax => "cannot bind pattern to ellipses"; span)
                         }
@@ -785,9 +790,9 @@ pub fn collect_bindings(
             }
             // actually check if the syntax matches
             MacroPattern::Syntax(s) => {
-                let e = token_iter.next().ok_or_else(
-                    throw!(BadSyntax => format!("macro expand expected keyword {s}")),
-                )?;
+                let error_func = throw!(BadSyntax => format!("macro expand expected keyword {s} - within {}", list));
+
+                let e = token_iter.next().ok_or_else(error_func)?;
 
                 if let ExprKind::Atom(Atom {
                     syn:
@@ -798,7 +803,7 @@ pub fn collect_bindings(
                 }) = e
                 {
                     if s != syn {
-                        stop!(BadSyntax => "macro expansion expected keyword")
+                        stop!(BadSyntax => "macro expansion expected keyword, found: {}", syn)
                     }
                 }
             }
@@ -820,16 +825,12 @@ pub fn collect_bindings(
                     if let &[MacroPattern::Quote(x)] = children.as_slice() {
                         bindings.insert(x, q.expr.clone());
                     } else {
-                        stop!(BadSyntax => "macro expected a list of values, not including keywords, found: {}", child)
+                        stop!(BadSyntax => "macro expected a list of values, 
+                            not including keywords, found: {}", child)
                     }
                 } else {
-                    // println!("Args: {:?}", args);
-                    // println!("List: {}", list);
-                    // println!("Current pattern: {:?}", arg);
-
-                    // println!("{:?}", children);
-
-                    stop!(BadSyntax => "macro expected a list of values, not including keywords, found: {}", child)
+                    stop!(BadSyntax => "macro expected a list of values, 
+                        not including keywords, found: {}", child)
                 }
             }
             MacroPattern::ManyNested(children) => {
@@ -857,44 +858,64 @@ pub fn collect_bindings(
                         }
                     }
 
-                    match children[i] {
+                    match &children[i] {
                         MacroPattern::Single(ident) => {
                             let list_of_values = List::new(values_to_bind).into();
 
-                            // println!("-- Binding: {} => {}", ident, list_of_values);
-
                             // Turn this into a many!
-                            bindings.insert(ident, list_of_values);
-                            binding_kind.insert(ident, BindingKind::Many);
+                            bindings.insert(*ident, list_of_values);
+                            binding_kind.insert(*ident, BindingKind::Many);
                         }
-                        MacroPattern::Syntax(_) => todo!(),
+                        // MacroPattern::Syntax(_) => todo!(),
                         MacroPattern::Many(ident) => {
                             let list_of_values = List::new(values_to_bind).into();
 
-                            // println!("-- Binding: {} => {}", ident, list_of_values);
+                            println!("-- Binding: {} => {}", ident, list_of_values);
 
-                            bindings.insert(ident, list_of_values);
-                            binding_kind.insert(ident, BindingKind::Many);
+                            bindings.insert(*ident, list_of_values);
+                            binding_kind.insert(*ident, BindingKind::Many);
                         }
-                        MacroPattern::Nested(_) => todo!(),
-                        MacroPattern::ManyNested(_) => todo!(),
-                        MacroPattern::CharacterLiteral(_) => todo!(),
-                        MacroPattern::IntLiteral(_) => todo!(),
-                        MacroPattern::StringLiteral(_) => todo!(),
-                        MacroPattern::FloatLiteral(_) => todo!(),
-                        MacroPattern::BooleanLiteral(_) => todo!(),
-                        MacroPattern::QuotedExpr(_) => todo!(),
-                        MacroPattern::Quote(_) => todo!(),
+                        // These I'll need to handle
+                        MacroPattern::Nested(nested_children) => {
+                            let mut final_bindings: HashMap<_, Vec<_>> = HashMap::new();
+
+                            for expr in values_to_bind {
+                                let list_expr =
+                                    expr.list_or_else(throw!(BadSyntax => "Unreachable!"))?;
+                                let mut new_bindings = HashMap::new();
+                                collect_bindings(
+                                    nested_children,
+                                    list_expr,
+                                    &mut new_bindings,
+                                    binding_kind,
+                                )?;
+
+                                for (key, value) in new_bindings {
+                                    // println!("Marking as a many binding => {}", key);
+                                    binding_kind.insert(key, BindingKind::Many);
+
+                                    if let Some(x) = final_bindings.get_mut(&key) {
+                                        x.push(value);
+                                    } else {
+                                        final_bindings.insert(key, vec![value]);
+                                    }
+                                }
+                            }
+
+                            for (key, value) in final_bindings {
+                                bindings.insert(key, List::new(value).into());
+                            }
+                        }
+                        MacroPattern::ManyNested(_) => {
+                            todo!()
+                        }
+                        _ => {
+                            continue;
+                        }
                     }
                 }
 
                 return Ok(());
-
-                // for expr in token_iter {
-                // println!("binding => {}", expr);
-                // }
-
-                // todo!("implement binding collection for ellipses destructuring")
             }
 
             MacroPattern::Quote(s) => {
@@ -911,8 +932,6 @@ pub fn collect_bindings(
 
             // Matching on literals
             _ => {
-                // println!("Skipping pattern literal: {:?}", arg);
-                // println!("Argument: {:?}", token_iter.next());
                 token_iter.next();
             }
         }
