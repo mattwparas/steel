@@ -69,6 +69,7 @@ test_harness_success! {
     dfs,
     dll,
     empty,
+    ellipses,
     fib,
     generator,
     generic_execution_dropping,
