@@ -27,7 +27,6 @@ pub mod sqlite;
 #[cfg(feature = "blocking_requests")]
 pub mod blocking_requests;
 
-#[cfg(feature = "colors")]
 pub mod colors;
 
 pub use lists::UnRecoverableResult;
