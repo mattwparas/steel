@@ -39,7 +39,7 @@ enum EmitAction {
         default_file: Option<PathBuf>,
         arguments: Vec<String>,
     },
-    /// Test the module
+    /// Tests the module - only tests modules which provide values
     Test { default_file: Option<String> },
     /// Generate the documentation for a file
     Doc { default_file: Option<PathBuf> },
