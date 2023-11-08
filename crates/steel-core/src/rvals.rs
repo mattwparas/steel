@@ -1927,6 +1927,8 @@ impl PartialOrd for SteelVal {
             (StringV(s), StringV(o)) => s.partial_cmp(o),
             (CharV(l), CharV(r)) => l.partial_cmp(r),
             (IntV(l), IntV(r)) => l.partial_cmp(r),
+            (NumV(l), IntV(r)) => l.partial_cmp(&(*r as f64)),
+            (IntV(l), NumV(r)) => (*l as f64).partial_cmp(r),
             _ => None, // unimplemented for other types
         }
     }

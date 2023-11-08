@@ -739,11 +739,14 @@ fn functionp(value: &SteelVal) -> bool {
 
 #[steel_derive::function(name = "procedure?", constant = true)]
 fn procedurep(value: &SteelVal) -> bool {
+    if let SteelVal::CustomStruct(s) = value {
+        return s.maybe_proc().map(|x| procedurep(x)).unwrap_or(false);
+    }
+
     matches!(
         value,
         SteelVal::Closure(_)
             | SteelVal::FuncV(_)
-            // | SteelVal::ContractedFunction(_)
             | SteelVal::BoxedFunction(_)
             | SteelVal::ContinuationFunction(_)
             | SteelVal::MutFunc(_)
@@ -916,6 +919,7 @@ fn equality_module() -> BuiltInModule {
             "equal?",
             SteelVal::FuncV(ensure_tonicity_two!(|a, b| a == b)),
         )
+        .register_value("eqv?", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a == b)))
         .register_value(
             "eq?",
             SteelVal::FuncV(ensure_tonicity_two!(
@@ -1213,6 +1217,35 @@ impl MutableHashTable {
     pub fn get(&self, key: SteelVal) -> Option<SteelVal> {
         self.table.get(&key).cloned()
     }
+}
+
+struct Reader {
+    buffer: String,
+    offset: usize,
+}
+
+impl Reader {
+    fn read_one(&mut self) -> Result<SteelVal> {
+        if let Some(buffer) = self.buffer.get(self.offset..) {
+            let mut parser = crate::parser::parser::Parser::new(buffer, None);
+
+            if let Some(next) = parser.next() {
+                self.offset += parser.offset();
+
+                SteelVal::try_from(next?)
+            } else {
+                Ok(SteelVal::Void)
+            }
+        } else {
+            Ok(SteelVal::Void)
+        }
+    }
+}
+
+fn reader_module() -> BuiltInModule {
+    let mut module = BuiltInModule::new("#%private/steel/reader");
+
+    module
 }
 
 fn mutable_vector_module() -> BuiltInModule {

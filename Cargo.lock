@@ -3096,7 +3096,6 @@ dependencies = [
  "im-rc",
  "lasso",
  "log",
- "logos",
  "num",
  "once_cell",
  "pretty",

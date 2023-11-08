@@ -39,7 +39,10 @@
      (newline)]
     [else
 
-     (for-each display objs)
+     (for-each (lambda (x)
+                 (display x)
+                 (simple-display " "))
+               objs)
      (newline)]))
 
 (define (#%top-level-print obj collector)
@@ -124,6 +127,7 @@
     [(symbol? obj) (simple-display (symbol->string obj))]
     [(atom? obj) (simple-display obj)]
     [(function? obj) (simple-display obj)]
+    [(void? obj) (simple-display obj)]
     ;; There is a cycle!
     [(int? (#%private-cycle-collector-get collector obj))
      (simple-display "#" (#%private-cycle-collector-get collector obj) "#")]
@@ -190,4 +194,4 @@
 
           (simple-display ")")]))]
 
-    [else (simple-displayln obj)]))
+    [else (simple-display obj)]))

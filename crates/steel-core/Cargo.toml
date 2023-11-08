@@ -16,7 +16,7 @@ name = "steel"
 [dependencies]
 im-rc = "15.1.0"
 codespan-reporting = "0.11.1"
-logos = "0.12.1"
+# logos = "0.12.1"
 log = "0.4.17"
 
 futures-util = "0.3.28"

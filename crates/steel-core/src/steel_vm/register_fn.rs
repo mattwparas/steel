@@ -1617,7 +1617,11 @@ impl<
             }
 
             let mut input = <SELF>::as_ref_from_ref(&args[0])?;
-            let arg = <ARG>::from_steelval(&args[1])?;
+            let arg = <ARG>::from_steelval(&args[1]).map_err(|mut err| {
+                err.prepend_message(":");
+                err.prepend_message(name);
+                err
+            })?;
 
             let res = func(&mut input, arg);
 
@@ -1734,7 +1738,14 @@ impl<
 
             let input = B::as_ref(&args[1], &mut nursery)?;
 
-            let res = func(A::from_steelval(&args[0])?, &input);
+            let res = func(
+                A::from_steelval(&args[0]).map_err(|mut err| {
+                    err.prepend_message(":");
+                    err.prepend_message(name);
+                    err
+                })?,
+                &input,
+            );
 
             res.into_steelval()
         };
@@ -1763,7 +1774,11 @@ macro_rules! impl_register_fn {
                         stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
                     }
 
-                    let res = func($(<$param>::from_steelval(&args[$idx])?,)*);
+                    let res = func($(<$param>::from_steelval(&args[$idx]).map_err(|mut err| {
+                        err.prepend_message(":");
+                        err.prepend_message(name);
+                        err
+                    })?,)*);
 
                     res.into_steelval()
                 };
@@ -1790,7 +1805,11 @@ macro_rules! impl_register_fn {
                         stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
                     }
 
-                    let res = func($(<$param>::from_steelval(&args[$idx])?,)*);
+                    let res = func($(<$param>::from_steelval(&args[$idx]).map_err(|mut err| {
+                        err.prepend_message(":");
+                        err.prepend_message(name);
+                        err
+                    })?,)*);
 
                     res.into_steelval()
                 };
@@ -1872,7 +1891,11 @@ macro_rules! impl_register_fn_self {
 
                     let input = <SELF>::as_ref(&args[0], &mut nursery)?;
 
-                    let res = func(&input, $(<$param>::from_steelval(&args[$idx])?,)*);
+                    let res = func(&input, $(<$param>::from_steelval(&args[$idx]).map_err(|mut err| {
+                                    err.prepend_message(":");
+                                    err.prepend_message(name);
+                                    err
+                              })?,)*);
 
                     res.into_steelval()
                 };
@@ -1903,7 +1926,11 @@ macro_rules! impl_register_fn_self {
 
                     let mut input = <SELF>::as_mut_ref(&args[0])?;
 
-                    let res = func(&mut input, $(<$param>::from_steelval(&args[$idx])?,)*);
+                    let res = func(&mut input, $(<$param>::from_steelval(&args[$idx]).map_err(|mut err| {
+                            err.prepend_message(":");
+                            err.prepend_message(name);
+                            err
+                        })?,)*);
 
                     res.into_steelval()
                 };
@@ -1934,7 +1961,11 @@ macro_rules! impl_register_fn_self {
 
                     let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
 
-                    let res = func(&mut input, $(<$param>::from_steelval(&args[$idx])?,)*);
+                    let res = func(&mut input, $(<$param>::from_steelval(&args[$idx]).map_err(|mut err| {
+                            err.prepend_message(":");
+                            err.prepend_message(name);
+                            err
+                        })?,)*);
 
                     res.into_steelval()
                 };
