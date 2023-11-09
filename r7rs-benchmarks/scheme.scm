@@ -991,7 +991,7 @@
 (def-proc 'newline newline)
 ; (def-proc 'write-char write-char)
 
-;; TODO: Make this work!!
+;; TODO: Make this work!
 ; (define (run-benchmark)
 ;   (let* ([count (read)]
 ;          [input1 (read)]
@@ -1056,4 +1056,33 @@
                         "thirty")
                 string<?)))
 
-(displayln (scheme-eval program))
+(assert! (equal? (scheme-eval program)
+                 '("eight" "eighteen"
+                           "eleven"
+                           "fifteen"
+                           "five"
+                           "four"
+                           "fourteen"
+                           "nine"
+                           "nineteen"
+                           "one"
+                           "seven"
+                           "seventeen"
+                           "six"
+                           "sixteen"
+                           "ten"
+                           "thirteen"
+                           "thirty"
+                           "three"
+                           "twelve"
+                           "twenty"
+                           "twentyeight"
+                           "twentyfive"
+                           "twentyfour"
+                           "twentynine"
+                           "twentyone"
+                           "twentyseven"
+                           "twentysix"
+                           "twentythree"
+                           "twentytwo"
+                           "two")))

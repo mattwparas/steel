@@ -247,3 +247,22 @@ fn r7rs_test_suite() {
 
     run(args).unwrap()
 }
+
+#[test]
+fn r7rs_benchmark_test_suite() {
+    let args = Args {
+        action: None,
+        default_file: Some(PathBuf::from("r7rs-benchmarks/scheme.scm")),
+        arguments: vec![],
+    };
+
+    run(args).unwrap();
+
+    let args = Args {
+        action: None,
+        default_file: Some(PathBuf::from("r7rs-benchmarks/simplex.scm")),
+        arguments: vec![],
+    };
+
+    run(args).unwrap()
+}
