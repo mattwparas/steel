@@ -2398,6 +2398,122 @@ impl<'a> VisitorMutRefUnit for ElideSingleArgumentLambdaApplications<'a> {
     }
 }
 
+fn box_argument(ident: ExprKind) -> ExprKind {
+    ExprKind::List(List::new(vec![ExprKind::atom("#%box"), ident]))
+}
+
+fn unbox_argument(ident: ExprKind) -> ExprKind {
+    ExprKind::List(List::new(vec![ExprKind::atom("#%unbox"), ident]))
+}
+
+fn setbox_argument(ident: ExprKind, expr: ExprKind) -> ExprKind {
+    ExprKind::List(List::new(vec![ExprKind::atom("#%set-box!"), ident, expr]))
+}
+
+struct ReplaceSetOperationsWithBoxes<'a> {
+    analysis: &'a Analysis,
+}
+
+impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
+    fn visit(&mut self, expr: &mut ExprKind) {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => {
+                if let Some(analysis) = self.analysis.get(&a.syn) {
+                    if analysis.kind == IdentifierStatus::HeapAllocated {
+                        let mut dummy = ExprKind::List(List::new(Vec::new()));
+                        std::mem::swap(&mut dummy, expr);
+
+                        *expr = unbox_argument(dummy);
+                    }
+                }
+            }
+            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => {
+                if let Some(analysis) = self.analysis.get(s.variable.atom_syntax_object().unwrap())
+                {
+                    if analysis.kind != IdentifierStatus::HeapAllocated {
+                        self.visit(&mut s.expr);
+
+                        return;
+                    }
+                }
+
+                // Go ahead and drop down the expression
+                self.visit(&mut s.expr);
+
+                let mut set_expr = ExprKind::List(List::new(Vec::new()));
+                std::mem::swap(&mut s.expr, &mut set_expr);
+
+                let mut dummy_ident = ExprKind::List(List::new(Vec::new()));
+                std::mem::swap(&mut dummy_ident, &mut s.variable);
+
+                let new_set_expr = setbox_argument(dummy_ident, set_expr);
+
+                *expr = new_set_expr;
+            }
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Let(l) => self.visit_let(l),
+        }
+    }
+
+    fn visit_define(&mut self, define: &mut Define) {
+        self.visit(&mut define.body);
+    }
+
+    fn visit_lambda_function(&mut self, lambda_function: &mut LambdaFunction) {
+        // Visit the body first, unwind the recursion on the way up
+        self.visit(&mut lambda_function.body);
+
+        let function_info = self
+            .analysis
+            .function_info
+            .get(&lambda_function.syntax_object_id)
+            .unwrap();
+
+        let mut mutable_variables = Vec::new();
+
+        // Which arguments do we need to wrap up
+        for var in &lambda_function.args {
+            if let Some(ident) = var.atom_identifier() {
+                if let Some(arg) = function_info.arguments().get(ident) {
+                    if arg.captured && arg.mutated {
+                        mutable_variables.push(var.clone());
+                    }
+                }
+            } else {
+                unreachable!()
+            }
+        }
+
+        if !mutable_variables.is_empty() {
+            let mut body = ExprKind::List(List::new(Vec::new()));
+
+            std::mem::swap(&mut lambda_function.body, &mut body);
+
+            let wrapped_lambda = LambdaFunction::new(
+                mutable_variables.clone(),
+                body,
+                lambda_function.location.clone(),
+            );
+
+            // Box the values!
+            let mut mutable_variables: Vec<_> =
+                mutable_variables.into_iter().map(box_argument).collect();
+
+            mutable_variables.insert(0, ExprKind::LambdaFunction(Box::new(wrapped_lambda)));
+            lambda_function.body = ExprKind::List(List::new(mutable_variables));
+        }
+    }
+}
+
 struct LiftLocallyDefinedFunctions<'a> {
     analysis: &'a Analysis,
     lifted_functions: Vec<ExprKind>,
@@ -2960,6 +3076,18 @@ impl<'a> SemanticAnalysis<'a> {
         for expr in self.exprs.iter_mut() {
             anonymous_function_call_sites.visit(expr);
         }
+    }
+
+    pub fn replace_mutable_captured_variables_with_boxes(&mut self) -> &mut Self {
+        let mut replacer = ReplaceSetOperationsWithBoxes {
+            analysis: &self.analysis,
+        };
+
+        for expr in self.exprs.iter_mut() {
+            replacer.visit(expr);
+        }
+
+        self
     }
 
     /// Find all local pure functions, except those defined already at the top level and those defined with 'define',

@@ -265,6 +265,10 @@ impl Heap {
             for heap_ref in function.heap_allocated.borrow().iter() {
                 context.mark_heap_reference(&heap_ref.strong_ptr())
             }
+
+            for value in function.captures() {
+                context.push_back(value.clone());
+            }
         }
 
         context.visit();

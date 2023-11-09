@@ -5501,6 +5501,22 @@ fn read_alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
         .borrow()[payload_size]
         .get();
 
+    // dbg!(payload_size);
+
+    // dbg!(ctx
+    //     .thread
+    //     .stack_frames
+    //     .last()
+    //     .unwrap()
+    //     .function
+    //     .heap_allocated()
+    //     .borrow()
+    //     .iter()
+    //     .map(|x| x.get())
+    //     .collect::<Vec<_>>());
+
+    dbg!(&value);
+
     ctx.thread.stack.push(value);
     ctx.ip += 1;
 

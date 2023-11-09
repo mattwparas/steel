@@ -487,6 +487,8 @@ impl Compiler {
             .remove_unused_globals_with_prefix("mangler", &self.macro_env, &self.module_manager)
             .lift_pure_local_functions()
             .lift_all_local_functions();
+        // This might be sus, lets see!
+        // .replace_mutable_captured_variables_with_boxes();
 
         // TODO: Just run this... on each module in particular
         // .remove_unused_globals_with_prefix("mangler");
@@ -503,6 +505,11 @@ impl Compiler {
         semantic.flatten_anonymous_functions();
 
         semantic.refresh_variables();
+
+        semantic.populate_captures();
+        semantic.populate_captures();
+
+        semantic.replace_mutable_captured_variables_with_boxes();
 
         if log_enabled!(log::Level::Debug) {
             debug!(
@@ -682,6 +689,12 @@ impl Compiler {
         semantic.flatten_anonymous_functions();
 
         semantic.refresh_variables();
+
+        // Replace mutation with boxes
+        semantic.populate_captures();
+        semantic.populate_captures();
+
+        semantic.replace_mutable_captured_variables_with_boxes();
 
         if log_enabled!(log::Level::Debug) {
             debug!(
