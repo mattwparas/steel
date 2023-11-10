@@ -1096,8 +1096,8 @@
 (define (run)
 
   (let loop ([i 0])
-    (when (< i 100000)
-      ; (when (< i 1000)
+    ; (when (< i 100000)
+    (when (< i 1)
       (begin
         ; (displayln i)
         (assert! (equal? (scheme-eval program)

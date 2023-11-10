@@ -43,7 +43,9 @@
   (let loop ([repeat m] [result '()])
     (if (> repeat 0) (loop (- repeat 1) (my-try n)) result)))
 
-(displayln (go 50 1000000))
+; (displayln (go 50 1000000))
+
+(displayln (go 1 10000))
 
 ; 500
 ; 1000000

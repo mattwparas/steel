@@ -250,19 +250,20 @@ fn r7rs_test_suite() {
 
 #[test]
 fn r7rs_benchmark_test_suite() {
-    let args = Args {
-        action: None,
-        default_file: Some(PathBuf::from("r7rs-benchmarks/scheme.scm")),
-        arguments: vec![],
-    };
+    let benches = &[
+        "r7rs-benchmarks/scheme.scm",
+        "r7rs-benchmarks/simplex.scm",
+        "r7rs-benchmarks/array1.scm",
+        "r7rs-benchmarks/triangl.scm",
+    ];
 
-    run(args).unwrap();
+    for bench in benches {
+        let args = Args {
+            action: None,
+            default_file: Some(PathBuf::from(bench)),
+            arguments: vec![],
+        };
 
-    let args = Args {
-        action: None,
-        default_file: Some(PathBuf::from("r7rs-benchmarks/simplex.scm")),
-        arguments: vec![],
-    };
-
-    run(args).unwrap()
+        run(args).unwrap();
+    }
 }

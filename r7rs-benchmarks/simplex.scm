@@ -237,7 +237,8 @@
 
 (let loop ([i 0])
   ; (when (< i 1000000)
-  (when (< i 1000000)
+  ; (when (< i 1000000)
+  (when (< i 1)
     (begin
       ; (displayln i)
       (assert! (equal? (list (vector 4 1 3 2) (vector 0 5 7 6)) (test 740.0)))
