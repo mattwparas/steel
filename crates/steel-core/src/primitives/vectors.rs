@@ -24,6 +24,28 @@ impl VectorOperations {
         )
     }
 
+    pub fn make_vector() -> SteelVal {
+        fn make_vector_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+            match &args {
+                &[SteelVal::IntV(i)] if *i >= 0 => {
+                    Ok(ctx.make_mutable_vector(vec![SteelVal::IntV(0); *i as usize]))
+                }
+                &[SteelVal::IntV(i), initial_value] if *i >= 0 => {
+                    Ok(ctx.make_mutable_vector(vec![initial_value.clone(); *i as usize]))
+                }
+                _ => {
+                    stop!(TypeMismatch => "make-vector expects a positive integer, and optionally a value to initialize the vector with, found: {:?}", args)
+                }
+            }
+        }
+
+        SteelVal::BuiltIn(
+            |ctx: &mut VmCore, args: &[SteelVal]| -> Option<Result<SteelVal>> {
+                Some(make_vector_impl(ctx, args))
+            },
+        )
+    }
+
     pub fn mut_vec_to_list() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
@@ -36,9 +58,9 @@ impl VectorOperations {
                 let ptr = v.strong_ptr();
                 let guard = &mut ptr.borrow_mut().value;
 
-                let new = std::mem::replace(guard, Vec::new());
+                // let new = std::mem::replace(guard, Vec::new());
 
-                Ok(SteelVal::ListV(new.into()))
+                Ok(SteelVal::ListV(guard.iter().collect()))
 
                 // let inner = std::mem::take(guard);
 
@@ -154,6 +176,9 @@ impl VectorOperations {
         })
     }
 
+    // TODO: This _should_ increase the size count on the maybe_memory_size on the heap
+    // since it is a growable structure, we'll need to know to rerun the GC when that size
+    // increases past a certain amount
     pub fn mut_vec_push() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {

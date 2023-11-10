@@ -2475,41 +2475,42 @@ impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
         let function_info = self
             .analysis
             .function_info
-            .get(&lambda_function.syntax_object_id)
-            .unwrap();
+            .get(&lambda_function.syntax_object_id);
 
-        let mut mutable_variables = Vec::new();
+        if let Some(function_info) = function_info {
+            let mut mutable_variables = Vec::new();
 
-        // Which arguments do we need to wrap up
-        for var in &lambda_function.args {
-            if let Some(ident) = var.atom_identifier() {
-                if let Some(arg) = function_info.arguments().get(ident) {
-                    if arg.captured && arg.mutated {
-                        mutable_variables.push(var.clone());
+            // Which arguments do we need to wrap up
+            for var in &lambda_function.args {
+                if let Some(ident) = var.atom_identifier() {
+                    if let Some(arg) = function_info.arguments().get(ident) {
+                        if arg.captured && arg.mutated {
+                            mutable_variables.push(var.clone());
+                        }
                     }
+                } else {
+                    unreachable!()
                 }
-            } else {
-                unreachable!()
             }
-        }
 
-        if !mutable_variables.is_empty() {
-            let mut body = ExprKind::List(List::new(Vec::new()));
+            if !mutable_variables.is_empty() {
+                let mut body = ExprKind::List(List::new(Vec::new()));
 
-            std::mem::swap(&mut lambda_function.body, &mut body);
+                std::mem::swap(&mut lambda_function.body, &mut body);
 
-            let wrapped_lambda = LambdaFunction::new(
-                mutable_variables.clone(),
-                body,
-                lambda_function.location.clone(),
-            );
+                let wrapped_lambda = LambdaFunction::new(
+                    mutable_variables.clone(),
+                    body,
+                    lambda_function.location.clone(),
+                );
 
-            // Box the values!
-            let mut mutable_variables: Vec<_> =
-                mutable_variables.into_iter().map(box_argument).collect();
+                // Box the values!
+                let mut mutable_variables: Vec<_> =
+                    mutable_variables.into_iter().map(box_argument).collect();
 
-            mutable_variables.insert(0, ExprKind::LambdaFunction(Box::new(wrapped_lambda)));
-            lambda_function.body = ExprKind::List(List::new(mutable_variables));
+                mutable_variables.insert(0, ExprKind::LambdaFunction(Box::new(wrapped_lambda)));
+                lambda_function.body = ExprKind::List(List::new(mutable_variables));
+            }
         }
     }
 }

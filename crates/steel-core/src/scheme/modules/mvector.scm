@@ -12,7 +12,8 @@
          mutable-vector->list
          mutable-vector-set!
          mutable-vector-ref
-         mutable-vector-len)
+         mutable-vector-len
+         list->mutable-vector)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

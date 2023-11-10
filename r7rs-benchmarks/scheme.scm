@@ -11,7 +11,7 @@
 ;         (scheme write)
 ;         (scheme time))
 
-(require "steel/mutable-vectors")
+; (require "steel/mutable-vectors")
 
 (define member
   (lambda (x los)
@@ -30,8 +30,11 @@
 (define memv member)
 (define eq? equal?)
 
-(define vector-set! mutable-vector-set!)
-(define vector-ref mutable-vector-ref)
+; (define vector-set! mutable-vector-set!)
+(define vector-ref mut-vector-ref)
+(define vector mutable-vector)
+(define (make-vector n)
+  (apply mutable-vector (map (lambda (x) 0) (range 0 n))))
 
 ;; --------------------------------------------------------------------------
 
@@ -1086,3 +1089,47 @@
                            "twentythree"
                            "twentytwo"
                            "two")))
+
+(require "steel/time/time.scm"
+         (for-syntax "steel/time/time.scm"))
+
+(define (run)
+
+  (let loop ([i 0])
+    (when (< i 100000)
+      ; (when (< i 1000)
+      (begin
+        ; (displayln i)
+        (assert! (equal? (scheme-eval program)
+                         '("eight" "eighteen"
+                                   "eleven"
+                                   "fifteen"
+                                   "five"
+                                   "four"
+                                   "fourteen"
+                                   "nine"
+                                   "nineteen"
+                                   "one"
+                                   "seven"
+                                   "seventeen"
+                                   "six"
+                                   "sixteen"
+                                   "ten"
+                                   "thirteen"
+                                   "thirty"
+                                   "three"
+                                   "twelve"
+                                   "twenty"
+                                   "twentyeight"
+                                   "twentyfive"
+                                   "twentyfour"
+                                   "twentynine"
+                                   "twentyone"
+                                   "twentyseven"
+                                   "twentysix"
+                                   "twentythree"
+                                   "twentytwo"
+                                   "two")))
+        (loop (+ i 1))))))
+
+(time! (run))

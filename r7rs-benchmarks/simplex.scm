@@ -10,11 +10,16 @@
 ;         (scheme write)
 ;         (scheme time))
 
-(require "steel/mutable-vectors")
+; (require "steel/mutable-vectors")
 
-(define vector-ref mutable-vector-ref)
-(define vector-set! mutable-vector-set!)
-(define vector-length mutable-vector-len)
+(define vector-ref mut-vector-ref)
+; (define vector-set! mutable-vector-set!)
+(define vector-length mut-vec-len)
+(define (make-vector n)
+  (apply mutable-vector (map (lambda (x) 0) (range 0 n))))
+
+(define vector-length mut-vec-len)
+(define vector mutable-vector)
 
 (define (positive? x)
   (> x 0))
@@ -229,6 +234,15 @@
            1))
 
 (assert! (equal? (list (vector 4 1 3 2) (vector 0 5 7 6)) (test 740.0)))
+
+(let loop ([i 0])
+  ; (when (< i 1000000)
+  (when (< i 1000000)
+    (begin
+      ; (displayln i)
+      (assert! (equal? (list (vector 4 1 3 2) (vector 0 5 7 6)) (test 740.0)))
+
+      (loop (+ i 1)))))
 
 ; 1000000
 ; 740.0

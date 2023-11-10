@@ -619,6 +619,7 @@ fn vector_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/vectors");
     module
         .register_value("mutable-vector", VectorOperations::mut_vec_construct())
+        .register_value("make-vector", VectorOperations::make_vector())
         .register_value("mutable-vector->list", VectorOperations::mut_vec_to_list())
         .register_value("vector-push!", VectorOperations::mut_vec_push())
         .register_value("mut-vec-len", VectorOperations::mut_vec_length())

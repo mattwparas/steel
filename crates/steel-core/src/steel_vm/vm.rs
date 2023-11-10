@@ -29,7 +29,6 @@ use crate::{
     stop,
     values::functions::ByteCodeLambda,
 };
-// use std::env::current_exe;
 use std::{cell::RefCell, collections::HashMap, iter::Iterator, rc::Rc};
 
 use super::builtin::DocTemplate;
@@ -80,6 +79,7 @@ const STACK_LIMIT: usize = 1000000;
 const _JIT_THRESHOLD: usize = 100;
 
 const USE_SUPER_INSTRUCTIONS: bool = false;
+const CHECK_STACK_OVERFLOW: bool = false;
 
 #[repr(C)]
 #[derive(Clone, Debug, Copy, PartialEq)]
@@ -218,6 +218,7 @@ impl StackFrame {
     //     self
     // }
 
+    #[inline(always)]
     pub fn set_function(&mut self, function: Gc<ByteCodeLambda>) {
         #[cfg(not(feature = "unsafe-internals"))]
         {
@@ -867,6 +868,7 @@ impl<'a> VmCore<'a> {
 
     fn gc_collect(&mut self) {
         self.thread.heap.collect(
+            None,
             None,
             self.thread.stack.iter(),
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
@@ -2288,7 +2290,10 @@ impl<'a> VmCore<'a> {
             //     dbg!(value);
             // }
 
-            self.update_state_with_frame(last);
+            // self.update_state_with_frame(last);
+
+            self.ip = last.ip;
+            self.instructions = last.instructions;
 
             self.sp = self.get_last_stack_frame_sp();
 
@@ -2559,7 +2564,9 @@ impl<'a> VmCore<'a> {
         let mut captures = Vec::with_capacity(ndefs as usize);
 
         // TODO: This shouldn't be the same size as the captures
-        let mut heap_vars = Vec::with_capacity(ndefs as usize);
+        // let mut heap_vars = Vec::with_capacity(ndefs as usize);
+
+        let mut heap_vars = Vec::new();
 
         // TODO clean this up a bit
         // hold the spot for where we need to jump aftwards
@@ -2599,12 +2606,14 @@ impl<'a> VmCore<'a> {
                 // need to do this step at all each time.
                 // Looks like all COPYHEAPCAPTURECLOSURE(s) happen at the start. So we should be able to store those
                 // Directly
-                (OpCode::COPYHEAPCAPTURECLOSURE, n) => {
-                    heap_vars.push(guard.function.heap_allocated().borrow()[n as usize].clone());
-                }
-                (OpCode::FIRSTCOPYHEAPCAPTURECLOSURE, n) => {
-                    heap_vars.push(guard.function.heap_allocated().borrow()[n as usize].clone());
-                }
+
+                // TODO: These will disappear
+                // (OpCode::COPYHEAPCAPTURECLOSURE, n) => {
+                // heap_vars.push(guard.function.heap_allocated().borrow()[n as usize].clone());
+                // }
+                // (OpCode::FIRSTCOPYHEAPCAPTURECLOSURE, n) => {
+                // heap_vars.push(guard.function.heap_allocated().borrow()[n as usize].clone());
+                // }
                 (l, _) => {
                     panic!(
                         "Something went wrong in closure construction!, found: {:?} @ {}",
@@ -2623,14 +2632,14 @@ impl<'a> VmCore<'a> {
             .closure_interner
             .get(&closure_id)
         {
-            log::trace!("Fetching closure from cache");
+            // log::trace!("Fetching closure from cache");
 
             let mut prototype = prototype.clone();
             prototype.set_captures(captures);
             prototype.set_heap_allocated(heap_vars);
             prototype
         } else {
-            log::trace!("Constructing closure for the first time");
+            // log::trace!("Constructing closure for the first time");
 
             debug_assert!(self.instructions[forward_index - 1].op_code == OpCode::ECLOSURE);
 
@@ -3298,14 +3307,14 @@ impl<'a> VmCore<'a> {
 
     #[inline(always)]
     fn check_stack_overflow(&self) -> Result<()> {
-        // println!("Depth: {}", self.thread.stack_frames.len());
-        // println!("Stack length: {}", self.thread.stack.len());
-
-        if unlikely(self.thread.stack_frames.len() >= STACK_LIMIT) {
-            crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-            println!("stack frame at exit: {:?}", self.thread.stack);
-            stop!(Generic => "stack overflowed!"; self.current_span());
+        if CHECK_STACK_OVERFLOW {
+            if unlikely(self.thread.stack_frames.len() >= STACK_LIMIT) {
+                crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+                println!("stack frame at exit: {:?}", self.thread.stack);
+                stop!(Generic => "stack overflowed!"; self.current_span());
+            }
         }
+
         Ok(())
     }
 
@@ -3504,7 +3513,6 @@ impl<'a> VmCore<'a> {
     // }
 
     // TODO improve this a bit
-    // #[inline(always)]
     #[inline(always)]
     fn handle_function_call_closure_jit_without_profiling(
         &mut self,

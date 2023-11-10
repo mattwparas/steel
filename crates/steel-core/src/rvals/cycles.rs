@@ -823,7 +823,25 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
     }
 
     fn push_back(&mut self, value: SteelVal) {
-        self.drop_buffer.push_back(value)
+        match &value {
+            SteelVal::BoolV(_)
+            | SteelVal::NumV(_)
+            | SteelVal::IntV(_)
+            | SteelVal::CharV(_)
+            | SteelVal::Void
+            | SteelVal::StringV(_)
+            | SteelVal::FuncV(_)
+            | SteelVal::SymbolV(_)
+            | SteelVal::FutureFunc(_)
+            | SteelVal::FutureV(_)
+            | SteelVal::BoxedFunction(_)
+            | SteelVal::MutFunc(_)
+            | SteelVal::BuiltIn(_)
+            | SteelVal::BigNum(_) => return,
+            _ => {
+                self.drop_buffer.push_back(value);
+            }
+        }
     }
 
     fn visit_bool(&mut self, _boolean: bool) {}
@@ -1472,10 +1490,23 @@ impl<'a> RecursiveEqualityHandler<'a> {
 
                     self.left.visit_syntax_object(l);
                     self.right.visit_syntax_object(r);
+
+                    continue;
                 }
                 (HeapAllocated(l), HeapAllocated(r)) => {
                     self.left.visit_heap_allocated(l);
                     self.right.visit_heap_allocated(r);
+
+                    continue;
+                }
+
+                (MutableVector(l), MutableVector(r)) => {
+                    if HeapRef::ptr_eq(&l, &r) {
+                        continue;
+                    }
+
+                    self.left.visit_mutable_vector(l);
+                    self.right.visit_mutable_vector(r);
 
                     continue;
                 }
