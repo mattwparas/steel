@@ -1470,9 +1470,9 @@ dependencies = [
 
 [[package]]
 name = "im-lists"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbe1ea6399f751563e6f5d88bff90a5c7418f8e7abbdd34708412be793a73949"
+checksum = "280cfba4e434565a1275d357b3561ca98265e3715de9406eabd6198f7137fd21"
 
 [[package]]
 name = "im-rc"

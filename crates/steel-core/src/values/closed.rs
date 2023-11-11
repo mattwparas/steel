@@ -1,6 +1,5 @@
 use std::{
     cell::RefCell,
-    collections::VecDeque,
     rc::{Rc, Weak},
 };
 
@@ -107,6 +106,86 @@ impl SteelVal {
     }
 }
 
+type HeapValue = Rc<RefCell<HeapAllocated<SteelVal>>>;
+type HeapVector = Rc<RefCell<HeapAllocated<Vec<SteelVal>>>>;
+
+// Maybe uninitialized
+
+struct FreeList {
+    elements: Vec<Option<HeapValue>>,
+    cursor: usize,
+    alloc_count: usize,
+}
+
+impl FreeList {
+    const EXTEND_CHUNK: usize = 128;
+
+    fn is_heap_full(&self) -> bool {
+        self.alloc_count == self.elements.len()
+    }
+
+    fn extend_heap(&mut self) {
+        self.cursor = self.elements.len();
+
+        self.elements.reserve(Self::EXTEND_CHUNK);
+        self.elements
+            .extend(std::iter::repeat(None).take(Self::EXTEND_CHUNK));
+    }
+
+    fn allocate(&mut self, value: SteelVal) -> HeapRef<SteelVal> {
+        // Drain, moving values around...
+        // is that expensive?
+
+        let pointer = Rc::new(RefCell::new(HeapAllocated::new(value)));
+        let weak_ptr = Rc::downgrade(&pointer);
+
+        self.elements[self.cursor] = Some(pointer);
+        self.alloc_count += 1;
+
+        // Find where to assign the next slot optimistically
+        let next_slot = self.elements[self.cursor..]
+            .iter()
+            .position(Option::is_none);
+
+        if let Some(next_slot) = next_slot {
+            self.cursor += next_slot;
+        } else {
+            //
+            if self.is_heap_full() {
+                // Extend the heap, move the cursor to the end
+                self.extend_heap();
+            } else {
+                self.cursor = self.elements.iter().position(Option::is_none).unwrap()
+            }
+        }
+
+        HeapRef { inner: weak_ptr }
+    }
+
+    fn collect_on_condition(&mut self, func: fn(&HeapValue) -> bool) -> usize {
+        let mut amount_dropped = 0;
+
+        self.elements.iter_mut().for_each(|x| {
+            if x.as_ref().map(func).unwrap_or_default() {
+                *x = None;
+                amount_dropped += 1;
+            }
+        });
+
+        self.alloc_count -= amount_dropped;
+
+        amount_dropped
+    }
+
+    fn weak_collection(&mut self) -> usize {
+        self.collect_on_condition(|inner| Rc::weak_count(inner) == 0)
+    }
+
+    fn strong_collection(&mut self) -> usize {
+        self.collect_on_condition(|inner| !inner.borrow().is_reachable())
+    }
+}
+
 #[derive(Clone)]
 pub struct Heap {
     memory: Vec<Rc<RefCell<HeapAllocated<SteelVal>>>>,
@@ -198,17 +277,22 @@ impl Heap {
             // In the event that the collection does not yield a substantial
             // change in the heap size, we should also enqueue a larger mark and
             // sweep collection.
-            let mut changed = true;
-            while changed {
-                log::debug!(target: "gc", "Small collection");
-                let prior_len = self.memory.len() + self.vector_cells_allocated();
-                log::debug!(target: "gc", "Previous length: {:?}", prior_len);
-                self.memory.retain(|x| Rc::weak_count(x) > 0);
-                self.vectors.retain(|x| Rc::weak_count(x) > 0);
-                let after = self.memory.len() + self.vector_cells_allocated();
-                log::debug!(target: "gc", "Objects freed: {:?}", prior_len - after);
-                changed = prior_len != after;
-            }
+            // let mut changed = true;
+            // while changed {
+
+            // let now = std::time::Instant::now();
+
+            // log::debug!(target: "gc", "Small collection");
+            // let prior_len = self.memory.len() + self.vector_cells_allocated();
+            // log::debug!(target: "gc", "Previous length: {:?}", prior_len);
+            // self.memory.retain(|x| Rc::weak_count(x) > 0);
+            // self.vectors.retain(|x| Rc::weak_count(x) > 0);
+            // let after = self.memory.len() + self.vector_cells_allocated();
+            // log::debug!(target: "gc", "Objects freed: {:?}", prior_len - after);
+            // log::debug!(target: "gc", "Small collection time: {:?}", now.elapsed());
+
+            // changed = prior_len != after;
+            // }
 
             let post_small_collection_size = self.memory.len() + self.vector_cells_allocated();
 
@@ -236,8 +320,8 @@ impl Heap {
                 self.threshold = GC_THRESHOLD;
                 self.count = 0;
 
-                self.memory.shrink_to(GC_THRESHOLD);
-                self.vectors.shrink_to(GC_THRESHOLD);
+                self.memory.shrink_to(GC_THRESHOLD * GC_GROW_FACTOR);
+                self.vectors.shrink_to(GC_THRESHOLD * GC_GROW_FACTOR);
             }
         }
     }
@@ -323,8 +407,22 @@ impl Heap {
         let prior_len = self.memory.len() + self.vector_cells_allocated();
 
         // sweep
-        self.memory.retain(|x| x.borrow().is_reachable());
-        self.vectors.retain(|x| x.borrow().is_reachable());
+        self.memory.retain(|x| {
+            // let mut guard = x.borrow_mut();
+            // let is_reachable = guard.is_reachable();
+            // guard.reset();
+            // is_reachable
+
+            x.borrow().is_reachable()
+        });
+        self.vectors.retain(|x| {
+            // let mut guard = x.borrow_mut();
+            // let is_reachable = guard.is_reachable();
+            // guard.reset();
+            // is_reachable
+            x.borrow().is_reachable()
+        });
+        // (|x| x.borrow().is_reachable());
 
         let after_len = self.memory.len();
 
@@ -399,6 +497,19 @@ impl<T: HeapAble> HeapRef<T> {
 pub struct HeapAllocated<T: Clone + std::fmt::Debug + PartialEq + Eq> {
     pub(crate) reachable: bool,
     pub(crate) value: T,
+}
+
+// Adding generation information should be doable here
+// struct Test {
+//     pub(crate) reachable: bool,
+//     pub(crate) generation: u32,
+//     pub(crate) value: SteelVal,
+// }
+
+#[test]
+fn check_size_of_heap_allocated_value() {
+    println!("{:?}", std::mem::size_of::<HeapAllocated<SteelVal>>());
+    // println!("{:?}", std::mem::size_of::<Test>());
 }
 
 impl<T: Clone + std::fmt::Debug + PartialEq + Eq> HeapAllocated<T> {

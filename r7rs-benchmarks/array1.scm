@@ -45,7 +45,7 @@
 
 ; (displayln (go 50 1000000))
 
-(displayln (go 1 10000))
+(displayln (go 1 1000))
 
 ; 500
 ; 1000000

@@ -15,8 +15,8 @@
 (define vector-ref mut-vector-ref)
 ; (define vector-set! mutable-vector-set!)
 (define vector-length mut-vec-len)
-(define (make-vector n)
-  (apply mutable-vector (map (lambda (x) 0) (range 0 n))))
+; (define (make-vector n)
+;   (apply mutable-vector (map (lambda (x) 0) (range 0 n))))
 
 (define vector-length mut-vec-len)
 (define vector mutable-vector)
@@ -236,7 +236,7 @@
 (assert! (equal? (list (vector 4 1 3 2) (vector 0 5 7 6)) (test 740.0)))
 
 (let loop ([i 0])
-  ; (when (< i 1000000)
+  ; (when (< i 500000)
   (when (< i 10000)
     (begin
       ; (displayln i)

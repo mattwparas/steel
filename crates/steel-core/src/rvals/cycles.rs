@@ -49,7 +49,7 @@ pub(super) struct CycleDetector {
 impl CycleDetector {
     pub(super) fn detect_and_display_cycles(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         // Consider using one shared queue here
-        let mut queue = VecDeque::new();
+        let mut queue = Vec::new();
 
         let mut bfs_detector = CycleCollector {
             visited: fxhash::FxHashSet::default(),
@@ -402,7 +402,7 @@ impl Custom for SteelCycleCollector {}
 
 impl SteelCycleCollector {
     pub fn from_root(value: SteelVal) -> Self {
-        let mut queue = VecDeque::new();
+        let mut queue = Vec::new();
 
         let mut collector = CycleCollector {
             visited: fxhash::FxHashSet::default(),
@@ -497,7 +497,7 @@ struct CycleCollector<'a> {
     values: Vec<SteelVal>,
 
     // Queue of items to check
-    queue: &'a mut VecDeque<SteelVal>,
+    queue: &'a mut Vec<SteelVal>,
 
     // Whether we found something mutable - if we haven't, then a cycle
     // isn't even possible
@@ -506,6 +506,10 @@ struct CycleCollector<'a> {
 
 impl<'a> CycleCollector<'a> {
     fn add(&mut self, val: usize, steelval: &SteelVal) -> bool {
+        if !self.found_mutable {
+            false;
+        }
+
         if self.visited.contains(&val) {
             let id = self.cycles.len();
 
@@ -532,11 +536,11 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
     fn default_output(&mut self) -> Self::Output {}
 
     fn pop_front(&mut self) -> Option<SteelVal> {
-        self.queue.pop_front()
+        self.queue.pop()
     }
 
     fn push_back(&mut self, value: SteelVal) {
-        self.queue.push_back(value)
+        self.queue.push(value)
     }
 
     fn visit_closure(&mut self, _closure: Gc<ByteCodeLambda>) -> Self::Output {}
@@ -624,6 +628,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
 
     // TODO: Figure out the mutable vector first
     fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output {
+        self.found_mutable = true;
+
         if !self.add(
             vector.as_ptr_usize(),
             &SteelVal::MutableVector(vector.clone()),
@@ -776,25 +782,25 @@ pub(crate) mod drop_impls {
         }
     }
 
-    impl Drop for ByteCodeLambda {
-        fn drop(&mut self) {
-            if self.captures.is_empty() {
-                return;
-            }
+    // impl Drop for ByteCodeLambda {
+    //     fn drop(&mut self) {
+    //         if self.captures.is_empty() {
+    //             return;
+    //         }
 
-            DROP_BUFFER
-                .try_with(|drop_buffer| {
-                    if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                        for value in std::mem::take(&mut self.captures) {
-                            drop_buffer.push_back(value);
-                        }
+    //         DROP_BUFFER
+    //             .try_with(|drop_buffer| {
+    //                 if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
+    //                     for value in std::mem::take(&mut self.captures) {
+    //                         drop_buffer.push_back(value);
+    //                     }
 
-                        IterativeDropHandler::bfs(&mut drop_buffer);
-                    }
-                })
-                .ok();
-        }
-    }
+    //                     IterativeDropHandler::bfs(&mut drop_buffer);
+    //                 }
+    //             })
+    //             .ok();
+    //     }
+    // }
 }
 
 pub struct IterativeDropHandler<'a> {
@@ -1167,9 +1173,101 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output;
 }
 
+pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
+    type Output;
+
+    fn default_output(&mut self) -> Self::Output;
+
+    fn pop_front(&mut self) -> Option<&'a SteelVal>;
+
+    fn push_back(&mut self, value: &'a SteelVal);
+
+    fn visit(&mut self) -> Self::Output {
+        let mut ret = self.default_output();
+
+        while let Some(value) = self.pop_front() {
+            ret = match value {
+                Closure(c) => self.visit_closure(c),
+                BoolV(b) => self.visit_bool(*b),
+                NumV(n) => self.visit_float(*n),
+                IntV(i) => self.visit_int(*i),
+                CharV(c) => self.visit_char(*c),
+                VectorV(v) => self.visit_immutable_vector(v),
+                Void => self.visit_void(),
+                StringV(s) => self.visit_string(s),
+                FuncV(f) => self.visit_function_pointer(*f),
+                SymbolV(s) => self.visit_symbol(s),
+                SteelVal::Custom(c) => self.visit_custom_type(c),
+                HashMapV(h) => self.visit_hash_map(h),
+                HashSetV(s) => self.visit_hash_set(s),
+                CustomStruct(c) => self.visit_steel_struct(c),
+                PortV(p) => self.visit_port(p),
+                IterV(t) => self.visit_transducer(t),
+                ReducerV(r) => self.visit_reducer(r),
+                FutureFunc(f) => self.visit_future_function(f),
+                FutureV(f) => self.visit_future(f),
+                StreamV(s) => self.visit_stream(s),
+                BoxedFunction(b) => self.visit_boxed_function(b),
+                ContinuationFunction(c) => self.visit_continuation(c),
+                ListV(l) => self.visit_list(l),
+                MutFunc(m) => self.visit_mutable_function(m),
+                BuiltIn(b) => self.visit_builtin_function(b),
+                MutableVector(b) => self.visit_mutable_vector(b),
+                BoxedIterator(b) => self.visit_boxed_iterator(b),
+                SteelVal::SyntaxObject(s) => self.visit_syntax_object(s),
+                Boxed(b) => self.visit_boxed_value(b),
+                Reference(r) => self.visit_reference_value(r),
+                BigNum(b) => self.visit_bignum(b),
+                HeapAllocated(b) => self.visit_heap_allocated(b),
+            };
+        }
+
+        ret
+    }
+
+    fn visit_closure(&mut self, closure: &'a Gc<ByteCodeLambda>) -> Self::Output;
+    fn visit_bool(&mut self, boolean: bool) -> Self::Output;
+    fn visit_float(&mut self, float: f64) -> Self::Output;
+    fn visit_int(&mut self, int: isize) -> Self::Output;
+    fn visit_char(&mut self, c: char) -> Self::Output;
+    fn visit_immutable_vector(&mut self, vector: &'a SteelVector) -> Self::Output;
+    fn visit_void(&mut self) -> Self::Output;
+    fn visit_string(&mut self, string: &'a SteelString) -> Self::Output;
+    fn visit_function_pointer(&mut self, ptr: FunctionSignature) -> Self::Output;
+    fn visit_symbol(&mut self, symbol: &'a SteelString) -> Self::Output;
+    fn visit_custom_type(
+        &mut self,
+        custom_type: &'a Gc<RefCell<Box<dyn CustomType>>>,
+    ) -> Self::Output;
+    fn visit_hash_map(&mut self, hashmap: &'a SteelHashMap) -> Self::Output;
+    fn visit_hash_set(&mut self, hashset: &'a SteelHashSet) -> Self::Output;
+    fn visit_steel_struct(&mut self, steel_struct: &'a Gc<UserDefinedStruct>) -> Self::Output;
+    fn visit_port(&mut self, port: &'a Gc<SteelPort>) -> Self::Output;
+    fn visit_transducer(&mut self, transducer: &'a Gc<Transducer>) -> Self::Output;
+    fn visit_reducer(&mut self, reducer: &'a Gc<Reducer>) -> Self::Output;
+    fn visit_future_function(&mut self, function: &'a BoxedAsyncFunctionSignature) -> Self::Output;
+    fn visit_future(&mut self, future: &'a Gc<FutureResult>) -> Self::Output;
+    fn visit_stream(&mut self, stream: &'a Gc<LazyStream>) -> Self::Output;
+    fn visit_boxed_function(&mut self, function: &'a Rc<BoxedDynFunction>) -> Self::Output;
+    fn visit_continuation(&mut self, continuation: &'a Gc<Continuation>) -> Self::Output;
+    fn visit_list(&mut self, list: &'a List<SteelVal>) -> Self::Output;
+    fn visit_mutable_function(&mut self, function: &'a MutFunctionSignature) -> Self::Output;
+    fn visit_mutable_vector(&mut self, vector: &'a HeapRef<Vec<SteelVal>>) -> Self::Output;
+    fn visit_builtin_function(&mut self, function: &'a BuiltInSignature) -> Self::Output;
+    fn visit_boxed_iterator(&mut self, iterator: &'a Gc<RefCell<OpaqueIterator>>) -> Self::Output;
+    fn visit_syntax_object(&mut self, syntax_object: &'a Gc<Syntax>) -> Self::Output;
+    fn visit_boxed_value(&mut self, boxed_value: &'a Gc<RefCell<SteelVal>>) -> Self::Output;
+    fn visit_reference_value(
+        &mut self,
+        reference: &'a Rc<OpaqueReference<'static>>,
+    ) -> Self::Output;
+    fn visit_bignum(&mut self, bignum: &'a Gc<BigInt>) -> Self::Output;
+    fn visit_heap_allocated(&mut self, heap_ref: &'a HeapRef<SteelVal>) -> Self::Output;
+}
+
 thread_local! {
-    static LEFT_QUEUE: RefCell<VecDeque<SteelVal>> = RefCell::new(VecDeque::with_capacity(128));
-    static RIGHT_QUEUE: RefCell<VecDeque<SteelVal>> = RefCell::new(VecDeque::with_capacity(128));
+    static LEFT_QUEUE: RefCell<Vec<SteelVal>> = RefCell::new(Vec::with_capacity(128));
+    static RIGHT_QUEUE: RefCell<Vec<SteelVal>> = RefCell::new(Vec::with_capacity(128));
     static VISITED_SET: RefCell<fxhash::FxHashSet<usize>> = RefCell::new(fxhash::FxHashSet::default());
     static EQ_DEPTH: Cell<usize> = Cell::new(0);
 }
@@ -1201,7 +1299,7 @@ struct RecursiveEqualityHandler<'a> {
     left: EqualityVisitor<'a>,
     right: EqualityVisitor<'a>,
     visited: &'a mut fxhash::FxHashSet<usize>,
-    found_mutable_object: bool,
+    // found_mutable_object: bool,
 }
 
 impl<'a> RecursiveEqualityHandler<'a> {
@@ -1213,11 +1311,11 @@ impl<'a> RecursiveEqualityHandler<'a> {
     }
 
     fn should_visit(&mut self, value: usize) -> bool {
-        if self.found_mutable_object && self.visited.insert(value) {
-            return true;
-        }
+        // if !self.found_mutable_object {
+        // return true;
+        // }
 
-        if !self.found_mutable_object {
+        if self.visited.insert(value) {
             return true;
         }
 
@@ -1232,13 +1330,51 @@ impl<'a> RecursiveEqualityHandler<'a> {
                 _ => return false,
             };
 
+            // println!("{} - {}", left, right);
+
+            // println!(
+            //     "Queue size: {:?}",
+            //     self.left.queue.len(),
+            //     // self.right.queue.len()
+            // );
+
             match (left, right) {
-                (Closure(l), Closure(r)) => {
-                    if l != r {
-                        return false;
+                (ListV(l), ListV(r)) => {
+                    // If we've reached the same object, we're good
+                    if l.ptr_eq(&r) || l.storage_ptr_eq(&r) {
+                        continue;
                     }
 
-                    self.left.visit_closure(l);
+                    if self.should_visit(l.elements_as_ptr_usize())
+                        && self.should_visit(r.elements_as_ptr_usize())
+                    {
+                        if l.len() != r.len() {
+                            return false;
+                        }
+
+                        for (lvalue, rvalue) in l.iter().zip(r.iter()) {
+                            // TODO: @Matt - need to do optimistic checks here so we don't
+                            // visit things we don't need to - basically a "check left" function
+                            match (lvalue, rvalue) {
+                                (SteelVal::ListV(llist), SteelVal::ListV(rlist))
+                                    if (llist.is_empty() && rlist.is_empty())
+                                        || llist.ptr_eq(&rlist)
+                                        || llist.storage_ptr_eq(&rlist) =>
+                                {
+                                    continue;
+                                }
+                                // (SteelVal::ListV(llist), SteelVal::ListV(rlist)) if llist.len() == 1 && rlist.len() == 1 {
+
+                                // }
+                                (a, b) => {
+                                    // println!("Pushing back: {}", a);
+
+                                    self.left.push_back(a.clone());
+                                    self.right.push_back(b.clone());
+                                }
+                            }
+                        }
+                    }
 
                     continue;
                 }
@@ -1448,23 +1584,6 @@ impl<'a> RecursiveEqualityHandler<'a> {
 
                     continue;
                 }
-                (ListV(l), ListV(r)) => {
-                    // If we've reached the same object, we're good
-                    if l.ptr_eq(&r) {
-                        continue;
-                    }
-
-                    if self.should_visit(l.as_ptr_usize()) && self.should_visit(r.as_ptr_usize()) {
-                        if l.len() != r.len() {
-                            return false;
-                        }
-
-                        self.left.visit_list(l);
-                        self.right.visit_list(r);
-                    }
-
-                    continue;
-                }
                 // MutFunc(m) => self.visit_mutable_function(m),
                 (BuiltIn(l), BuiltIn(r)) => {
                     if l as usize != r as usize {
@@ -1494,6 +1613,10 @@ impl<'a> RecursiveEqualityHandler<'a> {
                     continue;
                 }
                 (HeapAllocated(l), HeapAllocated(r)) => {
+                    if HeapRef::ptr_eq(&l, &r) {
+                        continue;
+                    }
+
                     self.left.visit_heap_allocated(l);
                     self.right.visit_heap_allocated(r);
 
@@ -1510,6 +1633,16 @@ impl<'a> RecursiveEqualityHandler<'a> {
 
                     continue;
                 }
+                (Closure(l), Closure(r)) => {
+                    if l != r {
+                        return false;
+                    }
+
+                    self.left.visit_closure(l);
+                    self.right.visit_closure(r);
+
+                    continue;
+                }
                 (_, _) => {
                     return false;
                 }
@@ -1520,13 +1653,14 @@ impl<'a> RecursiveEqualityHandler<'a> {
     }
 }
 
+// TODO: This _needs_ to use references. Or otherwise we'll thrash stuff on drop
 pub struct EqualityVisitor<'a> {
     // Mark each node that we've visited, if we encounter any mutable objects
     // on the way, then we'll start using the visited set. But we'll optimistically
     // assume that there are no mutable objects, and we won't start using this
     // until we absolutely have to.
     // found_mutable_object: bool,
-    queue: &'a mut VecDeque<SteelVal>,
+    queue: &'a mut Vec<SteelVal>,
 }
 
 impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
@@ -1535,11 +1669,11 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
     fn default_output(&mut self) -> Self::Output {}
 
     fn pop_front(&mut self) -> Option<SteelVal> {
-        self.queue.pop_front()
+        self.queue.pop()
     }
 
     fn push_back(&mut self, value: SteelVal) {
-        self.queue.push_back(value)
+        self.queue.push(value)
     }
 
     fn visit_closure(&mut self, _closure: Gc<ByteCodeLambda>) -> Self::Output {}
@@ -1630,8 +1764,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
     fn visit_continuation(&mut self, _continuation: Gc<Continuation>) -> Self::Output {}
 
     fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output {
-        for value in list {
-            self.push_back(value);
+        for value in list.iter() {
+            self.push_back(value.clone());
         }
     }
 
@@ -1682,6 +1816,7 @@ impl PartialEq for SteelVal {
             // (VectorV(l), VectorV(r)) => l == r,
             (SymbolV(l), SymbolV(r)) => l == r,
             (CharV(l), CharV(r)) => l == r,
+            // (ListV(l), ListV(r)) => l == r,
             // (HashSetV(l), HashSetV(r)) => l == r,
             // (HashMapV(l), HashMapV(r)) => l == r,
             // (Closure(l), Closure(r)) => l == r,
@@ -1708,7 +1843,7 @@ impl PartialEq for SteelVal {
                                         queue: &mut right_queue,
                                     },
                                     visited: &mut visited_set,
-                                    found_mutable_object: false,
+                                    // found_mutable_object: false,
                                 };
 
                                 let res =
@@ -1726,8 +1861,8 @@ impl PartialEq for SteelVal {
                                 res
                             }
                             _ => {
-                                let mut left_queue = VecDeque::new();
-                                let mut right_queue = VecDeque::new();
+                                let mut left_queue = Vec::new();
+                                let mut right_queue = Vec::new();
 
                                 let mut visited_set = fxhash::FxHashSet::default();
 
@@ -1745,7 +1880,7 @@ impl PartialEq for SteelVal {
                                         queue: &mut right_queue,
                                     },
                                     visited: &mut visited_set,
-                                    found_mutable_object: false,
+                                    // found_mutable_object: false,
                                 };
 
                                 let res =

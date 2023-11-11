@@ -3014,6 +3014,7 @@ impl<'a> VmCore<'a> {
             .thread
             .stack
             .split_off(self.thread.stack.len() - payload_size);
+
         let result = func(self, &args).map(|x| {
             x.map_err(|x| {
                 // TODO: @Matt 4/24/2022 -> combine this into one function probably

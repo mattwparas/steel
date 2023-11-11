@@ -1,0 +1,29 @@
+(require-builtin #%private/steel/reader as reader.)
+(require "#%private/steel/control")
+
+(define *reader* (reader.new-reader))
+(define current-input-port (make-parameter (stdin)))
+
+(define (read)
+
+  (cond
+    [(reader.reader-empty? *reader*)
+
+     (define next-line (read-line-from-port (current-input-port)))
+
+     (cond
+       [(string? next-line)
+
+        (reader.reader-push-string *reader* next-line)
+
+        (reader.reader-read-one *reader*)]
+
+       [else
+        =>
+        next-line])]
+
+    ;; The reader is not empty!
+    [else
+     =>
+
+     (reader.reader-read-one *reader*)]))

@@ -348,7 +348,7 @@ pub fn function(
     let arg_enumerate = type_vec.into_iter().enumerate();
     let arg_type = arg_enumerate.clone().map(|(_, x)| x);
     let arg_index = arg_enumerate.clone().map(|(i, _)| i);
-    let function_names_with_colon = std::iter::repeat(function_name_with_colon.clone());
+    // let function_names_with_colon = std::iter::repeat(function_name_with_colon.clone());
     let function_name = sign.ident.clone();
     let _arity_name = Ident::new(
         &(function_name.to_string().to_uppercase() + "_ARITY"),

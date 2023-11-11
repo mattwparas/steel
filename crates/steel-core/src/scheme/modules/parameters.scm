@@ -104,7 +104,7 @@
 
 (struct Parameter (getter value)
   #:mutable
-  #:printer (lambda (obj printer-function) (printer-function "<procedure:parameter-procedure>"))
+  #:printer (lambda (obj printer-function) (simple-display "<procedure:parameter-procedure>"))
   #:prop:procedure 0)
 
 (define (make-parameter value)

@@ -311,6 +311,7 @@ thread_local! {
 
     pub static MUTABLE_HASH_MODULE: BuiltInModule = mutable_hashmap_module();
     pub static MUTABLE_VECTOR_MODULE: BuiltInModule = mutable_vector_module();
+    pub static PRIVATE_READER_MODULE: BuiltInModule = reader_module();
 
     #[cfg(feature = "web")]
     pub static WEBSOCKETS_MODULE: BuiltInModule = websockets_module();
@@ -466,6 +467,7 @@ pub fn register_builtin_modules(engine: &mut Engine) {
     // Private module
     engine.register_module(MUTABLE_HASH_MODULE.with(|x| x.clone()));
     engine.register_module(MUTABLE_VECTOR_MODULE.with(|x| x.clone()));
+    engine.register_module(PRIVATE_READER_MODULE.with(|x| x.clone()));
 
     engine.register_module(STRING_COLORS_MODULE.with(|x| x.clone()));
 
@@ -1225,7 +1227,24 @@ struct Reader {
     offset: usize,
 }
 
+impl crate::rvals::Custom for Reader {}
+
 impl Reader {
+    fn create_reader() -> Reader {
+        Self {
+            buffer: String::new(),
+            offset: 0,
+        }
+    }
+
+    fn push_string(&mut self, input: crate::rvals::SteelString) {
+        self.buffer.push_str(input.as_str());
+    }
+
+    fn is_empty(&self) -> bool {
+        self.buffer.is_empty()
+    }
+
     fn read_one(&mut self) -> Result<SteelVal> {
         if let Some(buffer) = self.buffer.get(self.offset..) {
             let mut parser = crate::parser::parser::Parser::new(buffer, None);
@@ -1245,6 +1264,12 @@ impl Reader {
 
 fn reader_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("#%private/steel/reader");
+
+    module
+        .register_fn("new-reader", Reader::create_reader)
+        .register_fn("reader-push-string", Reader::push_string)
+        .register_fn("reader-read-one", Reader::read_one)
+        .register_fn("reader-empty?", Reader::is_empty);
 
     module
 }

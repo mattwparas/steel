@@ -70,10 +70,13 @@
        (cond
          [(function? printer) (printer obj (lambda (x) (#%print x collector)))]
 
-         [else
+         ;; Truthiness here needs to be addressed
+         [printer
           (simple-display "#<")
           (simple-display (symbol->string (#%struct-property-ref obj '#:name)))
-          (simple-display ">")]))]
+          (simple-display ">")]
+
+         [else (simple-display obj)]))]
 
     [(set? obj)
      (cond

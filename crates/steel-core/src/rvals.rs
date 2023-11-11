@@ -1487,7 +1487,9 @@ impl SteelVal {
             (BoxedFunction(l), BoxedFunction(r)) => Rc::ptr_eq(l, r),
             (ContinuationFunction(l), ContinuationFunction(r)) => Gc::ptr_eq(l, r),
             // (CompiledFunction(_), CompiledFunction(_)) => todo!(),
-            (ListV(l), ListV(r)) => l.ptr_eq(r),
+            (ListV(l), ListV(r)) => {
+                l.ptr_eq(r) || l.storage_ptr_eq(r) || l.is_empty() && r.is_empty()
+            }
             (MutFunc(l), MutFunc(r)) => *l as usize == *r as usize,
             (BuiltIn(l), BuiltIn(r)) => *l as usize == *r as usize,
             (MutableVector(l), MutableVector(r)) => HeapRef::ptr_eq(l, r),
