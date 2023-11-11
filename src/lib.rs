@@ -39,7 +39,7 @@ enum EmitAction {
         default_file: Option<PathBuf>,
         arguments: Vec<String>,
     },
-    /// Test the module
+    /// Tests the module - only tests modules which provide values
     Test { default_file: Option<String> },
     /// Generate the documentation for a file
     Doc { default_file: Option<PathBuf> },
@@ -95,12 +95,24 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
 
         Args {
             default_file: None,
-            action: Some(EmitAction::Test { default_file: _ }),
+            action: Some(EmitAction::Test { default_file }),
             ..
         } => {
-            todo!()
+            let file_or_current_dir: String = default_file.unwrap_or(".".to_string());
+            if let Some(path) = PathBuf::from(file_or_current_dir).to_str() {
+                let mut vm = Engine::new();
+                vm.register_value(
+                    "std::env::args",
+                    steel::SteelVal::ListV(vec![path.to_string().into()].into()),
+                );
+                let test_script = include_str!("../cogs/test-runner.scm");
+                if let Err(e) = vm.run(test_script) {
+                    e.emit_result(path, &test_script);
+                    return Err(Box::new(e));
+                }
+            }
+            Ok(())
         }
-
         Args {
             default_file: None,
             action: Some(EmitAction::Doc {

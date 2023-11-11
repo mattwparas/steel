@@ -1,6 +1,6 @@
 /target
 **/*.rs.bk
-Cargo.lock
 /scratch
 docs/book
 .vscode/
+/result
