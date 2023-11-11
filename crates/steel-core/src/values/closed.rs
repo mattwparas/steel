@@ -277,22 +277,21 @@ impl Heap {
             // In the event that the collection does not yield a substantial
             // change in the heap size, we should also enqueue a larger mark and
             // sweep collection.
-            // let mut changed = true;
-            // while changed {
+            let mut changed = true;
+            while changed {
+                let now = std::time::Instant::now();
 
-            // let now = std::time::Instant::now();
+                log::debug!(target: "gc", "Small collection");
+                let prior_len = self.memory.len() + self.vector_cells_allocated();
+                log::debug!(target: "gc", "Previous length: {:?}", prior_len);
+                self.memory.retain(|x| Rc::weak_count(x) > 0);
+                self.vectors.retain(|x| Rc::weak_count(x) > 0);
+                let after = self.memory.len() + self.vector_cells_allocated();
+                log::debug!(target: "gc", "Objects freed: {:?}", prior_len - after);
+                log::debug!(target: "gc", "Small collection time: {:?}", now.elapsed());
 
-            // log::debug!(target: "gc", "Small collection");
-            // let prior_len = self.memory.len() + self.vector_cells_allocated();
-            // log::debug!(target: "gc", "Previous length: {:?}", prior_len);
-            // self.memory.retain(|x| Rc::weak_count(x) > 0);
-            // self.vectors.retain(|x| Rc::weak_count(x) > 0);
-            // let after = self.memory.len() + self.vector_cells_allocated();
-            // log::debug!(target: "gc", "Objects freed: {:?}", prior_len - after);
-            // log::debug!(target: "gc", "Small collection time: {:?}", now.elapsed());
-
-            // changed = prior_len != after;
-            // }
+                changed = prior_len != after;
+            }
 
             let post_small_collection_size = self.memory.len() + self.vector_cells_allocated();
 

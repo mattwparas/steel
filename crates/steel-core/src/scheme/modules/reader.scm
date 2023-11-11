@@ -6,6 +6,12 @@
 
 (define (read)
 
+  (define value (read-impl))
+
+  (if (Ok? value) (Ok->value value) (raise-error (Err->value value))))
+
+(define (read-impl)
+
   (cond
     [(reader.reader-empty? *reader*)
 
