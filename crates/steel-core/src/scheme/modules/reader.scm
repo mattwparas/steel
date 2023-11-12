@@ -1,8 +1,9 @@
 (require-builtin #%private/steel/reader as reader.)
 (require "#%private/steel/control")
 
+(provide read)
+
 (define *reader* (reader.new-reader))
-(define current-input-port (make-parameter (stdin)))
 
 (define (read)
   (define value (read-impl))

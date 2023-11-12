@@ -15,7 +15,7 @@ use super::dylib::DylibContainers;
 use crate::{
     compiler::{
         compiler::{Compiler, SerializableCompiler},
-        modules::CompiledModule,
+        modules::{CompiledModule, PRELUDE_WITHOUT_BASE},
         program::{Executable, RawProgramWithSymbols, SerializableRawProgramWithSymbols},
     },
     containers::RegisterValue,
@@ -957,15 +957,7 @@ impl Engine {
 
         engine.compiler.kernel = Some(Kernel::new());
 
-        engine
-            .run(
-                "
-                (require \"#%private/steel/control\" (for-syntax \"#%private/steel/control\"))
-                (require \"#%private/steel/contract\" (for-syntax \"#%private/steel/contract\"))
-                (require \"#%private/steel/print\")
-                ",
-            )
-            .unwrap();
+        engine.run(PRELUDE_WITHOUT_BASE).unwrap();
 
         engine
     }
