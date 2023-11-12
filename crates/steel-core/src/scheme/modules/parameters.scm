@@ -48,8 +48,8 @@
          simple-displayln
          newline)
 
-(define current-input-port (make-parameter (stdin)))
-(define current-output-port (make-parameter (stdout)))
+(define current-input-port (make-parameter (#%default-input-port)))
+(define current-output-port (make-parameter (#%default-output-port)))
 
 (define (simple-display x)
   (write-string (current-output-port) x))

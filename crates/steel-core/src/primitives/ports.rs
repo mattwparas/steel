@@ -27,7 +27,9 @@ pub fn port_module() -> BuiltInModule {
         .register_native_fn_definition(READ_LINE_TO_STRING_DEFINITION)
         .register_native_fn_definition(GET_OUTPUT_STRING_DEFINITION)
         .register_native_fn_definition(IS_INPUT_DEFINITION)
-        .register_native_fn_definition(IS_OUTPUT_DEFINITION);
+        .register_native_fn_definition(IS_OUTPUT_DEFINITION)
+        .register_native_fn_definition(DEFAULT_INPUT_PORT_DEFINITION)
+        .register_native_fn_definition(DEFAULT_OUTPUT_PORT_DEFINITION);
     module
 }
 
@@ -218,4 +220,14 @@ pub fn get_output_string(port: &Gc<SteelPort>) -> Result<SteelVal> {
 #[function(name = "flush-output-port")]
 pub fn flush_output_port(port: &Gc<SteelPort>) -> Result<SteelVal> {
     port.flush().map(|_| SteelVal::Void)
+}
+
+#[function(name = "#%default-input-port")]
+pub fn default_input_port() -> SteelVal {
+    SteelVal::PortV(Gc::new(SteelPort::default_current_input_port()))
+}
+
+#[function(name = "#%default-output-port")]
+pub fn default_output_port() -> SteelVal {
+    SteelVal::PortV(Gc::new(SteelPort::default_current_output_port()))
 }

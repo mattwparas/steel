@@ -353,7 +353,11 @@ impl SteelPort {
     }
 
     pub fn default_current_output_port() -> Self {
-        SteelPort::StdOutput(new_rc_ref_cell(io::stdout()))
+        if cfg!(test) {
+            SteelPort::new_output_port()
+        } else {
+            SteelPort::StdOutput(new_rc_ref_cell(io::stdout()))
+        }
     }
 
     pub fn get_output_string(&self) -> Result<String> {
@@ -368,13 +372,3 @@ impl SteelPort {
         }
     }
 }
-
-// pub fn default_current_input_port() -> SteelPort {
-//     // TODO: current_input should be changable
-//     SteelPort::StdInput(new_rc_ref_cell(io::stdin()))
-// }
-
-// pub fn default_current_output_port() -> SteelPort {
-//     // TODO: current_output should be changable
-//     SteelPort::StdOutput(new_rc_ref_cell(io::stdout()))
-// }
