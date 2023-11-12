@@ -16,6 +16,7 @@ use crate::{
         // contracts::{ContractType, ContractedFunction},
         functions::ByteCodeLambda,
         lazy_stream::LazyStream,
+        structs::SerializableUserDefinedStruct,
         // lists::ListDropHandler,
         transducers::{Reducer, Transducer},
     },
@@ -914,6 +915,11 @@ impl From<Syntax> for SteelVal {
     }
 }
 
+// TODO:
+// This needs to be a method on the runtime: in order to properly support
+// threads
+// Tracking issue here: https://github.com/mattwparas/steel/issues/98
+
 // Values which can be sent to another thread.
 // If it cannot be sent to another thread, then we'll error out on conversion.
 // TODO: Add boxed dyn functions to this.
@@ -934,6 +940,7 @@ pub enum SerializableSteelVal {
     BuiltIn(BuiltInSignature),
     SymbolV(String),
     Custom(Box<dyn CustomType + Send>), // Custom()
+    CustomStruct(SerializableUserDefinedStruct),
 }
 
 // Once crossed over the line, convert BACK into a SteelVal
@@ -963,6 +970,12 @@ pub fn from_serializable_value(val: SerializableSteelVal) -> SteelVal {
         SerializableSteelVal::BuiltIn(f) => SteelVal::BuiltIn(f),
         SerializableSteelVal::SymbolV(s) => SteelVal::SymbolV(s.into()),
         SerializableSteelVal::Custom(b) => SteelVal::Custom(Gc::new(RefCell::new(b))),
+        SerializableSteelVal::CustomStruct(s) => {
+            SteelVal::CustomStruct(Gc::new(UserDefinedStruct {
+                fields: s.fields.into_iter().map(from_serializable_value).collect(),
+                type_descriptor: s.type_descriptor,
+            }))
+        }
     }
 }
 
@@ -1004,6 +1017,18 @@ pub fn into_serializable_value(val: SteelVal) -> Result<SerializableSteelVal> {
                 stop!(Generic => "Custom type not allowed to be moved across threads!")
             }
         }
+
+        SteelVal::CustomStruct(s) => Ok(SerializableSteelVal::CustomStruct(
+            SerializableUserDefinedStruct {
+                fields: s
+                    .fields
+                    .iter()
+                    .cloned()
+                    .map(into_serializable_value)
+                    .collect::<Result<Vec<_>>>()?,
+                type_descriptor: s.type_descriptor,
+            },
+        )),
         illegal => stop!(Generic => "Type not allowed to be moved across threads!: {}", illegal),
     }
 }
