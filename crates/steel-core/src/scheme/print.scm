@@ -1,4 +1,5 @@
 (require-builtin steel/base)
+(require "#%private/steel/control")
 
 (provide displayln
          display)
@@ -19,7 +20,9 @@
 
   (for-each (λ (obj)
               (when (int? (#%private-cycle-collector-get cycle-collector obj))
-                (simple-display "#" (#%private-cycle-collector-get cycle-collector obj) "=")
+                (simple-display "#")
+                (simple-display (#%private-cycle-collector-get cycle-collector obj))
+                (simple-display "=")
                 (#%top-level-print obj cycle-collector)
                 (newline)))
             (#%private-cycle-collector-values cycle-collector))
@@ -133,7 +136,9 @@
     [(void? obj) (simple-display obj)]
     ;; There is a cycle!
     [(int? (#%private-cycle-collector-get collector obj))
-     (simple-display "#" (#%private-cycle-collector-get collector obj) "#")]
+     (simple-display "#")
+     (simple-display (#%private-cycle-collector-get collector obj))
+     (simple-display "#")]
     [(list? obj)
      (simple-display "(")
      (when (not (empty? obj))
@@ -150,11 +155,12 @@
 
        (cond
          [(function? printer) (printer obj (lambda (x) (#%print x collector)))]
-
-         [else
+         [printer
           (simple-display "#<")
           (simple-display (symbol->string (#%struct-property-ref obj '#:name)))
-          (simple-display ">")]))]
+          (simple-display ">")]
+
+         [else (simple-display obj)]))]
 
     [(set? obj)
      (cond

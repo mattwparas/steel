@@ -2056,7 +2056,7 @@ impl<'a> ModuleBuilder<'a> {
 // pub static PRELUDE_STRING: &str = "";
 
 pub static PRELUDE_STRING: &str = "(require-builtin steel/base) 
+(require \"#%private/steel/control\" (for-syntax \"#%private/steel/control\"))
 (require \"#%private/steel/contract\" (for-syntax \"#%private/steel/contract\"))
 (require \"#%private/steel/print\")
-(require \"#%private/steel/control\" (for-syntax \"#%private/steel/control\"))
 ";

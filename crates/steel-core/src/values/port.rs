@@ -10,7 +10,9 @@ use std::process::ChildStdout;
 // use utils::chars::Chars;
 // use utils::{new_rc_ref_cell, RcRefCell};
 
+use crate::rerrs;
 use crate::rvals::Result;
+use crate::SteelErr;
 
 // use crate::rvals::{new_rc_ref_cell, RcRefSteelVal};
 
@@ -165,6 +167,18 @@ impl SteelPort {
         }
     }
 
+    // TODO: Implement the rest of the flush methods
+    pub fn flush(&self) -> Result<()> {
+        match self {
+            SteelPort::FileOutput(_, s) => Ok(s.borrow_mut().flush()?),
+            SteelPort::StdOutput(s) => Ok(s.borrow_mut().flush()?),
+            SteelPort::ChildStdInput(s) => Ok(s.borrow_mut().flush()?),
+            SteelPort::StringOutput(s) => Ok(s.borrow_mut().flush()?),
+            SteelPort::Closed => Ok(()),
+            _ => stop!(TypeMismatch => "expected an output port, found: {:?}", self),
+        }
+    }
+
     pub fn read_all_str(&self) -> Result<(usize, String)> {
         match self {
             SteelPort::FileInput(_, br) => port_read_str_fn!(br, read_to_string),
@@ -236,10 +250,33 @@ impl SteelPort {
     //     }
     // }
 
+    pub fn write_char(&self, c: char) -> Result<()> {
+        macro_rules! write_string(
+            ($br: ident) => {{
+                let br = &mut *$br.borrow_mut();
+                write!(br, "{}", c)?;
+                br.flush()?;
+            }};
+        );
+
+        match self {
+            SteelPort::FileOutput(_, br) => write_string!(br),
+            SteelPort::StringOutput(br) => write_string!(br),
+            SteelPort::StdOutput(out) => {
+                let mut br = out.borrow_mut().lock();
+                write!(br, "{}", c)?;
+                br.flush()?;
+            }
+            _x => stop!(Generic => "write-car"),
+        };
+
+        Ok(())
+    }
+
     //
     // Write functions
     //
-    pub fn write_string(&mut self, string: &str) -> Result<()> {
+    pub fn write_string(&self, string: &str) -> Result<()> {
         macro_rules! write_string(
             ($br: ident) => {{
                 let br = &mut *$br.borrow_mut();
@@ -250,7 +287,12 @@ impl SteelPort {
 
         match self {
             SteelPort::FileOutput(_, br) => write_string!(br),
-            SteelPort::StdOutput(br) => write_string!(br),
+            SteelPort::StdOutput(out) => {
+                let mut br = out.borrow_mut().lock();
+                write!(br, "{}", string)?;
+                br.flush()?;
+            }
+            SteelPort::StringOutput(br) => write_string!(br),
             _x => stop!(Generic => "write-string"),
         };
 
@@ -270,6 +312,7 @@ impl SteelPort {
             SteelPort::FileOutput(_, br) => write_string!(br),
             SteelPort::StdOutput(br) => write_string!(br),
             SteelPort::ChildStdInput(br) => write_string!(br),
+            SteelPort::StringOutput(br) => write_string!(br),
             _x => stop!(Generic => "write-string"),
         };
 
@@ -311,6 +354,18 @@ impl SteelPort {
 
     pub fn default_current_output_port() -> Self {
         SteelPort::StdOutput(new_rc_ref_cell(io::stdout()))
+    }
+
+    pub fn get_output_string(&self) -> Result<String> {
+        if let SteelPort::StringOutput(s) = self {
+            // Ensure that this is flushed
+            s.borrow_mut().flush()?;
+
+            String::from_utf8(s.borrow().get_ref().to_vec())
+                .map_err(|err| SteelErr::new(rerrs::ErrorKind::Generic, err.to_string()))
+        } else {
+            stop!(TypeMismatch => "get-output-string expects an output port, found: {:?}", self);
+        }
     }
 }
 

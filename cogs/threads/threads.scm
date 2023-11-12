@@ -34,14 +34,14 @@
   (define sender (list-ref channels 0))
   (define receiver (list-ref channels 1))
 
-  (CancellableThreadHandle
-   sender
-   (spawn-thread! (lambda ()
-                    (while (not (~> (channel->try-recv receiver) (unwrap-ok)))
-                           (begin
-                             (func)
-                             (time/sleep-ms delay-ms)))
-                    (displayln "Shutting down thread: " (thread::current/id))))))
+  (CancellableThreadHandle sender
+                           (spawn-thread! (lambda ()
+                                            (while (not (~> (channel->try-recv receiver) (unwrap-ok)))
+                                                   (begin
+                                                     (func)
+                                                     (time/sleep-ms delay-ms)))
+                                            (stdout-simple-displayln "Shutting down thread: "
+                                                                     (thread::current/id))))))
 
 ; (let ([tasks (map (lambda (_)
 ;                     (spawn-thread! (lambda ()

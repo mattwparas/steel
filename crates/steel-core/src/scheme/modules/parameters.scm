@@ -5,6 +5,79 @@
          make-parameter
          continuation?)
 
+;;;;;; Parameters ;;;;;
+
+(struct Parameter (getter value)
+  #:mutable
+  #:printer (lambda (obj printer-function) (simple-display "<procedure:parameter-procedure>"))
+  #:prop:procedure 0)
+
+(define (make-parameter value)
+  (define param (Parameter 'uninitialized value))
+
+  (set-Parameter-getter! param
+                         (case-lambda
+                           [() (Parameter-value param)]
+                           [(new-value) (set-Parameter-value! param new-value)]))
+
+  param)
+
+(define-syntax parameterize
+  (syntax-rules ()
+    [(parameterize ()
+       body ...)
+     (begin
+       body ...)]
+
+    [(parameterize ([var val] rest ...)
+       body ...)
+
+     (let ([old-value (var)])
+
+       (dynamic-wind (lambda () (set-Parameter-value! var val))
+                     (lambda ()
+                       (parameterize (rest ...)
+                         body ...))
+                     (lambda () (set-Parameter-value! var old-value))))]))
+
+;;;;;;; Bootstrapping printing functions for various primitive structs
+
+(provide current-input-port
+         current-output-port
+         simple-display
+         simple-displayln
+         newline)
+
+(define current-input-port (make-parameter (stdin)))
+(define current-output-port (make-parameter (stdout)))
+
+(define (simple-display x)
+  (write-string (current-output-port) x))
+
+(define (newline)
+  (write-char (current-output-port) #\newline))
+
+(define (simple-displayln x)
+  (simple-display x)
+  (newline))
+
+;;;;;;;;;;;;;;;;;;;;; Port functions ;;;;;;;;;;;;;;;;;;;;;
+
+(provide call-with-output-string
+         with-output-to-string)
+
+(define (call-with-output-string proc)
+  (define output-string (open-output-string))
+  (proc output-string)
+  (get-output-string output-string))
+
+(define (with-output-to-string proc)
+  (call-with-output-string (lambda (p)
+                             (parameterize ([current-output-port p])
+                               (proc)))))
+
+;;;;;;;;;;;;;;;;;;;;; Dynamic Wind ;;;;;;;;;;;;;;;;;;;;;;;
+
 (define winders '())
 
 (define list-tail drop)
@@ -17,8 +90,6 @@
       (let loop ([x (if (> lx ly) (list-tail x (- lx ly)) x)]
                  [y (if (> ly lx) (list-tail y (- ly lx)) y)])
 
-        ; (displayln x y)
-        ; (displayln (equal? x y))
         (if (equal? x y) x (loop (cdr x) (cdr y)))))))
 
 (define do-wind
@@ -76,58 +147,3 @@
       (set! winders (cdr winders))
       (out)
       ans*)))
-
-;; TODO: Move these to the tests
-; (let ([path '()] [c #f])
-;   (let ([add (lambda (s) (set! path (cons s path)))])
-;     (dynamic-wind (lambda () (add 'connect))
-;                   (lambda ()
-;                     (add (call/cc (lambda (c0)
-;                                     (set! c c0)
-;                                     'talk1))))
-;                   (lambda () (add 'disconnect)))
-;     (if (< (length path) 4) (c 'talk2) (reverse path))))
-
-; (let ()
-;   (dynamic-wind (lambda () (displayln "PRE"))
-;                 (lambda ()
-;                   (let ()
-
-;                     (dynamic-wind (lambda () (displayln "PRE"))
-;                                   (lambda () (displayln "INNER"))
-;                                   (lambda () (displayln "POST")))
-
-;                     (displayln "HELLO WORLD!")))
-;                 (lambda () (displayln "POST")))
-
-;   (displayln "HELLO WORLD!"))
-
-(struct Parameter (getter value)
-  #:mutable
-  #:printer (lambda (obj printer-function) (simple-display "<procedure:parameter-procedure>"))
-  #:prop:procedure 0)
-
-(define (make-parameter value)
-  (define param (Parameter 'uninitialized value))
-
-  (set-Parameter-getter! param (lambda () (Parameter-value param)))
-
-  param)
-
-(define-syntax parameterize
-  (syntax-rules ()
-    [(parameterize ()
-       body ...)
-     (begin
-       body ...)]
-
-    [(parameterize ([var val] rest ...)
-       body ...)
-
-     (let ([old-value (var)])
-
-       (dynamic-wind (lambda () (set-Parameter-value! var val))
-                     (lambda ()
-                       (parameterize (rest ...)
-                         body ...))
-                     (lambda () (set-Parameter-value! var old-value))))]))

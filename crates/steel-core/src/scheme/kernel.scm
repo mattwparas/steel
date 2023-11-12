@@ -111,7 +111,7 @@
     (if transparent?
         `(lambda (obj printer-function)
            (display "(")
-           (printer-function (symbol->string ,(list 'quote struct-name)))
+           (display (symbol->string ,(list 'quote struct-name)))
            ,@(map (lambda (field)
                     `(begin
                        (display " ")

@@ -182,7 +182,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
                 }),
             ..
         } => {
-            let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::DISPLAY];
+            let core_libraries = &[steel::stdlib::PRELUDE];
 
             for core in core_libraries {
                 let res = vm.compile_and_run_raw_program(core);
