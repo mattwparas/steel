@@ -1,4 +1,5 @@
 (require-builtin #%private/steel/reader as reader.)
+(require "steel/result")
 (require "#%private/steel/control")
 
 (provide read)
@@ -27,4 +28,13 @@
     ;; The reader is not empty!
     [else
      =>
-     (reader.reader-read-one *reader*)]))
+     (let ([next (reader.reader-read-one *reader*)])
+
+       (map-ok next
+               (lambda (obj)
+                 (if (void? next)
+                     (begin
+                       (displayln "pushing another string")
+                       (reader.reader-push-string *reader* (read-line-from-port (current-input-port)))
+                       (read-impl))
+                     next))))]))

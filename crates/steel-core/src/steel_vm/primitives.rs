@@ -1273,7 +1273,20 @@ impl Reader {
             if let Some(next) = parser.next() {
                 self.offset += parser.offset();
 
-                SteelVal::try_from(next?)
+                let result = SteelVal::try_from(next?);
+
+                if let Some(remaining) = self.buffer.get(self.offset..) {
+                    for _ in remaining.chars().take_while(|x| x.is_whitespace()) {
+                        self.offset += 1;
+                    }
+                }
+
+                if self.offset == self.buffer.len() {
+                    self.buffer.clear();
+                    self.offset = 0;
+                }
+
+                result
             } else {
                 Ok(SteelVal::Void)
             }
