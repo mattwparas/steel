@@ -57,7 +57,7 @@ use crate::primitives::colors::string_coloring_module;
 
 use crate::values::lists::List;
 use im_rc::HashMap;
-use num::Signed;
+use num::{Signed, ToPrimitive};
 use once_cell::sync::Lazy;
 
 macro_rules! ensure_tonicity_two {
@@ -815,6 +815,25 @@ fn stream_module() -> BuiltInModule {
 //     module
 // }
 
+#[steel_derive::function(name = "exact->inexact", constant = true)]
+fn exact_to_inexact(number: &SteelVal) -> Result<SteelVal> {
+    match number {
+        SteelVal::IntV(i) => Ok(SteelVal::NumV(*i as f64)),
+        SteelVal::NumV(n) => Ok(SteelVal::NumV(*n)),
+        SteelVal::BigNum(n) => Ok(SteelVal::NumV(n.to_f64().unwrap())),
+        _ => stop!(TypeMismatch => "exact->inexact expects a number type, found: {}", number),
+    }
+}
+
+// Docs from racket:
+// (round x) → (or/c integer? +inf.0 -inf.0 +nan.0)
+//   x : real?
+// Returns the integer closest to x, resolving ties in favor of an even number, but +inf.0, -inf.0, and +nan.0 round to themselves.
+#[steel_derive::function(name = "round", constant = true)]
+fn round(number: f64) -> f64 {
+    number.round()
+}
+
 #[steel_derive::function(name = "abs", constant = true)]
 fn abs(number: &SteelVal) -> Result<SteelVal> {
     match number {
@@ -848,7 +867,9 @@ fn number_module() -> BuiltInModule {
         .register_fn("quotient", quotient)
         .register_value("arithmetic-shift", NumOperations::arithmetic_shift())
         .register_native_fn_definition(ABS_DEFINITION)
-        .register_native_fn_definition(EXPT_DEFINITION);
+        .register_native_fn_definition(EXPT_DEFINITION)
+        .register_native_fn_definition(ROUND_DEFINITION)
+        .register_native_fn_definition(EXACT_TO_INEXACT_DEFINITION);
     module
 }
 

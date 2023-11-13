@@ -3110,7 +3110,6 @@ dependencies = [
  "serde_json",
  "slotmap",
  "smallvec",
- "steel-core",
  "steel-derive",
  "steel-gen",
  "steel-parser",

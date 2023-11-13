@@ -73,7 +73,6 @@ ureq = { version = "2.6.2", features = ["json"], optional = true }
 [dev-dependencies]
 proptest = "1.1.0"
 criterion = "0.5.1"
-steel-core = { path = ".", features = ["modules"] }
 env_logger = "0.10.0"
 
 [build-dependencies]
@@ -100,5 +99,3 @@ without-drop-protection = []
 name = "my_benchmark"
 harness = false
 
-# TODO: Put this in the CI to gather the benchmarks
-# cargo bench --bench my_benchmark -- --output-format bencher | tee output.txt
