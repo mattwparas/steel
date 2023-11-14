@@ -3083,7 +3083,6 @@ dependencies = [
  "bincode",
  "chrono",
  "codespan-reporting",
- "colored",
  "cranelift",
  "cranelift-jit",
  "cranelift-module",

@@ -49,8 +49,6 @@ radix_fmt = "1.0.0"
 # For structs
 smallvec = { version = "1.10.0", optional = true }
 
-colored = { version = "2.0.0", optional = true }
-
 # Pretty printing documentation
 termimad = { version = "0.21.0", optional = true }
 
@@ -80,7 +78,6 @@ steel-gen = { path = "../steel-gen", version = "0.2.0" }
 
 [features]
 default = ["modules"]
-colors = ["dep:colored"]
 modules = []
 jit = ["dep:cranelift", "dep:cranelift-module", "dep:cranelift-jit"]
 dynamic = []
