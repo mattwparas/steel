@@ -77,11 +77,26 @@ pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
         stop!(ArityMismatch => "/ requires at least one argument")
     }
 
+    if args.len() == 1 {
+        match &args[0] {
+            SteelVal::IntV(n) => return Ok(SteelVal::NumV((1 / n) as f64)),
+            SteelVal::NumV(n) => return Ok(SteelVal::NumV((1.0 / n) as f64)),
+            unexpected => {
+                stop!(TypeMismatch => "division expects a number, found: {:?}", unexpected)
+            }
+        }
+    }
+
+    let mut no_floats = true;
+
     let floats: Result<Vec<f64>> = args
         .iter()
         .map(|x| match x {
             SteelVal::IntV(n) => Ok(*n as f64),
-            SteelVal::NumV(n) => Ok(*n),
+            SteelVal::NumV(n) => {
+                no_floats = false;
+                Ok(*n)
+            }
             _ => stop!(TypeMismatch => "division expects a number"),
         })
         .collect();
@@ -91,7 +106,7 @@ pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     if let Some(first) = floats.next() {
         let result = floats.fold(first, |acc, x| acc / x);
 
-        if result.fract() == 0.0 {
+        if no_floats && result.fract() == 0.0 {
             Ok(SteelVal::IntV(result as isize))
         } else {
             Ok(SteelVal::NumV(result))

@@ -60,6 +60,12 @@ impl<'a, T, F: ToOwnedString<T>> Iterator for OwnedTokenStream<'a, T, F> {
     }
 }
 
+impl<'a, T, F: ToOwnedString<T>> OwnedTokenStream<'a, T, F> {
+    pub fn offset(&self) -> usize {
+        self.stream.lexer.span().end
+    }
+}
+
 impl<'a> Iterator for TokenStream<'a> {
     type Item = Token<'a, &'a str>;
 

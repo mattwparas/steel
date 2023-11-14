@@ -6,7 +6,7 @@ use once_cell::sync::Lazy;
 
 use crate::compiler::map::SymbolMap;
 use crate::parser::interner::InternedString;
-use crate::rvals::{Custom, SteelHashMap};
+use crate::rvals::{Custom, SerializableSteelVal, SteelHashMap};
 use crate::steel_vm::register_fn::RegisterFn;
 use crate::throw;
 use crate::{
@@ -84,6 +84,12 @@ impl StructTypeDescriptor {
     fn name(&self) -> InternedString {
         VTABLE.with(|x| x.borrow().entries[self.0].name)
     }
+}
+
+pub struct SerializableUserDefinedStruct {
+    pub(crate) fields: Vec<SerializableSteelVal>,
+
+    pub(crate) type_descriptor: StructTypeDescriptor,
 }
 
 #[derive(Clone, Debug, Hash)]

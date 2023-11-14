@@ -58,9 +58,9 @@ pub fn decode_hex(s: &str) -> Result<Vec<u8>, DecodeHexError> {
 }
 
 fn parse_unicode_str(slice: &str) -> Option<char> {
-    if slice.starts_with("#\\\\u") && slice.contains('{') && slice.contains('}') {
+    if slice.starts_with("#\\u") && slice.contains('{') && slice.contains('}') {
         let rest = slice
-            .trim_start_matches("#\\\\u")
+            .trim_start_matches("#\\u")
             .trim_start_matches('{')
             .trim_end_matches('}')
             .to_lowercase();
@@ -78,6 +78,24 @@ fn parse_unicode_str(slice: &str) -> Option<char> {
         let result = char::try_from(uinitial).ok();
 
         // println!("{result:?}");
+        result
+    } else if slice.starts_with("#\\u") {
+        let rest = slice.trim_start_matches("#\\u").to_lowercase();
+
+        let rest = match rest.len() {
+            1 => "000".to_string() + &rest,
+            2 => "00".to_string() + &rest,
+            3 => "0".to_string() + &rest,
+            4 => rest,
+            _ => return None,
+        };
+
+        let decoded: u8 = decode_hex(&rest).ok()?.into_iter().sum();
+
+        let uinitial: u32 = decoded.into();
+
+        let result = char::try_from(uinitial).ok();
+
         result
     } else {
         None
@@ -361,16 +379,6 @@ impl<'a> TokenType<&'a str> {
     }
 }
 
-// impl<'a, T: From<&'a str>> From<TokenType<&'a str>> for TokenType<T> {
-//     fn from(value: TokenType<&'a str>) -> Self {
-//         match &value {
-//             TokenType::Identifier(i) => TokenType::Identifier(i.into()),
-//             TokenType::Keyword(i) => TokenType::Identifier(i.into()),
-//             _ => value,
-//         }
-//     }
-// }
-
 fn character_special_display(c: char, f: &mut fmt::Formatter) -> fmt::Result {
     match c {
         ' ' => write!(f, "#\\SPACE"),
@@ -426,41 +434,6 @@ impl<T: fmt::Display> fmt::Display for TokenType<T> {
         }
     }
 }
-
-// impl fmt::Display for TokenType<String> {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         match self {
-//             OpenParen => write!(f, "("),
-//             CloseParen => write!(f, "("),
-//             CharacterLiteral(x) => character_special_display(*x, f),
-//             BooleanLiteral(x) => write!(f, "#{x}"),
-//             Identifier(x) => write!(f, "{x}"),
-//             NumberLiteral(x) => write!(f, "{x:?}"),
-//             IntegerLiteral(x) => write!(f, "{x}"),
-//             StringLiteral(x) => write!(f, "\"{x}\""),
-//             Keyword(x) => write!(f, "{x}"),
-//             QuoteTick => write!(f, "'"),
-//             Unquote => write!(f, ","),
-//             QuasiQuote => write!(f, "`"),
-//             UnquoteSplice => write!(f, ",@"),
-//             Error => write!(f, "error"),
-//             Comment => write!(f, ""),
-//             If => write!(f, "if"),
-//             Define => write!(f, "define"),
-//             Let => write!(f, "let"),
-//             TestLet => write!(f, "test-let"),
-//             Return => write!(f, "return!"),
-//             Begin => write!(f, "begin"),
-//             Lambda => write!(f, "lambda"),
-//             Quote => write!(f, "quote"),
-//             DefineSyntax => write!(f, "define-syntax"),
-//             SyntaxRules => write!(f, "syntax-rules"),
-//             Ellipses => write!(f, "..."),
-//             Set => write!(f, "set!"),
-//             Require => write!(f, "require"),
-//         }
-//     }
-// }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token<'a, T> {

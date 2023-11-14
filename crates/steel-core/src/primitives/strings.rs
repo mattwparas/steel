@@ -52,8 +52,14 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(STRING_TO_NUMBER_DEFINITION)
         .register_native_fn_definition(NUMBER_TO_STRING_DEFINITION)
         .register_fn("char-upcase", char_upcase)
-        .register_fn("char-whitespace?", char::is_whitespace);
+        .register_fn("char-whitespace?", char::is_whitespace)
+        .register_native_fn_definition(CHAR_EQUALS_DEFINITION);
     module
+}
+
+#[function(name = "char=?", constant = true)]
+pub fn char_equals(left: char, right: char) -> bool {
+    left == right
 }
 
 fn number_to_string_impl(value: &SteelVal, radix: Option<u32>) -> Result<SteelVal> {

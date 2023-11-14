@@ -1,4 +1,5 @@
 (require-builtin steel/base)
+(require "#%private/steel/control")
 
 (provide displayln
          display)
@@ -12,14 +13,15 @@
           (return! void))
         (for-each func (cdr lst)))))
 
-(define (display obj)
-
+(define (display-impl obj)
   ;; Collect cycles
   (define cycle-collector (#%private-cycle-collector obj))
 
   (for-each (λ (obj)
               (when (int? (#%private-cycle-collector-get cycle-collector obj))
-                (simple-display "#" (#%private-cycle-collector-get cycle-collector obj) "=")
+                (simple-display "#")
+                (simple-display (#%private-cycle-collector-get cycle-collector obj))
+                (simple-display "=")
                 (#%top-level-print obj cycle-collector)
                 (newline)))
             (#%private-cycle-collector-values cycle-collector))
@@ -30,6 +32,15 @@
 
   (#%top-level-print obj cycle-collector))
 
+(define display
+  (case-lambda
+    [(obj) (display-impl obj)]
+    [(obj port)
+     (parameterize ([current-output-port port])
+       (display-impl obj))]))
+
+;; TODO: Nuke the displayln multiple arguments. I think displayln should
+;; just take one argument for now
 (define (displayln . objs)
 
   (cond
@@ -39,7 +50,10 @@
      (newline)]
     [else
 
-     (for-each display objs)
+     (for-each (lambda (x)
+                 (display x)
+                 (simple-display " "))
+               objs)
      (newline)]))
 
 (define (#%top-level-print obj collector)
@@ -67,10 +81,13 @@
        (cond
          [(function? printer) (printer obj (lambda (x) (#%print x collector)))]
 
-         [else
+         ;; Truthiness here needs to be addressed
+         [printer
           (simple-display "#<")
           (simple-display (symbol->string (#%struct-property-ref obj '#:name)))
-          (simple-display ">")]))]
+          (simple-display ">")]
+
+         [else (simple-display obj)]))]
 
     [(set? obj)
      (cond
@@ -124,9 +141,12 @@
     [(symbol? obj) (simple-display (symbol->string obj))]
     [(atom? obj) (simple-display obj)]
     [(function? obj) (simple-display obj)]
+    [(void? obj) (simple-display obj)]
     ;; There is a cycle!
     [(int? (#%private-cycle-collector-get collector obj))
-     (simple-display "#" (#%private-cycle-collector-get collector obj) "#")]
+     (simple-display "#")
+     (simple-display (#%private-cycle-collector-get collector obj))
+     (simple-display "#")]
     [(list? obj)
      (simple-display "(")
      (when (not (empty? obj))
@@ -143,11 +163,12 @@
 
        (cond
          [(function? printer) (printer obj (lambda (x) (#%print x collector)))]
-
-         [else
+         [printer
           (simple-display "#<")
           (simple-display (symbol->string (#%struct-property-ref obj '#:name)))
-          (simple-display ">")]))]
+          (simple-display ">")]
+
+         [else (simple-display obj)]))]
 
     [(set? obj)
      (cond
@@ -190,4 +211,4 @@
 
           (simple-display ")")]))]
 
-    [else (simple-displayln obj)]))
+    [else (simple-display obj)]))

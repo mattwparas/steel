@@ -453,9 +453,10 @@
 
 (define mem-helper
   (lambda (pred op) (lambda (acc next) (if (and (not acc) (pred (op next))) next acc))))
-;; (define memq (lambda (obj lst)       (fold (mem-helper (curry eq? obj) id) #f lst)))
+
+; (define memq (lambda (obj lst)       (fold (mem-helper (curry eq? obj) id) #f lst)))
 ; (define memv (lambda (obj lst)       (fold (mem-helper (curry eqv? obj) id) #f lst)))
-; (define member (lambda (obj lst)     (fold (mem-helper (curry equal? obj) id) #f lst)))
+; (define member (lambda (obj lst) (fold (mem-helper (curry equal? obj) id) #f lst)))
 
 (define member
   (lambda (x los)
@@ -472,14 +473,16 @@
     [else (contains? pred? (cdr lst))]))
 
 ;; TODO come back to this
-; (define assq (lambda (obj alist)     (fold (mem-helper (curry eq? obj) car) #f alist)))
+(define assq (lambda (obj alist) (fold (mem-helper (curry eq? obj) car) #f alist)))
 
 ;; (define assv (lambda (obj alist)     (fold (mem-helper (curry eqv? obj) car) #f alist)))
-; (define assoc (lambda (obj alist)    (fold (mem-helper (curry equal? obj) car) #f alist)))
+; (define assoc (lambda (obj alist) (fold (mem-helper (curry equal? obj) car) #f alist)))
 
 ; (define assoc )
 
 (define (assoc thing alist)
+  ; (simple-displayln "Calling assoc")
+  ; (simple-displayln alist)
   (if (null? alist) #f (if (equal? (car (car alist)) thing) (car alist) (assoc thing (cdr alist)))))
 
 (define (filter pred lst)
@@ -710,4 +713,8 @@
 
 (define values list)
 (define (call-with-values producer consumer)
-  (apply consumer (producer)))
+  (define result (apply consumer (producer)))
+  (cond
+    [(not (list? result)) result]
+    [(= (length result) 1) (car result)]
+    [else result]))

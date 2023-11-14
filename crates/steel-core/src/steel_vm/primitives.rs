@@ -53,11 +53,9 @@ use crate::{
 #[cfg(feature = "web")]
 use crate::primitives::web::{requests::requests_module, websockets::websockets_module};
 
-use crate::primitives::colors::string_coloring_module;
-
 use crate::values::lists::List;
 use im_rc::HashMap;
-use num::Signed;
+use num::{Signed, ToPrimitive};
 use once_cell::sync::Lazy;
 
 macro_rules! ensure_tonicity_two {
@@ -311,6 +309,7 @@ thread_local! {
 
     pub static MUTABLE_HASH_MODULE: BuiltInModule = mutable_hashmap_module();
     pub static MUTABLE_VECTOR_MODULE: BuiltInModule = mutable_vector_module();
+    pub static PRIVATE_READER_MODULE: BuiltInModule = reader_module();
 
     #[cfg(feature = "web")]
     pub static WEBSOCKETS_MODULE: BuiltInModule = websockets_module();
@@ -321,7 +320,6 @@ thread_local! {
     #[cfg(feature = "blocking_requests")]
     pub static BLOCKING_REQUESTS_MODULE: BuiltInModule = crate::primitives::blocking_requests::blocking_requests_module();
 
-    pub static STRING_COLORS_MODULE: BuiltInModule = string_coloring_module();
 
     #[cfg(feature = "sqlite")]
     pub static SQLITE_MODULE: BuiltInModule = crate::primitives::sqlite::sqlite_module();
@@ -466,8 +464,7 @@ pub fn register_builtin_modules(engine: &mut Engine) {
     // Private module
     engine.register_module(MUTABLE_HASH_MODULE.with(|x| x.clone()));
     engine.register_module(MUTABLE_VECTOR_MODULE.with(|x| x.clone()));
-
-    engine.register_module(STRING_COLORS_MODULE.with(|x| x.clone()));
+    engine.register_module(PRIVATE_READER_MODULE.with(|x| x.clone()));
 
     #[cfg(feature = "web")]
     engine
@@ -619,6 +616,7 @@ fn vector_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/vectors");
     module
         .register_value("mutable-vector", VectorOperations::mut_vec_construct())
+        .register_value("make-vector", VectorOperations::make_vector())
         .register_value("mutable-vector->list", VectorOperations::mut_vec_to_list())
         .register_value("vector-push!", VectorOperations::mut_vec_push())
         .register_value("mut-vec-len", VectorOperations::mut_vec_length())
@@ -739,11 +737,14 @@ fn functionp(value: &SteelVal) -> bool {
 
 #[steel_derive::function(name = "procedure?", constant = true)]
 fn procedurep(value: &SteelVal) -> bool {
+    if let SteelVal::CustomStruct(s) = value {
+        return s.maybe_proc().map(|x| procedurep(x)).unwrap_or(false);
+    }
+
     matches!(
         value,
         SteelVal::Closure(_)
             | SteelVal::FuncV(_)
-            // | SteelVal::ContractedFunction(_)
             | SteelVal::BoxedFunction(_)
             | SteelVal::ContinuationFunction(_)
             | SteelVal::MutFunc(_)
@@ -809,6 +810,25 @@ fn stream_module() -> BuiltInModule {
 //     module
 // }
 
+#[steel_derive::function(name = "exact->inexact", constant = true)]
+fn exact_to_inexact(number: &SteelVal) -> Result<SteelVal> {
+    match number {
+        SteelVal::IntV(i) => Ok(SteelVal::NumV(*i as f64)),
+        SteelVal::NumV(n) => Ok(SteelVal::NumV(*n)),
+        SteelVal::BigNum(n) => Ok(SteelVal::NumV(n.to_f64().unwrap())),
+        _ => stop!(TypeMismatch => "exact->inexact expects a number type, found: {}", number),
+    }
+}
+
+// Docs from racket:
+// (round x) → (or/c integer? +inf.0 -inf.0 +nan.0)
+//   x : real?
+// Returns the integer closest to x, resolving ties in favor of an even number, but +inf.0, -inf.0, and +nan.0 round to themselves.
+#[steel_derive::function(name = "round", constant = true)]
+fn round(number: f64) -> f64 {
+    number.round()
+}
+
 #[steel_derive::function(name = "abs", constant = true)]
 fn abs(number: &SteelVal) -> Result<SteelVal> {
     match number {
@@ -842,7 +862,9 @@ fn number_module() -> BuiltInModule {
         .register_fn("quotient", quotient)
         .register_value("arithmetic-shift", NumOperations::arithmetic_shift())
         .register_native_fn_definition(ABS_DEFINITION)
-        .register_native_fn_definition(EXPT_DEFINITION);
+        .register_native_fn_definition(EXPT_DEFINITION)
+        .register_native_fn_definition(ROUND_DEFINITION)
+        .register_native_fn_definition(EXACT_TO_INEXACT_DEFINITION);
     module
 }
 
@@ -916,6 +938,7 @@ fn equality_module() -> BuiltInModule {
             "equal?",
             SteelVal::FuncV(ensure_tonicity_two!(|a, b| a == b)),
         )
+        .register_value("eqv?", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a == b)))
         .register_value(
             "eq?",
             SteelVal::FuncV(ensure_tonicity_two!(
@@ -987,13 +1010,13 @@ fn io_module() -> BuiltInModule {
     module
         // .register_value("display", IoFunctions::display())
         // .register_value("displayln", IoFunctions::displayln())
-        .register_value("simple-display", IoFunctions::display())
-        .register_value("simple-displayln", IoFunctions::displayln())
-        .register_value("newline", IoFunctions::newline())
+        // .register_value("simple-display", IoFunctions::display())
+        .register_value("stdout-simple-displayln", IoFunctions::displayln())
+        // .register_value("newline", IoFunctions::newline())
         .register_value("read-to-string", IoFunctions::read_to_string());
 
-    #[cfg(feature = "colors")]
-    module.register_value("display-color", IoFunctions::display_color());
+    // #[cfg(feature = "colors")]
+    // module.register_value("display-color", IoFunctions::display_color());
 
     module
 }
@@ -1213,6 +1236,71 @@ impl MutableHashTable {
     pub fn get(&self, key: SteelVal) -> Option<SteelVal> {
         self.table.get(&key).cloned()
     }
+}
+
+struct Reader {
+    buffer: String,
+    offset: usize,
+}
+
+impl crate::rvals::Custom for Reader {}
+
+impl Reader {
+    fn create_reader() -> Reader {
+        Self {
+            buffer: String::new(),
+            offset: 0,
+        }
+    }
+
+    fn push_string(&mut self, input: crate::rvals::SteelString) {
+        self.buffer.push_str(input.as_str());
+    }
+
+    fn is_empty(&self) -> bool {
+        self.buffer.is_empty()
+    }
+
+    fn read_one(&mut self) -> Result<SteelVal> {
+        if let Some(buffer) = self.buffer.get(self.offset..) {
+            let mut parser = crate::parser::parser::Parser::new(buffer, None);
+
+            if let Some(next) = parser.next() {
+                self.offset += parser.offset();
+
+                let result = SteelVal::try_from(next?);
+
+                if let Some(remaining) = self.buffer.get(self.offset..) {
+                    for _ in remaining.chars().take_while(|x| x.is_whitespace()) {
+                        self.offset += 1;
+                    }
+                }
+
+                if self.offset == self.buffer.len() {
+                    self.buffer.clear();
+                    self.offset = 0;
+                }
+
+                result
+            } else {
+                Ok(SteelVal::Void)
+            }
+        } else {
+            Ok(SteelVal::Void)
+        }
+    }
+}
+
+fn reader_module() -> BuiltInModule {
+    let mut module = BuiltInModule::new("#%private/steel/reader");
+
+    module
+        .register_fn("new-reader", Reader::create_reader)
+        .register_fn("reader-push-string", Reader::push_string)
+        .register_fn("reader-read-one", Reader::read_one)
+        .register_fn("reader-empty?", Reader::is_empty);
+
+    module
 }
 
 fn mutable_vector_module() -> BuiltInModule {

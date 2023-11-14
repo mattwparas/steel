@@ -44,38 +44,54 @@ use super::{
     program::{CONTRACT_OUT, FOR_SYNTAX, ONLY_IN, PREFIX_IN, REQUIRE_IDENT_SPEC},
 };
 
-static OPTION: &str = include_str!("../scheme/modules/option.scm");
-static OPTION_NAME: &str = "steel/option";
-
-static RESULT: &str = include_str!("../scheme/modules/result.scm");
-static RESULT_NAME: &str = "steel/result";
-
-static CONTRACT: &str = include_str!("../scheme/modules/contracts.scm");
-static CONTRACT_NAME: &str = "#%private/steel/contract";
-
-static ITERATORS: &str = include_str!("../scheme/modules/iterators.scm");
-static ITERATORS_NAME: &str = "steel/iterators";
-
-static MUTABLE_VECTORS: &str = include_str!("../scheme/modules/mvector.scm");
-static MUTABLE_VECTORS_NAME: &str = "steel/mutable-vectors";
-
-static PRINTING: &str = include_str!("../scheme/print.scm");
-static PRINTING_NAME: &str = "#%private/steel/print";
-
-static DYNAMIC_WIND_NAME: &str = "#%private/steel/control";
-static DYNAMIC_WIND: &str = include_str!("../scheme/modules/parameters.scm");
-
-static BUILT_INS: &[(&str, &str)] = &[
-    (OPTION_NAME, OPTION),
-    (RESULT_NAME, RESULT),
-    (CONTRACT_NAME, CONTRACT),
-    (ITERATORS_NAME, ITERATORS),
-    (MUTABLE_VECTORS_NAME, MUTABLE_VECTORS),
-    (PRINTING_NAME, PRINTING),
-    (DYNAMIC_WIND_NAME, DYNAMIC_WIND),
-];
+macro_rules! declare_builtins {
+    ( $( $name:expr => $path:expr ), *) => {
+        static BUILT_INS: &[(&str, &str)] = &[
+            $( ($name, include_str!($path)), )*
+        ];
+    };
+}
 
 pub(crate) const MANGLER_SEPARATOR: &str = "__%#__";
+
+macro_rules! create_prelude {
+    (
+        $( $module:literal, )*
+        $( for_syntax $module_for_syntax:literal ),*
+    ) => {
+
+        pub static PRELUDE_WITHOUT_BASE: &str = concat!(
+            $( "(require \"", $module, "\")\n", )*
+            $( "(require (for-syntax \"", $module_for_syntax, "\"))\n", )*
+        );
+
+        pub static PRELUDE_STRING: &str = concat!(
+            "(require-builtin steel/base)\n",
+            $( "(require \"", $module, "\")\n", )*
+            $( "(require (for-syntax \"", $module_for_syntax, "\"))\n", )*
+        );
+    }
+}
+
+declare_builtins!(
+    "steel/option" => "../scheme/modules/option.scm",
+    "steel/result" => "../scheme/modules/result.scm",
+    "steel/iterators" => "../scheme/modules/iterators.scm",
+    "steel/mutable-vectors" => "../scheme/modules/mvector.scm",
+    "#%private/steel/contract" => "../scheme/modules/contracts.scm",
+    "#%private/steel/print" => "../scheme/print.scm",
+    "#%private/steel/control" => "../scheme/modules/parameters.scm",
+    "#%private/steel/reader" => "../scheme/modules/reader.scm"
+);
+
+create_prelude!(
+    "#%private/steel/control",
+    "#%private/steel/contract",
+    "#%private/steel/print",
+    "#%private/steel/reader",
+    for_syntax "#%private/steel/control",
+    for_syntax "#%private/steel/contract"
+);
 
 /// Manages the modules
 /// keeps some visited state on the manager for traversal
@@ -2052,11 +2068,3 @@ impl<'a> ModuleBuilder<'a> {
         Ok(self)
     }
 }
-
-// pub static PRELUDE_STRING: &str = "";
-
-pub static PRELUDE_STRING: &str = "(require-builtin steel/base) 
-(require \"#%private/steel/contract\" (for-syntax \"#%private/steel/contract\"))
-(require \"#%private/steel/print\")
-(require \"#%private/steel/control\" (for-syntax \"#%private/steel/control\"))
-";

@@ -16,6 +16,7 @@ use crate::{
         // contracts::{ContractType, ContractedFunction},
         functions::ByteCodeLambda,
         lazy_stream::LazyStream,
+        structs::SerializableUserDefinedStruct,
         // lists::ListDropHandler,
         transducers::{Reducer, Transducer},
     },
@@ -914,6 +915,11 @@ impl From<Syntax> for SteelVal {
     }
 }
 
+// TODO:
+// This needs to be a method on the runtime: in order to properly support
+// threads
+// Tracking issue here: https://github.com/mattwparas/steel/issues/98
+
 // Values which can be sent to another thread.
 // If it cannot be sent to another thread, then we'll error out on conversion.
 // TODO: Add boxed dyn functions to this.
@@ -934,6 +940,7 @@ pub enum SerializableSteelVal {
     BuiltIn(BuiltInSignature),
     SymbolV(String),
     Custom(Box<dyn CustomType + Send>), // Custom()
+    CustomStruct(SerializableUserDefinedStruct),
 }
 
 // Once crossed over the line, convert BACK into a SteelVal
@@ -963,6 +970,12 @@ pub fn from_serializable_value(val: SerializableSteelVal) -> SteelVal {
         SerializableSteelVal::BuiltIn(f) => SteelVal::BuiltIn(f),
         SerializableSteelVal::SymbolV(s) => SteelVal::SymbolV(s.into()),
         SerializableSteelVal::Custom(b) => SteelVal::Custom(Gc::new(RefCell::new(b))),
+        SerializableSteelVal::CustomStruct(s) => {
+            SteelVal::CustomStruct(Gc::new(UserDefinedStruct {
+                fields: s.fields.into_iter().map(from_serializable_value).collect(),
+                type_descriptor: s.type_descriptor,
+            }))
+        }
     }
 }
 
@@ -1004,6 +1017,18 @@ pub fn into_serializable_value(val: SteelVal) -> Result<SerializableSteelVal> {
                 stop!(Generic => "Custom type not allowed to be moved across threads!")
             }
         }
+
+        SteelVal::CustomStruct(s) => Ok(SerializableSteelVal::CustomStruct(
+            SerializableUserDefinedStruct {
+                fields: s
+                    .fields
+                    .iter()
+                    .cloned()
+                    .map(into_serializable_value)
+                    .collect::<Result<Vec<_>>>()?,
+                type_descriptor: s.type_descriptor,
+            },
+        )),
         illegal => stop!(Generic => "Type not allowed to be moved across threads!: {}", illegal),
     }
 }
@@ -1487,7 +1512,9 @@ impl SteelVal {
             (BoxedFunction(l), BoxedFunction(r)) => Rc::ptr_eq(l, r),
             (ContinuationFunction(l), ContinuationFunction(r)) => Gc::ptr_eq(l, r),
             // (CompiledFunction(_), CompiledFunction(_)) => todo!(),
-            (ListV(l), ListV(r)) => l.ptr_eq(r),
+            (ListV(l), ListV(r)) => {
+                l.ptr_eq(r) || l.storage_ptr_eq(r) || l.is_empty() && r.is_empty()
+            }
             (MutFunc(l), MutFunc(r)) => *l as usize == *r as usize,
             (BuiltIn(l), BuiltIn(r)) => *l as usize == *r as usize,
             (MutableVector(l), MutableVector(r)) => HeapRef::ptr_eq(l, r),
@@ -1927,6 +1954,8 @@ impl PartialOrd for SteelVal {
             (StringV(s), StringV(o)) => s.partial_cmp(o),
             (CharV(l), CharV(r)) => l.partial_cmp(r),
             (IntV(l), IntV(r)) => l.partial_cmp(r),
+            (NumV(l), IntV(r)) => l.partial_cmp(&(*r as f64)),
+            (IntV(l), NumV(r)) => (*l as f64).partial_cmp(r),
             _ => None, // unimplemented for other types
         }
     }

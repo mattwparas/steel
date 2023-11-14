@@ -271,7 +271,6 @@ pub struct SerializableCompiler {
     pub(crate) macro_env: HashMap<InternedString, SteelMacro>,
     pub(crate) opt_level: OptLevel,
     pub(crate) module_manager: ModuleManager,
-    // pub(crate) mangled_identifiers:
 }
 
 impl SerializableCompiler {
@@ -444,84 +443,7 @@ impl Compiler {
 
         let parsed = parsed?;
 
-        let mut expanded_statements =
-            self.expand_expressions(parsed, path, sources, builtin_modules.clone())?;
-
-        if log_enabled!(log::Level::Debug) {
-            debug!(
-                "Generating instructions for the expression: {:?}",
-                expanded_statements
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>()
-            );
-        }
-
-        expanded_statements = expanded_statements
-            .into_iter()
-            .map(|x| expand_kernel(x, self.kernel.as_mut(), builtin_modules.clone()))
-            .collect::<Result<Vec<_>>>()?;
-
-        let mut expanded_statements =
-            self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
-
-        RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
-
-        let mut analysis = Analysis::from_exprs(&expanded_statements);
-        analysis.populate_captures(&expanded_statements);
-
-        let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
-
-        // let mut table = HashSet::new();
-
-        // This is definitely broken still
-        semantic
-            .elide_single_argument_lambda_applications()
-            // .lift_pure_local_functions()
-            // .lift_all_local_functions()
-            .replace_non_shadowed_globals_with_builtins(
-                &mut self.macro_env,
-                &mut self.module_manager,
-                &mut self.mangled_identifiers,
-            )
-            .remove_unused_globals_with_prefix("mangler", &self.macro_env, &self.module_manager)
-            .lift_pure_local_functions()
-            .lift_all_local_functions();
-
-        // TODO: Just run this... on each module in particular
-        // .remove_unused_globals_with_prefix("mangler");
-
-        debug!("About to expand defines");
-        let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
-
-        let mut analysis = Analysis::from_exprs(&expanded_statements);
-        analysis.populate_captures(&expanded_statements);
-
-        let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
-        semantic.refresh_variables();
-
-        semantic.flatten_anonymous_functions();
-
-        semantic.refresh_variables();
-
-        if log_enabled!(log::Level::Debug) {
-            debug!(
-                "Successfully expanded defines: {:?}",
-                expanded_statements
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>()
-            );
-        }
-
-        // TODO - make sure I want to keep this
-        let expanded_statements =
-            MultipleArityFunctions::expand_multiple_arity_functions(expanded_statements);
-
-        let mut expanded_statements =
-            self.apply_const_evaluation(constants, expanded_statements, true)?;
-
-        Ok(expanded_statements)
+        self.lower_expressions_impl(parsed, constants, builtin_modules, path, sources)
     }
 
     pub fn compile_module(
@@ -601,19 +523,14 @@ impl Compiler {
         Ok(results)
     }
 
-    // TODO
-    // figure out how the symbols will work so that a raw program with symbols
-    // can be later pulled in and symbols can be interned correctly
-    fn compile_raw_program(
+    fn lower_expressions_impl(
         &mut self,
         exprs: Vec<ExprKind>,
         constants: ImmutableHashMap<InternedString, SteelVal>,
         builtin_modules: ModuleContainer,
         path: Option<PathBuf>,
         sources: &mut Sources,
-    ) -> Result<RawProgramWithSymbols> {
-        log::debug!(target: "expansion-phase", "Expanding macros -> phase 0");
-
+    ) -> Result<Vec<ExprKind>> {
         let mut expanded_statements =
             self.expand_expressions(exprs, path, sources, builtin_modules.clone())?;
 
@@ -646,8 +563,6 @@ impl Compiler {
 
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
-        // let mut table = HashSet::new();
-
         // This is definitely broken still
         semantic
             .elide_single_argument_lambda_applications()
@@ -670,9 +585,6 @@ impl Compiler {
 
         let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
-        // let mut expanded_statements =
-        //     self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
-
         let mut analysis = Analysis::from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
 
@@ -682,6 +594,12 @@ impl Compiler {
         semantic.flatten_anonymous_functions();
 
         semantic.refresh_variables();
+
+        // Replace mutation with boxes
+        semantic.populate_captures();
+        semantic.populate_captures();
+
+        semantic.replace_mutable_captured_variables_with_boxes();
 
         if log_enabled!(log::Level::Debug) {
             debug!(
@@ -701,34 +619,24 @@ impl Compiler {
 
         log::info!(target: "expansion-phase", "Aggressive constant evaluation with memoization");
 
-        // let expanded_statements = expanded_statements
-        //     .into_iter()
-        //     .flat_map(|x| {
-        //         if let ExprKind::Begin(b) = x {
-        //             b.exprs.into_iter()
-        //         } else {
-        //             vec![x].into_iter()
-        //         }
-        //     })
-        //     .collect();
+        self.apply_const_evaluation(constants, expanded_statements, true)
+    }
 
-        let expanded_statements =
-            self.apply_const_evaluation(constants, expanded_statements, true)?;
+    // TODO
+    // figure out how the symbols will work so that a raw program with symbols
+    // can be later pulled in and symbols can be interned correctly
+    fn compile_raw_program(
+        &mut self,
+        exprs: Vec<ExprKind>,
+        constants: ImmutableHashMap<InternedString, SteelVal>,
+        builtin_modules: ModuleContainer,
+        path: Option<PathBuf>,
+        sources: &mut Sources,
+    ) -> Result<RawProgramWithSymbols> {
+        log::debug!(target: "expansion-phase", "Expanding macros -> phase 0");
 
-        // let expanded_statements = expanded_statements
-        //     .into_iter()
-        //     .flat_map(|x| {
-        //         if let ExprKind::Begin(b) = x {
-        //             b.exprs.into_iter()
-        //         } else {
-        //             vec![x].into_iter()
-        //         }
-        //     })
-        //     .collect();
-
-        // TODO:
-        // Here we're gonna do the constant evaluation pass, using the kernel for execution of the
-        // constant functions w/ memoization:
+        let mut expanded_statements =
+            self.lower_expressions_impl(exprs, constants, builtin_modules, path, sources)?;
 
         log::debug!(target: "expansion-phase", "Generating instructions");
 

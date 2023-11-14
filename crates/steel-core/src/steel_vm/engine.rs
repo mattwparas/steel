@@ -15,7 +15,7 @@ use super::dylib::DylibContainers;
 use crate::{
     compiler::{
         compiler::{Compiler, SerializableCompiler},
-        modules::CompiledModule,
+        modules::{CompiledModule, PRELUDE_WITHOUT_BASE},
         program::{Executable, RawProgramWithSymbols, SerializableRawProgramWithSymbols},
     },
     containers::RegisterValue,
@@ -252,7 +252,7 @@ impl Engine {
 
         log::debug!(target:"kernel", "Registered modules in the kernel!");
 
-        let core_libraries = [crate::stdlib::PRELUDE, crate::stdlib::DISPLAY];
+        let core_libraries = [crate::stdlib::PRELUDE];
 
         for core in core_libraries.into_iter() {
             vm.compile_and_run_raw_program(core).unwrap();
@@ -418,7 +418,6 @@ impl Engine {
         let bootstrap_sources = [
             crate::steel_vm::primitives::ALL_MODULES,
             crate::stdlib::PRELUDE,
-            crate::stdlib::DISPLAY,
         ];
 
         for source in bootstrap_sources {
@@ -470,7 +469,6 @@ impl Engine {
         let bootstrap_sources = [
             crate::steel_vm::primitives::ALL_MODULES,
             crate::stdlib::PRELUDE,
-            crate::stdlib::DISPLAY,
         ];
 
         for source in bootstrap_sources {
@@ -652,7 +650,6 @@ impl Engine {
         let bootstrap_sources = [
             crate::steel_vm::primitives::ALL_MODULES,
             crate::stdlib::PRELUDE,
-            crate::stdlib::DISPLAY,
         ];
 
         for source in bootstrap_sources {
@@ -760,7 +757,7 @@ impl Engine {
         vm.compile_and_run_raw_program(crate::steel_vm::primitives::SANDBOXED_MODULES)
             .unwrap();
 
-        let core_libraries = [crate::stdlib::PRELUDE, crate::stdlib::DISPLAY];
+        let core_libraries = [crate::stdlib::PRELUDE];
 
         for core in core_libraries.into_iter() {
             vm.compile_and_run_raw_program(core).unwrap();
@@ -960,14 +957,7 @@ impl Engine {
 
         engine.compiler.kernel = Some(Kernel::new());
 
-        engine
-            .run(
-                "(require \"#%private/steel/contract\" (for-syntax \"#%private/steel/contract\"))
-                (require \"#%private/steel/print\")
-                (require \"#%private/steel/control\" (for-syntax \"#%private/steel/control\"))
-                ",
-            )
-            .unwrap();
+        engine.run(PRELUDE_WITHOUT_BASE).unwrap();
 
         engine
     }
@@ -992,7 +982,7 @@ impl Engine {
     /// vm.run("(+ 1 2 3)").unwrap();
     /// ```
     pub fn with_prelude(mut self) -> Result<Self> {
-        let core_libraries = &[crate::stdlib::PRELUDE, crate::stdlib::DISPLAY];
+        let core_libraries = &[crate::stdlib::PRELUDE];
 
         for core in core_libraries {
             self.compile_and_run_raw_program(core)?;
@@ -1014,7 +1004,7 @@ impl Engine {
     /// vm.run("(+ 1 2 3)").unwrap();
     /// ```
     pub fn register_prelude(&mut self) -> Result<&mut Self> {
-        let core_libraries = &[crate::stdlib::PRELUDE, crate::stdlib::DISPLAY];
+        let core_libraries = &[crate::stdlib::PRELUDE];
 
         for core in core_libraries {
             self.compile_and_run_raw_program(core)?;

@@ -14,7 +14,7 @@
   (let ([tasks (map (lambda (_)
                       (spawn-thread! (lambda ()
                                        (time/sleep-ms 2000)
-                                       (displayln (thread::current/id)))))
+                                       (stdout-simple-displayln (thread::current/id)))))
                     (range 0 10))])
     (map (lambda (x) (unwrap-ok (thread-join! x))) tasks)))
 

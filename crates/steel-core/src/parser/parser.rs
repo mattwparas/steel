@@ -450,7 +450,7 @@ pub struct Parser<'a> {
     collecting_comments: bool,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 enum ParsingContext {
     // Inside of a quote. Expressions should be parsed without being coerced into a typed variant of the AST
     Quote(usize),
@@ -474,6 +474,10 @@ impl<'a> Parser<'a> {
     // #[cfg(test)]
     pub fn parse(expr: &str) -> Result<Vec<ExprKind>> {
         Parser::new(expr, None).collect()
+    }
+
+    pub fn offset(&self) -> usize {
+        self.tokenizer.offset()
     }
 }
 
@@ -668,7 +672,7 @@ impl<'a> Parser<'a> {
                         TokenType::QuoteTick => {
                             // quote_count += 1;
                             // self.quote_stack.push(current_frame.len());
-                            self.shorthand_quote_stack.push(current_frame.len());
+                            self.shorthand_quote_stack.push(stack.len());
 
                             let last_context = self.quote_context;
 
@@ -678,8 +682,7 @@ impl<'a> Parser<'a> {
 
                             // println!("Entering context: Quote Tick in read from tokens");
 
-                            self.context
-                                .push(ParsingContext::QuoteTick(current_frame.len()));
+                            self.context.push(ParsingContext::QuoteTick(stack.len()));
 
                             let quote_inner = self
                                 .next()
@@ -706,6 +709,7 @@ impl<'a> Parser<'a> {
                             let popped_value = self.context.pop();
 
                             if let Some(popped) = popped_value {
+                                // dbg!(&popped);
                                 debug_assert!(matches!(popped, ParsingContext::QuoteTick(_)))
                             }
 
@@ -717,8 +721,7 @@ impl<'a> Parser<'a> {
                             // This could underflow and panic - if its negative then we have a problem. Maybe just use an isize and let it underflow?
                             self.decrement_quasiquote_context_if_not_in_quote_context();
 
-                            self.context
-                                .push(ParsingContext::UnquoteTick(current_frame.len()));
+                            self.context.push(ParsingContext::UnquoteTick(stack.len()));
 
                             let quote_inner = self
                                 .next()
@@ -749,7 +752,7 @@ impl<'a> Parser<'a> {
                             self.increment_quasiquote_context_if_not_in_quote_context();
 
                             self.context
-                                .push(ParsingContext::QuasiquoteTick(current_frame.len()));
+                                .push(ParsingContext::QuasiquoteTick(stack.len()));
 
                             let quote_inner = self
                                 .next()
@@ -779,7 +782,7 @@ impl<'a> Parser<'a> {
                             self.decrement_quasiquote_context_if_not_in_quote_context();
 
                             self.context
-                                .push(ParsingContext::UnquoteSplicingTick(current_frame.len()));
+                                .push(ParsingContext::UnquoteSplicingTick(stack.len()));
 
                             let quote_inner = self
                                 .next()
@@ -839,6 +842,7 @@ impl<'a> Parser<'a> {
                                         // let last_quote_index = *last_quote_index;
 
                                         if stack.len() <= last_quote_index {
+                                            // println!("{} - {}", stack.len(), last_quote_index);
                                             self.context.pop();
                                             // println!("Exiting Context: {:?}", self.context.pop());
                                         }
@@ -952,6 +956,7 @@ impl<'a> Parser<'a> {
                                         // );
 
                                         if stack.len() <= last_quote_index {
+                                            // println!("{} - {}", stack.len(), last_quote_index);
                                             // println!("Exiting Context: {:?}", self.context.pop());
                                             self.context.pop();
                                         }
@@ -976,10 +981,25 @@ impl<'a> Parser<'a> {
                                 // println!("Else case: {:?}", current_frame);
                                 // println!("Context: {:?}", self.context);
 
+                                // dbg!(&self.quote_stack);
+                                // dbg!(&self.context);
+                                // dbg!(&self.shorthand_quote_stack);
                                 match self.context.last() {
                                     Some(ParsingContext::QuoteTick(_))
                                     | Some(ParsingContext::QuasiquoteTick(_)) => {
+                                        // | Some(ParsingContext::Quote(d)) && d > 0 => {
                                         return Ok(ExprKind::List(List::new(current_frame)));
+                                    }
+                                    Some(ParsingContext::Quote(x)) if *x > 0 => {
+                                        self.context.pop();
+
+                                        return Ok(ExprKind::List(List::new(current_frame)));
+                                    }
+                                    Some(ParsingContext::Quote(0)) => {
+                                        self.context.pop();
+
+                                        return ExprKind::try_from(current_frame)
+                                            .map_err(|x| x.set_source(self.source_name.clone()));
                                     }
                                     _ => {
                                         // dbg!(self.quasiquote_depth);
@@ -1017,12 +1037,20 @@ impl<'a> Parser<'a> {
                                 self.quote_stack.push(stack.len());
                             }
 
+                            // dbg!(&self.context);
+
                             // Mark what context we're inside with the context stack:
                             // This only works when its the first argument - check the function call in open paren?
                             if current_frame.is_empty() {
                                 match &token.ty {
                                     TokenType::Quote => {
-                                        self.context.push(ParsingContext::Quote(stack.len()))
+                                        if self.context == &[ParsingContext::QuoteTick(0)] {
+                                            self.context.push(ParsingContext::Quote(1))
+                                        } else {
+                                            self.context.push(ParsingContext::Quote(stack.len()))
+                                        }
+
+                                        // self.context.push(ParsingContext::Quote(stack.len()))
                                     }
                                     TokenType::Identifier(ident) if *ident == *UNQUOTE => {
                                         self.context.push(ParsingContext::Unquote(stack.len()));
@@ -1135,6 +1163,7 @@ impl<'a> Parser<'a> {
                         let popped_value = self.context.pop();
 
                         if let Some(popped) = popped_value {
+                            // dbg!(&popped);
                             debug_assert!(matches!(popped, ParsingContext::QuoteTick(_)))
                         }
 
@@ -1143,8 +1172,14 @@ impl<'a> Parser<'a> {
                         // println!("Exiting context: {:?}", self.context.pop());
                         // println!("Result: {:?}", value);
 
+                        // println!("{}", List::new(value.clone().unwrap()));
+
                         return Some(match value {
-                            Ok(v) => ExprKind::try_from(v),
+                            Ok(v) => {
+                                // Ok(ExprKind::List(List::new(v)))
+
+                                ExprKind::try_from(v)
+                            }
                             Err(e) => Err(e),
                         });
                     }
@@ -1580,12 +1615,12 @@ mod parser_tests {
     #[test]
     fn parse_unicode() {
         assert_parse("#\\¡", &[character('¡')]);
-        assert_parse("#\\\\u{b}", &[character('\u{b}')]);
+        assert_parse("#\\u{b}", &[character('\u{b}')]);
     }
 
     #[test]
     fn parse_more_unicode() {
-        assert_parse("#\\\\u{a0}", &[character('\u{a0}')]);
+        assert_parse("#\\u{a0}", &[character('\u{a0}')]);
     }
 
     #[test]

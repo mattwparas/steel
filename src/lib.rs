@@ -182,7 +182,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
                 }),
             ..
         } => {
-            let core_libraries = &[steel::stdlib::PRELUDE, steel::stdlib::DISPLAY];
+            let core_libraries = &[steel::stdlib::PRELUDE];
 
             for core in core_libraries {
                 let res = vm.compile_and_run_raw_program(core);
@@ -258,4 +258,24 @@ fn r7rs_test_suite() {
     };
 
     run(args).unwrap()
+}
+
+#[test]
+fn r7rs_benchmark_test_suite() {
+    let benches = &[
+        "r7rs-benchmarks/scheme.scm",
+        "r7rs-benchmarks/simplex.scm",
+        "r7rs-benchmarks/array1.scm",
+        "r7rs-benchmarks/triangl.scm",
+    ];
+
+    for bench in benches {
+        let args = Args {
+            action: None,
+            default_file: Some(PathBuf::from(bench)),
+            arguments: vec![],
+        };
+
+        run(args).unwrap();
+    }
 }

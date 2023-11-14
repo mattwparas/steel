@@ -14,14 +14,22 @@ pub fn port_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/ports");
     module
         .register_native_fn_definition(OPEN_STDIN_DEFINITION)
+        .register_native_fn_definition(OPEN_STDOUT_DEFINITION)
         .register_native_fn_definition(OPEN_INPUT_FILE_DEFINITION)
         .register_native_fn_definition(OPEN_OUTPUT_FILE_DEFINITION)
+        .register_native_fn_definition(OPEN_OUTPUT_STRING_DEFINITION)
         .register_native_fn_definition(WRITE_LINE_DEFINITION)
+        .register_native_fn_definition(WRITE_STRING_DEFINITION)
+        .register_native_fn_definition(WRITE_DEFINITION)
+        .register_native_fn_definition(WRITE_CHAR_DEFINITION)
+        .register_native_fn_definition(FLUSH_OUTPUT_PORT_DEFINITION)
         .register_native_fn_definition(READ_PORT_TO_STRING_DEFINITION)
         .register_native_fn_definition(READ_LINE_TO_STRING_DEFINITION)
-        .register_native_fn_definition(OPEN_STDIN_DEFINITION)
+        .register_native_fn_definition(GET_OUTPUT_STRING_DEFINITION)
         .register_native_fn_definition(IS_INPUT_DEFINITION)
-        .register_native_fn_definition(IS_OUTPUT_DEFINITION);
+        .register_native_fn_definition(IS_OUTPUT_DEFINITION)
+        .register_native_fn_definition(DEFAULT_INPUT_PORT_DEFINITION)
+        .register_native_fn_definition(DEFAULT_OUTPUT_PORT_DEFINITION);
     module
 }
 
@@ -38,6 +46,13 @@ pub fn port_module() -> BuiltInModule {
 pub fn open_stdin() -> SteelVal {
     SteelVal::PortV(Gc::new(SteelPort::StdInput(new_rc_ref_cell(
         std::io::stdin(),
+    ))))
+}
+
+#[function(name = "stdout")]
+pub fn open_stdout() -> SteelVal {
+    SteelVal::PortV(Gc::new(SteelPort::StdOutput(new_rc_ref_cell(
+        std::io::stdout(),
     ))))
 }
 
@@ -73,6 +88,12 @@ pub fn open_input_file(path: &SteelString) -> Result<SteelVal> {
 #[function(name = "open-output-file")]
 pub fn open_output_file(path: &SteelString) -> Result<SteelVal> {
     let new_port = SteelPort::new_textual_file_output(path)?;
+    Ok(SteelVal::PortV(Gc::new(new_port)))
+}
+
+#[function(name = "open-output-string")]
+pub fn open_output_string() -> Result<SteelVal> {
+    let new_port = SteelPort::new_output_port();
     Ok(SteelVal::PortV(Gc::new(new_port)))
 }
 
@@ -151,4 +172,62 @@ pub fn write_line(port: &Gc<SteelPort>, line: &SteelVal) -> Result<SteelVal> {
     } else {
         stop!(Generic => "unable to write string to file");
     }
+}
+
+#[function(name = "raw-write")]
+pub fn write(port: &Gc<SteelPort>, line: &SteelVal) -> Result<SteelVal> {
+    let line = line.to_string();
+    let res = port.write_string(line.as_str());
+
+    if res.is_ok() {
+        Ok(SteelVal::Void)
+    } else {
+        stop!(Generic => "unable to write string to port");
+    }
+}
+
+#[function(name = "raw-write-char")]
+pub fn write_char(port: &Gc<SteelPort>, character: char) -> Result<SteelVal> {
+    let res = port.write_char(character);
+
+    if res.is_ok() {
+        Ok(SteelVal::Void)
+    } else {
+        stop!(Generic => "unable to write string to port");
+    }
+}
+
+#[function(name = "raw-write-string")]
+pub fn write_string(port: &Gc<SteelPort>, line: &SteelVal) -> Result<SteelVal> {
+    let res = if let SteelVal::StringV(s) = line {
+        port.write_string(s.as_str())
+    } else {
+        port.write_string(line.to_string().as_str())
+    };
+
+    if res.is_ok() {
+        Ok(SteelVal::Void)
+    } else {
+        stop!(Generic => "unable to write string to port");
+    }
+}
+
+#[function(name = "get-output-string")]
+pub fn get_output_string(port: &Gc<SteelPort>) -> Result<SteelVal> {
+    port.get_output_string().map(SteelVal::from)
+}
+
+#[function(name = "flush-output-port")]
+pub fn flush_output_port(port: &Gc<SteelPort>) -> Result<SteelVal> {
+    port.flush().map(|_| SteelVal::Void)
+}
+
+#[function(name = "#%default-input-port")]
+pub fn default_input_port() -> SteelVal {
+    SteelVal::PortV(Gc::new(SteelPort::default_current_input_port()))
+}
+
+#[function(name = "#%default-output-port")]
+pub fn default_output_port() -> SteelVal {
+    SteelVal::PortV(Gc::new(SteelPort::default_current_output_port()))
 }

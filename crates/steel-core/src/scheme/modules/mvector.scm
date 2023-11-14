@@ -9,7 +9,11 @@
          mutable-vector?
          make-vector
          vector
-         mutable-vector->list)
+         mutable-vector->list
+         mutable-vector-set!
+         mutable-vector-ref
+         mutable-vector-len
+         list->mutable-vector)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -18,17 +22,17 @@
   #:prop:into-iter
   (lambda (object) (IntoIterator (MutableVectorIterator object 0) MutableVectorIterator-next))
   #:printer (lambda (this printer-function)
-              (printer-function "'#(")
+              (simple-display "'#(")
               (cond
                 [(mutable-vector-empty? this) void]
                 [else
                  (printer-function (mutable-vector-ref this 0))
                  (mutable-vector-for-each this
                                           (lambda (elem)
-                                            (printer-function " ")
+                                            (simple-display " ")
                                             (printer-function elem))
                                           1)
-                 (printer-function ")")])))
+                 (simple-display ")")])))
 
 ;;@doc
 ;; Check if the value is an immutable vector
@@ -62,6 +66,12 @@
   (MutableVector (private.make-mutable-vector)))
 
 (define (mutable-vector-ref vector index)
+  (define inner (MutableVector-inner vector))
+  (when (>= index (private.mutable-vector-len inner))
+    (error "index out of bounds - attempted to index"
+           (private.mutable-vector->list inner)
+           "with index: "
+           index))
   (private.mutable-vector-ref (MutableVector-inner vector) index))
 
 (define (mutable-vector-set! vector index value)

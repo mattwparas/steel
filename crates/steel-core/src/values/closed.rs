@@ -1,6 +1,5 @@
 use std::{
     cell::RefCell,
-    collections::VecDeque,
     rc::{Rc, Weak},
 };
 
@@ -30,7 +29,7 @@ use super::{
     transducers::{Reducer, Transducer},
 };
 
-const GC_THRESHOLD: usize = 256;
+const GC_THRESHOLD: usize = 256 * 1000;
 const GC_GROW_FACTOR: usize = 2;
 const RESET_LIMIT: usize = 5;
 
@@ -107,13 +106,95 @@ impl SteelVal {
     }
 }
 
+type HeapValue = Rc<RefCell<HeapAllocated<SteelVal>>>;
+type HeapVector = Rc<RefCell<HeapAllocated<Vec<SteelVal>>>>;
+
+// Maybe uninitialized
+
+struct FreeList {
+    elements: Vec<Option<HeapValue>>,
+    cursor: usize,
+    alloc_count: usize,
+}
+
+impl FreeList {
+    const EXTEND_CHUNK: usize = 128;
+
+    fn is_heap_full(&self) -> bool {
+        self.alloc_count == self.elements.len()
+    }
+
+    fn extend_heap(&mut self) {
+        self.cursor = self.elements.len();
+
+        self.elements.reserve(Self::EXTEND_CHUNK);
+        self.elements
+            .extend(std::iter::repeat(None).take(Self::EXTEND_CHUNK));
+    }
+
+    fn allocate(&mut self, value: SteelVal) -> HeapRef<SteelVal> {
+        // Drain, moving values around...
+        // is that expensive?
+
+        let pointer = Rc::new(RefCell::new(HeapAllocated::new(value)));
+        let weak_ptr = Rc::downgrade(&pointer);
+
+        self.elements[self.cursor] = Some(pointer);
+        self.alloc_count += 1;
+
+        // Find where to assign the next slot optimistically
+        let next_slot = self.elements[self.cursor..]
+            .iter()
+            .position(Option::is_none);
+
+        if let Some(next_slot) = next_slot {
+            self.cursor += next_slot;
+        } else {
+            //
+            if self.is_heap_full() {
+                // Extend the heap, move the cursor to the end
+                self.extend_heap();
+            } else {
+                self.cursor = self.elements.iter().position(Option::is_none).unwrap()
+            }
+        }
+
+        HeapRef { inner: weak_ptr }
+    }
+
+    fn collect_on_condition(&mut self, func: fn(&HeapValue) -> bool) -> usize {
+        let mut amount_dropped = 0;
+
+        self.elements.iter_mut().for_each(|x| {
+            if x.as_ref().map(func).unwrap_or_default() {
+                *x = None;
+                amount_dropped += 1;
+            }
+        });
+
+        self.alloc_count -= amount_dropped;
+
+        amount_dropped
+    }
+
+    fn weak_collection(&mut self) -> usize {
+        self.collect_on_condition(|inner| Rc::weak_count(inner) == 0)
+    }
+
+    fn strong_collection(&mut self) -> usize {
+        self.collect_on_condition(|inner| !inner.borrow().is_reachable())
+    }
+}
+
 #[derive(Clone)]
 pub struct Heap {
     memory: Vec<Rc<RefCell<HeapAllocated<SteelVal>>>>,
     vectors: Vec<Rc<RefCell<HeapAllocated<Vec<SteelVal>>>>>,
     count: usize,
     threshold: usize,
-    mark_and_sweep_queue: VecDeque<SteelVal>,
+    // mark_and_sweep_queue: VecDeque<SteelVal>,
+    mark_and_sweep_queue: Vec<SteelVal>,
+    maybe_memory_size: usize,
 }
 
 impl Heap {
@@ -123,7 +204,9 @@ impl Heap {
             vectors: Vec::with_capacity(256),
             count: 0,
             threshold: GC_THRESHOLD,
-            mark_and_sweep_queue: VecDeque::with_capacity(256),
+            // mark_and_sweep_queue: VecDeque::with_capacity(256),
+            mark_and_sweep_queue: Vec::with_capacity(256),
+            maybe_memory_size: 0,
         }
     }
 
@@ -137,7 +220,7 @@ impl Heap {
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: impl Iterator<Item = &'a SteelVal>,
     ) -> HeapRef<SteelVal> {
-        self.collect(Some(value.clone()), roots, live_functions, globals);
+        self.collect(Some(value.clone()), None, roots, live_functions, globals);
 
         let pointer = Rc::new(RefCell::new(HeapAllocated::new(value)));
         let weak_ptr = Rc::downgrade(&pointer);
@@ -155,7 +238,7 @@ impl Heap {
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: impl Iterator<Item = &'a SteelVal>,
     ) -> HeapRef<Vec<SteelVal>> {
-        self.collect(None, roots, live_functions, globals);
+        self.collect(None, Some(&values), roots, live_functions, globals);
 
         let pointer = Rc::new(RefCell::new(HeapAllocated::new(values)));
         let weak_ptr = Rc::downgrade(&pointer);
@@ -165,16 +248,22 @@ impl Heap {
         HeapRef { inner: weak_ptr }
     }
 
+    fn vector_cells_allocated(&self) -> usize {
+        // self.vectors.iter().map(|x| x.borrow().value.len()).sum()
+        self.vectors.len()
+    }
+
     // TODO: Call this in more areas in the VM to attempt to free memory more carefully
     // Also - come up with generational scheme if possible
     pub fn collect<'a>(
         &mut self,
         root_value: Option<SteelVal>,
+        root_vector: Option<&Vec<SteelVal>>,
         roots: impl Iterator<Item = &'a SteelVal>,
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: impl Iterator<Item = &'a SteelVal>,
     ) {
-        let memory_size = self.memory.len() + self.vectors.len();
+        let memory_size = self.memory.len() + self.vector_cells_allocated();
 
         if memory_size > self.threshold {
             log::debug!(target: "gc", "Freeing memory");
@@ -190,32 +279,36 @@ impl Heap {
             // sweep collection.
             let mut changed = true;
             while changed {
+                let now = std::time::Instant::now();
+
                 log::debug!(target: "gc", "Small collection");
-                let prior_len = self.memory.len() + self.vectors.len();
+                let prior_len = self.memory.len() + self.vector_cells_allocated();
                 log::debug!(target: "gc", "Previous length: {:?}", prior_len);
                 self.memory.retain(|x| Rc::weak_count(x) > 0);
                 self.vectors.retain(|x| Rc::weak_count(x) > 0);
-                let after = self.memory.len() + self.vectors.len();
+                let after = self.memory.len() + self.vector_cells_allocated();
                 log::debug!(target: "gc", "Objects freed: {:?}", prior_len - after);
+                log::debug!(target: "gc", "Small collection time: {:?}", now.elapsed());
+
                 changed = prior_len != after;
             }
 
-            let post_small_collection_size = self.memory.len() + self.vectors.len();
+            let post_small_collection_size = self.memory.len() + self.vector_cells_allocated();
 
             // Mark + Sweep!
             if post_small_collection_size as f64 > (0.25 * original_length as f64) {
                 log::debug!(target: "gc", "---- Post small collection, running mark and sweep - heap size filled: {:?} ----", post_small_collection_size as f64 / original_length as f64);
 
                 // TODO fix the garbage collector
-                self.mark_and_sweep(root_value, roots, live_functions, globals);
+                self.mark_and_sweep(root_value, root_vector, roots, live_functions, globals);
             } else {
                 log::debug!(target: "gc", "---- Skipping mark and sweep - heap size filled: {:?} ----", post_small_collection_size as f64 / original_length as f64);
             }
 
             // self.mark_and_sweep(roots, live_functions, globals);
 
-            self.threshold =
-                (self.threshold + self.memory.len() + self.vectors.len()) * GC_GROW_FACTOR;
+            self.threshold = (self.threshold + self.memory.len() + self.vector_cells_allocated())
+                * GC_GROW_FACTOR;
 
             self.count += 1;
 
@@ -226,8 +319,8 @@ impl Heap {
                 self.threshold = GC_THRESHOLD;
                 self.count = 0;
 
-                self.memory.shrink_to(GC_THRESHOLD);
-                self.vectors.shrink_to(GC_THRESHOLD);
+                self.memory.shrink_to(GC_THRESHOLD * GC_GROW_FACTOR);
+                self.vectors.shrink_to(GC_THRESHOLD * GC_GROW_FACTOR);
             }
         }
     }
@@ -235,11 +328,14 @@ impl Heap {
     fn mark_and_sweep<'a>(
         &mut self,
         root_value: Option<SteelVal>,
+        root_vector: Option<&Vec<SteelVal>>,
         roots: impl Iterator<Item = &'a SteelVal>,
         function_stack: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: impl Iterator<Item = &'a SteelVal>,
     ) {
         log::debug!(target: "gc", "Marking the heap");
+
+        let now = std::time::Instant::now();
 
         let mut context = MarkAndSweepContext {
             queue: &mut self.mark_and_sweep_queue,
@@ -247,6 +343,12 @@ impl Heap {
 
         if let Some(root_value) = root_value {
             context.push_back(root_value);
+        }
+
+        if let Some(root_vector) = root_vector {
+            for value in root_vector {
+                context.push_back(value.clone());
+            }
         }
 
         for root in roots {
@@ -265,6 +367,10 @@ impl Heap {
             for heap_ref in function.heap_allocated.borrow().iter() {
                 context.mark_heap_reference(&heap_ref.strong_ptr())
             }
+
+            for value in function.captures() {
+                context.push_back(value.clone());
+            }
         }
 
         context.visit();
@@ -277,6 +383,10 @@ impl Heap {
         });
 
         context.visit();
+
+        log::debug!(target: "gc", "Mark: Time taken: {:?}", now.elapsed());
+
+        let now = std::time::Instant::now();
 
         // println!("Freeing heap");
 
@@ -293,11 +403,25 @@ impl Heap {
         // );
 
         log::debug!(target: "gc", "--- Sweeping ---");
-        let prior_len = self.memory.len() + self.vectors.len();
+        let prior_len = self.memory.len() + self.vector_cells_allocated();
 
         // sweep
-        self.memory.retain(|x| x.borrow().is_reachable());
-        self.vectors.retain(|x| x.borrow().is_reachable());
+        self.memory.retain(|x| {
+            // let mut guard = x.borrow_mut();
+            // let is_reachable = guard.is_reachable();
+            // guard.reset();
+            // is_reachable
+
+            x.borrow().is_reachable()
+        });
+        self.vectors.retain(|x| {
+            // let mut guard = x.borrow_mut();
+            // let is_reachable = guard.is_reachable();
+            // guard.reset();
+            // is_reachable
+            x.borrow().is_reachable()
+        });
+        // (|x| x.borrow().is_reachable());
 
         let after_len = self.memory.len();
 
@@ -308,8 +432,11 @@ impl Heap {
 
         // put them back as unreachable
         self.memory.iter().for_each(|x| x.borrow_mut().reset());
+        self.vectors.iter().for_each(|x| x.borrow_mut().reset());
 
         ROOTS.with(|x| x.borrow_mut().increment_generation());
+
+        log::debug!(target: "gc", "Sweep: Time taken: {:?}", now.elapsed());
     }
 }
 
@@ -371,6 +498,19 @@ pub struct HeapAllocated<T: Clone + std::fmt::Debug + PartialEq + Eq> {
     pub(crate) value: T,
 }
 
+// Adding generation information should be doable here
+// struct Test {
+//     pub(crate) reachable: bool,
+//     pub(crate) generation: u32,
+//     pub(crate) value: SteelVal,
+// }
+
+#[test]
+fn check_size_of_heap_allocated_value() {
+    println!("{:?}", std::mem::size_of::<HeapAllocated<SteelVal>>());
+    // println!("{:?}", std::mem::size_of::<Test>());
+}
+
 impl<T: Clone + std::fmt::Debug + PartialEq + Eq> HeapAllocated<T> {
     pub fn new(value: T) -> Self {
         Self {
@@ -393,7 +533,8 @@ impl<T: Clone + std::fmt::Debug + PartialEq + Eq> HeapAllocated<T> {
 }
 
 pub struct MarkAndSweepContext<'a> {
-    queue: &'a mut VecDeque<SteelVal>,
+    // queue: &'a mut VecDeque<SteelVal>,
+    queue: &'a mut Vec<SteelVal>,
 }
 
 impl<'a> MarkAndSweepContext<'a> {
@@ -431,11 +572,31 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     fn default_output(&mut self) -> Self::Output {}
 
     fn pop_front(&mut self) -> Option<SteelVal> {
-        self.queue.pop_front()
+        // self.queue.pop_front()
+        self.queue.pop()
     }
 
     fn push_back(&mut self, value: SteelVal) {
-        self.queue.push_back(value);
+        match &value {
+            SteelVal::BoolV(_)
+            | SteelVal::NumV(_)
+            | SteelVal::IntV(_)
+            | SteelVal::CharV(_)
+            | SteelVal::Void
+            | SteelVal::StringV(_)
+            | SteelVal::FuncV(_)
+            | SteelVal::SymbolV(_)
+            | SteelVal::FutureFunc(_)
+            | SteelVal::FutureV(_)
+            | SteelVal::BoxedFunction(_)
+            | SteelVal::MutFunc(_)
+            | SteelVal::BuiltIn(_)
+            | SteelVal::BigNum(_) => return,
+            _ => {
+                // self.queue.push_back(value);
+                self.queue.push(value);
+            }
+        }
     }
 
     fn visit_closure(&mut self, closure: Gc<ByteCodeLambda>) -> Self::Output {

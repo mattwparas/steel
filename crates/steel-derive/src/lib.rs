@@ -285,7 +285,7 @@ pub fn function(
                     match last.ident.into_token_stream().to_string().as_str() {
                         "Result" => quote! { res },
                         _ => quote! {
-                            res.into_steelval()
+                            res.into_steelval().map_err(err_thunk)
                         },
                     }
                 } else {
@@ -295,7 +295,7 @@ pub fn function(
                 }
             } else {
                 quote! {
-                    res.into_steelval()
+                    res.into_steelval().map_err(err_thunk)
                 }
             }
         }
@@ -348,7 +348,7 @@ pub fn function(
     let arg_enumerate = type_vec.into_iter().enumerate();
     let arg_type = arg_enumerate.clone().map(|(_, x)| x);
     let arg_index = arg_enumerate.clone().map(|(i, _)| i);
-    let function_names_with_colon = std::iter::repeat(function_name_with_colon);
+    // let function_names_with_colon = std::iter::repeat(function_name_with_colon.clone());
     let function_name = sign.ident.clone();
     let _arity_name = Ident::new(
         &(function_name.to_string().to_uppercase() + "_ARITY"),
@@ -429,16 +429,19 @@ pub fn function(
                     crate::stop!(ArityMismatch => format!("{} expected {} arguments, got {}", #value, #arity_number.to_string(), args.len()))
                 }
 
+                fn err_thunk(mut err: crate::rerrs::SteelErr) -> crate::rerrs::SteelErr {
+                    err.prepend_message(#function_name_with_colon);
+                    err.set_kind(crate::rerrs::ErrorKind::TypeMismatch);
+                    err
+                };
+
                 let res = #function_name(
                     #(
                         // TODO: Distinguish reference types here if possible - make a special implementation
                         // for builtin pointer types here to distinguish them
                         <#arg_type>::#conversion_functions(&args[#arg_index])
-                            .map_err(|mut err| {
-                                err.prepend_message(#function_names_with_colon);
-                                err.set_kind(crate::rerrs::ErrorKind::TypeMismatch);
-                                err
-                            } )?,
+                            .map_err(err_thunk)
+                        ?,
                     )*
                 );
 
@@ -468,16 +471,19 @@ pub fn function(
                 crate::stop!(ArityMismatch => format!("{} expected {} arguments, got {}", #value, #arity_number.to_string(), args.len()))
             }
 
+
+            fn err_thunk(mut err: crate::rerrs::SteelErr) -> crate::rerrs::SteelErr {
+                err.prepend_message(#function_name_with_colon);
+                err.set_kind(crate::rerrs::ErrorKind::TypeMismatch);
+                err
+            };
+
             let res = #function_name(
                 #(
                     // TODO: Distinguish reference types here if possible - make a special implementation
                     // for builtin pointer types here to distinguish them
                     <#arg_type>::#conversion_functions(&args[#arg_index])
-                        .map_err(|mut err| {
-                            err.prepend_message(#function_names_with_colon);
-                            err.set_kind(crate::rerrs::ErrorKind::TypeMismatch);
-                            err
-                        } )?,
+                        .map_err(err_thunk)?,
                 )*
             );
 

@@ -1,3 +1,5 @@
+(require "steel/colors/colors.scm")
+
 (provide test
          (for-syntax check-equal?)
          (for-syntax check-err?)
@@ -25,14 +27,16 @@
   (set! *FAILED-TO-COMPILE* (+ *FAILED-TO-COMPILE* 1)))
 
 (define (print-success name)
-  (simple-display "test > " name " ... ")
-  (display-color "Ok" 'green)
-  (newline))
+  (display "test > ")
+  (display name)
+  (display " ... ")
+  (displayln-color "Ok" #:fg 'green))
 
 (define (print-failure name)
-  (simple-display "test > " name " ... ")
-  (display-color "FAILED" 'red)
-  (newline))
+  (display "test > ")
+  (display name)
+  (display " ... ")
+  (displayln-color "FAILED" #:fg 'red))
 
 (define-syntax check-equal?
   (syntax-rules ()

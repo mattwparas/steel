@@ -27,8 +27,6 @@ pub mod sqlite;
 #[cfg(feature = "blocking_requests")]
 pub mod blocking_requests;
 
-pub mod colors;
-
 pub use lists::UnRecoverableResult;
 
 use crate::values::closed::HeapRef;
