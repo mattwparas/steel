@@ -1615,12 +1615,12 @@ mod parser_tests {
     #[test]
     fn parse_unicode() {
         assert_parse("#\\¡", &[character('¡')]);
-        assert_parse("#\\\\u{b}", &[character('\u{b}')]);
+        assert_parse("#\\u{b}", &[character('\u{b}')]);
     }
 
     #[test]
     fn parse_more_unicode() {
-        assert_parse("#\\\\u{a0}", &[character('\u{a0}')]);
+        assert_parse("#\\u{a0}", &[character('\u{a0}')]);
     }
 
     #[test]
