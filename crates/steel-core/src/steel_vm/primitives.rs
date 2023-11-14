@@ -1020,8 +1020,8 @@ fn io_module() -> BuiltInModule {
         // .register_value("newline", IoFunctions::newline())
         .register_value("read-to-string", IoFunctions::read_to_string());
 
-    #[cfg(feature = "colors")]
-    module.register_value("display-color", IoFunctions::display_color());
+    // #[cfg(feature = "colors")]
+    // module.register_value("display-color", IoFunctions::display_color());
 
     module
 }

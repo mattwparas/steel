@@ -58,9 +58,9 @@ pub fn decode_hex(s: &str) -> Result<Vec<u8>, DecodeHexError> {
 }
 
 fn parse_unicode_str(slice: &str) -> Option<char> {
-    if slice.starts_with("#\\\\u") && slice.contains('{') && slice.contains('}') {
+    if slice.starts_with("#\\u") && slice.contains('{') && slice.contains('}') {
         let rest = slice
-            .trim_start_matches("#\\\\u")
+            .trim_start_matches("#\\u")
             .trim_start_matches('{')
             .trim_end_matches('}')
             .to_lowercase();
@@ -78,6 +78,24 @@ fn parse_unicode_str(slice: &str) -> Option<char> {
         let result = char::try_from(uinitial).ok();
 
         // println!("{result:?}");
+        result
+    } else if slice.starts_with("#\\u") {
+        let rest = slice.trim_start_matches("#\\u").to_lowercase();
+
+        let rest = match rest.len() {
+            1 => "000".to_string() + &rest,
+            2 => "00".to_string() + &rest,
+            3 => "0".to_string() + &rest,
+            4 => rest,
+            _ => return None,
+        };
+
+        let decoded: u8 = decode_hex(&rest).ok()?.into_iter().sum();
+
+        let uinitial: u32 = decoded.into();
+
+        let result = char::try_from(uinitial).ok();
+
         result
     } else {
         None

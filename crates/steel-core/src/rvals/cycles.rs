@@ -152,7 +152,13 @@ impl CycleDetector {
             IntV(x) => write!(f, "{x}"),
             StringV(s) => write!(f, "{s:?}"),
             BigNum(b) => write!(f, "{}", b.as_ref()),
-            CharV(c) => write!(f, "#\\{c}"),
+            CharV(c) => {
+                if c.is_ascii_control() {
+                    write!(f, "{}", c)
+                } else {
+                    write!(f, "#\\{c}")
+                }
+            }
             FuncV(func) => {
                 if let Some(name) = get_function_name(*func) {
                     write!(f, "#<function:{}>", name.name)
@@ -264,7 +270,13 @@ impl CycleDetector {
             NumV(x) => write!(f, "{x:?}"),
             IntV(x) => write!(f, "{x}"),
             StringV(s) => write!(f, "{s:?}"),
-            CharV(c) => write!(f, "#\\{c}"),
+            CharV(c) => {
+                if c.is_ascii_control() {
+                    write!(f, "{}", c)
+                } else {
+                    write!(f, "#\\{c}")
+                }
+            }
             FuncV(func) => {
                 if let Some(name) = get_function_name(*func) {
                     write!(f, "#<function:{}>", name.name)

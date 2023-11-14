@@ -174,7 +174,7 @@ pub fn write_line(port: &Gc<SteelPort>, line: &SteelVal) -> Result<SteelVal> {
     }
 }
 
-#[function(name = "write")]
+#[function(name = "raw-write")]
 pub fn write(port: &Gc<SteelPort>, line: &SteelVal) -> Result<SteelVal> {
     let line = line.to_string();
     let res = port.write_string(line.as_str());
@@ -186,7 +186,7 @@ pub fn write(port: &Gc<SteelPort>, line: &SteelVal) -> Result<SteelVal> {
     }
 }
 
-#[function(name = "write-char")]
+#[function(name = "raw-write-char")]
 pub fn write_char(port: &Gc<SteelPort>, character: char) -> Result<SteelVal> {
     let res = port.write_char(character);
 
@@ -197,7 +197,7 @@ pub fn write_char(port: &Gc<SteelPort>, character: char) -> Result<SteelVal> {
     }
 }
 
-#[function(name = "write-string")]
+#[function(name = "raw-write-string")]
 pub fn write_string(port: &Gc<SteelPort>, line: &SteelVal) -> Result<SteelVal> {
     let res = if let SteelVal::StringV(s) = line {
         port.write_string(s.as_str())

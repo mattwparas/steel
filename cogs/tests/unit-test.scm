@@ -1,3 +1,5 @@
+(require "steel/colors/colors.scm")
+
 (provide test
          (for-syntax check-equal?)
          (for-syntax check-err?)
@@ -28,15 +30,13 @@
   (display "test > ")
   (display name)
   (display " ... ")
-  (display-color "Ok" 'green)
-  (newline))
+  (displayln-color "Ok" #:fg 'green))
 
 (define (print-failure name)
   (display "test > ")
   (display name)
   (display " ... ")
-  (display-color "FAILED" 'red)
-  (newline))
+  (displayln-color "FAILED" #:fg 'red))
 
 (define-syntax check-equal?
   (syntax-rules ()

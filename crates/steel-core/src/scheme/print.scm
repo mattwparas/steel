@@ -13,8 +13,7 @@
           (return! void))
         (for-each func (cdr lst)))))
 
-(define (display obj)
-
+(define (display-impl obj)
   ;; Collect cycles
   (define cycle-collector (#%private-cycle-collector obj))
 
@@ -33,6 +32,15 @@
 
   (#%top-level-print obj cycle-collector))
 
+(define display
+  (case-lambda
+    [(obj) (display-impl obj)]
+    [(obj port)
+     (parameterize ([current-output-port port])
+       (display-impl obj))]))
+
+;; TODO: Nuke the displayln multiple arguments. I think displayln should
+;; just take one argument for now
 (define (displayln . objs)
 
   (cond

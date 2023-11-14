@@ -46,20 +46,31 @@
          current-output-port
          simple-display
          simple-displayln
-         newline)
+         newline
+         write-char
+         write)
 
 (define current-input-port (make-parameter (#%default-input-port)))
 (define current-output-port (make-parameter (#%default-output-port)))
 
 (define (simple-display x)
-  (write-string (current-output-port) x))
+  (raw-write-string (current-output-port) x))
 
-(define (newline)
-  (write-char (current-output-port) #\newline))
+(define newline
+  (case-lambda
+    [() (raw-write-char (current-output-port) #\newline)]
+    [(port) (raw-write-char port #\newline)]))
 
 (define (simple-displayln x)
   (simple-display x)
   (newline))
+
+;; TODO: Swap argument order of primitive
+(define (write-char char port)
+  (raw-write-char port char))
+
+(define (write obj port)
+  (raw-write port obj))
 
 ;;;;;;;;;;;;;;;;;;;;; Port functions ;;;;;;;;;;;;;;;;;;;;;
 

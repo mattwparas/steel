@@ -64,7 +64,7 @@
 (define/contract (install-package-and-log cog-to-install)
   (->/c hash? void?)
   (let ([output-dir (install-package cog-to-install)])
-    (display-color "✅ Installed package to: " 'green)
+    (display "✅ Installed package to: ")
     (displayln output-dir)
     (newline)))
 

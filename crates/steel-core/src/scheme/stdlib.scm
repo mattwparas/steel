@@ -713,4 +713,8 @@
 
 (define values list)
 (define (call-with-values producer consumer)
-  (apply consumer (producer)))
+  (define result (apply consumer (producer)))
+  (cond
+    [(not (list? result)) result]
+    [(= (length result) 1) (car result)]
+    [else result]))

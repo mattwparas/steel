@@ -1,12 +1,3 @@
-(define values list)
-(define (call-with-values producer consumer)
-  (define result (apply consumer (producer)))
-  (cond
-    [(not (list? result)) result]
-    [(= (length result) 1) (car result)]
-    [else result]))
-; (if (= (length result) 1) (car result) result))
-
 (define (hide r x)
   (call-with-values (lambda () (values (vector values (lambda (x) x)) (if (< r 100) 0 1)))
                     (lambda (v i) ((vector-ref v i) x))))
