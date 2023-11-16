@@ -3,6 +3,7 @@
 use crate::core::instructions::pretty_print_dense_instructions;
 use crate::primitives::lists::cons;
 use crate::primitives::lists::new as new_list;
+use crate::primitives::lists::steel_car;
 use crate::primitives::nums::special_add;
 use crate::steel_vm::primitives::steel_set_box;
 use crate::steel_vm::primitives::steel_set_box_mutable;
@@ -881,7 +882,8 @@ impl<'a> VmCore<'a> {
         );
     }
 
-    // #[inline(always)]
+    // TODO: Lazily capture the continuation somehow?
+    // Could be neat at some point: https://docs.rs/stacker/latest/stacker/
     fn new_continuation_from_state(&self) -> Continuation {
         Continuation {
             stack: self.thread.stack.clone(),
@@ -891,7 +893,6 @@ impl<'a> VmCore<'a> {
             ip: self.ip,
             sp: self.sp,
             pop_count: self.pop_count,
-            // spans: Rc::clone(&self.spans),
         }
     }
 
@@ -1475,6 +1476,13 @@ impl<'a> VmCore<'a> {
                     ..
                 } => {
                     setbox_handler(self)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::CAR,
+                    ..
+                } => {
+                    car_handler(self)?;
                 }
 
                 DenseInstruction {
@@ -2967,7 +2975,7 @@ impl<'a> VmCore<'a> {
             FuncV(f) => self.call_primitive_func(f, payload_size),
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
             // ContractedFunction(cf) => self.call_contracted_function_tail_call(&cf, payload_size),
-            ContinuationFunction(cc) => self.call_continuation(&cc),
+            ContinuationFunction(cc) => self.call_continuation(cc),
             Closure(closure) => self.new_handle_tail_call_closure(closure, payload_size),
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
             CustomStruct(s) => self.call_custom_struct(&s, payload_size),
@@ -3288,13 +3296,23 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     // TODO: See if calling continuations can be implemented in terms of the core ABI
     // That way, we dont need a special "continuation" function
-    fn call_continuation(&mut self, continuation: &Continuation) -> Result<()> {
+    fn call_continuation(&mut self, continuation: Gc<Continuation>) -> Result<()> {
         let last =
             self.thread.stack.pop().ok_or_else(
                 throw!(ArityMismatch => "continuation expected 1 argument, found none"),
             )?;
 
-        self.set_state_from_continuation(continuation.clone());
+        match Gc::try_unwrap(continuation) {
+            Ok(cont) => {
+                self.set_state_from_continuation(cont);
+            }
+
+            Err(unable_to_unwrap) => {
+                self.set_state_from_continuation(unable_to_unwrap.unwrap());
+            }
+        }
+
+        // self.set_state_from_continuation(continuation.clone());
 
         self.ip += 1;
 
@@ -3726,7 +3744,7 @@ impl<'a> VmCore<'a> {
             MutFunc(f) => self.call_primitive_mut_func(*f, payload_size)?,
             FutureFunc(f) => self.call_future_func(f.clone(), payload_size)?,
             // ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size)?,
-            ContinuationFunction(cc) => self.call_continuation(&cc)?,
+            ContinuationFunction(cc) => self.call_continuation(cc.clone())?,
             // #[cfg(feature = "jit")]
             // CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
             // Contract(c) => self.call_contract(&c, payload_size)?,
@@ -3758,7 +3776,7 @@ impl<'a> VmCore<'a> {
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
             FutureFunc(f) => self.call_future_func(f, payload_size),
             // ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size),
-            ContinuationFunction(cc) => self.call_continuation(&cc),
+            ContinuationFunction(cc) => self.call_continuation(cc),
             // Contract(c) => self.call_contract(&c, payload_size),
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
             CustomStruct(s) => self.call_custom_struct(&s, payload_size),
@@ -3867,7 +3885,7 @@ impl<'a> VmCore<'a> {
             FutureFunc(f) => self.call_future_func(f, payload_size),
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
             // ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size),
-            ContinuationFunction(cc) => self.call_continuation(&cc),
+            ContinuationFunction(cc) => self.call_continuation(cc),
             Closure(closure) => self.handle_function_call_closure(closure, payload_size),
             // #[cfg(feature = "jit")]
             // CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
@@ -5499,6 +5517,11 @@ fn unbox_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 
 fn setbox_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     handler_inline_primitive_payload!(ctx, steel_set_box_mutable, 2);
+    Ok(())
+}
+
+fn car_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, steel_car, 1);
     Ok(())
 }
 

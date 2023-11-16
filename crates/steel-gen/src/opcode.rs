@@ -91,6 +91,8 @@ declare_opcodes! {
         LTE;
         CONS; // Cons should be... probably specialized
         LIST;
+        CAR;
+        // CDR;
         NEWBOX;
         SETBOX;
         UNBOX;
