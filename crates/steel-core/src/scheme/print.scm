@@ -1,8 +1,11 @@
 (require-builtin steel/base)
-(require "#%private/steel/control")
+(require "#%private/steel/control"
+         (for-syntax "#%private/steel/control"))
 
 (provide displayln
-         display)
+         display
+         #%print
+         #%top-level-print)
 
 (define (for-each func lst)
   (if (null? lst)

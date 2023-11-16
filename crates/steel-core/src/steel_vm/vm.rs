@@ -1,5 +1,6 @@
 #![allow(unused)]
 
+use crate::core::instructions::pretty_print_dense_instructions;
 use crate::primitives::lists::cons;
 use crate::primitives::lists::new as new_list;
 use crate::primitives::nums::special_add;
@@ -2391,6 +2392,15 @@ impl<'a> VmCore<'a> {
         // println!("STACK HERE: {:?}", self.thread.stack);
         // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
         let offset = self.get_offset();
+
+        // if index + offset >= self.thread.stack.len() {
+        // dbg!(&self.thread.stack.get(offset..));
+        //     // dbg!(&self.current_span());
+
+        //     pretty_print_dense_instructions(&self.instructions);
+        //     dbg!(self.ip);
+        // }
+
         let value = self.thread.stack[index + offset].clone();
 
         self.thread.stack.push(value);
@@ -2577,51 +2587,79 @@ impl<'a> VmCore<'a> {
         // A lot of the captures are static, I'm not quite sure we necessarily need to patch down _every_ single one
         // each time, especially since each lambda is a standalone instance of this.
 
-        let guard = self.thread.stack_frames.last().unwrap();
-        // let stack_index = self.stack_index.last().copied().unwrap_or(0);
-        // let stack_index = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
-        let stack_index = self.get_offset();
+        // Top level %plain-let with closures will panic here:
+        // (%plain-let ((foo 10) (bar 20)) (lambda (+ foo bar)))
+        // So, this should probably do something like this:
 
-        for _ in 0..ndefs {
-            let instr = self.instructions[self.ip];
-            match (instr.op_code, instr.payload_size) {
-                (OpCode::COPYCAPTURESTACK, n) => {
-                    let offset = stack_index;
-                    let value = self.thread.stack[n as usize + offset].clone();
-                    captures.push(value);
+        if let Some(guard) = self.thread.stack_frames.last() {
+            let guard = self.thread.stack_frames.last().unwrap();
+            // let stack_index = self.stack_index.last().copied().unwrap_or(0);
+            // let stack_index = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+            let stack_index = self.get_offset();
+
+            for _ in 0..ndefs {
+                let instr = self.instructions[self.ip];
+                match (instr.op_code, instr.payload_size) {
+                    (OpCode::COPYCAPTURESTACK, n) => {
+                        let offset = stack_index;
+                        let value = self.thread.stack[n as usize + offset].clone();
+                        captures.push(value);
+                    }
+                    (OpCode::COPYCAPTURECLOSURE, n) => {
+                        debug_assert!(
+                            !self.thread.stack_frames.is_empty(),
+                            "Trying to capture from closure that doesn't exist",
+                        );
+
+                        debug_assert!((n as usize) < guard.function.captures().len());
+
+                        let value = guard.function.captures()[n as usize].clone();
+
+                        captures.push(value);
+                    }
+                    (l, _) => {
+                        panic!(
+                            "Something went wrong in closure construction!, found: {:?} @ {}",
+                            l, self.ip,
+                        );
+                    }
                 }
-                (OpCode::COPYCAPTURECLOSURE, n) => {
-                    debug_assert!(
-                        !self.thread.stack_frames.is_empty(),
-                        "Trying to capture from closure that doesn't exist",
-                    );
-
-                    debug_assert!((n as usize) < guard.function.captures().len());
-
-                    let value = guard.function.captures()[n as usize].clone();
-
-                    captures.push(value);
-                }
-                // TODO: Try adding these to the cache. i.e. -> if we're doing a copyheapcaptureclosure, we actually just don't
-                // need to do this step at all each time.
-                // Looks like all COPYHEAPCAPTURECLOSURE(s) happen at the start. So we should be able to store those
-                // Directly
-
-                // TODO: These will disappear
-                // (OpCode::COPYHEAPCAPTURECLOSURE, n) => {
-                // heap_vars.push(guard.function.heap_allocated().borrow()[n as usize].clone());
-                // }
-                // (OpCode::FIRSTCOPYHEAPCAPTURECLOSURE, n) => {
-                // heap_vars.push(guard.function.heap_allocated().borrow()[n as usize].clone());
-                // }
-                (l, _) => {
-                    panic!(
-                        "Something went wrong in closure construction!, found: {:?} @ {}",
-                        l, self.ip,
-                    );
-                }
+                self.ip += 1;
             }
-            self.ip += 1;
+        } else {
+            // let stack_index = self.stack_index.last().copied().unwrap_or(0);
+            // let stack_index = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+            let stack_index = self.get_offset();
+
+            for _ in 0..ndefs {
+                let instr = self.instructions[self.ip];
+                match (instr.op_code, instr.payload_size) {
+                    (OpCode::COPYCAPTURESTACK, n) => {
+                        let offset = stack_index;
+                        let value = self.thread.stack[n as usize + offset].clone();
+                        captures.push(value);
+                    }
+                    // (OpCode::COPYCAPTURECLOSURE, n) => {
+                    //     debug_assert!(
+                    //         !self.thread.stack_frames.is_empty(),
+                    //         "Trying to capture from closure that doesn't exist",
+                    //     );
+
+                    //     debug_assert!((n as usize) < guard.function.captures().len());
+
+                    //     let value = guard.function.captures()[n as usize].clone();
+
+                    //     captures.push(value);
+                    // }
+                    (l, _) => {
+                        panic!(
+                            "Something went wrong in closure construction!, found: {:?} @ {}",
+                            l, self.ip,
+                        );
+                    }
+                }
+                self.ip += 1;
+            }
         }
 
         // TODO: Consider moving these captures into the interned closure directly
@@ -3881,6 +3919,8 @@ pub fn call_with_exception_handler(
 
             ctx.sp = ctx.thread.stack.len();
 
+            // dbg!(&ctx.thread.stack);
+
             let handler = ctx
                 .thread
                 .function_interner
@@ -3895,9 +3935,7 @@ pub fn call_with_exception_handler(
                     Gc::clone(&closure),
                     ctx.ip + 1,
                     Rc::clone(&ctx.instructions),
-                    // Rc::clone(&ctx.spans),
                 )
-                // .with_span(ctx.current_span())
                 .with_handler(handler),
             );
 
@@ -3927,7 +3965,8 @@ pub fn call_with_exception_handler(
         }
     }
 
-    Some(Ok(SteelVal::Void))
+    // Some(Ok(SteelVal::Void))
+    None
 }
 
 pub fn oneshot_call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
@@ -5109,6 +5148,8 @@ fn local_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()
 // OpCode::READLOCAL0
 #[inline(always)]
 fn local_handler0(ctx: &mut VmCore<'_>) -> Result<()> {
+    // let offset = ctx.get_offset();
+    // dbg!(&ctx.thread.stack.get(offset..));
     ctx.handle_local(0)
 }
 
@@ -5277,10 +5318,24 @@ fn let_end_scope_handler_with_payload(ctx: &mut VmCore<'_>, beginning_scope: usi
 
     let rollback_index = beginning_scope + offset;
 
+    // let rollback_index = offset;
+
+    // dbg!(beginning_scope, offset);
+    // dbg!(rollback_index);
+    // dbg!(ctx
+    //     .thread
+    //     .stack
+    //     .get(rollback_index..ctx.thread.stack.len() - 1));
+    // dbg!(ctx.thread.stack.len() - 1);
+
+    // dbg!(&ctx.thread.stack);
+
     let _ = ctx
         .thread
         .stack
         .drain(rollback_index..ctx.thread.stack.len() - 1);
+
+    // dbg!(dropped_locals.collect::<Vec<_>>());
 
     // let last = ctx.stack.pop().expect("stack empty at pop");
 
@@ -5524,7 +5579,7 @@ fn read_alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     //     .map(|x| x.get())
     //     .collect::<Vec<_>>());
 
-    dbg!(&value);
+    // dbg!(&value);
 
     ctx.thread.stack.push(value);
     ctx.ip += 1;

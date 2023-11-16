@@ -1,7 +1,7 @@
 use crate::{
     compiler::program::{
-        BEGIN, DATUM_SYNTAX, DEFINE, IF, LAMBDA, LAMBDA_FN, LAMBDA_SYMBOL, LET, QUOTE, REQUIRE,
-        RETURN, SET, STANDARD_MODULE_GET, UNREADABLE_MODULE_GET,
+        BEGIN, DATUM_SYNTAX, DEFINE, IF, LAMBDA, LAMBDA_FN, LAMBDA_SYMBOL, LET, PLAIN_LET, QUOTE,
+        REQUIRE, RETURN, SET, STANDARD_MODULE_GET, UNREADABLE_MODULE_GET,
     },
     parser::{
         parser::{ParseError, SyntaxObject},
@@ -680,7 +680,7 @@ impl fmt::Display for Let {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "(test-let ({}) {})",
+            "(%plain-let ({}) {})",
             self.bindings
                 .iter()
                 .map(|x| format!("({} {})", x.0, x.1))
@@ -692,7 +692,7 @@ impl fmt::Display for Let {
 
 impl ToDoc for Let {
     fn to_doc(&self) -> RcDoc<()> {
-        RcDoc::text("(test-let")
+        RcDoc::text("(%plain-let")
             .append(RcDoc::space())
             .append(RcDoc::text("("))
             .append(
@@ -1473,13 +1473,17 @@ where
                 None,
             )
         })?,
-        value_iter.next().ok_or_else(|| {
-            ParseError::SyntaxError(
-                "if expects an else condition, found none".to_string(),
-                syn.span,
-                None,
-            )
-        })?,
+        // Replace else condition with just a void if its not found!
+        value_iter
+            .next()
+            .unwrap_or_else(|| ExprKind::ident("#%prim.void")),
+        //     ok_or_else(|| {
+        //     ParseError::SyntaxError(
+        //         "if expects an else condition, found none".to_string(),
+        //         syn.span,
+        //         None,
+        //     )
+        // })?,
         syn.clone(),
     )
     .into();
@@ -1946,6 +1950,9 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
 
                         // TODO: Deprecate
                         TokenType::TestLet => parse_new_let(value.into_iter(), a.syn.clone()),
+                        TokenType::Identifier(expr) if *expr == *PLAIN_LET => {
+                            parse_new_let(value.into_iter(), a.syn.clone())
+                        }
 
                         TokenType::Quote => parse_single_argument(
                             value.into_iter(),

@@ -434,6 +434,7 @@ define_symbols! {
     RETURN => "return!",
     REQUIRE => "require",
     SET => "set!",
+    PLAIN_LET => "%plain-let",
     LAMBDA => "lambda",
     LAMBDA_SYMBOL => "λ",
     LAMBDA_FN => "fn",

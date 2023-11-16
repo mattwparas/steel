@@ -350,7 +350,7 @@ impl TryFrom<SyntaxObject> for SteelVal {
             If => Ok(SymbolV("if".into())),
             Define => Ok(SymbolV("define".into())),
             Let => Ok(SymbolV("let".into())),
-            TestLet => Ok(SymbolV("test-let".into())),
+            TestLet => Ok(SymbolV("%plain-let".into())),
             Return => Ok(SymbolV("return!".into())),
             Begin => Ok(SymbolV("begin".into())),
             Lambda => Ok(SymbolV("lambda".into())),
@@ -1688,7 +1688,7 @@ mod parser_tests {
     fn test_if_should_err() {
         assert_parse_is_err("(if)");
         assert_parse_is_err("(if 1)");
-        assert_parse_is_err("(if 1 2)");
+        // assert_parse_is_err("(if 1 2)");
         assert_parse_is_err("(if 1 2 3 4)");
     }
 
