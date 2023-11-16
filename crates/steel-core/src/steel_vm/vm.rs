@@ -4,6 +4,10 @@ use crate::core::instructions::pretty_print_dense_instructions;
 use crate::primitives::lists::cons;
 use crate::primitives::lists::new as new_list;
 use crate::primitives::nums::special_add;
+use crate::steel_vm::primitives::steel_set_box;
+use crate::steel_vm::primitives::steel_set_box_mutable;
+use crate::steel_vm::primitives::steel_unbox;
+use crate::steel_vm::primitives::steel_unbox_mutable;
 use crate::values::closed::Heap;
 use crate::values::functions::SerializedLambda;
 use crate::values::structs::UserDefinedStruct;
@@ -1450,6 +1454,27 @@ impl<'a> VmCore<'a> {
                     ..
                 } => {
                     list_handler(self, payload_size as usize)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::NEWBOX,
+                    ..
+                } => {
+                    new_box_handler(self)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::UNBOX,
+                    ..
+                } => {
+                    unbox_handler(self)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::SETBOX,
+                    ..
+                } => {
+                    setbox_handler(self)?;
                 }
 
                 DenseInstruction {
@@ -5437,6 +5462,43 @@ fn binop_add_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 
 fn cons_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     handler_inline_primitive_payload!(ctx, cons, 2);
+    Ok(())
+}
+
+fn new_box_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    // let last_index = ctx.thread.stack.len() - 1;
+
+    let last = ctx.thread.stack.pop().unwrap();
+
+    let allocated_var = ctx.thread.heap.allocate(
+        last,
+        ctx.thread.stack.iter(),
+        ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
+        ctx.thread.global_env.roots(),
+    );
+
+    let result = SteelVal::HeapAllocated(allocated_var);
+
+    // This is the old way... lets see if the below way improves the speed
+    // $ctx.thread.stack.truncate(last_index);
+    // $ctx.thread.stack.push(result);
+
+    // ctx.thread.stack.truncate(last_index + 1);
+    // *ctx.thread.stack.last_mut().unwrap() = result;
+
+    ctx.thread.stack.push(result);
+
+    ctx.ip += 2;
+    Ok(())
+}
+
+fn unbox_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, steel_unbox_mutable, 1);
+    Ok(())
+}
+
+fn setbox_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, steel_set_box_mutable, 2);
     Ok(())
 }
 

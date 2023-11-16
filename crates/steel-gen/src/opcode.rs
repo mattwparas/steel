@@ -91,6 +91,9 @@ declare_opcodes! {
         LTE;
         CONS; // Cons should be... probably specialized
         LIST;
+        NEWBOX;
+        SETBOX;
+        UNBOX;
         NEWSCLOSURE;
         ADDREGISTER;
         SUBREGISTER;
