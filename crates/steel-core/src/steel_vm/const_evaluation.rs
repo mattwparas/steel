@@ -865,7 +865,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
     }
 
     // TODO come back to this
-    fn visit_let(&mut self, mut l: Box<crate::parser::ast::Let>) -> Self::Output {
+    fn visit_let(&mut self, l: Box<crate::parser::ast::Let>) -> Self::Output {
         // panic!("---------------------------Visiting let!--------------------");
 
         // let mut visited_bindings = Vec::new();
