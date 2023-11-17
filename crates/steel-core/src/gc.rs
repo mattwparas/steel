@@ -102,6 +102,10 @@ impl<T> Gc<T> {
         Rc::try_unwrap(self.0).map_err(|x| Gc(x))
     }
 
+    pub fn strong_count(this: &Self) -> usize {
+        Rc::strong_count(&this.0)
+    }
+
     // this does not match the original semantics of Rc::try_unwrap
     // in order to match this, we would need some unsafe rust
     // instead, I take a _slight_ performance hit in order to

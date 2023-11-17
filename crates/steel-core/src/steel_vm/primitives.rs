@@ -1332,12 +1332,12 @@ fn mutable_hashmap_module() -> BuiltInModule {
 }
 
 #[steel_derive::function(name = "#%unbox")]
-fn unbox_mutable(value: &HeapRef<SteelVal>) -> SteelVal {
+pub fn unbox_mutable(value: &HeapRef<SteelVal>) -> SteelVal {
     value.get()
 }
 
 #[steel_derive::function(name = "#%set-box!")]
-fn set_box_mutable(value: &HeapRef<SteelVal>, update: SteelVal) -> SteelVal {
+pub fn set_box_mutable(value: &HeapRef<SteelVal>, update: SteelVal) -> SteelVal {
     value.set_and_return(update)
 }
 
@@ -1354,12 +1354,12 @@ fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
 }
 
 #[steel_derive::function(name = "unbox")]
-fn unbox(value: &Gc<RefCell<SteelVal>>) -> SteelVal {
+pub fn unbox(value: &Gc<RefCell<SteelVal>>) -> SteelVal {
     value.borrow().clone()
 }
 
 #[steel_derive::function(name = "set-box!")]
-fn set_box(value: &Gc<RefCell<SteelVal>>, update_to: SteelVal) {
+pub fn set_box(value: &Gc<RefCell<SteelVal>>, update_to: SteelVal) {
     *value.borrow_mut() = update_to;
 }
 

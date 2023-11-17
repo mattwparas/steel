@@ -237,7 +237,7 @@ pub enum TokenType<S> {
     // /// An identifier literal.
     // #[regex(r#"(?&ident)"#)]
     // Identifier(String),
-    #[regex(r#"[_:\#\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Start}\p{Emoji_Presentation}]['_:\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Continue}\p{Emoji_Presentation}]*"#, callback = |lex| lex.slice())]
+    #[regex(r#"[_:\#\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Start}\p{Emoji_Presentation}]['_:\#\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Continue}\p{Emoji_Presentation}]*"#, callback = |lex| lex.slice())]
     // "
     Identifier(S),
 
@@ -421,7 +421,7 @@ impl<T: fmt::Display> fmt::Display for TokenType<T> {
             If => write!(f, "if"),
             Define => write!(f, "define"),
             Let => write!(f, "let"),
-            TestLet => write!(f, "test-let"),
+            TestLet => write!(f, "%plain-let"),
             Return => write!(f, "return!"),
             Begin => write!(f, "begin"),
             Lambda => write!(f, "lambda"),

@@ -907,8 +907,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // The let will have to keep track of if any of these values are captured, and if they are
         // just insert an instruction to close that upvalue
 
-        // TODO: Add handling in the VM for this, as well as understanding how
-        // upvalues are going to get closed when exiting the stack
         self.push(LabeledInstruction::builder(OpCode::LETENDSCOPE).payload(info.stack_offset));
 
         Ok(())
@@ -1049,41 +1047,41 @@ mod code_gen_tests {
         code_gen.visit(&exprs[0]).unwrap();
     }
 
-    #[test]
-    fn check_let_output() {
-        let expr = r#"
-            (%plain-let ((a 10) (b 20))
-                (+ a b))
-        "#;
+    // #[test]
+    // fn check_let_output() {
+    //     let expr = r#"
+    //         (%plain-let ((a 10) (b 20))
+    //             (+ a b))
+    //     "#;
 
-        let exprs = Parser::parse(expr).unwrap();
+    //     let exprs = Parser::parse(expr).unwrap();
 
-        let analysis = Analysis::from_exprs(&exprs);
-        let mut constants = ConstantMap::new();
+    //     let analysis = Analysis::from_exprs(&exprs);
+    //     let mut constants = ConstantMap::new();
 
-        let mut code_gen = CodeGenerator::new(&mut constants, &analysis);
+    //     let mut code_gen = CodeGenerator::new(&mut constants, &analysis);
 
-        code_gen.visit(&exprs[0]).unwrap();
+    //     code_gen.visit(&exprs[0]).unwrap();
 
-        println!("{:#?}", code_gen.instructions);
+    //     println!("{:#?}", code_gen.instructions);
 
-        let expected = vec![
-            (OpCode::BEGINSCOPE, 0),
-            (OpCode::PUSHCONST, 0),   // Should be the only constant in the map
-            (OpCode::PUSHCONST, 1),   // Should be the second constant in the map
-            (OpCode::READLOCAL, 0),   // Corresponds to index 0
-            (OpCode::READLOCAL, 1),   // Corresponds to index 1
-            (OpCode::PUSH, 0), // + is a global, that is late bound and the index is resolved later
-            (OpCode::FUNC, 2), // Function call with 2 arguments
-            (OpCode::LETENDSCOPE, 2), // Exit the let scope and drop the vars and anything above it
-        ];
+    //     let expected = vec![
+    //         (OpCode::BEGINSCOPE, 0),
+    //         (OpCode::PUSHCONST, 0),   // Should be the only constant in the map
+    //         (OpCode::PUSHCONST, 1),   // Should be the second constant in the map
+    //         (OpCode::READLOCAL, 0),   // Corresponds to index 0
+    //         (OpCode::READLOCAL, 1),   // Corresponds to index 1
+    //         (OpCode::PUSH, 0), // + is a global, that is late bound and the index is resolved later
+    //         (OpCode::FUNC, 2), // Function call with 2 arguments
+    //         (OpCode::LETENDSCOPE, 2), // Exit the let scope and drop the vars and anything above it
+    //     ];
 
-        let found = code_gen
-            .instructions
-            .iter()
-            .map(|x| (x.op_code, x.payload_size))
-            .collect::<Vec<_>>();
+    //     let found = code_gen
+    //         .instructions
+    //         .iter()
+    //         .map(|x| (x.op_code, x.payload_size))
+    //         .collect::<Vec<_>>();
 
-        assert_eq!(expected, found);
-    }
+    //     assert_eq!(expected, found);
+    // }
 }

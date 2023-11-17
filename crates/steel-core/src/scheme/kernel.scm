@@ -174,30 +174,28 @@
                   fields)
              (list))
 
-       (let ([prototypes (make-struct-type (quote ,struct-name) ,field-count)])
-         (let ([struct-type-descriptor (list-ref prototypes 0)]
-               [constructor-proto (list-ref prototypes 1)]
-               [predicate-proto (list-ref prototypes 2)]
-               [getter-proto (list-ref prototypes 3)])
+       ;; TODO: Change this to plain let to see the error
+       (%plain-let
+        ([prototypes (make-struct-type (quote ,struct-name) ,field-count)])
+        (%plain-let
+         ([struct-type-descriptor (list-ref prototypes 0)] [constructor-proto (list-ref prototypes 1)]
+                                                           [predicate-proto (list-ref prototypes 2)]
+                                                           [getter-proto (list-ref prototypes 3)])
+         (set! ,(concat-symbols 'struct: struct-name) struct-type-descriptor)
+         (#%vtable-update-entry! struct-type-descriptor
+                                 ,maybe-procedure-field
+                                 ,(concat-symbols '___ struct-name '-options___))
+         ,(if mutable?
+              `(set! ,struct-name
+                     (lambda ,fields (constructor-proto ,@(map (lambda (x) `(#%box ,x)) fields))))
 
-           (set! ,(concat-symbols 'struct: struct-name) struct-type-descriptor)
-           (#%vtable-update-entry! struct-type-descriptor
-                                   ,maybe-procedure-field
-                                   ,(concat-symbols '___ struct-name '-options___))
-
-           ,(if mutable?
-                `(set! ,struct-name
-                       (lambda ,fields (constructor-proto ,@(map (lambda (x) `(#%box ,x)) fields))))
-
-                `(set! ,struct-name constructor-proto))
-
-           ,(new-make-predicate struct-name fields)
-           ,@(if mutable?
-                 (mutable-make-getters struct-name fields)
-                 (new-make-getters struct-name fields))
-           ;; If this is a mutable struct, generate the setters
-           ,@(if mutable? (mutable-make-setters struct-name fields) (list))
-           void)))))
+              `(set! ,struct-name constructor-proto))
+         ,(new-make-predicate struct-name fields)
+         ,@
+         (if mutable? (mutable-make-getters struct-name fields) (new-make-getters struct-name fields))
+         ;; If this is a mutable struct, generate the setters
+         ,@(if mutable? (mutable-make-setters struct-name fields) (list))
+         void)))))
 
 (define (new-make-predicate struct-name fields)
   `(set! ,(concat-symbols struct-name '?) predicate-proto))

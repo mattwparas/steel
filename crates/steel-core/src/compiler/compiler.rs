@@ -79,6 +79,7 @@ impl DebruijnIndicesInterner {
                         contents:
                             Some(SyntaxObject {
                                 ty: TokenType::Identifier(s),
+                                span,
                                 ..
                             }),
                         ..
@@ -94,6 +95,9 @@ impl DebruijnIndicesInterner {
                 ) => {
                     let idx = symbol_map.add(s);
                     self.flat_defines.insert(s.to_owned());
+                    // if !self.flat_defines.insert(s.to_owned()) {
+                    //     stop!(BadSyntax => format!("Cannot redefine define within the same scope: {}", s); *span);
+                    // }
 
                     if let Some(x) = instructions.get_mut(i) {
                         x.payload_size = idx;
@@ -105,6 +109,7 @@ impl DebruijnIndicesInterner {
                         contents:
                             Some(SyntaxObject {
                                 ty: TokenType::Identifier(s),
+                                span,
                                 ..
                             }),
                         ..
@@ -113,6 +118,9 @@ impl DebruijnIndicesInterner {
                 ) => {
                     let idx = symbol_map.add(s);
                     self.flat_defines.insert(s.to_owned());
+                    // if !self.flat_defines.insert(s.to_owned()) {
+                    //     stop!(BadSyntax => format!("Cannot redefine define within the same scope: {}", s); *span);
+                    // }
 
                     if let Some(x) = instructions.get_mut(i) {
                         x.payload_size = idx;
@@ -146,6 +154,18 @@ impl DebruijnIndicesInterner {
                 }
                 Instruction {
                     op_code: OpCode::ECLOSURE,
+                    ..
+                } => {
+                    depth -= 1;
+                }
+                Instruction {
+                    op_code: OpCode::BEGINSCOPE,
+                    ..
+                } => {
+                    depth += 1;
+                }
+                Instruction {
+                    op_code: OpCode::LETENDSCOPE,
                     ..
                 } => {
                     depth -= 1;
@@ -585,6 +605,9 @@ impl Compiler {
 
         let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
+        // After define expansion, we'll want this
+        RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
+
         let mut analysis = Analysis::from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
 
@@ -613,11 +636,26 @@ impl Compiler {
 
         log::debug!(target: "expansion-phase", "Expanding multiple arity functions");
 
+        // Rename them again
+        RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
+
         // TODO - make sure I want to keep this
-        let expanded_statements =
+        let mut expanded_statements =
             MultipleArityFunctions::expand_multiple_arity_functions(expanded_statements);
 
         log::info!(target: "expansion-phase", "Aggressive constant evaluation with memoization");
+
+        // Begin lowering anonymous function calls to lets
+
+        let mut analysis = Analysis::from_exprs(&expanded_statements);
+        analysis.populate_captures(&expanded_statements);
+
+        let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+        semantic.populate_captures();
+
+        semantic.replace_anonymous_function_calls_with_plain_lets();
+
+        // Done lowering anonymous function calls to let
 
         self.apply_const_evaluation(constants, expanded_statements, true)
     }

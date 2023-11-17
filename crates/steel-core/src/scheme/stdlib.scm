@@ -583,14 +583,14 @@
         ?e1 ...]
        ?clause1 ...)
      (lambda args
-       (%plain-let ((l (length args)))
-                   (case-lambda
-                     "CLAUSE"
-                     args
-                     l
-                     [?a1
-                      ?e1 ...]
-                     ?clause1 ...)))]
+       (let ([l (length args)])
+         (case-lambda
+           "CLAUSE"
+           args
+           l
+           [?a1
+            ?e1 ...]
+           ?clause1 ...)))]
     [(case-lambda
        "CLAUSE"
        ?args
@@ -641,7 +641,8 @@
        ?l
        [?a1
         ?e1 ...])
-     (%plain-let ((?a1 ?args)) ?e1 ...)]
+     (let ([?a1 ?args])
+       ?e1 ...)]
     [(case-lambda
        "CLAUSE"
        ?args

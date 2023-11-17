@@ -859,6 +859,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         for expr in &l.args[1..] {
             self.escape_analysis = true;
+
             self.visit(expr);
 
             self.stack_offset += 1;
@@ -876,6 +877,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         }
 
         self.stack_offset = stack_offset;
+
         self.tail_call_eligible = eligibility;
         self.escape_analysis = escape;
 
@@ -933,6 +935,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         // TODO: Log the fact we have an empty begin body, or figure out what that is
         if begin.exprs.is_empty() {
+            // self.stack_offset -= 1;
+
             return;
         }
 
@@ -973,7 +977,23 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // Overall, 1 for the total
 
         if !begin.exprs.is_empty() {
-            self.stack_offset += 1;
+            // println!("BUMPTING STACK OFFSET FOR BEGIN");
+
+            // let is_top_level = self.scope.depth() == 1;
+            // println!("Bumping stack")
+
+            // if is_top_level {
+            // println!("Top level begin bumping stack");
+            // }
+
+            // if !is_top_level {
+            // println!("BUMPING STACK OFFSET FOR BEGIN");
+            // self.stack_offset += 1;
+            // } else {
+            // println!("Skiping.. top level ");
+            // }
+
+            // self.stack_offset += 1;
         }
 
         self.tail_call_eligible = eligibility;
@@ -1015,6 +1035,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         let mut mutable_var_offset = 0;
 
         for arg in l.local_bindings() {
+            // println!("{}", arg);
+            // println!("{}", l);
+
             let name = arg.atom_identifier().unwrap();
             let id = arg.atom_syntax_object().unwrap().syntax_object_id;
 
@@ -1053,6 +1076,12 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                 mutable_var_offset += 1;
             } else {
+                // println!("---------------");
+                // println!("Defining: {} @ stack offset: {}", name, stack_offset);
+                // println!("Rollback offset: {}", rollback_offset);
+                // println!("{}", l);
+                // println!("Top Level: {}", is_top_level);
+
                 self.scope
                     .define(*name, ScopeInfo::new_local(id, stack_offset));
 
@@ -1080,12 +1109,16 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         for arg in l.local_bindings() {
             let name = arg.atom_identifier().unwrap();
 
+            // dbg!(name.resolve());
+            // dbg!(self.scope.keys().map(|x| x.resolve()).collect::<Vec<_>>());
+
             arguments.insert(*name, self.scope.remove(name).unwrap());
         }
 
         if let hash_map::Entry::Vacant(e) = self.info.let_info.entry(l.syntax_object_id) {
             e.insert(LetInformation::new(
-                self.stack_offset,
+                // self.stack_offset,
+                rollback_offset,
                 self.function_context,
                 arguments,
             ));
@@ -1335,6 +1368,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     scope_info.heap_offset = value.heap_offset;
                 };
             }
+
+            self.stack_offset = stack_offset_rollback;
 
             return;
         } else {
@@ -2301,15 +2336,31 @@ impl<'a> VisitorMutRefUnit for LiftPureFunctionsToGlobalScope<'a> {
                         }
                     }
                 }
-
-                // if let ExprKind::LambdaFunction(l) = lambda
             }
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
-            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::List(l) => {
+                if l.is_anonymous_function_call() {
+                    if let Some((f, rest)) = l.args.split_first_mut() {
+                        if let ExprKind::LambdaFunction(f) = f {
+                            self.visit(&mut f.body);
+                        }
+
+                        for expr in rest {
+                            self.visit(expr);
+                        }
+                    }
+                } else {
+                    for expr in &mut l.args {
+                        self.visit(expr);
+                    }
+                }
+
+                // self.visit_list(l)
+            }
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
@@ -3461,6 +3512,14 @@ impl<'a> SemanticAnalysis<'a> {
 
         let func = |_: &Analysis, anon: &mut ExprKind| {
             if let ExprKind::List(l) = anon {
+                // Don't replace anonymous function calls that have rest args - those are not yet handled
+                // with a blind let replacement
+                if let ExprKind::LambdaFunction(f) = l.args.get(0).unwrap() {
+                    if f.rest {
+                        return false;
+                    }
+                }
+
                 let function = l.args.remove(0);
 
                 if let ExprKind::LambdaFunction(mut f) = function {

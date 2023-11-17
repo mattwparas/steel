@@ -82,8 +82,7 @@
 ;; preconditions and the postconditions
 (define make-function/c
   (lambda conditions
-    (%plain-let ((split (split-last conditions)))
-                (FunctionContract (first split) (second split) void '()))))
+    (let ([split (split-last conditions)]) (FunctionContract (first split) (second split) void '()))))
 
 ;; Applies a flat contract to the given argument
 (define (apply-flat-contract flat-contract arg)

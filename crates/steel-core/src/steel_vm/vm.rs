@@ -1,8 +1,14 @@
 #![allow(unused)]
 
+use crate::core::instructions::pretty_print_dense_instructions;
 use crate::primitives::lists::cons;
 use crate::primitives::lists::new as new_list;
+use crate::primitives::lists::steel_car;
 use crate::primitives::nums::special_add;
+use crate::steel_vm::primitives::steel_set_box;
+use crate::steel_vm::primitives::steel_set_box_mutable;
+use crate::steel_vm::primitives::steel_unbox;
+use crate::steel_vm::primitives::steel_unbox_mutable;
 use crate::values::closed::Heap;
 use crate::values::functions::SerializedLambda;
 use crate::values::structs::UserDefinedStruct;
@@ -876,7 +882,8 @@ impl<'a> VmCore<'a> {
         );
     }
 
-    // #[inline(always)]
+    // TODO: Lazily capture the continuation somehow?
+    // Could be neat at some point: https://docs.rs/stacker/latest/stacker/
     fn new_continuation_from_state(&self) -> Continuation {
         Continuation {
             stack: self.thread.stack.clone(),
@@ -886,7 +893,6 @@ impl<'a> VmCore<'a> {
             ip: self.ip,
             sp: self.sp,
             pop_count: self.pop_count,
-            // spans: Rc::clone(&self.spans),
         }
     }
 
@@ -1449,6 +1455,34 @@ impl<'a> VmCore<'a> {
                     ..
                 } => {
                     list_handler(self, payload_size as usize)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::NEWBOX,
+                    ..
+                } => {
+                    new_box_handler(self)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::UNBOX,
+                    ..
+                } => {
+                    unbox_handler(self)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::SETBOX,
+                    ..
+                } => {
+                    setbox_handler(self)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::CAR,
+                    ..
+                } => {
+                    car_handler(self)?;
                 }
 
                 DenseInstruction {
@@ -2391,6 +2425,15 @@ impl<'a> VmCore<'a> {
         // println!("STACK HERE: {:?}", self.thread.stack);
         // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
         let offset = self.get_offset();
+
+        // if index + offset >= self.thread.stack.len() {
+        // dbg!(&self.thread.stack.get(offset..));
+        //     // dbg!(&self.current_span());
+
+        //     pretty_print_dense_instructions(&self.instructions);
+        //     dbg!(self.ip);
+        // }
+
         let value = self.thread.stack[index + offset].clone();
 
         self.thread.stack.push(value);
@@ -2577,51 +2620,79 @@ impl<'a> VmCore<'a> {
         // A lot of the captures are static, I'm not quite sure we necessarily need to patch down _every_ single one
         // each time, especially since each lambda is a standalone instance of this.
 
-        let guard = self.thread.stack_frames.last().unwrap();
-        // let stack_index = self.stack_index.last().copied().unwrap_or(0);
-        // let stack_index = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
-        let stack_index = self.get_offset();
+        // Top level %plain-let with closures will panic here:
+        // (%plain-let ((foo 10) (bar 20)) (lambda (+ foo bar)))
+        // So, this should probably do something like this:
 
-        for _ in 0..ndefs {
-            let instr = self.instructions[self.ip];
-            match (instr.op_code, instr.payload_size) {
-                (OpCode::COPYCAPTURESTACK, n) => {
-                    let offset = stack_index;
-                    let value = self.thread.stack[n as usize + offset].clone();
-                    captures.push(value);
+        if let Some(guard) = self.thread.stack_frames.last() {
+            let guard = self.thread.stack_frames.last().unwrap();
+            // let stack_index = self.stack_index.last().copied().unwrap_or(0);
+            // let stack_index = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+            let stack_index = self.get_offset();
+
+            for _ in 0..ndefs {
+                let instr = self.instructions[self.ip];
+                match (instr.op_code, instr.payload_size) {
+                    (OpCode::COPYCAPTURESTACK, n) => {
+                        let offset = stack_index;
+                        let value = self.thread.stack[n as usize + offset].clone();
+                        captures.push(value);
+                    }
+                    (OpCode::COPYCAPTURECLOSURE, n) => {
+                        debug_assert!(
+                            !self.thread.stack_frames.is_empty(),
+                            "Trying to capture from closure that doesn't exist",
+                        );
+
+                        debug_assert!((n as usize) < guard.function.captures().len());
+
+                        let value = guard.function.captures()[n as usize].clone();
+
+                        captures.push(value);
+                    }
+                    (l, _) => {
+                        panic!(
+                            "Something went wrong in closure construction!, found: {:?} @ {}",
+                            l, self.ip,
+                        );
+                    }
                 }
-                (OpCode::COPYCAPTURECLOSURE, n) => {
-                    debug_assert!(
-                        !self.thread.stack_frames.is_empty(),
-                        "Trying to capture from closure that doesn't exist",
-                    );
-
-                    debug_assert!((n as usize) < guard.function.captures().len());
-
-                    let value = guard.function.captures()[n as usize].clone();
-
-                    captures.push(value);
-                }
-                // TODO: Try adding these to the cache. i.e. -> if we're doing a copyheapcaptureclosure, we actually just don't
-                // need to do this step at all each time.
-                // Looks like all COPYHEAPCAPTURECLOSURE(s) happen at the start. So we should be able to store those
-                // Directly
-
-                // TODO: These will disappear
-                // (OpCode::COPYHEAPCAPTURECLOSURE, n) => {
-                // heap_vars.push(guard.function.heap_allocated().borrow()[n as usize].clone());
-                // }
-                // (OpCode::FIRSTCOPYHEAPCAPTURECLOSURE, n) => {
-                // heap_vars.push(guard.function.heap_allocated().borrow()[n as usize].clone());
-                // }
-                (l, _) => {
-                    panic!(
-                        "Something went wrong in closure construction!, found: {:?} @ {}",
-                        l, self.ip,
-                    );
-                }
+                self.ip += 1;
             }
-            self.ip += 1;
+        } else {
+            // let stack_index = self.stack_index.last().copied().unwrap_or(0);
+            // let stack_index = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+            let stack_index = self.get_offset();
+
+            for _ in 0..ndefs {
+                let instr = self.instructions[self.ip];
+                match (instr.op_code, instr.payload_size) {
+                    (OpCode::COPYCAPTURESTACK, n) => {
+                        let offset = stack_index;
+                        let value = self.thread.stack[n as usize + offset].clone();
+                        captures.push(value);
+                    }
+                    // (OpCode::COPYCAPTURECLOSURE, n) => {
+                    //     debug_assert!(
+                    //         !self.thread.stack_frames.is_empty(),
+                    //         "Trying to capture from closure that doesn't exist",
+                    //     );
+
+                    //     debug_assert!((n as usize) < guard.function.captures().len());
+
+                    //     let value = guard.function.captures()[n as usize].clone();
+
+                    //     captures.push(value);
+                    // }
+                    (l, _) => {
+                        panic!(
+                            "Something went wrong in closure construction!, found: {:?} @ {}",
+                            l, self.ip,
+                        );
+                    }
+                }
+                self.ip += 1;
+            }
         }
 
         // TODO: Consider moving these captures into the interned closure directly
@@ -2904,7 +2975,7 @@ impl<'a> VmCore<'a> {
             FuncV(f) => self.call_primitive_func(f, payload_size),
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
             // ContractedFunction(cf) => self.call_contracted_function_tail_call(&cf, payload_size),
-            ContinuationFunction(cc) => self.call_continuation(&cc),
+            ContinuationFunction(cc) => self.call_continuation(cc),
             Closure(closure) => self.new_handle_tail_call_closure(closure, payload_size),
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
             CustomStruct(s) => self.call_custom_struct(&s, payload_size),
@@ -3225,13 +3296,23 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     // TODO: See if calling continuations can be implemented in terms of the core ABI
     // That way, we dont need a special "continuation" function
-    fn call_continuation(&mut self, continuation: &Continuation) -> Result<()> {
+    fn call_continuation(&mut self, continuation: Gc<Continuation>) -> Result<()> {
         let last =
             self.thread.stack.pop().ok_or_else(
                 throw!(ArityMismatch => "continuation expected 1 argument, found none"),
             )?;
 
-        self.set_state_from_continuation(continuation.clone());
+        match Gc::try_unwrap(continuation) {
+            Ok(cont) => {
+                self.set_state_from_continuation(cont);
+            }
+
+            Err(unable_to_unwrap) => {
+                self.set_state_from_continuation(unable_to_unwrap.unwrap());
+            }
+        }
+
+        // self.set_state_from_continuation(continuation.clone());
 
         self.ip += 1;
 
@@ -3663,7 +3744,7 @@ impl<'a> VmCore<'a> {
             MutFunc(f) => self.call_primitive_mut_func(*f, payload_size)?,
             FutureFunc(f) => self.call_future_func(f.clone(), payload_size)?,
             // ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size)?,
-            ContinuationFunction(cc) => self.call_continuation(&cc)?,
+            ContinuationFunction(cc) => self.call_continuation(cc.clone())?,
             // #[cfg(feature = "jit")]
             // CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
             // Contract(c) => self.call_contract(&c, payload_size)?,
@@ -3695,7 +3776,7 @@ impl<'a> VmCore<'a> {
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
             FutureFunc(f) => self.call_future_func(f, payload_size),
             // ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size),
-            ContinuationFunction(cc) => self.call_continuation(&cc),
+            ContinuationFunction(cc) => self.call_continuation(cc),
             // Contract(c) => self.call_contract(&c, payload_size),
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
             CustomStruct(s) => self.call_custom_struct(&s, payload_size),
@@ -3804,7 +3885,7 @@ impl<'a> VmCore<'a> {
             FutureFunc(f) => self.call_future_func(f, payload_size),
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
             // ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size),
-            ContinuationFunction(cc) => self.call_continuation(&cc),
+            ContinuationFunction(cc) => self.call_continuation(cc),
             Closure(closure) => self.handle_function_call_closure(closure, payload_size),
             // #[cfg(feature = "jit")]
             // CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
@@ -3881,6 +3962,8 @@ pub fn call_with_exception_handler(
 
             ctx.sp = ctx.thread.stack.len();
 
+            // dbg!(&ctx.thread.stack);
+
             let handler = ctx
                 .thread
                 .function_interner
@@ -3895,9 +3978,7 @@ pub fn call_with_exception_handler(
                     Gc::clone(&closure),
                     ctx.ip + 1,
                     Rc::clone(&ctx.instructions),
-                    // Rc::clone(&ctx.spans),
                 )
-                // .with_span(ctx.current_span())
                 .with_handler(handler),
             );
 
@@ -3927,7 +4008,8 @@ pub fn call_with_exception_handler(
         }
     }
 
-    Some(Ok(SteelVal::Void))
+    // Some(Ok(SteelVal::Void))
+    None
 }
 
 pub fn oneshot_call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
@@ -5109,6 +5191,8 @@ fn local_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()
 // OpCode::READLOCAL0
 #[inline(always)]
 fn local_handler0(ctx: &mut VmCore<'_>) -> Result<()> {
+    // let offset = ctx.get_offset();
+    // dbg!(&ctx.thread.stack.get(offset..));
     ctx.handle_local(0)
 }
 
@@ -5277,10 +5361,24 @@ fn let_end_scope_handler_with_payload(ctx: &mut VmCore<'_>, beginning_scope: usi
 
     let rollback_index = beginning_scope + offset;
 
+    // let rollback_index = offset;
+
+    // dbg!(beginning_scope, offset);
+    // dbg!(rollback_index);
+    // dbg!(ctx
+    //     .thread
+    //     .stack
+    //     .get(rollback_index..ctx.thread.stack.len() - 1));
+    // dbg!(ctx.thread.stack.len() - 1);
+
+    // dbg!(&ctx.thread.stack);
+
     let _ = ctx
         .thread
         .stack
         .drain(rollback_index..ctx.thread.stack.len() - 1);
+
+    // dbg!(dropped_locals.collect::<Vec<_>>());
 
     // let last = ctx.stack.pop().expect("stack empty at pop");
 
@@ -5382,6 +5480,48 @@ fn binop_add_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 
 fn cons_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     handler_inline_primitive_payload!(ctx, cons, 2);
+    Ok(())
+}
+
+fn new_box_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    // let last_index = ctx.thread.stack.len() - 1;
+
+    let last = ctx.thread.stack.pop().unwrap();
+
+    let allocated_var = ctx.thread.heap.allocate(
+        last,
+        ctx.thread.stack.iter(),
+        ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
+        ctx.thread.global_env.roots(),
+    );
+
+    let result = SteelVal::HeapAllocated(allocated_var);
+
+    // This is the old way... lets see if the below way improves the speed
+    // $ctx.thread.stack.truncate(last_index);
+    // $ctx.thread.stack.push(result);
+
+    // ctx.thread.stack.truncate(last_index + 1);
+    // *ctx.thread.stack.last_mut().unwrap() = result;
+
+    ctx.thread.stack.push(result);
+
+    ctx.ip += 2;
+    Ok(())
+}
+
+fn unbox_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, steel_unbox_mutable, 1);
+    Ok(())
+}
+
+fn setbox_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, steel_set_box_mutable, 2);
+    Ok(())
+}
+
+fn car_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, steel_car, 1);
     Ok(())
 }
 
@@ -5524,7 +5664,7 @@ fn read_alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     //     .map(|x| x.get())
     //     .collect::<Vec<_>>());
 
-    dbg!(&value);
+    // dbg!(&value);
 
     ctx.thread.stack.push(value);
     ctx.ip += 1;

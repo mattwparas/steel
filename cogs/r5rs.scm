@@ -37,6 +37,12 @@
 
 (set-test-mode!)
 
+(check-equal?
+ "Symbols are interned correctly - lists should use the existing symbols that have been interned"
+ (eq? 'definitely-hasnt-been-seen-before
+      (let ([_ (#%black-box)]) (car '(definitely-hasnt-been-seen-before))))
+ #true)
+
 (check-equal? "addition" 8 ((lambda (x) (+ x x)) 4))
 
 (check-equal? "Variable arity function call" '(3 4 5 6) ((lambda x x) 3 4 5 6))
@@ -105,6 +111,8 @@
                 (define f (lambda () (- x)))
                 (f)))
 
+;; TODO: This gets converted into a plain let,
+;; and then somehow the variable name gets overwritten? Maybe during constant propagation?
 (define let*-def 1)
 (let* ()
   (define let*-def 2)
@@ -525,7 +533,7 @@
                      (list x y))))))
 
 ; (skip-compile
-(check-equal? "Dyanmic wind"
+(check-equal? "Dynamic wind"
               '(a b c)
               (let* ([path '()] [add (lambda (s) (set! path (cons s path)))])
                 (dynamic-wind (lambda () (add 'a)) (lambda () (add 'b)) (lambda () (add 'c)))
@@ -542,6 +550,7 @@
                                                                          'talk1))))
                                 (lambda () (add 'disconnect)))
                   (if (< (length path) 4) (c 'talk2) (reverse path)))))
+
 ; (check-equal 2
 ;              (let-syntax ([foo (syntax-rules :::
 ;                                  []

@@ -242,10 +242,14 @@ pub fn substring(value: &SteelString, i: usize, j: usize) -> Result<SteelVal> {
 pub fn to_string(args: &[SteelVal]) -> Result<SteelVal> {
     let mut error_message = String::new();
 
-    for arg in args {
-        let error_val = arg.to_string();
-        error_message.push(' ');
-        error_message.push_str(error_val.trim_matches('\"'));
+    if let Some((first, rest)) = args.split_first() {
+        error_message.push_str(first.to_string().trim_matches('\"'));
+
+        for arg in rest {
+            let error_val = arg.to_string();
+            error_message.push(' ');
+            error_message.push_str(error_val.trim_matches('\"'));
+        }
     }
 
     Ok(SteelVal::StringV(error_message.into()))

@@ -126,7 +126,31 @@ impl ConstantMap {
         self.0.borrow().get(idx).cloned()
     }
 
-    pub fn add_or_get(&mut self, val: SteelVal) -> usize {
+    // Replace with existing constants if they already exist
+    fn walk_constants(&mut self, val: &SteelVal) -> Option<SteelVal> {
+        match val {
+            SteelVal::ListV(l) => Some(SteelVal::ListV(
+                l.iter()
+                    .map(|value| {
+                        let idx = self.add_or_get(value.clone());
+
+                        self.get(idx)
+                    })
+                    .collect(),
+            )),
+            _ => None,
+        }
+    }
+
+    // This is certainly not what we want. This time complexity is
+    // questionable
+    pub fn add_or_get(&mut self, mut val: SteelVal) -> usize {
+        if let SteelVal::ListV(_) = &val {
+            if let Some(new_list) = self.walk_constants(&val) {
+                val = new_list;
+            };
+        }
+
         let idx = { self.0.borrow_mut().iter().position(|x| x == &val) };
 
         if let Some(idx) = idx {

@@ -865,17 +865,17 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
     }
 
     // TODO come back to this
-    fn visit_let(&mut self, mut l: Box<crate::parser::ast::Let>) -> Self::Output {
+    fn visit_let(&mut self, l: Box<crate::parser::ast::Let>) -> Self::Output {
         // panic!("---------------------------Visiting let!--------------------");
 
-        let mut visited_bindings = Vec::new();
+        // let mut visited_bindings = Vec::new();
 
-        for (binding, expr) in l.bindings {
-            visited_bindings.push((self.visit(binding)?, self.visit(expr)?));
-        }
+        // for (binding, expr) in l.bindings {
+        //     visited_bindings.push((self.visit(binding)?, self.visit(expr)?));
+        // }
 
-        l.bindings = visited_bindings;
-        l.body_expr = self.visit(l.body_expr)?;
+        // l.bindings = visited_bindings;
+        // l.body_expr = self.visit(l.body_expr)?;
 
         Ok(ExprKind::Let(l))
     }

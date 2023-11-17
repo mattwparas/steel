@@ -333,6 +333,40 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                             }
                         }
 
+                        _ if ident == *BOX || ident == *PRIM_BOX => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::NEWBOX;
+                                continue;
+                            }
+                        }
+
+                        _ if ident == *UNBOX || ident == *PRIM_UNBOX => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::UNBOX;
+                                continue;
+                            }
+                        }
+
+                        _ if ident == *SETBOX || ident == *PRIM_SETBOX => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::SETBOX;
+                                continue;
+                            }
+                        }
+
+                        _ if ident == *CAR_SYMBOL || ident == *PRIM_CAR => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::CAR;
+                                continue;
+                            }
+                        }
+
+                        // _ if ident == *CDR_SYMBOL || ident == *PRIM_CAR => {
+                        //     if let Some(x) = instructions.get_mut(i) {
+                        //         x.op_code = OpCode::CAR;
+                        //         continue;
+                        //     }
+                        // }
                         _ => {}
                     }
                 }
@@ -369,6 +403,34 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::CONS;
                                 x.payload_size = 2;
+                                continue;
+                            }
+                        }
+
+                        _ if ident == *BOX || ident == *PRIM_BOX => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::NEWBOX;
+                                continue;
+                            }
+                        }
+
+                        _ if ident == *UNBOX || ident == *PRIM_UNBOX => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::UNBOX;
+                                continue;
+                            }
+                        }
+
+                        _ if ident == *SETBOX || ident == *PRIM_SETBOX => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::SETBOX;
+                                continue;
+                            }
+                        }
+
+                        _ if ident == *CAR_SYMBOL || ident == *PRIM_CAR => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::CAR;
                                 continue;
                             }
                         }
@@ -434,6 +496,7 @@ define_symbols! {
     RETURN => "return!",
     REQUIRE => "require",
     SET => "set!",
+    PLAIN_LET => "%plain-let",
     LAMBDA => "lambda",
     LAMBDA_SYMBOL => "λ",
     LAMBDA_FN => "fn",
@@ -462,6 +525,16 @@ define_symbols! {
     PRIM_CONS_SYMBOL => "#%prim.cons",
     LIST_SYMBOL => "list",
     PRIM_LIST_SYMBOL => "#%prim.list",
+    BOX => "#%box",
+    PRIM_BOX => "#%prim.box",
+    UNBOX => "#%unbox",
+    PRIM_UNBOX => "#%prim.unbox",
+    SETBOX => "#%set-box!",
+    PRIM_SETBOX => "#%prim.set-box!",
+    CAR_SYMBOL => "car",
+    PRIM_CAR => "#%prim.car",
+    CDR_SYMBOL => "cdr",
+    PRIM_CDR => "#%prim.cdr",
 }
 
 pub fn inline_num_operations(instructions: &mut [Instruction]) {
