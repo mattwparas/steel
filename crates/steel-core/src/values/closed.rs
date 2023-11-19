@@ -5,6 +5,7 @@ use std::{
 
 use crate::{
     rvals::{OpaqueIterator, SteelVector},
+    steel_vm::vm::MaybeContinuation,
     values::lists::List,
 };
 use num::BigInt;
@@ -697,20 +698,20 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
 
     fn visit_boxed_function(&mut self, _function: Rc<BoxedDynFunction>) -> Self::Output {}
 
-    fn visit_continuation(&mut self, continuation: Gc<Continuation>) -> Self::Output {
-        for value in &continuation.stack {
-            self.push_back(value.clone());
-        }
+    fn visit_continuation(&mut self, continuation: MaybeContinuation) -> Self::Output {
+        // for value in &continuation.stack {
+        //     self.push_back(value.clone());
+        // }
 
-        for value in &continuation.current_frame.function.captures {
-            self.push_back(value.clone());
-        }
+        // for value in &continuation.current_frame.function.captures {
+        //     self.push_back(value.clone());
+        // }
 
-        for frame in &continuation.stack_frames {
-            for value in &frame.function.captures {
-                self.push_back(value.clone());
-            }
-        }
+        // for frame in &continuation.stack_frames {
+        //     for value in &frame.function.captures {
+        //         self.push_back(value.clone());
+        //     }
+        // }
     }
 
     fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output {

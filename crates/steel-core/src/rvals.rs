@@ -9,7 +9,7 @@ use crate::{
         tokens::TokenType,
     },
     rerrs::{ErrorKind, SteelErr},
-    steel_vm::vm::{BuiltInSignature, Continuation},
+    steel_vm::vm::{BuiltInSignature, Continuation, MaybeContinuation},
     values::port::SteelPort,
     values::{
         closed::{HeapRef, MarkAndSweepContext},
@@ -1135,7 +1135,7 @@ pub enum SteelVal {
     /// Custom closure
     BoxedFunction(Rc<BoxedDynFunction>),
     // Continuation
-    ContinuationFunction(Gc<Continuation>),
+    ContinuationFunction(MaybeContinuation),
     // Function Pointer
     // #[cfg(feature = "jit")]
     // CompiledFunction(Box<JitFunctionPointer>),
@@ -1510,7 +1510,7 @@ impl SteelVal {
             // (Contract(l), Contract(r)) => Gc::ptr_eq(l, r),
             // (SteelVal::ContractedFunction(l), SteelVal::ContractedFunction(r)) => Gc::ptr_eq(l, r),
             (BoxedFunction(l), BoxedFunction(r)) => Rc::ptr_eq(l, r),
-            (ContinuationFunction(l), ContinuationFunction(r)) => Gc::ptr_eq(l, r),
+            (ContinuationFunction(l), ContinuationFunction(r)) => MaybeContinuation::ptr_eq(l, r),
             // (CompiledFunction(_), CompiledFunction(_)) => todo!(),
             (ListV(l), ListV(r)) => {
                 l.ptr_eq(r) || l.storage_ptr_eq(r) || l.is_empty() && r.is_empty()
