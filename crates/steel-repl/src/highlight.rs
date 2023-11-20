@@ -11,7 +11,7 @@ use rustyline::validate::{
 use rustyline::{hint::Hinter, Context};
 use rustyline_derive::Helper;
 
-use steel_parser::lexer::TokenStream;
+use steel_parser::new_lexer::TokenStream;
 
 use rustyline::completion::Completer;
 use rustyline::completion::Pair;

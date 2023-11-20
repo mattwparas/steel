@@ -64,7 +64,7 @@ mod stream_tests {
     fn simple_stream() {
         let script = r#"
         (define (stream-cdr stream)
-            ((stream-cdr' stream)))
+            ((#%stream-cdr stream)))
 
         (define (integers n)
             (stream-cons n (lambda () (integers (+ 1 n)))))
@@ -87,7 +87,7 @@ mod stream_tests {
     fn simple_stream_with_map() {
         let script = r#"
         (define (stream-cdr stream)
-            ((stream-cdr' stream)))
+            ((#%stream-cdr stream)))
 
         (define (integers n)
             (stream-cons n (lambda () (integers (+ 1 n)))))
@@ -120,7 +120,7 @@ mod stream_tests {
     fn simple_stream_with_transducer() {
         let script = r#"
         (define (stream-cdr stream)
-            ((stream-cdr' stream)))
+            ((#%stream-cdr stream)))
 
         (define (integers n)
             (stream-cons n (lambda () (integers (+ 1 n)))))

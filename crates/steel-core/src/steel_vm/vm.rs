@@ -686,20 +686,24 @@ impl ContinuationMark {
 impl MaybeContinuation {
     pub fn close_marks(ctx: &VmCore<'_>, stack_frame: &StackFrame) {
         if let Some(cont_mark) = &stack_frame.continuation_mark {
-            let mut guard = cont_mark.inner.borrow_mut();
+            // println!("Borrowing mut at: {:p}", cont_mark.inner);
 
-            guard.close(ctx);
+            cont_mark.inner.borrow_mut().close(ctx);
+
+            // guard.close(ctx);
+
+            // println!("Borrow finished at: {:p}", cont_mark.inner);
         }
     }
 
     pub fn set_state_from_continuation(ctx: &mut VmCore<'_>, this: Self) {
         // Check if this is an open
-        let maybe_open_mark = this.inner.borrow().clone().into_open_mark();
+        let maybe_open_mark = (*this.inner.borrow()).clone().into_open_mark();
 
         if let Some(open) = maybe_open_mark {
             println!("-- setting state from open continuation --");
 
-            println!("contiuation stack: {:?}", open.current_stack_values);
+            // println!("contiuation stack: {:?}", open.current_stack_values);
 
             // Walk backwards on the stack until we find the mark. We need to close these frames as well.
             while let Some(stack_frame) = ctx.thread.stack_frames.pop() {
@@ -755,7 +759,11 @@ impl MaybeContinuation {
                     ctx.set_state_from_continuation(cont.into_closed().unwrap());
                 }
                 Err(e) => {
-                    ctx.set_state_from_continuation(e.borrow().clone().into_closed().unwrap());
+                    let definitely_closed = e.borrow().clone().into_closed().unwrap();
+
+                    println!("setting state from continuation here");
+
+                    ctx.set_state_from_continuation(definitely_closed);
                 }
             }
         }
@@ -1058,7 +1066,13 @@ impl<'a> VmCore<'a> {
     }
 
     fn new_open_continuation_from_state(&self) -> MaybeContinuation {
-        println!("Creating new open continuation");
+        // println!("Creating new open continuation");
+
+        return MaybeContinuation {
+            inner: Rc::new(RefCell::new(ContinuationMark::Closed(
+                self.new_closed_continuation_from_state(),
+            ))),
+        };
 
         let offset = self.get_offset();
 
@@ -1148,20 +1162,19 @@ impl<'a> VmCore<'a> {
             }
         }
 
-        dbg!(&marks_still_open);
+        // dbg!(&marks_still_open);
 
         for frame in &self.thread.stack_frames {
             if let Some(cont_mark) = &frame.continuation_mark {
                 println!("Found cont mark: {:p}", cont_mark.inner);
 
                 if marks_still_open.contains(&(cont_mark.inner.as_ptr() as usize)) {
-                    println!("SKIPPING CLOSING CONT");
+                    println!("MAYBE COULD SKIP CLOSING CONT");
 
                     continue;
                 }
+                self.close_continuation_marks(frame);
             }
-
-            self.close_continuation_marks(frame);
         }
 
         self.thread.stack = continuation.stack;

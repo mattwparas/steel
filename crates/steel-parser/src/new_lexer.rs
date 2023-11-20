@@ -55,21 +55,42 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_string(&mut self) -> Result<TokenType<&'a str>> {
-        // todo!()
-
-        // // Skip the opening quote.
+        // Skip the opening quote.
         self.eat();
 
         let mut buf = String::new();
         while let Some(&c) = self.chars.peek() {
             self.eat();
+            // println!("{}", c);
+            // println!("{:?}", buf);
             match c {
                 '"' => return Ok(TokenType::StringLiteral(buf)),
                 '\\' => match self.chars.peek() {
-                    Some(&c) if c == '"' || c == '\\' => {
+                    Some('"') => {
                         self.eat();
-                        buf.push(c);
+                        buf.push('"');
                     }
+
+                    Some('\\') => {
+                        self.eat();
+                        buf.push('\\')
+                    }
+
+                    Some('t') => {
+                        self.eat();
+                        buf.push('\t');
+                    }
+
+                    Some('n') => {
+                        self.eat();
+                        buf.push('\n');
+                    }
+
+                    Some('r') => {
+                        self.eat();
+                        buf.push('\r');
+                    }
+
                     _ => return Err(TokenError::InvalidEscape),
                 },
                 _ => buf.push(c),
@@ -83,6 +104,7 @@ impl<'a> Lexer<'a> {
     fn read_hash_value(&mut self) -> Result<TokenType<&'a str>> {
         fn parse_char(slice: &str) -> Option<char> {
             use std::str::FromStr;
+
             match slice {
                 "#\\SPACE" => Some(' '),
                 "#\\space" => Some(' '),
@@ -95,6 +117,8 @@ impl<'a> Lexer<'a> {
                 "#\\RETURN" => Some('\r'),
                 "#\\)" => Some(')'),
                 "#\\]" => Some(']'),
+                "#\\[" => Some('['),
+                "#\\(" => Some('('),
                 "#\\^" => Some('^'),
 
                 character if character.starts_with("#\\") => {
@@ -111,6 +135,10 @@ impl<'a> Lexer<'a> {
 
         while let Some(&c) = self.chars.peek() {
             match c {
+                '\\' => {
+                    self.eat();
+                    self.eat();
+                }
                 '(' | '[' | ')' | ']' => break,
                 c if c.is_whitespace() => break,
                 _ => {
@@ -422,6 +450,44 @@ mod lexer_tests {
     use crate::span::Span;
     use crate::tokens::{MaybeBigInt, TokenType::*};
 
+    // TODO: Figure out why this just cause an infinite loop when parsing it?
+    #[test]
+    fn test_identifier_with_quote_end() {
+        let s = TokenStream::new(
+            "        (define (stream-cdr stream)
+            ((stream-cdr' stream)))
+",
+            true,
+            None,
+        );
+
+        for token in s {
+            println!("{:?}", token);
+        }
+    }
+
+    #[test]
+    fn test_bracket_characters() {
+        let s = TokenStream::new(
+            "[(equal? #\\[ (car chars)) (b (cdr chars) (+ sum 1))]",
+            true,
+            None,
+        );
+
+        for token in s {
+            println!("{:?}", token);
+        }
+    }
+
+    #[test]
+    fn test_escape_in_string() {
+        let s = TokenStream::new(r#"(display "}\n")"#, true, None);
+
+        for token in s {
+            println!("{:?}", token);
+        }
+    }
+
     #[test]
     fn test_quote_within_word() {
         let s = TokenStream::new("'foo\\'a", true, None);
@@ -482,7 +548,7 @@ mod lexer_tests {
         assert_eq!(
             s.next(),
             Some(Token {
-                ty: Error,
+                ty: Identifier("$"),
                 source: "$",
                 span: Span::new(1, 2, None)
             })

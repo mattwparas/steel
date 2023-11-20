@@ -10,7 +10,7 @@ description = "Parser for use within steel"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-logos = "0.12.1"
+# logos = "0.12.1"
 serde = { version = "1.0.152", features = ["derive", "rc"] }
 serde_derive = "1.0.152"
 num-bigint = { version = "0.4.0", features = ["serde"] }

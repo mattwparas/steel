@@ -791,7 +791,7 @@ fn stream_module() -> BuiltInModule {
         .register_value("empty-stream", StreamOperations::empty_stream())
         .register_value("stream-empty?", StreamOperations::stream_empty_huh())
         .register_value("stream-car", StreamOperations::stream_car())
-        .register_value("stream-cdr'", StreamOperations::stream_cdr());
+        .register_value("#%stream-cdr", StreamOperations::stream_cdr());
     module
 }
 
