@@ -57,7 +57,7 @@ pub fn decode_hex(s: &str) -> Result<Vec<u8>, DecodeHexError> {
     }
 }
 
-fn parse_unicode_str(slice: &str) -> Option<char> {
+pub fn parse_unicode_str(slice: &str) -> Option<char> {
     if slice.starts_with("#\\u") && slice.contains('{') && slice.contains('}') {
         let rest = slice
             .trim_start_matches("#\\u")
@@ -102,7 +102,7 @@ fn parse_unicode_str(slice: &str) -> Option<char> {
     }
 }
 
-fn parse_char<'a>(lex: &mut Lexer<'a, TokenType<&'a str>>) -> Option<char> {
+pub fn parse_char<'a>(lex: &mut Lexer<'a, TokenType<&'a str>>) -> Option<char> {
     let slice = lex.slice();
 
     match slice {
@@ -133,6 +133,7 @@ fn parse_str<'a>(lex: &mut Lexer<'a, TokenType<&'a str>>) -> Option<String> {
         .map(|x| x.replace("\\\"", "\""))
         .map(|x| x.replace("\\n", "\n"))
         .map(|x| x.replace("\\r", "\r"))
+
     // .map(|x| x.to_string())
 }
 
