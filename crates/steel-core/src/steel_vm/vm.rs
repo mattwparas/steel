@@ -507,7 +507,7 @@ impl SteelThread {
 
             if let Err(e) = result {
                 while let Some(mut last) = vm_instance.thread.stack_frames.pop() {
-                    // Close the continuation mark here?
+                    // Unwind the stack, close continuation marks here!
                     // vm_instance.close_continuation_marks(&last);
 
                     // For whatever reason - if we're at the top, we shouldn't go down below 0
@@ -517,6 +517,17 @@ impl SteelThread {
 
                     // Drop the pop count along with everything else we're doing
                     vm_instance.pop_count -= 1;
+
+                    if last.weak_continuation_mark.is_some() {
+                        vm_instance.thread.stack.truncate(last.sp);
+                        vm_instance.ip = last.ip;
+                        vm_instance.sp = vm_instance.get_last_stack_frame_sp();
+                        vm_instance.instructions = Rc::clone(&last.instructions);
+
+                        println!("CLOSING CONTINUATION INSIDE OF ERROR!");
+
+                        vm_instance.close_continuation_marks(&last);
+                    }
 
                     if let Some(handler) = last.handler {
                         // Drop the stack BACK to where it was on this level
@@ -540,8 +551,6 @@ impl SteelThread {
                                         Gc::clone(&closure),
                                         0,
                                         Rc::from([]),
-                                        // Rc::from([]),
-                                        // 0,
                                     ));
                                 }
 
@@ -566,21 +575,7 @@ impl SteelThread {
                             _ => todo!("Unsupported"),
                         }
 
-                        // } else {
-
-                        // }
-
-                        // This works, it just seems to then continue into the other function, which we don't want
-                        // vm_instance
-                        //     .stack
-                        //     .push(SteelVal::StringV(Rc::from("APPLESAUCE")));
-
-                        // // This is definitely wrong
-                        // vm_instance.handle_function_call(handler, 1)?;
-
                         continue 'outer;
-
-                        // todo!("Actually call the function handler")
                     }
                 }
 
@@ -605,11 +600,11 @@ impl SteelThread {
 
                 // dbg!(self.stack_frames.len());
 
-                // for frame in &vm_instance.thread.stack_frames {
-                //     if MaybeContinuation::close_marks(&vm_instance, &frame) {
-                //         println!("_____ Closed frame in pop ______");
-                //     }
-                // }
+                for frame in &vm_instance.thread.stack_frames {
+                    if MaybeContinuation::close_marks(&vm_instance, &frame) {
+                        println!("_____ Closed frame in pop ______");
+                    }
+                }
 
                 // Clean up
                 self.stack.clear();
@@ -739,8 +734,15 @@ impl MaybeContinuation {
         let maybe_open_mark = (*this.inner.borrow()).clone().into_open_mark();
 
         if let Some(open) = maybe_open_mark {
+            // println!("Setting state from open continuation");
+
             let strong_count = Rc::strong_count(&this.inner);
             let weak_count = Rc::weak_count(&this.inner);
+
+            // println!(
+            //     "Strong count: {} - Weak count: {}",
+            //     strong_count, weak_count
+            // );
 
             while let Some(stack_frame) = ctx.thread.stack_frames.pop() {
                 ctx.pop_count -= 1;
@@ -753,7 +755,14 @@ impl MaybeContinuation {
                     if Rc::ptr_eq(&mark, &this.inner) {
                         if weak_count == 1 && strong_count > 1 {
                             if Self::close_marks(ctx, &stack_frame) {
-                                // println!("CLOSING MARKS WHEN SETTING STATE FROM CONTINUATION");
+                                let definitely_closed =
+                                    this.inner.borrow().clone().into_closed().unwrap();
+
+                                ctx.set_state_from_continuation(definitely_closed);
+
+                                return;
+
+                                // println!("CLOSING MARKS WHEN SETTING STATE FROM CONTINUATION: pop count: {}", ctx.pop_count);
                             }
                         }
 
@@ -775,7 +784,8 @@ impl MaybeContinuation {
                                 open.closed_continuation.instructions
                             );
                             debug_assert_eq!(ctx.thread.stack, open.closed_continuation.stack);
-                            debug_assert_eq!(ctx.pop_count, open.closed_continuation.pop_count);
+
+                            // debug_assert_eq!(ctx.pop_count, open.closed_continuation.pop_count);
 
                             // debug_assert_eq!(
                             //     ctx.thread.stack_frames,
@@ -799,6 +809,8 @@ impl MaybeContinuation {
 
             panic!("Failed to find an open continuation on the stack");
         } else {
+            // println!("Setting state from closed continuation");
+
             match Rc::try_unwrap(this.inner).map(|x| x.into_inner()) {
                 Ok(cont) => {
                     ctx.set_state_from_continuation(cont.into_closed().unwrap());
@@ -1029,8 +1041,6 @@ pub struct VmCore<'a> {
     pub(crate) ip: usize,
     pub(crate) sp: usize,
     pub(crate) pop_count: usize,
-    // pub(crate) spans: Rc<[Span]>,
-    // pub(crate) span_id: usize,
     pub(crate) depth: usize,
     pub(crate) thread: &'a mut SteelThread,
     pub(crate) root_spans: &'a [Span],

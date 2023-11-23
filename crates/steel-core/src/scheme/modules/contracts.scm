@@ -185,8 +185,11 @@
   ;; Check that each of the arguments abides by the
   (let ([validated-arguments (verify-preconditions contract arguments name span)])
 
-    (let ([output (with-handler (lambda (err) (raise-error err))
-                                (apply function validated-arguments))]
+    (let (; [output (with-handler (lambda (err) (raise-error err))
+          ; (apply function validated-arguments))]
+
+          ; (with-handler (lambda (err) (raise-error err))
+          [output (apply function validated-arguments)]
 
           [self-contract contract]
           [self-contract-attachment-location (FunctionContract-contract-attachment-location contract)]
