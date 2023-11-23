@@ -156,6 +156,18 @@ impl<'a> Lexer<'a> {
             "#," => Ok(TokenType::UnquoteSyntax),
             "#,@" => Ok(TokenType::UnquoteSpliceSyntax),
 
+            hex if hex.starts_with("#x") => {
+                todo!()
+            }
+
+            octal if octal.starts_with("#o") => {
+                todo!()
+            }
+
+            binary if binary.starts_with("#b") => {
+                todo!()
+            }
+
             keyword if keyword.starts_with("#:") => Ok(TokenType::Keyword(self.slice())),
 
             character if character.starts_with("#\\") => {

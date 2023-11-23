@@ -205,7 +205,7 @@ impl CycleDetector {
             }
 
             PortV(_) => write!(f, "#<port>"),
-            Closure(_) => write!(f, "#<bytecode-closure>"),
+            Closure(c) => write!(f, "#<bytecode-closure:{}:{:p}>", c.id, c),
             HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm.as_ref()),
             IterV(_) => write!(f, "#<iterator>"),
             HashSetV(hs) => write!(f, "#<hashset {:?}>", hs.0),
@@ -326,7 +326,7 @@ impl CycleDetector {
             }
 
             PortV(_) => write!(f, "#<port>"),
-            Closure(_) => write!(f, "#<bytecode-closure>"),
+            Closure(c) => write!(f, "#<bytecode-closure:{}:{:p}>", c.id, c),
             HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm.as_ref()),
             IterV(_) => write!(f, "#<iterator>"),
             HashSetV(hs) => write!(f, "#<hashset {:?}>", hs.0),
