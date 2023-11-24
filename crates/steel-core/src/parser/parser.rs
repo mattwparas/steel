@@ -15,10 +15,7 @@ use std::{
     rc::Rc,
     sync::{Arc, Mutex},
 };
-use steel_parser::{
-    lexer::{OwnedTokenStream, ToOwnedString},
-    tokens::MaybeBigInt,
-};
+use steel_parser::{lexer::OwnedTokenStream, lexer::ToOwnedString, tokens::MaybeBigInt};
 
 use crate::parser::span::Span;
 

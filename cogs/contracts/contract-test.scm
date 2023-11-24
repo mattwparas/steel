@@ -43,7 +43,4 @@
  (check-equal? "basic contract" (foo 10 21) 31)
  (check-err? "Should raise a contract violation" (foo 11 10) 21)
  (check-equal? "higher order contract works" (simple-higher-order 11 (lambda (x) (+ x 1))) 12)
- (check-equal? "Multiple levels of contracts apply" ((level3)) 10)
- ; (check-err? "Should raise a contract violation" (foo 11 10) 21)
- ; (check-err? "Should raise a contract violation" (foo 11 10) 21)
- )
+ (check-equal? "Multiple levels of contracts apply" ((level3)) 10))

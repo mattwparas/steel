@@ -1,6 +1,7 @@
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal;
 use crate::stop;
+use std::fmt::Pointer;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{ffi::OsStr, fmt};
@@ -27,6 +28,12 @@ pub enum MaybeWeak<T: Clone> {
 /// but it does allow for some
 #[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 pub struct Gc<T: ?Sized>(pub(crate) Rc<T>);
+
+impl<T: ?Sized> Pointer for Gc<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:p}", self.0)
+    }
+}
 
 /// Newtype around the `Weak` type.
 /// Enables the detection of reference cycles in mutable memory locations

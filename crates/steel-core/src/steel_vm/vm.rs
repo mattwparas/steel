@@ -16,7 +16,6 @@ use crate::{
     compiler::constants::ConstantMap,
     core::{instructions::DenseInstruction, opcode::OpCode},
     rvals::FutureResult,
-    // values::contracts::ContractedFunction,
 };
 use crate::{
     compiler::program::Executable,
@@ -35,6 +34,7 @@ use crate::{
     stop,
     values::functions::ByteCodeLambda,
 };
+use std::rc::Weak;
 use std::{cell::RefCell, collections::HashMap, iter::Iterator, rc::Rc};
 
 use super::builtin::DocTemplate;
@@ -45,7 +45,6 @@ use crate::values::lists::List;
 use log::{debug, log_enabled};
 use num::ToPrimitive;
 use once_cell::sync::Lazy;
-use slotmap::DefaultKey;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
 
@@ -140,7 +139,7 @@ impl DehydratedStackTrace {
 pub struct StackFrame {
     sp: usize,
     // This _has_ to be a function
-    handler: Option<DefaultKey>,
+    pub(crate) handler: Option<Rc<SteelVal>>,
     // This should get added to the GC as well
     #[cfg(not(feature = "unsafe-internals"))]
     pub(crate) function: Gc<ByteCodeLambda>,
@@ -148,19 +147,42 @@ pub struct StackFrame {
     // need to become rooted, otherwise we'll have an issue with use after free
     #[cfg(feature = "unsafe-internals")]
     pub(crate) function: crate::gc::unsafe_roots::MaybeRooted<ByteCodeLambda>,
+
     ip: usize,
     instructions: Rc<[DenseInstruction]>,
-    // spans: Rc<[Span]>, // span_id: usize,
+
+    // TODO: Delete this one!
+    // continuation_mark: Option<MaybeContinuation>,
+    weak_continuation_mark: Option<WeakContinuation>,
+}
+
+impl Eq for StackFrame {}
+
+impl PartialEq for StackFrame {
+    fn eq(&self, other: &Self) -> bool {
+        self.sp == other.sp
+            && self.handler == other.handler
+            && self.ip == other.ip
+            && self.instructions == other.instructions
+            && self.function == other.function
+    }
 }
 
 #[test]
 fn check_sizes() {
-    println!("{:?}", std::mem::size_of::<Option<SteelVal>>());
-    println!("{:?}", std::mem::size_of::<StackFrame>());
-    println!("{:?}", std::mem::size_of::<Rc<[DenseInstruction]>>());
-    // println!("{:?}", std::mem::size_of::<Rc<[Span]>>());
-    println!("{:?}", std::mem::size_of::<Gc<ByteCodeLambda>>());
-    // println!("{:?}", std::mem::size_of::<Option<slotmap::DefaultKey>>());
+    println!("stack frame: {:?}", std::mem::size_of::<StackFrame>());
+    println!(
+        "option rc steelval: {:?}",
+        std::mem::size_of::<Option<Rc<SteelVal>>>()
+    );
+    println!(
+        "option box steelval: {:?}",
+        std::mem::size_of::<Option<Box<SteelVal>>>()
+    );
+    println!(
+        "option steelval: {:?}",
+        std::mem::size_of::<Option<SteelVal>>()
+    );
 }
 
 impl StackFrame {
@@ -182,9 +204,17 @@ impl StackFrame {
             instructions,
             // span: None,
             handler: None,
+
+            weak_continuation_mark: None,
             // spans,
             // span_id,
         }
+    }
+
+    fn with_continuation_mark(mut self, continuation_mark: Continuation) -> Self {
+        self.weak_continuation_mark = Some(WeakContinuation::from_strong(&continuation_mark));
+
+        self
     }
 
     fn new_rooted(
@@ -208,6 +238,8 @@ impl StackFrame {
             instructions,
             // span: None,
             handler: None,
+
+            weak_continuation_mark: None,
             // spans,
             // span_id,
         }
@@ -237,6 +269,11 @@ impl StackFrame {
         }
     }
 
+    #[inline(always)]
+    pub fn set_continuation(&mut self, continuation: &Continuation) {
+        self.weak_continuation_mark = Some(WeakContinuation::from_strong(&continuation));
+    }
+
     // pub fn set_span(&mut self, span: Span) {
     //     self.span = Some(span);
     // }
@@ -245,8 +282,8 @@ impl StackFrame {
     //     self.handler = Some(handler);
     // }
 
-    pub fn with_handler(mut self, handler: DefaultKey) -> Self {
-        self.handler = Some(handler);
+    pub fn with_handler(mut self, handler: SteelVal) -> Self {
+        self.handler = Some(Rc::new(handler));
         self
     }
 }
@@ -260,6 +297,7 @@ thread_local! {
 #[derive(Clone)]
 pub struct SteelThread {
     pub(crate) global_env: Env,
+    // Maybe a neat idea, what if we used an immutable vector here?
     pub(crate) stack: Vec<SteelVal>,
     profiler: OpCodeOccurenceProfiler,
     function_interner: FunctionInterner,
@@ -316,8 +354,6 @@ pub struct FunctionInterner {
     // Keep these around - each thread keeps track of the instructions on the bytecode object, but we shouldn't
     // need to dereference that until later? When we actually move to that
     instructions: fxhash::FxHashMap<usize, Rc<[DenseInstruction]>>,
-
-    handlers: Rc<RefCell<slotmap::SlotMap<DefaultKey, SteelVal>>>,
 }
 
 impl SteelThread {
@@ -456,8 +492,6 @@ impl SteelThread {
         #[cfg(feature = "profiling")]
         let execution_time = Instant::now();
 
-        let handler_ref = Rc::clone(&self.function_interner.handlers);
-
         let mut vm_instance =
             VmCore::new(instructions, constant_map, Rc::clone(&spans), self, &spans)?;
 
@@ -475,6 +509,9 @@ impl SteelThread {
 
             if let Err(e) = result {
                 while let Some(mut last) = vm_instance.thread.stack_frames.pop() {
+                    // Unwind the stack, close continuation marks here!
+                    // vm_instance.close_continuation_marks(&last);
+
                     // For whatever reason - if we're at the top, we shouldn't go down below 0
                     if vm_instance.pop_count == 0 {
                         return Err(e);
@@ -483,18 +520,25 @@ impl SteelThread {
                     // Drop the pop count along with everything else we're doing
                     vm_instance.pop_count -= 1;
 
+                    if last.weak_continuation_mark.is_some() {
+                        vm_instance.thread.stack.truncate(last.sp);
+                        vm_instance.ip = last.ip;
+                        vm_instance.sp = vm_instance.get_last_stack_frame_sp();
+                        vm_instance.instructions = Rc::clone(&last.instructions);
+
+                        vm_instance.close_continuation_marks(&last);
+                    }
+
                     if let Some(handler) = last.handler {
                         // Drop the stack BACK to where it was on this level
                         vm_instance.thread.stack.truncate(last.sp);
 
                         vm_instance.thread.stack.push(e.into_steelval()?);
 
-                        let handler = &handler_ref.borrow()[handler];
-
                         // If we're at the top level, we need to handle this _slightly_ differently
                         // if vm_instance.stack_frames.is_empty() {
                         // Somehow update the main instruction group to _just_ be the new group
-                        match handler {
+                        match handler.as_ref() {
                             SteelVal::Closure(closure) => {
                                 if vm_instance.thread.stack_frames.is_empty() {
                                     vm_instance.sp = last.sp;
@@ -505,8 +549,6 @@ impl SteelThread {
                                         Gc::clone(&closure),
                                         0,
                                         Rc::from([]),
-                                        // Rc::from([]),
-                                        // 0,
                                     ));
                                 }
 
@@ -528,24 +570,12 @@ impl SteelThread {
 
                                 vm_instance.pop_count += 1;
                             }
-                            _ => todo!("Unsupported"),
+                            _ => {
+                                stop!(TypeMismatch => "expected a function for the exception handler, found: {}", handler)
+                            }
                         }
 
-                        // } else {
-
-                        // }
-
-                        // This works, it just seems to then continue into the other function, which we don't want
-                        // vm_instance
-                        //     .stack
-                        //     .push(SteelVal::StringV(Rc::from("APPLESAUCE")));
-
-                        // // This is definitely wrong
-                        // vm_instance.handle_function_call(handler, 1)?;
-
                         continue 'outer;
-
-                        // todo!("Actually call the function handler")
                     }
                 }
 
@@ -567,6 +597,14 @@ impl SteelThread {
                 // println!("GETTING HERE");
 
                 // while self.stack.pop().is_some() {}
+
+                // dbg!(self.stack_frames.len());
+
+                for frame in &vm_instance.thread.stack_frames {
+                    if Continuation::close_marks(&vm_instance, &frame) {
+                        println!("_____ Closed frame in pop ______");
+                    }
+                }
 
                 // Clean up
                 self.stack.clear();
@@ -597,8 +635,224 @@ impl SteelThread {
     // }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenContinuationMark {
+    // Lazily capture the frames we need to?
+    pub(crate) current_frame: StackFrame,
+    pub(crate) stack_frame_offset: usize,
+    instructions: Rc<[DenseInstruction]>,
+
+    // Captured at creation, everything on the stack
+    // from the current frame
+    pub(crate) current_stack_values: Vec<SteelVal>,
+
+    ip: usize,
+    sp: usize,
+    pop_count: usize,
+
+    #[cfg(debug_assertions)]
+    closed_continuation: ClosedContinuation,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+// TODO: This should replace the continuation value.
+pub enum ContinuationMark {
+    Closed(ClosedContinuation),
+    Open(OpenContinuationMark),
+}
+
+impl ContinuationMark {
+    pub fn close(&mut self, ctx: &VmCore<'_>) {
+        match self {
+            ContinuationMark::Closed(_) => {}
+            ContinuationMark::Open(open) => {
+                let mut continuation = ctx.new_closed_continuation_from_state();
+
+                // continuation.stack.truncate(open.stack_frame_offset);
+                continuation.stack.truncate(open.sp);
+                continuation.stack.append(&mut open.current_stack_values);
+
+                continuation.ip = open.ip;
+                continuation.sp = open.sp;
+                continuation.pop_count = open.pop_count;
+                continuation.instructions = Rc::clone(&open.instructions);
+
+                continuation.current_frame = open.current_frame.clone();
+
+                #[cfg(debug_assertions)]
+                {
+                    debug_assert_eq!(open.closed_continuation.stack, continuation.stack);
+                    debug_assert_eq!(
+                        open.closed_continuation.stack_frames.len(),
+                        continuation.stack_frames.len()
+                    );
+                    debug_assert_eq!(
+                        open.closed_continuation.stack_frames,
+                        continuation.stack_frames
+                    );
+                }
+
+                *self = ContinuationMark::Closed(continuation);
+            }
+        }
+    }
+
+    fn into_open_mark(self) -> Option<OpenContinuationMark> {
+        if let Self::Open(open) = self {
+            Some(open)
+        } else {
+            None
+        }
+    }
+
+    fn into_closed(self) -> Option<ClosedContinuation> {
+        if let Self::Closed(closed) = self {
+            Some(closed)
+        } else {
+            None
+        }
+    }
+}
+
+impl Continuation {
+    pub fn close_marks(ctx: &VmCore<'_>, stack_frame: &StackFrame) -> bool {
+        if let Some(cont_mark) = stack_frame
+            .weak_continuation_mark
+            .as_ref()
+            .and_then(|x| Weak::upgrade(&x.inner))
+        {
+            cont_mark.borrow_mut().close(ctx);
+
+            return true;
+        }
+
+        false
+    }
+
+    pub fn set_state_from_continuation(ctx: &mut VmCore<'_>, this: Self) {
+        // Check if this is an open
+        let maybe_open_mark = (*this.inner.borrow()).clone().into_open_mark();
+
+        if let Some(open) = maybe_open_mark {
+            // println!("Setting state from open continuation");
+
+            let strong_count = Rc::strong_count(&this.inner);
+            let weak_count = Rc::weak_count(&this.inner);
+
+            // println!(
+            //     "Strong count: {} - Weak count: {}",
+            //     strong_count, weak_count
+            // );
+
+            while let Some(stack_frame) = ctx.thread.stack_frames.pop() {
+                ctx.pop_count -= 1;
+
+                if let Some(mark) = &stack_frame
+                    .weak_continuation_mark
+                    .as_ref()
+                    .and_then(|x| Weak::upgrade(&x.inner))
+                {
+                    if Rc::ptr_eq(&mark, &this.inner) {
+                        if weak_count == 1 && strong_count > 1 {
+                            if Self::close_marks(ctx, &stack_frame) {
+                                // TODO: We shouldn't have to both close the frame and also
+                                // set state from the continuation in both spots. There is a nefarious
+                                // bug here that I haven't yet resolved.
+                                let definitely_closed =
+                                    this.inner.borrow().clone().into_closed().unwrap();
+
+                                ctx.set_state_from_continuation(definitely_closed);
+
+                                return;
+
+                                // println!("CLOSING MARKS WHEN SETTING STATE FROM CONTINUATION: pop count: {}", ctx.pop_count);
+                            }
+                        }
+
+                        ctx.sp = open.sp;
+                        ctx.ip = open.ip;
+                        ctx.instructions = Rc::clone(&open.instructions);
+
+                        ctx.thread.stack.truncate(open.sp);
+
+                        // TODO: Probably move the pointer for the stack frame as well?
+                        ctx.thread.stack.extend(open.current_stack_values.clone());
+
+                        #[cfg(debug_assertions)]
+                        {
+                            debug_assert_eq!(ctx.sp, open.closed_continuation.sp);
+                            debug_assert_eq!(ctx.ip, open.closed_continuation.ip);
+                            debug_assert_eq!(
+                                ctx.instructions,
+                                open.closed_continuation.instructions
+                            );
+                            debug_assert_eq!(ctx.thread.stack, open.closed_continuation.stack);
+
+                            debug_assert_eq!(ctx.pop_count, open.closed_continuation.pop_count);
+
+                            debug_assert_eq!(
+                                ctx.thread.stack_frames,
+                                open.closed_continuation.stack_frames
+                            );
+                        }
+
+                        return;
+                    }
+                }
+
+                ctx.thread.stack.truncate(stack_frame.sp);
+                ctx.ip = stack_frame.ip;
+                ctx.sp = ctx.get_last_stack_frame_sp();
+                ctx.instructions = Rc::clone(&stack_frame.instructions);
+
+                if Self::close_marks(ctx, &stack_frame) {
+                    // println!("CLOSING MARKS WHEN SETTING STATE FROM CONTINUATION");
+                }
+            }
+
+            panic!("Failed to find an open continuation on the stack");
+        } else {
+            // println!("Setting state from closed continuation");
+
+            match Rc::try_unwrap(this.inner).map(|x| x.into_inner()) {
+                Ok(cont) => {
+                    ctx.set_state_from_continuation(cont.into_closed().unwrap());
+                }
+                Err(e) => {
+                    let definitely_closed = e.borrow().clone().into_closed().unwrap();
+
+                    ctx.set_state_from_continuation(definitely_closed);
+                }
+            }
+        }
+    }
+
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.inner, &other.inner)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Continuation {
+    // TODO: This _might_ need to be a weak reference. We'll see!
+    pub(crate) inner: Rc<RefCell<ContinuationMark>>,
+}
+
+#[derive(Clone, Debug)]
+struct WeakContinuation {
+    pub(crate) inner: Weak<RefCell<ContinuationMark>>,
+}
+
+impl WeakContinuation {
+    fn from_strong(cont: &Continuation) -> Self {
+        Self {
+            inner: Rc::downgrade(&cont.inner),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClosedContinuation {
     pub(crate) stack: Vec<SteelVal>,
     pub(crate) current_frame: StackFrame,
     instructions: Rc<[DenseInstruction]>,
@@ -606,6 +860,9 @@ pub struct Continuation {
     ip: usize,
     sp: usize,
     pop_count: usize,
+
+    #[cfg(debug_assertions)]
+    closed_continuation: Option<Box<ClosedContinuation>>,
 }
 
 pub trait VmContext {
@@ -787,8 +1044,6 @@ pub struct VmCore<'a> {
     pub(crate) ip: usize,
     pub(crate) sp: usize,
     pub(crate) pop_count: usize,
-    // pub(crate) spans: Rc<[Span]>,
-    // pub(crate) span_id: usize,
     pub(crate) depth: usize,
     pub(crate) thread: &'a mut SteelThread,
     pub(crate) root_spans: &'a [Span],
@@ -882,23 +1137,53 @@ impl<'a> VmCore<'a> {
         );
     }
 
-    // TODO: Lazily capture the continuation somehow?
-    // Could be neat at some point: https://docs.rs/stacker/latest/stacker/
-    fn new_continuation_from_state(&self) -> Continuation {
+    fn new_open_continuation_from_state(&self) -> Continuation {
+        // println!("Creating new open continuation");
+
+        // return MaybeContinuation {
+        //     inner: Rc::new(RefCell::new(ContinuationMark::Closed(
+        //         self.new_closed_continuation_from_state(),
+        //     ))),
+        // };
+
+        let offset = self.get_offset();
+
         Continuation {
+            inner: Rc::new(RefCell::new(ContinuationMark::Open(OpenContinuationMark {
+                current_frame: self.thread.stack_frames.last().unwrap().clone(),
+                stack_frame_offset: self.thread.stack.len(),
+                current_stack_values: self.thread.stack[offset..].to_vec(),
+                instructions: self.instructions.clone(),
+                ip: self.ip,
+                sp: self.sp,
+                pop_count: self.pop_count,
+                #[cfg(debug_assertions)]
+                closed_continuation: self.new_closed_continuation_from_state(),
+            }))),
+        }
+    }
+
+    // Could be neat at some point: https://docs.rs/stacker/latest/stacker/
+    fn new_closed_continuation_from_state(&self) -> ClosedContinuation {
+        // dbg!(&self.thread.stack.len());
+        // dbg!(&self.thread.stack_frames.len());
+
+        ClosedContinuation {
             stack: self.thread.stack.clone(),
             instructions: Rc::clone(&self.instructions),
-            current_frame: self.thread.current_frame.clone(),
+            current_frame: self.thread.stack_frames.last().unwrap().clone(),
             stack_frames: self.thread.stack_frames.clone(),
             ip: self.ip,
             sp: self.sp,
             pop_count: self.pop_count,
+            #[cfg(debug_assertions)]
+            closed_continuation: None,
         }
     }
 
     // Grab the continuation - but this continuation can only be played once
-    fn new_oneshot_continuation_from_state(&mut self) -> Continuation {
-        Continuation {
+    fn new_oneshot_continuation_from_state(&mut self) -> ClosedContinuation {
+        ClosedContinuation {
             stack: std::mem::take(&mut self.thread.stack),
             instructions: Rc::clone(&self.instructions),
             current_frame: self.thread.current_frame.clone(),
@@ -906,6 +1191,8 @@ impl<'a> VmCore<'a> {
             ip: self.ip,
             sp: self.sp,
             pop_count: self.pop_count,
+            #[cfg(debug_assertions)]
+            closed_continuation: None,
         }
     }
 
@@ -929,7 +1216,55 @@ impl<'a> VmCore<'a> {
     }
 
     // #[inline(always)]
-    fn set_state_from_continuation(&mut self, continuation: Continuation) {
+    fn set_state_from_continuation(&mut self, continuation: ClosedContinuation) {
+        // dbg!(&continuation.stack);
+
+        // Linked list of frames perhaps?
+        // TODO: This, unfortunately, will close any open continuations even if they're within the same subset.
+        // So what we really should do is keep a set of sub continuations inside each open continuation, to see
+        // if there are currently open continuations inside of those?
+        //
+        // Or maybe a List<MaybeContinuation> inside of each continuation? Something like that
+        //
+        // That way we can in relatively quick amount of time scan for the continuations and delay
+        // copying everything over.
+
+        let mut marks_still_open = fxhash::FxHashSet::default();
+
+        for frame in &continuation.stack_frames {
+            if let Some(cont_mark) = frame
+                .weak_continuation_mark
+                .as_ref()
+                .and_then(|x| Weak::upgrade(&x.inner))
+            {
+                marks_still_open.insert(cont_mark.as_ptr() as usize);
+                // println!("Found mark still open: {:p}", cont_mark.inner);
+            }
+        }
+
+        while let Some(frame) = self.thread.stack_frames.pop() {
+            if let Some(cont_mark) = frame
+                .weak_continuation_mark
+                .as_ref()
+                .and_then(|x| Weak::upgrade(&x.inner))
+            {
+                // Close frame if the new continuation doesn't have it
+                if !marks_still_open.contains(&(cont_mark.as_ptr() as usize)) {
+                    // println!("Closing marks on stack frame, still open");
+
+                    self.thread.stack.truncate(frame.sp);
+                    self.ip = frame.ip;
+                    self.sp = self.get_last_stack_frame_sp();
+                    self.instructions = Rc::clone(&frame.instructions);
+
+                    self.close_continuation_marks(&frame);
+                    continue;
+                } else {
+                    // println!("Skipping closing frame: {:p}", cont_mark.inner);
+                }
+            }
+        }
+
         self.thread.stack = continuation.stack;
         self.instructions = continuation.instructions;
         // self.spans = continuation.spans;
@@ -941,9 +1276,14 @@ impl<'a> VmCore<'a> {
     }
 
     // #[inline(always)]
-    fn construct_continuation_function(&self) -> SteelVal {
-        let captured_continuation = self.new_continuation_from_state();
-        SteelVal::ContinuationFunction(Gc::new(captured_continuation))
+    fn construct_continuation_function(&self) -> Continuation {
+        // let captured_continuation = self.new_continuation_from_state();
+
+        let continuation = self.new_open_continuation_from_state();
+
+        // SteelVal::ContinuationFunction(continuation)
+
+        continuation
     }
 
     fn construct_oneshot_continuation_function(&self) -> SteelVal {
@@ -1926,32 +2266,14 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
-                    // println!("At tco jump");
-
                     let current_arity = payload_size as usize;
                     // This is the number of (local) functions we need to pop to get back to the place we want to be at
-                    let depth = self.instructions[self.ip + 1].payload_size as usize;
+                    // let depth = self.instructions[self.ip + 1].payload_size as usize;
 
-                    // println!("Depth: {:?}", depth);
-                    // println!("Function stack length: {:?}", self.function_stack.len());
-                    // println!("Stack index: {:?}", self.stack_index);
-                    // println!(
-                    //     "Instruction stack length: {:?}",
-                    //     self.instruction_stack.len()
-                    // );
-
-                    // for function in function_stack {
-
+                    // for _ in 0..depth {
+                    //     self.thread.stack_frames.pop();
+                    //     self.pop_count -= 1;
                     // }
-
-                    for _ in 0..depth {
-                        // println!("Popping");
-                        // self.function_stack.pop();
-                        // self.stack_index.pop();
-                        self.thread.stack_frames.pop();
-                        // self.instruction_stack.pop();
-                        self.pop_count -= 1;
-                    }
 
                     let last_stack_frame = self.thread.stack_frames.last().unwrap();
 
@@ -2045,73 +2367,6 @@ impl<'a> VmCore<'a> {
                     ..
                 } => {
                     let_end_scope_handler(self)?;
-
-                    // let beginning_scope = payload_size as usize;
-                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
-
-                    // // Move to the pop
-                    // self.ip += 1;
-
-                    // let rollback_index = beginning_scope + offset;
-
-                    // let last = self.stack.pop().expect("stack empty at pop");
-
-                    // self.stack.truncate(rollback_index);
-                    // self.stack.push(last);
-
-                    /*
-
-                    // todo!()
-
-                    let beginning_scope = payload_size as usize;
-                    let offset = self.stack_index.last().copied().unwrap_or(0);
-
-                    // Move to the pop
-                    self.ip += 1;
-
-                    // See the count of local variables
-                    let value_count_to_close = self.instructions[self.ip].payload_size;
-
-                    // Move past the pop
-                    self.ip += 1;
-
-                    let rollback_index = beginning_scope + offset;
-
-                    for i in 0..value_count_to_close {
-                        let instr = self.instructions[self.ip];
-                        match (instr.op_code, instr.payload_size) {
-                            (OpCode::CLOSEUPVALUE, 1) => {
-                                self.close_upvalues(rollback_index + i as usize);
-                            }
-                            (OpCode::CLOSEUPVALUE, 0) => {
-                                // TODO -> understand if this is actually what I want to happen
-                                // self.close_upvalues(rollback_index + i as usize);
-                                // do nothing explicitly, just a normal pop
-                            }
-                            (op, _) => panic!(
-                                "Closing upvalues failed with instruction: {:?} @ {}",
-                                op, self.ip
-                            ),
-                        }
-                        self.ip += 1;
-                    }
-
-                    println!("Prior to ending scope with rollback index: {rollback_index}");
-                    println!("Stack: {:?}", self.stack);
-
-                    let last = self.stack.pop().expect("Stack empty at pop");
-
-                    self.stack.truncate(rollback_index);
-                    self.stack.push(last);
-
-                    // self.ip += 1;
-
-                    println!("Ending scope, stack here: {:?}", self.stack);
-                    println!("Current instruction: {:?}", self.instructions[self.ip]);
-                    // let last = self.stack_index.pop().unwrap();
-                    // self.stack.truncate(last);
-
-                    */
                 }
                 // DenseInstruction {
                 //     op_code: OpCode::POP,
@@ -2276,6 +2531,16 @@ impl<'a> VmCore<'a> {
         }
     }
 
+    fn close_continuation_marks(&self, last: &StackFrame) -> bool {
+        // TODO: @Matt - continuation marks should actually do something here
+        // What we'd like: This marks the stack frame going out of scope. Since it is going out of scope,
+        // the stack frame should check if there are marks here, specifying that we should grab
+        // the values out of the existing frame, and "close" the open continuation. That way the continuation (if called)
+        // does not need to actually copy the entire frame eagerly, but rather can do so lazily.
+
+        Continuation::close_marks(self, last)
+    }
+
     #[inline(always)]
     fn handle_pop_pure(&mut self) -> Option<Result<SteelVal>> {
         // Check that the amount we're looking to pop and the function stack length are equivalent
@@ -2315,6 +2580,17 @@ impl<'a> VmCore<'a> {
 
             // self.thread.stack.push(ret_val);
 
+            if self.close_continuation_marks(&last) {
+                // println!("Closed continuation mark");
+                // dbg!(&self.thread.stack);
+            }
+
+            // dbg!(self.thread.stack_frames.len());
+
+            // dbg!(rollback_index);
+            // dbg!(self.thread.stack.len());
+            // last.continuation_mark.map(|x| println!("{:p}", x.inner));
+
             let _ = self
                 .thread
                 .stack
@@ -2325,6 +2601,7 @@ impl<'a> VmCore<'a> {
             // }
 
             // self.update_state_with_frame(last);
+            // self.close_continuation_marks(&last);
 
             self.ip = last.ip;
             self.instructions = last.instructions;
@@ -2340,6 +2617,12 @@ impl<'a> VmCore<'a> {
             let ret_val = self.thread.stack.pop().ok_or_else(|| {
                 SteelErr::new(ErrorKind::Generic, "stack empty at pop".to_string())
                     .with_span(self.current_span())
+            });
+
+            last.as_ref().map(|x| {
+                if self.close_continuation_marks(x) {
+                    println!("%%%%%% closed frame %%%%%")
+                }
             });
 
             let rollback_index = last.map(|x| x.sp).unwrap_or(0);
@@ -2820,6 +3103,7 @@ impl<'a> VmCore<'a> {
         self.ip += 1;
     }
 
+    // Calls the given function in tail position.
     fn new_handle_tail_call_closure(
         &mut self,
         closure: Gc<ByteCodeLambda>,
@@ -2827,63 +3111,29 @@ impl<'a> VmCore<'a> {
     ) -> Result<()> {
         self.cut_sequence();
 
-        // Something like:
-        // let last_func = self.function_stack.last_mut().unwrap();
-        // last_func.set_function(Gc::clone(&closure));
-        // last_func.set_span(self.current_span());
-        // let offset = last_func.index;
-
-        // let last = self.stack_frames.pop().unwrap();
-
-        // self.pop_count -= 1;
-        // let offset = self.stack_index.pop().unwrap();
-        // self.instruction_stack.pop();
-
-        // let current_span = self.current_span();
-
-        // self.stack_frames.last_mut().unwrap().set_function(function)
-
-        // TODO
-        // self.function_stack
-        // .push(CallContext::new(Gc::clone(&closure)).with_span(self.current_span()));
-
         let mut new_arity = payload_size;
 
         self.adjust_stack_for_multi_arity(&closure, payload_size, &mut new_arity)?;
+
+        // TODO: Try to figure out if we need to close this frame
+        // self.close_continuation_marks(self.thread.stack_frames.last().unwrap());
 
         let last = self.thread.stack_frames.last_mut().unwrap();
 
         let offset = last.sp;
 
-        // Find the new arity from the payload
-
         // We should have arity at this point, drop the stack up to this point
         // take the last arity off the stack, go back and replace those in order
-        // let back = self.stack.len() - new_arity;
-        // for i in 0..new_arity {
-        //     self.stack[offset + i] = self.stack[back + i].clone();
-        // }
-
-        // self.stack.truncate(offset + new_arity);
-
         let back = self.thread.stack.len() - new_arity;
         let _ = self.thread.stack.drain(offset..back);
 
-        // // TODO
-        // self.heap
-        // .gather_mark_and_sweep_2(&self.global_env, &inner_env);
+        // TODO: Perhaps add call to minor collection here?
+        // Could be a good way to avoid running the whole mark and sweep,
+        // since values will have left the scope by now.
 
-        // self.heap.collect_garbage();
-
-        // Added this one as well
-        // self.heap.add(Rc::clone(&self.global_env));
-
-        // self.global_env = inner_env;
         self.instructions = closure.body_exp();
-        // self.spans = closure.spans();
 
         last.set_function(closure);
-        // last.set_span(current_span);
 
         self.ip = 0;
         Ok(())
@@ -3296,21 +3546,25 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     // TODO: See if calling continuations can be implemented in terms of the core ABI
     // That way, we dont need a special "continuation" function
-    fn call_continuation(&mut self, continuation: Gc<Continuation>) -> Result<()> {
+    fn call_continuation(&mut self, continuation: Continuation) -> Result<()> {
         let last =
             self.thread.stack.pop().ok_or_else(
                 throw!(ArityMismatch => "continuation expected 1 argument, found none"),
             )?;
 
-        match Gc::try_unwrap(continuation) {
-            Ok(cont) => {
-                self.set_state_from_continuation(cont);
-            }
+        // println!("Calling continuation...");
 
-            Err(unable_to_unwrap) => {
-                self.set_state_from_continuation(unable_to_unwrap.unwrap());
-            }
-        }
+        Continuation::set_state_from_continuation(self, continuation);
+
+        // match Gc::try_unwrap(continuation) {
+        //     Ok(cont) => {
+        //         self.set_state_from_continuation(cont);
+        //     }
+
+        //     Err(unable_to_unwrap) => {
+        //         self.set_state_from_continuation(unable_to_unwrap.unwrap());
+        //     }
+        // }
 
         // self.set_state_from_continuation(continuation.clone());
 
@@ -3962,15 +4216,6 @@ pub fn call_with_exception_handler(
 
             ctx.sp = ctx.thread.stack.len();
 
-            // dbg!(&ctx.thread.stack);
-
-            let handler = ctx
-                .thread
-                .function_interner
-                .handlers
-                .borrow_mut()
-                .insert(handler);
-
             // Push the previous state on
             ctx.thread.stack_frames.push(
                 StackFrame::new(
@@ -4050,6 +4295,8 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
         }
     }
 
+    // dbg!(&ctx.thread.stack_frames.last().map(|x| &x.continuation_mark));
+
     let continuation = ctx.construct_continuation_function();
 
     match function {
@@ -4065,6 +4312,11 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
 
             ctx.sp = ctx.thread.stack.len();
 
+            // ctx.thread
+            //     .stack_frames
+            //     .last_mut()
+            //     .map(|x| x.set_continuation(continuation.clone()));
+
             ctx.thread.stack_frames.push(
                 StackFrame::new(
                     ctx.sp,
@@ -4072,42 +4324,47 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
                     ctx.ip + 1,
                     Rc::clone(&ctx.instructions),
                     // Rc::clone(&ctx.spans),
-                ), // .with_span(ctx.current_span()),
+                ) // .with_span(ctx.current_span()),
+                .with_continuation_mark(continuation.clone()),
             );
 
-            // ctx.stack_index.push(ctx.stack.len());
-
-            // Put the continuation as the argument
-            // Previously we put the continuation directly on the stack ourselves, but instead we now return as an argument
-            // ctx.stack.push(continuation);
-
-            // self.global_env = inner_env;
-            // ctx.instruction_stack.push(InstructionPointer::new(
-            //     ctx.ip + 1,
-            //     Rc::clone(&ctx.instructions),
-            // ));
             ctx.pop_count += 1;
 
             ctx.instructions = closure.body_exp();
-            // ctx.spans = closure.spans();
-            // ctx.function_stack
-            //     .push(CallContext::new(closure).with_span(ctx.current_span()));
 
             ctx.ip = 0;
+
+            // let last = ctx.thread.stack_frames.last_mut().unwrap();
+
+            // let offset = last.sp;
+
+            // let back = ctx.thread.stack.len();
+            // let _ = ctx.thread.stack.drain(offset..back);
+            // ctx.instructions = closure.body_exp();
+
+            // last.set_function(closure);
+            // last.set_continuation(continuation.clone());
+
+            // ctx.ip = 0;
         }
         SteelVal::ContinuationFunction(cc) => {
-            ctx.set_state_from_continuation(cc.unwrap());
+            // ctx.set_state_from_continuation(cc.unwrap());
+
+            // println!("Setting state from continuation...");
+
+            Continuation::set_state_from_continuation(ctx, cc);
+
             ctx.ip += 1;
             // ctx.stack.push(continuation);
         }
-        SteelVal::FuncV(f) => return Some(f(&[continuation])),
+        SteelVal::FuncV(f) => return Some(f(&[SteelVal::ContinuationFunction(continuation)])),
 
         _ => {
             builtin_stop!(Generic => format!("call/cc expects a function, found: {function}"));
         }
     }
 
-    Some(Ok(continuation))
+    Some(Ok(SteelVal::ContinuationFunction(continuation)))
 }
 
 // TODO: Come back and finish this
@@ -4190,7 +4447,10 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
                     None
                 }
                 SteelVal::ContinuationFunction(cc) => {
-                    ctx.set_state_from_continuation(cc.unwrap());
+                    // ctx.set_state_from_continuation(cc.unwrap());
+
+                    Continuation::set_state_from_continuation(ctx, cc.clone());
+
                     ctx.ip += 1;
 
                     None
@@ -5831,14 +6091,14 @@ fn tco_jump_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 
     // }
 
-    for _ in 0..depth {
-        // println!("Popping");
-        // self.function_stack.pop();
-        // self.stack_index.pop();
-        ctx.thread.stack_frames.pop();
-        // self.instruction_stack.pop();
-        ctx.pop_count -= 1;
-    }
+    // for _ in 0..depth {
+    // println!("Popping");
+    // self.function_stack.pop();
+    // self.stack_index.pop();
+    // ctx.thread.stack_frames.pop();
+    // self.instruction_stack.pop();
+    // ctx.pop_count -= 1;
+    // }
 
     let last_stack_frame = ctx.thread.stack_frames.last().unwrap();
 

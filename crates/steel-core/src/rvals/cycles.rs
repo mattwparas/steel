@@ -2,7 +2,9 @@ use std::{cell::Cell, collections::VecDeque};
 
 use num::BigInt;
 
-use crate::steel_vm::{builtin::get_function_name, engine::Engine};
+use crate::steel_vm::{
+    builtin::get_function_name, engine::Engine, vm::Continuation, vm::ContinuationMark,
+};
 
 use super::*;
 
@@ -219,7 +221,7 @@ impl CycleDetector {
                     write!(f, "#<function>")
                 }
             }
-            ContinuationFunction(c) => write!(f, "#<continuation: {:?}>", c.stack),
+            ContinuationFunction(_) => write!(f, "#<continuation>"),
             // #[cfg(feature = "jit")]
             // CompiledFunction(_) => write!(f, "#<compiled-function>"),
             ListV(l) => {
@@ -341,7 +343,7 @@ impl CycleDetector {
                     write!(f, "#<function>")
                 }
             }
-            ContinuationFunction(c) => write!(f, "#<continuation: {:?}>", c.stack),
+            ContinuationFunction(_) => write!(f, "#<continuation>"),
             // #[cfg(feature = "jit")]
             // CompiledFunction(_) => write!(f, "#<compiled-function>"),
             ListV(l) => {
@@ -626,7 +628,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
     fn visit_future(&mut self, _future: Gc<FutureResult>) -> Self::Output {}
     fn visit_stream(&mut self, _stream: Gc<LazyStream>) -> Self::Output {}
     fn visit_boxed_function(&mut self, _function: Rc<BoxedDynFunction>) -> Self::Output {}
-    fn visit_continuation(&mut self, _continuation: Gc<Continuation>) -> Self::Output {}
+    fn visit_continuation(&mut self, _continuation: Continuation) -> Self::Output {}
 
     fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output {
         if !self.add(list.as_ptr_usize(), &SteelVal::ListV(list.clone())) {
@@ -972,22 +974,38 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
     }
 
     // Walk the whole thing! This includes the stack and all the stack frames
-    fn visit_continuation(&mut self, continuation: Gc<Continuation>) {
-        if let Ok(mut inner) = continuation.try_unwrap() {
-            for value in std::mem::take(&mut inner.stack) {
-                self.push_back(value);
-            }
-
-            if let Some(inner) = inner.current_frame.function.get_mut() {
-                for value in std::mem::take(&mut inner.captures) {
-                    self.push_back(value);
-                }
-            }
-
-            for mut frame in std::mem::take(&mut inner.stack_frames) {
-                if let Some(inner) = frame.function.get_mut() {
-                    for value in std::mem::take(&mut inner.captures) {
+    fn visit_continuation(&mut self, continuation: Continuation) {
+        if let Ok(inner) = Rc::try_unwrap(continuation.inner).map(RefCell::into_inner) {
+            match inner {
+                ContinuationMark::Closed(mut inner) => {
+                    for value in std::mem::take(&mut inner.stack) {
                         self.push_back(value);
+                    }
+
+                    if let Some(inner) = inner.current_frame.function.get_mut() {
+                        for value in std::mem::take(&mut inner.captures) {
+                            self.push_back(value);
+                        }
+                    }
+
+                    for mut frame in std::mem::take(&mut inner.stack_frames) {
+                        if let Some(inner) = frame.function.get_mut() {
+                            for value in std::mem::take(&mut inner.captures) {
+                                self.push_back(value);
+                            }
+                        }
+                    }
+                }
+
+                ContinuationMark::Open(mut inner) => {
+                    for value in inner.current_stack_values {
+                        self.push_back(value);
+                    }
+
+                    if let Some(inner) = inner.current_frame.function.get_mut() {
+                        for value in std::mem::take(&mut inner.captures) {
+                            self.push_back(value);
+                        }
                     }
                 }
             }
@@ -1172,7 +1190,7 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_future(&mut self, future: Gc<FutureResult>) -> Self::Output;
     fn visit_stream(&mut self, stream: Gc<LazyStream>) -> Self::Output;
     fn visit_boxed_function(&mut self, function: Rc<BoxedDynFunction>) -> Self::Output;
-    fn visit_continuation(&mut self, continuation: Gc<Continuation>) -> Self::Output;
+    fn visit_continuation(&mut self, continuation: Continuation) -> Self::Output;
     fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output;
     fn visit_mutable_function(&mut self, function: MutFunctionSignature) -> Self::Output;
     fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output;
@@ -1261,7 +1279,7 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
     fn visit_future(&mut self, future: &'a Gc<FutureResult>) -> Self::Output;
     fn visit_stream(&mut self, stream: &'a Gc<LazyStream>) -> Self::Output;
     fn visit_boxed_function(&mut self, function: &'a Rc<BoxedDynFunction>) -> Self::Output;
-    fn visit_continuation(&mut self, continuation: &'a Gc<Continuation>) -> Self::Output;
+    fn visit_continuation(&mut self, continuation: &'a Continuation) -> Self::Output;
     fn visit_list(&mut self, list: &'a List<SteelVal>) -> Self::Output;
     fn visit_mutable_function(&mut self, function: &'a MutFunctionSignature) -> Self::Output;
     fn visit_mutable_vector(&mut self, vector: &'a HeapRef<Vec<SteelVal>>) -> Self::Output;
@@ -1590,7 +1608,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
                 }
                 // FutureV(f) => self.visit_future(f),
                 (ContinuationFunction(l), ContinuationFunction(r)) => {
-                    if !Gc::ptr_eq(&l, &r) {
+                    if !Continuation::ptr_eq(&l, &r) {
                         return false;
                     }
 
@@ -1773,7 +1791,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
 
     fn visit_stream(&mut self, _stream: Gc<LazyStream>) -> Self::Output {}
 
-    fn visit_continuation(&mut self, _continuation: Gc<Continuation>) -> Self::Output {}
+    fn visit_continuation(&mut self, _continuation: Continuation) -> Self::Output {}
 
     fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output {
         for value in list.iter() {

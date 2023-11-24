@@ -1930,6 +1930,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
             match f {
                 ExprKind::Atom(a) => {
                     // let value = value.into_iter();
+
                     match &a.syn.ty {
                         // Have this also match on the first argument being a TokenType::Identifier("if")
                         // Do the same for the rest of the arguments

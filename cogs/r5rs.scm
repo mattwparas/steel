@@ -37,6 +37,10 @@
 
 (set-test-mode!)
 
+(check-equal? "Parsing hex" #x0f 15)
+(check-equal? "Parsing octal" #o0777 511)
+(check-equal? "Parsing binary" #b0110 6)
+
 (check-equal?
  "Symbols are interned correctly - lists should use the existing symbols that have been interned"
  (eq? 'definitely-hasnt-been-seen-before

@@ -62,6 +62,13 @@ impl Env {
             // );
             self.bindings_vec[idx] = val;
         } else {
+            // println!(
+            //     "Defining value: {} - {} => {}",
+            //     idx,
+            //     self.bindings_vec.len(),
+            //     val
+            // );
+
             self.bindings_vec.push(val);
             assert_eq!(self.bindings_vec.len() - 1, idx);
         }
