@@ -341,7 +341,7 @@ impl CycleDetector {
                     write!(f, "#<function>")
                 }
             }
-            ContinuationFunction(c) => write!(f, "#<continuation>"),
+            ContinuationFunction(_) => write!(f, "#<continuation>"),
             // #[cfg(feature = "jit")]
             // CompiledFunction(_) => write!(f, "#<compiled-function>"),
             ListV(l) => {

@@ -1,1 +1,1 @@
-pub use steel_parser::new_lexer::{OwnedTokenStream, TokenStream};
+pub use steel_parser::lexer::{OwnedTokenStream, TokenStream};

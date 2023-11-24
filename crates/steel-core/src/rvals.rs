@@ -9,7 +9,7 @@ use crate::{
         tokens::TokenType,
     },
     rerrs::{ErrorKind, SteelErr},
-    steel_vm::vm::{BuiltInSignature, Continuation, MaybeContinuation},
+    steel_vm::vm::{BuiltInSignature, MaybeContinuation},
     values::port::SteelPort,
     values::{
         closed::{HeapRef, MarkAndSweepContext},

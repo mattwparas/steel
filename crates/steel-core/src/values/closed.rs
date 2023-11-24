@@ -17,7 +17,7 @@ use crate::{
         FunctionSignature, FutureResult, MutFunctionSignature, SteelHashMap, SteelHashSet,
         SteelString, Syntax,
     },
-    steel_vm::vm::{BuiltInSignature, Continuation},
+    steel_vm::vm::BuiltInSignature,
     values::functions::ByteCodeLambda,
     SteelVal,
 };
