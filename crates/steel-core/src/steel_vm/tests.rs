@@ -192,8 +192,8 @@ mod register_fn_tests {
         let bar: String = vm.extract("bar").unwrap();
         assert_eq!("applesauce".to_string(), bar);
 
-        let baz: Result<String, String> = vm.extract("baz").unwrap();
-        assert_eq!("bananas".to_string(), baz.unwrap());
+        let baz: String = vm.extract("baz").unwrap();
+        assert_eq!("bananas".to_string(), baz);
 
         let res: usize = vm.extract("res").unwrap();
         assert_eq!(10, res);
