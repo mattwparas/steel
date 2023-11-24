@@ -6,6 +6,7 @@ use once_cell::sync::Lazy;
 
 use crate::compiler::map::SymbolMap;
 use crate::parser::interner::InternedString;
+use crate::rerrs::ErrorKind;
 use crate::rvals::{Custom, SerializableSteelVal, SteelHashMap};
 use crate::steel_vm::register_fn::RegisterFn;
 use crate::throw;
@@ -1078,28 +1079,42 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
     module
 }
 
-// impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for Result<T, E> {
-//     fn into_steelval(self) -> Result<SteelVal> {
-//         match self {
-//             Ok(s) => Ok()
-//         }
-//     }
-// }
+/// Result type that automatically maps into the equivalent Result type within Steel.
+/// For example, `Ok(10)` will map to `(Ok 10)`, and `Err(10)` will map to `(Err 10)`.
+pub struct SteelResult<T, E>(std::result::Result<T, E>);
+impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for SteelResult<T, E> {
+    #[inline(always)]
+    fn into_steelval(self) -> Result<SteelVal> {
+        match self.0 {
+            Ok(s) => UserDefinedStruct::new_ok(s),
+            Err(e) => UserDefinedStruct::new_err(e.into_steelval()?),
+        }
+    }
+}
 
-// impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for std::result::Result<T, E> {
-//     fn into_steelval(self) -> Result<SteelVal> {
-//         match self {
-//             Ok(s) => UserDefinedStruct::new_ok(s),
-//             Err(e) => UserDefinedStruct::new_err(format!("{:?}", e)),
-//         }
-//     }
-// }
+impl<T: IntoSteelVal, E: IntoSteelVal> From<SteelResult<T, E>> for std::result::Result<T, E> {
+    fn from(value: SteelResult<T, E>) -> Self {
+        value.0
+    }
+}
 
+impl<T: IntoSteelVal, E: IntoSteelVal> From<std::result::Result<T, E>> for SteelResult<T, E> {
+    fn from(value: std::result::Result<T, E>) -> Self {
+        SteelResult(value)
+    }
+}
+
+// By default, the standard result type will automatically unwrap ok values, and raise errors
+// if they occur as genuine steel errors. If you'd like to catch these, you can set up an exception handler.
+// The runtime cost for this is relatively low.
 impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for std::result::Result<T, E> {
     fn into_steelval(self) -> Result<SteelVal> {
         match self {
-            Ok(s) => UserDefinedStruct::new_ok(s),
-            Err(e) => UserDefinedStruct::new_err(e.into_steelval()?),
+            Ok(s) => s.into_steelval(),
+            Err(e) => Err(SteelErr::new(
+                ErrorKind::Generic,
+                e.into_steelval()?.to_string(),
+            )),
         }
     }
 }
