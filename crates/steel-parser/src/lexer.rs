@@ -515,11 +515,11 @@ mod lexer_tests {
 
     #[test]
     fn test_quote_within_word() {
-        let s = TokenStream::new("'foo\\'a", true, None);
+        let mut s = TokenStream::new("'foo\\'a", true, None);
 
-        // println!("{:?}", s.next());
-        // println!("{:?}", s.next());
-        // println!("{:?}", s.next());
+        println!("{:?}", s.next());
+        println!("{:?}", s.next());
+        println!("{:?}", s.next());
     }
 
     #[test]

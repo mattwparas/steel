@@ -645,6 +645,10 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
                     for value in &frame.function.captures {
                         self.push_back(value.clone());
                     }
+
+                    if let Some(handler) = &frame.handler {
+                        self.push_back((*handler.as_ref()).clone());
+                    }
                 }
             }
 

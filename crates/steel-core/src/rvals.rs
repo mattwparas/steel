@@ -1507,11 +1507,8 @@ impl SteelVal {
             (FutureFunc(l), FutureFunc(r)) => Rc::ptr_eq(l, r),
             (FutureV(l), FutureV(r)) => Gc::ptr_eq(l, r),
             (StreamV(l), StreamV(r)) => Gc::ptr_eq(l, r),
-            // (Contract(l), Contract(r)) => Gc::ptr_eq(l, r),
-            // (SteelVal::ContractedFunction(l), SteelVal::ContractedFunction(r)) => Gc::ptr_eq(l, r),
             (BoxedFunction(l), BoxedFunction(r)) => Rc::ptr_eq(l, r),
             (ContinuationFunction(l), ContinuationFunction(r)) => Continuation::ptr_eq(l, r),
-            // (CompiledFunction(_), CompiledFunction(_)) => todo!(),
             (ListV(l), ListV(r)) => {
                 l.ptr_eq(r) || l.storage_ptr_eq(r) || l.is_empty() && r.is_empty()
             }

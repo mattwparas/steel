@@ -45,7 +45,6 @@ use crate::values::lists::List;
 use log::{debug, log_enabled};
 use num::ToPrimitive;
 use once_cell::sync::Lazy;
-use slotmap::DefaultKey;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
 
@@ -140,7 +139,7 @@ impl DehydratedStackTrace {
 pub struct StackFrame {
     sp: usize,
     // This _has_ to be a function
-    handler: Option<DefaultKey>,
+    pub(crate) handler: Option<Rc<SteelVal>>,
     // This should get added to the GC as well
     #[cfg(not(feature = "unsafe-internals"))]
     pub(crate) function: Gc<ByteCodeLambda>,
@@ -171,12 +170,19 @@ impl PartialEq for StackFrame {
 
 #[test]
 fn check_sizes() {
-    // println!("{:?}", std::mem::size_of::<Option<SteelVal>>());
-    println!("{:?}", std::mem::size_of::<StackFrame>());
-    // println!("{:?}", std::mem::size_of::<Rc<[DenseInstruction]>>());
-    // println!("{:?}", std::mem::size_of::<Rc<[Span]>>());
-    // println!("{:?}", std::mem::size_of::<Gc<ByteCodeLambda>>());
-    // println!("{:?}", std::mem::size_of::<Option<slotmap::DefaultKey>>());
+    println!("stack frame: {:?}", std::mem::size_of::<StackFrame>());
+    println!(
+        "option rc steelval: {:?}",
+        std::mem::size_of::<Option<Rc<SteelVal>>>()
+    );
+    println!(
+        "option box steelval: {:?}",
+        std::mem::size_of::<Option<Box<SteelVal>>>()
+    );
+    println!(
+        "option steelval: {:?}",
+        std::mem::size_of::<Option<SteelVal>>()
+    );
 }
 
 impl StackFrame {
@@ -276,8 +282,8 @@ impl StackFrame {
     //     self.handler = Some(handler);
     // }
 
-    pub fn with_handler(mut self, handler: DefaultKey) -> Self {
-        self.handler = Some(handler);
+    pub fn with_handler(mut self, handler: SteelVal) -> Self {
+        self.handler = Some(Rc::new(handler));
         self
     }
 }
@@ -348,8 +354,6 @@ pub struct FunctionInterner {
     // Keep these around - each thread keeps track of the instructions on the bytecode object, but we shouldn't
     // need to dereference that until later? When we actually move to that
     instructions: fxhash::FxHashMap<usize, Rc<[DenseInstruction]>>,
-
-    handlers: Rc<RefCell<slotmap::SlotMap<DefaultKey, SteelVal>>>,
 }
 
 impl SteelThread {
@@ -488,8 +492,6 @@ impl SteelThread {
         #[cfg(feature = "profiling")]
         let execution_time = Instant::now();
 
-        let handler_ref = Rc::clone(&self.function_interner.handlers);
-
         let mut vm_instance =
             VmCore::new(instructions, constant_map, Rc::clone(&spans), self, &spans)?;
 
@@ -533,12 +535,10 @@ impl SteelThread {
 
                         vm_instance.thread.stack.push(e.into_steelval()?);
 
-                        let handler = &handler_ref.borrow()[handler];
-
                         // If we're at the top level, we need to handle this _slightly_ differently
                         // if vm_instance.stack_frames.is_empty() {
                         // Somehow update the main instruction group to _just_ be the new group
-                        match handler {
+                        match handler.as_ref() {
                             SteelVal::Closure(closure) => {
                                 if vm_instance.thread.stack_frames.is_empty() {
                                     vm_instance.sp = last.sp;
@@ -570,7 +570,9 @@ impl SteelThread {
 
                                 vm_instance.pop_count += 1;
                             }
-                            _ => todo!("Unsupported"),
+                            _ => {
+                                stop!(TypeMismatch => "expected a function for the exception handler, found: {}", handler)
+                            }
                         }
 
                         continue 'outer;
@@ -4213,15 +4215,6 @@ pub fn call_with_exception_handler(
             ctx.ip -= 1;
 
             ctx.sp = ctx.thread.stack.len();
-
-            // dbg!(&ctx.thread.stack);
-
-            let handler = ctx
-                .thread
-                .function_interner
-                .handlers
-                .borrow_mut()
-                .insert(handler);
 
             // Push the previous state on
             ctx.thread.stack_frames.push(

@@ -231,7 +231,6 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
                         .into_iter()
                         .map(|(k, v)| (k, v.into()))
                         .collect(),
-                    handlers: Rc::new(RefCell::new(slotmap::SlotMap::default())),
                 }
             ),
             super_instructions: Vec::new(),
