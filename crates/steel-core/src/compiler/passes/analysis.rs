@@ -3443,6 +3443,9 @@ impl<'a> SemanticAnalysis<'a> {
 
         // Only constant evaluatable functions should be ones that references _other_ const functions
         map.into_iter()
+            // This can be better - but this more or less excludes anything recursive from being evaluated
+            // by the constant evaluator.
+            .filter(|(k, v)| !v.contains(k))
             .filter(|(_, v)| {
                 !v.is_empty() && v.is_disjoint(&global_keys_that_reference_non_constant_function)
             })
