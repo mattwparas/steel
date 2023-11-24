@@ -16,7 +16,7 @@
                                        (time/sleep-ms 2000)
                                        (stdout-simple-displayln (thread::current/id)))))
                     (range 0 10))])
-    (map (lambda (x) (unwrap-ok (thread-join! x))) tasks)))
+    (map (lambda (x) (thread-join! x)) tasks)))
 
 ; (error "HELLO WORLD")
 

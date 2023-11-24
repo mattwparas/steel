@@ -10,7 +10,7 @@
          get-ws-url)
 
 (define (env-var! var)
-  (let ([e (env-var var)]) (if (Err? e) "TODO" (unwrap-ok e))))
+  (let ([e (maybe-get-env-var var)]) (if (Err? e) "TODO" (unwrap-ok e))))
 
 (define client (request/client))
 
