@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     rvals::{OpaqueIterator, SteelVector},
-    steel_vm::vm::MaybeContinuation,
+    steel_vm::vm::{ContinuationMark, MaybeContinuation},
     values::lists::List,
 };
 use num::BigInt;
@@ -600,6 +600,21 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
         }
     }
 
+    fn visit_bignum(&mut self, _bignum: Gc<BigInt>) -> Self::Output {}
+
+    fn visit_bool(&mut self, _boolean: bool) -> Self::Output {}
+    fn visit_boxed_function(&mut self, _function: Rc<BoxedDynFunction>) -> Self::Output {}
+    // TODO: Revisit this when the boxed iterator is cleaned up
+    fn visit_boxed_iterator(&mut self, iterator: Gc<RefCell<OpaqueIterator>>) -> Self::Output {
+        self.push_back(iterator.borrow().root.clone());
+    }
+    fn visit_boxed_value(&mut self, boxed_value: Gc<RefCell<SteelVal>>) -> Self::Output {
+        self.push_back(boxed_value.borrow().clone());
+    }
+
+    fn visit_builtin_function(&mut self, _function: BuiltInSignature) -> Self::Output {}
+
+    fn visit_char(&mut self, _c: char) -> Self::Output {}
     fn visit_closure(&mut self, closure: Gc<ByteCodeLambda>) -> Self::Output {
         for heap_ref in closure.heap_allocated.borrow().iter() {
             self.mark_heap_reference(&heap_ref.strong_ptr())
@@ -613,27 +628,49 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
             self.push_back(contract.clone());
         }
     }
+    fn visit_continuation(&mut self, continuation: MaybeContinuation) -> Self::Output {
+        let continuation = (*continuation.inner.borrow()).clone();
 
-    fn visit_bool(&mut self, _boolean: bool) -> Self::Output {}
-    fn visit_float(&mut self, _float: f64) -> Self::Output {}
-    fn visit_int(&mut self, _int: isize) -> Self::Output {}
-    fn visit_char(&mut self, _c: char) -> Self::Output {}
+        match continuation {
+            ContinuationMark::Closed(continuation) => {
+                for value in &continuation.stack {
+                    self.push_back(value.clone());
+                }
 
-    fn visit_immutable_vector(&mut self, vector: SteelVector) -> Self::Output {
-        for value in vector.iter() {
-            self.push_back(value.clone());
+                for value in &continuation.current_frame.function.captures {
+                    self.push_back(value.clone());
+                }
+
+                for frame in &continuation.stack_frames {
+                    for value in &frame.function.captures {
+                        self.push_back(value.clone());
+                    }
+                }
+            }
+
+            ContinuationMark::Open(continuation) => {
+                for value in &continuation.current_stack_values {
+                    self.push_back(value.clone());
+                }
+
+                for value in &continuation.current_frame.function.captures {
+                    self.push_back(value.clone());
+                }
+            }
         }
     }
-
-    fn visit_void(&mut self) -> Self::Output {}
-    fn visit_string(&mut self, _string: SteelString) -> Self::Output {}
-    fn visit_function_pointer(&mut self, _ptr: FunctionSignature) -> Self::Output {}
-    fn visit_symbol(&mut self, _symbol: SteelString) -> Self::Output {}
-
     // TODO: Come back to this
     fn visit_custom_type(&mut self, custom_type: Gc<RefCell<Box<dyn CustomType>>>) -> Self::Output {
         custom_type.borrow().visit_children(self);
     }
+
+    fn visit_float(&mut self, _float: f64) -> Self::Output {}
+
+    fn visit_function_pointer(&mut self, _ptr: FunctionSignature) -> Self::Output {}
+
+    fn visit_future(&mut self, _future: Gc<FutureResult>) -> Self::Output {}
+
+    fn visit_future_function(&mut self, _function: BoxedAsyncFunctionSignature) -> Self::Output {}
 
     fn visit_hash_map(&mut self, hashmap: SteelHashMap) -> Self::Output {
         for (key, value) in hashmap.iter() {
@@ -648,13 +685,67 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
         }
     }
 
+    fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output {
+        self.mark_heap_reference(&heap_ref.strong_ptr());
+    }
+
+    fn visit_immutable_vector(&mut self, vector: SteelVector) -> Self::Output {
+        for value in vector.iter() {
+            self.push_back(value.clone());
+        }
+    }
+    fn visit_int(&mut self, _int: isize) -> Self::Output {}
+
+    fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output {
+        for value in list {
+            self.push_back(value);
+        }
+    }
+
+    fn visit_mutable_function(&mut self, _function: MutFunctionSignature) -> Self::Output {}
+
+    fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output {
+        self.mark_heap_vector(&vector.strong_ptr())
+    }
+
+    fn visit_port(&mut self, _port: Gc<SteelPort>) -> Self::Output {}
+
+    fn visit_reducer(&mut self, reducer: Gc<Reducer>) -> Self::Output {
+        match reducer.as_ref().clone() {
+            Reducer::ForEach(f) => self.push_back(f),
+            Reducer::Generic(rf) => {
+                self.push_back(rf.initial_value);
+                self.push_back(rf.function);
+            }
+            _ => {}
+        }
+    }
+
+    // TODO: Revisit this
+    fn visit_reference_value(&mut self, _reference: Rc<OpaqueReference<'static>>) -> Self::Output {}
+
     fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output {
         for field in steel_struct.fields.iter() {
             self.push_back(field.clone());
         }
     }
 
-    fn visit_port(&mut self, _port: Gc<SteelPort>) -> Self::Output {}
+    fn visit_stream(&mut self, stream: Gc<LazyStream>) -> Self::Output {
+        self.push_back(stream.initial_value.clone());
+        self.push_back(stream.stream_thunk.clone());
+    }
+
+    fn visit_string(&mut self, _string: SteelString) -> Self::Output {}
+
+    fn visit_symbol(&mut self, _symbol: SteelString) -> Self::Output {}
+
+    fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) -> Self::Output {
+        if let Some(raw) = syntax_object.raw.clone() {
+            self.push_back(raw);
+        }
+
+        self.push_back(syntax_object.syntax.clone());
+    }
 
     fn visit_transducer(&mut self, transducer: Gc<Transducer>) -> Self::Output {
         for transducer in transducer.ops.iter() {
@@ -677,80 +768,5 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
         }
     }
 
-    fn visit_reducer(&mut self, reducer: Gc<Reducer>) -> Self::Output {
-        match reducer.as_ref().clone() {
-            Reducer::ForEach(f) => self.push_back(f),
-            Reducer::Generic(rf) => {
-                self.push_back(rf.initial_value);
-                self.push_back(rf.function);
-            }
-            _ => {}
-        }
-    }
-
-    fn visit_future_function(&mut self, _function: BoxedAsyncFunctionSignature) -> Self::Output {}
-    fn visit_future(&mut self, _future: Gc<FutureResult>) -> Self::Output {}
-
-    fn visit_stream(&mut self, stream: Gc<LazyStream>) -> Self::Output {
-        self.push_back(stream.initial_value.clone());
-        self.push_back(stream.stream_thunk.clone());
-    }
-
-    fn visit_boxed_function(&mut self, _function: Rc<BoxedDynFunction>) -> Self::Output {}
-
-    fn visit_continuation(&mut self, continuation: MaybeContinuation) -> Self::Output {
-        // for value in &continuation.stack {
-        //     self.push_back(value.clone());
-        // }
-
-        // for value in &continuation.current_frame.function.captures {
-        //     self.push_back(value.clone());
-        // }
-
-        // for frame in &continuation.stack_frames {
-        //     for value in &frame.function.captures {
-        //         self.push_back(value.clone());
-        //     }
-        // }
-    }
-
-    fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output {
-        for value in list {
-            self.push_back(value);
-        }
-    }
-
-    fn visit_mutable_function(&mut self, _function: MutFunctionSignature) -> Self::Output {}
-
-    fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output {
-        self.mark_heap_vector(&vector.strong_ptr())
-    }
-
-    fn visit_builtin_function(&mut self, _function: BuiltInSignature) -> Self::Output {}
-
-    // TODO: Revisit this when the boxed iterator is cleaned up
-    fn visit_boxed_iterator(&mut self, iterator: Gc<RefCell<OpaqueIterator>>) -> Self::Output {
-        self.push_back(iterator.borrow().root.clone());
-    }
-
-    fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) -> Self::Output {
-        if let Some(raw) = syntax_object.raw.clone() {
-            self.push_back(raw);
-        }
-
-        self.push_back(syntax_object.syntax.clone());
-    }
-
-    fn visit_boxed_value(&mut self, boxed_value: Gc<RefCell<SteelVal>>) -> Self::Output {
-        self.push_back(boxed_value.borrow().clone());
-    }
-
-    // TODO: Revisit this
-    fn visit_reference_value(&mut self, _reference: Rc<OpaqueReference<'static>>) -> Self::Output {}
-
-    fn visit_bignum(&mut self, _bignum: Gc<BigInt>) -> Self::Output {}
-
-    fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output {
-        self.mark_heap_reference(&heap_ref.strong_ptr());
-    }
+    fn visit_void(&mut self) -> Self::Output {}
 }

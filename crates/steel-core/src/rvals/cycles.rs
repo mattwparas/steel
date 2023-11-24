@@ -2,7 +2,7 @@ use std::{cell::Cell, collections::VecDeque};
 
 use num::BigInt;
 
-use crate::steel_vm::{builtin::get_function_name, engine::Engine};
+use crate::steel_vm::{builtin::get_function_name, engine::Engine, vm::ContinuationMark};
 
 use super::*;
 
@@ -973,25 +973,41 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
     // Walk the whole thing! This includes the stack and all the stack frames
     fn visit_continuation(&mut self, continuation: MaybeContinuation) {
-        // if let Ok(mut inner) = continuation.try_unwrap() {
-        //     for value in std::mem::take(&mut inner.stack) {
-        //         self.push_back(value);
-        //     }
+        if let Ok(inner) = Rc::try_unwrap(continuation.inner).map(RefCell::into_inner) {
+            match inner {
+                ContinuationMark::Closed(mut inner) => {
+                    for value in std::mem::take(&mut inner.stack) {
+                        self.push_back(value);
+                    }
 
-        //     if let Some(inner) = inner.current_frame.function.get_mut() {
-        //         for value in std::mem::take(&mut inner.captures) {
-        //             self.push_back(value);
-        //         }
-        //     }
+                    if let Some(inner) = inner.current_frame.function.get_mut() {
+                        for value in std::mem::take(&mut inner.captures) {
+                            self.push_back(value);
+                        }
+                    }
 
-        //     for mut frame in std::mem::take(&mut inner.stack_frames) {
-        //         if let Some(inner) = frame.function.get_mut() {
-        //             for value in std::mem::take(&mut inner.captures) {
-        //                 self.push_back(value);
-        //             }
-        //         }
-        //     }
-        // }
+                    for mut frame in std::mem::take(&mut inner.stack_frames) {
+                        if let Some(inner) = frame.function.get_mut() {
+                            for value in std::mem::take(&mut inner.captures) {
+                                self.push_back(value);
+                            }
+                        }
+                    }
+                }
+
+                ContinuationMark::Open(mut inner) => {
+                    for value in inner.current_stack_values {
+                        self.push_back(value);
+                    }
+
+                    if let Some(inner) = inner.current_frame.function.get_mut() {
+                        for value in std::mem::take(&mut inner.captures) {
+                            self.push_back(value);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn visit_list(&mut self, list: List<SteelVal>) {

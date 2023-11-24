@@ -524,8 +524,6 @@ impl SteelThread {
                         vm_instance.sp = vm_instance.get_last_stack_frame_sp();
                         vm_instance.instructions = Rc::clone(&last.instructions);
 
-                        println!("CLOSING CONTINUATION INSIDE OF ERROR!");
-
                         vm_instance.close_continuation_marks(&last);
                     }
 
@@ -636,15 +634,15 @@ impl SteelThread {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct OpenContinuationMark {
+pub struct OpenContinuationMark {
     // Lazily capture the frames we need to?
-    current_frame: StackFrame,
-    stack_frame_offset: usize,
+    pub(crate) current_frame: StackFrame,
+    pub(crate) stack_frame_offset: usize,
     instructions: Rc<[DenseInstruction]>,
 
     // Captured at creation, everything on the stack
     // from the current frame
-    current_stack_values: Vec<SteelVal>,
+    pub(crate) current_stack_values: Vec<SteelVal>,
 
     ip: usize,
     sp: usize,
@@ -656,7 +654,7 @@ struct OpenContinuationMark {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 // TODO: This should replace the continuation value.
-enum ContinuationMark {
+pub enum ContinuationMark {
     Closed(Continuation),
     Open(OpenContinuationMark),
 }
@@ -755,6 +753,9 @@ impl MaybeContinuation {
                     if Rc::ptr_eq(&mark, &this.inner) {
                         if weak_count == 1 && strong_count > 1 {
                             if Self::close_marks(ctx, &stack_frame) {
+                                // TODO: We shouldn't have to both close the frame and also
+                                // set state from the continuation in both spots. There is a nefarious
+                                // bug here that I haven't yet resolved.
                                 let definitely_closed =
                                     this.inner.borrow().clone().into_closed().unwrap();
 
@@ -785,12 +786,12 @@ impl MaybeContinuation {
                             );
                             debug_assert_eq!(ctx.thread.stack, open.closed_continuation.stack);
 
-                            // debug_assert_eq!(ctx.pop_count, open.closed_continuation.pop_count);
+                            debug_assert_eq!(ctx.pop_count, open.closed_continuation.pop_count);
 
-                            // debug_assert_eq!(
-                            //     ctx.thread.stack_frames,
-                            //     open.closed_continuation.stack_frames
-                            // );
+                            debug_assert_eq!(
+                                ctx.thread.stack_frames,
+                                open.closed_continuation.stack_frames
+                            );
                         }
 
                         return;
@@ -832,12 +833,12 @@ impl MaybeContinuation {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MaybeContinuation {
     // TODO: This _might_ need to be a weak reference. We'll see!
-    inner: Rc<RefCell<ContinuationMark>>,
+    pub(crate) inner: Rc<RefCell<ContinuationMark>>,
 }
 
 #[derive(Clone, Debug)]
 struct WeakContinuation {
-    inner: Weak<RefCell<ContinuationMark>>,
+    pub(crate) inner: Weak<RefCell<ContinuationMark>>,
 }
 
 impl WeakContinuation {
