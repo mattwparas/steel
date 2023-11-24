@@ -9,7 +9,7 @@
   (if (ends-with? path "/") (string-append path dir-name) (string-append path "/" dir-name)))
 
 (define (path-from-steel-home dir)
-  (~> "STEEL_HOME" (env-var) (unwrap-ok) (append-with-separator dir)))
+  (~> "STEEL_HOME" (env-var) (append-with-separator dir)))
 
 (define *COG_DIR* (path-from-steel-home "cogs"))
 (define *NATIVE_SOURCES_DIR* (path-from-steel-home "sources"))

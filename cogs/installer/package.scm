@@ -14,7 +14,7 @@
   (if (ends-with? path "/") (string-append path "cogs") (string-append path "/cogs")))
 
 ;; Should make this lazy?
-(define *STEEL_HOME* (~> "STEEL_HOME" (env-var) (unwrap-ok) (append-with-separator)))
+(define *STEEL_HOME* (~> "STEEL_HOME" (env-var) (append-with-separator)))
 
 (define/contract (parse-cog module)
   (->/c string? list?)

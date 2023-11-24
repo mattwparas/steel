@@ -38,7 +38,7 @@ use crate::{
     values::{
         closed::HeapRef,
         functions::{attach_contract_struct, get_contract, LambdaMetadataTable},
-        structs::{build_type_id_module, make_struct_type, UserDefinedStruct},
+        structs::{build_type_id_module, make_struct_type, SteelResult, UserDefinedStruct},
     },
 };
 use crate::{
@@ -1043,6 +1043,13 @@ fn get_environment_variable(var: String) -> Result<SteelVal> {
         .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
 }
 
+fn maybe_get_environment_variable(var: String) -> SteelResult<SteelVal, SteelErr> {
+    std::env::var(var)
+        .map(|x| x.into_steelval().unwrap())
+        .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
+        .into()
+}
+
 fn sandboxed_meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta");
     module
@@ -1433,6 +1440,7 @@ fn meta_module() -> BuiltInModule {
         .register_value("#%iterator-finished", ITERATOR_FINISHED.with(|x| x.clone()))
         .register_value("%iterator?", gen_pred!(BoxedIterator))
         .register_fn("env-var", get_environment_variable)
+        .register_fn("maybe-get-env-var", maybe_get_environment_variable)
         .register_fn("set-env-var!", std::env::set_var::<String, String>)
         .register_fn("arity?", arity)
         .register_fn("function-name", lookup_function_name)

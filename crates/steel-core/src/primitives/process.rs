@@ -7,6 +7,7 @@ use im_lists::list::List;
 
 use crate::gc::Gc;
 use crate::values::port::SteelPort;
+use crate::values::structs::SteelResult;
 use crate::SteelVal;
 use crate::{rvals::Custom, steel_vm::builtin::BuiltInModule};
 use crate::{steel_vm::register_fn::RegisterFn, SteelErr};
@@ -92,7 +93,7 @@ impl ChildProcess {
 
         //     todo!()
     }
-    pub fn wait(&mut self) -> Result<ProcessExitStatus, SteelErr> {
+    fn wait_impl(&mut self) -> Result<ProcessExitStatus, SteelErr> {
         self.child
             .take()
             .ok_or_else(crate::throw!(Generic => "Child already awaited!"))?
@@ -101,7 +102,11 @@ impl ChildProcess {
             .map_err(|x| x.into())
     }
 
-    pub fn wait_with_stdout(&mut self) -> Result<String, SteelErr> {
+    pub fn wait(&mut self) -> SteelResult<ProcessExitStatus, SteelErr> {
+        self.wait_impl().into()
+    }
+
+    fn wait_with_stdout_impl(&mut self) -> Result<String, SteelErr> {
         let stdout = self
             .child
             .take()
@@ -111,6 +116,10 @@ impl ChildProcess {
 
         String::from_utf8(stdout)
             .map_err(|e| SteelErr::new(crate::rerrs::ErrorKind::ConversionError, e.to_string()))
+    }
+
+    pub fn wait_with_stdout(&mut self) -> SteelResult<String, SteelErr> {
+        self.wait_with_stdout_impl().into()
     }
 }
 
@@ -133,11 +142,12 @@ impl CommandBuilder {
         self.command.stdin(Stdio::piped());
     }
 
-    pub fn spawn_process(&mut self) -> Result<ChildProcess, SteelErr> {
+    pub fn spawn_process(&mut self) -> SteelResult<ChildProcess, SteelErr> {
         self.command
             .spawn()
             .map(ChildProcess::new)
             .map_err(|x| x.into())
+            .into()
     }
 }
 
