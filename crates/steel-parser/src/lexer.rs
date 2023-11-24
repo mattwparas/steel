@@ -1,4 +1,4 @@
-use crate::tokens::{Token, TokenType};
+use crate::tokens::{MaybeBigInt, Token, TokenType};
 use std::iter::Iterator;
 use std::marker::PhantomData;
 
@@ -170,15 +170,24 @@ impl<'a> Lexer<'a> {
             "#,@" => Ok(TokenType::UnquoteSpliceSyntax),
 
             hex if hex.starts_with("#x") => {
-                todo!()
+                let hex = isize::from_str_radix(hex.strip_prefix("#x").unwrap(), 16)
+                    .map_err(|_| TokenError::MalformedHexInteger)?;
+
+                Ok(TokenType::IntegerLiteral(MaybeBigInt::Small(hex)))
             }
 
             octal if octal.starts_with("#o") => {
-                todo!()
+                let hex = isize::from_str_radix(octal.strip_prefix("#o").unwrap(), 8)
+                    .map_err(|_| TokenError::MalformedOctalInteger)?;
+
+                Ok(TokenType::IntegerLiteral(MaybeBigInt::Small(hex)))
             }
 
             binary if binary.starts_with("#b") => {
-                todo!()
+                let hex = isize::from_str_radix(binary.strip_prefix("#b").unwrap(), 2)
+                    .map_err(|_| TokenError::MalformedBinaryInteger)?;
+
+                Ok(TokenType::IntegerLiteral(MaybeBigInt::Small(hex)))
             }
 
             keyword if keyword.starts_with("#:") => Ok(TokenType::Keyword(self.slice())),
@@ -376,14 +385,13 @@ pub type Result<T> = std::result::Result<T, TokenError>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum TokenError {
-    // #[error("Unexpected char, {0}")]
     UnexpectedChar(char),
-    // #[error("Incomplete String")]
     IncompleteString,
-    // #[error("Invalid Escape")]
     InvalidEscape,
-    // #[error("Invalid Character")]
     InvalidCharacter,
+    MalformedHexInteger,
+    MalformedOctalInteger,
+    MalformedBinaryInteger,
 }
 
 impl<'a> Iterator for Lexer<'a> {
