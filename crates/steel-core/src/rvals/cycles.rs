@@ -2,7 +2,9 @@ use std::{cell::Cell, collections::VecDeque};
 
 use num::BigInt;
 
-use crate::steel_vm::{builtin::get_function_name, engine::Engine, vm::ContinuationMark};
+use crate::steel_vm::{
+    builtin::get_function_name, engine::Engine, vm::Continuation, vm::ContinuationMark,
+};
 
 use super::*;
 
@@ -626,7 +628,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
     fn visit_future(&mut self, _future: Gc<FutureResult>) -> Self::Output {}
     fn visit_stream(&mut self, _stream: Gc<LazyStream>) -> Self::Output {}
     fn visit_boxed_function(&mut self, _function: Rc<BoxedDynFunction>) -> Self::Output {}
-    fn visit_continuation(&mut self, _continuation: MaybeContinuation) -> Self::Output {}
+    fn visit_continuation(&mut self, _continuation: Continuation) -> Self::Output {}
 
     fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output {
         if !self.add(list.as_ptr_usize(), &SteelVal::ListV(list.clone())) {
@@ -972,7 +974,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
     }
 
     // Walk the whole thing! This includes the stack and all the stack frames
-    fn visit_continuation(&mut self, continuation: MaybeContinuation) {
+    fn visit_continuation(&mut self, continuation: Continuation) {
         if let Ok(inner) = Rc::try_unwrap(continuation.inner).map(RefCell::into_inner) {
             match inner {
                 ContinuationMark::Closed(mut inner) => {
@@ -1188,7 +1190,7 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_future(&mut self, future: Gc<FutureResult>) -> Self::Output;
     fn visit_stream(&mut self, stream: Gc<LazyStream>) -> Self::Output;
     fn visit_boxed_function(&mut self, function: Rc<BoxedDynFunction>) -> Self::Output;
-    fn visit_continuation(&mut self, continuation: MaybeContinuation) -> Self::Output;
+    fn visit_continuation(&mut self, continuation: Continuation) -> Self::Output;
     fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output;
     fn visit_mutable_function(&mut self, function: MutFunctionSignature) -> Self::Output;
     fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output;
@@ -1277,7 +1279,7 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
     fn visit_future(&mut self, future: &'a Gc<FutureResult>) -> Self::Output;
     fn visit_stream(&mut self, stream: &'a Gc<LazyStream>) -> Self::Output;
     fn visit_boxed_function(&mut self, function: &'a Rc<BoxedDynFunction>) -> Self::Output;
-    fn visit_continuation(&mut self, continuation: &'a MaybeContinuation) -> Self::Output;
+    fn visit_continuation(&mut self, continuation: &'a Continuation) -> Self::Output;
     fn visit_list(&mut self, list: &'a List<SteelVal>) -> Self::Output;
     fn visit_mutable_function(&mut self, function: &'a MutFunctionSignature) -> Self::Output;
     fn visit_mutable_vector(&mut self, vector: &'a HeapRef<Vec<SteelVal>>) -> Self::Output;
@@ -1606,7 +1608,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
                 }
                 // FutureV(f) => self.visit_future(f),
                 (ContinuationFunction(l), ContinuationFunction(r)) => {
-                    if !MaybeContinuation::ptr_eq(&l, &r) {
+                    if !Continuation::ptr_eq(&l, &r) {
                         return false;
                     }
 
@@ -1789,7 +1791,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
 
     fn visit_stream(&mut self, _stream: Gc<LazyStream>) -> Self::Output {}
 
-    fn visit_continuation(&mut self, _continuation: MaybeContinuation) -> Self::Output {}
+    fn visit_continuation(&mut self, _continuation: Continuation) -> Self::Output {}
 
     fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output {
         for value in list.iter() {

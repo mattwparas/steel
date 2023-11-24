@@ -205,7 +205,7 @@ impl StackFrame {
         }
     }
 
-    fn with_continuation_mark(mut self, continuation_mark: MaybeContinuation) -> Self {
+    fn with_continuation_mark(mut self, continuation_mark: Continuation) -> Self {
         self.weak_continuation_mark = Some(WeakContinuation::from_strong(&continuation_mark));
 
         self
@@ -264,7 +264,7 @@ impl StackFrame {
     }
 
     #[inline(always)]
-    pub fn set_continuation(&mut self, continuation: &MaybeContinuation) {
+    pub fn set_continuation(&mut self, continuation: &Continuation) {
         self.weak_continuation_mark = Some(WeakContinuation::from_strong(&continuation));
     }
 
@@ -599,7 +599,7 @@ impl SteelThread {
                 // dbg!(self.stack_frames.len());
 
                 for frame in &vm_instance.thread.stack_frames {
-                    if MaybeContinuation::close_marks(&vm_instance, &frame) {
+                    if Continuation::close_marks(&vm_instance, &frame) {
                         println!("_____ Closed frame in pop ______");
                     }
                 }
@@ -649,13 +649,13 @@ pub struct OpenContinuationMark {
     pop_count: usize,
 
     #[cfg(debug_assertions)]
-    closed_continuation: Continuation,
+    closed_continuation: ClosedContinuation,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 // TODO: This should replace the continuation value.
 pub enum ContinuationMark {
-    Closed(Continuation),
+    Closed(ClosedContinuation),
     Open(OpenContinuationMark),
 }
 
@@ -703,7 +703,7 @@ impl ContinuationMark {
         }
     }
 
-    fn into_closed(self) -> Option<Continuation> {
+    fn into_closed(self) -> Option<ClosedContinuation> {
         if let Self::Closed(closed) = self {
             Some(closed)
         } else {
@@ -712,7 +712,7 @@ impl ContinuationMark {
     }
 }
 
-impl MaybeContinuation {
+impl Continuation {
     pub fn close_marks(ctx: &VmCore<'_>, stack_frame: &StackFrame) -> bool {
         if let Some(cont_mark) = stack_frame
             .weak_continuation_mark
@@ -831,7 +831,7 @@ impl MaybeContinuation {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct MaybeContinuation {
+pub struct Continuation {
     // TODO: This _might_ need to be a weak reference. We'll see!
     pub(crate) inner: Rc<RefCell<ContinuationMark>>,
 }
@@ -842,7 +842,7 @@ struct WeakContinuation {
 }
 
 impl WeakContinuation {
-    fn from_strong(cont: &MaybeContinuation) -> Self {
+    fn from_strong(cont: &Continuation) -> Self {
         Self {
             inner: Rc::downgrade(&cont.inner),
         }
@@ -850,7 +850,7 @@ impl WeakContinuation {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Continuation {
+pub struct ClosedContinuation {
     pub(crate) stack: Vec<SteelVal>,
     pub(crate) current_frame: StackFrame,
     instructions: Rc<[DenseInstruction]>,
@@ -860,7 +860,7 @@ pub struct Continuation {
     pop_count: usize,
 
     #[cfg(debug_assertions)]
-    closed_continuation: Option<Box<Continuation>>,
+    closed_continuation: Option<Box<ClosedContinuation>>,
 }
 
 pub trait VmContext {
@@ -1135,7 +1135,7 @@ impl<'a> VmCore<'a> {
         );
     }
 
-    fn new_open_continuation_from_state(&self) -> MaybeContinuation {
+    fn new_open_continuation_from_state(&self) -> Continuation {
         // println!("Creating new open continuation");
 
         // return MaybeContinuation {
@@ -1146,7 +1146,7 @@ impl<'a> VmCore<'a> {
 
         let offset = self.get_offset();
 
-        MaybeContinuation {
+        Continuation {
             inner: Rc::new(RefCell::new(ContinuationMark::Open(OpenContinuationMark {
                 current_frame: self.thread.stack_frames.last().unwrap().clone(),
                 stack_frame_offset: self.thread.stack.len(),
@@ -1162,11 +1162,11 @@ impl<'a> VmCore<'a> {
     }
 
     // Could be neat at some point: https://docs.rs/stacker/latest/stacker/
-    fn new_closed_continuation_from_state(&self) -> Continuation {
+    fn new_closed_continuation_from_state(&self) -> ClosedContinuation {
         // dbg!(&self.thread.stack.len());
         // dbg!(&self.thread.stack_frames.len());
 
-        Continuation {
+        ClosedContinuation {
             stack: self.thread.stack.clone(),
             instructions: Rc::clone(&self.instructions),
             current_frame: self.thread.stack_frames.last().unwrap().clone(),
@@ -1180,8 +1180,8 @@ impl<'a> VmCore<'a> {
     }
 
     // Grab the continuation - but this continuation can only be played once
-    fn new_oneshot_continuation_from_state(&mut self) -> Continuation {
-        Continuation {
+    fn new_oneshot_continuation_from_state(&mut self) -> ClosedContinuation {
+        ClosedContinuation {
             stack: std::mem::take(&mut self.thread.stack),
             instructions: Rc::clone(&self.instructions),
             current_frame: self.thread.current_frame.clone(),
@@ -1214,7 +1214,7 @@ impl<'a> VmCore<'a> {
     }
 
     // #[inline(always)]
-    fn set_state_from_continuation(&mut self, continuation: Continuation) {
+    fn set_state_from_continuation(&mut self, continuation: ClosedContinuation) {
         // dbg!(&continuation.stack);
 
         // Linked list of frames perhaps?
@@ -1274,7 +1274,7 @@ impl<'a> VmCore<'a> {
     }
 
     // #[inline(always)]
-    fn construct_continuation_function(&self) -> MaybeContinuation {
+    fn construct_continuation_function(&self) -> Continuation {
         // let captured_continuation = self.new_continuation_from_state();
 
         let continuation = self.new_open_continuation_from_state();
@@ -2536,7 +2536,7 @@ impl<'a> VmCore<'a> {
         // the values out of the existing frame, and "close" the open continuation. That way the continuation (if called)
         // does not need to actually copy the entire frame eagerly, but rather can do so lazily.
 
-        MaybeContinuation::close_marks(self, last)
+        Continuation::close_marks(self, last)
     }
 
     #[inline(always)]
@@ -3544,7 +3544,7 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     // TODO: See if calling continuations can be implemented in terms of the core ABI
     // That way, we dont need a special "continuation" function
-    fn call_continuation(&mut self, continuation: MaybeContinuation) -> Result<()> {
+    fn call_continuation(&mut self, continuation: Continuation) -> Result<()> {
         let last =
             self.thread.stack.pop().ok_or_else(
                 throw!(ArityMismatch => "continuation expected 1 argument, found none"),
@@ -3552,7 +3552,7 @@ impl<'a> VmCore<'a> {
 
         // println!("Calling continuation...");
 
-        MaybeContinuation::set_state_from_continuation(self, continuation);
+        Continuation::set_state_from_continuation(self, continuation);
 
         // match Gc::try_unwrap(continuation) {
         //     Ok(cont) => {
@@ -4359,7 +4359,7 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
 
             // println!("Setting state from continuation...");
 
-            MaybeContinuation::set_state_from_continuation(ctx, cc);
+            Continuation::set_state_from_continuation(ctx, cc);
 
             ctx.ip += 1;
             // ctx.stack.push(continuation);
@@ -4456,7 +4456,7 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
                 SteelVal::ContinuationFunction(cc) => {
                     // ctx.set_state_from_continuation(cc.unwrap());
 
-                    MaybeContinuation::set_state_from_continuation(ctx, cc.clone());
+                    Continuation::set_state_from_continuation(ctx, cc.clone());
 
                     ctx.ip += 1;
 

@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     rvals::{OpaqueIterator, SteelVector},
-    steel_vm::vm::{ContinuationMark, MaybeContinuation},
+    steel_vm::vm::{Continuation, ContinuationMark},
     values::lists::List,
 };
 use num::BigInt;
@@ -628,7 +628,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
             self.push_back(contract.clone());
         }
     }
-    fn visit_continuation(&mut self, continuation: MaybeContinuation) -> Self::Output {
+    fn visit_continuation(&mut self, continuation: Continuation) -> Self::Output {
         let continuation = (*continuation.inner.borrow()).clone();
 
         match continuation {
