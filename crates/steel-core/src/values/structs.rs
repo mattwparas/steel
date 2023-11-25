@@ -1079,6 +1079,30 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
     module
 }
 
+pub struct RecoverableResult<T, E>(std::result::Result<T, E>);
+
+impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for RecoverableResult<T, E> {
+    #[inline(always)]
+    fn into_steelval(self) -> Result<SteelVal> {
+        match self.0 {
+            Ok(s) => s.into_steelval(),
+            Err(e) => UserDefinedStruct::new_err(e.into_steelval()?),
+        }
+    }
+}
+
+impl<T: IntoSteelVal, E: IntoSteelVal> From<RecoverableResult<T, E>> for std::result::Result<T, E> {
+    fn from(value: RecoverableResult<T, E>) -> Self {
+        value.0
+    }
+}
+
+impl<T: IntoSteelVal, E: IntoSteelVal> From<std::result::Result<T, E>> for RecoverableResult<T, E> {
+    fn from(value: std::result::Result<T, E>) -> Self {
+        RecoverableResult(value)
+    }
+}
+
 /// Result type that automatically maps into the equivalent Result type within Steel.
 /// For example, `Ok(10)` will map to `(Ok 10)`, and `Err(10)` will map to `(Err 10)`.
 pub struct SteelResult<T, E>(std::result::Result<T, E>);
