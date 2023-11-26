@@ -560,15 +560,13 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
         ) = (push, func)
         {
             let replaced = match *ident {
-                x if (x == *PLUS || x == *PRIM_PLUS) && *payload_size == 2 => {
-                    Some(OpCode::BINOPADD)
-                }
-                x if x == *PLUS || x == *PRIM_PLUS => Some(OpCode::ADD),
-                x if x == *MINUS || x == *PRIM_MINUS => Some(OpCode::SUB),
-                x if x == *DIV || x == *PRIM_DIV => Some(OpCode::DIV),
-                x if x == *STAR || x == *PRIM_STAR => Some(OpCode::MUL),
-                x if x == *EQUAL || x == *PRIM_EQUAL => Some(OpCode::EQUAL),
-                x if x == *LTE || x == *PRIM_LTE => Some(OpCode::LTE),
+                x if x == *PRIM_PLUS && *payload_size == 2 => Some(OpCode::BINOPADD),
+                x if x == *PRIM_PLUS => Some(OpCode::ADD),
+                x if x == *PRIM_MINUS => Some(OpCode::SUB),
+                x if x == *PRIM_DIV => Some(OpCode::DIV),
+                x if x == *PRIM_STAR => Some(OpCode::MUL),
+                x if x == *PRIM_EQUAL => Some(OpCode::EQUAL),
+                x if x == *PRIM_LTE => Some(OpCode::LTE),
                 _ => None,
             };
 

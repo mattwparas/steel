@@ -1582,9 +1582,28 @@ impl Engine {
     // TODO this does not take into account the issues with
     // people registering new functions that shadow the original one
     fn constants(&mut self) -> ImmutableHashMap<InternedString, SteelVal> {
-        if let Some(hm) = self.constants.clone() {
+        // TODO: The constants need to be invalidated, if any of them are redefined within
+        // the scope of execution.
+
+        if let Some(hm) = &mut self.constants {
             if !hm.is_empty() {
-                return hm;
+                for constant in CONSTANTS {
+                    let value = self
+                        .compiler
+                        .get_idx(constant)
+                        .ok_or_else(throw!(
+                            Generic => format!("unreachable")
+                        ))
+                        .and_then(|idx| {
+                            self.virtual_machine.extract_value(idx).ok_or_else(throw!(
+                                Generic => "unreachable"
+                            ))
+                        });
+
+                    if let Ok(v) = value {
+                        hm.insert((*constant).into(), v);
+                    }
+                }
             }
         }
 

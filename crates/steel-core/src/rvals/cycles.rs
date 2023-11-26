@@ -120,6 +120,11 @@ impl CycleDetector {
 
                     self.cycles.get(&ptr_addr).unwrap()
                 }
+                SteelVal::MutableVector(v) => {
+                    let ptr_addr = v.as_ptr_usize();
+
+                    self.cycles.get(&ptr_addr).unwrap()
+                }
                 _ => {
                     unreachable!()
                 }

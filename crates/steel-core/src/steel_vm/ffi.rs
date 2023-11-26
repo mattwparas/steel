@@ -121,6 +121,29 @@ macro_rules! conversion_error {
     };
 }
 
+impl<T: IntoFFIVal, E: IntoFFIVal> IntoFFIVal for std::result::Result<T, E> {
+    fn into_ffi_val(self) -> RResult<FFIValue, RBoxError> {
+        match self {
+            Ok(v) => v.into_ffi_val(),
+            Err(e) => {
+                let error: Box<dyn std::error::Error + Send + Sync> =
+                    format!("{:?}", ffi_try!(e.into_ffi_val())).into();
+
+                RResult::RErr(RBoxError::from_box(error))
+            }
+        }
+    }
+}
+
+impl<T: IntoFFIVal> IntoFFIVal for Option<T> {
+    fn into_ffi_val(self) -> RResult<FFIValue, RBoxError> {
+        match self {
+            Some(value) => value.into_ffi_val(),
+            None => RResult::ROk(FFIValue::BoolV(false)),
+        }
+    }
+}
+
 impl FromFFIVal for bool {
     fn from_ffi_val(val: FFIValue) -> RResult<Self, RBoxError> {
         if let FFIValue::BoolV(b) = val {
