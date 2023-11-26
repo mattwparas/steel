@@ -282,8 +282,6 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
     // like this: '(a b c) => '(a b c)
     // '(a b 'c) => '(a b 'c) --- currently this ends up as '(a b c)
     fn visit_quote(&mut self, quote: Box<super::ast::Quote>) -> Self::Output {
-        dbg!(&quote);
-
         let span = quote.location.span;
 
         // if self.inside_quote {
