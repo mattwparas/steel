@@ -39,6 +39,7 @@ jobs:
 
       - name: Build
         run: cargo build --verbose
+      - uses: Swatinem/rust-cache@v1
 
       - name: Install cogs
         env:
@@ -48,12 +49,15 @@ jobs:
           mkdir -p .steel/cogs
           cd cogs/
           cargo run -- install.scm
+      - uses: Swatinem/rust-cache@v1
 
       - name: install steel dylib installer
         run: mkdir $STEEL_HOME/native && cd crates/cargo-steel-lib && cargo install --path .
+      - uses: Swatinem/rust-cache@v1
 
       - name: install websockets dylib
         run: cd crates/steel-websockets && cargo steel-lib
+      - uses: Swatinem/rust-cache@v1
 
       - uses: actions-rs/cargo@v1
         env:
@@ -61,12 +65,15 @@ jobs:
         with:
           command: test
           args: --all
+      - uses: Swatinem/rust-cache@v1
 
       - name: install cargo-tarpaulin
         run: cargo install cargo-tarpaulin
+      - uses: Swatinem/rust-cache@v1
 
       - name: run code coverage
         run: cargo tarpaulin --all -o "lcov"
+      - uses: Swatinem/rust-cache@v1
 
       - name: Coveralls GitHub Action
         uses: coverallsapp/github-action@v1.1.2
