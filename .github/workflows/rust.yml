@@ -59,6 +59,12 @@ jobs:
       - name: install cargo-tarpaulin
         run: cargo install cargo-tarpaulin
 
+      - name: install steel dylib installer
+        run: cd crates/cargo-steel-lib && cargo install .
+
+      - name: install websockets dylib
+        run: cd crates/steel-websockets && cargo steel-lib
+
       - name: run code coverage
         run: cargo tarpaulin --all -o "lcov"
 

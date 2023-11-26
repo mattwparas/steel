@@ -1,7 +1,5 @@
 (require-builtin steel/web/requests)
 
-; (require-builtin steel/web/ws)
-
 (#%require-dylib "libsteel_websockets"
                  (only-in ws/message-ping?
                           ws/message-pong?
