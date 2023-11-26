@@ -26,6 +26,7 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
+
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -35,9 +36,6 @@ jobs:
 
       - name: Set the STEEL_HOME environment variable
         run: echo STEEL_HOME=${PWD}/.steel >> $GITHUB_ENV 
-
-      - name: Configure sccache env var and set build profile to ephemeral build
-        run: echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV && echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
 
       - name: Build
         run: cargo build --verbose
@@ -51,7 +49,6 @@ jobs:
           mkdir -p .steel/cogs
           cd cogs/
           cargo run -- install.scm
-      - uses: Swatinem/rust-cache@v1
 
       - name: install steel dylib installer
         run: mkdir $STEEL_HOME/native && cd crates/cargo-steel-lib && cargo install --path .
