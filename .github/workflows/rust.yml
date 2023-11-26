@@ -50,7 +50,7 @@ jobs:
           cargo run -- install.scm
 
       - name: install steel dylib installer
-        run: cd crates/cargo-steel-lib && cargo install .
+        run: cd crates/cargo-steel-lib && cargo install --path .
 
       - name: install websockets dylib
         run: cd crates/steel-websockets && cargo steel-lib
