@@ -315,7 +315,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
 
                 if let TokenType::Identifier(ident) = ident.ty {
                     match ident {
-                        _ if ident == *CONS_SYMBOL || ident == *PRIM_CONS_SYMBOL => {
+                        _ if ident == *PRIM_CONS_SYMBOL => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::CONS;
                                 x.payload_size = 2;
@@ -325,7 +325,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
 
                         // Specialize lists, cons, hashmap, etc. - anything that we expect to be used often in
                         // real code.
-                        _ if ident == *LIST_SYMBOL || ident == *PRIM_LIST_SYMBOL => {
+                        _ if ident == *PRIM_LIST_SYMBOL => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::LIST;
                                 x.payload_size = arity;
@@ -354,7 +354,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                             }
                         }
 
-                        _ if ident == *CAR_SYMBOL || ident == *PRIM_CAR => {
+                        _ if ident == *PRIM_CAR => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::CAR;
                                 continue;
