@@ -45,7 +45,6 @@ struct Transformers {
 /// for structs.
 #[derive(Clone)]
 pub struct Kernel {
-    // macros: HashSet<InternedString>,
     transformers: Transformers,
     constants: HashSet<InternedString>,
     pub(crate) engine: Box<Engine>,
@@ -213,6 +212,12 @@ impl Kernel {
 
                             return if result.contains_key(&name) {
                                 Some(expr.clone())
+                            } else if self.engine.global_exists(name.resolve()) {
+                                // If this global exists, nuke it in the engine
+
+                                self.engine.register_value(name.resolve(), SteelVal::Void);
+
+                                None
                             } else {
                                 None
                             };
@@ -227,7 +232,13 @@ impl Kernel {
                                     if let ExprKind::LambdaFunction(_) = &define.body {
                                         let name = define.name.atom_identifier().unwrap().clone();
 
-                                        return result.contains_key(&name);
+                                        return if result.contains_key(&name) {
+                                            true
+                                        } else if self.engine.global_exists(name.resolve()) {
+                                            false
+                                        } else {
+                                            false
+                                        };
                                     }
                                 }
 

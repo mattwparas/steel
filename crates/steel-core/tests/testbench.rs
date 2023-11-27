@@ -30,9 +30,6 @@ fn top_level_error_allows_redefining() {
 #[test]
 fn module_test() {
     let mut evaluator = Engine::new();
-    // evaluator.compile_and_run_raw_program(PRELUDE).unwrap();
-    // evaluator.compile_and_run_raw_program(DISPLAY).unwrap();
-    // evaluator.compile_and_run_raw_program(CONTRACTS).unwrap();
 
     let path_buf = PathBuf::from("tests/modules/main.rkt");
     let mut file = std::fs::File::open(&path_buf).unwrap();
@@ -47,6 +44,32 @@ fn module_test() {
     evaluator
         .compile_and_run_raw_program("b-private")
         .unwrap_err();
+}
+
+#[test]
+fn redefinition_of_values_over_time() {
+    let mut vm = Engine::new();
+
+    vm.compile_and_run_raw_program("(define + -)").unwrap();
+    let res = vm.compile_and_run_raw_program("(+ 10 20)").unwrap();
+
+    assert_eq!(res[0], steel::SteelVal::IntV(-10));
+}
+
+#[test]
+fn redefinition_of_functions_for_constant_evaluation() {
+    let mut vm = Engine::new();
+
+    vm.compile_and_run_raw_program("(define foo-bar (lambda (x y) (+ x y)))")
+        .unwrap();
+    let res = vm.compile_and_run_raw_program("(foo-bar 10 20)").unwrap();
+
+    assert_eq!(res[0], steel::SteelVal::IntV(30));
+
+    vm.compile_and_run_raw_program("(define foo-bar (lambda (x y) (#%black-box) (- x y)))")
+        .unwrap();
+    let res = vm.compile_and_run_raw_program("(foo-bar 10 20)").unwrap();
+    assert_eq!(res[0], steel::SteelVal::IntV(-10));
 }
 
 #[test]

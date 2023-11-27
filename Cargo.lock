@@ -3174,6 +3174,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "steel-webrequests"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "steel-core",
+ "ureq",
+]
+
+[[package]]
 name = "steel-webserver"
 version = "0.1.0"
 dependencies = [
@@ -3183,6 +3192,15 @@ dependencies = [
  "serde_json",
  "steel-core",
  "tokio",
+]
+
+[[package]]
+name = "steel-websockets"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "steel-core",
+ "tungstenite",
 ]
 
 [[package]]

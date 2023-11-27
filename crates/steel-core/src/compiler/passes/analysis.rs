@@ -385,7 +385,7 @@ impl Analysis {
     }
 
     pub fn update_with(&mut self, object: &SyntaxObject, metadata: SemanticInformation) {
-        let mut existing = self.info.get_mut(&object.syntax_object_id).unwrap();
+        let existing = self.info.get_mut(&object.syntax_object_id).unwrap();
         existing.kind = metadata.kind;
         existing.set_bang = existing.set_bang || metadata.set_bang;
         existing.shadows = metadata.shadows;
@@ -1412,7 +1412,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 scope_info.usage_count += 1;
 
                 let id = scope_info.id;
-                if let Some(mut var) = self.info.get_mut(&id) {
+                if let Some(var) = self.info.get_mut(&id) {
                     var.set_bang = true;
                     scope_info.mutated = true;
                     // scope_info.read_heap_offset = var.read_heap_offset;

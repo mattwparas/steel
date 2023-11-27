@@ -697,7 +697,9 @@
   (syntax-rules ()
     [(dbg! expr)
      (let ([result expr])
-       (simple-displayln (quote expr) " = " result)
+       (simple-display (quote expr))
+       (simple-display " = ")
+       (simple-displayln result)
        result)]))
 
 (define-syntax contract/out

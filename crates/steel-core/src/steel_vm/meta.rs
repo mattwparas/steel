@@ -7,6 +7,7 @@ use std::{cell::RefCell, convert::TryFrom, io::Write, rc::Rc};
 // use im_lists::list::List;
 use crate::values::lists::List;
 
+use crate::values::structs::SteelResult;
 use crate::{
     parser::ast::ExprKind,
     rvals::Custom,
@@ -66,40 +67,17 @@ impl EngineWrapper {
         }
     }
 
-    pub(crate) fn call(&mut self, expr: SteelVal) -> Result<List<SteelVal>> {
+    fn call_impl(&mut self, expr: SteelVal) -> Result<List<SteelVal>> {
         match expr {
             SteelVal::StringV(expr) => self
                 .0
                 .compile_and_run_raw_program(expr.as_ref())
                 .map(|x| x.into()),
             SteelVal::ListV(list) => {
-                // let values = list
-                //     .iter()
-                //     .map(|x| {
-                //         ExprKind::try_from(x)
-                //             .map_err(|x| SteelErr::new(ErrorKind::ConversionError, x.to_string()))
-                //     })
-                //     .collect::<Result<Vec<ExprKind>>>()?;
-
-                // println!(
-                //     "Expressions: {:#?}",
-                //     values // values.iter().map(|x| x.to_string()).collect::<Vec<_>>()
-                // );
-
-                // Ok(self
-                //     .0
-                //     .borrow_mut()
-                //     .run_raw_program_from_exprs(values)?
-                //     .into_iter()
-                //     .collect::<List<_>>()
-                //     .into())
-
                 let values = list
                     .iter()
                     .map(|x| x.to_string())
                     .map(|x| {
-                        // println!("Evaluating: {:?}", x.trim_start_matches('\''));
-
                         self.0
                             .compile_and_run_raw_program(x.trim_start_matches('\''))
                     })
@@ -111,6 +89,10 @@ impl EngineWrapper {
                 stop!(TypeMismatch => "run! expects either a list of expressions, or a string")
             }
         }
+    }
+
+    pub(crate) fn call(&mut self, expr: SteelVal) -> SteelResult<List<SteelVal>, SteelErr> {
+        self.call_impl(expr).into()
     }
 
     // TODO: Warning, here be dragons

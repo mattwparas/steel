@@ -2,7 +2,6 @@
 
 use crate::{
     compiler::{
-        // code_generator::{convert_call_globals, CodeGenerator},
         constants::ConstantMap,
         map::SymbolMap,
         passes::{

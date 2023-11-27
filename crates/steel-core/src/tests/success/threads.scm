@@ -10,5 +10,4 @@
 ;;    be doable by having some kind of thread initialization function (like how thread locals work)
 
 ;; Closure should get serialized and sent across the thread
-(Ok->value (thread-join! (spawn-thread! (lambda ()
-                                          (stdout-simple-displayln (vector-ref (foo 100) 4))))))
+(thread-join! (spawn-thread! (lambda () (stdout-simple-displayln (vector-ref (foo 100) 4)))))
