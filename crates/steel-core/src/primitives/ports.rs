@@ -231,3 +231,8 @@ pub fn default_input_port() -> SteelVal {
 pub fn default_output_port() -> SteelVal {
     SteelVal::PortV(Gc::new(SteelPort::default_current_output_port()))
 }
+
+#[function(name = "close-output-port")]
+pub fn close_output_port(port: &Gc<SteelPort>) -> Result<SteelVal> {
+    todo!()
+}

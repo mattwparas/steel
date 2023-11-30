@@ -279,7 +279,8 @@ impl Heap {
             // change in the heap size, we should also enqueue a larger mark and
             // sweep collection.
             let mut changed = true;
-            while changed {
+            let mut i = 0;
+            while changed && i < 3 {
                 let now = std::time::Instant::now();
 
                 log::debug!(target: "gc", "Small collection");
@@ -292,6 +293,7 @@ impl Heap {
                 log::debug!(target: "gc", "Small collection time: {:?}", now.elapsed());
 
                 changed = prior_len != after;
+                i += 1;
             }
 
             let post_small_collection_size = self.memory.len() + self.vector_cells_allocated();

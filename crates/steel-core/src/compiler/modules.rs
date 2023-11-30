@@ -13,7 +13,10 @@ use crate::{
         expand_visitor::expand_kernel,
         interner::InternedString,
         kernel::Kernel,
-        parser::{ParseError, Parser, Sources, SyntaxObject},
+        parser::{
+            lower_entire_ast, lower_macro_and_require_definitions, ParseError, Parser, Sources,
+            SyntaxObject,
+        },
         tokens::TokenType,
     },
     steel_vm::{engine::ModuleContainer, transducers::interleave},
@@ -1539,6 +1542,11 @@ impl<'a> ModuleBuilder<'a> {
         // then include the ast there
         mangled_asts.append(&mut ast);
 
+        mangled_asts = mangled_asts
+            .into_iter()
+            .map(lower_entire_ast)
+            .collect::<std::result::Result<_, ParseError>>()?;
+
         // Take ast, expand with self modules, then expand with each of the require for-syntaxes
         // Then mangle the require-for-syntax, include the mangled directly in the ast
 
@@ -2021,9 +2029,13 @@ impl<'a> ModuleBuilder<'a> {
 
     fn parse_builtin(mut self, input: &str) -> Result<Self> {
         let parsed = Parser::new_from_source(input, self.name.clone(), None)
+            .without_lowering()
+            .map(|x| x.and_then(lower_macro_and_require_definitions))
             .collect::<std::result::Result<Vec<_>, ParseError>>()?;
 
         self.source_ast = parsed;
+
+        // self.source_ast.pretty_print();
 
         Ok(self)
     }
@@ -2060,6 +2072,8 @@ impl<'a> ModuleBuilder<'a> {
             let exprs = guard.get(id).unwrap();
 
             let parsed = Parser::new_from_source(&exprs, self.name.clone(), Some(id))
+                .without_lowering()
+                .map(|x| x.and_then(lower_macro_and_require_definitions))
                 .collect::<std::result::Result<Vec<_>, ParseError>>()?;
 
             self.source_ast = parsed;

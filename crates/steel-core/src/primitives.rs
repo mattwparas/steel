@@ -7,7 +7,7 @@ mod io;
 pub mod lists;
 pub mod meta_ops;
 pub mod nums;
-mod ports;
+pub mod ports;
 pub mod process;
 pub mod random;
 mod streams;

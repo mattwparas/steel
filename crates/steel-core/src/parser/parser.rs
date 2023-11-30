@@ -1,5 +1,8 @@
 use crate::{
-    compiler::program::{QUASIQUOTE, RAW_UNQUOTE, RAW_UNQUOTE_SPLICING, UNQUOTE, UNQUOTE_SPLICING},
+    compiler::program::{
+        BEGIN, DEFINE, IF, LAMBDA, LAMBDA_FN, LAMBDA_SYMBOL, LET, PLAIN_LET, QUASIQUOTE, QUOTE,
+        RAW_UNQUOTE, RAW_UNQUOTE_SPLICING, REQUIRE, RETURN, SET, UNQUOTE, UNQUOTE_SPLICING,
+    },
     parser::lexer::TokenStream,
     rvals::IntoSteelVal,
 };
@@ -27,7 +30,10 @@ use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::SteelVal;
 use crate::rvals::SteelVal::*;
 
-use super::{ast, interner::InternedString};
+use super::{
+    ast::{self, SyntaxRules},
+    interner::InternedString,
+};
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -445,6 +451,7 @@ pub struct Parser<'a> {
     context: Vec<ParsingContext>,
     comment_buffer: Vec<&'a str>,
     collecting_comments: bool,
+    keep_lists: bool,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -506,6 +513,27 @@ impl<'a> Parser<'a> {
             context: Vec::new(),
             comment_buffer: Vec::new(),
             collecting_comments: false,
+            keep_lists: false,
+        }
+    }
+
+    pub fn without_lowering(mut self) -> Self {
+        self.keep_lists = true;
+        self
+    }
+
+    pub fn new_flat(input: &'a str, source_id: Option<SourceId>) -> Self {
+        Parser {
+            tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
+            quote_stack: Vec::new(),
+            quasiquote_depth: 0,
+            quote_context: false,
+            shorthand_quote_stack: Vec::new(),
+            source_name: None,
+            context: Vec::new(),
+            comment_buffer: Vec::new(),
+            collecting_comments: false,
+            keep_lists: true,
         }
     }
 
@@ -524,6 +552,7 @@ impl<'a> Parser<'a> {
             context: Vec::new(),
             comment_buffer: Vec::new(),
             collecting_comments: false,
+            keep_lists: false,
         }
     }
 
@@ -539,6 +568,7 @@ impl<'a> Parser<'a> {
             context: Vec::new(),
             comment_buffer: Vec::new(),
             collecting_comments: false,
+            keep_lists: false,
         }
     }
 
@@ -607,6 +637,7 @@ impl<'a> Parser<'a> {
 
     fn construct_raw_unquote(&mut self, val: ExprKind, span: Span) -> ExprKind {
         let q = {
+            // let rc_val = TokenType::Identifier(*UNQUOTE);
             let rc_val = TokenType::Identifier(*RAW_UNQUOTE);
             ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
         };
@@ -644,6 +675,14 @@ impl<'a> Parser<'a> {
         // println!("DECREMENTING");
         if !self.quote_context {
             self.quasiquote_depth -= 1;
+        }
+    }
+
+    fn maybe_lower(&self, expr: Vec<ExprKind>) -> Result<ExprKind> {
+        if self.keep_lists {
+            Ok(ExprKind::List(List::new(expr)))
+        } else {
+            ExprKind::try_from(expr)
         }
     }
 
@@ -817,35 +856,43 @@ impl<'a> Parser<'a> {
                             // As we close the current context, we check what our current state is -
 
                             if let Some(mut prev_frame) = stack.pop() {
+                                match prev_frame.first_mut().and_then(|x| x.atom_identifier_mut()) {
+                                    Some(ident) if *ident == *UNQUOTE => {
+                                        // self.increment_quasiquote_context_if_not_in_quote_context();
+                                        if self.quasiquote_depth == 0 && !self.quote_context {
+                                            *ident = *RAW_UNQUOTE;
+                                        }
+                                        self.increment_quasiquote_context_if_not_in_quote_context();
+
+                                        // println!("Exiting unquote");
+                                    }
+                                    Some(ident) if *ident == *QUASIQUOTE => {
+                                        self.decrement_quasiquote_context_if_not_in_quote_context();
+
+                                        // println!("Exiting quasiquote");
+                                    }
+                                    Some(ident) if *ident == *UNQUOTE_SPLICING => {
+                                        // self.increment_quasiquote_context_if_not_in_quote_context();
+
+                                        if self.quasiquote_depth == 0 && !self.quote_context {
+                                            *ident = *RAW_UNQUOTE_SPLICING;
+                                        }
+                                        self.increment_quasiquote_context_if_not_in_quote_context();
+
+                                        // println!("Exiting unquote");
+                                    }
+                                    _ => {}
+                                }
+
                                 match self.context.last().cloned() {
                                     // TODO: Change this -> This should really be just Some(ParsingContext::Quote)
                                     // If we have _anything_ then we should check if we need to parse it differently. If we're at the last_quote_index,
                                     // then we can pop it off inside there.
                                     Some(ParsingContext::Quote(last_quote_index))
                                     | Some(ParsingContext::Quasiquote(last_quote_index)) => {
-                                        // Exit quasiquote context
-                                        // if let Some(ParsingContext::Quasiquote(_)) =
-                                        //     self.context.last()
-                                        // {
-                                        //     self.decrement_quasiquote_context_if_not_in_quote_context();
-                                        // }
-
-                                        // println!(
-                                        //     "Q/QQ: Stack length: {:?}, last_quote_index: {:?}",
-                                        //     stack.len(),
-                                        //     last_quote_index
-                                        // );
-
-                                        // let last_quote_index = *last_quote_index;
-
                                         if stack.len() <= last_quote_index {
-                                            // println!("{} - {}", stack.len(), last_quote_index);
                                             self.context.pop();
-                                            // println!("Exiting Context: {:?}", self.context.pop());
                                         }
-
-                                        // println!("Inside here!");
-                                        // println!("Frame: {:?}", current_frame);
 
                                         match current_frame.first() {
                                             Some(ExprKind::Atom(Atom {
@@ -864,7 +911,7 @@ impl<'a> Parser<'a> {
                                                     .push(ExprKind::List(List::new(current_frame))),
                                                 _ => {
                                                     prev_frame.push(
-                                                        ExprKind::try_from(current_frame).map_err(
+                                                        self.maybe_lower(current_frame).map_err(
                                                             |x| {
                                                                 x.set_source(
                                                                     self.source_name.clone(),
@@ -895,7 +942,7 @@ impl<'a> Parser<'a> {
                                             })) => {
                                                 // println!("Converting to quote inside quote tick");
                                                 prev_frame.push(
-                                                    ExprKind::try_from(current_frame).map_err(
+                                                    self.maybe_lower(current_frame).map_err(
                                                         |x| x.set_source(self.source_name.clone()),
                                                     )?,
                                                 );
@@ -934,7 +981,7 @@ impl<'a> Parser<'a> {
                                         // }
 
                                         prev_frame.push(
-                                            ExprKind::try_from(current_frame).map_err(|x| {
+                                            self.maybe_lower(current_frame).map_err(|x| {
                                                 x.set_source(self.source_name.clone())
                                             })?,
                                         );
@@ -959,7 +1006,7 @@ impl<'a> Parser<'a> {
                                         }
 
                                         prev_frame.push(
-                                            ExprKind::try_from(current_frame).map_err(|x| {
+                                            self.maybe_lower(current_frame).map_err(|x| {
                                                 x.set_source(self.source_name.clone())
                                             })?,
                                         );
@@ -967,7 +1014,7 @@ impl<'a> Parser<'a> {
 
                                     // Else case, just go ahead and assume it is a normal frame
                                     _ => prev_frame.push(
-                                        ExprKind::try_from(current_frame)
+                                        self.maybe_lower(current_frame)
                                             .map_err(|x| x.set_source(self.source_name.clone()))?,
                                     ),
                                 }
@@ -995,7 +1042,8 @@ impl<'a> Parser<'a> {
                                     Some(ParsingContext::Quote(0)) => {
                                         self.context.pop();
 
-                                        return ExprKind::try_from(current_frame)
+                                        return self
+                                            .maybe_lower(current_frame)
                                             .map_err(|x| x.set_source(self.source_name.clone()));
                                     }
                                     _ => {
@@ -1011,7 +1059,7 @@ impl<'a> Parser<'a> {
                                                 .map(|x| x.define_syntax_ident())
                                                 .unwrap_or_default()
                                             {
-                                                return ExprKind::try_from(current_frame).map_err(
+                                                return self.maybe_lower(current_frame).map_err(
                                                     |x| x.set_source(self.source_name.clone()),
                                                 );
                                             }
@@ -1021,7 +1069,8 @@ impl<'a> Parser<'a> {
                                             return Ok(ExprKind::List(List::new(current_frame)));
                                         }
 
-                                        return ExprKind::try_from(current_frame)
+                                        return self
+                                            .maybe_lower(current_frame)
                                             .map_err(|x| x.set_source(self.source_name.clone()));
                                     }
                                 }
@@ -1050,10 +1099,14 @@ impl<'a> Parser<'a> {
                                         // self.context.push(ParsingContext::Quote(stack.len()))
                                     }
                                     TokenType::Identifier(ident) if *ident == *UNQUOTE => {
+                                        // println!("Entering unquote");
+
                                         self.context.push(ParsingContext::Unquote(stack.len()));
                                         self.decrement_quasiquote_context_if_not_in_quote_context();
                                     }
                                     TokenType::Identifier(ident) if *ident == *QUASIQUOTE => {
+                                        // println!("Entering quasiquote");
+
                                         self.context.push(ParsingContext::Quasiquote(stack.len()));
                                         self.increment_quasiquote_context_if_not_in_quote_context();
                                     }
@@ -1175,7 +1228,7 @@ impl<'a> Parser<'a> {
                             Ok(v) => {
                                 // Ok(ExprKind::List(List::new(v)))
 
-                                ExprKind::try_from(v)
+                                self.maybe_lower(v)
                             }
                             Err(e) => Err(e),
                         });
@@ -1452,6 +1505,289 @@ impl<'a> Iterator for Parser<'a> {
     //     TokenType::Error => Err(tokentype_error_to_parse_error(&res)),
     //     _ => Ok(ExprKind::Atom(Atom::new(SyntaxObject::from(&res)))),
     // })
+}
+
+// Lower the syntax rules down from the list representation
+pub(crate) fn lower_syntax_rules(expr: ExprKind) -> Result<SyntaxRules> {
+    let mut value_iter = expr.into_list().into_iter();
+    let syn = value_iter
+        .next()
+        .unwrap()
+        .into_atom_syntax_object()
+        .unwrap();
+
+    let syntax_vec = if let Some(ExprKind::List(l)) = value_iter.next() {
+        l.args
+    } else {
+        return Err(ParseError::SyntaxError(
+            "syntax-rules expects a list of new syntax forms used in the macro".to_string(),
+            syn.span,
+            None,
+        ));
+    };
+
+    let mut pairs = Vec::new();
+    let rest: Vec<_> = value_iter.collect();
+
+    for pair in rest {
+        if let ExprKind::List(l) = pair {
+            if l.args.len() != 2 {
+                return Err(ParseError::SyntaxError(
+                    "syntax-rules requires only one pattern to one body".to_string(),
+                    syn.span,
+                    None,
+                ));
+            }
+
+            let mut pair_iter = l.args.into_iter();
+            let pair_object =
+                PatternPair::new(pair_iter.next().unwrap(), pair_iter.next().unwrap());
+            pairs.push(pair_object);
+        } else {
+            return Err(ParseError::SyntaxError(
+                "syntax-rules requires pattern to expressions to be in a list".to_string(),
+                syn.span,
+                None,
+            ));
+        }
+    }
+
+    Ok(SyntaxRules::new(syntax_vec, pairs, syn))
+}
+
+// Lower define-syntax down from the list representation
+pub(crate) fn lower_macro_and_require_definitions(expr: ExprKind) -> Result<ExprKind> {
+    let as_list = expr.list();
+
+    // If this qualifies as
+    if as_list.map(List::is_define_syntax).unwrap_or_default()
+        && as_list
+            .unwrap()
+            .get(2)
+            .and_then(ExprKind::list)
+            .map(List::is_syntax_rules)
+            .unwrap_or_default()
+    {
+        let mut value_iter = expr.into_list().into_iter();
+
+        let define_syntax = value_iter.next().unwrap();
+
+        let name = value_iter.next().unwrap();
+        let syntax = lower_syntax_rules(value_iter.next().unwrap())?;
+
+        return Ok(ExprKind::Macro(Macro::new(
+            name,
+            syntax,
+            define_syntax.into_atom_syntax_object().unwrap(),
+        )));
+    }
+
+    if as_list.map(List::is_require).unwrap_or_default() {
+        let mut raw = expr.into_list().args;
+
+        let syn = raw.remove(0).into_atom_syntax_object().unwrap();
+
+        if raw.is_empty() {
+            return Err(ParseError::ArityMismatch(
+                "require expects at least one identifier or string".to_string(),
+                syn.span,
+                None,
+            ));
+        }
+
+        return Ok(ExprKind::Require(ast::Require::new(raw, syn)));
+    }
+
+    Ok(expr)
+}
+
+struct ASTLowerPass {
+    quote_depth: usize,
+}
+
+impl ASTLowerPass {
+    // TODO: Make this mutable references, otherwise we'll be re-boxing everything for now reason
+    fn lower(&mut self, expr: ExprKind) -> Result<ExprKind> {
+        match expr {
+            ExprKind::List(mut value) => {
+                if value.is_quote() {
+                    // println!("Found quote");
+                    self.quote_depth += 1;
+                }
+
+                // Visit the children first, on the way back up, assign into the
+                // correct AST node
+                value.args = value
+                    .args
+                    .into_iter()
+                    .map(|x| self.lower(x))
+                    .collect::<Result<_>>()?;
+
+                if value.is_quote() {
+                    self.quote_depth -= 1;
+                }
+
+                if let Some(f) = value.first().cloned() {
+                    match f {
+                        ExprKind::Atom(a) if self.quote_depth == 0 && value.is_quote() => {
+                            match &a.syn.ty {
+                                TokenType::Quote => parse_single_argument(
+                                    value.into_iter(),
+                                    a.syn.clone(),
+                                    "quote",
+                                    |expr, syn| ast::Quote::new(expr, syn).into(),
+                                ),
+                                _ => unreachable!(),
+                            }
+                        }
+                        ExprKind::Atom(a) if self.quote_depth == 0 => {
+                            match &a.syn.ty {
+                                // Have this also match on the first argument being a TokenType::Identifier("if")
+                                // Do the same for the rest of the arguments
+                                TokenType::If => parse_if(value.into_iter(), a.syn.clone()),
+                                TokenType::Identifier(expr) if *expr == *IF => {
+                                    parse_if(value.into_iter(), a.syn.clone())
+                                }
+
+                                TokenType::Define => parse_define(value.into_iter(), a.syn.clone()),
+                                TokenType::Identifier(expr) if *expr == *DEFINE => {
+                                    parse_define(value.into_iter(), a.syn.clone())
+                                }
+
+                                TokenType::Let => parse_let(value.into_iter(), a.syn.clone()),
+                                TokenType::Identifier(expr) if *expr == *LET => {
+                                    parse_let(value.into_iter(), a.syn.clone())
+                                }
+
+                                // TODO: Deprecate
+                                TokenType::TestLet => {
+                                    parse_new_let(value.into_iter(), a.syn.clone())
+                                }
+                                TokenType::Identifier(expr) if *expr == *PLAIN_LET => {
+                                    parse_new_let(value.into_iter(), a.syn.clone())
+                                }
+
+                                TokenType::Quote => parse_single_argument(
+                                    value.into_iter(),
+                                    a.syn.clone(),
+                                    "quote",
+                                    |expr, syn| ast::Quote::new(expr, syn).into(),
+                                ),
+                                TokenType::Identifier(expr) if *expr == *QUOTE => {
+                                    parse_single_argument(
+                                        value.into_iter(),
+                                        a.syn.clone(),
+                                        "quote",
+                                        |expr, syn| ast::Quote::new(expr, syn).into(),
+                                    )
+                                }
+
+                                TokenType::Return => parse_single_argument(
+                                    value.into_iter(),
+                                    a.syn.clone(),
+                                    "return!",
+                                    |expr, syn| ast::Return::new(expr, syn).into(),
+                                ),
+                                TokenType::Identifier(expr) if *expr == *RETURN => {
+                                    parse_single_argument(
+                                        value.into_iter(),
+                                        a.syn.clone(),
+                                        "return!",
+                                        |expr, syn| ast::Return::new(expr, syn).into(),
+                                    )
+                                }
+
+                                TokenType::Require => parse_require(&a, value.args),
+                                TokenType::Identifier(expr) if *expr == *REQUIRE => {
+                                    parse_require(&a, value.args)
+                                }
+
+                                TokenType::Set => parse_set(&a, value.args),
+                                TokenType::Identifier(expr) if *expr == *SET => {
+                                    parse_set(&a, value.args)
+                                }
+
+                                TokenType::Begin => parse_begin(&a, value.args),
+                                TokenType::Identifier(expr) if *expr == *BEGIN => {
+                                    parse_begin(&a, value.args)
+                                }
+
+                                TokenType::Lambda => parse_lambda(&a, value.args),
+                                TokenType::Identifier(expr)
+                                    if *expr == *LAMBDA
+                                        || *expr == *LAMBDA_FN
+                                        || *expr == *LAMBDA_SYMBOL =>
+                                {
+                                    parse_lambda(&a, value.args)
+                                }
+
+                                _ => Ok(ExprKind::List(value)),
+                            }
+                        }
+                        _ => Ok(ExprKind::List(value)),
+                    }
+                } else {
+                    Ok(ExprKind::List(List::new(vec![])))
+                }
+            }
+            ExprKind::Atom(_) => Ok(expr),
+            ExprKind::If(iff) => Ok(ExprKind::If(Box::new(ast::If::new(
+                self.lower(iff.test_expr)?,
+                self.lower(iff.then_expr)?,
+                self.lower(iff.else_expr)?,
+                iff.location,
+            )))),
+            ExprKind::Let(l) => Ok(ExprKind::Let(Box::new(ast::Let::new(
+                l.bindings
+                    .into_iter()
+                    .map(|(a, b)| Ok((self.lower(a)?, self.lower(b)?)))
+                    .collect::<Result<_>>()?,
+                self.lower(l.body_expr)?,
+                l.location,
+            )))),
+            ExprKind::Define(d) => Ok(ExprKind::Define(Box::new(ast::Define::new(
+                self.lower(d.name)?,
+                self.lower(d.body)?,
+                d.location,
+            )))),
+            ExprKind::LambdaFunction(f) => Ok(ExprKind::LambdaFunction(Box::new(
+                ast::LambdaFunction::new_maybe_rest(
+                    f.args
+                        .into_iter()
+                        .map(|x| self.lower(x))
+                        .collect::<Result<_>>()?,
+                    self.lower(f.body)?,
+                    f.location,
+                    f.rest,
+                ),
+            ))),
+            ExprKind::Begin(b) => Ok(ExprKind::Begin(ast::Begin::new(
+                b.exprs
+                    .into_iter()
+                    .map(|x| self.lower(x))
+                    .collect::<Result<_>>()?,
+                b.location,
+            ))),
+            ExprKind::Return(r) => Ok(ExprKind::Return(Box::new(ast::Return::new(
+                self.lower(r.expr)?,
+                r.location,
+            )))),
+            ExprKind::Quote(_) => Ok(expr),
+            ExprKind::Macro(_) => Ok(expr),
+            ExprKind::SyntaxRules(_) => Ok(expr),
+            ExprKind::Set(s) => Ok(ExprKind::Set(Box::new(ast::Set::new(
+                self.lower(s.variable)?,
+                self.lower(s.expr)?,
+                s.location,
+            )))),
+            ExprKind::Require(_) => Ok(expr), // _ => Ok(expr),
+        }
+    }
+}
+
+// TODO: Lower the rest of the AST post expansion, such that
+pub(crate) fn lower_entire_ast(expr: ExprKind) -> Result<ExprKind> {
+    ASTLowerPass { quote_depth: 0 }.lower(expr)
 }
 
 #[cfg(test)]
@@ -2387,5 +2723,62 @@ mod parser_tests {
                 SyntaxObject::default(TokenType::Define),
             )))],
         )
+    }
+
+    #[test]
+    fn test_parse_without_lowering_ast() {
+        let a: Result<Vec<ExprKind>> =
+            Parser::new_flat("(define (quote a) 10) (require foo bar)", None)
+                .map(|x| x.and_then(lower_macro_and_require_definitions))
+                .collect();
+
+        let a = a.unwrap();
+
+        println!("{:#?}", a);
+    }
+
+    #[test]
+    fn test_delayed_lowering() {
+        let a: Result<Vec<ExprKind>> = Parser::new_flat(
+            r#"
+            ;; (define foo (quote a)) (require foo bar)
+                
+               ;;  (define (foo) (if 10 20 30))
+
+               ;; (define (foo) (quote (define 10 20)))
+
+               ;; (define foo '())
+
+            (define-syntax
+   with-handler
+   (syntax-rules
+      ()
+      ((with-handler handler expr)
+         (reset
+            (call-with-exception-handler
+               (λ (err)
+                 (begin (handler err) (shift k (k void))))
+               (λ ()
+                 expr))))
+      ((with-handler handler expr ...)
+         (reset
+            (call-with-exception-handler
+               (λ (err)
+                 (begin (handler err) (shift k (k void))))
+               (λ ()
+                 (begin expr ...)))))))
+                
+                
+                
+                "#,
+            None,
+        )
+        .map(|x| x.and_then(lower_macro_and_require_definitions))
+        .map(|x| x.and_then(lower_entire_ast))
+        .collect();
+
+        let a = a.unwrap();
+
+        println!("{:#?}", a);
     }
 }

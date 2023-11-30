@@ -4,6 +4,7 @@
 
 use std::{cell::RefCell, convert::TryFrom, io::Write, rc::Rc};
 
+use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
 // use im_lists::list::List;
 use crate::values::lists::List;
 
@@ -146,7 +147,7 @@ pub fn read(args: &[SteelVal]) -> Result<SteelVal> {
         .string_or_else(throw!(TypeMismatch => "read expects a string"))
         .map(crate::parser::parser::Parser::parse)??
         .into_iter()
-        .map(SteelVal::try_from)
+        .map(TryFromExprKindForSteelVal::try_from_expr_kind_quoted)
         .collect::<Result<List<_>>>()
         .map(SteelVal::ListV)
 }

@@ -371,4 +371,16 @@ impl SteelPort {
             stop!(TypeMismatch => "get-output-string expects an output port, found: {:?}", self);
         }
     }
+
+    pub fn close_output_port(&mut self) -> Result<()> {
+        match self {
+            SteelPort::FileOutput(_, _) | SteelPort::StdOutput(_) => {
+                *self = SteelPort::Closed;
+                Ok(())
+            }
+            _ => {
+                stop!(TypeMismatch => "close-output-port expects an output port, found: {:?}", self)
+            }
+        }
+    }
 }

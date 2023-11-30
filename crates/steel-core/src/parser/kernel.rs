@@ -344,6 +344,8 @@ impl Kernel {
         ident: &InternedString,
         expr: ExprKind,
     ) -> Result<ExprKind> {
+        // println!("EXPANDING: {}", ident);
+
         let span = get_span(&expr);
 
         let syntax_objects =

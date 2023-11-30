@@ -957,7 +957,10 @@ impl Engine {
 
         engine.compiler.kernel = Some(Kernel::new());
 
-        engine.run(PRELUDE_WITHOUT_BASE).unwrap();
+        if let Err(e) = engine.run(PRELUDE_WITHOUT_BASE) {
+            raise_error(&engine.sources, e);
+            panic!("This shouldn't happen!");
+        }
 
         engine
     }

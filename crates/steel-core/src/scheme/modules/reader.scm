@@ -6,9 +6,15 @@
 
 (define *reader* (reader.new-reader))
 
-(define (read)
-  (define value (read-impl))
-  (if (Ok? value) (Ok->value value) (raise-error (Err->value value))))
+(define (read . port)
+
+  (if (null? port)
+
+      (read-impl)
+
+      (parameterize ([current-input-port (car port)])
+
+        (read-impl))))
 
 (define (read-impl)
 
@@ -19,7 +25,15 @@
      (cond
        [(string? next-line)
         (reader.reader-push-string *reader* next-line)
-        (reader.reader-read-one *reader*)]
+
+        (let ([next (reader.reader-read-one *reader*)])
+
+          (if (void? next)
+              (begin
+                ; (displayln "pushing another string")
+                (reader.reader-push-string *reader* (read-line-from-port (current-input-port)))
+                (read-impl))
+              next))]
 
        [else
         =>
@@ -30,11 +44,9 @@
      =>
      (let ([next (reader.reader-read-one *reader*)])
 
-       (map-ok next
-               (lambda (obj)
-                 (if (void? next)
-                     (begin
-                       (displayln "pushing another string")
-                       (reader.reader-push-string *reader* (read-line-from-port (current-input-port)))
-                       (read-impl))
-                     next))))]))
+       (if (void? next)
+           (begin
+             ; (displayln "pushing another string")
+             (reader.reader-push-string *reader* (read-line-from-port (current-input-port)))
+             (read-impl))
+           next))]))
