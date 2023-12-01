@@ -146,9 +146,9 @@ pub fn read(args: &[SteelVal]) -> Result<SteelVal> {
 
     args[0]
         .string_or_else(throw!(TypeMismatch => "read expects a string"))
-        .map(crate::parser::parser::Parser::parse)??
+        .map(crate::parser::parser::Parser::parse_without_lowering)??
         .into_iter()
-        .map(TryFromExprKindForSteelVal::try_from_expr_kind_quoted)
+        .map(TryFromExprKindForSteelVal::try_from_expr_kind)
         .collect::<Result<List<_>>>()
         .map(SteelVal::ListV)
 }

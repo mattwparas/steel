@@ -480,6 +480,10 @@ impl<'a> Parser<'a> {
         Parser::new(expr, None).collect()
     }
 
+    pub fn parse_without_lowering(expr: &str) -> Result<Vec<ExprKind>> {
+        Parser::new(expr, None).without_lowering().collect()
+    }
+
     pub fn offset(&self) -> usize {
         self.tokenizer.offset()
     }
