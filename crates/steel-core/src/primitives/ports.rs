@@ -1,8 +1,8 @@
 use crate::rvals::{Result, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::stop;
+use crate::values::port::new_rc_ref_cell;
 use crate::values::port::{SteelPort, SteelPortRepr};
-use crate::{gc::Gc, values::port::new_rc_ref_cell};
 
 use steel_derive::function;
 

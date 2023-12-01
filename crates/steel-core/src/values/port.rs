@@ -2,6 +2,7 @@ use std::fs::File;
 use std::fs::OpenOptions;
 use std::io;
 use std::io::prelude::*;
+use std::io::Cursor;
 use std::io::{BufReader, BufWriter, Stdin, Stdout};
 use std::process::ChildStdin;
 use std::process::ChildStdout;
@@ -48,7 +49,7 @@ pub enum SteelPortRepr {
     StdOutput(Stdout),
     ChildStdOutput(BufReader<ChildStdout>),
     ChildStdInput(BufWriter<ChildStdin>),
-    StringInput(BufReader<Vec<u8>>),
+    StringInput(BufReader<Cursor<Vec<u8>>>),
     StringOutput(BufWriter<Vec<u8>>),
     // DynWriter(Box<dyn Write>),
     // DynReader(Box<dyn Read>),
@@ -275,6 +276,14 @@ impl SteelPort {
                 BufWriter::new(file),
             )),
         })
+    }
+
+    pub fn new_input_port_string(string: String) -> SteelPort {
+        SteelPort {
+            port: new_rc_ref_cell(SteelPortRepr::StringInput(BufReader::new(Cursor::new(
+                string.into_bytes(),
+            )))),
+        }
     }
 
     pub fn new_output_port() -> SteelPort {

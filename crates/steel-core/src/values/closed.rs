@@ -202,10 +202,9 @@ enum CurrentSpace {
 pub struct Heap {
     memory: Vec<HeapValue>,
 
-    from_space: Vec<HeapValue>,
-    to_space: Vec<HeapValue>,
-    current: CurrentSpace,
-
+    // from_space: Vec<HeapValue>,
+    // to_space: Vec<HeapValue>,
+    // current: CurrentSpace,
     vectors: Vec<HeapVector>,
     count: usize,
     threshold: usize,
@@ -219,10 +218,9 @@ impl Heap {
         Heap {
             memory: Vec::with_capacity(256),
 
-            from_space: Vec::with_capacity(256),
-            to_space: Vec::with_capacity(256),
-            current: CurrentSpace::From,
-
+            // from_space: Vec::with_capacity(256),
+            // to_space: Vec::with_capacity(256),
+            // current: CurrentSpace::From,
             vectors: Vec::with_capacity(256),
             count: 0,
             threshold: GC_THRESHOLD,
@@ -232,13 +230,13 @@ impl Heap {
         }
     }
 
-    #[inline(always)]
-    pub fn memory(&mut self) -> &mut Vec<HeapValue> {
-        match self.current {
-            CurrentSpace::From => &mut self.from_space,
-            CurrentSpace::To => &mut self.to_space,
-        }
-    }
+    // #[inline(always)]
+    // pub fn memory(&mut self) -> &mut Vec<HeapValue> {
+    //     match self.current {
+    //         CurrentSpace::From => &mut self.from_space,
+    //         CurrentSpace::To => &mut self.to_space,
+    //     }
+    // }
 
     // Allocate this variable on the heap
     // It explicitly should no longer be on the stack, and variables that
