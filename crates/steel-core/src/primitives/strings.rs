@@ -53,6 +53,8 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(NUMBER_TO_STRING_DEFINITION)
         .register_fn("char-upcase", char_upcase)
         .register_fn("char-whitespace?", char::is_whitespace)
+        .register_fn("char-digit?", |c: char| char::is_digit(c, 10))
+        .register_fn("char->number", |c: char| char::to_digit(c, 10))
         .register_native_fn_definition(CHAR_EQUALS_DEFINITION);
     module
 }
