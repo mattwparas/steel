@@ -187,10 +187,26 @@ impl FreeList {
     }
 }
 
+// TODO: If this proves to be faster, make these From(Vec<HeapValue>)
+#[derive(Copy, Clone)]
+enum CurrentSpace {
+    From,
+    To,
+}
+
+/// The heap for steel currently uses an allocation scheme based on weak references to reference counted pointers.
+/// Allocation is just a `Vec<Rc<RefCell<T>>>`, where allocating simply pushes and allocates a value at the end.
+/// When we do a collection, we attempt to do a small collection by just dropping any values with no weak counts
+/// pointing to it.
 #[derive(Clone)]
 pub struct Heap {
-    memory: Vec<Rc<RefCell<HeapAllocated<SteelVal>>>>,
-    vectors: Vec<Rc<RefCell<HeapAllocated<Vec<SteelVal>>>>>,
+    memory: Vec<HeapValue>,
+
+    from_space: Vec<HeapValue>,
+    to_space: Vec<HeapValue>,
+    current: CurrentSpace,
+
+    vectors: Vec<HeapVector>,
     count: usize,
     threshold: usize,
     // mark_and_sweep_queue: VecDeque<SteelVal>,
@@ -202,12 +218,25 @@ impl Heap {
     pub fn new() -> Self {
         Heap {
             memory: Vec::with_capacity(256),
+
+            from_space: Vec::with_capacity(256),
+            to_space: Vec::with_capacity(256),
+            current: CurrentSpace::From,
+
             vectors: Vec::with_capacity(256),
             count: 0,
             threshold: GC_THRESHOLD,
             // mark_and_sweep_queue: VecDeque::with_capacity(256),
             mark_and_sweep_queue: Vec::with_capacity(256),
             maybe_memory_size: 0,
+        }
+    }
+
+    #[inline(always)]
+    pub fn memory(&mut self) -> &mut Vec<HeapValue> {
+        match self.current {
+            CurrentSpace::From => &mut self.from_space,
+            CurrentSpace::To => &mut self.to_space,
         }
     }
 
@@ -409,22 +438,8 @@ impl Heap {
         let prior_len = self.memory.len() + self.vector_cells_allocated();
 
         // sweep
-        self.memory.retain(|x| {
-            // let mut guard = x.borrow_mut();
-            // let is_reachable = guard.is_reachable();
-            // guard.reset();
-            // is_reachable
-
-            x.borrow().is_reachable()
-        });
-        self.vectors.retain(|x| {
-            // let mut guard = x.borrow_mut();
-            // let is_reachable = guard.is_reachable();
-            // guard.reset();
-            // is_reachable
-            x.borrow().is_reachable()
-        });
-        // (|x| x.borrow().is_reachable());
+        self.memory.retain(|x| x.borrow().is_reachable());
+        self.vectors.retain(|x| x.borrow().is_reachable());
 
         let after_len = self.memory.len();
 
@@ -714,7 +729,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
         self.mark_heap_vector(&vector.strong_ptr())
     }
 
-    fn visit_port(&mut self, _port: Gc<SteelPort>) -> Self::Output {}
+    fn visit_port(&mut self, _port: SteelPort) -> Self::Output {}
 
     fn visit_reducer(&mut self, reducer: Gc<Reducer>) -> Self::Output {
         match reducer.as_ref().clone() {

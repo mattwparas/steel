@@ -1024,9 +1024,12 @@ fn io_module() -> BuiltInModule {
 fn sandboxed_io_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/io");
     module
-        .register_value("display", IoFunctions::sandboxed_display())
-        // .register_value("display-color", IoFunctions::display_color())
-        .register_value("newline", IoFunctions::sandboxed_newline());
+        .register_value("stdout-simple-displayln", IoFunctions::displayln())
+        // .register_value("newline", IoFunctions::newline())
+        .register_value("read-to-string", IoFunctions::read_to_string());
+    // .register_value("display", IoFunctions::sandboxed_display())
+    // .register_value("display-color", IoFunctions::display_color())
+    // .register_value("newline", IoFunctions::sandboxed_newline());
     // .register_value("read-to-string", IoFunctions::read_to_string());
     module
 }

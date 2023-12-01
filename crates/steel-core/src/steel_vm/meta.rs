@@ -8,6 +8,7 @@ use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
 // use im_lists::list::List;
 use crate::values::lists::List;
 
+use crate::values::port::SteelPortRepr;
 use crate::values::structs::SteelResult;
 use crate::{
     parser::ast::ExprKind,
@@ -226,9 +227,13 @@ pub fn eval(program: String) -> List<SteelVal> {
     // let existing_output_port = DEFAULT_OUTPUT_PORT.with(|x| x.clone());
 
     // Override the default output port to capture things getting written to standard out
-    DEFAULT_OUTPUT_PORT.with(|x| {
-        *x.borrow_mut() = SteelPort::StringOutput(CAPTURED_OUTPUT_PORT.with(|x| x.clone()))
-    });
+    // DEFAULT_OUTPUT_PORT.with(|x| {
+    //     *x.borrow_mut() = SteelPort {
+    //         port: Rc::new(RefCell::new(SteelPortRepr::StringOutput(
+    //             CAPTURED_OUTPUT_PORT.with(|x| (*x.borrow()).clone()),
+    //         ))),
+    //     }
+    // });
 
     // let value = arguments[0]
     //     .string_or_else(throw!(TypeMismatch =>  "eval! expected a list in the first position"))?;
@@ -245,7 +250,7 @@ pub fn eval(program: String) -> List<SteelVal> {
     // lot of cloning. In the common case, its just cloning the handle to std out which seems
     // fine
     // DEFAULT_OUTPUT_PORT.with(|x| *x.borrow_mut() = existing_output_port.borrow().clone());
-    DEFAULT_OUTPUT_PORT.with(|x| *x.borrow_mut() = SteelPort::default_current_output_port());
+    // DEFAULT_OUTPUT_PORT.with(|x| *x.borrow_mut() = SteelPort::default_current_output_port());
 
     match res {
         Ok(v) => vec![

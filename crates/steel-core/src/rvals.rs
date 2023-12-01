@@ -1120,7 +1120,7 @@ pub enum SteelVal {
     /// Represents a scheme-only struct
     CustomStruct(Gc<UserDefinedStruct>),
     /// Represents a port object
-    PortV(Gc<SteelPort>),
+    PortV(SteelPort),
     /// Generic iterator wrapper
     IterV(Gc<Transducer>),
     /// Reducers
@@ -1499,7 +1499,7 @@ impl SteelVal {
             (SteelVal::Custom(l), SteelVal::Custom(r)) => Gc::ptr_eq(l, r),
             (HashMapV(l), HashMapV(r)) => Gc::ptr_eq(&l.0, &r.0),
             (HashSetV(l), HashSetV(r)) => Gc::ptr_eq(&l.0, &r.0),
-            (PortV(l), PortV(r)) => Gc::ptr_eq(l, r),
+            (PortV(l), PortV(r)) => Rc::ptr_eq(&l.port, &r.port),
             (Closure(l), Closure(r)) => Gc::ptr_eq(l, r),
             (IterV(l), IterV(r)) => Gc::ptr_eq(l, r),
             (ReducerV(l), ReducerV(r)) => Gc::ptr_eq(l, r),

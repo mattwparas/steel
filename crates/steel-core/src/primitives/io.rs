@@ -1,69 +1,63 @@
-#[cfg(feature = "colors")]
-use colored::Colorize;
-
+use crate::rvals::{Result, SteelVal};
 use crate::stop;
-use crate::{
-    rvals::{Result, SteelVal},
-    values::port::DEFAULT_OUTPUT_PORT,
-};
 use std::io;
-use std::io::Write;
+// use std::io::Write;
 
 // mod primitives;
 
 pub struct IoFunctions {}
 impl IoFunctions {
-    pub fn sandboxed_display() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() == 1 {
-                let print_val = &args[0];
+    // pub fn sandboxed_display() -> SteelVal {
+    //     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+    //         if args.len() == 1 {
+    //             let print_val = &args[0];
 
-                let output_port = DEFAULT_OUTPUT_PORT.with(|x| x.clone());
+    //             let output_port = DEFAULT_OUTPUT_PORT.with(|x| x.clone());
 
-                match &*output_port.borrow() {
-                    crate::values::port::SteelPort::StdOutput(out) => match &print_val {
-                        SteelVal::StringV(s) => write!(out.borrow_mut().lock(), "{s}"),
-                        _ => write!(out.borrow_mut().lock(), "{print_val}"),
-                    },
-                    crate::values::port::SteelPort::StringOutput(out) => match &print_val {
-                        SteelVal::StringV(s) => write!(out.borrow_mut(), "{s}"),
-                        _ => write!(out.borrow_mut(), "{print_val}"),
-                    },
-                    // crate::values::port::SteelPort::Closed => todo!(),
-                    other => stop!(Generic => "Unable to write to port: {:?}", other),
-                }?;
+    //             match &*output_port.borrow() {
+    //                 crate::values::port::SteelPort::StdOutput(out) => match &print_val {
+    //                     SteelVal::StringV(s) => write!(out.borrow_mut().lock(), "{s}"),
+    //                     _ => write!(out.borrow_mut().lock(), "{print_val}"),
+    //                 },
+    //                 crate::values::port::SteelPort::StringOutput(out) => match &print_val {
+    //                     SteelVal::StringV(s) => write!(out.borrow_mut(), "{s}"),
+    //                     _ => write!(out.borrow_mut(), "{print_val}"),
+    //                 },
+    //                 // crate::values::port::SteelPort::Closed => todo!(),
+    //                 other => stop!(Generic => "Unable to write to port: {:?}", other),
+    //             }?;
 
-                Ok(SteelVal::Void)
-            } else {
-                stop!(ArityMismatch => "display takes one argument");
-            }
-        })
-    }
+    //             Ok(SteelVal::Void)
+    //         } else {
+    //             stop!(ArityMismatch => "display takes one argument");
+    //         }
+    //     })
+    // }
 
-    pub fn sandboxed_newline() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.is_empty() {
-                // println!();
+    // pub fn sandboxed_newline() -> SteelVal {
+    //     SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+    //         if args.is_empty() {
+    //             // println!();
 
-                let output_port = DEFAULT_OUTPUT_PORT.with(|x| x.clone());
+    //             let output_port = DEFAULT_OUTPUT_PORT.with(|x| x.clone());
 
-                match &*output_port.borrow() {
-                    crate::values::port::SteelPort::StdOutput(out) => {
-                        writeln!(out.borrow_mut().lock())
-                    }
-                    crate::values::port::SteelPort::StringOutput(out) => {
-                        writeln!(out.borrow_mut())
-                    }
-                    // crate::values::port::SteelPort::Closed => todo!(),
-                    other => stop!(Generic => "Unable to write to port: {:?}", other),
-                }?;
+    //             match &*output_port.borrow() {
+    //                 crate::values::port::SteelPort::StdOutput(out) => {
+    //                     writeln!(out.borrow_mut().lock())
+    //                 }
+    //                 crate::values::port::SteelPort::StringOutput(out) => {
+    //                     writeln!(out.borrow_mut())
+    //                 }
+    //                 // crate::values::port::SteelPort::Closed => todo!(),
+    //                 other => stop!(Generic => "Unable to write to port: {:?}", other),
+    //             }?;
 
-                Ok(SteelVal::Void)
-            } else {
-                stop!(ArityMismatch => "newline takes no arguments");
-            }
-        })
-    }
+    //             Ok(SteelVal::Void)
+    //         } else {
+    //             stop!(ArityMismatch => "newline takes no arguments");
+    //         }
+    //     })
+    // }
 
     pub fn display() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
