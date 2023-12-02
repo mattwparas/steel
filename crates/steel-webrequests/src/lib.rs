@@ -15,8 +15,10 @@ fn create_module() -> FFIModule {
         .register_fn("get", get)
         .register_fn(
             "call",
-            |request: Request| -> Result<SteelResponse, ureq::Error> {
-                Request::call(request).map(|x| x.into())
+            |request: BlockingRequest| -> Result<SteelResponse, BlockingError> {
+                Request::call(request.0)
+                    .map(|x| x.into())
+                    .map_err(BlockingError::Ureq)
             },
         )
         .register_fn("response->text", SteelResponse::into_text);
@@ -24,6 +26,7 @@ fn create_module() -> FFIModule {
     module
 }
 
+#[derive(Clone)]
 struct BlockingRequest(Request);
 struct BlockingResponse(Response);
 
@@ -36,8 +39,8 @@ impl Custom for BlockingRequest {}
 impl Custom for BlockingResponse {}
 impl Custom for BlockingError {}
 
-fn get(url: String) -> Request {
-    ureq::get(&url)
+fn get(url: String) -> BlockingRequest {
+    BlockingRequest(ureq::get(&url))
 }
 
 struct SteelResponse {
