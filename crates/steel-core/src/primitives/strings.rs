@@ -29,6 +29,8 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(TRIM_START_DEFINITION)
         .register_native_fn_definition(TRIM_END_DEFINITION)
         .register_native_fn_definition(SPLIT_WHITESPACE_DEFINITION)
+        .register_native_fn_definition(SPLIT_ONCE_DEFINITION)
+        .register_native_fn_definition(SPLIT_MANY_DEFINITION)
         .register_native_fn_definition(STRING_TO_INT_DEFINITION)
         .register_native_fn_definition(INT_TO_STRING_DEFINITION)
         .register_native_fn_definition(STRING_TO_SYMBOL_DEFINITION)
@@ -439,6 +441,23 @@ pub fn trim_start_matches(value: &SteelString, pat: &SteelString) -> String {
 pub fn split_whitespace(value: &SteelString) -> SteelVal {
     let split: List<SteelVal> = value
         .split_whitespace()
+        .map(|x| SteelVal::StringV(x.into()))
+        .collect();
+    split.into()
+}
+
+#[function(name = "split-once")]
+pub fn split_once(value: &SteelString, pat: &SteelString) -> SteelVal {
+    let split: Option<List<SteelVal>> = value
+        .split_once(pat.as_str())
+        .map(|(x, y)| vec![SteelVal::StringV(x.into()), SteelVal::StringV(y.into())].into());
+    split.into()
+}
+
+#[function(name = "split-many")]
+pub fn split_many(value: &SteelString, pat: &SteelString) -> SteelVal {
+    let split: List<SteelVal> = value
+        .split(pat.as_str())
         .map(|x| SteelVal::StringV(x.into()))
         .collect();
     split.into()
