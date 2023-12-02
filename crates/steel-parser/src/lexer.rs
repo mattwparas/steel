@@ -289,6 +289,7 @@ impl<'a> Lexer<'a> {
             "begin" => TokenType::Begin,
             "lambda" | "fn" | "#%plain-lambda" | "λ" => TokenType::Lambda,
             "quote" => TokenType::Quote,
+            // "unquote" => TokenType::Unquote,
             "syntax-rules" => TokenType::SyntaxRules,
             "define-syntax" => TokenType::DefineSyntax,
             "..." => TokenType::Ellipses,

@@ -19,7 +19,8 @@
          (contract/out map-ok (->/c Result? (->/c any/c any/c) Result?))
          (contract/out map-err (->/c Result? (->/c any/c any/c) Result?))
          unwrap-or
-         foo)
+         foo
+         ok-and-then)
 
 ; (struct Ok (value) #:transparent)
 ; (struct Err (value) #:transparent)
@@ -49,6 +50,11 @@
 (define (map-ok result func)
   (cond
     [(Ok? result) (Ok (func (Ok->value result)))]
+    [(Err? result) result]))
+
+(define (ok-and-then result func)
+  (cond
+    [(Ok? result) (func (Ok->value result))]
     [(Err? result) result]))
 
 ;; (->/c Result? (->/c any/c any/c Result?))

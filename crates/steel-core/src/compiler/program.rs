@@ -399,7 +399,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
 
                 if let TokenType::Identifier(ident) = ident.ty {
                     match ident {
-                        _ if ident == *CONS_SYMBOL || ident == *PRIM_CONS_SYMBOL => {
+                        _ if ident == *PRIM_CONS_SYMBOL => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::CONS;
                                 x.payload_size = 2;
@@ -428,7 +428,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                             }
                         }
 
-                        _ if ident == *CAR_SYMBOL || ident == *PRIM_CAR => {
+                        _ if ident == *PRIM_CAR => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::CAR;
                                 continue;
@@ -510,6 +510,7 @@ define_symbols! {
     AS_KEYWORD => "as",
     SYNTAX_CONST_IF => "syntax-const-if",
     UNQUOTE => "unquote",
+    UNQUOTE_COMMA => "#%unquote-comma",
     RAW_UNQUOTE => "#%unquote",
     UNQUOTE_SPLICING => "unquote-splicing",
     RAW_UNQUOTE_SPLICING => "#%unquote-splicing",

@@ -567,8 +567,8 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
     // Certainly the most complicated case: function application
     // Check if its a function application, and go for it
     fn visit_list(&mut self, l: crate::parser::ast::List) -> Self::Output {
+        // println!("{}", l);
         if l.args.is_empty() {
-            // dbg!(&l);
             stop!(BadSyntax => "empty function application");
         }
 

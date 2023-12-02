@@ -1,8 +1,8 @@
 use crate::rvals::{Result, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::stop;
-use crate::values::port::SteelPort;
-use crate::{gc::Gc, values::port::new_rc_ref_cell};
+use crate::values::port::new_rc_ref_cell;
+use crate::values::port::{SteelPort, SteelPortRepr};
 
 use steel_derive::function;
 
@@ -44,16 +44,16 @@ pub fn port_module() -> BuiltInModule {
 /// ```
 #[function(name = "stdin")]
 pub fn open_stdin() -> SteelVal {
-    SteelVal::PortV(Gc::new(SteelPort::StdInput(new_rc_ref_cell(
-        std::io::stdin(),
-    ))))
+    SteelVal::PortV(SteelPort {
+        port: new_rc_ref_cell(SteelPortRepr::StdInput(std::io::stdin())),
+    })
 }
 
 #[function(name = "stdout")]
 pub fn open_stdout() -> SteelVal {
-    SteelVal::PortV(Gc::new(SteelPort::StdOutput(new_rc_ref_cell(
-        std::io::stdout(),
-    ))))
+    SteelVal::PortV(SteelPort {
+        port: new_rc_ref_cell(SteelPortRepr::StdOutput(std::io::stdout())),
+    })
 }
 
 /// Takes a filename `path` referring to an existing file and returns an input port. Raises an error
@@ -73,8 +73,7 @@ pub fn open_stdout() -> SteelVal {
 /// ```
 #[function(name = "open-input-file")]
 pub fn open_input_file(path: &SteelString) -> Result<SteelVal> {
-    let port = SteelPort::new_textual_file_input(path)?;
-    Ok(SteelVal::PortV(Gc::new(port)))
+    SteelPort::new_textual_file_input(path).map(SteelVal::PortV)
 }
 
 /// Takes a filename `path` referring to a file to be created and returns an output port.
@@ -87,14 +86,12 @@ pub fn open_input_file(path: &SteelString) -> Result<SteelVal> {
 /// ```
 #[function(name = "open-output-file")]
 pub fn open_output_file(path: &SteelString) -> Result<SteelVal> {
-    let new_port = SteelPort::new_textual_file_output(path)?;
-    Ok(SteelVal::PortV(Gc::new(new_port)))
+    SteelPort::new_textual_file_output(path).map(SteelVal::PortV)
 }
 
 #[function(name = "open-output-string")]
-pub fn open_output_string() -> Result<SteelVal> {
-    let new_port = SteelPort::new_output_port();
-    Ok(SteelVal::PortV(Gc::new(new_port)))
+pub fn open_output_string() -> SteelVal {
+    SteelVal::PortV(SteelPort::new_output_port())
 }
 
 /// Takes a port and reads the entire content into a string
@@ -103,7 +100,7 @@ pub fn open_output_string() -> Result<SteelVal> {
 ///
 /// * port : input-port?
 #[function(name = "read-port-to-string")]
-pub fn read_port_to_string(port: &Gc<SteelPort>) -> Result<SteelVal> {
+pub fn read_port_to_string(port: &SteelPort) -> Result<SteelVal> {
     let (_, result) = port.read_all_str()?;
     Ok(SteelVal::StringV(result.into()))
 }
@@ -147,7 +144,7 @@ pub fn is_output(maybe_port: &SteelVal) -> bool {
 }
 
 #[function(name = "read-line-from-port")]
-pub fn read_line_to_string(port: &Gc<SteelPort>) -> Result<SteelVal> {
+pub fn read_line_to_string(port: &SteelPort) -> Result<SteelVal> {
     let res = port.read_line();
 
     if let Ok((size, result)) = res {
@@ -163,7 +160,7 @@ pub fn read_line_to_string(port: &Gc<SteelPort>) -> Result<SteelVal> {
 }
 
 #[function(name = "write-line!")]
-pub fn write_line(port: &Gc<SteelPort>, line: &SteelVal) -> Result<SteelVal> {
+pub fn write_line(port: &SteelPort, line: &SteelVal) -> Result<SteelVal> {
     let line = line.to_string();
     let res = port.write_string_line(line.as_str());
 
@@ -175,7 +172,7 @@ pub fn write_line(port: &Gc<SteelPort>, line: &SteelVal) -> Result<SteelVal> {
 }
 
 #[function(name = "raw-write")]
-pub fn write(port: &Gc<SteelPort>, line: &SteelVal) -> Result<SteelVal> {
+pub fn write(port: &SteelPort, line: &SteelVal) -> Result<SteelVal> {
     let line = line.to_string();
     let res = port.write_string(line.as_str());
 
@@ -187,7 +184,7 @@ pub fn write(port: &Gc<SteelPort>, line: &SteelVal) -> Result<SteelVal> {
 }
 
 #[function(name = "raw-write-char")]
-pub fn write_char(port: &Gc<SteelPort>, character: char) -> Result<SteelVal> {
+pub fn write_char(port: &SteelPort, character: char) -> Result<SteelVal> {
     let res = port.write_char(character);
 
     if res.is_ok() {
@@ -198,7 +195,7 @@ pub fn write_char(port: &Gc<SteelPort>, character: char) -> Result<SteelVal> {
 }
 
 #[function(name = "raw-write-string")]
-pub fn write_string(port: &Gc<SteelPort>, line: &SteelVal) -> Result<SteelVal> {
+pub fn write_string(port: &SteelPort, line: &SteelVal) -> Result<SteelVal> {
     let res = if let SteelVal::StringV(s) = line {
         port.write_string(s.as_str())
     } else {
@@ -213,21 +210,28 @@ pub fn write_string(port: &Gc<SteelPort>, line: &SteelVal) -> Result<SteelVal> {
 }
 
 #[function(name = "get-output-string")]
-pub fn get_output_string(port: &Gc<SteelPort>) -> Result<SteelVal> {
+pub fn get_output_string(port: &SteelPort) -> Result<SteelVal> {
     port.get_output_string().map(SteelVal::from)
 }
 
 #[function(name = "flush-output-port")]
-pub fn flush_output_port(port: &Gc<SteelPort>) -> Result<SteelVal> {
+pub fn flush_output_port(port: &SteelPort) -> Result<SteelVal> {
     port.flush().map(|_| SteelVal::Void)
 }
 
 #[function(name = "#%default-input-port")]
 pub fn default_input_port() -> SteelVal {
-    SteelVal::PortV(Gc::new(SteelPort::default_current_input_port()))
+    SteelVal::PortV(SteelPort::default_current_input_port())
 }
 
 #[function(name = "#%default-output-port")]
 pub fn default_output_port() -> SteelVal {
-    SteelVal::PortV(Gc::new(SteelPort::default_current_output_port()))
+    SteelVal::PortV(SteelPort::default_current_output_port())
+}
+
+// TODO: In order for this to work, ports have to get refactored - the mutability needs to be
+// on the outside, rather than the inside.
+#[function(name = "close-output-port")]
+pub fn close_output_port(port: &SteelPort) -> Result<SteelVal> {
+    port.close_output_port().map(|_| SteelVal::Void)
 }

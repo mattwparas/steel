@@ -626,7 +626,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
         }
     }
 
-    fn visit_port(&mut self, _port: Gc<SteelPort>) -> Self::Output {}
+    fn visit_port(&mut self, _port: SteelPort) -> Self::Output {}
     fn visit_transducer(&mut self, _transducer: Gc<Transducer>) -> Self::Output {}
     fn visit_reducer(&mut self, _reducer: Gc<Reducer>) -> Self::Output {}
     fn visit_future_function(&mut self, _function: BoxedAsyncFunctionSignature) -> Self::Output {}
@@ -877,7 +877,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
     fn visit_string(&mut self, _string: SteelString) {}
     fn visit_function_pointer(&mut self, _ptr: FunctionSignature) {}
     fn visit_symbol(&mut self, _symbol: SteelString) {}
-    fn visit_port(&mut self, _port: Gc<SteelPort>) {}
+    fn visit_port(&mut self, _port: SteelPort) {}
     fn visit_future(&mut self, _future: Gc<FutureResult>) {}
     fn visit_mutable_function(&mut self, _function: MutFunctionSignature) {}
     fn visit_bignum(&mut self, _bignum: Gc<BigInt>) {}
@@ -1188,7 +1188,7 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_hash_map(&mut self, hashmap: SteelHashMap) -> Self::Output;
     fn visit_hash_set(&mut self, hashset: SteelHashSet) -> Self::Output;
     fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output;
-    fn visit_port(&mut self, port: Gc<SteelPort>) -> Self::Output;
+    fn visit_port(&mut self, port: SteelPort) -> Self::Output;
     fn visit_transducer(&mut self, transducer: Gc<Transducer>) -> Self::Output;
     fn visit_reducer(&mut self, reducer: Gc<Reducer>) -> Self::Output;
     fn visit_future_function(&mut self, function: BoxedAsyncFunctionSignature) -> Self::Output;
@@ -1277,7 +1277,7 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
     fn visit_hash_map(&mut self, hashmap: &'a SteelHashMap) -> Self::Output;
     fn visit_hash_set(&mut self, hashset: &'a SteelHashSet) -> Self::Output;
     fn visit_steel_struct(&mut self, steel_struct: &'a Gc<UserDefinedStruct>) -> Self::Output;
-    fn visit_port(&mut self, port: &'a Gc<SteelPort>) -> Self::Output;
+    fn visit_port(&mut self, port: &'a SteelPort) -> Self::Output;
     fn visit_transducer(&mut self, transducer: &'a Gc<Transducer>) -> Self::Output;
     fn visit_reducer(&mut self, reducer: &'a Gc<Reducer>) -> Self::Output;
     fn visit_future_function(&mut self, function: &'a BoxedAsyncFunctionSignature) -> Self::Output;
@@ -1722,7 +1722,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
     fn visit_string(&mut self, _string: SteelString) -> Self::Output {}
     fn visit_function_pointer(&mut self, _ptr: FunctionSignature) -> Self::Output {}
     fn visit_symbol(&mut self, _symbol: SteelString) -> Self::Output {}
-    fn visit_port(&mut self, _port: Gc<SteelPort>) -> Self::Output {}
+    fn visit_port(&mut self, _port: SteelPort) -> Self::Output {}
     fn visit_boxed_function(&mut self, _function: Rc<BoxedDynFunction>) -> Self::Output {}
     fn visit_mutable_function(&mut self, _function: MutFunctionSignature) -> Self::Output {}
     fn visit_builtin_function(&mut self, _function: BuiltInSignature) -> Self::Output {}

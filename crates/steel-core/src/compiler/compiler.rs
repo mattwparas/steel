@@ -10,7 +10,11 @@ use crate::{
         },
     },
     parser::{
-        ast::AstTools, expand_visitor::expand_kernel, interner::InternedString, kernel::Kernel,
+        ast::AstTools,
+        expand_visitor::expand_kernel,
+        interner::InternedString,
+        kernel::Kernel,
+        parser::{lower_entire_ast, lower_macro_and_require_definitions},
     },
     steel_vm::{builtin::BuiltInModule, cache::MemoizationTable, engine::ModuleContainer},
 };
@@ -428,10 +432,18 @@ impl Compiler {
 
         // Could fail here
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> = if let Some(p) = &path {
-            Parser::new_from_source(expr_str, p.clone(), Some(id)).collect()
+            Parser::new_from_source(expr_str, p.clone(), Some(id))
+                .without_lowering()
+                .map(|x| x.and_then(lower_macro_and_require_definitions))
+                .collect()
         } else {
-            Parser::new(expr_str, Some(id)).collect()
+            Parser::new(expr_str, Some(id))
+                .without_lowering()
+                .map(|x| x.and_then(lower_macro_and_require_definitions))
+                .collect()
         };
+
+        // println!("Finished parsing");
 
         #[cfg(feature = "profiling")]
         if log_enabled!(target: "pipeline_time", log::Level::Debug) {
@@ -553,6 +565,13 @@ impl Compiler {
         let mut expanded_statements =
             self.expand_expressions(exprs, path, sources, builtin_modules.clone())?;
 
+        expanded_statements = expanded_statements
+            .into_iter()
+            .map(lower_entire_ast)
+            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
+
+        // println!("Finished expanding");
+
         if log_enabled!(log::Level::Debug) {
             debug!(
                 "Generating instructions for the expression: {:?}",
@@ -569,6 +588,15 @@ impl Compiler {
             .into_iter()
             .map(|x| expand_kernel(x, self.kernel.as_mut(), builtin_modules.clone()))
             .collect::<Result<Vec<_>>>()?;
+
+        expanded_statements = expanded_statements
+            .into_iter()
+            .map(lower_entire_ast)
+            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
+
+        // println!("Finished expanding kernel");
+
+        // expanded_statements.pretty_print();
 
         log::debug!(target: "expansion-phase", "Beginning constant folding");
 
@@ -674,6 +702,8 @@ impl Compiler {
 
         let mut expanded_statements =
             self.lower_expressions_impl(exprs, constants, builtin_modules, path, sources)?;
+
+        // expanded_statements.pretty_print();
 
         log::debug!(target: "expansion-phase", "Generating instructions");
 

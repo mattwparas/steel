@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
     gc::Gc,
-    parser::{interner::InternedString, span::Span},
+    parser::{interner::InternedString, span::Span, tryfrom_visitor::TryFromExprKindForSteelVal},
     primitives::{
         fs_module,
         hashmaps::hashmap_module,
@@ -1024,9 +1024,12 @@ fn io_module() -> BuiltInModule {
 fn sandboxed_io_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/io");
     module
-        .register_value("display", IoFunctions::sandboxed_display())
-        // .register_value("display-color", IoFunctions::display_color())
-        .register_value("newline", IoFunctions::sandboxed_newline());
+        .register_value("stdout-simple-displayln", IoFunctions::displayln())
+        // .register_value("newline", IoFunctions::newline())
+        .register_value("read-to-string", IoFunctions::read_to_string());
+    // .register_value("display", IoFunctions::sandboxed_display())
+    // .register_value("display-color", IoFunctions::display_color())
+    // .register_value("newline", IoFunctions::sandboxed_newline());
     // .register_value("read-to-string", IoFunctions::read_to_string());
     module
 }
@@ -1270,12 +1273,22 @@ impl Reader {
 
     fn read_one(&mut self) -> Result<SteelVal> {
         if let Some(buffer) = self.buffer.get(self.offset..) {
-            let mut parser = crate::parser::parser::Parser::new(buffer, None);
+            // println!("Reading range: {}", buffer);
 
-            if let Some(next) = parser.next() {
+            let mut parser = crate::parser::parser::Parser::new_flat(buffer, None);
+
+            if let Some(raw) = parser.next() {
+                // self.offset += parser.offset();
+
+                let next = if let Ok(next) = raw {
+                    next
+                } else {
+                    return Ok(SteelVal::Void);
+                };
+
                 self.offset += parser.offset();
 
-                let result = SteelVal::try_from(next?);
+                let result = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(next);
 
                 if let Some(remaining) = self.buffer.get(self.offset..) {
                     for _ in remaining.chars().take_while(|x| x.is_whitespace()) {
@@ -1290,10 +1303,13 @@ impl Reader {
 
                 result
             } else {
+                // No value, keep reading
                 Ok(SteelVal::Void)
             }
         } else {
-            Ok(SteelVal::Void)
+            Ok(SteelVal::SymbolV(
+                crate::primitives::ports::EOF_OBJECT.with(|x| x.clone()),
+            ))
         }
     }
 }

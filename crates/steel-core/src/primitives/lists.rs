@@ -202,8 +202,8 @@ pub fn new(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (empty? '()) ;; => #true
 /// ```
 #[steel_derive::function(name = "empty?")]
-fn is_empty(list: &List<SteelVal>) -> bool {
-    list.is_empty()
+fn is_empty(list: &SteelVal) -> bool {
+    list.list().map(|x| x.is_empty()).unwrap_or_default()
 }
 
 /// Checks if the given value can be treated as a pair.

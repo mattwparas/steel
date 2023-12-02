@@ -5,8 +5,7 @@ use std::rc::Rc;
 
 use im_lists::list::List;
 
-use crate::gc::Gc;
-use crate::values::port::SteelPort;
+use crate::values::port::{SteelPort, SteelPortRepr};
 use crate::values::structs::SteelResult;
 use crate::SteelVal;
 use crate::{rvals::Custom, steel_vm::builtin::BuiltInModule};
@@ -68,9 +67,11 @@ impl ChildProcess {
             .as_mut()
             .and_then(|x| x.stdout.take())
             .and_then(|x| {
-                Some(SteelVal::PortV(Gc::new(SteelPort::ChildStdOutput(
-                    Rc::new(RefCell::new(BufReader::new(x))),
-                ))))
+                Some(SteelVal::PortV(SteelPort {
+                    port: Rc::new(RefCell::new(SteelPortRepr::ChildStdOutput(BufReader::new(
+                        x,
+                    )))),
+                }))
             });
 
         stdout
@@ -84,9 +85,11 @@ impl ChildProcess {
             .as_mut()
             .and_then(|x| x.stdin.take())
             .and_then(|x| {
-                Some(SteelVal::PortV(Gc::new(SteelPort::ChildStdInput(Rc::new(
-                    RefCell::new(BufWriter::new(x)),
-                )))))
+                Some(SteelVal::PortV(SteelPort {
+                    port: Rc::new(RefCell::new(SteelPortRepr::ChildStdInput(BufWriter::new(
+                        x,
+                    )))),
+                }))
             });
 
         stdout

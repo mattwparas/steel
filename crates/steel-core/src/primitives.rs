@@ -7,7 +7,7 @@ mod io;
 pub mod lists;
 pub mod meta_ops;
 pub mod nums;
-mod ports;
+pub mod ports;
 pub mod process;
 pub mod random;
 mod streams;
@@ -506,7 +506,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a HeapRef<Vec<SteelVal>> {
     }
 }
 
-impl<'a> PrimitiveAsRef<'a> for &'a Gc<SteelPort> {
+impl<'a> PrimitiveAsRef<'a> for &'a SteelPort {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::PortV(p) = val {

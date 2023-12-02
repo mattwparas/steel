@@ -20,6 +20,9 @@
     [(quasiquote ((unquote x) xs ...)) (cons (list 'unquote (quasiquote x)) (quasiquote (xs ...)))]
     [(quasiquote (unquote x)) (list 'unquote (quasiquote x))]
 
+    ; [(quasiquote ((unquote x) xs ...)) (cons x (quasiquote (xs ...)))]
+    ; [(quasiquote (unquote x)) x]
+
     ; ((quasiquote ((#%unquote x) xs ...))          (cons x (quasiquote (xs ...))))
 
     [(quasiquote ((#%unquote x) xs ...)) (cons x (quasiquote (xs ...)))]
@@ -34,6 +37,10 @@
      (append (list (list 'unquote-splicing (quasiquote x))) (quasiquote (xs ...)))]
     [(quasiquote (x xs ...)) (cons (quasiquote x) (quasiquote (xs ...)))]
     [(quasiquote x) 'x]))
+
+; (define-syntax #%unquote
+;   (syntax-rules ()
+;     [(#%unquote x) x]))
 
 (define-syntax #%proto-syntax-object
   (syntax-rules ()
@@ -305,6 +312,12 @@
 (define-syntax letrec*
   (syntax-rules ()
     [(letrec* bindings body ...) ((lambda () (letrec*-helper bindings body ...)))]))
+
+(define-syntax letrec
+  (syntax-rules ()
+    [(letrec bindings
+       body ...)
+     ((lambda () (letrec*-helper bindings body ...)))]))
 
 (define-syntax module
   (syntax-rules (provide gen-defines

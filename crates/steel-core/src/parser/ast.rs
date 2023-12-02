@@ -169,6 +169,13 @@ impl ExprKind {
         )))
     }
 
+    pub fn into_atom_syntax_object(self) -> Option<SyntaxObject> {
+        match self {
+            Self::Atom(Atom { syn }) => Some(syn),
+            _ => None,
+        }
+    }
+
     pub fn atom_syntax_object(&self) -> Option<&SyntaxObject> {
         match self {
             Self::Atom(Atom { syn }) => Some(syn),
@@ -280,6 +287,14 @@ impl ExprKind {
         match self {
             Self::List(l) => Ok(l),
             _ => Err(err()),
+        }
+    }
+
+    pub fn into_list(self) -> List {
+        if let ExprKind::List(l) = self {
+            l
+        } else {
+            panic!("Attempted to coerce a non list to a list");
         }
     }
 
@@ -985,6 +1000,21 @@ impl LambdaFunction {
         }
     }
 
+    pub fn new_maybe_rest(
+        args: Vec<ExprKind>,
+        body: ExprKind,
+        location: SyntaxObject,
+        rest: bool,
+    ) -> Self {
+        LambdaFunction {
+            args,
+            body,
+            location,
+            rest,
+            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed),
+        }
+    }
+
     pub fn arguments(&self) -> Option<Vec<&InternedString>> {
         self.args.iter().map(|x| x.atom_identifier()).collect()
     }
@@ -1152,6 +1182,66 @@ impl List {
             Some(s)
         } else {
             None
+        }
+    }
+
+    pub fn is_require(&self) -> bool {
+        if let Some(ExprKind::Atom(Atom {
+            syn:
+                SyntaxObject {
+                    ty: TokenType::Require,
+                    ..
+                },
+        })) = self.args.first()
+        {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_define_syntax(&self) -> bool {
+        if let Some(ExprKind::Atom(Atom {
+            syn:
+                SyntaxObject {
+                    ty: TokenType::DefineSyntax,
+                    ..
+                },
+        })) = self.args.first()
+        {
+            self.args.len() == 3
+        } else {
+            false
+        }
+    }
+
+    pub fn is_syntax_rules(&self) -> bool {
+        if let Some(ExprKind::Atom(Atom {
+            syn:
+                SyntaxObject {
+                    ty: TokenType::SyntaxRules,
+                    ..
+                },
+        })) = self.args.first()
+        {
+            self.args.len() > 2
+        } else {
+            false
+        }
+    }
+
+    pub fn is_quote(&self) -> bool {
+        if let Some(ExprKind::Atom(Atom {
+            syn:
+                SyntaxObject {
+                    ty: TokenType::Quote,
+                    ..
+                },
+        })) = self.args.first()
+        {
+            true
+        } else {
+            false
         }
     }
 
@@ -1451,7 +1541,10 @@ impl fmt::Display for PatternPair {
 }
 
 #[inline]
-fn parse_if<I>(mut value_iter: I, syn: SyntaxObject) -> std::result::Result<ExprKind, ParseError>
+pub(crate) fn parse_if<I>(
+    mut value_iter: I,
+    syn: SyntaxObject,
+) -> std::result::Result<ExprKind, ParseError>
 where
     I: Iterator<Item = ExprKind>,
 {
@@ -1500,7 +1593,7 @@ where
 }
 
 #[inline]
-fn parse_define<I>(
+pub(crate) fn parse_define<I>(
     mut value_iter: I,
     syn: SyntaxObject,
 ) -> std::result::Result<ExprKind, ParseError>
@@ -1632,7 +1725,7 @@ where
 }
 
 #[inline]
-fn parse_new_let<I>(
+pub(crate) fn parse_new_let<I>(
     mut value_iter: I,
     syn: SyntaxObject,
 ) -> std::result::Result<ExprKind, ParseError>
@@ -1804,7 +1897,10 @@ where
 }
 
 #[inline]
-fn parse_let<I>(mut value_iter: I, syn: SyntaxObject) -> std::result::Result<ExprKind, ParseError>
+pub(crate) fn parse_let<I>(
+    mut value_iter: I,
+    syn: SyntaxObject,
+) -> std::result::Result<ExprKind, ParseError>
 where
     I: Iterator<Item = ExprKind>,
 {
@@ -1890,7 +1986,7 @@ where
 }
 
 #[inline]
-fn parse_single_argument<I>(
+pub(crate) fn parse_single_argument<I>(
     mut value_iter: I,
     syn: SyntaxObject,
     name: &'static str,
@@ -2094,7 +2190,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
     }
 }
 
-fn parse_lambda(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
+pub(crate) fn parse_lambda(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
     let syn = a.syn.clone();
     if value.len() < 3 {
         return Err(ParseError::SyntaxError(
@@ -2173,7 +2269,7 @@ fn parse_lambda(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> 
     }
 }
 
-fn parse_set(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
+pub(crate) fn parse_set(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
     let syn = a.syn.clone();
     if value.len() != 3 {
         return Err(ParseError::ArityMismatch(
@@ -2191,7 +2287,7 @@ fn parse_set(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
     ))))
 }
 
-fn parse_require(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
+pub(crate) fn parse_require(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
     let syn = a.syn.clone();
     if value.len() < 2 {
         return Err(ParseError::ArityMismatch(
@@ -2223,7 +2319,7 @@ fn parse_require(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError>
     Ok(ExprKind::Require(Require::new(expressions, syn)))
 }
 
-fn parse_begin(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
+pub(crate) fn parse_begin(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
     let syn = a.syn.clone();
     let mut value_iter = value.into_iter();
     value_iter.next();
