@@ -3089,8 +3089,6 @@ dependencies = [
  "steel-gen",
  "steel-parser",
  "termimad",
- "tungstenite",
- "ureq",
  "url",
  "weak-table",
  "which",

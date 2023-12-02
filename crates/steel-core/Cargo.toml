@@ -63,9 +63,7 @@ cranelift-jit = { version = "0.84.0", optional = true }
 rusqlite =  { version = "0.28.0", features = ["bundled"], optional = true }
 reqwest = { version = "0.11.14", features = ["blocking", "json"], optional = true }
 url = { version = "2.3.1", optional = true }
-tungstenite = { version = "0.18.0", features = ["rustls-tls-native-roots"], optional = true }
 anyhow = { version = "1", optional = true }
-ureq = { version = "2.6.2", features = ["json"], optional = true }
 
 [dev-dependencies]
 proptest = "1.1.0"
@@ -81,12 +79,11 @@ modules = []
 jit = ["dep:cranelift", "dep:cranelift-module", "dep:cranelift-jit"]
 dynamic = []
 profiling = []
-web = ["dep:reqwest", "dep:url", "dep:tungstenite"]
+web = ["dep:reqwest", "dep:url"]
 sqlite = ["dep:rusqlite"]
 unsafe-internals = []
 anyhow = ["dep:anyhow"]
 dylibs = ["dep:abi_stable", "dep:async-ffi"]
-blocking_requests = ["dep:ureq"]
 markdown = ["dep:termimad"]
 smallvec = ["dep:smallvec"]
 without-drop-protection = []
