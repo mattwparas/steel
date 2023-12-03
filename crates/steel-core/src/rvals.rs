@@ -80,30 +80,11 @@ pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
 pub type Result<T> = result::Result<T, SteelErr>;
 pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
 pub type MutFunctionSignature = fn(&mut [SteelVal]) -> Result<SteelVal>;
-// pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
-
-// TODO: This increases the size of the SteelVal enum by 8 bytes. Consider boxing it instead
 pub type BoxedFunctionSignature = Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>>;
-
 pub type BoxedAsyncFunctionSignature = Box<Rc<dyn Fn(&[SteelVal]) -> Result<FutureResult>>>;
-
-// Do something like this:
-// vector of async functions
-// then for a wait group, make a closure that looks something like this:
-// async move vec<functioncalls> |_| {
-//    let values = Vec::new();
-//    for func in vec {
-//         values.push(func(args).await)
-//    }
-//    values
-// }
-
-// pub type BoxedFutureResult = Shared<Output = Result<Gc<SteelVal>>>;
 pub type AsyncSignature = fn(&[SteelVal]) -> FutureResult;
 
 pub type BoxedFutureResult = Pin<Box<dyn Future<Output = Result<SteelVal>>>>;
-
-// Pin<Box<dyn Future<Output = T> + 'a + Send>>;
 
 #[derive(Clone)]
 pub struct FutureResult(Shared<BoxedFutureResult>);

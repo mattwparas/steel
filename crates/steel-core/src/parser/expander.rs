@@ -34,15 +34,6 @@ pub fn path_from_working_dir<P: AsRef<Path>>(path: P) -> std::io::Result<PathBuf
     Ok(working_dir)
 }
 
-// #[test]
-// fn try_initialize() {
-//     let path = path_from_working_dir("src/compiled_macros/test.rkt").unwrap();
-
-//     println!("Path exists: {:?}", path.exists());
-
-//     let manager = LocalMacroManager::initialize(path, true).unwrap();
-// }
-
 /// Manages macros for a single namespace
 #[derive(Default, Serialize, Deserialize, Debug)]
 pub struct LocalMacroManager {

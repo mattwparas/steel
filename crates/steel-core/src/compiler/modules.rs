@@ -7,7 +7,6 @@ use crate::{
         },
         program::PROVIDE,
     },
-    expr_list,
     parser::{
         ast::{AstTools, Atom, Begin, Define, ExprKind, List, Quote},
         expand_visitor::expand_kernel,
@@ -23,6 +22,8 @@ use crate::{
 };
 use crate::{parser::expand_visitor::Expander, rvals::Result};
 
+use steel_parser::expr_list;
+
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
@@ -37,7 +38,6 @@ use std::time::SystemTime;
 
 use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
-// use itertools::Itertools;
 use log::{debug, info, log_enabled};
 
 use crate::parser::ast::IteratorExtensions;

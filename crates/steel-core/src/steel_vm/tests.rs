@@ -284,37 +284,295 @@ mod register_type_tests {
     }
 }
 
-// #[cfg(test)]
-// mod stream_tests {
-//     use std::cell::RefCell;
-//     use std::rc::Rc;
+#[cfg(test)]
+mod contract_tests {
+    use crate::steel_vm::test_util::{assert_script, assert_script_error};
 
-//     use crate::parser::span::Span;
-//     use crate::steel_vm::evaluation_progress::EvaluationProgress;
-//     use crate::steel_vm::lazy_stream::LazyStreamIter;
-//     use crate::steel_vm::options::ApplyContract;
-//     use crate::steel_vm::options::UseCallback;
-//     use crate::values::lazy_stream::LazyStream;
-//     use crate::{compiler::constants::ConstantMap, env::Env};
+    #[test]
+    fn simple_flat_contract() {
+        let script = r#"
+          (define/contract (test x y)
+            (->/c even? even? odd?)
+            (+ x y 1))
 
-//     // #[test]
-//     // fn test_empty_stream_creates_no_iter() {
-//     //     let constants = ConstantMap::new();
-//     //     let cur_inst_span = Span::new(0, 0);
-//     //     let callback = EvaluationProgress::new();
-//     //     let mut global_env = Env::root();
-//     //     let mut mut_ref = &mut global_env;
+          (assert! (equal? (test 2 2) 5))
+        "#;
+        assert_script(script);
+    }
 
-//     //     let lazy_iter = LazyStreamIter::new(
-//     //         LazyStream::new_empty_stream(),
-//     //         &constants,
-//     //         &cur_inst_span,
-//     //         &callback,
-//     //         Rc::new(RefCell::new(&mut mut_ref)),
-//     //         UseCallback,
-//     //         ApplyContract,
-//     //     );
+    #[test]
+    fn simple_flat_contract_domain_violation() {
+        let script = r#"
+          (define/contract (test x y)
+            (->/c even? even? odd?)
+            (+ x y 1))
 
-//     //     assert!(lazy_iter.into_iter().next().is_none());
-//     // }
-// }
+          (test 1 2)
+        "#;
+        assert_script_error(script);
+    }
+
+    #[test]
+    fn simple_higher_order_contract() {
+        let script = r#"
+          (define/contract (blagh func y)
+            (->/c (->/c even? odd?) even? even?)
+            (+ 1 (func y)))
+            
+          (assert! (equal? (blagh (lambda (x) (+ x 1)) 2) 4))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn simple_higher_order_contract_violation() {
+        let script = r#"
+          (define/contract (blagh func y)
+            (->/c (->/c even? odd?) even? even?)
+            (+ 1 (func y)))
+
+          (blagh (lambda (x) (+ x 2)) 2)
+        "#;
+        assert_script_error(script);
+    }
+
+    // TODO: This will fail on old contract implementation
+    // #[test]
+    // fn tail_call_mutual_recursion() {
+    //     let script = r#"
+    //     (define/contract (foo x)
+    //       (->/c int? int?)
+    //         (if (= x 100)
+    //             x
+    //             (bar (+ x 1))))
+
+    //     (define/contract (bar x)
+    //       (->/c int? int?)
+    //         (if (= x 100)
+    //             x
+    //             (foo (+ x 1))))
+
+    //     (assert! (equal? (foo 0) 100))
+    //   "#;
+    //     assert_script(script);
+    // }
+
+    #[test]
+    fn tail_call_contract_still_works() {
+        let script = r#"
+          (define/contract (loop x)
+            (->/c int? int?)
+              (if (= x 100)
+                  x
+                  (loop (+ x 1))))
+
+          (assert! (equal? (loop 0) 100))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn contract_checking_on_application_success() {
+        let script = r#"
+
+        (define/contract (output)
+            (->/c (->/c string? int?))
+            (lambda (x) 10))
+
+        (define/contract (accept func)
+            (->/c (->/c string? int?) string?)
+            "cool cool cool")
+
+        (assert! (equal? (accept (output)) "cool cool cool"))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn contract_checking_not_called_since_not_applied() {
+        let script = r#"
+
+        (define/contract (output)
+            (->/c (->/c string? int?))
+            (lambda (x) 10))
+
+        (define/contract (accept func)
+            (->/c (->/c string? string?) string?)
+            "cool cool cool")
+
+        (assert! (equal? (accept (output)) "cool cool cool"))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn contract_checking_on_return_does_not_happen() {
+        let script = r#"
+
+        (define/contract (output)
+            (->/c (->/c string? int?))
+            (lambda (x) 10))
+
+        (define/contract (accept)
+            (->/c (->/c string? string?))
+            (output))
+
+        (accept)
+        "#;
+
+        assert_script(script);
+    }
+
+    #[test]
+    fn contract_application_in_map() {
+        let script = r#"
+        (define (test x)
+            (->/c int? int?)
+            (+ x 1))
+        (define result (map test (list 1 2 3 4)))
+        (assert! (equal? result (list 2 3 4 5)))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn contract_application_in_filter() {
+        let script = r#"
+        (define (test x)
+            (->/c int? boolean?)
+            (even? x))
+        (define result (filter test (list 1 2 3 4)))
+        (assert! (equal? result (list 2 4)))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn contract_checking_with_weaker() {
+        let script = r#"
+        (define/contract (output)
+            (->/c (->/c string? int?))
+            (lambda (x) 10.0))
+
+        (define/contract (accept)
+            (->/c (->/c string? number?))
+            (output))
+
+        ((accept) "test")
+        "#;
+
+        assert_script_error(script)
+    }
+
+    #[test]
+    fn contract_checking_pre_condition_later() {
+        let script = r#"
+        (define/contract (output)
+            (->/c (->/c list? int?))
+            (lambda (x) 10.0))
+
+        (define/contract (accept)
+            (->/c (->/c string? number?))
+            (output))
+
+        ((accept) "test")
+        "#;
+
+        assert_script_error(script);
+    }
+
+    #[test]
+    fn three_levels_of_contracts() {
+        let script = r#"
+        (define (any? x) #t)
+
+        (define/contract (level1)
+            (->/c (->/c int?))
+            (lambda () 10.2))
+
+        (define/contract (level2)
+            (->/c (->/c number?))
+            (level1))
+
+        (define/contract (level3)
+            (->/c (->/c any?))
+            (level2))
+
+        ((level3))
+        "#;
+
+        assert_script_error(script);
+    }
+
+    #[test]
+    fn contract_with_filter() {
+        let script = r#"
+        (define/contract (is-even? x)
+            (->/c number? boolean?)
+            (even? x))
+
+        (define res (filter is-even? (range 0 10)))
+
+        (assert! (equal? res '(0 2 4 6 8)))
+        "#;
+
+        assert_script(script);
+    }
+
+    #[test]
+    fn contract_with_map() {
+        let script = r#"
+        (define/contract (adding1 x)
+            (->/c number? number?)
+            (+ x 1))
+
+        (define res (map adding1 (range 0 5)))
+
+        (assert! (equal? res '(1 2 3 4 5)))
+        "#;
+
+        assert_script(script);
+    }
+
+    #[test]
+    fn contract_with_reduce() {
+        let script = r#"
+        (define/contract (reducer accum elem)
+            (->/c number? number? number?)
+            (+ accum elem))
+
+        (define res (transduce (range 0 10) (taking 5) (into-reducer + 0)))
+
+        (assert! (equal? res 10))
+        "#;
+        assert_script(script);
+    }
+
+    #[test]
+    fn transducers_containing_contracts() {
+        let script = r#"
+        (define/contract (mapper x)
+            (->/c number? number?)
+            (+ x 1))
+
+        (define/contract (is-even? x)
+            (->/c number? boolean?)
+            (even? x))
+
+        (define x (mapping mapper))
+        (define y (filtering is-even?))
+        (define z (taking 10))
+
+        (define xyz (compose x y z))
+
+        (define exec-list (transduce (range 0 100) xyz (into-list)))
+        (define exec-vector (transduce (range 0 100) xyz (into-vector)))
+        (define my-sum (transduce (range 0 100) xyz (into-reducer + 0)))
+        
+        (assert! (equal? exec-list '(2 4 6 8 10 12 14 16 18 20)))
+        (assert! (equal? exec-vector (vector 2 4 6 8 10 12 14 16 18 20)))
+        (assert! (equal? my-sum 110))
+        "#;
+        assert_script(script);
+    }
+}

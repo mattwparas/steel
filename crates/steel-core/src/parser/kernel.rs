@@ -7,7 +7,6 @@ use steel_parser::tokens::TokenType;
 
 use crate::{
     compiler::{passes::analysis::SemanticAnalysis, program::RawProgramWithSymbols},
-    expr_list,
     parser::{
         ast::{Atom, Set},
         parser::SyntaxObject,
@@ -16,6 +15,8 @@ use crate::{
     steel_vm::register_fn::RegisterFn,
 };
 use crate::{stdlib::KERNEL, steel_vm::engine::Engine, SteelVal};
+
+use steel_parser::expr_list;
 
 use super::{
     ast::{ExprKind, TryFromSteelValVisitorForExprKind},

@@ -3138,7 +3138,10 @@ dependencies = [
 name = "steel-parser"
 version = "0.4.0"
 dependencies = [
+ "lasso",
  "num-bigint",
+ "once_cell",
+ "pretty",
  "serde",
  "serde_derive",
 ]
@@ -3189,6 +3192,10 @@ dependencies = [
 [[package]]
 name = "steel-values"
 version = "0.1.0"
+dependencies = [
+ "im-lists",
+ "im-rc",
+]
 
 [[package]]
 name = "steel-webrequests"

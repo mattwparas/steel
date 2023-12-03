@@ -6,6 +6,7 @@ use crate::compiler::passes::reader::MultipleArityFunctions;
 use crate::compiler::passes::Folder;
 use crate::compiler::program::REQUIRE_DYLIB;
 use crate::parser::ast::ExprKind;
+use crate::parser::parser::SyntaxObject;
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::steel_vm::engine::ModuleContainer;
 use crate::{compiler::program::REQUIRE_BUILTIN, rvals::Result};
@@ -14,7 +15,8 @@ use crate::{
     compiler::program::{AS_KEYWORD, DOC_MACRO},
     parser::tokens::TokenType,
 };
-use crate::{expr_list, parser::parser::SyntaxObject};
+
+use steel_parser::expr_list;
 
 use super::{
     ast::{Atom, Begin, Define, LambdaFunction, List, Quote},
