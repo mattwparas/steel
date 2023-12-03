@@ -1,28 +1,22 @@
 use crate::{
-    compiler::program::{
-        BEGIN, DEFINE, IF, LAMBDA, LAMBDA_FN, LAMBDA_SYMBOL, LET, PLAIN_LET, QUASIQUOTE, QUOTE,
-        RAW_UNQUOTE, RAW_UNQUOTE_SPLICING, REQUIRE, RETURN, SET, UNQUOTE, UNQUOTE_SPLICING,
-    },
-    parser::lexer::TokenStream,
     rvals::IntoSteelVal,
 };
 use crate::{
-    parser::tokens::{Token, TokenType, TokenType::*},
+    parser::tokens::{TokenType::*},
     rvals::FromSteelVal,
 };
 
-use std::result;
+
 use std::str;
 use std::{collections::HashMap, path::PathBuf};
 use std::{
-    rc::Rc,
     sync::{Arc, Mutex},
 };
-use steel_parser::{lexer::OwnedTokenStream, lexer::ToOwnedString, tokens::MaybeBigInt};
+use steel_parser::{tokens::MaybeBigInt};
 
-use crate::parser::span::Span;
 
-use crate::parser::ast::*;
+
+
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 
@@ -30,12 +24,9 @@ use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::SteelVal;
 use crate::rvals::SteelVal::*;
 
-use super::{
-    ast::{self, SyntaxRules},
-    interner::InternedString,
-};
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+
+
 
 pub use steel_parser::parser::{
     lower_entire_ast, lower_macro_and_require_definitions, lower_syntax_rules, FunctionId, ListId,

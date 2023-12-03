@@ -1,6 +1,6 @@
 use crate::parser::{
-    parser::{ParseError, SyntaxObject},
-    tokens::TokenType::{self, *},
+    parser::{SyntaxObject},
+    tokens::TokenType::{*},
     tryfrom_visitor::TryFromExprKindForSteelVal,
 };
 
