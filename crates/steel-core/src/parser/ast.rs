@@ -1,7 +1,5 @@
 use crate::parser::{
-    parser::{SyntaxObject},
-    tokens::TokenType::{*},
-    tryfrom_visitor::TryFromExprKindForSteelVal,
+    parser::SyntaxObject, tokens::TokenType::*, tryfrom_visitor::TryFromExprKindForSteelVal,
 };
 
 // use std::{convert::TryFrom, fmt::Write, sync::atomic::Ordering};

@@ -1,21 +1,10 @@
-use crate::{
-    rvals::IntoSteelVal,
-};
-use crate::{
-    parser::tokens::{TokenType::*},
-    rvals::FromSteelVal,
-};
-
+use crate::rvals::IntoSteelVal;
+use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 
 use std::str;
+use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, path::PathBuf};
-use std::{
-    sync::{Arc, Mutex},
-};
-use steel_parser::{tokens::MaybeBigInt};
-
-
-
+use steel_parser::tokens::MaybeBigInt;
 
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -23,10 +12,6 @@ use std::convert::TryFrom;
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::SteelVal;
 use crate::rvals::SteelVal::*;
-
-
-
-
 
 pub use steel_parser::parser::{
     lower_entire_ast, lower_macro_and_require_definitions, lower_syntax_rules, FunctionId, ListId,
