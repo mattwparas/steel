@@ -1,7 +1,6 @@
 use crate::{
     parser::{ParseError, SyntaxObject},
-    tokens::TokenType::{self, *},
-    // tryfrom_visitor::TryFromExprKindForSteelVal,
+    tokens::TokenType::{self},
 };
 
 use std::{convert::TryFrom, fmt::Write, sync::atomic::Ordering};
@@ -11,11 +10,6 @@ use pretty::RcDoc;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::ops::Deref;
-
-// use crate::{
-//     rerrs::SteelErr,
-//     rvals::SteelVal::{self, *},
-// };
 
 use super::{
     interner::InternedString,
