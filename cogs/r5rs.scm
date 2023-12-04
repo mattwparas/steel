@@ -41,6 +41,8 @@
 (check-equal? "Parsing octal" #o0777 511)
 (check-equal? "Parsing binary" #b0110 6)
 
+(check-equal? "filter treats lists as true" (filter (lambda (n) (list 1 2)) (list 1 2)) '(1 2))
+
 (check-equal?
  "Symbols are interned correctly - lists should use the existing symbols that have been interned"
  (eq? 'definitely-hasnt-been-seen-before
