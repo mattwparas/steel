@@ -267,9 +267,8 @@ impl<'global, 'a> VmCore<'a> {
 
                             match res {
                                 Ok(k) => match k {
-                                    SteelVal::BoolV(true) => Some(Ok(arg)),
                                     SteelVal::BoolV(false) => None,
-                                    _ => None,
+                                    _ => Some(Ok(arg)),
                                 },
                                 Err(e) => Some(Err(e)),
                             }
