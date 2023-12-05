@@ -105,12 +105,14 @@ fn create_module() -> FFIModule {
         .register_fn("ws/message-ping->pong", ping_to_pong)
         .register_fn("ws/message->text-payload", text_payload)
         .register_fn("ws/connect", |url: String| {
-            connect(url).map(|(socket, resp)| {
-                vec![
-                    SteelWebSocket(socket).into_ffi_val().unwrap(),
-                    WebSocketResponse(resp).into_ffi_val().unwrap(),
-                ]
-            })
+            connect(url)
+                .map(|(socket, resp)| {
+                    vec![
+                        SteelWebSocket(socket).into_ffi_val().unwrap(),
+                        WebSocketResponse(resp).into_ffi_val().unwrap(),
+                    ]
+                })
+                .map_err(WebSocketError)
         })
         .register_fn("ws/read-message!", SteelWebSocket::read_message)
         .register_fn("ws/write-message!", SteelWebSocket::write_message);

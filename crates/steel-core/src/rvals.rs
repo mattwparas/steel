@@ -13,18 +13,13 @@ use crate::{
     values::port::SteelPort,
     values::{
         closed::{HeapRef, MarkAndSweepContext},
-        // contracts::{ContractType, ContractedFunction},
         functions::ByteCodeLambda,
         lazy_stream::LazyStream,
         structs::SerializableUserDefinedStruct,
-        // lists::ListDropHandler,
         transducers::{Reducer, Transducer},
     },
     values::{functions::BoxedDynFunction, structs::UserDefinedStruct},
 };
-
-// #[cfg(feature = "jit")]
-// use crate::jit::sig::JitFunctionPointer;
 
 use std::{
     any::{Any, TypeId},
@@ -85,30 +80,11 @@ pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
 pub type Result<T> = result::Result<T, SteelErr>;
 pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
 pub type MutFunctionSignature = fn(&mut [SteelVal]) -> Result<SteelVal>;
-// pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
-
-// TODO: This increases the size of the SteelVal enum by 8 bytes. Consider boxing it instead
 pub type BoxedFunctionSignature = Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>>;
-
 pub type BoxedAsyncFunctionSignature = Box<Rc<dyn Fn(&[SteelVal]) -> Result<FutureResult>>>;
-
-// Do something like this:
-// vector of async functions
-// then for a wait group, make a closure that looks something like this:
-// async move vec<functioncalls> |_| {
-//    let values = Vec::new();
-//    for func in vec {
-//         values.push(func(args).await)
-//    }
-//    values
-// }
-
-// pub type BoxedFutureResult = Shared<Output = Result<Gc<SteelVal>>>;
 pub type AsyncSignature = fn(&[SteelVal]) -> FutureResult;
 
 pub type BoxedFutureResult = Pin<Box<dyn Future<Output = Result<SteelVal>>>>;
-
-// Pin<Box<dyn Future<Output = T> + 'a + Send>>;
 
 #[derive(Clone)]
 pub struct FutureResult(Shared<BoxedFutureResult>);
@@ -286,29 +262,6 @@ impl<T: CustomType + Clone + Send + Sync + 'static> IntoSerializableSteelVal for
     }
 }
 
-// impl<'a, T: CustomType + Clone + ?Sized + 'a> FromSteelVal for &'a T {
-//     fn from_steelval(val: SteelVal) -> Result<Self> {
-//         if let SteelVal::Custom(v) = val {
-//             let left_type = v.as_any();
-//             let left: Option<T> = left_type.downcast_ref::<T>().cloned();
-//             left.ok_or_else(|| {
-//                 let error_message = format!(
-//                     "Type Mismatch: Type of SteelVal did not match the given type: {}",
-//                     std::any::type_name::<Self>()
-//                 );
-//                 SteelErr::new(ErrorKind::ConversionError, error_message)
-//             })
-//         } else {
-//             let error_message = format!(
-//                 "Type Mismatch: Type of SteelVal did not match the given type: {}",
-//                 std::any::type_name::<Self>()
-//             );
-
-//             Err(SteelErr::new(ErrorKind::ConversionError, error_message))
-//         }
-//     }
-// }
-
 // TODO: Marshalling out of the type could also try to yoink from a native steel struct.
 // If possible, we can try to line the constructor up with the fields
 impl<T: CustomType + Clone + 'static> FromSteelVal for T {
@@ -337,29 +290,6 @@ impl<T: CustomType + Clone + 'static> FromSteelVal for T {
         }
     }
 }
-
-// impl<'a, T: CustomType + Clone> FromSteelVal for &'a T {
-//     fn from_steelval(val: &SteelVal) -> Result<&'a T> {
-//         if let SteelVal::Custom(v) = val {
-//             let left_type = v.as_any_ref();
-//             let left = left_type.downcast_ref::<T>();
-//             left.ok_or_else(|| {
-//                 let error_message = format!(
-//                     "Type Mismatch: Type of SteelVal did not match the given type: {}",
-//                     std::any::type_name::<Self>()
-//                 );
-//                 SteelErr::new(ErrorKind::ConversionError, error_message)
-//             })
-//         } else {
-//             let error_message = format!(
-//                 "Type Mismatch: Type of SteelVal did not match the given type: {}",
-//                 std::any::type_name::<Self>()
-//             );
-
-//             Err(SteelErr::new(ErrorKind::ConversionError, error_message))
-//         }
-//     }
-// }
 
 /// The entry point for turning values into SteelVals
 /// The is implemented for most primitives and collections
@@ -610,54 +540,6 @@ impl<T: CustomType + 'static> AsRefMutSteelVal for T {
         }
     }
 }
-
-// ListV(l) => {
-//     // Rooted - things operate as normal
-//     if self.qq_depth == 0 {
-//         let maybe_special_form = l.first().and_then(|x| x.as_string());
-
-//         match maybe_special_form {
-//             Some(x) if x.as_str() == "quote" => {
-//                 if self.quoted {
-//                     let items: std::result::Result<Vec<ExprKind>, &'static str> =
-//                         l.iter().map(|x| self.visit(x)).collect();
-
-//                     return Ok(ExprKind::List(List::new(items?)));
-//                 }
-
-//                 self.quoted = true;
-
-//                 let return_value = l
-//                     .into_iter()
-//                     .map(|x| self.visit(x))
-//                     .collect::<std::result::Result<Vec<_>, _>>()?
-//                     .try_into()
-//                     .map_err(|_| {
-//                         "parse error! If you're running into this, please file an issue"
-//                     });
-
-//                 self.quoted = false;
-
-//                 return return_value;
-//             } // "quasiquote" => {
-//             //     self.qq_depth += 1;
-//             // }
-//             _ => {}
-//         }
-//     }
-
-//     l.into_iter()
-//         .map(|x| self.visit(x))
-//         .collect::<std::result::Result<Vec<_>, _>>()?
-//         .try_into()
-//         .map_err(|_| "If you're running into this, please file an issue")
-
-//     // If we're not quoted, we need to just return this pushed down to an ast
-//     // let items: std::result::Result<Vec<ExprKind>, &'static str> =
-//     // l.iter().map(|x| self.visit(x)).collect();
-
-//     // Ok(ExprKind::List(List::new(items?)))
-// }
 
 impl ast::TryFromSteelValVisitorForExprKind {
     pub fn visit_syntax_object(&mut self, value: &Syntax) -> Result<ExprKind> {

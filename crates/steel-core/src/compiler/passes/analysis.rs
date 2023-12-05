@@ -9,13 +9,17 @@ use quickscope::ScopeMap;
 use crate::{
     compiler::modules::{ModuleManager, MANGLER_SEPARATOR},
     parser::{
-        ast::{Atom, Define, ExprKind, LambdaFunction, Let, List, Quote},
+        ast::{
+            Atom, Define, ExprKind, LambdaFunction, Let, List, Quote, STANDARD_MODULE_GET,
+            UNREADABLE_MODULE_GET,
+        },
         expander::SteelMacro,
         interner::InternedString,
         parser::{RawSyntaxObject, SyntaxObject, SyntaxObjectId},
         span::Span,
         tokens::TokenType,
     },
+    steel_vm::primitives::MODULE_IDENTIFIERS,
     throw, SteelErr, SteelVal,
 };
 
@@ -313,9 +317,7 @@ impl Analysis {
             define.name.atom_syntax_object().unwrap().span,
         );
 
-        if define.is_a_builtin_definition() {
-            println!("FOUND A BUILTIN: {}", name);
-
+        if is_a_builtin_definition(define) {
             semantic_info.mark_builtin();
         }
 
@@ -603,7 +605,7 @@ impl<'a> AnalysisPass<'a> {
             }
         }
 
-        if define.is_a_builtin_definition() {
+        if is_a_builtin_definition(define) {
             // println!("FOUND A BUILTIN: {}", name);
 
             semantic_info.mark_builtin();
@@ -648,7 +650,7 @@ impl<'a> AnalysisPass<'a> {
             define.name.atom_syntax_object().unwrap().span,
         );
 
-        if define.is_a_builtin_definition() {
+        if is_a_builtin_definition(define) {
             semantic_info.mark_builtin();
         }
 
@@ -2087,6 +2089,25 @@ impl<'a> RemoveUnusedDefineImports<'a> {
     }
 }
 
+// This should just be a function on the define, not a method - so that it can be moved
+// into a different crate
+pub(crate) fn is_a_builtin_definition(def: &Define) -> bool {
+    if let ExprKind::List(l) = &def.body {
+        match l.first_ident() {
+            Some(func) if *func == *UNREADABLE_MODULE_GET || *func == *STANDARD_MODULE_GET => {
+                // return true
+
+                if let Some(module) = l.second_ident() {
+                    return MODULE_IDENTIFIERS.contains(module);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    false
+}
+
 impl<'a> VisitorMutRefUnit for RemoveUnusedDefineImports<'a> {
     fn visit_lambda_function(&mut self, lambda_function: &mut LambdaFunction) {
         self.depth += 1;
@@ -2101,7 +2122,7 @@ impl<'a> VisitorMutRefUnit for RemoveUnusedDefineImports<'a> {
 
             for (idx, expr) in begin.exprs.iter().enumerate() {
                 if let ExprKind::Define(d) = expr {
-                    if d.is_a_builtin_definition() {
+                    if is_a_builtin_definition(&d) {
                         if let Some(analysis) =
                             self.analysis.get(d.name.atom_syntax_object().unwrap())
                         {

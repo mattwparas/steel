@@ -51,7 +51,7 @@ use crate::{
 };
 
 #[cfg(feature = "web")]
-use crate::primitives::web::{requests::requests_module, websockets::websockets_module};
+use crate::primitives::web::requests::requests_module;
 
 use crate::values::lists::List;
 use im_rc::HashMap;
@@ -312,14 +312,7 @@ thread_local! {
     pub static PRIVATE_READER_MODULE: BuiltInModule = reader_module();
 
     #[cfg(feature = "web")]
-    pub static WEBSOCKETS_MODULE: BuiltInModule = websockets_module();
-
-    #[cfg(feature = "web")]
     pub static REQUESTS_MODULE: BuiltInModule = requests_module();
-
-    #[cfg(feature = "blocking_requests")]
-    pub static BLOCKING_REQUESTS_MODULE: BuiltInModule = crate::primitives::blocking_requests::blocking_requests_module();
-
 
     #[cfg(feature = "sqlite")]
     pub static SQLITE_MODULE: BuiltInModule = crate::primitives::sqlite::sqlite_module();
@@ -467,15 +460,10 @@ pub fn register_builtin_modules(engine: &mut Engine) {
     engine.register_module(PRIVATE_READER_MODULE.with(|x| x.clone()));
 
     #[cfg(feature = "web")]
-    engine
-        .register_module(WEBSOCKETS_MODULE.with(|x| x.clone()))
-        .register_module(REQUESTS_MODULE.with(|x| x.clone()));
+    engine.register_module(REQUESTS_MODULE.with(|x| x.clone()));
 
     #[cfg(feature = "sqlite")]
     engine.register_module(SQLITE_MODULE.with(|x| x.clone()));
-
-    #[cfg(feature = "blocking_requests")]
-    engine.register_module(BLOCKING_REQUESTS_MODULE.with(|x| x.clone()));
 }
 
 pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::new(|| {
