@@ -45,8 +45,11 @@
       packages.steel = steel;
       legacyPackages = packages;
       defaultPackage = packages.steel;
-      devShell = pkgs.mkShell {
-        buildInputs = with pkgs; [cargo];
+      devShell = with pkgs; mkShell {
+        buildInputs = [cargo openssl] ++ lib.optionals stdenv.isDarwin [darwin.apple_sdk.frameworks.Security];
+        nativeBuildInputs = [
+          pkg-config
+        ];
       };
     });
 }
