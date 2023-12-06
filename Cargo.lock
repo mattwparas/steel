@@ -3192,10 +3192,6 @@ dependencies = [
 [[package]]
 name = "steel-values"
 version = "0.1.0"
-dependencies = [
- "im-lists",
- "im-rc",
-]
 
 [[package]]
 name = "steel-webrequests"
