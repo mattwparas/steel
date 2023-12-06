@@ -1428,6 +1428,7 @@ fn meta_module() -> BuiltInModule {
         .register_fn("value->string", super::meta::value_to_string)
         // TODO: @Matt -> implement the traits for modules as well
         .register_fn("Engine::new", super::meta::EngineWrapper::new)
+        .register_fn("Engine::clone", super::meta::EngineWrapper::deep_copy)
         .register_fn("Engine::add-module", super::meta::EngineWrapper::add_module)
         .register_fn("Engine::modules->list", super::meta::EngineWrapper::modules)
         .register_fn(

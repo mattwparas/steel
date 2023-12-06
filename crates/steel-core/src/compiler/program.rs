@@ -639,7 +639,6 @@ impl Program {
 // This way, the VM knows where to look up values
 #[derive(Clone)]
 pub struct RawProgramWithSymbols {
-    // struct_functions: Vec<StructFuncBuilderConcrete>,
     instructions: Vec<Vec<Instruction>>,
     pub(crate) constant_map: ConstantMap,
     version: String, // TODO -> this should be semver
@@ -647,7 +646,6 @@ pub struct RawProgramWithSymbols {
 
 #[derive(Serialize, Deserialize)]
 pub struct SerializableRawProgramWithSymbols {
-    // struct_functions: Vec<StructFuncBuilderConcrete>,
     instructions: Vec<Vec<Instruction>>,
     constant_map: Vec<u8>,
     version: String,

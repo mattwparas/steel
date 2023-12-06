@@ -1,3 +1,4 @@
+use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
 use crate::rvals::{into_serializable_value, Result, SerializableSteelVal, SteelVal};
 
 use crate::parser::{
@@ -66,10 +67,19 @@ impl ConstantMap {
     }
 
     fn to_constant_expr_map(&self) -> Vec<String> {
-        let result: std::result::Result<Vec<_>, _> =
-            self.0.borrow().iter().map(ExprKind::try_from).collect();
-
-        result.unwrap().into_iter().map(|x| x.to_string()).collect()
+        self.0
+            .borrow()
+            .iter()
+            .map(|x| match x {
+                SteelVal::StringV(s) => {
+                    format!("{:?}", s)
+                }
+                SteelVal::CharV(c) => {
+                    format!("#\\{c}")
+                }
+                _ => x.to_string(),
+            })
+            .collect()
     }
 
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
@@ -95,10 +105,12 @@ impl ConstantMap {
             .map(|x| {
                 // Parse the input
                 let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-                    Parser::new(&x, None).collect();
+                    Parser::new_flat(&x, None).collect();
                 let parsed = parsed?;
 
-                Ok(SteelVal::try_from(parsed[0].clone()).unwrap())
+                TryFromExprKindForSteelVal::try_from_expr_kind_quoted(parsed[0].clone())
+
+                // Ok(SteelVal::try_from(parsed[0].clone()).unwrap())
             })
             .collect::<Result<Vec<_>>>()
             .map(|x| ConstantMap(Rc::new(RefCell::new(x))))
