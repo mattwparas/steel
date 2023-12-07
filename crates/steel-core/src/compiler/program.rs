@@ -242,11 +242,11 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                 }),
                 Some(Instruction {
                     op_code: OpCode::TAILCALL,
-                    payload_size: arity,
+                    // payload_size: arity,
                     ..
                 }),
             ) => {
-                let arity = *arity;
+                // let arity = *arity;
                 let index = *index;
 
                 if let TokenType::Identifier(ident) = ident.ty {
@@ -300,10 +300,10 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                     x.payload_size = index;
                 }
 
-                if let Some(x) = instructions.get_mut(i + 1) {
-                    // x.op_code = OpCode::Arity;
-                    // x.payload_size = arity;
-                }
+                // if let Some(x) = instructions.get_mut(i + 1) {
+                // x.op_code = OpCode::Arity;
+                // x.payload_size = arity;
+                // }
             }
             _ => {}
         }

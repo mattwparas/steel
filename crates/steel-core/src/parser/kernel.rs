@@ -121,7 +121,7 @@ impl Kernel {
         }
     }
 
-    pub(crate) fn bootstrap(mut engine: Engine) -> (Self, RawProgramWithSymbols) {
+    pub(crate) fn bootstrap(_engine: Engine) -> (Self, RawProgramWithSymbols) {
         todo!()
 
         // let transformers = Transformers {
@@ -172,7 +172,7 @@ impl Kernel {
         // )
     }
 
-    pub(crate) fn initialize_post_bootstrap(mut engine: Engine) -> Self {
+    pub(crate) fn initialize_post_bootstrap(_engine: Engine) -> Self {
         // let transformers = Transformers {
         //     set: Arc::new(RwLock::new(HashSet::default())),
         // };

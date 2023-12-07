@@ -6,7 +6,7 @@ use crate::parser::{
     parser::{ParseError, Parser},
 };
 
-use std::{cell::RefCell, convert::TryFrom, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 
 // TODO add the serializing and deserializing for constants
 use serde::{Deserialize, Serialize};
