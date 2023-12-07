@@ -31,30 +31,20 @@ pub struct Args {
 #[derive(clap::Subcommand, Debug)]
 enum EmitAction {
     /// Output a debug display of the fully transformed bytecode
-    Bytecode {
-        default_file: Option<PathBuf>,
-    },
+    Bytecode { default_file: Option<PathBuf> },
     /// Print a debug display of the fully expanded AST
-    Ast {
-        default_file: Option<PathBuf>,
-    },
+    Ast { default_file: Option<PathBuf> },
     /// Enter the repl with the given file loaded
     Interactive {
         default_file: Option<PathBuf>,
         arguments: Vec<String>,
     },
     /// Tests the module - only tests modules which provide values
-    Test {
-        default_file: Option<String>,
-    },
+    Test { default_file: Option<String> },
     /// Generate the documentation for a file
-    Doc {
-        default_file: Option<PathBuf>,
-    },
-
-    Compile {
-        file: PathBuf,
-    },
+    Doc { default_file: Option<PathBuf> },
+    /// Experimental
+    Compile { file: PathBuf },
 }
 
 pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
@@ -221,6 +211,8 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             action: Some(EmitAction::Compile { file }),
             ..
         } => {
+            println!("---- Warning: This is an experimental feature ----");
+
             let entrypoint =
                 fs::read_to_string(&file).expect("Something went wrong reading the file");
 
@@ -265,7 +257,7 @@ fn main() {
             let toml_file = r#"
 [package]
 name = "steel-executable"
-authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
+authors = [""]
 edition = "2021"
 license = "MIT OR Apache-2.0"
 version = "0.1.0"
@@ -274,14 +266,31 @@ version = "0.1.0"
 
 
 [dependencies]
-steel-core = { path = "/home/matt/Documents/steel/crates/steel-core", features = ["web", "sqlite", "dylibs"] }
+steel-core = { git = "https://github.com/mattwparas/steel.git", features = ["web", "sqlite", "dylibs"] }
 
 [profile.release]
-# debug = false
-debug = true
+debug = false
 lto = true
-               
             "#;
+
+            // IF DEVELOPING: Uncomment this
+            //             let toml_file = r#"
+            // [package]
+            // name = "steel-executable"
+            // authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
+            // edition = "2021"
+            // license = "MIT OR Apache-2.0"
+            // version = "0.1.0"
+
+            // [workspace]
+
+            // [dependencies]
+            // steel-core = { path = "", features = ["web", "sqlite", "dylibs"] }
+
+            // [profile.release]
+            // debug = false
+            // lto = true
+            //             "#;
 
             std::fs::write(&temporary_output, toml_file).unwrap();
 
