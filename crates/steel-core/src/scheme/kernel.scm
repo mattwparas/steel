@@ -8,25 +8,65 @@
 
 ; (define *transformer-functions* (hashset))
 
+;; Compatibility layers for making defmacro not as painful
+(define displayln stdout-simple-displayln)
+
+(define-syntax #%syntax-transformer-module
+  (syntax-rules (provide)
+
+    [(#%syntax-transformer-module name (provide ids ...) funcs ...)
+     (define (datum->syntax name)
+       (let ()
+         funcs ...
+         (#%syntax-transformer-module provide ids ...)))]
+
+    ;; Normal case
+    [(#%syntax-transformer-module provide name) (%proto-hash% 'name name)]
+
+    ;; Normal case
+    [(#%syntax-transformer-module provide name rest ...)
+     (%proto-hash-insert% (#%syntax-transformer-module provide rest ...) 'name name)]))
+
+;; Loading macros via defmacro - there will be a pass where we lower anything with defmacro down to the kernel,
+;; which will then load and register macros accordingly.
+(define-syntax defmacro
+  (syntax-rules ()
+    [(defmacro environment (name arg) expr)
+     (begin
+       (register-macro-transformer! (symbol->string 'name) environment)
+       (define (name arg)
+         expr))]
+
+    [(defmacro environment (name arg) exprs ...)
+     (begin
+       (register-macro-transformer! (symbol->string 'name) environment)
+       (define (name arg)
+         exprs ...))]
+
+    [(defmacro environment name expr)
+     (begin
+       (register-macro-transformer! (symbol->string 'name) environment)
+       (define name expr))]))
+
 (define-syntax #%define-syntax
   (syntax-rules ()
 
     [(#%define-syntax (name arg) expr)
      (begin
-       (register-macro-transformer! (symbol->string 'name))
+       (register-macro-transformer! (symbol->string 'name) "default")
        (define (name arg)
          expr))]
 
     [(#%define-syntax (name arg)
        exprs ...)
      (begin
-       (register-macro-transformer! (symbol->string 'name))
+       (register-macro-transformer! (symbol->string 'name) "default")
        (define (name arg)
          exprs ...))]
 
     [(#%define-syntax name expr)
      (begin
-       (register-macro-transformer! (symbol->string 'name))
+       (register-macro-transformer! (symbol->string 'name) "default")
        (define name expr))]))
 
 ;; Kernal-lambda -> Used in the meantime while `lambda` finds its way out of the reserved keywords.
@@ -290,6 +330,12 @@
   ; (displayln rest)
   ; (displayln (syntax-e (list-ref rest 1)))
   (cons '#%plain-lambda rest))
+
+;; Implement defmacro!
+;; Defmacro: Load functions that operate on syntax, directly into the kernel.
+;; And then, call those as such in the kernel via transformers.
+
+; (#%define-syntax )
 
 ;; TODO: Come back to this once theres something to attach it to
 ; (define (@doc expr comment)

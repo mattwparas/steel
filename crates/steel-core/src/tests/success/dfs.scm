@@ -15,13 +15,6 @@
 (define (longest lst)
   (foldr (λ (a b) (if (> (length a) (length b)) a b)) '() lst))
 
-; (define (reverse ls)
-;     (define (my-reverse-2 ls acc)
-;         (if (null? ls)
-;             acc
-;         (my-reverse-2 (cdr ls) (cons (car ls) acc))))
-;     (my-reverse-2 ls '()))
-
 (define (first-step curr end graph)
   (define neighbors (get-neighbors curr graph))
   (longest (map (lambda (x) (dfs x end '() '() graph)) neighbors)))

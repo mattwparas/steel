@@ -568,25 +568,18 @@ impl ast::TryFromSteelValVisitorForExprKind {
                 TokenType::StringLiteral(x.to_string()),
                 span,
             )))),
-            // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
-            // MacroV(_) => Err("Can't convert from Macro to expression!"),
             SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
                 TokenType::Identifier(x.as_str().into()),
                 span,
             )))),
 
             ListV(l) => {
-                // dbg!(&self);
-                // dbg!(&l);
-
                 // Rooted - things operate as normal
                 if self.qq_depth == 0 {
                     let maybe_special_form = l.first().and_then(|x| {
                         x.as_symbol()
                             .or_else(|| x.as_syntax_object().and_then(|x| x.syntax.as_symbol()))
                     });
-
-                    // dbg!(&maybe_special_form);
 
                     match maybe_special_form {
                         Some(x) if x.as_str() == "quote" => {

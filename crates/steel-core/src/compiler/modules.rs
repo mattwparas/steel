@@ -9,7 +9,7 @@ use crate::{
     },
     parser::{
         ast::{AstTools, Atom, Begin, Define, ExprKind, List, Quote},
-        expand_visitor::expand_kernel,
+        expand_visitor::{expand_kernel, expand_kernel_in_env},
         interner::InternedString,
         kernel::Kernel,
         parser::{
@@ -1440,13 +1440,29 @@ impl<'a> ModuleBuilder<'a> {
             self.provides_for_syntax
         );
 
+        // Attempt extracting the syntax transformers from this module
+        if let Some(kernel) = self.kernel.as_mut() {
+            kernel.load_syntax_transformers(&mut ast, self.name.to_str().unwrap().to_string())?
+        };
+
         // Expand first with the macros from *this* module
         ast = ast
             .into_iter()
             .map(|x| {
-                expand(x, &self.macro_map).and_then(|x| {
-                    expand_kernel(x, self.kernel.as_mut(), self.builtin_modules.clone())
-                })
+                expand(x, &self.macro_map)
+                    .and_then(|x| {
+                        expand_kernel_in_env(
+                            x,
+                            self.kernel.as_mut(),
+                            self.builtin_modules.clone(),
+                            // Expanding macros in the environment?
+                            self.name.to_str().unwrap().to_string(),
+                        )
+                    })
+                    // Check here - I think it makes sense to expand the
+                    // internal macros again, given now we might have defmacro
+                    // style macros that get expanded into syntax-rules ones?
+                    .and_then(|x| expand(x, &self.macro_map))
             })
             .collect::<Result<Vec<_>>>()?;
 
@@ -1455,7 +1471,14 @@ impl<'a> ModuleBuilder<'a> {
             .into_iter()
             .map(|x| {
                 expand(x, &self.macro_map).and_then(|x| {
-                    expand_kernel(x, self.kernel.as_mut(), self.builtin_modules.clone())
+                    // expand_kernel(x, self.kernel.as_mut(), self.builtin_modules.clone())
+                    expand_kernel_in_env(
+                        x,
+                        self.kernel.as_mut(),
+                        self.builtin_modules.clone(),
+                        // Expanding macros in the environment?
+                        self.name.to_str().unwrap().to_string(),
+                    )
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -2012,7 +2035,9 @@ impl<'a> ModuleBuilder<'a> {
             name,
             main: false,
             source_ast: Vec::new(),
+            // TODO: This used to be empty
             macro_map: HashMap::new(),
+            // macro_map: global_macro_map.clone(),
             require_objects: Vec::new(),
             provides: Vec::new(),
             provides_for_syntax: Vec::new(),

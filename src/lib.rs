@@ -43,6 +43,8 @@ enum EmitAction {
     Test { default_file: Option<String> },
     /// Generate the documentation for a file
     Doc { default_file: Option<PathBuf> },
+    /// Experimental
+    Compile { file: PathBuf },
 }
 
 pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
@@ -201,6 +203,106 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             }
 
             repl_base(vm)?;
+            Ok(())
+        }
+
+        Args {
+            default_file: None,
+            action: Some(EmitAction::Compile { file }),
+            ..
+        } => {
+            println!("---- Warning: This is an experimental feature ----");
+
+            let entrypoint =
+                fs::read_to_string(&file).expect("Something went wrong reading the file");
+
+            // Something went wrong - TODO: Raise the error correctly
+            let non_interactive_program =
+                Engine::create_non_interactive_program_image(&entrypoint, file).unwrap();
+
+            let mut temporary_output = PathBuf::from("steel_target/src");
+
+            if !temporary_output.exists() {
+                std::fs::create_dir_all(&temporary_output).unwrap();
+            } else {
+                // Clean up I guess?
+                std::fs::remove_dir_all(&temporary_output).unwrap();
+                std::fs::create_dir_all(&temporary_output).unwrap();
+            }
+
+            temporary_output.push("program.bin");
+
+            // This probably needs to get stashed in some temporary target directory?
+            non_interactive_program.write_bytes_to_file(&temporary_output);
+
+            temporary_output.pop();
+
+            let rust_entrypoint = r#"
+fn main() {
+    let program = steel::steel_vm::engine::NonInteractiveProgramImage::from_bytes(include_bytes!("program.bin"));
+
+    steel::steel_vm::engine::Engine::execute_non_interactive_program_image(program);
+}
+            "#;
+
+            temporary_output.push("main.rs");
+
+            std::fs::write(&temporary_output, rust_entrypoint).unwrap();
+
+            temporary_output.pop();
+            temporary_output.pop();
+
+            temporary_output.push("Cargo.toml");
+
+            let toml_file = r#"
+[package]
+name = "steel-executable"
+authors = [""]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+version = "0.1.0"
+
+[workspace]
+
+
+[dependencies]
+steel-core = { git = "https://github.com/mattwparas/steel.git", features = ["web", "sqlite", "dylibs"] }
+
+[profile.release]
+debug = false
+lto = true
+            "#;
+
+            // IF DEVELOPING: Uncomment this
+            //             let toml_file = r#"
+            // [package]
+            // name = "steel-executable"
+            // authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
+            // edition = "2021"
+            // license = "MIT OR Apache-2.0"
+            // version = "0.1.0"
+
+            // [workspace]
+
+            // [dependencies]
+            // steel-core = { path = "", features = ["web", "sqlite", "dylibs"] }
+
+            // [profile.release]
+            // debug = false
+            // lto = true
+            //             "#;
+
+            std::fs::write(&temporary_output, toml_file).unwrap();
+
+            std::process::Command::new("cargo")
+                .current_dir("steel_target")
+                .arg("build")
+                .arg("--release")
+                .spawn()
+                .unwrap()
+                .wait()
+                .unwrap();
+
             Ok(())
         }
 

@@ -215,18 +215,22 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                         //         continue;
                         //     }
                         // }
-                        _ => {}
+                        _ => {
+                            // println!("Converting call global: {}", ident);
+                        }
                     }
                 }
 
+                // TODO:
                 if let Some(x) = instructions.get_mut(i) {
                     x.op_code = OpCode::CALLGLOBAL;
-                    x.payload_size = arity;
+                    x.payload_size = index;
                 }
 
                 if let Some(x) = instructions.get_mut(i + 1) {
-                    x.op_code = OpCode::Arity;
-                    x.payload_size = index;
+                    // Leave this as the OpCode::FUNC;
+                    // x.op_code = OpCode::Arity;
+                    x.payload_size = arity;
                 }
             }
             (
@@ -238,11 +242,11 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                 }),
                 Some(Instruction {
                     op_code: OpCode::TAILCALL,
-                    payload_size: arity,
+                    // payload_size: arity,
                     ..
                 }),
             ) => {
-                let arity = *arity;
+                // let arity = *arity;
                 let index = *index;
 
                 if let TokenType::Identifier(ident) = ident.ty {
@@ -293,13 +297,13 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
 
                 if let Some(x) = instructions.get_mut(i) {
                     x.op_code = OpCode::CALLGLOBALTAIL;
-                    x.payload_size = arity;
-                }
-
-                if let Some(x) = instructions.get_mut(i + 1) {
-                    x.op_code = OpCode::Arity;
                     x.payload_size = index;
                 }
+
+                // if let Some(x) = instructions.get_mut(i + 1) {
+                // x.op_code = OpCode::Arity;
+                // x.payload_size = arity;
+                // }
             }
             _ => {}
         }
@@ -384,6 +388,8 @@ define_symbols! {
     PRIM_CAR => "#%prim.car",
     CDR_SYMBOL => "cdr",
     PRIM_CDR => "#%prim.cdr",
+    DEFMACRO => "defmacro",
+    BEGIN_FOR_SYNTAX => "begin-for-syntax",
 }
 
 pub fn inline_num_operations(instructions: &mut [Instruction]) {
@@ -639,7 +645,6 @@ impl Program {
 // This way, the VM knows where to look up values
 #[derive(Clone)]
 pub struct RawProgramWithSymbols {
-    // struct_functions: Vec<StructFuncBuilderConcrete>,
     instructions: Vec<Vec<Instruction>>,
     pub(crate) constant_map: ConstantMap,
     version: String, // TODO -> this should be semver
@@ -647,7 +652,6 @@ pub struct RawProgramWithSymbols {
 
 #[derive(Serialize, Deserialize)]
 pub struct SerializableRawProgramWithSymbols {
-    // struct_functions: Vec<StructFuncBuilderConcrete>,
     instructions: Vec<Vec<Instruction>>,
     constant_map: Vec<u8>,
     version: String,

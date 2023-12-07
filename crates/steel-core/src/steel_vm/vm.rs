@@ -2211,9 +2211,9 @@ impl<'a> VmCore<'a> {
                     self.ip += 1;
                     let next_inst = self.instructions[self.ip];
                     self.handle_call_global(
-                        next_inst.payload_size as usize,
-                        payload_size as usize,
                         // next_inst.payload_size as usize,
+                        payload_size as usize,
+                        next_inst.payload_size as usize,
                     )?;
                 }
                 DenseInstruction {
@@ -2224,9 +2224,13 @@ impl<'a> VmCore<'a> {
                     // println!("calling global tail");
                     // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
                     let next_inst = self.instructions[self.ip + 1];
+                    // dbg!(payload_size);
+                    // dbg!(next_inst.payload_size);
+                    // println!("Calling global tail");
                     self.handle_tail_call_global(
-                        next_inst.payload_size as usize,
+                        // next_inst.payload_size as usize,
                         payload_size as usize,
+                        next_inst.payload_size as usize,
                         // next_inst.payload_size as usize,
                     )?;
                 }
@@ -2237,6 +2241,9 @@ impl<'a> VmCore<'a> {
                 } => {
                     // TODO: @Matt -> don't pop the function off of the stack, just read it from there directly.
                     let func = self.thread.stack.pop().unwrap();
+                    // println!("Calling: {}", func);
+                    // pretty_print_dense_instructions(&self.instructions);
+                    // println!("ip: {}", self.ip);
                     self.handle_function_call(func, payload_size as usize)?;
                 }
                 // Tail call basically says "hey this function is exiting"
@@ -2411,6 +2418,7 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::Arity,
                     ..
                 } => {
+                    // println!("HITTING THIS - THIS SHOULDNT HAPPEN");
                     self.ip += 1;
                 }
                 DenseInstruction {
@@ -3187,6 +3195,7 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
+    #[inline(always)]
     fn cut_sequence(&mut self) {
         #[cfg(feature = "dynamic")]
         if let Some(pat) = self.thread.profiler.cut_sequence(
@@ -3325,6 +3334,8 @@ impl<'a> VmCore<'a> {
 
     // #[inline(always)]
     fn call_builtin_func(&mut self, func: BuiltInSignature, payload_size: usize) -> Result<()> {
+        // println!("Calling builtin function");
+
         // Note: We Advance the pointer here. In the event we're calling a builtin that fusses with
         // the instruction pointer, we allow the function to override this. For example, call/cc will
         // advance the pointer - or perhaps, even fuss with the control flow.
@@ -3399,38 +3410,12 @@ impl<'a> VmCore<'a> {
         f: fn(&[SteelVal]) -> Result<SteelVal>,
         payload_size: usize,
     ) -> Result<()> {
-        // let result = f(self.stack.peek_range(self.stack.len() - payload_size..))
-        //     .map_err(|x| x.set_span_if_none(self.current_span()))?;
-
         let last_index = self.thread.stack.len() - payload_size;
 
         let result = match f(&self.thread.stack[last_index..]) {
             Ok(value) => value,
             Err(e) => return Err(e.set_span_if_none(self.current_span())),
         };
-
-        // println!("Length to truncate to: {:?}", last_index);
-        // println!("Stack at this point: {:?}", self.stack);
-
-        // TODO: @Matt - This is a neat little optimization, although it only works for function calls > 1 argument
-        // Function calls without args, this quits on.
-        // Specialize function calls without arguments - this should be a fairly easy, free, speed up.
-
-        // let truncate_len = last_index + 1;
-        // if truncate_len > self.stack.len() {
-        //     self.stack.truncate(last_index);
-        //     self.stack.push(result);
-        // } else {
-        //     self.stack.truncate(truncate_len);
-        //     *self.stack.last_mut().unwrap() = result;
-        // }
-
-        // if last_index + 1 > self.stack.len() {
-        //     println!("Length to truncate to: {:?}", last_index);
-        //     println!("Stack length at this point: {:?}", self.stack.len());
-        //     println!("Stack at this point: {:?}", self.stack);
-        //     panic!("Something is up here");
-        // }
 
         // This is the old way... lets see if the below way improves the speed
         self.thread.stack.truncate(last_index);
@@ -4023,6 +4008,8 @@ impl<'a> VmCore<'a> {
     ) -> Result<()> {
         use SteelVal::*;
 
+        // println!("Calling global: {}", stack_func);
+
         match stack_func {
             Closure(closure) => self.handle_function_call_closure_jit(closure, payload_size),
             FuncV(f) => self.call_primitive_func(f, payload_size),
@@ -4032,7 +4019,10 @@ impl<'a> VmCore<'a> {
             // ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size),
             ContinuationFunction(cc) => self.call_continuation(cc),
             // Contract(c) => self.call_contract(&c, payload_size),
-            BuiltIn(f) => self.call_builtin_func(f, payload_size),
+            BuiltIn(f) => {
+                // self.ip -= 1;
+                self.call_builtin_func(f, payload_size)
+            }
             CustomStruct(s) => self.call_custom_struct(&s, payload_size),
             _ => {
                 // Explicitly mark this as unlikely
@@ -4144,7 +4134,11 @@ impl<'a> VmCore<'a> {
             // #[cfg(feature = "jit")]
             // CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
             // Contract(c) => self.call_contract(&c, payload_size),
-            BuiltIn(f) => self.call_builtin_func(f, payload_size),
+            BuiltIn(f) => {
+                // println!("Calling builtin function, non tail call");
+                // self.ip += 1;
+                self.call_builtin_func(f, payload_size)
+            }
             CustomStruct(s) => self.call_custom_struct(&s, payload_size),
             _ => {
                 log::error!("{stack_func:?}");
@@ -4414,7 +4408,21 @@ pub(crate) fn list_modules(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Resul
 pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     // arity_check!(apply, args, 2);
 
-    ctx.ip -= 1;
+    // println!("Calling apply!");
+    // println!("Current instruction: {:?}", ctx.instructions[ctx.ip]);
+
+    // ctx.ip -= 1;
+
+    let current_instruction = ctx.instructions[ctx.ip - 1];
+
+    let tail_call = matches!(
+        current_instruction.op_code,
+        OpCode::TAILCALL | OpCode::CALLGLOBALTAIL
+    );
+
+    // dbg!(tail_call);
+
+    // println!("Current instruction: {:?}", ctx.instructions[ctx.ip]);
 
     if args.len() != 2 {
         builtin_stop!(ArityMismatch => "apply expected 2 arguments");
@@ -4435,8 +4443,17 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
                         ctx.thread.stack.push(arg.clone());
                     }
 
+                    let res = if tail_call {
+                        ctx.new_handle_tail_call_closure(closure.clone(), l.len())
+                    } else {
+                        ctx.ip -= 1;
+
+                        ctx.handle_function_call_closure(closure.clone(), l.len())
+                    };
+
                     // TODO: Fix this unwrap
-                    let res = ctx.handle_function_call_closure(closure.clone(), l.len());
+                    // let res = ctx.handle_function_call_closure(closure.clone(), l.len());
+                    // let res = ctx.new_handle_tail_call_closure(closure.clone(), l.len());
 
                     if res.is_err() {
                         // This is explicitly unreachable, since we're checking
@@ -4482,13 +4499,11 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
 
                 // Calling a builtin here might involve a little recursion business
                 SteelVal::BuiltIn(f) => {
+                    // println!("Calling a builtin with apply!");
+
                     let args = l.into_iter().cloned().collect::<Vec<_>>();
 
-                    // let result = f(&args).map_err(|e| e.set_span_if_none(ctx.current_span()));
-
-                    // Some(result)
-
-                    ctx.ip += 1;
+                    // ctx.ip += 1;
 
                     // TODO: Don't do this - just read directly from the stack
 
@@ -5491,22 +5506,22 @@ fn call_global_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.ip += 1;
     let next_inst = ctx.instructions[ctx.ip];
 
-    // println!("{:?}, {:?}", next_inst.payload_size, payload_size);
-
-    ctx.handle_call_global(next_inst.payload_size as usize, payload_size as usize)
+    ctx.handle_call_global(payload_size as usize, next_inst.payload_size as usize)
 }
 
 // OpCode::CALLGLOBAL
+// TODO: Fix this!
 fn call_global_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
     ctx.ip += 1;
     let next_inst = ctx.instructions[ctx.ip];
-    ctx.handle_call_global(next_inst.payload_size as usize, payload)
+    ctx.handle_call_global(payload, next_inst.payload_size as usize)
 }
 
 // TODO: Have a way to know the correct arity?
 fn call_global_handler_no_stack(ctx: &mut VmCore<'_>, args: &mut [SteelVal]) -> Result<SteelVal> {
-    ctx.ip += 1;
+    // ctx.ip += 1;
     let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.ip += 1;
 
     // TODO: Track the op codes of the surrounding values as well
     // let next_inst = ctx.instructions[ctx.ip];
@@ -5522,8 +5537,9 @@ fn call_global_handler_no_stack(ctx: &mut VmCore<'_>, args: &mut [SteelVal]) -> 
 
 #[inline(always)]
 fn call_global_handler_with_args(ctx: &mut VmCore<'_>, args: &mut [SteelVal]) -> Result<()> {
-    ctx.ip += 1;
+    // ctx.ip += 1;
     let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.ip += 1;
 
     // TODO: Track the op codes of the surrounding values as well
     // let next_inst = ctx.instructions[ctx.ip];
@@ -6057,7 +6073,7 @@ fn call_global_tail_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 
     // println!("{:?}, {:?}", payload_size, next_inst.payload_size);
 
-    ctx.handle_tail_call_global(next_inst.payload_size as usize, payload_size as usize)
+    ctx.handle_tail_call_global(payload_size as usize, next_inst.payload_size as usize)
 
     // ctx.handle_tail_call_global(payload_size as usize, next_inst.payload_size as usize)
 }

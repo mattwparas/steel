@@ -144,6 +144,23 @@ struct KernelImage {
     kernel_source: SerializableRawProgramWithSymbols,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct NonInteractiveProgramImage {
+    sources: Sources,
+    program: SerializableRawProgramWithSymbols,
+}
+
+impl NonInteractiveProgramImage {
+    pub fn write_bytes_to_file(&self, out: &PathBuf) {
+        let mut f = std::fs::File::create(out).unwrap();
+        bincode::serialize_into(&mut f, self).unwrap();
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        bincode::deserialize(&bytes).unwrap()
+    }
+}
+
 // fn steel_create_bootstrap() {
 //     Engine::create_bootstrap_from_programs("src/boot/bootstrap.bin".into());
 // }
@@ -397,6 +414,39 @@ impl Engine {
                 .map(SerializableRawProgramWithSymbols::into_raw_program)
                 .collect(),
         )
+    }
+
+    /// Creates a statically linked program ready to deserialize
+    pub fn create_non_interactive_program_image(
+        expr: &str,
+        path: PathBuf,
+    ) -> Result<NonInteractiveProgramImage> {
+        let mut engine = Engine::new();
+
+        engine
+            .emit_raw_program(expr, path)?
+            .into_serializable_program()
+            .map(|program| NonInteractiveProgramImage {
+                sources: engine.sources.clone(),
+                program,
+            })
+    }
+
+    // Execute from a statically linked non interactive program
+    pub fn execute_non_interactive_program_image(
+        program: NonInteractiveProgramImage,
+    ) -> Result<()> {
+        // This _has_ to match the as the creation of the program above
+        let mut engine = Engine::new();
+        engine.sources = program.sources;
+        let raw_program = SerializableRawProgramWithSymbols::into_raw_program(program.program);
+        let results = engine.run_raw_program(raw_program);
+
+        if let Err(e) = results {
+            raise_error(&engine.sources, e);
+        }
+
+        Ok(())
     }
 
     // Create kernel bootstrap

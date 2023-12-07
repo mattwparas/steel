@@ -29,6 +29,10 @@ impl EngineWrapper {
         EngineWrapper(Engine::new())
     }
 
+    pub(crate) fn deep_copy(self) -> Self {
+        self
+    }
+
     pub(crate) fn add_module(&mut self, path: String) -> Result<()> {
         self.0.add_module(path)?;
         Ok(())

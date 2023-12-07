@@ -41,17 +41,6 @@
 ;; Alias the name for clarity
 (define make-flat-contract FlatContract)
 
-;;#|
-;;   Testing out a multi line comment...
-;; |#
-(define (new-FunctionContract #:pre-conditions pre-conditions
-                              #:post-condition post-condition
-                              #:contract-attachment-location (contract-attachment-location void)
-                              ;; TODO: so this parents business isn't even practical
-                              ;; -> it can get removed safely, maybe revisited later
-                              #:parents (parents '()))
-  (FunctionContract pre-conditions post-condition contract-attachment-location parents))
-
 ;; Formats a contract nicely as a string
 (define (contract->string contract)
   (cond
@@ -95,19 +84,6 @@
                   ": the given input:"
                   arg
                   "resulted in a contract violation"))))
-
-;; ; (define (apply-parents parent name function arguments span)
-;; ;   (if (void? parent)
-;; ;       #true
-;; ;       (begin
-;; ;         (displayln "Applying parent contract")
-;; ;         (apply-function-contract (ContractedFunction-contract parent)
-;; ;                                  name
-;; ;                                  function
-;; ;                                  arguments
-;; ;                                  span)
-
-;; ;         (apply-parents (FunctionContract-parent parent) name function arguments span))))
 
 ;; Call a contracted function
 (define (apply-contracted-function contracted-function arguments span)
@@ -161,18 +137,16 @@
            =>
            (if (ContractedFunction? arg)
                (let ([pre-parent (ContractedFunction-contract arg)])
-                 (let ([parent (new-FunctionContract
-                                #:pre-conditions (FunctionContract-pre-conditions pre-parent)
-                                #:post-condition (FunctionContract-post-condition pre-parent)
-                                #:contract-attachment-location
+                 (let ([parent (FunctionContract
+                                (FunctionContract-pre-conditions pre-parent)
+                                (FunctionContract-post-condition pre-parent)
                                 (ContractAttachmentLocation 'DOMAIN (ContractedFunction-name arg))
-                                #:parents (FunctionContract-parents pre-parent))])
-                   (let ([fc (new-FunctionContract
-                              #:pre-conditions (FunctionContract-pre-conditions contract)
-                              #:post-condition (FunctionContract-post-condition contract)
-                              #:contract-attachment-location
+                                (FunctionContract-parents pre-parent))])
+                   (let ([fc (FunctionContract
+                              (FunctionContract-pre-conditions contract)
+                              (FunctionContract-post-condition contract)
                               (ContractAttachmentLocation 'DOMAIN (ContractedFunction-name arg))
-                              #:parents (cons parent (FunctionContract-parents parent)))])
+                              (cons parent (FunctionContract-parents parent)))])
 
                      (bind/c fc arg name span))))
                (bind/c contract arg name span))]
@@ -244,15 +218,15 @@
                                              (ContractAttachmentLocation-name
                                               self-contract-attachment-location)))
                (define parent
-                 (new-FunctionContract #:pre-conditions (FunctionContract-pre-conditions pre-parent)
-                                       #:post-condition (FunctionContract-post-condition pre-parent)
-                                       #:contract-attachment-location contract-attachment-location
-                                       #:parents (FunctionContract-parents pre-parent)))
+                 (FunctionContract (FunctionContract-pre-conditions pre-parent)
+                                   (FunctionContract-post-condition pre-parent)
+                                   contract-attachment-location
+                                   (FunctionContract-parents pre-parent)))
                (define fc
-                 (new-FunctionContract #:pre-conditions (FunctionContract-pre-conditions contract)
-                                       #:post-condition (FunctionContract-post-condition contract)
-                                       #:contract-attachment-location contract-attachment-location
-                                       #:parents (cons parent (FunctionContract-parents pre-parent))))
+                 (FunctionContract (FunctionContract-pre-conditions contract)
+                                   (FunctionContract-post-condition contract)
+                                   contract-attachment-location
+                                   (cons parent (FunctionContract-parents pre-parent))))
 
                (bind/c fc original-function name span))
              (bind/c contract output name span))]

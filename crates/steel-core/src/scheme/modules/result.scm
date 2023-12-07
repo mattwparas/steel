@@ -19,14 +19,10 @@
          (contract/out map-ok (->/c Result? (->/c any/c any/c) Result?))
          (contract/out map-err (->/c Result? (->/c any/c any/c) Result?))
          unwrap-or
-         foo
          ok-and-then)
 
 ; (struct Ok (value) #:transparent)
 ; (struct Err (value) #:transparent)
-
-(define (foo)
-  (vector 10 20 30))
 
 (define (Result? value)
   (or (Ok? value) (Err? value)))
