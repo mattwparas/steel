@@ -63,6 +63,7 @@ test_harness_success! {
     closure_value_capture,
     comma_quibbling,
     complex_lets,
+    defmacro,
     delim_control,
     delim_control_n,
     define_normal,
