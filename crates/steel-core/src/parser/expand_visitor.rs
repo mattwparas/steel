@@ -7,6 +7,7 @@ use crate::compiler::passes::Folder;
 use crate::compiler::program::REQUIRE_DYLIB;
 use crate::parser::ast::ExprKind;
 use crate::parser::parser::SyntaxObject;
+use crate::parser::span_visitor::get_span;
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::steel_vm::engine::ModuleContainer;
 use crate::{compiler::program::REQUIRE_BUILTIN, rvals::Result};
@@ -219,6 +220,7 @@ pub fn expand_kernel_in_env(
         changed: false,
         builtin_modules,
         environment: Some(Cow::from(env)),
+        depth: 0,
     }
     .visit(expr)
 }
@@ -233,6 +235,7 @@ pub fn expand_kernel(
         changed: false,
         builtin_modules,
         environment: None,
+        depth: 0,
     }
     .visit(expr)
 }
@@ -242,6 +245,7 @@ pub struct KernelExpander<'a> {
     pub(crate) changed: bool,
     builtin_modules: ModuleContainer,
     environment: Option<Cow<'static, str>>,
+    depth: usize,
 }
 
 impl<'a> KernelExpander<'a> {
@@ -251,6 +255,7 @@ impl<'a> KernelExpander<'a> {
             changed: false,
             builtin_modules,
             environment: None,
+            depth: 0,
         }
     }
 
@@ -719,7 +724,14 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                             .unwrap_or("default"),
                     )?;
                     self.changed = true;
-                    return self.visit(expanded);
+
+                    self.depth += 1;
+
+                    let result = self.visit(expanded);
+
+                    self.depth -= 1;
+
+                    return result;
                 }
             }
 
@@ -917,6 +929,32 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
         l.body_expr = self.visit(l.body_expr)?;
 
         Ok(ExprKind::Let(l))
+    }
+
+    fn visit(&mut self, expr: ExprKind) -> Self::Output {
+        if self.depth > 96 {
+            stop!(BadSyntax => "Current expansion depth of defmacro style macros exceeded: depth capped at 96"; get_span(&expr));
+        }
+
+        let res = match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+        };
+
+        // self.depth -= 1;
+
+        res
     }
 }
 

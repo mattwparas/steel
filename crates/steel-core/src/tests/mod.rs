@@ -123,6 +123,7 @@ test_harness_success! {
 }
 
 test_harness_failure! {
+    capped_depth_defmacro,
     function_used_before_definition,
     identifier_used_before_definition,
     local_struct_inaccessible,
