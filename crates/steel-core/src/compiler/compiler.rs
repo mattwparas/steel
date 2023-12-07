@@ -584,7 +584,7 @@ impl Compiler {
 
         if let Some(kernel) = self.kernel.as_mut() {
             // Label anything at the top as well - top level
-            kernel.load_syntax_transformers(&mut expanded_statements, "top-level".to_string());
+            kernel.load_syntax_transformers(&mut expanded_statements, "top-level".to_string())?;
         }
 
         expanded_statements = expanded_statements

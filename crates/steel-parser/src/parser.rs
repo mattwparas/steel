@@ -2182,7 +2182,7 @@ mod parser_tests {
                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
                     vec![atom("a")],
                     ExprKind::List(List::new(vec![atom("+"), atom("a"), int(20)])),
-                    SyntaxObject::default(TokenType::Let),
+                    SyntaxObject::default(TokenType::Lambda),
                 ))),
                 int(10),
             ]))],

@@ -507,14 +507,10 @@ impl Kernel {
         expr: ExprKind,
         environment: &str,
     ) -> Result<ExprKind> {
-        // println!("Expanding: {} - {}", ident, expr);
-
         let span = get_span(&expr);
 
         let syntax_objects =
             super::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(expr.clone())?;
-
-        // println!("syntax objects: {}", syntax_objects);
 
         let function = if environment == "default" {
             // TODO: This actually needs to go through the proper resolution process,
