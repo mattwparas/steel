@@ -24,6 +24,7 @@ use super::{
     kernel::Kernel,
 };
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use crate::parser::expander::SteelMacro;
@@ -207,6 +208,21 @@ impl<'a> ConsumingVisitor for Expander<'a> {
     }
 }
 
+pub fn expand_kernel_in_env(
+    expr: ExprKind,
+    kernel: Option<&mut Kernel>,
+    builtin_modules: ModuleContainer,
+    env: String,
+) -> Result<ExprKind> {
+    KernelExpander {
+        map: kernel,
+        changed: false,
+        builtin_modules,
+        environment: Some(Cow::from(env)),
+    }
+    .visit(expr)
+}
+
 pub fn expand_kernel(
     expr: ExprKind,
     kernel: Option<&mut Kernel>,
@@ -216,6 +232,7 @@ pub fn expand_kernel(
         map: kernel,
         changed: false,
         builtin_modules,
+        environment: None,
     }
     .visit(expr)
 }
@@ -224,6 +241,7 @@ pub struct KernelExpander<'a> {
     map: Option<&'a mut Kernel>,
     pub(crate) changed: bool,
     builtin_modules: ModuleContainer,
+    environment: Option<Cow<'static, str>>,
 }
 
 impl<'a> KernelExpander<'a> {
@@ -232,6 +250,7 @@ impl<'a> KernelExpander<'a> {
             map,
             changed: false,
             builtin_modules,
+            environment: None,
         }
     }
 
@@ -688,8 +707,17 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                     }
                 }
 
-                if map.contains_syntax_object_macro(&s) {
-                    let expanded = map.expand_syntax_object(&s, ExprKind::List(l))?;
+                if map
+                    .contains_syntax_object_macro(&s, self.environment.as_ref().map(|x| x.as_ref()))
+                {
+                    let expanded = map.expand_syntax_object(
+                        &s,
+                        ExprKind::List(l),
+                        self.environment
+                            .as_ref()
+                            .map(|x| x.as_ref())
+                            .unwrap_or("default"),
+                    )?;
                     self.changed = true;
                     return self.visit(expanded);
                 }

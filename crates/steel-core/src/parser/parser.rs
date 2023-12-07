@@ -1,4 +1,4 @@
-use crate::rvals::IntoSteelVal;
+use crate::rvals::{IntoSteelVal, SteelString};
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 
 use std::str;
@@ -104,6 +104,10 @@ impl Sources {
     }
 }
 
+thread_local! {
+    static LAMBDA_SYMBOL: SteelString = "lambda".into();
+}
+
 impl TryFrom<SyntaxObject> for SteelVal {
     type Error = SteelErr;
 
@@ -150,7 +154,7 @@ impl TryFrom<SyntaxObject> for SteelVal {
             TestLet => Ok(SymbolV("%plain-let".into())),
             Return => Ok(SymbolV("return!".into())),
             Begin => Ok(SymbolV("begin".into())),
-            Lambda => Ok(SymbolV("lambda".into())),
+            Lambda => Ok(SymbolV(LAMBDA_SYMBOL.with(|x| x.clone()))),
             Quote => Ok(SymbolV("quote".into())),
             DefineSyntax => Ok(SymbolV("define-syntax".into())),
             SyntaxRules => Ok(SymbolV("syntax-rules".into())),

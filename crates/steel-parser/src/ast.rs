@@ -1678,7 +1678,7 @@ where
 #[inline]
 pub(crate) fn parse_let<I>(
     mut value_iter: I,
-    syn: SyntaxObject,
+    mut syn: SyntaxObject,
 ) -> std::result::Result<ExprKind, ParseError>
 where
     I: Iterator<Item = ExprKind>,
@@ -1756,6 +1756,9 @@ where
             ));
         }
     }
+
+    // Since we've converted it, we should turn it into a lambda
+    syn.ty = TokenType::Lambda;
 
     let mut function: Vec<ExprKind> = vec![LambdaFunction::new(arguments, body, syn).into()];
 

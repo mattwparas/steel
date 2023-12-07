@@ -215,18 +215,22 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                         //         continue;
                         //     }
                         // }
-                        _ => {}
+                        _ => {
+                            // println!("Converting call global: {}", ident);
+                        }
                     }
                 }
 
+                // TODO:
                 if let Some(x) = instructions.get_mut(i) {
                     x.op_code = OpCode::CALLGLOBAL;
-                    x.payload_size = arity;
+                    x.payload_size = index;
                 }
 
                 if let Some(x) = instructions.get_mut(i + 1) {
-                    x.op_code = OpCode::Arity;
-                    x.payload_size = index;
+                    // Leave this as the OpCode::FUNC;
+                    // x.op_code = OpCode::Arity;
+                    x.payload_size = arity;
                 }
             }
             (
@@ -293,12 +297,12 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
 
                 if let Some(x) = instructions.get_mut(i) {
                     x.op_code = OpCode::CALLGLOBALTAIL;
-                    x.payload_size = arity;
+                    x.payload_size = index;
                 }
 
                 if let Some(x) = instructions.get_mut(i + 1) {
-                    x.op_code = OpCode::Arity;
-                    x.payload_size = index;
+                    // x.op_code = OpCode::Arity;
+                    // x.payload_size = arity;
                 }
             }
             _ => {}
@@ -384,6 +388,8 @@ define_symbols! {
     PRIM_CAR => "#%prim.car",
     CDR_SYMBOL => "cdr",
     PRIM_CDR => "#%prim.cdr",
+    DEFMACRO => "defmacro",
+    BEGIN_FOR_SYNTAX => "begin-for-syntax",
 }
 
 pub fn inline_num_operations(instructions: &mut [Instruction]) {

@@ -614,7 +614,10 @@
          (apply (lambda (?a1 ...)
                   ?e1 ...)
                 ?args)
-         (error! "Arity mismatch"))]
+         (error! "Arity mismatch in case lambda: attempted to call function with arg length: "
+                 ?l
+                 "expecting length: "
+                 (length '(?a1 ...))))]
     [(case-lambda
        "CLAUSE"
        ?args

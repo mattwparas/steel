@@ -1,18 +1,22 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     sync::{Arc, RwLock},
 };
 
 use steel_parser::tokens::TokenType;
 
 use crate::{
-    compiler::{passes::analysis::SemanticAnalysis, program::RawProgramWithSymbols},
+    compiler::{
+        passes::analysis::SemanticAnalysis,
+        program::{RawProgramWithSymbols, BEGIN_FOR_SYNTAX, DEFMACRO},
+    },
     parser::{
         ast::{Atom, Set},
         parser::SyntaxObject,
     },
-    rvals::Result,
+    rvals::{Result, SteelString},
     steel_vm::register_fn::RegisterFn,
+    values::lists::List,
 };
 use crate::{stdlib::KERNEL, steel_vm::engine::Engine, SteelVal};
 
@@ -32,10 +36,12 @@ pub(crate) fn fresh_kernel_image() -> Engine {
     KERNEL_IMAGE.with(|x| x.clone())
 }
 
+type TransformerMap = HashMap<String, HashSet<InternedString>>;
+
 // Internal set of transformers that we'll embed
 #[derive(Clone, Debug)]
 struct Transformers {
-    set: Arc<RwLock<HashSet<InternedString>>>,
+    set: Arc<RwLock<TransformerMap>>,
 }
 
 /// The Kernel is an engine context used to evaluate defmacro style macros
@@ -62,30 +68,42 @@ impl Kernel {
         let mut engine = fresh_kernel_image();
 
         let transformers = Transformers {
-            set: Arc::new(RwLock::new(HashSet::default())),
+            set: Arc::new(RwLock::new(HashMap::default())),
         };
 
         let embedded_transformer_object = transformers.clone();
-        engine.register_fn("register-macro-transformer!", move |name: String| {
-            embedded_transformer_object
-                .set
-                .write()
-                .unwrap()
-                .insert(name.as_str().into())
-        });
+        engine.register_fn(
+            "register-macro-transformer!",
+            move |name: String, env: String| {
+                embedded_transformer_object
+                    .set
+                    .write()
+                    .unwrap()
+                    .entry(env)
+                    .or_default()
+                    .insert(name.as_str().into())
+            },
+        );
 
         let embedded_transformer_object = transformers.clone();
-        engine.register_fn("current-macro-transformers!", move || -> SteelVal {
-            embedded_transformer_object
-                .set
-                .read()
-                .unwrap()
-                .iter()
-                .map(|x| x.resolve().to_string())
-                .map(|x| SteelVal::SymbolV(x.into()))
-                .collect::<crate::values::lists::List<SteelVal>>()
-                .into()
-        });
+        engine.register_fn(
+            "current-macro-transformers!",
+            move |env: SteelString| -> SteelVal {
+                embedded_transformer_object
+                    .set
+                    .read()
+                    .unwrap()
+                    .get(env.as_str())
+                    .map(|set| {
+                        set.iter()
+                            .map(|x| x.resolve().to_string())
+                            .map(|x| SteelVal::SymbolV(x.into()))
+                            .collect::<crate::values::lists::List<SteelVal>>()
+                            .into()
+                    })
+                    .unwrap_or_else(|| SteelVal::ListV(List::new()))
+            },
+        );
 
         // Run the script for building the core interface for structs
         engine.compile_and_run_raw_program(KERNEL).unwrap();
@@ -104,91 +122,206 @@ impl Kernel {
     }
 
     pub(crate) fn bootstrap(mut engine: Engine) -> (Self, RawProgramWithSymbols) {
-        let transformers = Transformers {
-            set: Arc::new(RwLock::new(HashSet::default())),
-        };
+        todo!()
 
-        let embedded_transformer_object = transformers.clone();
-        engine.register_fn("register-macro-transformer!", move |name: String| {
-            embedded_transformer_object
-                .set
-                .write()
-                .unwrap()
-                .insert(name.as_str().into())
-        });
+        // let transformers = Transformers {
+        //     set: Arc::new(RwLock::new(HashSet::default())),
+        // };
 
-        let embedded_transformer_object = transformers.clone();
-        engine.register_fn("current-macro-transformers!", move || -> SteelVal {
-            embedded_transformer_object
-                .set
-                .read()
-                .unwrap()
-                .iter()
-                .map(|x| x.resolve().to_string())
-                .map(|x| SteelVal::SymbolV(x.into()))
-                .collect::<crate::values::lists::List<SteelVal>>()
-                .into()
-        });
+        // let embedded_transformer_object = transformers.clone();
+        // engine.register_fn("register-macro-transformer!", move |name: String| {
+        //     embedded_transformer_object
+        //         .set
+        //         .write()
+        //         .unwrap()
+        //         .insert(name.as_str().into())
+        // });
+
+        // let embedded_transformer_object = transformers.clone();
+        // engine.register_fn("current-macro-transformers!", move || -> SteelVal {
+        //     embedded_transformer_object
+        //         .set
+        //         .read()
+        //         .unwrap()
+        //         .iter()
+        //         .map(|x| x.resolve().to_string())
+        //         .map(|x| SteelVal::SymbolV(x.into()))
+        //         .collect::<crate::values::lists::List<SteelVal>>()
+        //         .into()
+        // });
 
         // Run the script for building the core interface for structs
         // engine.compile_and_run_raw_program(KERNEL).unwrap();
 
-        let raw_program = engine.emit_raw_program_no_path(KERNEL).unwrap();
-        engine.run_raw_program(raw_program.clone()).unwrap();
+        // let raw_program = engine.emit_raw_program_no_path(KERNEL).unwrap();
+        // engine.run_raw_program(raw_program.clone()).unwrap();
 
         // let mut macros = HashSet::new();
         // macros.insert("%better-lambda%".to_string());
         // macros.insert(*STRUCT_KEYWORD);
         // macros.insert(*DEFINE_VALUES);
 
-        (
-            Kernel {
-                // macros,
-                transformers,
-                constants: HashSet::new(),
-                engine: Box::new(engine),
-            },
-            raw_program,
-        )
+        // (
+        //     Kernel {
+        //         // macros,
+        //         transformers,
+        //         constants: HashSet::new(),
+        //         engine: Box::new(engine),
+        //     },
+        //     raw_program,
+        // )
     }
 
     pub(crate) fn initialize_post_bootstrap(mut engine: Engine) -> Self {
-        let transformers = Transformers {
-            set: Arc::new(RwLock::new(HashSet::default())),
-        };
+        // let transformers = Transformers {
+        //     set: Arc::new(RwLock::new(HashSet::default())),
+        // };
 
-        let embedded_transformer_object = transformers.clone();
-        engine.register_fn("register-macro-transformer!", move |name: String| {
-            embedded_transformer_object
-                .set
-                .write()
-                .unwrap()
-                .insert(name.as_str().into())
-        });
+        // let embedded_transformer_object = transformers.clone();
+        // engine.register_fn("register-macro-transformer!", move |name: String| {
+        //     embedded_transformer_object
+        //         .set
+        //         .write()
+        //         .unwrap()
+        //         .insert(name.as_str().into())
+        // });
 
-        let embedded_transformer_object = transformers.clone();
-        engine.register_fn("current-macro-transformers!", move || -> SteelVal {
-            embedded_transformer_object
-                .set
-                .read()
-                .unwrap()
-                .iter()
-                .map(|x| x.resolve().to_string())
-                .map(|x| SteelVal::SymbolV(x.into()))
-                .collect::<crate::values::lists::List<SteelVal>>()
-                .into()
-        });
+        // let embedded_transformer_object = transformers.clone();
+        // engine.register_fn("current-macro-transformers!", move || -> SteelVal {
+        //     embedded_transformer_object
+        //         .set
+        //         .read()
+        //         .unwrap()
+        //         .iter()
+        //         .map(|x| x.resolve().to_string())
+        //         .map(|x| SteelVal::SymbolV(x.into()))
+        //         .collect::<crate::values::lists::List<SteelVal>>()
+        //         .into()
+        // });
 
-        Kernel {
-            // macros,
-            transformers,
-            constants: HashSet::new(),
-            engine: Box::new(engine),
-        }
+        // Kernel {
+        //     // macros,
+        //     transformers,
+        //     constants: HashSet::new(),
+        //     engine: Box::new(engine),
+        // }
+
+        todo!()
     }
 
     pub fn is_constant(&self, ident: &InternedString) -> bool {
         self.constants.contains(ident)
+    }
+
+    // Define environment? Each module has its own set of transformers?
+    pub fn load_syntax_transformers(
+        &mut self,
+        exprs: &mut Vec<ExprKind>,
+        environment: String,
+    ) -> Result<()> {
+        enum IndexKind {
+            DefMacro(usize),
+            BeginForSyntax(usize),
+        }
+
+        let mut def_macro_expr_indices = Vec::new();
+
+        let mut provide_definitions = vec![ExprKind::ident("provide")];
+
+        for (i, expr) in exprs.iter_mut().enumerate() {
+            let first_ident = expr.list().and_then(|l| l.first_ident());
+
+            match first_ident {
+                Some(ident) if *ident == *DEFMACRO => {
+                    let underlying = expr.list_mut_or_else(|| unreachable!()).unwrap();
+
+                    match &underlying[1] {
+                        ExprKind::List(l) => provide_definitions.push(l[0].clone()),
+                        ExprKind::Atom(_) => {
+                            provide_definitions.push(underlying.args[1].clone());
+                        }
+                        _ => {
+                            let span = underlying[0].atom_syntax_object().unwrap().span;
+                            stop!(BadSyntax => "malformed defmacro"; span);
+                        }
+                    }
+
+                    underlying
+                        .args
+                        .insert(1, ExprKind::string_lit(environment.clone()));
+
+                    def_macro_expr_indices.push(IndexKind::DefMacro(i));
+                }
+
+                Some(ident) if *ident == *BEGIN_FOR_SYNTAX => {
+                    def_macro_expr_indices.push(IndexKind::BeginForSyntax(i));
+                }
+
+                _ => {}
+            }
+        }
+
+        if def_macro_expr_indices.is_empty() {
+            return Ok(());
+        }
+
+        // Fill up the define macro expressions with the correct ones
+        // Lets do some debug logging to make sure this even makes sense
+        // in the first place
+        let mut def_macro_exprs = Vec::with_capacity(def_macro_expr_indices.len());
+
+        def_macro_exprs.push(ExprKind::ident("#%syntax-transformer-module"));
+        def_macro_exprs.push(ExprKind::ident(&environment));
+        def_macro_exprs.push(ExprKind::List(steel_parser::ast::List::new(
+            provide_definitions,
+        )));
+
+        let mut exprs_buffer = Vec::with_capacity(def_macro_expr_indices.len());
+
+        while let Some(i) = def_macro_expr_indices.pop() {
+            match i {
+                IndexKind::DefMacro(i) => {
+                    let def_macro = exprs.remove(i);
+
+                    exprs_buffer.push(def_macro);
+                }
+                IndexKind::BeginForSyntax(i) => {
+                    let begin_for_syntax = exprs.remove(i);
+
+                    let mut iter = begin_for_syntax.into_list().args.into_iter();
+                    iter.next();
+
+                    exprs_buffer.extend(iter);
+                }
+            }
+        }
+
+        exprs_buffer.reverse();
+
+        def_macro_exprs.append(&mut exprs_buffer);
+
+        // Create the generated module
+        let generated_module = ExprKind::List(steel_parser::ast::List::new(def_macro_exprs));
+
+        // TODO: Load this as a module instead, so that way we have some real
+        // separation from each other.
+        //
+        // Meaning something like:
+        // (create-environment <environment> (provide <defmacros> ...) <defmacro definitions> ...)
+        //
+        // Expands into something like:
+        //
+        // (define env (let () <defmacro definitions> (hash <defmacro defs>)))
+        //
+        // Then, expansion would work by just interacting with that environment - something like
+        // (call-function-in-environment foo env)
+        // Which will extract the function from the module, and call it with the arguments. In theory
+        // that should give us the necessary isolation between modules that we want
+        // for the purposes of this.
+        self.engine
+            .run_raw_program_from_exprs(vec![generated_module])?;
+
+        Ok(())
     }
 
     // TODO: Have this report errors
@@ -324,14 +457,42 @@ impl Kernel {
         // todo!("Run through every expression, and memoize them by calling (set! <ident> (make-memoize <ident>))")
     }
 
-    pub fn contains_syntax_object_macro(&self, ident: &InternedString) -> bool {
-        // self.syntax_object_macros.contains(ident)
+    pub fn contains_syntax_object_macro(
+        &self,
+        ident: &InternedString,
+        environment: Option<&str>,
+    ) -> bool {
+        if let Some(environment) = environment {
+            // TODO: Come back to this - but we really just
+            // want a chain of environment that we've added to
+            // transformers
+            let base_environment = self
+                .transformers
+                .set
+                .read()
+                .unwrap()
+                .get(environment)
+                .map(|x| x.contains(ident))
+                .unwrap_or_default();
 
-        self.transformers.set.read().unwrap().contains(ident)
-
-        // self.engine.extract_value()
-
-        // todo!()
+            base_environment
+                || self
+                    .transformers
+                    .set
+                    .read()
+                    .unwrap()
+                    .get("default")
+                    .map(|x| x.contains(ident))
+                    .unwrap_or_default()
+        } else {
+            self.transformers
+                .set
+                .read()
+                .unwrap()
+                .get("default")
+                .map(|x| x.contains(ident))
+                .unwrap_or_default()
+        }
     }
 
     pub fn call_function(&mut self, ident: &InternedString, args: &[SteelVal]) -> Result<SteelVal> {
@@ -344,57 +505,41 @@ impl Kernel {
         &mut self,
         ident: &InternedString,
         expr: ExprKind,
+        environment: &str,
     ) -> Result<ExprKind> {
-        // println!("EXPANDING: {}", ident);
+        // println!("Expanding: {} - {}", ident, expr);
 
         let span = get_span(&expr);
 
         let syntax_objects =
             super::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(expr.clone())?;
 
-        let function = self.engine.extract_value(ident.resolve())?;
+        // println!("syntax objects: {}", syntax_objects);
 
-        // if let SteelVal::ListV(list) = syntax_objects {
-        // let mut iter = list.into_iter();
-        // Drop the macro name
-        // iter.next();
-
-        // let arguments = iter.collect();
-
-        // log::info!(target: "kernel", "Expanding: {:?} with arguments: {:?}", ident, arguments);
+        let function = if environment == "default" {
+            // TODO: This actually needs to go through the proper resolution process,
+            // probably some sort of transformer map.
+            self.engine.extract_value(ident.resolve())?
+        } else {
+            // Check if there is anything to expand in this environment
+            if let Ok(SteelVal::HashMapV(map)) = self.engine.extract_value(environment) {
+                if let Some(func) = map.get(&SteelVal::SymbolV(ident.resolve().to_string().into()))
+                {
+                    func.clone()
+                } else {
+                    self.engine.extract_value(ident.resolve())?
+                }
+            } else {
+                self.engine.extract_value(ident.resolve())?
+            }
+        };
 
         let result = self
             .engine
             .call_function_with_args(function, vec![syntax_objects])
             .map_err(|x| x.set_span(span))?;
 
-        // let expr = ExprKind::try_from(&result);
-
-        // println!("Expanded to: {:?}", result.to_string());
-
-        // println!("Expanded to: {:#?}", expr);
-
-        // TODO: try to understand what is actually happening here
-        // let ast_version = ExprKind::try_from(&result)
-        //     .map(from_list_repr_to_ast)
-        //     .unwrap()
-        //     .unwrap();
-
-        let ast_version = TryFromSteelValVisitorForExprKind::root(&result).unwrap();
-
-        // println!("{}")
-        // println!("{}", ast_version.to_pretty(60));
-
-        Ok(ast_version)
-
-        // Ok(
-        //     crate::parser::parser::Parser::parse(result.to_string().trim_start_matches('\''))?
-        //         .into_iter()
-        //         .next()
-        //         .unwrap(),
-        // )
-        // } else {
-        // stop!(TypeMismatch => "call-function-in-env expects a list for the arguments")
-        // }
+        // This shouldn't be lowering all the way. It should just be back to list right?
+        TryFromSteelValVisitorForExprKind::root(&result)
     }
 }

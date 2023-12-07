@@ -11,7 +11,7 @@ use crate::{
     },
     parser::{
         ast::AstTools,
-        expand_visitor::expand_kernel,
+        expand_visitor::{expand_kernel, expand_kernel_in_env},
         interner::InternedString,
         kernel::Kernel,
         parser::{lower_entire_ast, lower_macro_and_require_definitions},
@@ -254,7 +254,7 @@ impl DebruijnIndicesInterner {
                     let idx = symbol_map.get(s).map_err(|e| e.set_span(*span))?;
 
                     // TODO commenting this for now
-                    if let Some(x) = instructions.get_mut(i + 1) {
+                    if let Some(x) = instructions.get_mut(i) {
                         x.payload_size = idx;
                         x.constant = false;
                     }
@@ -570,8 +570,6 @@ impl Compiler {
             .map(lower_entire_ast)
             .collect::<std::result::Result<Vec<_>, ParseError>>()?;
 
-        // println!("Finished expanding");
-
         if log_enabled!(log::Level::Debug) {
             debug!(
                 "Generating instructions for the expression: {:?}",
@@ -584,17 +582,28 @@ impl Compiler {
 
         log::debug!(target: "expansion-phase", "Expanding macros -> phase 1");
 
+        if let Some(kernel) = self.kernel.as_mut() {
+            // Label anything at the top as well - top level
+            kernel.load_syntax_transformers(&mut expanded_statements, "top-level".to_string());
+        }
+
         expanded_statements = expanded_statements
             .into_iter()
-            .map(|x| expand_kernel(x, self.kernel.as_mut(), builtin_modules.clone()))
+            .map(|x| {
+                expand_kernel_in_env(
+                    x,
+                    self.kernel.as_mut(),
+                    builtin_modules.clone(),
+                    "top-level".to_string(),
+                )
+                .and_then(|x| crate::parser::expand_visitor::expand(x, &self.macro_env))
+            })
             .collect::<Result<Vec<_>>>()?;
 
         expanded_statements = expanded_statements
             .into_iter()
             .map(lower_entire_ast)
             .collect::<std::result::Result<Vec<_>, ParseError>>()?;
-
-        // println!("Finished expanding kernel");
 
         // expanded_statements.pretty_print();
 
