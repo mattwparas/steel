@@ -40,6 +40,7 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(TRIM_START_MATCHES_DEFINITION)
         .register_native_fn_definition(STRING_REF_DEFINITION)
         .register_native_fn_definition(SUBSTRING_DEFINITION)
+        .register_native_fn_definition(MAKE_STRING_DEFINITION)
         .register_native_fn_definition(STRING_EQUALS_DEFINITION)
         .register_native_fn_definition(STRING_CI_EQUALS_DEFINITION)
         .register_native_fn_definition(STRING_LESS_THAN_DEFINITION)
@@ -229,6 +230,20 @@ pub fn substring(value: &SteelString, i: usize, j: usize) -> Result<SteelVal> {
     }
 
     Ok(SteelVal::StringV(value[i..j].into()))
+}
+
+#[function(name = "make-string")]
+pub fn make_string(k: usize, mut c: RestArgsIter<'_, char>) -> Result<SteelVal> {
+    // If the char is there, we want to take it
+    let char = c.next();
+
+    // We want the iterator to be exhaused
+    if let Some(next) = c.next() {
+        stop!(ArityMismatch => format!("make-string expected 1 or 2 arguments, got an additional argument {}", next?))
+    }
+
+    let c = char.unwrap_or(Ok('\0'))?;
+    Ok((0..k).into_iter().map(|_| c).collect::<String>().into())
 }
 
 /// Concatenatives all of the inputs to their string representation, separated by spaces.
