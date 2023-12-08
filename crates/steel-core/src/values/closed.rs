@@ -788,4 +788,9 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     }
 
     fn visit_void(&mut self) -> Self::Output {}
+
+    fn visit_pair(&mut self, pair: Gc<super::lists::Pair>) -> Self::Output {
+        self.push_back(pair.car());
+        self.push_back(pair.cdr());
+    }
 }

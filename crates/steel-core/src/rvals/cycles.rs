@@ -1,3 +1,4 @@
+use crate::values::lists::Pair;
 use std::{cell::Cell, collections::VecDeque};
 
 use num::BigInt;
@@ -166,6 +167,9 @@ impl CycleDetector {
                     write!(f, "#\\{c}")
                 }
             }
+            Pair(p) => {
+                write!(f, "({} . {})", p.car(), p.cdr())
+            }
             FuncV(func) => {
                 if let Some(name) = get_function_name(*func) {
                     write!(f, "#<function:{}>", name.name)
@@ -290,6 +294,9 @@ impl CycleDetector {
                 } else {
                     write!(f, "#<function>")
                 }
+            }
+            Pair(p) => {
+                write!(f, "({} . {})", p.car(), p.cdr())
             }
             Void => write!(f, "#<void>"),
             SymbolV(s) => write!(f, "{s}"),
@@ -697,6 +704,12 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
         ) {
             self.push_back(heap_ref.get());
         }
+    }
+
+    // TODO: Revisit this!
+    fn visit_pair(&mut self, pair: Gc<Pair>) -> Self::Output {
+        self.push_back(pair.car());
+        self.push_back(pair.cdr());
     }
 }
 
@@ -1113,12 +1126,20 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
                 Reference(r) => self.visit_reference_value(r),
                 BigNum(b) => self.visit_bignum(b),
                 HeapAllocated(b) => self.visit_heap_allocated(b),
+                Pair(p) => self.visit_pair(p),
             };
         }
 
         // println!("--- finished draining drop queue ----");
 
         ret
+    }
+
+    fn visit_pair(&mut self, pair: Gc<Pair>) -> Self::Output {
+        if let Ok(inner) = Gc::try_unwrap(pair) {
+            self.push_back(inner.car);
+            self.push_back(inner.cdr);
+        }
     }
 }
 
@@ -1168,6 +1189,7 @@ pub trait BreadthFirstSearchSteelValVisitor {
                 Reference(r) => self.visit_reference_value(r),
                 BigNum(b) => self.visit_bignum(b),
                 HeapAllocated(b) => self.visit_heap_allocated(b),
+                Pair(p) => self.visit_pair(p),
             };
         }
 
@@ -1206,6 +1228,7 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_reference_value(&mut self, reference: Rc<OpaqueReference<'static>>) -> Self::Output;
     fn visit_bignum(&mut self, bignum: Gc<BigInt>) -> Self::Output;
     fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output;
+    fn visit_pair(&mut self, pair: Gc<Pair>) -> Self::Output;
 }
 
 pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
@@ -1254,6 +1277,7 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
                 Reference(r) => self.visit_reference_value(r),
                 BigNum(b) => self.visit_bignum(b),
                 HeapAllocated(b) => self.visit_heap_allocated(b),
+                Pair(p) => self.visit_pair(p),
             };
         }
 
@@ -1298,6 +1322,7 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
     ) -> Self::Output;
     fn visit_bignum(&mut self, bignum: &'a Gc<BigInt>) -> Self::Output;
     fn visit_heap_allocated(&mut self, heap_ref: &'a HeapRef<SteelVal>) -> Self::Output;
+    fn visit_pair(&mut self, pair: &'a Gc<Pair>) -> Self::Output;
 }
 
 thread_local! {
@@ -1412,6 +1437,19 @@ impl<'a> RecursiveEqualityHandler<'a> {
                     }
 
                     continue;
+                }
+                // If we run into issues with any stack overflow
+                // check here first.
+                (Pair(l), Pair(r)) => {
+                    if Gc::ptr_eq(&l, &r) {
+                        continue;
+                    }
+
+                    self.left.push_back(l.car());
+                    self.right.push_back(r.car());
+
+                    self.left.push_back(l.cdr());
+                    self.right.push_back(r.cdr());
                 }
                 (BoolV(l), BoolV(r)) => {
                     if l != r {
@@ -1833,6 +1871,11 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
         // if self.should_visit(heap_ref.as_ptr_usize()) {
         self.push_back(heap_ref.get());
         // }
+    }
+
+    fn visit_pair(&mut self, pair: Gc<Pair>) -> Self::Output {
+        self.push_back(pair.car());
+        self.push_back(pair.cdr());
     }
 }
 

@@ -507,6 +507,8 @@ impl Kernel {
         expr: ExprKind,
         environment: &str,
     ) -> Result<ExprKind> {
+        // println!("Expanding: {} with {}", ident, expr);
+
         let span = get_span(&expr);
 
         let syntax_objects =

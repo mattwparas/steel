@@ -421,9 +421,6 @@
 (define curry2 (lambda (func arg1) (lambda (arg2 arg3) (func arg1 arg2 arg3))))
 ; (define compose (lambda (f g) (lambda (arg) (f (g arg)))))
 
-(define (not a)
-  (if a #f #t))
-
 (define (foldl func accum lst)
   (if (null? lst)
       accum

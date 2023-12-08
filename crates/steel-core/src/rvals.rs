@@ -1016,6 +1016,9 @@ pub enum SteelVal {
     // CompiledFunction(Box<JitFunctionPointer>),
     // List
     ListV(crate::values::lists::List<SteelVal>),
+
+    Pair(Gc<crate::values::lists::Pair>),
+
     // Mutable functions
     MutFunc(MutFunctionSignature),
     // Built in functions
@@ -1541,6 +1544,13 @@ impl SteelVal {
     pub fn list(&self) -> Option<&List<SteelVal>> {
         match self {
             Self::ListV(l) => Some(l),
+            _ => None,
+        }
+    }
+
+    pub fn pair(&self) -> Option<&Gc<crate::values::lists::Pair>> {
+        match self {
+            Self::Pair(p) => Some(p),
             _ => None,
         }
     }

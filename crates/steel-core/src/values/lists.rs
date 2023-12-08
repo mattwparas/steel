@@ -4,6 +4,28 @@ use im_lists::handler::DropHandler;
 
 use crate::SteelVal;
 
+// TODO:
+// Builtin immutable pairs
+#[derive(Clone)]
+pub struct Pair {
+    pub(crate) car: SteelVal,
+    pub(crate) cdr: SteelVal,
+}
+
+impl Pair {
+    pub fn cons(car: SteelVal, cdr: SteelVal) -> Self {
+        Pair { car, cdr }
+    }
+
+    pub fn car(&self) -> SteelVal {
+        self.car.clone()
+    }
+
+    pub fn cdr(&self) -> SteelVal {
+        self.cdr.clone()
+    }
+}
+
 #[cfg(feature = "without-drop-protection")]
 type DropHandlerChoice = im_lists::handler::DefaultDropHandler;
 #[cfg(not(feature = "without-drop-protection"))]

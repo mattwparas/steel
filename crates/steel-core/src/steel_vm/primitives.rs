@@ -273,6 +273,8 @@ pub const CONSTANTS: &[&str] = &[
     "#%prim.list->string",
     LIST,
     PRIM_LIST,
+    "#%prim.not",
+    "not",
 ];
 
 thread_local! {
@@ -625,6 +627,11 @@ fn vector_module() -> BuiltInModule {
     module
 }
 
+#[steel_derive::function(name = "not", constant = true)]
+fn not(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::BoolV(false))
+}
+
 #[steel_derive::function(name = "int?", constant = true)]
 fn intp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::IntV(_))
@@ -743,6 +750,7 @@ fn identity_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/identity");
     module
         // .register_value("int?", gen_pred!(IntV))
+        .register_native_fn_definition(NOT_DEFINITION)
         .register_native_fn_definition(INTEGERP_DEFINITION)
         .register_native_fn_definition(INTP_DEFINITION)
         .register_native_fn_definition(FLOATP_DEFINITION)

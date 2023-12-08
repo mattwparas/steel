@@ -320,63 +320,22 @@ impl<'a> ConstantEvaluator<'a> {
         if evaluated_func.is_function() {
             match evaluated_func {
                 SteelVal::MutFunc(f) => {
-                    // println!(
-                    //     "Evaluating function!: {} with args: {:?}",
-                    //     func.atom_identifier().unwrap().resolve(),
-                    //     args
-                    // );
-
-                    // TODO: Clean this up - we shouldn't even enter this section of the code w/o having
-                    // the actual atom itself.
-                    // let output = if let Some(output) = self
-                    //     .memoization_table
-                    //     .get(SteelVal::FuncV(f), args.to_vec())
-                    // {
-                    //     // println!("Function result found in the cache!");
-                    //     // println!("{:#?}", self.memoization_table);
-
-                    //     output
-                    // } else {
-                    // println!("Not found in the cache, adding...");
-                    // println!("{:#?}", self.memoization_table);
-
                     let mut args = args.to_vec();
 
                     let output = f(&mut args)
                         .map_err(|e| e.set_span_if_none(func.atom_syntax_object().unwrap().span))?;
 
-                    // self.memoization_table.insert(
-                    //     SteelVal::FuncV(f),
-                    //     args.to_vec(),
-                    //     output.clone(),
-                    // );
-
-                    // output
-                    // };
-
                     self.handle_output(output, func, &evaluated_func, raw_args)
                 }
                 SteelVal::FuncV(f) => {
-                    // println!(
-                    //     "Evaluating function!: {} with args: {:?}",
-                    //     func.atom_identifier().unwrap().resolve(),
-                    //     args
-                    // );
-
                     // TODO: Clean this up - we shouldn't even enter this section of the code w/o having
                     // the actual atom itself.
                     let output = if let Some(output) = self
                         .memoization_table
                         .get(SteelVal::FuncV(f), args.to_vec())
                     {
-                        // println!("Function result found in the cache!");
-                        // println!("{:#?}", self.memoization_table);
-
                         output
                     } else {
-                        // println!("Not found in the cache, adding...");
-                        // println!("{:#?}", self.memoization_table);
-
                         let output = f(args).map_err(|e| {
                             e.set_span_if_none(func.atom_syntax_object().unwrap().span)
                         })?;
@@ -621,10 +580,16 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                 // let span = get_span(&func_expr);
 
                 if let Some(evaluated_func) = self.to_constant(&func_expr) {
-                    debug!(
-                        "Attempting to evaluate: {} with args: {:?}",
-                        &func_expr, arguments
-                    );
+                    // println!(
+                    //     "Attempting to evaluate: {} with args: {:?}",
+                    //     &func_expr, arguments
+                    // );
+                    // TODO: This shouldn't fail here under normal circumstances! If the end result is an error, we should
+                    // just return the value that was originally passed in. Otherwise, this signals
+                    // an error in the dataflow, and it means we're checking a condition that isn't constant
+                    // before applying a check against a constant value (which probably means we're missing)
+                    // something in the constant evaluation check. In which case, we should probably
+                    // just not stop the execution just because we errored
                     return self.eval_function(evaluated_func, func_expr, args, &arguments);
                 } else if let Some(ident) = func_expr.atom_identifier().and_then(|x| {
                     // TODO: @Matt 4/24/23 - this condition is super ugly and I would prefer if we cleaned it up

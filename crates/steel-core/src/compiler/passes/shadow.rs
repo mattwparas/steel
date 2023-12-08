@@ -82,6 +82,8 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
                     mut_var.push_str(self.str_modifiers.get(&modifier).unwrap());
                 }
 
+                // println!("Mangling variable: {}", mut_var);
+
                 *variable = mut_var.into();
 
                 self.scope.define(*variable);
@@ -97,6 +99,8 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
         self.scope.pop_layer();
         self.shadows.pop_layer();
     }
+
+    fn visit_quote(&mut self, _quote: &mut steel_parser::ast::Quote) {}
 
     fn visit_atom(&mut self, a: &mut Atom) {
         if let Some(ident) = a.ident_mut() {

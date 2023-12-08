@@ -192,7 +192,7 @@ impl SteelMacro {
             .into_iter()
             .map(|x| {
                 x.atom_identifier_or_else(
-                    throw!(BadSyntax => "macros only support identifiers for special syntax"; sp),
+                    throw!(BadSyntax => format!("macros only support identifiers for special syntax, found: {}", x); sp),
                 )
                 .cloned()
             })
@@ -217,28 +217,14 @@ impl SteelMacro {
     // I think it should also not be greedy, and should report if there are ambiguous matchings
     fn match_case(&self, expr: &List) -> Result<&MacroCase> {
         for case in &self.cases {
-            // dbg!(&case);
-
-            // dbg!(case.has_ellipses())
-
             if (case.has_ellipses() && expr.len() >= (case.arity() - 1))
                 || case.arity() == expr.len()
             {
-                // dbg!(case);
-
                 if case.recursive_match(expr) {
                     return Ok(case);
-                } else {
-                    // println!("Recursive match failed: case didn't match {:?}", case.args);
                 }
-            } else {
-                // println!("Case didn't match: {:?}", case.args);
-                // dbg!(case.has_ellipses());
-                // dbg!(case.arity());
-                // dbg!(expr.len());
             }
         }
-
         error!("Macro expansion unable to match case with: {}", expr);
 
         if let Some(ExprKind::Atom(a)) = expr.first() {
