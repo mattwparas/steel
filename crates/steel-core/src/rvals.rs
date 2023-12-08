@@ -1256,6 +1256,9 @@ impl std::fmt::Debug for SteelString {
     }
 }
 
+// Check that steel values aren't growing without us knowing
+const _ASSERT_SMALL: () = assert!(std::mem::size_of::<SteelVal>() <= 16);
+
 #[test]
 fn check_size_of_steelval() {
     assert_eq!(std::mem::size_of::<SteelVal>(), 16);

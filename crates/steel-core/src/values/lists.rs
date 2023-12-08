@@ -26,6 +26,12 @@ impl Pair {
     }
 }
 
+impl std::fmt::Debug for Pair {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({} . {})", &self.car, &self.cdr)
+    }
+}
+
 #[cfg(feature = "without-drop-protection")]
 type DropHandlerChoice = im_lists::handler::DefaultDropHandler;
 #[cfg(not(feature = "without-drop-protection"))]

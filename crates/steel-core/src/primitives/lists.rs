@@ -103,7 +103,8 @@ pub fn list_module() -> BuiltInModule {
         .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE)
         .register_native_fn_definition(SECOND_DEFINITION)
         .register_native_fn_definition(THIRD_DEFINITION)
-        .register_native_fn_definition(TAKE_DEFINITION);
+        .register_native_fn_definition(TAKE_DEFINITION)
+        .register_native_fn_definition(LIST_TAIL_DEFINITION);
 
     module
 }
@@ -173,6 +174,38 @@ fn _test_map(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
         }
     } else {
         stop!(TypeMismatch => "test-map expects a list")
+    }
+}
+
+#[steel_derive::function(name = "list-tail")]
+pub fn list_tail(list_or_pair: &SteelVal, pos: usize) -> Result<SteelVal> {
+    match list_or_pair {
+        SteelVal::ListV(l) => l
+            .tail(pos)
+            .ok_or_else(throw!(Generic => format!("list-tail expects at least {} 
+                    elements in the list, found: {}", pos, l.len())))
+            .map(SteelVal::ListV),
+        SteelVal::Pair(p) => {
+            let mut value = p.cdr();
+            let mut count = 1;
+
+            while count < pos {
+                count += 1;
+                value = value
+                    .pair()
+                    .map(|x| x.cdr())
+                    .ok_or_else(throw!(Generic => format!("list-tail: index reached a 
+                        non-pair: index: {} in {}", count, list_or_pair)))?;
+            }
+
+            Ok(value)
+        }
+
+        _ if pos == 0 => Ok(list_or_pair.clone()),
+
+        _ => {
+            stop!(TypeMismatch => format!("list-tail expects either a list or a pair, found: {}", list_or_pair))
+        }
     }
 }
 
