@@ -26,7 +26,7 @@ use super::{
 };
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::parser::expander::SteelMacro;
 
@@ -209,6 +209,43 @@ impl<'a> ConsumingVisitor for Expander<'a> {
     }
 }
 
+pub fn expand_kernel_in_env_with_allowed(
+    expr: ExprKind,
+    kernel: Option<&mut Kernel>,
+    builtin_modules: ModuleContainer,
+    env: String,
+    allowed: &HashSet<InternedString>,
+) -> Result<(ExprKind, bool)> {
+    let mut expander = KernelExpander {
+        map: kernel,
+        changed: false,
+        builtin_modules,
+        environment: Some(Cow::from(env)),
+        depth: 0,
+        allowed_macros: Some(allowed),
+    };
+
+    expander.visit(expr).map(|x| (x, expander.changed))
+}
+
+pub fn expand_kernel_in_env_with_change(
+    expr: ExprKind,
+    kernel: Option<&mut Kernel>,
+    builtin_modules: ModuleContainer,
+    env: String,
+) -> Result<(ExprKind, bool)> {
+    let mut expander = KernelExpander {
+        map: kernel,
+        changed: false,
+        builtin_modules,
+        environment: Some(Cow::from(env)),
+        depth: 0,
+        allowed_macros: None,
+    };
+
+    expander.visit(expr).map(|x| (x, expander.changed))
+}
+
 pub fn expand_kernel_in_env(
     expr: ExprKind,
     kernel: Option<&mut Kernel>,
@@ -221,6 +258,7 @@ pub fn expand_kernel_in_env(
         builtin_modules,
         environment: Some(Cow::from(env)),
         depth: 0,
+        allowed_macros: None,
     }
     .visit(expr)
 }
@@ -236,6 +274,7 @@ pub fn expand_kernel(
         builtin_modules,
         environment: None,
         depth: 0,
+        allowed_macros: None,
     }
     .visit(expr)
 }
@@ -246,6 +285,7 @@ pub struct KernelExpander<'a> {
     builtin_modules: ModuleContainer,
     environment: Option<Cow<'static, str>>,
     depth: usize,
+    allowed_macros: Option<&'a HashSet<InternedString>>,
 }
 
 impl<'a> KernelExpander<'a> {
@@ -256,6 +296,7 @@ impl<'a> KernelExpander<'a> {
             builtin_modules,
             environment: None,
             depth: 0,
+            allowed_macros: None,
         }
     }
 
@@ -714,6 +755,11 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
 
                 if map
                     .contains_syntax_object_macro(&s, self.environment.as_ref().map(|x| x.as_ref()))
+                    && self
+                        .allowed_macros
+                        .as_ref()
+                        .map(|x| x.contains(&s))
+                        .unwrap_or(true)
                 {
                     let expanded = map.expand_syntax_object(
                         &s,

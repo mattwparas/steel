@@ -267,7 +267,7 @@ pub type Result<T> = result::Result<T, ParseError>;
 
 fn tokentype_error_to_parse_error(t: &Token<'_, InternedString>) -> ParseError {
     if let TokenType::Error = t.ty {
-        // println!("Found an error: {}", t);
+        println!("Found an error: {}", t.typ());
 
         if t.source.starts_with('\"') {
             ParseError::IncompleteString(t.source.to_string(), t.span, None)

@@ -638,7 +638,8 @@ mod list_operation_tests {
     fn cons_test_normal_input() {
         let mut args = [SteelVal::IntV(1), SteelVal::IntV(2)];
         let res = cons(&mut args);
-        let expected = SteelVal::ListV(vec![SteelVal::IntV(1), SteelVal::IntV(2)].into());
+
+        let expected = SteelVal::Pair(Gc::new(Pair::cons(SteelVal::IntV(1), SteelVal::IntV(2))));
 
         assert_eq!(res.unwrap(), expected);
     }

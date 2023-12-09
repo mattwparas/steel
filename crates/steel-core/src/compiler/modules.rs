@@ -9,7 +9,10 @@ use crate::{
     },
     parser::{
         ast::{AstTools, Atom, Begin, Define, ExprKind, List, Quote},
-        expand_visitor::{expand_kernel, expand_kernel_in_env},
+        expand_visitor::{
+            expand_kernel, expand_kernel_in_env, expand_kernel_in_env_with_allowed,
+            expand_kernel_in_env_with_change,
+        },
         interner::InternedString,
         kernel::Kernel,
         parser::{
@@ -18,7 +21,7 @@ use crate::{
         },
         tokens::TokenType,
     },
-    steel_vm::{engine::ModuleContainer, transducers::interleave},
+    steel_vm::{builtin::BuiltInModule, engine::ModuleContainer, transducers::interleave},
 };
 use crate::{parser::expand_visitor::Expander, rvals::Result};
 
@@ -490,33 +493,66 @@ impl ModuleManager {
             .filter(|x| x.for_syntax)
             .map(|x| x.path.get_path())
         {
-            let (module, mut in_scope_macros) = Self::find_in_scope_macros(
+            let (module, mut in_scope_macros, mut name_mangler) = Self::find_in_scope_macros(
                 &self.compiled_modules,
                 require_for_syntax.as_ref(),
                 &mut mangled_asts,
             );
 
-            // dbg!(&in_scope_macros);
-
-            // for (key, value) in &mut in_scope_macros {
-            //     for line in value.exprs_mut() {
-            //         println!("{}", line);
-            //     }
-            // }
-
-            // ast = ast.into_iter().map(|x| )
-
-            // ast.pretty_print();
+            let kernel_macros_in_scope: HashSet<_> =
+                module.provides_for_syntax.iter().cloned().collect();
 
             ast = ast
                 .into_iter()
                 .map(|x| {
+                    // @matt 12/8/2023
+                    // The easiest thing to do here, is to go to the other module, and find
+                    // what defmacros have been exposed on the require for syntax. Once those
+                    // have been found, we run a pass with kernel expansion, limiting the
+                    // expander to only use the macros that we've exposed. After that,
+                    // we run the expansion again, using the full suite of defmacro capabilities.
+                    //
+                    // The question that remains - how to define the neat phases of what kinds
+                    // of macros can expand into what? Can defmacro -> syntax-rules -> defmacro?
+                    // This could eventually prove to be cumbersome, but it is still early
+                    // for defmacro. Plus, I need to create a syntax-case or syntax-parse
+                    // frontend before the defmacro style macros become too pervasive.
+                    //
+                    // TODO: Replicate this behavior over to builtin modules
+
                     // First expand the in scope macros
                     // These are macros
                     let mut expander = Expander::new(&in_scope_macros);
-                    let first_round_expanded = expander.expand(x)?;
+                    let mut first_round_expanded = expander.expand(x)?;
+                    let mut changed = false;
 
-                    if expander.changed {
+                    (first_round_expanded, changed) = expand_kernel_in_env_with_allowed(
+                        first_round_expanded,
+                        kernel.as_mut(),
+                        // We don't need to expand those here
+                        ModuleContainer::default(),
+                        module.name.to_str().unwrap().to_string(),
+                        &kernel_macros_in_scope,
+                    )?;
+
+                    // If the kernel expander expanded into something - go ahead
+                    // and expand all of the macros in this
+                    if changed || expander.changed {
+                        // Expand here?
+                        first_round_expanded = expand(first_round_expanded, &module.macro_map)?;
+
+                        // Probably don't need this
+                        (first_round_expanded, changed) = expand_kernel_in_env_with_change(
+                            first_round_expanded,
+                            kernel.as_mut(),
+                            ModuleContainer::default(),
+                            module.name.to_str().unwrap().to_string(),
+                        )?;
+
+                        name_mangler.visit(&mut first_round_expanded);
+                    }
+
+                    if expander.changed || changed {
                         expand(first_round_expanded, &module.macro_map)
                     } else {
                         Ok(first_round_expanded)
@@ -553,7 +589,11 @@ impl ModuleManager {
         compiled_modules: &'a HashMap<PathBuf, CompiledModule>,
         require_for_syntax: &'a PathBuf,
         mangled_asts: &'a mut Vec<ExprKind>,
-    ) -> (&'a CompiledModule, HashMap<InternedString, SteelMacro>) {
+    ) -> (
+        &'a CompiledModule,
+        HashMap<InternedString, SteelMacro>,
+        NameMangler,
+    ) {
         let module = compiled_modules
             .get(require_for_syntax)
             .expect(&format!("Module missing!: {:?}", require_for_syntax));
@@ -595,11 +635,11 @@ impl ModuleManager {
             })
             .collect::<HashMap<_, _>>();
         // Check what macros are in scope here
-        debug!(
-            "In scope macros: {:#?}",
-            in_scope_macros.keys().collect::<Vec<_>>()
-        );
-        (module, in_scope_macros)
+        // println!(
+        //     "In scope macros: {:#?}",
+        //     in_scope_macros.keys().collect::<Vec<_>>()
+        // );
+        (module, in_scope_macros, name_mangler)
     }
 
     #[cfg(not(feature = "modules"))]
@@ -1492,7 +1532,7 @@ impl<'a> ModuleBuilder<'a> {
             .filter(|x| x.for_syntax)
             .map(|x| x.path.get_path())
         {
-            let (module, in_scope_macros) = ModuleManager::find_in_scope_macros(
+            let (module, in_scope_macros, name_mangler) = ModuleManager::find_in_scope_macros(
                 self.compiled_modules,
                 require_for_syntax.as_ref(),
                 &mut mangled_asts,
@@ -1501,10 +1541,16 @@ impl<'a> ModuleBuilder<'a> {
             ast = ast
                 .into_iter()
                 .map(|x| {
+                    for (key, _) in &in_scope_macros {
+                        println!("1513 in scope macro Macro found: {}", key);
+                    }
                     // First expand the in scope macros
                     // These are macros
                     let mut expander = Expander::new(&in_scope_macros);
                     let first_round_expanded = expander.expand(x)?;
+                    for (key, _) in &module.macro_map {
+                        println!("1520 Macro found: {}", key);
+                    }
 
                     if expander.changed {
                         expand(first_round_expanded, &module.macro_map)
