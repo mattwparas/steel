@@ -135,7 +135,7 @@ impl<'a> ConsumingVisitor for Expander<'a> {
         Ok(ExprKind::Quote(quote))
     }
 
-    fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
+    fn visit_macro(&mut self, m: Box<super::ast::Macro>) -> Self::Output {
         stop!(BadSyntax => format!("unexpected macro definition in expand visitor: {}", m); m.location.span)
     }
 
@@ -178,7 +178,7 @@ impl<'a> ConsumingVisitor for Expander<'a> {
         Ok(ExprKind::List(l))
     }
 
-    fn visit_syntax_rules(&mut self, l: super::ast::SyntaxRules) -> Self::Output {
+    fn visit_syntax_rules(&mut self, l: Box<super::ast::SyntaxRules>) -> Self::Output {
         dbg!(l.to_string());
 
         stop!(Generic => "unexpected syntax-rules definition"; l.location.span)
@@ -623,7 +623,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
         Ok(ExprKind::Quote(quote))
     }
 
-    fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
+    fn visit_macro(&mut self, m: Box<super::ast::Macro>) -> Self::Output {
         stop!(BadSyntax => format!("unexpected macro definition in kernel expander: {}", m); m.location.span)
     }
 
@@ -947,7 +947,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
         Ok(ExprKind::List(l))
     }
 
-    fn visit_syntax_rules(&mut self, l: super::ast::SyntaxRules) -> Self::Output {
+    fn visit_syntax_rules(&mut self, l: Box<super::ast::SyntaxRules>) -> Self::Output {
         dbg!(l.to_string());
 
         stop!(Generic => "unexpected syntax-rules definition"; l.location.span)

@@ -281,6 +281,11 @@ impl Heap {
         self.vectors.len()
     }
 
+    pub fn weak_collection(&mut self) {
+        self.memory.retain(|x| Rc::weak_count(x) > 0);
+        self.vectors.retain(|x| Rc::weak_count(x) > 0);
+    }
+
     // TODO: Call this in more areas in the VM to attempt to free memory more carefully
     // Also - come up with generational scheme if possible
     pub fn collect<'a>(
@@ -417,20 +422,6 @@ impl Heap {
         log::debug!(target: "gc", "Mark: Time taken: {:?}", now.elapsed());
 
         let now = std::time::Instant::now();
-
-        // println!("Freeing heap");
-
-        // TODO -> move destructors to another thread?
-        // That way the main thread is not blocked by the dropping of unreachable objects
-
-        // println!(
-        //     "Dropping memory: {:?}",
-        //     self.memory
-        //         .iter()
-        //         .filter(|x| !x.borrow().is_reachable())
-        //         .map(|x| (Rc::weak_count(&x), x))
-        //         .collect::<Vec<_>>()
-        // );
 
         log::debug!(target: "gc", "--- Sweeping ---");
         let prior_len = self.memory.len() + self.vector_cells_allocated();

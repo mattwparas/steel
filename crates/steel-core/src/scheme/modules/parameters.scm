@@ -91,9 +91,9 @@
 
 (define winders '())
 
-(define list-tail drop)
+; (define list-tail drop)
 
-(struct Pair (left right))
+; (struct Pair (left right))
 
 (define common-tail
   (lambda (x y)
@@ -112,14 +112,14 @@
             ;; TODO: This is probably wrong!
             ; (displayln "FIRST" ls)
             (set! winders (cdr ls))
-            ((Pair-right (car ls)))
+            ((cdr (car ls)))
             (f (cdr ls)))))
       (let f ([ls new])
         (when (not (equal? ls tail))
           (begin
             ; (displayln "SECOND" ls)
             (f (cdr ls))
-            ((Pair-left (car ls)))
+            ((car (car ls)))
             (set! winders ls)))))))
 
 (struct Continuation (func)
@@ -145,7 +145,7 @@
 (define dynamic-wind
   (lambda (in body out)
     (in)
-    (set! winders (cons (Pair in out) winders))
+    (set! winders (cons (cons in out) winders))
 
     (let ([ans* (call-with-exception-handler (lambda (err)
                                                ;; Catch the exception on the way out

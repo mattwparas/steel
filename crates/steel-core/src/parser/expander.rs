@@ -178,7 +178,7 @@ impl SteelMacro {
         self.mangled
     }
 
-    pub fn parse_from_ast_macro(ast_macro: Macro) -> Result<Self> {
+    pub fn parse_from_ast_macro(ast_macro: Box<Macro>) -> Result<Self> {
         let name = *ast_macro
             .name
             .atom_identifier_or_else(throw!(BadSyntax => "macros only currently support 

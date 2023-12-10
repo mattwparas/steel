@@ -119,11 +119,19 @@ pub enum ExprKind {
     Begin(Begin),
     Return(Box<Return>),
     Quote(Box<Quote>),
-    Macro(Macro),
-    SyntaxRules(SyntaxRules),
+    Macro(Box<Macro>),
+    SyntaxRules(Box<SyntaxRules>),
     List(List),
     Set(Box<Set>),
     Require(Require),
+}
+
+#[test]
+fn check_size() {
+    println!("ExprKind: {}", std::mem::size_of::<ExprKind>());
+    println!("SyntaxRules: {}", std::mem::size_of::<SyntaxRules>());
+    println!("Macro: {}", std::mem::size_of::<Macro>());
+    println!("List: {}", std::mem::size_of::<List>());
 }
 
 #[macro_export]
@@ -925,6 +933,7 @@ impl From<Require> for ExprKind {
 pub struct List {
     pub args: Vec<ExprKind>,
     pub syntax_object_id: usize,
+    pub improper: bool,
 }
 
 impl PartialEq for List {
@@ -938,7 +947,13 @@ impl List {
         List {
             args,
             syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed),
+            improper: false,
         }
+    }
+
+    pub fn make_improper(mut self) -> Self {
+        self.improper = true;
+        self
     }
 
     pub fn is_empty(&self) -> bool {
@@ -1192,7 +1207,7 @@ impl From<Quote> for ExprKind {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Macro {
     pub name: Box<ExprKind>,
-    pub syntax_rules: SyntaxRules,
+    pub syntax_rules: Box<SyntaxRules>,
     pub location: SyntaxObject,
 }
 
@@ -1216,7 +1231,7 @@ impl ToDoc for Macro {
 }
 
 impl Macro {
-    pub fn new(name: ExprKind, syntax_rules: SyntaxRules, location: SyntaxObject) -> Self {
+    pub fn new(name: ExprKind, syntax_rules: Box<SyntaxRules>, location: SyntaxObject) -> Self {
         Macro {
             name: Box::new(name),
             syntax_rules,
@@ -1227,7 +1242,7 @@ impl Macro {
 
 impl From<Macro> for ExprKind {
     fn from(val: Macro) -> Self {
-        ExprKind::Macro(val)
+        ExprKind::Macro(Box::new(val))
     }
 }
 
@@ -1285,7 +1300,7 @@ impl ToDoc for SyntaxRules {
 
 impl From<SyntaxRules> for ExprKind {
     fn from(val: SyntaxRules) -> Self {
-        ExprKind::SyntaxRules(val)
+        ExprKind::SyntaxRules(Box::new(val))
     }
 }
 
@@ -1909,7 +1924,11 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                 ));
                             };
 
-                            Ok(ExprKind::Macro(Macro::new(name, syntax_rules, syn)))
+                            Ok(ExprKind::Macro(Box::new(Macro::new(
+                                name,
+                                syntax_rules,
+                                syn,
+                            ))))
                         }
                         TokenType::SyntaxRules => {
                             let syn = a.syn.clone();
@@ -1957,9 +1976,9 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                 }
                             }
 
-                            Ok(ExprKind::SyntaxRules(SyntaxRules::new(
+                            Ok(ExprKind::SyntaxRules(Box::new(SyntaxRules::new(
                                 syntax_vec, pairs, syn,
-                            )))
+                            ))))
                         }
                         _ => Ok(ExprKind::List(List::new(value))),
                     }

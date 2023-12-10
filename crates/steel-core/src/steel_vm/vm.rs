@@ -1137,6 +1137,10 @@ impl<'a> VmCore<'a> {
         );
     }
 
+    fn weak_collection(&mut self) {
+        self.thread.heap.weak_collection();
+    }
+
     fn new_open_continuation_from_state(&self) -> Continuation {
         // println!("Creating new open continuation");
 

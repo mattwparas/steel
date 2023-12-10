@@ -1437,6 +1437,7 @@ impl Hash for SteelVal {
             CharV(c) => c.hash(state),
             ListV(l) => l.hash(state),
             CustomStruct(s) => s.hash(state),
+            BigNum(n) => n.hash(state),
             // Pair(cell) => {
             //     cell.hash(state);
             // }

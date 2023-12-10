@@ -508,7 +508,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         Ok(ExprKind::Quote(quote))
     }
 
-    fn visit_macro(&mut self, _m: crate::parser::ast::Macro) -> Self::Output {
+    fn visit_macro(&mut self, _m: Box<crate::parser::ast::Macro>) -> Self::Output {
         stop!(Generic => "unexpected macro found in const evaluator");
     }
 
@@ -811,7 +811,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         }
     }
 
-    fn visit_syntax_rules(&mut self, _l: crate::parser::ast::SyntaxRules) -> Self::Output {
+    fn visit_syntax_rules(&mut self, _l: Box<crate::parser::ast::SyntaxRules>) -> Self::Output {
         stop!(Generic => "unexpected syntax rules in const evaluator");
     }
 

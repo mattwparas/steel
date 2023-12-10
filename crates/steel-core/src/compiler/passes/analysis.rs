@@ -25,7 +25,7 @@ use crate::{
 
 use super::{VisitorMutControlFlow, VisitorMutRefUnit, VisitorMutUnitRef};
 
-use fxhash::{FxHashMap, FxHasher};
+use fxhash::{FxHashMap, FxHashSet, FxHasher};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum IdentifierStatus {
@@ -250,6 +250,19 @@ pub struct Analysis {
 }
 
 impl Analysis {
+    // Reuse the analysis allocation through the process!
+    pub fn clear(&mut self) {
+        self.info.clear();
+        self.function_info.clear();
+        self.call_info.clear();
+        self.let_info.clear();
+    }
+
+    pub fn fresh_from_exprs(&mut self, exprs: &[ExprKind]) {
+        self.clear();
+        self.run(exprs);
+    }
+
     pub fn from_exprs(exprs: &[ExprKind]) -> Self {
         let mut analysis = Analysis::default();
         analysis.run(exprs);
@@ -265,7 +278,7 @@ impl Analysis {
             .chain(self.let_info.values().flat_map(|x| x.arguments.values()))
             .filter(|x| x.captured && x.mutated)
             .map(|x| (x.id, x.clone()))
-            .collect::<std::collections::HashMap<_, _>>();
+            .collect::<FxHashMap<_, _>>();
 
         self.function_info
             .values_mut()
@@ -2918,7 +2931,7 @@ impl<'a> VisitorMutRefUnit for FlattenAnonymousFunctionCalls<'a> {
 
 struct FunctionCallCollector<'a> {
     analysis: &'a Analysis,
-    functions: HashMap<InternedString, HashSet<InternedString>>,
+    functions: FxHashMap<InternedString, FxHashSet<InternedString>>,
     black_box: InternedString,
     context: Option<InternedString>,
     constants: ImmutableHashMap<InternedString, SteelVal>,
@@ -2931,12 +2944,12 @@ impl<'a> FunctionCallCollector<'a> {
         exprs: &mut Vec<ExprKind>,
         constants: ImmutableHashMap<InternedString, SteelVal>,
         should_mangle: bool,
-    ) -> HashMap<InternedString, HashSet<InternedString>> {
+    ) -> FxHashMap<InternedString, FxHashSet<InternedString>> {
         let black_box: InternedString = "#%black-box".into();
 
         let mut collector = Self {
             analysis,
-            functions: HashMap::new(),
+            functions: FxHashMap::default(),
             context: None,
             black_box,
             constants,
@@ -3078,6 +3091,10 @@ pub struct SemanticAnalysis<'a> {
 }
 
 impl<'a> SemanticAnalysis<'a> {
+    pub fn into_analysis(self) -> Analysis {
+        self.analysis
+    }
+
     pub fn from_analysis(exprs: &'a mut Vec<ExprKind>, analysis: Analysis) -> Self {
         Self { exprs, analysis }
     }
@@ -3183,7 +3200,7 @@ impl<'a> SemanticAnalysis<'a> {
             *self.exprs = lifter.lifted_functions;
 
             log::debug!("Re-running the analysis after lifting local functions");
-            self.analysis = Analysis::from_exprs(self.exprs);
+            self.analysis.fresh_from_exprs(&self.exprs);
             self.analysis.populate_captures(self.exprs);
         }
 
@@ -3196,20 +3213,12 @@ impl<'a> SemanticAnalysis<'a> {
         module_manager: &mut ModuleManager,
         table: &mut HashSet<InternedString>,
     ) -> &mut Self {
-        // for identifier in table.iter() {
-        //     println!("Table => {}", identifier);
-        // }
-
         let mut replacer =
             ReplaceBuiltinUsagesWithReservedPrimitiveReferences::new(&self.analysis, table);
 
         for expr in self.exprs.iter_mut() {
             replacer.visit(expr);
         }
-
-        // for identifier in replacer.identifiers_to_replace.iter() {
-        //     println!("Replaced => {}", identifier);
-        // }
 
         let mut macro_replacer = ReplaceBuiltinUsagesInsideMacros {
             identifiers_to_replace: replacer.identifiers_to_replace,
@@ -3242,9 +3251,7 @@ impl<'a> SemanticAnalysis<'a> {
             macro_replacer.visit(expr);
         }
 
-        self.analysis = Analysis::from_exprs(self.exprs);
-
-        // replace.vi
+        self.analysis.fresh_from_exprs(self.exprs);
 
         self
     }
@@ -3393,7 +3400,7 @@ impl<'a> SemanticAnalysis<'a> {
 
         log::debug!("Re-running the semantic analysis after removing unused globals");
 
-        self.analysis = Analysis::from_exprs(self.exprs);
+        self.analysis.fresh_from_exprs(self.exprs);
 
         self
     }
@@ -3437,7 +3444,7 @@ impl<'a> SemanticAnalysis<'a> {
         if re_run_analysis {
             log::debug!("Re-running the semantic analysis after modifying let call sites");
 
-            self.analysis = Analysis::from_exprs(self.exprs);
+            self.analysis.fresh_from_exprs(self.exprs);
         }
 
         self
@@ -3447,7 +3454,7 @@ impl<'a> SemanticAnalysis<'a> {
         &mut self,
         constants: ImmutableHashMap<InternedString, SteelVal>,
         should_mangle: bool,
-    ) -> HashMap<InternedString, HashSet<InternedString>> {
+    ) -> FxHashMap<InternedString, FxHashSet<InternedString>> {
         let map = FunctionCallCollector::mangle(
             &self.analysis,
             &mut self.exprs,
@@ -3460,7 +3467,7 @@ impl<'a> SemanticAnalysis<'a> {
             .iter()
             .filter(|(_, v)| v.is_empty())
             .map(|x| x.0.clone())
-            .collect::<HashSet<_>>();
+            .collect::<FxHashSet<_>>();
 
         // Only constant evaluatable functions should be ones that references _other_ const functions
         map.into_iter()
@@ -3525,7 +3532,8 @@ impl<'a> SemanticAnalysis<'a> {
         if re_run_analysis {
             log::debug!("Re-running the semantic analysis after modifications");
 
-            self.analysis = Analysis::from_exprs(self.exprs);
+            // self.analysis = Analysis::from_exprs(self.exprs);
+            self.analysis.fresh_from_exprs(self.exprs);
         }
 
         self
@@ -3581,7 +3589,7 @@ impl<'a> SemanticAnalysis<'a> {
         if re_run_analysis {
             log::debug!("Re-running the semantic analysis after modifications");
 
-            self.analysis = Analysis::from_exprs(self.exprs);
+            self.analysis.fresh_from_exprs(self.exprs);
         }
 
         self
@@ -3592,7 +3600,7 @@ impl<'a> SemanticAnalysis<'a> {
             RefreshVars.visit(expr);
         }
 
-        self.analysis = Analysis::from_exprs(self.exprs);
+        self.analysis.fresh_from_exprs(self.exprs);
 
         self
     }
@@ -3706,7 +3714,7 @@ impl<'a> SemanticAnalysis<'a> {
                 "Re-running the semantic analysis after modifications during lambda lifting"
             );
 
-            self.analysis = Analysis::from_exprs(self.exprs);
+            self.analysis.fresh_from_exprs(self.exprs);
             self.analysis.populate_captures(self.exprs);
         }
 
@@ -3826,8 +3834,9 @@ impl<'a> SemanticAnalysis<'a> {
                 "Re-running the semantic analysis after modifications during lambda lifting"
             );
 
-            self.analysis = Analysis::from_exprs(self.exprs);
-            self.analysis.populate_captures(self.exprs);
+            self.analysis.fresh_from_exprs(self.exprs);
+            // = Analysis::from_exprs(self.exprs);
+            // self.analysis.populate_captures(self.exprs);
         }
 
         self

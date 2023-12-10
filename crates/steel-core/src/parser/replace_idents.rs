@@ -466,7 +466,7 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
         Ok(ExprKind::Quote(quote))
     }
 
-    fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
+    fn visit_macro(&mut self, m: Box<super::ast::Macro>) -> Self::Output {
         stop!(BadSyntax => format!("unexpected macro definition: {}", m); m.location.span)
     }
 
@@ -497,7 +497,7 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
         Ok(ExprKind::List(l))
     }
 
-    fn visit_syntax_rules(&mut self, l: super::ast::SyntaxRules) -> Self::Output {
+    fn visit_syntax_rules(&mut self, l: Box<super::ast::SyntaxRules>) -> Self::Output {
         dbg!(l.to_string());
 
         stop!(Generic => "unexpected syntax-rules definition"; l.location.span)
@@ -604,7 +604,7 @@ impl ConsumingVisitor for RewriteSpan {
         Ok(ExprKind::Quote(quote))
     }
 
-    fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
+    fn visit_macro(&mut self, m: Box<super::ast::Macro>) -> Self::Output {
         stop!(BadSyntax => format!("unexpected macro definition: {}", m); m.location.span)
     }
 
@@ -630,7 +630,7 @@ impl ConsumingVisitor for RewriteSpan {
         Ok(ExprKind::List(l))
     }
 
-    fn visit_syntax_rules(&mut self, l: super::ast::SyntaxRules) -> Self::Output {
+    fn visit_syntax_rules(&mut self, l: Box<super::ast::SyntaxRules>) -> Self::Output {
         dbg!(l.to_string());
 
         stop!(Generic => "unexpected syntax-rules definition"; l.location.span)

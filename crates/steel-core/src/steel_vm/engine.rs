@@ -245,12 +245,25 @@ fn load_module_noop(target: &crate::rvals::SteelString) -> crate::rvals::Result<
     stop!(Generic => "This engine has not been given the capability to load dylibs")
 }
 
+macro_rules! time {
+    ($target:expr, $label:expr, $e:expr) => {{
+        let now = std::time::Instant::now();
+
+        let e = $e;
+
+        log::debug!(target: $target, "{}: {:?}", $label, now.elapsed());
+
+        e
+    }};
+}
+
 impl Engine {
     /// Function to access a kernel level execution environment
     /// Has access to primitives and syntax rules, but will not defer to a child
     /// kernel in the compiler
     pub(crate) fn new_kernel() -> Self {
         log::debug!(target:"kernel", "Instantiating a new kernel");
+        let mut now = std::time::Instant::now();
 
         let mut vm = Engine {
             virtual_machine: SteelThread::new(),
@@ -262,12 +275,22 @@ impl Engine {
             dylibs: DylibContainers::new(),
         };
 
-        register_builtin_modules(&mut vm);
+        time!(
+            "engine-creation",
+            "Registering builtin modules",
+            register_builtin_modules(&mut vm)
+        );
 
-        vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
-            .unwrap();
+        time!(
+            "engine-creation",
+            "Loading the all modules prelude code",
+            vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
+                .unwrap()
+        );
 
-        log::debug!(target:"kernel", "Registered modules in the kernel!");
+        log::debug!(target: "kernel", "Registered modules in the kernel!: {:?}", now.elapsed());
+
+        let mut now = std::time::Instant::now();
 
         let core_libraries = [crate::stdlib::PRELUDE];
 
@@ -275,7 +298,7 @@ impl Engine {
             vm.compile_and_run_raw_program(core).unwrap();
         }
 
-        log::debug!(target: "kernel", "Loaded prelude in the kernel!");
+        log::debug!(target: "kernel", "Loaded prelude in the kernel!: {:?}", now.elapsed());
 
         vm
     }
@@ -316,6 +339,18 @@ impl Engine {
             return Engine::new_kernel();
         }
 
+        if matches!(option_env!("STEEL_BOOTSTRAP"), Some("false") | None) {
+            let mut vm = Engine::new_kernel();
+
+            let sources = vm.sources.clone();
+
+            vm.register_fn("report-error!", move |error: SteelErr| {
+                raise_error(&sources, error);
+            });
+
+            return vm;
+        }
+
         log::debug!(target:"kernel", "Instantiating a new kernel");
 
         let mut vm = Engine {
@@ -332,13 +367,10 @@ impl Engine {
             register_builtin_modules(&mut vm);
 
             for program in programs {
-                // println!("Running raw program...");
-
                 vm.compiler.constant_map = program.constant_map.clone();
                 vm.virtual_machine.constant_map = program.constant_map.clone();
 
                 vm.run_raw_program(program).unwrap();
-                // vm.run_raw_program_from_exprs(ast).unwrap();
             }
 
             log::debug!(target: "kernel", "Loaded prelude in the kernel!");
@@ -1001,16 +1033,16 @@ impl Engine {
     pub fn new() -> Self {
         let mut engine = fresh_kernel_image();
 
-        // Touch the printer to initialize it
-        // install_printer();
-        // engine.register_fn("print-in-engine", print_in_engine);
-
         engine.compiler.kernel = Some(Kernel::new());
+
+        let now = std::time::Instant::now();
 
         if let Err(e) = engine.run(PRELUDE_WITHOUT_BASE) {
             raise_error(&engine.sources, e);
             panic!("This shouldn't happen!");
         }
+
+        log::info!(target: "engine-creation", "Engine Creation: {:?}", now.elapsed());
 
         engine
     }
@@ -1069,7 +1101,7 @@ impl Engine {
     // Registers the given module into the virtual machine
     pub fn register_module(&mut self, module: BuiltInModule) -> &mut Self {
         // Add the module to the map
-        self.modules.insert(Rc::clone(&module.name), module.clone());
+        self.modules.insert(module.name(), module.clone());
         // Register the actual module itself as a value to make the virtual machine capable of reading from it
         self.register_value(
             module.unreadable_name().as_str(),
@@ -1087,7 +1119,7 @@ impl Engine {
         let external_module = FFIWrappedModule::new(module)?.build();
 
         self.modules
-            .insert(external_module.name.clone(), external_module.clone());
+            .insert(external_module.name(), external_module.clone());
 
         self.register_value(
             external_module.unreadable_name().as_str(),
@@ -1244,8 +1276,6 @@ impl Engine {
             self.modules.clone(),
             &mut self.sources,
         )?;
-
-        // program.profile_instructions();
 
         self.run_raw_program(program)
     }

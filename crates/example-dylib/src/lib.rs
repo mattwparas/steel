@@ -27,7 +27,7 @@ pub fn generate_module() -> *mut BuiltInModule {
 
 #[no_mangle]
 pub fn build_module(module: &mut BuiltInModule) {
-    module.set_name("external-dylib".to_string());
+    // module.set_name("external-dylib".to_string());
 
     module.register_value("outside-value", SteelVal::StringV("Hello world!".into()));
     module.register_fn("hidden-function", hidden_function);

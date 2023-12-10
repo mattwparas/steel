@@ -6,6 +6,7 @@ use crate::parser::{
     parser::{ParseError, Parser},
 };
 
+use std::collections::HashMap;
 use std::{cell::RefCell, rc::Rc};
 
 // TODO add the serializing and deserializing for constants
@@ -14,7 +15,10 @@ use serde::{Deserialize, Serialize};
 // Shared constant map - for repeated in memory execution of a program, this is going to share the same
 // underlying representation.
 #[derive(Debug, PartialEq)]
-pub struct ConstantMap(Rc<RefCell<Vec<SteelVal>>>);
+pub struct ConstantMap {
+    map: Rc<RefCell<HashMap<SteelVal, usize>>>,
+    values: Rc<RefCell<Vec<SteelVal>>>,
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct SerializableConstantMap(Vec<u8>);
@@ -31,13 +35,19 @@ impl Default for ConstantMap {
 
 impl Clone for ConstantMap {
     fn clone(&self) -> Self {
-        Self(Rc::clone(&self.0))
+        Self {
+            values: Rc::clone(&self.values),
+            map: Rc::clone(&self.map),
+        }
     }
 }
 
 impl ConstantMap {
     pub fn new() -> ConstantMap {
-        ConstantMap(Rc::new(RefCell::new(Vec::new())))
+        ConstantMap {
+            values: Rc::new(RefCell::new(Vec::new())),
+            map: Rc::new(RefCell::new(HashMap::new())),
+        }
     }
 
     pub(crate) fn into_serializable_map(self) -> SerializableConstantMap {
@@ -45,7 +55,7 @@ impl ConstantMap {
     }
 
     pub fn to_serializable_vec(&self) -> Vec<SerializableSteelVal> {
-        self.0
+        self.values
             .borrow()
             .iter()
             .cloned()
@@ -56,18 +66,29 @@ impl ConstantMap {
 
     // There might be a better way of doing this - but provide this as an option
     // in the event we want a deep clone of the constant map
-    pub fn deep_clone(&self) -> ConstantMap {
-        ConstantMap(Rc::new(RefCell::new(
-            self.0.borrow().iter().cloned().collect(),
-        )))
-    }
+    // pub fn deep_clone(&self) -> ConstantMap {
+    //     ConstantMap(Rc::new(RefCell::new(
+    //         self.0.borrow().iter().cloned().collect(),
+    //     )))
+    // }
 
     pub fn from_vec(vec: Vec<SteelVal>) -> ConstantMap {
-        ConstantMap(Rc::new(RefCell::new(vec)))
+        // ConstantMap(Rc::new(RefCell::new(vec)))
+
+        ConstantMap {
+            map: Rc::new(RefCell::new(
+                vec.clone()
+                    .into_iter()
+                    .enumerate()
+                    .map(|x| (x.1, x.0))
+                    .collect(),
+            )),
+            values: Rc::new(RefCell::new(vec)),
+        }
     }
 
     fn to_constant_expr_map(&self) -> Vec<String> {
-        self.0
+        self.values
             .borrow()
             .iter()
             .map(|x| match x {
@@ -113,7 +134,7 @@ impl ConstantMap {
                 // Ok(SteelVal::try_from(parsed[0].clone()).unwrap())
             })
             .collect::<Result<Vec<_>>>()
-            .map(|x| ConstantMap(Rc::new(RefCell::new(x))))
+            .map(Self::from_vec)
     }
 
     // pub fn from_bytes(encoded: &[u8]) -> ConstantMap {
@@ -124,18 +145,22 @@ impl ConstantMap {
 impl ConstantMap {
     pub fn add(&mut self, val: SteelVal) -> usize {
         let idx = self.len();
-        self.0.borrow_mut().push(val);
+        self.values.borrow_mut().push(val.clone());
+
+        // TODO: Consider just storing the hash code, not the actual value.
+        self.map.borrow_mut().insert(val, idx);
+
         idx
     }
 
     // Fallible
     #[inline(always)]
     pub fn get(&self, idx: usize) -> SteelVal {
-        self.0.borrow()[idx].clone()
+        self.values.borrow()[idx].clone()
     }
 
     pub fn try_get(&self, idx: usize) -> Option<SteelVal> {
-        self.0.borrow().get(idx).cloned()
+        self.values.borrow().get(idx).cloned()
     }
 
     // Replace with existing constants if they already exist
@@ -163,7 +188,7 @@ impl ConstantMap {
             };
         }
 
-        let idx = { self.0.borrow_mut().iter().position(|x| x == &val) };
+        let idx = self.map.borrow_mut().get(&val).copied();
 
         if let Some(idx) = idx {
             idx
@@ -173,20 +198,20 @@ impl ConstantMap {
     }
 
     pub fn len(&self) -> usize {
-        self.0.borrow().len()
+        self.values.borrow().len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.0.borrow().is_empty()
+        self.values.borrow().is_empty()
     }
 
     pub fn roll_back(&mut self, idx: usize) {
-        self.0.borrow_mut().truncate(idx);
+        self.values.borrow_mut().truncate(idx);
     }
 
     #[cfg(test)]
     pub fn clear(&mut self) {
-        self.0.borrow_mut().clear()
+        self.values.borrow_mut().clear()
     }
 }
 

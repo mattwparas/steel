@@ -549,7 +549,12 @@ impl ModuleManager {
                             module.name.to_str().unwrap().to_string(),
                         )?;
 
-                        name_mangler.visit(&mut first_round_expanded);
+                        // This is pretty suspect, and needs to be revisited - only the output of the
+                        // macro expansion and not the whole thing needs to be mangled most likely.
+                        // Otherwise, we'll run into weird stuff?
+                        if changed {
+                            name_mangler.visit(&mut first_round_expanded);
+                        }
                     }
 
                     if expander.changed || changed {
@@ -557,8 +562,6 @@ impl ModuleManager {
                     } else {
                         Ok(first_round_expanded)
                     }
-
-                    // expand(x, &module.macro_map)
                 })
                 .collect::<Result<_>>()?;
 
@@ -1532,27 +1535,51 @@ impl<'a> ModuleBuilder<'a> {
             .filter(|x| x.for_syntax)
             .map(|x| x.path.get_path())
         {
-            let (module, in_scope_macros, name_mangler) = ModuleManager::find_in_scope_macros(
+            let (module, in_scope_macros, mut name_mangler) = ModuleManager::find_in_scope_macros(
                 self.compiled_modules,
                 require_for_syntax.as_ref(),
                 &mut mangled_asts,
             );
 
+            let kernel_macros_in_scope: HashSet<_> =
+                module.provides_for_syntax.iter().cloned().collect();
+
             ast = ast
                 .into_iter()
                 .map(|x| {
-                    for (key, _) in &in_scope_macros {
-                        println!("1513 in scope macro Macro found: {}", key);
-                    }
                     // First expand the in scope macros
                     // These are macros
                     let mut expander = Expander::new(&in_scope_macros);
-                    let first_round_expanded = expander.expand(x)?;
-                    for (key, _) in &module.macro_map {
-                        println!("1520 Macro found: {}", key);
+                    let mut first_round_expanded = expander.expand(x)?;
+                    let mut changed = false;
+
+                    // (first_round_expanded, changed) = expand_kernel_in_env_with_allowed(
+                    //     first_round_expanded,
+                    //     self.kernel.as_mut(),
+                    //     // We don't need to expand those here
+                    //     ModuleContainer::default(),
+                    //     module.name.to_str().unwrap().to_string(),
+                    //     &kernel_macros_in_scope,
+                    // )?;
+
+                    // If the kernel expander expanded into something - go ahead
+                    // and expand all of the macros in this
+                    if changed || expander.changed {
+                        // Expand here?
+                        first_round_expanded = expand(first_round_expanded, &module.macro_map)?;
+
+                        // Probably don't need this
+                        // (first_round_expanded, changed) = expand_kernel_in_env_with_change(
+                        //     first_round_expanded,
+                        //     self.kernel.as_mut(),
+                        //     ModuleContainer::default(),
+                        //     module.name.to_str().unwrap().to_string(),
+                        // )?;
+
+                        // name_mangler.visit(&mut first_round_expanded);
                     }
 
-                    if expander.changed {
+                    if expander.changed || changed {
                         expand(first_round_expanded, &module.macro_map)
                     } else {
                         Ok(first_round_expanded)

@@ -633,25 +633,24 @@ impl Compiler {
             .remove_unused_globals_with_prefix("mangler", &self.macro_env, &self.module_manager)
             .lift_pure_local_functions()
             .lift_all_local_functions();
-        // .remove_unused_globals_with_prefix("manglersteel/");
 
         // debug!("About to expand defines");
 
         log::debug!(target: "expansion-phase", "Flattening begins, converting internal defines to let expressions");
+
+        let mut analysis = semantic.into_analysis();
 
         let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
         // After define expansion, we'll want this
         RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
 
-        let mut analysis = Analysis::from_exprs(&expanded_statements);
+        analysis.fresh_from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
 
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
         semantic.refresh_variables();
-
         semantic.flatten_anonymous_functions();
-
         semantic.refresh_variables();
 
         // Replace mutation with boxes
@@ -660,17 +659,19 @@ impl Compiler {
 
         semantic.replace_mutable_captured_variables_with_boxes();
 
-        if log_enabled!(log::Level::Debug) {
-            debug!(
-                "Successfully expanded defines: {:?}",
-                expanded_statements
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>()
-            );
-        }
+        // if log_enabled!(log::Level::Debug) {
+        //     debug!(
+        //         "Successfully expanded defines: {:?}",
+        //         expanded_statements
+        //             .iter()
+        //             .map(|x| x.to_string())
+        //             .collect::<Vec<_>>()
+        //     );
+        // }
 
         log::debug!(target: "expansion-phase", "Expanding multiple arity functions");
+
+        let mut analysis = semantic.into_analysis();
 
         // Rename them again
         RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
@@ -683,11 +684,12 @@ impl Compiler {
 
         // Begin lowering anonymous function calls to lets
 
-        let mut analysis = Analysis::from_exprs(&expanded_statements);
+        // let mut analysis = Analysis::from_exprs(&expanded_statements);
+        // let mut analysis = semantic.into_analysis();
+        analysis.fresh_from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
-
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
-        semantic.populate_captures();
+        // semantic.populate_captures();
 
         semantic.replace_anonymous_function_calls_with_plain_lets();
 

@@ -158,7 +158,6 @@ const FIRST: &str = "first";
 const REST: &str = "rest";
 const APPEND: &str = "append";
 const PUSH_BACK: &str = "push-back";
-const RANGE: &str = "range";
 const LENGTH: &str = "length";
 const REVERSE: &str = "reverse";
 // const LIST_TO_VECTOR: &str = "list->vector";
@@ -197,8 +196,8 @@ pub const CONSTANTS: &[&str] = &[
     "#%prim.first",
     REST,
     "#%prim.rest",
-    RANGE,
-    "#%prim.range",
+    // RANGE,
+    // "#%prim.range",
     NULL_HUH,
     "#%prim.null?",
     INT_HUH,
@@ -498,6 +497,10 @@ pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::n
     set
 });
 
+// TODO: Make the prelude string generation lazy - so that
+// the first time we load (steel/base) we don't have to regenerate
+// the string. Probably just need a lazy static for loading 'steel/base'
+// and then reference that directly.
 pub static ALL_MODULES: &str = r#"
     (require-builtin steel/hash)
     (require-builtin steel/sets)
