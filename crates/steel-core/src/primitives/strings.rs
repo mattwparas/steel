@@ -130,20 +130,6 @@ fn string_to_number_impl(value: &str, radix: Option<u32>) -> Result<SteelVal> {
     }
 }
 
-#[function(name = "make-string")]
-pub fn make_string(k: usize, mut c: RestArgsIter<'_, char>) -> Result<SteelVal> {
-    // If the char is there, we want to take it
-    let char = c.next();
-
-    // We want the iterator to be exhaused
-    if let Some(next) = c.next() {
-        stop!(ArityMismatch => format!("make-string expected 1 or 2 arguments, got an additional argument {}", next?))
-    }
-
-    let c = char.unwrap_or(Ok('\0'))?;
-    Ok((0..k).into_iter().map(|_| c).collect::<String>().into())
-}
-
 #[function(name = "string->number", constant = true)]
 pub fn string_to_number(
     value: &SteelString,
