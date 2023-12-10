@@ -235,16 +235,16 @@ impl SteelMacro {
     }
 
     pub fn expand(&self, expr: List, span: Span) -> Result<ExprKind> {
-        if log::log_enabled!(log::Level::Debug) {
-            debug!("Expanding macro with tokens: {}", expr);
-        }
+        // if log::log_enabled!(log::Level::Debug) {
+        //     debug!("Expanding macro with tokens: {}", expr);
+        // }
 
         let case_to_expand = self.match_case(&expr)?;
         let expanded_expr = case_to_expand.expand(expr, span)?;
 
-        if log::log_enabled!(log::Level::Debug) {
-            debug!("Macro Expansion: {}", expanded_expr);
-        }
+        // if log::log_enabled!(log::Level::Debug) {
+        //     debug!("Macro Expansion: {}", expanded_expr);
+        // }
 
         Ok(expanded_expr)
     }

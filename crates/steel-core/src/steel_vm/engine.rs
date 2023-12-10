@@ -19,6 +19,7 @@ use crate::{
         program::{Executable, RawProgramWithSymbols, SerializableRawProgramWithSymbols},
     },
     containers::RegisterValue,
+    core::{instructions::Instruction, labels::Expr},
     gc::unsafe_erased_pointers::{
         BorrowedObject, CustomReference, OpaqueReferenceNursery, ReadOnlyBorrowedObject,
         ReferenceMarker,
@@ -54,6 +55,11 @@ use std::{
 use im_rc::HashMap as ImmutableHashMap;
 use lasso::ThreadedRodeo;
 use serde::{Deserialize, Serialize};
+use steel_gen::OpCode;
+use steel_parser::{
+    parser::SyntaxObject,
+    tokens::{MaybeBigInt, TokenType},
+};
 
 use crate::parser::ast::IteratorExtensions;
 
@@ -1233,6 +1239,64 @@ impl Engine {
     //         .execute_program::<UseCallback, ApplyContract>(program)
     // }
 
+    // Generate dynamically linked files, containing all of the necessary information
+    // This means - compiling all macros as well.
+    fn load_raw_program(&mut self, mut program: RawProgramWithSymbols) {
+        fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
+            match &t.ty {
+                TokenType::BooleanLiteral(b) => Ok((*b).into()),
+                TokenType::NumberLiteral(n) => Ok(SteelVal::NumV(*n)),
+                TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.into())),
+                TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
+                TokenType::IntegerLiteral(steel_parser::tokens::MaybeBigInt::Small(n)) => {
+                    Ok(SteelVal::IntV(*n))
+                }
+                TokenType::IntegerLiteral(MaybeBigInt::Big(b)) => b.clone().into_steelval(),
+                // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
+                TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
+                what => {
+                    // println!("getting here in the eval_atom - code_gen");
+                    stop!(UnexpectedToken => what; t.span)
+                }
+            }
+        }
+
+        for expr in &mut program.instructions {
+            // Reform the program to conform to the current state of _this_ engine.
+            for i in 0..expr.len() {
+                let instruction = &mut expr[i];
+
+                match instruction {
+                    Instruction {
+                        op_code: OpCode::PUSHCONST,
+                        contents: Some(Expr::Atom(constant_value)),
+                        ..
+                    } => {
+                        let value =
+                            eval_atom(&constant_value).expect("This must be a constant value");
+
+                        instruction.payload_size = self.compiler.constant_map.add_or_get(value);
+                    }
+
+                    Instruction {
+                        op_code: OpCode::PUSHCONST,
+                        contents: Some(Expr::List(expression)),
+                        ..
+                    } => {
+                        let value = SteelVal::try_from(expression.clone())
+                            .expect("This conversion must work");
+
+                        instruction.payload_size = self.compiler.constant_map.add_or_get(value);
+                    }
+
+                    _ => {
+                        todo!()
+                    }
+                }
+            }
+        }
+    }
+
     // TODO -> clean up this API a lot
     pub fn compile_and_run_raw_program_with_path(
         &mut self,
@@ -1288,8 +1352,8 @@ impl Engine {
 
         let result = program.build("TestProgram".to_string(), &mut self.compiler.symbol_map);
 
+        // Revisit if we need to do this at all?
         if result.is_err() {
-            // panic!("Rolling back symbol map");
             self.compiler.symbol_map.roll_back(symbol_map_offset);
         }
 

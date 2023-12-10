@@ -1,3 +1,6 @@
+use serde::{Deserialize, Serialize};
+use steel_parser::ast::ExprKind;
+
 use super::instructions::Instruction;
 use super::opcode::OpCode;
 use crate::parser::parser::SyntaxObject;
@@ -16,11 +19,17 @@ pub fn fresh() -> Label {
     Label(LABEL_ID.fetch_add(1, Ordering::Relaxed))
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub enum Expr {
+    Atom(SyntaxObject),
+    List(ExprKind),
+}
+
 #[derive(Clone, Debug)]
 pub struct LabeledInstruction {
     pub op_code: OpCode,
     pub payload_size: usize,
-    pub contents: Option<SyntaxObject>,
+    pub contents: Option<Expr>,
     pub tag: Option<Label>,
     pub goto: Option<Label>,
     pub constant: bool,
@@ -44,7 +53,12 @@ impl LabeledInstruction {
     }
 
     pub fn contents(mut self, contents: SyntaxObject) -> Self {
-        self.contents = Some(contents);
+        self.contents = Some(Expr::Atom(contents));
+        self
+    }
+
+    pub fn list_contents(mut self, contents: ExprKind) -> Self {
+        self.contents = Some(Expr::List(contents));
         self
     }
 
@@ -73,28 +87,30 @@ impl LabeledInstruction {
 }
 
 pub fn resolve_labels(instructions: Vec<LabeledInstruction>) -> Vec<Instruction> {
-    let label_map = instructions
-        .iter()
-        .enumerate()
-        // We want a map of label -> index, flip the incoming
-        .filter_map(|x| x.1.tag.map(|t| (t, x.0)))
-        .collect::<HashMap<Label, usize>>();
+    // TODO: Come back to this
+    // let label_map = instructions
+    //     .iter()
+    //     .enumerate()
+    //     // We want a map of label -> index, flip the incoming
+    //     .filter_map(|x| x.1.tag.map(|t| (t, x.0)))
+    //     .collect::<HashMap<Label, usize>>();
+
+    // dbg!(&label_map);
 
     instructions
         .into_iter()
-        .map(|mut x| {
+        .map(|x| {
             // If this is an instruction with a jump of some kind to a label
             // Resolve that here
-            if let Some(label_goto) = x.goto {
-                println!("Instruction: {x:#?}");
-                x.payload_size = label_map[&label_goto]
-            }
+            // if let Some(label_goto) = x.goto {
+            //     // println!("Instruction: {x:#?}");
+            //     x.payload_size = label_map[&label_goto]
+            // }
 
             Instruction {
                 op_code: x.op_code,
                 payload_size: x.payload_size,
                 contents: x.contents,
-                constant: x.constant,
             }
         })
         .collect()

@@ -659,6 +659,10 @@ impl ModuleManager {
     }
 }
 
+// Pre-compile module to bytecode? Is it even possible?
+// Dynamically linking the module would then make it relatively
+// easy to just load everything up at the start.
+// Compiled module _should_ be possible now. Just create a target
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CompiledModule {
     name: PathBuf,
@@ -1661,8 +1665,17 @@ impl<'a> ModuleBuilder<'a> {
 
         module.set_emitted(true);
 
+        // println!(
+        //     "-------------- Emitting module: {:?} ----------------------",
+        //     self.name
+        // );
+
         let mut result =
             module.to_top_level_module(self.compiled_modules, self.global_macro_map)?;
+
+        // println!("{}", result.to_pretty(60));
+
+        // println!("------------------ Finish ----------------------------------");
 
         // let mut analysis = Analysis::from_exprs(&[result]);
 

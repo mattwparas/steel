@@ -1,7 +1,8 @@
 use crate::core::opcode::OpCode;
-use crate::parser::parser::SyntaxObject;
 use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
+
+use super::labels::Expr;
 
 /// Instruction loaded with lots of information prior to being condensed
 /// Includes the opcode and the payload size, plus some information
@@ -10,21 +11,19 @@ use std::convert::TryInto;
 pub struct Instruction {
     pub op_code: OpCode,
     pub payload_size: usize,
-    pub contents: Option<SyntaxObject>,
-    pub constant: bool,
+    pub contents: Option<Expr>,
 }
 
 impl Instruction {
     pub fn new_from_parts(
         op_code: OpCode,
         payload_size: usize,
-        contents: Option<SyntaxObject>,
+        contents: Option<Expr>,
     ) -> Instruction {
         Instruction {
             op_code,
             payload_size,
             contents,
-            constant: false,
         }
     }
 }
@@ -96,8 +95,16 @@ pub fn disassemble(instructions: &[Instruction]) -> String {
         buffer.push_str("    ");
 
         if let Some(syn) = instruction.contents.as_ref() {
-            let contents = syn.ty.to_string();
-            buffer.push_str(contents.as_str());
+            match syn {
+                Expr::Atom(syn) => {
+                    let contents = syn.ty.to_string();
+                    buffer.push_str(contents.as_str());
+                }
+                Expr::List(l) => {
+                    let contents = l.to_string();
+                    buffer.push_str(contents.as_str());
+                }
+            }
         }
 
         buffer.push('\n');

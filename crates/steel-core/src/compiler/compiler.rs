@@ -9,6 +9,7 @@ use crate::{
             reader::MultipleArityFunctions, shadow::RenameShadowedVariables,
         },
     },
+    core::labels::Expr,
     parser::{
         ast::AstTools,
         expand_visitor::{expand_kernel, expand_kernel_in_env},
@@ -80,11 +81,11 @@ impl DebruijnIndicesInterner {
                     Instruction {
                         op_code: OpCode::BIND,
                         contents:
-                            Some(SyntaxObject {
+                            Some(Expr::Atom(SyntaxObject {
                                 ty: TokenType::Identifier(s),
                                 span,
                                 ..
-                            }),
+                            })),
                         ..
                     },
                     Instruction {
@@ -110,11 +111,11 @@ impl DebruijnIndicesInterner {
                     Instruction {
                         op_code: OpCode::BIND,
                         contents:
-                            Some(SyntaxObject {
+                            Some(Expr::Atom(SyntaxObject {
                                 ty: TokenType::Identifier(s),
                                 span,
                                 ..
-                            }),
+                            })),
                         ..
                     },
                     ..,
@@ -176,10 +177,10 @@ impl DebruijnIndicesInterner {
                 Instruction {
                     op_code: OpCode::BIND,
                     contents:
-                        Some(SyntaxObject {
+                        Some(Expr::Atom(SyntaxObject {
                             ty: TokenType::Identifier(s),
                             ..
-                        }),
+                        })),
                     ..
                 } => {
                     // Keep track of where the defines actually are in the process
@@ -188,21 +189,21 @@ impl DebruijnIndicesInterner {
                 Instruction {
                     op_code: OpCode::PUSH,
                     contents:
-                        Some(SyntaxObject {
+                        Some(Expr::Atom(SyntaxObject {
                             ty: TokenType::Identifier(s),
                             span,
                             ..
-                        }),
+                        })),
                     ..
                 }
                 | Instruction {
                     op_code: OpCode::SET,
                     contents:
-                        Some(SyntaxObject {
+                        Some(Expr::Atom(SyntaxObject {
                             ty: TokenType::Identifier(s),
                             span,
                             ..
-                        }),
+                        })),
                     ..
                 } => {
                     if self.flat_defines.get(s).is_some()
@@ -219,27 +220,26 @@ impl DebruijnIndicesInterner {
                     // TODO commenting this for now
                     if let Some(x) = instructions.get_mut(i) {
                         x.payload_size = idx;
-                        x.constant = false;
                     }
                 }
                 Instruction {
                     op_code: OpCode::CALLGLOBAL,
                     contents:
-                        Some(SyntaxObject {
+                        Some(Expr::Atom(SyntaxObject {
                             ty: TokenType::Identifier(s),
                             span,
                             ..
-                        }),
+                        })),
                     ..
                 }
                 | Instruction {
                     op_code: OpCode::CALLGLOBALTAIL,
                     contents:
-                        Some(SyntaxObject {
+                        Some(Expr::Atom(SyntaxObject {
                             ty: TokenType::Identifier(s),
                             span,
                             ..
-                        }),
+                        })),
                     ..
                 } => {
                     if self.flat_defines.get(s).is_some()
@@ -256,7 +256,6 @@ impl DebruijnIndicesInterner {
                     // TODO commenting this for now
                     if let Some(x) = instructions.get_mut(i) {
                         x.payload_size = idx;
-                        x.constant = false;
                     }
                 }
                 _ => {}
@@ -693,9 +692,11 @@ impl Compiler {
 
         semantic.replace_anonymous_function_calls_with_plain_lets();
 
+        Ok(expanded_statements)
+
         // Done lowering anonymous function calls to let
 
-        self.apply_const_evaluation(constants, expanded_statements, true)
+        // self.apply_const_evaluation(constants, expanded_statements, true)
     }
 
     // TODO
@@ -728,6 +729,9 @@ impl Compiler {
 
         // Make sure to apply the peephole optimizations
         raw_program.apply_optimizations();
+
+        // Lets see everything that gets run!
+        // raw_program.debug_print();
 
         Ok(raw_program)
     }

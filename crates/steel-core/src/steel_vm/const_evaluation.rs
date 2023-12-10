@@ -271,8 +271,8 @@ impl<'a> ConstantEvaluator<'a> {
         // TODO: We should just bail immediately if this results in an error
         let output = match self.kernel.as_mut().unwrap().call_function(&ident, args) {
             Ok(v) => v,
-            Err(e) => {
-                log::error!("{:?}", e);
+            Err(_) => {
+                // log::error!("{:?}", e);
                 raw_args.insert(0, func);
                 return Ok(ExprKind::List(List::new(raw_args)));
             }

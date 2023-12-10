@@ -1,3 +1,5 @@
+use crate::core::labels::Expr;
+use crate::parser::span_visitor::get_span;
 use crate::rvals::Result;
 use crate::{
     compiler::constants::ConstantMap,
@@ -106,15 +108,15 @@ pub fn specialize_constants(instructions: &mut [Instruction]) -> Result<()> {
             Some(Instruction {
                 op_code: OpCode::PUSHCONST,
                 contents:
-                    Some(SyntaxObject {
+                    Some(Expr::Atom(SyntaxObject {
                         ty: TokenType::Identifier(_),
                         ..
-                    }),
+                    })),
                 ..
             }) => continue,
             Some(Instruction {
                 op_code: OpCode::PUSHCONST,
-                contents: Some(syn),
+                contents: Some(Expr::Atom(syn)),
                 ..
             }) => {
                 let value = eval_atom(syn)?;
@@ -149,7 +151,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                 Some(Instruction {
                     op_code: OpCode::PUSH,
                     payload_size: index,
-                    contents: Some(ident),
+                    contents: Some(Expr::Atom(ident)),
                     ..
                 }),
                 Some(Instruction {
@@ -237,7 +239,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                 Some(Instruction {
                     op_code: OpCode::PUSH,
                     payload_size: index,
-                    contents: Some(ident),
+                    contents: Some(Expr::Atom(ident)),
                     ..
                 }),
                 Some(Instruction {
@@ -405,10 +407,10 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
             Some(Instruction {
                 op_code: OpCode::FUNC | OpCode::TAILCALL,
                 contents:
-                    Some(RawSyntaxObject {
+                    Some(Expr::Atom(RawSyntaxObject {
                         ty: TokenType::Identifier(ident),
                         ..
-                    }),
+                    })),
                 payload_size,
                 ..
             }),
@@ -645,7 +647,7 @@ impl Program {
 // This way, the VM knows where to look up values
 #[derive(Clone)]
 pub struct RawProgramWithSymbols {
-    instructions: Vec<Vec<Instruction>>,
+    pub(crate) instructions: Vec<Vec<Instruction>>,
     pub(crate) constant_map: ConstantMap,
     version: String, // TODO -> this should be semver
 }
@@ -1041,7 +1043,15 @@ fn extract_spans(
         .iter()
         .map(|x| {
             x.iter()
-                .map(|x| x.contents.as_ref().map(|x| x.span).unwrap_or_default())
+                .map(|x| {
+                    x.contents
+                        .as_ref()
+                        .map(|x| match x {
+                            Expr::Atom(a) => a.span,
+                            Expr::List(l) => get_span(l),
+                        })
+                        .unwrap_or_default()
+                })
                 .collect()
         })
         .collect();
