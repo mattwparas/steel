@@ -5,10 +5,7 @@ use super::instructions::Instruction;
 use super::opcode::OpCode;
 use crate::parser::parser::SyntaxObject;
 
-use std::{
-    collections::HashMap,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub(crate) static LABEL_ID: AtomicUsize = AtomicUsize::new(0);
 

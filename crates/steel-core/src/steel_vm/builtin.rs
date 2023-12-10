@@ -40,7 +40,6 @@ struct BuiltInModuleRepr {
     pub(crate) name: Rc<str>,
     values: HashMap<Arc<str>, SteelVal>,
     docs: Box<InternalDocumentation>,
-    version: &'static str,
     // Add the metadata separate from the pointer, keeps the pointer slim
     fn_ptr_table: HashMap<*const FunctionSignature, FunctionSignatureMetadata>,
     // We don't need to generate this every time, just need to
@@ -134,7 +133,6 @@ impl BuiltInModuleRepr {
             name: name.into(),
             values: HashMap::new(),
             docs: Box::new(InternalDocumentation::new()),
-            version: env!("CARGO_PKG_VERSION"),
             fn_ptr_table: HashMap::new(),
             generated_expression: RefCell::new(None),
         }
@@ -292,62 +290,6 @@ impl BuiltInModuleRepr {
         self.values.get(name.as_str()).unwrap().clone()
     }
 
-    // When we're loading dylib, we won't know anything about it until _after_ it is loaded. We don't explicitly
-    // want to load it before we need it, since the compiler should be able to analyze a dylib without having to
-    // have the dylib built and loaded into memory to do so.
-    pub fn dylib_to_syntax<'a>(
-        dylib_name: &'a str,
-        names: impl Iterator<Item = &'a str>,
-        prefix: Option<&str>,
-    ) -> ExprKind {
-        // let module_name = self.unreadable_name();
-
-        // let dylib_name_interned = dylib_name.into();
-
-        let mut defines = names
-            .map(|x| {
-                // TODO: Consider a custom delimeter as well
-                // If we have a prefix, put the prefix at the front and append x
-                // Otherwise, just default to using the provided name
-                let name = prefix
-                    .map(|pre| pre.to_string() + x)
-                    .unwrap_or_else(|| x.to_string());
-
-                ExprKind::Define(Box::new(crate::parser::ast::Define::new(
-                    // TODO: Add the custom prefix here
-                    // Handling a more complex case of qualifying imports
-                    ExprKind::atom(name),
-                    ExprKind::List(crate::parser::ast::List::new(vec![
-                        ExprKind::atom(*MODULE_GET),
-                        ExprKind::List(crate::parser::ast::List::new(vec![
-                            ExprKind::atom(*GET_DYLIB),
-                            ExprKind::string_lit(dylib_name.to_string()),
-                        ])),
-                        ExprKind::Quote(Box::new(crate::parser::ast::Quote::new(
-                            ExprKind::atom(x.to_string()),
-                            SyntaxObject::default(TokenType::Quote),
-                        ))),
-                    ])),
-                    SyntaxObject::default(TokenType::Define),
-                )))
-            })
-            .collect::<Vec<_>>();
-
-        defines.push(ExprKind::List(crate::parser::ast::List::new(vec![
-            ExprKind::atom(*MODULE_GET),
-            ExprKind::atom("%-builtin-module-".to_string() + "steel/constants"),
-            ExprKind::Quote(Box::new(crate::parser::ast::Quote::new(
-                ExprKind::atom(*VOID),
-                SyntaxObject::default(TokenType::Quote),
-            ))),
-        ])));
-
-        ExprKind::Begin(crate::parser::ast::Begin::new(
-            defines,
-            SyntaxObject::default(TokenType::Begin),
-        ))
-    }
-
     /// This does the boot strapping for bundling modules
     /// Rather than expose a native hash-get, the built in module above should expose a raw
     /// function to fetch a dependency. It will be a packaged #<BuiltInModule> with only a function to
@@ -364,8 +306,6 @@ impl BuiltInModuleRepr {
     /// Scripts can choose to include these modules directly, or opt to not, and are not as risk of clobbering their
     /// global namespace.
     pub fn to_syntax(&self, prefix: Option<&str>) -> ExprKind {
-        let now = std::time::Instant::now();
-
         // log::debug!(target: "engine-creation", "{:p}, Creating module: {} - Prefix: {:?} - cached: {}", self, self.name, prefix, self.generated_expression.borrow().is_some());
 
         // No need to generate this module multiple times -
@@ -524,7 +464,7 @@ impl BuiltInModule {
         self.module.borrow().bound_identifiers()
     }
 
-    pub fn with_module(mut self, module: BuiltInModule) -> Self {
+    pub fn with_module(self, module: BuiltInModule) -> Self {
         // self.values.extend(module.values.into_iter());
 
         // self.docs.definitions.extend(module.docs.definitions);
