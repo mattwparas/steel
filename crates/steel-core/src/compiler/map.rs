@@ -6,7 +6,6 @@ use std::collections::HashMap;
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct SymbolMap {
     values: Vec<InternedString>,
-    // TODO don't do this - don't expose this API
     map: HashMap<InternedString, usize>,
 }
 

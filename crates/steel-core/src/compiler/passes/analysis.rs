@@ -7,7 +7,10 @@ use im_rc::HashMap as ImmutableHashMap;
 use quickscope::ScopeMap;
 
 use crate::{
-    compiler::modules::{ModuleManager, MANGLER_SEPARATOR},
+    compiler::{
+        map::SymbolMap,
+        modules::{ModuleManager, MANGLER_SEPARATOR},
+    },
     parser::{
         ast::{
             Atom, Define, ExprKind, LambdaFunction, Let, List, Quote, STANDARD_MODULE_GET,
@@ -346,6 +349,7 @@ impl Analysis {
         self.insert(define.name.atom_syntax_object().unwrap(), semantic_info);
     }
 
+    // TODO: This needs to just take an iterator?
     pub fn run(&mut self, exprs: &[ExprKind]) {
         let mut scope: ScopeMap<InternedString, ScopeInfo> = ScopeMap::new();
 
@@ -2234,6 +2238,28 @@ impl<'a> VisitorMutRefUnit for RemovedUnusedImports<'a> {
     }
 }
 
+struct FreeIdentifierVisitor<'a> {
+    analysis: &'a Analysis,
+    // Check if identifiers is in the globals list before deciding to reject it
+    globals: &'a SymbolMap,
+
+    diagnostics: Vec<(InternedString, &'a SemanticInformation)>,
+}
+
+impl<'a> VisitorMutUnitRef<'a> for FreeIdentifierVisitor<'a> {
+    fn visit_atom(&mut self, a: &'a Atom) {
+        if let Some(info) = self.analysis.get(&a.syn) {
+            if info.kind == IdentifierStatus::Free {
+                if let Some(ident) = a.ident() {
+                    if self.globals.get(ident).is_err() {
+                        self.diagnostics.push((*ident, info));
+                    }
+                }
+            }
+        }
+    }
+}
+
 struct UnusedArguments<'a> {
     analysis: &'a Analysis,
     unused_args: Vec<Span>,
@@ -3654,11 +3680,35 @@ impl<'a> SemanticAnalysis<'a> {
             .filter(|x| x.kind == IdentifierStatus::Free)
     }
 
+    pub fn free_identifiers_with_globals<'b: 'a>(
+        &self,
+        globals: &'b SymbolMap,
+    ) -> Vec<(InternedString, &'_ SemanticInformation)> {
+        let mut visitor = FreeIdentifierVisitor {
+            analysis: &self.analysis,
+            globals,
+            diagnostics: Vec::new(),
+        };
+
+        for expr in self.exprs.iter() {
+            visitor.visit(expr);
+        }
+
+        visitor.diagnostics
+    }
+
     pub fn unused_variables(&self) -> impl Iterator<Item = &'_ SemanticInformation> {
         self.analysis.info.values().filter(|x| {
             x.usage_count == 0
                 && matches!(x.kind, IdentifierStatus::Local | IdentifierStatus::Global)
         })
+    }
+
+    pub fn unused_local_variables(&self) -> impl Iterator<Item = &'_ SemanticInformation> {
+        self.analysis
+            .info
+            .values()
+            .filter(|x| x.usage_count == 0 && matches!(x.kind, IdentifierStatus::Local))
     }
 
     pub fn global_defs(&self) -> impl Iterator<Item = &'_ SemanticInformation> {

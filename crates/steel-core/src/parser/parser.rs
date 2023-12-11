@@ -37,6 +37,7 @@ impl FromSteelVal for SourceId {
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub(crate) struct InterierSources {
     paths: HashMap<SourceId, PathBuf>,
+    reverse: HashMap<PathBuf, SourceId>,
     sources: Vec<String>,
 }
 
@@ -44,6 +45,7 @@ impl InterierSources {
     pub fn new() -> Self {
         InterierSources {
             paths: HashMap::new(),
+            reverse: HashMap::new(),
             sources: Vec::new(),
         }
     }
@@ -55,14 +57,26 @@ impl InterierSources {
             .sum()
     }
 
+    // TODO: Source Id should probably be a weak pointer back here rather than an ID
+    // that way if in the event we _do_ leak some strings or the sources are just unreachable
+    // we can clean up any remaining things
     pub fn add_source(&mut self, source: String, path: Option<PathBuf>) -> SourceId {
+        // We're overwriting the existing source
+        if let Some(path) = &path {
+            if let Some(id) = self.reverse.get(path) {
+                self.sources[id.0] = source;
+                return *id;
+            }
+        }
+
         let index = self.sources.len();
         self.sources.push(source);
 
         let id = SourceId(index);
 
         if let Some(path) = path {
-            self.paths.insert(id, path);
+            self.paths.insert(id, path.clone());
+            self.reverse.insert(path, id);
         }
 
         id
@@ -74,6 +88,10 @@ impl InterierSources {
 
     pub fn get_path(&self, source_id: &SourceId) -> Option<&PathBuf> {
         self.paths.get(source_id)
+    }
+
+    pub fn get_id(&self, path: &PathBuf) -> Option<SourceId> {
+        self.reverse.get(path).copied()
     }
 }
 
@@ -97,6 +115,10 @@ impl Sources {
 
     pub fn add_source(&mut self, source: String, path: Option<PathBuf>) -> SourceId {
         self.sources.lock().unwrap().add_source(source, path)
+    }
+
+    pub fn get_source_id(&self, path: &PathBuf) -> Option<SourceId> {
+        self.sources.lock().unwrap().get_id(path)
     }
 
     pub fn size_in_bytes(&self) -> usize {

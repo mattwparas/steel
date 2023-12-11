@@ -695,7 +695,7 @@ impl Compiler {
         Ok(expanded_statements)
 
         // Done lowering anonymous function calls to let
-
+        // TODO: Re-enable this, but not in the repl. This repl causes... issues with the implementation
         // self.apply_const_evaluation(constants, expanded_statements, true)
     }
 

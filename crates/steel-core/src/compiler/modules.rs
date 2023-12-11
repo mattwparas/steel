@@ -87,7 +87,8 @@ declare_builtins!(
     "#%private/steel/contract" => "../scheme/modules/contracts.scm",
     "#%private/steel/print" => "../scheme/print.scm",
     "#%private/steel/control" => "../scheme/modules/parameters.scm",
-    "#%private/steel/reader" => "../scheme/modules/reader.scm"
+    "#%private/steel/reader" => "../scheme/modules/reader.scm",
+    "#%private/steel/stdlib" => "../scheme/stdlib.scm"
 );
 
 create_prelude!(
@@ -526,36 +527,36 @@ impl ModuleManager {
                     let mut first_round_expanded = expander.expand(x)?;
                     let mut changed = false;
 
-                    (first_round_expanded, changed) = expand_kernel_in_env_with_allowed(
-                        first_round_expanded,
-                        kernel.as_mut(),
-                        // We don't need to expand those here
-                        ModuleContainer::default(),
-                        module.name.to_str().unwrap().to_string(),
-                        &kernel_macros_in_scope,
-                    )?;
+                    // (first_round_expanded, changed) = expand_kernel_in_env_with_allowed(
+                    //     first_round_expanded,
+                    //     kernel.as_mut(),
+                    //     // We don't need to expand those here
+                    //     ModuleContainer::default(),
+                    //     module.name.to_str().unwrap().to_string(),
+                    //     &kernel_macros_in_scope,
+                    // )?;
 
                     // If the kernel expander expanded into something - go ahead
                     // and expand all of the macros in this
-                    if changed || expander.changed {
-                        // Expand here?
-                        first_round_expanded = expand(first_round_expanded, &module.macro_map)?;
+                    // if changed || expander.changed {
+                    // Expand here?
+                    // first_round_expanded = expand(first_round_expanded, &module.macro_map)?;
 
-                        // Probably don't need this
-                        (first_round_expanded, changed) = expand_kernel_in_env_with_change(
-                            first_round_expanded,
-                            kernel.as_mut(),
-                            ModuleContainer::default(),
-                            module.name.to_str().unwrap().to_string(),
-                        )?;
+                    // Probably don't need this
+                    // (first_round_expanded, changed) = expand_kernel_in_env_with_change(
+                    //     first_round_expanded,
+                    //     kernel.as_mut(),
+                    //     ModuleContainer::default(),
+                    //     module.name.to_str().unwrap().to_string(),
+                    // )?;
 
-                        // This is pretty suspect, and needs to be revisited - only the output of the
-                        // macro expansion and not the whole thing needs to be mangled most likely.
-                        // Otherwise, we'll run into weird stuff?
-                        if changed {
-                            name_mangler.visit(&mut first_round_expanded);
-                        }
-                    }
+                    // This is pretty suspect, and needs to be revisited - only the output of the
+                    // macro expansion and not the whole thing needs to be mangled most likely.
+                    // Otherwise, we'll run into weird stuff?
+                    // if changed {
+                    //     name_mangler.visit(&mut first_round_expanded);
+                    // }
+                    // }
 
                     if expander.changed || changed {
                         expand(first_round_expanded, &module.macro_map)
@@ -1358,12 +1359,12 @@ impl<'a> ModuleBuilder<'a> {
                 let mut module_exprs = new_module.compile()?;
 
                 // debug!("Inside {:?} - append {:?}", self.name, module);
-                if log_enabled!(log::Level::Debug) {
-                    debug!(
-                        "appending with {:?}",
-                        module_exprs.iter().map(|x| x.to_string()).join(" SEP ")
-                    );
-                }
+                // if log_enabled!(log::Level::Debug) {
+                //     debug!(
+                //         "appending with {:?}",
+                //         module_exprs.iter().map(|x| x.to_string()).join(" SEP ")
+                //     );
+                // }
 
                 new_exprs.append(&mut module_exprs);
 
@@ -1568,20 +1569,20 @@ impl<'a> ModuleBuilder<'a> {
 
                     // If the kernel expander expanded into something - go ahead
                     // and expand all of the macros in this
-                    if changed || expander.changed {
-                        // Expand here?
-                        first_round_expanded = expand(first_round_expanded, &module.macro_map)?;
+                    // if changed || expander.changed {
+                    // Expand here?
+                    // first_round_expanded = expand(first_round_expanded, &module.macro_map)?;
 
-                        // Probably don't need this
-                        // (first_round_expanded, changed) = expand_kernel_in_env_with_change(
-                        //     first_round_expanded,
-                        //     self.kernel.as_mut(),
-                        //     ModuleContainer::default(),
-                        //     module.name.to_str().unwrap().to_string(),
-                        // )?;
+                    // Probably don't need this
+                    // (first_round_expanded, changed) = expand_kernel_in_env_with_change(
+                    //     first_round_expanded,
+                    //     self.kernel.as_mut(),
+                    //     ModuleContainer::default(),
+                    //     module.name.to_str().unwrap().to_string(),
+                    // )?;
 
-                        // name_mangler.visit(&mut first_round_expanded);
-                    }
+                    // name_mangler.visit(&mut first_round_expanded);
+                    // }
 
                     if expander.changed || changed {
                         expand(first_round_expanded, &module.macro_map)

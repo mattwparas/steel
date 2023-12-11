@@ -15,6 +15,7 @@ use super::dylib::DylibContainers;
 use crate::{
     compiler::{
         compiler::{Compiler, SerializableCompiler},
+        map::SymbolMap,
         modules::{CompiledModule, PRELUDE_WITHOUT_BASE},
         program::{Executable, RawProgramWithSymbols, SerializableRawProgramWithSymbols},
     },
@@ -57,7 +58,7 @@ use lasso::ThreadedRodeo;
 use serde::{Deserialize, Serialize};
 use steel_gen::OpCode;
 use steel_parser::{
-    parser::SyntaxObject,
+    parser::{SourceId, SyntaxObject},
     tokens::{MaybeBigInt, TokenType},
 };
 
@@ -1784,6 +1785,10 @@ impl Engine {
         self.compiler.symbol_map.get(&spur).is_ok()
     }
 
+    pub fn symbol_map(&self) -> &SymbolMap {
+        &self.compiler.symbol_map
+    }
+
     pub fn in_scope_macros(&self) -> &HashMap<InternedString, SteelMacro> {
         &self.compiler.macro_env
     }
@@ -1793,6 +1798,10 @@ impl Engine {
             "__module-mangler".to_string() + path.as_os_str().to_str().unwrap() + "__%#__";
 
         self.extract_value(&module_path)
+    }
+
+    pub fn get_source_id(&self, path: &PathBuf) -> Option<SourceId> {
+        self.sources.get_source_id(path)
     }
 }
 

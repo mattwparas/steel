@@ -83,6 +83,8 @@ fn finish_or_interrupt(vm: &mut Engine, line: String, print_time: bool) {
 /// Entire point for the repl
 /// Automatically adds the prelude and contracts for the core library
 pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
+    let now = std::time::Instant::now();
+
     println!(
         "{}",
         r#"
@@ -99,8 +101,6 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
 
     let mut rl = Editor::<RustylineHelper>::new().expect("Unable to instantiate the repl!");
 
-    // let buffer = String::new();
-
     let current_dir = std::env::current_dir()?;
 
     let mut print_time = false;
@@ -116,10 +116,11 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
 
     let engine = Rc::new(RefCell::new(vm));
     rl.set_helper(Some(RustylineHelper::new(
-        // highlighter: MatchingBracketHighlighter::default(),
         MatchingBracketValidator::default(),
         engine.clone(),
     )));
+
+    println!("Time to instantiate readline: {:?}", now.elapsed());
 
     // ctrlc::set_handler(move || tx.send(()).expect("Could not send signal on channel."))
     // .expect("Error setting Ctrl-C handler");

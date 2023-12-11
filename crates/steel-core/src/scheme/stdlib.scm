@@ -1,6 +1,67 @@
-(define-syntax steel/base
-  (syntax-rules ()
-    [(steel/base) (require-builtin steel/base)]))
+(provide caar
+         cadr
+         cdar
+         cddr
+         caaar
+         caadr
+         cadar
+         caddr
+         cdaar
+         cdadr
+         cddar
+         cdddr
+         caaaar
+         caadar
+         caaddr
+         cadaar
+         cadadr
+         caddar
+         cadddr
+         cdaaar
+         cdadar
+         cdaddr
+         cddaar
+         cddadr
+         cdddar
+         cdddr
+         id
+         flip
+         curry
+         curry2
+         foldl
+         map
+         foldr
+         unfold
+         fold
+         reduce
+         max
+         min
+         mem-helper
+         member
+         contains?
+         assq
+         assoc
+         filter
+         even-rec?
+         odd-rec?
+         sum
+         add1
+         sub1
+         zero?
+         drop
+         slice
+         flatten
+         *meta-continuation*
+         *abort
+         *reset
+         *shift
+         force
+         values
+         call-with-values)
+
+; (define-syntax steel/base
+;   (syntax-rules ()
+;     [(steel/base) (require-builtin steel/base)]))
 
 ; (define-syntax quasiquote
 ;   (syntax-rules (unquote unquote-splicing)

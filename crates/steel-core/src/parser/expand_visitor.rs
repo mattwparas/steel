@@ -1,6 +1,7 @@
 // use itertools::Itertools;
 
 use quickscope::ScopeSet;
+use steel_parser::ast::{parse_lambda, LAMBDA, LAMBDA_SYMBOL};
 
 use crate::compiler::passes::reader::MultipleArityFunctions;
 use crate::compiler::passes::Folder;
@@ -144,29 +145,58 @@ impl<'a> ConsumingVisitor for Expander<'a> {
     }
 
     fn visit_list(&mut self, mut l: super::ast::List) -> Self::Output {
-        // todo!()
-        if let Some(ExprKind::Atom(Atom {
-            syn:
-                SyntaxObject {
-                    ty: TokenType::Identifier(s),
-                    span: sp,
-                    ..
+        match l.first() {
+            Some(ExprKind::Atom(
+                ident @ Atom {
+                    syn:
+                        SyntaxObject {
+                            ty: TokenType::Identifier(s),
+                            ..
+                        },
                 },
-        })) = l.first()
-        {
-            if let Some(m) = self.map.get(s) {
-                // If this macro has been overwritten by any local value, respect
-                // the local binding and do not expand the macro
-                if !self.in_scope_values.contains(s) {
-                    let expanded = m.expand(l.clone(), *sp)?;
-                    self.changed = true;
-                    return self.visit(expanded);
+            )) if *s == *LAMBDA_SYMBOL || *s == *LAMBDA => {
+                if let ExprKind::LambdaFunction(lambda) = parse_lambda(&ident.clone(), l.args)? {
+                    return self.visit_lambda_function(lambda);
+                } else {
+                    unreachable!()
                 }
-
-                // let expanded = m.expand(l.clone(), *sp)?;
-                // self.changed = true;
-                // return self.visit(expanded);
             }
+
+            Some(ExprKind::Atom(
+                ident @ Atom {
+                    syn:
+                        SyntaxObject {
+                            ty: TokenType::Lambda,
+                            ..
+                        },
+                },
+            )) => {
+                if let ExprKind::LambdaFunction(lambda) = parse_lambda(&ident.clone(), l.args)? {
+                    return self.visit_lambda_function(lambda);
+                } else {
+                    unreachable!()
+                }
+            }
+
+            Some(ExprKind::Atom(Atom {
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        span: sp,
+                        ..
+                    },
+            })) => {
+                if let Some(m) = self.map.get(s) {
+                    // If this macro has been overwritten by any local value, respect
+                    // the local binding and do not expand the macro
+                    if !self.in_scope_values.contains(s) {
+                        let expanded = m.expand(l.clone(), *sp)?;
+                        self.changed = true;
+                        return self.visit(expanded);
+                    }
+                }
+            }
+            _ => {}
         }
 
         l.args = l

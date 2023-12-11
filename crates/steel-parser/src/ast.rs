@@ -1991,7 +1991,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
     }
 }
 
-pub(crate) fn parse_lambda(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
+pub fn parse_lambda(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
     let syn = a.syn.clone();
     if value.len() < 3 {
         return Err(ParseError::SyntaxError(
