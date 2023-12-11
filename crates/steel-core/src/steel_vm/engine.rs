@@ -1386,6 +1386,21 @@ impl Engine {
         )
     }
 
+    pub fn emit_expanded_ast_without_optimizations(
+        &mut self,
+        expr: &str,
+        path: Option<PathBuf>,
+    ) -> Result<Vec<ExprKind>> {
+        let constants = self.constants();
+        self.compiler.emit_expanded_ast_without_optimizations(
+            expr,
+            constants,
+            path,
+            &mut self.sources,
+            self.modules.clone(),
+        )
+    }
+
     /// Emit the unexpanded AST
     pub fn emit_ast_to_string(expr: &str) -> Result<String> {
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =

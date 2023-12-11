@@ -476,6 +476,25 @@ impl Compiler {
         self.lower_expressions_impl(parsed, constants, builtin_modules, path, sources)
     }
 
+    pub fn emit_expanded_ast_without_optimizations(
+        &mut self,
+        expr_str: &str,
+        constants: ImmutableHashMap<InternedString, SteelVal>,
+        path: Option<PathBuf>,
+        sources: &mut Sources,
+        builtin_modules: ModuleContainer,
+    ) -> Result<Vec<ExprKind>> {
+        let id = sources.add_source(expr_str.to_string(), path.clone());
+
+        // Could fail here
+        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+            Parser::new(expr_str, Some(id)).collect();
+
+        let parsed = parsed?;
+
+        self.expand_ast(parsed, constants, builtin_modules, path, sources)
+    }
+
     pub fn compile_module(
         &mut self,
         path: PathBuf,
@@ -551,6 +570,136 @@ impl Compiler {
         }
 
         Ok(results)
+    }
+
+    fn expand_ast(
+        &mut self,
+        exprs: Vec<ExprKind>,
+        constants: ImmutableHashMap<InternedString, SteelVal>,
+        builtin_modules: ModuleContainer,
+        path: Option<PathBuf>,
+        sources: &mut Sources,
+    ) -> Result<Vec<ExprKind>> {
+        let mut expanded_statements =
+            self.expand_expressions(exprs, path, sources, builtin_modules.clone())?;
+
+        expanded_statements = expanded_statements
+            .into_iter()
+            .map(lower_entire_ast)
+            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
+
+        if log_enabled!(log::Level::Debug) {
+            debug!(
+                "Generating instructions for the expression: {:?}",
+                expanded_statements
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+            );
+        }
+
+        log::debug!(target: "expansion-phase", "Expanding macros -> phase 1");
+
+        if let Some(kernel) = self.kernel.as_mut() {
+            // Label anything at the top as well - top level
+            kernel.load_syntax_transformers(&mut expanded_statements, "top-level".to_string())?;
+        }
+
+        expanded_statements = expanded_statements
+            .into_iter()
+            .map(|x| {
+                expand_kernel_in_env(
+                    x,
+                    self.kernel.as_mut(),
+                    builtin_modules.clone(),
+                    "top-level".to_string(),
+                )
+                .and_then(|x| crate::parser::expand_visitor::expand(x, &self.macro_env))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        expanded_statements = expanded_statements
+            .into_iter()
+            .map(lower_entire_ast)
+            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
+
+        // expanded_statements.pretty_print();
+
+        log::debug!(target: "expansion-phase", "Beginning constant folding");
+
+        let mut expanded_statements =
+            self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
+
+        RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
+
+        let mut analysis = Analysis::from_exprs(&expanded_statements);
+        analysis.populate_captures(&expanded_statements);
+
+        let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+
+        // This is definitely broken still
+        semantic
+            .elide_single_argument_lambda_applications()
+            .replace_non_shadowed_globals_with_builtins(
+                &mut self.macro_env,
+                &mut self.module_manager,
+                &mut self.mangled_identifiers,
+            )
+            // TODO: To get this to work, we have to check the macros to make sure those
+            // are safe to eliminate. In interactive mode, we'll
+            // be unable to optimize those away
+            .remove_unused_globals_with_prefix("mangler", &self.macro_env, &self.module_manager);
+
+        // Don't do lambda lifting here
+        // .lift_pure_local_functions()
+        // .lift_all_local_functions();
+
+        // debug!("About to expand defines");
+
+        log::debug!(target: "expansion-phase", "Flattening begins, converting internal defines to let expressions");
+
+        let mut analysis = semantic.into_analysis();
+
+        let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
+
+        // After define expansion, we'll want this
+        RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
+
+        analysis.fresh_from_exprs(&expanded_statements);
+        analysis.populate_captures(&expanded_statements);
+
+        let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+        semantic.refresh_variables();
+        semantic.flatten_anonymous_functions();
+        semantic.refresh_variables();
+
+        // Replace mutation with boxes
+        semantic.populate_captures();
+        semantic.populate_captures();
+
+        semantic.replace_mutable_captured_variables_with_boxes();
+
+        log::debug!(target: "expansion-phase", "Expanding multiple arity functions");
+
+        let mut analysis = semantic.into_analysis();
+
+        // Rename them again
+        RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
+
+        let mut expanded_statements =
+            MultipleArityFunctions::expand_multiple_arity_functions(expanded_statements);
+
+        log::info!(target: "expansion-phase", "Aggressive constant evaluation with memoization");
+
+        // Begin lowering anonymous function calls to lets
+
+        analysis.fresh_from_exprs(&expanded_statements);
+        analysis.populate_captures(&expanded_statements);
+        let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+
+        semantic.replace_anonymous_function_calls_with_plain_lets();
+
+        Ok(expanded_statements)
     }
 
     fn lower_expressions_impl(

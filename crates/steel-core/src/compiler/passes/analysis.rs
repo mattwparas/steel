@@ -343,7 +343,8 @@ impl Analysis {
             semantic_info = semantic_info.shadows(shadowed_var.id)
         }
 
-        log::trace!("Defining global: {:?}", define.name);
+        // log::trace!("Defining global: {:?}", define.name);
+        // println!("Defining global: {}", define.name);
         define_var(scope, define);
 
         self.insert(define.name.atom_syntax_object().unwrap(), semantic_info);
@@ -376,21 +377,44 @@ impl Analysis {
         for expr in exprs {
             let mut pass = AnalysisPass::new(self, &mut scope);
 
-            if let ExprKind::Define(define) = expr {
-                if define.body.lambda_function().is_some() {
-                    // Since we're at the top level, care should be taken to actually
-                    // refer to the defining context correctly
-                    pass.defining_context = define.name_id();
-                    pass.defining_context_depth = 0;
-                    // Continue with the rest of the body here
-                    pass.visit(&define.body);
-                    pass.defining_context = None;
-                } else {
-                    pass.visit_top_level_define_value_without_body(define);
-                    pass.visit(&define.body);
+            match expr {
+                ExprKind::Define(define) => {
+                    if define.body.lambda_function().is_some() {
+                        // Since we're at the top level, care should be taken to actually
+                        // refer to the defining context correctly
+                        pass.defining_context = define.name_id();
+                        pass.defining_context_depth = 0;
+                        // Continue with the rest of the body here
+                        pass.visit(&define.body);
+                        pass.defining_context = None;
+                    } else {
+                        pass.visit_top_level_define_value_without_body(define);
+                        pass.visit(&define.body);
+                    }
                 }
-            } else {
-                pass.visit(expr);
+                ExprKind::Begin(b) => {
+                    for expr in &b.exprs {
+                        if let ExprKind::Define(define) = expr {
+                            if define.body.lambda_function().is_some() {
+                                // Since we're at the top level, care should be taken to actually
+                                // refer to the defining context correctly
+                                pass.defining_context = define.name_id();
+                                pass.defining_context_depth = 0;
+                                // Continue with the rest of the body here
+                                pass.visit(&define.body);
+                                pass.defining_context = None;
+                            } else {
+                                pass.visit_top_level_define_value_without_body(define);
+                                pass.visit(&define.body);
+                            }
+                        } else {
+                            pass.visit(expr);
+                        }
+                    }
+                }
+                _ => {
+                    pass.visit(expr);
+                }
             }
         }
     }
@@ -606,44 +630,24 @@ impl<'a> AnalysisPass<'a> {
         // If this variable name is already in scope, we should mark that this variable
         // shadows the previous id
         if let Some(shadowed_var) = self.scope.get(name) {
-            // println!("FOUND SHADOWED VAR: {}", name);
-
             semantic_info = semantic_info.shadows(shadowed_var.id);
 
             if let Some(existing_analysis) = self.info.info.get_mut(&shadowed_var.id) {
                 if existing_analysis.builtin {
-                    // println!("FOUND A VALUE THAT SHADOWS AN EXISTING BUILTIN: {}", name);
-
                     existing_analysis.is_shadowed = true;
                 }
-                // else {
-                // println!("DOES NOT SHADOW A BUILT IN: {}", name);
-                // }
             }
         }
 
         if is_a_builtin_definition(define) {
-            // println!("FOUND A BUILTIN: {}", name);
-
             semantic_info.mark_builtin();
         }
 
-        // if let Some(shadowed_var) = self.scope.get(name) {
-        //     semantic_info = semantic_info.shadows(shadowed_var.id)
-        // }
-
         if let Some(aliases) = define.is_an_alias_definition() {
-            log::debug!(
-                "Found definition that aliases - {} aliases {}: {:?} -> {:?}",
-                define.name,
-                define.body,
-                name_syntax_object.syntax_object_id,
-                define.body.atom_syntax_object().unwrap().syntax_object_id,
-            );
             semantic_info = semantic_info.aliases_to(aliases);
         }
 
-        log::trace!("Defining global: {:?}", define.name);
+        // println!("Defining global: {}", define.name);
         define_var(self.scope, define);
 
         self.info.insert(name_syntax_object, semantic_info);
@@ -1700,7 +1704,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                 // Otherwise, we've hit a free variable at this point
                 // TODO: WE don't need to do this?
-                self.info.insert(&a.syn, semantic_info);
+                self.info.info.insert(a.syn.syntax_object_id, semantic_info);
             }
 
             // let mut semantic_info =
@@ -3924,6 +3928,197 @@ mod analysis_pass_tests {
     };
 
     use super::*;
+
+    #[test]
+    fn test_free_identifiers() {
+        let script = r#"
+
+(begin
+ (define ___mcons-options___
+        (hash
+           (quote
+             #:fields)
+           (quote
+             (mcar mcdr))
+           (quote
+             #:transparent)
+           #false
+           (quote
+             #:name)
+           (quote
+             mcons)
+           (quote
+             #:printer)
+           (λ (obj printer)
+             (if (mlist? obj)
+               (begin
+                (simple-display "'")
+                     (printer (mcons->list obj)))
+               (begin
+                (simple-display "'(")
+                     (printer (mcons-mcar obj))
+                     (simple-display " . ")
+                     (printer (mcons-mcdr obj))
+                     (simple-display ")"))))
+           (quote
+             #:mutable)
+           #true))
+      (define mcons
+        (quote
+          unintialized))
+      (define struct:mcons
+        (quote
+          uninitialized))
+      (define mcons?
+        (quote
+          uninitialized))
+      (define mcons-mcar
+        (quote
+          uninitialized))
+      (define mcons-mcdr
+        (quote
+          uninitialized))
+      (define set-mcons-mcar!
+        (quote
+          unintialized))
+      (define set-mcons-mcdr!
+        (quote
+          unintialized))
+      (%plain-let ((prototypes (make-struct-type
+             (quote
+               mcons)
+             2)))
+        (%plain-let ((struct-type-descriptor (list-ref
+               prototypes
+               0))
+            (constructor-proto (list-ref prototypes 1))
+            (predicate-proto (list-ref prototypes 2))
+            (getter-proto (list-ref prototypes 3)))
+          (begin
+           (set! struct:mcons struct-type-descriptor)
+                (#%vtable-update-entry!
+                   struct-type-descriptor
+                   #false
+                   ___mcons-options___)
+                (set! mcons
+                  (λ (mcar mcdr)
+                    (constructor-proto
+                       (#%box mcar)
+                       (#%box mcdr))))
+                (set! mcons? predicate-proto)
+                (set! mcons-mcar
+                  (λ (this)
+                    (#%unbox (getter-proto this 0))))
+                (set! mcons-mcdr
+                  (λ (this)
+                    (#%unbox (getter-proto this 1))))
+                (set! set-mcons-mcar!
+                  (λ (this value)
+                    (#%set-box!
+                       (getter-proto this 0)
+                       value)))
+                (set! set-mcons-mcdr!
+                  (λ (this value)
+                    (#%set-box!
+                       (getter-proto this 1)
+                       value)))
+                void))))
+
+(define ##lambda-lifting##loop118915
+  (λ (mutable-cons3 builder)
+    (if (not
+         (mcons?
+            (%plain-let ((result (mcons-mcdr
+                   mutable-cons3)))
+              (begin
+               (simple-display
+                       (quote
+                         (mcons-mcdr mutable-cons)))
+                    (simple-display " = ")
+                    (simple-displayln result)
+                    result))))
+      (#%prim.cons (mcons-mcar mutable-cons3) builder)
+      (##lambda-lifting##loop118915
+         (mcons-mcdr mutable-cons3)
+         (#%prim.cons
+            (mcons-mcar mutable-cons3)
+            builder)))))
+
+(define set-car!
+  set-mcons-mcar!)
+
+(define set-cdr!
+  set-mcons-mcdr!)
+
+(define mcons->list
+  (λ (mutable-cons)
+    (reverse
+       (##lambda-lifting##loop118915
+          mutable-cons
+          (quote
+            ())))))
+
+(define mlist?
+  (λ (cell)
+    (%plain-let ((next (mcons-mcdr cell)))
+      (%plain-let ((z (mcons? next)))
+        (if z z (null? next))))))
+
+(define pair?
+  (λ (x)
+    (%plain-let ((z (mcons? x)))
+      (if z z (#%prim.pair? x)))))
+
+(define cons
+  (λ (a b !!dummy-rest-arg!!)
+    (%plain-let ((!!dummy-rest-arg!!3 (apply
+           %keyword-hash
+           !!dummy-rest-arg!!)))
+      (%plain-let ((mutable (%plain-let ((mutable (hash-try-get
+                 !!dummy-rest-arg!!3
+                 (quote
+                   #:mutable))))
+            (if (hash-contains?
+                 !!dummy-rest-arg!!3
+                 (quote
+                   #:mutable))
+              mutable
+              #false))))
+        (if mutable
+          (mcons a b)
+          (if (list? b)
+            (#%prim.cons a b)
+            (if (mcons? b)
+              (mcons a b)
+              (#%prim.cons a b))))))))
+
+(define car
+  (λ (a)
+    (if (mcons? a) (mcons-mcar a) (#%prim.car a))))
+
+(define cdr
+  (λ (a)
+    (if (mcons? a) (mcons-mcdr a) (#%prim.cdr a))))
+            
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+        let mut analysis = SemanticAnalysis::new(&mut exprs);
+        analysis.replace_pure_empty_lets_with_body();
+
+        // Log the free identifiers
+        let free_vars = analysis.find_free_identifiers();
+
+        for var in free_vars {
+            crate::rerrs::report_info(
+                ErrorKind::FreeIdentifier.to_error_code(),
+                "input.rkt",
+                script,
+                "Free identifier".to_string(),
+                var.span,
+            );
+        }
+    }
 
     #[test]
     fn local_defines() {
