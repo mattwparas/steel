@@ -880,6 +880,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                         syn:
                             SyntaxObject {
                                 ty: TokenType::StringLiteral(s),
+                                span,
                                 ..
                             },
                     })] => {
@@ -891,7 +892,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                         if let Some(module) = self.builtin_modules.get(s.as_str()) {
                             return Ok(module.to_syntax(None));
                         } else {
-                            stop!(BadSyntax => "require-builtin: module not found: {}", s);
+                            stop!(BadSyntax => format!("require-builtin: module not found: {}", s); *span);
                         }
                     }
 
@@ -899,13 +900,14 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                         syn:
                             SyntaxObject {
                                 ty: TokenType::Identifier(s),
+                                span,
                                 ..
                             },
                     })] => {
                         if let Some(module) = self.builtin_modules.get(s.resolve()) {
                             return Ok(module.to_syntax(None));
                         } else {
-                            stop!(BadSyntax => "require-builtin: module not found: {}", s);
+                            stop!(BadSyntax => format!("require-builtin: module not found: {}", s); *span);
                         }
                     }
 
@@ -913,6 +915,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                         syn:
                             SyntaxObject {
                                 ty: TokenType::StringLiteral(s),
+                                span,
                                 ..
                             },
                     }), ExprKind::Atom(Atom {
@@ -931,7 +934,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                         if let Some(module) = self.builtin_modules.get(s.as_str()) {
                             return Ok(module.to_syntax(Some(prefix.resolve())));
                         } else {
-                            stop!(BadSyntax => "require-builtin: module not found: {}", s);
+                            stop!(BadSyntax => format!("require-builtin: module not found: {}", s); *span);
                         }
                     }
 
@@ -939,6 +942,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                         syn:
                             SyntaxObject {
                                 ty: TokenType::Identifier(s),
+                                span,
                                 ..
                             },
                     }), ExprKind::Atom(Atom {
@@ -957,7 +961,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                         if let Some(module) = self.builtin_modules.get(s.resolve()) {
                             return Ok(module.to_syntax(Some(prefix.resolve())));
                         } else {
-                            stop!(BadSyntax => "require-builtin: module not found: {}", s);
+                            stop!(BadSyntax => format!("require-builtin: module not found: {}", s); *span);
                         }
                     }
 

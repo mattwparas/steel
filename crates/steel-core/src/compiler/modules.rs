@@ -270,7 +270,7 @@ impl ModuleManager {
             let module = if let Some(module) = module_builder.compiled_modules.get(path.as_ref()) {
                 module
             } else {
-                log::debug!(target: "modules", "No provides found for module, skipping: {:?}", path);
+                // log::debug!(target: "modules", "No provides found for module, skipping: {:?}", path);
 
                 continue;
             };
@@ -1111,9 +1111,9 @@ impl CompiledModule {
         // TODO clean this up
         let res = ExprKind::List(List::new(body));
 
-        if log_enabled!(target: "requires", log::Level::Debug) {
-            debug!(target: "requires", "Module ast node: {}", res.to_string());
-        }
+        // if log_enabled!(target: "requires", log::Level::Debug) {
+        //     debug!(target: "requires", "Module ast node: {}", res.to_string());
+        // }
 
         res
     }
@@ -1241,7 +1241,7 @@ impl<'a> ModuleBuilder<'a> {
     }
 
     fn compile(&mut self) -> Result<Vec<ExprKind>> {
-        debug!(target: "requires", "Visiting: {:?}", self.name);
+        // debug!(target: "requires", "Visiting: {:?}", self.name);
 
         // @Matt - 10/3/23
         // This has a relatively fatal flaw at the moment:
@@ -1275,9 +1275,9 @@ impl<'a> ModuleBuilder<'a> {
         self.collect_provides()?;
 
         if log_enabled!(log::Level::Info) {
-            debug!(target: "requires", "Requires: {:#?}", self.require_objects);
-            debug!(target: "requires", "Provides: {:#?}", self.provides);
-            debug!(target: "requires", "Provides for-syntax: {:?}", self.provides_for_syntax);
+            // debug!(target: "requires", "Requires: {:#?}", self.require_objects);
+            // debug!(target: "requires", "Provides: {:#?}", self.provides);
+            // debug!(target: "requires", "Provides for-syntax: {:?}", self.provides_for_syntax);
         }
 
         if self.visited.contains(&self.name) {
@@ -1320,7 +1320,7 @@ impl<'a> ModuleBuilder<'a> {
                 // Otherwise go ahead and compile
                 // If we already have compiled this module, get it from the cache
                 if let Some(_m) = self.compiled_modules.get(module.as_ref()) {
-                    debug!("Getting {:?} from the module cache", module);
+                    // debug!("Getting {:?} from the module cache", module);
                     // println!("Already found in the cache: {:?}", module);
                     // new_exprs.push(m.to_module_ast_node());
                     // No need to do anything
@@ -1378,7 +1378,7 @@ impl<'a> ModuleBuilder<'a> {
                 if !new_module.provides.is_empty() {
                     new_exprs.push(new_module.compile_module()?);
                 } else {
-                    log::debug!(target: "requires", "Found no provides, skipping compilation of module: {:?}", new_module.name);
+                    // log::debug!(target: "requires", "Found no provides, skipping compilation of module: {:?}", new_module.name);
                 }
             }
 
@@ -1407,7 +1407,7 @@ impl<'a> ModuleBuilder<'a> {
                 if !should_recompile {
                     // If we already have compiled this module, get it from the cache
                     if let Some(_m) = self.compiled_modules.get(module.as_ref()) {
-                        debug!("Getting {:?} from the module cache", module);
+                        // debug!("Getting {:?} from the module cache", module);
                         // println!("Already found in the cache: {:?}", module);
                         // new_exprs.push(m.to_module_ast_node());
                         // No need to do anything
@@ -1432,13 +1432,13 @@ impl<'a> ModuleBuilder<'a> {
                 let mut module_exprs = new_module.compile()?;
 
                 // debug!("Inside {:?} - append {:?}", self.name, module);
-                if log_enabled!(log::Level::Debug) {
-                    debug!(
-                        target: "modules",
-                        "appending with {:?}",
-                        module_exprs.iter().map(|x| x.to_string()).join(" SEP ")
-                    );
-                }
+                // if log_enabled!(log::Level::Debug) {
+                //     debug!(
+                //         target: "modules",
+                //         "appending with {:?}",
+                //         module_exprs.iter().map(|x| x.to_string()).join(" SEP ")
+                //     );
+                // }
 
                 new_exprs.append(&mut module_exprs);
 
@@ -1459,9 +1459,9 @@ impl<'a> ModuleBuilder<'a> {
                     // else if !new_module.compiled_modules.contains_key(&new_module.name) {
                     new_exprs.push(new_module.compile_module()?);
                 } else {
-                    log::debug!(target: "requires", "Found no provides, skipping compilation of module: {:?}", new_module.name);
-                    log::debug!(target: "requires", "Module already in the cache: {}", new_module.compiled_modules.contains_key(&new_module.name));
-                    log::debug!(target: "requires", "Compiled modules: {:?}", new_module.compiled_modules.keys().collect::<Vec<_>>());
+                    // log::debug!(target: "requires", "Found no provides, skipping compilation of module: {:?}", new_module.name);
+                    // log::debug!(target: "requires", "Module already in the cache: {}", new_module.compiled_modules.contains_key(&new_module.name));
+                    // log::debug!(target: "requires", "Compiled modules: {:?}", new_module.compiled_modules.keys().collect::<Vec<_>>());
                 }
 
                 // else {
@@ -1482,11 +1482,11 @@ impl<'a> ModuleBuilder<'a> {
         // Clone the requires... I suppose
         let requires = self.require_objects.clone();
 
-        info!(
-            target: "requires",
-            "Into compiled module: provides for syntax: {:?}",
-            self.provides_for_syntax
-        );
+        // info!(
+        //     target: "requires",
+        //     "Into compiled module: provides for syntax: {:?}",
+        //     self.provides_for_syntax
+        // );
 
         // Attempt extracting the syntax transformers from this module
         if let Some(kernel) = self.kernel.as_mut() {
@@ -1686,7 +1686,7 @@ impl<'a> ModuleBuilder<'a> {
         // semantic
         //     .remove_unused_globals_with_prefix("mangler");
 
-        log::debug!(target: "requires", "Adding compiled module: {:?}", self.name);
+        // log::debug!(target: "requires", "Adding compiled module: {:?}", self.name);
 
         self.compiled_modules.insert(self.name.clone(), module);
 
@@ -1831,6 +1831,7 @@ impl<'a> ModuleBuilder<'a> {
                 syn:
                     SyntaxObject {
                         ty: TokenType::StringLiteral(s),
+                        span,
                         ..
                     },
             }) => {
@@ -1869,7 +1870,7 @@ impl<'a> ModuleBuilder<'a> {
 
                         log::info!("Searching STEEL_HOME for {:?}", current);
                     } else {
-                        stop!(Generic => format!("Module not found: {:?}", self.name))
+                        stop!(Generic => format!("Module not found: {:?} with STEEL_HOME: {:?}", current, home); *span)
                     }
                 }
 
@@ -1981,7 +1982,7 @@ impl<'a> ModuleBuilder<'a> {
 
                                         log::info!("Searching STEEL_HOME for {:?}", current);
                                     } else {
-                                        stop!(Generic => format!("Module not found: {:?}", self.name))
+                                        stop!(Generic => format!("Module not found: {:?}", current); r.location.span)
                                     }
                                 }
 

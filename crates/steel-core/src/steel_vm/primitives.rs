@@ -29,7 +29,7 @@ use crate::{
     rvals::{
         as_underlying_type,
         cycles::{BreadthFirstSearchSteelValVisitor, SteelCycleCollector},
-        FromSteelVal, ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
+        FromSteelVal, SteelString, ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
     },
     steel_vm::{
         builtin::{get_function_name, Arity},
@@ -401,6 +401,15 @@ pub fn register_builtin_modules(engine: &mut Engine) {
     engine.register_fn("%module-get%", BuiltInModule::get);
 
     engine.register_fn("load-from-module!", BuiltInModule::get);
+
+    // Registering values in modules
+    engine.register_fn("#%module", BuiltInModule::new::<String>);
+    engine.register_fn(
+        "#%module-add",
+        |module: &mut BuiltInModule, name: SteelString, value: SteelVal| {
+            module.register_value(&name, value);
+        },
+    );
 
     engine.register_fn("%doc?", BuiltInModule::get_doc);
     // engine.register_fn("%module-docs", BuiltInModule::docs);

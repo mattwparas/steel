@@ -678,7 +678,7 @@ impl<'a> AnalysisPass<'a> {
         // If this variable name is already in scope, we should mark that this variable
         // shadows the previous id
         if let Some(shadowed_var) = self.scope.get(name) {
-            log::debug!("Redefining previous variable: {:?}", name);
+            // log::debug!("Redefining previous variable: {:?}", name);
             semantic_info = semantic_info.shadows(shadowed_var.id);
         }
 
@@ -813,10 +813,9 @@ impl<'a> AnalysisPass<'a> {
             // TODO: merge this into one
             let count = arguments.get(ident).unwrap().usage_count;
 
-            if count == 0 {
-                // TODO: Emit warning with the span
-                log::debug!("Found unused argument: {:?}", ident);
-            }
+            // if count == 0 {
+            // log::debug!("Found unused argument: {:?}", ident);
+            // }
 
             semantic_info = semantic_info.with_usage_count(count);
 
@@ -1446,12 +1445,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     // }
 
                     // var.refers
-                } else {
-                    log::debug!("Unable to find var: {name} in info map to update to set!");
                 }
-            } else {
-                log::debug!("Variable not yet in scope: {name}");
+                // else {
+                //     log::debug!("Unable to find var: {name} in info map to update to set!");
+                // }
             }
+            // else {
+            //     log::debug!("Variable not yet in scope: {name}");
+            // }
         }
 
         self.visit(&s.variable);
@@ -1533,7 +1534,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 if let Some(stack_offset) = mut_ref.stack_offset {
                     semantic_info = semantic_info.with_offset(stack_offset);
                 } else {
-                    log::debug!("Stack offset missing from local define")
+                    // log::debug!("Stack offset missing from local define")
                 }
 
                 if mut_ref.captured && mut_ref.mutated {
@@ -1615,14 +1616,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     // semantic_info = semantic_info.with_heap_offset(heap_offset);
                     semantic_info = semantic_info.with_read_heap_offset(heap_offset);
                 } else {
-                    log::debug!("Stack offset missing from local define")
+                    // log::debug!("Stack offset missing from local define")
                 }
 
                 if let Some(heap_offset) = captured.heap_offset {
                     // semantic_info = semantic_info.with_heap_offset(heap_offset);
                     semantic_info = semantic_info.with_heap_offset(heap_offset);
                 } else {
-                    log::debug!("Stack offset missing from local define")
+                    // log::debug!("Stack offset missing from local define")
                 }
 
                 // if semantic_info.kind == IdentifierStatus::HeapAllocated
@@ -1676,7 +1677,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 if let Some(stack_offset) = is_captured.stack_offset {
                     semantic_info = semantic_info.with_offset(stack_offset);
                 } else {
-                    log::debug!("Stack offset missing from local define")
+                    // log::debug!("Stack offset missing from local define")
                 }
 
                 // println!("Variable {} refers to {}", ident, is_captured.id);
@@ -1771,9 +1772,9 @@ pub fn query_top_level_define<A: AsRef<str>>(
     }
 
     if found_defines.len() > 1 {
-        log::debug!(
-            "Multiple defines found, unable to find one unique value to associate with a name"
-        );
+        // log::debug!(
+        //     "Multiple defines found, unable to find one unique value to associate with a name"
+        // );
         return None;
     }
 
@@ -2034,7 +2035,7 @@ where
 
                 if let ExprKind::Let(_) = &let_expr {
                     if (self.func)(self.analysis, let_expr) {
-                        log::debug!("Modified let expression");
+                        // log::debug!("Modified let expression");
                     }
                 }
             }
@@ -2086,7 +2087,7 @@ where
                         // In the state of the analysis
                         if (self.func)(self.analysis, list) {
                             // return self.visit(list);
-                            log::debug!("Modified anonymous function call site!");
+                            // log::debug!("Modified anonymous function call site!");
                         }
                     }
                 }
@@ -2675,9 +2676,9 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
                                 );
                             }
 
-                            for (var, _) in info.captured_vars() {
-                                log::debug!(target: "lambda-lifting", "{}", var.resolve());
-                            }
+                            // for (var, _) in info.captured_vars() {
+                            // log::debug!(target: "lambda-lifting", "{}", var.resolve());
+                            // }
 
                             if info.captured_vars().len() == 1 {
                                 // TODO: Check if the number of captured vars is 1, and if that 1 is equivalent to the
@@ -3229,7 +3230,7 @@ impl<'a> SemanticAnalysis<'a> {
 
             *self.exprs = lifter.lifted_functions;
 
-            log::debug!("Re-running the analysis after lifting local functions");
+            // log::debug!("Re-running the analysis after lifting local functions");
             self.analysis.fresh_from_exprs(&self.exprs);
             self.analysis.populate_captures(self.exprs);
         }
@@ -3428,7 +3429,7 @@ impl<'a> SemanticAnalysis<'a> {
 
         // self.exprs.push(ExprKind::ident("void"));
 
-        log::debug!("Re-running the semantic analysis after removing unused globals");
+        // log::debug!("Re-running the semantic analysis after removing unused globals");
 
         self.analysis.fresh_from_exprs(self.exprs);
 
@@ -3472,7 +3473,7 @@ impl<'a> SemanticAnalysis<'a> {
         self.find_let_call_sites_and_mutate_with(func);
 
         if re_run_analysis {
-            log::debug!("Re-running the semantic analysis after modifying let call sites");
+            // log::debug!("Re-running the semantic analysis after modifying let call sites");
 
             self.analysis.fresh_from_exprs(self.exprs);
         }
@@ -3533,7 +3534,7 @@ impl<'a> SemanticAnalysis<'a> {
                     let analysis = analysis.get_function_info(f).unwrap();
 
                     if analysis.captured_vars.is_empty() {
-                        log::debug!("Found a function that does not capture variables");
+                        // log::debug!("Found a function that does not capture variables");
 
                         if f.args.is_empty() && arg_count == 0 {
                             // Take out the body of the function - we're going to want to use that now
@@ -3560,7 +3561,7 @@ impl<'a> SemanticAnalysis<'a> {
         self.find_anonymous_function_calls_and_mutate_with(func);
 
         if re_run_analysis {
-            log::debug!("Re-running the semantic analysis after modifications");
+            // log::debug!("Re-running the semantic analysis after modifications");
 
             // self.analysis = Analysis::from_exprs(self.exprs);
             self.analysis.fresh_from_exprs(self.exprs);
@@ -3601,7 +3602,7 @@ impl<'a> SemanticAnalysis<'a> {
                     *anon = ExprKind::Let(let_expr.into());
 
                     re_run_analysis = true;
-                    log::debug!("Replaced anonymous function call with let");
+                    // log::debug!("Replaced anonymous function call with let");
 
                     true
                 } else {
@@ -3617,7 +3618,7 @@ impl<'a> SemanticAnalysis<'a> {
         self.find_anonymous_function_calls_and_mutate_with(func);
 
         if re_run_analysis {
-            log::debug!("Re-running the semantic analysis after modifications");
+            // log::debug!("Re-running the semantic analysis after modifications");
 
             self.analysis.fresh_from_exprs(self.exprs);
         }
@@ -3764,9 +3765,9 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         if elider.re_run_analysis {
-            log::debug!(
-                "Re-running the semantic analysis after modifications during lambda lifting"
-            );
+            // log::debug!(
+            //     "Re-running the semantic analysis after modifications during lambda lifting"
+            // );
 
             self.analysis.fresh_from_exprs(self.exprs);
             self.analysis.populate_captures(self.exprs);
@@ -3801,7 +3802,7 @@ impl<'a> SemanticAnalysis<'a> {
                 .iter()
                 .map(|x| {
                     if let ExprKind::Define(d) = x {
-                        log::debug!("Found a local function to lift: {}", d.name);
+                        // log::debug!("Found a local function to lift: {}", d.name);
                         d.name.atom_syntax_object().unwrap().syntax_object_id
                     } else {
                         unreachable!()
@@ -3884,9 +3885,9 @@ impl<'a> SemanticAnalysis<'a> {
         *self.exprs = overall_lifted;
 
         if re_run_analysis {
-            log::debug!(
-                "Re-running the semantic analysis after modifications during lambda lifting"
-            );
+            // log::debug!(
+            //     "Re-running the semantic analysis after modifications during lambda lifting"
+            // );
 
             self.analysis.fresh_from_exprs(self.exprs);
             // = Analysis::from_exprs(self.exprs);
@@ -3928,6 +3929,284 @@ mod analysis_pass_tests {
     };
 
     use super::*;
+
+    #[test]
+    fn test_unused_arguments() {
+        let script = r#"
+            
+(define ##lambda-lifting##loop119067
+  (λ (port sum)
+    (%plain-let
+     ((next-line (read-line-from-port port)))
+     (if (equal? (quote eof) next-line)
+         sum
+         (##lambda-lifting##loop119067
+          port
+          (+ sum
+             (%plain-let ((digits (filter char-digit? next-line)))
+                         (%plain-let ((first-digit (first digits)) (second-digit (last digits)))
+                                     (string->number (list->string (list first-digit
+                                                                         second-digit)))))))))))
+
+(define ##lambda-lifting##trie-contains-inner?119977
+  (λ (node char-list)
+    (if (empty? char-list)
+        #true
+        (if (char=? (trie-char node) (car char-list))
+            (%plain-let ((children-matched
+                          (map (λ (node4)
+                                 (##lambda-lifting##trie-contains-inner?119977 node4 (cdr char-list)))
+                               (trie-children node))))
+                        (if (empty? children-matched) #true (list? (member #true children-matched))))
+            #false))))
+
+(define ##lambda-lifting##loop120600
+  (λ (port sum)
+    (%plain-let ((next-line (read-line-from-port port)))
+                (if (equal? (quote eof) next-line)
+                    sum
+                    (##lambda-lifting##loop120600 port (+ sum (process-line next-line)))))))
+
+(define scan
+  (λ (path) (%plain-let ((file (open-input-file path))) (##lambda-lifting##loop119067 file 0))))
+
+(displayln (scan "aoc/day1.data"))
+
+(define word-map
+  (transduce (list (cons "one" "1")
+                   (cons "two" "2")
+                   (cons "three" "3")
+                   (cons "four" "4")
+                   (cons "five" "5")
+                   (cons "six" "6")
+                   (cons "seven" "7")
+                   (cons "eight" "8")
+                   (cons "nine" "9")
+                   (cons "1" "1")
+                   (cons "2" "2")
+                   (cons "3" "3")
+                   (cons "4" "4")
+                   (cons "5" "5")
+                   (cons "6" "6")
+                   (cons "7" "7")
+                   (cons "8" "8")
+                   (cons "9" "9"))
+             (mapping (λ (pair) (cons (string->list (car pair)) (cadr pair))))
+             (into-hashmap)))
+
+(define sample
+  (map
+   symbol->string
+   (quote
+    (two1nine eightwothree abcone2threexyz xtwone3four 4nineeightseven2 zoneight234 7pqrstsixteen))))
+
+(displayln sample)
+
+(begin
+  (define ___trie-options___
+    (hash (quote #:transparent)
+          #true
+          (quote #:name)
+          (quote trie)
+          (quote #:fields)
+          (quote (char children end-word? word-up-to))
+          (quote #:printer)
+          (λ (obj printer-function)
+            (begin
+              (display "(")
+              (display (symbol->string (quote trie)))
+              (display " ")
+              (printer-function (trie-char obj))
+              (display " ")
+              (printer-function (trie-children obj))
+              (display " ")
+              (printer-function (trie-end-word? obj))
+              (display " ")
+              (printer-function (trie-word-up-to obj))
+              (display ")")))
+          (quote #:mutable)
+          #false))
+  (define trie (quote unintialized))
+  (define struct:trie (quote uninitialized))
+  (define trie? (quote uninitialized))
+  (define trie-char (quote uninitialized))
+  (define trie-children (quote uninitialized))
+  (define trie-end-word? (quote uninitialized))
+  (define trie-word-up-to (quote uninitialized))
+  (%plain-let ((prototypes (make-struct-type (quote trie) 4)))
+              (%plain-let ((struct-type-descriptor (list-ref prototypes 0))
+                           (constructor-proto (list-ref prototypes 1))
+                           (predicate-proto (list-ref prototypes 2))
+                           (getter-proto (list-ref prototypes 3)))
+                          (begin
+                            (set! struct:trie struct-type-descriptor)
+                            (#%vtable-update-entry! struct-type-descriptor #false ___trie-options___)
+                            (set! trie constructor-proto)
+                            (set! trie? predicate-proto)
+                            (set! trie-char (λ (this) (getter-proto this 0)))
+                            (set! trie-children (λ (this) (getter-proto this 1)))
+                            (set! trie-end-word? (λ (this) (getter-proto this 2)))
+                            (set! trie-word-up-to (λ (this) (getter-proto this 3)))
+                            void))))
+
+(define empty (quote ()))
+
+(define empty-trie (trie void empty #false empty))
+
+(define flatten
+  (λ (lst)
+    (if (null? lst)
+        empty
+        (if (list? lst) (append (flatten (car lst)) (flatten (cdr lst))) (list lst)))))
+
+(define create-children
+  (λ (char-list lst prefix-chars)
+    (if (= (length char-list) 1)
+        (handle-last-letter char-list lst prefix-chars)
+        (handle-intern-letter char-list lst prefix-chars))))
+
+(define handle-last-letter
+  (λ (char-list lst prefix-chars)
+    (%plain-let
+     ((char (first char-list)))
+     (%plain-let
+      ((next-prefix (push-back prefix-chars char)))
+      (if (empty? lst)
+          (list (trie char empty #true next-prefix))
+          (if (< char (trie-char (first lst)))
+              (cons (trie char empty #true next-prefix) lst)
+              (if (equal? char (trie-char (first lst)))
+                  (cons (trie char (trie-children (first lst)) #true next-prefix) (rest lst))
+                  (cons (first lst) (create-children char-list (rest lst) prefix-chars)))))))))
+
+(define handle-intern-letter
+  (λ (char-list lst prefix-chars)
+    (%plain-let
+     ((char (first char-list)))
+     (%plain-let
+      ((next-prefix (push-back prefix-chars char)))
+      (if (empty? lst)
+          (list (trie char (create-children (rest char-list) empty next-prefix) #false next-prefix))
+          (if (< char (trie-char (first lst)))
+              (cons
+               (trie char (create-children (rest char-list) empty next-prefix) #false next-prefix)
+               lst)
+              (if (equal? char (trie-char (first lst)))
+                  (cons
+                   (trie char
+                         (create-children (rest char-list) (trie-children (first lst)) next-prefix)
+                         (trie-end-word? (first lst))
+                         (trie-word-up-to (first lst)))
+                   (rest lst))
+                  (cons (first lst) (create-children char-list (rest lst) prefix-chars)))))))))
+
+(define insert
+  (λ (root-trie word)
+    (%plain-let ((char-list (string->list word)))
+                (trie (trie-char root-trie)
+                      (create-children char-list (trie-children root-trie) empty)
+                      (trie-end-word? root-trie)
+                      (trie-word-up-to root-trie)))))
+
+(define trie<? (λ (trie-node1 trie-node2) (< (trie-char trie-node1) (trie-char trie-node2))))
+
+(define build-trie-from-list-of-words
+  (λ (trie list-of-words)
+    (if (= (length list-of-words) 1)
+        (insert trie (first list-of-words))
+        (build-trie-from-list-of-words (insert trie (first list-of-words)) (rest list-of-words)))))
+
+(define trie-sort
+  (λ (list-of-words)
+    (%plain-let ((new-trie (build-trie-from-list-of-words empty-trie list-of-words)))
+                (pre-order new-trie))))
+
+(define pre-order
+  (λ (trie-node)
+    (if (trie-end-word? trie-node)
+        (cons (list->string (trie-word-up-to trie-node))
+              (flatten (map pre-order (trie-children trie-node))))
+        (flatten (map pre-order (trie-children trie-node))))))
+
+(define trie-contains-prefix?
+  (λ (root word)
+    (%plain-let
+     ((root-word-char-list (if (string? word) (string->list word) word)))
+     (list? (member #true
+                    (map (λ (node)
+                           (##lambda-lifting##trie-contains-inner?119977 node root-word-char-list))
+                         (trie-children root)))))))
+
+(define my-trie
+  (build-trie-from-list-of-words empty-trie
+                                 (quote ("one" "two"
+                                               "three"
+                                               "four"
+                                               "five"
+                                               "six"
+                                               "seven"
+                                               "eight"
+                                               "nine"
+                                               "1"
+                                               "2"
+                                               "3"
+                                               "4"
+                                               "5"
+                                               "6"
+                                               "7"
+                                               "8"
+                                               "9"))))
+
+(define check-slices
+  (λ (trie-root word-map line)
+    (%plain-let
+     ((line-length (length line)) (loop 123))
+     (%plain-let
+      ((loop4 (#%box loop)))
+      (%plain-let ((_____loop0 (λ (offset amount accum)
+                                 (if (> (+ offset amount) line-length)
+                                     (reverse accum)
+                                     (if (trie-contains-prefix? trie-root (slice line offset amount))
+                                         (if (hash-contains? word-map (slice line offset amount))
+                                             ((#%unbox loop4)
+                                              (+ offset 1)
+                                              1
+                                              (cons (hash-get word-map (slice line offset amount))
+                                                    accum))
+                                             ((#%unbox loop4) offset (+ 1 amount) accum))
+                                         ((#%unbox loop4) (+ 1 offset) 1 accum))))))
+                  (begin
+                    (#%set-box! loop4 _____loop0)
+                    ((#%unbox loop4) 0 1 (quote ()))))))))
+
+(define process-line
+  (λ (line)
+    (%plain-let ((result (check-slices my-trie word-map (string->list line))))
+                (string->number (apply string-append (list (first result) (last result)))))))
+
+(define scan2
+  (λ (path) (%plain-let ((file (open-input-file path))) (##lambda-lifting##loop120600 file 0))))
+
+(displayln (scan2 "aoc/day1.data"))
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+        let analysis = SemanticAnalysis::new(&mut exprs);
+        // analysis.replace_pure_empty_lets_with_body();
+
+        // Log the free identifiers
+        let free_vars = analysis.find_unused_arguments();
+
+        for var in free_vars {
+            crate::rerrs::report_info(
+                ErrorKind::FreeIdentifier.to_error_code(),
+                "input.rkt",
+                script,
+                "unused arguments".to_string(),
+                var,
+            );
+        }
+    }
 
     #[test]
     fn test_free_identifiers() {

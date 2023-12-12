@@ -29,7 +29,6 @@ use std::{
 
 use im_rc::HashMap;
 
-use log::debug;
 use steel_parser::tokens::MaybeBigInt;
 
 use super::cache::MemoizationTable;
@@ -280,10 +279,10 @@ impl<'a> ConstantEvaluator<'a> {
 
         if let Some(new_token) = steelval_to_atom(&output) {
             let atom = Atom::new(SyntaxObject::new(new_token, get_span(&func)));
-            debug!(
-                "Const evaluation of a function resulted in an atom: {}",
-                atom
-            );
+            // debug!(
+            //     "Const evaluation of a function resulted in an atom: {}",
+            //     atom
+            // );
             self.changed = true;
             Ok(ExprKind::Atom(atom))
         } else if let Ok(lst) = ExprKind::try_from(&output) {
@@ -292,16 +291,16 @@ impl<'a> ConstantEvaluator<'a> {
                 lst,
                 SyntaxObject::new(TokenType::Quote, get_span(&func)),
             )));
-            debug!(
-                "Const evaluation of a function resulted in a quoted value: {}",
-                output
-            );
+            // debug!(
+            //     "Const evaluation of a function resulted in a quoted value: {}",
+            //     output
+            // );
             Ok(output)
         } else {
-            debug!(
-                "Unable to convert constant-evalutable function output to value: {}",
-                func
-            );
+            // debug!(
+            //     "Unable to convert constant-evalutable function output to value: {}",
+            //     func
+            // );
             // Something went wrong
             raw_args.insert(0, func);
             Ok(ExprKind::List(List::new(raw_args)))
@@ -325,7 +324,7 @@ impl<'a> ConstantEvaluator<'a> {
                     let output = f(&mut args)
                         .map_err(|e| e.set_span_if_none(func.atom_syntax_object().unwrap().span))?;
 
-                    self.handle_output(output, func, &evaluated_func, raw_args)
+                    self.handle_output(output, func, raw_args)
                 }
                 SteelVal::FuncV(f) => {
                     // TODO: Clean this up - we shouldn't even enter this section of the code w/o having
@@ -349,13 +348,13 @@ impl<'a> ConstantEvaluator<'a> {
                         output
                     };
 
-                    self.handle_output(output, func, &evaluated_func, raw_args)
+                    self.handle_output(output, func, raw_args)
                 }
                 _ => {
-                    debug!(
-                        "Found a non-constant evaluatable function: {}",
-                        evaluated_func
-                    );
+                    // debug!(
+                    //     "Found a non-constant evaluatable function: {}",
+                    //     evaluated_func
+                    // );
                     raw_args.insert(0, func);
                     // Not a constant evaluatable function, just return the original input
                     Ok(ExprKind::List(List::new(raw_args)))
@@ -371,15 +370,15 @@ impl<'a> ConstantEvaluator<'a> {
         &mut self,
         output: SteelVal,
         func: ExprKind,
-        evaluated_func: &SteelVal,
+        // evaluated_func: &SteelVal,
         mut raw_args: Vec<ExprKind>,
     ) -> std::result::Result<ExprKind, crate::SteelErr> {
         if let Some(new_token) = steelval_to_atom(&output) {
             let atom = Atom::new(SyntaxObject::new(new_token, get_span(&func)));
-            debug!(
-                "Const evaluation of a function resulted in an atom: {}",
-                atom
-            );
+            // debug!(
+            //     "Const evaluation of a function resulted in an atom: {}",
+            //     atom
+            // );
             self.changed = true;
             Ok(ExprKind::Atom(atom))
         } else if let Ok(lst) = ExprKind::try_from(&output) {
@@ -388,16 +387,16 @@ impl<'a> ConstantEvaluator<'a> {
                 lst,
                 SyntaxObject::new(TokenType::Quote, get_span(&func)),
             )));
-            debug!(
-                "Const evaluation of a function resulted in a quoted value: {}",
-                output
-            );
+            // debug!(
+            //     "Const evaluation of a function resulted in a quoted value: {}",
+            //     output
+            // );
             Ok(output)
         } else {
-            debug!(
-                "Unable to convert constant-evalutable function output to value: {}",
-                evaluated_func
-            );
+            // debug!(
+            //     "Unable to convert constant-evalutable function output to value: {}",
+            //     evaluated_func
+            // );
             // Something went wrong
             raw_args.insert(0, func);
             Ok(ExprKind::List(List::new(raw_args)))
@@ -416,10 +415,10 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             if let Some(test_expr) = self.to_constant(&test_expr) {
                 self.changed = true;
                 if test_expr.is_truthy() {
-                    debug!("Const evaluation resulted in taking the then branch");
+                    // debug!("Const evaluation resulted in taking the then branch");
                     return self.visit(f.then_expr);
                 } else {
-                    debug!("Const evaluation resulted in taking the else branch");
+                    // debug!("Const evaluation resulted in taking the else branch");
                     return self.visit(f.else_expr);
                 }
             }
@@ -537,7 +536,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             let func = self.visit(func_expr)?;
 
             if let Some(evaluated_func) = self.to_constant(&func) {
-                debug!("Attempting to evaluate: {}", &func);
+                // debug!("Attempting to evaluate: {}", &func);
                 return self.eval_function(evaluated_func, func, Vec::new(), &[]);
             } else if let Some(ident) = func.atom_identifier().and_then(|x| {
                 // TODO: @Matt 4/24/23 - this condition is super ugly and I would prefer if we cleaned it up
@@ -547,7 +546,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                     None
                 }
             }) {
-                log::debug!("Running kernel function!");
+                // log::debug!("Running kernel function!");
 
                 return self.eval_kernel_function(ident.clone(), func, Vec::new(), &[]);
             } else {
@@ -734,7 +733,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
             // Found no arguments are there are no non constant arguments
             if actually_used_arguments.is_empty() && non_constant_arguments.is_empty() {
-                debug!("Found no used arguments or non constant arguments, returning the body");
+                // debug!("Found no used arguments or non constant arguments, returning the body");
 
                 // Unwind the recursion before we bail out
                 self.bindings = parent;
@@ -759,7 +758,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                     .filter(|x| self.to_constant(x).is_none())
                     .collect();
 
-                debug!("Found a constant output from the body");
+                // debug!("Found a constant output from the body");
 
                 self.changed = true;
                 self.bindings = parent;

@@ -310,8 +310,6 @@ impl BuiltInModuleRepr {
 
         // No need to generate this module multiple times -
         if prefix.is_none() && self.generated_expression.borrow().is_some() {
-            // log::debug!(target: "engine-creation", "Getting the module from the cache!");
-
             return self.generated_expression.borrow().as_ref().unwrap().clone();
         }
 

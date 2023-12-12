@@ -15,7 +15,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use log::{debug, error};
+use log::error;
 use serde::{Deserialize, Serialize};
 use steel_parser::tokens::MaybeBigInt;
 
@@ -678,7 +678,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
 
                         // This solves the destructuring test case
                         if vec.len() < l.len() && !vec.iter().any(|x| x.is_many()) {
-                            debug!("Matching failed - ellipses doesn't match up");
+                            // debug!("Matching failed - ellipses doesn't match up");
                             return false;
                         }
 
@@ -686,7 +686,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                         if match_vec_pattern(vec, l) {
                             continue;
                         } else {
-                            debug!("Matching failed due to child not matching");
+                            // debug!("Matching failed due to child not matching");
                             return false;
                         }
                     } else if let ExprKind::Quote(_) = val {
@@ -694,7 +694,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                         return matches!(vec.as_slice(), &[MacroPattern::Quote(_)]);
                         // return true;
                     } else {
-                        debug!("Matching failed - atom does not match list");
+                        // debug!("Matching failed - atom does not match list");
                         return false;
                     }
                 }
@@ -725,17 +725,17 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
             if pat.is_many() {
                 continue;
             } else {
-                debug!(
-                    "Matching failed due to insufficient tokens - next pat: {:?}",
-                    pat
-                );
+                // debug!(
+                //     "Matching failed due to insufficient tokens - next pat: {:?}",
+                //     pat
+                // );
                 return false;
             }
         }
     }
 
     if token_iter.next().is_some() && !matches!(args.last(), Some(MacroPattern::Many(_))) {
-        debug!("Matching failed due to leftover tokens");
+        // debug!("Matching failed due to leftover tokens");
         return false;
     }
 

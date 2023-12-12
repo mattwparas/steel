@@ -73,11 +73,17 @@ thread_local! {
 //     KERNEL_BIN_FILE.with(|x| x.set(Some(bin)));
 // }
 
+pub trait ModuleResolver {
+    fn resolve(&self, name: &str) -> Option<BuiltInModule>;
+}
+
 #[derive(Clone, Default)]
 pub struct ModuleContainer {
     modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
-    // Modules that... might eventually be a dynamic library
-    maybe_module: HashSet<String>,
+    // For modules that don't exist in memory. This could be useful for a world
+    // in which a builtin module exists BUT we'd like to resolve the module for
+    // inference purposes.
+    unresolved_modules: Option<Rc<dyn ModuleResolver>>,
 }
 
 impl ModuleContainer {
@@ -86,7 +92,11 @@ impl ModuleContainer {
     }
 
     pub fn get(&mut self, key: &str) -> Option<BuiltInModule> {
-        self.modules.get(key).cloned()
+        self.modules.get(key).cloned().or_else(|| {
+            self.unresolved_modules
+                .as_ref()
+                .and_then(|x| x.resolve(key))
+        })
     }
 
     pub fn inner(&self) -> &ImmutableHashMap<Rc<str>, BuiltInModule> {
@@ -95,6 +105,10 @@ impl ModuleContainer {
 
     pub(crate) fn inner_mut(&mut self) -> &mut ImmutableHashMap<Rc<str>, BuiltInModule> {
         &mut self.modules
+    }
+
+    pub fn with_resolver<T: ModuleResolver + 'static>(&mut self, resolver: T) {
+        self.unresolved_modules = Some(Rc::new(resolver));
     }
 }
 
@@ -310,15 +324,25 @@ impl Engine {
         vm
     }
 
+    /// Register a module resolver. This is used for creating references to modules
+    /// that don't exist within the compiler. Without this, you wouldn't be able to
+    /// pre-compile or analyze code that is run within another host application, without
+    /// exposing some kind of compiler from that hosts runtime. The requirement then
+    /// is to expose some kind of module artifact that we can then consume.
+    pub fn register_module_resolver<T: ModuleResolver + 'static>(&mut self, resolver: T) {
+        self.modules.with_resolver(resolver);
+    }
+
     pub fn builtin_modules(&self) -> &ModuleContainer {
         &self.modules
     }
 
     #[doc(hidden)]
     pub fn disallow_dylib_loading(&mut self) -> &mut Self {
-        // This isn't amazing
         let module = self.modules.inner_mut();
 
+        // TODO: This should actually just clone the whole module, and then add this definition
+        // in. That way it has its own unique module loader.
         if let Some(builtin_module) = module.get_mut("steel/meta") {
             builtin_module.register_native_fn_definition(LOAD_MODULE_NOOP_DEFINITION);
         }

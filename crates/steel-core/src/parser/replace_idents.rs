@@ -434,13 +434,13 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
                 syn: SyntaxObject { ty: t, .. },
             }) = x
             {
-                log::debug!("Checking if expression needs to be rewritten: {:?}", t);
+                // log::debug!("Checking if expression needs to be rewritten: {:?}", t);
                 reserved_token_type_to_ident(t);
             }
 
-            if let ExprKind::Define(d) = x {
-                log::debug!("Found a define to be rewritten: {:?}", d);
-            }
+            // if let ExprKind::Define(d) = x {
+            //     log::debug!("Found a define to be rewritten: {:?}", d);
+            // }
         });
 
         Ok(ExprKind::LambdaFunction(lambda_function))

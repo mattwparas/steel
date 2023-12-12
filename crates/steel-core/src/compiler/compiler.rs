@@ -588,15 +588,15 @@ impl Compiler {
             .map(lower_entire_ast)
             .collect::<std::result::Result<Vec<_>, ParseError>>()?;
 
-        if log_enabled!(log::Level::Debug) {
-            debug!(
-                "Generating instructions for the expression: {:?}",
-                expanded_statements
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>()
-            );
-        }
+        // if log_enabled!(log::Level::Debug) {
+        //     debug!(
+        //         "Generating instructions for the expression: {:?}",
+        //         expanded_statements
+        //             .iter()
+        //             .map(|x| x.to_string())
+        //             .collect::<Vec<_>>()
+        //     );
+        // }
 
         log::debug!(target: "expansion-phase", "Expanding macros -> phase 1");
 
@@ -718,15 +718,15 @@ impl Compiler {
             .map(lower_entire_ast)
             .collect::<std::result::Result<Vec<_>, ParseError>>()?;
 
-        if log_enabled!(log::Level::Debug) {
-            debug!(
-                "Generating instructions for the expression: {:?}",
-                expanded_statements
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>()
-            );
-        }
+        // if log_enabled!(log::Level::Debug) {
+        //     debug!(
+        //         "Generating instructions for the expression: {:?}",
+        //         expanded_statements
+        //             .iter()
+        //             .map(|x| x.to_string())
+        //             .collect::<Vec<_>>()
+        //     );
+        // }
 
         log::debug!(target: "expansion-phase", "Expanding macros -> phase 1");
 
