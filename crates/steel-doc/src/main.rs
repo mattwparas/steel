@@ -24,7 +24,7 @@ fn main() {
             continue;
         }
 
-        let module_name_without_slashes = module_name.replace("/", "_");
+        let module_name_without_slashes = module_name.replace('/', "_");
 
         let mut module_file =
             std::fs::File::create(format!("generated/{}.md", module_name_without_slashes)).unwrap();

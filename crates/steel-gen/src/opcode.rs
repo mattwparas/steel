@@ -185,7 +185,7 @@ impl OpCode {
     pub fn is_super_instruction(&self) -> bool {
         // TODO: Check where super instructions start!
 
-        return *self as u32 > Self::LTEIMMEDIATEIF as u32;
+        *self as u32 > Self::LTEIMMEDIATEIF as u32
     }
 
     /// Statically create the mapping we need for super instruction. Also, as part of the op code map generating,
@@ -197,16 +197,16 @@ impl OpCode {
     pub fn is_ephemeral_opcode(&self) -> bool {
         use OpCode::*;
 
-        match self {
+        matches!(
+            self,
             ECLOSURE
-            | PASS
-            | Arity
-            | NDEFS
-            | COPYCAPTURECLOSURE
-            | COPYCAPTURESTACK
-            | COPYHEAPCAPTURECLOSURE => true,
-            _ => false,
-        }
+                | PASS
+                | Arity
+                | NDEFS
+                | COPYCAPTURECLOSURE
+                | COPYCAPTURESTACK
+                | COPYHEAPCAPTURECLOSURE
+        )
     }
 
     // TODO better error handling here

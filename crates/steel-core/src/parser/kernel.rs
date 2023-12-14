@@ -366,6 +366,7 @@ impl Kernel {
                                     if let ExprKind::LambdaFunction(_) = &define.body {
                                         let name = define.name.atom_identifier().unwrap().clone();
 
+                                        #[allow(clippy::if_same_then_else)] // FIXME
                                         return if result.contains_key(&name) {
                                             true
                                         } else if self.engine.global_exists(name.resolve()) {

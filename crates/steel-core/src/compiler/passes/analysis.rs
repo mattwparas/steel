@@ -3360,19 +3360,17 @@ impl<'a> SemanticAnalysis<'a> {
                                     }
                                 }
                             }
-                        } else {
-                            if let ExprKind::List(l) = expression {
-                                if let Some(func) = l.first_ident() {
-                                    if *func == module_get_interned {
-                                        if l[1].atom_identifier() == Some(&steel_constant_module) {
-                                            if let ExprKind::Quote(q) = &l[2] {
-                                                if q.expr.atom_identifier() == Some(&void)
-                                                    && offset < total_length
-                                                {
-                                                    offset += 1;
-                                                    return false;
-                                                }
-                                            }
+                        } else if let ExprKind::List(l) = expression {
+                            if let Some(func) = l.first_ident() {
+                                if *func == module_get_interned
+                                    && l[1].atom_identifier() == Some(&steel_constant_module)
+                                {
+                                    if let ExprKind::Quote(q) = &l[2] {
+                                        if q.expr.atom_identifier() == Some(&void)
+                                            && offset < total_length
+                                        {
+                                            offset += 1;
+                                            return false;
                                         }
                                     }
                                 }

@@ -166,7 +166,7 @@ prop_compose! {
 
 prop_compose! {
     fn ident_strategy()(
-        ident in r#"[_\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Start}\p{Emoji_Presentation}]['_\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Continue}\p{Emoji_Presentation}]*"#
+        ident in r"[_\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Start}\p{Emoji_Presentation}]['_\+\-\*\x2F%\&\|!?\~<>=@\.\p{XID_Continue}\p{Emoji_Presentation}]*"
     ) -> InternedString {
         ident.into()
     }

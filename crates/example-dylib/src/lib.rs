@@ -34,8 +34,6 @@ pub fn build_module(module: &mut BuiltInModule) {
 }
 
 #[no_mangle]
-pub fn free_module(ptr: *mut BuiltInModule) {
-    unsafe {
-        let _ = Box::from_raw(ptr);
-    }
+pub unsafe fn free_module(ptr: *mut BuiltInModule) {
+    let _ = Box::from_raw(ptr);
 }

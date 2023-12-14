@@ -1922,6 +1922,7 @@ mod or_else_tests {
     }
 
     #[test]
+    #[allow(clippy::unit_cmp)] // FIXME
     fn void_or_else_test_good() {
         let input = SteelVal::Void;
         assert_eq!(input.void_or_else(throw!(Generic => "test")).unwrap(), ())
