@@ -1051,6 +1051,8 @@ fn _define_quoted_ast_node(ast_name: ExprKind, expanded_expr: &ExprKind) -> Expr
 
 #[cfg(test)]
 mod expansion_tests {
+    use steel_parser::span::Span;
+
     use super::*;
 
     use crate::parser::expander::MacroCase;
@@ -1096,6 +1098,7 @@ mod expansion_tests {
                 )
                 .into(),
             )],
+            Span::default(),
         );
 
         let mut map = HashMap::new();
