@@ -7,15 +7,15 @@ suite. You should have previously setup a [recent rust tool
 chain](https://www.rust-lang.org/tools/install).
 
 ```bash
-git clone https://github.com/mattwparas/steel.git &&
-cd steel &&
-mkdir -p .steel/cogs &&
-export STEEL_HOME="$(pwd)/.steel" &&
-cargo build &&
-pushd cogs &&
-cargo run -- install.scm &&
-popd &&
-cargo test --all
+git clone https://github.com/mattwparas/steel.git && \
+  cd steel && \
+  mkdir -p .steel/cogs && \
+  export STEEL_HOME="$(pwd)/.steel" && \
+  cargo build && \
+  pushd cogs && \
+  cargo run -- install.scm && \
+  popd && \
+  cargo test --all
 ```
 
 ## Commit message style
