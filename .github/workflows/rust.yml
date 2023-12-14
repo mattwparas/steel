@@ -7,27 +7,22 @@ on:
     branches: [master]
 
 jobs:
-
-  test:
-    name: Test Suite
+  tests:
+    name: Tests
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
+      - name: Checkout sources
+        uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-
-      - name: Set the STEEL_HOME environment variable
-        run: echo STEEL_HOME=${PWD}/.steel >> $GITHUB_ENV 
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@1.70
 
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "build"
+
+      - name: Set the STEEL_HOME environment variable
+        run: echo STEEL_HOME=${PWD}/.steel >> $GITHUB_ENV
 
       - name: Build
         run: cargo build --verbose
@@ -47,12 +42,10 @@ jobs:
       - name: install websockets dylib
         run: cd crates/steel-websockets && cargo steel-lib
 
-      - uses: actions-rs/cargo@v1
+      - name: Run cargo test
         env:
           STEEL_HOME: ${{ env.STEEL_HOME }}
-        with:
-          command: test
-          args: --all
+        run: cargo test --all
 
       - name: install cargo-tarpaulin
         run: cargo install cargo-tarpaulin
@@ -66,23 +59,30 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path-to-lcov: ./lcov.info
 
-  rustfmt:
-    name: Rustfmt
+  lints:
+    name: Lints
     runs-on: ubuntu-latest
-    needs: test
+    needs: [tests]
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-          components: rustfmt
-      - name: Check formatting
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+      - name: Checkout sources
+        uses: actions/checkout@v4
 
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@1.70
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "build"
+
+      - name: Run cargo fmt
+        run: cargo fmt --all --check
+
+      - name: Run cargo clippy
+        run: cargo clippy --workspace --all-targets -- -A warnings
+
+      - name: Run cargo doc
+        run: cargo doc --no-deps --workspace --document-private-items
+        env:
+          RUSTDOCFLAGS: -D warnings
