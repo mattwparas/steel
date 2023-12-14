@@ -216,16 +216,15 @@ impl ExprKind {
     }
 
     pub fn define_syntax_ident(&self) -> bool {
-        match self {
+        matches!(
+            self,
             Self::Atom(Atom {
-                syn:
-                    SyntaxObject {
-                        ty: TokenType::DefineSyntax,
-                        ..
-                    },
-            }) => true,
-            _ => false,
-        }
+                syn: SyntaxObject {
+                    ty: TokenType::DefineSyntax,
+                    ..
+                },
+            })
+        )
     }
 
     pub fn atom_identifier_mut(&mut self) -> Option<&mut InternedString> {
@@ -965,18 +964,15 @@ impl List {
     }
 
     pub fn is_require(&self) -> bool {
-        if let Some(ExprKind::Atom(Atom {
-            syn:
-                SyntaxObject {
+        matches!(
+            self.args.first(),
+            Some(ExprKind::Atom(Atom {
+                syn: SyntaxObject {
                     ty: TokenType::Require,
                     ..
                 },
-        })) = self.args.first()
-        {
-            true
-        } else {
-            false
-        }
+            }))
+        )
     }
 
     pub fn is_define_syntax(&self) -> bool {
@@ -1010,18 +1006,15 @@ impl List {
     }
 
     pub fn is_quote(&self) -> bool {
-        if let Some(ExprKind::Atom(Atom {
-            syn:
-                SyntaxObject {
+        matches!(
+            self.args.first(),
+            Some(ExprKind::Atom(Atom {
+                syn: SyntaxObject {
                     ty: TokenType::Quote,
                     ..
                 },
-        })) = self.args.first()
-        {
-            true
-        } else {
-            false
-        }
+            }))
+        )
     }
 
     pub fn first_ident(&self) -> Option<&InternedString> {

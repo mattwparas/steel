@@ -839,9 +839,7 @@ impl<'a> IterativeDropHandler<'a> {
 impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
     type Output = ();
 
-    fn default_output(&mut self) -> Self::Output {
-        ()
-    }
+    fn default_output(&mut self) -> Self::Output {}
 
     fn pop_front(&mut self) -> Option<SteelVal> {
         self.drop_buffer.pop_front()

@@ -109,7 +109,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
                 );
                 let test_script = include_str!("../cogs/test-runner.scm");
                 if let Err(e) = vm.run(test_script) {
-                    e.emit_result(path, &test_script);
+                    e.emit_result(path, test_script);
                     return Err(Box::new(e));
                 }
             }

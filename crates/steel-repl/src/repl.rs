@@ -85,13 +85,13 @@ fn finish_or_interrupt(vm: &mut Engine, line: String, print_time: bool) {
 pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     println!(
         "{}",
-        r#"
+        r"
      _____ __            __
     / ___// /____  ___  / /          Version 0.5.0
     \__ \/ __/ _ \/ _ \/ /           https://github.com/mattwparas/steel
    ___/ / /_/  __/  __/ /            :? for help
   /____/\__/\___/\___/_/ 
-    "#
+    "
         .bright_yellow()
         .bold()
     );

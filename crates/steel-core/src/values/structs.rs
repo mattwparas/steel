@@ -93,6 +93,7 @@ pub struct SerializableUserDefinedStruct {
     pub(crate) type_descriptor: StructTypeDescriptor,
 }
 
+#[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Clone, Debug, Hash)]
 pub struct UserDefinedStruct {
     // pub(crate) name: InternedString,

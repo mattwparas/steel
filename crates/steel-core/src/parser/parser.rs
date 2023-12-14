@@ -51,7 +51,7 @@ impl InterierSources {
     pub fn size_in_bytes(&self) -> usize {
         self.sources
             .iter()
-            .map(|x| std::mem::size_of_val(&*x))
+            .map(|x| std::mem::size_of_val(&**x))
             .sum()
     }
 

@@ -469,10 +469,7 @@ impl<'a> Iterator for Lexer<'a> {
                 Some(Ok(self.read_word()))
             }
             Some(c) if c.is_numeric() => Some(Ok(self.read_number())),
-            Some(_) => match self.eat() {
-                Some(e) => Some(Err(TokenError::UnexpectedChar(e))),
-                _ => None,
-            },
+            Some(_) => self.eat().map(|e| Err(TokenError::UnexpectedChar(e))),
             None => None,
         }
     }

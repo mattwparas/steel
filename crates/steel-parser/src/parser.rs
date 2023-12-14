@@ -857,7 +857,7 @@ impl<'a> Parser<'a> {
                             if current_frame.is_empty() {
                                 match &token.ty {
                                     TokenType::Quote => {
-                                        if self.context == &[ParsingContext::QuoteTick(0)] {
+                                        if self.context == [ParsingContext::QuoteTick(0)] {
                                             self.context.push(ParsingContext::Quote(1))
                                         } else {
                                             self.context.push(ParsingContext::Quote(stack.len()))
@@ -926,12 +926,13 @@ impl<'a> Parser<'a> {
             if let Some(res) = next {
                 match res.ty {
                     TokenType::Comment => {
-                        if self.comment_buffer.is_empty() && !self.collecting_comments {
-                            if res.source().trim_start_matches(';').starts_with("@doc") {
-                                self.collecting_comments = true;
+                        if self.comment_buffer.is_empty()
+                            && !self.collecting_comments
+                            && res.source().trim_start_matches(';').starts_with("@doc")
+                        {
+                            self.collecting_comments = true;
 
-                                continue;
-                            }
+                            continue;
                         }
 
                         if self.collecting_comments {
