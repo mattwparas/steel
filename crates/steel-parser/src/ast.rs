@@ -29,6 +29,7 @@ macro_rules! define_symbols {
 define_symbols! {
     UNREADABLE_MODULE_GET => "##__module-get",
     STANDARD_MODULE_GET => "%module-get%",
+    PROTO_HASH_GET => "%proto-hash-get%",
     PROVIDE => "provide",
     DATUM_SYNTAX => "datum->syntax",
     SYNTAX_SPAN => "#%syntax-span",
@@ -934,6 +935,9 @@ pub struct List {
     pub args: Vec<ExprKind>,
     pub syntax_object_id: usize,
     pub improper: bool,
+    // TODO: Attach the span from the parser - just the offset
+    // of the open and close parens
+    pub location: Option<Span>,
 }
 
 impl PartialEq for List {
@@ -948,7 +952,13 @@ impl List {
             args,
             syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed),
             improper: false,
+            location: None,
         }
+    }
+
+    pub fn with_span(mut self, location: Span) -> Self {
+        self.location = Some(location);
+        self
     }
 
     pub fn make_improper(mut self) -> Self {

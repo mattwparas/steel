@@ -362,8 +362,6 @@ impl<'a> ReplaceExpressions<'a> {
 
                 let span = crate::parser::span_visitor::get_span(expr_to_extract_span);
 
-                // dbg!(&span);
-
                 let start = ExprKind::integer_literal(span.start as isize, span);
                 let end = ExprKind::integer_literal(span.end as isize, span);
 
@@ -544,7 +542,7 @@ pub struct RewriteSpan {
 }
 
 impl RewriteSpan {
-    fn new(span: Span) -> Self {
+    pub fn new(span: Span) -> Self {
         Self { span }
     }
 }

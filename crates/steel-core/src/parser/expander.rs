@@ -141,6 +141,7 @@ pub struct SteelMacro {
     special_forms: Vec<InternedString>,
     cases: Vec<MacroCase>,
     mangled: bool,
+    location: Span,
 }
 
 impl SteelMacro {
@@ -149,12 +150,14 @@ impl SteelMacro {
         name: InternedString,
         special_forms: Vec<InternedString>,
         cases: Vec<MacroCase>,
+        location: Span,
     ) -> Self {
         SteelMacro {
             name,
             special_forms,
             cases,
             mangled: false,
+            location,
         }
     }
 
@@ -210,6 +213,7 @@ impl SteelMacro {
             special_forms,
             cases,
             mangled: false,
+            location: ast_macro.location.span,
         })
     }
 
@@ -236,8 +240,10 @@ impl SteelMacro {
 
     pub fn expand(&self, expr: List, span: Span) -> Result<ExprKind> {
         // if log::log_enabled!(log::Level::Debug) {
-        //     debug!("Expanding macro with tokens: {}", expr);
+        //     log::debug!("Expanding macro with tokens: {}", expr);
         // }
+
+        // log::debug!("Expanding with span: {:?}", span);
 
         let case_to_expand = self.match_case(&expr)?;
         let expanded_expr = case_to_expand.expand(expr, span)?;

@@ -36,22 +36,6 @@ impl RenameShadowedVariables {
     pub fn rename_shadowed_vars(exprs: &mut [ExprKind]) {
         let mut renamer = Self::new();
 
-        // for expr in exprs.iter() {
-        //     match expr {
-        //         ExprKind::Define(d) => {
-        //             d.name.atom_identifier().map(|x| renamer.scope.define(*x));
-        //         }
-        //         ExprKind::Begin(b) => {
-        //             for expr in &b.exprs {
-        //                 if let ExprKind::Define(d) = expr {
-        //                     d.name.atom_identifier().map(|x| renamer.scope.define(*x));
-        //                 }
-        //             }
-        //         }
-        //         _ => {}
-        //     }
-        // }
-
         for expr in exprs.iter_mut() {
             renamer.visit(expr);
         }
@@ -71,7 +55,7 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
                 self.shadows.define(*variable, modifier);
 
                 // Create a mutable string to mangle
-                let mut mut_var = variable.resolve().to_string();
+                let mut mut_var = "##".to_string() + variable.resolve();
 
                 if let Some(char_modifier) = char::from_digit(modifier as u32, 10) {
                     mut_var.push(char_modifier);
@@ -109,7 +93,7 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
                 // Now, shadowing shouldn't actually _be_ a problem
                 // ident.push(char::from_digit(*modifier as u32, 10).unwrap());
 
-                let mut mut_ident = ident.resolve().to_string();
+                let mut mut_ident = "##".to_string() + ident.resolve();
 
                 if let Some(char_modifier) = char::from_digit(*modifier as u32, 10) {
                     mut_ident.push(char_modifier)
@@ -139,7 +123,7 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
                 let modifier = self.scope.depth();
                 self.shadows.define(*variable, modifier);
 
-                let mut mut_var = variable.resolve().to_string();
+                let mut mut_var = "##".to_string() + variable.resolve();
 
                 if let Some(char_modifier) = char::from_digit(modifier as u32, 10) {
                     mut_var.push(char_modifier);

@@ -354,7 +354,10 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
 
         // TODO: we're currently erasing the source here... This isn't what we want to do but we don't have
         // a great model to access the source otherwise
-        log::trace!("Erasing the source information during kernel level expansion");
+        // log::debug!(
+        //     "Erasing the source information during kernel level expansion for: {:?}",
+        //     raw
+        // );
         Ok(Syntax::proto(raw, items.into(), span).into())
     }
 

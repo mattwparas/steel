@@ -1832,6 +1832,10 @@ impl Engine {
         &self.compiler.macro_env
     }
 
+    pub fn in_scope_macros_mut(&mut self) -> &mut HashMap<InternedString, SteelMacro> {
+        &mut self.compiler.macro_env
+    }
+
     pub fn get_module(&self, path: PathBuf) -> Result<SteelVal> {
         let module_path =
             "__module-mangler".to_string() + path.as_os_str().to_str().unwrap() + "__%#__";
@@ -1841,6 +1845,19 @@ impl Engine {
 
     pub fn get_source_id(&self, path: &PathBuf) -> Option<SourceId> {
         self.sources.get_source_id(path)
+    }
+
+    pub fn get_path_for_source_id(&self, source_id: &SourceId) -> Option<PathBuf> {
+        self.sources.get_path(source_id)
+    }
+
+    pub fn get_source(&self, source_id: &SourceId) -> Option<String> {
+        self.sources
+            .sources
+            .lock()
+            .unwrap()
+            .get(*source_id)
+            .cloned()
     }
 }
 
@@ -1919,7 +1936,7 @@ fn raise_error(sources: &Sources, error: SteelErr) {
                     }
                 }
 
-                let resolved_file_name = file_name.cloned().unwrap_or_default();
+                let resolved_file_name = file_name.unwrap_or_default();
 
                 error.emit_result(resolved_file_name.to_str().unwrap(), &file_content);
                 return;
@@ -1971,7 +1988,7 @@ pub(crate) fn raise_error_to_string(sources: &Sources, error: SteelErr) -> Optio
                     }
                 }
 
-                let resolved_file_name = file_name.cloned().unwrap_or_default();
+                let resolved_file_name = file_name.unwrap_or_default();
 
                 let final_error = error
                     .emit_result_to_string(resolved_file_name.to_str().unwrap(), &file_content);

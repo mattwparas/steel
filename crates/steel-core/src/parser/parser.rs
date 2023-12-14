@@ -86,8 +86,8 @@ impl InterierSources {
         self.sources.get(source_id.0)
     }
 
-    pub fn get_path(&self, source_id: &SourceId) -> Option<&PathBuf> {
-        self.paths.get(source_id)
+    pub fn get_path(&self, source_id: &SourceId) -> Option<PathBuf> {
+        self.paths.get(source_id).cloned()
     }
 
     pub fn get_id(&self, path: &PathBuf) -> Option<SourceId> {
@@ -119,6 +119,10 @@ impl Sources {
 
     pub fn get_source_id(&self, path: &PathBuf) -> Option<SourceId> {
         self.sources.lock().unwrap().get_id(path)
+    }
+
+    pub fn get_path(&self, source_id: &SourceId) -> Option<PathBuf> {
+        self.sources.lock().unwrap().get_path(source_id)
     }
 
     pub fn size_in_bytes(&self) -> usize {

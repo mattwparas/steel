@@ -5,6 +5,7 @@ use std::{
 
 use im_rc::HashMap as ImmutableHashMap;
 use quickscope::ScopeMap;
+use steel_parser::{ast::PROTO_HASH_GET, parser::SourceId};
 
 use crate::{
     compiler::{
@@ -20,6 +21,7 @@ use crate::{
         interner::InternedString,
         parser::{RawSyntaxObject, SyntaxObject, SyntaxObjectId},
         span::Span,
+        span_visitor::get_span,
         tokens::TokenType,
     },
     steel_vm::primitives::MODULE_IDENTIFIERS,
@@ -66,6 +68,12 @@ pub struct SemanticInformation {
     pub heap_offset: Option<usize>,
     pub read_heap_offset: Option<usize>,
     pub is_shadowed: bool,
+    pub is_required_identifier: bool,
+}
+
+#[test]
+fn check_size_of_info() {
+    println!("{}", std::mem::size_of::<SemanticInformation>());
 }
 
 impl SemanticInformation {
@@ -89,6 +97,7 @@ impl SemanticInformation {
             heap_offset: None,
             read_heap_offset: None,
             is_shadowed: false,
+            is_required_identifier: false,
         }
     }
 
@@ -114,6 +123,10 @@ impl SemanticInformation {
 
     pub fn mark_builtin(&mut self) {
         self.builtin = true;
+    }
+
+    pub fn mark_required(&mut self) {
+        self.is_required_identifier = true;
     }
 
     pub fn with_offset(mut self, offset: usize) -> Self {
@@ -242,6 +255,14 @@ impl LetInformation {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum SemanticInformationType {
+    Variable(SemanticInformation),
+    Function(FunctionInformation),
+    CallSite(CallSiteInformation),
+    Let(LetInformation),
+}
+
 // Populate the metadata about individual
 #[derive(Default, Debug, Clone)]
 pub struct Analysis {
@@ -335,6 +356,10 @@ impl Analysis {
 
         if is_a_builtin_definition(define) {
             semantic_info.mark_builtin();
+        }
+
+        if is_a_require_definition(define) {
+            semantic_info.mark_required();
         }
 
         // If this variable name is already in scope, we should mark that this variable
@@ -440,6 +465,7 @@ impl Analysis {
         existing.captured_from_enclosing = metadata.captured_from_enclosing;
         existing.heap_offset = metadata.heap_offset;
         existing.read_heap_offset = metadata.read_heap_offset;
+        existing.is_required_identifier = metadata.is_required_identifier;
     }
 
     pub fn get(&self, object: &SyntaxObject) -> Option<&SemanticInformation> {
@@ -643,6 +669,12 @@ impl<'a> AnalysisPass<'a> {
             semantic_info.mark_builtin();
         }
 
+        // println!("Defining global: {}", define.name);
+
+        if is_a_require_definition(define) {
+            semantic_info.mark_required();
+        }
+
         if let Some(aliases) = define.is_an_alias_definition() {
             semantic_info = semantic_info.aliases_to(aliases);
         }
@@ -673,6 +705,10 @@ impl<'a> AnalysisPass<'a> {
 
         if is_a_builtin_definition(define) {
             semantic_info.mark_builtin();
+        }
+
+        if is_a_require_definition(define) {
+            semantic_info.mark_required();
         }
 
         // If this variable name is already in scope, we should mark that this variable
@@ -1757,24 +1793,87 @@ impl<'a> VisitorMutUnitRef<'a> for Analysis {
     }
 }
 
+pub fn query_top_level_define_on_condition<A: AsRef<str>>(
+    exprs: &[ExprKind],
+    name: A,
+    mut func: impl FnMut(&str, &str) -> bool,
+) -> Option<&crate::parser::ast::Define> {
+    let mut found_defines = Vec::new();
+    for expr in exprs {
+        log::debug!("{}", expr);
+
+        match expr {
+            ExprKind::Define(d) => match d.name.atom_identifier() {
+                Some(n) if func(name.as_ref(), n.resolve()) => found_defines.push(d.as_ref()),
+                _ => {}
+            },
+
+            ExprKind::Begin(b) => {
+                for expr in b.exprs.iter() {
+                    if let ExprKind::Define(d) = expr {
+                        match d.name.atom_identifier() {
+                            Some(n) if func(name.as_ref(), n.resolve()) => {
+                                found_defines.push(d.as_ref())
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+
+            _ => {}
+        }
+    }
+
+    if found_defines.len() > 1 {
+        log::debug!(
+            "Multiple defines found, unable to find one unique value to associate with a name"
+        );
+        return None;
+    }
+
+    if found_defines.len() == 1 {
+        return found_defines.into_iter().next();
+    }
+
+    None
+}
+
 pub fn query_top_level_define<A: AsRef<str>>(
     exprs: &[ExprKind],
     name: A,
 ) -> Option<&crate::parser::ast::Define> {
     let mut found_defines = Vec::new();
     for expr in exprs {
-        if let ExprKind::Define(d) = expr {
-            match d.name.atom_identifier() {
+        log::debug!("{}", expr);
+
+        match expr {
+            ExprKind::Define(d) => match d.name.atom_identifier() {
                 Some(n) if name.as_ref() == n.resolve() => found_defines.push(d.as_ref()),
                 _ => {}
+            },
+
+            ExprKind::Begin(b) => {
+                for expr in b.exprs.iter() {
+                    if let ExprKind::Define(d) = expr {
+                        match d.name.atom_identifier() {
+                            Some(n) if name.as_ref() == n.resolve() => {
+                                found_defines.push(d.as_ref())
+                            }
+                            _ => {}
+                        }
+                    }
+                }
             }
+
+            _ => {}
         }
     }
 
     if found_defines.len() > 1 {
-        // log::debug!(
-        //     "Multiple defines found, unable to find one unique value to associate with a name"
-        // );
+        log::debug!(
+            "Multiple defines found, unable to find one unique value to associate with a name"
+        );
         return None;
     }
 
@@ -2130,6 +2229,19 @@ pub(crate) fn is_a_builtin_definition(def: &Define) -> bool {
     false
 }
 
+pub(crate) fn is_a_require_definition(def: &Define) -> bool {
+    if let ExprKind::List(l) = &def.body {
+        match l.first_ident() {
+            Some(func) if *func == *PROTO_HASH_GET => {
+                return true;
+            }
+            _ => {}
+        }
+    }
+
+    false
+}
+
 impl<'a> VisitorMutRefUnit for RemoveUnusedDefineImports<'a> {
     fn visit_lambda_function(&mut self, lambda_function: &mut LambdaFunction) {
         self.depth += 1;
@@ -2265,9 +2377,96 @@ impl<'a> VisitorMutUnitRef<'a> for FreeIdentifierVisitor<'a> {
     }
 }
 
+// TODO: Don't need the analysis at all
+struct IdentifierFinder<'a> {
+    analysis: &'a Analysis,
+    ids: &'a mut HashMap<SyntaxObjectId, Option<InternedString>>,
+}
+
+impl<'a> VisitorMutUnitRef<'a> for IdentifierFinder<'a> {
+    fn visit_atom(&mut self, a: &'a Atom) {
+        if let Some(ident) = a.ident() {
+            self.ids
+                .get_mut(&a.syn.syntax_object_id)
+                .map(|value| *value = Some(*ident));
+        }
+    }
+}
+
+struct FindContextsWithOffset<'a> {
+    analysis: &'a Analysis,
+    offset: usize,
+    source_id: SourceId,
+    contexts: Vec<SemanticInformationType>,
+}
+
+impl<'a> VisitorMutUnitRef<'a> for FindContextsWithOffset<'a> {
+    fn visit_lambda_function(&mut self, lambda_function: &'a LambdaFunction) {
+        if lambda_function.location.span.end >= self.offset {
+            return;
+        }
+
+        let mut span = get_span(&lambda_function.body);
+
+        span.start = lambda_function.location.span.start;
+
+        log::debug!("Lambda function span: {:?} - offset: {}", span, self.offset);
+
+        // This counts, save analysis.
+        // TODO: Memoize the span analysis, this is not performant
+        if span.range().contains(&self.offset) {
+            // TODO: Don't clone this
+            if let Some(info) = self.analysis.get_function_info(lambda_function) {
+                if lambda_function.location.span.source_id == Some(self.source_id) {
+                    self.contexts
+                        .push(SemanticInformationType::Function(info.clone()));
+                }
+            }
+
+            self.visit(&lambda_function.body);
+        }
+    }
+
+    fn visit_let(&mut self, l: &'a Let) {
+        if l.location.span.end >= self.offset {
+            return;
+        }
+
+        let mut span = get_span(&l.body_expr);
+        span.start = l.location.span.start;
+
+        if span.range().contains(&self.offset) {
+            if let Some(info) = self.analysis.let_info.get(&l.syntax_object_id) {
+                if l.location.span.source_id() == Some(self.source_id) {
+                    self.contexts
+                        .push(SemanticInformationType::Let(info.clone()));
+                }
+            }
+
+            l.bindings.iter().for_each(|x| self.visit(&x.1));
+            self.visit(&l.body_expr);
+        }
+    }
+}
+
+struct GlobalDefinitionFinder<'a> {
+    analysis: &'a Analysis,
+    globals: Vec<(InternedString, Span)>,
+}
+
+impl<'a> VisitorMutUnitRef<'a> for GlobalDefinitionFinder<'a> {
+    fn visit_atom(&mut self, a: &'a Atom) {
+        if let Some(info) = self.analysis.get(&a.syn) {
+            if info.kind == IdentifierStatus::Global {
+                self.globals.push((*a.ident().unwrap(), info.span));
+            }
+        }
+    }
+}
+
 struct UnusedArguments<'a> {
     analysis: &'a Analysis,
-    unused_args: Vec<Span>,
+    unused_args: Vec<(InternedString, Span)>,
 }
 
 impl<'a> UnusedArguments<'a> {
@@ -2284,9 +2483,9 @@ impl<'a> VisitorMutUnitRef<'a> for UnusedArguments<'a> {
         for arg in &lambda_function.args {
             if let Some(syntax_object) = arg.atom_syntax_object() {
                 if let Some(info) = self.analysis.get(syntax_object) {
-                    // println!("Ident: {}, Info: {:?}", arg, info);
                     if info.usage_count == 0 {
-                        self.unused_args.push(syntax_object.span);
+                        self.unused_args
+                            .push((*arg.atom_identifier().unwrap(), syntax_object.span));
                     }
                 }
             }
@@ -3121,6 +3320,12 @@ pub struct SemanticAnalysis<'a> {
     pub(crate) analysis: Analysis,
 }
 
+pub enum RequiredIdentifierInformation<'a> {
+    Resolved(&'a SemanticInformation),
+    // Raw Identifier, Full path
+    Unresolved(InternedString, String),
+}
+
 impl<'a> SemanticAnalysis<'a> {
     pub fn into_analysis(self) -> Analysis {
         self.analysis
@@ -3141,6 +3346,100 @@ impl<'a> SemanticAnalysis<'a> {
 
     pub fn get(&self, object: &SyntaxObject) -> Option<&SemanticInformation> {
         self.analysis.get(object)
+    }
+
+    pub fn get_identifier(&self, identifier: SyntaxObjectId) -> Option<&SemanticInformation> {
+        self.analysis.info.get(&identifier)
+    }
+
+    // Syntax object must be the id associated with a given require define statement
+    pub fn resolve_required_identifier(
+        &self,
+        identifier: SyntaxObjectId,
+    ) -> Option<RequiredIdentifierInformation<'_>> {
+        for expr in self.exprs.iter() {
+            match expr {
+                ExprKind::Define(d) => {
+                    if is_a_require_definition(&d) && d.name_id() == Some(identifier) {
+                        let module = d
+                            .body
+                            .list()
+                            .and_then(|x| x.get(1))
+                            .and_then(|x| x.atom_identifier())
+                            .map(|x| x.resolve())?;
+
+                        let prefix = module.trim_start_matches("__module-").to_string()
+                            + d.name.atom_identifier()?.resolve();
+
+                        log::debug!("Searching for {}", prefix);
+
+                        let top_level_define = self.query_top_level_define(&prefix);
+
+                        match top_level_define {
+                            Some(top_level_define) => {
+                                log::debug!("Found: {}", top_level_define);
+                                log::debug!("Span: {:?}", top_level_define.location.span);
+                                log::debug!("Body span: {:?}", get_span(&top_level_define.body));
+
+                                return self
+                                    .get_identifier(top_level_define.name_id()?)
+                                    .map(RequiredIdentifierInformation::Resolved);
+                            }
+                            None => {
+                                return Some(RequiredIdentifierInformation::Unresolved(
+                                    *d.name.atom_identifier()?,
+                                    prefix,
+                                ))
+                            }
+                        }
+                    }
+                }
+                ExprKind::Begin(b) => {
+                    for expr in &b.exprs {
+                        if let ExprKind::Define(d) = expr {
+                            if is_a_require_definition(&d) && d.name_id() == Some(identifier) {
+                                let module = d
+                                    .body
+                                    .list()
+                                    .and_then(|x| x.get(1))
+                                    .and_then(|x| x.atom_identifier())
+                                    .map(|x| x.resolve())?;
+
+                                let prefix = module.trim_start_matches("__module-").to_string()
+                                    + d.name.atom_identifier()?.resolve();
+
+                                log::debug!("Searching for {}", prefix);
+                                let top_level_define = self.query_top_level_define(&prefix);
+
+                                match top_level_define {
+                                    Some(top_level_define) => {
+                                        log::debug!("Found: {}", top_level_define);
+                                        log::debug!("Span: {:?}", top_level_define.location.span);
+                                        log::debug!(
+                                            "Body span: {:?}",
+                                            get_span(&top_level_define.body)
+                                        );
+
+                                        return self
+                                            .get_identifier(top_level_define.name_id()?)
+                                            .map(RequiredIdentifierInformation::Resolved);
+                                    }
+                                    None => {
+                                        return Some(RequiredIdentifierInformation::Unresolved(
+                                            *d.name.atom_identifier()?,
+                                            prefix,
+                                        ))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        None
     }
 
     pub fn query_top_level_define<A: AsRef<str>>(
@@ -3723,6 +4022,19 @@ impl<'a> SemanticAnalysis<'a> {
             .filter(|x| x.kind == IdentifierStatus::Global)
     }
 
+    pub fn find_global_defs(&self) -> Vec<(InternedString, Span)> {
+        let mut global_finder = GlobalDefinitionFinder {
+            analysis: &self.analysis,
+            globals: Vec::new(),
+        };
+
+        for expr in self.exprs.iter() {
+            global_finder.visit(expr);
+        }
+
+        global_finder.globals
+    }
+
     pub fn built_ins(&self) -> impl Iterator<Item = &'_ SemanticInformation> {
         self.analysis.info.values().filter(|x| x.builtin)
     }
@@ -3734,7 +4046,7 @@ impl<'a> SemanticAnalysis<'a> {
             .filter(|x| x.kind == IdentifierStatus::Free)
     }
 
-    pub fn find_unused_arguments(&self) -> Vec<Span> {
+    pub fn find_unused_arguments(&self) -> Vec<(InternedString, Span)> {
         let mut unused = UnusedArguments::new(&self.analysis);
 
         for expr in self.exprs.iter() {
@@ -3742,6 +4054,55 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         unused.unused_args
+    }
+
+    pub fn find_identifier_at_offset(
+        &self,
+        offset: usize,
+        source_id: SourceId,
+    ) -> Option<(&SyntaxObjectId, &SemanticInformation)> {
+        self.analysis.info.iter().find(|(_, x)| {
+            x.span.range().contains(&offset) && x.span.source_id() == Some(source_id)
+        })
+    }
+
+    // Find semantic context where this offset exist.
+    pub fn find_contexts_with_offset(
+        &self,
+        offset: usize,
+        source_id: SourceId,
+    ) -> Vec<SemanticInformationType> {
+        let mut context_finder = FindContextsWithOffset {
+            analysis: &self.analysis,
+            offset,
+            contexts: Vec::new(),
+            source_id,
+        };
+
+        for expr in self.exprs.iter() {
+            context_finder.visit(expr);
+        }
+
+        context_finder.contexts
+    }
+
+    // Convert the syntax object ids back to interned strings. Could end up
+    // returning nothing if the ids are not found in the target AST, which could
+    // happen if the analysis gets invalidated by refreshing the vars.
+    pub fn syntax_object_ids_to_identifiers<'b>(
+        &self,
+        ids: &'a mut HashMap<SyntaxObjectId, Option<InternedString>>,
+    ) -> &mut HashMap<SyntaxObjectId, Option<InternedString>> {
+        let mut identifier_finder = IdentifierFinder {
+            analysis: &self.analysis,
+            ids,
+        };
+
+        for expr in self.exprs.iter() {
+            identifier_finder.visit(expr);
+        }
+
+        identifier_finder.ids
     }
 
     /// Converts function applications of the form:
@@ -4203,7 +4564,7 @@ mod analysis_pass_tests {
                 "input.rkt",
                 script,
                 "unused arguments".to_string(),
-                var,
+                var.1,
             );
         }
     }

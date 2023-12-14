@@ -243,9 +243,7 @@ impl ModuleManager {
 
         let mut explicit_requires = HashMap::new();
 
-        for require_object in &module_builder.require_objects
-        // .chain(module_builder.built_ins.iter())
-        {
+        for require_object in &module_builder.require_objects {
             let path = require_object.path.get_path();
             explicit_requires.clear();
 
@@ -566,9 +564,6 @@ impl ModuleManager {
                 })
                 .collect::<Result<_>>()?;
 
-            // TODO: @Matt 10/16/12
-            // This won't work if the macros expand to other private macros.
-            // Tracking issue here: <TODO>
             global_macro_map.extend(in_scope_macros);
         }
 
@@ -583,10 +578,12 @@ impl ModuleManager {
         // @Matt 7/4/23
         // TODO: With mangling, this could cause problems. We'll want to un-mangle quotes AFTER the macro has been expanded,
         // in order to preserve the existing behavior.
-        module_statements
+        let result = module_statements
             .into_iter()
             .map(|x| expand(x, global_macro_map))
-            .collect::<Result<_>>()
+            .collect::<Result<_>>();
+
+        result
     }
 
     fn find_in_scope_macros<'a>(
@@ -696,6 +693,10 @@ impl CompiledModule {
         }
     }
 
+    pub fn get_ast(&self) -> &[ExprKind] {
+        &self.ast
+    }
+
     pub fn get_provides(&self) -> &[ExprKind] {
         &self.provides
     }
@@ -716,6 +717,7 @@ impl CompiledModule {
         let mut globals = collect_globals(&self.ast);
 
         let mut exprs = self.ast.clone();
+
         let mut provide_definitions = Vec::new();
 
         let prefix = "mangler".to_string() + self.name.to_str().unwrap() + MANGLER_SEPARATOR;
@@ -1178,12 +1180,8 @@ struct ModuleBuilder<'a> {
     source_ast: Vec<ExprKind>,
     macro_map: HashMap<InternedString, SteelMacro>,
     // TODO: Change the requires / requires_for_syntax to just be a require enum?
-
-    // requires: Vec<PathBuf>,
-    // requires_for_syntax: Vec<PathBuf>,
     require_objects: Vec<RequireObject>,
 
-    // built_ins: Vec<PathBuf>,
     provides: Vec<ExprKind>,
     provides_for_syntax: Vec<ExprKind>,
     compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
@@ -1358,21 +1356,7 @@ impl<'a> ModuleBuilder<'a> {
                 // This will eventually put the module in the cache
                 let mut module_exprs = new_module.compile()?;
 
-                // debug!("Inside {:?} - append {:?}", self.name, module);
-                // if log_enabled!(log::Level::Debug) {
-                //     debug!(
-                //         "appending with {:?}",
-                //         module_exprs.iter().map(|x| x.to_string()).join(" SEP ")
-                //     );
-                // }
-
                 new_exprs.append(&mut module_exprs);
-
-                // TODO evaluate this
-
-                // let mut ast = std::mem::replace(&mut new_module.source_ast, Vec::new());
-                // ast.append(&mut module_exprs);
-                // new_module.source_ast = ast;
 
                 // Probably want to evaluate a module even if it has no provides?
                 if !new_module.provides.is_empty() {
@@ -2165,9 +2149,17 @@ impl<'a> ModuleBuilder<'a> {
             .insert(self.name.clone(), file.metadata()?.modified()?);
 
         // TODO: DEFAULT MODULE LOADER PREFIX
-        // let mut exprs = String::new();
+        let mut exprs = String::new();
 
-        let mut exprs = PRELUDE_STRING.to_string();
+        // TODO: Don't do this - get the source from the cache?
+        // let mut exprs = PRELUDE_STRING.to_string();
+
+        let mut expressions = Parser::new(&PRELUDE_STRING, None)
+            .without_lowering()
+            .map(|x| x.and_then(lower_macro_and_require_definitions))
+            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
+
+        // let expressions = Parser::new_from_source(, , )
 
         // Add the modules here:
 
@@ -2184,12 +2176,14 @@ impl<'a> ModuleBuilder<'a> {
 
             let exprs = guard.get(id).unwrap();
 
-            let parsed = Parser::new_from_source(&exprs, self.name.clone(), Some(id))
+            let mut parsed = Parser::new_from_source(&exprs, self.name.clone(), Some(id))
                 .without_lowering()
                 .map(|x| x.and_then(lower_macro_and_require_definitions))
                 .collect::<std::result::Result<Vec<_>, ParseError>>()?;
 
-            self.source_ast = parsed;
+            expressions.append(&mut parsed);
+
+            self.source_ast = expressions;
         }
 
         Ok(self)
