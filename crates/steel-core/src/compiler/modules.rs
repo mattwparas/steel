@@ -308,6 +308,15 @@ impl ModuleManager {
                                             continue;
                                         }
 
+                                        // TODO: This should surface an error - cannot use contract
+                                        // out on a macro
+                                        if module
+                                            .macro_map
+                                            .contains_key(name.atom_identifier().unwrap())
+                                        {
+                                            continue;
+                                        }
+
                                         // TODO: THe contract has to get mangled with the prefix as well?
                                         let contract = l.args.get(2).unwrap();
 
@@ -371,6 +380,13 @@ impl ModuleManager {
                                             continue;
                                         }
 
+                                        if module
+                                            .macro_map
+                                            .contains_key(name.atom_identifier().unwrap())
+                                        {
+                                            continue;
+                                        }
+
                                         let hash_get = expr_list![
                                             ExprKind::ident("%proto-hash-get%"),
                                             ExprKind::atom(
@@ -429,6 +445,13 @@ impl ModuleManager {
                                     .atom_identifier()
                                     .map(|x| explicit_requires.contains_key(x))
                                     .unwrap_or_default()
+                            {
+                                continue;
+                            }
+
+                            if module
+                                .macro_map
+                                .contains_key(provide.atom_identifier().unwrap())
                             {
                                 continue;
                             }
@@ -840,7 +863,7 @@ impl CompiledModule {
                     match provide {
                         ExprKind::List(l) => {
                             if let Some(qualifier) = l.first_ident() {
-                                if self.macro_map.contains_key(qualifier) {
+                                if module.macro_map.contains_key(qualifier) {
                                     continue;
                                 }
 
@@ -925,6 +948,13 @@ impl CompiledModule {
                                     .atom_identifier()
                                     .map(|x| explicit_requires.contains_key(x))
                                     .unwrap_or_default()
+                            {
+                                continue;
+                            }
+
+                            if module
+                                .macro_map
+                                .contains_key(provide.atom_identifier().unwrap())
                             {
                                 continue;
                             }
@@ -1073,6 +1103,9 @@ impl CompiledModule {
                 }
             }
         }
+
+        // Drop all of the macro references here
+        provides.retain(|x| !self.macro_map.contains_key(x.0.atom_identifier().unwrap()));
 
         // We want one without the mangled version, for the actual provides
         let un_mangled = provides.clone();
