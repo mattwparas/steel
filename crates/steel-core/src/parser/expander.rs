@@ -318,7 +318,8 @@ impl MacroCase {
     }
 
     fn recursive_match(&self, list: &List) -> bool {
-        match_vec_pattern(&self.args, list)
+        // Don't match on the first argument
+        match_vec_pattern(&self.args[1..], &list.args[1..])
     }
 
     fn expand(&self, expr: List, span: Span) -> Result<ExprKind> {
@@ -327,7 +328,12 @@ impl MacroCase {
         let mut bindings = HashMap::new();
         let mut binding_kind = HashMap::new();
         let mut fallback_bindings = HashMap::new();
-        collect_bindings(&self.args, &expr, &mut bindings, &mut binding_kind)?;
+        collect_bindings(
+            &self.args[1..],
+            &expr[1..],
+            &mut bindings,
+            &mut binding_kind,
+        )?;
         replace_identifiers(
             self.body.clone(),
             &mut bindings,
@@ -555,7 +561,7 @@ impl MacroPattern {
     }
 }
 
-pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
+pub fn match_vec_pattern(args: &[MacroPattern], list: &[ExprKind]) -> bool {
     let mut token_iter = list.iter();
 
     for pat in args {
@@ -755,7 +761,7 @@ pub enum BindingKind {
 
 pub fn collect_bindings(
     args: &[MacroPattern],
-    list: &List,
+    list: &[ExprKind],
     bindings: &mut HashMap<InternedString, ExprKind>,
     binding_kind: &mut HashMap<InternedString, BindingKind>,
 ) -> Result<()> {
@@ -773,7 +779,7 @@ pub fn collect_bindings(
             }
             // actually check if the syntax matches
             MacroPattern::Syntax(s) => {
-                let error_func = throw!(BadSyntax => format!("macro expand expected keyword {s} - within {}", list));
+                let error_func = throw!(BadSyntax => format!("macro expand expected keyword {s} - within {:?}", list));
 
                 let e = token_iter.next().ok_or_else(error_func)?;
 
@@ -808,12 +814,10 @@ pub fn collect_bindings(
                     if let &[MacroPattern::Quote(x)] = children.as_slice() {
                         bindings.insert(x, q.expr.clone());
                     } else {
-                        stop!(BadSyntax => "macro expected a list of values, 
-                            not including keywords, found: {}", child)
+                        stop!(BadSyntax => "macro expected a list of values, not including keywords, found: {}", child)
                     }
                 } else {
-                    stop!(BadSyntax => "macro expected a list of values, 
-                        not including keywords, found: {}", child)
+                    stop!(BadSyntax => "macro expected a list of values, not including keywords, found: {}", child)
                 }
             }
             MacroPattern::ManyNested(children) => {

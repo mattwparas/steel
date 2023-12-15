@@ -2379,7 +2379,6 @@ impl<'a> VisitorMutUnitRef<'a> for FreeIdentifierVisitor<'a> {
 
 // TODO: Don't need the analysis at all
 struct IdentifierFinder<'a> {
-    analysis: &'a Analysis,
     ids: &'a mut HashMap<SyntaxObjectId, Option<InternedString>>,
 }
 
@@ -4093,10 +4092,7 @@ impl<'a> SemanticAnalysis<'a> {
         &self,
         ids: &'a mut HashMap<SyntaxObjectId, Option<InternedString>>,
     ) -> &mut HashMap<SyntaxObjectId, Option<InternedString>> {
-        let mut identifier_finder = IdentifierFinder {
-            analysis: &self.analysis,
-            ids,
-        };
+        let mut identifier_finder = IdentifierFinder { ids };
 
         for expr in self.exprs.iter() {
             identifier_finder.visit(expr);

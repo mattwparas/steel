@@ -486,15 +486,16 @@ impl ModuleManager {
 
         // TODO: Move this to the lower level as well
         // It seems we're only doing this expansion at the top level, but we _should_ do this at the lower level as well
-        for require_for_syntax in module_builder
-            .require_objects
-            .iter()
-            .filter(|x| x.for_syntax)
-            .map(|x| x.path.get_path())
+        for require_object in module_builder.require_objects.iter()
+        // .filter(|x| x.for_syntax)
+        // .map(|x| x.path.get_path())
         {
+            let require_for_syntax = require_object.path.get_path();
+
             let (module, mut in_scope_macros, mut name_mangler) = Self::find_in_scope_macros(
                 &self.compiled_modules,
                 require_for_syntax.as_ref(),
+                &require_object,
                 &mut mangled_asts,
             );
 
@@ -589,6 +590,7 @@ impl ModuleManager {
     fn find_in_scope_macros<'a>(
         compiled_modules: &'a HashMap<PathBuf, CompiledModule>,
         require_for_syntax: &'a PathBuf,
+        require_object: &'a RequireObject,
         mangled_asts: &'a mut Vec<ExprKind>,
     ) -> (
         &'a CompiledModule,
@@ -623,9 +625,11 @@ impl ModuleManager {
         // do this for each of the expressions in the file in this loop
         // TODO -> try not cloning this
         // TODO -> do this in the module expansion as well
-        let in_scope_macros = module
+        let mut in_scope_macros = module
             .provides_for_syntax
             .iter()
+            // Chain with just the normal provides!
+            // .chain(module.provides)
             .filter_map(|x| module.macro_map.get(x).map(|m| (*x, m.clone()))) // TODO -> fix this unwrap
             .map(|mut x| {
                 for expr in x.1.exprs_mut() {
@@ -635,6 +639,81 @@ impl ModuleManager {
                 x
             })
             .collect::<HashMap<_, _>>();
+
+        // If the require_object specifically imports things, we should reference it
+
+        if !require_object.idents_to_import.is_empty() {
+            for maybe in &require_object.idents_to_import {
+                match maybe {
+                    MaybeRenamed::Normal(n) => {
+                        if let Some(ident) = n.atom_identifier() {
+                            if let Some(mut m) = module.macro_map.get(ident).cloned() {
+                                for expr in m.exprs_mut() {
+                                    name_mangler.visit(expr);
+                                }
+
+                                if let Some(prefix) = &require_object.prefix {
+                                    in_scope_macros
+                                        .insert((prefix.to_string() + ident.resolve()).into(), m);
+                                } else {
+                                    in_scope_macros.insert(*ident, m);
+                                }
+                            }
+                        }
+                    }
+                    MaybeRenamed::Renamed(from, to) => {
+                        if let Some(ident) = from.atom_identifier() {
+                            if let Some(mut m) = module.macro_map.get(ident).cloned() {
+                                for expr in m.exprs_mut() {
+                                    name_mangler.visit(expr);
+                                }
+                                // TODO: Remove this unwrap
+                                // in_scope_macros.insert(*to.atom_identifier().unwrap(), m);
+
+                                if let Some(prefix) = &require_object.prefix {
+                                    in_scope_macros.insert(
+                                        (prefix.to_string()
+                                            + to.atom_identifier().unwrap().resolve())
+                                        .into(),
+                                        m,
+                                    );
+                                } else {
+                                    in_scope_macros.insert(*to.atom_identifier().unwrap(), m);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // Pull in all of the macros that the module exposes
+
+            for provide_expr in &module.provides {
+                if let Some(provide_expr) = provide_expr.list() {
+                    for ident in provide_expr.args.split_first().unwrap().1 {
+                        // println!("Looking for {}", ident);
+
+                        if let Some(ident) = ident.atom_identifier() {
+                            if let Some(mut m) = module.macro_map.get(ident).cloned() {
+                                // println!("Pulling in macro: {}", ident);
+
+                                for expr in m.exprs_mut() {
+                                    name_mangler.visit(expr);
+                                }
+
+                                if let Some(prefix) = &require_object.prefix {
+                                    in_scope_macros
+                                        .insert((prefix.to_string() + ident.resolve()).into(), m);
+                                } else {
+                                    in_scope_macros.insert(*ident, m);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Check what macros are in scope here
         // println!(
         //     "In scope macros: {:#?}",
@@ -761,6 +840,10 @@ impl CompiledModule {
                     match provide {
                         ExprKind::List(l) => {
                             if let Some(qualifier) = l.first_ident() {
+                                if self.macro_map.contains_key(qualifier) {
+                                    continue;
+                                }
+
                                 match *qualifier {
                                     x if x == *CONTRACT_OUT => {
                                         // Directly expand into define/contract, but with the value just being the hash get below
@@ -1518,15 +1601,15 @@ impl<'a> ModuleBuilder<'a> {
         let mut mangled_asts = Vec::new();
 
         // Look for the modules in the requires for syntax
-        for require_for_syntax in self
-            .require_objects
-            .iter()
-            .filter(|x| x.for_syntax)
-            .map(|x| x.path.get_path())
+        for require_object in self.require_objects.iter()
+        // .filter(|x| x.for_syntax)
         {
+            let require_for_syntax = require_object.path.get_path();
+
             let (module, in_scope_macros, mut name_mangler) = ModuleManager::find_in_scope_macros(
                 self.compiled_modules,
                 require_for_syntax.as_ref(),
+                &require_object,
                 &mut mangled_asts,
             );
 
