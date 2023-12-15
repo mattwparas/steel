@@ -241,6 +241,9 @@ fn binary_trees(c: &mut Criterion) {
 (define (iterate n m d sum)
   (if (equal? n m) sum (iterate (+ n 1) m d (+ sum (check (make n d))))))
 
+(define (max x y)
+  (if (> x y) x y))
+
 (define (loop d end max-depth min-depth)
   (if (>= d end)
       void

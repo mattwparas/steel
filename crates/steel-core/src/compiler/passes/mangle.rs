@@ -79,7 +79,7 @@ impl<'a> VisitorMutRefUnit for NameUnMangler<'a> {
 }
 
 pub struct NameMangler {
-    globals: HashSet<InternedString>,
+    pub(crate) globals: HashSet<InternedString>,
     prefix: String,
 }
 

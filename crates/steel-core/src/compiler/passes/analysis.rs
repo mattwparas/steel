@@ -5,9 +5,13 @@ use std::{
 
 use im_rc::HashMap as ImmutableHashMap;
 use quickscope::ScopeMap;
+use steel_parser::{ast::PROTO_HASH_GET, parser::SourceId};
 
 use crate::{
-    compiler::modules::{ModuleManager, MANGLER_SEPARATOR},
+    compiler::{
+        map::SymbolMap,
+        modules::{ModuleManager, MANGLER_SEPARATOR},
+    },
     parser::{
         ast::{
             Atom, Define, ExprKind, LambdaFunction, Let, List, Quote, STANDARD_MODULE_GET,
@@ -17,6 +21,7 @@ use crate::{
         interner::InternedString,
         parser::{RawSyntaxObject, SyntaxObject, SyntaxObjectId},
         span::Span,
+        span_visitor::get_span,
         tokens::TokenType,
     },
     steel_vm::primitives::MODULE_IDENTIFIERS,
@@ -25,7 +30,7 @@ use crate::{
 
 use super::{VisitorMutControlFlow, VisitorMutRefUnit, VisitorMutUnitRef};
 
-use fxhash::{FxHashMap, FxHasher};
+use fxhash::{FxHashMap, FxHashSet, FxHasher};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum IdentifierStatus {
@@ -63,6 +68,12 @@ pub struct SemanticInformation {
     pub heap_offset: Option<usize>,
     pub read_heap_offset: Option<usize>,
     pub is_shadowed: bool,
+    pub is_required_identifier: bool,
+}
+
+#[test]
+fn check_size_of_info() {
+    println!("{}", std::mem::size_of::<SemanticInformation>());
 }
 
 impl SemanticInformation {
@@ -86,6 +97,7 @@ impl SemanticInformation {
             heap_offset: None,
             read_heap_offset: None,
             is_shadowed: false,
+            is_required_identifier: false,
         }
     }
 
@@ -111,6 +123,10 @@ impl SemanticInformation {
 
     pub fn mark_builtin(&mut self) {
         self.builtin = true;
+    }
+
+    pub fn mark_required(&mut self) {
+        self.is_required_identifier = true;
     }
 
     pub fn with_offset(mut self, offset: usize) -> Self {
@@ -239,6 +255,14 @@ impl LetInformation {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum SemanticInformationType {
+    Variable(SemanticInformation),
+    Function(FunctionInformation),
+    CallSite(CallSiteInformation),
+    Let(LetInformation),
+}
+
 // Populate the metadata about individual
 #[derive(Default, Debug, Clone)]
 pub struct Analysis {
@@ -250,6 +274,19 @@ pub struct Analysis {
 }
 
 impl Analysis {
+    // Reuse the analysis allocation through the process!
+    pub fn clear(&mut self) {
+        self.info.clear();
+        self.function_info.clear();
+        self.call_info.clear();
+        self.let_info.clear();
+    }
+
+    pub fn fresh_from_exprs(&mut self, exprs: &[ExprKind]) {
+        self.clear();
+        self.run(exprs);
+    }
+
     pub fn from_exprs(exprs: &[ExprKind]) -> Self {
         let mut analysis = Analysis::default();
         analysis.run(exprs);
@@ -265,7 +302,7 @@ impl Analysis {
             .chain(self.let_info.values().flat_map(|x| x.arguments.values()))
             .filter(|x| x.captured && x.mutated)
             .map(|x| (x.id, x.clone()))
-            .collect::<std::collections::HashMap<_, _>>();
+            .collect::<FxHashMap<_, _>>();
 
         self.function_info
             .values_mut()
@@ -321,18 +358,24 @@ impl Analysis {
             semantic_info.mark_builtin();
         }
 
+        if is_a_require_definition(define) {
+            semantic_info.mark_required();
+        }
+
         // If this variable name is already in scope, we should mark that this variable
         // shadows the previous id
         if let Some(shadowed_var) = scope.get(name) {
             semantic_info = semantic_info.shadows(shadowed_var.id)
         }
 
-        log::trace!("Defining global: {:?}", define.name);
+        // log::trace!("Defining global: {:?}", define.name);
+        // println!("Defining global: {}", define.name);
         define_var(scope, define);
 
         self.insert(define.name.atom_syntax_object().unwrap(), semantic_info);
     }
 
+    // TODO: This needs to just take an iterator?
     pub fn run(&mut self, exprs: &[ExprKind]) {
         let mut scope: ScopeMap<InternedString, ScopeInfo> = ScopeMap::new();
 
@@ -359,21 +402,44 @@ impl Analysis {
         for expr in exprs {
             let mut pass = AnalysisPass::new(self, &mut scope);
 
-            if let ExprKind::Define(define) = expr {
-                if define.body.lambda_function().is_some() {
-                    // Since we're at the top level, care should be taken to actually
-                    // refer to the defining context correctly
-                    pass.defining_context = define.name_id();
-                    pass.defining_context_depth = 0;
-                    // Continue with the rest of the body here
-                    pass.visit(&define.body);
-                    pass.defining_context = None;
-                } else {
-                    pass.visit_top_level_define_value_without_body(define);
-                    pass.visit(&define.body);
+            match expr {
+                ExprKind::Define(define) => {
+                    if define.body.lambda_function().is_some() {
+                        // Since we're at the top level, care should be taken to actually
+                        // refer to the defining context correctly
+                        pass.defining_context = define.name_id();
+                        pass.defining_context_depth = 0;
+                        // Continue with the rest of the body here
+                        pass.visit(&define.body);
+                        pass.defining_context = None;
+                    } else {
+                        pass.visit_top_level_define_value_without_body(define);
+                        pass.visit(&define.body);
+                    }
                 }
-            } else {
-                pass.visit(expr);
+                ExprKind::Begin(b) => {
+                    for expr in &b.exprs {
+                        if let ExprKind::Define(define) = expr {
+                            if define.body.lambda_function().is_some() {
+                                // Since we're at the top level, care should be taken to actually
+                                // refer to the defining context correctly
+                                pass.defining_context = define.name_id();
+                                pass.defining_context_depth = 0;
+                                // Continue with the rest of the body here
+                                pass.visit(&define.body);
+                                pass.defining_context = None;
+                            } else {
+                                pass.visit_top_level_define_value_without_body(define);
+                                pass.visit(&define.body);
+                            }
+                        } else {
+                            pass.visit(expr);
+                        }
+                    }
+                }
+                _ => {
+                    pass.visit(expr);
+                }
             }
         }
     }
@@ -399,6 +465,7 @@ impl Analysis {
         existing.captured_from_enclosing = metadata.captured_from_enclosing;
         existing.heap_offset = metadata.heap_offset;
         existing.read_heap_offset = metadata.read_heap_offset;
+        existing.is_required_identifier = metadata.is_required_identifier;
     }
 
     pub fn get(&self, object: &SyntaxObject) -> Option<&SemanticInformation> {
@@ -589,44 +656,30 @@ impl<'a> AnalysisPass<'a> {
         // If this variable name is already in scope, we should mark that this variable
         // shadows the previous id
         if let Some(shadowed_var) = self.scope.get(name) {
-            // println!("FOUND SHADOWED VAR: {}", name);
-
             semantic_info = semantic_info.shadows(shadowed_var.id);
 
             if let Some(existing_analysis) = self.info.info.get_mut(&shadowed_var.id) {
                 if existing_analysis.builtin {
-                    // println!("FOUND A VALUE THAT SHADOWS AN EXISTING BUILTIN: {}", name);
-
                     existing_analysis.is_shadowed = true;
                 }
-                // else {
-                // println!("DOES NOT SHADOW A BUILT IN: {}", name);
-                // }
             }
         }
 
         if is_a_builtin_definition(define) {
-            // println!("FOUND A BUILTIN: {}", name);
-
             semantic_info.mark_builtin();
         }
 
-        // if let Some(shadowed_var) = self.scope.get(name) {
-        //     semantic_info = semantic_info.shadows(shadowed_var.id)
-        // }
+        // println!("Defining global: {}", define.name);
+
+        if is_a_require_definition(define) {
+            semantic_info.mark_required();
+        }
 
         if let Some(aliases) = define.is_an_alias_definition() {
-            log::debug!(
-                "Found definition that aliases - {} aliases {}: {:?} -> {:?}",
-                define.name,
-                define.body,
-                name_syntax_object.syntax_object_id,
-                define.body.atom_syntax_object().unwrap().syntax_object_id,
-            );
             semantic_info = semantic_info.aliases_to(aliases);
         }
 
-        log::trace!("Defining global: {:?}", define.name);
+        // println!("Defining global: {}", define.name);
         define_var(self.scope, define);
 
         self.info.insert(name_syntax_object, semantic_info);
@@ -654,10 +707,14 @@ impl<'a> AnalysisPass<'a> {
             semantic_info.mark_builtin();
         }
 
+        if is_a_require_definition(define) {
+            semantic_info.mark_required();
+        }
+
         // If this variable name is already in scope, we should mark that this variable
         // shadows the previous id
         if let Some(shadowed_var) = self.scope.get(name) {
-            log::debug!("Redefining previous variable: {:?}", name);
+            // log::debug!("Redefining previous variable: {:?}", name);
             semantic_info = semantic_info.shadows(shadowed_var.id);
         }
 
@@ -792,10 +849,9 @@ impl<'a> AnalysisPass<'a> {
             // TODO: merge this into one
             let count = arguments.get(ident).unwrap().usage_count;
 
-            if count == 0 {
-                // TODO: Emit warning with the span
-                log::debug!("Found unused argument: {:?}", ident);
-            }
+            // if count == 0 {
+            // log::debug!("Found unused argument: {:?}", ident);
+            // }
 
             semantic_info = semantic_info.with_usage_count(count);
 
@@ -1425,12 +1481,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     // }
 
                     // var.refers
-                } else {
-                    log::debug!("Unable to find var: {name} in info map to update to set!");
                 }
-            } else {
-                log::debug!("Variable not yet in scope: {name}");
+                // else {
+                //     log::debug!("Unable to find var: {name} in info map to update to set!");
+                // }
             }
+            // else {
+            //     log::debug!("Variable not yet in scope: {name}");
+            // }
         }
 
         self.visit(&s.variable);
@@ -1512,7 +1570,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 if let Some(stack_offset) = mut_ref.stack_offset {
                     semantic_info = semantic_info.with_offset(stack_offset);
                 } else {
-                    log::debug!("Stack offset missing from local define")
+                    // log::debug!("Stack offset missing from local define")
                 }
 
                 if mut_ref.captured && mut_ref.mutated {
@@ -1594,14 +1652,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     // semantic_info = semantic_info.with_heap_offset(heap_offset);
                     semantic_info = semantic_info.with_read_heap_offset(heap_offset);
                 } else {
-                    log::debug!("Stack offset missing from local define")
+                    // log::debug!("Stack offset missing from local define")
                 }
 
                 if let Some(heap_offset) = captured.heap_offset {
                     // semantic_info = semantic_info.with_heap_offset(heap_offset);
                     semantic_info = semantic_info.with_heap_offset(heap_offset);
                 } else {
-                    log::debug!("Stack offset missing from local define")
+                    // log::debug!("Stack offset missing from local define")
                 }
 
                 // if semantic_info.kind == IdentifierStatus::HeapAllocated
@@ -1655,7 +1713,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 if let Some(stack_offset) = is_captured.stack_offset {
                     semantic_info = semantic_info.with_offset(stack_offset);
                 } else {
-                    log::debug!("Stack offset missing from local define")
+                    // log::debug!("Stack offset missing from local define")
                 }
 
                 // println!("Variable {} refers to {}", ident, is_captured.id);
@@ -1683,7 +1741,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                 // Otherwise, we've hit a free variable at this point
                 // TODO: WE don't need to do this?
-                self.info.insert(&a.syn, semantic_info);
+                self.info.info.insert(a.syn.syntax_object_id, semantic_info);
             }
 
             // let mut semantic_info =
@@ -1735,17 +1793,80 @@ impl<'a> VisitorMutUnitRef<'a> for Analysis {
     }
 }
 
+pub fn query_top_level_define_on_condition<A: AsRef<str>>(
+    exprs: &[ExprKind],
+    name: A,
+    mut func: impl FnMut(&str, &str) -> bool,
+) -> Option<&crate::parser::ast::Define> {
+    let mut found_defines = Vec::new();
+    for expr in exprs {
+        log::debug!("{}", expr);
+
+        match expr {
+            ExprKind::Define(d) => match d.name.atom_identifier() {
+                Some(n) if func(name.as_ref(), n.resolve()) => found_defines.push(d.as_ref()),
+                _ => {}
+            },
+
+            ExprKind::Begin(b) => {
+                for expr in b.exprs.iter() {
+                    if let ExprKind::Define(d) = expr {
+                        match d.name.atom_identifier() {
+                            Some(n) if func(name.as_ref(), n.resolve()) => {
+                                found_defines.push(d.as_ref())
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+
+            _ => {}
+        }
+    }
+
+    if found_defines.len() > 1 {
+        log::debug!(
+            "Multiple defines found, unable to find one unique value to associate with a name"
+        );
+        return None;
+    }
+
+    if found_defines.len() == 1 {
+        return found_defines.into_iter().next();
+    }
+
+    None
+}
+
 pub fn query_top_level_define<A: AsRef<str>>(
     exprs: &[ExprKind],
     name: A,
 ) -> Option<&crate::parser::ast::Define> {
     let mut found_defines = Vec::new();
     for expr in exprs {
-        if let ExprKind::Define(d) = expr {
-            match d.name.atom_identifier() {
+        log::debug!("{}", expr);
+
+        match expr {
+            ExprKind::Define(d) => match d.name.atom_identifier() {
                 Some(n) if name.as_ref() == n.resolve() => found_defines.push(d.as_ref()),
                 _ => {}
+            },
+
+            ExprKind::Begin(b) => {
+                for expr in b.exprs.iter() {
+                    if let ExprKind::Define(d) = expr {
+                        match d.name.atom_identifier() {
+                            Some(n) if name.as_ref() == n.resolve() => {
+                                found_defines.push(d.as_ref())
+                            }
+                            _ => {}
+                        }
+                    }
+                }
             }
+
+            _ => {}
         }
     }
 
@@ -2013,7 +2134,7 @@ where
 
                 if let ExprKind::Let(_) = &let_expr {
                     if (self.func)(self.analysis, let_expr) {
-                        log::debug!("Modified let expression");
+                        // log::debug!("Modified let expression");
                     }
                 }
             }
@@ -2065,7 +2186,7 @@ where
                         // In the state of the analysis
                         if (self.func)(self.analysis, list) {
                             // return self.visit(list);
-                            log::debug!("Modified anonymous function call site!");
+                            // log::debug!("Modified anonymous function call site!");
                         }
                     }
                 }
@@ -2100,6 +2221,19 @@ pub(crate) fn is_a_builtin_definition(def: &Define) -> bool {
                 if let Some(module) = l.second_ident() {
                     return MODULE_IDENTIFIERS.contains(module);
                 }
+            }
+            _ => {}
+        }
+    }
+
+    false
+}
+
+pub(crate) fn is_a_require_definition(def: &Define) -> bool {
+    if let ExprKind::List(l) = &def.body {
+        match l.first_ident() {
+            Some(func) if *func == *PROTO_HASH_GET => {
+                return true;
             }
             _ => {}
         }
@@ -2221,9 +2355,117 @@ impl<'a> VisitorMutRefUnit for RemovedUnusedImports<'a> {
     }
 }
 
+struct FreeIdentifierVisitor<'a> {
+    analysis: &'a Analysis,
+    // Check if identifiers is in the globals list before deciding to reject it
+    globals: &'a SymbolMap,
+
+    diagnostics: Vec<(InternedString, &'a SemanticInformation)>,
+}
+
+impl<'a> VisitorMutUnitRef<'a> for FreeIdentifierVisitor<'a> {
+    fn visit_atom(&mut self, a: &'a Atom) {
+        if let Some(info) = self.analysis.get(&a.syn) {
+            if info.kind == IdentifierStatus::Free {
+                if let Some(ident) = a.ident() {
+                    if self.globals.get(ident).is_err() {
+                        self.diagnostics.push((*ident, info));
+                    }
+                }
+            }
+        }
+    }
+}
+
+// TODO: Don't need the analysis at all
+struct IdentifierFinder<'a> {
+    ids: &'a mut HashMap<SyntaxObjectId, Option<InternedString>>,
+}
+
+impl<'a> VisitorMutUnitRef<'a> for IdentifierFinder<'a> {
+    fn visit_atom(&mut self, a: &'a Atom) {
+        if let Some(ident) = a.ident() {
+            self.ids
+                .get_mut(&a.syn.syntax_object_id)
+                .map(|value| *value = Some(*ident));
+        }
+    }
+}
+
+struct FindContextsWithOffset<'a> {
+    analysis: &'a Analysis,
+    offset: usize,
+    source_id: SourceId,
+    contexts: Vec<SemanticInformationType>,
+}
+
+impl<'a> VisitorMutUnitRef<'a> for FindContextsWithOffset<'a> {
+    fn visit_lambda_function(&mut self, lambda_function: &'a LambdaFunction) {
+        if lambda_function.location.span.end >= self.offset {
+            return;
+        }
+
+        let mut span = get_span(&lambda_function.body);
+
+        span.start = lambda_function.location.span.start;
+
+        log::debug!("Lambda function span: {:?} - offset: {}", span, self.offset);
+
+        // This counts, save analysis.
+        // TODO: Memoize the span analysis, this is not performant
+        if span.range().contains(&self.offset) {
+            // TODO: Don't clone this
+            if let Some(info) = self.analysis.get_function_info(lambda_function) {
+                if lambda_function.location.span.source_id == Some(self.source_id) {
+                    self.contexts
+                        .push(SemanticInformationType::Function(info.clone()));
+                }
+            }
+
+            self.visit(&lambda_function.body);
+        }
+    }
+
+    fn visit_let(&mut self, l: &'a Let) {
+        if l.location.span.end >= self.offset {
+            return;
+        }
+
+        let mut span = get_span(&l.body_expr);
+        span.start = l.location.span.start;
+
+        if span.range().contains(&self.offset) {
+            if let Some(info) = self.analysis.let_info.get(&l.syntax_object_id) {
+                if l.location.span.source_id() == Some(self.source_id) {
+                    self.contexts
+                        .push(SemanticInformationType::Let(info.clone()));
+                }
+            }
+
+            l.bindings.iter().for_each(|x| self.visit(&x.1));
+            self.visit(&l.body_expr);
+        }
+    }
+}
+
+struct GlobalDefinitionFinder<'a> {
+    analysis: &'a Analysis,
+    globals: Vec<(InternedString, Span)>,
+}
+
+impl<'a> VisitorMutUnitRef<'a> for GlobalDefinitionFinder<'a> {
+    fn visit_atom(&mut self, a: &'a Atom) {
+        if let Some(info) = self.analysis.get(&a.syn) {
+            if info.kind == IdentifierStatus::Global {
+                self.globals.push((*a.ident().unwrap(), info.span));
+            }
+        }
+    }
+}
+
 struct UnusedArguments<'a> {
     analysis: &'a Analysis,
-    unused_args: Vec<Span>,
+    unused_args: Vec<(InternedString, Span)>,
 }
 
 impl<'a> UnusedArguments<'a> {
@@ -2240,9 +2482,9 @@ impl<'a> VisitorMutUnitRef<'a> for UnusedArguments<'a> {
         for arg in &lambda_function.args {
             if let Some(syntax_object) = arg.atom_syntax_object() {
                 if let Some(info) = self.analysis.get(syntax_object) {
-                    // println!("Ident: {}, Info: {:?}", arg, info);
                     if info.usage_count == 0 {
-                        self.unused_args.push(syntax_object.span);
+                        self.unused_args
+                            .push((*arg.atom_identifier().unwrap(), syntax_object.span));
                     }
                 }
             }
@@ -2632,9 +2874,9 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
                                 );
                             }
 
-                            for (var, _) in info.captured_vars() {
-                                log::debug!(target: "lambda-lifting", "{}", var.resolve());
-                            }
+                            // for (var, _) in info.captured_vars() {
+                            // log::debug!(target: "lambda-lifting", "{}", var.resolve());
+                            // }
 
                             if info.captured_vars().len() == 1 {
                                 // TODO: Check if the number of captured vars is 1, and if that 1 is equivalent to the
@@ -2918,7 +3160,7 @@ impl<'a> VisitorMutRefUnit for FlattenAnonymousFunctionCalls<'a> {
 
 struct FunctionCallCollector<'a> {
     analysis: &'a Analysis,
-    functions: HashMap<InternedString, HashSet<InternedString>>,
+    functions: FxHashMap<InternedString, FxHashSet<InternedString>>,
     black_box: InternedString,
     context: Option<InternedString>,
     constants: ImmutableHashMap<InternedString, SteelVal>,
@@ -2931,12 +3173,12 @@ impl<'a> FunctionCallCollector<'a> {
         exprs: &mut Vec<ExprKind>,
         constants: ImmutableHashMap<InternedString, SteelVal>,
         should_mangle: bool,
-    ) -> HashMap<InternedString, HashSet<InternedString>> {
+    ) -> FxHashMap<InternedString, FxHashSet<InternedString>> {
         let black_box: InternedString = "#%black-box".into();
 
         let mut collector = Self {
             analysis,
-            functions: HashMap::new(),
+            functions: FxHashMap::default(),
             context: None,
             black_box,
             constants,
@@ -3077,7 +3319,17 @@ pub struct SemanticAnalysis<'a> {
     pub(crate) analysis: Analysis,
 }
 
+pub enum RequiredIdentifierInformation<'a> {
+    Resolved(&'a SemanticInformation),
+    // Raw Identifier, Full path
+    Unresolved(InternedString, String),
+}
+
 impl<'a> SemanticAnalysis<'a> {
+    pub fn into_analysis(self) -> Analysis {
+        self.analysis
+    }
+
     pub fn from_analysis(exprs: &'a mut Vec<ExprKind>, analysis: Analysis) -> Self {
         Self { exprs, analysis }
     }
@@ -3093,6 +3345,100 @@ impl<'a> SemanticAnalysis<'a> {
 
     pub fn get(&self, object: &SyntaxObject) -> Option<&SemanticInformation> {
         self.analysis.get(object)
+    }
+
+    pub fn get_identifier(&self, identifier: SyntaxObjectId) -> Option<&SemanticInformation> {
+        self.analysis.info.get(&identifier)
+    }
+
+    // Syntax object must be the id associated with a given require define statement
+    pub fn resolve_required_identifier(
+        &self,
+        identifier: SyntaxObjectId,
+    ) -> Option<RequiredIdentifierInformation<'_>> {
+        for expr in self.exprs.iter() {
+            match expr {
+                ExprKind::Define(d) => {
+                    if is_a_require_definition(&d) && d.name_id() == Some(identifier) {
+                        let module = d
+                            .body
+                            .list()
+                            .and_then(|x| x.get(1))
+                            .and_then(|x| x.atom_identifier())
+                            .map(|x| x.resolve())?;
+
+                        let prefix = module.trim_start_matches("__module-").to_string()
+                            + d.name.atom_identifier()?.resolve();
+
+                        log::debug!("Searching for {}", prefix);
+
+                        let top_level_define = self.query_top_level_define(&prefix);
+
+                        match top_level_define {
+                            Some(top_level_define) => {
+                                log::debug!("Found: {}", top_level_define);
+                                log::debug!("Span: {:?}", top_level_define.location.span);
+                                log::debug!("Body span: {:?}", get_span(&top_level_define.body));
+
+                                return self
+                                    .get_identifier(top_level_define.name_id()?)
+                                    .map(RequiredIdentifierInformation::Resolved);
+                            }
+                            None => {
+                                return Some(RequiredIdentifierInformation::Unresolved(
+                                    *d.name.atom_identifier()?,
+                                    prefix,
+                                ))
+                            }
+                        }
+                    }
+                }
+                ExprKind::Begin(b) => {
+                    for expr in &b.exprs {
+                        if let ExprKind::Define(d) = expr {
+                            if is_a_require_definition(&d) && d.name_id() == Some(identifier) {
+                                let module = d
+                                    .body
+                                    .list()
+                                    .and_then(|x| x.get(1))
+                                    .and_then(|x| x.atom_identifier())
+                                    .map(|x| x.resolve())?;
+
+                                let prefix = module.trim_start_matches("__module-").to_string()
+                                    + d.name.atom_identifier()?.resolve();
+
+                                log::debug!("Searching for {}", prefix);
+                                let top_level_define = self.query_top_level_define(&prefix);
+
+                                match top_level_define {
+                                    Some(top_level_define) => {
+                                        log::debug!("Found: {}", top_level_define);
+                                        log::debug!("Span: {:?}", top_level_define.location.span);
+                                        log::debug!(
+                                            "Body span: {:?}",
+                                            get_span(&top_level_define.body)
+                                        );
+
+                                        return self
+                                            .get_identifier(top_level_define.name_id()?)
+                                            .map(RequiredIdentifierInformation::Resolved);
+                                    }
+                                    None => {
+                                        return Some(RequiredIdentifierInformation::Unresolved(
+                                            *d.name.atom_identifier()?,
+                                            prefix,
+                                        ))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        None
     }
 
     pub fn query_top_level_define<A: AsRef<str>>(
@@ -3182,8 +3528,8 @@ impl<'a> SemanticAnalysis<'a> {
 
             *self.exprs = lifter.lifted_functions;
 
-            log::debug!("Re-running the analysis after lifting local functions");
-            self.analysis = Analysis::from_exprs(self.exprs);
+            // log::debug!("Re-running the analysis after lifting local functions");
+            self.analysis.fresh_from_exprs(&self.exprs);
             self.analysis.populate_captures(self.exprs);
         }
 
@@ -3196,20 +3542,12 @@ impl<'a> SemanticAnalysis<'a> {
         module_manager: &mut ModuleManager,
         table: &mut HashSet<InternedString>,
     ) -> &mut Self {
-        // for identifier in table.iter() {
-        //     println!("Table => {}", identifier);
-        // }
-
         let mut replacer =
             ReplaceBuiltinUsagesWithReservedPrimitiveReferences::new(&self.analysis, table);
 
         for expr in self.exprs.iter_mut() {
             replacer.visit(expr);
         }
-
-        // for identifier in replacer.identifiers_to_replace.iter() {
-        //     println!("Replaced => {}", identifier);
-        // }
 
         let mut macro_replacer = ReplaceBuiltinUsagesInsideMacros {
             identifiers_to_replace: replacer.identifiers_to_replace,
@@ -3242,9 +3580,7 @@ impl<'a> SemanticAnalysis<'a> {
             macro_replacer.visit(expr);
         }
 
-        self.analysis = Analysis::from_exprs(self.exprs);
-
-        // replace.vi
+        self.analysis.fresh_from_exprs(self.exprs);
 
         self
     }
@@ -3391,9 +3727,9 @@ impl<'a> SemanticAnalysis<'a> {
 
         // self.exprs.push(ExprKind::ident("void"));
 
-        log::debug!("Re-running the semantic analysis after removing unused globals");
+        // log::debug!("Re-running the semantic analysis after removing unused globals");
 
-        self.analysis = Analysis::from_exprs(self.exprs);
+        self.analysis.fresh_from_exprs(self.exprs);
 
         self
     }
@@ -3435,9 +3771,9 @@ impl<'a> SemanticAnalysis<'a> {
         self.find_let_call_sites_and_mutate_with(func);
 
         if re_run_analysis {
-            log::debug!("Re-running the semantic analysis after modifying let call sites");
+            // log::debug!("Re-running the semantic analysis after modifying let call sites");
 
-            self.analysis = Analysis::from_exprs(self.exprs);
+            self.analysis.fresh_from_exprs(self.exprs);
         }
 
         self
@@ -3447,7 +3783,7 @@ impl<'a> SemanticAnalysis<'a> {
         &mut self,
         constants: ImmutableHashMap<InternedString, SteelVal>,
         should_mangle: bool,
-    ) -> HashMap<InternedString, HashSet<InternedString>> {
+    ) -> FxHashMap<InternedString, FxHashSet<InternedString>> {
         let map = FunctionCallCollector::mangle(
             &self.analysis,
             &mut self.exprs,
@@ -3460,7 +3796,7 @@ impl<'a> SemanticAnalysis<'a> {
             .iter()
             .filter(|(_, v)| v.is_empty())
             .map(|x| x.0.clone())
-            .collect::<HashSet<_>>();
+            .collect::<FxHashSet<_>>();
 
         // Only constant evaluatable functions should be ones that references _other_ const functions
         map.into_iter()
@@ -3496,7 +3832,7 @@ impl<'a> SemanticAnalysis<'a> {
                     let analysis = analysis.get_function_info(f).unwrap();
 
                     if analysis.captured_vars.is_empty() {
-                        log::debug!("Found a function that does not capture variables");
+                        // log::debug!("Found a function that does not capture variables");
 
                         if f.args.is_empty() && arg_count == 0 {
                             // Take out the body of the function - we're going to want to use that now
@@ -3523,9 +3859,10 @@ impl<'a> SemanticAnalysis<'a> {
         self.find_anonymous_function_calls_and_mutate_with(func);
 
         if re_run_analysis {
-            log::debug!("Re-running the semantic analysis after modifications");
+            // log::debug!("Re-running the semantic analysis after modifications");
 
-            self.analysis = Analysis::from_exprs(self.exprs);
+            // self.analysis = Analysis::from_exprs(self.exprs);
+            self.analysis.fresh_from_exprs(self.exprs);
         }
 
         self
@@ -3563,7 +3900,7 @@ impl<'a> SemanticAnalysis<'a> {
                     *anon = ExprKind::Let(let_expr.into());
 
                     re_run_analysis = true;
-                    log::debug!("Replaced anonymous function call with let");
+                    // log::debug!("Replaced anonymous function call with let");
 
                     true
                 } else {
@@ -3579,9 +3916,9 @@ impl<'a> SemanticAnalysis<'a> {
         self.find_anonymous_function_calls_and_mutate_with(func);
 
         if re_run_analysis {
-            log::debug!("Re-running the semantic analysis after modifications");
+            // log::debug!("Re-running the semantic analysis after modifications");
 
-            self.analysis = Analysis::from_exprs(self.exprs);
+            self.analysis.fresh_from_exprs(self.exprs);
         }
 
         self
@@ -3592,7 +3929,7 @@ impl<'a> SemanticAnalysis<'a> {
             RefreshVars.visit(expr);
         }
 
-        self.analysis = Analysis::from_exprs(self.exprs);
+        self.analysis.fresh_from_exprs(self.exprs);
 
         self
     }
@@ -3646,6 +3983,23 @@ impl<'a> SemanticAnalysis<'a> {
             .filter(|x| x.kind == IdentifierStatus::Free)
     }
 
+    pub fn free_identifiers_with_globals<'b: 'a>(
+        &self,
+        globals: &'b SymbolMap,
+    ) -> Vec<(InternedString, &'_ SemanticInformation)> {
+        let mut visitor = FreeIdentifierVisitor {
+            analysis: &self.analysis,
+            globals,
+            diagnostics: Vec::new(),
+        };
+
+        for expr in self.exprs.iter() {
+            visitor.visit(expr);
+        }
+
+        visitor.diagnostics
+    }
+
     pub fn unused_variables(&self) -> impl Iterator<Item = &'_ SemanticInformation> {
         self.analysis.info.values().filter(|x| {
             x.usage_count == 0
@@ -3653,11 +4007,31 @@ impl<'a> SemanticAnalysis<'a> {
         })
     }
 
+    pub fn unused_local_variables(&self) -> impl Iterator<Item = &'_ SemanticInformation> {
+        self.analysis
+            .info
+            .values()
+            .filter(|x| x.usage_count == 0 && matches!(x.kind, IdentifierStatus::Local))
+    }
+
     pub fn global_defs(&self) -> impl Iterator<Item = &'_ SemanticInformation> {
         self.analysis
             .info
             .values()
             .filter(|x| x.kind == IdentifierStatus::Global)
+    }
+
+    pub fn find_global_defs(&self) -> Vec<(InternedString, Span)> {
+        let mut global_finder = GlobalDefinitionFinder {
+            analysis: &self.analysis,
+            globals: Vec::new(),
+        };
+
+        for expr in self.exprs.iter() {
+            global_finder.visit(expr);
+        }
+
+        global_finder.globals
     }
 
     pub fn built_ins(&self) -> impl Iterator<Item = &'_ SemanticInformation> {
@@ -3671,7 +4045,7 @@ impl<'a> SemanticAnalysis<'a> {
             .filter(|x| x.kind == IdentifierStatus::Free)
     }
 
-    pub fn find_unused_arguments(&self) -> Vec<Span> {
+    pub fn find_unused_arguments(&self) -> Vec<(InternedString, Span)> {
         let mut unused = UnusedArguments::new(&self.analysis);
 
         for expr in self.exprs.iter() {
@@ -3679,6 +4053,52 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         unused.unused_args
+    }
+
+    pub fn find_identifier_at_offset(
+        &self,
+        offset: usize,
+        source_id: SourceId,
+    ) -> Option<(&SyntaxObjectId, &SemanticInformation)> {
+        self.analysis.info.iter().find(|(_, x)| {
+            x.span.range().contains(&offset) && x.span.source_id() == Some(source_id)
+        })
+    }
+
+    // Find semantic context where this offset exist.
+    pub fn find_contexts_with_offset(
+        &self,
+        offset: usize,
+        source_id: SourceId,
+    ) -> Vec<SemanticInformationType> {
+        let mut context_finder = FindContextsWithOffset {
+            analysis: &self.analysis,
+            offset,
+            contexts: Vec::new(),
+            source_id,
+        };
+
+        for expr in self.exprs.iter() {
+            context_finder.visit(expr);
+        }
+
+        context_finder.contexts
+    }
+
+    // Convert the syntax object ids back to interned strings. Could end up
+    // returning nothing if the ids are not found in the target AST, which could
+    // happen if the analysis gets invalidated by refreshing the vars.
+    pub fn syntax_object_ids_to_identifiers<'b>(
+        &self,
+        ids: &'a mut HashMap<SyntaxObjectId, Option<InternedString>>,
+    ) -> &mut HashMap<SyntaxObjectId, Option<InternedString>> {
+        let mut identifier_finder = IdentifierFinder { ids };
+
+        for expr in self.exprs.iter() {
+            identifier_finder.visit(expr);
+        }
+
+        identifier_finder.ids
     }
 
     /// Converts function applications of the form:
@@ -3702,11 +4122,11 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         if elider.re_run_analysis {
-            log::debug!(
-                "Re-running the semantic analysis after modifications during lambda lifting"
-            );
+            // log::debug!(
+            //     "Re-running the semantic analysis after modifications during lambda lifting"
+            // );
 
-            self.analysis = Analysis::from_exprs(self.exprs);
+            self.analysis.fresh_from_exprs(self.exprs);
             self.analysis.populate_captures(self.exprs);
         }
 
@@ -3739,7 +4159,7 @@ impl<'a> SemanticAnalysis<'a> {
                 .iter()
                 .map(|x| {
                     if let ExprKind::Define(d) = x {
-                        log::debug!("Found a local function to lift: {}", d.name);
+                        // log::debug!("Found a local function to lift: {}", d.name);
                         d.name.atom_syntax_object().unwrap().syntax_object_id
                     } else {
                         unreachable!()
@@ -3822,12 +4242,13 @@ impl<'a> SemanticAnalysis<'a> {
         *self.exprs = overall_lifted;
 
         if re_run_analysis {
-            log::debug!(
-                "Re-running the semantic analysis after modifications during lambda lifting"
-            );
+            // log::debug!(
+            //     "Re-running the semantic analysis after modifications during lambda lifting"
+            // );
 
-            self.analysis = Analysis::from_exprs(self.exprs);
-            self.analysis.populate_captures(self.exprs);
+            self.analysis.fresh_from_exprs(self.exprs);
+            // = Analysis::from_exprs(self.exprs);
+            // self.analysis.populate_captures(self.exprs);
         }
 
         self
@@ -3865,6 +4286,475 @@ mod analysis_pass_tests {
     };
 
     use super::*;
+
+    #[test]
+    fn test_unused_arguments() {
+        let script = r#"
+            
+(define ##lambda-lifting##loop119067
+  (λ (port sum)
+    (%plain-let
+     ((next-line (read-line-from-port port)))
+     (if (equal? (quote eof) next-line)
+         sum
+         (##lambda-lifting##loop119067
+          port
+          (+ sum
+             (%plain-let ((digits (filter char-digit? next-line)))
+                         (%plain-let ((first-digit (first digits)) (second-digit (last digits)))
+                                     (string->number (list->string (list first-digit
+                                                                         second-digit)))))))))))
+
+(define ##lambda-lifting##trie-contains-inner?119977
+  (λ (node char-list)
+    (if (empty? char-list)
+        #true
+        (if (char=? (trie-char node) (car char-list))
+            (%plain-let ((children-matched
+                          (map (λ (node4)
+                                 (##lambda-lifting##trie-contains-inner?119977 node4 (cdr char-list)))
+                               (trie-children node))))
+                        (if (empty? children-matched) #true (list? (member #true children-matched))))
+            #false))))
+
+(define ##lambda-lifting##loop120600
+  (λ (port sum)
+    (%plain-let ((next-line (read-line-from-port port)))
+                (if (equal? (quote eof) next-line)
+                    sum
+                    (##lambda-lifting##loop120600 port (+ sum (process-line next-line)))))))
+
+(define scan
+  (λ (path) (%plain-let ((file (open-input-file path))) (##lambda-lifting##loop119067 file 0))))
+
+(displayln (scan "aoc/day1.data"))
+
+(define word-map
+  (transduce (list (cons "one" "1")
+                   (cons "two" "2")
+                   (cons "three" "3")
+                   (cons "four" "4")
+                   (cons "five" "5")
+                   (cons "six" "6")
+                   (cons "seven" "7")
+                   (cons "eight" "8")
+                   (cons "nine" "9")
+                   (cons "1" "1")
+                   (cons "2" "2")
+                   (cons "3" "3")
+                   (cons "4" "4")
+                   (cons "5" "5")
+                   (cons "6" "6")
+                   (cons "7" "7")
+                   (cons "8" "8")
+                   (cons "9" "9"))
+             (mapping (λ (pair) (cons (string->list (car pair)) (cadr pair))))
+             (into-hashmap)))
+
+(define sample
+  (map
+   symbol->string
+   (quote
+    (two1nine eightwothree abcone2threexyz xtwone3four 4nineeightseven2 zoneight234 7pqrstsixteen))))
+
+(displayln sample)
+
+(begin
+  (define ___trie-options___
+    (hash (quote #:transparent)
+          #true
+          (quote #:name)
+          (quote trie)
+          (quote #:fields)
+          (quote (char children end-word? word-up-to))
+          (quote #:printer)
+          (λ (obj printer-function)
+            (begin
+              (display "(")
+              (display (symbol->string (quote trie)))
+              (display " ")
+              (printer-function (trie-char obj))
+              (display " ")
+              (printer-function (trie-children obj))
+              (display " ")
+              (printer-function (trie-end-word? obj))
+              (display " ")
+              (printer-function (trie-word-up-to obj))
+              (display ")")))
+          (quote #:mutable)
+          #false))
+  (define trie (quote unintialized))
+  (define struct:trie (quote uninitialized))
+  (define trie? (quote uninitialized))
+  (define trie-char (quote uninitialized))
+  (define trie-children (quote uninitialized))
+  (define trie-end-word? (quote uninitialized))
+  (define trie-word-up-to (quote uninitialized))
+  (%plain-let ((prototypes (make-struct-type (quote trie) 4)))
+              (%plain-let ((struct-type-descriptor (list-ref prototypes 0))
+                           (constructor-proto (list-ref prototypes 1))
+                           (predicate-proto (list-ref prototypes 2))
+                           (getter-proto (list-ref prototypes 3)))
+                          (begin
+                            (set! struct:trie struct-type-descriptor)
+                            (#%vtable-update-entry! struct-type-descriptor #false ___trie-options___)
+                            (set! trie constructor-proto)
+                            (set! trie? predicate-proto)
+                            (set! trie-char (λ (this) (getter-proto this 0)))
+                            (set! trie-children (λ (this) (getter-proto this 1)))
+                            (set! trie-end-word? (λ (this) (getter-proto this 2)))
+                            (set! trie-word-up-to (λ (this) (getter-proto this 3)))
+                            void))))
+
+(define empty (quote ()))
+
+(define empty-trie (trie void empty #false empty))
+
+(define flatten
+  (λ (lst)
+    (if (null? lst)
+        empty
+        (if (list? lst) (append (flatten (car lst)) (flatten (cdr lst))) (list lst)))))
+
+(define create-children
+  (λ (char-list lst prefix-chars)
+    (if (= (length char-list) 1)
+        (handle-last-letter char-list lst prefix-chars)
+        (handle-intern-letter char-list lst prefix-chars))))
+
+(define handle-last-letter
+  (λ (char-list lst prefix-chars)
+    (%plain-let
+     ((char (first char-list)))
+     (%plain-let
+      ((next-prefix (push-back prefix-chars char)))
+      (if (empty? lst)
+          (list (trie char empty #true next-prefix))
+          (if (< char (trie-char (first lst)))
+              (cons (trie char empty #true next-prefix) lst)
+              (if (equal? char (trie-char (first lst)))
+                  (cons (trie char (trie-children (first lst)) #true next-prefix) (rest lst))
+                  (cons (first lst) (create-children char-list (rest lst) prefix-chars)))))))))
+
+(define handle-intern-letter
+  (λ (char-list lst prefix-chars)
+    (%plain-let
+     ((char (first char-list)))
+     (%plain-let
+      ((next-prefix (push-back prefix-chars char)))
+      (if (empty? lst)
+          (list (trie char (create-children (rest char-list) empty next-prefix) #false next-prefix))
+          (if (< char (trie-char (first lst)))
+              (cons
+               (trie char (create-children (rest char-list) empty next-prefix) #false next-prefix)
+               lst)
+              (if (equal? char (trie-char (first lst)))
+                  (cons
+                   (trie char
+                         (create-children (rest char-list) (trie-children (first lst)) next-prefix)
+                         (trie-end-word? (first lst))
+                         (trie-word-up-to (first lst)))
+                   (rest lst))
+                  (cons (first lst) (create-children char-list (rest lst) prefix-chars)))))))))
+
+(define insert
+  (λ (root-trie word)
+    (%plain-let ((char-list (string->list word)))
+                (trie (trie-char root-trie)
+                      (create-children char-list (trie-children root-trie) empty)
+                      (trie-end-word? root-trie)
+                      (trie-word-up-to root-trie)))))
+
+(define trie<? (λ (trie-node1 trie-node2) (< (trie-char trie-node1) (trie-char trie-node2))))
+
+(define build-trie-from-list-of-words
+  (λ (trie list-of-words)
+    (if (= (length list-of-words) 1)
+        (insert trie (first list-of-words))
+        (build-trie-from-list-of-words (insert trie (first list-of-words)) (rest list-of-words)))))
+
+(define trie-sort
+  (λ (list-of-words)
+    (%plain-let ((new-trie (build-trie-from-list-of-words empty-trie list-of-words)))
+                (pre-order new-trie))))
+
+(define pre-order
+  (λ (trie-node)
+    (if (trie-end-word? trie-node)
+        (cons (list->string (trie-word-up-to trie-node))
+              (flatten (map pre-order (trie-children trie-node))))
+        (flatten (map pre-order (trie-children trie-node))))))
+
+(define trie-contains-prefix?
+  (λ (root word)
+    (%plain-let
+     ((root-word-char-list (if (string? word) (string->list word) word)))
+     (list? (member #true
+                    (map (λ (node)
+                           (##lambda-lifting##trie-contains-inner?119977 node root-word-char-list))
+                         (trie-children root)))))))
+
+(define my-trie
+  (build-trie-from-list-of-words empty-trie
+                                 (quote ("one" "two"
+                                               "three"
+                                               "four"
+                                               "five"
+                                               "six"
+                                               "seven"
+                                               "eight"
+                                               "nine"
+                                               "1"
+                                               "2"
+                                               "3"
+                                               "4"
+                                               "5"
+                                               "6"
+                                               "7"
+                                               "8"
+                                               "9"))))
+
+(define check-slices
+  (λ (trie-root word-map line)
+    (%plain-let
+     ((line-length (length line)) (loop 123))
+     (%plain-let
+      ((loop4 (#%box loop)))
+      (%plain-let ((_____loop0 (λ (offset amount accum)
+                                 (if (> (+ offset amount) line-length)
+                                     (reverse accum)
+                                     (if (trie-contains-prefix? trie-root (slice line offset amount))
+                                         (if (hash-contains? word-map (slice line offset amount))
+                                             ((#%unbox loop4)
+                                              (+ offset 1)
+                                              1
+                                              (cons (hash-get word-map (slice line offset amount))
+                                                    accum))
+                                             ((#%unbox loop4) offset (+ 1 amount) accum))
+                                         ((#%unbox loop4) (+ 1 offset) 1 accum))))))
+                  (begin
+                    (#%set-box! loop4 _____loop0)
+                    ((#%unbox loop4) 0 1 (quote ()))))))))
+
+(define process-line
+  (λ (line)
+    (%plain-let ((result (check-slices my-trie word-map (string->list line))))
+                (string->number (apply string-append (list (first result) (last result)))))))
+
+(define scan2
+  (λ (path) (%plain-let ((file (open-input-file path))) (##lambda-lifting##loop120600 file 0))))
+
+(displayln (scan2 "aoc/day1.data"))
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+        let analysis = SemanticAnalysis::new(&mut exprs);
+        // analysis.replace_pure_empty_lets_with_body();
+
+        // Log the free identifiers
+        let free_vars = analysis.find_unused_arguments();
+
+        for var in free_vars {
+            crate::rerrs::report_info(
+                ErrorKind::FreeIdentifier.to_error_code(),
+                "input.rkt",
+                script,
+                "unused arguments".to_string(),
+                var.1,
+            );
+        }
+    }
+
+    #[test]
+    fn test_free_identifiers() {
+        let script = r#"
+
+(begin
+ (define ___mcons-options___
+        (hash
+           (quote
+             #:fields)
+           (quote
+             (mcar mcdr))
+           (quote
+             #:transparent)
+           #false
+           (quote
+             #:name)
+           (quote
+             mcons)
+           (quote
+             #:printer)
+           (λ (obj printer)
+             (if (mlist? obj)
+               (begin
+                (simple-display "'")
+                     (printer (mcons->list obj)))
+               (begin
+                (simple-display "'(")
+                     (printer (mcons-mcar obj))
+                     (simple-display " . ")
+                     (printer (mcons-mcdr obj))
+                     (simple-display ")"))))
+           (quote
+             #:mutable)
+           #true))
+      (define mcons
+        (quote
+          unintialized))
+      (define struct:mcons
+        (quote
+          uninitialized))
+      (define mcons?
+        (quote
+          uninitialized))
+      (define mcons-mcar
+        (quote
+          uninitialized))
+      (define mcons-mcdr
+        (quote
+          uninitialized))
+      (define set-mcons-mcar!
+        (quote
+          unintialized))
+      (define set-mcons-mcdr!
+        (quote
+          unintialized))
+      (%plain-let ((prototypes (make-struct-type
+             (quote
+               mcons)
+             2)))
+        (%plain-let ((struct-type-descriptor (list-ref
+               prototypes
+               0))
+            (constructor-proto (list-ref prototypes 1))
+            (predicate-proto (list-ref prototypes 2))
+            (getter-proto (list-ref prototypes 3)))
+          (begin
+           (set! struct:mcons struct-type-descriptor)
+                (#%vtable-update-entry!
+                   struct-type-descriptor
+                   #false
+                   ___mcons-options___)
+                (set! mcons
+                  (λ (mcar mcdr)
+                    (constructor-proto
+                       (#%box mcar)
+                       (#%box mcdr))))
+                (set! mcons? predicate-proto)
+                (set! mcons-mcar
+                  (λ (this)
+                    (#%unbox (getter-proto this 0))))
+                (set! mcons-mcdr
+                  (λ (this)
+                    (#%unbox (getter-proto this 1))))
+                (set! set-mcons-mcar!
+                  (λ (this value)
+                    (#%set-box!
+                       (getter-proto this 0)
+                       value)))
+                (set! set-mcons-mcdr!
+                  (λ (this value)
+                    (#%set-box!
+                       (getter-proto this 1)
+                       value)))
+                void))))
+
+(define ##lambda-lifting##loop118915
+  (λ (mutable-cons3 builder)
+    (if (not
+         (mcons?
+            (%plain-let ((result (mcons-mcdr
+                   mutable-cons3)))
+              (begin
+               (simple-display
+                       (quote
+                         (mcons-mcdr mutable-cons)))
+                    (simple-display " = ")
+                    (simple-displayln result)
+                    result))))
+      (#%prim.cons (mcons-mcar mutable-cons3) builder)
+      (##lambda-lifting##loop118915
+         (mcons-mcdr mutable-cons3)
+         (#%prim.cons
+            (mcons-mcar mutable-cons3)
+            builder)))))
+
+(define set-car!
+  set-mcons-mcar!)
+
+(define set-cdr!
+  set-mcons-mcdr!)
+
+(define mcons->list
+  (λ (mutable-cons)
+    (reverse
+       (##lambda-lifting##loop118915
+          mutable-cons
+          (quote
+            ())))))
+
+(define mlist?
+  (λ (cell)
+    (%plain-let ((next (mcons-mcdr cell)))
+      (%plain-let ((z (mcons? next)))
+        (if z z (null? next))))))
+
+(define pair?
+  (λ (x)
+    (%plain-let ((z (mcons? x)))
+      (if z z (#%prim.pair? x)))))
+
+(define cons
+  (λ (a b !!dummy-rest-arg!!)
+    (%plain-let ((!!dummy-rest-arg!!3 (apply
+           %keyword-hash
+           !!dummy-rest-arg!!)))
+      (%plain-let ((mutable (%plain-let ((mutable (hash-try-get
+                 !!dummy-rest-arg!!3
+                 (quote
+                   #:mutable))))
+            (if (hash-contains?
+                 !!dummy-rest-arg!!3
+                 (quote
+                   #:mutable))
+              mutable
+              #false))))
+        (if mutable
+          (mcons a b)
+          (if (list? b)
+            (#%prim.cons a b)
+            (if (mcons? b)
+              (mcons a b)
+              (#%prim.cons a b))))))))
+
+(define car
+  (λ (a)
+    (if (mcons? a) (mcons-mcar a) (#%prim.car a))))
+
+(define cdr
+  (λ (a)
+    (if (mcons? a) (mcons-mcdr a) (#%prim.cdr a))))
+            
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+        let mut analysis = SemanticAnalysis::new(&mut exprs);
+        analysis.replace_pure_empty_lets_with_body();
+
+        // Log the free identifiers
+        let free_vars = analysis.find_free_identifiers();
+
+        for var in free_vars {
+            crate::rerrs::report_info(
+                ErrorKind::FreeIdentifier.to_error_code(),
+                "input.rkt",
+                script,
+                "Free identifier".to_string(),
+                var.span,
+            );
+        }
+    }
 
     #[test]
     fn local_defines() {

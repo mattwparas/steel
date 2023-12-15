@@ -15,10 +15,12 @@ use super::dylib::DylibContainers;
 use crate::{
     compiler::{
         compiler::{Compiler, SerializableCompiler},
+        map::SymbolMap,
         modules::{CompiledModule, PRELUDE_WITHOUT_BASE},
         program::{Executable, RawProgramWithSymbols, SerializableRawProgramWithSymbols},
     },
     containers::RegisterValue,
+    core::{instructions::Instruction, labels::Expr},
     gc::unsafe_erased_pointers::{
         BorrowedObject, CustomReference, OpaqueReferenceNursery, ReadOnlyBorrowedObject,
         ReferenceMarker,
@@ -54,6 +56,11 @@ use std::{
 use im_rc::HashMap as ImmutableHashMap;
 use lasso::ThreadedRodeo;
 use serde::{Deserialize, Serialize};
+use steel_gen::OpCode;
+use steel_parser::{
+    parser::{SourceId, SyntaxObject},
+    tokens::{MaybeBigInt, TokenType},
+};
 
 use crate::parser::ast::IteratorExtensions;
 
@@ -66,11 +73,17 @@ thread_local! {
 //     KERNEL_BIN_FILE.with(|x| x.set(Some(bin)));
 // }
 
+pub trait ModuleResolver {
+    fn resolve(&self, name: &str) -> Option<BuiltInModule>;
+}
+
 #[derive(Clone, Default)]
 pub struct ModuleContainer {
     modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
-    // Modules that... might eventually be a dynamic library
-    maybe_module: HashSet<String>,
+    // For modules that don't exist in memory. This could be useful for a world
+    // in which a builtin module exists BUT we'd like to resolve the module for
+    // inference purposes.
+    unresolved_modules: Option<Rc<dyn ModuleResolver>>,
 }
 
 impl ModuleContainer {
@@ -79,7 +92,11 @@ impl ModuleContainer {
     }
 
     pub fn get(&mut self, key: &str) -> Option<BuiltInModule> {
-        self.modules.get(key).cloned()
+        self.modules.get(key).cloned().or_else(|| {
+            self.unresolved_modules
+                .as_ref()
+                .and_then(|x| x.resolve(key))
+        })
     }
 
     pub fn inner(&self) -> &ImmutableHashMap<Rc<str>, BuiltInModule> {
@@ -88,6 +105,10 @@ impl ModuleContainer {
 
     pub(crate) fn inner_mut(&mut self) -> &mut ImmutableHashMap<Rc<str>, BuiltInModule> {
         &mut self.modules
+    }
+
+    pub fn with_resolver<T: ModuleResolver + 'static>(&mut self, resolver: T) {
+        self.unresolved_modules = Some(Rc::new(resolver));
     }
 }
 
@@ -245,12 +266,25 @@ fn load_module_noop(target: &crate::rvals::SteelString) -> crate::rvals::Result<
     stop!(Generic => "This engine has not been given the capability to load dylibs")
 }
 
+macro_rules! time {
+    ($target:expr, $label:expr, $e:expr) => {{
+        let now = std::time::Instant::now();
+
+        let e = $e;
+
+        log::debug!(target: $target, "{}: {:?}", $label, now.elapsed());
+
+        e
+    }};
+}
+
 impl Engine {
     /// Function to access a kernel level execution environment
     /// Has access to primitives and syntax rules, but will not defer to a child
     /// kernel in the compiler
     pub(crate) fn new_kernel() -> Self {
         log::debug!(target:"kernel", "Instantiating a new kernel");
+        let mut now = std::time::Instant::now();
 
         let mut vm = Engine {
             virtual_machine: SteelThread::new(),
@@ -262,12 +296,22 @@ impl Engine {
             dylibs: DylibContainers::new(),
         };
 
-        register_builtin_modules(&mut vm);
+        time!(
+            "engine-creation",
+            "Registering builtin modules",
+            register_builtin_modules(&mut vm)
+        );
 
-        vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
-            .unwrap();
+        time!(
+            "engine-creation",
+            "Loading the all modules prelude code",
+            vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
+                .unwrap()
+        );
 
-        log::debug!(target:"kernel", "Registered modules in the kernel!");
+        log::debug!(target: "kernel", "Registered modules in the kernel!: {:?}", now.elapsed());
+
+        let mut now = std::time::Instant::now();
 
         let core_libraries = [crate::stdlib::PRELUDE];
 
@@ -275,9 +319,18 @@ impl Engine {
             vm.compile_and_run_raw_program(core).unwrap();
         }
 
-        log::debug!(target: "kernel", "Loaded prelude in the kernel!");
+        log::debug!(target: "kernel", "Loaded prelude in the kernel!: {:?}", now.elapsed());
 
         vm
+    }
+
+    /// Register a module resolver. This is used for creating references to modules
+    /// that don't exist within the compiler. Without this, you wouldn't be able to
+    /// pre-compile or analyze code that is run within another host application, without
+    /// exposing some kind of compiler from that hosts runtime. The requirement then
+    /// is to expose some kind of module artifact that we can then consume.
+    pub fn register_module_resolver<T: ModuleResolver + 'static>(&mut self, resolver: T) {
+        self.modules.with_resolver(resolver);
     }
 
     pub fn builtin_modules(&self) -> &ModuleContainer {
@@ -286,9 +339,10 @@ impl Engine {
 
     #[doc(hidden)]
     pub fn disallow_dylib_loading(&mut self) -> &mut Self {
-        // This isn't amazing
         let module = self.modules.inner_mut();
 
+        // TODO: This should actually just clone the whole module, and then add this definition
+        // in. That way it has its own unique module loader.
         if let Some(builtin_module) = module.get_mut("steel/meta") {
             builtin_module.register_native_fn_definition(LOAD_MODULE_NOOP_DEFINITION);
         }
@@ -316,6 +370,18 @@ impl Engine {
             return Engine::new_kernel();
         }
 
+        if matches!(option_env!("STEEL_BOOTSTRAP"), Some("false") | None) {
+            let mut vm = Engine::new_kernel();
+
+            let sources = vm.sources.clone();
+
+            vm.register_fn("report-error!", move |error: SteelErr| {
+                raise_error(&sources, error);
+            });
+
+            return vm;
+        }
+
         log::debug!(target:"kernel", "Instantiating a new kernel");
 
         let mut vm = Engine {
@@ -332,13 +398,10 @@ impl Engine {
             register_builtin_modules(&mut vm);
 
             for program in programs {
-                // println!("Running raw program...");
-
                 vm.compiler.constant_map = program.constant_map.clone();
                 vm.virtual_machine.constant_map = program.constant_map.clone();
 
                 vm.run_raw_program(program).unwrap();
-                // vm.run_raw_program_from_exprs(ast).unwrap();
             }
 
             log::debug!(target: "kernel", "Loaded prelude in the kernel!");
@@ -1001,16 +1064,16 @@ impl Engine {
     pub fn new() -> Self {
         let mut engine = fresh_kernel_image();
 
-        // Touch the printer to initialize it
-        // install_printer();
-        // engine.register_fn("print-in-engine", print_in_engine);
-
         engine.compiler.kernel = Some(Kernel::new());
+
+        let now = std::time::Instant::now();
 
         if let Err(e) = engine.run(PRELUDE_WITHOUT_BASE) {
             raise_error(&engine.sources, e);
             panic!("This shouldn't happen!");
         }
+
+        log::info!(target: "engine-creation", "Engine Creation: {:?}", now.elapsed());
 
         engine
     }
@@ -1069,7 +1132,7 @@ impl Engine {
     // Registers the given module into the virtual machine
     pub fn register_module(&mut self, module: BuiltInModule) -> &mut Self {
         // Add the module to the map
-        self.modules.insert(Rc::clone(&module.name), module.clone());
+        self.modules.insert(module.name(), module.clone());
         // Register the actual module itself as a value to make the virtual machine capable of reading from it
         self.register_value(
             module.unreadable_name().as_str(),
@@ -1087,7 +1150,7 @@ impl Engine {
         let external_module = FFIWrappedModule::new(module)?.build();
 
         self.modules
-            .insert(external_module.name.clone(), external_module.clone());
+            .insert(external_module.name(), external_module.clone());
 
         self.register_value(
             external_module.unreadable_name().as_str(),
@@ -1201,6 +1264,64 @@ impl Engine {
     //         .execute_program::<UseCallback, ApplyContract>(program)
     // }
 
+    // Generate dynamically linked files, containing all of the necessary information
+    // This means - compiling all macros as well.
+    fn load_raw_program(&mut self, mut program: RawProgramWithSymbols) {
+        fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
+            match &t.ty {
+                TokenType::BooleanLiteral(b) => Ok((*b).into()),
+                TokenType::NumberLiteral(n) => Ok(SteelVal::NumV(*n)),
+                TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.into())),
+                TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
+                TokenType::IntegerLiteral(steel_parser::tokens::MaybeBigInt::Small(n)) => {
+                    Ok(SteelVal::IntV(*n))
+                }
+                TokenType::IntegerLiteral(MaybeBigInt::Big(b)) => b.clone().into_steelval(),
+                // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
+                TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
+                what => {
+                    // println!("getting here in the eval_atom - code_gen");
+                    stop!(UnexpectedToken => what; t.span)
+                }
+            }
+        }
+
+        for expr in &mut program.instructions {
+            // Reform the program to conform to the current state of _this_ engine.
+            for i in 0..expr.len() {
+                let instruction = &mut expr[i];
+
+                match instruction {
+                    Instruction {
+                        op_code: OpCode::PUSHCONST,
+                        contents: Some(Expr::Atom(constant_value)),
+                        ..
+                    } => {
+                        let value =
+                            eval_atom(&constant_value).expect("This must be a constant value");
+
+                        instruction.payload_size = self.compiler.constant_map.add_or_get(value);
+                    }
+
+                    Instruction {
+                        op_code: OpCode::PUSHCONST,
+                        contents: Some(Expr::List(expression)),
+                        ..
+                    } => {
+                        let value = SteelVal::try_from(expression.clone())
+                            .expect("This conversion must work");
+
+                        instruction.payload_size = self.compiler.constant_map.add_or_get(value);
+                    }
+
+                    _ => {
+                        todo!()
+                    }
+                }
+            }
+        }
+    }
+
     // TODO -> clean up this API a lot
     pub fn compile_and_run_raw_program_with_path(
         &mut self,
@@ -1245,8 +1366,6 @@ impl Engine {
             &mut self.sources,
         )?;
 
-        // program.profile_instructions();
-
         self.run_raw_program(program)
     }
 
@@ -1258,8 +1377,8 @@ impl Engine {
 
         let result = program.build("TestProgram".to_string(), &mut self.compiler.symbol_map);
 
+        // Revisit if we need to do this at all?
         if result.is_err() {
-            // panic!("Rolling back symbol map");
             self.compiler.symbol_map.roll_back(symbol_map_offset);
         }
 
@@ -1283,6 +1402,21 @@ impl Engine {
     ) -> Result<Vec<ExprKind>> {
         let constants = self.constants();
         self.compiler.emit_expanded_ast(
+            expr,
+            constants,
+            path,
+            &mut self.sources,
+            self.modules.clone(),
+        )
+    }
+
+    pub fn emit_expanded_ast_without_optimizations(
+        &mut self,
+        expr: &str,
+        path: Option<PathBuf>,
+    ) -> Result<Vec<ExprKind>> {
+        let constants = self.constants();
+        self.compiler.emit_expanded_ast_without_optimizations(
             expr,
             constants,
             path,
@@ -1690,8 +1824,16 @@ impl Engine {
         self.compiler.symbol_map.get(&spur).is_ok()
     }
 
+    pub fn symbol_map(&self) -> &SymbolMap {
+        &self.compiler.symbol_map
+    }
+
     pub fn in_scope_macros(&self) -> &HashMap<InternedString, SteelMacro> {
         &self.compiler.macro_env
+    }
+
+    pub fn in_scope_macros_mut(&mut self) -> &mut HashMap<InternedString, SteelMacro> {
+        &mut self.compiler.macro_env
     }
 
     pub fn get_module(&self, path: PathBuf) -> Result<SteelVal> {
@@ -1699,6 +1841,23 @@ impl Engine {
             "__module-mangler".to_string() + path.as_os_str().to_str().unwrap() + "__%#__";
 
         self.extract_value(&module_path)
+    }
+
+    pub fn get_source_id(&self, path: &PathBuf) -> Option<SourceId> {
+        self.sources.get_source_id(path)
+    }
+
+    pub fn get_path_for_source_id(&self, source_id: &SourceId) -> Option<PathBuf> {
+        self.sources.get_path(source_id)
+    }
+
+    pub fn get_source(&self, source_id: &SourceId) -> Option<String> {
+        self.sources
+            .sources
+            .lock()
+            .unwrap()
+            .get(*source_id)
+            .cloned()
     }
 }
 
@@ -1777,7 +1936,7 @@ fn raise_error(sources: &Sources, error: SteelErr) {
                     }
                 }
 
-                let resolved_file_name = file_name.cloned().unwrap_or_default();
+                let resolved_file_name = file_name.unwrap_or_default();
 
                 error.emit_result(resolved_file_name.to_str().unwrap(), &file_content);
                 return;
@@ -1829,7 +1988,7 @@ pub(crate) fn raise_error_to_string(sources: &Sources, error: SteelErr) -> Optio
                     }
                 }
 
-                let resolved_file_name = file_name.cloned().unwrap_or_default();
+                let resolved_file_name = file_name.unwrap_or_default();
 
                 let final_error = error
                     .emit_result_to_string(resolved_file_name.to_str().unwrap(), &file_content);

@@ -50,7 +50,6 @@ pub struct CodeGenerator<'a> {
 fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
     match &t.ty {
         TokenType::BooleanLiteral(b) => Ok((*b).into()),
-        // TokenType::Identifier(s) => env.borrow().lookup(&s),
         TokenType::NumberLiteral(n) => Ok(SteelVal::NumV(*n)),
         TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.into())),
         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
@@ -642,6 +641,10 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         self.push(
             LabeledInstruction::builder(OpCode::PUSHCONST)
                 .payload(idx)
+                // TODO: This is a little suspect, we're doing a bunch of stuff twice
+                // that we really don't need. In fact, we probably can get away with just...
+                // embedding the steel val directly here.
+                .list_contents(crate::parser::ast::ExprKind::Quote(Box::new(quote.clone())))
                 .constant(true),
         );
 

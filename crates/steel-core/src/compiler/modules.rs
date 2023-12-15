@@ -9,7 +9,10 @@ use crate::{
     },
     parser::{
         ast::{AstTools, Atom, Begin, Define, ExprKind, List, Quote},
-        expand_visitor::{expand_kernel, expand_kernel_in_env},
+        expand_visitor::{
+            expand_kernel, expand_kernel_in_env, expand_kernel_in_env_with_allowed,
+            expand_kernel_in_env_with_change,
+        },
         interner::InternedString,
         kernel::Kernel,
         parser::{
@@ -18,7 +21,7 @@ use crate::{
         },
         tokens::TokenType,
     },
-    steel_vm::{engine::ModuleContainer, transducers::interleave},
+    steel_vm::{builtin::BuiltInModule, engine::ModuleContainer, transducers::interleave},
 };
 use crate::{parser::expand_visitor::Expander, rvals::Result};
 
@@ -84,7 +87,8 @@ declare_builtins!(
     "#%private/steel/contract" => "../scheme/modules/contracts.scm",
     "#%private/steel/print" => "../scheme/print.scm",
     "#%private/steel/control" => "../scheme/modules/parameters.scm",
-    "#%private/steel/reader" => "../scheme/modules/reader.scm"
+    "#%private/steel/reader" => "../scheme/modules/reader.scm",
+    "#%private/steel/stdlib" => "../scheme/stdlib.scm"
 );
 
 create_prelude!(
@@ -239,9 +243,7 @@ impl ModuleManager {
 
         let mut explicit_requires = HashMap::new();
 
-        for require_object in &module_builder.require_objects
-        // .chain(module_builder.built_ins.iter())
-        {
+        for require_object in &module_builder.require_objects {
             let path = require_object.path.get_path();
             explicit_requires.clear();
 
@@ -266,7 +268,7 @@ impl ModuleManager {
             let module = if let Some(module) = module_builder.compiled_modules.get(path.as_ref()) {
                 module
             } else {
-                log::debug!(target: "modules", "No provides found for module, skipping: {:?}", path);
+                // log::debug!(target: "modules", "No provides found for module, skipping: {:?}", path);
 
                 continue;
             };
@@ -302,6 +304,15 @@ impl ModuleManager {
                                                 .atom_identifier()
                                                 .map(|x| explicit_requires.contains_key(x))
                                                 .unwrap_or_default()
+                                        {
+                                            continue;
+                                        }
+
+                                        // TODO: This should surface an error - cannot use contract
+                                        // out on a macro
+                                        if module
+                                            .macro_map
+                                            .contains_key(name.atom_identifier().unwrap())
                                         {
                                             continue;
                                         }
@@ -369,6 +380,13 @@ impl ModuleManager {
                                             continue;
                                         }
 
+                                        if module
+                                            .macro_map
+                                            .contains_key(name.atom_identifier().unwrap())
+                                        {
+                                            continue;
+                                        }
+
                                         let hash_get = expr_list![
                                             ExprKind::ident("%proto-hash-get%"),
                                             ExprKind::atom(
@@ -431,6 +449,13 @@ impl ModuleManager {
                                 continue;
                             }
 
+                            if module
+                                .macro_map
+                                .contains_key(provide.atom_identifier().unwrap())
+                            {
+                                continue;
+                            }
+
                             let hash_get = expr_list![
                                 ExprKind::ident("%proto-hash-get%"),
                                 ExprKind::atom("__module-".to_string() + &other_module_prefix),
@@ -484,51 +509,85 @@ impl ModuleManager {
 
         // TODO: Move this to the lower level as well
         // It seems we're only doing this expansion at the top level, but we _should_ do this at the lower level as well
-        for require_for_syntax in module_builder
-            .require_objects
-            .iter()
-            .filter(|x| x.for_syntax)
-            .map(|x| x.path.get_path())
+        for require_object in module_builder.require_objects.iter()
+        // .filter(|x| x.for_syntax)
+        // .map(|x| x.path.get_path())
         {
-            let (module, mut in_scope_macros) = Self::find_in_scope_macros(
+            let require_for_syntax = require_object.path.get_path();
+
+            let (module, mut in_scope_macros, mut name_mangler) = Self::find_in_scope_macros(
                 &self.compiled_modules,
                 require_for_syntax.as_ref(),
+                &require_object,
                 &mut mangled_asts,
             );
 
-            // dbg!(&in_scope_macros);
-
-            // for (key, value) in &mut in_scope_macros {
-            //     for line in value.exprs_mut() {
-            //         println!("{}", line);
-            //     }
-            // }
-
-            // ast = ast.into_iter().map(|x| )
-
-            // ast.pretty_print();
+            let kernel_macros_in_scope: HashSet<_> =
+                module.provides_for_syntax.iter().cloned().collect();
 
             ast = ast
                 .into_iter()
                 .map(|x| {
+                    // @matt 12/8/2023
+                    // The easiest thing to do here, is to go to the other module, and find
+                    // what defmacros have been exposed on the require for syntax. Once those
+                    // have been found, we run a pass with kernel expansion, limiting the
+                    // expander to only use the macros that we've exposed. After that,
+                    // we run the expansion again, using the full suite of defmacro capabilities.
+                    //
+                    // The question that remains - how to define the neat phases of what kinds
+                    // of macros can expand into what? Can defmacro -> syntax-rules -> defmacro?
+                    // This could eventually prove to be cumbersome, but it is still early
+                    // for defmacro. Plus, I need to create a syntax-case or syntax-parse
+                    // frontend before the defmacro style macros become too pervasive.
+                    //
+                    // TODO: Replicate this behavior over to builtin modules
+
                     // First expand the in scope macros
                     // These are macros
                     let mut expander = Expander::new(&in_scope_macros);
-                    let first_round_expanded = expander.expand(x)?;
+                    let mut first_round_expanded = expander.expand(x)?;
+                    let mut changed = false;
 
-                    if expander.changed {
+                    // (first_round_expanded, changed) = expand_kernel_in_env_with_allowed(
+                    //     first_round_expanded,
+                    //     kernel.as_mut(),
+                    //     // We don't need to expand those here
+                    //     ModuleContainer::default(),
+                    //     module.name.to_str().unwrap().to_string(),
+                    //     &kernel_macros_in_scope,
+                    // )?;
+
+                    // If the kernel expander expanded into something - go ahead
+                    // and expand all of the macros in this
+                    // if changed || expander.changed {
+                    // Expand here?
+                    // first_round_expanded = expand(first_round_expanded, &module.macro_map)?;
+
+                    // Probably don't need this
+                    // (first_round_expanded, changed) = expand_kernel_in_env_with_change(
+                    //     first_round_expanded,
+                    //     kernel.as_mut(),
+                    //     ModuleContainer::default(),
+                    //     module.name.to_str().unwrap().to_string(),
+                    // )?;
+
+                    // This is pretty suspect, and needs to be revisited - only the output of the
+                    // macro expansion and not the whole thing needs to be mangled most likely.
+                    // Otherwise, we'll run into weird stuff?
+                    // if changed {
+                    //     name_mangler.visit(&mut first_round_expanded);
+                    // }
+                    // }
+
+                    if expander.changed || changed {
                         expand(first_round_expanded, &module.macro_map)
                     } else {
                         Ok(first_round_expanded)
                     }
-
-                    // expand(x, &module.macro_map)
                 })
                 .collect::<Result<_>>()?;
 
-            // TODO: @Matt 10/16/12
-            // This won't work if the macros expand to other private macros.
-            // Tracking issue here: <TODO>
             global_macro_map.extend(in_scope_macros);
         }
 
@@ -543,17 +602,24 @@ impl ModuleManager {
         // @Matt 7/4/23
         // TODO: With mangling, this could cause problems. We'll want to un-mangle quotes AFTER the macro has been expanded,
         // in order to preserve the existing behavior.
-        module_statements
+        let result = module_statements
             .into_iter()
             .map(|x| expand(x, global_macro_map))
-            .collect::<Result<_>>()
+            .collect::<Result<_>>();
+
+        result
     }
 
     fn find_in_scope_macros<'a>(
         compiled_modules: &'a HashMap<PathBuf, CompiledModule>,
         require_for_syntax: &'a PathBuf,
+        require_object: &'a RequireObject,
         mangled_asts: &'a mut Vec<ExprKind>,
-    ) -> (&'a CompiledModule, HashMap<InternedString, SteelMacro>) {
+    ) -> (
+        &'a CompiledModule,
+        HashMap<InternedString, SteelMacro>,
+        NameMangler,
+    ) {
         let module = compiled_modules
             .get(require_for_syntax)
             .expect(&format!("Module missing!: {:?}", require_for_syntax));
@@ -582,9 +648,11 @@ impl ModuleManager {
         // do this for each of the expressions in the file in this loop
         // TODO -> try not cloning this
         // TODO -> do this in the module expansion as well
-        let in_scope_macros = module
+        let mut in_scope_macros = module
             .provides_for_syntax
             .iter()
+            // Chain with just the normal provides!
+            // .chain(module.provides)
             .filter_map(|x| module.macro_map.get(x).map(|m| (*x, m.clone()))) // TODO -> fix this unwrap
             .map(|mut x| {
                 for expr in x.1.exprs_mut() {
@@ -594,12 +662,87 @@ impl ModuleManager {
                 x
             })
             .collect::<HashMap<_, _>>();
+
+        // If the require_object specifically imports things, we should reference it
+
+        if !require_object.idents_to_import.is_empty() {
+            for maybe in &require_object.idents_to_import {
+                match maybe {
+                    MaybeRenamed::Normal(n) => {
+                        if let Some(ident) = n.atom_identifier() {
+                            if let Some(mut m) = module.macro_map.get(ident).cloned() {
+                                for expr in m.exprs_mut() {
+                                    name_mangler.visit(expr);
+                                }
+
+                                if let Some(prefix) = &require_object.prefix {
+                                    in_scope_macros
+                                        .insert((prefix.to_string() + ident.resolve()).into(), m);
+                                } else {
+                                    in_scope_macros.insert(*ident, m);
+                                }
+                            }
+                        }
+                    }
+                    MaybeRenamed::Renamed(from, to) => {
+                        if let Some(ident) = from.atom_identifier() {
+                            if let Some(mut m) = module.macro_map.get(ident).cloned() {
+                                for expr in m.exprs_mut() {
+                                    name_mangler.visit(expr);
+                                }
+                                // TODO: Remove this unwrap
+                                // in_scope_macros.insert(*to.atom_identifier().unwrap(), m);
+
+                                if let Some(prefix) = &require_object.prefix {
+                                    in_scope_macros.insert(
+                                        (prefix.to_string()
+                                            + to.atom_identifier().unwrap().resolve())
+                                        .into(),
+                                        m,
+                                    );
+                                } else {
+                                    in_scope_macros.insert(*to.atom_identifier().unwrap(), m);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // Pull in all of the macros that the module exposes
+
+            for provide_expr in &module.provides {
+                if let Some(provide_expr) = provide_expr.list() {
+                    for ident in provide_expr.args.split_first().unwrap().1 {
+                        // println!("Looking for {}", ident);
+
+                        if let Some(ident) = ident.atom_identifier() {
+                            if let Some(mut m) = module.macro_map.get(ident).cloned() {
+                                // println!("Pulling in macro: {}", ident);
+
+                                for expr in m.exprs_mut() {
+                                    name_mangler.visit(expr);
+                                }
+
+                                if let Some(prefix) = &require_object.prefix {
+                                    in_scope_macros
+                                        .insert((prefix.to_string() + ident.resolve()).into(), m);
+                                } else {
+                                    in_scope_macros.insert(*ident, m);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Check what macros are in scope here
-        debug!(
-            "In scope macros: {:#?}",
-            in_scope_macros.keys().collect::<Vec<_>>()
-        );
-        (module, in_scope_macros)
+        // println!(
+        //     "In scope macros: {:#?}",
+        //     in_scope_macros.keys().collect::<Vec<_>>()
+        // );
+        (module, in_scope_macros, name_mangler)
     }
 
     #[cfg(not(feature = "modules"))]
@@ -616,6 +759,10 @@ impl ModuleManager {
     }
 }
 
+// Pre-compile module to bytecode? Is it even possible?
+// Dynamically linking the module would then make it relatively
+// easy to just load everything up at the start.
+// Compiled module _should_ be possible now. Just create a target
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CompiledModule {
     name: PathBuf,
@@ -648,6 +795,10 @@ impl CompiledModule {
         }
     }
 
+    pub fn get_ast(&self) -> &[ExprKind] {
+        &self.ast
+    }
+
     pub fn get_provides(&self) -> &[ExprKind] {
         &self.provides
     }
@@ -668,6 +819,7 @@ impl CompiledModule {
         let mut globals = collect_globals(&self.ast);
 
         let mut exprs = self.ast.clone();
+
         let mut provide_definitions = Vec::new();
 
         let prefix = "mangler".to_string() + self.name.to_str().unwrap() + MANGLER_SEPARATOR;
@@ -711,6 +863,10 @@ impl CompiledModule {
                     match provide {
                         ExprKind::List(l) => {
                             if let Some(qualifier) = l.first_ident() {
+                                if module.macro_map.contains_key(qualifier) {
+                                    continue;
+                                }
+
                                 match *qualifier {
                                     x if x == *CONTRACT_OUT => {
                                         // Directly expand into define/contract, but with the value just being the hash get below
@@ -792,6 +948,13 @@ impl CompiledModule {
                                     .atom_identifier()
                                     .map(|x| explicit_requires.contains_key(x))
                                     .unwrap_or_default()
+                            {
+                                continue;
+                            }
+
+                            if module
+                                .macro_map
+                                .contains_key(provide.atom_identifier().unwrap())
                             {
                                 continue;
                             }
@@ -941,6 +1104,9 @@ impl CompiledModule {
             }
         }
 
+        // Drop all of the macro references here
+        provides.retain(|x| !self.macro_map.contains_key(x.0.atom_identifier().unwrap()));
+
         // We want one without the mangled version, for the actual provides
         let un_mangled = provides.clone();
 
@@ -1063,9 +1229,9 @@ impl CompiledModule {
         // TODO clean this up
         let res = ExprKind::List(List::new(body));
 
-        if log_enabled!(target: "requires", log::Level::Debug) {
-            debug!(target: "requires", "Module ast node: {}", res.to_string());
-        }
+        // if log_enabled!(target: "requires", log::Level::Debug) {
+        //     debug!(target: "requires", "Module ast node: {}", res.to_string());
+        // }
 
         res
     }
@@ -1130,12 +1296,8 @@ struct ModuleBuilder<'a> {
     source_ast: Vec<ExprKind>,
     macro_map: HashMap<InternedString, SteelMacro>,
     // TODO: Change the requires / requires_for_syntax to just be a require enum?
-
-    // requires: Vec<PathBuf>,
-    // requires_for_syntax: Vec<PathBuf>,
     require_objects: Vec<RequireObject>,
 
-    // built_ins: Vec<PathBuf>,
     provides: Vec<ExprKind>,
     provides_for_syntax: Vec<ExprKind>,
     compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
@@ -1193,7 +1355,7 @@ impl<'a> ModuleBuilder<'a> {
     }
 
     fn compile(&mut self) -> Result<Vec<ExprKind>> {
-        debug!(target: "requires", "Visiting: {:?}", self.name);
+        // debug!(target: "requires", "Visiting: {:?}", self.name);
 
         // @Matt - 10/3/23
         // This has a relatively fatal flaw at the moment:
@@ -1227,9 +1389,9 @@ impl<'a> ModuleBuilder<'a> {
         self.collect_provides()?;
 
         if log_enabled!(log::Level::Info) {
-            debug!(target: "requires", "Requires: {:#?}", self.require_objects);
-            debug!(target: "requires", "Provides: {:#?}", self.provides);
-            debug!(target: "requires", "Provides for-syntax: {:?}", self.provides_for_syntax);
+            // debug!(target: "requires", "Requires: {:#?}", self.require_objects);
+            // debug!(target: "requires", "Provides: {:#?}", self.provides);
+            // debug!(target: "requires", "Provides for-syntax: {:?}", self.provides_for_syntax);
         }
 
         if self.visited.contains(&self.name) {
@@ -1272,7 +1434,7 @@ impl<'a> ModuleBuilder<'a> {
                 // Otherwise go ahead and compile
                 // If we already have compiled this module, get it from the cache
                 if let Some(_m) = self.compiled_modules.get(module.as_ref()) {
-                    debug!("Getting {:?} from the module cache", module);
+                    // debug!("Getting {:?} from the module cache", module);
                     // println!("Already found in the cache: {:?}", module);
                     // new_exprs.push(m.to_module_ast_node());
                     // No need to do anything
@@ -1310,27 +1472,13 @@ impl<'a> ModuleBuilder<'a> {
                 // This will eventually put the module in the cache
                 let mut module_exprs = new_module.compile()?;
 
-                // debug!("Inside {:?} - append {:?}", self.name, module);
-                if log_enabled!(log::Level::Debug) {
-                    debug!(
-                        "appending with {:?}",
-                        module_exprs.iter().map(|x| x.to_string()).join(" SEP ")
-                    );
-                }
-
                 new_exprs.append(&mut module_exprs);
-
-                // TODO evaluate this
-
-                // let mut ast = std::mem::replace(&mut new_module.source_ast, Vec::new());
-                // ast.append(&mut module_exprs);
-                // new_module.source_ast = ast;
 
                 // Probably want to evaluate a module even if it has no provides?
                 if !new_module.provides.is_empty() {
                     new_exprs.push(new_module.compile_module()?);
                 } else {
-                    log::debug!(target: "requires", "Found no provides, skipping compilation of module: {:?}", new_module.name);
+                    // log::debug!(target: "requires", "Found no provides, skipping compilation of module: {:?}", new_module.name);
                 }
             }
 
@@ -1359,7 +1507,7 @@ impl<'a> ModuleBuilder<'a> {
                 if !should_recompile {
                     // If we already have compiled this module, get it from the cache
                     if let Some(_m) = self.compiled_modules.get(module.as_ref()) {
-                        debug!("Getting {:?} from the module cache", module);
+                        // debug!("Getting {:?} from the module cache", module);
                         // println!("Already found in the cache: {:?}", module);
                         // new_exprs.push(m.to_module_ast_node());
                         // No need to do anything
@@ -1384,13 +1532,13 @@ impl<'a> ModuleBuilder<'a> {
                 let mut module_exprs = new_module.compile()?;
 
                 // debug!("Inside {:?} - append {:?}", self.name, module);
-                if log_enabled!(log::Level::Debug) {
-                    debug!(
-                        target: "modules",
-                        "appending with {:?}",
-                        module_exprs.iter().map(|x| x.to_string()).join(" SEP ")
-                    );
-                }
+                // if log_enabled!(log::Level::Debug) {
+                //     debug!(
+                //         target: "modules",
+                //         "appending with {:?}",
+                //         module_exprs.iter().map(|x| x.to_string()).join(" SEP ")
+                //     );
+                // }
 
                 new_exprs.append(&mut module_exprs);
 
@@ -1411,9 +1559,9 @@ impl<'a> ModuleBuilder<'a> {
                     // else if !new_module.compiled_modules.contains_key(&new_module.name) {
                     new_exprs.push(new_module.compile_module()?);
                 } else {
-                    log::debug!(target: "requires", "Found no provides, skipping compilation of module: {:?}", new_module.name);
-                    log::debug!(target: "requires", "Module already in the cache: {}", new_module.compiled_modules.contains_key(&new_module.name));
-                    log::debug!(target: "requires", "Compiled modules: {:?}", new_module.compiled_modules.keys().collect::<Vec<_>>());
+                    // log::debug!(target: "requires", "Found no provides, skipping compilation of module: {:?}", new_module.name);
+                    // log::debug!(target: "requires", "Module already in the cache: {}", new_module.compiled_modules.contains_key(&new_module.name));
+                    // log::debug!(target: "requires", "Compiled modules: {:?}", new_module.compiled_modules.keys().collect::<Vec<_>>());
                 }
 
                 // else {
@@ -1434,11 +1582,11 @@ impl<'a> ModuleBuilder<'a> {
         // Clone the requires... I suppose
         let requires = self.require_objects.clone();
 
-        info!(
-            target: "requires",
-            "Into compiled module: provides for syntax: {:?}",
-            self.provides_for_syntax
-        );
+        // info!(
+        //     target: "requires",
+        //     "Into compiled module: provides for syntax: {:?}",
+        //     self.provides_for_syntax
+        // );
 
         // Attempt extracting the syntax transformers from this module
         if let Some(kernel) = self.kernel.as_mut() {
@@ -1486,17 +1634,20 @@ impl<'a> ModuleBuilder<'a> {
         let mut mangled_asts = Vec::new();
 
         // Look for the modules in the requires for syntax
-        for require_for_syntax in self
-            .require_objects
-            .iter()
-            .filter(|x| x.for_syntax)
-            .map(|x| x.path.get_path())
+        for require_object in self.require_objects.iter()
+        // .filter(|x| x.for_syntax)
         {
-            let (module, in_scope_macros) = ModuleManager::find_in_scope_macros(
+            let require_for_syntax = require_object.path.get_path();
+
+            let (module, in_scope_macros, mut name_mangler) = ModuleManager::find_in_scope_macros(
                 self.compiled_modules,
                 require_for_syntax.as_ref(),
+                &require_object,
                 &mut mangled_asts,
             );
+
+            let kernel_macros_in_scope: HashSet<_> =
+                module.provides_for_syntax.iter().cloned().collect();
 
             ast = ast
                 .into_iter()
@@ -1504,9 +1655,36 @@ impl<'a> ModuleBuilder<'a> {
                     // First expand the in scope macros
                     // These are macros
                     let mut expander = Expander::new(&in_scope_macros);
-                    let first_round_expanded = expander.expand(x)?;
+                    let mut first_round_expanded = expander.expand(x)?;
+                    let mut changed = false;
 
-                    if expander.changed {
+                    // (first_round_expanded, changed) = expand_kernel_in_env_with_allowed(
+                    //     first_round_expanded,
+                    //     self.kernel.as_mut(),
+                    //     // We don't need to expand those here
+                    //     ModuleContainer::default(),
+                    //     module.name.to_str().unwrap().to_string(),
+                    //     &kernel_macros_in_scope,
+                    // )?;
+
+                    // If the kernel expander expanded into something - go ahead
+                    // and expand all of the macros in this
+                    // if changed || expander.changed {
+                    // Expand here?
+                    // first_round_expanded = expand(first_round_expanded, &module.macro_map)?;
+
+                    // Probably don't need this
+                    // (first_round_expanded, changed) = expand_kernel_in_env_with_change(
+                    //     first_round_expanded,
+                    //     self.kernel.as_mut(),
+                    //     ModuleContainer::default(),
+                    //     module.name.to_str().unwrap().to_string(),
+                    // )?;
+
+                    // name_mangler.visit(&mut first_round_expanded);
+                    // }
+
+                    if expander.changed || changed {
                         expand(first_round_expanded, &module.macro_map)
                     } else {
                         Ok(first_round_expanded)
@@ -1588,8 +1766,17 @@ impl<'a> ModuleBuilder<'a> {
 
         module.set_emitted(true);
 
+        // println!(
+        //     "-------------- Emitting module: {:?} ----------------------",
+        //     self.name
+        // );
+
         let mut result =
             module.to_top_level_module(self.compiled_modules, self.global_macro_map)?;
+
+        // println!("{}", result.to_pretty(60));
+
+        // println!("------------------ Finish ----------------------------------");
 
         // let mut analysis = Analysis::from_exprs(&[result]);
 
@@ -1599,7 +1786,7 @@ impl<'a> ModuleBuilder<'a> {
         // semantic
         //     .remove_unused_globals_with_prefix("mangler");
 
-        log::debug!(target: "requires", "Adding compiled module: {:?}", self.name);
+        // log::debug!(target: "requires", "Adding compiled module: {:?}", self.name);
 
         self.compiled_modules.insert(self.name.clone(), module);
 
@@ -1744,6 +1931,7 @@ impl<'a> ModuleBuilder<'a> {
                 syn:
                     SyntaxObject {
                         ty: TokenType::StringLiteral(s),
+                        span,
                         ..
                     },
             }) => {
@@ -1782,7 +1970,7 @@ impl<'a> ModuleBuilder<'a> {
 
                         log::info!("Searching STEEL_HOME for {:?}", current);
                     } else {
-                        stop!(Generic => format!("Module not found: {:?}", self.name))
+                        stop!(Generic => format!("Module not found: {:?} with STEEL_HOME: {:?}", current, home); *span)
                     }
                 }
 
@@ -1894,7 +2082,7 @@ impl<'a> ModuleBuilder<'a> {
 
                                         log::info!("Searching STEEL_HOME for {:?}", current);
                                     } else {
-                                        stop!(Generic => format!("Module not found: {:?}", self.name))
+                                        stop!(Generic => format!("Module not found: {:?}", current); r.location.span)
                                     }
                                 }
 
@@ -2077,9 +2265,17 @@ impl<'a> ModuleBuilder<'a> {
             .insert(self.name.clone(), file.metadata()?.modified()?);
 
         // TODO: DEFAULT MODULE LOADER PREFIX
-        // let mut exprs = String::new();
+        let mut exprs = String::new();
 
-        let mut exprs = PRELUDE_STRING.to_string();
+        // TODO: Don't do this - get the source from the cache?
+        // let mut exprs = PRELUDE_STRING.to_string();
+
+        let mut expressions = Parser::new(&PRELUDE_STRING, None)
+            .without_lowering()
+            .map(|x| x.and_then(lower_macro_and_require_definitions))
+            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
+
+        // let expressions = Parser::new_from_source(, , )
 
         // Add the modules here:
 
@@ -2096,12 +2292,14 @@ impl<'a> ModuleBuilder<'a> {
 
             let exprs = guard.get(id).unwrap();
 
-            let parsed = Parser::new_from_source(&exprs, self.name.clone(), Some(id))
+            let mut parsed = Parser::new_from_source(&exprs, self.name.clone(), Some(id))
                 .without_lowering()
                 .map(|x| x.and_then(lower_macro_and_require_definitions))
                 .collect::<std::result::Result<Vec<_>, ParseError>>()?;
 
-            self.source_ast = parsed;
+            expressions.append(&mut parsed);
+
+            self.source_ast = expressions;
         }
 
         Ok(self)

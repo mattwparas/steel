@@ -101,7 +101,7 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
         }
     }
 
-    fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
+    fn visit_macro(&mut self, m: Box<super::ast::Macro>) -> Self::Output {
         // TODO
 
         Ok(SteelVal::ListV(
@@ -127,7 +127,7 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
         Ok(items?.into())
     }
 
-    fn visit_syntax_rules(&mut self, s: super::ast::SyntaxRules) -> Self::Output {
+    fn visit_syntax_rules(&mut self, s: Box<super::ast::SyntaxRules>) -> Self::Output {
         Ok(SteelVal::ListV(
             vec![
                 SteelVal::SymbolV("syntax-rules".into()),
@@ -318,7 +318,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
         // }
     }
 
-    fn visit_macro(&mut self, _m: super::ast::Macro) -> Self::Output {
+    fn visit_macro(&mut self, _m: Box<super::ast::Macro>) -> Self::Output {
         // TODO
         stop!(Generic => "internal compiler error - could not translate macro to steel value")
     }
@@ -354,11 +354,14 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
 
         // TODO: we're currently erasing the source here... This isn't what we want to do but we don't have
         // a great model to access the source otherwise
-        log::trace!("Erasing the source information during kernel level expansion");
+        // log::debug!(
+        //     "Erasing the source information during kernel level expansion for: {:?}",
+        //     raw
+        // );
         Ok(Syntax::proto(raw, items.into(), span).into())
     }
 
-    fn visit_syntax_rules(&mut self, _s: super::ast::SyntaxRules) -> Self::Output {
+    fn visit_syntax_rules(&mut self, _s: Box<super::ast::SyntaxRules>) -> Self::Output {
         // Ok(SteelVal::ListV(
         //     vec![
         //         SteelVal::SymbolV("syntax-rules".into()),

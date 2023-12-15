@@ -476,8 +476,7 @@
 ;;------------------------------------------------------------------------------
 
 (define (gen-var-ref var)
-  ;;                                     vv changed to cadr
-  (if (pair? var) (gen-rte-ref (car var) (cadr var)) (gen-glo-ref (scheme-global-var var))))
+  (if (pair? var) (gen-rte-ref (car var) (cdr var)) (gen-glo-ref (scheme-global-var var))))
 
 (define (gen-rte-ref up over)
   (case up
@@ -794,7 +793,7 @@
 (define (scheme-global-var name)
   (let ([x (assq name scheme-global-variables)])
     (if x
-        (list-ref x 1)
+        (cdr x)
         (let ([y (MutablePair name '())]) ;; cons -> MutablePair
           (set! scheme-global-variables (cons (cons name y) scheme-global-variables))
           y))))

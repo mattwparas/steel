@@ -15,7 +15,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use log::{debug, error};
+use log::error;
 use serde::{Deserialize, Serialize};
 use steel_parser::tokens::MaybeBigInt;
 
@@ -141,6 +141,7 @@ pub struct SteelMacro {
     special_forms: Vec<InternedString>,
     cases: Vec<MacroCase>,
     mangled: bool,
+    location: Span,
 }
 
 impl SteelMacro {
@@ -149,12 +150,14 @@ impl SteelMacro {
         name: InternedString,
         special_forms: Vec<InternedString>,
         cases: Vec<MacroCase>,
+        location: Span,
     ) -> Self {
         SteelMacro {
             name,
             special_forms,
             cases,
             mangled: false,
+            location,
         }
     }
 
@@ -178,7 +181,7 @@ impl SteelMacro {
         self.mangled
     }
 
-    pub fn parse_from_ast_macro(ast_macro: Macro) -> Result<Self> {
+    pub fn parse_from_ast_macro(ast_macro: Box<Macro>) -> Result<Self> {
         let name = *ast_macro
             .name
             .atom_identifier_or_else(throw!(BadSyntax => "macros only currently support 
@@ -192,7 +195,7 @@ impl SteelMacro {
             .into_iter()
             .map(|x| {
                 x.atom_identifier_or_else(
-                    throw!(BadSyntax => "macros only support identifiers for special syntax"; sp),
+                    throw!(BadSyntax => format!("macros only support identifiers for special syntax, found: {}", x); sp),
                 )
                 .cloned()
             })
@@ -210,6 +213,7 @@ impl SteelMacro {
             special_forms,
             cases,
             mangled: false,
+            location: ast_macro.location.span,
         })
     }
 
@@ -217,28 +221,14 @@ impl SteelMacro {
     // I think it should also not be greedy, and should report if there are ambiguous matchings
     fn match_case(&self, expr: &List) -> Result<&MacroCase> {
         for case in &self.cases {
-            // dbg!(&case);
-
-            // dbg!(case.has_ellipses())
-
             if (case.has_ellipses() && expr.len() >= (case.arity() - 1))
                 || case.arity() == expr.len()
             {
-                // dbg!(case);
-
                 if case.recursive_match(expr) {
                     return Ok(case);
-                } else {
-                    // println!("Recursive match failed: case didn't match {:?}", case.args);
                 }
-            } else {
-                // println!("Case didn't match: {:?}", case.args);
-                // dbg!(case.has_ellipses());
-                // dbg!(case.arity());
-                // dbg!(expr.len());
             }
         }
-
         error!("Macro expansion unable to match case with: {}", expr);
 
         if let Some(ExprKind::Atom(a)) = expr.first() {
@@ -249,16 +239,18 @@ impl SteelMacro {
     }
 
     pub fn expand(&self, expr: List, span: Span) -> Result<ExprKind> {
-        if log::log_enabled!(log::Level::Debug) {
-            debug!("Expanding macro with tokens: {}", expr);
-        }
+        // if log::log_enabled!(log::Level::Debug) {
+        //     log::debug!("Expanding macro with tokens: {}", expr);
+        // }
+
+        // log::debug!("Expanding with span: {:?}", span);
 
         let case_to_expand = self.match_case(&expr)?;
         let expanded_expr = case_to_expand.expand(expr, span)?;
 
-        if log::log_enabled!(log::Level::Debug) {
-            debug!("Macro Expansion: {}", expanded_expr);
-        }
+        // if log::log_enabled!(log::Level::Debug) {
+        //     debug!("Macro Expansion: {}", expanded_expr);
+        // }
 
         Ok(expanded_expr)
     }
@@ -326,7 +318,8 @@ impl MacroCase {
     }
 
     fn recursive_match(&self, list: &List) -> bool {
-        match_vec_pattern(&self.args, list)
+        // Don't match on the first argument
+        match_vec_pattern(&self.args[1..], &list.args[1..])
     }
 
     fn expand(&self, expr: List, span: Span) -> Result<ExprKind> {
@@ -335,7 +328,12 @@ impl MacroCase {
         let mut bindings = HashMap::new();
         let mut binding_kind = HashMap::new();
         let mut fallback_bindings = HashMap::new();
-        collect_bindings(&self.args, &expr, &mut bindings, &mut binding_kind)?;
+        collect_bindings(
+            &self.args[1..],
+            &expr[1..],
+            &mut bindings,
+            &mut binding_kind,
+        )?;
         replace_identifiers(
             self.body.clone(),
             &mut bindings,
@@ -563,7 +561,7 @@ impl MacroPattern {
     }
 }
 
-pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
+pub fn match_vec_pattern(args: &[MacroPattern], list: &[ExprKind]) -> bool {
     let mut token_iter = list.iter();
 
     for pat in args {
@@ -692,7 +690,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
 
                         // This solves the destructuring test case
                         if vec.len() < l.len() && !vec.iter().any(|x| x.is_many()) {
-                            debug!("Matching failed - ellipses doesn't match up");
+                            // debug!("Matching failed - ellipses doesn't match up");
                             return false;
                         }
 
@@ -700,7 +698,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                         if match_vec_pattern(vec, l) {
                             continue;
                         } else {
-                            debug!("Matching failed due to child not matching");
+                            // debug!("Matching failed due to child not matching");
                             return false;
                         }
                     } else if let ExprKind::Quote(_) = val {
@@ -708,7 +706,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
                         return matches!(vec.as_slice(), &[MacroPattern::Quote(_)]);
                         // return true;
                     } else {
-                        debug!("Matching failed - atom does not match list");
+                        // debug!("Matching failed - atom does not match list");
                         return false;
                     }
                 }
@@ -739,17 +737,17 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &List) -> bool {
             if pat.is_many() {
                 continue;
             } else {
-                debug!(
-                    "Matching failed due to insufficient tokens - next pat: {:?}",
-                    pat
-                );
+                // debug!(
+                //     "Matching failed due to insufficient tokens - next pat: {:?}",
+                //     pat
+                // );
                 return false;
             }
         }
     }
 
     if token_iter.next().is_some() && !matches!(args.last(), Some(MacroPattern::Many(_))) {
-        debug!("Matching failed due to leftover tokens");
+        // debug!("Matching failed due to leftover tokens");
         return false;
     }
 
@@ -763,7 +761,7 @@ pub enum BindingKind {
 
 pub fn collect_bindings(
     args: &[MacroPattern],
-    list: &List,
+    list: &[ExprKind],
     bindings: &mut HashMap<InternedString, ExprKind>,
     binding_kind: &mut HashMap<InternedString, BindingKind>,
 ) -> Result<()> {
@@ -781,7 +779,7 @@ pub fn collect_bindings(
             }
             // actually check if the syntax matches
             MacroPattern::Syntax(s) => {
-                let error_func = throw!(BadSyntax => format!("macro expand expected keyword {s} - within {}", list));
+                let error_func = throw!(BadSyntax => format!("macro expand expected keyword {s} - within {:?}", list));
 
                 let e = token_iter.next().ok_or_else(error_func)?;
 
@@ -816,12 +814,10 @@ pub fn collect_bindings(
                     if let &[MacroPattern::Quote(x)] = children.as_slice() {
                         bindings.insert(x, q.expr.clone());
                     } else {
-                        stop!(BadSyntax => "macro expected a list of values, 
-                            not including keywords, found: {}", child)
+                        stop!(BadSyntax => "macro expected a list of values, not including keywords, found: {}", child)
                     }
                 } else {
-                    stop!(BadSyntax => "macro expected a list of values, 
-                        not including keywords, found: {}", child)
+                    stop!(BadSyntax => "macro expected a list of values, not including keywords, found: {}", child)
                 }
             }
             MacroPattern::ManyNested(children) => {

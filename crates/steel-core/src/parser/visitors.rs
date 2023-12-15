@@ -141,10 +141,10 @@ pub trait ConsumingVisitor {
     fn visit_begin(&mut self, begin: Begin) -> Self::Output;
     fn visit_return(&mut self, r: Box<Return>) -> Self::Output;
     fn visit_quote(&mut self, quote: Box<Quote>) -> Self::Output;
-    fn visit_macro(&mut self, m: Macro) -> Self::Output;
+    fn visit_macro(&mut self, m: Box<Macro>) -> Self::Output;
     fn visit_atom(&mut self, a: Atom) -> Self::Output;
     fn visit_list(&mut self, l: List) -> Self::Output;
-    fn visit_syntax_rules(&mut self, l: SyntaxRules) -> Self::Output;
+    fn visit_syntax_rules(&mut self, l: Box<SyntaxRules>) -> Self::Output;
     fn visit_set(&mut self, s: Box<Set>) -> Self::Output;
     fn visit_require(&mut self, s: Require) -> Self::Output;
     fn visit_let(&mut self, l: Box<Let>) -> Self::Output;
@@ -176,10 +176,10 @@ pub trait ConsumingVisitorRef {
     fn visit_begin(&self, begin: Begin) -> Self::Output;
     fn visit_return(&self, r: Box<Return>) -> Self::Output;
     fn visit_quote(&self, quote: Box<Quote>) -> Self::Output;
-    fn visit_macro(&self, m: Macro) -> Self::Output;
+    fn visit_macro(&self, m: Box<Macro>) -> Self::Output;
     fn visit_atom(&self, a: Atom) -> Self::Output;
     fn visit_list(&self, l: List) -> Self::Output;
-    fn visit_syntax_rules(&self, l: SyntaxRules) -> Self::Output;
+    fn visit_syntax_rules(&self, l: Box<SyntaxRules>) -> Self::Output;
     fn visit_set(&self, s: Box<Set>) -> Self::Output;
     fn visit_require(&self, s: Require) -> Self::Output;
     fn visit_let(&self, l: Box<Let>) -> Self::Output;

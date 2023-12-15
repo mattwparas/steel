@@ -25,7 +25,9 @@ use steel_parser::expr_list;
 use super::{
     ast::{ExprKind, TryFromSteelValVisitorForExprKind},
     interner::InternedString,
+    replace_idents::RewriteSpan,
     span_visitor::get_span,
+    visitors::ConsumingVisitor,
 };
 
 thread_local! {
@@ -507,6 +509,8 @@ impl Kernel {
         expr: ExprKind,
         environment: &str,
     ) -> Result<ExprKind> {
+        // println!("Expanding: {} with {}", ident, expr);
+
         let span = get_span(&expr);
 
         let syntax_objects =
@@ -537,5 +541,7 @@ impl Kernel {
 
         // This shouldn't be lowering all the way. It should just be back to list right?
         TryFromSteelValVisitorForExprKind::root(&result)
+            // TODO: We don't want this forever, but for now its okay
+            .and_then(|x| RewriteSpan::new(span).visit(x))
     }
 }

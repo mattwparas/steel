@@ -96,7 +96,7 @@ pub trait Folder {
     }
 
     #[inline]
-    fn visit_macro(&mut self, m: Macro) -> ExprKind {
+    fn visit_macro(&mut self, m: Box<Macro>) -> ExprKind {
         ExprKind::Macro(m)
     }
 
@@ -112,7 +112,7 @@ pub trait Folder {
     }
 
     #[inline]
-    fn visit_syntax_rules(&mut self, l: SyntaxRules) -> ExprKind {
+    fn visit_syntax_rules(&mut self, l: Box<SyntaxRules>) -> ExprKind {
         ExprKind::SyntaxRules(l)
     }
 

@@ -267,7 +267,7 @@ pub type Result<T> = result::Result<T, ParseError>;
 
 fn tokentype_error_to_parse_error(t: &Token<'_, InternedString>) -> ParseError {
     if let TokenType::Error = t.ty {
-        // println!("Found an error: {}", t);
+        println!("Found an error: {}", t.typ());
 
         if t.source.starts_with('\"') {
             ParseError::IncompleteString(t.source.to_string(), t.span, None)
@@ -1200,11 +1200,11 @@ pub fn lower_macro_and_require_definitions(expr: ExprKind) -> Result<ExprKind> {
         let name = value_iter.next().unwrap();
         let syntax = lower_syntax_rules(value_iter.next().unwrap())?;
 
-        return Ok(ExprKind::Macro(Macro::new(
+        return Ok(ExprKind::Macro(Box::new(Macro::new(
             name,
-            syntax,
+            Box::new(syntax),
             define_syntax.into_atom_syntax_object().unwrap(),
-        )));
+        ))));
     }
 
     if as_list.map(List::is_require).unwrap_or_default() {

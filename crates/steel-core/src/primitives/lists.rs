@@ -1,6 +1,10 @@
-use crate::steel_vm::{
-    builtin::{BuiltInModule, DocTemplate},
-    vm::{apply, VmContext, APPLY_DOC},
+use crate::{
+    gc::Gc,
+    steel_vm::{
+        builtin::{BuiltInModule, DocTemplate},
+        vm::{apply, VmContext, APPLY_DOC},
+    },
+    values::lists::Pair,
 };
 use crate::{
     rvals::{IntoSteelVal, Result, SteelVal},
@@ -99,7 +103,8 @@ pub fn list_module() -> BuiltInModule {
         .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE)
         .register_native_fn_definition(SECOND_DEFINITION)
         .register_native_fn_definition(THIRD_DEFINITION)
-        .register_native_fn_definition(TAKE_DEFINITION);
+        .register_native_fn_definition(TAKE_DEFINITION)
+        .register_native_fn_definition(LIST_TAIL_DEFINITION);
 
     module
 }
@@ -172,6 +177,38 @@ fn _test_map(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+#[steel_derive::function(name = "list-tail")]
+pub fn list_tail(list_or_pair: &SteelVal, pos: usize) -> Result<SteelVal> {
+    match list_or_pair {
+        SteelVal::ListV(l) => l
+            .tail(pos)
+            .ok_or_else(throw!(Generic => format!("list-tail expects at least {} 
+                    elements in the list, found: {}", pos, l.len())))
+            .map(SteelVal::ListV),
+        SteelVal::Pair(p) => {
+            let mut value = p.cdr();
+            let mut count = 1;
+
+            while count < pos {
+                count += 1;
+                value = value
+                    .pair()
+                    .map(|x| x.cdr())
+                    .ok_or_else(throw!(Generic => format!("list-tail: index reached a 
+                        non-pair: index: {} in {}", count, list_or_pair)))?;
+            }
+
+            Ok(value)
+        }
+
+        _ if pos == 0 => Ok(list_or_pair.clone()),
+
+        _ => {
+            stop!(TypeMismatch => format!("list-tail expects either a list or a pair, found: {}", list_or_pair))
+        }
+    }
+}
+
 /// Returns a newly allocated list containing the vs as its elements.
 ///
 /// (list v ...) -> list?
@@ -221,9 +258,11 @@ fn is_empty(list: &SteelVal) -> bool {
 /// ```
 #[steel_derive::function(name = "pair?")]
 fn pair(list: &SteelVal) -> bool {
-    list.list()
-        .map(|x| x.iter().next().is_some())
-        .unwrap_or_default()
+    match list {
+        SteelVal::ListV(l) => l.iter().next().is_some(),
+        SteelVal::Pair(_) => true,
+        _ => false,
+    }
 }
 
 pub(crate) const CONS_DOC: DocTemplate<'static> = DocTemplate {
@@ -246,7 +285,11 @@ pub fn cons(args: &mut [SteelVal]) -> Result<SteelVal> {
             // Consider moving in a default value instead of cloning?
             Ok(SteelVal::ListV(right.clone()))
         }
-        (left, right) => Ok(SteelVal::ListV(vec![left, right.clone()].into())),
+        // Silly, but this then gives us a special "pair" that is different
+        // from a real bonafide list
+        (left, right) => Ok(SteelVal::Pair(Gc::new(Pair::cons(left, right.clone())))),
+        // TODO: Replace with an immutable pair here!
+        // (left, right) => Ok(SteelVal::ListV(vec![left, right.clone()].into())),
     }
 }
 
@@ -363,9 +406,16 @@ fn first(list: &List<SteelVal>) -> Result<SteelVal> {
 /// > (car (cons 2 3)) ;; => 2
 /// ```
 #[steel_derive::function(name = "car", constant = true)]
-fn car(list: &List<SteelVal>) -> Result<SteelVal> {
-    list.car()
-        .ok_or_else(throw!(Generic => "car resulted in an error - empty list"))
+fn car(list: &SteelVal) -> Result<SteelVal> {
+    match list {
+        SteelVal::ListV(l) => l
+            .car()
+            .ok_or_else(throw!(Generic => "car resulted in an error - empty list")),
+
+        SteelVal::Pair(p) => Ok(p.car()),
+
+        _ => stop!(TypeMismatch => "car expected a list or pair, found: {}", list),
+    }
 }
 
 pub(crate) const CDR_DOC: DocTemplate<'static> = DocTemplate {
@@ -390,17 +440,22 @@ pub(crate) const CDR_DOC: DocTemplate<'static> = DocTemplate {
 fn cdr(args: &mut [SteelVal]) -> Result<SteelVal> {
     arity_check!(rest, args, 1);
 
-    if let SteelVal::ListV(l) = &mut args[0] {
-        if l.is_empty() {
-            stop!(Generic => "cdr expects a non empty list");
+    match &mut args[0] {
+        SteelVal::ListV(l) => {
+            if l.is_empty() {
+                stop!(Generic => "cdr expects a non empty list");
+            }
+
+            match l.rest_mut() {
+                Some(l) => Ok(SteelVal::ListV(l.clone())),
+                None => Ok(SteelVal::ListV(l.clone())),
+            }
         }
 
-        match l.rest_mut() {
-            Some(l) => Ok(SteelVal::ListV(l.clone())),
-            None => Ok(SteelVal::ListV(l.clone())),
+        SteelVal::Pair(p) => Ok(p.cdr()),
+        _ => {
+            stop!(TypeMismatch => format!("cdr expects a list, found: {}", &args[0]))
         }
-    } else {
-        stop!(TypeMismatch => format!("cdr expects a list, found: {}", &args[0]))
     }
 }
 
@@ -583,7 +638,8 @@ mod list_operation_tests {
     fn cons_test_normal_input() {
         let mut args = [SteelVal::IntV(1), SteelVal::IntV(2)];
         let res = cons(&mut args);
-        let expected = SteelVal::ListV(vec![SteelVal::IntV(1), SteelVal::IntV(2)].into());
+
+        let expected = SteelVal::Pair(Gc::new(Pair::cons(SteelVal::IntV(1), SteelVal::IntV(2))));
 
         assert_eq!(res.unwrap(), expected);
     }

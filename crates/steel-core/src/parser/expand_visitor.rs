@@ -1,6 +1,7 @@
 // use itertools::Itertools;
 
 use quickscope::ScopeSet;
+use steel_parser::ast::{parse_lambda, LAMBDA, LAMBDA_SYMBOL};
 
 use crate::compiler::passes::reader::MultipleArityFunctions;
 use crate::compiler::passes::Folder;
@@ -26,7 +27,7 @@ use super::{
 };
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::parser::expander::SteelMacro;
 
@@ -135,7 +136,7 @@ impl<'a> ConsumingVisitor for Expander<'a> {
         Ok(ExprKind::Quote(quote))
     }
 
-    fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
+    fn visit_macro(&mut self, m: Box<super::ast::Macro>) -> Self::Output {
         stop!(BadSyntax => format!("unexpected macro definition in expand visitor: {}", m); m.location.span)
     }
 
@@ -144,29 +145,58 @@ impl<'a> ConsumingVisitor for Expander<'a> {
     }
 
     fn visit_list(&mut self, mut l: super::ast::List) -> Self::Output {
-        // todo!()
-        if let Some(ExprKind::Atom(Atom {
-            syn:
-                SyntaxObject {
-                    ty: TokenType::Identifier(s),
-                    span: sp,
-                    ..
+        match l.first() {
+            Some(ExprKind::Atom(
+                ident @ Atom {
+                    syn:
+                        SyntaxObject {
+                            ty: TokenType::Identifier(s),
+                            ..
+                        },
                 },
-        })) = l.first()
-        {
-            if let Some(m) = self.map.get(s) {
-                // If this macro has been overwritten by any local value, respect
-                // the local binding and do not expand the macro
-                if !self.in_scope_values.contains(s) {
-                    let expanded = m.expand(l.clone(), *sp)?;
-                    self.changed = true;
-                    return self.visit(expanded);
+            )) if *s == *LAMBDA_SYMBOL || *s == *LAMBDA => {
+                if let ExprKind::LambdaFunction(lambda) = parse_lambda(&ident.clone(), l.args)? {
+                    return self.visit_lambda_function(lambda);
+                } else {
+                    unreachable!()
                 }
-
-                // let expanded = m.expand(l.clone(), *sp)?;
-                // self.changed = true;
-                // return self.visit(expanded);
             }
+
+            Some(ExprKind::Atom(
+                ident @ Atom {
+                    syn:
+                        SyntaxObject {
+                            ty: TokenType::Lambda,
+                            ..
+                        },
+                },
+            )) => {
+                if let ExprKind::LambdaFunction(lambda) = parse_lambda(&ident.clone(), l.args)? {
+                    return self.visit_lambda_function(lambda);
+                } else {
+                    unreachable!()
+                }
+            }
+
+            Some(ExprKind::Atom(Atom {
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        span: sp,
+                        ..
+                    },
+            })) => {
+                if let Some(m) = self.map.get(s) {
+                    // If this macro has been overwritten by any local value, respect
+                    // the local binding and do not expand the macro
+                    if !self.in_scope_values.contains(s) {
+                        let expanded = m.expand(l.clone(), *sp)?;
+                        self.changed = true;
+                        return self.visit(expanded);
+                    }
+                }
+            }
+            _ => {}
         }
 
         l.args = l
@@ -178,7 +208,7 @@ impl<'a> ConsumingVisitor for Expander<'a> {
         Ok(ExprKind::List(l))
     }
 
-    fn visit_syntax_rules(&mut self, l: super::ast::SyntaxRules) -> Self::Output {
+    fn visit_syntax_rules(&mut self, l: Box<super::ast::SyntaxRules>) -> Self::Output {
         dbg!(l.to_string());
 
         stop!(Generic => "unexpected syntax-rules definition"; l.location.span)
@@ -209,6 +239,43 @@ impl<'a> ConsumingVisitor for Expander<'a> {
     }
 }
 
+pub fn expand_kernel_in_env_with_allowed(
+    expr: ExprKind,
+    kernel: Option<&mut Kernel>,
+    builtin_modules: ModuleContainer,
+    env: String,
+    allowed: &HashSet<InternedString>,
+) -> Result<(ExprKind, bool)> {
+    let mut expander = KernelExpander {
+        map: kernel,
+        changed: false,
+        builtin_modules,
+        environment: Some(Cow::from(env)),
+        depth: 0,
+        allowed_macros: Some(allowed),
+    };
+
+    expander.visit(expr).map(|x| (x, expander.changed))
+}
+
+pub fn expand_kernel_in_env_with_change(
+    expr: ExprKind,
+    kernel: Option<&mut Kernel>,
+    builtin_modules: ModuleContainer,
+    env: String,
+) -> Result<(ExprKind, bool)> {
+    let mut expander = KernelExpander {
+        map: kernel,
+        changed: false,
+        builtin_modules,
+        environment: Some(Cow::from(env)),
+        depth: 0,
+        allowed_macros: None,
+    };
+
+    expander.visit(expr).map(|x| (x, expander.changed))
+}
+
 pub fn expand_kernel_in_env(
     expr: ExprKind,
     kernel: Option<&mut Kernel>,
@@ -221,6 +288,7 @@ pub fn expand_kernel_in_env(
         builtin_modules,
         environment: Some(Cow::from(env)),
         depth: 0,
+        allowed_macros: None,
     }
     .visit(expr)
 }
@@ -236,6 +304,7 @@ pub fn expand_kernel(
         builtin_modules,
         environment: None,
         depth: 0,
+        allowed_macros: None,
     }
     .visit(expr)
 }
@@ -246,6 +315,7 @@ pub struct KernelExpander<'a> {
     builtin_modules: ModuleContainer,
     environment: Option<Cow<'static, str>>,
     depth: usize,
+    allowed_macros: Option<&'a HashSet<InternedString>>,
 }
 
 impl<'a> KernelExpander<'a> {
@@ -256,6 +326,7 @@ impl<'a> KernelExpander<'a> {
             builtin_modules,
             environment: None,
             depth: 0,
+            allowed_macros: None,
         }
     }
 
@@ -582,7 +653,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
         Ok(ExprKind::Quote(quote))
     }
 
-    fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
+    fn visit_macro(&mut self, m: Box<super::ast::Macro>) -> Self::Output {
         stop!(BadSyntax => format!("unexpected macro definition in kernel expander: {}", m); m.location.span)
     }
 
@@ -714,6 +785,11 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
 
                 if map
                     .contains_syntax_object_macro(&s, self.environment.as_ref().map(|x| x.as_ref()))
+                    && self
+                        .allowed_macros
+                        .as_ref()
+                        .map(|x| x.contains(&s))
+                        .unwrap_or(true)
                 {
                     let expanded = map.expand_syntax_object(
                         &s,
@@ -804,6 +880,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                         syn:
                             SyntaxObject {
                                 ty: TokenType::StringLiteral(s),
+                                span,
                                 ..
                             },
                     })] => {
@@ -815,7 +892,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                         if let Some(module) = self.builtin_modules.get(s.as_str()) {
                             return Ok(module.to_syntax(None));
                         } else {
-                            stop!(BadSyntax => "require-builtin: module not found: {}", s);
+                            stop!(BadSyntax => format!("require-builtin: module not found: {}", s); *span);
                         }
                     }
 
@@ -823,13 +900,14 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                         syn:
                             SyntaxObject {
                                 ty: TokenType::Identifier(s),
+                                span,
                                 ..
                             },
                     })] => {
                         if let Some(module) = self.builtin_modules.get(s.resolve()) {
                             return Ok(module.to_syntax(None));
                         } else {
-                            stop!(BadSyntax => "require-builtin: module not found: {}", s);
+                            stop!(BadSyntax => format!("require-builtin: module not found: {}", s); *span);
                         }
                     }
 
@@ -837,6 +915,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                         syn:
                             SyntaxObject {
                                 ty: TokenType::StringLiteral(s),
+                                span,
                                 ..
                             },
                     }), ExprKind::Atom(Atom {
@@ -855,7 +934,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                         if let Some(module) = self.builtin_modules.get(s.as_str()) {
                             return Ok(module.to_syntax(Some(prefix.resolve())));
                         } else {
-                            stop!(BadSyntax => "require-builtin: module not found: {}", s);
+                            stop!(BadSyntax => format!("require-builtin: module not found: {}", s); *span);
                         }
                     }
 
@@ -863,6 +942,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                         syn:
                             SyntaxObject {
                                 ty: TokenType::Identifier(s),
+                                span,
                                 ..
                             },
                     }), ExprKind::Atom(Atom {
@@ -881,7 +961,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                         if let Some(module) = self.builtin_modules.get(s.resolve()) {
                             return Ok(module.to_syntax(Some(prefix.resolve())));
                         } else {
-                            stop!(BadSyntax => "require-builtin: module not found: {}", s);
+                            stop!(BadSyntax => format!("require-builtin: module not found: {}", s); *span);
                         }
                     }
 
@@ -901,7 +981,7 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
         Ok(ExprKind::List(l))
     }
 
-    fn visit_syntax_rules(&mut self, l: super::ast::SyntaxRules) -> Self::Output {
+    fn visit_syntax_rules(&mut self, l: Box<super::ast::SyntaxRules>) -> Self::Output {
         dbg!(l.to_string());
 
         stop!(Generic => "unexpected syntax-rules definition"; l.location.span)
@@ -971,6 +1051,8 @@ fn _define_quoted_ast_node(ast_name: ExprKind, expanded_expr: &ExprKind) -> Expr
 
 #[cfg(test)]
 mod expansion_tests {
+    use steel_parser::span::Span;
+
     use super::*;
 
     use crate::parser::expander::MacroCase;
@@ -1016,6 +1098,7 @@ mod expansion_tests {
                 )
                 .into(),
             )],
+            Span::default(),
         );
 
         let mut map = HashMap::new();

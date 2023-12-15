@@ -74,8 +74,6 @@ impl<'a> Lexer<'a> {
         let mut buf = String::new();
         while let Some(&c) = self.chars.peek() {
             self.eat();
-            // println!("{}", c);
-            // println!("{:?}", buf);
             match c {
                 '"' => return Ok(TokenType::StringLiteral(buf)),
                 '\\' => match self.chars.peek() {
@@ -102,6 +100,11 @@ impl<'a> Lexer<'a> {
                     Some('r') => {
                         self.eat();
                         buf.push('\r');
+                    }
+
+                    Some('0') => {
+                        self.eat();
+                        buf.push('\0');
                     }
 
                     _ => return Err(TokenError::InvalidEscape),
@@ -399,8 +402,6 @@ impl<'a> Iterator for Lexer<'a> {
     type Item = Result<TokenType<&'a str>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // self.consume_whitespace_and_comments_until_next_input();
-
         // Crunch until the next input
         self.consume_whitespace();
 
@@ -776,6 +777,13 @@ mod lexer_tests {
         );
         let res: Vec<Token<&str>> = s.collect();
 
+        println!("{:#?}", res);
+    }
+
+    #[test]
+    fn lex_string_with_escape_chars() {
+        let s = TokenStream::new("\"\0\0\0\"", true, None);
+        let res: Vec<Token<&str>> = s.collect();
         println!("{:#?}", res);
     }
 

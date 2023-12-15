@@ -362,8 +362,6 @@ impl<'a> ReplaceExpressions<'a> {
 
                 let span = crate::parser::span_visitor::get_span(expr_to_extract_span);
 
-                // dbg!(&span);
-
                 let start = ExprKind::integer_literal(span.start as isize, span);
                 let end = ExprKind::integer_literal(span.end as isize, span);
 
@@ -434,13 +432,13 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
                 syn: SyntaxObject { ty: t, .. },
             }) = x
             {
-                log::debug!("Checking if expression needs to be rewritten: {:?}", t);
+                // log::debug!("Checking if expression needs to be rewritten: {:?}", t);
                 reserved_token_type_to_ident(t);
             }
 
-            if let ExprKind::Define(d) = x {
-                log::debug!("Found a define to be rewritten: {:?}", d);
-            }
+            // if let ExprKind::Define(d) = x {
+            //     log::debug!("Found a define to be rewritten: {:?}", d);
+            // }
         });
 
         Ok(ExprKind::LambdaFunction(lambda_function))
@@ -466,7 +464,7 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
         Ok(ExprKind::Quote(quote))
     }
 
-    fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
+    fn visit_macro(&mut self, m: Box<super::ast::Macro>) -> Self::Output {
         stop!(BadSyntax => format!("unexpected macro definition: {}", m); m.location.span)
     }
 
@@ -497,7 +495,7 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
         Ok(ExprKind::List(l))
     }
 
-    fn visit_syntax_rules(&mut self, l: super::ast::SyntaxRules) -> Self::Output {
+    fn visit_syntax_rules(&mut self, l: Box<super::ast::SyntaxRules>) -> Self::Output {
         dbg!(l.to_string());
 
         stop!(Generic => "unexpected syntax-rules definition"; l.location.span)
@@ -544,7 +542,7 @@ pub struct RewriteSpan {
 }
 
 impl RewriteSpan {
-    fn new(span: Span) -> Self {
+    pub fn new(span: Span) -> Self {
         Self { span }
     }
 }
@@ -604,7 +602,7 @@ impl ConsumingVisitor for RewriteSpan {
         Ok(ExprKind::Quote(quote))
     }
 
-    fn visit_macro(&mut self, m: super::ast::Macro) -> Self::Output {
+    fn visit_macro(&mut self, m: Box<super::ast::Macro>) -> Self::Output {
         stop!(BadSyntax => format!("unexpected macro definition: {}", m); m.location.span)
     }
 
@@ -630,7 +628,7 @@ impl ConsumingVisitor for RewriteSpan {
         Ok(ExprKind::List(l))
     }
 
-    fn visit_syntax_rules(&mut self, l: super::ast::SyntaxRules) -> Self::Output {
+    fn visit_syntax_rules(&mut self, l: Box<super::ast::SyntaxRules>) -> Self::Output {
         dbg!(l.to_string());
 
         stop!(Generic => "unexpected syntax-rules definition"; l.location.span)

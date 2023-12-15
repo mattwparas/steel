@@ -1016,6 +1016,9 @@ pub enum SteelVal {
     // CompiledFunction(Box<JitFunctionPointer>),
     // List
     ListV(crate::values::lists::List<SteelVal>),
+
+    Pair(Gc<crate::values::lists::Pair>),
+
     // Mutable functions
     MutFunc(MutFunctionSignature),
     // Built in functions
@@ -1253,6 +1256,9 @@ impl std::fmt::Debug for SteelString {
     }
 }
 
+// Check that steel values aren't growing without us knowing
+const _ASSERT_SMALL: () = assert!(std::mem::size_of::<SteelVal>() <= 16);
+
 #[test]
 fn check_size_of_steelval() {
     assert_eq!(std::mem::size_of::<SteelVal>(), 16);
@@ -1431,6 +1437,7 @@ impl Hash for SteelVal {
             CharV(c) => c.hash(state),
             ListV(l) => l.hash(state),
             CustomStruct(s) => s.hash(state),
+            BigNum(n) => n.hash(state),
             // Pair(cell) => {
             //     cell.hash(state);
             // }
@@ -1541,6 +1548,13 @@ impl SteelVal {
     pub fn list(&self) -> Option<&List<SteelVal>> {
         match self {
             Self::ListV(l) => Some(l),
+            _ => None,
+        }
+    }
+
+    pub fn pair(&self) -> Option<&Gc<crate::values::lists::Pair>> {
+        match self {
+            Self::Pair(p) => Some(p),
             _ => None,
         }
     }

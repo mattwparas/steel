@@ -29,7 +29,7 @@ use crate::{
     rvals::{
         as_underlying_type,
         cycles::{BreadthFirstSearchSteelValVisitor, SteelCycleCollector},
-        FromSteelVal, ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
+        FromSteelVal, SteelString, ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
     },
     steel_vm::{
         builtin::{get_function_name, Arity},
@@ -158,7 +158,6 @@ const FIRST: &str = "first";
 const REST: &str = "rest";
 const APPEND: &str = "append";
 const PUSH_BACK: &str = "push-back";
-const RANGE: &str = "range";
 const LENGTH: &str = "length";
 const REVERSE: &str = "reverse";
 // const LIST_TO_VECTOR: &str = "list->vector";
@@ -197,8 +196,8 @@ pub const CONSTANTS: &[&str] = &[
     "#%prim.first",
     REST,
     "#%prim.rest",
-    RANGE,
-    "#%prim.range",
+    // RANGE,
+    // "#%prim.range",
     NULL_HUH,
     "#%prim.null?",
     INT_HUH,
@@ -273,6 +272,8 @@ pub const CONSTANTS: &[&str] = &[
     "#%prim.list->string",
     LIST,
     PRIM_LIST,
+    "#%prim.not",
+    "not",
 ];
 
 thread_local! {
@@ -401,6 +402,15 @@ pub fn register_builtin_modules(engine: &mut Engine) {
 
     engine.register_fn("load-from-module!", BuiltInModule::get);
 
+    // Registering values in modules
+    engine.register_fn("#%module", BuiltInModule::new::<String>);
+    engine.register_fn(
+        "#%module-add",
+        |module: &mut BuiltInModule, name: SteelString, value: SteelVal| {
+            module.register_value(&name, value);
+        },
+    );
+
     engine.register_fn("%doc?", BuiltInModule::get_doc);
     // engine.register_fn("%module-docs", BuiltInModule::docs);
     engine.register_value("%list-modules!", SteelVal::BuiltIn(list_modules));
@@ -496,6 +506,10 @@ pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::n
     set
 });
 
+// TODO: Make the prelude string generation lazy - so that
+// the first time we load (steel/base) we don't have to regenerate
+// the string. Probably just need a lazy static for loading 'steel/base'
+// and then reference that directly.
 pub static ALL_MODULES: &str = r#"
     (require-builtin steel/hash)
     (require-builtin steel/sets)
@@ -625,6 +639,11 @@ fn vector_module() -> BuiltInModule {
     module
 }
 
+#[steel_derive::function(name = "not", constant = true)]
+fn not(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::BoolV(false))
+}
+
 #[steel_derive::function(name = "int?", constant = true)]
 fn intp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::IntV(_))
@@ -743,6 +762,7 @@ fn identity_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/identity");
     module
         // .register_value("int?", gen_pred!(IntV))
+        .register_native_fn_definition(NOT_DEFINITION)
         .register_native_fn_definition(INTEGERP_DEFINITION)
         .register_native_fn_definition(INTP_DEFINITION)
         .register_native_fn_definition(FLOATP_DEFINITION)

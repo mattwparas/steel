@@ -412,8 +412,9 @@
   (make/c (fn (x) (>= x n)) (list '>=/c n)))
 
 ;; Satisfies any single value
-(define (any/c x)
-  (make/c (fn (x) #t) 'any/c))
+(define (any/c _)
+  (make/c (fn (_) #t) 'any/c))
+
 
 ;; produces a function compatible with contract definitions
 (define (and/c x y)
