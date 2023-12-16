@@ -2956,7 +2956,7 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesInsideMacros<'a> {
 
     fn visit_atom(&mut self, a: &mut Atom) {
         if let Some(info) = self.analysis.get(&a.syn) {
-            if info.kind != IdentifierStatus::Global || info.kind != IdentifierStatus::Free {
+            if info.kind != IdentifierStatus::Global && info.kind != IdentifierStatus::Free {
                 return;
             }
         }
@@ -2999,10 +2999,26 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
 
     fn visit_atom(&mut self, a: &mut Atom) {
         if let Some(info) = self.analysis.get(&a.syn) {
+            // println!("Visiting: {}", a);
+            // println!("{:#?}", info);
+
             // Don't even touch non globals
-            if info.kind != IdentifierStatus::Global || info.kind != IdentifierStatus::Free {
+            if info.kind != IdentifierStatus::Global && info.kind != IdentifierStatus::Free {
+                // println!("Skipping: {}", a);
+
                 return;
             }
+
+            // println!("Visiting: {}", a);
+            // println!("{:#?}", info);
+
+            // if a.ident()
+            //     .map(|x| x.resolve().ends_with("get-test-mode"))
+            //     .unwrap_or_default()
+            // {
+            //     println!("Visiting: {}", a);
+            //     println!("{:#?}", info);
+            // }
 
             if info.builtin && !info.is_shadowed && info.shadows.is_none() {
                 // todo!()
@@ -3022,6 +3038,8 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
                 }
             } else {
                 // Check if this _refers_ to a builtin
+                // println!("Visiting: {}", a);
+                // println!("{:#?}", info);
 
                 if let Some(refers_to) = info.refers_to {
                     if let Some(info) = self.analysis.info.get(&refers_to) {
@@ -3315,8 +3333,8 @@ impl<'a> VisitorMutRefUnit for FunctionCallCollector<'a> {
 // across some subset of expressions and then merge afterwards
 pub struct SemanticAnalysis<'a> {
     // We want to reserve the right to add or remove expressions from the program as needed
-    pub(crate) exprs: &'a mut Vec<ExprKind>,
-    pub(crate) analysis: Analysis,
+    pub exprs: &'a mut Vec<ExprKind>,
+    pub analysis: Analysis,
 }
 
 pub enum RequiredIdentifierInformation<'a> {
@@ -3602,20 +3620,20 @@ impl<'a> SemanticAnalysis<'a> {
         };
 
         for steel_macro in macros.values() {
-            if !steel_macro.is_mangled() {
-                for expr in steel_macro.exprs() {
-                    collected.visit(expr);
-                }
+            // if !steel_macro.is_mangled() {
+            for expr in steel_macro.exprs() {
+                collected.visit(expr);
             }
+            // }
         }
 
         for module in module_manager.modules() {
             for steel_macro in module.1.macro_map.values() {
-                if !steel_macro.is_mangled() {
-                    for expr in steel_macro.exprs() {
-                        collected.visit(expr);
-                    }
+                // if !steel_macro.is_mangled() {
+                for expr in steel_macro.exprs() {
+                    collected.visit(expr);
                 }
+                // }
             }
         }
 
@@ -3642,6 +3660,7 @@ impl<'a> SemanticAnalysis<'a> {
                                         if *func == module_get_interned || *func == proto_hash_get {
                                             // If this is found inside of a macro, do not remove it
                                             if found.contains(&name) {
+                                                // println!("Keeping: {}", name);
                                                 return true;
                                             }
 
@@ -3682,6 +3701,7 @@ impl<'a> SemanticAnalysis<'a> {
                                                 {
                                                     // If this is found inside of a macro, do not remove it
                                                     if found.contains(&name) {
+                                                        // println!("Keeping: {}", name);
                                                         offset += 1;
                                                         return true;
                                                     }

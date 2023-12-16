@@ -1,8 +1,15 @@
-(require (prefix-in export. (only-in "export.scm" thing-should-not-escape Applesauce bananas)))
+(require (prefix-in export.
+                    (only-in "export.scm"
+                             thing-should-not-escape
+                             Applesauce
+                             bananas
+                             my-fun-contracted-function)))
 
 export.Applesauce
 
 export.bananas
+
+export.my-fun-contracted-function
 
 (export.thing-should-not-escape 10)
 

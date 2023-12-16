@@ -178,10 +178,6 @@ impl LanguageServer for Backend {
             let (_syntax_object_id, information) =
                 analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri).unwrap())?;
 
-            // let mut result_map = HashMap::new();
-            // result_map.insert(*syntax_object_id, None);
-
-            // analysis.syntax_object_ids_to_identifiers(&mut result_map);
 
             let refers_to = information.refers_to?;
 
@@ -198,8 +194,6 @@ impl LanguageServer for Backend {
                     }
 
                     RequiredIdentifierInformation::Unresolved(interned, name) => {
-                        // todo!()
-                        // Example: mangler/home/matt/Documents/steel/export.scm__%#__please-resolve
 
                         log::debug!("Found unresolved identifier: {} - {}", interned, name);
 
@@ -771,14 +765,17 @@ async fn main() {
 
     let globals_set = Arc::new(DashSet::new());
 
+    globals_set.insert("#%ignore-unused-identifier".into());
+    globals_set.insert("#%register-global".into());
+
     let cloned_set = globals_set.clone();
-    resolver_engine.register_fn("register-global", move |global: String| {
+    resolver_engine.register_fn("#%register-global", move |global: String| {
         cloned_set.insert(InternedString::from(global))
     });
 
     let ignore_unused_set = Arc::new(DashSet::new());
     let cloned_ignore_set = ignore_unused_set.clone();
-    resolver_engine.register_fn("ignore-unused-identifier", move |global: String| {
+    resolver_engine.register_fn("#%ignore-unused-identifier", move |global: String| {
         cloned_ignore_set.insert(InternedString::from(global));
     });
 

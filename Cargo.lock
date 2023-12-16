@@ -3179,6 +3179,7 @@ dependencies = [
  "dashmap",
  "env_logger",
  "log",
+ "once_cell",
  "ropey",
  "serde",
  "serde_json",

@@ -175,14 +175,13 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
 
                         // Specialize lists, cons, hashmap, etc. - anything that we expect to be used often in
                         // real code.
-                        _ if ident == *PRIM_LIST_SYMBOL => {
-                            if let Some(x) = instructions.get_mut(i) {
-                                x.op_code = OpCode::LIST;
-                                x.payload_size = arity;
-                                continue;
-                            }
-                        }
-
+                        // _ if ident == *PRIM_LIST_SYMBOL => {
+                        //     if let Some(x) = instructions.get_mut(i) {
+                        //         x.op_code = OpCode::LIST;
+                        //         x.payload_size = arity;
+                        //         continue;
+                        //     }
+                        // }
                         _ if ident == *BOX || ident == *PRIM_BOX => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::NEWBOX;
@@ -312,27 +311,38 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
     }
 }
 
-macro_rules! define_symbols {
-    ($($name:tt => $str:expr,) * ) => {
+#[macro_export]
+macro_rules! define_primitive_symbols {
+    ($(($prim_name:tt, $name:tt) => $str:expr,) * ) => {
         $(
-            pub static $name: once_cell::sync::Lazy<InternedString> = once_cell::sync::Lazy::new(|| $str.into());
+            pub static $name: once_cell::sync::Lazy<InternedString> = once_cell::sync::Lazy::new(|| InternedString::from_static($str));
+
+            pub static $prim_name: once_cell::sync::Lazy<InternedString> = once_cell::sync::Lazy::new(|| InternedString::from_static(concat!("#%prim.", $str)));
         )*
     };
 }
 
+#[macro_export]
+macro_rules! define_symbols {
+    ($($name:tt => $str:expr,) * ) => {
+        $(
+            pub static $name: once_cell::sync::Lazy<InternedString> = once_cell::sync::Lazy::new(|| InternedString::from_static($str));
+        )*
+    };
+}
+
+define_primitive_symbols! {
+    (PRIM_PLUS, PLUS) => "+",
+    (PRIM_MINUS, MINUS) => "-",
+    (PRIM_DIV, DIV) => "/",
+    (PRIM_STAR, STAR) => "*",
+    (PRIM_EQUAL, EQUAL) => "equal?",
+    (PRIM_LTE, LTE) => "<=",
+    (PRIM_CAR, CAR_SYMBOL) => "car",
+    (PRIM_CDR, CDR_SYMBOL) => "cdr",
+}
+
 define_symbols! {
-    PLUS => "+",
-    PRIM_PLUS => "#%prim.+",
-    MINUS => "-",
-    PRIM_MINUS => "#%prim.-",
-    DIV => "/",
-    PRIM_DIV => "#%prim./",
-    STAR => "*",
-    PRIM_STAR => "#%prim.*",
-    EQUAL => "equal?",
-    PRIM_EQUAL => "#%prim.equal?",
-    LTE => "<=",
-    PRIM_LTE => "#%prim.<=",
     UNREADABLE_MODULE_GET => "##__module-get",
     STANDARD_MODULE_GET => "%module-get%",
     CONTRACT_OUT => "contract/out",
@@ -386,10 +396,6 @@ define_symbols! {
     PRIM_UNBOX => "#%prim.unbox",
     SETBOX => "#%set-box!",
     PRIM_SETBOX => "#%prim.set-box!",
-    CAR_SYMBOL => "car",
-    PRIM_CAR => "#%prim.car",
-    CDR_SYMBOL => "cdr",
-    PRIM_CDR => "#%prim.cdr",
     DEFMACRO => "defmacro",
     BEGIN_FOR_SYNTAX => "begin-for-syntax",
 }
