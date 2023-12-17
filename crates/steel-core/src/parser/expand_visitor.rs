@@ -5,18 +5,15 @@ use steel_parser::ast::{parse_lambda, LAMBDA, LAMBDA_SYMBOL};
 
 use crate::compiler::passes::reader::MultipleArityFunctions;
 use crate::compiler::passes::Folder;
-use crate::compiler::program::{REQUIRE_DYLIB};
+use crate::compiler::program::REQUIRE_DYLIB;
 use crate::parser::ast::ExprKind;
 use crate::parser::parser::SyntaxObject;
 use crate::parser::span_visitor::get_span;
+use crate::parser::visitors::ConsumingVisitor;
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::steel_vm::engine::ModuleContainer;
+use crate::{compiler::program::AS_KEYWORD, parser::tokens::TokenType};
 use crate::{compiler::program::REQUIRE_BUILTIN, rvals::Result};
-use crate::{parser::visitors::ConsumingVisitor};
-use crate::{
-    compiler::program::{AS_KEYWORD},
-    parser::tokens::TokenType,
-};
 
 use steel_parser::expr_list;
 

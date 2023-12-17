@@ -12,7 +12,10 @@ use ropey::Rope;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use steel::{
-    compiler::passes::analysis::{RequiredIdentifierInformation, SemanticAnalysis},
+    compiler::passes::analysis::{
+        query_top_level_define, query_top_level_define_on_condition, RequiredIdentifierInformation,
+        SemanticAnalysis,
+    },
     parser::{ast::ExprKind, expander::SteelMacro, interner::InternedString, parser::SourceId},
     rvals::FromSteelVal,
     steel_vm::{builtin::BuiltInModule, engine::Engine},
@@ -108,6 +111,7 @@ impl LanguageServer for Backend {
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
                 rename_provider: Some(OneOf::Left(true)),
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
                 ..ServerCapabilities::default()
             },
         })
@@ -163,52 +167,75 @@ impl LanguageServer for Backend {
         // expose a span -> URI function, as well as figure out how to
         // decide if a definition refers to an import. I think deciding
         // if something is a module import should be like:
-        let _definition = async {
+        let definition = || -> Option<Hover> {
             let uri = params.text_document_position_params.text_document.uri;
             let mut ast = self.ast_map.get_mut(uri.as_str())?;
-            let mut rope = self.document_map.get(uri.as_str())?.clone();
 
             let position = params.text_document_position_params.position;
+            let rope = self.document_map.get(uri.as_str())?;
             let char = rope.try_line_to_char(position.line as usize).ok()?;
             let offset = char + position.character as usize;
 
             let analysis = SemanticAnalysis::new(&mut ast);
 
-            let (_syntax_object_id, information) =
+            let (syntax_object_id, information) =
                 analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri).unwrap())?;
 
+            let mut syntax_object_id_to_interned_string = HashMap::new();
+            syntax_object_id_to_interned_string.insert(*syntax_object_id, None);
 
+            // Refers to something - keep that around as well
             let refers_to = information.refers_to?;
 
-            let maybe_definition = analysis.get_identifier(refers_to)?;
+            // See if we can find this as well.
+            syntax_object_id_to_interned_string.insert(refers_to, None);
 
-            let mut resulting_span = maybe_definition.span;
+            let maybe_definition = analysis.get_identifier(refers_to)?;
 
             log::debug!("Refers to information: {:?}", &maybe_definition);
 
             if maybe_definition.is_required_identifier {
                 match analysis.resolve_required_identifier(refers_to)? {
-                    RequiredIdentifierInformation::Resolved(resolved) => {
-                        resulting_span = resolved.span;
+                    RequiredIdentifierInformation::Resolved(_) => {
+                        // Maybe include the span?
+                        // resulting_span = resolved.span;
+
+                        // Find the doc associated with this span then
+                        analysis.syntax_object_ids_to_identifiers(
+                            &mut syntax_object_id_to_interned_string,
+                        );
+
+                        // Guaranteed to be here given that we've resolve it above
+                        let definition_name = syntax_object_id_to_interned_string
+                            .get(&refers_to)
+                            .clone()?
+                            .clone()?;
+
+                        // Memoize a lot of these lookups if possible, or at least share the memory;
+                        let doc_suffix = definition_name.resolve().to_string() + "__doc__";
+
+                        let define = analysis.query_top_level_define(&doc_suffix)?;
+
+                        // This _should_ be the resolved documentation. And then we just extract the
+                        // string from the definition.
+
+                        let definition = define.body.to_string_literal()?;
+
+                        return Some(Hover {
+                            contents: HoverContents::Scalar(MarkedString::String(
+                                definition.clone(),
+                            )),
+                            range: None,
+                        });
                     }
 
                     RequiredIdentifierInformation::Unresolved(interned, name) => {
-
-                        log::debug!("Found unresolved identifier: {} - {}", interned, name);
-
                         let module_path_to_check = name
                             .trim_start_matches("mangler")
                             .trim_end_matches(interned.resolve())
                             .trim_end_matches("__%#__");
 
-                        resulting_span = ENGINE.with_borrow(|engine| {
-                            log::debug!(
-                                "Compiled modules: {:?}",
-                                engine.modules().keys().collect::<Vec<_>>()
-                            );
-
-                            log::debug!("Searching for: {} in {}", name, module_path_to_check);
-
+                        return ENGINE.with_borrow(|engine| {
                             let module = engine
                                 .modules()
                                 .get(&PathBuf::from(module_path_to_check))
@@ -216,72 +243,58 @@ impl LanguageServer for Backend {
 
                             let module_ast = module.get_ast();
 
-                            // for expr in ast {
-                            //     log::debug!("{}", expr);
-                            // }
+                            // Find the doc form of this
+                            let interned = interned.resolve().to_string() + "__doc__";
 
-                            let top_level_define =
-                                steel::compiler::passes::analysis::query_top_level_define(
-                                    module_ast,
-                                    interned.resolve(),
-                                ).or_else(||
-                                steel::compiler::passes::analysis::query_top_level_define_on_condition(
-                                    module_ast, interned.resolve(), |name, target| name.ends_with(target))
-                                )?;
+                            let top_level_define = query_top_level_define(module_ast, &interned)
+                                .or_else(|| {
+                                    query_top_level_define_on_condition(
+                                        module_ast,
+                                        &interned,
+                                        |name, target| name.ends_with(target),
+                                    )
+                                })?;
 
-                            log::debug!("Found define: {}", top_level_define);
+                            let definition = top_level_define.body.to_string_literal()?;
 
-                            top_level_define.name.atom_syntax_object().map(|x| x.span)
-
-                            // top_level_define
-                        })?;
+                            Some(Hover {
+                                contents: HoverContents::Scalar(MarkedString::String(
+                                    definition.clone(),
+                                )),
+                                range: None,
+                            })
+                        });
                     }
                 }
-
-                log::debug!("Found new definition: {:?}", maybe_definition);
             }
 
-            let location = source_id_to_uri(resulting_span.source_id()?)?;
+            // Resolve what we've found?
+            analysis.syntax_object_ids_to_identifiers(&mut syntax_object_id_to_interned_string);
 
-            log::debug!("Location: {:?}", location);
-            log::debug!("Rope length: {:?}", rope.len_chars());
-            // log::debug!("span: {:?}", maybe_definition.span);
+            let definition_name = syntax_object_id_to_interned_string
+                .get(&refers_to)
+                .clone()?
+                .clone()?;
 
-            if location != uri {
-                log::debug!("Jumping to definition that is not yet in the document map!");
+            // Memoize a lot of these lookups if possible, or at least share the memory;
+            let doc_suffix = definition_name.resolve().to_string() + "__doc__";
 
-                let expression =
-                    ENGINE.with_borrow(|x| x.get_source(&resulting_span.source_id().unwrap()))?;
+            let define = analysis.query_top_level_define(&doc_suffix)?;
 
-                rope = self
-                    .document_map
-                    .get(location.as_str())
-                    .map(|x| x.clone())
-                    .unwrap_or_else(|| Rope::from_str(&expression));
+            // This _should_ be the resolved documentation. And then we just extract the
+            // string from the definition.
 
-                self.document_map.insert(location.to_string(), rope.clone());
-            }
+            let definition = define.body.to_string_literal()?;
 
-            log::debug!("Location: {:?}", location);
-            log::debug!("Rope length: {:?}", rope.len_chars());
-            // log::debug!("span: {:?}", maybe_definition.span);
+            Some(Hover {
+                contents: HoverContents::Scalar(MarkedString::String(definition.clone())),
+                range: None,
+            })
+        };
 
-            let start_position = offset_to_position(resulting_span.start, &rope)?;
-            let end_position = offset_to_position(resulting_span.end, &rope)?;
+        Ok(definition())
 
-            let range = Range::new(start_position, end_position);
-
-            log::debug!("{:?}", range);
-
-            Some(GotoDefinitionResponse::Scalar(Location::new(
-                location, range,
-            )))
-
-        }
-        .await;
         // Ok(definition)
-
-        todo!()
     }
 
     async fn goto_definition(
@@ -306,7 +319,6 @@ impl LanguageServer for Backend {
             let (_syntax_object_id, information) =
                 analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri).unwrap())?;
 
-
             let refers_to = information.refers_to?;
 
             let maybe_definition = analysis.get_identifier(refers_to)?;
@@ -322,7 +334,6 @@ impl LanguageServer for Backend {
                     }
 
                     RequiredIdentifierInformation::Unresolved(interned, name) => {
-
                         log::debug!("Found unresolved identifier: {} - {}", interned, name);
 
                         let module_path_to_check = name
@@ -350,12 +361,14 @@ impl LanguageServer for Backend {
                             // }
 
                             let top_level_define =
-                                steel::compiler::passes::analysis::query_top_level_define(
-                                    module_ast,
-                                    interned.resolve(),
-                                ).or_else(||
-                                steel::compiler::passes::analysis::query_top_level_define_on_condition(
-                                    module_ast, interned.resolve(), |name, target| name.ends_with(target))
+                                query_top_level_define(module_ast, interned.resolve()).or_else(
+                                    || {
+                                        query_top_level_define_on_condition(
+                                            module_ast,
+                                            interned.resolve(),
+                                            |name, target| name.ends_with(target),
+                                        )
+                                    },
                                 )?;
 
                             log::debug!("Found define: {}", top_level_define);
@@ -405,7 +418,6 @@ impl LanguageServer for Backend {
             Some(GotoDefinitionResponse::Scalar(Location::new(
                 location, range,
             )))
-
         }
         .await;
         Ok(definition)

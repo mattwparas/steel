@@ -151,6 +151,18 @@ macro_rules! expr_list {
 }
 
 impl ExprKind {
+    pub fn to_string_literal(&self) -> Option<&String> {
+        if let ExprKind::Atom(a) = self {
+            if let TokenType::StringLiteral(s) = &a.syn.ty {
+                Some(s)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
     pub fn into_lambda_function(self) -> Option<Box<LambdaFunction>> {
         if let ExprKind::LambdaFunction(func) = self {
             Some(func)

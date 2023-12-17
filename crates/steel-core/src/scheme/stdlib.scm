@@ -822,7 +822,6 @@
     [(_ documentation (define name body))
 
      (begin
-       ; (stdout-simple-displayln "Expanding doc top case: " (quote (define name body)))
        (define (datum->syntax name __doc__)
          documentation)
        (define name body)
@@ -871,5 +870,4 @@
     [(_ documentation expr)
 
      (begin
-       ; (stdout-simple-displayln "Expanding doc here else case: " (quote expr))
        expr)]))

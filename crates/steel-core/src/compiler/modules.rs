@@ -1817,10 +1817,10 @@ impl<'a> ModuleBuilder<'a> {
         // then include the ast there
         mangled_asts.append(&mut ast);
 
-        // mangled_asts = mangled_asts
-        //     .into_iter()
-        //     .map(lower_entire_ast)
-        //     .collect::<std::result::Result<_, ParseError>>()?;
+        mangled_asts = mangled_asts
+            .into_iter()
+            .map(lower_entire_ast)
+            .collect::<std::result::Result<_, ParseError>>()?;
 
         // Take ast, expand with self modules, then expand with each of the require for-syntaxes
         // Then mangle the require-for-syntax, include the mangled directly in the ast

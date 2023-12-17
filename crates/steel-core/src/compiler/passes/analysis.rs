@@ -1800,8 +1800,6 @@ pub fn query_top_level_define_on_condition<A: AsRef<str>>(
 ) -> Option<&crate::parser::ast::Define> {
     let mut found_defines = Vec::new();
     for expr in exprs {
-        log::debug!("{}", expr);
-
         match expr {
             ExprKind::Define(d) => match d.name.atom_identifier() {
                 Some(n) if func(name.as_ref(), n.resolve()) => found_defines.push(d.as_ref()),
@@ -1845,8 +1843,6 @@ pub fn query_top_level_define<A: AsRef<str>>(
 ) -> Option<&crate::parser::ast::Define> {
     let mut found_defines = Vec::new();
     for expr in exprs {
-        log::debug!("{}", expr);
-
         match expr {
             ExprKind::Define(d) => match d.name.atom_identifier() {
                 Some(n) if name.as_ref() == n.resolve() => found_defines.push(d.as_ref()),

@@ -775,6 +775,8 @@ impl Compiler {
                     builtin_modules.clone(),
                     "top-level".to_string(),
                 )
+                // TODO: If we have this, then we have to lower all of the expressions again
+                .and_then(|x| crate::parser::expand_visitor::expand(x, &self.macro_env))
             })
             .collect::<Result<Vec<_>>>()?;
 
