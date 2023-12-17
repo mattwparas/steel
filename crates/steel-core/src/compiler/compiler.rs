@@ -495,7 +495,10 @@ impl Compiler {
 
         // Could fail here
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-            Parser::new(expr_str, Some(id)).collect();
+            Parser::new(expr_str, Some(id))
+                .without_lowering()
+                .map(|x| x.and_then(lower_macro_and_require_definitions))
+                .collect();
 
         let parsed = parsed?;
 
@@ -590,20 +593,10 @@ impl Compiler {
         let mut expanded_statements =
             self.expand_expressions(exprs, path, sources, builtin_modules.clone())?;
 
-        expanded_statements = expanded_statements
-            .into_iter()
-            .map(lower_entire_ast)
-            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
-
-        // if log_enabled!(log::Level::Debug) {
-        //     debug!(
-        //         "Generating instructions for the expression: {:?}",
-        //         expanded_statements
-        //             .iter()
-        //             .map(|x| x.to_string())
-        //             .collect::<Vec<_>>()
-        //     );
-        // }
+        // expanded_statements = expanded_statements
+        //     .into_iter()
+        //     .map(lower_entire_ast)
+        //     .collect::<std::result::Result<Vec<_>, ParseError>>()?;
 
         log::debug!(target: "expansion-phase", "Expanding macros -> phase 1");
 
@@ -630,7 +623,18 @@ impl Compiler {
             .map(lower_entire_ast)
             .collect::<std::result::Result<Vec<_>, ParseError>>()?;
 
-        // expanded_statements.pretty_print();
+        expanded_statements = expanded_statements
+            .into_iter()
+            .map(|x| {
+                expand_kernel_in_env(
+                    x,
+                    self.kernel.as_mut(),
+                    builtin_modules.clone(),
+                    "top-level".to_string(),
+                )
+                .and_then(|x| crate::parser::expand_visitor::expand(x, &self.macro_env))
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         log::debug!(target: "expansion-phase", "Beginning constant folding");
 
@@ -675,6 +679,9 @@ impl Compiler {
         analysis.populate_captures(&expanded_statements);
 
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+
+        semantic.check_if_values_are_redefined()?;
+
         semantic.refresh_variables();
         semantic.flatten_anonymous_functions();
         semantic.refresh_variables();

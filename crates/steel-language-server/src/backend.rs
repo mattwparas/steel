@@ -163,7 +163,7 @@ impl LanguageServer for Backend {
         // expose a span -> URI function, as well as figure out how to
         // decide if a definition refers to an import. I think deciding
         // if something is a module import should be like:
-        let definition = async {
+        let _definition = async {
             let uri = params.text_document_position_params.text_document.uri;
             let mut ast = self.ast_map.get_mut(uri.as_str())?;
             let mut rope = self.document_map.get(uri.as_str())?.clone();
