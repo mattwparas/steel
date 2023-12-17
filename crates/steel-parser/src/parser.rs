@@ -799,6 +799,7 @@ impl<'a> Parser<'a> {
                                     Some(ParsingContext::QuoteTick(_))
                                     | Some(ParsingContext::QuasiquoteTick(_)) => {
                                         // | Some(ParsingContext::Quote(d)) && d > 0 => {
+
                                         return Ok(ExprKind::List(List::new(current_frame)));
                                     }
                                     Some(ParsingContext::Quote(x)) if *x > 0 => {
@@ -1087,7 +1088,14 @@ impl<'a> Parser<'a> {
                         return Some(value);
                     }
 
-                    TokenType::OpenParen => return Some(self.read_from_tokens()),
+                    TokenType::OpenParen => {
+                        let value = self.read_from_tokens();
+
+                        // self.quote_stack.clear();
+                        // self.context.clear();
+
+                        return Some(value);
+                    }
                     TokenType::CloseParen => {
                         return Some(Err(ParseError::Unexpected(
                             TokenType::CloseParen,
@@ -1119,13 +1127,19 @@ impl<'a> Iterator for Parser<'a> {
         }
 
         self.get_next_and_maybe_wrap_in_doc().map(|res| {
-            if self.comment_buffer.is_empty() {
+            if self.comment_buffer.is_empty() || !self.context.is_empty() {
                 res
             } else {
                 // Reset the comment collection until next @doc statement
                 self.collecting_comments = false;
                 res.map(|x| {
-                    wrap_in_doc_function(x, self.comment_buffer.join("\n").drain(..).collect())
+                    // println!("Wrapping in doc: {}", x);
+                    let result = wrap_in_doc_function(
+                        x,
+                        self.comment_buffer.drain(..).collect::<Vec<_>>().join("\n"),
+                    );
+
+                    result
                 })
             }
         })
@@ -1236,7 +1250,7 @@ impl ASTLowerPass {
         match expr {
             ExprKind::List(mut value) => {
                 if value.is_quote() {
-                    // println!("Found quote");
+                    // println!("Found quote: {:?}", value);
                     self.quote_depth += 1;
                 }
 
@@ -1253,6 +1267,8 @@ impl ASTLowerPass {
                 }
 
                 if let Some(f) = value.first().cloned() {
+                    // println!("Value: {}", f);
+
                     match f {
                         ExprKind::Atom(a) if self.quote_depth == 0 && value.is_quote() => {
                             match &a.syn.ty {
@@ -1267,8 +1283,6 @@ impl ASTLowerPass {
                         }
                         ExprKind::Atom(a) if self.quote_depth == 0 => {
                             match &a.syn.ty {
-                                // Have this also match on the first argument being a TokenType::Identifier("if")
-                                // Do the same for the rest of the arguments
                                 TokenType::If => parse_if(value.into_iter(), a.syn.clone()),
                                 TokenType::Identifier(expr) if *expr == *IF => {
                                     parse_if(value.into_iter(), a.syn.clone())

@@ -25,7 +25,7 @@ use crate::{
         tokens::TokenType,
     },
     steel_vm::primitives::MODULE_IDENTIFIERS,
-    throw, SteelErr, SteelVal,
+    stop, throw, SteelErr, SteelVal,
 };
 
 use super::{VisitorMutControlFlow, VisitorMutRefUnit, VisitorMutUnitRef};
@@ -2736,7 +2736,7 @@ impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Quote(_) => {}
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => {
                 if let Some(analysis) = self.analysis.get(&a.syn) {
@@ -4151,6 +4151,48 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         self
+    }
+
+    pub fn check_if_values_are_redefined(&mut self) -> Result<&mut Self, SteelErr> {
+        let mut non_builtin_definitions = HashSet::new();
+
+        for expr in self.exprs.iter() {
+            match expr {
+                ExprKind::Define(d) => {
+                    if is_a_builtin_definition(d) || is_a_require_definition(d) {
+                        continue;
+                    }
+
+                    let name = d.name.atom_identifier().unwrap();
+
+                    if non_builtin_definitions.contains(name) {
+                        stop!(BadSyntax => format!("Variable re defined within the top level definition: {}", name); d.location.span);
+                    }
+
+                    non_builtin_definitions.insert(d.name.atom_identifier().unwrap());
+                }
+                ExprKind::Begin(b) => {
+                    for e in &b.exprs {
+                        if let ExprKind::Define(d) = e {
+                            if is_a_builtin_definition(d) || is_a_require_definition(d) {
+                                continue;
+                            }
+
+                            let name = d.name.atom_identifier().unwrap();
+
+                            if non_builtin_definitions.contains(name) {
+                                stop!(BadSyntax => format!("Variable re defined within the top level definition: {}", name); d.location.span);
+                            }
+
+                            non_builtin_definitions.insert(d.name.atom_identifier().unwrap());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Ok(self)
     }
 
     // TODO: Right now this lifts and renames, but it does not handle

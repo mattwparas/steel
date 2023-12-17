@@ -115,15 +115,15 @@
 (define nothing? <Nothing>?)
 
 ;; helper function which ensures x is reduced.
-(define (ensure-reduced x)
-  (if (reduced? x) x (reduced x)))
+; (define (ensure-reduced x)
+;   (if (reduced? x) x (reduced x)))
 
 ;; helper function that wraps a reduced value twice since reducing functions (like list-reduce)
 ;; unwraps them. tconcatenate is a good example: it re-uses it's reducer on it's input using list-reduce.
 ;; If that reduction finishes early and returns a reduced value, list-reduce would "unreduce"
 ;; that value and try to continue the transducing process.
-(define (preserving-reduced f)
-  (lambda (a b) (let ([return (f a b)]) (if (reduced? return) (reduced return) return))))
+; (define (preserving-reduced f)
+;   (lambda (a b) (let ([return (f a b)]) (if (reduced? return) (reduced return) return))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Reducing functions meant to be used at the end at the transducing

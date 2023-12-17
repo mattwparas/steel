@@ -1,30 +1,113 @@
-use std::collections::{BTreeSet, HashMap};
+#![allow(unused)]
 
+use std::{
+    collections::{BTreeSet, HashMap},
+    iter::FlatMap,
+};
+
+use dashmap::DashSet;
+use ropey::Rope;
 use steel::{
     compiler::passes::{analysis::SemanticAnalysis, VisitorMutUnitRef},
     define_primitive_symbols, define_symbols,
     parser::{
         ast::{Define, ExprKind},
         interner::InternedString,
-        parser::SyntaxObjectId,
+        parser::{SourceId, SyntaxObjectId},
     },
     steel_vm::engine::Engine,
     stop,
 };
-use tower_lsp::lsp_types::Url;
+use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Range, Url};
 
-struct DiagnosticContext<'a> {
-    engine: &'a mut Engine,
-    analysis: &'a SemanticAnalysis<'a>,
-    uri: &'a Url,
+use crate::backend::{make_error, offset_to_position};
+
+pub struct DiagnosticContext<'a> {
+    pub engine: &'a Engine,
+    pub analysis: &'a SemanticAnalysis<'a>,
+    pub uri: &'a Url,
+    pub source_id: Option<SourceId>,
+    pub rope: Rope,
+    pub globals_set: &'a DashSet<InternedString>,
+    pub ignore_set: &'a DashSet<InternedString>,
+}
+
+pub struct FreeIdentifiersAndUnusedIdentifiers;
+
+impl DiagnosticGenerator for FreeIdentifiersAndUnusedIdentifiers {
+    fn diagnose(&mut self, context: &mut DiagnosticContext) -> Vec<Diagnostic> {
+        context
+            .analysis
+            .free_identifiers_with_globals(context.engine.symbol_map())
+            .into_iter()
+            .map(|(ident, info)| (ident, info.span))
+            .flat_map(|(ident, span)| {
+                if span.source_id() != context.source_id {
+                    return None;
+                }
+
+                if context.globals_set.contains(&ident) {
+                    return None;
+                }
+
+                let start_position = offset_to_position(span.start, &context.rope)?;
+                let end_position = offset_to_position(span.end, &context.rope)?;
+
+                // TODO: Publish the diagnostics for each file separately, if we have them
+                Some(make_error(Diagnostic::new_simple(
+                    Range::new(start_position, end_position),
+                    format!("free identifier: {}", ident.resolve()),
+                )))
+            })
+            .chain(
+                context
+                    .analysis
+                    .find_unused_arguments()
+                    .into_iter()
+                    .flat_map(|(ident, span)| {
+                        if span.source_id() != context.source_id {
+                            return None;
+                        }
+
+                        if context.ignore_set.contains(&ident) {
+                            return None;
+                        }
+
+                        let resolved = ident.resolve();
+
+                        // This identifier has been renamed - so we can unmangle it and see if it
+                        // is in the ignore set
+                        if resolved.starts_with("##") && resolved.ends_with(char::is_numeric) {
+                            if context.ignore_set.contains(
+                                &resolved
+                                    .trim_start_matches("##")
+                                    .trim_end_matches(char::is_numeric)
+                                    .into(),
+                            ) {
+                                return None;
+                            }
+                        }
+
+                        let start_position = offset_to_position(span.start, &context.rope)?;
+                        let end_position = offset_to_position(span.end, &context.rope)?;
+
+                        let mut diagnostic = Diagnostic::new_simple(
+                            Range::new(start_position, end_position),
+                            format!("unused variable"),
+                        );
+
+                        diagnostic.severity = Some(DiagnosticSeverity::INFORMATION);
+
+                        Some(diagnostic)
+                    }),
+            )
+            .collect()
+    }
 }
 
 // Produces LSP compatible diagnostic
-trait Diagnostic {
-    fn diagnose(
-        &mut self,
-        context: &mut DiagnosticContext,
-    ) -> Vec<tower_lsp::lsp_types::Diagnostic>;
+pub trait DiagnosticGenerator {
+    fn diagnose(&mut self, context: &mut DiagnosticContext) -> Vec<Diagnostic>;
 }
 
 // Attempt to bind the contracted values, if possible

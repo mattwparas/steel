@@ -1,3 +1,4 @@
+use crate::compiler::program::{BEGIN, DEFINE};
 use crate::parser::ast::{Atom, ExprKind, List, Macro, PatternPair};
 use crate::parser::parser::SyntaxObject;
 use crate::parser::rename_idents::RenameIdentifiersVisitor;
@@ -451,6 +452,13 @@ impl MacroPattern {
                             }
                         }
                     }
+                    // TODO: Add all of the tokens here
+                    TokenType::Begin => {
+                        pattern_vec.push(MacroPattern::Syntax(*BEGIN));
+                    }
+                    TokenType::Define => {
+                        pattern_vec.push(MacroPattern::Syntax(*DEFINE));
+                    }
                     TokenType::BooleanLiteral(b) => {
                         pattern_vec.push(MacroPattern::BooleanLiteral(b));
                     }
@@ -525,7 +533,7 @@ impl MacroPattern {
                 _ => {
                     // TODO: Add pattern matching on other kinds of forms here - probably just a special IR
                     // for the pattern to match against here
-                    stop!(BadSyntax => "illegal special form found in macro pattern");
+                    stop!(BadSyntax => format!("illegal special form found in macro pattern: {}", token));
                 }
             }
         }
@@ -567,7 +575,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &[ExprKind]) -> bool {
     for pat in args {
         if let Some(val) = token_iter.next() {
             // dbg!(&pat);
-            // dbg!(&val);
+            // println!("{}", val);
 
             match pat {
                 MacroPattern::Single(_) | MacroPattern::Many(_) => continue,
@@ -580,6 +588,20 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &[ExprKind]) -> bool {
                                 ..
                             },
                     }) if s == v => continue,
+                    ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Define,
+                                ..
+                            },
+                    }) if *v == *DEFINE => continue,
+                    ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Begin,
+                                ..
+                            },
+                    }) if *v == *BEGIN => continue,
                     ExprKind::Atom(Atom {
                         syn:
                             SyntaxObject {
@@ -690,7 +712,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &[ExprKind]) -> bool {
 
                         // This solves the destructuring test case
                         if vec.len() < l.len() && !vec.iter().any(|x| x.is_many()) {
-                            // debug!("Matching failed - ellipses doesn't match up");
+                            // log::debug!("Matching failed - ellipses doesn't match up");
                             return false;
                         }
 
@@ -698,7 +720,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &[ExprKind]) -> bool {
                         if match_vec_pattern(vec, l) {
                             continue;
                         } else {
-                            // debug!("Matching failed due to child not matching");
+                            // log::debug!("Matching failed due to child not matching");
                             return false;
                         }
                     } else if let ExprKind::Quote(_) = val {
@@ -706,7 +728,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &[ExprKind]) -> bool {
                         return matches!(vec.as_slice(), &[MacroPattern::Quote(_)]);
                         // return true;
                     } else {
-                        // debug!("Matching failed - atom does not match list");
+                        // log::debug!("Matching failed - atom does not match list");
                         return false;
                     }
                 }
@@ -737,7 +759,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &[ExprKind]) -> bool {
             if pat.is_many() {
                 continue;
             } else {
-                // debug!(
+                // log::debug!(
                 //     "Matching failed due to insufficient tokens - next pat: {:?}",
                 //     pat
                 // );
@@ -747,7 +769,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &[ExprKind]) -> bool {
     }
 
     if token_iter.next().is_some() && !matches!(args.last(), Some(MacroPattern::Many(_))) {
-        // debug!("Matching failed due to leftover tokens");
+        // log::debug!("Matching failed due to leftover tokens");
         return false;
     }
 

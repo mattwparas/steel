@@ -1,7 +1,12 @@
-use crate::parser::{
-    ast::{Atom, ExprKind, Quote},
-    interner::InternedString,
-    tokens::TokenType,
+use steel_parser::ast::DEFINE;
+
+use crate::{
+    compiler::program::BEGIN,
+    parser::{
+        ast::{Atom, ExprKind, Quote},
+        interner::InternedString,
+        tokens::TokenType,
+    },
 };
 
 use super::VisitorMutRefUnit;
@@ -29,6 +34,51 @@ pub fn collect_globals(exprs: &[ExprKind]) -> HashSet<InternedString> {
                     }
                     global_defs.insert(*name);
                 }
+            }
+            ExprKind::List(l)
+                if l.first_ident() == Some(&*DEFINE)
+                    || l.first()
+                        .and_then(|x| x.atom_syntax_object())
+                        .map(|x| x.ty == TokenType::Define)
+                        .unwrap_or_default() =>
+            {
+                match l.get(1) {
+                    Some(ExprKind::Atom(_)) => {
+                        if let Some(name) = l.second_ident() {
+                            if name.resolve().starts_with("mangler") {
+                                continue;
+                            }
+                            // println!("Inserting: {}", name);
+                            global_defs.insert(*name);
+                        }
+                    }
+
+                    Some(ExprKind::List(l)) => {
+                        if let Some(name) = l.first_ident() {
+                            if name.resolve().starts_with("mangler") {
+                                continue;
+                            }
+                            // println!("Inserting: {}", name);
+                            global_defs.insert(*name);
+                        }
+                    }
+
+                    _ => {}
+                }
+            }
+            ExprKind::List(l)
+                if l.first_ident() == Some(&*BEGIN)
+                    || l.first()
+                        .and_then(|x| x.atom_syntax_object())
+                        .map(|x| x.ty == TokenType::Begin)
+                        .unwrap_or_default() =>
+            {
+                if l.len() > 1 {
+                    let collected_defs = collect_globals(&l[1..]);
+                    global_defs.extend(collected_defs);
+                }
+
+                // let collected_defs =collect_globals(&l[])
             }
             ExprKind::Begin(b) => {
                 let collected_defs = collect_globals(&b.exprs);

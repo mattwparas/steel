@@ -1394,10 +1394,14 @@ pub fn set_box(value: &Gc<RefCell<SteelVal>>, update_to: SteelVal) {
     *value.borrow_mut() = update_to;
 }
 
+pub fn black_box(_: &[SteelVal]) -> Result<SteelVal> {
+    Ok(SteelVal::Void)
+}
+
 fn meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta");
     module
-        .register_fn("#%black-box", || {})
+        .register_value("#%black-box", SteelVal::FuncV(black_box))
         .register_value(
             "#%function-ptr-table",
             LambdaMetadataTable::new().into_steelval().unwrap(),

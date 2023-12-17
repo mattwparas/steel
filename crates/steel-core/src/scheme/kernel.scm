@@ -194,6 +194,7 @@
       (error! "struct #:prop:procedure cannot refer to an index that is out of bounds"))
 
     `(begin
+       ; (#%black-box "STRUCT" (quote ,struct-name))
        (define ,(concat-symbols '___ struct-name '-options___)
          (hash ,@(hash->list options-map)))
        (define ,struct-name 'unintialized)

@@ -415,7 +415,6 @@
 (define (any/c _)
   (make/c (fn (_) #t) 'any/c))
 
-
 ;; produces a function compatible with contract definitions
 (define (and/c x y)
   (make/c (lambda (z) (and (x z) (y z))) (list 'and/c x y)))

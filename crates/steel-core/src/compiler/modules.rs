@@ -21,7 +21,11 @@ use crate::{
         },
         tokens::TokenType,
     },
-    steel_vm::{builtin::BuiltInModule, engine::ModuleContainer, transducers::interleave},
+    steel_vm::{
+        builtin::BuiltInModule,
+        engine::{ModuleContainer, DEFAULT_PRELUDE_MACROS},
+        transducers::interleave,
+    },
 };
 use crate::{parser::expand_visitor::Expander, rvals::Result};
 
@@ -432,7 +436,7 @@ impl ModuleManager {
                                         require_defines.push(define);
                                     }
                                     _ => {
-                                        stop!(TypeMismatch => "foo provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
+                                        stop!(TypeMismatch => format!("provide expects either an identifier, (for-syntax <ident>), or (contract/out ...), found: {}", provide))
                                     }
                                 }
                             } else {
@@ -868,6 +872,76 @@ impl CompiledModule {
                                 }
 
                                 match *qualifier {
+                                    x if x == *REQUIRE_IDENT_SPEC => {
+                                        // Directly expand into define/contract, but with the value just being the hash get below
+
+                                        // (bind/c contract name 'name)
+
+                                        let name = l.args.get(1).unwrap();
+
+                                        if !explicit_requires.is_empty()
+                                            && !name
+                                                .atom_identifier()
+                                                .map(|x| explicit_requires.contains_key(x))
+                                                .unwrap_or_default()
+                                        {
+                                            continue;
+                                        }
+
+                                        if module
+                                            .macro_map
+                                            .contains_key(name.atom_identifier().unwrap())
+                                        {
+                                            continue;
+                                        }
+
+                                        let hash_get = expr_list![
+                                            ExprKind::ident("%proto-hash-get%"),
+                                            ExprKind::atom(
+                                                "__module-".to_string() + &other_module_prefix
+                                            ),
+                                            ExprKind::Quote(Box::new(Quote::new(
+                                                name.clone(),
+                                                SyntaxObject::default(TokenType::Quote)
+                                            ))),
+                                        ];
+
+                                        let mut owned_name = name.clone();
+
+                                        // If we have the alias listed, we should use it
+                                        if !explicit_requires.is_empty() {
+                                            if let Some(alias) = explicit_requires
+                                                .get(name.atom_identifier().unwrap())
+                                                .copied()
+                                                .flatten()
+                                            {
+                                                *owned_name.atom_identifier_mut().unwrap() =
+                                                    alias.clone();
+                                            }
+                                        }
+
+                                        if let Some(prefix) = &require_object.prefix {
+                                            if let Some(existing) = owned_name.atom_identifier_mut()
+                                            {
+                                                let mut prefixed_identifier = prefix.clone();
+                                                prefixed_identifier.push_str(existing.resolve());
+
+                                                // Update the existing identifier to point to a new one with the prefix applied
+                                                *existing = prefixed_identifier.into();
+                                            }
+                                        }
+
+                                        globals.insert(*name.atom_identifier().unwrap());
+
+                                        let define = ExprKind::Define(Box::new(Define::new(
+                                            owned_name,
+                                            hash_get,
+                                            SyntaxObject::default(TokenType::Define),
+                                        )));
+
+                                        provide_definitions.push(define);
+                                    }
+
                                     x if x == *CONTRACT_OUT => {
                                         // Directly expand into define/contract, but with the value just being the hash get below
 
@@ -935,7 +1009,7 @@ impl CompiledModule {
                                         provide_definitions.push(define);
                                     }
                                     _ => {
-                                        stop!(TypeMismatch => "foo provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
+                                        stop!(TypeMismatch => format!("provide expects either an identifier, (for-syntax <ident>), or (contract/out ...) - found: {}", provide))
                                     }
                                 }
                             } else {
@@ -1339,7 +1413,7 @@ impl<'a> ModuleBuilder<'a> {
             name,
             main: true,
             source_ast,
-            macro_map: HashMap::new(),
+            macro_map: DEFAULT_PRELUDE_MACROS.with(|x| x.borrow().clone()),
             require_objects: Vec::new(),
             provides: Vec::new(),
             provides_for_syntax: Vec::new(),
@@ -1743,10 +1817,10 @@ impl<'a> ModuleBuilder<'a> {
         // then include the ast there
         mangled_asts.append(&mut ast);
 
-        mangled_asts = mangled_asts
-            .into_iter()
-            .map(lower_entire_ast)
-            .collect::<std::result::Result<_, ParseError>>()?;
+        // mangled_asts = mangled_asts
+        //     .into_iter()
+        //     .map(lower_entire_ast)
+        //     .collect::<std::result::Result<_, ParseError>>()?;
 
         // Take ast, expand with self modules, then expand with each of the require for-syntaxes
         // Then mangle the require-for-syntax, include the mangled directly in the ast
@@ -2224,7 +2298,7 @@ impl<'a> ModuleBuilder<'a> {
             main: false,
             source_ast: Vec::new(),
             // TODO: This used to be empty
-            macro_map: HashMap::new(),
+            macro_map: DEFAULT_PRELUDE_MACROS.with(|x| x.borrow().clone()),
             // macro_map: global_macro_map.clone(),
             require_objects: Vec::new(),
             provides: Vec::new(),
