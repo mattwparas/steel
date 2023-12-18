@@ -795,3 +795,79 @@
     [(not (list? result)) result]
     [(= (length result) 1) (car result)]
     [else result]))
+
+(define-syntax @doc
+  (syntax-rules (struct define/contract)
+    ; [(_ documentation (define name body))
+
+    ;  (begin
+    ;    ; (stdout-simple-displayln "Expanding doc top case: " (quote (define name body)))
+    ;    (define (datum->syntax name __doc__)
+    ;      documentation)
+    ;    (define name body)
+    ;    (#%function-ptr-table-add #%function-ptr-table name (datum->syntax name __doc__)))]
+
+    [(_ documentation
+        (define (name args ...)
+          body ...))
+
+     (begin
+       ; (stdout-simple-displayln "Expanding doc top case: " (quote (define name body)))
+       (define (datum->syntax name __doc__)
+         documentation)
+       (define (name args ...)
+         body ...)
+       (#%function-ptr-table-add #%function-ptr-table name (datum->syntax name __doc__)))]
+
+    [(_ documentation (define name body))
+
+     (begin
+       (define (datum->syntax name __doc__)
+         documentation)
+       (define name body)
+       (#%function-ptr-table-add #%function-ptr-table name (datum->syntax name __doc__)))]
+
+    [(_ documentation (struct name (args ...) options ...))
+
+     (begin
+
+       (define (datum->syntax name __doc__)
+         documentation)
+
+       (struct name (args ...) options ...)
+
+       (#%function-ptr-table-add #%function-ptr-table name (datum->syntax name __doc__)))]
+
+    [(_ documentation
+        (define/contract (name args ...)
+          body ...))
+
+     (begin
+       (define (datum->syntax name __doc__)
+         documentation)
+
+       (define/contract (name args ...)
+         body ...)
+
+       (#%function-ptr-table-add #%function-ptr-table name (datum->syntax name __doc__)))]
+
+    ; [(_ documentation
+    ;     (begin
+    ;       ; (#%black-box "STRUCT" (quote struct-name))
+    ;       exprs ...))
+
+    ;  (begin
+    ;    (stdout-simple-displayln "Matching on begin")
+    ;    exprs ...)]
+
+    ;  (begin
+    ;    (begin
+    ;      (define (datum->syntax struct-name __doc__)
+    ;        documentation)
+    ;      exprs ...)
+    ;    (#%function-ptr-table-add #%function-ptr-table struct-name (datum->syntax name __doc__)))]
+
+    [(_ documentation expr)
+
+     (begin
+       expr)]))

@@ -837,6 +837,7 @@ fn round(number: f64) -> f64 {
     number.round()
 }
 
+/// Returns the absolute value of the given input
 #[steel_derive::function(name = "abs", constant = true)]
 fn abs(number: &SteelVal) -> Result<SteelVal> {
     match number {
@@ -850,9 +851,56 @@ fn abs(number: &SteelVal) -> Result<SteelVal> {
 #[steel_derive::function(name = "expt", constant = true)]
 fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     match (left, right) {
-        (SteelVal::IntV(l), SteelVal::IntV(r)) => Ok(SteelVal::IntV(l.pow(*r as u32))),
+        (SteelVal::IntV(l), SteelVal::IntV(r)) if *r < (u32::MAX as isize) => {
+            Ok(SteelVal::IntV(l.pow(*r as u32)))
+        }
+        (SteelVal::NumV(l), SteelVal::IntV(r)) if *r < (i32::MAX as isize) => {
+            Ok(SteelVal::NumV(l.powi(*r as i32)))
+        }
+        (SteelVal::NumV(l), SteelVal::NumV(r)) => Ok(SteelVal::NumV(l.powf(*r))),
         _ => {
-            stop!(Generic => "Finish implementing expt")
+            stop!(TypeMismatch => "expt expected two numbers")
+        }
+    }
+}
+
+/// Returns Euler's number raised to the power of z.
+#[steel_derive::function(name = "exp", constant = true)]
+fn exp(left: &SteelVal) -> Result<SteelVal> {
+    match left {
+        SteelVal::IntV(i) if *i == 0 => Ok(SteelVal::IntV(1)),
+        SteelVal::IntV(l) if *l < i32::MAX as isize => {
+            Ok(SteelVal::NumV(std::f64::consts::E.powi(*l as i32)))
+        }
+        SteelVal::NumV(n) => Ok(SteelVal::NumV(std::f64::consts::E.powf(*n))),
+        _ => {
+            stop!(Generic => "integer power too large to be used for exponent")
+        }
+    }
+}
+
+#[steel_derive::native(name = "log", arity = "AtLeast(1)")]
+fn log(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.len() > 2 {
+        stop!(ArityMismatch => "log expects one or two arguments, found: {}", args.len());
+    }
+
+    let first = &args[0];
+    let base = args
+        .get(1)
+        .cloned()
+        .unwrap_or(SteelVal::NumV(std::f64::consts::E));
+
+    match (first, &base) {
+        (SteelVal::IntV(1), _) => Ok(SteelVal::IntV(0)),
+        (SteelVal::IntV(_) | SteelVal::NumV(_), SteelVal::IntV(1)) => {
+            stop!(Generic => "log: divide by zero with args: {} and {}", first, base);
+        }
+        (SteelVal::IntV(arg), SteelVal::NumV(n)) => Ok(SteelVal::NumV((*arg as f64).log(*n))),
+        (SteelVal::IntV(arg), SteelVal::IntV(base)) => Ok(SteelVal::IntV(arg.ilog(*base) as isize)),
+
+        _ => {
+            stop!(TypeMismatch => "log expects one or two numbers, found: {} and {}", first, base);
         }
     }
 }
@@ -872,7 +920,10 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(ABS_DEFINITION)
         .register_native_fn_definition(EXPT_DEFINITION)
         .register_native_fn_definition(ROUND_DEFINITION)
-        .register_native_fn_definition(EXACT_TO_INEXACT_DEFINITION);
+        .register_native_fn_definition(EXACT_TO_INEXACT_DEFINITION)
+        .register_native_fn_definition(EXP_DEFINITION)
+        .register_native_fn_definition(LOG_DEFINITION);
+
     module
 }
 
@@ -1394,10 +1445,14 @@ pub fn set_box(value: &Gc<RefCell<SteelVal>>, update_to: SteelVal) {
     *value.borrow_mut() = update_to;
 }
 
+pub fn black_box(_: &[SteelVal]) -> Result<SteelVal> {
+    Ok(SteelVal::Void)
+}
+
 fn meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta");
     module
-        .register_fn("#%black-box", || {})
+        .register_value("#%black-box", SteelVal::FuncV(black_box))
         .register_value(
             "#%function-ptr-table",
             LambdaMetadataTable::new().into_steelval().unwrap(),

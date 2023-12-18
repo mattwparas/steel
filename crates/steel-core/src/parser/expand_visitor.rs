@@ -9,19 +9,16 @@ use crate::compiler::program::REQUIRE_DYLIB;
 use crate::parser::ast::ExprKind;
 use crate::parser::parser::SyntaxObject;
 use crate::parser::span_visitor::get_span;
+use crate::parser::visitors::ConsumingVisitor;
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::steel_vm::engine::ModuleContainer;
+use crate::{compiler::program::AS_KEYWORD, parser::tokens::TokenType};
 use crate::{compiler::program::REQUIRE_BUILTIN, rvals::Result};
-use crate::{compiler::program::STRUCT_KEYWORD, parser::visitors::ConsumingVisitor};
-use crate::{
-    compiler::program::{AS_KEYWORD, DOC_MACRO},
-    parser::tokens::TokenType,
-};
 
 use steel_parser::expr_list;
 
 use super::{
-    ast::{Atom, Begin, Define, LambdaFunction, List, Quote},
+    ast::{Atom, Define, LambdaFunction, List, Quote},
     interner::InternedString,
     kernel::Kernel,
 };
@@ -673,6 +670,9 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
         })) = l.first().cloned()
         {
             if let Some(map) = &mut self.map {
+                /*
+
+
                 if s == *DOC_MACRO {
                     if l.len() != 3 {
                         stop!(BadSyntax => "Malformed @doc statement!")
@@ -683,6 +683,9 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
 
                     let comment = args.next().unwrap();
                     let top_level_define = args.next().unwrap();
+
+                    // println!("Getting here - {}", top_level_define);
+                    // println!("{:?}", top_level_define);
 
                     match &top_level_define {
                         // A classic @doc case
@@ -777,11 +780,72 @@ impl<'a> ConsumingVisitor for KernelExpander<'a> {
                             return self.visit(top_level_define);
                         }
 
+                        // This should... probably happen after the expansion?
+                        ExprKind::List(unlowered_define)
+                            if unlowered_define.first_ident() == Some(&DEFINE)
+                                || unlowered_define
+                                    .first()
+                                    .and_then(|x| x.atom_syntax_object())
+                                    .map(|x| x.ty == TokenType::Define)
+                                    .unwrap_or_default() =>
+                        {
+                            // Depends on how this has been expanded at this point. We could have
+                            // (define (foo x) x) or (define foo (lambda (x) x))
+                            // So we need to handle accordingly, since the lowering hasn't happened
+                            // yet.
+
+                            // println!("Matching define");
+
+                            let name = match unlowered_define.get(1) {
+                                Some(ExprKind::List(l)) => l.first_ident(),
+                                Some(ExprKind::Atom(a)) => a.ident(),
+                                _ => return self.visit(top_level_define),
+                            }
+                            .unwrap();
+
+                            let doc_expr = ExprKind::Define(Box::new(Define::new(
+                                ExprKind::atom(name.resolve().to_string() + "__doc__"),
+                                comment,
+                                SyntaxObject::default(TokenType::Define),
+                            )));
+
+                            // let ast_name = ExprKind::atom(
+                            // d.name.atom_identifier().unwrap().to_string() + "__ast__",
+                            // );
+
+                            // Include the metadata table
+                            let metadata_table_addition = ExprKind::List(List::new(vec![
+                                ExprKind::atom("#%function-ptr-table-add"),
+                                ExprKind::atom("#%function-ptr-table"),
+                                ExprKind::atom(*name),
+                                ExprKind::atom(name.resolve().to_string() + "__doc__"),
+                            ]));
+
+                            let expanded_expr = self.visit(top_level_define)?;
+
+                            // let quoted_ast = define_quoted_ast_node(ast_name, &expanded_expr);
+
+                            return Ok(ExprKind::Begin(Begin::new(
+                                vec![doc_expr, expanded_expr, metadata_table_addition],
+                                SyntaxObject::default(TokenType::Begin),
+                            )));
+                        }
+
+                        ExprKind::List(unlowered_define)
+                            if unlowered_define.first_ident() == Some(&BEGIN) =>
+                        {
+                            return self.visit(top_level_define);
+                        }
+
                         _ => {
+                            // println!("Not matching...");
+
                             return self.visit(top_level_define);
                         }
                     }
                 }
+
+                */
 
                 if map
                     .contains_syntax_object_macro(&s, self.environment.as_ref().map(|x| x.as_ref()))

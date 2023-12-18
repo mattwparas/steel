@@ -25,7 +25,7 @@ use crate::{
         tokens::TokenType,
     },
     steel_vm::primitives::MODULE_IDENTIFIERS,
-    throw, SteelErr, SteelVal,
+    stop, throw, SteelErr, SteelVal,
 };
 
 use super::{VisitorMutControlFlow, VisitorMutRefUnit, VisitorMutUnitRef};
@@ -280,6 +280,10 @@ impl Analysis {
         self.function_info.clear();
         self.call_info.clear();
         self.let_info.clear();
+    }
+
+    pub fn identifier_info(&self) -> &FxHashMap<SyntaxObjectId, SemanticInformation> {
+        &self.info
     }
 
     pub fn fresh_from_exprs(&mut self, exprs: &[ExprKind]) {
@@ -1800,8 +1804,6 @@ pub fn query_top_level_define_on_condition<A: AsRef<str>>(
 ) -> Option<&crate::parser::ast::Define> {
     let mut found_defines = Vec::new();
     for expr in exprs {
-        log::debug!("{}", expr);
-
         match expr {
             ExprKind::Define(d) => match d.name.atom_identifier() {
                 Some(n) if func(name.as_ref(), n.resolve()) => found_defines.push(d.as_ref()),
@@ -1845,8 +1847,6 @@ pub fn query_top_level_define<A: AsRef<str>>(
 ) -> Option<&crate::parser::ast::Define> {
     let mut found_defines = Vec::new();
     for expr in exprs {
-        log::debug!("{}", expr);
-
         match expr {
             ExprKind::Define(d) => match d.name.atom_identifier() {
                 Some(n) if name.as_ref() == n.resolve() => found_defines.push(d.as_ref()),
@@ -2736,7 +2736,7 @@ impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
             ExprKind::Begin(b) => self.visit_begin(b),
             ExprKind::Return(r) => self.visit_return(r),
-            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Quote(_) => {}
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => {
                 if let Some(analysis) = self.analysis.get(&a.syn) {
@@ -2956,7 +2956,7 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesInsideMacros<'a> {
 
     fn visit_atom(&mut self, a: &mut Atom) {
         if let Some(info) = self.analysis.get(&a.syn) {
-            if info.kind != IdentifierStatus::Global || info.kind != IdentifierStatus::Free {
+            if info.kind != IdentifierStatus::Global && info.kind != IdentifierStatus::Free {
                 return;
             }
         }
@@ -2999,10 +2999,26 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
 
     fn visit_atom(&mut self, a: &mut Atom) {
         if let Some(info) = self.analysis.get(&a.syn) {
+            // println!("Visiting: {}", a);
+            // println!("{:#?}", info);
+
             // Don't even touch non globals
-            if info.kind != IdentifierStatus::Global || info.kind != IdentifierStatus::Free {
+            if info.kind != IdentifierStatus::Global && info.kind != IdentifierStatus::Free {
+                // println!("Skipping: {}", a);
+
                 return;
             }
+
+            // println!("Visiting: {}", a);
+            // println!("{:#?}", info);
+
+            // if a.ident()
+            //     .map(|x| x.resolve().ends_with("get-test-mode"))
+            //     .unwrap_or_default()
+            // {
+            //     println!("Visiting: {}", a);
+            //     println!("{:#?}", info);
+            // }
 
             if info.builtin && !info.is_shadowed && info.shadows.is_none() {
                 // todo!()
@@ -3022,6 +3038,8 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
                 }
             } else {
                 // Check if this _refers_ to a builtin
+                // println!("Visiting: {}", a);
+                // println!("{:#?}", info);
 
                 if let Some(refers_to) = info.refers_to {
                     if let Some(info) = self.analysis.info.get(&refers_to) {
@@ -3315,8 +3333,8 @@ impl<'a> VisitorMutRefUnit for FunctionCallCollector<'a> {
 // across some subset of expressions and then merge afterwards
 pub struct SemanticAnalysis<'a> {
     // We want to reserve the right to add or remove expressions from the program as needed
-    pub(crate) exprs: &'a mut Vec<ExprKind>,
-    pub(crate) analysis: Analysis,
+    pub exprs: &'a mut Vec<ExprKind>,
+    pub analysis: Analysis,
 }
 
 pub enum RequiredIdentifierInformation<'a> {
@@ -3370,16 +3388,10 @@ impl<'a> SemanticAnalysis<'a> {
                         let prefix = module.trim_start_matches("__module-").to_string()
                             + d.name.atom_identifier()?.resolve();
 
-                        log::debug!("Searching for {}", prefix);
-
                         let top_level_define = self.query_top_level_define(&prefix);
 
                         match top_level_define {
                             Some(top_level_define) => {
-                                log::debug!("Found: {}", top_level_define);
-                                log::debug!("Span: {:?}", top_level_define.location.span);
-                                log::debug!("Body span: {:?}", get_span(&top_level_define.body));
-
                                 return self
                                     .get_identifier(top_level_define.name_id()?)
                                     .map(RequiredIdentifierInformation::Resolved);
@@ -3407,18 +3419,10 @@ impl<'a> SemanticAnalysis<'a> {
                                 let prefix = module.trim_start_matches("__module-").to_string()
                                     + d.name.atom_identifier()?.resolve();
 
-                                log::debug!("Searching for {}", prefix);
                                 let top_level_define = self.query_top_level_define(&prefix);
 
                                 match top_level_define {
                                     Some(top_level_define) => {
-                                        log::debug!("Found: {}", top_level_define);
-                                        log::debug!("Span: {:?}", top_level_define.location.span);
-                                        log::debug!(
-                                            "Body span: {:?}",
-                                            get_span(&top_level_define.body)
-                                        );
-
                                         return self
                                             .get_identifier(top_level_define.name_id()?)
                                             .map(RequiredIdentifierInformation::Resolved);
@@ -3439,6 +3443,69 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         None
+    }
+
+    // Syntax object must be the id associated with a given require define statement
+    pub fn resolve_required_identifiers(
+        &self,
+        identifiers: HashSet<SyntaxObjectId>,
+    ) -> Vec<(SyntaxObjectId, RequiredIdentifierInformation<'_>)> {
+        let mut results = Vec::new();
+
+        let mut resolve_identifier = |d: &Define| -> Option<()> {
+            if is_a_require_definition(&d) && identifiers.contains(&d.name_id().unwrap()) {
+                let module = d
+                    .body
+                    .list()
+                    .and_then(|x| x.get(1))
+                    .and_then(|x| x.atom_identifier())
+                    .map(|x| x.resolve())?;
+
+                let prefix = module.trim_start_matches("__module-").to_string()
+                    + d.name.atom_identifier()?.resolve();
+
+                let top_level_define = self.query_top_level_define(&prefix);
+
+                match top_level_define {
+                    Some(top_level_define) => {
+                        results.push((
+                            d.name_id()?,
+                            self.get_identifier(top_level_define.name_id()?)
+                                .map(RequiredIdentifierInformation::Resolved)?,
+                        ));
+                    }
+                    None => {
+                        results.push((
+                            d.name_id()?,
+                            RequiredIdentifierInformation::Unresolved(
+                                *d.name.atom_identifier()?,
+                                prefix,
+                            ),
+                        ));
+                    }
+                }
+            }
+
+            None
+        };
+
+        for expr in self.exprs.iter() {
+            match expr {
+                ExprKind::Define(d) => {
+                    resolve_identifier(&d);
+                }
+                ExprKind::Begin(b) => {
+                    for expr in &b.exprs {
+                        if let ExprKind::Define(d) = expr {
+                            resolve_identifier(&d);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        results
     }
 
     pub fn query_top_level_define<A: AsRef<str>>(
@@ -3602,20 +3669,20 @@ impl<'a> SemanticAnalysis<'a> {
         };
 
         for steel_macro in macros.values() {
-            if !steel_macro.is_mangled() {
-                for expr in steel_macro.exprs() {
-                    collected.visit(expr);
-                }
+            // if !steel_macro.is_mangled() {
+            for expr in steel_macro.exprs() {
+                collected.visit(expr);
             }
+            // }
         }
 
         for module in module_manager.modules() {
             for steel_macro in module.1.macro_map.values() {
-                if !steel_macro.is_mangled() {
-                    for expr in steel_macro.exprs() {
-                        collected.visit(expr);
-                    }
+                // if !steel_macro.is_mangled() {
+                for expr in steel_macro.exprs() {
+                    collected.visit(expr);
                 }
+                // }
             }
         }
 
@@ -3642,6 +3709,7 @@ impl<'a> SemanticAnalysis<'a> {
                                         if *func == module_get_interned || *func == proto_hash_get {
                                             // If this is found inside of a macro, do not remove it
                                             if found.contains(&name) {
+                                                // println!("Keeping: {}", name);
                                                 return true;
                                             }
 
@@ -3682,6 +3750,7 @@ impl<'a> SemanticAnalysis<'a> {
                                                 {
                                                     // If this is found inside of a macro, do not remove it
                                                     if found.contains(&name) {
+                                                        // println!("Keeping: {}", name);
                                                         offset += 1;
                                                         return true;
                                                     }
@@ -4131,6 +4200,48 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         self
+    }
+
+    pub fn check_if_values_are_redefined(&mut self) -> Result<&mut Self, SteelErr> {
+        let mut non_builtin_definitions = HashSet::new();
+
+        for expr in self.exprs.iter() {
+            match expr {
+                ExprKind::Define(d) => {
+                    if is_a_builtin_definition(d) || is_a_require_definition(d) {
+                        continue;
+                    }
+
+                    let name = d.name.atom_identifier().unwrap();
+
+                    if non_builtin_definitions.contains(name) {
+                        stop!(BadSyntax => format!("Variable re defined within the top level definition: {}", name); d.location.span);
+                    }
+
+                    non_builtin_definitions.insert(d.name.atom_identifier().unwrap());
+                }
+                ExprKind::Begin(b) => {
+                    for e in &b.exprs {
+                        if let ExprKind::Define(d) = e {
+                            if is_a_builtin_definition(d) || is_a_require_definition(d) {
+                                continue;
+                            }
+
+                            let name = d.name.atom_identifier().unwrap();
+
+                            if non_builtin_definitions.contains(name) {
+                                stop!(BadSyntax => format!("Variable re defined within the top level definition: {}", name); d.location.span);
+                            }
+
+                            non_builtin_definitions.insert(d.name.atom_identifier().unwrap());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Ok(self)
     }
 
     // TODO: Right now this lifts and renames, but it does not handle

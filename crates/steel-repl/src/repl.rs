@@ -83,8 +83,6 @@ fn finish_or_interrupt(vm: &mut Engine, line: String, print_time: bool) {
 /// Entire point for the repl
 /// Automatically adds the prelude and contracts for the core library
 pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
-    let now = std::time::Instant::now();
-
     println!(
         "{}",
         r#"
@@ -119,8 +117,6 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
         MatchingBracketValidator::default(),
         engine.clone(),
     )));
-
-    println!("Time to instantiate readline: {:?}", now.elapsed());
 
     // ctrlc::set_handler(move || tx.send(()).expect("Could not send signal on channel."))
     // .expect("Error setting Ctrl-C handler");

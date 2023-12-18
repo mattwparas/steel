@@ -8,10 +8,10 @@
 
 (require-builtin steel/time)
 
-(define values list)
-(define (call-with-values producer consumer)
-  (define result (apply consumer (producer)))
-  (if (= (length result) 1) (car result) result))
+; (define values list)
+; (define (call-with-values producer consumer)
+;   (define result (apply consumer (producer)))
+;   (if (= (length result) 1) (car result) result))
 
 (define (this-scheme-implementation-name)
   "steel")

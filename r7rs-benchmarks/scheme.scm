@@ -38,12 +38,12 @@
 
 ;; --------------------------------------------------------------------------
 
-(define (scheme-eval expr)
-  (let ([code (scheme-comp expr scheme-global-environment)]) (code #f)))
-
 (define scheme-global-environment
   (cons '() ;; environment chain
         '())) ;; macros
+
+(define (scheme-eval expr)
+  (let ([code (scheme-comp expr scheme-global-environment)]) (code #f)))
 
 ; (define (scheme-add-macro name proc)
 ;   (set-cdr! scheme-global-environment (cons (cons name proc) (cdr scheme-global-environment)))

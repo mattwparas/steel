@@ -61,16 +61,24 @@ impl LambdaMetadataTable {
     }
 
     pub fn add(&mut self, function: SteelVal, doc: SteelString) {
-        if let SteelVal::Closure(b) = function {
-            self.fn_ptr_table.insert(b.id, doc);
+        match function {
+            SteelVal::Closure(b) => {
+                self.fn_ptr_table.insert(b.id, doc);
+            }
+            SteelVal::BoxedFunction(b) => {
+                self.fn_ptr_table.insert(Rc::as_ptr(&b) as usize, doc);
+            }
+            _ => {}
         }
     }
 
     pub fn get(&self, function: SteelVal) -> Option<SteelString> {
-        if let SteelVal::Closure(b) = function {
-            self.fn_ptr_table.get(&b.id).cloned()
-        } else {
-            None
+        match function {
+            SteelVal::Closure(b) => self.fn_ptr_table.get(&b.id).cloned(),
+            SteelVal::BoxedFunction(b) => {
+                self.fn_ptr_table.get(&(Rc::as_ptr(&b) as usize)).cloned()
+            }
+            _ => None,
         }
     }
 

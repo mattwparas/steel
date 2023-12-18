@@ -352,7 +352,6 @@ impl UserDefinedStruct {
 
         SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
-            // Some(out_name),
             Some(name.resolve().to_string().into()),
             Some(len),
         )))
