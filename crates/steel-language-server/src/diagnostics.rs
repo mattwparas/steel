@@ -3,12 +3,19 @@
 use std::{
     collections::{BTreeSet, HashMap},
     iter::FlatMap,
+    path::PathBuf,
 };
 
 use dashmap::DashSet;
 use ropey::Rope;
 use steel::{
-    compiler::passes::{analysis::SemanticAnalysis, VisitorMutUnitRef},
+    compiler::passes::{
+        analysis::{
+            query_top_level_define, query_top_level_define_on_condition,
+            RequiredIdentifierInformation, SemanticAnalysis,
+        },
+        VisitorMutUnitRef,
+    },
     define_primitive_symbols, define_symbols,
     parser::{
         ast::{Define, ExprKind},
@@ -118,6 +125,73 @@ impl DiagnosticGenerator for StaticArityChecker {
 
         for expr in context.analysis.exprs.iter() {
             arity_checker.visit(&expr);
+        }
+
+        // TODO: Resolve all required values to their original
+        // values in the other module, and link those known
+        // functions there.
+
+        let mut identifiers = context
+            .analysis
+            .analysis
+            .identifier_info()
+            .iter()
+            .filter_map(|(key, info)| {
+                if info.is_required_identifier {
+                    Some(*key)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let required_identifier_information =
+            context.analysis.resolve_required_identifiers(identifiers);
+
+        for (id, required_identifier) in required_identifier_information {
+            match required_identifier {
+                // This is probably going to be annoying?
+                RequiredIdentifierInformation::Resolved(resolved) => {
+                    // TODO: When the identifier is already in the given AST, meaning
+                    // we don't have to go to another AST in order to resolve it,
+                    // we should just do that here.
+                }
+                RequiredIdentifierInformation::Unresolved(interned, name) => {
+                    let module_path_to_check = name
+                        .trim_start_matches("mangler")
+                        .trim_end_matches(interned.resolve())
+                        .trim_end_matches("__%#__");
+
+                    log::debug!("Searching for: {} in {}", name, module_path_to_check);
+
+                    let module = context
+                        .engine
+                        .modules()
+                        .get(&PathBuf::from(module_path_to_check))
+                        .unwrap();
+
+                    let module_ast = module.get_ast();
+
+                    // TODO: This is O(n^2) behavior, and we don't want that.
+                    // We should merge this and the above loop into one pass, collecting
+                    // all of the things that we need. This should be fast enough for small
+                    // enough modules, but it is going to blow up on larger modules.
+                    let top_level_define = query_top_level_define(module_ast, interned.resolve())
+                        .or_else(|| {
+                            query_top_level_define_on_condition(
+                                module_ast,
+                                interned.resolve(),
+                                |name, target| name.ends_with(target),
+                            )
+                        });
+
+                    if let Some(d) = top_level_define {
+                        if let ExprKind::LambdaFunction(l) = &d.body {
+                            arity_checker.known_functions.insert(id, l.args.len());
+                        }
+                    }
+                }
+            }
         }
 
         StaticCallSiteArityChecker {

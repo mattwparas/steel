@@ -50,7 +50,10 @@ use log::{debug, info, log_enabled};
 use crate::parser::ast::IteratorExtensions;
 
 use super::{
-    passes::mangle::{collect_globals, NameMangler, NameUnMangler},
+    passes::{
+        begin::FlattenBegin,
+        mangle::{collect_globals, NameMangler, NameUnMangler},
+    },
     program::{CONTRACT_OUT, FOR_SYNTAX, ONLY_IN, PREFIX_IN, REQUIRE_IDENT_SPEC},
 };
 
@@ -1820,6 +1823,8 @@ impl<'a> ModuleBuilder<'a> {
         mangled_asts = mangled_asts
             .into_iter()
             .map(lower_entire_ast)
+            // We want this to at least be flattened for querying later
+            .map(|x| x.map(FlattenBegin::flatten))
             .collect::<std::result::Result<_, ParseError>>()?;
 
         // Take ast, expand with self modules, then expand with each of the require for-syntaxes

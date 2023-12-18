@@ -282,6 +282,10 @@ impl Analysis {
         self.let_info.clear();
     }
 
+    pub fn identifier_info(&self) -> &FxHashMap<SyntaxObjectId, SemanticInformation> {
+        &self.info
+    }
+
     pub fn fresh_from_exprs(&mut self, exprs: &[ExprKind]) {
         self.clear();
         self.run(exprs);
@@ -3384,16 +3388,10 @@ impl<'a> SemanticAnalysis<'a> {
                         let prefix = module.trim_start_matches("__module-").to_string()
                             + d.name.atom_identifier()?.resolve();
 
-                        log::debug!("Searching for {}", prefix);
-
                         let top_level_define = self.query_top_level_define(&prefix);
 
                         match top_level_define {
                             Some(top_level_define) => {
-                                log::debug!("Found: {}", top_level_define);
-                                log::debug!("Span: {:?}", top_level_define.location.span);
-                                log::debug!("Body span: {:?}", get_span(&top_level_define.body));
-
                                 return self
                                     .get_identifier(top_level_define.name_id()?)
                                     .map(RequiredIdentifierInformation::Resolved);
@@ -3421,18 +3419,10 @@ impl<'a> SemanticAnalysis<'a> {
                                 let prefix = module.trim_start_matches("__module-").to_string()
                                     + d.name.atom_identifier()?.resolve();
 
-                                log::debug!("Searching for {}", prefix);
                                 let top_level_define = self.query_top_level_define(&prefix);
 
                                 match top_level_define {
                                     Some(top_level_define) => {
-                                        log::debug!("Found: {}", top_level_define);
-                                        log::debug!("Span: {:?}", top_level_define.location.span);
-                                        log::debug!(
-                                            "Body span: {:?}",
-                                            get_span(&top_level_define.body)
-                                        );
-
                                         return self
                                             .get_identifier(top_level_define.name_id()?)
                                             .map(RequiredIdentifierInformation::Resolved);
@@ -3453,6 +3443,69 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         None
+    }
+
+    // Syntax object must be the id associated with a given require define statement
+    pub fn resolve_required_identifiers(
+        &self,
+        identifiers: HashSet<SyntaxObjectId>,
+    ) -> Vec<(SyntaxObjectId, RequiredIdentifierInformation<'_>)> {
+        let mut results = Vec::new();
+
+        let mut resolve_identifier = |d: &Define| -> Option<()> {
+            if is_a_require_definition(&d) && identifiers.contains(&d.name_id().unwrap()) {
+                let module = d
+                    .body
+                    .list()
+                    .and_then(|x| x.get(1))
+                    .and_then(|x| x.atom_identifier())
+                    .map(|x| x.resolve())?;
+
+                let prefix = module.trim_start_matches("__module-").to_string()
+                    + d.name.atom_identifier()?.resolve();
+
+                let top_level_define = self.query_top_level_define(&prefix);
+
+                match top_level_define {
+                    Some(top_level_define) => {
+                        results.push((
+                            d.name_id()?,
+                            self.get_identifier(top_level_define.name_id()?)
+                                .map(RequiredIdentifierInformation::Resolved)?,
+                        ));
+                    }
+                    None => {
+                        results.push((
+                            d.name_id()?,
+                            RequiredIdentifierInformation::Unresolved(
+                                *d.name.atom_identifier()?,
+                                prefix,
+                            ),
+                        ));
+                    }
+                }
+            }
+
+            None
+        };
+
+        for expr in self.exprs.iter() {
+            match expr {
+                ExprKind::Define(d) => {
+                    resolve_identifier(&d);
+                }
+                ExprKind::Begin(b) => {
+                    for expr in &b.exprs {
+                        if let ExprKind::Define(d) = expr {
+                            resolve_identifier(&d);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        results
     }
 
     pub fn query_top_level_define<A: AsRef<str>>(

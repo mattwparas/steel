@@ -10,9 +10,9 @@ use std::{collections::HashSet, time::Instant};
 
 use super::{Folder, VisitorMutUnit};
 
-struct FlattenBegin {}
+pub(crate) struct FlattenBegin {}
 impl FlattenBegin {
-    fn flatten(expr: ExprKind) -> ExprKind {
+    pub(crate) fn flatten(expr: ExprKind) -> ExprKind {
         FlattenBegin {}.visit(expr)
     }
 }
