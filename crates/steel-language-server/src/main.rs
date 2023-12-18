@@ -36,13 +36,13 @@ async fn main() {
         cloned_ignore_set.insert(InternedString::from(global));
     });
 
+    let home_directory =
+        std::env::var("STEEL_LSP_HOME").expect("Have you set your STEEL_LSP_HOME path?");
+
     ENGINE.with_borrow_mut(|x| {
         x.register_module_resolver(
-            ExternalModuleResolver::new(
-                &mut resolver_engine,
-                PathBuf::from("/home/matt/.config/steel-lsp/"),
-            )
-            .unwrap(),
+            ExternalModuleResolver::new(&mut resolver_engine, PathBuf::from(home_directory))
+                .unwrap(),
         )
     });
 
