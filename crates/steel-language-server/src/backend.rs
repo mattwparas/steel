@@ -28,7 +28,7 @@ use tower_lsp::{Client, LanguageServer};
 use tower_lsp::lsp_types::SemanticTokenType;
 
 use crate::diagnostics::{
-    DiagnosticContext, DiagnosticGenerator, FreeIdentifiersAndUnusedIdentifiers,
+    DiagnosticContext, DiagnosticGenerator, FreeIdentifiersAndUnusedIdentifiers, StaticArityChecker,
 };
 
 pub const LEGEND_TYPE: &[SemanticTokenType] = &[
@@ -181,8 +181,33 @@ impl LanguageServer for Backend {
             let (syntax_object_id, information) =
                 analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri).unwrap())?;
 
+            log::debug!("Found via hover: {:#?}", information);
+
             let mut syntax_object_id_to_interned_string = HashMap::new();
             syntax_object_id_to_interned_string.insert(*syntax_object_id, None);
+
+            // If this is a builtin, reference the engine's internal documentation
+            // Note: This does not handle resolving the identifier if it has been brought into scope
+            // with some kind of prefix. This should be relatively easy to resolve - the analysis
+            // can most likely identify if this is a builtin by checking what it was bought into scope
+            // with. For example, it would be brought into scope with:
+            // (define foo.list (%proto-hash-get% ...)
+            //
+            // The ability to then just check what the original identifier was can help us resolve
+            // the binding, by just checking against the interned string stored in the proto hash get.
+            if information.builtin {
+                analysis.syntax_object_ids_to_identifiers(&mut syntax_object_id_to_interned_string);
+
+                let name = syntax_object_id_to_interned_string.get(syntax_object_id)?;
+
+                let doc =
+                    ENGINE.with_borrow(|x| x.builtin_modules().get_doc((*name)?.resolve()))?;
+
+                return Some(Hover {
+                    contents: HoverContents::Scalar(MarkedString::String(doc)),
+                    range: None,
+                });
+            }
 
             // Refers to something - keep that around as well
             let refers_to = information.refers_to?;
@@ -726,7 +751,7 @@ impl Backend {
             let analysis = SemanticAnalysis::new(&mut ast);
 
             let diagnostics = ENGINE.with_borrow(|engine| {
-                FreeIdentifiersAndUnusedIdentifiers.diagnose(&mut DiagnosticContext {
+                let mut context = DiagnosticContext {
                     engine: &engine,
                     analysis: &analysis,
                     uri: &params.uri,
@@ -734,71 +759,18 @@ impl Backend {
                     rope: rope.clone(),
                     globals_set: &self.globals_set,
                     ignore_set: &self.ignore_set,
-                })
+                };
+
+                let mut free_identifiers_and_unused =
+                    FreeIdentifiersAndUnusedIdentifiers.diagnose(&mut context);
+
+                let mut static_arity_checking = StaticArityChecker.diagnose(&mut context);
+
+                free_identifiers_and_unused.append(&mut static_arity_checking);
+
+                // All the diagnostics total
+                free_identifiers_and_unused
             });
-
-            // let diagnostics = ENGINE.with_borrow(|engine| {
-            //     analysis
-            //         .free_identifiers_with_globals(engine.symbol_map())
-            //         .into_iter()
-            //         .flat_map(|(ident, info)| {
-            //             if info.span.source_id() != id {
-            //                 return None;
-            //             }
-
-            //             if self.globals_set.contains(&ident) {
-            //                 return None;
-            //             }
-
-            //             let start_position = offset_to_position(info.span.start, &rope)?;
-            //             let end_position = offset_to_position(info.span.end, &rope)?;
-
-            //             // TODO: Publish the diagnostics for each file separately, if we have them
-            //             Some(make_error(Diagnostic::new_simple(
-            //                 Range::new(start_position, end_position),
-            //                 format!("free identifier: {}", ident.resolve()),
-            //             )))
-            //         })
-            //         .chain(analysis.find_unused_arguments().into_iter().flat_map(
-            //             |(ident, span)| {
-            //                 if span.source_id() != id {
-            //                     return None;
-            //                 }
-
-            //                 if self.ignore_set.contains(&ident) {
-            //                     return None;
-            //                 }
-
-            //                 let resolved = ident.resolve();
-
-            //                 // This identifier has been renamed - so we can unmangle it and see if it
-            //                 // is in the ignore set
-            //                 if resolved.starts_with("##") && resolved.ends_with(char::is_numeric) {
-            //                     if self.ignore_set.contains(
-            //                         &resolved
-            //                             .trim_start_matches("##")
-            //                             .trim_end_matches(char::is_numeric)
-            //                             .into(),
-            //                     ) {
-            //                         return None;
-            //                     }
-            //                 }
-
-            //                 let start_position = offset_to_position(span.start, &rope)?;
-            //                 let end_position = offset_to_position(span.end, &rope)?;
-
-            //                 let mut diagnostic = Diagnostic::new_simple(
-            //                     Range::new(start_position, end_position),
-            //                     format!("unused variable"),
-            //                 );
-
-            //                 diagnostic.severity = Some(DiagnosticSeverity::INFORMATION);
-
-            //                 Some(diagnostic)
-            //             },
-            //         ))
-            //         .collect()
-            // });
 
             self.ast_map.insert(params.uri.to_string(), ast);
 

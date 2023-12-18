@@ -263,6 +263,10 @@ impl BuiltInModuleRepr {
         }
     }
 
+    pub fn get_documentation(&self, definition: &str) -> Option<String> {
+        self.docs.get(definition).map(|x| x.to_string())
+    }
+
     pub(crate) fn unreadable_name(&self) -> String {
         "%-builtin-module-".to_string() + &self.name
     }
@@ -502,6 +506,10 @@ impl BuiltInModule {
         // }
 
         self.module.borrow().get_doc(definition);
+    }
+
+    pub fn get_documentation(&self, definition: &str) -> Option<String> {
+        self.module.borrow().get_documentation(definition)
     }
 
     pub(crate) fn unreadable_name(&self) -> String {

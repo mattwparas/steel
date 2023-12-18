@@ -91,6 +91,18 @@ impl ModuleContainer {
         self.modules.insert(key, value);
     }
 
+    pub fn get_doc(&self, key: &str) -> Option<String> {
+        for module in self.modules.values() {
+            let maybe_doc = module.get_documentation(key);
+
+            if maybe_doc.is_some() {
+                return maybe_doc;
+            }
+        }
+
+        None
+    }
+
     pub fn get(&mut self, key: &str) -> Option<BuiltInModule> {
         self.modules.get(key).cloned().or_else(|| {
             self.unresolved_modules

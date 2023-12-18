@@ -14,6 +14,7 @@ use steel::{
         ast::{Define, ExprKind},
         interner::InternedString,
         parser::{SourceId, SyntaxObjectId},
+        span::Span,
     },
     steel_vm::engine::Engine,
     stop,
@@ -102,6 +103,150 @@ impl DiagnosticGenerator for FreeIdentifiersAndUnusedIdentifiers {
                     }),
             )
             .collect()
+    }
+}
+
+pub struct StaticArityChecker;
+
+impl DiagnosticGenerator for StaticArityChecker {
+    fn diagnose(&mut self, context: &mut DiagnosticContext) -> Vec<Diagnostic> {
+        let mut arity_checker = StaticArityChecking {
+            known_functions: HashMap::new(),
+            analysis: &context.analysis,
+            known_contracts: HashMap::new(),
+        };
+
+        for expr in context.analysis.exprs.iter() {
+            arity_checker.visit(&expr);
+        }
+
+        StaticCallSiteArityChecker {
+            known_functions: arity_checker.known_functions,
+            context,
+            diagnostics: Vec::new(),
+        }
+        .check()
+    }
+}
+
+// Rules for this:
+//
+// The identifier is:
+//     * known, and not mutated.
+//     * We know the arity
+pub struct StaticArityChecking<'a> {
+    // Arity check the known functions
+    known_functions: HashMap<SyntaxObjectId, usize>,
+    // If we can, we can attach the contract information as well,
+    // to do any static error checking at the call site.
+    known_contracts: HashMap<SyntaxObjectId, StaticContract>,
+
+    analysis: &'a SemanticAnalysis<'a>,
+}
+
+impl<'a> VisitorMutUnitRef<'a> for StaticArityChecking<'a> {
+    fn visit_begin(&mut self, begin: &'a steel::parser::ast::Begin) {
+        // Check if this is a define/contract
+        match (begin.exprs.get(0), begin.exprs.get(1)) {
+            (Some(ExprKind::Define(d)), Some(ExprKind::Set(s))) => {
+                if let ExprKind::LambdaFunction(l) = &d.body {
+                    if let Some(contract) = function_contract(&s.expr) {
+                        self.known_functions
+                            .insert(d.name_id().unwrap(), l.args.len());
+
+                        if let Ok(contract) = contract {
+                            self.known_contracts.insert(d.name_id().unwrap(), contract);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        for expr in &begin.exprs {
+            self.visit(expr);
+        }
+    }
+
+    fn visit_define(&mut self, define: &'a Define) {
+        if let Some(function_name) = define.name_id() {
+            if let Some(info) = self.analysis.get_identifier(function_name) {
+                // Note: This means we'll miss functions bound by define/contract.
+                // It could encourage putting the contract at the function boundary,
+                // which is nice.
+                if !info.set_bang {
+                    if let ExprKind::LambdaFunction(l) = &define.body {
+                        if !l.rest {
+                            self.known_functions.insert(function_name, l.args.len());
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub struct StaticCallSiteArityChecker<'a, 'b> {
+    known_functions: HashMap<SyntaxObjectId, usize>,
+    context: &'a mut DiagnosticContext<'b>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl<'a, 'b> StaticCallSiteArityChecker<'a, 'b> {
+    fn check(mut self) -> Vec<Diagnostic> {
+        for expr in self.context.analysis.exprs.iter() {
+            self.visit(expr);
+        }
+
+        self.diagnostics
+    }
+}
+
+fn create_diagnostic(rope: &Rope, span: &Span, message: String) -> Option<Diagnostic> {
+    let start_position = offset_to_position(span.start, &rope)?;
+    let end_position = offset_to_position(span.end, &rope)?;
+
+    let mut diagnostic = Diagnostic::new_simple(Range::new(start_position, end_position), message);
+
+    diagnostic.severity = Some(DiagnosticSeverity::INFORMATION);
+
+    Some(diagnostic)
+}
+
+impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
+    fn visit_list(&mut self, l: &'a steel::parser::ast::List) {
+        if let Some(function_call_ident) = l
+            .first()
+            .and_then(|x| x.atom_syntax_object())
+            .map(|x| x.syntax_object_id)
+        {
+            if let Some(info) = self.context.analysis.get_identifier(function_call_ident) {
+                if let Some(refers_to_id) = info.refers_to {
+                    if let Some(arity) = self.known_functions.get(&refers_to_id) {
+                        if l.args.len() != arity + 1 {
+                            let span = l.first().unwrap().atom_syntax_object().unwrap().span;
+
+                            if let Some(diagnostic) = create_diagnostic(
+                                &self.context.rope,
+                                &span,
+                                format!(
+                                    "Arity mismatch: {} expects {} arguments, found {}",
+                                    l.first().unwrap(),
+                                    arity,
+                                    l.args.len() - 1
+                                ),
+                            ) {
+                                self.diagnostics.push(diagnostic);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for arg in &l.args {
+            self.visit(arg);
+        }
     }
 }
 
