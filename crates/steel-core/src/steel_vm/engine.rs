@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use super::{
-    builtin::BuiltInModule,
+    builtin::{BuiltInModule, FunctionSignatureMetadata},
     primitives::{register_builtin_modules, register_builtin_modules_without_io, CONSTANTS},
     vm::SteelThread,
 };
@@ -97,6 +97,18 @@ impl ModuleContainer {
 
             if maybe_doc.is_some() {
                 return maybe_doc;
+            }
+        }
+
+        None
+    }
+
+    pub fn get_metadata_by_name(&self, key: &str) -> Option<FunctionSignatureMetadata> {
+        for module in self.modules.values() {
+            let maybe_meta = module.search_by_name(key);
+
+            if maybe_meta.is_some() {
+                return maybe_meta;
             }
         }
 

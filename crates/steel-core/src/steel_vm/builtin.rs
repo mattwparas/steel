@@ -192,11 +192,11 @@ impl BuiltInModuleRepr {
         self
     }
 
+    pub fn search_by_name(&self, name: &str) -> Option<FunctionSignatureMetadata> {
+        self.values.get(name).and_then(|x| self.search(x.clone()))
+    }
+
     pub fn search(&self, value: SteelVal) -> Option<FunctionSignatureMetadata> {
-        // println!("{:?}", (*value as *const FunctionSignature) as usize);
-
-        // println!("{:#?}", self.fn_ptr_table);
-
         if let SteelVal::FuncV(f) = value {
             self.fn_ptr_table
                 .get(&(f as *const FunctionSignature))
@@ -455,6 +455,10 @@ impl BuiltInModule {
 
     pub fn search(&self, value: SteelVal) -> Option<FunctionSignatureMetadata> {
         self.module.borrow().search(value)
+    }
+
+    pub fn search_by_name(&self, name: &str) -> Option<FunctionSignatureMetadata> {
+        self.module.borrow().search_by_name(name)
     }
 
     pub fn bound_identifiers(&self) -> crate::values::lists::List<SteelVal> {

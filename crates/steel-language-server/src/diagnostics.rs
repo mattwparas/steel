@@ -23,7 +23,7 @@ use steel::{
         parser::{SourceId, SyntaxObjectId},
         span::Span,
     },
-    steel_vm::engine::Engine,
+    steel_vm::{builtin::Arity, engine::Engine},
     stop,
 };
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Range, Url};
@@ -295,7 +295,73 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
             .map(|x| x.syntax_object_id)
         {
             if let Some(info) = self.context.analysis.get_identifier(function_call_ident) {
-                if let Some(refers_to_id) = info.refers_to {
+                if info.builtin {
+                    let metadata = self
+                        .context
+                        .engine
+                        .builtin_modules()
+                        .get_metadata_by_name(l.first_ident().unwrap().resolve());
+
+                    match metadata.as_ref().map(|x| x.arity) {
+                        Some(Arity::Exact(arity)) => {
+                            if l.args.len() != arity + 1 {
+                                let span = l.first().unwrap().atom_syntax_object().unwrap().span;
+
+                                if let Some(diagnostic) = create_diagnostic(
+                                    &self.context.rope,
+                                    &span,
+                                    format!(
+                                        "Arity mismatch: {} expects {} arguments, found {}",
+                                        l.first().unwrap(),
+                                        arity,
+                                        l.args.len() - 1
+                                    ),
+                                ) {
+                                    self.diagnostics.push(diagnostic);
+                                }
+                            }
+                        }
+                        Some(Arity::AtLeast(arity)) => {
+                            if l.args.len() <= arity + 1 {
+                                let span = l.first().unwrap().atom_syntax_object().unwrap().span;
+
+                                if let Some(diagnostic) = create_diagnostic(
+                                    &self.context.rope,
+                                    &span,
+                                    format!(
+                                        "Arity mismatch: {} expects at least {} arguments, found {}",
+                                        l.first().unwrap(),
+                                        arity,
+                                        l.args.len() - 1
+                                    ),
+                                ) {
+                                    self.diagnostics.push(diagnostic);
+                                }
+                            }
+                        }
+                        Some(Arity::AtMost(arity)) => {
+                            if l.args.len() > arity + 1 {
+                                let span = l.first().unwrap().atom_syntax_object().unwrap().span;
+
+                                if let Some(diagnostic) = create_diagnostic(
+                                    &self.context.rope,
+                                    &span,
+                                    format!(
+                                        "Arity mismatch: {} expects at most {} arguments, found {}",
+                                        l.first().unwrap(),
+                                        arity,
+                                        l.args.len() - 1
+                                    ),
+                                ) {
+                                    self.diagnostics.push(diagnostic);
+                                }
+                            }
+                        }
+                        // TODO: Handle this arity if it comes up
+                        Some(Arity::Range(n)) => {}
+                        None => {}
+                    }
+                } else if let Some(refers_to_id) = info.refers_to {
                     if let Some(arity) = self.known_functions.get(&refers_to_id) {
                         if l.args.len() != arity + 1 {
                             let span = l.first().unwrap().atom_syntax_object().unwrap().span;
