@@ -24,7 +24,7 @@ use steel::{
         span::Span,
     },
     steel_vm::{builtin::Arity, engine::Engine},
-    stop,
+    stop, SteelVal,
 };
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Range, Url};
 
@@ -296,13 +296,28 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
         {
             if let Some(info) = self.context.analysis.get_identifier(function_call_ident) {
                 if info.builtin {
-                    let metadata = self
+                    let found_arity = self
                         .context
                         .engine
                         .builtin_modules()
-                        .get_metadata_by_name(l.first_ident().unwrap().resolve());
+                        .get_metadata_by_name(l.first_ident().unwrap().resolve())
+                        .map(|x| x.arity)
+                        .or_else(|| {
+                            // If this isn't found in the original built in modules,
+                            // attempt to find it registered globally?
+                            if let SteelVal::BoxedFunction(b) = self
+                                .context
+                                .engine
+                                .extract_value(l.first_ident().unwrap().resolve())
+                                .ok()?
+                            {
+                                b.arity.map(Arity::Exact)
+                            } else {
+                                None
+                            }
+                        });
 
-                    match metadata.as_ref().map(|x| x.arity) {
+                    match found_arity {
                         Some(Arity::Exact(arity)) => {
                             if l.args.len() != arity + 1 {
                                 let span = l.first().unwrap().atom_syntax_object().unwrap().span;

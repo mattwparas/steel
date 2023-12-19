@@ -181,8 +181,6 @@ impl LanguageServer for Backend {
             let (syntax_object_id, information) =
                 analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri).unwrap())?;
 
-            log::debug!("Found via hover: {:#?}", information);
-
             let mut syntax_object_id_to_interned_string = HashMap::new();
             syntax_object_id_to_interned_string.insert(*syntax_object_id, None);
 
