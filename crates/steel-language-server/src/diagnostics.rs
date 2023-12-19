@@ -185,9 +185,12 @@ impl DiagnosticGenerator for StaticArityChecker {
                             )
                         });
 
+                    // Don't include rest args for now
                     if let Some(d) = top_level_define {
                         if let ExprKind::LambdaFunction(l) = &d.body {
-                            arity_checker.known_functions.insert(id, l.args.len());
+                            if !l.rest {
+                                arity_checker.known_functions.insert(id, l.args.len());
+                            }
                         }
                     }
                 }
