@@ -416,6 +416,7 @@ impl IntoSteelVal for num::BigInt {
     }
 }
 
+#[steel_derive::native(name = "+", constant = true, arity = "AtLeast(0)")]
 pub fn special_add(args: &[SteelVal]) -> Result<SteelVal> {
     let mut sum_int: isize = 0;
     let mut sum_float = 0.0;
