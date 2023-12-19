@@ -240,66 +240,6 @@ impl<
     }
 }
 
-//     fn handle_event(
-//         &mut self,
-//         _event: &helix_view::input::Event,
-//         _ctx: &mut compositor::Context,
-//     ) -> compositor::EventResult {
-//         if let Some(handle_event) = &mut self.handle_event {
-//             todo!()
-//         } else {
-//             compositor::EventResult::Ignored(None)
-//         }
-//     }
-
-//     fn should_update(&self) -> bool {
-//         if let Some(should_update) = &self.should_update {
-//             todo!()
-//         } else {
-//             true
-//         }
-//     }
-
-//     fn cursor(
-//         &self,
-//         _area: helix_view::graphics::Rect,
-//         _ctx: &Editor,
-//     ) -> (
-//         Option<helix_core::Position>,
-//         helix_view::graphics::CursorKind,
-//     ) {
-//         if let Some(cursor) = &self.cursor {
-//             todo!()
-//         } else {
-//             (None, helix_view::graphics::CursorKind::Hidden)
-//         }
-//     }
-
-//     fn required_size(&mut self, _viewport: (u16, u16)) -> Option<(u16, u16)> {
-//         if let Some(required_size) = &mut self.required_size {
-//             todo!()
-//         } else {
-//             None
-//         }
-//     }
-
-//     fn type_name(&self) -> &'static str {
-//         std::any::type_name::<Self>()
-//     }
-
-//     fn id(&self) -> Option<&'static str> {
-//         None
-//     }
-
-// fn render(
-//         &mut self,
-//         area: helix_view::graphics::Rect,
-//         frame: &mut tui::buffer::Buffer,
-//         ctx: &mut compositor::Context,
-//     ) {
-//         todo!()
-//     }
-
 impl<
         RET: IntoSteelVal,
         SELF: AsRefMutSteelValFromRef,
@@ -326,7 +266,7 @@ impl<
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
-                Some(1),
+                Some(2),
             ))),
         )
     }
@@ -358,7 +298,7 @@ impl<
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
-                Some(1),
+                Some(2),
             ))),
         )
     }
@@ -395,7 +335,7 @@ impl<
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
-                Some(1),
+                Some(4),
             ))),
         )
     }
@@ -431,7 +371,7 @@ impl<
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
-                Some(1),
+                Some(4),
             ))),
         )
     }
@@ -467,7 +407,7 @@ impl<
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
-                Some(1),
+                Some(3),
             ))),
         )
     }
@@ -503,7 +443,7 @@ impl<
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
-                Some(1),
+                Some(3),
             ))),
         )
     }
@@ -544,7 +484,7 @@ impl<
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
-                Some(1),
+                Some(3),
             ))),
         )
     }
@@ -577,7 +517,7 @@ impl<
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
                 Arc::new(f),
                 Some(cloned_name.into()),
-                Some(1),
+                Some(3),
             ))),
         )
     }
@@ -814,7 +754,7 @@ impl<
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
-                Some(1),
+                Some(2),
             ))),
         )
     }
@@ -883,7 +823,7 @@ impl<
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
-                Some(1),
+                Some(2),
             ))),
         )
     }
@@ -986,7 +926,7 @@ impl<
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
-                Some(1),
+                Some(3),
             ))),
         )
     }
@@ -1022,7 +962,7 @@ impl<
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
-                Some(1),
+                Some(3),
             ))),
         )
     }
@@ -1063,7 +1003,7 @@ impl<
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
-                Some(1),
+                Some(3),
             ))),
         )
     }
@@ -1096,7 +1036,7 @@ impl<
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
                 Arc::new(f),
                 Some(cloned_name.into()),
-                Some(1),
+                Some(3),
             ))),
         )
     }
@@ -1338,7 +1278,7 @@ impl<
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
-                Some(1),
+                Some(2),
             ))),
         )
     }
@@ -1633,7 +1573,7 @@ impl<
             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
-                Some(1),
+                Some(2),
             ))),
         )
     }

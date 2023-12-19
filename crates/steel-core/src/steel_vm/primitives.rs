@@ -16,7 +16,7 @@ use crate::{
         hashmaps::{HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,
         lists::{list_module, UnRecoverableResult},
-        nums::quotient,
+        nums::{quotient, SPECIAL_ADD_DEFINITION},
         port_module,
         process::process_module,
         random::random_module,
@@ -909,7 +909,7 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
 fn number_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/numbers");
     module
-        .register_value("+", NumOperations::adder())
+        .register_native_fn_definition(SPECIAL_ADD_DEFINITION)
         .register_value("f+", NumOperations::float_add())
         .register_value("*", NumOperations::multiply())
         .register_value("/", NumOperations::divide())

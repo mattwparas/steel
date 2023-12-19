@@ -365,9 +365,9 @@ pub fn function(
     );
 
     let arity_exactness = if rest_arg_generic_inner_type {
-        quote! { Exact }
-    } else {
         quote! { AtLeast }
+    } else {
+        quote! { Exact }
     };
 
     let definition_struct = if let Some(doc) = maybe_doc_comments {
