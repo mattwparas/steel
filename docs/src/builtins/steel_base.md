@@ -1,95 +1,32 @@
 # steel/base
-### **string-append**
-Concatenates all of the given strings into one
+### **abs**
+Returns the absolute value of the given input
+### **car**
+Returns the first element of the list l.
 
-(string-append strs...) -> string?
+(car l) -> any/c
 
-* strs ... : string?
-
-#### Examples
-```scheme
-> (string-append) ;; => ""
-> (string-append "foo" "bar") ;; => "foobar"
-### **is-file?**
-Checks if a path is a file
-### **string->lower**
-Creates a new lowercased version of the input string
-
-(string->lower string?) -> string?
+* l : list?
 
 #### Examples
 
 ```scheme
-> (string->lower "sPonGeBoB tExT") ;; => "spongebob text"
+> (car '(1 2)) ;; => 1
+> (car (cons 2 3)) ;; => 2
 ```
-### **string->number**
-Converts the given string to a number
-### **string->int**
-Converts a string into an int. Raises an error if the string cannot be converted to an integer.
+### **char=?**
+Checks if two characters are equal
 
-(string->int string?) -> int?
-
-#### Examples
-
-```scheme
-> (string->int "100") ;; => 10
-> (string->int "not-an-int") ;; error
-```
-### **string->symbol**
-Converts a string into a symbol.
-
-(string->symbol string?) -> symbol?
-
-#### Examples
-
-```scheme
-> (string->symbol "FooBar") ;; => 'FooBar
-```
-### **open-input-file**
-Takes a filename `path` referring to an existing file and returns an input port. Raises an error
-if the file does not exist
-
-(open-input-file string?) -> input-port?
-
-#### Examples
-```scheme
-> (open-input-file "foo-bar.txt") ;; => #<port>
-> (open-input-file "file-does-not-exist.txt")
-error[E08]: Io
-┌─ :1:2
-│
-1 │ (open-input-file "foo-bar.txt")
-│  ^^^^^^^^^^^^^^^ No such file or directory (os error 2)
-```
-### **int->string**
-Converts an integer into a string.
-
-(int->string int?) -> string?
-
-#### Examples
-
-```scheme
-> (int->string 10) ;; => "10"
-```
-### **steel/strings**
-#### steel/strings
-
-Strings in Steel are immutable, fixed length arrays of characters. They are heap allocated,
-and are implemented under the hood as referenced counted rust `Strings`.
-### **stdin**
-Gets the port handle to stdin
-
-(stdin) -> input-port?
-
-#### Examples
-
-```scheme
-> (stdin) ;; => #<port>
-```
-### **number->string**
-Converts the given number to a string
+Requires that the two inputs are both characters, and will otherwise
+raise an error.
 ### **copy-directory-recursively!**
 Recursively copies the directory from source to destination
+### **create-directory!**
+Creates the directory
+### **current-directory**
+Check the current working directory
+### **delete-directory!**
+Deletes the directory
 ### **empty?**
 Checks if the list is empty
 
@@ -102,43 +39,6 @@ Checks if the list is empty
 ```scheme
 > (empty? (list 1 2 3 4 5)) ;; => #false
 > (empty? '()) ;; => #true
-```
-### **split-whitespace**
-Returns a list of strings from the original string split on the whitespace
-
-(split-whitespace string?) -> (listof string?)
-
-#### Examples
-
-```scheme
-(split-whitespace "apples bananas fruits veggies") ;; '("apples" "bananas" "fruits" "veggies")
-```
-### **output-port?**
-Checks if a given value is an output port
-
-(output-port? any/c) -> bool?
-
-#### Examples
-
-```scheme
-> (define output (open-output-file "foo.txt"))
-> (output-port? output) ;; => #true
-```
-### **path->extension**
-Gets the extension from a path
-### **pair?**
-Checks if the given value can be treated as a pair.
-Note - there are no improper lists in steel, so any list with at least one element
-is considered a pair.
-
-(pair? any/c) -> bool?
-
-#### Examples
-
-```scheme
-> (pair? '(10 20)) ;; => #true
-> (pair? '(10)) ;; => #true
-> (pair? '()) ;; => #false
 ```
 ### **ends-with?**
 Checks if the input string ends with a given suffix
@@ -154,58 +54,36 @@ pattern: string?
 > (ends-with? "foobar" "foo") ;; => #false
 > (ends-with? "foobar" "bar") ;; => #true
 ```
-### **trim-start**
-Returns a new string with the leading whitespace removed.
-
-(trim string?) -> string?
-
-#### Examples
-
-```scheme
-> (trim "   foo     ") ;; => "foo     "
-```
-### **steel/lists**
-#### steel/lists
-
-Lists in Steel have an interface that matches those of classic schemes or lisps.
-At face value, they appear to be implemented as cons cells - however, under the hood
-they are actually implemented as unrolled linked lists.
-
-This means that for most practical purposes, interaction with lists is the same.
-That being said, there are no improper lists, meaning, pairs are actually just lists of two elements.
-
-Indexing into a list also takes O(n/64) - which means you'll get constant time indexing on small lists.
-
-```scheme
-(list 10 20 30 40) ;; => '(10 20 30 40)
-```
-### **trim-start-matches**
-Returns a new string with the given `pat` repeatedly removed from the start
-of the string
-
-```scheme
-(trim-start-matches string? string?) -> string?
-```
-
-#### Examples
-```scheme
-> (trim-start-matches "123foo1bar123123" "123") ;; => "foo1bar123123"
-```
 ### **exp**
 Returns Euler's number raised to the power of z.
-### **hash-try-get**
-Gets the `key` from the given `map`. Returns #false if the key does not exist.
+### **file-name**
+Gets the filename for a given path
+### **first**
+Returns the first element of the list l.
 
-(hash-try-get map key) -> (or any/c #false)
+(first l) -> any/c
 
-* map : hash?
-* key : any/c
+* l : list?
 
 #### Examples
 
 ```scheme
-> (hash-try-get (hash 'a 10 'b 20) 'b) ;; => 20
-> (hash-try-get (hash 'a 10 'b 20) 'does-not-exist) ;; => #false
+> (first '(1 2)) ;; => 1
+> (first (cons 2 3)) ;; => 2
+```
+### **hash-contains?**
+Checks whether the given map contains the given key. Key must be hashable.
+
+(hash-contains? map key) -> bool?
+
+* map : hash?
+* key : hashable?
+
+#### Example
+
+```scheme
+> (hash-contains? (hash 'a 10 'b 20) 'a) ;; => #true
+> (hash-contains? (hash 'a 10 'b 20) 'not-there) ;; => #false
 ```
 ### **hash-insert**
 Returns a new hashmap with the additional key value pair added. Performs a functional update,
@@ -227,6 +105,20 @@ so the old hash map is still accessible.
 'c: 30
 }>
 ```
+### **hash-keys->list**
+Returns the keys of the given hash map as a list.
+
+```scheme
+(hash-keys->list map) -> (listof hashable?)
+```
+
+* map : hash?
+
+#### Examples
+
+```scheme
+> (hash-keys->list? (hash 'a 'b 20)) ;; => '(a b)
+```
 ### **hash-length**
 Returns the number of key value pairs in the map
 
@@ -239,57 +131,68 @@ Returns the number of key value pairs in the map
 ```scheme
 > (hash-length (hash 'a 10 'b 20)) ;; => 2
 ```
-### **trim-end-matches**
-Returns a new string with the given `pat` repeatedly removed from the end
-of the string
+### **hash-ref**
+Gets the `key` from the given `map`. Raises an error if the key does not exist. `hash-get` is an alias for this.
 
-```scheme
-(trim-end-matches string? string?) -> string?
-```
+(hash-ref map key) -> any/c
+
+* map : hash?
+* key : any/c
 
 #### Examples
 ```scheme
-> (trim-end-matches "123foo1bar123123" "123") ;; => "123foo1bar"
+> (hash-ref (hash 'a 10 'b 20) 'b) ;; => 20
 ```
-### **car**
-Returns the first element of the list l.
+### **hash-try-get**
+Gets the `key` from the given `map`. Returns #false if the key does not exist.
 
-(car l) -> any/c
+(hash-try-get map key) -> (or any/c #false)
+
+* map : hash?
+* key : any/c
+
+#### Examples
+
+```scheme
+> (hash-try-get (hash 'a 10 'b 20) 'b) ;; => 20
+> (hash-try-get (hash 'a 10 'b 20) 'does-not-exist) ;; => #false
+```
+### **input-port?**
+Checks if a given value is an input port
+
+(input-port? any/c) -> bool?
+
+#### Examples
+
+```scheme
+> (input-port? (stdin)) ;; => #true
+> (input-port? "foo") ;; => #false
+```
+### **int->string**
+Converts an integer into a string.
+
+(int->string int?) -> string?
+
+#### Examples
+
+```scheme
+> (int->string 10) ;; => "10"
+```
+### **is-dir?**
+Checks if a path is a directory
+### **is-file?**
+Checks if a path is a file
+### **length**
+Returns the length of the list.
+
+(length l) -> int?
 
 * l : list?
 
 #### Examples
 
 ```scheme
-> (car '(1 2)) ;; => 1
-> (car (cons 2 3)) ;; => 2
-```
-### **current-directory**
-Check the current working directory
-### **take**
-Returns the first n elements of the list l as a new list.
-
-(take l n) -> list?
-
-* l : list?
-* n : (and/c positive? int?)
-
-#### Examples
-
-```scheme
-> (take '(1 2 3 4) 2) ;; => '(0 1)
-> (take (range 0 10) 4) ;; => '(0 1 2 3)
-```
-### **range**
-Returns a newly allocated list of the elements in the range (n, m]
-
-(range n m) -> (listof int?)
-
-* n : int?
-* m : int?
-
-```scheme
-> (range 0 10) ;; => '(0 1 2 3 4 5 6 7 8 9)
+> (length (list 10 20 30)) ;; => 3
 ```
 ### **list**
 Returns a newly allocated list containing the vs as its elements.
@@ -303,21 +206,6 @@ Returns a newly allocated list containing the vs as its elements.
 ```scheme
 > (list 1 2 3 4 5) ;; => '(1 2 3 4 5)
 > (list (list 1 2) (list 3 4)) ;; => '((1 2) (3 4))
-```
-### **delete-directory!**
-Deletes the directory
-### **first**
-Returns the first element of the list l.
-
-(first l) -> any/c
-
-* l : list?
-
-#### Examples
-
-```scheme
-> (first '(1 2)) ;; => 1
-> (first (cons 2 3)) ;; => 2
 ```
 ### **list-ref**
 Returns the value located at the given index. Will raise an error if you try to index out of bounds.
@@ -341,38 +229,24 @@ error[E11]: Generic
 1 │ (list-ref (list 1 2 3 4) 10)
 │  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10
 ```
-### **read-dir**
-Returns the contents of the directory as a list
-### **hash-ref**
-Gets the `key` from the given `map`. Raises an error if the key does not exist. `hash-get` is an alias for this.
+### **number->string**
+Converts the given number to a string
+### **open-input-file**
+Takes a filename `path` referring to an existing file and returns an input port. Raises an error
+if the file does not exist
 
-(hash-ref map key) -> any/c
-
-* map : hash?
-* key : any/c
+(open-input-file string?) -> input-port?
 
 #### Examples
 ```scheme
-> (hash-ref (hash 'a 10 'b 20) 'b) ;; => 20
+> (open-input-file "foo-bar.txt") ;; => #<port>
+> (open-input-file "file-does-not-exist.txt")
+error[E08]: Io
+┌─ :1:2
+│
+1 │ (open-input-file "foo-bar.txt")
+│  ^^^^^^^^^^^^^^^ No such file or directory (os error 2)
 ```
-### **length**
-Returns the length of the list.
-
-(length l) -> int?
-
-* l : list?
-
-#### Examples
-
-```scheme
-> (length (list 10 20 30)) ;; => 3
-```
-### **read-port-to-string**
-Takes a port and reads the entire content into a string
-
-(read-port-to-string port) -> string?
-
-* port : input-port?
 ### **open-output-file**
 Takes a filename `path` referring to a file to be created and returns an output port.
 
@@ -382,31 +256,81 @@ Takes a filename `path` referring to a file to be created and returns an output 
 ```scheme
 > (open-output-file "foo-bar.txt") ;; => #<port>
 ```
-### **input-port?**
-Checks if a given value is an input port
+### **output-port?**
+Checks if a given value is an output port
 
-(input-port? any/c) -> bool?
+(output-port? any/c) -> bool?
 
 #### Examples
 
 ```scheme
-> (input-port? (stdin)) ;; => #true
-> (input-port? "foo") ;; => #false
+> (define output (open-output-file "foo.txt"))
+> (output-port? output) ;; => #true
 ```
-### **steel/time**
+### **pair?**
+Checks if the given value can be treated as a pair.
+Note - there are no improper lists in steel, so any list with at least one element
+is considered a pair.
 
+(pair? any/c) -> bool?
 
-#### steel/time
-    
-Contains direct wrappers around the Rust `std::time::Instant` and `std::time::Duration` modules. 
-For example, to measure the time something takes:
+#### Examples
 
 ```scheme
-(define t (instant/now))
-(displayln "Hello world")
-(displayln (instant/elapsed t))
+> (pair? '(10 20)) ;; => #true
+> (pair? '(10)) ;; => #true
+> (pair? '()) ;; => #false
 ```
+### **path->extension**
+Gets the extension from a path
+### **path-exists?**
+Checks if a path exists
+### **range**
+Returns a newly allocated list of the elements in the range (n, m]
 
+(range n m) -> (listof int?)
+
+* n : int?
+* m : int?
+
+```scheme
+> (range 0 10) ;; => '(0 1 2 3 4 5 6 7 8 9)
+```
+### **read-dir**
+Returns the contents of the directory as a list
+### **read-port-to-string**
+Takes a port and reads the entire content into a string
+
+(read-port-to-string port) -> string?
+
+* port : input-port?
+### **second**
+Get the second element of the list. Raises an error if the list does not have an element in the second position.
+
+(second l) -> any/c
+
+* l : list?
+
+#### Examples
+
+```scheme
+> (second '(1 2 3)) ;; => 2
+> (second '())
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (second '())
+│  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
+### **split-whitespace**
+Returns a list of strings from the original string split on the whitespace
+
+(split-whitespace string?) -> (listof string?)
+
+#### Examples
+
+```scheme
+(split-whitespace "apples bananas fruits veggies") ;; '("apples" "bananas" "fruits" "veggies")
+```
 ### **starts-with?**
 Checks if the input string starts with a prefix
 
@@ -421,28 +345,82 @@ pattern: string?
 > (starts-with? "foobar" "foo") ;; => #true
 > (starts-with? "foobar" "bar") ;; => #false
 ```
-### **to-string**
-Concatenatives all of the inputs to their string representation, separated by spaces.
+### **stdin**
+Gets the port handle to stdin
 
-(to-string xs ...)
-
-* xs : any/c
-
-#### Examples
-```scheme
-> (to-string 10) ;; => "10"
-> (to-string "hello" "world") ;; => "hello world"
-```
-### **trim-end**
-Returns a new string with the trailing whitespace removed.
-
-(trim string?) -> string?
+(stdin) -> input-port?
 
 #### Examples
 
 ```scheme
-> (trim "   foo     ") ;; => "   foo"
+> (stdin) ;; => #<port>
 ```
+### **string**
+Constructs a string from the given characters
+### **string->int**
+Converts a string into an int. Raises an error if the string cannot be converted to an integer.
+
+(string->int string?) -> int?
+
+#### Examples
+
+```scheme
+> (string->int "100") ;; => 10
+> (string->int "not-an-int") ;; error
+```
+### **string->list**
+Converts a string into a list of characters.
+
+(string->list string?) -> (listof char?)
+
+#### Examples
+
+```scheme
+> (string->list "hello") ;; => '(#\h #\e #\l #\l #\o)
+```
+### **string->lower**
+Creates a new lowercased version of the input string
+
+(string->lower string?) -> string?
+
+#### Examples
+
+```scheme
+> (string->lower "sPonGeBoB tExT") ;; => "spongebob text"
+```
+### **string->number**
+Converts the given string to a number
+### **string->symbol**
+Converts a string into a symbol.
+
+(string->symbol string?) -> symbol?
+
+#### Examples
+
+```scheme
+> (string->symbol "FooBar") ;; => 'FooBar
+```
+### **string->upper**
+Creates a new uppercased version of the input string
+
+(string->upper string?) -> string?
+
+#### Examples
+
+```scheme
+> (string->upper "lower") ;; => "LOWER"
+```
+### **string-append**
+Concatenates all of the given strings into one
+
+(string-append strs...) -> string?
+
+* strs ... : string?
+
+#### Examples
+```scheme
+> (string-append) ;; => ""
+> (string-append "foo" "bar") ;; => "foobar"
 ### **string-length**
 Get the length of the given string
 
@@ -452,6 +430,20 @@ Get the length of the given string
 
 ```scheme
 > (string-length "apples") ;; => 6
+```
+### **take**
+Returns the first n elements of the list l as a new list.
+
+(take l n) -> list?
+
+* l : list?
+* n : (and/c positive? int?)
+
+#### Examples
+
+```scheme
+> (take '(1 2 3 4) 2) ;; => '(0 1)
+> (take (range 0 10) 4) ;; => '(0 1 2 3)
 ```
 ### **third**
 Get the third element of the list. Raises an error if the list does not have an element in the third position.
@@ -470,39 +462,18 @@ error[E11]: Generic
 1 │ (third '())
 │  ^^^^^^ third: index out of bounds - list did not have an element in the second position: []
 ```
-### **path-exists?**
-Checks if a path exists
-### **file-name**
-Gets the filename for a given path
-### **string->upper**
-Creates a new uppercased version of the input string
+### **to-string**
+Concatenatives all of the inputs to their string representation, separated by spaces.
 
-(string->upper string?) -> string?
+(to-string xs ...)
+
+* xs : any/c
 
 #### Examples
-
 ```scheme
-> (string->upper "lower") ;; => "LOWER"
+> (to-string 10) ;; => "10"
+> (to-string "hello" "world") ;; => "hello world"
 ```
-### **abs**
-Returns the absolute value of the given input
-### **second**
-Get the second element of the list. Raises an error if the list does not have an element in the second position.
-
-(second l) -> any/c
-
-* l : list?
-
-#### Examples
-
-```scheme
-> (second '(1 2 3)) ;; => 2
-> (second '())
-error[E11]: Generic
-┌─ :1:2
-│
-1 │ (second '())
-│  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
 ### **trim**
 Returns a new string with the leading and trailing whitespace removed.
 
@@ -513,308 +484,298 @@ Returns a new string with the leading and trailing whitespace removed.
 ```scheme
 > (trim "   foo     ") ;; => "foo"
 ```
-### **hash-contains?**
-Checks whether the given map contains the given key. Key must be hashable.
+### **trim-end**
+Returns a new string with the trailing whitespace removed.
 
-(hash-contains? map key) -> bool?
-
-* map : hash?
-* key : hashable?
-
-#### Example
-
-```scheme
-> (hash-contains? (hash 'a 10 'b 20) 'a) ;; => #true
-> (hash-contains? (hash 'a 10 'b 20) 'not-there) ;; => #false
-```
-### **create-directory!**
-Creates the directory
-### **string->list**
-Converts a string into a list of characters.
-
-(string->list string?) -> (listof char?)
+(trim string?) -> string?
 
 #### Examples
 
 ```scheme
-> (string->list "hello") ;; => '(#\h #\e #\l #\l #\o)
+> (trim "   foo     ") ;; => "   foo"
 ```
-### **char=?**
-Checks if two characters are equal
-
-Requires that the two inputs are both characters, and will otherwise
-raise an error.
-### **is-dir?**
-Checks if a path is a directory
-### **string**
-Constructs a string from the given characters
-### **hash-keys->list**
-Returns the keys of the given hash map as a list.
+### **trim-end-matches**
+Returns a new string with the given `pat` repeatedly removed from the end
+of the string
 
 ```scheme
-(hash-keys->list map) -> (listof hashable?)
+(trim-end-matches string? string?) -> string?
 ```
 
-* map : hash?
+#### Examples
+```scheme
+> (trim-end-matches "123foo1bar123123" "123") ;; => "123foo1bar"
+```
+### **trim-start**
+Returns a new string with the leading whitespace removed.
+
+(trim string?) -> string?
 
 #### Examples
 
 ```scheme
-> (hash-keys->list? (hash 'a 'b 20)) ;; => '(a b)
+> (trim "   foo     ") ;; => "foo     "
 ```
-### **steel/filesystem**
-#### steel/filesystem
+### **trim-start-matches**
+Returns a new string with the given `pat` repeatedly removed from the start
+of the string
 
-Filesystem functions, mostly just thin wrappers around the `std::fs` functions in
-the Rust std library.
-### **number?**
-### **into-max**
-### **>=**
-### **syntax-e**
-### **-**
-### **push**
-### **set-current-dir!**
-### **expand!**
-### **<**
-### **%keyword-hash**
-### **into-count**
-### **value->string**
-### **mapping**
-### **Engine::new**
-### **into-sum**
-### **dropping**
-### **channel->try-recv**
-### **hashset-insert**
+```scheme
+(trim-start-matches string? string?) -> string?
+```
+
+#### Examples
+```scheme
+> (trim-start-matches "123foo1bar123123" "123") ;; => "foo1bar123123"
+```
 ### **#%black-box**
-### **function?**
-### **set-box!**
-### **None?**
-### **current-function-span**
-### **block-on**
-### **void**
-### **#%struct-property-ref**
-### **into-min**
-### **vector**
-### **vector-set!**
-### **=**
-### **substring**
-### **thread::current/id**
-### **current-second**
-### **future?**
-### **syntax/loc**
-### **Engine::modules->list**
-### **concat-symbols**
-### **Some**
-### **string-ref**
-### **thread-finished?**
-### **string-ci>?**
-### **push-back**
-### **split-many**
-### **hashset-contains?**
-### **call-with-exception-handler**
-### **raw-write-char**
-### **set-env-var!**
-### **hashset-subset?**
-### **#%syntax/raw**
-### **/**
-### **string>=?**
-### **set-piped-stdout!**
-### **current-milliseconds**
-### **which**
-### **get-contract-struct**
-### **#%private-struct?**
-### **run!**
-### **vec-append**
-### **integer?**
-### **into-hashset**
-### **open-output-string**
-### **current-os!**
-### **make-vector**
-### **raise-error**
-### **hashset->list**
-### **try-list-ref**
-### **arithmetic-shift**
-### **child-stdin**
-### **even?**
-### **into-list**
-### **eqv?**
-### **char-digit?**
-### **read!**
+### **#%box**
+### **#%default-input-port**
+### **#%default-output-port**
+### **#%function-ptr-table**
+### **#%function-ptr-table-add**
+### **#%function-ptr-table-get**
 ### **#%iterator-finished**
+### **#%private-cycle-collector**
+### **#%private-cycle-collector-get**
 ### **#%private-cycle-collector-values**
-### **vector-ref**
+### **#%private-struct?**
+### **#%set-box!**
+### **#%stream-cdr**
+### **#%struct-property-ref**
+### **#%syntax/raw**
+### **#%unbox**
+### **#%vtable-update-entry!**
+### **%iterator?**
+### **%keyword-hash**
+### *****
+### **+**
+### **-**
+### **/**
+### **<**
+### **<=**
+### **=**
+### **>**
+### **>=**
+### **Engine::add-module**
+### **Engine::clone**
+### **Engine::modules->list**
+### **Engine::new**
+### **Engine::raise_error**
+### **Err**
+### **Err->value**
+### **Err?**
+### **None**
+### **None?**
+### **Ok**
+### **Ok->value**
+### **Ok?**
+### **Some**
+### **Some->value**
+### **Some?**
+### **TypeId?**
+### **active-object-count**
+### **arithmetic-shift**
+### **arity?**
+### **assert!**
+### **atom?**
+### **attach-contract-struct!**
+### **block-on**
+### **bool?**
+### **boolean?**
+### **box**
+### **breakpoint!**
+### **call-with-current-continuation**
+### **call-with-exception-handler**
+### **call/cc**
+### **channel->recv**
+### **channel->send**
+### **channel->try-recv**
+### **char->number**
+### **char-digit?**
+### **char-upcase**
+### **char-whitespace?**
+### **char?**
+### **child-stdin**
+### **child-stdout**
+### **command**
+### **compose**
+### **concat-symbols**
+### **continuation?**
+### **current-function-span**
+### **current-inexact-milliseconds**
+### **current-milliseconds**
+### **current-os!**
+### **current-second**
+### **dropping**
+### **duration->seconds**
+### **duration->string**
+### **duration-since**
+### **empty-stream**
+### **enumerating**
 ### **env-var**
+### **eq?**
+### **equal?**
+### **eqv?**
+### **error-with-span**
+### **eval!**
+### **even?**
+### **exact->inexact**
+### **expand!**
+### **expt**
+### **extending**
+### **f+**
+### **filtering**
+### **flat-mapping**
+### **flattening**
+### **float?**
+### **flush-output-port**
+### **function-name**
+### **function?**
+### **future?**
+### **get-contract-struct**
+### **get-output-string**
+### **get-test-mode**
+### **hash-clear**
+### **hash-empty?**
+### **hash-get**
+### **hash-keys->vector**
+### **hash-union**
+### **hash-values->vector**
+### **hash?**
+### **hashset**
+### **hashset->list**
+### **hashset->vector**
+### **hashset-clear**
+### **hashset-contains?**
+### **hashset-insert**
+### **hashset-length**
+### **hashset-subset?**
+### **inspect-bytecode**
+### **instant/elapsed**
+### **instant/now**
+### **int?**
+### **integer?**
+### **interleaving**
+### **into-count**
+### **into-for-each**
+### **into-hashmap**
+### **into-hashset**
+### **into-last**
+### **into-list**
+### **into-max**
+### **into-min**
+### **into-nth**
+### **into-product**
+### **into-reducer**
+### **into-string**
+### **into-sum**
+### **into-vector**
+### **iter-next!**
+### **join!**
+### **list->hashset**
+### **list->string**
+### **list-tail**
+### **list?**
+### **local-time/now!**
+### **log**
+### **make-channels**
+### **make-string**
+### **make-struct-type**
+### **make-vector**
+### **mapping**
+### **maybe-get-env-var**
+### **memory-address**
+### **multi-arity?**
+### **mut-vec-len**
+### **mut-vector-ref**
+### **mutable-vector**
+### **mutable-vector->list**
+### **mutable-vector?**
+### **not**
+### **null?**
+### **number?**
+### **odd?**
+### **open-output-string**
+### **poll!**
+### **pop-front**
+### **procedure?**
+### **push**
+### **push-back**
+### **push-front**
+### **quotient**
+### **raise-error**
+### **raise-error-with-span**
+### **range-vec**
+### **raw-write**
+### **raw-write-char**
+### **raw-write-string**
+### **read!**
+### **read-line-from-port**
+### **read-to-string**
+### **round**
+### **run!**
+### **set-box!**
+### **set-current-dir!**
+### **set-env-var!**
+### **set-piped-stdout!**
 ### **set-test-mode!**
+### **set?**
 ### **spawn-process**
 ### **spawn-thread!**
-### **string?**
-### **exact->inexact**
-### **mutable-vector->list**
-### **#%default-output-port**
-### **mutable-vector?**
-### **symbol->string**
-### **string-ci<?**
-### **function-name**
-### **duration->seconds**
-### **call-with-current-continuation**
-### **string<=?**
-### **get-output-string**
-### **join!**
-### **list->string**
-### **make-struct-type**
-### **assert!**
-### **child-stdout**
-### **expt**
-### **mut-vector-ref**
-### **hash?**
-### **symbol?**
-### **box**
-### **raw-write-string**
-### **continuation?**
-### **hash-keys->vector**
-### **list?**
-### **list-tail**
-### **string-ci=?**
-### **filtering**
-### **#%unbox**
-### **into-for-each**
-### **compose**
-### **Err**
-### **transduce**
-### **read-line-from-port**
-### **multi-arity?**
-### **maybe-get-env-var**
-### **duration-since**
-### **inspect-bytecode**
-### **char-upcase**
-### **hashset->vector**
-### **char->number**
-### **poll!**
-### **flat-mapping**
-### **atom?**
-### **Ok**
-### **bool?**
-### **syntax?**
-### **wait**
-### **#%stream-cdr**
-### **command**
-### **stream-car**
-### **wait->stdout**
-### **hash-clear**
-### **#%function-ptr-table-get**
-### **int?**
-### **raw-write**
-### **log**
-### **range-vec**
-### **make-channels**
-### **float?**
-### **active-object-count**
-### **hashset-length**
-### **local-time/now!**
-### **call/cc**
-### **Ok?**
-### **enumerating**
-### **vector?**
-### **memory-address**
-### **get-test-mode**
-### **breakpoint!**
-### **write-line!**
-### **string>?**
-### **hashset-clear**
-### **list->hashset**
-### **#%private-cycle-collector-get**
-### **into-vector**
-### **mut-vec-len**
-### **<=**
-### **vec-rest**
-### **flush-output-port**
-### **#%vtable-update-entry!**
-### **error-with-span**
-### **value->iterator**
-### **mutable-vector**
+### **split-many**
 ### **split-once**
-### **attach-contract-struct!**
-### **not**
-### **procedure?**
-### **syntax-loc**
-### **string-ci>=?**
-### **#%default-input-port**
-### **Err->value**
-### **char?**
-### **hash-union**
-### **#%set-box!**
-### **hash-values->vector**
-### **quotient**
-### **Some?**
-### **into-hashmap**
-### **#%box**
-### **interleaving**
-### **Engine::raise_error**
-### **raise-error-with-span**
-### **current-inexact-milliseconds**
-### **None**
-### **hash-get**
-### **thread-join!**
-### **char-whitespace?**
-### **string=?**
-### **hash-empty?**
-### **unbox**
-### **#%function-ptr-table**
-### **arity?**
-### **empty-stream**
+### **stdout**
+### **stdout-simple-displayln**
+### **stream-car**
+### **stream-cons**
+### **stream-empty?**
 ### **string->jsexpr**
-### **eq?**
-### **iter-next!**
-### **Engine::clone**
+### **string-ci<=?**
+### **string-ci<?**
+### **string-ci=?**
+### **string-ci>=?**
+### **string-ci>?**
+### **string-ref**
+### **string<=?**
 ### **string<?**
-### **flattening**
-### **Some->value**
-### **+**
-### **channel->send**
+### **string=?**
+### **string>=?**
+### **string>?**
+### **string?**
+### **struct?**
+### **substring**
+### **symbol->string**
+### **symbol?**
+### **syntax->datum**
+### **syntax-e**
+### **syntax-loc**
+### **syntax/loc**
+### **syntax?**
+### **taking**
+### **thread-finished?**
+### **thread-join!**
+### **thread::current/id**
+### **time/sleep-ms**
+### **transduce**
+### **try-list-ref**
+### **unbox**
+### **value->iterator**
+### **value->jsexpr-string**
+### **value->string**
+### **vec-append**
+### **vec-rest**
+### **vector**
+### **vector-append!**
 ### **vector-length**
 ### **vector-push!**
-### **stdout-simple-displayln**
-### **TypeId?**
-### **hashset**
-### **into-last**
-### **taking**
-### **channel->recv**
-### **#%function-ptr-table-add**
-### **stream-empty?**
-### **into-reducer**
-### **instant/elapsed**
-### **push-front**
-### **Err?**
-### **syntax->datum**
-### **%iterator?**
-### **>**
-### **vector-append!**
-### **zipping**
-### **read-to-string**
-### **into-string**
-### **pop-front**
-### **odd?**
-### **boolean?**
-### **into-nth**
-### **#%private-cycle-collector**
-### **make-string**
-### **time/sleep-ms**
-### **equal?**
-### **string-ci<=?**
-### **round**
-### **null?**
-### **Engine::add-module**
-### **set?**
-### *****
-### **struct?**
-### **duration->string**
-### **extending**
-### **stream-cons**
-### **stdout**
-### **Ok->value**
-### **value->jsexpr-string**
-### **into-product**
-### **eval!**
+### **vector-ref**
+### **vector-set!**
+### **vector?**
+### **void**
 ### **void?**
-### **instant/now**
-### **f+**
+### **wait**
+### **wait->stdout**
+### **which**
+### **write-line!**
+### **zipping**

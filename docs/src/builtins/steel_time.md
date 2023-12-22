@@ -12,13 +12,13 @@ For example, to measure the time something takes:
 (displayln (instant/elapsed t))
 ```
 
-### **local-time/now!**
-### **time/sleep-ms**
+### **current-inexact-milliseconds**
+### **current-milliseconds**
+### **current-second**
 ### **duration->seconds**
 ### **duration->string**
-### **current-milliseconds**
 ### **duration-since**
 ### **instant/elapsed**
-### **current-second**
 ### **instant/now**
-### **current-inexact-milliseconds**
+### **local-time/now!**
+### **time/sleep-ms**

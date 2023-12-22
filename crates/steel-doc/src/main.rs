@@ -45,25 +45,30 @@ fn main() {
 
         found_definitions.clear();
 
-        for (name, value) in module.documentation().definitions() {
-            // Don't generate the doc for the module, leave that at the top
-            if name.as_ref() == module_name.as_ref() {
-                continue;
-            }
+        let mut exported_functions = module.names();
+        exported_functions.sort();
 
-            found_definitions.insert(name.to_string());
-
-            match value {
-                steel::steel_vm::builtin::Documentation::Markdown(m) => {
-                    writeln!(&mut module_file, "### **{}**", name).unwrap();
-
-                    format_markdown_doc(&mut module_file, m.0);
+        for name in &exported_functions {
+            if let Some(value) = module.documentation().get(name) {
+                // Don't generate the doc for the module, leave that at the top
+                if name == module_name.as_ref() {
+                    continue;
                 }
-                _ => {}
+
+                found_definitions.insert(name.to_string());
+
+                match value {
+                    steel::steel_vm::builtin::Documentation::Markdown(m) => {
+                        writeln!(&mut module_file, "### **{}**", name).unwrap();
+
+                        format_markdown_doc(&mut module_file, m.0);
+                    }
+                    _ => {}
+                }
             }
         }
 
-        for name in module.names() {
+        for name in exported_functions {
             if !found_definitions.contains(&name) {
                 writeln!(&mut module_file, "### **{}**", name).unwrap();
             }

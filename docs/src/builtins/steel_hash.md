@@ -1,29 +1,17 @@
 # steel/hash
-### **hash-try-get**
-Gets the `key` from the given `map`. Returns #false if the key does not exist.
+### **hash-contains?**
+Checks whether the given map contains the given key. Key must be hashable.
 
-(hash-try-get map key) -> (or any/c #false)
-
-* map : hash?
-* key : any/c
-
-#### Examples
-
-```scheme
-> (hash-try-get (hash 'a 10 'b 20) 'b) ;; => 20
-> (hash-try-get (hash 'a 10 'b 20) 'does-not-exist) ;; => #false
-```
-### **hash-length**
-Returns the number of key value pairs in the map
-
-(hash-length map) -> (and positive? int?)
+(hash-contains? map key) -> bool?
 
 * map : hash?
+* key : hashable?
 
-#### Examples
+#### Example
 
 ```scheme
-> (hash-length (hash 'a 10 'b 20)) ;; => 2
+> (hash-contains? (hash 'a 10 'b 20) 'a) ;; => #true
+> (hash-contains? (hash 'a 10 'b 20) 'not-there) ;; => #false
 ```
 ### **hash-insert**
 Returns a new hashmap with the additional key value pair added. Performs a functional update,
@@ -59,6 +47,18 @@ Returns the keys of the given hash map as a list.
 ```scheme
 > (hash-keys->list? (hash 'a 'b 20)) ;; => '(a b)
 ```
+### **hash-length**
+Returns the number of key value pairs in the map
+
+(hash-length map) -> (and positive? int?)
+
+* map : hash?
+
+#### Examples
+
+```scheme
+> (hash-length (hash 'a 10 'b 20)) ;; => 2
+```
 ### **hash-ref**
 Gets the `key` from the given `map`. Raises an error if the key does not exist. `hash-get` is an alias for this.
 
@@ -71,24 +71,24 @@ Gets the `key` from the given `map`. Raises an error if the key does not exist. 
 ```scheme
 > (hash-ref (hash 'a 10 'b 20) 'b) ;; => 20
 ```
-### **hash-contains?**
-Checks whether the given map contains the given key. Key must be hashable.
+### **hash-try-get**
+Gets the `key` from the given `map`. Returns #false if the key does not exist.
 
-(hash-contains? map key) -> bool?
+(hash-try-get map key) -> (or any/c #false)
 
 * map : hash?
-* key : hashable?
+* key : any/c
 
-#### Example
+#### Examples
 
 ```scheme
-> (hash-contains? (hash 'a 10 'b 20) 'a) ;; => #true
-> (hash-contains? (hash 'a 10 'b 20) 'not-there) ;; => #false
+> (hash-try-get (hash 'a 10 'b 20) 'b) ;; => 20
+> (hash-try-get (hash 'a 10 'b 20) 'does-not-exist) ;; => #false
 ```
 ### **%keyword-hash**
-### **hash-keys->vector**
 ### **hash-clear**
+### **hash-empty?**
+### **hash-get**
+### **hash-keys->vector**
 ### **hash-union**
 ### **hash-values->vector**
-### **hash-get**
-### **hash-empty?**

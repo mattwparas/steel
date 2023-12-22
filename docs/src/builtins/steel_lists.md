@@ -13,6 +13,19 @@ Indexing into a list also takes O(n/64) - which means you'll get constant time i
 ```scheme
 (list 10 20 30 40) ;; => '(10 20 30 40)
 ```
+### **car**
+Returns the first element of the list l.
+
+(car l) -> any/c
+
+* l : list?
+
+#### Examples
+
+```scheme
+> (car '(1 2)) ;; => 1
+> (car (cons 2 3)) ;; => 2
+```
 ### **empty?**
 Checks if the list is empty
 
@@ -26,17 +39,6 @@ Checks if the list is empty
 > (empty? (list 1 2 3 4 5)) ;; => #false
 > (empty? '()) ;; => #true
 ```
-### **range**
-Returns a newly allocated list of the elements in the range (n, m]
-
-(range n m) -> (listof int?)
-
-* n : int?
-* m : int?
-
-```scheme
-> (range 0 10) ;; => '(0 1 2 3 4 5 6 7 8 9)
-```
 ### **first**
 Returns the first element of the list l.
 
@@ -49,6 +51,31 @@ Returns the first element of the list l.
 ```scheme
 > (first '(1 2)) ;; => 1
 > (first (cons 2 3)) ;; => 2
+```
+### **length**
+Returns the length of the list.
+
+(length l) -> int?
+
+* l : list?
+
+#### Examples
+
+```scheme
+> (length (list 10 20 30)) ;; => 3
+```
+### **list**
+Returns a newly allocated list containing the vs as its elements.
+
+(list v ...) -> list?
+
+* v : any/c
+
+#### Examples
+
+```scheme
+> (list 1 2 3 4 5) ;; => '(1 2 3 4 5)
+> (list (list 1 2) (list 3 4)) ;; => '((1 2) (3 4))
 ```
 ### **list-ref**
 Returns the value located at the given index. Will raise an error if you try to index out of bounds.
@@ -72,18 +99,30 @@ error[E11]: Generic
 1 │ (list-ref (list 1 2 3 4) 10)
 │  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10
 ```
-### **car**
-Returns the first element of the list l.
+### **pair?**
+Checks if the given value can be treated as a pair.
+Note - there are no improper lists in steel, so any list with at least one element
+is considered a pair.
 
-(car l) -> any/c
-
-* l : list?
+(pair? any/c) -> bool?
 
 #### Examples
 
 ```scheme
-> (car '(1 2)) ;; => 1
-> (car (cons 2 3)) ;; => 2
+> (pair? '(10 20)) ;; => #true
+> (pair? '(10)) ;; => #true
+> (pair? '()) ;; => #false
+```
+### **range**
+Returns a newly allocated list of the elements in the range (n, m]
+
+(range n m) -> (listof int?)
+
+* n : int?
+* m : int?
+
+```scheme
+> (range 0 10) ;; => '(0 1 2 3 4 5 6 7 8 9)
 ```
 ### **second**
 Get the second element of the list. Raises an error if the list does not have an element in the second position.
@@ -102,32 +141,6 @@ error[E11]: Generic
 │
 1 │ (second '())
 │  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
-### **pair?**
-Checks if the given value can be treated as a pair.
-Note - there are no improper lists in steel, so any list with at least one element
-is considered a pair.
-
-(pair? any/c) -> bool?
-
-#### Examples
-
-```scheme
-> (pair? '(10 20)) ;; => #true
-> (pair? '(10)) ;; => #true
-> (pair? '()) ;; => #false
-```
-### **length**
-Returns the length of the list.
-
-(length l) -> int?
-
-* l : list?
-
-#### Examples
-
-```scheme
-> (length (list 10 20 30)) ;; => 3
-```
 ### **take**
 Returns the first n elements of the list l as a new list.
 
@@ -159,21 +172,8 @@ error[E11]: Generic
 1 │ (third '())
 │  ^^^^^^ third: index out of bounds - list did not have an element in the second position: []
 ```
-### **list**
-Returns a newly allocated list containing the vs as its elements.
-
-(list v ...) -> list?
-
-* v : any/c
-
-#### Examples
-
-```scheme
-> (list 1 2 3 4 5) ;; => '(1 2 3 4 5)
-> (list (list 1 2) (list 3 4)) ;; => '((1 2) (3 4))
-```
 ### **list->string**
-### **transduce**
-### **push-back**
-### **try-list-ref**
 ### **list-tail**
+### **push-back**
+### **transduce**
+### **try-list-ref**
