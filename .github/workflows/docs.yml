@@ -31,10 +31,14 @@ jobs:
         cd gh-pages
         # Delete the ref to avoid keeping history.
         git update-ref -d refs/heads/gh-pages
+        # Delete everything except the book
+        mv dev/bench ..
+        rm -rf *
         # There are benchmarks stored in dev/bench/ that we would like to
         # keep around. Otherwise, this just adds the book as a separate
         # directory.
+        mv ../dev/bench .
         mv ../book/ .
-        git add book
+        git add .
         git commit -m "Deploy $GITHUB_SHA to gh-pages"
         git push --force --set-upstream origin gh-pages
