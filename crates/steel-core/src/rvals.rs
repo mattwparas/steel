@@ -811,11 +811,12 @@ pub enum SerializableSteelVal {
     FuncV(FunctionSignature),
     MutFunc(MutFunctionSignature),
     HashMapV(Vec<(SerializableSteelVal, SerializableSteelVal)>),
+    ListV(Vec<SerializableSteelVal>),
     VectorV(Vec<SerializableSteelVal>),
     BoxedDynFunction(BoxedDynFunction),
     BuiltIn(BuiltInSignature),
     SymbolV(String),
-    Custom(Box<dyn CustomType + Send>), // Custom()
+    Custom(Box<dyn CustomType + Send>),
     CustomStruct(SerializableUserDefinedStruct),
     // Attempt to reuse the storage if possible
     HeapAllocated(usize),
@@ -881,11 +882,16 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
             )
             .into(),
         ),
-        SerializableSteelVal::VectorV(v) => SteelVal::ListV(
+        SerializableSteelVal::ListV(v) => SteelVal::ListV(
             v.into_iter()
                 .map(|x| from_serializable_value(ctx, x))
                 .collect(),
         ),
+        SerializableSteelVal::VectorV(v) => SteelVal::VectorV(SteelVector(Gc::new(
+            v.into_iter()
+                .map(|x| from_serializable_value(ctx, x))
+                .collect(),
+        ))),
         SerializableSteelVal::BoxedDynFunction(f) => SteelVal::BoxedFunction(Rc::new(f)),
         SerializableSteelVal::BuiltIn(f) => SteelVal::BuiltIn(f),
         SerializableSteelVal::SymbolV(s) => SteelVal::SymbolV(s.into()),
@@ -967,7 +973,7 @@ pub fn into_serializable_value(
         SteelVal::Void => Ok(SerializableSteelVal::Void),
         SteelVal::StringV(s) => Ok(SerializableSteelVal::StringV(s.to_string())),
         SteelVal::FuncV(f) => Ok(SerializableSteelVal::FuncV(f)),
-        SteelVal::ListV(l) => Ok(SerializableSteelVal::VectorV(
+        SteelVal::ListV(l) => Ok(SerializableSteelVal::ListV(
             l.into_iter()
                 .map(|x| into_serializable_value(x, serialized_heap, visited))
                 .collect::<Result<_>>()?,

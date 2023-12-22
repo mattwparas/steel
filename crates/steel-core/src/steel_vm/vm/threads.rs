@@ -183,13 +183,17 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
         }
     };
 
+    let constants = time!("Constant map serialization", {
+        let constants = ctx
+            .thread
+            .constant_map
+            .to_serializable_vec(&mut initial_map, &mut visited);
+
+        constants
+    });
+
     let thread = MovableThread {
-        constants: time!(
-            "Constant map serialization",
-            ctx.thread
-                .constant_map
-                .to_serializable_vec(&mut initial_map, &mut visited)
-        ),
+        constants,
 
         // Void in this case, is a poisoned value. We need to trace the closure
         // (and all of its references) - to find any / all globals that _could_ be

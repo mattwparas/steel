@@ -133,7 +133,7 @@ fn fib_28(c: &mut Criterion) {
     let mut vm = Engine::new();
     // vm.compile_and_run_raw_program(PRELUDE).unwrap();
     vm.compile_and_run_raw_program(
-        "(define (fib n) (#%black-box) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))",
+        "(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))",
     )
     .unwrap();
 
@@ -144,6 +144,31 @@ fn fib_28(c: &mut Criterion) {
     let mut group = c.benchmark_group("fib-28");
     group.sample_size(200);
     group.bench_function("fib-28", |b| b.iter(|| vm.run_executable(&executable)));
+    group.finish();
+}
+
+fn thread_creation(c: &mut Criterion) {
+    let mut vm = Engine::new();
+    vm.compile_and_run_raw_program(
+        r#"
+(define (foo x)
+  (vector 10 20 30 40 x))
+
+(define (block)
+    (thread-join! (spawn-thread! (lambda () (vector-ref (foo 100) 4))))) 
+"#,
+    )
+    .unwrap();
+
+    let script = "(block)";
+    let program = vm.emit_raw_program_no_path(script).unwrap();
+    let executable = vm.raw_program_to_executable(program).unwrap();
+
+    let mut group = c.benchmark_group("thread-creation");
+    // group.sample_size(200);
+    group.bench_function("thread-creation", |b| {
+        b.iter(|| vm.run_executable(&executable))
+    });
     group.finish();
 }
 
@@ -292,6 +317,7 @@ criterion_group!(
     ten_thousand_iterations_letrec,
     trie_sort,
     fib_28,
+    thread_creation,
     engine_creation,
     register_function,
     multiple_transducers,
