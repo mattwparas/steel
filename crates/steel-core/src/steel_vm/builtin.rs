@@ -207,6 +207,10 @@ impl BuiltInModuleRepr {
         }
     }
 
+    pub fn names(&self) -> Vec<String> {
+        self.values.keys().map(|x| x.to_string()).collect()
+    }
+
     pub fn bound_identifiers(&self) -> crate::values::lists::List<SteelVal> {
         self.values
             .keys()
@@ -377,6 +381,10 @@ impl BuiltInModule {
         Self {
             module: Rc::new(RefCell::new(BuiltInModuleRepr::new(name))),
         }
+    }
+
+    pub fn names(&self) -> Vec<String> {
+        self.module.borrow().names()
     }
 
     pub fn name(&self) -> Rc<str> {

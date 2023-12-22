@@ -55,11 +55,7 @@ fn walk_for_defines<W: Write>(
                 if !name.starts_with("mangler") && name.ends_with("__doc__") {
                     writeln!(writer, "### **{}**", name.trim_end_matches("__doc__"))?;
 
-                    // println!("{}")
-
                     let ast_node = nodes.next().unwrap();
-
-                    // println!("{:?}", ast_node);
 
                     if let steel::parser::ast::ExprKind::Define(def) = &ast_node {
                         if let steel::parser::ast::ExprKind::Quote(q) = &def.body {

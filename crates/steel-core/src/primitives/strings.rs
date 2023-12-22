@@ -62,6 +62,10 @@ pub fn string_module() -> BuiltInModule {
     module
 }
 
+/// Checks if two characters are equal
+///
+/// Requires that the two inputs are both characters, and will otherwise
+/// raise an error.
 #[function(name = "char=?", constant = true)]
 pub fn char_equals(left: char, right: char) -> bool {
     left == right
@@ -84,6 +88,7 @@ fn number_to_string_impl(value: &SteelVal, radix: Option<u32>) -> Result<SteelVa
     }
 }
 
+/// Converts the given number to a string
 #[function(name = "number->string", constant = true)]
 pub fn number_to_string(value: &SteelVal, mut rest: RestArgsIter<'_, isize>) -> Result<SteelVal> {
     let radix = rest.next();
@@ -131,6 +136,7 @@ fn string_to_number_impl(value: &str, radix: Option<u32>) -> Result<SteelVal> {
     }
 }
 
+/// Converts the given string to a number
 #[function(name = "string->number", constant = true)]
 pub fn string_to_number(
     value: &SteelString,
@@ -155,6 +161,7 @@ pub fn string_to_number(
     }
 }
 
+/// Constructs a string from the given characters
 #[function(name = "string")]
 pub fn string_constructor(rest: RestArgsIter<'_, char>) -> Result<SteelVal> {
     rest.collect::<Result<String>>().map(|x| x.into())

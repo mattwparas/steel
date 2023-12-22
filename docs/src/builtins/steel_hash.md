@@ -13,18 +13,6 @@ Gets the `key` from the given `map`. Returns #false if the key does not exist.
 > (hash-try-get (hash 'a 10 'b 20) 'b) ;; => 20
 > (hash-try-get (hash 'a 10 'b 20) 'does-not-exist) ;; => #false
 ```
-### **hash-ref**
-Gets the `key` from the given `map`. Raises an error if the key does not exist. `hash-get` is an alias for this.
-
-(hash-ref map key) -> any/c
-
-* map : hash?
-* key : any/c
-
-#### Examples
-```scheme
-> (hash-get (hash 'a 10 'b 20) 'b) ;; => 20
-```
 ### **hash-length**
 Returns the number of key value pairs in the map
 
@@ -57,6 +45,32 @@ so the old hash map is still accessible.
 'c: 30
 }>
 ```
+### **hash-keys->list**
+Returns the keys of the given hash map as a list.
+
+```scheme
+(hash-keys->list map) -> (listof hashable?)
+```
+
+* map : hash?
+
+#### Examples
+
+```scheme
+> (hash-keys->list? (hash 'a 'b 20)) ;; => '(a b)
+```
+### **hash-ref**
+Gets the `key` from the given `map`. Raises an error if the key does not exist. `hash-get` is an alias for this.
+
+(hash-ref map key) -> any/c
+
+* map : hash?
+* key : any/c
+
+#### Examples
+```scheme
+> (hash-ref (hash 'a 10 'b 20) 'b) ;; => 20
+```
 ### **hash-contains?**
 Checks whether the given map contains the given key. Key must be hashable.
 
@@ -71,3 +85,10 @@ Checks whether the given map contains the given key. Key must be hashable.
 > (hash-contains? (hash 'a 10 'b 20) 'a) ;; => #true
 > (hash-contains? (hash 'a 10 'b 20) 'not-there) ;; => #false
 ```
+### **%keyword-hash**
+### **hash-keys->vector**
+### **hash-clear**
+### **hash-union**
+### **hash-values->vector**
+### **hash-get**
+### **hash-empty?**

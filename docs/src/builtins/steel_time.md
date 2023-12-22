@@ -1,5 +1,4 @@
 # steel/time
-### **steel/time**
 
 
 #### steel/time
@@ -13,3 +12,13 @@ For example, to measure the time something takes:
 (displayln (instant/elapsed t))
 ```
 
+### **local-time/now!**
+### **time/sleep-ms**
+### **duration->seconds**
+### **duration->string**
+### **current-milliseconds**
+### **duration-since**
+### **instant/elapsed**
+### **current-second**
+### **instant/now**
+### **current-inexact-milliseconds**
