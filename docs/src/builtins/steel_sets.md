@@ -1,0 +1,10 @@
+# steel/sets
+### **hashset**
+### **hashset->list**
+### **hashset->vector**
+### **hashset-clear**
+### **hashset-contains?**
+### **hashset-insert**
+### **hashset-length**
+### **hashset-subset?**
+### **list->hashset**

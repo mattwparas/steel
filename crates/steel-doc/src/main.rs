@@ -22,12 +22,6 @@ fn main() {
     let mut found_definitions: HashSet<String> = HashSet::new();
 
     for (module_name, module) in engine.builtin_modules().inner().iter() {
-        // Should still dump what functions are available, even without
-        // the definitions...
-        if module.documentation().definitions().is_empty() {
-            continue;
-        }
-
         let module_name_without_slashes = module_name.replace("/", "_");
 
         let mut module_file =

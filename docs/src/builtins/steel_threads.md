@@ -1,0 +1,9 @@
+# steel/threads
+### **channel->recv**
+### **channel->send**
+### **channel->try-recv**
+### **make-channels**
+### **spawn-thread!**
+### **thread-finished?**
+### **thread-join!**
+### **thread::current/id**
