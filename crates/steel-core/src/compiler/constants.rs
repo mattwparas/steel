@@ -54,12 +54,16 @@ impl ConstantMap {
         SerializableConstantMap(self.to_bytes().unwrap())
     }
 
-    pub fn to_serializable_vec(&self) -> Vec<SerializableSteelVal> {
+    pub fn to_serializable_vec(
+        &self,
+        serializer: &mut std::collections::HashMap<usize, SerializableSteelVal>,
+        visited: &mut std::collections::HashSet<usize>,
+    ) -> Vec<SerializableSteelVal> {
         self.values
             .borrow()
             .iter()
             .cloned()
-            .map(into_serializable_value)
+            .map(|x| into_serializable_value(x, serializer, visited))
             .collect::<Result<_>>()
             .unwrap()
     }
@@ -73,8 +77,6 @@ impl ConstantMap {
     // }
 
     pub fn from_vec(vec: Vec<SteelVal>) -> ConstantMap {
-        // ConstantMap(Rc::new(RefCell::new(vec)))
-
         ConstantMap {
             map: Rc::new(RefCell::new(
                 vec.clone()

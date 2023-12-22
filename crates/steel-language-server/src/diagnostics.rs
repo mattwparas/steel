@@ -58,13 +58,20 @@ impl DiagnosticGenerator for FreeIdentifiersAndUnusedIdentifiers {
                     return None;
                 }
 
+                let resolved = ident.resolve();
+
+                // We can just ignore those as well
+                if resolved.starts_with("mangler") {
+                    return None;
+                }
+
                 let start_position = offset_to_position(span.start, &context.rope)?;
                 let end_position = offset_to_position(span.end, &context.rope)?;
 
                 // TODO: Publish the diagnostics for each file separately, if we have them
                 Some(make_error(Diagnostic::new_simple(
                     Range::new(start_position, end_position),
-                    format!("free identifier: {}", ident.resolve()),
+                    format!("free identifier: {}", resolved),
                 )))
             })
             .chain(
@@ -297,31 +304,96 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
             .and_then(|x| x.atom_syntax_object())
             .map(|x| x.syntax_object_id)
         {
-            if let Some(info) = self.context.analysis.get_identifier(function_call_ident) {
-                if info.builtin {
-                    let found_arity = self
-                        .context
-                        .engine
-                        .builtin_modules()
-                        .get_metadata_by_name(l.first_ident().unwrap().resolve())
-                        .map(|x| x.arity)
-                        .or_else(|| {
-                            // If this isn't found in the original built in modules,
-                            // attempt to find it registered globally?
-                            if let SteelVal::BoxedFunction(b) = self
-                                .context
-                                .engine
-                                .extract_value(l.first_ident().unwrap().resolve())
-                                .ok()?
-                            {
-                                b.arity.map(Arity::Exact)
-                            } else {
-                                None
-                            }
-                        });
+            // If it is something that... doesn't happen in the file we're currently
+            // looking at - we probably shouldn't report it there?
+            if !l.first_ident().unwrap().resolve().starts_with("mangler") {
+                if let Some(info) = self.context.analysis.get_identifier(function_call_ident) {
+                    if info.builtin {
+                        let found_arity = self
+                            .context
+                            .engine
+                            .builtin_modules()
+                            .get_metadata_by_name(l.first_ident().unwrap().resolve())
+                            .map(|x| x.arity)
+                            .or_else(|| {
+                                // If this isn't found in the original built in modules,
+                                // attempt to find it registered globally?
+                                if let SteelVal::BoxedFunction(b) = self
+                                    .context
+                                    .engine
+                                    .extract_value(l.first_ident().unwrap().resolve())
+                                    .ok()?
+                                {
+                                    b.arity.map(Arity::Exact)
+                                } else {
+                                    None
+                                }
+                            });
 
-                    match found_arity {
-                        Some(Arity::Exact(arity)) => {
+                        match found_arity {
+                            Some(Arity::Exact(arity)) => {
+                                if l.args.len() != arity + 1 {
+                                    let span =
+                                        l.first().unwrap().atom_syntax_object().unwrap().span;
+
+                                    if let Some(diagnostic) = create_diagnostic(
+                                        &self.context.rope,
+                                        &span,
+                                        format!(
+                                            "Arity mismatch: {} expects {} arguments, found {}",
+                                            l.first().unwrap(),
+                                            arity,
+                                            l.args.len() - 1
+                                        ),
+                                    ) {
+                                        self.diagnostics.push(diagnostic);
+                                    }
+                                }
+                            }
+                            Some(Arity::AtLeast(arity)) => {
+                                if l.args.len() <= arity + 1 {
+                                    let span =
+                                        l.first().unwrap().atom_syntax_object().unwrap().span;
+
+                                    if let Some(diagnostic) = create_diagnostic(
+                                    &self.context.rope,
+                                    &span,
+                                    format!(
+                                        "Arity mismatch: {} expects at least {} arguments, found {}",
+                                        l.first().unwrap(),
+                                        arity,
+                                        l.args.len() - 1
+                                    ),
+                                ) {
+                                    self.diagnostics.push(diagnostic);
+                                }
+                                }
+                            }
+                            Some(Arity::AtMost(arity)) => {
+                                if l.args.len() > arity + 1 {
+                                    let span =
+                                        l.first().unwrap().atom_syntax_object().unwrap().span;
+
+                                    if let Some(diagnostic) = create_diagnostic(
+                                        &self.context.rope,
+                                        &span,
+                                        format!(
+                                        "Arity mismatch: {} expects at most {} arguments, found {}",
+                                        l.first().unwrap(),
+                                        arity,
+                                        l.args.len() - 1
+                                    ),
+                                    ) {
+                                        self.diagnostics.push(diagnostic);
+                                    }
+                                }
+                            }
+                            // TODO: Handle this arity if it comes up
+                            Some(Arity::Range(n)) => {}
+                            None => {}
+                        }
+                    } else if let Some(refers_to_id) = info.refers_to {
+                        if let Some(arity) = self.known_functions.get(&refers_to_id) {
                             if l.args.len() != arity + 1 {
                                 let span = l.first().unwrap().atom_syntax_object().unwrap().span;
 
@@ -337,64 +409,6 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
                                 ) {
                                     self.diagnostics.push(diagnostic);
                                 }
-                            }
-                        }
-                        Some(Arity::AtLeast(arity)) => {
-                            if l.args.len() <= arity + 1 {
-                                let span = l.first().unwrap().atom_syntax_object().unwrap().span;
-
-                                if let Some(diagnostic) = create_diagnostic(
-                                    &self.context.rope,
-                                    &span,
-                                    format!(
-                                        "Arity mismatch: {} expects at least {} arguments, found {}",
-                                        l.first().unwrap(),
-                                        arity,
-                                        l.args.len() - 1
-                                    ),
-                                ) {
-                                    self.diagnostics.push(diagnostic);
-                                }
-                            }
-                        }
-                        Some(Arity::AtMost(arity)) => {
-                            if l.args.len() > arity + 1 {
-                                let span = l.first().unwrap().atom_syntax_object().unwrap().span;
-
-                                if let Some(diagnostic) = create_diagnostic(
-                                    &self.context.rope,
-                                    &span,
-                                    format!(
-                                        "Arity mismatch: {} expects at most {} arguments, found {}",
-                                        l.first().unwrap(),
-                                        arity,
-                                        l.args.len() - 1
-                                    ),
-                                ) {
-                                    self.diagnostics.push(diagnostic);
-                                }
-                            }
-                        }
-                        // TODO: Handle this arity if it comes up
-                        Some(Arity::Range(n)) => {}
-                        None => {}
-                    }
-                } else if let Some(refers_to_id) = info.refers_to {
-                    if let Some(arity) = self.known_functions.get(&refers_to_id) {
-                        if l.args.len() != arity + 1 {
-                            let span = l.first().unwrap().atom_syntax_object().unwrap().span;
-
-                            if let Some(diagnostic) = create_diagnostic(
-                                &self.context.rope,
-                                &span,
-                                format!(
-                                    "Arity mismatch: {} expects {} arguments, found {}",
-                                    l.first().unwrap(),
-                                    arity,
-                                    l.args.len() - 1
-                                ),
-                            ) {
-                                self.diagnostics.push(diagnostic);
                             }
                         }
                     }

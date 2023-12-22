@@ -17,8 +17,8 @@ use crate::{
     parser::{parser::SyntaxObjectId, span::Span},
     rvals::{
         from_serializable_value, into_serializable_value, AsRefSteelVal, BoxedFunctionSignature,
-        Custom, FunctionSignature, IntoSteelVal, MutFunctionSignature, SerializableSteelVal,
-        SteelString,
+        Custom, FunctionSignature, HeapSerializer, IntoSteelVal, MutFunctionSignature,
+        SerializableSteelVal, SteelString,
     },
     steel_vm::{
         register_fn::SendSyncStatic,
@@ -29,7 +29,10 @@ use crate::{
     SteelVal,
 };
 
-use super::{closed::HeapRef, structs::UserDefinedStruct};
+use super::{
+    closed::{Heap, HeapRef},
+    structs::UserDefinedStruct,
+};
 
 // pub(crate) enum Function {
 //     BoxedFunction(BoxedFunctionSignature),
@@ -102,7 +105,7 @@ pub struct ByteCodeLambda {
 
     // #[cfg(not(feature = "dynamic"))]
     // pub(crate) body_exp: Rc<[DenseInstruction]>,
-    arity: usize,
+    pub(crate) arity: usize,
 
     #[cfg(feature = "dynamic")]
     call_count: Cell<usize>,
@@ -140,54 +143,24 @@ impl std::hash::Hash for ByteCodeLambda {
 // Can this be moved across threads? What does it cost to execute a closure in another thread?
 // Engine instances be deep cloned?
 pub struct SerializedLambda {
-    id: usize,
-    body_exp: Vec<DenseInstruction>,
-    arity: usize,
-    is_multi_arity: bool,
+    pub id: usize,
+    pub body_exp: Vec<DenseInstruction>,
+    pub arity: usize,
+    pub is_multi_arity: bool,
     // TODO: Go ahead and create a ThreadSafeSteelVal where we will just deep clone everything, move
     // it across the thread, and reconstruct on the other side.
-    captures: Vec<SerializableSteelVal>,
+    pub captures: Vec<SerializableSteelVal>,
 }
 
-impl TryFrom<ByteCodeLambda> for SerializedLambda {
-    type Error = SteelErr;
-
-    fn try_from(mut value: ByteCodeLambda) -> Result<Self, Self::Error> {
-        Ok(SerializedLambda {
-            id: value.id,
-
-            #[cfg(not(feature = "dynamic"))]
-            body_exp: value.body_exp.into_iter().cloned().collect(),
-
-            #[cfg(feature = "dynamic")]
-            body_exp: value.body_exp.borrow().iter().cloned().collect(),
-
-            arity: value.arity,
-            is_multi_arity: value.is_multi_arity,
-            captures: std::mem::take(&mut value.captures)
-                .into_iter()
-                .map(into_serializable_value)
-                .collect::<Result<_, Self::Error>>()?,
-        })
-    }
-}
-
-// Do the opposite conversion
-impl From<SerializedLambda> for ByteCodeLambda {
-    fn from(value: SerializedLambda) -> Self {
-        ByteCodeLambda::new(
-            value.id,
-            value.body_exp.into(),
-            value.arity,
-            value.is_multi_arity,
-            value
-                .captures
-                .into_iter()
-                .map(from_serializable_value)
-                .collect(),
-            Vec::new(),
-        )
-    }
+#[derive(Clone)]
+pub struct SerializedLambdaPrototype {
+    pub id: usize,
+    pub body_exp: Vec<DenseInstruction>,
+    pub arity: usize,
+    pub is_multi_arity: bool,
+    // TODO: Go ahead and create a ThreadSafeSteelVal where we will just deep clone everything, move
+    // it across the thread, and reconstruct on the other side.
+    // pub captures: Vec<SerializableSteelVal>,
 }
 
 // TODO
@@ -229,6 +202,21 @@ impl ByteCodeLambda {
             #[cfg(feature = "dynamic")]
             blocks: RefCell::new(Vec::new()),
         }
+    }
+
+    pub(crate) fn from_serialized(heap: &mut HeapSerializer, value: SerializedLambda) -> Self {
+        ByteCodeLambda::new(
+            value.id,
+            value.body_exp.into(),
+            value.arity,
+            value.is_multi_arity,
+            value
+                .captures
+                .into_iter()
+                .map(|x| from_serializable_value(heap, x))
+                .collect(),
+            Vec::new(),
+        )
     }
 
     pub fn main(instructions: Vec<DenseInstruction>) -> ByteCodeLambda {

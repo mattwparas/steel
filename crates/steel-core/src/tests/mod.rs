@@ -2,8 +2,6 @@ use crate::steel_vm::engine::Engine;
 
 fn generate_asserting_machine() -> Engine {
     let vm = Engine::new();
-    // vm.compile_and_run_raw_program(PRELUDE).unwrap();
-    // vm.compile_and_run_raw_program(CONTRACTS).unwrap();
     vm
 }
 

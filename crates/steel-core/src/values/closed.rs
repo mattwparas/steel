@@ -230,6 +230,17 @@ impl Heap {
         }
     }
 
+    pub fn new_empty() -> Self {
+        Heap {
+            memory: Vec::new(),
+            vectors: Vec::new(),
+            count: 0,
+            threshold: GC_THRESHOLD,
+            mark_and_sweep_queue: Vec::new(),
+            maybe_memory_size: 0,
+        }
+    }
+
     // #[inline(always)]
     // pub fn memory(&mut self) -> &mut Vec<HeapValue> {
     //     match self.current {
@@ -250,6 +261,15 @@ impl Heap {
     ) -> HeapRef<SteelVal> {
         self.collect(Some(value.clone()), None, roots, live_functions, globals);
 
+        let pointer = Rc::new(RefCell::new(HeapAllocated::new(value)));
+        let weak_ptr = Rc::downgrade(&pointer);
+
+        self.memory.push(pointer);
+
+        HeapRef { inner: weak_ptr }
+    }
+
+    pub fn allocate_without_collection<'a>(&mut self, value: SteelVal) -> HeapRef<SteelVal> {
         let pointer = Rc::new(RefCell::new(HeapAllocated::new(value)));
         let weak_ptr = Rc::downgrade(&pointer);
 
