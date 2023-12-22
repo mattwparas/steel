@@ -479,7 +479,7 @@ pub fn threading_module() -> BuiltInModule {
                 .recv()
                 .map_err(|e| SteelErr::new(ErrorKind::Generic, e.to_string()))?;
 
-            let mut heap = Heap::new();
+            let mut heap = Heap::new_empty();
             let mut fake_heap = HashMap::new();
             let mut patcher = HashMap::new();
             let mut built_functions = HashMap::new();
@@ -504,7 +504,7 @@ pub fn threading_module() -> BuiltInModule {
 
                 let value = receiver.try_recv();
 
-                let mut heap = Heap::new();
+                let mut heap = Heap::new_empty();
                 let mut fake_heap = HashMap::new();
                 let mut patcher = HashMap::new();
                 let mut built_functions = HashMap::new();
@@ -526,6 +526,5 @@ pub fn threading_module() -> BuiltInModule {
             },
         )
         .register_fn("thread::current/id", || std::thread::current().id());
-    // .register_fn("current-os!", || std::env::consts::OS);
     module
 }

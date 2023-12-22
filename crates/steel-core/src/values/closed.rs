@@ -230,6 +230,17 @@ impl Heap {
         }
     }
 
+    pub fn new_empty() -> Self {
+        Heap {
+            memory: Vec::new(),
+            vectors: Vec::new(),
+            count: 0,
+            threshold: GC_THRESHOLD,
+            mark_and_sweep_queue: Vec::new(),
+            maybe_memory_size: 0,
+        }
+    }
+
     // #[inline(always)]
     // pub fn memory(&mut self) -> &mut Vec<HeapValue> {
     //     match self.current {
