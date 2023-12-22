@@ -34,6 +34,8 @@ jobs:
         # Delete everything except the book
         mv dev/bench .. || true
         rm -rf *
+        rm -rf .github
+        rm .gitignore
         # There are benchmarks stored in dev/bench/ that we would like to
         # keep around. Otherwise, this just adds the book as a separate
         # directory.
