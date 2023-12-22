@@ -29,11 +29,13 @@ jobs:
         git config user.name "Deploy from CI"
         git config user.email ""
         cd gh-pages
+        # Delete the ref to avoid keeping history.
+        git update-ref -d refs/heads/gh-pages
         # There are benchmarks stored in dev/bench/ that we would like to
         # keep around. Otherwise, this just adds the book as a separate
         # directory.
-        rm -rf book
+        rm -rf *
         mv ../book/ .
-        git add .
+        git add book
         git commit -m "Deploy $GITHUB_SHA to gh-pages"
         git push --force --set-upstream origin gh-pages
