@@ -71,6 +71,26 @@ Returns the first element of the list l.
 > (first '(1 2)) ;; => 1
 > (first (cons 2 3)) ;; => 2
 ```
+### **hash**
+Creates an immutable hash table with each given `key` mapped to the following `val`.
+Each key must have a val, so the total number of arguments must be even.
+
+
+(hash key val ...) -> hash?
+
+key : hashable?
+val : any/c
+
+Note: the keys must be hashable.
+
+#### Examples
+```scheme
+> (hash 'a 10 'b 20)",
+r#"=> #<hashmap {
+'a: 10,
+'b: 20,
+}>"#,
+```
 ### **hash-contains?**
 Checks whether the given map contains the given key. Key must be hashable.
 

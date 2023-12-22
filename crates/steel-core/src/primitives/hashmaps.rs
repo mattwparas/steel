@@ -25,7 +25,7 @@ declare_const_ref_functions!(
 pub(crate) fn hashmap_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/hash".to_string());
     module
-        .register_value_with_doc("hash", HM_CONSTRUCT, HASH_DOC)
+        .register_native_fn_definition(HM_CONSTRUCT_DEFINITION)
         .register_value("%keyword-hash", SteelVal::FuncV(hm_construct_keywords))
         .register_native_fn_definition(HASH_INSERT_DEFINITION)
         .register_native_fn_definition(HASH_REF_DEFINITION)
@@ -47,21 +47,26 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
     module
 }
 
-const HASH_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(hash key val ...) -> hash?",
-    params: &["key : hashable?", "val : any/c"],
-    description: r#"Creates an immutable hash table with each given `key` mapped to the following `val`; each key must have a val, so the total number of arguments must be even.
-    
-Note, the key must be hashable."#,
-    examples: &[(
-        "> (hash 'a 10 'b 20)",
-        r#"=> #<hashmap {
-        'a: 10,
-        'b: 20,
-    }>"#,
-    )],
-};
-
+/// Creates an immutable hash table with each given `key` mapped to the following `val`.
+/// Each key must have a val, so the total number of arguments must be even.
+///
+///
+/// (hash key val ...) -> hash?
+///
+/// key : hashable?
+/// val : any/c
+///
+/// Note: the keys must be hashable.
+///
+/// # Examples
+/// ```scheme
+/// > (hash 'a 10 'b 20)",
+///   r#"=> #<hashmap {
+///        'a: 10,
+///        'b: 20,
+///    }>"#,
+/// ```
+#[steel_derive::native(name = "hash", arity = "AtLeast(0)")]
 pub fn hm_construct(args: &[SteelVal]) -> Result<SteelVal> {
     let mut hm = HashMap::new();
 
