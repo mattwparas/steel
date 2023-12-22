@@ -177,6 +177,18 @@ Gets the `key` from the given `map`. Returns #false if the key does not exist.
 > (hash-try-get (hash 'a 10 'b 20) 'b) ;; => 20
 > (hash-try-get (hash 'a 10 'b 20) 'does-not-exist) ;; => #false
 ```
+### **hash-values->list**
+Returns the values of the given hash map as a list
+
+(hash-values->list? map) -> (listof any/c)?
+
+map: hash?
+
+#### Examples
+```scheme
+> (hash-values->list? (hash 'a 10 'b 20) 'a)",
+r#"=> '(10 20)",
+```
 ### **input-port?**
 Checks if a given value is an input port
 
@@ -659,9 +671,7 @@ of the string
 ### **hash-clear**
 ### **hash-empty?**
 ### **hash-get**
-### **hash-keys->vector**
 ### **hash-union**
-### **hash-values->vector**
 ### **hash?**
 ### **hashset**
 ### **hashset->list**
@@ -671,6 +681,8 @@ of the string
 ### **hashset-insert**
 ### **hashset-length**
 ### **hashset-subset?**
+### **hm-keys->vector**
+### **hm-values->vector**
 ### **inspect-bytecode**
 ### **instant/elapsed**
 ### **instant/now**

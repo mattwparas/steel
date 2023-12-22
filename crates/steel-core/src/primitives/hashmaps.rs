@@ -1,9 +1,9 @@
+use crate::stop;
 use crate::{core::utils::declare_const_ref_functions, gc::Gc};
 use crate::{
     rvals::{Result, SteelVal},
     steel_vm::builtin::BuiltInModule,
 };
-use crate::{steel_vm::builtin::DocTemplate, stop};
 use im_rc::HashMap;
 
 use crate::primitives::VectorOperations;
@@ -14,9 +14,6 @@ declare_const_ref_functions!(
     HM_CONSTRUCT => hm_construct,
     HM_INSERT => steel_hash_insert,
     HM_GET => steel_hash_ref,
-    HM_VALUES_TO_LIST => values_to_list,
-    HM_KEYS_TO_VEC => keys_to_vector,
-    HM_VALUES_TO_VEC => values_to_vector,
     HM_CLEAR => clear,
     HM_EMPTY => hm_empty,
     HM_UNION => hm_union,
@@ -34,13 +31,9 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
         .register_native_fn_definition(HASH_LENGTH_DEFINITION)
         .register_native_fn_definition(HASH_CONTAINS_DEFINITION)
         .register_native_fn_definition(KEYS_TO_LIST_DEFINITION)
-        .register_value("hash-keys->vector", HM_KEYS_TO_VEC)
-        .register_value_with_doc(
-            "hash-values->list",
-            HM_VALUES_TO_LIST,
-            HASH_VALUES_TO_LIST_DOC,
-        )
-        .register_value("hash-values->vector", HM_VALUES_TO_VEC)
+        .register_native_fn_definition(KEYS_TO_VECTOR_DEFINITION)
+        .register_native_fn_definition(VALUES_TO_LIST_DEFINITION)
+        .register_native_fn_definition(VALUES_TO_VECTOR_DEFINITION)
         .register_value("hash-clear", HM_CLEAR)
         .register_value("hash-empty?", HM_EMPTY)
         .register_value("hash-union", HM_UNION);
@@ -247,59 +240,30 @@ pub fn keys_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVa
     Ok(SteelVal::ListV(hashmap.keys().cloned().collect()))
 }
 
-const HASH_VALUES_TO_LIST_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(hash-values->list? map) -> (listof any/c)?",
-    params: &["map : hash?"],
-    description: r#"Returns the values of the given hash map as a list"#,
-    examples: &[(
-        "> (hash-values->list? (hash 'a 10 'b 20) 'a)",
-        r#"=> '(10 20)"#,
-    )],
-};
-
-// values as list
-pub fn values_to_list(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => "hm-values->list takes 1 argument")
-    }
-
-    let hashmap = &args[0];
-
-    if let SteelVal::HashMapV(hm) = hashmap {
-        // let keys = hm.values().cloned().collect::<Vec<SteelVal>>();
-        // ListOperations::built_in_list_func_flat(&keys)
-        Ok(SteelVal::ListV(hm.values().cloned().collect()))
-    } else {
-        stop!(TypeMismatch => "hm-values->list takes a hashmap")
-    }
+/// Returns the values of the given hash map as a list
+///
+/// (hash-values->list? map) -> (listof any/c)?
+///
+/// map: hash?
+///
+/// # Examples
+/// ```scheme
+/// > (hash-values->list? (hash 'a 10 'b 20) 'a)",
+///   r#"=> '(10 20)",
+/// ```
+#[steel_derive::function(name = "hash-values->list")]
+pub fn values_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
+    Ok(SteelVal::ListV(hashmap.values().cloned().collect()))
 }
 
-pub fn keys_to_vector(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => "hm-keys->vector takes 1 argument")
-    }
-
-    let hashmap = &args[0];
-
-    if let SteelVal::HashMapV(hm) = hashmap {
-        VectorOperations::vec_construct_iter_normal(hm.keys().cloned())
-    } else {
-        stop!(TypeMismatch => "hm-keys->vector takes a hashmap")
-    }
+#[steel_derive::function(name = "hm-keys->vector")]
+pub fn keys_to_vector(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
+    VectorOperations::vec_construct_iter_normal(hashmap.keys().cloned())
 }
 
-pub fn values_to_vector(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => "hm-values->vector takes 1 argument")
-    }
-
-    let hashmap = &args[0];
-
-    if let SteelVal::HashMapV(hm) = hashmap {
-        VectorOperations::vec_construct_iter_normal(hm.values().cloned())
-    } else {
-        stop!(TypeMismatch => "hm-values->vector takes a hashmap")
-    }
+#[steel_derive::function(name = "hm-values->vector")]
+pub fn values_to_vector(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
+    VectorOperations::vec_construct_iter_normal(hashmap.values().cloned())
 }
 
 pub fn clear(args: &[SteelVal]) -> Result<SteelVal> {
@@ -524,7 +488,7 @@ mod hashmap_tests {
             })
             .into(),
         )];
-        let res = keys_to_vector(&args);
+        let res = steel_keys_to_vector(&args);
         let expected = im_rc::vector![
             SteelVal::StringV("foo".into()),
             SteelVal::StringV("bar".into()),
@@ -580,7 +544,7 @@ mod hashmap_tests {
             })
             .into(),
         )];
-        let res = values_to_vector(&args);
+        let res = steel_values_to_vector(&args);
         let expected = im_rc::vector![
             SteelVal::StringV("bar".into()),
             SteelVal::StringV("baz".into()),
