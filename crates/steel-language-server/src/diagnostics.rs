@@ -58,13 +58,20 @@ impl DiagnosticGenerator for FreeIdentifiersAndUnusedIdentifiers {
                     return None;
                 }
 
+                let resolved = ident.resolve();
+
+                // We can just ignore those as well
+                if resolved.starts_with("mangler") {
+                    return None;
+                }
+
                 let start_position = offset_to_position(span.start, &context.rope)?;
                 let end_position = offset_to_position(span.end, &context.rope)?;
 
                 // TODO: Publish the diagnostics for each file separately, if we have them
                 Some(make_error(Diagnostic::new_simple(
                     Range::new(start_position, end_position),
-                    format!("free identifier: {}", ident.resolve()),
+                    format!("free identifier: {}", resolved),
                 )))
             })
             .chain(

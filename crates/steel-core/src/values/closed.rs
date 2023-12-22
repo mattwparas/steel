@@ -258,6 +258,15 @@ impl Heap {
         HeapRef { inner: weak_ptr }
     }
 
+    pub fn allocate_without_collection<'a>(&mut self, value: SteelVal) -> HeapRef<SteelVal> {
+        let pointer = Rc::new(RefCell::new(HeapAllocated::new(value)));
+        let weak_ptr = Rc::downgrade(&pointer);
+
+        self.memory.push(pointer);
+
+        HeapRef { inner: weak_ptr }
+    }
+
     // Allocate a vector explicitly onto the heap
     pub fn allocate_vector<'a>(
         &mut self,

@@ -7,7 +7,10 @@ use once_cell::sync::Lazy;
 use crate::compiler::map::SymbolMap;
 use crate::parser::interner::InternedString;
 use crate::rerrs::ErrorKind;
-use crate::rvals::{Custom, SerializableSteelVal, SteelHashMap};
+use crate::rvals::{
+    from_serializable_value, into_serializable_value, Custom, HeapSerializer, SerializableSteelVal,
+    SerializedHeapRef, SteelHashMap,
+};
 use crate::steel_vm::register_fn::RegisterFn;
 use crate::throw;
 use crate::{
@@ -30,6 +33,7 @@ use std::{
     rc::Rc,
 };
 
+use super::closed::Heap;
 use super::functions::BoxedDynFunction;
 
 enum StringOrMagicNumber {
@@ -39,11 +43,19 @@ enum StringOrMagicNumber {
 
 // #[derive(Debug)]
 pub struct VTableEntry {
-    name: InternedString,
-    properties: Gc<im_rc::HashMap<SteelVal, SteelVal>>,
-    proc: Option<usize>,
-    transparent: bool,
-    mutable: bool,
+    pub(crate) name: InternedString,
+    pub(crate) properties: Gc<im_rc::HashMap<SteelVal, SteelVal>>,
+    pub(crate) proc: Option<usize>,
+    pub(crate) transparent: bool,
+    pub(crate) mutable: bool,
+}
+
+pub(crate) struct SendableVTableEntry {
+    pub(crate) name: InternedString,
+    pub(crate) properties: Vec<(SerializableSteelVal, SerializableSteelVal)>,
+    pub(crate) proc: Option<usize>,
+    pub(crate) transparent: bool,
+    pub(crate) mutable: bool,
 }
 
 impl VTableEntry {
@@ -548,49 +560,6 @@ struct SteelTrait {
 
 struct SteelTraitImplementation {}
 
-// // Return the method associated
-// fn dispatch(t: &SteelTrait, value: &SteelVal) -> SteelVal {
-//     match value {
-//         SteelVal::CustomStruct(s) => {
-//             todo!()
-//         }
-//         _ => {
-//             todo!()
-//         }
-//     }
-// }
-
-// fn new_type_id(type_name: InternedString, address_or_name: SteelVal) -> Result<SteelVal> {
-//     UserDefinedStruct::constructor_thunk(*TYPE_ID, 2)(&[
-//         type_name.as_u32().into_steelval().unwrap(),
-//         address_or_name,
-//     ])
-// }
-
-// #[steel_derive::function(name = "value->type-id")]
-// fn custom_type_id(value: &SteelVal) -> Result<SteelVal> {
-//     match value {
-//         SteelVal::CustomStruct(s) => {
-//             let guard = s.borrow();
-
-//             match &guard.properties {
-//                 Properties::BuiltIn => {
-//                     // Return a special struct representing the type id for the type id
-//                     new_type_id(
-//                         guard.name,
-//                         SteelVal::IntV((-1 * (guard.name.as_u32() as isize))),
-//                     )
-//                 }
-//                 Properties::Local(p) => {
-//                     // Return a special struct representing the type id for the type id
-//                     new_type_id(guard.name, SteelVal::IntV((p.as_ptr() as usize) as isize))
-//                 }
-//             }
-//         }
-//         _ => todo!(),
-//     }
-// }
-
 // Thread local v-table reference.
 // Rather than have structs hold their options directly, we will include a map which
 // is just a weak reference to the original arc. Then, in order to access the vtable, we use the Arc'd
@@ -613,8 +582,62 @@ impl VTable {
         VTABLE.with(|x| x.borrow().map.get(name).cloned())
     }
 
+    pub(crate) fn sendable_entries(
+        serializer: &mut std::collections::HashMap<usize, SerializableSteelVal>,
+        visited: &mut std::collections::HashSet<usize>,
+    ) -> Result<Vec<SendableVTableEntry>> {
+        VTABLE.with(|x| {
+            x.borrow()
+                .entries
+                .iter()
+                .map(|entry| {
+                    Ok(SendableVTableEntry {
+                        name: entry.name,
+                        proc: entry.proc,
+                        transparent: entry.transparent,
+                        mutable: entry.mutable,
+                        properties: entry
+                            .properties
+                            .iter()
+                            .map(|(key, value)| {
+                                Ok((
+                                    into_serializable_value(key.clone(), serializer, visited)?,
+                                    into_serializable_value(value.clone(), serializer, visited)?,
+                                ))
+                            })
+                            .collect::<Result<Vec<_>>>()?,
+                    })
+                })
+                .collect()
+        })
+    }
+
+    pub(crate) fn initialize_new_thread(
+        values: Vec<SendableVTableEntry>,
+        heap: &mut HeapSerializer,
+    ) {
+        for (index, entry) in values.into_iter().enumerate() {
+            Self::new_entry(entry.name, entry.proc);
+
+            let properties = Gc::new(
+                entry
+                    .properties
+                    .into_iter()
+                    .map(|(k, v)| {
+                        (
+                            from_serializable_value(heap, k),
+                            from_serializable_value(heap, v),
+                        )
+                    })
+                    .collect(),
+            );
+
+            Self::set_entry(&StructTypeDescriptor(index), entry.proc, properties);
+        }
+    }
+
     // Returns a type descriptor, in this case it is just a usize
-    fn new_entry(name: InternedString, proc: Option<usize>) -> StructTypeDescriptor {
+    pub fn new_entry(name: InternedString, proc: Option<usize>) -> StructTypeDescriptor {
         VTABLE.with(|x| {
             let mut guard = x.borrow_mut();
             let length = guard.entries.len();
@@ -626,7 +649,7 @@ impl VTable {
     }
 
     // Updates the entry with the now available property information
-    fn set_entry(
+    pub fn set_entry(
         descriptor: &StructTypeDescriptor,
         proc: Option<usize>,
         properties: Gc<im_rc::HashMap<SteelVal, SteelVal>>,

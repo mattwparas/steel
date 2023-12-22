@@ -6,6 +6,8 @@ use std::io::Cursor;
 use std::io::{BufReader, BufWriter, Stdin, Stdout};
 use std::process::ChildStdin;
 use std::process::ChildStdout;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 // use serr::{SErr, SResult};
 // use utils::chars::Chars;
@@ -41,7 +43,7 @@ pub struct SteelPort {
     pub(crate) port: RcRefCell<SteelPortRepr>,
 }
 
-#[derive(Debug)]
+// #[derive(Debug)]
 pub enum SteelPortRepr {
     FileInput(String, BufReader<File>),
     FileOutput(String, BufWriter<File>),
@@ -51,9 +53,73 @@ pub enum SteelPortRepr {
     ChildStdInput(BufWriter<ChildStdin>),
     StringInput(BufReader<Cursor<Vec<u8>>>),
     StringOutput(BufWriter<Vec<u8>>),
-    // DynWriter(Box<dyn Write>),
+    DynWriter(Arc<Mutex<dyn Write + Send + Sync>>),
     // DynReader(Box<dyn Read>),
     Closed,
+}
+
+impl std::fmt::Debug for SteelPortRepr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SteelPortRepr::FileInput(name, w) => {
+                f.debug_tuple("FileInput").field(name).field(w).finish()
+            }
+            SteelPortRepr::FileOutput(name, w) => {
+                f.debug_tuple("FileOutput").field(name).field(w).finish()
+            }
+            SteelPortRepr::StdInput(s) => f.debug_tuple("StdInput").field(s).finish(),
+            SteelPortRepr::StdOutput(s) => f.debug_tuple("StdOutput").field(s).finish(),
+            SteelPortRepr::ChildStdOutput(s) => f.debug_tuple("ChildStdOutput").field(s).finish(),
+            SteelPortRepr::ChildStdInput(s) => f.debug_tuple("ChildStdInput").field(s).finish(),
+            SteelPortRepr::StringInput(s) => f.debug_tuple("StringInput").field(s).finish(),
+            SteelPortRepr::StringOutput(s) => f.debug_tuple("StringOutput").field(s).finish(),
+            SteelPortRepr::DynWriter(_) => f.debug_tuple("DynWriter").field(&"#<opaque>").finish(),
+            SteelPortRepr::Closed => f.debug_tuple("Closed").finish(),
+        }
+    }
+}
+
+pub enum SendablePort {
+    StdInput(Stdin),
+    StdOutput(Stdout),
+    BoxDynWriter(Arc<Mutex<dyn Write + Send + Sync>>),
+    Closed,
+}
+
+impl SendablePort {
+    fn from_port_repr(value: &SteelPortRepr) -> Result<SendablePort> {
+        match value {
+            SteelPortRepr::StdInput(_) => Ok(SendablePort::StdInput(io::stdin())),
+            SteelPortRepr::StdOutput(_) => Ok(SendablePort::StdOutput(io::stdout())),
+            SteelPortRepr::Closed => Ok(SendablePort::Closed),
+            _ => {
+                stop!(Generic => "Unable to send port across threads: {:?}", value)
+            }
+        }
+    }
+
+    pub fn from_port(value: SteelPort) -> Result<SendablePort> {
+        Self::from_port_repr(&value.port.borrow())
+    }
+}
+
+impl SteelPort {
+    pub fn from_sendable_port(value: SendablePort) -> Self {
+        match value {
+            SendablePort::StdInput(s) => SteelPort {
+                port: new_rc_ref_cell(SteelPortRepr::StdInput(s)),
+            },
+            SendablePort::StdOutput(s) => SteelPort {
+                port: new_rc_ref_cell(SteelPortRepr::StdOutput(s)),
+            },
+            SendablePort::Closed => SteelPort {
+                port: new_rc_ref_cell(SteelPortRepr::Closed),
+            },
+            SendablePort::BoxDynWriter(w) => SteelPort {
+                port: new_rc_ref_cell(SteelPortRepr::DynWriter(w)),
+            },
+        }
+    }
 }
 
 // TODO: Probably replace this with dynamic dispatch over writers?
@@ -109,6 +175,7 @@ impl SteelPortRepr {
             SteelPortRepr::StdOutput(s) => Ok(s.flush()?),
             SteelPortRepr::ChildStdInput(s) => Ok(s.flush()?),
             SteelPortRepr::StringOutput(s) => Ok(s.flush()?),
+            SteelPortRepr::DynWriter(s) => Ok(s.lock().unwrap().flush()?),
             SteelPortRepr::Closed => Ok(()),
             _ => stop!(TypeMismatch => "expected an output port, found: {:?}", self),
         }
@@ -155,6 +222,11 @@ impl SteelPortRepr {
                 write!(br, "{}", c)?;
                 br.flush()?;
             }
+            SteelPortRepr::DynWriter(o) => {
+                let mut br = o.lock().unwrap();
+                write!(br, "{}", c)?;
+                br.flush()?;
+            }
             _x => stop!(Generic => "write-car"),
         };
 
@@ -173,6 +245,11 @@ impl SteelPortRepr {
             SteelPortRepr::FileOutput(_, br) => write_string!(br),
             SteelPortRepr::StdOutput(out) => {
                 let mut br = out.lock();
+                write!(br, "{}", string)?;
+                br.flush()?;
+            }
+            SteelPortRepr::DynWriter(o) => {
+                let mut br = o.lock().unwrap();
                 write!(br, "{}", string)?;
                 br.flush()?;
             }
@@ -196,6 +273,10 @@ impl SteelPortRepr {
             SteelPortRepr::StdOutput(br) => write_string!(br),
             SteelPortRepr::ChildStdInput(br) => write_string!(br),
             SteelPortRepr::StringOutput(br) => write_string!(br),
+            SteelPortRepr::DynWriter(br) => {
+                let mut br = br.lock().unwrap();
+                write_string!(br)
+            }
             _x => stop!(Generic => "write-string"),
         };
 
@@ -212,7 +293,9 @@ impl SteelPortRepr {
     pub fn is_output(&self) -> bool {
         matches!(
             self,
-            SteelPortRepr::FileOutput(_, _) | SteelPortRepr::StdOutput(_)
+            SteelPortRepr::FileOutput(_, _)
+                | SteelPortRepr::StdOutput(_)
+                | SteelPortRepr::DynWriter(_)
         )
     }
 
@@ -350,7 +433,12 @@ impl SteelPort {
 
     pub fn default_current_output_port() -> Self {
         if cfg!(test) {
-            SteelPort::new_output_port()
+            // Write out to thread safe port
+            SteelPort {
+                port: new_rc_ref_cell(SteelPortRepr::DynWriter(Arc::new(Mutex::new(
+                    BufWriter::new(Vec::new()),
+                )))),
+            }
         } else {
             SteelPort {
                 port: new_rc_ref_cell(SteelPortRepr::StdOutput(io::stdout())),

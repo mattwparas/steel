@@ -9,12 +9,13 @@ use crate::{
         tokens::TokenType,
     },
     rerrs::{ErrorKind, SteelErr},
-    steel_vm::vm::{BuiltInSignature, Continuation},
+    steel_vm::vm::{threads::closure_into_serializable, BuiltInSignature, Continuation},
     values::port::SteelPort,
     values::{
-        closed::{HeapRef, MarkAndSweepContext},
+        closed::{Heap, HeapRef, MarkAndSweepContext},
         functions::ByteCodeLambda,
         lazy_stream::LazyStream,
+        port::SendablePort,
         structs::SerializableUserDefinedStruct,
         transducers::{Reducer, Transducer},
     },
@@ -808,21 +809,57 @@ pub enum SerializableSteelVal {
     Void,
     StringV(String),
     FuncV(FunctionSignature),
+    MutFunc(MutFunctionSignature),
     HashMapV(Vec<(SerializableSteelVal, SerializableSteelVal)>),
-    // If the value
     VectorV(Vec<SerializableSteelVal>),
     BoxedDynFunction(BoxedDynFunction),
     BuiltIn(BuiltInSignature),
     SymbolV(String),
     Custom(Box<dyn CustomType + Send>), // Custom()
     CustomStruct(SerializableUserDefinedStruct),
+    // Attempt to reuse the storage if possible
+    HeapAllocated(usize),
+
+    Port(SendablePort),
+}
+
+pub enum SerializedHeapRef {
+    Serialized(Option<SerializableSteelVal>),
+    Closed(HeapRef<SteelVal>),
+}
+
+pub struct HeapSerializer<'a> {
+    pub heap: &'a mut Heap,
+    pub fake_heap: &'a mut std::collections::HashMap<usize, SerializedHeapRef>,
+    // After the conversion, we go back through, and patch the values from the fake heap
+    // in to each of the values listed here - otherwise, we'll miss cycles
+    pub values_to_fill_in: &'a mut std::collections::HashMap<usize, HeapRef<SteelVal>>,
+
+    // Cache the functions that get built
+    pub built_functions: &'a mut std::collections::HashMap<usize, Gc<ByteCodeLambda>>,
 }
 
 // Once crossed over the line, convert BACK into a SteelVal
 // This should be infallible.
-pub fn from_serializable_value(val: SerializableSteelVal) -> SteelVal {
+pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelVal) -> SteelVal {
     match val {
-        SerializableSteelVal::Closure(c) => SteelVal::Closure(Gc::new(c.into())),
+        SerializableSteelVal::Closure(c) => {
+            if c.captures.is_empty() {
+                if let Some(already_made) = ctx.built_functions.get(&c.id) {
+                    SteelVal::Closure(already_made.clone())
+                } else {
+                    let id = c.id;
+                    let value = Gc::new(ByteCodeLambda::from_serialized(ctx, c));
+
+                    // Save those as well
+                    // Probably need to just do this for all
+                    ctx.built_functions.insert(id, value.clone());
+                    SteelVal::Closure(value)
+                }
+            } else {
+                SteelVal::Closure(Gc::new(ByteCodeLambda::from_serialized(ctx, c)))
+            }
+        }
         SerializableSteelVal::BoolV(b) => SteelVal::BoolV(b),
         SerializableSteelVal::NumV(n) => SteelVal::NumV(n),
         SerializableSteelVal::IntV(i) => SteelVal::IntV(i),
@@ -830,33 +867,99 @@ pub fn from_serializable_value(val: SerializableSteelVal) -> SteelVal {
         SerializableSteelVal::Void => SteelVal::Void,
         SerializableSteelVal::StringV(s) => SteelVal::StringV(s.into()),
         SerializableSteelVal::FuncV(f) => SteelVal::FuncV(f),
+        SerializableSteelVal::MutFunc(f) => SteelVal::MutFunc(f),
         SerializableSteelVal::HashMapV(h) => SteelVal::HashMapV(
             Gc::new(
                 h.into_iter()
-                    .map(|(k, v)| (from_serializable_value(k), from_serializable_value(v)))
+                    .map(|(k, v)| {
+                        (
+                            from_serializable_value(ctx, k),
+                            from_serializable_value(ctx, v),
+                        )
+                    })
                     .collect::<HashMap<_, _>>(),
             )
             .into(),
         ),
-        SerializableSteelVal::VectorV(v) => {
-            SteelVal::ListV(v.into_iter().map(from_serializable_value).collect())
-        }
+        SerializableSteelVal::VectorV(v) => SteelVal::ListV(
+            v.into_iter()
+                .map(|x| from_serializable_value(ctx, x))
+                .collect(),
+        ),
         SerializableSteelVal::BoxedDynFunction(f) => SteelVal::BoxedFunction(Rc::new(f)),
         SerializableSteelVal::BuiltIn(f) => SteelVal::BuiltIn(f),
         SerializableSteelVal::SymbolV(s) => SteelVal::SymbolV(s.into()),
         SerializableSteelVal::Custom(b) => SteelVal::Custom(Gc::new(RefCell::new(b))),
         SerializableSteelVal::CustomStruct(s) => {
             SteelVal::CustomStruct(Gc::new(UserDefinedStruct {
-                fields: s.fields.into_iter().map(from_serializable_value).collect(),
+                fields: s
+                    .fields
+                    .into_iter()
+                    .map(|x| from_serializable_value(ctx, x))
+                    .collect(),
                 type_descriptor: s.type_descriptor,
             }))
+        }
+        SerializableSteelVal::Port(p) => SteelVal::PortV(SteelPort::from_sendable_port(p)),
+        SerializableSteelVal::HeapAllocated(v) => {
+            // todo!()
+
+            if let Some(mut guard) = ctx.fake_heap.get_mut(&v) {
+                match &mut guard {
+                    SerializedHeapRef::Serialized(value) => {
+                        let value = std::mem::take(value);
+
+                        if let Some(value) = value {
+                            let value = from_serializable_value(ctx, value);
+                            let allocation = ctx.heap.allocate_without_collection(value);
+
+                            ctx.fake_heap
+                                .insert(v, SerializedHeapRef::Closed(allocation.clone()));
+
+                            SteelVal::HeapAllocated(allocation)
+                        } else {
+                            // println!("If we're getting here - it means the value from the heap has already
+                            // been converting. if so, we should do something...");
+
+                            let fake_allocation =
+                                ctx.heap.allocate_without_collection(SteelVal::Void);
+
+                            ctx.values_to_fill_in.insert(v, fake_allocation.clone());
+
+                            SteelVal::HeapAllocated(fake_allocation)
+                        }
+                    }
+
+                    SerializedHeapRef::Closed(c) => SteelVal::HeapAllocated(c.clone()),
+                }
+            } else {
+                // Shouldn't silently fail here, but we will... for now
+
+                let allocation = ctx.heap.allocate_without_collection(SteelVal::Void);
+
+                ctx.fake_heap
+                    .insert(v, SerializedHeapRef::Closed(allocation.clone()));
+
+                SteelVal::HeapAllocated(allocation)
+            }
         }
     }
 }
 
-pub fn into_serializable_value(val: SteelVal) -> Result<SerializableSteelVal> {
+// The serializable value needs to refer to the original heap -
+// that way can reference the original stuff easily.
+
+// TODO: Use the cycle detector instead
+pub fn into_serializable_value(
+    val: SteelVal,
+    serialized_heap: &mut std::collections::HashMap<usize, SerializableSteelVal>,
+    visited: &mut std::collections::HashSet<usize>,
+) -> Result<SerializableSteelVal> {
+    // dbg!(&serialized_heap);
+
     match val {
-        SteelVal::Closure(c) => Ok(SerializableSteelVal::Closure(c.unwrap().try_into()?)),
+        SteelVal::Closure(c) => closure_into_serializable(&c, serialized_heap, visited)
+            .map(SerializableSteelVal::Closure),
         SteelVal::BoolV(b) => Ok(SerializableSteelVal::BoolV(b)),
         SteelVal::NumV(n) => Ok(SerializableSteelVal::NumV(n)),
         SteelVal::IntV(n) => Ok(SerializableSteelVal::IntV(n)),
@@ -866,19 +969,19 @@ pub fn into_serializable_value(val: SteelVal) -> Result<SerializableSteelVal> {
         SteelVal::FuncV(f) => Ok(SerializableSteelVal::FuncV(f)),
         SteelVal::ListV(l) => Ok(SerializableSteelVal::VectorV(
             l.into_iter()
-                .map(into_serializable_value)
+                .map(|x| into_serializable_value(x, serialized_heap, visited))
                 .collect::<Result<_>>()?,
         )),
         SteelVal::BoxedFunction(f) => Ok(SerializableSteelVal::BoxedDynFunction((*f).clone())),
         SteelVal::BuiltIn(f) => Ok(SerializableSteelVal::BuiltIn(f)),
         SteelVal::SymbolV(s) => Ok(SerializableSteelVal::SymbolV(s.to_string())),
-
+        SteelVal::MutFunc(f) => Ok(SerializableSteelVal::MutFunc(f)),
         SteelVal::HashMapV(v) => Ok(SerializableSteelVal::HashMapV(
             v.0.unwrap()
                 .into_iter()
                 .map(|(k, v)| {
-                    let kprime = into_serializable_value(k)?;
-                    let vprime = into_serializable_value(v)?;
+                    let kprime = into_serializable_value(k, serialized_heap, visited)?;
+                    let vprime = into_serializable_value(v, serialized_heap, visited)?;
 
                     Ok((kprime, vprime))
                 })
@@ -899,11 +1002,52 @@ pub fn into_serializable_value(val: SteelVal) -> Result<SerializableSteelVal> {
                     .fields
                     .iter()
                     .cloned()
-                    .map(into_serializable_value)
+                    .map(|x| into_serializable_value(x, serialized_heap, visited))
                     .collect::<Result<Vec<_>>>()?,
                 type_descriptor: s.type_descriptor,
             },
         )),
+
+        SteelVal::PortV(p) => SendablePort::from_port(p).map(SerializableSteelVal::Port),
+
+        // If there is a cycle, this could cause problems?
+        SteelVal::HeapAllocated(h) => {
+            // We should pick it up on the way back the recursion
+            if visited.contains(&h.as_ptr_usize())
+                && !serialized_heap.contains_key(&h.as_ptr_usize())
+            {
+                // println!("Already visited: {}", h.as_ptr_usize());
+
+                Ok(SerializableSteelVal::HeapAllocated(h.as_ptr_usize()))
+            } else {
+                visited.insert(h.as_ptr_usize());
+
+                if serialized_heap.contains_key(&h.as_ptr_usize()) {
+                    // println!("Already exists in map: {}", h.as_ptr_usize());
+
+                    Ok(SerializableSteelVal::HeapAllocated(h.as_ptr_usize()))
+                } else {
+                    // println!("Trying to insert: {} @ {}", h.get(), h.as_ptr_usize());
+
+                    let value = into_serializable_value(h.get(), serialized_heap, visited);
+
+                    let value = match value {
+                        Ok(v) => v,
+                        Err(e) => {
+                            // println!("{}", e);
+                            return Err(e);
+                        }
+                    };
+
+                    serialized_heap.insert(h.as_ptr_usize(), value);
+
+                    // println!("Inserting: {}", h.as_ptr_usize());
+
+                    Ok(SerializableSteelVal::HeapAllocated(h.as_ptr_usize()))
+                }
+            }
+        }
+
         illegal => stop!(Generic => "Type not allowed to be moved across threads!: {}", illegal),
     }
 }
