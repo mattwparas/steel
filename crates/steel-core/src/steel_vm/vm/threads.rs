@@ -111,11 +111,24 @@ pub fn closure_into_serializable(
     }
 }
 
+struct MovableThread {
+    constants: Vec<SerializableSteelVal>,
+    global_env: Vec<SerializableSteelVal>,
+    function_interner: MovableFunctionInterner,
+    runtime_options: RunTimeOptions,
+}
+
+struct MovableFunctionInterner {
+    closure_interner: fxhash::FxHashMap<usize, SerializedLambda>,
+    pure_function_interner: fxhash::FxHashMap<usize, SerializedLambda>,
+    spans: fxhash::FxHashMap<usize, Vec<Span>>,
+    instructions: fxhash::FxHashMap<usize, Vec<DenseInstruction>>,
+}
+
 /// This will naively deep clone the environment, by attempting to translate every value into a `SerializableSteelVal`
 /// While this does work, it does result in a fairly hefty deep clone of the environment. It does _not_ smartly attempt
 /// to keep track of what values this function could touch - rather it assumes every value is possible to be touched
-/// by the child thread. In addition - closures which capture mutable variables are unable to be moved across threads.
-/// Only pure functions and/or functions which capture immutable can be moved.
+/// by the child thread.
 fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     use crate::rvals::SerializableSteelVal;
 
@@ -127,19 +140,6 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
     // global env - This we can do (hopefully) lazily. Only clone the values that actually
     // get referenced. We can also just straight up reject any closures that cannot be moved
     // across threads
-    struct MovableThread {
-        constants: Vec<SerializableSteelVal>,
-        global_env: Vec<SerializableSteelVal>,
-        function_interner: MovableFunctionInterner,
-        runtime_options: RunTimeOptions,
-    }
-
-    struct MovableFunctionInterner {
-        closure_interner: fxhash::FxHashMap<usize, SerializedLambda>,
-        pure_function_interner: fxhash::FxHashMap<usize, SerializedLambda>,
-        spans: fxhash::FxHashMap<usize, Vec<Span>>,
-        instructions: fxhash::FxHashMap<usize, Vec<DenseInstruction>>,
-    }
 
     if args.len() != 1 {
         stop!(ArityMismatch => "spawn-thread! accepts one argument, found: {}", args.len())

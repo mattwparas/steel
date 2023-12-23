@@ -306,7 +306,11 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
         {
             // If it is something that... doesn't happen in the file we're currently
             // looking at - we probably shouldn't report it there?
-            if !l.first_ident().unwrap().resolve().starts_with("mangler") {
+            if !l
+                .first_ident()
+                .map(|x| x.resolve().starts_with("mangler"))
+                .unwrap_or(false)
+            {
                 if let Some(info) = self.context.analysis.get_identifier(function_call_ident) {
                     if info.builtin {
                         let found_arity = self

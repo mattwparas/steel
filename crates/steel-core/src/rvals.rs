@@ -441,17 +441,17 @@ pub trait AsRefSteelValFromRef: Sized {
     fn as_ref_from_ref<'a>(val: &'a SteelVal) -> crate::rvals::Result<&'a Self>;
 }
 
-impl AsRefSteelVal for List<SteelVal> {
-    type Nursery = ();
+// impl AsRefSteelVal for List<SteelVal> {
+//     type Nursery = ();
 
-    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal, _nursery: &mut ()) -> Result<SRef<'b, Self>> {
-        if let SteelVal::ListV(l) = val {
-            Ok(SRef::Temporary(l))
-        } else {
-            stop!(TypeMismatch => "Value cannot be referenced as a list")
-        }
-    }
-}
+//     fn as_ref<'b, 'a: 'b>(val: &'a SteelVal, _nursery: &mut ()) -> Result<SRef<'b, Self>> {
+//         if let SteelVal::ListV(l) = val {
+//             Ok(SRef::Temporary(l))
+//         } else {
+//             stop!(TypeMismatch => "Value cannot be referenced as a list")
+//         }
+//     }
+// }
 
 impl AsRefSteelVal for UserDefinedStruct {
     type Nursery = ();
@@ -1110,6 +1110,21 @@ impl From<Gc<im_rc::HashSet<SteelVal>>> for SteelHashSet {
     fn from(value: Gc<im_rc::HashSet<SteelVal>>) -> Self {
         SteelHashSet(value)
     }
+}
+
+pub enum TypeKind {
+    Any,
+    Bool,
+    Num,
+    Int,
+    Char,
+    Vector(Box<TypeKind>),
+    Void,
+    String,
+    Function,
+    HashMap(Box<TypeKind>, Box<TypeKind>),
+    HashSet(Box<TypeKind>),
+    List(Box<TypeKind>),
 }
 
 /// A value as represented in the runtime.

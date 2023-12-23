@@ -206,6 +206,7 @@ pub fn native(
                 arity: crate::steel_vm::builtin::Arity::#arity_number,
                 doc: Some(crate::steel_vm::builtin::MarkdownDoc(#doc)),
                 is_const: #is_const,
+                signature: None,
             };
         }
     } else {
@@ -216,6 +217,7 @@ pub fn native(
                 arity: crate::steel_vm::builtin::Arity::#arity_number,
                 doc: None,
                 is_const: #is_const,
+                signature: None,
             };
         }
     };
@@ -305,6 +307,9 @@ pub fn function(
 
     let mut rest_arg_generic_inner_type = false;
 
+    // let mut argument_signatures: Vec<&'static str> = Vec::new();
+    // let mut return_type = "void";
+
     for (i, arg) in sign.inputs.iter().enumerate() {
         if let FnArg::Typed(pat_ty) = arg.clone() {
             if let Type::Path(p) = pat_ty.ty.as_ref() {
@@ -328,15 +333,30 @@ pub fn function(
                 }
             }
 
+            /*
+            TODO: Attempt to bake the type information into the native
+            function definition. This can give a lot more help to the optimizer
+            and also the LSP if we have the types for every built in definition
+            when we make it.
+
+            // Attempt to calculate the function signature
+            match pat_ty.ty.clone().into_token_stream().to_string().as_str() {
+                "char" => argument_signatures.push("char"),
+                "bool" => argument_signatures.push("bool"),
+                "f64" => argument_signatures.push("f64"),
+                "isize" => argument_signatures.push("isize"),
+                "SteelString" => argument_signatures.push("string"),
+                "&SteelString" => argument_signatures.push("string"),
+                _ => argument_signatures.push("any"),
+            }
+            */
+
             type_vec.push(pat_ty.ty);
         }
     }
 
-    // panic!("{:?}", type_vec);
-
     let arity_number = type_vec.len();
 
-    // TODO: Might be able to handle types with lifetimes here, both coming in and leaving
     let conversion_functions = type_vec.clone().into_iter().map(|x| {
         if let Type::Reference(_) = *x {
             quote! { primitive_as_ref }
@@ -378,6 +398,7 @@ pub fn function(
                 arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
                 doc: Some(crate::steel_vm::builtin::MarkdownDoc(#doc)),
                 is_const: #is_const,
+                signature: None,
             };
         }
     } else {
@@ -388,6 +409,7 @@ pub fn function(
                 arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
                 doc: None,
                 is_const: #is_const,
+                signature: None
             };
         }
     };

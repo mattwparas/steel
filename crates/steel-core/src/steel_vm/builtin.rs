@@ -3,7 +3,7 @@ use std::{borrow::Cow, cell::RefCell, rc::Rc, sync::Arc};
 use crate::{
     containers::RegisterValue,
     parser::{ast::ExprKind, interner::InternedString, parser::SyntaxObject, tokens::TokenType},
-    rvals::{Custom, FromSteelVal, FunctionSignature, IntoSteelVal, Result, SteelVal},
+    rvals::{Custom, FromSteelVal, FunctionSignature, IntoSteelVal, Result, SteelVal, TypeKind},
     values::functions::BoxedDynFunction,
 };
 use im_rc::HashMap;
@@ -125,6 +125,7 @@ pub struct NativeFunctionDefinition {
     pub arity: Arity,
     pub doc: Option<MarkdownDoc<'static>>,
     pub is_const: bool,
+    pub signature: Option<(&'static [TypeKind], TypeKind)>,
 }
 
 impl BuiltInModuleRepr {
@@ -137,37 +138,6 @@ impl BuiltInModuleRepr {
             generated_expression: RefCell::new(None),
         }
     }
-
-    // pub fn register_native_fn(
-    //     &mut self,
-    //     name: &'static str,
-    //     func: fn(&[SteelVal]) -> Result<SteelVal>,
-    //     arity: Arity,
-    // ) -> &mut Self {
-    //     // Just automatically add it to the function pointer table to help out with searching
-    //     self.add_to_fn_ptr_table(func, FunctionSignatureMetadata::new(name, arity, false));
-    //     self.register_value(name, SteelVal::FuncV(func))
-    // }
-
-    // pub fn register_native_fn_definition(
-    //     &mut self,
-    //     definition: NativeFunctionDefinition,
-    // ) -> &mut Self {
-    //     self.add_to_fn_ptr_table(
-    //         definition.func,
-    //         FunctionSignatureMetadata::new(definition.name, definition.arity, definition.is_const),
-    //     );
-    //     if let Some(doc) = definition.doc {
-    //         self.register_doc(definition.name, doc);
-    //     }
-    //     self.register_value(definition.name, SteelVal::FuncV(definition.func));
-    //     self
-    // }
-
-    // pub fn check_compatibility(self: &BuiltInModule) -> bool {
-    //     // self.version == env!("CARGO_PKG_VERSION")
-    //     true
-    // }
 
     pub fn contains(&self, ident: &str) -> bool {
         self.values.contains_key(ident)
@@ -443,19 +413,6 @@ impl BuiltInModule {
         value: FunctionSignature,
         data: FunctionSignatureMetadata,
     ) -> &mut Self {
-        // // Store this in a globally accessible place for printing
-        // FUNCTION_TABLE.with(|table| {
-        //     table
-        //         .borrow_mut()
-        //         .insert(value as *const FunctionSignature, data)
-        // });
-
-        // // Probably don't need to store it in both places?
-        // self.fn_ptr_table
-        //     .insert(value as *const FunctionSignature, data);
-
-        // self
-
         self.module.borrow_mut().add_to_fn_ptr_table(value, data);
 
         self

@@ -14,9 +14,7 @@ declare_const_ref_functions!(
     HM_CONSTRUCT => hm_construct,
     HM_INSERT => steel_hash_insert,
     HM_GET => steel_hash_ref,
-    HM_CLEAR => clear,
     HM_EMPTY => hm_empty,
-    HM_UNION => hm_union,
 );
 
 pub(crate) fn hashmap_module() -> BuiltInModule {
@@ -34,9 +32,9 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
         .register_native_fn_definition(KEYS_TO_VECTOR_DEFINITION)
         .register_native_fn_definition(VALUES_TO_LIST_DEFINITION)
         .register_native_fn_definition(VALUES_TO_VECTOR_DEFINITION)
-        .register_value("hash-clear", HM_CLEAR)
+        .register_native_fn_definition(CLEAR_DEFINITION)
         .register_value("hash-empty?", HM_EMPTY)
-        .register_value("hash-union", HM_UNION);
+        .register_native_fn_definition(HM_UNION_DEFINITION);
     module
 }
 
@@ -256,30 +254,21 @@ pub fn values_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<Steel
     Ok(SteelVal::ListV(hashmap.values().cloned().collect()))
 }
 
-#[steel_derive::function(name = "hm-keys->vector")]
+#[steel_derive::function(name = "hash-keys->vector")]
 pub fn keys_to_vector(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
     VectorOperations::vec_construct_iter_normal(hashmap.keys().cloned())
 }
 
-#[steel_derive::function(name = "hm-values->vector")]
+#[steel_derive::function(name = "hash-values->vector")]
 pub fn values_to_vector(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
     VectorOperations::vec_construct_iter_normal(hashmap.values().cloned())
 }
 
-pub fn clear(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => "hm-clear takes 1 argument")
-    }
-
-    let hashmap = &args[0];
-
-    if let SteelVal::HashMapV(hm) = hashmap {
-        let mut hm = hm.0.unwrap();
-        hm.clear();
-        Ok(SteelVal::HashMapV(Gc::new(hm).into()))
-    } else {
-        stop!(TypeMismatch => "hm-clear takes a hashmap")
-    }
+#[steel_derive::function(name = "hash-clear")]
+pub fn clear(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
+    let mut hm = hashmap.unwrap();
+    hm.clear();
+    Ok(SteelVal::HashMapV(Gc::new(hm).into()))
 }
 
 pub fn hm_empty(args: &[SteelVal]) -> Result<SteelVal> {
@@ -296,25 +285,14 @@ pub fn hm_empty(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-pub fn hm_union(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 2 {
-        stop!(ArityMismatch => "hash-union takes 2 arguments")
-    }
-
-    let left = &args[0];
-    let right = &args[1];
-
-    if let SteelVal::HashMapV(hml) = left {
-        if let SteelVal::HashMapV(hmr) = right {
-            let hml = hml.0.unwrap();
-            let hmr = hmr.0.unwrap();
-            Ok(SteelVal::HashMapV(Gc::new(hml.union(hmr)).into()))
-        } else {
-            stop!(TypeMismatch => "hash-union takes a hashmap, found {}", right)
-        }
-    } else {
-        stop!(TypeMismatch => "hash-union takes a hashmap, found: {}", left)
-    }
+#[steel_derive::function(name = "hash-union")]
+pub fn hm_union(
+    hml: &Gc<HashMap<SteelVal, SteelVal>>,
+    hmr: &Gc<HashMap<SteelVal, SteelVal>>,
+) -> Result<SteelVal> {
+    let hml = hml.unwrap();
+    let hmr = hmr.unwrap();
+    Ok(SteelVal::HashMapV(Gc::new(hml.union(hmr)).into()))
 }
 
 #[cfg(test)]

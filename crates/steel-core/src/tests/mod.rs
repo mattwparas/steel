@@ -67,6 +67,7 @@ test_harness_success! {
     define_normal,
     dfs,
     dll,
+    docs,
     empty,
     ellipses,
     fib,

@@ -393,6 +393,13 @@ impl FromSteelVal for SteelString {
     }
 }
 
+// impl<'a, T: AsRefSteelVal> PrimitiveAsRef<'a> for &'a T {
+//     #[inline(always)]
+//     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+//         AsRefSteelVal::as_ref(val, &mut <T as AsRefSteelVal>::Nursery::default())
+//     }
+// }
+
 impl<'a> PrimitiveAsRef<'a> for &'a Gc<RefCell<SteelVal>> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
