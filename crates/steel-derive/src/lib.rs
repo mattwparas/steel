@@ -360,6 +360,8 @@ pub fn function(
     let conversion_functions = type_vec.clone().into_iter().map(|x| {
         if let Type::Reference(_) = *x {
             quote! { primitive_as_ref }
+        } else if x.to_token_stream().to_string().starts_with("Either") {
+            quote! { primitive_as_ref }
         } else {
             quote! { from_steelval }
         }

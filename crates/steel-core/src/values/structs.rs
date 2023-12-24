@@ -91,7 +91,11 @@ impl Properties {
 // Wrap the usize, store this and this only. We use this as an index into the VTable.
 pub struct StructTypeDescriptor(usize);
 
-impl Custom for StructTypeDescriptor {}
+impl Custom for StructTypeDescriptor {
+    fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
+        Some(SerializableSteelVal::Custom(Box::new(self.clone())))
+    }
+}
 
 impl StructTypeDescriptor {
     fn name(&self) -> InternedString {

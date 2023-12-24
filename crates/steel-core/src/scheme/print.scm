@@ -133,7 +133,7 @@
 
           (simple-display ")")]))]
 
-    [else (simple-displayln obj)]))
+    [else (simple-display obj)]))
 
 (define (#%print obj collector)
   (cond

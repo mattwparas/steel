@@ -46,6 +46,8 @@
             24. [steel/time](builtins/steel_time.md)
             25. [steel/transducers](builtins/steel_transducers.md)
             26. [steel/vectors](builtins/steel_vectors.md)
+5. [Dylibs](dylibs/dylibs.md)
+    1. [Creating a simple shared dylib](dylibs/example.md)
 6. [Bytecode](bytecode/bytecode.md)
     1. [Optimizations](bytecode/optimizations.md)
 7. [Benchmarks](benchmarks/benchmarks.md)
