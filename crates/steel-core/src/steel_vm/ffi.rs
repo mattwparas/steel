@@ -11,7 +11,7 @@ use crate::{
     rerrs::ErrorKind,
     rvals::{
         as_underlying_type, Custom, CustomType, FutureResult, IntoSteelVal, Result, SRef,
-        SerializableSteelVal, SteelHashMap, SteelVal,
+        SteelHashMap, SteelVal,
     },
     values::functions::{BoxedDynFunction, StaticOrRcStr},
     SteelErr,
