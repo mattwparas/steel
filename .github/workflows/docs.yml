@@ -29,6 +29,9 @@ jobs:
         git config user.name "Deploy from CI"
         git config user.email ""
         cd gh-pages
+        # Pull the benchmarks if they exist to keep them around through
+        # the book builds
+        git checkout origin/gh-pages -- dev/bench || true
         # Delete the ref to avoid keeping history.
         git update-ref -d refs/heads/gh-pages
         # Delete everything except the book
