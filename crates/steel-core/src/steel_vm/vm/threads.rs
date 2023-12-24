@@ -206,7 +206,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
                 .iter()
                 .cloned()
                 .map(|x| into_serializable_value(x, &mut initial_map, &mut visited))
-                .map(|x| x.unwrap_or(SerializableSteelVal::Void))
+                .map(|x| { x.unwrap_or(SerializableSteelVal::Void) })
                 .collect()
         ),
         // Populate with the values after moving into the thread, spawn accordingly

@@ -393,12 +393,29 @@ impl FromSteelVal for SteelString {
     }
 }
 
-// impl<'a, T: AsRefSteelVal> PrimitiveAsRef<'a> for &'a T {
-//     #[inline(always)]
-//     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
-//         AsRefSteelVal::as_ref(val, &mut <T as AsRefSteelVal>::Nursery::default())
-//     }
-// }
+pub(crate) enum Either<L, R> {
+    Left(L),
+    Right(R),
+}
+
+impl<'a, L: PrimitiveAsRef<'a>, R: PrimitiveAsRef<'a>> PrimitiveAsRef<'a> for Either<L, R> {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        let left_type_name = std::any::type_name::<L>();
+        let right_type_name = std::any::type_name::<R>();
+
+        let error_thunk = crate::throw!(ConversionError => format!("Cannot convert steel value to the specified type: {} or {}", left_type_name, right_type_name));
+
+        Self::maybe_primitive_as_ref(val).ok_or_else(error_thunk)
+    }
+
+    #[inline(always)]
+    fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self> {
+        L::maybe_primitive_as_ref(val)
+            .map(Either::Left)
+            .or_else(|| R::maybe_primitive_as_ref(val).map(Either::Right))
+    }
+}
 
 impl<'a> PrimitiveAsRef<'a> for &'a Gc<RefCell<SteelVal>> {
     #[inline(always)]
@@ -407,6 +424,15 @@ impl<'a> PrimitiveAsRef<'a> for &'a Gc<RefCell<SteelVal>> {
             Ok(c)
         } else {
             crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel boxed value", val))
+        }
+    }
+
+    #[inline(always)]
+    fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self> {
+        if let SteelVal::Boxed(c) = val {
+            Some(c)
+        } else {
+            None
         }
     }
 }
@@ -420,6 +446,15 @@ impl<'a> PrimitiveAsRef<'a> for &'a HeapRef<SteelVal> {
             crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel box", val))
         }
     }
+
+    #[inline(always)]
+    fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self> {
+        if let SteelVal::HeapAllocated(b) = val {
+            Some(b)
+        } else {
+            None
+        }
+    }
 }
 
 impl<'a> PrimitiveAsRef<'a> for &'a char {
@@ -429,6 +464,15 @@ impl<'a> PrimitiveAsRef<'a> for &'a char {
             Ok(c)
         } else {
             crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel character", val))
+        }
+    }
+
+    #[inline(always)]
+    fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self> {
+        if let SteelVal::CharV(c) = val {
+            Some(c)
+        } else {
+            None
         }
     }
 }
@@ -442,6 +486,15 @@ impl<'a> PrimitiveAsRef<'a> for char {
             crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel character", val))
         }
     }
+
+    #[inline(always)]
+    fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self> {
+        if let SteelVal::CharV(c) = val {
+            Some(*c)
+        } else {
+            None
+        }
+    }
 }
 
 impl<'a> PrimitiveAsRef<'a> for isize {
@@ -451,6 +504,15 @@ impl<'a> PrimitiveAsRef<'a> for isize {
             Ok(*i)
         } else {
             crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel int", val))
+        }
+    }
+
+    #[inline(always)]
+    fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self> {
+        if let SteelVal::IntV(i) = val {
+            Some(*i)
+        } else {
+            None
         }
     }
 }
@@ -464,6 +526,15 @@ impl<'a> PrimitiveAsRef<'a> for &'a Gc<Vector<SteelVal>> {
             crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel vector", val))
         }
     }
+
+    #[inline(always)]
+    fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self> {
+        if let SteelVal::VectorV(p) = val {
+            Some(&p.0)
+        } else {
+            None
+        }
+    }
 }
 
 impl<'a> PrimitiveAsRef<'a> for &'a SteelVector {
@@ -473,6 +544,15 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelVector {
             Ok(p)
         } else {
             crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel vector", val))
+        }
+    }
+
+    #[inline(always)]
+    fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self> {
+        if let SteelVal::VectorV(p) = val {
+            Some(p)
+        } else {
+            None
         }
     }
 }
@@ -486,6 +566,15 @@ impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashSet<SteelVal>> {
             crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel hashset", val))
         }
     }
+
+    #[inline(always)]
+    fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self> {
+        if let SteelVal::HashSetV(p) = val {
+            Some(&p.0)
+        } else {
+            None
+        }
+    }
 }
 
 impl<'a> PrimitiveAsRef<'a> for &'a SteelHashSet {
@@ -495,6 +584,15 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelHashSet {
             Ok(p)
         } else {
             crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel hashset", val))
+        }
+    }
+
+    #[inline(always)]
+    fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self> {
+        if let SteelVal::HashSetV(p) = val {
+            Some(p)
+        } else {
+            None
         }
     }
 }
@@ -508,6 +606,14 @@ impl<'a> PrimitiveAsRef<'a> for &'a HeapRef<Vec<SteelVal>> {
             crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel mutable vector", val))
         }
     }
+
+    fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self> {
+        if let SteelVal::MutableVector(p) = val {
+            Some(p)
+        } else {
+            None
+        }
+    }
 }
 
 impl<'a> PrimitiveAsRef<'a> for &'a SteelPort {
@@ -517,6 +623,15 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelPort {
             Ok(p)
         } else {
             crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel port", val))
+        }
+    }
+
+    #[inline(always)]
+    fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self> {
+        if let SteelVal::PortV(p) = val {
+            Some(p)
+        } else {
+            None
         }
     }
 }
@@ -530,12 +645,26 @@ impl<'a> PrimitiveAsRef<'a> for &'a List<SteelVal> {
             crate::stop!(ConversionError => format!("Cannot convert steel value: {} to steel list", val))
         }
     }
+
+    #[inline(always)]
+    fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self> {
+        if let SteelVal::ListV(l) = val {
+            Some(l)
+        } else {
+            None
+        }
+    }
 }
 
 impl<'a> PrimitiveAsRef<'a> for &'a SteelVal {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
         Ok(val)
+    }
+
+    #[inline(always)]
+    fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self> {
+        Some(val)
     }
 }
 
@@ -546,6 +675,15 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelString {
             Ok(s)
         } else {
             crate::stop!(TypeMismatch => format!("Cannot convert steel value: {} to steel string", val))
+        }
+    }
+
+    #[inline(always)]
+    fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self> {
+        if let SteelVal::StringV(s) = val {
+            Some(s)
+        } else {
+            None
         }
     }
 }
@@ -559,6 +697,15 @@ impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashMap<SteelVal, SteelVal>> {
             crate::stop!(ConversionError => format!("Canto convert steel value: {} to hashmap", val))
         }
     }
+
+    #[inline(always)]
+    fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self> {
+        if let SteelVal::HashMapV(hm) = val {
+            Some(&hm.0)
+        } else {
+            None
+        }
+    }
 }
 
 impl<'a> PrimitiveAsRef<'a> for &'a SteelHashMap {
@@ -568,6 +715,15 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelHashMap {
             Ok(hm)
         } else {
             crate::stop!(ConversionError => format!("Canto convert steel value: {} to hashmap", val))
+        }
+    }
+
+    #[inline(always)]
+    fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self> {
+        if let SteelVal::HashMapV(hm) = val {
+            Some(hm)
+        } else {
+            None
         }
     }
 }

@@ -202,7 +202,7 @@ impl<T: Custom + 'static> CustomType for T {
     }
 
     fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
-        self.into_serializable_steelval()
+        <T as Custom>::into_serializable_steelval(self)
     }
 
     fn drop_mut(&mut self, drop_handler: &mut IterativeDropHandler) {
@@ -312,6 +312,7 @@ pub trait FromSteelVal: Sized {
 
 pub trait PrimitiveAsRef<'a>: Sized {
     fn primitive_as_ref(val: &'a SteelVal) -> Result<Self>;
+    fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self>;
 }
 
 pub struct RestArgsIter<'a, T>(

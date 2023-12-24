@@ -11,7 +11,7 @@ use crate::{
     rerrs::ErrorKind,
     rvals::{
         as_underlying_type, Custom, CustomType, FutureResult, IntoSteelVal, Result, SRef,
-        SteelHashMap, SteelVal,
+        SerializableSteelVal, SteelHashMap, SteelVal,
     },
     values::functions::{BoxedDynFunction, StaticOrRcStr},
     SteelErr,
@@ -70,9 +70,23 @@ pub struct OpaqueFFIValue {
     pub inner: Gc<RefCell<Box<dyn CustomType>>>,
 }
 
+// #[repr(C)]
+// pub struct SendOpaqueFFIValue {
+//     pub name: RString,
+//     pub inner: RefCell<Box<dyn CustomType + Send>>,
+// }
+
+// impl Custom for SendOpaqueFFIValue {}
+
 impl Custom for OpaqueFFIValue {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
         Some(Ok(format!("#<{}>", self.name)))
+    }
+
+    // TODO: This is most likely, not correct. We're blindly taking the struct and now making
+    // it thread safe.
+    fn into_serializable_steelval(&mut self) -> Option<crate::rvals::SerializableSteelVal> {
+        self.inner.borrow_mut().as_serializable_steelval()
     }
 }
 
@@ -116,7 +130,12 @@ fn ffi_error(message: Cow<'static, str>) -> RBoxError {
 macro_rules! conversion_error {
     ($name:tt, $val:expr) => {
         RResult::RErr(ffi_error(
-            format!("Value unable to be converted to $name: {:?}", $val).into(),
+            format!(
+                "Value unable to be converted to {}: {:?}",
+                stringify!($name),
+                $val
+            )
+            .into(),
         ))
     };
 }
@@ -495,6 +514,43 @@ macro_rules! impl_register_fn_ffi {
                 self
             }
         }
+
+
+        impl<RET: IntoFFIVal, SELF: AsRefFFIVal, $($param: FromFFIVal,)* FN: Fn(&SELF, $($param),*) -> RET + SendSyncStatic>
+            RegisterFFIFn<FN, WrapperRef<(SELF, $($param,)*)>, RET> for FFIModule
+        {
+            fn register_fn(&mut self, name: &str, func: FN) -> &mut Self {
+                let f = move |args: RVec<FFIValue>| -> RResult<FFIValue, RBoxError> {
+                    if  args.len() != $arg_count + 1 {
+                        let error: Box<dyn std::error::Error + Send + Sync> = "arity mismatch".into();
+
+                        let rbox = RBoxError::from_box(error);
+
+                        return RResult::RErr(rbox);
+                    }
+
+                    let mut arg_iter = args.into_iter();
+                    let rarg1 = arg_iter.next().unwrap();
+
+                    let mut arg1 = ffi_try!(<SELF>::as_mut_ref(&rarg1));
+
+                    let res = func(&mut arg1, $(ffi_try!(<$param>::from_ffi_val(arg_iter.next().unwrap())),)*);
+
+                    res.into_ffi_val()
+                };
+
+                self.register_value(
+                    name,
+                    FFIValue::BoxedFunction(FFIBoxedDynFunction {
+                        name: RString::from(name),
+                        arity: 0,
+                        function: Arc::new(f),
+                    }),
+                );
+
+                self
+            }
+        }
     }
 }
 
@@ -616,7 +672,6 @@ pub enum FFIValue {
     Void,
     StringV(RString),
     Vector(RVec<FFIValue>),
-
     CharV {
         #[sabi(unsafe_opaque_field)]
         c: char,
@@ -807,7 +862,17 @@ pub fn as_ffi_value(value: &SteelVal) -> Result<FFIValue> {
             if let Some(c) = as_underlying_type::<OpaqueFFIValue>(c.borrow().as_ref()) {
                 Ok(FFIValue::Custom { custom: c.clone() })
             } else {
-                stop!(TypeMismatch => "This opaque type did not originate from an FFI boundary, and thus cannot be passed across it: {:?}", value);
+                // TODO: Re-enable this, so that the check is back in
+                // place. Otherwise, this could be dangerous?
+
+                Ok(FFIValue::Custom {
+                    custom: OpaqueFFIValue {
+                        name: RString::from(c.borrow().name()),
+                        inner: c.clone(),
+                    },
+                })
+
+                // stop!(TypeMismatch => "This opaque type did not originate from an FFI boundary, and thus cannot be passed across it: {:?}", value);
             }
         }
         SteelVal::HashMapV(h) => h

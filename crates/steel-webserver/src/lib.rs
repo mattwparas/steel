@@ -1,25 +1,17 @@
-#![allow(unused)]
-
-use axum::{extract::Query, http::StatusCode, routing::get, Json, Router};
+use axum::{extract::Query, http::StatusCode, routing::get, Router};
 use std::{collections::HashMap, net::SocketAddr};
 use steel::{
-    rvals::Custom,
+    rvals::{Custom, SerializableSteelVal},
     steel_vm::ffi::{FFIModule, FFIValue, IntoFFIVal, RegisterFFIFn},
-    SteelVal,
 };
 
 use crossbeam::channel::{unbounded, Receiver, Sender};
 
 use axum::extract::Path;
 
-thread_local! {
-    static POST: SteelVal = SteelVal::SymbolV("POST".into());
-    static GET: SteelVal = SteelVal::SymbolV("GET".into());
-}
-
 #[derive(Copy, Clone, PartialEq, Eq)]
 enum RequestType {
-    Post,
+    // Post,
     Get,
 }
 
@@ -27,16 +19,17 @@ enum RequestType {
 struct Request {
     typ: RequestType,
     path: String,
-    body: Option<serde_json::Value>,
+    body: Option<String>,
+    query_parameters: HashMap<String, String>,
 }
 
 impl Custom for Request {}
 
 impl Request {
-    fn get_type(&self) -> SteelVal {
+    fn get_type(&self) -> isize {
         match self.typ {
-            RequestType::Post => POST.with(|x| x.clone()),
-            RequestType::Get => GET.with(|x| x.clone()),
+            // RequestType::Post => 0,
+            RequestType::Get => 1,
         }
     }
 
@@ -44,27 +37,47 @@ impl Request {
         self.path.clone()
     }
 
-    fn get_body(&self) -> Option<serde_json::Value> {
+    fn get_body(&self) -> Option<String> {
         self.body.clone()
+    }
+
+    fn get_query_parameters(&self) -> FFIValue {
+        if self.query_parameters.is_empty() {
+            FFIValue::BoolV(false)
+        } else {
+            FFIValue::HashMap(
+                self.query_parameters
+                    .clone()
+                    .into_iter()
+                    .map(|(key, value)| {
+                        (key.into_ffi_val().unwrap(), value.into_ffi_val().unwrap())
+                    })
+                    .collect(),
+            )
+        }
     }
 }
 
 #[derive(Clone)]
 struct CommandMessenger {
     sender: Sender<Request>,
-    receiver: Receiver<Result<String, String>>,
+    receiver: Receiver<RequestResult>,
 }
 
-impl Custom for CommandMessenger {}
+impl Custom for CommandMessenger {
+    fn into_serializable_steelval(&mut self) -> Option<steel::rvals::SerializableSteelVal> {
+        Some(steel::rvals::SerializableSteelVal::Custom(Box::new(
+            self.clone(),
+        )))
+    }
+}
 
 impl CommandMessenger {
-    pub fn new(sender: Sender<Request>, receiver: Receiver<Result<String, String>>) -> Self {
+    pub fn new(sender: Sender<Request>, receiver: Receiver<RequestResult>) -> Self {
         Self { sender, receiver }
     }
 
     pub fn send_request(&self, request: Request) {
-        // todo!()
-
         // Send the message to the VM context to parse
         match self.sender.send(request) {
             Ok(_) => {}
@@ -72,7 +85,6 @@ impl CommandMessenger {
                 println!("Error: {e:?}")
             }
         };
-        // .expect("Failed to send message to VM");
     }
 }
 
@@ -87,20 +99,32 @@ impl WrappedReceiver {
     }
 }
 
-impl Custom for WrappedReceiver {}
+impl Custom for WrappedReceiver {
+    fn into_serializable_steelval(&mut self) -> Option<steel::rvals::SerializableSteelVal> {
+        Some(steel::rvals::SerializableSteelVal::Custom(Box::new(
+            self.clone(),
+        )))
+    }
+}
 
 #[derive(Clone)]
 struct WrappedSender {
-    sender: Sender<Result<String, String>>,
+    sender: Sender<RequestResult>,
 }
 
 impl WrappedSender {
-    fn send(&self, value: Result<String, String>) {
+    fn send(&self, value: RequestResult) {
         self.sender.send(value).unwrap()
     }
 }
 
-impl Custom for WrappedSender {}
+impl Custom for WrappedSender {
+    fn into_serializable_steelval(&mut self) -> Option<steel::rvals::SerializableSteelVal> {
+        Some(steel::rvals::SerializableSteelVal::Custom(Box::new(
+            self.clone(),
+        )))
+    }
+}
 
 fn setup_channels() -> Vec<FFIValue> {
     let (command_sender, vm_receiver) = unbounded();
@@ -119,40 +143,19 @@ fn setup_channels() -> Vec<FFIValue> {
     ]
 }
 
-// thread_local! {
-//     static MODULE: Rc<BuiltInModule> = create_module();
-// }
-
-// #[no_mangle]
-// fn create_module() -> Box<BuiltInModule> {
-//     let mut module = BuiltInModule::new("dylib/steel/webserver".to_string());
-
-//     // module.register_fn("toml->value", SteelTomlValue::as_value);
-
-//     module
-//         .register_fn("start-server!", spawn_server)
-//         .register_fn("setup-channels", setup_channels)
-//         .register_fn("receiver/recv", WrappedReceiver::recv)
-//         .register_fn("sender/send", WrappedSender::send)
-//         .register_fn("thread/join", WrappedJoinHandler::join)
-//         .register_fn("request-type", Request::get_type)
-//         .register_fn("request-path", Request::get_path)
-//         .register_fn("request-body", Request::get_body)
-//         .register_value("request-type/POST", POST.with(|x| x.clone()))
-//         .register_value("request-type/GET", GET.with(|x| x.clone()));
-
-//     // module.register_type::<SteelTomlValue>("toml?");
-
-//     // module.register_
-
-//     // module.register_value("outside-value", SteelVal::StringV("Hello world!".into()));
-//     // module.register_fn("hidden-function", hidden_function);
-
-//     // Rc::new(module)
-//     Box::new(module)
-// }
-
 steel::declare_module!(build_module);
+
+#[derive(Clone)]
+enum RequestResult {
+    Ok(String),
+    Err(String),
+}
+
+impl Custom for RequestResult {
+    fn into_serializable_steelval(&mut self) -> Option<steel::rvals::SerializableSteelVal> {
+        Some(SerializableSteelVal::Custom(Box::new(self.clone())))
+    }
+}
 
 pub fn build_module() -> FFIModule {
     let mut module = FFIModule::new("dylib/steel/webserver");
@@ -161,15 +164,14 @@ pub fn build_module() -> FFIModule {
         .register_fn("start-server!", spawn_server)
         .register_fn("setup-channels", setup_channels)
         .register_fn("receiver/recv", WrappedReceiver::recv)
-        // .register_fn("sender/send", WrappedSender::send)
+        .register_fn("sender/send", WrappedSender::send)
         .register_fn("thread/join", WrappedJoinHandler::join)
-        // .register_fn("request-type", Request::get_type)
         .register_fn("request-path", Request::get_path)
-        // .register_fn("request-body", Request::get_body)
-    ;
-
-    //     .register_value("request-type/POST", POST.with(|x| x.clone()))
-    //     .register_value("request-type/GET", GET.with(|x| x.clone()));
+        .register_fn("request-body", Request::get_body)
+        .register_fn("request-type", Request::get_type)
+        .register_fn("request-query-params", Request::get_query_parameters)
+        .register_fn("Response-Ok", RequestResult::Ok)
+        .register_fn("Response-Err", RequestResult::Err);
 
     module
 }
@@ -181,8 +183,6 @@ struct WrappedJoinHandler {
 impl WrappedJoinHandler {
     fn join(&mut self) {
         self.handle.take().unwrap().join().unwrap()
-
-        // self.handle.join().unwrap()
     }
 }
 
@@ -199,13 +199,6 @@ fn spawn_server(
             .build()
             .unwrap()
             .block_on(async {
-                // let (command_sender, vm_receiver) = unbounded();
-                // let (vm_sender, command_receiver) = unbounded();
-
-                // let command_messenger = CommandMessenger::new(command_sender, command_receiver);
-
-                // let post_messenger = command_messenger.clone();
-
                 let mut app = Router::new();
 
                 for route in routes {
@@ -215,29 +208,24 @@ fn spawn_server(
                         &route,
                         get(
                             |Path(path): Path<String>,
-                             Path(_params): Path<std::collections::HashMap<String, String>>,
-                             Query(_query): Query<HashMap<String, String>>,
-                             _json: Option<Json<serde_json::Value>>| async move {
-                                // println!("Receiving request");
-
-                                // println!("path parameters: {:?}", params);
-                                // println!("Query parameters: {:?}", query);
-                                // println!("Body: {:?}", json);
-
+                             Query(params): Query<std::collections::HashMap<String, String>>,
+                             body: Option<String>| async move {
                                 let request = Request {
                                     typ: RequestType::Get,
                                     path,
-                                    body: None,
+                                    body,
+                                    query_parameters: params,
                                 };
 
                                 messenger.send_request(request);
 
                                 match messenger.receiver.recv() {
-                                    Ok(Ok(v)) => Ok(v),
-                                    Ok(Err(_)) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+                                    Ok(RequestResult::Ok(v)) => Ok(v),
+                                    Ok(RequestResult::Err(_)) => {
+                                        Err(StatusCode::INTERNAL_SERVER_ERROR)
+                                    }
                                     Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
                                 }
-                                // messenger.receiver.recv().unwrap()
                             },
                         ),
                     );
@@ -257,14 +245,3 @@ fn spawn_server(
         handle: Some(handle),
     }
 }
-
-// async fn handler() -> String {
-//     let mut engine = Engine::new();
-//     let results = engine
-//         .compile_and_run_raw_program(
-//             "(define x 10) (define y 100) (define z (int->string (+ x y))) z",
-//         )
-//         .unwrap();
-//     // println!("{:?}", results);
-//     "Hello world".to_string()
-// }
