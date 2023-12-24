@@ -48,7 +48,7 @@ For the purposes of this example, we'll create a module that wraps the `MemInfo`
 the information there. Since we'll be implementing traits that are defined inside the `steel` crate, we'll
 need to create a struct to wrap the `sys_info::MemInfo` struct:
 
-```rust
+```rust,noplaypen
 struct MemoryInfo {
     info: sys_info::MemInfo,
 }
@@ -86,7 +86,7 @@ impl MemoryInfo {
 
 Now that we've done that, we can expose this to steel by implementing the `Custom` type for the struct, and declaring an `FFIModule`:
 
-```rust
+```rust,noplaypen
 // Using ABI Stable types is very important
 use steel::{
     declare_module,
