@@ -363,7 +363,7 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
                                 }
                             }
                             Some(Arity::AtLeast(arity)) => {
-                                if l.args.len() <= arity + 1 {
+                                if l.args.len() < arity + 1 {
                                     let span =
                                         l.first().unwrap().atom_syntax_object().unwrap().span;
 
