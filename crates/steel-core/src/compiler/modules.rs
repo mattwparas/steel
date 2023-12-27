@@ -29,6 +29,7 @@ use crate::{
 };
 use crate::{parser::expand_visitor::Expander, rvals::Result};
 
+use once_cell::sync::Lazy;
 use steel_parser::expr_list;
 
 use std::{
@@ -50,6 +51,7 @@ use log::{debug, info, log_enabled};
 use crate::parser::ast::IteratorExtensions;
 
 use super::{
+    compiler::KernelDefMacroSpec,
     passes::{
         begin::FlattenBegin,
         mangle::{collect_globals, NameMangler, NameUnMangler},
@@ -106,6 +108,8 @@ create_prelude!(
     for_syntax "#%private/steel/control",
     for_syntax "#%private/steel/contract"
 );
+
+pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| std::env::var("STEEL_HOME").ok());
 
 /// Manages the modules
 /// keeps some visited state on the manager for traversal
@@ -195,6 +199,8 @@ impl ModuleManager {
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
         builtin_modules: ModuleContainer,
+        lifted_kernel_environments: &mut HashMap<String, KernelDefMacroSpec>,
+        lifted_macro_environments: &mut HashSet<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
         // Wipe the visited set on entry
         self.visited.clear();
@@ -588,14 +594,47 @@ impl ModuleManager {
                     // }
 
                     if expander.changed || changed {
-                        expand(first_round_expanded, &module.macro_map)
+                        let fully_expanded = expand(first_round_expanded, &module.macro_map)?;
+
+                        let module_name = module.name.to_str().unwrap().to_string();
+
+                        // Expanding the kernel with only these macros...
+                        let (mut first_round_expanded, changed) = expand_kernel_in_env_with_change(
+                            fully_expanded,
+                            kernel.as_mut(),
+                            // We don't need to expand those here
+                            ModuleContainer::default(),
+                            module_name.clone(),
+                            // &kernel_macros_in_scope,
+                        )?;
+
+                        if changed {
+                            name_mangler.visit(&mut first_round_expanded);
+                        }
+
+                        lifted_kernel_environments.insert(
+                            module_name.clone(),
+                            KernelDefMacroSpec {
+                                env: module_name,
+                                exported: None,
+                                name_mangler: name_mangler.clone(),
+                            },
+                        );
+
+                        Ok(first_round_expanded)
                     } else {
                         Ok(first_round_expanded)
                     }
                 })
                 .collect::<Result<_>>()?;
 
+            // Global macro map - also need to expand with ALL macros
+            // post expansion in the target environment, which means we can't _just_
+            // extend the global macro map with the target in scope macros, we need to
+            // do something like the two pass expansion
             global_macro_map.extend(in_scope_macros);
+
+            lifted_macro_environments.insert(module.name.clone());
         }
 
         // Include the defines from the modules now imported
@@ -1762,7 +1801,36 @@ impl<'a> ModuleBuilder<'a> {
                     // }
 
                     if expander.changed || changed {
-                        expand(first_round_expanded, &module.macro_map)
+                        // expand(first_round_expanded, &module.macro_map)
+
+                        let fully_expanded = expand(first_round_expanded, &module.macro_map)?;
+
+                        let module_name = module.name.to_str().unwrap().to_string();
+
+                        // Expanding the kernel with only these macros...
+                        let (mut first_round_expanded, changed) = expand_kernel_in_env_with_change(
+                            fully_expanded,
+                            self.kernel.as_mut(),
+                            // We don't need to expand those here
+                            ModuleContainer::default(),
+                            module_name.clone(),
+                            // &kernel_macros_in_scope,
+                        )?;
+
+                        if changed {
+                            name_mangler.visit(&mut first_round_expanded);
+                        }
+
+                        // lifted_kernel_environments.insert(
+                        //     module_name.clone(),
+                        //     KernelDefMacroSpec {
+                        //         env: module_name,
+                        //         exported: None,
+                        //         name_mangler: name_mangler.clone(),
+                        //     },
+                        // );
+
+                        Ok(first_round_expanded)
                     } else {
                         Ok(first_round_expanded)
                     }
@@ -2192,13 +2260,10 @@ impl<'a> ModuleBuilder<'a> {
         let mut exprs_without_requires = Vec::new();
         let exprs = std::mem::take(&mut self.source_ast);
 
-        let home = std::env::var("STEEL_HOME")
-            .map(PathBuf::from)
-            .map(|mut x| {
-                x.push("cogs");
-                x
-            })
-            .ok();
+        let home = STEEL_HOME.clone().map(PathBuf::from).map(|mut x| {
+            x.push("cogs");
+            x
+        });
 
         fn walk(
             module_builder: &mut ModuleBuilder,

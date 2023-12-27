@@ -6,13 +6,13 @@ use crate::{
         map::SymbolMap,
         passes::{
             analysis::SemanticAnalysis, begin::flatten_begins_and_expand_defines,
-            reader::MultipleArityFunctions, shadow::RenameShadowedVariables,
+            reader::MultipleArityFunctions, shadow::RenameShadowedVariables, VisitorMutRefUnit,
         },
     },
     core::labels::Expr,
     parser::{
         ast::AstTools,
-        expand_visitor::{expand_kernel, expand_kernel_in_env},
+        expand_visitor::{expand_kernel, expand_kernel_in_env, expand_kernel_in_env_with_change},
         interner::InternedString,
         kernel::Kernel,
         parser::{lower_entire_ast, lower_macro_and_require_definitions},
@@ -57,7 +57,7 @@ use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 use super::{
     constants::SerializableConstantMap,
     modules::{CompiledModule, ModuleManager},
-    passes::analysis::Analysis,
+    passes::{analysis::Analysis, mangle::NameMangler},
     program::RawProgramWithSymbols,
 };
 
@@ -279,6 +279,13 @@ pub enum OptLevel {
 }
 
 #[derive(Clone)]
+pub(crate) struct KernelDefMacroSpec {
+    pub(crate) env: String,
+    pub(crate) exported: Option<HashSet<InternedString>>,
+    pub(crate) name_mangler: NameMangler,
+}
+
+#[derive(Clone)]
 pub struct Compiler {
     pub(crate) symbol_map: SymbolMap,
     pub(crate) constant_map: ConstantMap,
@@ -288,6 +295,12 @@ pub struct Compiler {
     pub(crate) kernel: Option<Kernel>,
     memoization_table: MemoizationTable,
     mangled_identifiers: HashSet<InternedString>,
+    // Try this out?
+    lifted_kernel_environments: HashMap<String, KernelDefMacroSpec>,
+    // Macros that... we need to compile against directly at the top level
+    // This is really just a hack, but it solves cases for interactively
+    // running at the top level using private macros.
+    lifted_macro_environments: HashSet<PathBuf>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -352,6 +365,8 @@ impl Compiler {
             kernel: None,
             memoization_table: MemoizationTable::new(),
             mangled_identifiers: HashSet::new(),
+            lifted_kernel_environments: HashMap::new(),
+            lifted_macro_environments: HashSet::new(),
         }
     }
 
@@ -371,6 +386,8 @@ impl Compiler {
             kernel: Some(kernel),
             memoization_table: MemoizationTable::new(),
             mangled_identifiers: HashSet::new(),
+            lifted_kernel_environments: HashMap::new(),
+            lifted_macro_environments: HashSet::new(),
         }
     }
 
@@ -539,6 +556,8 @@ impl Compiler {
             exprs,
             path,
             builtin_modules,
+            &mut self.lifted_kernel_environments,
+            &mut self.lifted_macro_environments,
         );
 
         #[cfg(not(feature = "modules"))]
@@ -626,15 +645,45 @@ impl Compiler {
         expanded_statements = expanded_statements
             .into_iter()
             .map(|x| {
+                let mut x = x;
+
+                for module in &self.lifted_macro_environments {
+                    if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
+                        x = crate::parser::expand_visitor::expand(x, macro_env)?
+                    }
+                }
+
+                // Lift all of the kernel macros as well?
+                for (module, lifted_env) in &mut self.lifted_kernel_environments {
+                    let mut changed = false;
+
+                    (x, changed) = expand_kernel_in_env_with_change(
+                        x,
+                        self.kernel.as_mut(),
+                        builtin_modules.clone(),
+                        module.to_string(),
+                    )?;
+
+                    if changed {
+                        lifted_env.name_mangler.visit(&mut x);
+                    }
+                }
+
                 expand_kernel_in_env(
                     x,
                     self.kernel.as_mut(),
                     builtin_modules.clone(),
                     "top-level".to_string(),
                 )
+                // TODO: If we have this, then we have to lower all of the expressions again
                 .and_then(|x| crate::parser::expand_visitor::expand(x, &self.macro_env))
             })
             .collect::<Result<Vec<_>>>()?;
+
+        expanded_statements = expanded_statements
+            .into_iter()
+            .map(lower_entire_ast)
+            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
 
         log::debug!(target: "expansion-phase", "Beginning constant folding");
 
@@ -750,7 +799,22 @@ impl Compiler {
 
         expanded_statements = expanded_statements
             .into_iter()
-            .map(|x| {
+            .map(|mut x| {
+                // // Expanded any / all lifted environments:
+                // let mut x = x;
+
+                // // Lift all of the kernel macros as well?
+                // for (module, lifted_env) in &self.lifted_kernel_environments {
+                //     dbg!(&module);
+
+                //     x = expand_kernel_in_env(
+                //         x,
+                //         self.kernel.as_mut(),
+                //         builtin_modules.clone(),
+                //         module.to_string(),
+                //     )?;
+                // }
+
                 expand_kernel_in_env(
                     x,
                     self.kernel.as_mut(),
@@ -769,6 +833,30 @@ impl Compiler {
         expanded_statements = expanded_statements
             .into_iter()
             .map(|x| {
+                let mut x = x;
+
+                for module in &self.lifted_macro_environments {
+                    if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
+                        x = crate::parser::expand_visitor::expand(x, macro_env)?
+                    }
+                }
+
+                // Lift all of the kernel macros as well?
+                for (module, lifted_env) in &mut self.lifted_kernel_environments {
+                    let mut changed = false;
+
+                    (x, changed) = expand_kernel_in_env_with_change(
+                        x,
+                        self.kernel.as_mut(),
+                        builtin_modules.clone(),
+                        module.to_string(),
+                    )?;
+
+                    if changed {
+                        lifted_env.name_mangler.visit(&mut x);
+                    }
+                }
+
                 expand_kernel_in_env(
                     x,
                     self.kernel.as_mut(),
@@ -780,7 +868,10 @@ impl Compiler {
             })
             .collect::<Result<Vec<_>>>()?;
 
-        // println!("{:#?}", expanded_statements);
+        expanded_statements = expanded_statements
+            .into_iter()
+            .map(lower_entire_ast)
+            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
 
         // Let's do the @doc macro here?
 

@@ -128,6 +128,7 @@ impl<'a> VisitorMutRefUnit for NameUnMangler<'a> {
     }
 }
 
+#[derive(Clone)]
 pub struct NameMangler {
     pub(crate) globals: HashSet<InternedString>,
     prefix: String,
