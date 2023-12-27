@@ -542,7 +542,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                     // directly from the stack
                     self.push(
                         LabeledInstruction::builder(OpCode::COPYCAPTURESTACK)
-                            .payload(var.stack_offset.unwrap())
+                            .payload(var.stack_offset.ok_or_else(crate::throw!(Generic => format!("Error compiling this function - are you missing an expression after a local define?"); lambda_function.location.span))?)
                             .contents(SyntaxObject::default(TokenType::Identifier(*key))),
                     );
                 }

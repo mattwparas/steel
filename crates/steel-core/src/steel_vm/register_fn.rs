@@ -524,6 +524,132 @@ impl<
 }
 
 impl<
+        RET: IntoSteelVal,
+        SELF: AsRefMutSteelValFromRef,
+        INNER: FromSteelVal + Clone + AsRefSteelValFromUnsized<INNER>,
+        FN: Fn(&mut SELF, &[INNER]) -> RET + SendSyncStatic,
+    > RegisterFn<FN, MarkerWrapper7<(SELF, INNER)>, RET> for Engine
+{
+    fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+        // use std::Borrow();
+
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
+            }
+
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+
+            let temp_res = INNER::as_ref_from_unsized(&args[1])?;
+
+            let res = func(&mut input, temp_res.as_slice_repr());
+
+            res.into_steelval()
+        };
+
+        self.register_value(
+            name,
+            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+                Arc::new(f),
+                Some(name),
+                Some(2),
+            ))),
+        )
+    }
+
+    fn register_owned_fn(&mut self, name: String, func: FN) -> &mut Self {
+        // use std::Borrow();
+
+        let cloned_name = name.clone();
+
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
+            }
+
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+
+            let temp_res = INNER::as_ref_from_unsized(&args[1])?;
+
+            let res = func(&mut input, temp_res.as_slice_repr());
+
+            res.into_steelval()
+        };
+
+        self.register_value(
+            &cloned_name.to_string(),
+            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+                Arc::new(f),
+                Some(cloned_name.into()),
+                Some(2),
+            ))),
+        )
+    }
+}
+
+impl<
+        RET: IntoSteelVal,
+        SELF: AsRefMutSteelValFromRef,
+        INNER: FromSteelVal + Clone + AsRefSteelValFromUnsized<INNER>,
+        FN: Fn(&mut SELF, &[INNER]) -> RET + SendSyncStatic,
+    > RegisterFn<FN, MarkerWrapper7<(SELF, INNER)>, RET> for BuiltInModule
+{
+    fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
+        // use std::Borrow();
+
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
+            }
+
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+
+            let temp_res = INNER::as_ref_from_unsized(&args[1])?;
+
+            let res = func(&mut input, temp_res.as_slice_repr());
+
+            res.into_steelval()
+        };
+
+        self.register_value(
+            name,
+            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+                Arc::new(f),
+                Some(name),
+                Some(2),
+            ))),
+        )
+    }
+
+    fn register_owned_fn(&mut self, name: String, func: FN) -> &mut Self {
+        let cloned_name = name.clone();
+
+        let f = move |args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 2 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
+            }
+
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+
+            let temp_res = INNER::as_ref_from_unsized(&args[1])?;
+
+            let res = func(&mut input, temp_res.as_slice_repr());
+
+            res.into_steelval()
+        };
+
+        self.register_value(
+            &cloned_name.to_string(),
+            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+                Arc::new(f),
+                Some(cloned_name.into()),
+                Some(2),
+            ))),
+        )
+    }
+}
+
+impl<
         // RET: IntoSteelVal,
         'a,
         SELF: AsRefMutSteelValFromRef + 'a,

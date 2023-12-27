@@ -1436,12 +1436,12 @@ fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
     Some(Ok(SteelVal::HeapAllocated(allocated_var)))
 }
 
-#[steel_derive::function(name = "unbox")]
+#[steel_derive::function(name = "unbox-strong")]
 pub fn unbox(value: &Gc<RefCell<SteelVal>>) -> SteelVal {
     value.borrow().clone()
 }
 
-#[steel_derive::function(name = "set-box!")]
+#[steel_derive::function(name = "set-strong-box!")]
 pub fn set_box(value: &Gc<RefCell<SteelVal>>, update_to: SteelVal) {
     *value.borrow_mut() = update_to;
 }
