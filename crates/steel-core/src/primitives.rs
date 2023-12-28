@@ -28,6 +28,7 @@ pub use lists::UnRecoverableResult;
 
 use crate::values::closed::HeapRef;
 use crate::values::lists::List;
+use crate::values::structs::UserDefinedStruct;
 pub use control::ControlOperations;
 pub use fs::fs_module;
 pub use io::IoFunctions;
@@ -414,6 +415,22 @@ impl<'a, L: PrimitiveAsRef<'a>, R: PrimitiveAsRef<'a>> PrimitiveAsRef<'a> for Ei
         L::maybe_primitive_as_ref(val)
             .map(Either::Left)
             .or_else(|| R::maybe_primitive_as_ref(val).map(Either::Right))
+    }
+}
+
+impl<'a> PrimitiveAsRef<'a> for &'a UserDefinedStruct {
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        Self::maybe_primitive_as_ref(val).ok_or_else(
+            crate::throw!(ConversionError => format!("Cannot convert value to struct: {}", val)),
+        )
+    }
+
+    fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self> {
+        if let SteelVal::CustomStruct(s) = val {
+            Some(s)
+        } else {
+            None
+        }
     }
 }
 
