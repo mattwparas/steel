@@ -19,13 +19,31 @@
 
 (begin-for-syntax
 
-  ;; Tells me if this is a free variable (for now)
-  ; (define (var? x)
-  ;   (and (symbol? x) (starts-with? (symbol->string x) "?")))
-
   (define (compile-cons-to-list pattern depth)
 
     (cond
+
+      [(and (list? pattern)
+            (not (null? pattern))
+            (= (length pattern) 3)
+            (equal? (car pattern) 'cons)
+            (list? (caddr pattern))
+            (equal? (caaddr pattern) 'append))
+
+       (define first (cadr pattern))
+       (define first-depth (if (and (list? first) (not (quoted? first))) 0 (+ 1 depth)))
+
+       (define rest (cadr (caddr pattern)))
+
+       ; (displayln "append case: " rest)
+
+       (if (= depth 0)
+           (cons 'list
+                 (cons (compile-cons-to-list (cadr pattern) first-depth)
+                       (cons (compile-cons-to-list rest (+ 1 depth)) '(...))))
+
+           (cons (compile-cons-to-list (cadr pattern) first-depth)
+                 (cons (compile-cons-to-list rest depth) '(...))))]
 
       [(and (list? pattern)
             (not (null? pattern))
@@ -35,8 +53,6 @@
 
        (define first (cadr pattern))
        (define first-depth (if (and (list? first) (not (quoted? first))) 0 (+ 1 depth)))
-
-       ; (displayln "GETTING HERE" first " " first-depth " " depth)
 
        (if (= depth 0)
            (cons 'list (cons (compile-cons-to-list (cadr pattern) first-depth) '()))
@@ -124,32 +140,9 @@
                                 (+ 1 cdr-depth))
                #f)]
 
-         [else (error "list pattern must start with `list - found " (car pattern))])
-
-       ; (if (or (equal? (car pattern) 'list) (equal? (car pattern) 'cons))
-
-       ;     `(if (list? ,input)
-
-       ;          ;; Recur after dropping the list
-       ;          ,(match-p-syntax (cdr pattern)
-       ;                           input
-       ;                           final-body-expr
-       ;                           depth
-       ;                           bound-vars
-       ;                           check-var?
-       ;                           (+ 1 cdr-depth))
-       ;          #f)
-
-       ;     (error "list pattern must start with `list - found " (car pattern)))
-       ]
+         [else (error "list pattern must start with `list - found " (car pattern))])]
 
       [(and (list? pattern) (not (null? pattern)) (starts-with-many? pattern))
-
-       ; (displayln "GETTING HERE " pattern)
-
-       ; (let ([pattern (if (and (= cdr-depth 0) (not (equal? (car pattern) 'list)))
-       ;                    (error "Expected `list` to start list pattern")
-       ;                    (if (equal? (car pattern) 'list) (cdr pattern) pattern))])
 
        (if (null? (cddr pattern))
 
@@ -163,9 +156,7 @@
 
                       ,final-body-expr)
 
-                   #f)))
-       ; )
-       ]
+                   #f)))]
 
       ;; If the pattern is to be ignored, just return the body - the automatically match
       [(ignore? pattern) final-body-expr]
@@ -232,7 +223,13 @@
            #f)]))
 
   (define (go-match pattern input final-body-expr)
+
+    (displayln pattern)
+
     (define compile-pattern (compile-cons-to-list pattern 0))
+
+    (displayln compile-pattern)
+
     (match-p-syntax compile-pattern input final-body-expr 0 (hashset) #f 0)))
 
 ;; Match a single pattern
@@ -565,14 +562,7 @@
 ; (remove-constant-anonymous-functions my-expr)
 
 (define (identify-sequential-maps expr)
-
   (match expr
-    ; [(list 'map func1 (list 'map func2 lst))
-    ;  `(map (lambda (x)
-
-    ;          (,func2 (,func1 x)))
-    ;        ,lst)]
-
     ;; Matching against quasiquotes, should help with real pattern matching?
     [`(map ,func1 (map ,func2 ,lst))
      `(map (lambda (x)
@@ -584,21 +574,23 @@
 (identify-sequential-maps '(map add1 (range 0 100)))
 (identify-sequential-maps '(map add1 (map sub1 (range 0 100))))
 
-(define (remove-constant-anonymous-functions expr)
-  (match expr
-    [`((lambda (,var) ,body) ,arg) (if (constant? body) body expr)]
-    [(list args ...) (map remove-constant-anonymous-functions args)]
-    [_ expr]))
-
 (define my-expr
   '(define (foo-bar x)
      ((lambda (y) 100) x)))
 
+; (match 'applesauce
+;   [(list x y z) (+ x y z)]
+;   [(list x rest ...) rest]
+;   [a a])
+
+(define (remove-constant-anonymous-functions expr)
+  (match expr
+    [`((lambda (,var) ,body) ,@args) (if (constant? body) body expr)]
+    [(list args ...) (map remove-constant-anonymous-functions args)]
+    [_ expr]))
+
 ;; Nano pass framework for rewriting and incrementally lowering!
 (remove-constant-anonymous-functions my-expr)
-
-(match (list 10 20 30)
-  [(x y z) (+ x y z)])
 
 ; (match (list 10 20 30)
 ;   [(list 100 200 foo ...) foo]

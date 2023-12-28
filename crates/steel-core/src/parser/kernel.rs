@@ -219,8 +219,6 @@ impl Kernel {
         exprs: &mut Vec<ExprKind>,
         environment: String,
     ) -> Result<()> {
-        println!("Loading syntax transformers");
-
         enum IndexKind {
             DefMacro(usize),
             BeginForSyntax(usize),
@@ -305,8 +303,6 @@ impl Kernel {
         // Create the generated module
         let generated_module = ExprKind::List(steel_parser::ast::List::new(def_macro_exprs));
 
-        println!("{}", generated_module.to_pretty(60));
-
         // TODO: Load this as a module instead, so that way we have some real
         // separation from each other.
         //
@@ -324,8 +320,6 @@ impl Kernel {
         // for the purposes of this.
         self.engine
             .run_raw_program_from_exprs(vec![generated_module])?;
-
-        println!("Finished");
 
         Ok(())
     }
@@ -461,6 +455,15 @@ impl Kernel {
         Ok(())
 
         // todo!("Run through every expression, and memoize them by calling (set! <ident> (make-memoize <ident>))")
+    }
+
+    pub fn exported_defmacros(&self, environment: &str) -> Option<HashSet<InternedString>> {
+        self.transformers
+            .set
+            .read()
+            .unwrap()
+            .get(environment)
+            .cloned()
     }
 
     pub fn contains_syntax_object_macro(

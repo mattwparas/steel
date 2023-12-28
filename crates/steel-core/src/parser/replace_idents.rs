@@ -141,6 +141,10 @@ impl<'a> ReplaceExpressions<'a> {
 
     fn expand_ellipses(&mut self, vec_exprs: Vec<ExprKind>) -> Result<Vec<ExprKind>> {
         if let Some(ellipses_pos) = vec_exprs.iter().position(check_ellipses) {
+            if ellipses_pos == 0 {
+                return Ok(vec_exprs);
+            }
+
             let variable_to_lookup = vec_exprs.get(ellipses_pos - 1).ok_or_else(
                 throw!(BadSyntax => "macro expansion failed, could not find variable when expanding ellipses")
             )?;
