@@ -232,13 +232,7 @@
            #f)]))
 
   (define (go-match pattern input final-body-expr)
-
-    ; (displayln pattern)
-
     (define compile-pattern (compile-cons-to-list pattern 0))
-
-    ; (displayln compile-pattern)
-
     (match-p-syntax compile-pattern input final-body-expr 0 (hashset) #f 0)))
 
 ;; Match a single pattern
@@ -556,25 +550,19 @@
 (define (constant? x)
   (or (number? x) (quoted? x)))
 
-(define (remove-constant-anonymous-functions expr)
+; (define (remove-constant-anonymous-functions expr)
+;   (match expr
+;     [`((lambda (,var) ,body) ,arg) (if (constant? body) body expr)]
+;     [(list args ...) (map remove-constant-anonymous-functions args)]
+;     [_ expr]))
 
-  (match expr
+; (define my-expr
 
-    ; [(list (list 'lambda (list var) body) arg) (if (constant? body) body expr)]
-
-    [`((lambda (,var) ,body) ,arg) (if (constant? body) body expr)]
-
-    [(list args...) (map remove-constant-anonymous-functions args...)]
-
-    [_ expr]))
-
-(define my-expr
-
-  '(define (foo-bar x)
-     ((lambda (y) 100) x)))
+;   '(define (foo-bar x)
+;      ((lambda (y) 100) x)))
 
 ;; Nano pass framework for rewriting and incrementally lowering!
-(remove-constant-anonymous-functions my-expr)
+; (remove-constant-anonymous-functions my-expr)
 
 (define (identify-sequential-maps expr)
 
@@ -595,6 +583,26 @@
 
 (identify-sequential-maps '(map add1 (range 0 100)))
 (identify-sequential-maps '(map add1 (map sub1 (range 0 100))))
+
+(define (remove-constant-anonymous-functions expr)
+  (match expr
+    [`((lambda (,var) ,body) ,arg) (if (constant? body) body expr)]
+    [(list args ...) (map remove-constant-anonymous-functions args)]
+    [_ expr]))
+
+(define my-expr
+  '(define (foo-bar x)
+     ((lambda (y) 100) x)))
+
+;; Nano pass framework for rewriting and incrementally lowering!
+(remove-constant-anonymous-functions my-expr)
+
+(match (list 10 20 30)
+  [(x y z) (+ x y z)])
+
+; (match (list 10 20 30)
+;   [(list 100 200 foo ...) foo]
+;   [(list 10 args ...) args])
 
 ; (match (list 10 20 30 40)
 ;   [(list 10 20 30 40) (error "uh oh!")])

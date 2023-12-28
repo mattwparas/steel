@@ -25,9 +25,7 @@ use steel_parser::expr_list;
 use super::{
     ast::{ExprKind, TryFromSteelValVisitorForExprKind},
     interner::InternedString,
-    replace_idents::RewriteSpan,
     span_visitor::get_span,
-    visitors::ConsumingVisitor,
 };
 
 thread_local! {
@@ -221,6 +219,8 @@ impl Kernel {
         exprs: &mut Vec<ExprKind>,
         environment: String,
     ) -> Result<()> {
+        println!("Loading syntax transformers");
+
         enum IndexKind {
             DefMacro(usize),
             BeginForSyntax(usize),
@@ -305,6 +305,8 @@ impl Kernel {
         // Create the generated module
         let generated_module = ExprKind::List(steel_parser::ast::List::new(def_macro_exprs));
 
+        println!("{}", generated_module.to_pretty(60));
+
         // TODO: Load this as a module instead, so that way we have some real
         // separation from each other.
         //
@@ -322,6 +324,8 @@ impl Kernel {
         // for the purposes of this.
         self.engine
             .run_raw_program_from_exprs(vec![generated_module])?;
+
+        println!("Finished");
 
         Ok(())
     }

@@ -111,8 +111,6 @@
 
   (define result (struct-impl struct-name fields options))
 
-  (displayln (syntax-span expr))
-
   (syntax/loc result
     (syntax-span expr)))
 
