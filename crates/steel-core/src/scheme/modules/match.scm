@@ -1,7 +1,7 @@
 ;; These _don't_ need to be provided for syntax.
 ;; However in the mean time, this will work.
-(provide (for-syntax match)
-         (for-syntax match-define))
+(provide match
+         match-define)
 
 ;; ------------------- match functions ----------------------
 
