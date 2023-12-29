@@ -1,7 +1,7 @@
-;; Sets of useful ideas for things
-;; #lang racket
-
-(provide (for-syntax match))
+;; These _don't_ need to be provided for syntax.
+;; However in the mean time, this will work.
+(provide (for-syntax match)
+         (for-syntax match-define))
 
 ;; ------------------- match functions ----------------------
 
@@ -28,9 +28,7 @@
     (concat-symbols (gensym) 'match identifier))
 
   (define (compile-cons-to-list pattern depth)
-
     (cond
-
       [(and (list? pattern)
             (not (null? pattern))
             (= (length pattern) 3)
@@ -42,8 +40,6 @@
        (define first-depth (if (and (list? first) (not (quoted? first))) 0 (+ 1 depth)))
 
        (define rest (cadr (caddr pattern)))
-
-       ; (displayln "append case: " rest)
 
        (if (= depth 0)
            (cons 'list
@@ -61,8 +57,6 @@
 
        (define first (cadr pattern))
        (define first-depth (if (and (list? first) (not (quoted? first))) 0 (+ 1 depth)))
-
-       ; (displayln "GETTING HERE" first " " first-depth " " depth)
 
        (if (= depth 0)
            (cons 'list (cons (compile-cons-to-list (cadr pattern) first-depth) '()))
@@ -123,22 +117,20 @@
     (~> n number->string string->symbol))
 
   ;; TODO: Insert a check to remove the `list` part from the pattern if the cdr-depth is 0?
-  (define (match-p-syntax pattern input final-body-expr depth bound-vars check-var? cdr-depth)
-
-    ; (displayln pattern)
-    ; (displayln "Cdr depth: " cdr-depth)
+  (define (match-p-syntax pattern
+                          input
+                          final-body-expr
+                          depth
+                          bound-vars
+                          check-var?
+                          cdr-depth
+                          introduced-identifiers)
 
     (cond
-
       [(quoted? pattern) `(and (equal? ,pattern ,input) ,final-body-expr)]
-
       [(and (list? pattern) (not (null? pattern)) (= cdr-depth 0))
-
-       ; (displayln "GETTING HERE: " pattern)
-
        (cond
          [(equal? (car pattern) 'list)
-
           `(if (list? ,input)
                ;; Recur after dropping the list
                ,(match-p-syntax (cdr pattern)
@@ -147,26 +139,31 @@
                                 depth
                                 bound-vars
                                 check-var?
-                                (+ 1 cdr-depth))
+                                (+ 1 cdr-depth)
+                                introduced-identifiers)
                #f)]
 
          [else (error "list pattern must start with `list - found " (car pattern))])]
 
       [(and (list? pattern) (not (null? pattern)) (starts-with-many? pattern))
-
        (if (null? (cddr pattern))
+           (begin
+             (vector-push! introduced-identifiers (car pattern))
 
-           `(let ([,(car pattern) ,input]) ,final-body-expr)
+             `(let ([,(car pattern) ,input]) ,final-body-expr))
+           (begin
 
-           `(let ([collected (collect-until-last ,input)])
-              ,(if (null? (cdddr pattern))
+             (vector-push! introduced-identifiers (car (cdr pattern)))
+             (vector-push! introduced-identifiers (car pattern))
 
-                   `(let ([,(car (cdr pattern)) (car collected)]
-                          [,(car pattern) (reverse (car (cdr collected)))])
+             `(let ([collected (collect-until-last ,input)])
+                ,(if (null? (cdddr pattern))
+                     `(let ([,(car (cdr pattern)) (car collected)]
+                            [,(car pattern) (reverse (car (cdr collected)))])
 
-                      ,final-body-expr)
+                        ,final-body-expr)
 
-                   #f)))]
+                     #f))))]
 
       ;; If the pattern is to be ignored, just return the body - the automatically match
       [(ignore? pattern) final-body-expr]
@@ -178,10 +175,11 @@
 
        (if check-var?
            `(if (equal? ,pattern ,input) ,final-body-expr #f)
+           (begin
+             ;; Keep track of the introduced identifiers
+             (vector-push! introduced-identifiers pattern)
 
-           `(let ([,pattern ,input])
-
-              ,final-body-expr))]
+             `(let ([,pattern ,input]) ,final-body-expr)))]
 
       ;; If the pattern is the same, just return whether they match
       [(atom? pattern) `(and (equal? ,pattern ,input) ,final-body-expr)]
@@ -213,7 +211,8 @@
           (if car-pattern-is-atom? (hashset-insert bound-vars (car pattern)) bound-vars)
           should-check-var?
           ;; Increment the cdr depth since we're traversing across the list
-          (+ 1 cdr-depth)))
+          (+ 1 cdr-depth)
+          introduced-identifiers))
 
        (if remaining
 
@@ -228,14 +227,39 @@
                     (+ 1 depth)
                     (if car-pattern-is-atom? (hashset-insert bound-vars (car pattern)) bound-vars)
                     should-check-var?
-                    0))
+                    0
+                    introduced-identifiers))
                 #f)
 
            #f)]))
 
-  (define (go-match pattern input final-body-expr)
+  (define (go-match pattern input final-body-expr introduced-identifiers)
     (define compile-pattern (compile-cons-to-list pattern 0))
-    (match-p-syntax compile-pattern input final-body-expr 0 (hashset) #f 0)))
+    (match-p-syntax compile-pattern input final-body-expr 0 (hashset) #f 0 introduced-identifiers)))
+
+(defmacro (single-match-define expression)
+          (define unwrapped (syntax-e expression))
+          (define variable (syntax->datum (second unwrapped)))
+          (define pattern (syntax->datum (third unwrapped)))
+          (define body (list-ref unwrapped 3))
+          (define introduced-identifiers (mutable-vector))
+          (define res (go-match pattern variable body introduced-identifiers))
+          ;; I _think_ this drains the values from the vector into the list?
+          (define list-identifiers (reverse (mutable-vector->list introduced-identifiers)))
+          (define temp (gensym))
+          (define final-expr
+            `(define-values (,@list-identifiers)
+               (let ([,temp ,(go-match pattern variable `(list ,@list-identifiers) (mutable-vector))])
+                 (if (not (equal? #f))
+                     ,temp
+                     (error-with-span (quote ,(syntax-span (third unwrapped)))
+                                      "Unable to match the given expression: "
+                                      ,variable
+                                      "to any of the patterns")))))
+          ; (displayln (syntax-span expression))
+          ; (displayln final-expr)
+          (syntax/loc final-expr
+            (syntax-span expression)))
 
 ;; Match a single pattern
 (defmacro (single-match expression)
@@ -245,10 +269,12 @@
           (define variable (syntax->datum (second unwrapped)))
           (define pattern (syntax->datum (third unwrapped)))
           (define body (list-ref unwrapped 3))
-          (define res (go-match pattern variable body))
-          ; (displayln res)
-          ; (displayln unwrapped)
-          ; (displayln "Variable span: " (syntax-span (second unwrapped)))
+          ;; Keep track of all of the identifiers that this
+          ;; expression introduces
+          ;; TODO: Keep one top level around and clear each time. Then
+          ;; we won't keep around any garbage
+          (define introduced-identifiers (mutable-vector))
+          (define res (go-match pattern variable body introduced-identifiers))
           (syntax/loc res
             (syntax-span expression)))
 
@@ -283,6 +309,11 @@
        (if (not (equal? #f match?))
            match?
            (error! "Unable to match expression: " expr " to any of the given patterns")))]))
+
+(define-syntax match-define
+  (syntax-rules ()
+    [(match-define pattern expr)
+     (let ([evald-expr expr]) (single-match-define evald-expr pattern 'empty-body))]))
 
 (define-syntax match
   (syntax-rules ()
