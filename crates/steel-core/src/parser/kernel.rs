@@ -25,9 +25,7 @@ use steel_parser::expr_list;
 use super::{
     ast::{ExprKind, TryFromSteelValVisitorForExprKind},
     interner::InternedString,
-    replace_idents::RewriteSpan,
     span_visitor::get_span,
-    visitors::ConsumingVisitor,
 };
 
 thread_local! {
@@ -459,6 +457,15 @@ impl Kernel {
         // todo!("Run through every expression, and memoize them by calling (set! <ident> (make-memoize <ident>))")
     }
 
+    pub fn exported_defmacros(&self, environment: &str) -> Option<HashSet<InternedString>> {
+        self.transformers
+            .set
+            .read()
+            .unwrap()
+            .get(environment)
+            .cloned()
+    }
+
     pub fn contains_syntax_object_macro(
         &self,
         ident: &InternedString,
@@ -539,9 +546,18 @@ impl Kernel {
             .call_function_with_args(function, vec![syntax_objects])
             .map_err(|x| x.set_span(span))?;
 
+        // dbg!(&result);
+
         // This shouldn't be lowering all the way. It should just be back to list right?
         TryFromSteelValVisitorForExprKind::root(&result)
-            // TODO: We don't want this forever, but for now its okay
-            .and_then(|x| RewriteSpan::new(span).visit(x))
+
+        // let span = result.as_ref().map(get_span);
+
+        // dbg!(&span);
+
+        // result
+
+        // TODO: We don't want this forever, but for now its okay
+        // .and_then(|x| RewriteSpan::new(span).visit(x))
     }
 }

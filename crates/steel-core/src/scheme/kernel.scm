@@ -109,7 +109,10 @@
       ; (displayln raw)
       (if (empty? raw) raw (map syntax->datum raw))))
 
-  (struct-impl struct-name fields options))
+  (define result (struct-impl struct-name fields options))
+
+  (syntax/loc result
+    (syntax-span expr)))
 
 ;; Macro for creating a new struct, in the form of:
 ;; `(struct <struct-name> (fields ...) options ...)`

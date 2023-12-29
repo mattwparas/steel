@@ -1450,6 +1450,15 @@ pub fn black_box(_: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::Void)
 }
 
+#[steel_derive::function(name = "struct->list")]
+pub fn struct_to_list(value: &UserDefinedStruct) -> Result<SteelVal> {
+    if value.is_transparent() {
+        Ok(SteelVal::ListV(value.fields.clone().into()))
+    } else {
+        Ok(SteelVal::BoolV(false))
+    }
+}
+
 fn meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta");
     module
@@ -1478,9 +1487,7 @@ fn meta_module() -> BuiltInModule {
             "#%struct-property-ref",
             |value: &UserDefinedStruct, key: SteelVal| UserDefinedStruct::get(value, &key),
         )
-        // .register_value("struct-ref", struct_ref())
-        // .register_value("struct->list", struct_to_list())
-        // .register_value("struct->vector", struct_to_vector())
+        .register_native_fn_definition(STRUCT_TO_LIST_DEFINITION)
         .register_value("expand!", SteelVal::FuncV(super::meta::expand_macros))
         .register_value("read!", SteelVal::FuncV(super::meta::read))
         .register_value(
@@ -1576,6 +1583,7 @@ fn syntax_module() -> BuiltInModule {
         .register_fn("syntax->datum", crate::rvals::Syntax::syntax_datum)
         .register_fn("syntax-loc", crate::rvals::Syntax::syntax_loc)
         .register_fn("syntax/loc", crate::rvals::Syntax::new)
+        .register_fn("syntax-span", crate::rvals::Syntax::syntax_loc)
         .register_fn("#%syntax/raw", crate::rvals::Syntax::proto)
         .register_fn("syntax-e", crate::rvals::Syntax::syntax_e)
         .register_value("syntax?", gen_pred!(SyntaxObject));

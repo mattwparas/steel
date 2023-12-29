@@ -97,7 +97,8 @@ declare_builtins!(
     "#%private/steel/print" => "../scheme/print.scm",
     "#%private/steel/control" => "../scheme/modules/parameters.scm",
     "#%private/steel/reader" => "../scheme/modules/reader.scm",
-    "#%private/steel/stdlib" => "../scheme/stdlib.scm"
+    "#%private/steel/stdlib" => "../scheme/stdlib.scm",
+    "#%private/steel/match" => "../scheme/modules/match.scm"
 );
 
 create_prelude!(
@@ -105,8 +106,10 @@ create_prelude!(
     "#%private/steel/contract",
     "#%private/steel/print",
     "#%private/steel/reader",
+    "#%private/steel/match",
     for_syntax "#%private/steel/control",
     for_syntax "#%private/steel/contract"
+    // for_syntax "#%private/steel/match"
 );
 
 pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| std::env::var("STEEL_HOME").ok());
@@ -538,6 +541,39 @@ impl ModuleManager {
             let kernel_macros_in_scope: HashSet<_> =
                 module.provides_for_syntax.iter().cloned().collect();
 
+            // let defmacros_exported: HashSet<_> = module.
+
+            // dbg!(&kernel_macros_in_scope);
+
+            let module_name = module.name.to_str().unwrap().to_string();
+
+            if let Some(kernel) = kernel.as_mut() {
+                if kernel.exported_defmacros(&module_name).is_some() {
+                    lifted_kernel_environments.insert(
+                        module_name.clone(),
+                        KernelDefMacroSpec {
+                            env: module_name,
+                            exported: None,
+                            name_mangler: name_mangler.clone(),
+                        },
+                    );
+                }
+            }
+
+            // TODO: This isn't right - only check if there are defmacro things
+            // that we need to lift - just check the values that are in the defmacros
+            // environment in the kernel
+            // if !kernel_macros_in_scope.is_empty() {
+            //     lifted_kernel_environments.insert(
+            //         module_name.clone(),
+            //         KernelDefMacroSpec {
+            //             env: module_name,
+            //             exported: None,
+            //             name_mangler: name_mangler.clone(),
+            //         },
+            //     );
+            // }
+
             ast = ast
                 .into_iter()
                 .map(|x| {
@@ -612,14 +648,14 @@ impl ModuleManager {
                             name_mangler.visit(&mut first_round_expanded);
                         }
 
-                        lifted_kernel_environments.insert(
-                            module_name.clone(),
-                            KernelDefMacroSpec {
-                                env: module_name,
-                                exported: None,
-                                name_mangler: name_mangler.clone(),
-                            },
-                        );
+                        // lifted_kernel_environments.insert(
+                        //     module_name.clone(),
+                        //     KernelDefMacroSpec {
+                        //         env: module_name,
+                        //         exported: None,
+                        //         name_mangler: name_mangler.clone(),
+                        //     },
+                        // );
 
                         Ok(first_round_expanded)
                     } else {

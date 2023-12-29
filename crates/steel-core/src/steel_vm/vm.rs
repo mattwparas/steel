@@ -398,7 +398,6 @@ impl SteelThread {
             instructions,
             constant_map,
             spans,
-            // struct_functions,
             ..
         } = program;
 
@@ -413,11 +412,6 @@ impl SteelThread {
         self.constant_map = DEFAULT_CONSTANT_MAP.with(|x| x.clone());
 
         result
-
-        // TODO
-        // self.global_env.print_diagnostics();
-
-        // todo!("Initialize structs and build the program");
     }
 
     pub(crate) fn call_function(
@@ -1449,12 +1443,8 @@ impl<'a> VmCore<'a> {
         // println!("Multi arity: {:?}", closure.is_multi_arity);
 
         let prev_length = self.thread.stack.len();
-        // self.stack_index.push(prev_length);
-
-        // if self.stack_frames
 
         let instructions = closure.body_exp();
-        // let spans = closure.spans();
 
         // TODO:
         self.thread.stack_frames.push(StackFrame::new(
@@ -1462,7 +1452,6 @@ impl<'a> VmCore<'a> {
             Gc::clone(closure),
             0,
             instructions.clone(),
-            // spans.clone(),
         ));
 
         self.sp = prev_length;
@@ -1475,10 +1464,12 @@ impl<'a> VmCore<'a> {
 
         self.adjust_stack_for_multi_arity(closure, argument_count, &mut 0)?;
 
-        // self.function_stack
-        // .push(CallContext::new(Gc::clone(closure)));
+        let res = self.call_with_instructions_and_reset_state(instructions);
 
-        self.call_with_instructions_and_reset_state(instructions)
+        // Clean up the stack now
+        self.thread.stack.truncate(prev_length);
+
+        res
     }
 
     // Calling convention

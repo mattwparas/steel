@@ -141,6 +141,10 @@ impl<'a> ReplaceExpressions<'a> {
 
     fn expand_ellipses(&mut self, vec_exprs: Vec<ExprKind>) -> Result<Vec<ExprKind>> {
         if let Some(ellipses_pos) = vec_exprs.iter().position(check_ellipses) {
+            if ellipses_pos == 0 {
+                return Ok(vec_exprs);
+            }
+
             let variable_to_lookup = vec_exprs.get(ellipses_pos - 1).ok_or_else(
                 throw!(BadSyntax => "macro expansion failed, could not find variable when expanding ellipses")
             )?;
@@ -153,14 +157,27 @@ impl<'a> ReplaceExpressions<'a> {
                             ..
                         },
                 }) => {
-                    let rest = self.bindings.get(var).ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanding ellipses: {var}")))?;
+                    // let rest = self.bindings.get(var).ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanding ellipses: {var}")))?;
+
+                    let rest = if let Some(rest) = self.bindings.get(var) {
+                        rest
+                    } else {
+                        return Ok(vec_exprs);
+                    };
 
                     let list_of_exprs = if let ExprKind::List(list_of_exprs) = rest {
                         list_of_exprs
                     } else {
-                        let res = self.fallback_bindings.get(var).ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanding ellipses: {var}")))?.list_or_else(
-                        throw!(BadSyntax => "macro expansion failed, expected list of expressions, found: {}, within {}", rest, super::ast::List::new(vec_exprs.clone()))
-                    )?;
+                        let res = if let Some(res) = self.fallback_bindings.get(var) {
+                            res.list_or_else(
+                        throw!(BadSyntax => "macro expansion failed, expected list of expressions, found: {}, within {}", rest, super::ast::List::new(vec_exprs.clone())))?
+                        } else {
+                            return Ok(vec_exprs);
+                        };
+
+                        //     let res = self.fallback_bindings.get(var).ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanding ellipses: {var}")))?.list_or_else(
+                        //     throw!(BadSyntax => "macro expansion failed, expected list of expressions, found: {}, within {}", rest, super::ast::List::new(vec_exprs.clone()))
+                        // )?;
 
                         res
                     };

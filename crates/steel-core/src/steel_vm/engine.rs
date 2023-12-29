@@ -1445,6 +1445,7 @@ impl Engine {
 
     pub fn run_raw_program(&mut self, program: RawProgramWithSymbols) -> Result<Vec<SteelVal>> {
         let executable = self.raw_program_to_executable(program)?;
+
         self.virtual_machine.run_executable(&executable)
     }
 

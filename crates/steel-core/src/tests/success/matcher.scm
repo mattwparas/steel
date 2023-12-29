@@ -49,8 +49,7 @@
      (define remaining (match-p (cdr pattern) (cdr input) bindings))
      (if remaining (match-p (car pattern) (car input) remaining) #f)]))
 
-(define (match pattern
-          input)
+(define (match-b pattern input)
   (match-p pattern input (hash)))
 
 ;; ---------------- tests --------------------
@@ -80,148 +79,86 @@
 (displayln "--------------------- match tests ----------------------")
 
 ;; Matches a pattern explicitly
-(test "Simple match"
-      (match '?x
-        '(1 2 3 4))
-      (hash '?x '(1 2 3 4)))
+(test "Simple match" (match-b '?x '(1 2 3 4)) (hash '?x '(1 2 3 4)))
 
 ;; If the pattern match fails, return false
-(test "Pattern match fails returns false"
-      (match '(10 2 ?z 5)
-        '(1 2 3 4))
-      #f)
+(test "Pattern match fails returns false" (match-b '(10 2 ?z 5) '(1 2 3 4)) #f)
 
 ;; If the pattern fails because we didn't match exactly, bail
-(test "Pattern fails because constants don't match exactly"
-      (match '(1 2 3 4 5)
-        '(1 2 3 4))
-      #f)
+(test "Pattern fails because constants don't match exactly" (match-b '(1 2 3 4 5) '(1 2 3 4)) #f)
 
 ;; Should fail
-(test "Lengths unequal fails"
-      (match '(?x ?y ?z 4 5)
-        '(1 2 3 4))
-      #f)
+(test "Lengths unequal fails" (match-b '(?x ?y ?z 4 5) '(1 2 3 4)) #f)
 
 ;; Should succeed with x y z bound to 1 2 3
 (test "Successful pattern match on simple list"
-      (match '(?x ?y ?z 4 5)
-        '(1 2 3 4 5))
+      (match-b '(?x ?y ?z 4 5) '(1 2 3 4 5))
       (hash '?x 1 '?y 2 '?z 3))
 
 ;; Should succed with x y z bound to 1 2 3
-(test "Nested patterns match"
-      (match '(?x (?y ?z))
-        '(1 (2 3)))
-      (hash '?x 1 '?y 2 '?z 3))
+(test "Nested patterns match" (match-b '(?x (?y ?z)) '(1 (2 3))) (hash '?x 1 '?y 2 '?z 3))
 
 ;; Also should work
 (test "Deep nested pattern"
-      (match '(?x (?y (?z (?applesauce ?bananas))))
-        '(1 (2 (3 (4 5)))))
+      (match-b '(?x (?y (?z (?applesauce ?bananas)))) '(1 (2 (3 (4 5)))))
       (hash '?x 1 '?y 2 '?z 3 '?applesauce 4 '?bananas 5))
 
 ;; Also should work
 (test "Deep nested pattern with list matching"
-      (match '(?x (?y (?z (?applesauce ?bananas))))
-        '(1 (2 (3 (4 (1 2 3 4 5))))))
+      (match-b '(?x (?y (?z (?applesauce ?bananas)))) '(1 (2 (3 (4 (1 2 3 4 5))))))
       (hash '?x 1 '?y 2 '?z 3 '?applesauce 4 '?bananas '(1 2 3 4 5)))
 
 ;; Match the bindings
 (test "Pattern variables once bound retain their value"
-      (match '(?x ?y ?x)
-        '(1 2 1))
+      (match-b '(?x ?y ?x) '(1 2 1))
       (hash '?x 1 '?y 2))
 
 ;; Should fail since x doesn't match what was there at first
-(test "Matching fails when variable has two different values"
-      (match '(?x ?y ?x)
-        '(1 2 3))
-      #f)
+(test "Matching fails when variable has two different values" (match-b '(?x ?y ?x) '(1 2 3)) #f)
 
 ;; Shouldn't fail, should ignore whatever is in the second position
 (test "Wildcard ignores the matching at that position"
-      (match '(?x _ 3)
-        '(1 (1 2 3) 3))
+      (match-b '(?x _ 3) '(1 (1 2 3) 3))
       (hash '?x 1))
 
 ;; a => 1
 ;; x => '(2 3 4 5)
 (test "Basic ellipses matching works"
-      (match '(?a ?x...)
-        '(1 2 3 4 5))
+      (match-b '(?a ?x...) '(1 2 3 4 5))
       (hash '?a 1 '?x... '(2 3 4 5)))
 
 (test "Ellipses matches to empty list"
-      (match '(?first ?rest...)
-        '(1))
+      (match-b '(?first ?rest...) '(1))
       (hash '?first 1 '?rest... '()))
 
 (test "Ellipses matches until next value"
-      (match '(?first ?rest... ?last)
-        '(1 2 3 4 5))
+      (match-b '(?first ?rest... ?last) '(1 2 3 4 5))
       (hash '?first 1 '?rest... '(2 3 4) '?last 5))
 
 ; TODO this should error out as illegal pattern
 (test "Ellipses does not match multiple characters at the end"
-      (match '(?first ?rest... ?second-last ?last)
-        '(1 2 3 4 5 6))
+      (match-b '(?first ?rest... ?second-last ?last) '(1 2 3 4 5 6))
       #f
       ; (hash '?first 1 '?rest... '(2 3 4) '?last 5 '?last 6)
       )
 
 (test "Ellipses with nested pattern"
-      (match '(?x (?y ?z (?foo ?bar...)))
-        '(1 (2 3 (4 5 6 7 8 9 10))))
+      (match-b '(?x (?y ?z (?foo ?bar...))) '(1 (2 3 (4 5 6 7 8 9 10))))
       (hash '?x 1 '?y 2 '?z 3 '?foo 4 '?bar... '(5 6 7 8 9 10)))
 
-(test "Empty pattern matches empty list"
-      (match '()
-        '())
-      (hash))
+(test "Empty pattern matches empty list" (match-b '() '()) (hash))
 
-(test "Empty pattern fails on non empty list"
-      (match '()
-        '(1 2 3))
-      #f)
+(test "Empty pattern fails on non empty list" (match-b '() '(1 2 3)) #f)
 
-(test "Single variable with empty list"
-      (match '?x
-        '())
-      (hash '?x '()))
+(test "Single variable with empty list" (match-b '?x '()) (hash '?x '()))
 
-(test "Constant matches constant"
-      (match (list 1 2 3)
-        [list
-         1
-         2
-         3])
-      (hash))
+(test "Constant matches constant" (match-b (list 1 2 3) [list 1 2 3]) (hash))
 
-(test "List pattern does not match constant"
-      (match (list 1 2 3 4 5)
-        10)
-      #f)
+(test "List pattern does not match constant" (match-b (list 1 2 3 4 5) 10) #f)
 
-(test "Constant pattern does not match list"
-      (match 10
-        [list
-         1
-         2
-         3
-         4
-         5])
-      #f)
+(test "Constant pattern does not match list" (match-b 10 [list 1 2 3 4 5]) #f)
 
-(test "Wildcard passes"
-      (match '_
-        [list
-         1
-         2
-         3
-         4
-         5])
-      (hash))
+(test "Wildcard passes" (match-b '_ [list 1 2 3 4 5]) (hash))
 
 ;; ----------------- match! syntax --------------------
 
@@ -259,8 +196,7 @@
        e1 ...)]
     ;; Generic recursive case
     [(match-dispatch expr [p1 e2 ...] c0 c1 ...)
-     (let ([match? (match (syntax->pattern p1)
-                     expr)])
+     (let ([match? (match-b (syntax->pattern p1) expr)])
        (if match?
            (syntax-pattern->lets p1
                                  match?
@@ -270,8 +206,7 @@
     ;; When there isn't an else case given, the last case
     ;; Should include a failure mode
     [(match-dispatch expr (p1 e2 ...))
-     (let ([match? (match (syntax->pattern p1)
-                     expr)])
+     (let ([match? (match-b (syntax->pattern p1) expr)])
        (if match?
            (syntax-pattern->lets p1
                                  match?
@@ -281,13 +216,8 @@
 
 (define-syntax match!
   (syntax-rules ()
-    [(match expr
-       pat)
-     (let ([evald-expr expr]) (match-dispatch evald-expr pat))]
-    [(match expr
-       pat
-       pats ...)
-     (let ([evald-expr expr]) (match-dispatch evald-expr pat pats ...))]))
+    [(match! expr pat) (let ([evald-expr expr]) (match-dispatch evald-expr pat))]
+    [(match! expr pat pats ...) (let ([evald-expr expr]) (match-dispatch evald-expr pat pats ...))]))
 
 ;; --------------------- match! tests ------------------------
 
