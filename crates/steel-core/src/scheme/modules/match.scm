@@ -250,14 +250,12 @@
           (define final-expr
             `(define-values (,@list-identifiers)
                (let ([,temp ,(go-match pattern variable `(list ,@list-identifiers) (mutable-vector))])
-                 (if (not (equal? #f))
+                 (if (not (equal? #f ,temp))
                      ,temp
                      (error-with-span (quote ,(syntax-span (third unwrapped)))
                                       "Unable to match the given expression: "
                                       ,variable
                                       "to any of the patterns")))))
-          ; (displayln (syntax-span expression))
-          ; (displayln final-expr)
           (syntax/loc final-expr
             (syntax-span expression)))
 
