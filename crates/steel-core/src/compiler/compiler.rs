@@ -649,6 +649,8 @@ impl Compiler {
 
                 for module in &self.lifted_macro_environments {
                     if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
+                        let source_id = sources.get_source_id(module).unwrap();
+
                         x = crate::parser::expand_visitor::expand(x, macro_env)?
                     }
                 }
@@ -837,6 +839,12 @@ impl Compiler {
 
                 for module in &self.lifted_macro_environments {
                     if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
+                        let source_id = sources.get_source_id(module).unwrap();
+
+                        // x = crate::parser::expand_visitor::expand_with_source_id(
+                        //     x, macro_env, source_id,
+                        // )?
+
                         x = crate::parser::expand_visitor::expand(x, macro_env)?
                     }
                 }

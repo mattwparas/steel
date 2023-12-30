@@ -1,4 +1,4 @@
-use crate::compiler::program::{BEGIN, DEFINE};
+use crate::compiler::program::{BEGIN, DEFINE, IF};
 use crate::parser::ast::{Atom, ExprKind, List, Macro, PatternPair};
 use crate::parser::parser::SyntaxObject;
 use crate::parser::rename_idents::RenameIdentifiersVisitor;
@@ -359,6 +359,7 @@ pub enum MacroPattern {
     BooleanLiteral(bool),
     QuotedExpr(Box<Quote>),
     Quote(InternedString),
+    Keyword(InternedString),
 }
 
 // pub enum QuotedLiteral {
@@ -382,6 +383,7 @@ impl std::fmt::Debug for MacroPattern {
             MacroPattern::QuotedExpr(s) => f.debug_tuple("QuotedExpr").field(s).finish(),
             MacroPattern::Quote(i) => f.debug_tuple("Quote").field(&i.resolve()).finish(),
             MacroPattern::ManyNested(n) => f.debug_tuple("ManyNested").field(n).finish(),
+            MacroPattern::Keyword(k) => f.debug_tuple("Keyword").field(k).finish(),
         }
     }
 }
@@ -459,6 +461,9 @@ impl MacroPattern {
                     TokenType::Define => {
                         pattern_vec.push(MacroPattern::Syntax(*DEFINE));
                     }
+                    TokenType::If => {
+                        pattern_vec.push(MacroPattern::Syntax(*IF));
+                    }
                     TokenType::BooleanLiteral(b) => {
                         pattern_vec.push(MacroPattern::BooleanLiteral(b));
                     }
@@ -473,6 +478,9 @@ impl MacroPattern {
                     }
                     TokenType::StringLiteral(s) => {
                         pattern_vec.push(MacroPattern::StringLiteral(s));
+                    }
+                    TokenType::Keyword(k) => {
+                        pattern_vec.push(MacroPattern::Keyword(k));
                     }
                     // TODO: Crunch the quoted values here, and pull them in so that this
                     // holds a body of possible quoted values
@@ -605,10 +613,26 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &[ExprKind]) -> bool {
                     ExprKind::Atom(Atom {
                         syn:
                             SyntaxObject {
+                                ty: TokenType::If, ..
+                            },
+                    }) if *v == *IF => continue,
+                    ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
                                 ty: TokenType::Ellipses,
                                 ..
                             },
                     }) => continue,
+                    _ => return false,
+                },
+                MacroPattern::Keyword(k) => match val {
+                    ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Keyword(s),
+                                ..
+                            },
+                    }) if s == k => continue,
                     _ => return false,
                 },
                 MacroPattern::BooleanLiteral(b) => match val {

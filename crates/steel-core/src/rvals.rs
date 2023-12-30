@@ -1626,6 +1626,7 @@ impl Hash for SteelVal {
             HashMapV(hm) => hm.hash(state),
             IterV(s) => s.hash(state),
             HashSetV(hs) => hs.hash(state),
+            SyntaxObject(s) => s.raw.hash(state),
             _ => {
                 println!("Trying to hash: {self:?}");
                 unimplemented!()

@@ -3128,6 +3128,12 @@ impl<'a> VmCore<'a> {
         // We should have arity at this point, drop the stack up to this point
         // take the last arity off the stack, go back and replace those in order
         let back = self.thread.stack.len() - new_arity;
+
+        // println!("{}..{}", offset, back);
+        // println!("{:?}", self.thread.stack);
+        // println!("{}..{}", offset, back);
+        // println!("{:?}", self.thread.stack);
+
         let _ = self.thread.stack.drain(offset..back);
 
         // TODO: Perhaps add call to minor collection here?

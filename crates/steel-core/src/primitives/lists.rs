@@ -293,6 +293,46 @@ pub fn cons(args: &mut [SteelVal]) -> Result<SteelVal> {
     }
 }
 
+#[macro_export]
+/// `panic!()` in debug builds, optimization hint in release.
+macro_rules! debug_unreachable {
+    () => {
+        if cfg!(debug_assertions) {
+            std::hint::unreachable_unchecked()
+        } else {
+            unreachable!();
+        }
+    };
+    ($e:expr) => {
+        if cfg!(debug_assertions) {
+            std::hint::unreachable_unchecked()
+        } else {
+            unreachable!($e);
+        }
+    };
+}
+
+// Warning: here be dragons
+// This is really just for use cases where we absolutely, 100% know, that within the body of a function,
+// it is _not possible_ for the value to be anything but a list. Eliding these checks in hot loops
+// can prove to be beneficial.
+unsafe fn unsafe_cons(args: &mut [SteelVal]) -> SteelVal {
+    match (args[0].clone(), &mut args[1]) {
+        (left, SteelVal::ListV(right)) => {
+            right.cons_mut(left);
+
+            // Consider moving in a default value instead of cloning?
+            SteelVal::ListV(right.clone())
+        }
+        _ => debug_unreachable!(),
+        // Silly, but this then gives us a special "pair" that is different
+        // from a real bonafide list
+        // (left, right) => Ok(SteelVal::Pair(Gc::new(Pair::cons(left, right.clone())))),
+        // TODO: Replace with an immutable pair here!
+        // (left, right) => Ok(SteelVal::ListV(vec![left, right.clone()].into())),
+    }
+}
+
 /// Returns a newly allocated list of the elements in the range (n, m]
 ///
 /// (range n m) -> (listof int?)

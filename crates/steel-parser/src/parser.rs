@@ -573,7 +573,6 @@ impl<'a> Parser<'a> {
                             self.decrement_quasiquote_context_if_not_in_quote_context();
 
                             if let Some(popped) = popped_value {
-                                // println!("Popped: {:?}", popped);
                                 debug_assert!(matches!(popped, ParsingContext::QuasiquoteTick(_)))
                             }
 
@@ -1059,9 +1058,8 @@ impl<'a> Parser<'a> {
 
                         return Some(value);
                     }
-
+                    // Make this also handle quasisyntax
                     TokenType::QuasiQuote => {
-                        // println!("Entering Context: Quasiquote - top level");
                         self.context.push(ParsingContext::QuasiquoteTick(0));
 
                         self.increment_quasiquote_context_if_not_in_quote_context();
@@ -1071,10 +1069,6 @@ impl<'a> Parser<'a> {
                             .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
                             .map(|x| self.construct_quasiquote(x, res.span));
 
-                        // println!("{:?}", self.context.pop());
-
-                        // println!("Top level Context: {:?}", self.context);
-
                         let popped_value = self.context.pop();
 
                         if let Some(popped) = popped_value {
@@ -1082,8 +1076,6 @@ impl<'a> Parser<'a> {
                         }
 
                         self.decrement_quasiquote_context_if_not_in_quote_context();
-
-                        // println!("Exiting context: {:?}", self.context.pop());
 
                         return Some(value);
                     }

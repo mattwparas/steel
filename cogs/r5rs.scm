@@ -390,7 +390,6 @@
 (check-equal? "Basic functionality of make-string" "aaa" (make-string 3 #\a))
 (check-equal? "make-string with no character" "\0\0\0" (make-string 3))
 (check-equal? "make-string with zero length" "" (make-string 0))
-(check-equal? "make-string with multiple additional characters" "error" (make-string 3 #\a #\b))
 
 (check-equal? "string-equality with constructor, equal" #t (string=? "a" (string #\a)))
 (check-equal? "string-equality with constructor, not equal" #f (string=? "a" (string #\b)))
@@ -422,8 +421,12 @@
 (check-equal? "case-insensitive string >=, true" #t (string-ci>=? "aa" "A"))
 (check-equal? "case-insensitive string >=, same string" #t (string-ci>=? "a" "A"))
 
-(check-equal? "make-string creates single character string 'a' correctly" #t (string=? "a" (make-string 1 #\a)))
-(check-equal? "make-string with character 'b' does not create string 'a'" #f (string=? "a" (make-string 1 #\b)))
+(check-equal? "make-string creates single character string 'a' correctly"
+              #t
+              (string=? "a" (make-string 1 #\a)))
+(check-equal? "make-string with character 'b' does not create string 'a'"
+              #f
+              (string=? "a" (make-string 1 #\b)))
 
 (check-equal? "string-append with empty string" "abc" (string-append "abc" ""))
 

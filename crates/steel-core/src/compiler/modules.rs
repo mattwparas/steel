@@ -11,7 +11,7 @@ use crate::{
         ast::{AstTools, Atom, Begin, Define, ExprKind, List, Quote},
         expand_visitor::{
             expand_kernel, expand_kernel_in_env, expand_kernel_in_env_with_allowed,
-            expand_kernel_in_env_with_change,
+            expand_kernel_in_env_with_change, expand_with_source_id,
         },
         interner::InternedString,
         kernel::Kernel,
@@ -53,6 +53,7 @@ use crate::parser::ast::IteratorExtensions;
 use super::{
     compiler::KernelDefMacroSpec,
     passes::{
+        analysis::is_a_builtin_definition,
         begin::FlattenBegin,
         mangle::{collect_globals, NameMangler, NameUnMangler},
     },
@@ -630,7 +631,13 @@ impl ModuleManager {
                     // }
 
                     if expander.changed || changed {
-                        let fully_expanded = expand(first_round_expanded, &module.macro_map)?;
+                        let source_id = sources.get_source_id(&module.name).unwrap();
+
+                        let fully_expanded = expand(
+                            first_round_expanded,
+                            &module.macro_map,
+                            // source_id,
+                        )?;
 
                         let module_name = module.name.to_str().unwrap().to_string();
 
@@ -1323,13 +1330,42 @@ impl CompiledModule {
             SyntaxObject::default(TokenType::Quote),
         )));
 
-        // println!("------ {}", module_define.to_pretty(60));
+        let mut offset = None;
+
+        // Find offset of first non builtin require definition:
+        for (idx, expr) in exprs.iter().enumerate() {
+            if let ExprKind::Define(d) = expr {
+                if !is_a_builtin_definition(d) {
+                    // println!("Found offset at: {:?}", offset);
+
+                    offset = Some(idx);
+                    break;
+                }
+            }
+        }
 
         exprs.push(module_define);
 
+        if let Some(offset) = offset {
+            for (idx, expr) in provide_definitions.into_iter().enumerate() {
+                exprs.insert(offset + idx, expr);
+            }
+        } else {
+            provide_definitions.append(&mut exprs);
+        }
+
+        // println!("------ {}", module_define.to_pretty(60));
+
+        // exprs.pretty_print();
+
+        // exprs.push(module_define);
+
         // Construct the overall definition
         // TODO: Perhaps mangle these as well, especially if they have contracts associated with them
-        provide_definitions.append(&mut exprs);
+
+        // if offset.is_none() {
+        //     provide_definitions.append(&mut exprs);
+        // }
 
         // Try this out?
         // let mut analysis = Analysis::from_exprs(&provide_definitions);
@@ -1340,10 +1376,8 @@ impl CompiledModule {
         // .replace_non_shadowed_globals_with_builtins()
         // .remove_unused_globals_with_prefix("mangler");
 
-        // println!("------ {}", provide_definitions.to_pretty(60));
-
         Ok(ExprKind::Begin(Begin::new(
-            provide_definitions,
+            exprs,
             SyntaxObject::default(TokenType::Begin),
         )))
     }
@@ -1810,6 +1844,8 @@ impl<'a> ModuleBuilder<'a> {
                     let mut first_round_expanded = expander.expand(x)?;
                     let mut changed = false;
 
+                    // dbg!(expander.changed);
+
                     // (first_round_expanded, changed) = expand_kernel_in_env_with_allowed(
                     //     first_round_expanded,
                     //     self.kernel.as_mut(),
@@ -1837,7 +1873,7 @@ impl<'a> ModuleBuilder<'a> {
                     // }
 
                     if expander.changed || changed {
-                        // expand(first_round_expanded, &module.macro_map)
+                        // let source_id = self.sources.get_source_id(&module.name).unwrap();
 
                         let fully_expanded = expand(first_round_expanded, &module.macro_map)?;
 
@@ -2421,7 +2457,11 @@ impl<'a> ModuleBuilder<'a> {
     }
 
     fn parse_builtin(mut self, input: &str) -> Result<Self> {
-        let parsed = Parser::new_from_source(input, self.name.clone(), None)
+        let id = self
+            .sources
+            .add_source(input.to_string(), Some(self.name.clone()));
+
+        let parsed = Parser::new_from_source(input, self.name.clone(), Some(id))
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
             .collect::<std::result::Result<Vec<_>, ParseError>>()?;
