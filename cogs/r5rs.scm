@@ -37,6 +37,10 @@
 
 (set-test-mode!)
 
+(provide __module__)
+
+(define __module__ 'r5rs-test-suite)
+
 (check-equal? "Parsing hex" #x0f 15)
 (check-equal? "Parsing octal" #o0777 511)
 (check-equal? "Parsing binary" #b0110 6)
