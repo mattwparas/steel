@@ -110,14 +110,14 @@
         (when (not (equal? ls tail))
           (begin
             ;; TODO: This is probably wrong!
-            (displayln "setting winders first" ls)
+            ; (displayln "setting winders first" ls)
             (set! winders (cdr ls))
             ((cdr (car ls)))
             (f (cdr ls)))))
       (let f ([ls new])
         (when (not (equal? ls tail))
           (begin
-            (displayln "setting winders second" ls)
+            ; (displayln "setting winders second" ls)
             (f (cdr ls))
             ((car (car ls)))
             (set! winders ls)))))))
@@ -160,7 +160,7 @@
                                                void)
                                              (lambda () (body)))])
 
-      (displayln winders)
+      ; (displayln winders)
 
       (set! winders (cdr winders))
       (out)

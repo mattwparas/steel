@@ -238,6 +238,8 @@ impl<'a> ConstantEvaluator<'a> {
             TokenType::Identifier(s) => {
                 // If we found a set identifier, skip it
                 if self.set_idents.get(s).is_some() || self.expr_level_set_idents.contains(s) {
+                    self.bindings.borrow_mut().unbind(s);
+
                     return None;
                 };
                 self.bindings.borrow_mut().get(s)
@@ -697,6 +699,8 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             let parent = Rc::clone(&self.bindings);
             self.bindings = Rc::new(RefCell::new(new_env));
 
+            // println!("Visiting body: {}", l.body);
+
             let output = self.visit(l.body)?;
 
             // Unwind the 'recursion'
@@ -731,8 +735,12 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             }
 
             // Found no arguments are there are no non constant arguments
+            // TODO: @Matt 12/30/23 - this is causing a miscompilation - actually used
+            // arguments is found to be empty.
             if actually_used_arguments.is_empty() && non_constant_arguments.is_empty() {
-                // debug!("Found no used arguments or non constant arguments, returning the body");
+                // println!("Found no used arguments or non constant arguments, returning the body");
+
+                // println!("Output: {}", output);
 
                 // Unwind the recursion before we bail out
                 self.bindings = parent;

@@ -104,7 +104,8 @@ pub fn list_module() -> BuiltInModule {
         .register_native_fn_definition(SECOND_DEFINITION)
         .register_native_fn_definition(THIRD_DEFINITION)
         .register_native_fn_definition(TAKE_DEFINITION)
-        .register_native_fn_definition(LIST_TAIL_DEFINITION);
+        .register_native_fn_definition(LIST_TAIL_DEFINITION)
+        .register_native_fn_definition(CDR_IS_NULL_DEFINITION);
 
     module
 }
@@ -316,22 +317,22 @@ macro_rules! debug_unreachable {
 // This is really just for use cases where we absolutely, 100% know, that within the body of a function,
 // it is _not possible_ for the value to be anything but a list. Eliding these checks in hot loops
 // can prove to be beneficial.
-unsafe fn unsafe_cons(args: &mut [SteelVal]) -> SteelVal {
-    match (args[0].clone(), &mut args[1]) {
-        (left, SteelVal::ListV(right)) => {
-            right.cons_mut(left);
+// unsafe fn unsafe_cons(args: &mut [SteelVal]) -> SteelVal {
+//     match (args[0].clone(), &mut args[1]) {
+//         (left, SteelVal::ListV(right)) => {
+//             right.cons_mut(left);
 
-            // Consider moving in a default value instead of cloning?
-            SteelVal::ListV(right.clone())
-        }
-        _ => debug_unreachable!(),
-        // Silly, but this then gives us a special "pair" that is different
-        // from a real bonafide list
-        // (left, right) => Ok(SteelVal::Pair(Gc::new(Pair::cons(left, right.clone())))),
-        // TODO: Replace with an immutable pair here!
-        // (left, right) => Ok(SteelVal::ListV(vec![left, right.clone()].into())),
-    }
-}
+//             // Consider moving in a default value instead of cloning?
+//             SteelVal::ListV(right.clone())
+//         }
+//         _ => debug_unreachable!(),
+//         // Silly, but this then gives us a special "pair" that is different
+//         // from a real bonafide list
+//         // (left, right) => Ok(SteelVal::Pair(Gc::new(Pair::cons(left, right.clone())))),
+//         // TODO: Replace with an immutable pair here!
+//         // (left, right) => Ok(SteelVal::ListV(vec![left, right.clone()].into())),
+//     }
+// }
 
 /// Returns a newly allocated list of the elements in the range (n, m]
 ///
@@ -476,6 +477,24 @@ pub(crate) const CDR_DOC: DocTemplate<'static> = DocTemplate {
         ),
     ],
 };
+
+// Optimistic check to see if the rest is null before making an allocation
+#[steel_derive::native(name = "cdr-null?", constant = true, arity = "Exact(1)")]
+fn cdr_is_null(args: &[SteelVal]) -> Result<SteelVal> {
+    arity_check!(cdr_is_null, args, 1);
+
+    match &args[0] {
+        SteelVal::ListV(l) => {
+            if l.is_empty() {
+                stop!(Generic => "cdr-null? expects a non empty list");
+            }
+            Ok(SteelVal::BoolV(!l.cdr_exists()))
+        }
+        other => {
+            stop!(TypeMismatch => "cdr-null? expects a list, found: {}", other);
+        }
+    }
+}
 
 fn cdr(args: &mut [SteelVal]) -> Result<SteelVal> {
     arity_check!(rest, args, 1);
