@@ -782,7 +782,7 @@ impl AsRefSteelVal for Syntax {
         if let SteelVal::SyntaxObject(s) = val {
             Ok(SRef::Temporary(s))
         } else {
-            stop!(TypeMismatch => "Value cannot be referenced as a syntax object")
+            stop!(TypeMismatch => "Value cannot be referenced as a syntax object: {}", val)
         }
     }
 }
