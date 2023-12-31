@@ -942,17 +942,18 @@ fn configure_lints() -> std::result::Result<UserDefinedLintEngine, Box<dyn Error
 
     engine.register_module(diagnostics);
 
-    // Load all of the lints - we'll want to grab
-    // all functions that get registered via define-lint - which means
-    // just give me a name
-    for file in std::fs::read_dir(&directory)? {
-        let file = file?;
+    if let Ok(directory) = std::fs::read_dir(directory) {
+        for file in directory {
+            let file = file?;
 
-        if file.path().is_file() {
-            let contents = std::fs::read_to_string(file.path())?;
+            if file.path().is_file() {
+                let contents = std::fs::read_to_string(file.path())?;
 
-            engine.compile_and_run_raw_program(&contents)?;
+                engine.compile_and_run_raw_program(&contents)?;
+            }
         }
+    } else {
+        log::info!("Missing lints directory in $STEEL_LSP_HOME");
     }
 
     Ok(UserDefinedLintEngine { engine, lints })
