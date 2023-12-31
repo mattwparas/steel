@@ -1,7 +1,8 @@
 ;; These _don't_ need to be provided for syntax.
 ;; However in the mean time, this will work.
 (provide match
-         match-define)
+         match-define
+         match-syntax)
 
 ;; ------------------- match functions ----------------------
 
@@ -115,6 +116,123 @@
 
   (define (number->symbol n)
     (~> n number->string string->symbol))
+
+  (define (match-p-syntax-object pattern
+                                 input
+                                 final-body-expr
+                                 depth
+                                 bound-vars
+                                 check-var?
+                                 cdr-depth
+                                 introduced-identifiers)
+
+    (cond
+      [(quoted? pattern) `(and (equal? ,pattern (syntax-e ,input)) ,final-body-expr)]
+      [(and (list? pattern) (not (null? pattern)) (= cdr-depth 0))
+       (cond
+         [(equal? (car pattern) 'list)
+          `(if (list? (syntax-e ,input))
+               ;; Recur after dropping the list
+               ,(match-p-syntax-object (cdr pattern)
+                                       `(syntax-e ,input)
+                                       final-body-expr
+                                       depth
+                                       bound-vars
+                                       check-var?
+                                       (+ 1 cdr-depth)
+                                       introduced-identifiers)
+
+               #f)]
+
+         [else (error "list pattern must start with `list - found " (car pattern))])]
+
+      [(and (list? pattern) (not (null? pattern)) (starts-with-many? pattern))
+       (if (null? (cddr pattern))
+           (begin
+             (vector-push! introduced-identifiers (car pattern))
+
+             `(let ([,(car pattern) ,input]) ,final-body-expr))
+           (begin
+
+             (vector-push! introduced-identifiers (car (cdr pattern)))
+             (vector-push! introduced-identifiers (car pattern))
+
+             `(let ([collected (collect-until-last ,input)])
+                ,(if (null? (cdddr pattern))
+                     `(let ([,(car (cdr pattern)) (car collected)]
+                            [,(car pattern) (reverse (car (cdr collected)))])
+
+                        ,final-body-expr)
+
+                     #f))))]
+
+      ;; If the pattern is to be ignored, just return the body - the automatically match
+      [(ignore? pattern) final-body-expr]
+
+      ;; If this is a free variable, bind against it.
+      ;; Note: We currently don't have the ability to check if this is a free variable
+      ;; within the context of the macro expansion
+      [(var? pattern)
+
+       (if check-var?
+           `(if (equal? ,pattern ,(syntax-e input)) ,final-body-expr #f)
+           (begin
+             ;; Keep track of the introduced identifiers
+             (vector-push! introduced-identifiers pattern)
+
+             `(let ([,pattern ,input]) ,final-body-expr)))]
+
+      ;; If the pattern is the same, just return whether they match
+      [(atom? pattern) `(and (equal? ,pattern (syntax-e ,input)) ,final-body-expr)]
+
+      ;; If there is no pattern, just return whether the pattern and input match
+      [(null? pattern) `(and (null? ,input) ,final-body-expr)]
+
+      ;; TODO: Not sure how we can even get here?
+      ; (displayln "getting here!")
+      [(null? input) #f]
+
+      [else
+
+       (define cdr-input-depth (gensym-ident (concat-symbols 'cdr-input (number->symbol depth))))
+       (define car-input-depth
+         (gensym-ident (concat-symbols 'car-input (number->symbol (+ 1 depth)))))
+
+       ;; If the pattern is an atom, then we're going to bind the pattern here!
+       (define car-pattern-is-atom? (atom? (car pattern)))
+       (define should-check-var?
+         (and car-pattern-is-atom? (hashset-contains? bound-vars (car pattern))))
+
+       (define remaining
+         (match-p-syntax-object
+          (cdr pattern)
+          cdr-input-depth
+          final-body-expr
+          depth
+          (if car-pattern-is-atom? (hashset-insert bound-vars (car pattern)) bound-vars)
+          should-check-var?
+          ;; Increment the cdr depth since we're traversing across the list
+          (+ 1 cdr-depth)
+          introduced-identifiers))
+
+       (if remaining
+
+           `(if (not (null? ,input))
+                ;; Save our spot in the recursion so we don't have to recompute a bunch
+                ;; of stuff
+                (let ([,cdr-input-depth (cdr ,input)] [,car-input-depth (car ,input)])
+                  ,(match-p-syntax-object
+                    (car pattern)
+                    car-input-depth
+                    remaining
+                    (+ 1 depth)
+                    (if car-pattern-is-atom? (hashset-insert bound-vars (car pattern)) bound-vars)
+                    should-check-var?
+                    0
+                    introduced-identifiers))
+                #f)
+
+           #f)]))
 
   ;; TODO: Insert a check to remove the `list` part from the pattern if the cdr-depth is 0?
   (define (match-p-syntax pattern
@@ -233,6 +351,18 @@
 
            #f)]))
 
+  ;; Find a way to merge these?
+  (define (go-match-syntax pattern input final-body-expr introduced-identifiers)
+    (define compile-pattern (compile-cons-to-list pattern 0))
+    (match-p-syntax-object compile-pattern
+                           input
+                           final-body-expr
+                           0
+                           (hashset)
+                           #f
+                           0
+                           introduced-identifiers))
+
   (define (go-match pattern input final-body-expr introduced-identifiers)
     (define compile-pattern (compile-cons-to-list pattern 0))
     (match-p-syntax compile-pattern input final-body-expr 0 (hashset) #f 0 introduced-identifiers)))
@@ -276,6 +406,22 @@
           (syntax/loc res
             (syntax-span expression)))
 
+(defmacro (single-match-syntax expression)
+          (define unwrapped (syntax-e expression))
+          ;; Unwrapping entirely, not what we want! We want to
+          ;; wrap it back up with the span of the original definition!
+          (define variable (syntax->datum (second unwrapped)))
+          (define pattern (syntax->datum (third unwrapped)))
+          (define body (list-ref unwrapped 3))
+          ;; Keep track of all of the identifiers that this
+          ;; expression introduces
+          ;; TODO: Keep one top level around and clear each time. Then
+          ;; we won't keep around any garbage
+          (define introduced-identifiers (mutable-vector))
+          (define res (go-match-syntax pattern variable body introduced-identifiers))
+          (syntax/loc res
+            (syntax-span expression)))
+
 ;; ----------------- match! syntax --------------------
 
 ;; TODO add case for the remaining - when there is no else case given
@@ -287,6 +433,17 @@
      (begin
        e0
        e1 ...)]
+
+    ;; Adding guard on one of the expressions
+    [(match-dispatch expr [p1 #:when when-expr e2 ...] c0 c1 ...)
+     (let ([match? (single-match expr
+                                 p1
+                                 (if when-expr
+                                     (begin
+                                       e2 ...)
+                                     #f))])
+       (if (not (equal? #f match?)) match? (match-dispatch expr c0 c1 ...)))]
+
     ;; Generic recursive case
     [(match-dispatch expr [p1 e2 ...] c0 c1 ...)
      (let ([match? (single-match expr
@@ -297,6 +454,18 @@
            match?
 
            (match-dispatch expr c0 c1 ...)))]
+
+    [(match-dispatch expr (p1 #:when when-expr e2 ...))
+     (let ([match? (single-match expr
+                                 p1
+                                 (if when-expr
+                                     (begin
+                                       e2 ...)
+                                     #f))])
+       (if (not (equal? #f match?))
+           match?
+           (error! "Unable to match expression: " expr " to any of the given patterns")))]
+
     ;; When there isn't an else case given, the last case
     ;; Should include a failure mode
     [(match-dispatch expr (p1 e2 ...))
@@ -304,6 +473,57 @@
                                  p1
                                  (begin
                                    e2 ...))])
+       (if (not (equal? #f match?))
+           match?
+           (error! "Unable to match expression: " expr " to any of the given patterns")))]))
+
+(define-syntax match-syntax-dispatch
+  (syntax-rules (else)
+    ;; Explicitly giving an else case
+    [(match-syntax-dispatch expr [else e0 e1 ...])
+     (begin
+       e0
+       e1 ...)]
+
+    ;; Adding guard on one of the expressions
+    [(match-syntax-dispatch expr [p1 #:when when-expr e2 ...] c0 c1 ...)
+     (let ([match? (single-match-syntax expr
+                                        p1
+                                        (if when-expr
+                                            (begin
+                                              e2 ...)
+                                            #f))])
+       (if (not (equal? #f match?)) match? (match-syntax-dispatch expr c0 c1 ...)))]
+
+    ;; Generic recursive case
+    [(match-syntax-dispatch expr [p1 e2 ...] c0 c1 ...)
+     (let ([match? (single-match-syntax expr
+                                        p1
+                                        (begin
+                                          e2 ...))])
+       (if (not (equal? #f match?))
+           match?
+
+           (match-syntax-dispatch expr c0 c1 ...)))]
+
+    [(match-syntax-dispatch expr (p1 #:when when-expr e2 ...))
+     (let ([match? (single-match-syntax expr
+                                        p1
+                                        (if when-expr
+                                            (begin
+                                              e2 ...)
+                                            #f))])
+       (if (not (equal? #f match?))
+           match?
+           (error! "Unable to match expression: " expr " to any of the given patterns")))]
+
+    ;; When there isn't an else case given, the last case
+    ;; Should include a failure mode
+    [(match-syntax-dispatch expr (p1 e2 ...))
+     (let ([match? (single-match-syntax expr
+                                        p1
+                                        (begin
+                                          e2 ...))])
        (if (not (equal? #f match?))
            match?
            (error! "Unable to match expression: " expr " to any of the given patterns")))]))
@@ -322,6 +542,12 @@
        pat
        pats ...)
      (let ([evald-expr expr]) (match-dispatch evald-expr pat pats ...))]))
+
+(define-syntax match-syntax
+  (syntax-rules ()
+    [(match-syntax expr pat) (let ([evald-expr expr]) (match-syntax-dispatch evald-expr pat))]
+    [(match-syntax expr pat pats ...)
+     (let ([evald-expr expr]) (match-syntax-dispatch evald-expr pat pats ...))]))
 
 ; (match (list 10 20 30 40 50)
 ;   [(?x 20 ?y 40 ?z) (+ ?x ?y ?z)])

@@ -110,14 +110,14 @@
         (when (not (equal? ls tail))
           (begin
             ;; TODO: This is probably wrong!
-            ; (displayln "FIRST" ls)
+            ; (displayln "setting winders first" ls)
             (set! winders (cdr ls))
             ((cdr (car ls)))
             (f (cdr ls)))))
       (let f ([ls new])
         (when (not (equal? ls tail))
           (begin
-            ; (displayln "SECOND" ls)
+            ; (displayln "setting winders second" ls)
             (f (cdr ls))
             ((car (car ls)))
             (set! winders ls)))))))
@@ -146,15 +146,22 @@
   (lambda (in body out)
     (in)
     (set! winders (cons (cons in out) winders))
-
     (let ([ans* (call-with-exception-handler (lambda (err)
                                                ;; Catch the exception on the way out
+
+                                               ; (displayln winders)
+
+                                               (displayln "catching exception here")
+
                                                (set! winders (cdr winders))
                                                (out)
                                                (raise-error err)
 
                                                void)
                                              (lambda () (body)))])
+
+      ; (displayln winders)
+
       (set! winders (cdr winders))
       (out)
       ans*)))

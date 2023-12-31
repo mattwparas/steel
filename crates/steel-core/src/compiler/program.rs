@@ -424,12 +424,12 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
         {
             let replaced = match *ident {
                 x if x == *PRIM_PLUS && *payload_size == 2 => Some(OpCode::BINOPADD),
-                x if x == *PRIM_PLUS => Some(OpCode::ADD),
-                x if x == *PRIM_MINUS => Some(OpCode::SUB),
-                x if x == *PRIM_DIV => Some(OpCode::DIV),
-                x if x == *PRIM_STAR => Some(OpCode::MUL),
-                x if x == *PRIM_EQUAL => Some(OpCode::EQUAL),
-                x if x == *PRIM_LTE => Some(OpCode::LTE),
+                x if x == *PRIM_PLUS && *payload_size > 0 => Some(OpCode::ADD),
+                x if x == *PRIM_MINUS && *payload_size > 0 => Some(OpCode::SUB),
+                x if x == *PRIM_DIV && *payload_size > 0 => Some(OpCode::DIV),
+                x if x == *PRIM_STAR && *payload_size > 0 => Some(OpCode::MUL),
+                x if x == *PRIM_EQUAL && *payload_size > 0 => Some(OpCode::EQUAL),
+                x if x == *PRIM_LTE && *payload_size > 0 => Some(OpCode::LTE),
                 _ => None,
             };
 

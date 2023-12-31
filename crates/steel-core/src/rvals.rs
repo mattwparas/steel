@@ -782,7 +782,7 @@ impl AsRefSteelVal for Syntax {
         if let SteelVal::SyntaxObject(s) = val {
             Ok(SRef::Temporary(s))
         } else {
-            stop!(TypeMismatch => "Value cannot be referenced as a syntax object")
+            stop!(TypeMismatch => "Value cannot be referenced as a syntax object: {}", val)
         }
     }
 }
@@ -1626,6 +1626,7 @@ impl Hash for SteelVal {
             HashMapV(hm) => hm.hash(state),
             IterV(s) => s.hash(state),
             HashSetV(hs) => hs.hash(state),
+            SyntaxObject(s) => s.raw.hash(state),
             _ => {
                 println!("Trying to hash: {self:?}");
                 unimplemented!()

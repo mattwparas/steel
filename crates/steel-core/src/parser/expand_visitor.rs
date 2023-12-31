@@ -2,6 +2,7 @@
 
 use quickscope::ScopeSet;
 use steel_parser::ast::{parse_lambda, LAMBDA, LAMBDA_SYMBOL};
+use steel_parser::parser::SourceId;
 
 use crate::compiler::passes::reader::MultipleArityFunctions;
 use crate::compiler::passes::Folder;
@@ -53,6 +54,21 @@ pub fn expand(expr: ExprKind, map: &HashMap<InternedString, SteelMacro>) -> Resu
         map,
         changed: false,
         in_scope_values: ScopeSet::new(),
+        source_id: None,
+    }
+    .visit(expr)
+}
+
+pub fn expand_with_source_id(
+    expr: ExprKind,
+    map: &HashMap<InternedString, SteelMacro>,
+    source_id: SourceId,
+) -> Result<ExprKind> {
+    Expander {
+        map,
+        changed: false,
+        in_scope_values: ScopeSet::new(),
+        source_id: Some(source_id),
     }
     .visit(expr)
 }
@@ -62,6 +78,7 @@ pub struct Expander<'a> {
     pub(crate) changed: bool,
     // We're going to actually check if the macro is in scope
     in_scope_values: ScopeSet<InternedString>,
+    source_id: Option<SourceId>,
 }
 
 impl<'a> Expander<'a> {
@@ -70,6 +87,7 @@ impl<'a> Expander<'a> {
             map,
             changed: false,
             in_scope_values: ScopeSet::new(),
+            source_id: None,
         }
     }
 
@@ -187,9 +205,17 @@ impl<'a> ConsumingVisitor for Expander<'a> {
                     // If this macro has been overwritten by any local value, respect
                     // the local binding and do not expand the macro
                     if !self.in_scope_values.contains(s) {
-                        let expanded = m.expand(l.clone(), *sp)?;
-                        self.changed = true;
-                        return self.visit(expanded);
+                        if self.source_id.is_none()
+                            || self.source_id.is_some() && self.source_id == sp.source_id()
+                        {
+                            let expanded = m.expand(l.clone(), *sp)?;
+                            self.changed = true;
+                            return self.visit(expanded);
+                        }
+
+                        // let expanded = m.expand(l.clone(), *sp)?;
+                        // self.changed = true;
+                        // return self.visit(expanded);
                     }
                 }
             }

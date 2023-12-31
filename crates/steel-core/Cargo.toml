@@ -26,7 +26,7 @@ serde = { version = "1.0.193", features = ["derive", "rc"] }
 serde_derive = "1.0.193"
 bincode = "1.3.3"
 pretty = "0.12.1"
-im-lists = "0.6.0"
+im-lists = "0.7.0"
 quickscope = "0.2.0"
 lasso = { version = "0.7.2", features = ["multi-threaded", "serialize"] }
 once_cell = "1.18.0"

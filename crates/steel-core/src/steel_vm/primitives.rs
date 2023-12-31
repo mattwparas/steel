@@ -9,7 +9,10 @@ use super::{
 };
 use crate::{
     gc::Gc,
-    parser::{interner::InternedString, span::Span, tryfrom_visitor::TryFromExprKindForSteelVal},
+    parser::{
+        ast::TryFromSteelValVisitorForExprKind, interner::InternedString, span::Span,
+        tryfrom_visitor::TryFromExprKindForSteelVal,
+    },
     primitives::{
         fs_module,
         hashmaps::hashmap_module,
@@ -1586,7 +1589,19 @@ fn syntax_module() -> BuiltInModule {
         .register_fn("syntax-span", crate::rvals::Syntax::syntax_loc)
         .register_fn("#%syntax/raw", crate::rvals::Syntax::proto)
         .register_fn("syntax-e", crate::rvals::Syntax::syntax_e)
-        .register_value("syntax?", gen_pred!(SyntaxObject));
+        .register_value("syntax?", gen_pred!(SyntaxObject))
+        .register_fn("#%debug-syntax->exprkind", |value| {
+            let expr = TryFromSteelValVisitorForExprKind::root(&value);
+
+            match expr {
+                Ok(v) => {
+                    println!("{}", v.to_pretty(60));
+                }
+                Err(e) => {
+                    println!("{}", e);
+                }
+            }
+        });
     module
 }
 

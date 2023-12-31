@@ -521,7 +521,7 @@ impl Kernel {
         let span = get_span(&expr);
 
         let syntax_objects =
-            super::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(expr.clone())?;
+            super::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(expr)?;
 
         let function = if environment == "default" {
             // TODO: This actually needs to go through the proper resolution process,
@@ -546,18 +546,7 @@ impl Kernel {
             .call_function_with_args(function, vec![syntax_objects])
             .map_err(|x| x.set_span(span))?;
 
-        // dbg!(&result);
-
         // This shouldn't be lowering all the way. It should just be back to list right?
         TryFromSteelValVisitorForExprKind::root(&result)
-
-        // let span = result.as_ref().map(get_span);
-
-        // dbg!(&span);
-
-        // result
-
-        // TODO: We don't want this forever, but for now its okay
-        // .and_then(|x| RewriteSpan::new(span).visit(x))
     }
 }

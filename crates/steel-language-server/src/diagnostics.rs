@@ -169,11 +169,13 @@ impl DiagnosticGenerator for StaticArityChecker {
                         .trim_end_matches(interned.resolve())
                         .trim_end_matches("__%#__");
 
-                    let module = context
+                    let Some(module) = context
                         .engine
                         .modules()
                         .get(&PathBuf::from(module_path_to_check))
-                        .unwrap();
+                    else {
+                        continue;
+                    };
 
                     let module_ast = module.get_ast();
 
