@@ -154,7 +154,7 @@ pub fn hash_ref(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> Result
     if key.is_hashable() {
         match map.get(key) {
             Some(value) => Ok(value.clone()),
-            None => stop!(Generic => "key not found in hash map: {}", key),
+            None => stop!(Generic => "key not found in hash map: {} - map: {:?}", key, map),
         }
     } else {
         stop!(TypeMismatch => "key not hashable: {}", key)
