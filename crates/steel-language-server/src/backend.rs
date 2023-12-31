@@ -772,10 +772,17 @@ impl Backend {
 
                 free_identifiers_and_unused.append(&mut static_arity_checking);
 
+                let now = std::time::Instant::now();
+
                 // TODO: Enable this once the syntax object let conversion is implemented
-                // let mut user_defined_lints =
-                //     LINT_ENGINE.with_borrow_mut(|x| x.diagnostics(&rope, &analysis.exprs));
-                // free_identifiers_and_unused.append(&mut user_defined_lints);
+                let mut user_defined_lints =
+                    LINT_ENGINE.with_borrow_mut(|x| x.diagnostics(&rope, &analysis.exprs));
+
+                log::debug!("Lints found: {:#?}", user_defined_lints);
+
+                free_identifiers_and_unused.append(&mut user_defined_lints);
+
+                log::debug!("User defined lints time taken: {:?}", now.elapsed());
 
                 // All the diagnostics total
                 free_identifiers_and_unused
@@ -858,7 +865,7 @@ impl steel::steel_vm::engine::ModuleResolver for ExternalModuleResolver {
 
 thread_local! {
     pub static ENGINE: RefCell<Engine> = RefCell::new(Engine::new());
-    // pub static LINT_ENGINE: RefCell<UserDefinedLintEngine> = RefCell::new(configure_lints().unwrap());
+    pub static LINT_ENGINE: RefCell<UserDefinedLintEngine> = RefCell::new(configure_lints().unwrap());
     pub static DIAGNOSTICS: RefCell<Vec<SteelDiagnostic>> = RefCell::new(Vec::new());
 }
 
@@ -880,9 +887,11 @@ impl UserDefinedLintEngine {
         for lint in lints.iter() {
             for object in &syntax_objects {
                 if let Ok(o) = object.clone() {
-                    self.engine
-                        .call_function_by_name_with_args(lint, vec![o])
-                        .ok();
+                    log::debug!("calling: {} with {}", lint, o);
+
+                    let res = self.engine.call_function_by_name_with_args(lint, vec![o]);
+
+                    log::debug!("{:?}", res);
                 }
             }
         }
@@ -916,6 +925,7 @@ fn configure_lints() -> std::result::Result<UserDefinedLintEngine, Box<dyn Error
     let lints = Arc::new(RwLock::new(HashSet::new()));
 
     diagnostics.register_fn("suggest", move |span: Span, message: SteelString| {
+        log::debug!("Adding suggestion at: {:?} - {:?}", span, message);
         DIAGNOSTICS.with_borrow_mut(|x| x.push(SteelDiagnostic { span, message }));
     });
 
