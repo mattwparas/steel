@@ -1,3 +1,6 @@
+use steel_parser::parser::SyntaxObject;
+
+use crate::gc::Gc;
 use crate::values::lists::List;
 
 use crate::{parser::ast::ExprKind, rvals::Syntax};
@@ -231,6 +234,14 @@ impl SyntaxObjectFromExprKindRef {
     }
 }
 
+fn convert_location(s: &SyntaxObject) -> Result<SteelVal> {
+    let span = s.span;
+
+    let atom = SteelVal::try_from(s.clone())?;
+
+    Ok(Syntax::proto(atom.clone(), atom, span).into())
+}
+
 impl VisitorMut for SyntaxObjectFromExprKindRef {
     type Output = Result<SteelVal>;
 
@@ -242,7 +253,7 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
         let span = f.location.span;
 
         let expr = [
-            SteelVal::try_from(f.location.clone())?,
+            convert_location(&f.location)?,
             self.visit(&f.test_expr)?,
             self.visit(&f.then_expr)?,
             self.visit(&f.else_expr)?,
@@ -260,7 +271,7 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
         let span = define.location.span;
 
         let expr = [
-            SteelVal::try_from(define.location.clone())?,
+            convert_location(&define.location)?,
             self.visit(&define.name)?,
             self.visit(&define.body)?,
         ];
@@ -283,9 +294,22 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
             .map(|x| self.visit(&x))
             .collect::<Result<List<_>>>()?;
 
+        let span_vec = args
+            .iter()
+            .map(|x| {
+                if let SteelVal::SyntaxObject(s) = x {
+                    s.syntax_loc()
+                } else {
+                    unreachable!()
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let args_span = Span::coalesce_span(&span_vec);
+
         let expr = [
-            SteelVal::try_from(lambda_function.location.clone())?,
-            SteelVal::ListV(args),
+            convert_location(&lambda_function.location)?,
+            Syntax::new(SteelVal::ListV(args), args_span).into(),
             self.visit(&lambda_function.body)?,
         ];
 
@@ -297,7 +321,7 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
             TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::Begin(begin.clone()))?;
 
         let span = begin.location.span;
-        let mut exprs = vec![SteelVal::try_from(begin.location.clone())?];
+        let mut exprs = vec![convert_location(&begin.location)?];
         for expr in &begin.exprs {
             exprs.push(self.visit(&expr)?);
         }
@@ -306,10 +330,7 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
 
     fn visit_return(&mut self, r: &steel_parser::ast::Return) -> Self::Output {
         let span = r.location.span;
-        let expr = [
-            SteelVal::try_from(r.location.clone())?,
-            self.visit(&r.expr)?,
-        ];
+        let expr = [convert_location(&r.location)?, self.visit(&r.expr)?];
         Ok(Syntax::new_with_source(SteelVal::ListV(expr.into_iter().collect()), span).into())
     }
 
@@ -395,7 +416,7 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
 
         let span = s.location.span;
         let expr = [
-            SteelVal::try_from(s.location.clone())?,
+            convert_location(&s.location)?,
             self.visit(&s.variable)?,
             self.visit(&s.expr)?,
         ];
@@ -406,8 +427,61 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
         stop!(Generic => "internal compiler error - could not translate require to steel value")
     }
 
-    fn visit_let(&mut self, _l: &steel_parser::ast::Let) -> Self::Output {
-        todo!()
+    fn visit_let(&mut self, l: &steel_parser::ast::Let) -> Self::Output {
+        let raw: SteelVal = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::Let(
+            Box::new(l.clone()),
+        ))?;
+
+        let span = l.location.span;
+
+        let items = l
+            .bindings
+            .iter()
+            .map(|(x, y)| {
+                let items = vec![self.visit(x)?, self.visit(y)?];
+
+                let span_vec = items
+                    .iter()
+                    .map(|x| {
+                        if let SteelVal::SyntaxObject(s) = x {
+                            s.syntax_loc()
+                        } else {
+                            unreachable!()
+                        }
+                    })
+                    .collect::<Vec<_>>();
+
+                let items_span = Span::coalesce_span(&span_vec);
+
+                Ok(SteelVal::SyntaxObject(Gc::new(Syntax::new(
+                    SteelVal::ListV(items.into()),
+                    items_span,
+                ))))
+            })
+            .collect::<std::result::Result<List<SteelVal>, SteelErr>>()?;
+        // .into(),
+
+        let span_vec = items
+            .iter()
+            .map(|x| {
+                if let SteelVal::SyntaxObject(s) = x {
+                    s.syntax_loc()
+                } else {
+                    unreachable!()
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let items_span = Span::coalesce_span(&span_vec);
+
+        let expr = [
+            convert_location(&l.location)?,
+            // Bindings
+            Syntax::new(items.into(), items_span).into(),
+            self.visit(&l.body_expr)?,
+        ];
+
+        Ok(Syntax::proto(raw, SteelVal::ListV(expr.into_iter().collect()), span).into())
     }
 }
 
