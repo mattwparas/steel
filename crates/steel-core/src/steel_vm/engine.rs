@@ -1029,11 +1029,11 @@ impl Engine {
         self.with_mut_reference(obj).consume(|engine, args| {
             let mut args = args.into_iter();
 
-            engine.register_value(bind_to, args.next().unwrap());
+            engine.update_value(bind_to, args.next().unwrap());
 
             let res = engine.compile_and_run_raw_program(script);
 
-            engine.register_value(bind_to, SteelVal::Void);
+            engine.update_value(bind_to, SteelVal::Void);
 
             res.map(|x| x.into_iter().next().unwrap())
         })
@@ -1057,11 +1057,11 @@ impl Engine {
         self.with_mut_reference(obj).consume(move |engine, args| {
             let mut args = args.into_iter();
 
-            engine.register_value(bind_to, args.next().unwrap());
+            engine.update_value(bind_to, args.next().unwrap());
 
             let res = engine.compile_and_run_raw_program_with_path(script, path.clone());
 
-            engine.register_value(bind_to, SteelVal::Void);
+            engine.update_value(bind_to, SteelVal::Void);
 
             res.map(|x| x.into_iter().next().unwrap())
         })
@@ -1571,6 +1571,12 @@ impl Engine {
         // let idx = self.compiler.register(name);
         // self.virtual_machine.insert_binding(idx, value);
         // self
+    }
+
+    pub fn update_value(&mut self, name: &str, value: SteelVal) -> Option<&mut Self> {
+        let idx = self.compiler.get_idx(name)?;
+        self.virtual_machine.global_env.repl_set_idx(idx, value);
+        Some(self)
     }
 
     /// Registers multiple values at once

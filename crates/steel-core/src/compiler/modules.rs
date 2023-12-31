@@ -497,6 +497,8 @@ impl ModuleManager {
 
                             // TODO: If there is a prefix applied, use it here?
                             if let Some(prefix) = &require_object.prefix {
+                                // println!("Found prefix: {}", prefix);
+
                                 if let Some(existing) = owned_provide.atom_identifier_mut() {
                                     let mut prefixed_identifier = prefix.clone();
                                     prefixed_identifier.push_str(existing.resolve());
@@ -511,6 +513,8 @@ impl ModuleManager {
                                 hash_get,
                                 SyntaxObject::default(TokenType::Define),
                             )));
+
+                            // println!("{}", define);
 
                             require_defines.push(define);
                         }
@@ -1120,6 +1124,7 @@ impl CompiledModule {
 
                             // Mangle with a prefix if necessary
                             let mut provide = provide.clone();
+                            let mut raw_provide = provide.clone();
 
                             // If we have the alias listed, we should use it
                             if !explicit_requires.is_empty() {
@@ -1155,12 +1160,16 @@ impl CompiledModule {
                                     ExprKind::ident("%proto-hash-get%"),
                                     ExprKind::atom("__module-".to_string() + &other_module_prefix),
                                     ExprKind::Quote(Box::new(Quote::new(
-                                        provide.clone(),
+                                        raw_provide.clone(),
                                         SyntaxObject::default(TokenType::Quote)
                                     )))
                                 ],
                                 SyntaxObject::default(TokenType::Define),
                             )));
+
+                            // if require_object.prefix.is_some() {
+                            //     println!("{}", define);
+                            // }
 
                             provide_definitions.push(define);
                         }
