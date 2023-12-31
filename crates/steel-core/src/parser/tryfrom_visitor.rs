@@ -5,6 +5,7 @@ use crate::{parser::ast::ExprKind, rvals::Syntax};
 use crate::rerrs::SteelErr;
 use crate::rvals::{Result, SteelVal};
 
+use super::visitors::VisitorMut;
 use super::{ast::Atom, span::Span, visitors::ConsumingVisitor};
 
 use std::convert::TryFrom;
@@ -202,6 +203,8 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
     }
 }
 
+// TODO: Have this take a reference, so we don't have to
+// clone the whole thing
 pub struct SyntaxObjectFromExprKind {
     _inside_quote: bool,
 }
@@ -212,6 +215,199 @@ impl SyntaxObjectFromExprKind {
             _inside_quote: false,
         }
         .visit(e)
+    }
+}
+
+pub struct SyntaxObjectFromExprKindRef {
+    _inside_quote: bool,
+}
+
+impl SyntaxObjectFromExprKindRef {
+    pub fn try_from_expr_kind_ref(e: &ExprKind) -> Result<SteelVal> {
+        SyntaxObjectFromExprKindRef {
+            _inside_quote: false,
+        }
+        .visit(e)
+    }
+}
+
+impl VisitorMut for SyntaxObjectFromExprKindRef {
+    type Output = Result<SteelVal>;
+
+    fn visit_if(&mut self, f: &steel_parser::ast::If) -> Self::Output {
+        let raw = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::If(Box::new(
+            f.clone(),
+        )))?;
+
+        let span = f.location.span;
+
+        let expr = [
+            SteelVal::try_from(f.location.clone())?,
+            self.visit(&f.test_expr)?,
+            self.visit(&f.then_expr)?,
+            self.visit(&f.else_expr)?,
+        ];
+        // Ok(Syntax::new_with_source(SteelVal::ListV(expr.into_iter().collect()), span).into())
+
+        Ok(Syntax::proto(raw, SteelVal::ListV(expr.into_iter().collect()), span).into())
+    }
+
+    fn visit_define(&mut self, define: &steel_parser::ast::Define) -> Self::Output {
+        let raw: SteelVal = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(
+            ExprKind::Define(Box::new(define.clone())),
+        )?;
+
+        let span = define.location.span;
+
+        let expr = [
+            SteelVal::try_from(define.location.clone())?,
+            self.visit(&define.name)?,
+            self.visit(&define.body)?,
+        ];
+        Ok(Syntax::proto(raw, SteelVal::ListV(expr.into_iter().collect()), span).into())
+    }
+
+    fn visit_lambda_function(
+        &mut self,
+        lambda_function: &steel_parser::ast::LambdaFunction,
+    ) -> Self::Output {
+        let raw = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::LambdaFunction(
+            Box::new(lambda_function.clone()),
+        ))?;
+
+        let span = lambda_function.location.span;
+
+        let args = lambda_function
+            .args
+            .iter()
+            .map(|x| self.visit(&x))
+            .collect::<Result<List<_>>>()?;
+
+        let expr = [
+            SteelVal::try_from(lambda_function.location.clone())?,
+            SteelVal::ListV(args),
+            self.visit(&lambda_function.body)?,
+        ];
+
+        Ok(Syntax::proto(raw, SteelVal::ListV(expr.into_iter().collect()), span).into())
+    }
+
+    fn visit_begin(&mut self, begin: &steel_parser::ast::Begin) -> Self::Output {
+        let raw: SteelVal =
+            TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::Begin(begin.clone()))?;
+
+        let span = begin.location.span;
+        let mut exprs = vec![SteelVal::try_from(begin.location.clone())?];
+        for expr in &begin.exprs {
+            exprs.push(self.visit(&expr)?);
+        }
+        Ok(Syntax::proto(raw, SteelVal::ListV(exprs.into()), span).into())
+    }
+
+    fn visit_return(&mut self, r: &steel_parser::ast::Return) -> Self::Output {
+        let span = r.location.span;
+        let expr = [
+            SteelVal::try_from(r.location.clone())?,
+            self.visit(&r.expr)?,
+        ];
+        Ok(Syntax::new_with_source(SteelVal::ListV(expr.into_iter().collect()), span).into())
+    }
+
+    // TODO: quotes are handled incorrectly here
+    // Interior values should be handled on their own separately - they should evaluate
+    // like this: '(a b c) => '(a b c)
+    // '(a b 'c) => '(a b 'c) --- currently this ends up as '(a b c)
+    fn visit_quote(&mut self, quote: &steel_parser::ast::Quote) -> Self::Output {
+        let span = quote.location.span;
+
+        // if self.inside_quote {
+        let raw = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::Quote(
+            Box::new(quote.clone()),
+        ))?;
+        Ok(Syntax::proto(
+            raw,
+            SteelVal::ListV(
+                vec![SteelVal::SymbolV("quote".into()), self.visit(&quote.expr)?].into(),
+            ),
+            span,
+        )
+        .into())
+        // } else {
+        // self.inside_quote = true;
+        // let res = self.visit(quote.expr);
+        // self.inside_quote = false;
+        // res
+        // }
+    }
+
+    fn visit_macro(&mut self, _m: &steel_parser::ast::Macro) -> Self::Output {
+        // TODO
+        stop!(Generic => "internal compiler error - could not translate macro to steel value")
+    }
+
+    fn visit_atom(&mut self, a: &steel_parser::ast::Atom) -> Self::Output {
+        let span = a.syn.span;
+
+        let atom = SteelVal::try_from(a.syn.clone())?;
+
+        Ok(Syntax::proto(atom.clone(), atom, span).into())
+    }
+
+    fn visit_list(&mut self, l: &steel_parser::ast::List) -> Self::Output {
+        let raw = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::List(l.clone()))?;
+
+        let items: std::result::Result<List<_>, SteelErr> =
+            l.args.iter().map(|x| self.visit(&x)).collect();
+
+        let items = items?;
+
+        let span_vec = items
+            .iter()
+            .map(|x| {
+                if let SteelVal::SyntaxObject(s) = x {
+                    s.syntax_loc()
+                } else {
+                    unreachable!()
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let span = Span::coalesce_span(&span_vec);
+
+        // TODO: we're currently erasing the source here... This isn't what we want to do but we don't have
+        // a great model to access the source otherwise
+        // log::debug!(
+        //     "Erasing the source information during kernel level expansion for: {:?}",
+        //     raw
+        // );
+        Ok(Syntax::proto(raw, items.into(), span).into())
+    }
+
+    fn visit_syntax_rules(&mut self, _s: &steel_parser::ast::SyntaxRules) -> Self::Output {
+        // TODO
+        stop!(Generic => "internal compiler error - could not translate syntax-rules to steel value")
+    }
+
+    fn visit_set(&mut self, s: &steel_parser::ast::Set) -> Self::Output {
+        let raw: SteelVal = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::Set(
+            Box::new(s.clone()),
+        ))?;
+
+        let span = s.location.span;
+        let expr = [
+            SteelVal::try_from(s.location.clone())?,
+            self.visit(&s.variable)?,
+            self.visit(&s.expr)?,
+        ];
+        Ok(Syntax::proto(raw, SteelVal::ListV(expr.into_iter().collect()), span).into())
+    }
+
+    fn visit_require(&mut self, _s: &steel_parser::ast::Require) -> Self::Output {
+        stop!(Generic => "internal compiler error - could not translate require to steel value")
+    }
+
+    fn visit_let(&mut self, _l: &steel_parser::ast::Let) -> Self::Output {
+        todo!()
     }
 }
 

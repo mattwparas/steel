@@ -54,6 +54,7 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(STRING_CONSTRUCTOR_DEFINITION)
         .register_native_fn_definition(STRING_TO_NUMBER_DEFINITION)
         .register_native_fn_definition(NUMBER_TO_STRING_DEFINITION)
+        .register_native_fn_definition(REPLACE_DEFINITION)
         .register_fn("char-upcase", char_upcase)
         .register_fn("char-whitespace?", char::is_whitespace)
         .register_fn("char-digit?", |c: char| char::is_digit(c, 10))
@@ -251,6 +252,13 @@ pub fn make_string(k: usize, mut c: RestArgsIter<'_, char>) -> Result<SteelVal> 
 
     let c = char.unwrap_or(Ok('\0'))?;
     Ok((0..k).into_iter().map(|_| c).collect::<String>().into())
+}
+
+#[function(name = "string-replace")]
+pub fn replace(value: &SteelString, from: &SteelString, to: &SteelString) -> Result<SteelVal> {
+    Ok(SteelVal::StringV(
+        value.replace(from.as_str(), to.as_str()).into(),
+    ))
 }
 
 /// Concatenatives all of the inputs to their string representation, separated by spaces.

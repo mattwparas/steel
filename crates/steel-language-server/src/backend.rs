@@ -1,9 +1,11 @@
+#![allow(unused)]
+
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     error::Error,
     path::PathBuf,
-    sync::Arc,
+    sync::{Arc, RwLock},
 };
 
 use dashmap::{DashMap, DashSet};
@@ -16,9 +18,12 @@ use steel::{
         query_top_level_define, query_top_level_define_on_condition, RequiredIdentifierInformation,
         SemanticAnalysis,
     },
-    parser::{ast::ExprKind, expander::SteelMacro, interner::InternedString, parser::SourceId},
-    rvals::FromSteelVal,
-    steel_vm::{builtin::BuiltInModule, engine::Engine},
+    parser::{
+        ast::ExprKind, expander::SteelMacro, interner::InternedString, parser::SourceId,
+        span::Span, tryfrom_visitor::SyntaxObjectFromExprKindRef,
+    },
+    rvals::{FromSteelVal, SteelString},
+    steel_vm::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn},
 };
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::notification::Notification;
@@ -767,6 +772,11 @@ impl Backend {
 
                 free_identifiers_and_unused.append(&mut static_arity_checking);
 
+                // TODO: Enable this once the syntax object let conversion is implemented
+                // let mut user_defined_lints =
+                //     LINT_ENGINE.with_borrow_mut(|x| x.diagnostics(&rope, &analysis.exprs));
+                // free_identifiers_and_unused.append(&mut user_defined_lints);
+
                 // All the diagnostics total
                 free_identifiers_and_unused
             });
@@ -848,71 +858,95 @@ impl steel::steel_vm::engine::ModuleResolver for ExternalModuleResolver {
 
 thread_local! {
     pub static ENGINE: RefCell<Engine> = RefCell::new(Engine::new());
+    // pub static LINT_ENGINE: RefCell<UserDefinedLintEngine> = RefCell::new(configure_lints().unwrap());
+    pub static DIAGNOSTICS: RefCell<Vec<SteelDiagnostic>> = RefCell::new(Vec::new());
 }
 
-// #[tokio::main]
-// async fn main() {
-//     env_logger::init();
+// At one time, call the lints, collecting the diagnostics each time.
+struct UserDefinedLintEngine {
+    engine: Engine,
+    lints: Arc<RwLock<HashSet<String>>>,
+}
 
-//     let stdin = tokio::io::stdin();
-//     let stdout = tokio::io::stdout();
+impl UserDefinedLintEngine {
+    pub fn diagnostics(&mut self, rope: &Rope, ast: &[ExprKind]) -> Vec<Diagnostic> {
+        let lints = self.lints.read().unwrap();
 
-//     // Use this to resolve the module configuration files
-//     let mut resolver_engine = Engine::new();
+        let syntax_objects: Vec<_> = ast
+            .iter()
+            .map(SyntaxObjectFromExprKindRef::try_from_expr_kind_ref)
+            .collect();
 
-//     let globals_set = Arc::new(DashSet::new());
+        for lint in lints.iter() {
+            for object in &syntax_objects {
+                if let Ok(o) = object.clone() {
+                    self.engine
+                        .call_function_by_name_with_args(lint, vec![o])
+                        .ok();
+                }
+            }
+        }
 
-//     globals_set.insert("#%ignore-unused-identifier".into());
-//     globals_set.insert("#%register-global".into());
+        DIAGNOSTICS.with_borrow_mut(|x| {
+            x.drain(..)
+                .filter_map(|d| {
+                    let start_position = offset_to_position(d.span.start, &rope)?;
+                    let end_position = offset_to_position(d.span.end, &rope)?;
 
-//     let cloned_set = globals_set.clone();
-//     resolver_engine.register_fn("#%register-global", move |global: String| {
-//         cloned_set.insert(InternedString::from(global))
-//     });
+                    Some(Diagnostic::new_simple(
+                        Range::new(start_position, end_position),
+                        d.message.to_string(),
+                    ))
+                })
+                .collect()
+        })
+    }
+}
 
-//     let ignore_unused_set = Arc::new(DashSet::new());
-//     let cloned_ignore_set = ignore_unused_set.clone();
-//     resolver_engine.register_fn("#%ignore-unused-identifier", move |global: String| {
-//         cloned_ignore_set.insert(InternedString::from(global));
-//     });
+#[derive(Clone)]
+struct SteelDiagnostic {
+    span: Span,
+    message: SteelString,
+}
 
-//     ENGINE.with_borrow_mut(|x| {
-//         x.register_module_resolver(
-//             ExternalModuleResolver::new(
-//                 &mut resolver_engine,
-//                 PathBuf::from("/home/matt/.config/steel-lsp/"),
-//             )
-//             .unwrap(),
-//         )
-//     });
+fn configure_lints() -> std::result::Result<UserDefinedLintEngine, Box<dyn Error>> {
+    let mut engine = Engine::new();
 
-//     let defined_globals = DashSet::new();
+    let mut diagnostics = BuiltInModule::new("lsp/diagnostics");
+    let lints = Arc::new(RwLock::new(HashSet::new()));
 
-//     ENGINE.with_borrow(|engine| {
-//         for global in engine.globals() {
-//             let resolved = global.resolve();
-//             if !resolved.starts_with("#")
-//                 && !resolved.starts_with("%")
-//                 && !resolved.starts_with("mangler#%")
-//             {
-//                 defined_globals.insert(resolved.to_string());
-//             }
-//         }
-//     });
+    diagnostics.register_fn("suggest", move |span: Span, message: SteelString| {
+        DIAGNOSTICS.with_borrow_mut(|x| x.push(SteelDiagnostic { span, message }));
+    });
 
-//     let (service, socket) = LspService::build(|client| Backend {
-//         client,
-//         ast_map: DashMap::new(),
-//         document_map: DashMap::new(),
-//         _macro_map: DashMap::new(),
-//         globals_set,
-//         ignore_set: ignore_unused_set,
-//         defined_globals,
-//     })
-//     .finish();
+    let engine_lints = lints.clone();
+    diagnostics.register_fn("#%register-lint", move |name: String| {
+        engine_lints.write().unwrap().insert(name);
+    });
 
-//     Server::new(stdin, stdout, socket).serve(service).await;
-// }
+    let mut directory = PathBuf::from(
+        std::env::var("STEEL_LSP_HOME").expect("Have you set your STEEL_LSP_HOME path?"),
+    );
+
+    directory.push("lints");
+
+    engine.register_module(diagnostics);
+
+    // Load all of the lints - we'll want to grab
+    // all functions that get registered via define-lint - which means
+    // just give me a name
+    for file in std::fs::read_dir(&directory)? {
+        let file = file?;
+
+        if file.path().is_file() {
+            let contents = std::fs::read_to_string(file.path())?;
+
+            engine.compile_and_run_raw_program(&contents)?;
+        }
+    }
+
+    Ok(UserDefinedLintEngine { engine, lints })
+}
 
 pub fn offset_to_position(offset: usize, rope: &Rope) -> Option<Position> {
     let line = rope.try_char_to_line(offset).ok()?;
