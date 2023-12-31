@@ -2098,6 +2098,7 @@ mod engine_api_tests {
         let mut engine = Engine::new();
         let mut external_object = ReferenceStruct { value: 10 };
 
+        engine.register_value("*external*", SteelVal::Void);
         engine.register_fn("external-get-value", ReferenceStruct::get_value);
 
         {
@@ -2118,6 +2119,7 @@ mod engine_api_tests {
         let mut engine = Engine::new();
         let mut external_object = ReferenceStruct { value: 10 };
 
+        engine.register_value("*external*", SteelVal::Void);
         engine.register_fn("external-get-value", ReferenceStruct::get_value);
 
         let res = engine
