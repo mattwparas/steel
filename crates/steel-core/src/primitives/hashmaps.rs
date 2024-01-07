@@ -1,3 +1,4 @@
+use crate::rvals::SteelHashMap;
 use crate::stop;
 use crate::{core::utils::declare_const_ref_functions, gc::Gc};
 use crate::{
@@ -12,10 +13,11 @@ use steel_derive::function;
 
 declare_const_ref_functions!(
     HM_CONSTRUCT => hm_construct,
-    HM_INSERT => steel_hash_insert,
     HM_GET => steel_hash_ref,
     HM_EMPTY => hm_empty,
 );
+
+pub const HM_INSERT: SteelVal = SteelVal::MutFunc(steel_hash_insert);
 
 pub(crate) fn hashmap_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/hash".to_string());
@@ -126,13 +128,19 @@ pub fn hm_construct_keywords(args: &[SteelVal]) -> Result<SteelVal> {
 ///     }>
 /// ```
 #[function(name = "hash-insert")]
-pub fn hash_insert(
-    map: &Gc<HashMap<SteelVal, SteelVal>>,
-    key: SteelVal,
-    value: SteelVal,
-) -> Result<SteelVal> {
+pub fn hash_insert(map: &mut SteelVal, key: SteelVal, value: SteelVal) -> Result<SteelVal> {
     if key.is_hashable() {
-        Ok(SteelVal::HashMapV(Gc::new(map.update(key, value)).into()))
+        if let SteelVal::HashMapV(SteelHashMap(ref mut m)) = map {
+            match Gc::get_mut(m) {
+                Some(m) => {
+                    m.insert(key, value);
+                    Ok(std::mem::replace(map, SteelVal::Void))
+                }
+                None => Ok(SteelVal::HashMapV(Gc::new(m.update(key, value)).into())),
+            }
+        } else {
+            stop!(TypeMismatch => "hash-insert expects a hash map, found: {:?}", map);
+        }
     } else {
         stop!(TypeMismatch => "hash key not hashable: {:?}", key)
     }
@@ -346,12 +354,12 @@ mod hashmap_tests {
 
     #[test]
     fn hm_insert_from_empty() {
-        let args = [
+        let mut args = [
             HashMapV(Gc::new(hashmap![]).into()),
             StringV("foo".into()),
             StringV("bar".into()),
         ];
-        let res = steel_hash_insert(&args);
+        let res = steel_hash_insert(&mut args);
         let expected = SteelVal::HashMapV(
             Gc::new(hashmap! {
                 StringV("foo".into()) => StringV("bar".into())

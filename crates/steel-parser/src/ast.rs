@@ -133,6 +133,8 @@ fn check_size() {
     println!("SyntaxRules: {}", std::mem::size_of::<SyntaxRules>());
     println!("Macro: {}", std::mem::size_of::<Macro>());
     println!("List: {}", std::mem::size_of::<List>());
+    println!("Atom: {}", std::mem::size_of::<Atom>());
+    println!("Require: {}", std::mem::size_of::<Require>());
 }
 
 #[macro_export]
@@ -1904,16 +1906,16 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                         TokenType::Set => parse_set(&a, value),
                         TokenType::Identifier(expr) if *expr == *SET => parse_set(&a, value),
 
-                        TokenType::Begin => parse_begin(&a, value),
-                        TokenType::Identifier(expr) if *expr == *BEGIN => parse_begin(&a, value),
+                        TokenType::Begin => parse_begin(a, value),
+                        TokenType::Identifier(expr) if *expr == *BEGIN => parse_begin(a, value),
 
-                        TokenType::Lambda => parse_lambda(&a, value),
+                        TokenType::Lambda => parse_lambda(a, value),
                         TokenType::Identifier(expr)
                             if *expr == *LAMBDA
                                 || *expr == *LAMBDA_FN
                                 || *expr == *LAMBDA_SYMBOL =>
                         {
-                            parse_lambda(&a, value)
+                            parse_lambda(a, value)
                         }
 
                         TokenType::DefineSyntax => {
@@ -2013,8 +2015,8 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
     }
 }
 
-pub fn parse_lambda(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
-    let syn = a.syn.clone();
+pub fn parse_lambda(a: Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
+    let syn = a.syn;
     if value.len() < 3 {
         return Err(ParseError::SyntaxError(
             format!(
@@ -2142,8 +2144,8 @@ pub(crate) fn parse_require(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, 
     Ok(ExprKind::Require(Require::new(expressions, syn)))
 }
 
-pub(crate) fn parse_begin(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
-    let syn = a.syn.clone();
+pub(crate) fn parse_begin(a: Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
+    let syn = a.syn;
     let mut value_iter = value.into_iter();
     value_iter.next();
     Ok(ExprKind::Begin(Begin::new(value_iter.collect(), syn)))

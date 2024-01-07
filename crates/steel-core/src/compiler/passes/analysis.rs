@@ -5,6 +5,7 @@ use std::{
 
 use im_rc::HashMap as ImmutableHashMap;
 use quickscope::ScopeMap;
+use smallvec::SmallVec;
 use steel_parser::{ast::PROTO_HASH_GET, parser::SourceId};
 
 use crate::{
@@ -30,7 +31,7 @@ use crate::{
 
 use super::{VisitorMutControlFlow, VisitorMutRefUnit, VisitorMutUnitRef};
 
-use fxhash::{FxHashMap, FxHashSet, FxHasher};
+use fxhash::{FxBuildHasher, FxHashMap, FxHashSet, FxHasher};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum IdentifierStatus {
@@ -288,11 +289,20 @@ impl Analysis {
 
     pub fn fresh_from_exprs(&mut self, exprs: &[ExprKind]) {
         self.clear();
+
         self.run(exprs);
     }
 
     pub fn from_exprs(exprs: &[ExprKind]) -> Self {
-        let mut analysis = Analysis::default();
+        // let mut analysis = Analysis::default();
+
+        let mut analysis = Analysis {
+            info: HashMap::with_capacity_and_hasher(3584, FxBuildHasher::default()),
+            function_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
+            call_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
+            let_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
+        };
+
         analysis.run(exprs);
         analysis
     }
@@ -305,28 +315,45 @@ impl Analysis {
             .flat_map(|x| x.captured_vars.values())
             .chain(self.let_info.values().flat_map(|x| x.arguments.values()))
             .filter(|x| x.captured && x.mutated)
-            .map(|x| (x.id, x.clone()))
-            .collect::<FxHashMap<_, _>>();
+            // .map(|x| (x.id, x.clone()))
+            .map(|x| x.id)
+            .collect::<FxHashSet<_>>();
 
-        self.function_info
-            .values_mut()
-            .flat_map(|x| x.captured_vars.values_mut())
-            .for_each(|x| {
-                if mutated_and_captured_vars.get(&x.id).is_some() {
+        for value in self.function_info.values_mut() {
+            for x in value.captured_vars.values_mut() {
+                if mutated_and_captured_vars.contains(&x.id) {
                     x.mutated = true;
                     x.captured = true;
                 }
-            });
+            }
 
-        self.function_info
-            .values_mut()
-            .flat_map(|x| x.arguments.values_mut())
-            .for_each(|x| {
-                if mutated_and_captured_vars.get(&x.id).is_some() {
+            for x in value.arguments.values_mut() {
+                if mutated_and_captured_vars.contains(&x.id) {
                     x.mutated = true;
                     x.captured = true;
                 }
-            });
+            }
+        }
+
+        // self.function_info
+        //     .values_mut()
+        //     .flat_map(|x| x.captured_vars.values_mut())
+        //     .for_each(|x| {
+        //         if mutated_and_captured_vars.contains(&x.id) {
+        //             x.mutated = true;
+        //             x.captured = true;
+        //         }
+        //     });
+
+        // self.function_info
+        //     .values_mut()
+        //     .flat_map(|x| x.arguments.values_mut())
+        //     .for_each(|x| {
+        //         if mutated_and_captured_vars.contains(&x.id) {
+        //             x.mutated = true;
+        //             x.captured = true;
+        //         }
+        //     });
 
         self.run(exprs);
     }
@@ -453,7 +480,13 @@ impl Analysis {
     }
 
     pub fn insert(&mut self, object: &SyntaxObject, metadata: SemanticInformation) {
-        self.info.insert(object.syntax_object_id, metadata);
+        // self.info.insert(object.syntax_object_id, metadata);
+
+        if let Some(existing_metadata) = self.info.get_mut(&object.syntax_object_id) {
+            *existing_metadata = metadata;
+        } else {
+            self.info.insert(object.syntax_object_id, metadata);
+        }
     }
 
     pub fn update_with(&mut self, object: &SyntaxObject, metadata: SemanticInformation) {
@@ -588,9 +621,12 @@ struct AnalysisPass<'a> {
     stack_offset: usize,
     function_context: Option<usize>,
     contains_lambda_func: bool,
-    vars_used: im_rc::HashSet<InternedString>,
-    total_vars_used: im_rc::HashSet<InternedString>,
-    ids_referenced_in_tail_position: HashSet<SyntaxObjectId>,
+
+    // TODO: Have these all re-use some memory
+    // vars_used: im_rc::HashSet<InternedString>,
+    vars_used: smallvec::SmallVec<[InternedString; 24]>,
+    // total_vars_used: im_rc::HashSet<InternedString>,
+    // ids_referenced_in_tail_position: HashSet<SyntaxObjectId>,
 }
 
 fn define_var(
@@ -616,9 +652,10 @@ impl<'a> AnalysisPass<'a> {
             stack_offset: 0,
             function_context: None,
             contains_lambda_func: false,
-            vars_used: im_rc::HashSet::new(),
-            total_vars_used: im_rc::HashSet::new(),
-            ids_referenced_in_tail_position: HashSet::new(),
+            // vars_used: im_rc::HashSet::new(),
+            vars_used: SmallVec::new(),
+            // total_vars_used: im_rc::HashSet::new(),
+            // ids_referenced_in_tail_position: HashSet::new(),
         }
     }
 }
@@ -1344,7 +1381,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         self.defining_context_depth += 1;
 
         // Set the single used to this scope to be a new set
-        self.vars_used = im_rc::HashSet::new();
+        // self.vars_used = im_rc::HashSet::new();
+
+        self.vars_used = SmallVec::new();
 
         self.contains_lambda_func = false;
 
@@ -1355,9 +1394,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         self.contains_lambda_func = true;
 
-        for var in &self.vars_used {
-            self.total_vars_used.insert(var.clone());
-        }
+        // for var in &self.vars_used {
+        //     self.total_vars_used.insert(var.clone());
+        // }
 
         self.defining_context_depth -= 1;
 
@@ -1406,14 +1445,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             .function_info
             .get_mut(&lambda_function.syntax_object_id)
         {
-            let mut slated_for_removal = Vec::new();
+            let mut slated_for_removal = SmallVec::<[InternedString; 5]>::new();
 
             if lambda_bottoms_out {
                 captured_vars.retain(|x: &InternedString, _| self.vars_used.contains(x));
 
                 for var in info.captured_vars.keys() {
                     if !captured_vars.contains_key(var) {
-                        slated_for_removal.push(var.clone());
+                        slated_for_removal.push(*var);
                     }
                 }
 
@@ -1465,7 +1504,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         if let Some(name) = name {
             // Mark that we've used this
-            self.vars_used.insert(*name);
+            self.vars_used.push(*name);
 
             // Gather the id of the variable that is in fact mutated
             if let Some(scope_info) = self.scope.get_mut(name) {
@@ -1508,9 +1547,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         if let Some(ident) = name {
             // Mark that we've seen this one
-            self.vars_used.insert(*ident);
+            self.vars_used.push(*ident);
             // Mark that this was perhaps used in tail position
-            self.ids_referenced_in_tail_position.insert(current_id);
+            // self.ids_referenced_in_tail_position.insert(current_id);
 
             // Check if its a global var - otherwise, we want to check if its a free
             // identifier
@@ -2945,7 +2984,7 @@ impl<'a> VisitorMutUnitRef<'a> for CollectReferences {
 }
 
 struct ReplaceBuiltinUsagesInsideMacros<'a> {
-    identifiers_to_replace: &'a mut HashSet<InternedString>,
+    identifiers_to_replace: &'a mut FxHashSet<InternedString>,
     analysis: &'a Analysis,
 }
 
@@ -2964,8 +3003,6 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesInsideMacros<'a> {
         if let Some(ident) = a.ident_mut() {
             if self.identifiers_to_replace.contains(ident) {
                 if let Some((_, builtin_name)) = ident.resolve().split_once(MANGLER_SEPARATOR) {
-                    // println!("RENAMING: {}", ident);
-
                     *ident = ("#%prim.".to_string() + builtin_name).into();
                 }
             }
@@ -2975,13 +3012,13 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesInsideMacros<'a> {
 
 struct ReplaceBuiltinUsagesWithReservedPrimitiveReferences<'a> {
     analysis: &'a Analysis,
-    identifiers_to_replace: &'a mut HashSet<InternedString>,
+    identifiers_to_replace: &'a mut FxHashSet<InternedString>,
 }
 
 impl<'a> ReplaceBuiltinUsagesWithReservedPrimitiveReferences<'a> {
     pub fn new(
         analysis: &'a Analysis,
-        identifiers_to_replace: &'a mut HashSet<InternedString>,
+        identifiers_to_replace: &'a mut FxHashSet<InternedString>,
     ) -> Self {
         Self {
             analysis,
@@ -3073,13 +3110,13 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
 
 struct ExprContainsIds<'a> {
     analysis: &'a Analysis,
-    ids: &'a HashSet<SyntaxObjectId>,
+    ids: &'a SmallVec<[SyntaxObjectId; 8]>,
 }
 
 impl<'a> ExprContainsIds<'a> {
     pub fn contains(
         analysis: &'a Analysis,
-        ids: &'a HashSet<SyntaxObjectId>,
+        ids: &'a SmallVec<[SyntaxObjectId; 8]>,
         expr: &ExprKind,
     ) -> bool {
         matches!(
@@ -3129,7 +3166,7 @@ impl<'a> VisitorMutRefUnit for FlattenAnonymousFunctionCalls<'a> {
                     .args
                     .iter()
                     .map(|x| x.atom_syntax_object().unwrap().syntax_object_id)
-                    .collect::<HashSet<_>>();
+                    .collect::<smallvec::SmallVec<[_; 8]>>();
 
                 let all_dont_contain_references = inner_l.args[1..]
                     .iter()
@@ -3607,7 +3644,7 @@ impl<'a> SemanticAnalysis<'a> {
         &mut self,
         macros: &mut HashMap<InternedString, SteelMacro>,
         module_manager: &mut ModuleManager,
-        table: &mut HashSet<InternedString>,
+        table: &mut FxHashSet<InternedString>,
     ) -> &mut Self {
         let mut replacer =
             ReplaceBuiltinUsagesWithReservedPrimitiveReferences::new(&self.analysis, table);
@@ -3958,9 +3995,9 @@ impl<'a> SemanticAnalysis<'a> {
 
                     let let_expr = Let::new(
                         f.args
-                            .iter()
-                            .zip(l.args.iter())
-                            .map(|x| (x.0.clone(), x.1.clone()))
+                            .into_iter()
+                            .zip(std::mem::take(&mut l.args))
+                            .map(|x| (x.0, x.1))
                             .collect(),
                         function_body,
                         f.location.clone(),
@@ -4203,6 +4240,7 @@ impl<'a> SemanticAnalysis<'a> {
     }
 
     pub fn check_if_values_are_redefined(&mut self) -> Result<&mut Self, SteelErr> {
+        // TODO: Maybe reuse this memory somehow?
         let mut non_builtin_definitions = HashSet::new();
 
         for expr in self.exprs.iter() {

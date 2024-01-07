@@ -315,6 +315,11 @@ pub trait PrimitiveAsRef<'a>: Sized {
     fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self>;
 }
 
+pub trait PrimitiveAsRefMut<'a>: Sized {
+    fn primitive_as_ref(val: &'a mut SteelVal) -> Result<Self>;
+    fn maybe_primitive_as_ref(val: &'a mut SteelVal) -> Option<Self>;
+}
+
 pub struct RestArgsIter<'a, T>(
     pub std::iter::Map<std::slice::Iter<'a, SteelVal>, fn(&'a SteelVal) -> Result<T>>,
 );

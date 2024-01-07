@@ -231,21 +231,20 @@ impl ModuleManager {
 
         let mut module_statements = module_builder.compile()?;
 
-        // println!("Compiled modules: {:?}", module_builder.compiled_modules);
+        for expr in module_builder.source_ast.iter_mut() {
+            expand(expr, global_macro_map)?;
+        }
 
-        // Expand the ast first with the macros from global/source file
-        let mut ast = module_builder
-            .source_ast
-            .into_iter()
-            .map(|x| expand(x, global_macro_map))
-            .collect::<Result<Vec<_>>>()?;
+        // let mut ast = module_builder.source_ast;
 
         {
-            module_builder.source_ast = ast;
+            // module_builder.source_ast = ast;
             module_builder.collect_provides();
 
-            ast = std::mem::take(&mut module_builder.source_ast);
+            // ast = std::mem::take(&mut module_builder.source_ast);
         }
+
+        let mut ast = module_builder.source_ast;
 
         let mut require_defines = Vec::new();
 
@@ -543,8 +542,8 @@ impl ModuleManager {
                 &mut mangled_asts,
             );
 
-            let kernel_macros_in_scope: HashSet<_> =
-                module.provides_for_syntax.iter().cloned().collect();
+            // let kernel_macros_in_scope: HashSet<_> =
+            //     module.provides_for_syntax.iter().cloned().collect();
 
             // let defmacros_exported: HashSet<_> = module.
 
@@ -579,101 +578,199 @@ impl ModuleManager {
             //     );
             // }
 
-            ast = ast
-                .into_iter()
-                .map(|x| {
-                    // @matt 12/8/2023
-                    // The easiest thing to do here, is to go to the other module, and find
-                    // what defmacros have been exposed on the require for syntax. Once those
-                    // have been found, we run a pass with kernel expansion, limiting the
-                    // expander to only use the macros that we've exposed. After that,
-                    // we run the expansion again, using the full suite of defmacro capabilities.
-                    //
-                    // The question that remains - how to define the neat phases of what kinds
-                    // of macros can expand into what? Can defmacro -> syntax-rules -> defmacro?
-                    // This could eventually prove to be cumbersome, but it is still early
-                    // for defmacro. Plus, I need to create a syntax-case or syntax-parse
-                    // frontend before the defmacro style macros become too pervasive.
-                    //
-                    // TODO: Replicate this behavior over to builtin modules
+            let module_name = Cow::from(module.name.to_str().unwrap().to_string());
 
-                    // First expand the in scope macros
-                    // These are macros
-                    let mut expander = Expander::new(&in_scope_macros);
-                    let mut first_round_expanded = expander.expand(x)?;
-                    let mut changed = false;
+            for expr in ast.iter_mut() {
+                // @matt 12/8/2023
+                // The easiest thing to do here, is to go to the other module, and find
+                // what defmacros have been exposed on the require for syntax. Once those
+                // have been found, we run a pass with kernel expansion, limiting the
+                // expander to only use the macros that we've exposed. After that,
+                // we run the expansion again, using the full suite of defmacro capabilities.
+                //
+                // The question that remains - how to define the neat phases of what kinds
+                // of macros can expand into what? Can defmacro -> syntax-rules -> defmacro?
+                // This could eventually prove to be cumbersome, but it is still early
+                // for defmacro. Plus, I need to create a syntax-case or syntax-parse
+                // frontend before the defmacro style macros become too pervasive.
+                //
+                // TODO: Replicate this behavior over to builtin modules
 
-                    // (first_round_expanded, changed) = expand_kernel_in_env_with_allowed(
-                    //     first_round_expanded,
-                    //     kernel.as_mut(),
-                    //     // We don't need to expand those here
-                    //     ModuleContainer::default(),
-                    //     module.name.to_str().unwrap().to_string(),
-                    //     &kernel_macros_in_scope,
-                    // )?;
+                // First expand the in scope macros
+                // These are macros
+                let mut expander = Expander::new(&in_scope_macros);
+                expander.expand(expr)?;
+                let mut changed = false;
 
-                    // If the kernel expander expanded into something - go ahead
-                    // and expand all of the macros in this
-                    // if changed || expander.changed {
-                    // Expand here?
-                    // first_round_expanded = expand(first_round_expanded, &module.macro_map)?;
+                // (first_round_expanded, changed) = expand_kernel_in_env_with_allowed(
+                //     first_round_expanded,
+                //     kernel.as_mut(),
+                //     // We don't need to expand those here
+                //     ModuleContainer::default(),
+                //     module.name.to_str().unwrap().to_string(),
+                //     &kernel_macros_in_scope,
+                // )?;
 
-                    // Probably don't need this
-                    // (first_round_expanded, changed) = expand_kernel_in_env_with_change(
-                    //     first_round_expanded,
-                    //     kernel.as_mut(),
-                    //     ModuleContainer::default(),
-                    //     module.name.to_str().unwrap().to_string(),
-                    // )?;
+                // If the kernel expander expanded into something - go ahead
+                // and expand all of the macros in this
+                // if changed || expander.changed {
+                // Expand here?
+                // first_round_expanded = expand(first_round_expanded, &module.macro_map)?;
 
-                    // This is pretty suspect, and needs to be revisited - only the output of the
-                    // macro expansion and not the whole thing needs to be mangled most likely.
-                    // Otherwise, we'll run into weird stuff?
-                    // if changed {
-                    //     name_mangler.visit(&mut first_round_expanded);
-                    // }
-                    // }
+                // Probably don't need this
+                // (first_round_expanded, changed) = expand_kernel_in_env_with_change(
+                //     first_round_expanded,
+                //     kernel.as_mut(),
+                //     ModuleContainer::default(),
+                //     module.name.to_str().unwrap().to_string(),
+                // )?;
 
-                    if expander.changed || changed {
-                        let source_id = sources.get_source_id(&module.name).unwrap();
+                // This is pretty suspect, and needs to be revisited - only the output of the
+                // macro expansion and not the whole thing needs to be mangled most likely.
+                // Otherwise, we'll run into weird stuff?
+                // if changed {
+                //     name_mangler.visit(&mut first_round_expanded);
+                // }
+                // }
 
-                        let fully_expanded = expand(
-                            first_round_expanded,
-                            &module.macro_map,
-                            // source_id,
-                        )?;
+                if expander.changed || changed {
+                    let source_id = sources.get_source_id(&module.name).unwrap();
 
-                        let module_name = module.name.to_str().unwrap().to_string();
+                    // let mut fully_expanded = first_round_expanded;
 
-                        // Expanding the kernel with only these macros...
-                        let (mut first_round_expanded, changed) = expand_kernel_in_env_with_change(
-                            fully_expanded,
-                            kernel.as_mut(),
-                            // We don't need to expand those here
-                            ModuleContainer::default(),
-                            module_name.clone(),
-                            // &kernel_macros_in_scope,
-                        )?;
+                    expand(
+                        expr,
+                        &module.macro_map,
+                        // source_id,
+                    )?;
 
-                        if changed {
-                            name_mangler.visit(&mut first_round_expanded);
-                        }
+                    // Expanding the kernel with only these macros...
+                    let changed = expand_kernel_in_env_with_change(
+                        expr,
+                        kernel.as_mut(),
+                        // We don't need to expand those here
+                        ModuleContainer::default(),
+                        &module_name,
+                        // &kernel_macros_in_scope,
+                    )?;
 
-                        // lifted_kernel_environments.insert(
-                        //     module_name.clone(),
-                        //     KernelDefMacroSpec {
-                        //         env: module_name,
-                        //         exported: None,
-                        //         name_mangler: name_mangler.clone(),
-                        //     },
-                        // );
-
-                        Ok(first_round_expanded)
-                    } else {
-                        Ok(first_round_expanded)
+                    if changed {
+                        name_mangler.visit(expr);
                     }
-                })
-                .collect::<Result<_>>()?;
+
+                    // lifted_kernel_environments.insert(
+                    //     module_name.clone(),
+                    //     KernelDefMacroSpec {
+                    //         env: module_name,
+                    //         exported: None,
+                    //         name_mangler: name_mangler.clone(),
+                    //     },
+                    // );
+
+                    // Ok(fully_expanded)
+                }
+                // else {
+                //     Ok(first_round_expanded)
+                // }
+            }
+
+            // ast = ast
+            //     .into_iter()
+            //     .map(|x| {
+            //         // @matt 12/8/2023
+            //         // The easiest thing to do here, is to go to the other module, and find
+            //         // what defmacros have been exposed on the require for syntax. Once those
+            //         // have been found, we run a pass with kernel expansion, limiting the
+            //         // expander to only use the macros that we've exposed. After that,
+            //         // we run the expansion again, using the full suite of defmacro capabilities.
+            //         //
+            //         // The question that remains - how to define the neat phases of what kinds
+            //         // of macros can expand into what? Can defmacro -> syntax-rules -> defmacro?
+            //         // This could eventually prove to be cumbersome, but it is still early
+            //         // for defmacro. Plus, I need to create a syntax-case or syntax-parse
+            //         // frontend before the defmacro style macros become too pervasive.
+            //         //
+            //         // TODO: Replicate this behavior over to builtin modules
+
+            //         // First expand the in scope macros
+            //         // These are macros
+            //         let mut expander = Expander::new(&in_scope_macros);
+            //         let mut first_round_expanded = expander.expand(x)?;
+            //         let mut changed = false;
+
+            //         // (first_round_expanded, changed) = expand_kernel_in_env_with_allowed(
+            //         //     first_round_expanded,
+            //         //     kernel.as_mut(),
+            //         //     // We don't need to expand those here
+            //         //     ModuleContainer::default(),
+            //         //     module.name.to_str().unwrap().to_string(),
+            //         //     &kernel_macros_in_scope,
+            //         // )?;
+
+            //         // If the kernel expander expanded into something - go ahead
+            //         // and expand all of the macros in this
+            //         // if changed || expander.changed {
+            //         // Expand here?
+            //         // first_round_expanded = expand(first_round_expanded, &module.macro_map)?;
+
+            //         // Probably don't need this
+            //         // (first_round_expanded, changed) = expand_kernel_in_env_with_change(
+            //         //     first_round_expanded,
+            //         //     kernel.as_mut(),
+            //         //     ModuleContainer::default(),
+            //         //     module.name.to_str().unwrap().to_string(),
+            //         // )?;
+
+            //         // This is pretty suspect, and needs to be revisited - only the output of the
+            //         // macro expansion and not the whole thing needs to be mangled most likely.
+            //         // Otherwise, we'll run into weird stuff?
+            //         // if changed {
+            //         //     name_mangler.visit(&mut first_round_expanded);
+            //         // }
+            //         // }
+
+            //         if expander.changed || changed {
+            //             let source_id = sources.get_source_id(&module.name).unwrap();
+
+            //             let mut fully_expanded = first_round_expanded;
+
+            //             expand(
+            //                 &mut fully_expanded,
+            //                 &module.macro_map,
+            //                 // source_id,
+            //             )?;
+
+            //             let module_name = module.name.to_str().unwrap().to_string();
+
+            //             // Expanding the kernel with only these macros...
+            //             let changed = expand_kernel_in_env_with_change(
+            //                 &mut fully_expanded,
+            //                 kernel.as_mut(),
+            //                 // We don't need to expand those here
+            //                 ModuleContainer::default(),
+            //                 module_name.clone(),
+            //                 // &kernel_macros_in_scope,
+            //             )?;
+
+            //             if changed {
+            //                 name_mangler.visit(&mut fully_expanded);
+            //             }
+
+            //             // lifted_kernel_environments.insert(
+            //             //     module_name.clone(),
+            //             //     KernelDefMacroSpec {
+            //             //         env: module_name,
+            //             //         exported: None,
+            //             //         name_mangler: name_mangler.clone(),
+            //             //     },
+            //             // );
+
+            //             Ok(fully_expanded)
+            //         } else {
+            //             Ok(first_round_expanded)
+            //         }
+            //     })
+            //     .collect::<Result<_>>()?;
 
             // Global macro map - also need to expand with ALL macros
             // post expansion in the target environment, which means we can't _just_
@@ -692,15 +789,21 @@ impl ModuleManager {
         // solved with scoped imports of the standard library explicitly
         module_statements.append(&mut ast);
 
+        for expr in module_statements.iter_mut() {
+            expand(expr, global_macro_map)?;
+        }
+
         // @Matt 7/4/23
         // TODO: With mangling, this could cause problems. We'll want to un-mangle quotes AFTER the macro has been expanded,
         // in order to preserve the existing behavior.
-        let result = module_statements
-            .into_iter()
-            .map(|x| expand(x, global_macro_map))
-            .collect::<Result<_>>();
+        // let result = module_statements
+        //     .into_iter()
+        //     .map(|x| expand(x, global_macro_map))
+        //     .collect::<Result<_>>();
 
-        result
+        // result
+
+        Ok(module_statements)
     }
 
     fn find_in_scope_macros<'a>(
@@ -1221,7 +1324,11 @@ impl CompiledModule {
                                 // *provide = expand(l.)
 
                                 provide.0 = l.get(1).unwrap().clone();
-                                provide.1 = expand(l.get(2).unwrap().clone(), global_macro_map)?;
+
+                                let mut provide_expr = l.get(2).unwrap().clone();
+                                expand(&mut provide_expr, global_macro_map)?;
+
+                                provide.1 = provide_expr;
 
                                 continue;
 
@@ -1237,20 +1344,20 @@ impl CompiledModule {
                                 // }
 
                                 provide.0 = l.get(1).unwrap().clone();
-                                provide.1 = expand(
-                                    expr_list![
-                                        ExprKind::ident("bind/c"),
-                                        l.get(2).unwrap().clone(),
-                                        l.get(1).unwrap().clone(),
-                                        ExprKind::Quote(Box::new(Quote::new(
-                                            l.get(1).unwrap().clone(),
-                                            SyntaxObject::default(TokenType::Quote)
-                                        ))),
-                                    ],
-                                    global_macro_map,
-                                )?;
 
-                                // println!("-------- {}", provide.to_pretty(60));
+                                let mut provide_expr = expr_list![
+                                    ExprKind::ident("bind/c"),
+                                    l.get(2).unwrap().clone(),
+                                    l.get(1).unwrap().clone(),
+                                    ExprKind::Quote(Box::new(Quote::new(
+                                        l.get(1).unwrap().clone(),
+                                        SyntaxObject::default(TokenType::Quote)
+                                    ))),
+                                ];
+
+                                expand(&mut provide_expr, global_macro_map)?;
+
+                                provide.1 = provide_expr;
 
                                 name_unmangler.unmangle_expr(&mut provide.1);
                                 // continue;
@@ -1788,45 +1895,73 @@ impl<'a> ModuleBuilder<'a> {
             kernel.load_syntax_transformers(&mut ast, self.name.to_str().unwrap().to_string())?
         };
 
+        for expr in ast.iter_mut() {
+            expand(expr, &self.macro_map)?;
+
+            expand_kernel_in_env(
+                expr,
+                self.kernel.as_mut(),
+                self.builtin_modules.clone(),
+                // Expanding macros in the environment?
+                self.name.to_str().unwrap(),
+            )?;
+
+            expand(expr, &self.macro_map)?;
+        }
+
         // Expand first with the macros from *this* module
-        ast = ast
-            .into_iter()
-            .map(|x| {
-                expand(x, &self.macro_map)
-                    .and_then(|x| {
-                        expand_kernel_in_env(
-                            x,
-                            self.kernel.as_mut(),
-                            self.builtin_modules.clone(),
-                            // Expanding macros in the environment?
-                            self.name.to_str().unwrap().to_string(),
-                        )
-                    })
-                    // Check here - I think it makes sense to expand the
-                    // internal macros again, given now we might have defmacro
-                    // style macros that get expanded into syntax-rules ones?
-                    .and_then(|x| expand(x, &self.macro_map))
-            })
-            .collect::<Result<Vec<_>>>()?;
+        // ast = ast
+        //     .into_iter()
+        //     .map(|x| {
+        //         expand(x, &self.macro_map)
+        //             .and_then(|x| {
+        //                 expand_kernel_in_env(
+        //                     x,
+        //                     self.kernel.as_mut(),
+        //                     self.builtin_modules.clone(),
+        //                     // Expanding macros in the environment?
+        //                     self.name.to_str().unwrap().to_string(),
+        //                 )
+        //             })
+        //             // Check here - I think it makes sense to expand the
+        //             // internal macros again, given now we might have defmacro
+        //             // style macros that get expanded into syntax-rules ones?
+        //             .and_then(|x| expand(x, &self.macro_map))
+        //     })
+        //     .collect::<Result<Vec<_>>>()?;
+
+        for expr in provides.iter_mut() {
+            expand(expr, &self.macro_map)?;
+            // .and_then(|x| {
+            // expand_kernel(x, self.kernel.as_mut(), self.builtin_modules.clone())
+            expand_kernel_in_env(
+                expr,
+                self.kernel.as_mut(),
+                self.builtin_modules.clone(),
+                // Expanding macros in the environment?
+                &self.name.to_str().unwrap(),
+            )?;
+            // })
+        }
 
         // Expand provides for any macros that exist within there
-        provides = provides
-            .into_iter()
-            .map(|x| {
-                expand(x, &self.macro_map).and_then(|x| {
-                    // expand_kernel(x, self.kernel.as_mut(), self.builtin_modules.clone())
-                    expand_kernel_in_env(
-                        x,
-                        self.kernel.as_mut(),
-                        self.builtin_modules.clone(),
-                        // Expanding macros in the environment?
-                        self.name.to_str().unwrap().to_string(),
-                    )
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
+        // provides = provides
+        //     .into_iter()
+        //     .map(|x| {
+        //         expand(x, &self.macro_map).and_then(|x| {
+        //             // expand_kernel(x, self.kernel.as_mut(), self.builtin_modules.clone())
+        //             expand_kernel_in_env(
+        //                 x,
+        //                 self.kernel.as_mut(),
+        //                 self.builtin_modules.clone(),
+        //                 // Expanding macros in the environment?
+        //                 self.name.to_str().unwrap().to_string(),
+        //             )
+        //         })
+        //     })
+        //     .collect::<Result<Vec<_>>>()?;
 
-        let mut mangled_asts = Vec::new();
+        let mut mangled_asts = Vec::with_capacity(ast.len() + 16);
 
         // Look for the modules in the requires for syntax
         for require_object in self.require_objects.iter()
@@ -1841,98 +1976,190 @@ impl<'a> ModuleBuilder<'a> {
                 &mut mangled_asts,
             );
 
-            let kernel_macros_in_scope: HashSet<_> =
-                module.provides_for_syntax.iter().cloned().collect();
+            // let kernel_macros_in_scope: HashSet<_> =
+            //     module.provides_for_syntax.iter().cloned().collect();
 
-            ast = ast
-                .into_iter()
-                .map(|x| {
-                    // First expand the in scope macros
-                    // These are macros
-                    let mut expander = Expander::new(&in_scope_macros);
-                    let mut first_round_expanded = expander.expand(x)?;
-                    let mut changed = false;
+            // let module_name = Cow::from(module.name.to_str().unwrap().to_string());
 
-                    // dbg!(expander.changed);
+            for expr in ast.iter_mut() {
+                // First expand the in scope macros
+                // These are macros
+                let mut expander = Expander::new(&in_scope_macros);
+                expander.expand(expr)?;
+                let mut changed = false;
 
-                    // (first_round_expanded, changed) = expand_kernel_in_env_with_allowed(
-                    //     first_round_expanded,
-                    //     self.kernel.as_mut(),
-                    //     // We don't need to expand those here
-                    //     ModuleContainer::default(),
-                    //     module.name.to_str().unwrap().to_string(),
-                    //     &kernel_macros_in_scope,
-                    // )?;
+                // dbg!(expander.changed);
 
-                    // If the kernel expander expanded into something - go ahead
-                    // and expand all of the macros in this
-                    // if changed || expander.changed {
-                    // Expand here?
-                    // first_round_expanded = expand(first_round_expanded, &module.macro_map)?;
+                // (first_round_expanded, changed) = expand_kernel_in_env_with_allowed(
+                //     first_round_expanded,
+                //     self.kernel.as_mut(),
+                //     // We don't need to expand those here
+                //     ModuleContainer::default(),
+                //     module.name.to_str().unwrap().to_string(),
+                //     &kernel_macros_in_scope,
+                // )?;
 
-                    // Probably don't need this
-                    // (first_round_expanded, changed) = expand_kernel_in_env_with_change(
-                    //     first_round_expanded,
-                    //     self.kernel.as_mut(),
-                    //     ModuleContainer::default(),
-                    //     module.name.to_str().unwrap().to_string(),
-                    // )?;
+                // If the kernel expander expanded into something - go ahead
+                // and expand all of the macros in this
+                // if changed || expander.changed {
+                // Expand here?
+                // first_round_expanded = expand(first_round_expanded, &module.macro_map)?;
 
-                    // name_mangler.visit(&mut first_round_expanded);
-                    // }
+                // Probably don't need this
+                // (first_round_expanded, changed) = expand_kernel_in_env_with_change(
+                //     first_round_expanded,
+                //     self.kernel.as_mut(),
+                //     ModuleContainer::default(),
+                //     module.name.to_str().unwrap().to_string(),
+                // )?;
 
-                    if expander.changed || changed {
-                        // let source_id = self.sources.get_source_id(&module.name).unwrap();
+                // name_mangler.visit(&mut first_round_expanded);
+                // }
 
-                        let fully_expanded = expand(first_round_expanded, &module.macro_map)?;
+                if expander.changed || changed {
+                    // let source_id = self.sources.get_source_id(&module.name).unwrap();
 
-                        let module_name = module.name.to_str().unwrap().to_string();
+                    let mut fully_expanded = expr;
+                    expand(&mut fully_expanded, &module.macro_map)?;
 
-                        // Expanding the kernel with only these macros...
-                        let (mut first_round_expanded, changed) = expand_kernel_in_env_with_change(
-                            fully_expanded,
-                            self.kernel.as_mut(),
-                            // We don't need to expand those here
-                            ModuleContainer::default(),
-                            module_name.clone(),
-                            // &kernel_macros_in_scope,
-                        )?;
+                    // Expanding the kernel with only these macros...
+                    let changed = expand_kernel_in_env_with_change(
+                        &mut fully_expanded,
+                        self.kernel.as_mut(),
+                        // We don't need to expand those here
+                        ModuleContainer::default(),
+                        &module.name.to_str().unwrap(),
+                        // &kernel_macros_in_scope,
+                    )?;
 
-                        if changed {
-                            name_mangler.visit(&mut first_round_expanded);
-                        }
-
-                        // lifted_kernel_environments.insert(
-                        //     module_name.clone(),
-                        //     KernelDefMacroSpec {
-                        //         env: module_name,
-                        //         exported: None,
-                        //         name_mangler: name_mangler.clone(),
-                        //     },
-                        // );
-
-                        Ok(first_round_expanded)
-                    } else {
-                        Ok(first_round_expanded)
+                    if changed {
+                        name_mangler.visit(&mut fully_expanded);
                     }
-                })
-                .collect::<Result<_>>()?;
 
-            provides = provides
-                .into_iter()
-                .map(|x| {
-                    // First expand the in scope macros
-                    // These are macros
-                    let mut expander = Expander::new(&in_scope_macros);
-                    let first_round_expanded = expander.expand(x)?;
+                    // lifted_kernel_environments.insert(
+                    //     module_name.clone(),
+                    //     KernelDefMacroSpec {
+                    //         env: module_name,
+                    //         exported: None,
+                    //         name_mangler: name_mangler.clone(),
+                    //     },
+                    // );
 
-                    if expander.changed {
-                        expand(first_round_expanded, &module.macro_map)
-                    } else {
-                        Ok(first_round_expanded)
-                    }
-                })
-                .collect::<Result<_>>()?;
+                    // Ok(fully_expanded)
+                }
+                // else {
+                //     Ok(first_round_expanded)
+                // }
+            }
+
+            // ast = ast
+            //     .into_iter()
+            //     .map(|x| {
+            //         // First expand the in scope macros
+            //         // These are macros
+            //         let mut expander = Expander::new(&in_scope_macros);
+            //         let mut first_round_expanded = expander.expand(x)?;
+            //         let mut changed = false;
+
+            //         // dbg!(expander.changed);
+
+            //         // (first_round_expanded, changed) = expand_kernel_in_env_with_allowed(
+            //         //     first_round_expanded,
+            //         //     self.kernel.as_mut(),
+            //         //     // We don't need to expand those here
+            //         //     ModuleContainer::default(),
+            //         //     module.name.to_str().unwrap().to_string(),
+            //         //     &kernel_macros_in_scope,
+            //         // )?;
+
+            //         // If the kernel expander expanded into something - go ahead
+            //         // and expand all of the macros in this
+            //         // if changed || expander.changed {
+            //         // Expand here?
+            //         // first_round_expanded = expand(first_round_expanded, &module.macro_map)?;
+
+            //         // Probably don't need this
+            //         // (first_round_expanded, changed) = expand_kernel_in_env_with_change(
+            //         //     first_round_expanded,
+            //         //     self.kernel.as_mut(),
+            //         //     ModuleContainer::default(),
+            //         //     module.name.to_str().unwrap().to_string(),
+            //         // )?;
+
+            //         // name_mangler.visit(&mut first_round_expanded);
+            //         // }
+
+            //         if expander.changed || changed {
+            //             // let source_id = self.sources.get_source_id(&module.name).unwrap();
+
+            //             let mut fully_expanded = first_round_expanded;
+            //             expand(&mut fully_expanded, &module.macro_map)?;
+
+            //             let module_name = module.name.to_str().unwrap().to_string();
+
+            //             // Expanding the kernel with only these macros...
+            //             let changed = expand_kernel_in_env_with_change(
+            //                 &mut fully_expanded,
+            //                 self.kernel.as_mut(),
+            //                 // We don't need to expand those here
+            //                 ModuleContainer::default(),
+            //                 module_name.clone(),
+            //                 // &kernel_macros_in_scope,
+            //             )?;
+
+            //             if changed {
+            //                 name_mangler.visit(&mut fully_expanded);
+            //             }
+
+            //             // lifted_kernel_environments.insert(
+            //             //     module_name.clone(),
+            //             //     KernelDefMacroSpec {
+            //             //         env: module_name,
+            //             //         exported: None,
+            //             //         name_mangler: name_mangler.clone(),
+            //             //     },
+            //             // );
+
+            //             Ok(fully_expanded)
+            //         } else {
+            //             Ok(first_round_expanded)
+            //         }
+            //     })
+            //     .collect::<Result<_>>()?;
+
+            for expr in provides.iter_mut() {
+                // First expand the in scope macros
+                // These are macros
+                let mut expander = Expander::new(&in_scope_macros);
+                let first_round_expanded = expander.expand(expr)?;
+
+                expander.expand(expr);
+
+                if expander.changed {
+                    expand(expr, &module.macro_map)?
+                }
+                // else {
+                //     Ok(first_round_expanded)
+                // }
+            }
+
+            // provides = provides
+            //     .into_iter()
+            //     .map(|x| {
+            //         // First expand the in scope macros
+            //         // These are macros
+            //         let mut expander = Expander::new(&in_scope_macros);
+            //         let first_round_expanded = expander.expand(x)?;
+
+            //         expander.expand(&mut expr);
+
+            //         if expander.changed {
+            //             expand(first_round_expanded, &module.macro_map)
+            //         } else {
+            //             Ok(first_round_expanded)
+            //         }
+            //     })
+            //     .collect::<Result<_>>()?;
         }
 
         // let requires_before = self.require_objects.len();
@@ -1969,12 +2196,23 @@ impl<'a> ModuleBuilder<'a> {
         // then include the ast there
         mangled_asts.append(&mut ast);
 
-        mangled_asts = mangled_asts
-            .into_iter()
-            .map(lower_entire_ast)
-            // We want this to at least be flattened for querying later
-            .map(|x| x.map(FlattenBegin::flatten))
-            .collect::<std::result::Result<_, ParseError>>()?;
+        for expr in mangled_asts.iter_mut() {
+            lower_entire_ast(expr)?;
+
+            FlattenBegin::flatten(expr);
+        }
+
+        // mangled_asts = mangled_asts
+        //     .into_iter()
+        //     .map(lower_entire_ast)
+        //     // We want this to at least be flattened for querying later
+        //     .map(|x| {
+        //         x.map(|mut o| {
+        //             FlattenBegin::flatten(&mut o);
+        //             o
+        //         })
+        //     })
+        //     .collect::<std::result::Result<_, ParseError>>()?;
 
         // Take ast, expand with self modules, then expand with each of the require for-syntaxes
         // Then mangle the require-for-syntax, include the mangled directly in the ast
@@ -2084,7 +2322,7 @@ impl<'a> ModuleBuilder<'a> {
     // I think these will already be collected for the macro, however I think for syntax should be found earlier
     // Otherwise the macro expansion will not be able to understand it
     fn collect_provides(&mut self) -> Result<()> {
-        let mut non_provides = Vec::new();
+        let mut non_provides = Vec::with_capacity(self.source_ast.len());
         let exprs = std::mem::take(&mut self.source_ast);
 
         fn walk(

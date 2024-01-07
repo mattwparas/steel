@@ -31,19 +31,25 @@
 ;; which will then load and register macros accordingly.
 (define-syntax defmacro
   (syntax-rules ()
-    [(defmacro environment (name arg) expr)
+    [(defmacro environment
+       (name arg)
+       expr)
      (begin
        (register-macro-transformer! (symbol->string 'name) environment)
        (define (name arg)
          expr))]
 
-    [(defmacro environment (name arg) exprs ...)
+    [(defmacro environment
+       (name arg)
+       exprs ...)
      (begin
        (register-macro-transformer! (symbol->string 'name) environment)
        (define (name arg)
          exprs ...))]
 
-    [(defmacro environment name expr)
+    [(defmacro environment
+       name
+       expr)
      (begin
        (register-macro-transformer! (symbol->string 'name) environment)
        (define name expr))]))
@@ -57,8 +63,7 @@
        (define (name arg)
          expr))]
 
-    [(#%define-syntax (name arg)
-       exprs ...)
+    [(#%define-syntax (name arg) exprs ...)
      (begin
        (register-macro-transformer! (symbol->string 'name) "default")
        (define (name arg)
@@ -101,18 +106,16 @@
   (equal? x '#:transparent))
 
 (#%define-syntax (struct expr)
-  (define unwrapped (syntax-e expr))
-  (define struct-name (syntax->datum (second unwrapped)))
-  (define fields (syntax->datum (third unwrapped)))
-  (define options
-    (let ([raw (cdddr unwrapped)])
-      ; (displayln raw)
-      (if (empty? raw) raw (map syntax->datum raw))))
-
-  (define result (struct-impl struct-name fields options))
-
-  (syntax/loc result
-    (syntax-span expr)))
+                 (define unwrapped (syntax-e expr))
+                 (define struct-name (syntax->datum (second unwrapped)))
+                 (define fields (syntax->datum (third unwrapped)))
+                 (define options
+                   (let ([raw (cdddr unwrapped)])
+                     ; (displayln raw)
+                     (if (empty? raw) raw (map syntax->datum raw))))
+                 (define result (struct-impl struct-name fields options))
+                 (syntax/loc result
+                   (syntax-span expr)))
 
 ;; Macro for creating a new struct, in the form of:
 ;; `(struct <struct-name> (fields ...) options ...)`
@@ -305,35 +308,34 @@
 ;             (enumerate 0 '() bindings))))
 
 (#%define-syntax (define-values expr)
-  ; (displayln expr)
-  (define underlying (syntax-e expr))
-  (define bindings (syntax->datum (second underlying)))
-  (define expression (third underlying))
-
-  (define unreadable-list-name (make-unreadable '#%proto-define-values-binding-gensym__))
-
-  `(begin
-     (define ,unreadable-list-name ,expression)
-     ,@(map (lambda (binding-index-pair)
-              `(define ,(car binding-index-pair)
-                 (list-ref ,unreadable-list-name ,(list-ref binding-index-pair 1))))
-            (enumerate 0 '() bindings))))
+                 ; (displayln expr)
+                 (define underlying (syntax-e expr))
+                 (define bindings (syntax->datum (second underlying)))
+                 (define expression (third underlying))
+                 (define unreadable-list-name
+                   (make-unreadable '#%proto-define-values-binding-gensym__))
+                 `(begin
+                    (define ,unreadable-list-name ,expression)
+                    ,@(map (lambda (binding-index-pair)
+                             `(define ,(car binding-index-pair)
+                                (list-ref ,unreadable-list-name ,(list-ref binding-index-pair 1))))
+                           (enumerate 0 '() bindings))))
 
 (#%define-syntax (#%better-lambda expr)
-  ; (displayln "Expanding: " expr)
-  ; (displayln "unwrapping one level..." (syntax-e expr))
-  (quasisyntax (list 10 20 30)))
+                 ; (displayln "Expanding: " expr)
+                 ; (displayln "unwrapping one level..." (syntax-e expr))
+                 (quasisyntax (list 10 20 30)))
 
 ;; TODO: make this not so suspect, but it does work!
 (#%define-syntax (#%current-kernel-transformers expr)
-  (cons 'list (map (lambda (x) (list 'quote x)) (current-macro-transformers!))))
+                 (cons 'list (map (lambda (x) (list 'quote x)) (current-macro-transformers!))))
 
 (#%define-syntax (#%fake-lambda expr)
-  (define underlying (syntax-e expr))
-  (define rest (cdr underlying))
-  ; (displayln rest)
-  ; (displayln (syntax-e (list-ref rest 1)))
-  (cons '#%plain-lambda rest))
+                 (define underlying (syntax-e expr))
+                 (define rest (cdr underlying))
+                 ; (displayln rest)
+                 ; (displayln (syntax-e (list-ref rest 1)))
+                 (cons '#%plain-lambda rest))
 
 ;; Implement defmacro!
 ;; Defmacro: Load functions that operate on syntax, directly into the kernel.

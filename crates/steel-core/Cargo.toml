@@ -45,7 +45,7 @@ which = "4.4.0"
 radix_fmt = "1.0.0"
 
 # For structs
-smallvec = { version = "1.10.0", optional = true }
+smallvec = { version = "1.10.0" }
 
 # Pretty printing documentation
 termimad = { version = "0.21.0", optional = true }
@@ -63,6 +63,8 @@ rusqlite =  { version = "0.28.0", features = ["bundled"], optional = true }
 reqwest = { version = "0.11.14", features = ["blocking", "json"], optional = true }
 url = { version = "2.3.1", optional = true }
 anyhow = { version = "1", optional = true }
+
+stacker = { version = "0.1.15", optional = true }
 
 [dev-dependencies]
 proptest = "1.1.0"
@@ -84,8 +86,10 @@ unsafe-internals = []
 anyhow = ["dep:anyhow"]
 dylibs = ["dep:abi_stable", "dep:async-ffi"]
 markdown = ["dep:termimad"]
-smallvec = ["dep:smallvec"]
+smallvec = []
 without-drop-protection = []
+stacker = ["dep:stacker"]
+
 
 [[bench]]
 name = "my_benchmark"

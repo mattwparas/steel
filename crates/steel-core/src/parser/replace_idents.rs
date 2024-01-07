@@ -1,4 +1,6 @@
-use crate::compiler::passes::VisitorMutControlFlow;
+use fxhash::FxHashMap;
+
+use crate::compiler::passes::{VisitorMutControlFlow, VisitorMutRefUnit};
 use crate::compiler::program::SYNTAX_SPAN;
 use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
@@ -14,7 +16,7 @@ use crate::rvals::Result;
 use super::expander::BindingKind;
 use super::{ast::Atom, interner::InternedString};
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::ops::ControlFlow;
 
 // const DATUM_TO_SYNTAX: &str = "datum->syntax";
@@ -25,13 +27,16 @@ use std::ops::ControlFlow;
 
 pub fn replace_identifiers(
     expr: ExprKind,
-    bindings: &mut HashMap<InternedString, ExprKind>,
-    binding_kind: &mut HashMap<InternedString, BindingKind>,
-    fallback_bindings: &mut HashMap<InternedString, ExprKind>,
+    bindings: &mut FxHashMap<InternedString, ExprKind>,
+    binding_kind: &mut FxHashMap<InternedString, BindingKind>,
+    fallback_bindings: &mut FxHashMap<InternedString, ExprKind>,
     span: Span,
 ) -> Result<ExprKind> {
-    let rewrite_spans = RewriteSpan::new(span).visit(expr)?;
+    let mut rewrite_spans = expr;
 
+    RewriteSpan::new(span).visit(&mut rewrite_spans);
+
+    // TODO: Replace this here!
     ReplaceExpressions::new(bindings, binding_kind, fallback_bindings).visit(rewrite_spans)
 }
 
@@ -40,9 +45,9 @@ pub fn replace_identifiers(
 // }
 
 pub struct ReplaceExpressions<'a> {
-    bindings: &'a mut HashMap<InternedString, ExprKind>,
-    fallback_bindings: &'a mut HashMap<InternedString, ExprKind>,
-    binding_kind: &'a mut HashMap<InternedString, BindingKind>,
+    bindings: &'a mut FxHashMap<InternedString, ExprKind>,
+    fallback_bindings: &'a mut FxHashMap<InternedString, ExprKind>,
+    binding_kind: &'a mut FxHashMap<InternedString, BindingKind>,
 }
 
 fn check_ellipses(expr: &ExprKind) -> bool {
@@ -58,8 +63,8 @@ fn check_ellipses(expr: &ExprKind) -> bool {
 }
 
 struct EllipsesExpanderVisitor<'a> {
-    bindings: &'a mut HashMap<InternedString, ExprKind>,
-    binding_kind: &'a mut HashMap<InternedString, BindingKind>,
+    bindings: &'a mut FxHashMap<InternedString, ExprKind>,
+    binding_kind: &'a mut FxHashMap<InternedString, BindingKind>,
     found_length: Option<usize>,
     collected: HashSet<InternedString>,
     error: Option<String>,
@@ -67,8 +72,8 @@ struct EllipsesExpanderVisitor<'a> {
 
 impl<'a> EllipsesExpanderVisitor<'a> {
     fn find_expansion_width_and_collect_ellipses_expanders(
-        bindings: &'a mut HashMap<InternedString, ExprKind>,
-        binding_kind: &'a mut HashMap<InternedString, BindingKind>,
+        bindings: &'a mut FxHashMap<InternedString, ExprKind>,
+        binding_kind: &'a mut FxHashMap<InternedString, BindingKind>,
         expr: &ExprKind,
     ) -> Self {
         let mut visitor = Self {
@@ -115,9 +120,9 @@ impl<'a> VisitorMutControlFlow for EllipsesExpanderVisitor<'a> {
 
 impl<'a> ReplaceExpressions<'a> {
     pub fn new(
-        bindings: &'a mut HashMap<InternedString, ExprKind>,
-        binding_kind: &'a mut HashMap<InternedString, BindingKind>,
-        fallback_bindings: &'a mut HashMap<InternedString, ExprKind>,
+        bindings: &'a mut FxHashMap<InternedString, ExprKind>,
+        binding_kind: &'a mut FxHashMap<InternedString, BindingKind>,
+        fallback_bindings: &'a mut FxHashMap<InternedString, ExprKind>,
     ) -> Self {
         ReplaceExpressions {
             bindings,
@@ -197,7 +202,7 @@ impl<'a> ReplaceExpressions<'a> {
 
                     let width = visitor.found_length.ok_or_else(throw!(BadSyntax => "No pattern variables before ellipses in template: at {} in {}", variable_to_lookup, ExprKind::List(super::ast::List::new(vec_exprs.clone()))))?;
 
-                    let mut original_bindings: HashMap<_, _> = visitor
+                    let mut original_bindings: FxHashMap<_, _> = visitor
                         .collected
                         .iter()
                         .flat_map(|x| self.bindings.get(x).map(|value| (*x, value.clone())))
@@ -565,121 +570,78 @@ impl RewriteSpan {
 }
 
 // TODO replace spans on all of the nodes and atoms
-impl ConsumingVisitor for RewriteSpan {
-    type Output = Result<ExprKind>;
-
-    fn visit_if(&mut self, mut f: Box<super::ast::If>) -> Self::Output {
-        f.test_expr = self.visit(f.test_expr)?;
-        f.then_expr = self.visit(f.then_expr)?;
-        f.else_expr = self.visit(f.else_expr)?;
+impl VisitorMutRefUnit for RewriteSpan {
+    fn visit_if(&mut self, f: &mut super::ast::If) {
+        self.visit(&mut f.test_expr);
+        self.visit(&mut f.then_expr);
+        self.visit(&mut f.else_expr);
         f.location.set_span(self.span);
-        Ok(ExprKind::If(f))
     }
 
-    fn visit_define(&mut self, mut define: Box<super::ast::Define>) -> Self::Output {
-        define.name = self.visit(define.name)?;
-        define.body = self.visit(define.body)?;
+    fn visit_define(&mut self, define: &mut super::ast::Define) {
+        self.visit(&mut define.name);
+        self.visit(&mut define.body);
         define.location.set_span(self.span);
-        Ok(ExprKind::Define(define))
     }
 
-    fn visit_lambda_function(
-        &mut self,
-        mut lambda_function: Box<super::ast::LambdaFunction>,
-    ) -> Self::Output {
-        lambda_function.args = lambda_function
-            .args
-            .into_iter()
-            .map(|e| self.visit(e))
-            .collect::<Result<Vec<_>>>()?;
-        lambda_function.body = self.visit(lambda_function.body)?;
+    fn visit_lambda_function(&mut self, lambda_function: &mut super::ast::LambdaFunction) {
+        lambda_function.args.iter_mut().for_each(|e| self.visit(e));
+        self.visit(&mut lambda_function.body);
         lambda_function.location.set_span(self.span);
-        Ok(ExprKind::LambdaFunction(lambda_function))
     }
 
-    fn visit_begin(&mut self, mut begin: super::ast::Begin) -> Self::Output {
-        begin.exprs = begin
-            .exprs
-            .into_iter()
-            .map(|e| self.visit(e))
-            .collect::<Result<Vec<_>>>()?;
+    fn visit_begin(&mut self, begin: &mut super::ast::Begin) {
+        begin.exprs.iter_mut().for_each(|e| self.visit(e));
         begin.location.set_span(self.span);
-        Ok(ExprKind::Begin(begin))
     }
 
-    fn visit_return(&mut self, mut r: Box<super::ast::Return>) -> Self::Output {
-        r.expr = self.visit(r.expr)?;
+    fn visit_return(&mut self, r: &mut super::ast::Return) {
+        self.visit(&mut r.expr);
         r.location.set_span(self.span);
-        Ok(ExprKind::Return(r))
     }
 
-    fn visit_quote(&mut self, mut quote: Box<super::ast::Quote>) -> Self::Output {
-        quote.expr = self.visit(quote.expr)?;
+    fn visit_quote(&mut self, quote: &mut super::ast::Quote) {
+        self.visit(&mut quote.expr);
         quote.location.set_span(self.span);
-        Ok(ExprKind::Quote(quote))
     }
 
-    fn visit_macro(&mut self, m: Box<super::ast::Macro>) -> Self::Output {
-        stop!(BadSyntax => format!("unexpected macro definition: {}", m); m.location.span)
-    }
+    fn visit_macro(&mut self, _m: &mut super::ast::Macro) {}
 
-    fn visit_atom(&mut self, mut a: Atom) -> Self::Output {
+    fn visit_atom(&mut self, a: &mut Atom) {
         // Overwrite the span on any atoms
         a.syn.set_span(self.span);
-
-        Ok(ExprKind::Atom(a))
     }
 
-    fn visit_list(&mut self, mut l: super::ast::List) -> Self::Output {
+    fn visit_list(&mut self, l: &mut super::ast::List) {
         // if let Some(first) = l.first_ident() {
         //     if *first == *QUASISYNTAX || *first == *SYNTAX_QUOTE {
         //         return Ok(ExprKind::List(l));
         //     }
         // }
 
-        l.args = l
-            .args
-            .into_iter()
-            .map(|e| self.visit(e))
-            .collect::<Result<Vec<_>>>()?;
-        Ok(ExprKind::List(l))
+        l.args.iter_mut().for_each(|e| self.visit(e));
     }
 
-    fn visit_syntax_rules(&mut self, l: Box<super::ast::SyntaxRules>) -> Self::Output {
-        dbg!(l.to_string());
+    fn visit_syntax_rules(&mut self, _l: &mut super::ast::SyntaxRules) {}
 
-        stop!(Generic => "unexpected syntax-rules definition"; l.location.span)
+    fn visit_set(&mut self, s: &mut super::ast::Set) {
+        self.visit(&mut s.variable);
+        self.visit(&mut s.expr);
     }
 
-    fn visit_set(&mut self, mut s: Box<super::ast::Set>) -> Self::Output {
-        s.variable = self.visit(s.variable)?;
-        s.expr = self.visit(s.expr)?;
-        Ok(ExprKind::Set(s))
-    }
-
-    fn visit_require(&mut self, mut s: super::ast::Require) -> Self::Output {
-        s.modules = s
-            .modules
-            .into_iter()
-            .map(|x| self.visit(x))
-            .collect::<Result<_>>()?;
-
-        Ok(ExprKind::Require(s))
+    fn visit_require(&mut self, s: &mut super::ast::Require) {
+        s.modules.iter_mut().for_each(|x| self.visit(x));
 
         // stop!(Generic => "unexpected require statement in replace idents"; s.location.span)
     }
 
-    fn visit_let(&mut self, mut l: Box<super::ast::Let>) -> Self::Output {
-        let mut visited_bindings = Vec::new();
-
-        for (binding, expr) in l.bindings {
-            visited_bindings.push((self.visit(binding)?, self.visit(expr)?));
+    fn visit_let(&mut self, l: &mut super::ast::Let) {
+        for (binding, expr) in l.bindings.iter_mut() {
+            self.visit(binding);
+            self.visit(expr);
         }
 
-        l.bindings = visited_bindings;
-        l.body_expr = self.visit(l.body_expr)?;
-
-        Ok(ExprKind::Let(l))
+        self.visit(&mut l.body_expr);
     }
 }
 
@@ -691,7 +653,7 @@ mod replace_expressions_tests {
 
     macro_rules! map {
         ($ ( $key:expr => $value:expr ), *,) => {{
-            let mut hm: HashMap<InternedString, ExprKind> = HashMap::new();
+            let mut hm: FxHashMap<InternedString, ExprKind> = FxHashMap::default();
             $ (hm.insert($key.into(), $value); ) *
             hm
         }};
@@ -768,10 +730,13 @@ mod replace_expressions_tests {
 
         let post_condition = atom_identifier("apple?");
 
-        let output =
-            ReplaceExpressions::new(&mut bindings, &mut HashMap::new(), &mut HashMap::new())
-                .visit(expr)
-                .unwrap();
+        let output = ReplaceExpressions::new(
+            &mut bindings,
+            &mut FxHashMap::default(),
+            &mut FxHashMap::default(),
+        )
+        .visit(expr)
+        .unwrap();
 
         assert_eq!(output, post_condition);
     }
@@ -798,10 +763,13 @@ mod replace_expressions_tests {
             atom_identifier("second"),
         ]));
 
-        let output =
-            ReplaceExpressions::new(&mut bindings, &mut HashMap::new(), &mut HashMap::new())
-                .visit(expr)
-                .unwrap();
+        let output = ReplaceExpressions::new(
+            &mut bindings,
+            &mut FxHashMap::default(),
+            &mut FxHashMap::default(),
+        )
+        .visit(expr)
+        .unwrap();
 
         assert_eq!(output, post_condition);
     }
@@ -830,10 +798,13 @@ mod replace_expressions_tests {
         )
         .into();
 
-        let output =
-            ReplaceExpressions::new(&mut bindings, &mut HashMap::new(), &mut HashMap::new())
-                .visit(expr)
-                .unwrap();
+        let output = ReplaceExpressions::new(
+            &mut bindings,
+            &mut FxHashMap::default(),
+            &mut FxHashMap::default(),
+        )
+        .visit(expr)
+        .unwrap();
 
         assert_eq!(output, post_condition);
     }

@@ -2336,6 +2336,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "psm"
+version = "0.1.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5787f7cda34e3033a72192c018bc5883100330f362ef279a8cbccfce8bb4e874"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "quick-error"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3089,6 +3098,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
 
 [[package]]
+name = "stacker"
+version = "0.1.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c886bd4480155fd3ef527d45e9ac8dd7118a898a46530b7b94c3e21866259fce"
+dependencies = [
+ "cc",
+ "cfg-if 1.0.0",
+ "libc",
+ "psm",
+ "winapi",
+]
+
+[[package]]
 name = "steel-core"
 version = "0.5.0"
 dependencies = [
@@ -3123,6 +3145,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "smallvec",
+ "stacker",
  "steel-derive",
  "steel-gen",
  "steel-parser",
@@ -3192,6 +3215,7 @@ dependencies = [
 name = "steel-parser"
 version = "0.4.0"
 dependencies = [
+ "fxhash",
  "lasso",
  "num-bigint",
  "once_cell",

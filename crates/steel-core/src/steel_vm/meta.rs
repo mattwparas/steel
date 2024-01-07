@@ -179,15 +179,16 @@ pub fn expand_macros(arguments: &[SteelVal]) -> Result<SteelVal> {
         .collect::<std::result::Result<Vec<Vec<_>>, ParseError>>()?;
 
     // Separate by define-syntax
-    let (macros, non_macros) = separate_by(parsed.into_iter().flatten(), |x| {
+    let (macros, mut non_macros) = separate_by(parsed.into_iter().flatten(), |x| {
         matches!(x, ExprKind::Macro(_))
     });
 
     let macro_manager = LocalMacroManager::from_exprs(macros)?;
 
     // Expand the macros, convert them back to a consumable expression
-    macro_manager
-        .expand(non_macros)?
+    macro_manager.expand(&mut non_macros)?;
+
+    non_macros
         .into_iter()
         .map(SteelVal::try_from)
         .collect::<Result<List<_>>>()

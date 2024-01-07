@@ -41,7 +41,10 @@ use crate::{
     values::{
         closed::HeapRef,
         functions::{attach_contract_struct, get_contract, LambdaMetadataTable},
-        structs::{build_type_id_module, make_struct_type, SteelResult, UserDefinedStruct},
+        structs::{
+            build_type_id_module, make_struct_type, struct_update_primitive, SteelResult,
+            UserDefinedStruct,
+        },
     },
 };
 use crate::{
@@ -1537,6 +1540,10 @@ fn meta_module() -> BuiltInModule {
         .register_fn("function-name", lookup_function_name)
         .register_fn("multi-arity?", is_multi_arity)
         .register_value("make-struct-type", SteelVal::FuncV(make_struct_type))
+        .register_value(
+            "#%struct-update",
+            SteelVal::MutFunc(struct_update_primitive),
+        )
         // .register_fn("struct-properties", UserDefinedStruct::properties)
         // .register_value(
         //     "box",

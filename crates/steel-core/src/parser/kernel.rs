@@ -224,7 +224,7 @@ impl Kernel {
             BeginForSyntax(usize),
         }
 
-        let mut def_macro_expr_indices = Vec::new();
+        let mut def_macro_expr_indices = smallvec::SmallVec::<[IndexKind; 5]>::new();
 
         let mut provide_definitions = vec![ExprKind::ident("provide")];
 
@@ -268,7 +268,7 @@ impl Kernel {
         // Fill up the define macro expressions with the correct ones
         // Lets do some debug logging to make sure this even makes sense
         // in the first place
-        let mut def_macro_exprs = Vec::with_capacity(def_macro_expr_indices.len());
+        let mut def_macro_exprs = Vec::with_capacity(def_macro_expr_indices.len() + 3);
 
         def_macro_exprs.push(ExprKind::ident("#%syntax-transformer-module"));
         def_macro_exprs.push(ExprKind::ident(&environment));

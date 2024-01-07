@@ -54,3 +54,4 @@
 8. [Common Patterns](patterns/patterns.md)
     1. [Interior Mutability](patterns/mutability.md)
     2. [Async](patterns/async.md)
+9. [Memory Management](garbage-collection/gc.md)

@@ -8,6 +8,7 @@ use crate::parser::tokens::TokenType;
 use crate::parser::span::Span;
 
 use crate::rvals::Result;
+use std::cell::RefCell;
 use std::{
     collections::HashMap,
     fs::File,
@@ -16,6 +17,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use fxhash::FxHashMap;
 use log::error;
 use serde::{Deserialize, Serialize};
 use steel_parser::tokens::MaybeBigInt;
@@ -75,11 +77,12 @@ impl LocalMacroManager {
     }
 
     /// Expand the expressions according to the macros in the current scope
-    pub fn expand(&self, exprs: impl IntoIterator<Item = ExprKind>) -> Result<Vec<ExprKind>> {
-        exprs
-            .into_iter()
-            .map(|expr| crate::parser::expand_visitor::expand(expr, &self.macros))
-            .collect()
+    pub fn expand(&self, exprs: &mut Vec<ExprKind>) -> Result<()> {
+        for expr in exprs.iter_mut() {
+            crate::parser::expand_visitor::expand(expr, &self.macros)?
+        }
+
+        Ok(())
     }
 
     /// Read in a file of expressions containing macros, parse then, and create the data struture
@@ -324,24 +327,58 @@ impl MacroCase {
     }
 
     fn expand(&self, expr: List, span: Span) -> Result<ExprKind> {
+        thread_local! {
+            static BINDINGS: RefCell<FxHashMap<InternedString, ExprKind>> = RefCell::new(FxHashMap::default());
+            static BINDINGS_KIND: RefCell<FxHashMap<InternedString, BindingKind>> = RefCell::new(FxHashMap::default());
+            static FALLBACK_BINDINGS: RefCell<FxHashMap<InternedString, ExprKind>> = RefCell::new(FxHashMap::default());
+        }
+
+        BINDINGS.with(|bindings| {
+            BINDINGS_KIND.with(|binding_kind| {
+                FALLBACK_BINDINGS.with(|fallback_bindings| {
+                    let mut bindings = bindings.borrow_mut();
+                    let mut binding_kind = binding_kind.borrow_mut();
+                    let mut fallback_bindings = fallback_bindings.borrow_mut();
+
+                    bindings.clear();
+                    binding_kind.clear();
+                    fallback_bindings.clear();
+
+                    collect_bindings(
+                        &self.args[1..],
+                        &expr[1..],
+                        &mut bindings,
+                        &mut binding_kind,
+                    )?;
+                    replace_identifiers(
+                        self.body.clone(),
+                        &mut bindings,
+                        &mut binding_kind,
+                        &mut fallback_bindings,
+                        span,
+                    )
+                })
+            })
+        })
+
         // TODO: Consider using a thread local allocation, and just
         // clear the hashmap after each use?
-        let mut bindings = HashMap::new();
-        let mut binding_kind = HashMap::new();
-        let mut fallback_bindings = HashMap::new();
-        collect_bindings(
-            &self.args[1..],
-            &expr[1..],
-            &mut bindings,
-            &mut binding_kind,
-        )?;
-        replace_identifiers(
-            self.body.clone(),
-            &mut bindings,
-            &mut binding_kind,
-            &mut fallback_bindings,
-            span,
-        )
+        // let mut bindings = FxHashMap::default();
+        // let mut binding_kind = FxHashMap::default();
+        // let mut fallback_bindings = FxHashMap::default();
+        // collect_bindings(
+        //     &self.args[1..],
+        //     &expr[1..],
+        //     &mut bindings,
+        //     &mut binding_kind,
+        // )?;
+        // replace_identifiers(
+        //     self.body.clone(),
+        //     &mut bindings,
+        //     &mut binding_kind,
+        //     &mut fallback_bindings,
+        //     span,
+        // )
     }
 }
 
@@ -808,8 +845,8 @@ pub enum BindingKind {
 pub fn collect_bindings(
     args: &[MacroPattern],
     list: &[ExprKind],
-    bindings: &mut HashMap<InternedString, ExprKind>,
-    binding_kind: &mut HashMap<InternedString, BindingKind>,
+    bindings: &mut FxHashMap<InternedString, ExprKind>,
+    binding_kind: &mut FxHashMap<InternedString, BindingKind>,
 ) -> Result<()> {
     let mut token_iter = list.iter();
 
@@ -915,7 +952,7 @@ pub fn collect_bindings(
                             for expr in values_to_bind {
                                 let list_expr =
                                     expr.list_or_else(throw!(BadSyntax => "Unreachable!"))?;
-                                let mut new_bindings = HashMap::new();
+                                let mut new_bindings = FxHashMap::default();
                                 collect_bindings(
                                     nested_children,
                                     list_expr,
@@ -1143,8 +1180,8 @@ mod collect_bindings_tests {
 
     #[test]
     fn test_collect_basic() {
-        let mut bindings = HashMap::new();
-        let mut binding_kind = HashMap::new();
+        let mut bindings = FxHashMap::default();
+        let mut binding_kind = FxHashMap::default();
         let pattern_args = vec![
             MacroPattern::Syntax("and".into()),
             MacroPattern::Single("a".into()),
@@ -1166,7 +1203,7 @@ mod collect_bindings_tests {
 
         collect_bindings(&pattern_args, &list_expr, &mut bindings, &mut binding_kind).unwrap();
 
-        let mut post_bindings = HashMap::new();
+        let mut post_bindings = FxHashMap::default();
         post_bindings.insert(
             "a".into(),
             ExprKind::List(List::new(vec![
@@ -1190,8 +1227,8 @@ mod collect_bindings_tests {
 
     #[test]
     fn test_collect_many() {
-        let mut bindings = HashMap::new();
-        let mut binding_kind = HashMap::new();
+        let mut bindings = FxHashMap::default();
+        let mut binding_kind = FxHashMap::default();
         let pattern_args = vec![
             MacroPattern::Syntax("and".into()),
             MacroPattern::Single("a".into()),
@@ -1213,7 +1250,7 @@ mod collect_bindings_tests {
 
         collect_bindings(&pattern_args, &list_expr, &mut bindings, &mut binding_kind).unwrap();
 
-        let mut post_bindings = HashMap::new();
+        let mut post_bindings = FxHashMap::default();
         post_bindings.insert(
             "a".into(),
             ExprKind::List(List::new(vec![
@@ -1236,8 +1273,8 @@ mod collect_bindings_tests {
 
     #[test]
     fn test_collect_many_multiple_singles() {
-        let mut bindings = HashMap::new();
-        let mut binding_kind = HashMap::new();
+        let mut bindings = FxHashMap::default();
+        let mut binding_kind = FxHashMap::default();
         let pattern_args = vec![
             MacroPattern::Syntax("and".into()),
             MacroPattern::Single("a".into()),
@@ -1256,7 +1293,7 @@ mod collect_bindings_tests {
         ]);
 
         collect_bindings(&pattern_args, &list_expr, &mut bindings, &mut binding_kind).unwrap();
-        let mut post_bindings = HashMap::new();
+        let mut post_bindings = FxHashMap::default();
 
         post_bindings.insert(
             "a".into(),
@@ -1281,8 +1318,8 @@ mod collect_bindings_tests {
 
     #[test]
     fn test_nested() {
-        let mut bindings = HashMap::new();
-        let mut binding_kind = HashMap::new();
+        let mut bindings = FxHashMap::default();
+        let mut binding_kind = FxHashMap::default();
         // (->> a (b c ...))
         let pattern_args = vec![
             MacroPattern::Syntax("->>".into()),
@@ -1303,7 +1340,7 @@ mod collect_bindings_tests {
             ])),
         ]);
 
-        let mut post_bindings = HashMap::new();
+        let mut post_bindings = FxHashMap::default();
 
         collect_bindings(&pattern_args, &list_expr, &mut bindings, &mut binding_kind).unwrap();
         post_bindings.insert("a".into(), atom_int(1));

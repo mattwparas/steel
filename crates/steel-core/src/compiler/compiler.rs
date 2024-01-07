@@ -35,7 +35,7 @@ use std::{
 use std::{iter::Iterator, rc::Rc};
 
 // TODO: Replace the usages of hashmap with this directly
-use fxhash::FxHashMap;
+use fxhash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::rvals::{Result, SteelVal};
@@ -294,7 +294,7 @@ pub struct Compiler {
     opt_level: OptLevel,
     pub(crate) kernel: Option<Kernel>,
     memoization_table: MemoizationTable,
-    mangled_identifiers: HashSet<InternedString>,
+    mangled_identifiers: FxHashSet<InternedString>,
     // Try this out?
     lifted_kernel_environments: HashMap<String, KernelDefMacroSpec>,
     // Macros that... we need to compile against directly at the top level
@@ -364,7 +364,7 @@ impl Compiler {
             opt_level: OptLevel::Three,
             kernel: None,
             memoization_table: MemoizationTable::new(),
-            mangled_identifiers: HashSet::new(),
+            mangled_identifiers: FxHashSet::default(),
             lifted_kernel_environments: HashMap::new(),
             lifted_macro_environments: HashSet::new(),
         }
@@ -385,7 +385,7 @@ impl Compiler {
             opt_level: OptLevel::Three,
             kernel: Some(kernel),
             memoization_table: MemoizationTable::new(),
-            mangled_identifiers: HashSet::new(),
+            mangled_identifiers: FxHashSet::default(),
             lifted_kernel_environments: HashMap::new(),
             lifted_macro_environments: HashSet::new(),
         }
@@ -624,68 +624,109 @@ impl Compiler {
             kernel.load_syntax_transformers(&mut expanded_statements, "top-level".to_string())?;
         }
 
-        expanded_statements = expanded_statements
-            .into_iter()
-            .map(|x| {
-                expand_kernel_in_env(
-                    x,
+        for expr in expanded_statements.iter_mut() {
+            expand_kernel_in_env(
+                expr,
+                self.kernel.as_mut(),
+                builtin_modules.clone(),
+                "top-level",
+            )?;
+
+            crate::parser::expand_visitor::expand(expr, &self.macro_env);
+        }
+
+        // expanded_statements = expanded_statements
+        //     .into_iter()
+        //     .map(lower_entire_ast)
+        //     .collect::<std::result::Result<Vec<_>, ParseError>>()?;
+
+        // TODO: Merge this loop with the above?
+        for expr in expanded_statements.iter_mut() {
+            lower_entire_ast(expr)?;
+
+            for module in &self.lifted_macro_environments {
+                if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
+                    let source_id = sources.get_source_id(module).unwrap();
+
+                    crate::parser::expand_visitor::expand(expr, macro_env)?
+                }
+            }
+
+            // Lift all of the kernel macros as well?
+            for (module, lifted_env) in &mut self.lifted_kernel_environments {
+                let mut changed = false;
+
+                changed = expand_kernel_in_env_with_change(
+                    expr,
                     self.kernel.as_mut(),
                     builtin_modules.clone(),
-                    "top-level".to_string(),
-                )
-                .and_then(|x| crate::parser::expand_visitor::expand(x, &self.macro_env))
-            })
-            .collect::<Result<Vec<_>>>()?;
+                    &module,
+                )?;
 
-        expanded_statements = expanded_statements
-            .into_iter()
-            .map(lower_entire_ast)
-            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
-
-        expanded_statements = expanded_statements
-            .into_iter()
-            .map(|x| {
-                let mut x = x;
-
-                for module in &self.lifted_macro_environments {
-                    if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
-                        let source_id = sources.get_source_id(module).unwrap();
-
-                        x = crate::parser::expand_visitor::expand(x, macro_env)?
-                    }
+                if changed {
+                    lifted_env.name_mangler.visit(expr);
                 }
+            }
 
-                // Lift all of the kernel macros as well?
-                for (module, lifted_env) in &mut self.lifted_kernel_environments {
-                    let mut changed = false;
+            expand_kernel_in_env(
+                expr,
+                self.kernel.as_mut(),
+                builtin_modules.clone(),
+                "top-level",
+            )?;
 
-                    (x, changed) = expand_kernel_in_env_with_change(
-                        x,
-                        self.kernel.as_mut(),
-                        builtin_modules.clone(),
-                        module.to_string(),
-                    )?;
+            // TODO: If we have this, then we have to lower all of the expressions again
+            crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
+        }
 
-                    if changed {
-                        lifted_env.name_mangler.visit(&mut x);
-                    }
-                }
+        // expanded_statements = expanded_statements
+        //     .into_iter()
+        //     .map(|x| {
+        //         let mut x = x;
 
-                expand_kernel_in_env(
-                    x,
-                    self.kernel.as_mut(),
-                    builtin_modules.clone(),
-                    "top-level".to_string(),
-                )
-                // TODO: If we have this, then we have to lower all of the expressions again
-                .and_then(|x| crate::parser::expand_visitor::expand(x, &self.macro_env))
-            })
-            .collect::<Result<Vec<_>>>()?;
+        //         for module in &self.lifted_macro_environments {
+        //             if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
+        //                 let source_id = sources.get_source_id(module).unwrap();
 
-        expanded_statements = expanded_statements
-            .into_iter()
-            .map(lower_entire_ast)
-            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
+        //                 x = crate::parser::expand_visitor::expand(x, macro_env)?
+        //             }
+        //         }
+
+        //         // Lift all of the kernel macros as well?
+        //         for (module, lifted_env) in &mut self.lifted_kernel_environments {
+        //             let mut changed = false;
+
+        //             (x, changed) = expand_kernel_in_env_with_change(
+        //                 x,
+        //                 self.kernel.as_mut(),
+        //                 builtin_modules.clone(),
+        //                 module.to_string(),
+        //             )?;
+
+        //             if changed {
+        //                 lifted_env.name_mangler.visit(&mut x);
+        //             }
+        //         }
+
+        //         expand_kernel_in_env(
+        //             x,
+        //             self.kernel.as_mut(),
+        //             builtin_modules.clone(),
+        //             "top-level".to_string(),
+        //         )
+        //         // TODO: If we have this, then we have to lower all of the expressions again
+        //         .and_then(|x| crate::parser::expand_visitor::expand(x, &self.macro_env))
+        //     })
+        //     .collect::<Result<Vec<_>>>()?;
+
+        // expanded_statements = expanded_statements
+        //     .into_iter()
+        //     .map(lower_entire_ast)
+        //     .collect::<std::result::Result<Vec<_>, ParseError>>()?;
+
+        for expr in expanded_statements.iter_mut() {
+            lower_entire_ast(expr)?;
+        }
 
         log::debug!(target: "expansion-phase", "Beginning constant folding");
 
@@ -750,8 +791,8 @@ impl Compiler {
         // Rename them again
         RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
 
-        let mut expanded_statements =
-            MultipleArityFunctions::expand_multiple_arity_functions(expanded_statements);
+        // let mut expanded_statements =
+        MultipleArityFunctions::expand_multiple_arity_functions(&mut expanded_statements);
 
         log::info!(target: "expansion-phase", "Aggressive constant evaluation with memoization");
 
@@ -777,21 +818,6 @@ impl Compiler {
         let mut expanded_statements =
             self.expand_expressions(exprs, path, sources, builtin_modules.clone())?;
 
-        // expanded_statements = expanded_statements
-        //     .into_iter()
-        //     .map(lower_entire_ast)
-        //     .collect::<std::result::Result<Vec<_>, ParseError>>()?;
-
-        // if log_enabled!(log::Level::Debug) {
-        //     debug!(
-        //         "Generating instructions for the expression: {:?}",
-        //         expanded_statements
-        //             .iter()
-        //             .map(|x| x.to_string())
-        //             .collect::<Vec<_>>()
-        //     );
-        // }
-
         log::debug!(target: "expansion-phase", "Expanding macros -> phase 1");
 
         if let Some(kernel) = self.kernel.as_mut() {
@@ -799,87 +825,53 @@ impl Compiler {
             kernel.load_syntax_transformers(&mut expanded_statements, "top-level".to_string())?;
         }
 
-        expanded_statements = expanded_statements
-            .into_iter()
-            .map(|mut x| {
-                // // Expanded any / all lifted environments:
-                // let mut x = x;
+        for expr in expanded_statements.iter_mut() {
+            expand_kernel_in_env(
+                expr,
+                self.kernel.as_mut(),
+                builtin_modules.clone(),
+                "top-level",
+            )?;
+            crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
+            lower_entire_ast(expr)?;
 
-                // // Lift all of the kernel macros as well?
-                // for (module, lifted_env) in &self.lifted_kernel_environments {
-                //     dbg!(&module);
+            for module in &self.lifted_macro_environments {
+                if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
+                    let source_id = sources.get_source_id(module).unwrap();
 
-                //     x = expand_kernel_in_env(
-                //         x,
-                //         self.kernel.as_mut(),
-                //         builtin_modules.clone(),
-                //         module.to_string(),
-                //     )?;
-                // }
+                    crate::parser::expand_visitor::expand(expr, macro_env)?
+                }
+            }
 
-                expand_kernel_in_env(
-                    x,
+            // Lift all of the kernel macros as well?
+            for (module, lifted_env) in &mut self.lifted_kernel_environments {
+                let mut changed = false;
+
+                changed = expand_kernel_in_env_with_change(
+                    expr,
                     self.kernel.as_mut(),
                     builtin_modules.clone(),
-                    "top-level".to_string(),
-                )
-                .and_then(|x| crate::parser::expand_visitor::expand(x, &self.macro_env))
-            })
-            .collect::<Result<Vec<_>>>()?;
+                    &module,
+                )?;
 
-        expanded_statements = expanded_statements
-            .into_iter()
-            .map(lower_entire_ast)
-            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
-
-        expanded_statements = expanded_statements
-            .into_iter()
-            .map(|x| {
-                let mut x = x;
-
-                for module in &self.lifted_macro_environments {
-                    if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
-                        let source_id = sources.get_source_id(module).unwrap();
-
-                        // x = crate::parser::expand_visitor::expand_with_source_id(
-                        //     x, macro_env, source_id,
-                        // )?
-
-                        x = crate::parser::expand_visitor::expand(x, macro_env)?
-                    }
+                if changed {
+                    lifted_env.name_mangler.visit(expr);
                 }
+            }
 
-                // Lift all of the kernel macros as well?
-                for (module, lifted_env) in &mut self.lifted_kernel_environments {
-                    let mut changed = false;
+            expand_kernel_in_env(
+                expr,
+                self.kernel.as_mut(),
+                builtin_modules.clone(),
+                "top-level",
+            )?;
 
-                    (x, changed) = expand_kernel_in_env_with_change(
-                        x,
-                        self.kernel.as_mut(),
-                        builtin_modules.clone(),
-                        module.to_string(),
-                    )?;
+            // TODO: If we have this, then we have to lower all of the expressions again
+            crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
 
-                    if changed {
-                        lifted_env.name_mangler.visit(&mut x);
-                    }
-                }
-
-                expand_kernel_in_env(
-                    x,
-                    self.kernel.as_mut(),
-                    builtin_modules.clone(),
-                    "top-level".to_string(),
-                )
-                // TODO: If we have this, then we have to lower all of the expressions again
-                .and_then(|x| crate::parser::expand_visitor::expand(x, &self.macro_env))
-            })
-            .collect::<Result<Vec<_>>>()?;
-
-        expanded_statements = expanded_statements
-            .into_iter()
-            .map(lower_entire_ast)
-            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
+            // for expr in expanded_statements.iter_mut() {
+            lower_entire_ast(expr)?;
+        }
 
         // Let's do the @doc macro here?
 
@@ -941,16 +933,6 @@ impl Compiler {
 
         semantic.replace_mutable_captured_variables_with_boxes();
 
-        // if log_enabled!(log::Level::Debug) {
-        //     debug!(
-        //         "Successfully expanded defines: {:?}",
-        //         expanded_statements
-        //             .iter()
-        //             .map(|x| x.to_string())
-        //             .collect::<Vec<_>>()
-        //     );
-        // }
-
         log::debug!(target: "expansion-phase", "Expanding multiple arity functions");
 
         let mut analysis = semantic.into_analysis();
@@ -959,15 +941,13 @@ impl Compiler {
         RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
 
         // TODO - make sure I want to keep this
-        let mut expanded_statements =
-            MultipleArityFunctions::expand_multiple_arity_functions(expanded_statements);
+        // let mut expanded_statements =
+        MultipleArityFunctions::expand_multiple_arity_functions(&mut expanded_statements);
 
         log::info!(target: "expansion-phase", "Aggressive constant evaluation with memoization");
 
         // Begin lowering anonymous function calls to lets
 
-        // let mut analysis = Analysis::from_exprs(&expanded_statements);
-        // let mut analysis = semantic.into_analysis();
         analysis.fresh_from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);

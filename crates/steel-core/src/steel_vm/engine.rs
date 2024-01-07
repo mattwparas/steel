@@ -53,6 +53,7 @@ use std::{
     sync::Arc,
 };
 
+use fxhash::FxBuildHasher;
 use im_rc::HashMap as ImmutableHashMap;
 use lasso::ThreadedRodeo;
 use serde::{Deserialize, Serialize};
@@ -163,7 +164,7 @@ impl Default for Engine {
 // Pre-parsed ASTs along with the global state to set before we start any further processing
 #[derive(Serialize, Deserialize)]
 struct BootstrapImage {
-    interner: Arc<ThreadedRodeo>,
+    interner: Arc<ThreadedRodeo<lasso::Spur, FxBuildHasher>>,
     syntax_object_id: usize,
     sources: Sources,
     programs: Vec<Vec<ExprKind>>,
@@ -335,12 +336,12 @@ impl Engine {
 
         time!(
             "engine-creation",
-            "Loading the all modules prelude code",
+            "Loading the ALL_MODULES prelude code",
             vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
                 .unwrap()
         );
 
-        log::debug!(target: "kernel", "Registered modules in the kernel!: {:?}", now.elapsed());
+        // log::debug!(target: "kernel", "Registered modules in the kernel!: {:?}", now.elapsed());
 
         let mut now = std::time::Instant::now();
 
@@ -953,6 +954,18 @@ impl Engine {
             .call_function(self.compiler.constant_map.clone(), function, arguments)
     }
 
+    pub fn call_function_with_args_from_mut_slice(
+        &mut self,
+        function: SteelVal,
+        arguments: &mut [SteelVal],
+    ) -> Result<SteelVal> {
+        self.virtual_machine.call_function_from_mut_slice(
+            self.compiler.constant_map.clone(),
+            function,
+            arguments,
+        )
+    }
+
     /// Call a function by name directly within the target environment
     pub fn call_function_by_name_with_args(
         &mut self,
@@ -961,6 +974,20 @@ impl Engine {
     ) -> Result<SteelVal> {
         self.extract_value(function).and_then(|function| {
             self.virtual_machine.call_function(
+                self.compiler.constant_map.clone(),
+                function,
+                arguments,
+            )
+        })
+    }
+
+    pub fn call_function_by_name_with_args_from_mut_slice(
+        &mut self,
+        function: &str,
+        arguments: &mut [SteelVal],
+    ) -> Result<SteelVal> {
+        self.extract_value(function).and_then(|function| {
+            self.virtual_machine.call_function_from_mut_slice(
                 self.compiler.constant_map.clone(),
                 function,
                 arguments,

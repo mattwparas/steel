@@ -1238,9 +1238,9 @@ struct ASTLowerPass {
 
 impl ASTLowerPass {
     // TODO: Make this mutable references, otherwise we'll be re-boxing everything for now reason
-    fn lower(&mut self, expr: ExprKind) -> Result<ExprKind> {
+    fn lower(&mut self, expr: &mut ExprKind) -> Result<()> {
         match expr {
-            ExprKind::List(mut value) => {
+            ExprKind::List(ref mut value) => {
                 if value.is_quote() {
                     // println!("Found quote: {:?}", value);
                     self.quote_depth += 1;
@@ -1248,66 +1248,78 @@ impl ASTLowerPass {
 
                 // Visit the children first, on the way back up, assign into the
                 // correct AST node
-                value.args = value
-                    .args
-                    .into_iter()
-                    .map(|x| self.lower(x))
-                    .collect::<Result<_>>()?;
+                // value.args = value
+                //     .args
+                //     .into_iter()
+                //     .map(|x| self.lower(x))
+                //     .collect::<Result<_>>()?;
+
+                for expr in value.args.iter_mut() {
+                    self.lower(expr)?;
+                }
 
                 if value.is_quote() {
                     self.quote_depth -= 1;
                 }
 
-                if let Some(f) = value.first().cloned() {
-                    // println!("Value: {}", f);
-
+                if let Some(f) = value.first().and_then(|x| {
+                    if let ExprKind::Atom(_) = x {
+                        Some(x.clone())
+                    } else {
+                        None
+                    }
+                }) {
                     match f {
                         ExprKind::Atom(a) if self.quote_depth == 0 && value.is_quote() => {
                             match &a.syn.ty {
-                                TokenType::Quote => parse_single_argument(
-                                    value.into_iter(),
-                                    a.syn.clone(),
-                                    "quote",
-                                    |expr, syn| ast::Quote::new(expr, syn).into(),
-                                ),
+                                TokenType::Quote => {
+                                    *expr = parse_single_argument(
+                                        std::mem::take(&mut value.args).into_iter(),
+                                        a.syn.clone(),
+                                        "quote",
+                                        |expr, syn| ast::Quote::new(expr, syn).into(),
+                                    )?;
+
+                                    Ok(())
+                                }
                                 _ => unreachable!(),
                             }
                         }
                         ExprKind::Atom(a) if self.quote_depth == 0 => {
-                            match &a.syn.ty {
-                                TokenType::If => parse_if(value.into_iter(), a.syn.clone()),
+                            let value = std::mem::take(&mut value.args);
+
+                            *expr = match &a.syn.ty {
+                                TokenType::If => parse_if(value.into_iter(), a.syn),
                                 TokenType::Identifier(expr) if *expr == *IF => {
-                                    parse_if(value.into_iter(), a.syn.clone())
+                                    parse_if(value.into_iter(), a.syn)
                                 }
 
-                                TokenType::Define => parse_define(value.into_iter(), a.syn.clone()),
+                                TokenType::Define => parse_define(value.into_iter(), a.syn),
                                 TokenType::Identifier(expr) if *expr == *DEFINE => {
-                                    parse_define(value.into_iter(), a.syn.clone())
+                                    parse_define(value.into_iter(), a.syn)
                                 }
 
                                 TokenType::Let => parse_let(value.into_iter(), a.syn.clone()),
                                 TokenType::Identifier(expr) if *expr == *LET => {
-                                    parse_let(value.into_iter(), a.syn.clone())
+                                    parse_let(value.into_iter(), a.syn)
                                 }
 
                                 // TODO: Deprecate
-                                TokenType::TestLet => {
-                                    parse_new_let(value.into_iter(), a.syn.clone())
-                                }
+                                TokenType::TestLet => parse_new_let(value.into_iter(), a.syn),
                                 TokenType::Identifier(expr) if *expr == *PLAIN_LET => {
-                                    parse_new_let(value.into_iter(), a.syn.clone())
+                                    parse_new_let(value.into_iter(), a.syn)
                                 }
 
                                 TokenType::Quote => parse_single_argument(
                                     value.into_iter(),
-                                    a.syn.clone(),
+                                    a.syn,
                                     "quote",
                                     |expr, syn| ast::Quote::new(expr, syn).into(),
                                 ),
                                 TokenType::Identifier(expr) if *expr == *QUOTE => {
                                     parse_single_argument(
                                         value.into_iter(),
-                                        a.syn.clone(),
+                                        a.syn,
                                         "quote",
                                         |expr, syn| ast::Quote::new(expr, syn).into(),
                                     )
@@ -1315,109 +1327,130 @@ impl ASTLowerPass {
 
                                 TokenType::Return => parse_single_argument(
                                     value.into_iter(),
-                                    a.syn.clone(),
+                                    a.syn,
                                     "return!",
                                     |expr, syn| ast::Return::new(expr, syn).into(),
                                 ),
                                 TokenType::Identifier(expr) if *expr == *RETURN => {
                                     parse_single_argument(
                                         value.into_iter(),
-                                        a.syn.clone(),
+                                        a.syn,
                                         "return!",
                                         |expr, syn| ast::Return::new(expr, syn).into(),
                                     )
                                 }
 
-                                TokenType::Require => parse_require(&a, value.args),
+                                TokenType::Require => parse_require(&a, value),
                                 TokenType::Identifier(expr) if *expr == *REQUIRE => {
-                                    parse_require(&a, value.args)
+                                    parse_require(&a, value)
                                 }
 
-                                TokenType::Set => parse_set(&a, value.args),
+                                TokenType::Set => parse_set(&a, value),
                                 TokenType::Identifier(expr) if *expr == *SET => {
-                                    parse_set(&a, value.args)
+                                    parse_set(&a, value)
                                 }
 
-                                TokenType::Begin => parse_begin(&a, value.args),
+                                TokenType::Begin => parse_begin(a, value),
                                 TokenType::Identifier(expr) if *expr == *BEGIN => {
-                                    parse_begin(&a, value.args)
+                                    parse_begin(a, value)
                                 }
 
-                                TokenType::Lambda => parse_lambda(&a, value.args),
+                                TokenType::Lambda => parse_lambda(a, value),
                                 TokenType::Identifier(expr)
                                     if *expr == *LAMBDA
                                         || *expr == *LAMBDA_FN
                                         || *expr == *LAMBDA_SYMBOL =>
                                 {
-                                    parse_lambda(&a, value.args)
+                                    parse_lambda(a, value)
                                 }
 
-                                _ => Ok(ExprKind::List(value)),
-                            }
+                                _ => Ok(ExprKind::List(List::new(value))),
+                            }?;
+
+                            Ok(())
                         }
-                        _ => Ok(ExprKind::List(value)),
+                        _ => Ok(()),
                     }
                 } else {
-                    Ok(ExprKind::List(List::new(vec![])))
+                    Ok(())
                 }
             }
-            ExprKind::Atom(_) => Ok(expr),
-            ExprKind::If(iff) => Ok(ExprKind::If(Box::new(ast::If::new(
-                self.lower(iff.test_expr)?,
-                self.lower(iff.then_expr)?,
-                self.lower(iff.else_expr)?,
-                iff.location,
-            )))),
-            ExprKind::Let(l) => Ok(ExprKind::Let(Box::new(ast::Let::new(
-                l.bindings
-                    .into_iter()
-                    .map(|(a, b)| Ok((self.lower(a)?, self.lower(b)?)))
-                    .collect::<Result<_>>()?,
-                self.lower(l.body_expr)?,
-                l.location,
-            )))),
-            ExprKind::Define(d) => Ok(ExprKind::Define(Box::new(ast::Define::new(
-                self.lower(d.name)?,
-                self.lower(d.body)?,
-                d.location,
-            )))),
-            ExprKind::LambdaFunction(f) => Ok(ExprKind::LambdaFunction(Box::new(
-                ast::LambdaFunction::new_maybe_rest(
-                    f.args
-                        .into_iter()
-                        .map(|x| self.lower(x))
-                        .collect::<Result<_>>()?,
-                    self.lower(f.body)?,
-                    f.location,
-                    f.rest,
-                ),
-            ))),
-            ExprKind::Begin(b) => Ok(ExprKind::Begin(ast::Begin::new(
-                b.exprs
-                    .into_iter()
-                    .map(|x| self.lower(x))
-                    .collect::<Result<_>>()?,
-                b.location,
-            ))),
-            ExprKind::Return(r) => Ok(ExprKind::Return(Box::new(ast::Return::new(
-                self.lower(r.expr)?,
-                r.location,
-            )))),
-            ExprKind::Quote(_) => Ok(expr),
-            ExprKind::Macro(_) => Ok(expr),
-            ExprKind::SyntaxRules(_) => Ok(expr),
-            ExprKind::Set(s) => Ok(ExprKind::Set(Box::new(ast::Set::new(
-                self.lower(s.variable)?,
-                self.lower(s.expr)?,
-                s.location,
-            )))),
-            ExprKind::Require(_) => Ok(expr), // _ => Ok(expr),
+            ExprKind::Atom(_) => Ok(()),
+            ExprKind::If(iff) => {
+                self.lower(&mut iff.test_expr)?;
+                self.lower(&mut iff.then_expr)?;
+                self.lower(&mut iff.else_expr)?;
+                Ok(())
+            }
+            ExprKind::Let(l) => {
+                for (left, right) in l.bindings.iter_mut() {
+                    self.lower(left)?;
+                    self.lower(right)?;
+                }
+
+                self.lower(&mut l.body_expr)?;
+
+                Ok(())
+            }
+            ExprKind::Define(d) => {
+                self.lower(&mut d.name)?;
+                self.lower(&mut d.body)?;
+
+                Ok(())
+            }
+
+            ExprKind::LambdaFunction(f) => {
+                for arg in f.args.iter_mut() {
+                    self.lower(arg)?;
+                }
+
+                self.lower(&mut f.body)?;
+
+                Ok(())
+            }
+            ExprKind::Begin(b) => {
+                for expr in b.exprs.iter_mut() {
+                    self.lower(expr)?;
+                }
+
+                Ok(())
+            }
+            // Ok(ExprKind::Begin(ast::Begin::new(
+            //     b.exprs
+            //         .into_iter()
+            //         .map(|x| self.lower(x))
+            //         .collect::<Result<_>>()?,
+            //     b.location,
+            // ))),
+            ExprKind::Return(r) => {
+                self.lower(&mut r.expr)?;
+                Ok(())
+            }
+            // Ok(ExprKind::Return(Box::new(ast::Return::new(
+            //     self.lower(r.expr)?,
+            //     r.location,
+            // )))),
+            ExprKind::Quote(_) => Ok(()),
+            ExprKind::Macro(_) => Ok(()),
+            ExprKind::SyntaxRules(_) => Ok(()),
+            ExprKind::Set(s) => {
+                self.lower(&mut s.variable)?;
+                self.lower(&mut s.expr)?;
+
+                Ok(())
+            }
+            // Ok(ExprKind::Set(Box::new(ast::Set::new(
+            //     self.lower(s.variable)?,
+            //     self.lower(s.expr)?,
+            //     s.location,
+            // )))),
+            ExprKind::Require(_) => Ok(()), // _ => Ok(expr),
         }
     }
 }
 
 // TODO: Lower the rest of the AST post expansion, such that
-pub fn lower_entire_ast(expr: ExprKind) -> Result<ExprKind> {
+pub fn lower_entire_ast(expr: &mut ExprKind) -> Result<()> {
     ASTLowerPass { quote_depth: 0 }.lower(expr)
 }
 
@@ -2409,7 +2442,12 @@ mod parser_tests {
             None,
         )
         .map(|x| x.and_then(lower_macro_and_require_definitions))
-        .map(|x| x.and_then(lower_entire_ast))
+        .map(|x| {
+            x.and_then(|mut expr| {
+                lower_entire_ast(&mut expr)?;
+                Ok(expr)
+            })
+        })
         .collect();
 
         let a = a.unwrap();

@@ -44,7 +44,8 @@ pub use strings::string_module;
 pub use nums::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
 
 use crate::rvals::{
-    FunctionSignature, PrimitiveAsRef, SteelHashMap, SteelHashSet, SteelVal, SteelVector,
+    FunctionSignature, PrimitiveAsRef, PrimitiveAsRefMut, SteelHashMap, SteelHashSet, SteelVal,
+    SteelVector,
 };
 use crate::values::port::SteelPort;
 use crate::{
@@ -685,6 +686,18 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelVal {
     }
 }
 
+impl<'a> PrimitiveAsRefMut<'a> for &'a mut SteelVal {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a mut SteelVal) -> crate::rvals::Result<Self> {
+        Ok(val)
+    }
+
+    #[inline(always)]
+    fn maybe_primitive_as_ref(val: &'a mut SteelVal) -> Option<Self> {
+        Some(val)
+    }
+}
+
 impl<'a> PrimitiveAsRef<'a> for &'a SteelString {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
@@ -719,6 +732,26 @@ impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashMap<SteelVal, SteelVal>> {
     fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self> {
         if let SteelVal::HashMapV(hm) = val {
             Some(&hm.0)
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a> PrimitiveAsRefMut<'a> for &'a mut Gc<im_rc::HashMap<SteelVal, SteelVal>> {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a mut SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::HashMapV(hm) = val {
+            Ok(&mut hm.0)
+        } else {
+            crate::stop!(ConversionError => format!("Canto convert steel value: {} to hashmap", val))
+        }
+    }
+
+    #[inline(always)]
+    fn maybe_primitive_as_ref(val: &'a mut SteelVal) -> Option<Self> {
+        if let SteelVal::HashMapV(hm) = val {
+            Some(&mut hm.0)
         } else {
             None
         }

@@ -1,4 +1,5 @@
 use crate::compiler::passes::reader::MultipleArityFunctions;
+use crate::compiler::passes::VisitorMutRefUnit;
 use crate::rvals::{Result, SteelVal};
 use crate::{
     compiler::compiler::OptLevel,
@@ -252,7 +253,7 @@ impl<'a> ConstantEvaluator<'a> {
         }
     }
 
-    fn all_to_constant(&self, exprs: &[ExprKind]) -> Option<Vec<SteelVal>> {
+    fn all_to_constant(&self, exprs: &[ExprKind]) -> Option<smallvec::SmallVec<[SteelVal; 8]>> {
         exprs.iter().map(|x| self.to_constant(x)).collect()
     }
 
@@ -618,15 +619,17 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             // It is possible at this point, that multi arity functions have not yet been expanded.
             // We need to check if thats the case here
             if !l.rest {
-                use crate::compiler::passes::Folder;
+                // use crate::compiler::passes::Folder;
 
-                if let ExprKind::LambdaFunction(out_lambda) =
-                    MultipleArityFunctions::new().visit_lambda_function(l)
-                {
-                    l = out_lambda;
-                } else {
-                    unreachable!();
-                }
+                MultipleArityFunctions::new().visit_lambda_function(&mut l);
+
+                // if let ExprKind::LambdaFunction(out_lambda) =
+                //     MultipleArityFunctions::new().visit_lambda_function(l)
+                // {
+                //     l = out_lambda;
+                // } else {
+                //     unreachable!();
+                // }
             }
 
             if l.args.len() != args.len() && !l.rest {

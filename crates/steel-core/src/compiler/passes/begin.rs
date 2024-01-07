@@ -8,54 +8,146 @@ use crate::parser::{
 use crate::parser::{interner::InternedString, tokens::TokenType};
 use std::{collections::HashSet, time::Instant};
 
-use super::{Folder, VisitorMutUnit};
+use super::{Folder, VisitorMutRefUnit, VisitorMutUnit};
 
 pub(crate) struct FlattenBegin {}
 impl FlattenBegin {
-    pub(crate) fn flatten(expr: ExprKind) -> ExprKind {
+    pub(crate) fn flatten(expr: &mut ExprKind) {
         FlattenBegin {}.visit(expr)
     }
 }
 
-impl Folder for FlattenBegin {
-    #[inline]
-    fn visit_begin(&mut self, begin: Begin) -> ExprKind {
-        let span = begin.location;
-
-        if begin.exprs.len() == 1 {
-            return self.visit(begin.exprs.into_iter().next().unwrap());
-        }
-
-        // Flatten begins
-        let flattened_exprs = begin
-            .exprs
-            .into_iter()
-            .flat_map(|x| {
-                if let ExprKind::Begin(b) = x {
-                    b.exprs
-                        .into_iter()
-                        .map(|x| self.visit(x))
-                        .collect::<Vec<_>>()
-                } else {
-                    vec![self.visit(x)]
+impl VisitorMutRefUnit for FlattenBegin {
+    fn visit(&mut self, expr: &mut ExprKind) {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(begin) => {
+                // if begin.exprs.len() == 1 {
+                for expr in begin.exprs.iter_mut() {
+                    self.visit(expr);
                 }
-            })
-            .collect::<Vec<_>>();
 
-        if flattened_exprs.len() == 1 {
-            flattened_exprs.into_iter().next().unwrap()
-        } else {
-            ExprKind::Begin(Begin::new(flattened_exprs, span))
+                if begin.exprs.len() == 1 {
+                    *expr = std::mem::take(&mut begin.exprs).into_iter().next().unwrap();
+
+                    return;
+                }
+
+                // }
+
+                let begin_exprs = std::mem::take(&mut begin.exprs);
+
+                // Flatten begins
+                let flattened_exprs = begin_exprs
+                    .into_iter()
+                    .flat_map(|x| {
+                        if let ExprKind::Begin(b) = x {
+                            b.exprs
+                        } else {
+                            vec![x]
+                        }
+                    })
+                    .collect::<Vec<_>>();
+
+                begin.exprs = flattened_exprs;
+
+                if begin.exprs.len() == 1 {
+                    *expr = std::mem::take(&mut begin.exprs).into_iter().next().unwrap();
+                    return;
+                }
+
+                // if flattened_exprs.len() == 1 {
+                //     flattened_exprs.into_iter().next().unwrap()
+                // }
+            }
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Let(l) => self.visit_let(l),
         }
     }
+
+    // #[inline]
+    // fn visit_begin(&mut self, begin: &mut Begin) {
+    // let span = begin.location;
+
+    // if begin.exprs.len() == 1 {
+    //     for expr in begin.exprs.iter_mut() {
+    //         self.visit(expr);
+    //     }
+    // }
+
+    // // Flatten begins
+    // let flattened_exprs = begin
+    //     .exprs
+    //     .into_iter()
+    //     .flat_map(|x| {
+    //         if let ExprKind::Begin(b) = x {
+    //             b.exprs
+    //                 .into_iter()
+    //                 .map(|x| self.visit(x))
+    //                 .collect::<Vec<_>>()
+    //         } else {
+    //             vec![self.visit(x)]
+    //         }
+    //     })
+    //     .collect::<Vec<_>>();
+
+    // if flattened_exprs.len() == 1 {
+    //     flattened_exprs.into_iter().next().unwrap()
+    // }
+    // }
 }
+
+// impl Folder for FlattenBegin {
+//     #[inline]
+//     fn visit_begin(&mut self, begin: Begin) -> ExprKind {
+//         let span = begin.location;
+
+//         if begin.exprs.len() == 1 {
+//             return self.visit(begin.exprs.into_iter().next().unwrap());
+//         }
+
+//         // Flatten begins
+//         let flattened_exprs = begin
+//             .exprs
+//             .into_iter()
+//             .flat_map(|x| {
+//                 if let ExprKind::Begin(b) = x {
+//                     b.exprs
+//                         .into_iter()
+//                         .map(|x| self.visit(x))
+//                         .collect::<Vec<_>>()
+//                 } else {
+//                     vec![self.visit(x)]
+//                 }
+//             })
+//             .collect::<Vec<_>>();
+
+//         if flattened_exprs.len() == 1 {
+//             flattened_exprs.into_iter().next().unwrap()
+//         } else {
+//             ExprKind::Begin(Begin::new(flattened_exprs, span))
+//         }
+//     }
+// }
 
 pub fn flatten_begins_and_expand_defines(exprs: Vec<ExprKind>) -> Vec<ExprKind> {
     let flatten_begins_and_expand_defines_time = Instant::now();
 
     let res = exprs
         .into_iter()
-        .map(FlattenBegin::flatten)
+        .map(|mut x| {
+            FlattenBegin::flatten(&mut x);
+            x
+        })
         .map(ConvertDefinesToLets::convert_defines)
         .collect();
 
@@ -582,7 +674,7 @@ mod flatten_begin_test {
 
     #[test]
     fn basic_flatten_one_level() {
-        let expr = ExprKind::Begin(Begin::new(
+        let mut expr = ExprKind::Begin(Begin::new(
             vec![
                 ExprKind::Begin(Begin::new(
                     vec![ExprKind::List(List::new(vec![
@@ -607,12 +699,14 @@ mod flatten_begin_test {
             SyntaxObject::default(TokenType::Begin),
         ));
 
-        assert_eq!(FlattenBegin::flatten(expr), expected);
+        FlattenBegin::flatten(&mut expr);
+
+        assert_eq!(expr, expected);
     }
 
     #[test]
     fn basic_flatten_multiple_levels() {
-        let expr = ExprKind::Begin(Begin::new(
+        let mut expr = ExprKind::Begin(Begin::new(
             vec![
                 ExprKind::Begin(Begin::new(
                     vec![ExprKind::List(List::new(vec![
@@ -651,6 +745,8 @@ mod flatten_begin_test {
             SyntaxObject::default(TokenType::Begin),
         ));
 
-        assert_eq!(FlattenBegin::flatten(expr), expected);
+        FlattenBegin::flatten(&mut expr);
+
+        assert_eq!(expr, expected);
     }
 }
