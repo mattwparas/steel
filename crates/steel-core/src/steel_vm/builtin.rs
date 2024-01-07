@@ -44,7 +44,7 @@ struct BuiltInModuleRepr {
     values: HashMap<Arc<str>, SteelVal>,
     docs: Box<InternalDocumentation>,
     // Add the metadata separate from the pointer, keeps the pointer slim
-    fn_ptr_table: HashMap<*const FunctionSignature, FunctionSignatureMetadata>,
+    fn_ptr_table: HashMap<BuiltInFunctionTypePointer, FunctionSignatureMetadata>,
     // We don't need to generate this every time, just need to
     // clone it?
     generated_expression: RefCell<Option<ExprKind>>,
@@ -111,13 +111,15 @@ pub static GET_DYLIB: Lazy<InternedString> = Lazy::new(|| "#%get-dylib".into());
 
 // Global function table
 thread_local! {
-    pub static FUNCTION_TABLE: RefCell<HashMap<*const FunctionSignature, FunctionSignatureMetadata>> = RefCell::new(HashMap::new());
+    pub static FUNCTION_TABLE: RefCell<HashMap<BuiltInFunctionTypePointer, FunctionSignatureMetadata>> = RefCell::new(HashMap::new());
 }
 
 pub fn get_function_name(function: FunctionSignature) -> Option<FunctionSignatureMetadata> {
     FUNCTION_TABLE.with(|x| {
         x.borrow()
-            .get(&(function as *const FunctionSignature))
+            .get(&BuiltInFunctionTypePointer::Reference(
+                function as *const FunctionSignature,
+            ))
             .copied()
     })
 }
@@ -128,7 +130,7 @@ pub enum BuiltInFunctionType {
     Mutable(MutFunctionSignature),
 }
 
-#[derive(Copy, Clone, Hash)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub enum BuiltInFunctionTypePointer {
     Reference(*const FunctionSignature),
     Mutable(*const MutFunctionSignature),
@@ -167,17 +169,32 @@ impl BuiltInModuleRepr {
             BuiltInFunctionType::Reference(value) => {
                 // Store this in a globally accessible place for printing
                 FUNCTION_TABLE.with(|table| {
-                    table
-                        .borrow_mut()
-                        .insert(value as *const FunctionSignature, data)
+                    table.borrow_mut().insert(
+                        BuiltInFunctionTypePointer::Reference(value as *const FunctionSignature),
+                        data,
+                    )
                 });
 
                 // Probably don't need to store it in both places?
-                self.fn_ptr_table
-                    .insert(value as *const FunctionSignature, data);
+                self.fn_ptr_table.insert(
+                    BuiltInFunctionTypePointer::Reference(value as *const FunctionSignature),
+                    data,
+                );
             }
 
-            BuiltInFunctionType::Mutable(value) => {}
+            BuiltInFunctionType::Mutable(value) => {
+                FUNCTION_TABLE.with(|table| {
+                    table.borrow_mut().insert(
+                        BuiltInFunctionTypePointer::Mutable(value as *const MutFunctionSignature),
+                        data,
+                    )
+                });
+
+                self.fn_ptr_table.insert(
+                    BuiltInFunctionTypePointer::Mutable(value as *const MutFunctionSignature),
+                    data,
+                );
+            }
         }
 
         self
@@ -188,13 +205,20 @@ impl BuiltInModuleRepr {
     }
 
     pub fn search(&self, value: SteelVal) -> Option<FunctionSignatureMetadata> {
-        if let SteelVal::FuncV(f) = value {
-            self.fn_ptr_table
-                .get(&(f as *const FunctionSignature))
-                .cloned()
-            // None
-        } else {
-            None
+        match value {
+            SteelVal::FuncV(f) => self
+                .fn_ptr_table
+                .get(&BuiltInFunctionTypePointer::Reference(
+                    f as *const FunctionSignature,
+                ))
+                .cloned(),
+            SteelVal::MutFunc(f) => self
+                .fn_ptr_table
+                .get(&BuiltInFunctionTypePointer::Mutable(
+                    f as *const MutFunctionSignature,
+                ))
+                .cloned(),
+            _ => None,
         }
     }
 

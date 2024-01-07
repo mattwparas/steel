@@ -315,7 +315,6 @@ impl Analysis {
             .flat_map(|x| x.captured_vars.values())
             .chain(self.let_info.values().flat_map(|x| x.arguments.values()))
             .filter(|x| x.captured && x.mutated)
-            // .map(|x| (x.id, x.clone()))
             .map(|x| x.id)
             .collect::<FxHashSet<_>>();
 
@@ -334,26 +333,6 @@ impl Analysis {
                 }
             }
         }
-
-        // self.function_info
-        //     .values_mut()
-        //     .flat_map(|x| x.captured_vars.values_mut())
-        //     .for_each(|x| {
-        //         if mutated_and_captured_vars.contains(&x.id) {
-        //             x.mutated = true;
-        //             x.captured = true;
-        //         }
-        //     });
-
-        // self.function_info
-        //     .values_mut()
-        //     .flat_map(|x| x.arguments.values_mut())
-        //     .for_each(|x| {
-        //         if mutated_and_captured_vars.contains(&x.id) {
-        //             x.mutated = true;
-        //             x.captured = true;
-        //         }
-        //     });
 
         self.run(exprs);
     }

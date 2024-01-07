@@ -14,7 +14,7 @@ use steel_derive::function;
 declare_const_ref_functions!(
     HM_CONSTRUCT => hm_construct,
     HM_GET => steel_hash_ref,
-    HM_EMPTY => hm_empty,
+    // HM_EMPTY => hm_empty,
 );
 
 pub const HM_INSERT: SteelVal = SteelVal::MutFunc(steel_hash_insert);
@@ -35,7 +35,7 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
         .register_native_fn_definition(VALUES_TO_LIST_DEFINITION)
         .register_native_fn_definition(VALUES_TO_VECTOR_DEFINITION)
         .register_native_fn_definition(CLEAR_DEFINITION)
-        .register_value("hash-empty?", HM_EMPTY)
+        .register_native_fn_definition(HM_EMPTY_DEFINITION)
         .register_native_fn_definition(HM_UNION_DEFINITION);
     module
 }
@@ -254,53 +254,142 @@ pub fn keys_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVa
 ///
 /// # Examples
 /// ```scheme
-/// > (hash-values->list? (hash 'a 10 'b 20) 'a)",
-///   r#"=> '(10 20)",
+/// > (hash-values->list? (hash 'a 10 'b 20)),
+///   => '(10 20)",
 /// ```
 #[steel_derive::function(name = "hash-values->list")]
 pub fn values_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
     Ok(SteelVal::ListV(hashmap.values().cloned().collect()))
 }
 
+/// Returns the keys of the given hash map as an immutable vector
+///
+/// (hash-keys->vector map) -> (vectorof any/c)?
+///
+/// map: hash?
+///
+/// # Examples
+/// ```scheme
+/// > (hash-keys->vector (hash 'a 10 'b 20)),
+///   => ['a 'b]",
+/// ```
 #[steel_derive::function(name = "hash-keys->vector")]
 pub fn keys_to_vector(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
     VectorOperations::vec_construct_iter_normal(hashmap.keys().cloned())
 }
 
+/// Returns the values of the given hash map as an immutable vector
+///
+/// (hash-values->vector map) -> (vectorof any/c)?
+///
+/// map: hash?
+///
+/// # Examples
+/// ```scheme
+/// > (hash-keys->vector (hash 'a 10 'b 20)),
+///   => [10 10]",
+/// ```
 #[steel_derive::function(name = "hash-values->vector")]
 pub fn values_to_vector(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
     VectorOperations::vec_construct_iter_normal(hashmap.values().cloned())
 }
 
+/// Clears the entries out of the existing hashmap.
+/// Will attempt to reuse the existing memory if there are no other references
+/// to the hashmap.
+///
+/// (hash-clear h) -> hash?
+///
+/// h: hash?
+///
+/// # Examples
+/// ```scheme
+/// > (hash-clear (hash 'a 10 'b 20))
+/// => '#hash()
+/// ```
 #[steel_derive::function(name = "hash-clear")]
-pub fn clear(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
-    let mut hm = hashmap.unwrap();
-    hm.clear();
-    Ok(SteelVal::HashMapV(Gc::new(hm).into()))
-}
-
-pub fn hm_empty(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => "hash-empty? takes 1 argument")
-    }
-
-    let hashmap = &args[0];
-
-    if let SteelVal::HashMapV(hm) = hashmap {
-        Ok(SteelVal::BoolV(hm.is_empty()))
+pub fn clear(hashmap: &mut SteelVal) -> Result<SteelVal> {
+    if let SteelVal::HashMapV(SteelHashMap(ref mut m)) = hashmap {
+        match Gc::get_mut(m) {
+            Some(m) => {
+                // m.insert(key, value);
+                m.clear();
+                Ok(std::mem::replace(hashmap, SteelVal::Void))
+            }
+            None => Ok(SteelVal::HashMapV(Gc::new(HashMap::new()).into())),
+        }
     } else {
-        stop!(TypeMismatch => "hash-empty? takes a hashmap")
+        stop!(TypeMismatch => "hash-clear expected a hashmap, found: {:?}", hashmap);
     }
 }
 
+/// Checks whether the hash map is empty
+///
+/// (hash-empty? m) -> bool?
+///
+/// m: hash?
+///
+/// # Examples
+/// ```scheme
+/// > (hash-empty? (hash 'a 10)) ;; => #f
+/// > (hash-emptY? (hash)) ;; => #true
+/// ```
+#[steel_derive::function(name = "hash-empty?")]
+pub fn hm_empty(hm: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
+    Ok(SteelVal::BoolV(hm.is_empty()))
+}
+
+/// Constructs the union of two hashmaps, keeping the values
+/// in the left map when the keys exist in both maps.
+///
+/// Will reuse memory where possible.
+///
+/// (hash-union l r) -> hash?
+///
+/// # Examples
+/// ```scheme
+/// > (hash-union (hash 'a 10) (hash 'b 20)) ;; => '#hash((a . 10) (b . 20))
+/// ```
 #[steel_derive::function(name = "hash-union")]
-pub fn hm_union(
-    hml: &Gc<HashMap<SteelVal, SteelVal>>,
-    hmr: &Gc<HashMap<SteelVal, SteelVal>>,
-) -> Result<SteelVal> {
-    let hml = hml.unwrap();
-    let hmr = hmr.unwrap();
-    Ok(SteelVal::HashMapV(Gc::new(hml.union(hmr)).into()))
+pub fn hm_union(mut hml: &mut SteelVal, mut hmr: &mut SteelVal) -> Result<SteelVal> {
+    match (&mut hml, &mut hmr) {
+        (
+            SteelVal::HashMapV(SteelHashMap(ref mut l)),
+            SteelVal::HashMapV(SteelHashMap(ref mut r)),
+        ) => match (Gc::get_mut(l), Gc::get_mut(r)) {
+            (None, None) => {
+                let hml = l.unwrap();
+                let hmr = r.unwrap();
+                Ok(SteelVal::HashMapV(Gc::new(hml.union(hmr)).into()))
+            }
+            (None, Some(r_map)) => {
+                let right_side_value = std::mem::take(r_map);
+
+                *r_map = l.unwrap().union(right_side_value);
+
+                return Ok(std::mem::replace(hmr, SteelVal::Void));
+            }
+            (Some(l_map), None) => {
+                let left_side_value = std::mem::take(l_map);
+
+                *l_map = left_side_value.union(r.unwrap());
+
+                return Ok(std::mem::replace(hml, SteelVal::Void));
+            }
+            (Some(l_map), Some(r_map)) => {
+                let left_side_value = std::mem::take(l_map);
+                let right_side_value = std::mem::take(r_map);
+
+                *l_map = left_side_value.union(right_side_value);
+
+                return Ok(std::mem::replace(hml, SteelVal::Void));
+            }
+        },
+
+        _ => {
+            stop!(TypeMismatch => "hash-union expects two hash maps, found: {:?} and {:?}", hml, hmr)
+        }
+    }
 }
 
 #[cfg(test)]
