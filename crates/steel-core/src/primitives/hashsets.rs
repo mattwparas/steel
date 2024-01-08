@@ -85,27 +85,6 @@ pub fn hs_insert(hashset: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
     }
 }
 
-// pub fn hs_insert(args: &mut [SteelVal]) -> Result<SteelVal> {
-//     if args.len() != 2 {
-//         stop!(ArityMismatch => "set insert takes 2 arguments")
-//     }
-
-//     let hashset = &mut args[0];
-//     let key = &args[1];
-
-//     if let SteelVal::HashSetV(hs) = hashset {
-//         // let mut hs = hs.0.unwrap();
-//         if key.is_hashable() {
-//             hs.insert(key.clone());
-//             return Ok(std::mem::replace(hashset, SteelVal::Void));
-//         } else {
-//             stop!(TypeMismatch => "hash key not hashable!");
-//         }
-//     } else {
-//         stop!(TypeMismatch => "set insert takes a set")
-//     }
-// }
-
 pub fn hs_contains(args: &[SteelVal]) -> Result<SteelVal> {
     if args.len() != 2 {
         stop!(ArityMismatch => "set-contains? get takes 2 arguments")

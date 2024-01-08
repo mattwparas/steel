@@ -558,6 +558,16 @@
   ; (simple-displayln alist)
   (if (null? alist) #f (if (equal? (car (car alist)) thing) (car alist) (assoc thing (cdr alist)))))
 
+;;@doc
+;; Returns new list, keeping elements from `lst` which applying `pred` to the element
+;; returns #t.
+;;
+;;
+;; # Examples
+;;
+;; ```scheme
+;; (filter even? (range 0 5)) ;; '(0 2 4)
+;; ```
 (define (filter pred lst)
   (if (empty? lst) '() (transduce lst (filtering pred) (into-list))))
 
@@ -763,11 +773,11 @@
            ?l
            ?clause1 ...))]))
 
-(define-syntax help
-  (syntax-rules ()
-    [(help) (simple-displayln "help expects an identifier to lookup documentation for")]
-    [(help ident) (%doc? %-builtin-module-steel/base (quote ident))]
-    [(help module ident) (%doc? (datum->syntax %-builtin-module- module) (quote ident))]))
+(define (help func)
+  (unless (#%native-fn-ptr-doc func)
+    (let ([doc (#%function-ptr-table-get #%function-ptr-table func)])
+      (when doc
+        (%string->render-markdown doc)))))
 
 (define-syntax dbg!
   (syntax-rules ()

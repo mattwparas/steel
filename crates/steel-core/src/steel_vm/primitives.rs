@@ -32,10 +32,11 @@ use crate::{
     rvals::{
         as_underlying_type,
         cycles::{BreadthFirstSearchSteelValVisitor, SteelCycleCollector},
-        FromSteelVal, SteelString, ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
+        FromSteelVal, FunctionSignature, MutFunctionSignature, SteelString, ITERATOR_FINISHED,
+        NUMBER_EQUALITY_DEFINITION,
     },
     steel_vm::{
-        builtin::{get_function_name, Arity},
+        builtin::{get_function_metadata, get_function_name, Arity},
         vm::threads::threading_module,
     },
     values::{
@@ -1156,6 +1157,40 @@ fn lookup_function_name(value: SteelVal) -> Option<SteelVal> {
     }
 }
 
+fn lookup_doc(value: SteelVal) -> bool {
+    match value {
+        // SteelVal::BoxedFunction(f) => ,
+        SteelVal::FuncV(f) => {
+            let metadata = get_function_metadata(
+                crate::steel_vm::builtin::BuiltInFunctionTypePointer::Reference(
+                    f as *const FunctionSignature,
+                ),
+            );
+
+            if let Some(data) = metadata.and_then(|x| x.doc) {
+                println!("{}", data);
+                true
+            } else {
+                false
+            }
+        }
+        SteelVal::MutFunc(f) => {
+            let metadata = get_function_metadata(
+                crate::steel_vm::builtin::BuiltInFunctionTypePointer::Mutable(
+                    f as *const MutFunctionSignature,
+                ),
+            );
+            if let Some(data) = metadata.and_then(|x| x.doc) {
+                println!("{}", data);
+                true
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
 // Only works with fixed size arity functions
 fn arity(value: SteelVal) -> UnRecoverableResult {
     match value {
@@ -1538,6 +1573,7 @@ fn meta_module() -> BuiltInModule {
         .register_fn("set-env-var!", std::env::set_var::<String, String>)
         .register_fn("arity?", arity)
         .register_fn("function-name", lookup_function_name)
+        .register_fn("#%native-fn-ptr-doc", lookup_doc)
         .register_fn("multi-arity?", is_multi_arity)
         .register_value("make-struct-type", SteelVal::FuncV(make_struct_type))
         .register_value(

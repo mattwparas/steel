@@ -50,20 +50,27 @@ struct BuiltInModuleRepr {
     generated_expression: RefCell<Option<ExprKind>>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 // Probably need something more interesting than just an integer for the arity
 pub struct FunctionSignatureMetadata {
     pub name: &'static str,
     pub arity: Arity,
     pub is_const: bool,
+    pub doc: Option<MarkdownDoc<'static>>,
 }
 
 impl FunctionSignatureMetadata {
-    pub fn new(name: &'static str, arity: Arity, is_const: bool) -> Self {
+    pub fn new(
+        name: &'static str,
+        arity: Arity,
+        is_const: bool,
+        doc: Option<MarkdownDoc<'static>>,
+    ) -> Self {
         Self {
             name,
             arity,
             is_const,
+            doc,
         }
     }
 }
@@ -120,8 +127,14 @@ pub fn get_function_name(function: FunctionSignature) -> Option<FunctionSignatur
             .get(&BuiltInFunctionTypePointer::Reference(
                 function as *const FunctionSignature,
             ))
-            .copied()
+            .cloned()
     })
+}
+
+pub fn get_function_metadata(
+    function: BuiltInFunctionTypePointer,
+) -> Option<FunctionSignatureMetadata> {
+    FUNCTION_TABLE.with(|x| x.borrow().get(&function).cloned())
 }
 
 #[derive(Copy, Clone)]
@@ -171,7 +184,7 @@ impl BuiltInModuleRepr {
                 FUNCTION_TABLE.with(|table| {
                     table.borrow_mut().insert(
                         BuiltInFunctionTypePointer::Reference(value as *const FunctionSignature),
-                        data,
+                        data.clone(),
                     )
                 });
 
@@ -186,7 +199,7 @@ impl BuiltInModuleRepr {
                 FUNCTION_TABLE.with(|table| {
                     table.borrow_mut().insert(
                         BuiltInFunctionTypePointer::Mutable(value as *const MutFunctionSignature),
-                        data,
+                        data.clone(),
                     )
                 });
 
@@ -273,8 +286,6 @@ impl BuiltInModuleRepr {
         self.docs.register_doc(definition, description.into());
         self
     }
-
-    // pub fn docs(&self) ->
 
     pub fn get_doc(&self, definition: String) {
         if let Some(value) = self.docs.get(&definition) {
@@ -424,7 +435,7 @@ impl BuiltInModule {
         // Just automatically add it to the function pointer table to help out with searching
         self.add_to_fn_ptr_table(
             BuiltInFunctionType::Reference(func),
-            FunctionSignatureMetadata::new(name, arity, false),
+            FunctionSignatureMetadata::new(name, arity, false, None),
         );
         self.register_value(name, SteelVal::FuncV(func))
     }
@@ -435,7 +446,12 @@ impl BuiltInModule {
     ) -> &mut Self {
         self.add_to_fn_ptr_table(
             definition.func,
-            FunctionSignatureMetadata::new(definition.name, definition.arity, definition.is_const),
+            FunctionSignatureMetadata::new(
+                definition.name,
+                definition.arity,
+                definition.is_const,
+                definition.doc.clone(),
+            ),
         );
 
         if let Some(doc) = definition.doc {
@@ -716,7 +732,7 @@ pub struct ValueDoc<'a> {
     pub description: &'a str,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MarkdownDoc<'a>(pub &'a str);
 
 impl<'a> std::fmt::Display for MarkdownDoc<'a> {
