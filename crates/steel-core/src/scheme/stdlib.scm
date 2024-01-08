@@ -773,7 +773,13 @@
            ?l
            ?clause1 ...))]))
 
-(define (help func)
+(define-syntax help
+  (syntax-rules ()
+    [(help) (simple-displayln "help expects an identifier to lookup documentation for")]
+    [(help ident) (#%private-help ident)]
+    [(help module ident) (%doc? (datum->syntax %-builtin-module- module) (quote ident))]))
+
+(define (#%private-help func)
   (unless (#%native-fn-ptr-doc func)
     (let ([doc (#%function-ptr-table-get #%function-ptr-table func)])
       (when doc
