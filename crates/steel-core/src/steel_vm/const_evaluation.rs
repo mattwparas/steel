@@ -28,6 +28,7 @@ use std::{
     rc::{Rc, Weak},
 };
 
+// use fxhash::FxHashSet;
 use im_rc::HashMap;
 
 use steel_parser::tokens::MaybeBigInt;
@@ -150,41 +151,77 @@ impl<'a> ConstantEvaluatorManager<'a> {
     pub fn run(&mut self, input: Vec<ExprKind>) -> Result<Vec<ExprKind>> {
         self.changed = false;
 
-        let mut expr_level_sets = Vec::with_capacity(input.len());
+        let mut results = Vec::with_capacity(input.len());
+
+        // let mut collector = CollectSet::new(&mut self.set_idents);
 
         // Collect the set expressions, ignore them for the constant folding
-        for expr in &input {
+        for expr in input {
             let mut collector = CollectSet::new(&mut self.set_idents);
 
-            collector.visit(expr);
+            collector.visit(&expr);
 
-            expr_level_sets.push(collector.expr_level_set_idents);
+            let expr_level_set_idents = std::mem::take(&mut collector.expr_level_set_idents);
+
+            // println!("Length of expr level sets!: {:?}", expr_level_set_idents);
+
+            drop(collector);
+
+            let mut eval = ConstantEvaluator::new(
+                Rc::clone(&self.global_env),
+                &self.set_idents,
+                &expr_level_set_idents,
+                self.opt_level,
+                self.memoization_table,
+                self.kernel,
+            );
+            let mut output = eval.visit(expr)?;
+            self.changed = self.changed || eval.changed;
+
+            eval.changed = false;
+
+            for _ in 0..10 {
+                output = eval.visit(output)?;
+                if !eval.changed {
+                    break;
+                }
+
+                eval.changed = false;
+            }
+
+            results.push(output)
         }
 
-        input
-            .into_iter()
-            .zip(expr_level_sets)
-            .map(|(x, set)| {
-                let mut eval = ConstantEvaluator::new(
-                    Rc::clone(&self.global_env),
-                    &self.set_idents,
-                    &set,
-                    self.opt_level,
-                    self.memoization_table,
-                    self.kernel,
-                );
-                let output = eval.visit(x);
-                self.changed = self.changed || eval.changed;
-                output
-            })
-            .collect()
+        // Only run this on an expr by expr basis
+        self.changed = false;
+
+        Ok(results)
+
+        // TODO: Only re-run with the manager on expressions that actually changed.
+        // input
+        //     .into_iter()
+        //     .zip(expr_level_sets)
+        //     .map(|(x, set)| {
+        //         let mut eval = ConstantEvaluator::new(
+        //             Rc::clone(&self.global_env),
+        //             &self.set_idents,
+        //             &set,
+        //             self.opt_level,
+        //             self.memoization_table,
+        //             self.kernel,
+        //         );
+        //         let output = eval.visit(x);
+        //         self.changed = self.changed || eval.changed;
+        //         output
+        //     })
+        //     .collect()
     }
 }
 
 struct ConstantEvaluator<'a> {
     bindings: SharedEnv,
     set_idents: &'a HashSet<InternedString>,
-    expr_level_set_idents: &'a HashSet<InternedString>,
+    expr_level_set_idents: &'a [InternedString],
     changed: bool,
     opt_level: OptLevel,
     memoization_table: &'a mut MemoizationTable,
@@ -206,7 +243,7 @@ impl<'a> ConstantEvaluator<'a> {
     fn new(
         bindings: Rc<RefCell<ConstantEnv>>,
         set_idents: &'a HashSet<InternedString>,
-        expr_level_set_idents: &'a HashSet<InternedString>,
+        expr_level_set_idents: &'a [InternedString],
         opt_level: OptLevel,
         memoization_table: &'a mut MemoizationTable,
         kernel: &'a mut Option<Kernel>,
@@ -264,12 +301,6 @@ impl<'a> ConstantEvaluator<'a> {
         mut raw_args: Vec<ExprKind>,
         args: &[SteelVal],
     ) -> Result<ExprKind> {
-        // println!(
-        //     "Calling function: {} with args: {:?}",
-        //     ident.resolve(),
-        //     args
-        // );
-
         // TODO: We should just bail immediately if this results in an error
         let output = match self.kernel.as_mut().unwrap().call_function(&ident, args) {
             Ok(v) => v,
@@ -317,39 +348,37 @@ impl<'a> ConstantEvaluator<'a> {
         evaluated_func: SteelVal,
         func: ExprKind,
         mut raw_args: Vec<ExprKind>,
-        args: &[SteelVal],
+        args: &mut [SteelVal],
     ) -> Result<ExprKind> {
         if evaluated_func.is_function() {
             match evaluated_func {
                 SteelVal::MutFunc(f) => {
-                    let mut args = args.to_vec();
-
-                    let output = f(&mut args)
+                    let output = f(args)
                         .map_err(|e| e.set_span_if_none(func.atom_syntax_object().unwrap().span))?;
 
                     self.handle_output(output, func, raw_args)
                 }
+                // TODO: Eventually, re-enable the memoization table
                 SteelVal::FuncV(f) => {
                     // TODO: Clean this up - we shouldn't even enter this section of the code w/o having
                     // the actual atom itself.
-                    let output = if let Some(output) = self
-                        .memoization_table
-                        .get(SteelVal::FuncV(f), args.to_vec())
-                    {
-                        output
-                    } else {
-                        let output = f(args).map_err(|e| {
-                            e.set_span_if_none(func.atom_syntax_object().unwrap().span)
-                        })?;
+                    // let output = if let Some(output) = self
+                    // .memoization_table
+                    // .get(SteelVal::FuncV(f), args.to_vec())
+                    // {
+                    // output
+                    // } else {
+                    let output = f(args)
+                        .map_err(|e| e.set_span_if_none(func.atom_syntax_object().unwrap().span))?;
 
-                        self.memoization_table.insert(
-                            SteelVal::FuncV(f),
-                            args.to_vec(),
-                            output.clone(),
-                        );
+                    // self.memoization_table.insert(
+                    //     SteelVal::FuncV(f),
+                    //     args.to_vec(),
+                    //     output.clone(),
+                    // );
 
-                        output
-                    };
+                    // output
+                    // };
 
                     self.handle_output(output, func, raw_args)
                 }
@@ -539,7 +568,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
             if let Some(evaluated_func) = self.to_constant(&func) {
                 // debug!("Attempting to evaluate: {}", &func);
-                return self.eval_function(evaluated_func, func, Vec::new(), &[]);
+                return self.eval_function(evaluated_func, func, Vec::new(), &mut []);
             } else if let Some(ident) = func.atom_identifier().and_then(|x| {
                 // TODO: @Matt 4/24/23 - this condition is super ugly and I would prefer if we cleaned it up
                 if self.kernel.is_some() && self.kernel.as_ref().unwrap().is_constant(x) {
@@ -576,7 +605,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         let mut args: Vec<_> = args.map(|x| self.visit(x)).collect::<Result<_>>()?;
 
         // Resolve the arguments - if they're all constants, we have a chance to do constant evaluation
-        if let Some(arguments) = self.all_to_constant(&args) {
+        if let Some(mut arguments) = self.all_to_constant(&args) {
             if let ExprKind::Atom(_) = &func_expr {
                 // let span = get_span(&func_expr);
 
@@ -591,7 +620,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                     // before applying a check against a constant value (which probably means we're missing)
                     // something in the constant evaluation check. In which case, we should probably
                     // just not stop the execution just because we errored
-                    return self.eval_function(evaluated_func, func_expr, args, &arguments);
+                    return self.eval_function(evaluated_func, func_expr, args, &mut arguments);
                 } else if let Some(ident) = func_expr.atom_identifier().and_then(|x| {
                     // TODO: @Matt 4/24/23 - this condition is super ugly and I would prefer if we cleaned it up
                     if self.kernel.is_some() && self.kernel.as_ref().unwrap().is_constant(x) {
@@ -860,7 +889,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 struct CollectSet<'a> {
     set_idents: &'a mut HashSet<InternedString>,
     scopes: quickscope::ScopeSet<InternedString>,
-    pub expr_level_set_idents: HashSet<InternedString>,
+    pub expr_level_set_idents: smallvec::SmallVec<[InternedString; 32]>,
 }
 
 impl<'a> CollectSet<'a> {
@@ -868,7 +897,7 @@ impl<'a> CollectSet<'a> {
         Self {
             set_idents,
             scopes: quickscope::ScopeSet::default(),
-            expr_level_set_idents: HashSet::new(),
+            expr_level_set_idents: smallvec::SmallVec::default(),
         }
     }
 }
@@ -934,7 +963,7 @@ impl<'a> VisitorMut for CollectSet<'a> {
 
                 self.set_idents.insert(*identifier);
             } else {
-                self.expr_level_set_idents.insert(*identifier);
+                self.expr_level_set_idents.push(*identifier);
 
                 // println!("IN SCOPE: {}", identifier.resolve());
             }

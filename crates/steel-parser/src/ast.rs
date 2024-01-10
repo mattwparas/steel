@@ -498,7 +498,7 @@ impl Let {
             bindings,
             body_expr,
             location,
-            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed),
+            syntax_object_id: SyntaxObjectId::fresh().0,
         }
     }
 
@@ -728,7 +728,7 @@ impl Clone for LambdaFunction {
             body: self.body.clone(),
             location: self.location.clone(),
             rest: self.rest,
-            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed),
+            syntax_object_id: SyntaxObjectId::fresh().0,
         }
     }
 }
@@ -788,7 +788,7 @@ impl LambdaFunction {
             body,
             location,
             rest: false,
-            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed),
+            syntax_object_id: SyntaxObjectId::fresh().0,
         }
     }
 
@@ -798,7 +798,7 @@ impl LambdaFunction {
             body,
             location,
             rest: true,
-            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed),
+            syntax_object_id: SyntaxObjectId::fresh().0,
         }
     }
 
@@ -813,7 +813,7 @@ impl LambdaFunction {
             body,
             location,
             rest,
-            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed),
+            syntax_object_id: SyntaxObjectId::fresh().0,
         }
     }
 
@@ -964,7 +964,7 @@ impl List {
     pub fn new(args: Vec<ExprKind>) -> Self {
         List {
             args,
-            syntax_object_id: SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed),
+            syntax_object_id: SyntaxObjectId::fresh().0,
             improper: false,
             location: None,
         }

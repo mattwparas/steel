@@ -350,13 +350,18 @@ impl MacroCase {
                         &mut bindings,
                         &mut binding_kind,
                     )?;
+
+                    let mut body = self.body.clone();
+
                     replace_identifiers(
-                        self.body.clone(),
+                        &mut body,
                         &mut bindings,
                         &mut binding_kind,
                         &mut fallback_bindings,
                         span,
-                    )
+                    )?;
+
+                    Ok(body)
                 })
             })
         })
@@ -599,6 +604,7 @@ impl MacroPattern {
         }
     }
 
+    // TODO: Don't do this?
     pub fn deconstruct_without_syntax(&self) -> Vec<&InternedString> {
         match self {
             Self::Single(s) => vec![s],

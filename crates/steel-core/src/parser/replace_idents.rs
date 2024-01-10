@@ -1,10 +1,10 @@
 use fxhash::FxHashMap;
+use smallvec::SmallVec;
 
 use crate::compiler::passes::{VisitorMutControlFlow, VisitorMutRefUnit};
 use crate::compiler::program::SYNTAX_SPAN;
 use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
-use crate::parser::visitors::ConsumingVisitor;
 use crate::{compiler::program::DEFINE, parser::parser::SyntaxObject};
 use crate::{
     compiler::program::{DATUM_SYNTAX, SYNTAX_CONST_IF},
@@ -14,6 +14,7 @@ use crate::{
 use crate::rvals::Result;
 
 use super::expander::BindingKind;
+use super::visitors::VisitorMutRef;
 use super::{ast::Atom, interner::InternedString};
 
 use std::collections::HashSet;
@@ -26,18 +27,18 @@ use std::ops::ControlFlow;
 // const CURRENT_FILE: &str = "const-current-file!";
 
 pub fn replace_identifiers(
-    expr: ExprKind,
+    expr: &mut ExprKind,
     bindings: &mut FxHashMap<InternedString, ExprKind>,
     binding_kind: &mut FxHashMap<InternedString, BindingKind>,
     fallback_bindings: &mut FxHashMap<InternedString, ExprKind>,
     span: Span,
-) -> Result<ExprKind> {
-    let mut rewrite_spans = expr;
+) -> Result<()> {
+    // let mut rewrite_spans = expr;
 
-    RewriteSpan::new(span).visit(&mut rewrite_spans);
+    RewriteSpan::new(span).visit(expr);
 
     // TODO: Replace this here!
-    ReplaceExpressions::new(bindings, binding_kind, fallback_bindings).visit(rewrite_spans)
+    ReplaceExpressions::new(bindings, binding_kind, fallback_bindings).visit(expr)
 }
 
 // struct ConstExprKindTransformers {
@@ -131,23 +132,23 @@ impl<'a> ReplaceExpressions<'a> {
         }
     }
 
-    fn expand_atom(&self, expr: Atom) -> ExprKind {
-        // Overwrite the span on any atoms
-        // expr.syn.set_span(self.span);
+    // fn expand_atom(&self, &mut expr: Atom) -> ExprKind {
+    //     // Overwrite the span on any atoms
+    //     // expr.syn.set_span(self.span);
 
-        if let TokenType::Identifier(s) = &expr.syn.ty {
-            if let Some(body) = self.bindings.get(s) {
-                return body.clone();
-            }
-        }
+    //     if let TokenType::Identifier(s) = &expr.syn.ty {
+    //         if let Some(body) = self.bindings.get(s) {
+    //             return body.clone();
+    //         }
+    //     }
 
-        ExprKind::Atom(expr)
-    }
+    //     ExprKind::Atom(expr)
+    // }
 
-    fn expand_ellipses(&mut self, vec_exprs: Vec<ExprKind>) -> Result<Vec<ExprKind>> {
+    fn expand_ellipses(&mut self, vec_exprs: &mut Vec<ExprKind>) -> Result<()> {
         if let Some(ellipses_pos) = vec_exprs.iter().position(check_ellipses) {
             if ellipses_pos == 0 {
-                return Ok(vec_exprs);
+                return Ok(());
             }
 
             let variable_to_lookup = vec_exprs.get(ellipses_pos - 1).ok_or_else(
@@ -167,7 +168,7 @@ impl<'a> ReplaceExpressions<'a> {
                     let rest = if let Some(rest) = self.bindings.get(var) {
                         rest
                     } else {
-                        return Ok(vec_exprs);
+                        return Ok(());
                     };
 
                     let list_of_exprs = if let ExprKind::List(list_of_exprs) = rest {
@@ -177,7 +178,7 @@ impl<'a> ReplaceExpressions<'a> {
                             res.list_or_else(
                         throw!(BadSyntax => "macro expansion failed, expected list of expressions, found: {}, within {}", rest, super::ast::List::new(vec_exprs.clone())))?
                         } else {
-                            return Ok(vec_exprs);
+                            return Ok(());
                         };
 
                         //     let res = self.fallback_bindings.get(var).ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanding ellipses: {var}")))?.list_or_else(
@@ -187,10 +188,20 @@ impl<'a> ReplaceExpressions<'a> {
                         res
                     };
 
-                    let mut first_chunk = vec_exprs[0..ellipses_pos - 1].to_vec();
-                    first_chunk.extend_from_slice(list_of_exprs);
-                    first_chunk.extend_from_slice(&vec_exprs[(ellipses_pos + 1)..]);
-                    Ok(first_chunk)
+                    // Split off into small vec?
+                    let back_chunk = vec_exprs.split_off(ellipses_pos - 1);
+
+                    vec_exprs.extend_from_slice(list_of_exprs);
+
+                    vec_exprs.extend_from_slice(&back_chunk[2..]);
+
+                    // let mut first_chunk = vec_exprs[0..ellipses_pos - 1].to_vec();
+                    // first_chunk.extend_from_slice(list_of_exprs);
+                    // first_chunk.extend_from_slice(&vec_exprs[(ellipses_pos + 1)..]);
+
+                    // *vec_exprs = first_chunk;
+
+                    Ok(())
                 }
 
                 ExprKind::List(_) => {
@@ -210,10 +221,11 @@ impl<'a> ReplaceExpressions<'a> {
 
                     std::mem::swap(self.fallback_bindings, &mut original_bindings);
 
-                    let mut expanded_expressions = Vec::with_capacity(width);
+                    let mut expanded_expressions = SmallVec::<[ExprKind; 6]>::with_capacity(width);
+                    // let mut expanded_expressions = Vec::with_capacity(width);
 
                     for i in 0..width {
-                        let template = variable_to_lookup.clone();
+                        let mut template = variable_to_lookup.clone();
 
                         for (key, value) in self.fallback_bindings.iter() {
                             if let ExprKind::List(expansion) = value {
@@ -227,7 +239,9 @@ impl<'a> ReplaceExpressions<'a> {
                             }
                         }
 
-                        expanded_expressions.push(self.visit(template)?);
+                        self.visit(&mut template)?;
+
+                        expanded_expressions.push(template);
                     }
 
                     std::mem::swap(self.fallback_bindings, &mut original_bindings);
@@ -237,11 +251,21 @@ impl<'a> ReplaceExpressions<'a> {
                         self.bindings.insert(key, value);
                     }
 
-                    let mut first_chunk = vec_exprs[0..ellipses_pos - 1].to_vec();
-                    first_chunk.extend_from_slice(&expanded_expressions);
-                    first_chunk.extend_from_slice(&vec_exprs[(ellipses_pos + 1)..]);
+                    let back_chunk = vec_exprs.split_off(ellipses_pos - 1);
+                    vec_exprs.extend(expanded_expressions);
+                    vec_exprs.extend_from_slice(&back_chunk[2..]);
 
-                    Ok(first_chunk)
+                    // let mut first_chunk = vec_exprs[0..ellipses_pos - 1].to_vec();
+                    // first_chunk.extend_from_slice(&expanded_expressions);
+                    // first_chunk.extend_from_slice(&vec_exprs[(ellipses_pos + 1)..]);
+
+                    // *vec_exprs = first_chunk;
+
+                    Ok(())
+
+                    // Ok(())
+
+                    // Ok(first_chunk)
                 }
 
                 _ => {
@@ -249,7 +273,7 @@ impl<'a> ReplaceExpressions<'a> {
                 }
             }
         } else {
-            Ok(vec_exprs)
+            Ok(())
         }
     }
 
@@ -414,38 +438,94 @@ fn reserved_token_type_to_ident(token: &mut TokenType<InternedString>) {
 }
 
 // TODO replace spans on all of the nodes and atoms
-impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
-    type Output = Result<ExprKind>;
+impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
+    type Output = Result<()>;
 
-    fn visit_if(&mut self, mut f: Box<super::ast::If>) -> Self::Output {
-        f.test_expr = self.visit(f.test_expr)?;
-        f.then_expr = self.visit(f.then_expr)?;
-        f.else_expr = self.visit(f.else_expr)?;
-        Ok(ExprKind::If(f))
+    fn visit(&mut self, expr: &mut ExprKind) -> Self::Output {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => {
+                if let TokenType::Identifier(s) = &a.syn.ty {
+                    if let Some(body) = self.bindings.get(s) {
+                        *expr = body.clone();
+                    }
+                }
+
+                Ok(())
+            }
+            ExprKind::List(l) => {
+                if let Some(expanded) = self.vec_expr_datum_to_syntax(&l.args)? {
+                    // return Ok(expanded);
+                    *expr = expanded;
+                    return Ok(());
+                }
+
+                if let Some(mut expanded) = self.vec_expr_syntax_const_if(&l.args)? {
+                    self.visit(&mut expanded)?;
+
+                    *expr = expanded;
+
+                    return Ok(());
+
+                    // return self.visit(expanded);
+                }
+
+                self.expand_ellipses(&mut l.args)?;
+
+                for expr in l.args.iter_mut() {
+                    self.visit(expr)?;
+                }
+
+                if let Some(expanded) = self.vec_syntax_span_object(&l.args)? {
+                    *expr = expanded;
+                    return Ok(());
+                }
+
+                Ok(())
+            }
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+        }
     }
 
-    fn visit_define(&mut self, mut define: Box<super::ast::Define>) -> Self::Output {
+    fn visit_if(&mut self, f: &mut super::ast::If) -> Self::Output {
+        self.visit(&mut f.test_expr)?;
+        self.visit(&mut f.then_expr)?;
+        self.visit(&mut f.else_expr)?;
+        Ok(())
+    }
+
+    fn visit_define(&mut self, mut define: &mut super::ast::Define) -> Self::Output {
         if let ExprKind::List(l) = &define.name {
             if let Some(expanded) = self.vec_expr_datum_to_syntax(&l.args)? {
                 define.name = expanded
             }
         }
-        define.name = self.visit(define.name)?;
-        define.body = self.visit(define.body)?;
-        Ok(ExprKind::Define(define))
+        self.visit(&mut define.name)?;
+        self.visit(&mut define.body)?;
+
+        Ok(())
     }
 
     fn visit_lambda_function(
         &mut self,
-        mut lambda_function: Box<super::ast::LambdaFunction>,
+        mut lambda_function: &mut super::ast::LambdaFunction,
     ) -> Self::Output {
-        lambda_function.args = self.expand_ellipses(lambda_function.args)?;
-        lambda_function.args = lambda_function
-            .args
-            .into_iter()
-            .map(|e| self.visit(e))
-            .collect::<Result<Vec<_>>>()?;
-        lambda_function.body = self.visit(lambda_function.body)?;
+        self.expand_ellipses(&mut lambda_function.args)?;
+
+        for arg in lambda_function.args.iter_mut() {
+            self.visit(arg)?;
+        }
+
+        self.visit(&mut lambda_function.body)?;
 
         // TODO: @Matt - 2/28/12 -> clean up this
         // This mangles the values
@@ -463,99 +543,113 @@ impl<'a> ConsumingVisitor for ReplaceExpressions<'a> {
             // }
         });
 
-        Ok(ExprKind::LambdaFunction(lambda_function))
+        Ok(())
     }
 
-    fn visit_begin(&mut self, mut begin: super::ast::Begin) -> Self::Output {
-        begin.exprs = self.expand_ellipses(begin.exprs)?;
-        begin.exprs = begin
-            .exprs
-            .into_iter()
-            .map(|e| self.visit(e))
-            .collect::<Result<Vec<_>>>()?;
-        Ok(ExprKind::Begin(begin))
+    fn visit_begin(&mut self, begin: &mut super::ast::Begin) -> Self::Output {
+        self.expand_ellipses(&mut begin.exprs)?;
+
+        for expr in begin.exprs.iter_mut() {
+            self.visit(expr)?;
+        }
+
+        Ok(())
     }
 
-    fn visit_return(&mut self, mut r: Box<super::ast::Return>) -> Self::Output {
-        r.expr = self.visit(r.expr)?;
-        Ok(ExprKind::Return(r))
+    fn visit_return(&mut self, mut r: &mut super::ast::Return) -> Self::Output {
+        self.visit(&mut r.expr)
     }
 
-    fn visit_quote(&mut self, mut quote: Box<super::ast::Quote>) -> Self::Output {
-        quote.expr = self.visit(quote.expr)?;
-        Ok(ExprKind::Quote(quote))
+    fn visit_quote(&mut self, mut quote: &mut super::ast::Quote) -> Self::Output {
+        self.visit(&mut quote.expr)
     }
 
-    fn visit_macro(&mut self, m: Box<super::ast::Macro>) -> Self::Output {
+    fn visit_macro(&mut self, m: &mut super::ast::Macro) -> Self::Output {
         stop!(BadSyntax => format!("unexpected macro definition: {}", m); m.location.span)
     }
 
-    fn visit_atom(&mut self, a: Atom) -> Self::Output {
-        Ok(self.expand_atom(a))
+    // Lift this up to the visit function
+    fn visit_atom(&mut self, a: &mut Atom) -> Self::Output {
+        // self.expand_atom(a)
+
+        Ok(())
+
+        // todo!()
     }
 
-    fn visit_list(&mut self, mut l: super::ast::List) -> Self::Output {
-        if let Some(expanded) = self.vec_expr_datum_to_syntax(&l.args)? {
-            return Ok(expanded);
-        }
+    // Lift this up to the visit function
+    fn visit_list(&mut self, mut l: &mut super::ast::List) -> Self::Output {
+        Ok(())
 
-        if let Some(expanded) = self.vec_expr_syntax_const_if(&l.args)? {
-            return self.visit(expanded);
-        }
+        // if let Some(expanded) = self.vec_expr_datum_to_syntax(&l.args)? {
+        //     return Ok(expanded);
+        // }
 
-        l.args = self.expand_ellipses(l.args)?;
-        l.args = l
-            .args
-            .into_iter()
-            .map(|e| self.visit(e))
-            .collect::<Result<Vec<_>>>()?;
+        // if let Some(expanded) = self.vec_expr_syntax_const_if(&l.args)? {
+        //     return self.visit(expanded);
+        // }
 
-        if let Some(expanded) = self.vec_syntax_span_object(&l.args)? {
-            return Ok(expanded);
-        }
+        // l.args = self.expand_ellipses(l.args)?;
+        // l.args = l
+        //     .args
+        //     .into_iter()
+        //     .map(|e| self.visit(e))
+        //     .collect::<Result<Vec<_>>>()?;
 
-        Ok(ExprKind::List(l))
+        // if let Some(expanded) = self.vec_syntax_span_object(&l.args)? {
+        //     return Ok(expanded);
+        // }
+
+        // todo!()
+
+        // Ok(ExprKind::List(l))
     }
 
-    fn visit_syntax_rules(&mut self, l: Box<super::ast::SyntaxRules>) -> Self::Output {
-        dbg!(l.to_string());
-
+    fn visit_syntax_rules(&mut self, l: &mut super::ast::SyntaxRules) -> Self::Output {
         stop!(Generic => "unexpected syntax-rules definition"; l.location.span)
     }
 
-    fn visit_set(&mut self, mut s: Box<super::ast::Set>) -> Self::Output {
-        s.variable = self.visit(s.variable)?;
-        s.expr = self.visit(s.expr)?;
-        Ok(ExprKind::Set(s))
+    fn visit_set(&mut self, mut s: &mut super::ast::Set) -> Self::Output {
+        self.visit(&mut s.variable)?;
+        self.visit(&mut s.expr)?;
+
+        Ok(())
     }
 
-    fn visit_require(&mut self, mut s: super::ast::Require) -> Self::Output {
-        s.modules = s
-            .modules
-            .into_iter()
-            .map(|x| self.visit(x))
-            .collect::<Result<_>>()?;
+    fn visit_require(&mut self, mut s: &mut super::ast::Require) -> Self::Output {
+        for expr in s.modules.iter_mut() {
+            self.visit(expr)?;
+        }
 
-        Ok(ExprKind::Require(s))
+        Ok(())
 
         // stop!(Generic => "unexpected require statement in replace idents"; s.location.span)
     }
 
-    fn visit_let(&mut self, mut l: Box<super::ast::Let>) -> Self::Output {
-        let mut visited_bindings = Vec::new();
+    fn visit_let(&mut self, mut l: &mut super::ast::Let) -> Self::Output {
+        // let mut visited_bindings = Vec::new();
 
-        let (bindings, exprs): (Vec<_>, Vec<_>) = l.bindings.iter().cloned().unzip();
+        // let (bindings, exprs): (Vec<_>, Vec<_>) = l.bindings.iter().cloned().unzip();
 
-        let bindings = self.expand_ellipses(bindings)?;
+        for (binding, expr) in l.bindings.iter_mut() {
+            // self.expand_ellipses(binding);
 
-        for (binding, expr) in bindings.into_iter().zip(exprs) {
-            visited_bindings.push((self.visit(binding)?, self.visit(expr)?));
+            self.visit(binding)?;
+            self.visit(expr)?;
         }
 
-        l.bindings = visited_bindings;
-        l.body_expr = self.visit(l.body_expr)?;
+        // let bindings = self.expand_ellipses(bindings)?;
 
-        Ok(ExprKind::Let(l))
+        // for (binding, expr) in bindings.into_iter().zip(exprs) {
+        //     visited_bindings.push((self.visit(binding)?, self.visit(expr)?));
+        // }
+
+        // l.bindings = visited_bindings;
+        // l.body_expr = self.visit(l.body_expr)?;
+
+        self.visit(&mut l.body_expr)?;
+
+        Ok(())
     }
 }
 
@@ -722,7 +816,7 @@ mod replace_expressions_tests {
             "##struct-name" => atom_identifier("apple"),
         };
 
-        let expr = ExprKind::List(List::new(vec![
+        let mut expr = ExprKind::List(List::new(vec![
             atom_identifier("datum->syntax"),
             atom_identifier("struct-name"),
             atom_identifier("?"),
@@ -730,15 +824,15 @@ mod replace_expressions_tests {
 
         let post_condition = atom_identifier("apple?");
 
-        let output = ReplaceExpressions::new(
+        ReplaceExpressions::new(
             &mut bindings,
             &mut FxHashMap::default(),
             &mut FxHashMap::default(),
         )
-        .visit(expr)
+        .visit(&mut expr)
         .unwrap();
 
-        assert_eq!(output, post_condition);
+        assert_eq!(expr, post_condition);
     }
 
     #[test]
@@ -751,7 +845,7 @@ mod replace_expressions_tests {
             ])),
         };
 
-        let expr = ExprKind::List(List::new(vec![
+        let mut expr = ExprKind::List(List::new(vec![
             atom_identifier("apple"),
             atom_identifier("many"),
             ellipses(),
@@ -763,15 +857,15 @@ mod replace_expressions_tests {
             atom_identifier("second"),
         ]));
 
-        let output = ReplaceExpressions::new(
+        ReplaceExpressions::new(
             &mut bindings,
             &mut FxHashMap::default(),
             &mut FxHashMap::default(),
         )
-        .visit(expr)
+        .visit(&mut expr)
         .unwrap();
 
-        assert_eq!(output, post_condition);
+        assert_eq!(expr, post_condition);
     }
 
     #[test]
@@ -784,7 +878,7 @@ mod replace_expressions_tests {
             ])),
         };
 
-        let expr: ExprKind = LambdaFunction::new(
+        let mut expr: ExprKind = LambdaFunction::new(
             vec![atom_identifier("many"), ellipses()],
             atom_identifier("apple"),
             SyntaxObject::default(TokenType::Lambda),
@@ -798,14 +892,14 @@ mod replace_expressions_tests {
         )
         .into();
 
-        let output = ReplaceExpressions::new(
+        ReplaceExpressions::new(
             &mut bindings,
             &mut FxHashMap::default(),
             &mut FxHashMap::default(),
         )
-        .visit(expr)
+        .visit(&mut expr)
         .unwrap();
 
-        assert_eq!(output, post_condition);
+        assert_eq!(expr, post_condition);
     }
 }

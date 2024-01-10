@@ -55,10 +55,10 @@ pub fn expand(expr: &mut ExprKind, map: &HashMap<InternedString, SteelMacro>) ->
 }
 
 pub fn expand_with_source_id(
-    mut expr: ExprKind,
+    expr: &mut ExprKind,
     map: &HashMap<InternedString, SteelMacro>,
     source_id: SourceId,
-) -> Result<ExprKind> {
+) -> Result<()> {
     let mut expander = Expander {
         map,
         changed: false,
@@ -66,9 +66,7 @@ pub fn expand_with_source_id(
         source_id: Some(source_id),
     };
 
-    expander.visit(&mut expr)?;
-
-    Ok(expr)
+    expander.visit(expr)
 }
 
 pub struct Expander<'a> {
@@ -106,6 +104,8 @@ impl<'a> VisitorMutRef for Expander<'a> {
     type Output = Result<()>;
 
     fn visit(&mut self, expr: &mut ExprKind) -> Self::Output {
+        // println!("expanding: {}", expr);
+
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),

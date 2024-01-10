@@ -53,7 +53,7 @@ impl VisitorMutRefUnit for MultipleArityFunctions {
                     lambda_function.args.remove(dot_index);
                     lambda_function.rest = true;
 
-                    log::debug!(target: "reader-macros", "transformed multi-arity function");
+                    // log::debug!(target: "reader-macros", "transformed multi-arity function");
                 }
                 // else {
                 //     return ExprKind::LambdaFunction(lambda_function);

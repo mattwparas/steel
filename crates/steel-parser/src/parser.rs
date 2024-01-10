@@ -1,4 +1,5 @@
 use std::{
+    cell::Cell,
     path::PathBuf,
     rc::Rc,
     result,
@@ -30,6 +31,16 @@ pub struct SourceId(pub usize);
 // TODO: Fix the visibility here
 pub static SYNTAX_OBJECT_ID: AtomicUsize = AtomicUsize::new(0);
 
+thread_local! {
+    pub static TL_SYNTAX_OBJECT_ID: Cell<usize> = Cell::new(0);
+}
+
+// pub static SYNTAX_OBJECT_ID:
+
+// thread_local {
+
+// }
+
 #[derive(
     Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
 )]
@@ -38,7 +49,12 @@ pub struct SyntaxObjectId(pub usize);
 impl SyntaxObjectId {
     #[inline]
     pub fn fresh() -> Self {
-        SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed))
+        // SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed))
+        SyntaxObjectId(TL_SYNTAX_OBJECT_ID.with(|x| {
+            let value = x.get();
+            x.set(value + 1);
+            value
+        }))
     }
 }
 
@@ -81,7 +97,7 @@ impl<T: Clone> Clone for RawSyntaxObject<T> {
         Self {
             ty: self.ty.clone(),
             span: self.span,
-            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed)),
+            syntax_object_id: SyntaxObjectId::fresh(),
         }
     }
 }
@@ -118,7 +134,7 @@ impl SyntaxObject {
             ty,
             span,
             // source: None,
-            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed)),
+            syntax_object_id: SyntaxObjectId::fresh(),
         }
     }
 
@@ -127,7 +143,7 @@ impl SyntaxObject {
             ty,
             span: Span::new(0, 0, None),
             // source: None,
-            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed)),
+            syntax_object_id: SyntaxObjectId::fresh(),
         }
     }
 
@@ -143,7 +159,7 @@ impl SyntaxObject {
             ty: val.ty.clone(),
             span: val.span,
             // source: source.as_ref().map(Rc::clone),
-            syntax_object_id: SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed)),
+            syntax_object_id: SyntaxObjectId::fresh(),
         }
     }
 }

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use fxhash::FxHashMap;
 use quickscope::{ScopeMap, ScopeSet};
 
 use crate::parser::{
@@ -9,12 +10,13 @@ use crate::parser::{
 
 use super::VisitorMutRefUnit;
 
+#[derive(Clone)]
 pub struct RenameShadowedVariables {
     modified: bool,
     scope: ScopeSet<InternedString>,
     // Modify the variable with the depth
     shadows: ScopeMap<InternedString, usize>,
-    str_modifiers: HashMap<usize, String>,
+    str_modifiers: FxHashMap<usize, String>,
 }
 
 impl Default for RenameShadowedVariables {
@@ -29,7 +31,22 @@ impl RenameShadowedVariables {
             scope: ScopeSet::new(),
             shadows: ScopeMap::new(),
             modified: false,
-            str_modifiers: HashMap::new(),
+            str_modifiers: FxHashMap::default(),
+        }
+    }
+
+    fn clear(&mut self) {
+        self.scope.clear_all();
+        self.shadows.clear_all();
+        self.modified = false;
+        self.str_modifiers.clear();
+    }
+
+    pub fn rename_shadowed_variables(&mut self, exprs: &mut [ExprKind]) {
+        self.clear();
+
+        for expr in exprs.iter_mut() {
+            self.visit(expr);
         }
     }
 

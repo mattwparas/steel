@@ -1,3 +1,4 @@
+use fxhash::FxHashSet;
 use log::{debug, log_enabled};
 use steel_parser::tokens::MaybeBigInt;
 
@@ -151,32 +152,29 @@ pub fn flatten_begins_and_expand_defines(exprs: Vec<ExprKind>) -> Vec<ExprKind> 
         .map(ConvertDefinesToLets::convert_defines)
         .collect();
 
-    if log_enabled!(log::Level::Debug) {
-        debug!(
-            target: "pipeline_time",
-            "Flatten begins and expand defines time: {:?}",
-            flatten_begins_and_expand_defines_time.elapsed()
-        );
-    }
-
+    debug!(
+        target: "pipeline_time",
+        "Flatten begins and expand defines time: {:?}",
+        flatten_begins_and_expand_defines_time.elapsed()
+    );
     res
 }
 
 struct DefinedVars {
-    defined_identifiers: HashSet<InternedString>,
+    defined_identifiers: smallvec::SmallVec<[InternedString; 32]>,
     output: bool,
 }
 
 impl DefinedVars {
     fn new() -> Self {
         DefinedVars {
-            defined_identifiers: HashSet::new(),
+            defined_identifiers: smallvec::SmallVec::default(),
             output: false,
         }
     }
 
     fn insert(&mut self, name: InternedString) {
-        self.defined_identifiers.insert(name);
+        self.defined_identifiers.push(name);
     }
 
     fn check_output(&mut self) -> bool {
@@ -189,7 +187,7 @@ impl DefinedVars {
 impl VisitorMutUnit for DefinedVars {
     fn visit_atom(&mut self, a: &Atom) {
         if let TokenType::Identifier(ident) = &a.syn.ty {
-            self.output = self.defined_identifiers.contains(ident) || self.output;
+            self.output = self.output || self.defined_identifiers.contains(ident);
         }
     }
 }
@@ -208,6 +206,7 @@ impl ConvertDefinesToLets {
     }
 }
 
+// TODO: Replace this with mutation!
 impl Folder for ConvertDefinesToLets {
     #[inline]
     fn visit_lambda_function(&mut self, mut lambda_function: Box<LambdaFunction>) -> ExprKind {

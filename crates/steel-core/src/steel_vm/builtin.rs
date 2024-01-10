@@ -9,6 +9,7 @@ use crate::{
     },
     values::functions::BoxedDynFunction,
 };
+use fxhash::FxBuildHasher;
 use im_rc::HashMap;
 use once_cell::sync::Lazy;
 
@@ -41,7 +42,7 @@ pub struct BuiltInModule {
 #[derive(Clone, Debug)]
 struct BuiltInModuleRepr {
     pub(crate) name: Rc<str>,
-    values: HashMap<Arc<str>, SteelVal>,
+    values: HashMap<Arc<str>, SteelVal, FxBuildHasher>,
     docs: Box<InternalDocumentation>,
     // Add the metadata separate from the pointer, keeps the pointer slim
     fn_ptr_table: HashMap<BuiltInFunctionTypePointer, FunctionSignatureMetadata>,
@@ -162,7 +163,7 @@ impl BuiltInModuleRepr {
     pub fn new<T: Into<Rc<str>>>(name: T) -> Self {
         Self {
             name: name.into(),
-            values: HashMap::new(),
+            values: HashMap::default(),
             docs: Box::new(InternalDocumentation::new()),
             fn_ptr_table: HashMap::new(),
             generated_expression: RefCell::new(None),

@@ -643,14 +643,14 @@ impl SteelThread {
                 // Clean up
                 self.stack.clear();
 
-                #[cfg(feature = "profiling")]
-                if log_enabled!(target: "pipeline_time", log::Level::Debug) {
-                    debug!(
-                        target: "pipeline_time",
-                        "VM Evaluation Time: {:?}",
-                        execution_time.elapsed()
-                    );
-                };
+                // #[cfg(feature = "profiling")]
+                // if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+                //     debug!(
+                //         target: "pipeline_time",
+                //         "VM Evaluation Time: {:?}",
+                //         execution_time.elapsed()
+                //     );
+                // };
 
                 // println!("FINISHED");
 

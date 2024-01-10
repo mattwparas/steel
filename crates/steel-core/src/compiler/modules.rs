@@ -1,18 +1,8 @@
-#![allow(unused)]
 use crate::{
-    compiler::{
-        passes::{
-            analysis::{Analysis, SemanticAnalysis},
-            VisitorMutRefUnit,
-        },
-        program::PROVIDE,
-    },
+    compiler::{passes::VisitorMutRefUnit, program::PROVIDE},
     parser::{
-        ast::{AstTools, Atom, Begin, Define, ExprKind, List, Quote},
-        expand_visitor::{
-            expand_kernel, expand_kernel_in_env, expand_kernel_in_env_with_allowed,
-            expand_kernel_in_env_with_change, expand_with_source_id,
-        },
+        ast::{Atom, Begin, Define, ExprKind, List, Quote},
+        expand_visitor::{expand_kernel_in_env, expand_kernel_in_env_with_change},
         interner::InternedString,
         kernel::Kernel,
         parser::{
@@ -22,7 +12,6 @@ use crate::{
         tokens::TokenType,
     },
     steel_vm::{
-        builtin::BuiltInModule,
         engine::{ModuleContainer, DEFAULT_PRELUDE_MACROS},
         transducers::interleave,
     },
@@ -30,6 +19,7 @@ use crate::{
 use crate::{parser::expand_visitor::Expander, rvals::Result};
 
 use once_cell::sync::Lazy;
+use smallvec::SmallVec;
 use steel_parser::expr_list;
 
 use std::{
@@ -46,9 +36,7 @@ use std::time::SystemTime;
 
 use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
-use log::{debug, info, log_enabled};
-
-use crate::parser::ast::IteratorExtensions;
+use log::log_enabled;
 
 use super::{
     compiler::KernelDefMacroSpec,
@@ -194,7 +182,7 @@ impl ModuleManager {
         Ok(())
     }
 
-    #[allow(unused)]
+    // #[allow(unused)]
     pub(crate) fn compile_main(
         &mut self,
         global_macro_map: &mut HashMap<InternedString, SteelMacro>,
@@ -239,7 +227,7 @@ impl ModuleManager {
 
         {
             // module_builder.source_ast = ast;
-            module_builder.collect_provides();
+            module_builder.collect_provides()?;
 
             // ast = std::mem::take(&mut module_builder.source_ast);
         }
@@ -248,14 +236,14 @@ impl ModuleManager {
 
         let mut require_defines = Vec::new();
 
-        let mut mangled_prefixes = module_builder
-            .require_objects
-            .iter()
-            .filter(|x| !x.for_syntax)
-            .map(|x| {
-                "mangler".to_string() + x.path.get_path().to_str().unwrap() + MANGLER_SEPARATOR
-            })
-            .collect::<Vec<_>>();
+        // let mut mangled_prefixes = module_builder
+        //     .require_objects
+        //     .iter()
+        //     .filter(|x| !x.for_syntax)
+        //     .map(|x| {
+        //         "mangler".to_string() + x.path.get_path().to_str().unwrap() + MANGLER_SEPARATOR
+        //     })
+        //     .collect::<Vec<_>>();
 
         let mut explicit_requires = HashMap::new();
 
@@ -556,8 +544,8 @@ impl ModuleManager {
                     lifted_kernel_environments.insert(
                         module_name.clone(),
                         KernelDefMacroSpec {
-                            env: module_name,
-                            exported: None,
+                            _env: module_name,
+                            _exported: None,
                             name_mangler: name_mangler.clone(),
                         },
                     );
@@ -1227,7 +1215,7 @@ impl CompiledModule {
 
                             // Mangle with a prefix if necessary
                             let mut provide = provide.clone();
-                            let mut raw_provide = provide.clone();
+                            let raw_provide = provide.clone();
 
                             // If we have the alias listed, we should use it
                             if !explicit_requires.is_empty() {
@@ -1305,7 +1293,7 @@ impl CompiledModule {
 
         // Construct the series of provides as well, we'll want these to refer to the correct values
         //
-        let mut provides: Vec<_> = self
+        let mut provides: smallvec::SmallVec<[(ExprKind, ExprKind); 24]> = self
             .provides
             .iter()
             .flat_map(|x| &x.list().unwrap().args[1..])
@@ -2131,9 +2119,7 @@ impl<'a> ModuleBuilder<'a> {
                 // First expand the in scope macros
                 // These are macros
                 let mut expander = Expander::new(&in_scope_macros);
-                let first_round_expanded = expander.expand(expr)?;
-
-                expander.expand(expr);
+                expander.expand(expr)?;
 
                 if expander.changed {
                     expand(expr, &module.macro_map)?
@@ -2178,7 +2164,7 @@ impl<'a> ModuleBuilder<'a> {
             self.source_ast = ast;
             self.provides = provides;
 
-            self.collect_provides();
+            self.collect_provides()?;
 
             // let requires_before = self.require_objects.len();
 
@@ -2237,8 +2223,7 @@ impl<'a> ModuleBuilder<'a> {
         //     self.name
         // );
 
-        let mut result =
-            module.to_top_level_module(self.compiled_modules, self.global_macro_map)?;
+        let result = module.to_top_level_module(self.compiled_modules, self.global_macro_map)?;
 
         // println!("{}", result.to_pretty(60));
 
@@ -2260,19 +2245,45 @@ impl<'a> ModuleBuilder<'a> {
     }
 
     fn extract_macro_defs(&mut self) -> Result<()> {
-        let mut non_macros = Vec::new();
-        let exprs = std::mem::take(&mut self.source_ast);
+        // Probably don't have more than 128 macros in a module, but who knows?
+        // let mut macro_indices = SmallVec::<[usize; 128]>::new();
 
-        for expr in exprs {
-            if let ExprKind::Macro(m) = expr {
-                let generated_macro = SteelMacro::parse_from_ast_macro(m)?;
-                let name = generated_macro.name();
-                self.macro_map.insert(*name, generated_macro);
-            } else {
-                non_macros.push(expr)
+        // let exprs = std::mem::take(&mut self.source_ast);
+
+        for expr in self.source_ast.iter_mut() {
+            if let ExprKind::Macro(_) = expr {
+                // Replace with dummy begin value so we don't have to copy
+                // everything other for every macro definition
+                let mut taken_expr = ExprKind::Begin(Begin::new(
+                    Vec::new(),
+                    SyntaxObject::default(TokenType::Begin),
+                ));
+
+                std::mem::swap(expr, &mut taken_expr);
+
+                if let ExprKind::Macro(m) = taken_expr {
+                    let generated_macro = SteelMacro::parse_from_ast_macro(m)?;
+                    let name = generated_macro.name();
+                    self.macro_map.insert(*name, generated_macro);
+                } else {
+                    unreachable!();
+                }
             }
+
+            // else {
+            //     // non_macros.push(expr)
+            // }
         }
-        self.source_ast = non_macros;
+
+        // if let ExprKind::Macro(m) = expr {
+        //     let generated_macro = SteelMacro::parse_from_ast_macro(m)?;
+        //     let name = generated_macro.name();
+        //     self.macro_map.insert(*name, generated_macro);
+        // } else {
+        //     non_macros.push(expr)
+        // }
+
+        // self.source_ast = non_macros;
         Ok(())
     }
 

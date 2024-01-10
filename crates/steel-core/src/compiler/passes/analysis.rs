@@ -102,63 +102,76 @@ impl SemanticInformation {
         }
     }
 
+    #[inline(always)]
     pub fn shadows(mut self, id: SyntaxObjectId) -> Self {
         self.shadows = Some(id);
         self
     }
 
+    #[inline(always)]
     pub fn with_usage_count(mut self, count: usize) -> Self {
         self.usage_count = count;
         self
     }
 
+    #[inline(always)]
     pub fn refers_to(mut self, id: SyntaxObjectId) -> Self {
         self.refers_to = Some(id);
         self
     }
 
+    #[inline(always)]
     pub fn aliases_to(mut self, id: SyntaxObjectId) -> Self {
         self.aliases_to = Some(id);
         self
     }
 
+    #[inline(always)]
     pub fn mark_builtin(&mut self) {
         self.builtin = true;
     }
 
+    #[inline(always)]
     pub fn mark_required(&mut self) {
         self.is_required_identifier = true;
     }
 
+    #[inline(always)]
     pub fn with_offset(mut self, offset: usize) -> Self {
         self.stack_offset = Some(offset);
         self
     }
 
+    #[inline(always)]
     pub fn mark_escapes(&mut self) {
         self.escapes = true;
     }
 
+    #[inline(always)]
     pub fn with_capture_index(mut self, offset: usize) -> Self {
         self.capture_index = Some(offset);
         self
     }
 
+    #[inline(always)]
     pub fn with_read_capture_offset(mut self, offset: usize) -> Self {
         self.read_capture_offset = Some(offset);
         self
     }
 
+    #[inline(always)]
     pub fn with_heap_offset(mut self, offset: usize) -> Self {
         self.heap_offset = Some(offset);
         self
     }
 
+    #[inline(always)]
     pub fn with_read_heap_offset(mut self, offset: usize) -> Self {
         self.read_heap_offset = Some(offset);
         self
     }
 
+    #[inline(always)]
     pub fn with_captured_from_enclosing(&mut self, captured_from_enclosing: bool) {
         self.captured_from_enclosing = captured_from_enclosing;
     }
@@ -275,6 +288,15 @@ pub struct Analysis {
 }
 
 impl Analysis {
+    pub fn pre_allocated() -> Self {
+        Analysis {
+            info: HashMap::with_capacity_and_hasher(3584, FxBuildHasher::default()),
+            function_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
+            call_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
+            let_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
+        }
+    }
+
     // Reuse the analysis allocation through the process!
     pub fn clear(&mut self) {
         self.info.clear();
@@ -290,7 +312,11 @@ impl Analysis {
     pub fn fresh_from_exprs(&mut self, exprs: &[ExprKind]) {
         self.clear();
 
+        let now = std::time::Instant::now();
+
         self.run(exprs);
+
+        log::debug!(target: "pipeline_time", "Analysis time: {:?}", now.elapsed());
     }
 
     pub fn from_exprs(exprs: &[ExprKind]) -> Self {
@@ -305,6 +331,66 @@ impl Analysis {
 
         analysis.run(exprs);
         analysis
+    }
+
+    pub fn populate_captures_twice(&mut self, exprs: &[ExprKind]) {
+        // Resolve all mutated and captured vars so that they're mutated after they've been captured
+        let mut mutated_and_captured_vars = self
+            .function_info
+            .values()
+            .flat_map(|x| x.captured_vars.values())
+            .chain(self.let_info.values().flat_map(|x| x.arguments.values()))
+            .filter(|x| x.captured && x.mutated)
+            .map(|x| x.id)
+            .collect::<FxHashSet<_>>();
+
+        for value in self.function_info.values_mut() {
+            for x in value.captured_vars.values_mut() {
+                if mutated_and_captured_vars.contains(&x.id) {
+                    x.mutated = true;
+                    x.captured = true;
+                }
+            }
+
+            for x in value.arguments.values_mut() {
+                if mutated_and_captured_vars.contains(&x.id) {
+                    x.mutated = true;
+                    x.captured = true;
+                }
+            }
+        }
+
+        self.run(exprs);
+
+        mutated_and_captured_vars.clear();
+
+        self.function_info
+            .values()
+            .flat_map(|x| x.captured_vars.values())
+            .chain(self.let_info.values().flat_map(|x| x.arguments.values()))
+            .filter(|x| x.captured && x.mutated)
+            .map(|x| x.id)
+            .for_each(|x| {
+                mutated_and_captured_vars.insert(x);
+            });
+
+        for value in self.function_info.values_mut() {
+            for x in value.captured_vars.values_mut() {
+                if mutated_and_captured_vars.contains(&x.id) {
+                    x.mutated = true;
+                    x.captured = true;
+                }
+            }
+
+            for x in value.arguments.values_mut() {
+                if mutated_and_captured_vars.contains(&x.id) {
+                    x.mutated = true;
+                    x.captured = true;
+                }
+            }
+        }
+
+        self.run(exprs);
     }
 
     pub fn populate_captures(&mut self, exprs: &[ExprKind]) {
@@ -468,6 +554,7 @@ impl Analysis {
         }
     }
 
+    #[inline(always)]
     pub fn update_with(&mut self, object: &SyntaxObject, metadata: SemanticInformation) {
         let existing = self.info.get_mut(&object.syntax_object_id).unwrap();
         existing.kind = metadata.kind;
@@ -689,8 +776,6 @@ impl<'a> AnalysisPass<'a> {
             semantic_info.mark_builtin();
         }
 
-        // println!("Defining global: {}", define.name);
-
         if is_a_require_definition(define) {
             semantic_info.mark_required();
         }
@@ -825,11 +910,26 @@ impl<'a> AnalysisPass<'a> {
     }
 
     fn pop_top_layer(&mut self) -> FxHashMap<InternedString, ScopeInfo> {
-        let arguments = self
+        // let arguments = self
+        //     .scope
+        //     .iter_top()
+        //     .map(|x| (x.0.clone(), x.1.clone()))
+        //     .collect::<FxHashMap<_, _>>();
+
+        // self.scope.pop_layer();
+
+        let temporary_args = self
             .scope
             .iter_top()
-            .map(|x| (x.0.clone(), x.1.clone()))
-            .collect::<FxHashMap<_, _>>();
+            .map(|x| *x.0)
+            .collect::<SmallVec<[InternedString; 6]>>();
+
+        let mut arguments =
+            FxHashMap::with_capacity_and_hasher(temporary_args.len(), FxBuildHasher::default());
+
+        for key in temporary_args {
+            arguments.insert(key, self.scope.remove(&key).unwrap());
+        }
 
         self.scope.pop_layer();
 
@@ -1054,25 +1154,25 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         // Overall, 1 for the total
 
-        if !begin.exprs.is_empty() {
-            // println!("BUMPTING STACK OFFSET FOR BEGIN");
+        // if !begin.exprs.is_empty() {
+        // println!("BUMPTING STACK OFFSET FOR BEGIN");
 
-            // let is_top_level = self.scope.depth() == 1;
-            // println!("Bumping stack")
+        // let is_top_level = self.scope.depth() == 1;
+        // println!("Bumping stack")
 
-            // if is_top_level {
-            // println!("Top level begin bumping stack");
-            // }
+        // if is_top_level {
+        // println!("Top level begin bumping stack");
+        // }
 
-            // if !is_top_level {
-            // println!("BUMPING STACK OFFSET FOR BEGIN");
-            // self.stack_offset += 1;
-            // } else {
-            // println!("Skiping.. top level ");
-            // }
+        // if !is_top_level {
+        // println!("BUMPING STACK OFFSET FOR BEGIN");
+        // self.stack_offset += 1;
+        // } else {
+        // println!("Skiping.. top level ");
+        // }
 
-            // self.stack_offset += 1;
-        }
+        // self.stack_offset += 1;
+        // }
 
         self.tail_call_eligible = eligibility;
     }
@@ -1190,8 +1290,18 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             // dbg!(name.resolve());
             // dbg!(self.scope.keys().map(|x| x.resolve()).collect::<Vec<_>>());
 
-            arguments.insert(*name, self.scope.remove(name).unwrap());
+            let scoped_info = self.scope.remove(name).unwrap();
+
+            if let Some(id) = &scoped_info.last_used {
+                self.info.get_mut(id).unwrap().last_usage = true;
+            }
+
+            arguments.insert(*name, scoped_info);
         }
+
+        // for id in arguments.values().filter_map(|x| x.last_used) {
+        //     self.info.get_mut(&id).unwrap().last_usage = true;
+        // }
 
         if let hash_map::Entry::Vacant(e) = self.info.let_info.entry(l.syntax_object_id) {
             e.insert(LetInformation::new(
@@ -1239,7 +1349,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
             // Handle the immutable variables being patched in
             {
-                let mut sorted_vars = vars.iter_mut().filter(|x| !x.1.mutated).collect::<Vec<_>>();
+                let mut sorted_vars = vars
+                    .iter_mut()
+                    .filter(|x| !x.1.mutated)
+                    .collect::<SmallVec<[_; 8]>>();
                 sorted_vars.sort_by_key(|x| x.1.id);
 
                 // So for now, we sort by id, then map these directly to indices that will live in the
@@ -1285,8 +1398,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             }
 
             {
-                let mut captured_and_mutated =
-                    vars.iter_mut().filter(|x| x.1.mutated).collect::<Vec<_>>();
+                let mut captured_and_mutated = vars
+                    .iter_mut()
+                    .filter(|x| x.1.mutated)
+                    .collect::<SmallVec<[_; 8]>>();
                 captured_and_mutated.sort_by_key(|x| x.1.id);
 
                 for (index, (key, value)) in captured_and_mutated.iter_mut().enumerate() {
@@ -2230,12 +2345,12 @@ impl<'a> RemoveUnusedDefineImports<'a> {
 
 // This should just be a function on the define, not a method - so that it can be moved
 // into a different crate
+
+#[inline(always)]
 pub(crate) fn is_a_builtin_definition(def: &Define) -> bool {
     if let ExprKind::List(l) = &def.body {
         match l.first_ident() {
             Some(func) if *func == *UNREADABLE_MODULE_GET || *func == *STANDARD_MODULE_GET => {
-                // return true
-
                 if let Some(module) = l.second_ident() {
                     return MODULE_IDENTIFIERS.contains(module);
                 }
@@ -2247,6 +2362,7 @@ pub(crate) fn is_a_builtin_definition(def: &Define) -> bool {
     false
 }
 
+#[inline(always)]
 pub(crate) fn is_a_require_definition(def: &Define) -> bool {
     if let ExprKind::List(l) = &def.body {
         match l.first_ident() {
@@ -3377,6 +3493,10 @@ impl<'a> SemanticAnalysis<'a> {
         self.analysis.populate_captures(self.exprs);
     }
 
+    pub fn populate_captures_twice(&mut self) {
+        self.analysis.populate_captures_twice(self.exprs);
+    }
+
     pub fn get(&self, object: &SyntaxObject) -> Option<&SemanticInformation> {
         self.analysis.get(object)
     }
@@ -3954,6 +4074,8 @@ impl<'a> SemanticAnalysis<'a> {
     }
 
     pub fn replace_anonymous_function_calls_with_plain_lets(&mut self) -> &mut Self {
+        let now = std::time::Instant::now();
+
         let mut re_run_analysis = false;
 
         let func = |_: &Analysis, anon: &mut ExprKind| {
@@ -3999,6 +4121,8 @@ impl<'a> SemanticAnalysis<'a> {
         };
 
         self.find_anonymous_function_calls_and_mutate_with(func);
+
+        log::debug!(target: "pipeline_time", "Anonymous function calls -> lets time: {:?}", now.elapsed());
 
         if re_run_analysis {
             // log::debug!("Re-running the semantic analysis after modifications");
@@ -4293,7 +4417,7 @@ impl<'a> SemanticAnalysis<'a> {
                         unreachable!()
                     }
                 })
-                .collect::<Vec<_>>();
+                .collect::<SmallVec<[_; 8]>>();
 
             for id in ids {
                 let mut find_call_site_by_id =
