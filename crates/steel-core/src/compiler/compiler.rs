@@ -955,7 +955,7 @@ impl Compiler {
         // Check if the values are redefined!
         semantic.check_if_values_are_redefined()?;
 
-        semantic.refresh_variables();
+        // semantic.refresh_variables();
         semantic.flatten_anonymous_functions();
         semantic.refresh_variables();
 
