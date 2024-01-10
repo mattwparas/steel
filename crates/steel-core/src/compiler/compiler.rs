@@ -906,6 +906,8 @@ impl Compiler {
 
         let mut analysis = std::mem::take(&mut self.analysis);
 
+        // let mut analysis = Analysis::from_exprs(&expanded_statements);
+
         // Pre populate the analysis here
         analysis.fresh_from_exprs(&expanded_statements);
 

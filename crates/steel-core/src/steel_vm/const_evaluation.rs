@@ -153,6 +153,12 @@ impl<'a> ConstantEvaluatorManager<'a> {
 
         let mut results = Vec::with_capacity(input.len());
 
+        let mut collector = CollectSet::new(&mut self.set_idents);
+
+        for expr in &input {
+            collector.visit(&expr);
+        }
+
         // let mut collector = CollectSet::new(&mut self.set_idents);
 
         // Collect the set expressions, ignore them for the constant folding

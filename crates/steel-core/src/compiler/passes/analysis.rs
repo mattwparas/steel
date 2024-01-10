@@ -910,28 +910,28 @@ impl<'a> AnalysisPass<'a> {
     }
 
     fn pop_top_layer(&mut self) -> FxHashMap<InternedString, ScopeInfo> {
-        // let arguments = self
-        //     .scope
-        //     .iter_top()
-        //     .map(|x| (x.0.clone(), x.1.clone()))
-        //     .collect::<FxHashMap<_, _>>();
-
-        // self.scope.pop_layer();
-
-        let temporary_args = self
+        let arguments = self
             .scope
             .iter_top()
-            .map(|x| *x.0)
-            .collect::<SmallVec<[InternedString; 6]>>();
-
-        let mut arguments =
-            FxHashMap::with_capacity_and_hasher(temporary_args.len(), FxBuildHasher::default());
-
-        for key in temporary_args {
-            arguments.insert(key, self.scope.remove(&key).unwrap());
-        }
+            .map(|x| (x.0.clone(), x.1.clone()))
+            .collect::<FxHashMap<_, _>>();
 
         self.scope.pop_layer();
+
+        // let temporary_args = self
+        //     .scope
+        //     .iter_top()
+        //     .map(|x| *x.0)
+        //     .collect::<SmallVec<[InternedString; 6]>>();
+
+        // let mut arguments =
+        //     FxHashMap::with_capacity_and_hasher(temporary_args.len(), FxBuildHasher::default());
+
+        // for key in temporary_args {
+        //     arguments.insert(key, self.scope.remove(&key).unwrap());
+        // }
+
+        // self.scope.pop_layer();
 
         arguments
     }
@@ -1292,9 +1292,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
             let scoped_info = self.scope.remove(name).unwrap();
 
-            if let Some(id) = &scoped_info.last_used {
-                self.info.get_mut(id).unwrap().last_usage = true;
-            }
+            // if let Some(id) = &scoped_info.last_used {
+            //     self.info.get_mut(id).unwrap().last_usage = true;
+            // }
 
             arguments.insert(*name, scoped_info);
         }

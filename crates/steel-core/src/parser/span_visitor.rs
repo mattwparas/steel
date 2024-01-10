@@ -5,10 +5,10 @@ use crate::parser::visitors::Visitor;
 use super::ast::Atom;
 
 pub fn get_span(expr: &ExprKind) -> Span {
-    CoalescingSpanVisitor {}.visit(expr)
+    CoalescingSpanVisitor.visit(expr)
 }
 
-struct CoalescingSpanVisitor {}
+pub struct CoalescingSpanVisitor;
 
 impl Visitor for CoalescingSpanVisitor {
     type Output = Span;
