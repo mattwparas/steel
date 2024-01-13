@@ -28,7 +28,7 @@ use std::{
 };
 
 // TODO: Replace the usages of hashmap with this directly
-use fxhash::FxHashSet;
+use fxhash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::rvals::{Result, SteelVal};
@@ -282,7 +282,7 @@ pub(crate) struct KernelDefMacroSpec {
 pub struct Compiler {
     pub(crate) symbol_map: SymbolMap,
     pub(crate) constant_map: ConstantMap,
-    pub(crate) macro_env: HashMap<InternedString, SteelMacro>,
+    pub(crate) macro_env: FxHashMap<InternedString, SteelMacro>,
     module_manager: ModuleManager,
     opt_level: OptLevel,
     pub(crate) kernel: Option<Kernel>,
@@ -303,7 +303,7 @@ pub struct Compiler {
 pub struct SerializableCompiler {
     pub(crate) symbol_map: SymbolMap,
     pub(crate) constant_map: SerializableConstantMap,
-    pub(crate) macro_env: HashMap<InternedString, SteelMacro>,
+    pub(crate) macro_env: FxHashMap<InternedString, SteelMacro>,
     pub(crate) opt_level: OptLevel,
     pub(crate) module_manager: ModuleManager,
 }
@@ -339,7 +339,7 @@ impl Default for Compiler {
         Compiler::new(
             SymbolMap::new(),
             ConstantMap::new(),
-            HashMap::new(),
+            FxHashMap::default(),
             ModuleManager::default(),
         )
     }
@@ -349,7 +349,7 @@ impl Compiler {
     fn new(
         symbol_map: SymbolMap,
         constant_map: ConstantMap,
-        macro_env: HashMap<InternedString, SteelMacro>,
+        macro_env: FxHashMap<InternedString, SteelMacro>,
         module_manager: ModuleManager,
     ) -> Compiler {
         Compiler {
@@ -371,7 +371,7 @@ impl Compiler {
     fn new_with_kernel(
         symbol_map: SymbolMap,
         constant_map: ConstantMap,
-        macro_env: HashMap<InternedString, SteelMacro>,
+        macro_env: FxHashMap<InternedString, SteelMacro>,
         module_manager: ModuleManager,
         kernel: Kernel,
     ) -> Compiler {
@@ -395,7 +395,7 @@ impl Compiler {
         Compiler::new_with_kernel(
             SymbolMap::new(),
             ConstantMap::new(),
-            HashMap::new(),
+            FxHashMap::default(),
             ModuleManager::default(),
             kernel,
         )
@@ -405,7 +405,7 @@ impl Compiler {
         Compiler::new_with_kernel(
             SymbolMap::new(),
             ConstantMap::new(),
-            HashMap::new(),
+            FxHashMap::default(),
             ModuleManager::default(),
             Kernel::new(),
         )
@@ -537,7 +537,7 @@ impl Compiler {
         )
     }
 
-    pub fn modules(&self) -> &HashMap<PathBuf, CompiledModule> {
+    pub fn modules(&self) -> &FxHashMap<PathBuf, CompiledModule> {
         self.module_manager.modules()
     }
 

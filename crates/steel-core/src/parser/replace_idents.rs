@@ -5,7 +5,7 @@ use crate::compiler::passes::{VisitorMutControlFlow, VisitorMutRefUnit};
 use crate::compiler::program::SYNTAX_SPAN;
 use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
-use crate::{compiler::program::DEFINE, parser::parser::SyntaxObject};
+use crate::{parser::parser::SyntaxObject};
 use crate::{
     compiler::program::{DATUM_SYNTAX, SYNTAX_CONST_IF},
     parser::ast::ExprKind,
@@ -431,12 +431,6 @@ impl<'a> ReplaceExpressions<'a> {
     }
 }
 
-fn reserved_token_type_to_ident(token: &mut TokenType<InternedString>) {
-    if *token == TokenType::Define {
-        *token = TokenType::Identifier(*DEFINE);
-    }
-}
-
 // TODO replace spans on all of the nodes and atoms
 impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
     type Output = Result<()>;
@@ -503,7 +497,7 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
         Ok(())
     }
 
-    fn visit_define(&mut self, mut define: &mut super::ast::Define) -> Self::Output {
+    fn visit_define(&mut self, define: &mut super::ast::Define) -> Self::Output {
         if let ExprKind::List(l) = &define.name {
             if let Some(expanded) = self.vec_expr_datum_to_syntax(&l.args)? {
                 define.name = expanded
@@ -517,7 +511,7 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
 
     fn visit_lambda_function(
         &mut self,
-        mut lambda_function: &mut super::ast::LambdaFunction,
+        lambda_function: &mut super::ast::LambdaFunction,
     ) -> Self::Output {
         self.expand_ellipses(&mut lambda_function.args)?;
 
@@ -529,19 +523,19 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
 
         // TODO: @Matt - 2/28/12 -> clean up this
         // This mangles the values
-        lambda_function.args.iter_mut().for_each(|x| {
-            if let ExprKind::Atom(Atom {
-                syn: SyntaxObject { ty: t, .. },
-            }) = x
-            {
-                // log::debug!("Checking if expression needs to be rewritten: {:?}", t);
-                reserved_token_type_to_ident(t);
-            }
+        // lambda_function.args.iter_mut().for_each(|x| {
+        //     if let ExprKind::Atom(Atom {
+        //         syn: SyntaxObject { ty: t, .. },
+        //     }) = x
+        //     {
+        //         // log::debug!("Checking if expression needs to be rewritten: {:?}", t);
+        //         reserved_token_type_to_ident(t);
+        //     }
 
-            // if let ExprKind::Define(d) = x {
-            //     log::debug!("Found a define to be rewritten: {:?}", d);
-            // }
-        });
+        //     // if let ExprKind::Define(d) = x {
+        //     //     log::debug!("Found a define to be rewritten: {:?}", d);
+        //     // }
+        // });
 
         Ok(())
     }
@@ -556,11 +550,11 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
         Ok(())
     }
 
-    fn visit_return(&mut self, mut r: &mut super::ast::Return) -> Self::Output {
+    fn visit_return(&mut self, r: &mut super::ast::Return) -> Self::Output {
         self.visit(&mut r.expr)
     }
 
-    fn visit_quote(&mut self, mut quote: &mut super::ast::Quote) -> Self::Output {
+    fn visit_quote(&mut self, quote: &mut super::ast::Quote) -> Self::Output {
         self.visit(&mut quote.expr)
     }
 
@@ -569,7 +563,7 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
     }
 
     // Lift this up to the visit function
-    fn visit_atom(&mut self, a: &mut Atom) -> Self::Output {
+    fn visit_atom(&mut self, _a: &mut Atom) -> Self::Output {
         // self.expand_atom(a)
 
         Ok(())
@@ -578,7 +572,7 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
     }
 
     // Lift this up to the visit function
-    fn visit_list(&mut self, mut l: &mut super::ast::List) -> Self::Output {
+    fn visit_list(&mut self, _l: &mut super::ast::List) -> Self::Output {
         Ok(())
 
         // if let Some(expanded) = self.vec_expr_datum_to_syntax(&l.args)? {
@@ -609,14 +603,14 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
         stop!(Generic => "unexpected syntax-rules definition"; l.location.span)
     }
 
-    fn visit_set(&mut self, mut s: &mut super::ast::Set) -> Self::Output {
+    fn visit_set(&mut self, s: &mut super::ast::Set) -> Self::Output {
         self.visit(&mut s.variable)?;
         self.visit(&mut s.expr)?;
 
         Ok(())
     }
 
-    fn visit_require(&mut self, mut s: &mut super::ast::Require) -> Self::Output {
+    fn visit_require(&mut self, s: &mut super::ast::Require) -> Self::Output {
         for expr in s.modules.iter_mut() {
             self.visit(expr)?;
         }
@@ -626,7 +620,7 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
         // stop!(Generic => "unexpected require statement in replace idents"; s.location.span)
     }
 
-    fn visit_let(&mut self, mut l: &mut super::ast::Let) -> Self::Output {
+    fn visit_let(&mut self, l: &mut super::ast::Let) -> Self::Output {
         // let mut visited_bindings = Vec::new();
 
         // let (bindings, exprs): (Vec<_>, Vec<_>) = l.bindings.iter().cloned().unzip();

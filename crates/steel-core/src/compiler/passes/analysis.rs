@@ -1292,9 +1292,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
             let scoped_info = self.scope.remove(name).unwrap();
 
-            // if let Some(id) = &scoped_info.last_used {
-            //     self.info.get_mut(id).unwrap().last_usage = true;
-            // }
+            if let Some(id) = &scoped_info.last_used {
+                self.info.get_mut(id).unwrap().last_usage = true;
+            }
 
             arguments.insert(*name, scoped_info);
         }
@@ -1462,7 +1462,15 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // We're entering a new scope since we've entered a lambda function
         self.scope.push_layer();
 
-        let let_level_bindings = lambda_function.arguments().unwrap();
+        // let let_level_bindings = lambda_function.arguments().unwrap();
+
+        let let_level_bindings: smallvec::SmallVec<[_; 8]> = lambda_function
+            .args
+            .iter()
+            .map(|x| x.atom_identifier())
+            .collect::<Option<_>>()
+            .unwrap();
+
         let depth = self.scope.depth();
 
         self.visit_func_args(lambda_function, depth);
@@ -1541,6 +1549,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         {
             let mut slated_for_removal = SmallVec::<[InternedString; 5]>::new();
 
+            // println!("slated for removal length: {}", slated_for_removal.len());
+
             if lambda_bottoms_out {
                 captured_vars.retain(|x: &InternedString, _| self.vars_used.contains(x));
 
@@ -1568,12 +1578,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
             return;
         } else {
+            // println!("Depth var: {} - {}", depth, self.scope.depth());
+
             // Capture the information and store it in the semantic analysis for this individual function
             self.info.function_info.insert(
                 lambda_function.syntax_object_id,
                 FunctionInformation::new(captured_vars, arguments)
                     .escapes(self.escape_analysis)
-                    .depth(self.scope.depth()),
+                    .depth(depth - 1),
             );
         }
 
@@ -1666,11 +1678,18 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                     // TODO: We _really_ should be providing the built-ins in a better way thats not
                     // passing around a thread local
-                    if crate::steel_vm::primitives::PRELUDE_MODULE
-                        .with(|x| x.contains(ident.resolve()))
+
+                    if crate::steel_vm::primitives::PRELUDE_INTERNED_STRINGS
+                        .with(|x| x.contains(ident))
                     {
                         semantic_information.mark_builtin()
                     }
+
+                    // if crate::steel_vm::primitives::PRELUDE_MODULE
+                    //     .with(|x| x.contains(ident.resolve()))
+                    // {
+                    //     semantic_information.mark_builtin()
+                    // }
 
                     self.info.insert(&a.syn, semantic_information);
 
@@ -1870,7 +1889,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                 // TODO: We _really_ should be providing the built-ins in a better way thats not
                 // passing around a thread local
-                if crate::steel_vm::primitives::PRELUDE_MODULE.with(|x| x.contains(ident.resolve()))
+                // if crate::steel_vm::primitives::PRELUDE_MODULE.with(|x| x.contains(ident.resolve()))
+
+                if crate::steel_vm::primitives::PRELUDE_INTERNED_STRINGS.with(|x| x.contains(ident))
                 {
                     semantic_info.mark_builtin();
                     semantic_info.kind = IdentifierStatus::Global
@@ -3081,6 +3102,7 @@ impl<'a> VisitorMutUnitRef<'a> for CollectReferences {
 struct ReplaceBuiltinUsagesInsideMacros<'a> {
     identifiers_to_replace: &'a mut FxHashSet<InternedString>,
     analysis: &'a Analysis,
+    changed: bool,
 }
 
 impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesInsideMacros<'a> {
@@ -3099,6 +3121,7 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesInsideMacros<'a> {
             if self.identifiers_to_replace.contains(ident) {
                 if let Some((_, builtin_name)) = ident.resolve().split_once(MANGLER_SEPARATOR) {
                     *ident = ("#%prim.".to_string() + builtin_name).into();
+                    self.changed = true;
                 }
             }
         }
@@ -3741,10 +3764,12 @@ impl<'a> SemanticAnalysis<'a> {
 
     pub(crate) fn replace_non_shadowed_globals_with_builtins(
         &mut self,
-        macros: &mut HashMap<InternedString, SteelMacro>,
+        macros: &mut FxHashMap<InternedString, SteelMacro>,
         module_manager: &mut ModuleManager,
         table: &mut FxHashSet<InternedString>,
     ) -> &mut Self {
+        let now = std::time::Instant::now();
+
         let mut replacer =
             ReplaceBuiltinUsagesWithReservedPrimitiveReferences::new(&self.analysis, table);
 
@@ -3755,7 +3780,12 @@ impl<'a> SemanticAnalysis<'a> {
         let mut macro_replacer = ReplaceBuiltinUsagesInsideMacros {
             identifiers_to_replace: replacer.identifiers_to_replace,
             analysis: &self.analysis,
+            changed: false,
         };
+
+        if macro_replacer.identifiers_to_replace.is_empty() {
+            return self;
+        }
 
         for steel_macro in macros.values_mut() {
             if !steel_macro.is_mangled() {
@@ -3783,7 +3813,16 @@ impl<'a> SemanticAnalysis<'a> {
             macro_replacer.visit(expr);
         }
 
-        self.analysis.fresh_from_exprs(self.exprs);
+        log::info!(
+            target: "pipeline_time",
+            "Replacing non shadowed globals time: {:?}",
+            now.elapsed()
+        );
+
+        if macro_replacer.changed || !macro_replacer.identifiers_to_replace.is_empty() {
+            log::info!(target: "pipeline_time", "Skipping analysis...");
+            self.analysis.fresh_from_exprs(self.exprs);
+        }
 
         self
     }
@@ -3791,9 +3830,11 @@ impl<'a> SemanticAnalysis<'a> {
     pub(crate) fn remove_unused_globals_with_prefix(
         &mut self,
         prefix: &str,
-        macros: &HashMap<InternedString, SteelMacro>,
+        macros: &FxHashMap<InternedString, SteelMacro>,
         module_manager: &ModuleManager,
     ) -> &mut Self {
+        let now = std::time::Instant::now();
+
         let module_get_interned: InternedString = "%module-get%".into();
         let proto_hash_get: InternedString = "%proto-hash-get%".into();
 
@@ -3803,6 +3844,73 @@ impl<'a> SemanticAnalysis<'a> {
         let mut collected = CollectReferences {
             idents: fxhash::FxHashSet::default(),
         };
+
+        let mut found = false;
+
+        // Optimistically check if there are expressions to remove in the first place
+        for expression in self.exprs.iter() {
+            match expression {
+                ExprKind::Define(define) => {
+                    if let Some(name) = define.name.atom_identifier() {
+                        if name.resolve().starts_with(prefix) {
+                            if let Some(analysis) = define
+                                .name
+                                .atom_syntax_object()
+                                .and_then(|x| self.analysis.get(x))
+                            {
+                                if analysis.usage_count == 0 {
+                                    if let Some(func) =
+                                        define.body.list().and_then(|x| x.first_ident())
+                                    {
+                                        if *func == module_get_interned || *func == proto_hash_get {
+                                            // If this is found inside of a macro, do not remove it
+
+                                            found = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                ExprKind::Begin(b) => {
+                    for expression in &b.exprs {
+                        if let ExprKind::Define(define) = expression {
+                            if let Some(name) = define.name.atom_identifier() {
+                                if name.resolve().starts_with(prefix) {
+                                    if let Some(analysis) = define
+                                        .name
+                                        .atom_syntax_object()
+                                        .and_then(|x| self.analysis.get(x))
+                                    {
+                                        if analysis.usage_count == 0 {
+                                            if let Some(func) =
+                                                define.body.list().and_then(|x| x.first_ident())
+                                            {
+                                                if *func == module_get_interned
+                                                    || *func == proto_hash_get
+                                                {
+                                                    found = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if !found {
+            log::debug!(target: "pipeline_time", "Removing unused globals time: {:?}", now.elapsed());
+
+            return self;
+        }
 
         for steel_macro in macros.values() {
             // if !steel_macro.is_mangled() {
@@ -3823,10 +3931,6 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         let found = collected.idents;
-
-        // for ident in &found {
-        //     println!("{}", ident);
-        // }
 
         self.exprs.retain_mut(|expression| {
             match expression {
@@ -3929,6 +4033,8 @@ impl<'a> SemanticAnalysis<'a> {
 
             return true;
         });
+
+        log::debug!(target: "pipeline_time", "Removing unused globals time: {:?}", now.elapsed());
 
         // self.exprs.push(ExprKind::ident("void"));
 

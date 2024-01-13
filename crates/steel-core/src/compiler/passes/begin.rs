@@ -1,5 +1,5 @@
-use fxhash::FxHashSet;
-use log::{debug, log_enabled};
+
+use log::{debug};
 use steel_parser::tokens::MaybeBigInt;
 
 use crate::parser::{
@@ -7,7 +7,7 @@ use crate::parser::{
     parser::SyntaxObject,
 };
 use crate::parser::{interner::InternedString, tokens::TokenType};
-use std::{collections::HashSet, time::Instant};
+use std::{time::Instant};
 
 use super::{Folder, VisitorMutRefUnit, VisitorMutUnit};
 
@@ -40,17 +40,27 @@ impl VisitorMutRefUnit for FlattenBegin {
 
                 let begin_exprs = std::mem::take(&mut begin.exprs);
 
+                let mut flattened_exprs = Vec::with_capacity(begin_exprs.len());
+
+                for expr in begin_exprs {
+                    if let ExprKind::Begin(mut b) = expr {
+                        flattened_exprs.append(&mut b.exprs)
+                    } else {
+                        flattened_exprs.push(expr);
+                    }
+                }
+
                 // Flatten begins
-                let flattened_exprs = begin_exprs
-                    .into_iter()
-                    .flat_map(|x| {
-                        if let ExprKind::Begin(b) = x {
-                            b.exprs
-                        } else {
-                            vec![x]
-                        }
-                    })
-                    .collect::<Vec<_>>();
+                // let flattened_exprs = begin_exprs
+                //     .into_iter()
+                //     .flat_map(|x| {
+                //         if let ExprKind::Begin(b) = x {
+                //             b.exprs
+                //         } else {
+                //             vec![x]
+                //         }
+                //     })
+                //     .collect::<Vec<_>>();
 
                 begin.exprs = flattened_exprs;
 

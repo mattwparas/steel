@@ -1,5 +1,6 @@
+use fxhash::FxHashMap;
 use quickscope::ScopeSet;
-use steel_parser::ast::{parse_lambda, LAMBDA, LAMBDA_SYMBOL};
+use steel_parser::ast::{parse_lambda, Begin};
 use steel_parser::parser::SourceId;
 
 use crate::compiler::passes::reader::MultipleArityFunctions;
@@ -22,29 +23,68 @@ use super::{
     kernel::Kernel,
 };
 
-use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::parser::expander::SteelMacro;
 
 pub fn extract_macro_defs(
-    exprs: Vec<ExprKind>,
-    macro_map: &mut HashMap<InternedString, SteelMacro>,
-) -> Result<Vec<ExprKind>> {
-    let mut non_macros = Vec::new();
-    for expr in exprs {
-        if let ExprKind::Macro(m) = expr {
-            let generated_macro = SteelMacro::parse_from_ast_macro(m)?;
-            let name = generated_macro.name();
-            macro_map.insert(*name, generated_macro);
-        } else {
-            non_macros.push(expr)
+    exprs: &mut Vec<ExprKind>,
+    macro_map: &mut FxHashMap<InternedString, SteelMacro>,
+) -> Result<()> {
+    // let mut non_macros = Vec::new();
+    // for expr in exprs {
+    //     if let ExprKind::Macro(m) = expr {
+    //         let generated_macro = SteelMacro::parse_from_ast_macro(m)?;
+    //         let name = generated_macro.name();
+    //         macro_map.insert(*name, generated_macro);
+    //     } else {
+    //         non_macros.push(expr)
+    //     }
+    // }
+    // Ok(non_macros)
+
+    let mut error = None;
+
+    exprs.retain_mut(|expr| {
+        if let ExprKind::Macro(_) = expr {
+            // Replace with dummy begin value so we don't have to copy
+            // everything other for every macro definition
+            let mut taken_expr = ExprKind::Begin(Begin::new(
+                Vec::new(),
+                SyntaxObject::default(TokenType::Begin),
+            ));
+
+            std::mem::swap(expr, &mut taken_expr);
+
+            if let ExprKind::Macro(m) = taken_expr {
+                match SteelMacro::parse_from_ast_macro(m) {
+                    Ok(generated_macro) => {
+                        let name = generated_macro.name();
+                        macro_map.insert(*name, generated_macro);
+                    }
+                    Err(e) => {
+                        error = Some(e);
+                        return false;
+                    }
+                }
+            } else {
+                unreachable!();
+            }
+
+            return false;
         }
+
+        true
+    });
+
+    if let Some(e) = error {
+        return Err(e);
     }
-    Ok(non_macros)
+
+    Ok(())
 }
 
-pub fn expand(expr: &mut ExprKind, map: &HashMap<InternedString, SteelMacro>) -> Result<()> {
+pub fn expand(expr: &mut ExprKind, map: &FxHashMap<InternedString, SteelMacro>) -> Result<()> {
     let mut expander = Expander {
         map,
         changed: false,
@@ -56,7 +96,7 @@ pub fn expand(expr: &mut ExprKind, map: &HashMap<InternedString, SteelMacro>) ->
 
 pub fn expand_with_source_id(
     expr: &mut ExprKind,
-    map: &HashMap<InternedString, SteelMacro>,
+    map: &FxHashMap<InternedString, SteelMacro>,
     source_id: SourceId,
 ) -> Result<()> {
     let mut expander = Expander {
@@ -70,7 +110,7 @@ pub fn expand_with_source_id(
 }
 
 pub struct Expander<'a> {
-    map: &'a HashMap<InternedString, SteelMacro>,
+    map: &'a FxHashMap<InternedString, SteelMacro>,
     pub(crate) changed: bool,
     // We're going to actually check if the macro is in scope
     in_scope_values: ScopeSet<InternedString>,
@@ -78,7 +118,7 @@ pub struct Expander<'a> {
 }
 
 impl<'a> Expander<'a> {
-    pub fn new(map: &'a HashMap<InternedString, SteelMacro>) -> Self {
+    pub fn new(map: &'a FxHashMap<InternedString, SteelMacro>) -> Self {
         Self {
             map,
             changed: false,
@@ -91,14 +131,6 @@ impl<'a> Expander<'a> {
         self.visit(expr)
     }
 }
-
-// pub struct TestExpander<'a> {
-//     map: &'a HashMap<InternedString, SteelMacro>,
-//     pub(crate) changed: bool,
-//     // We're going to actually check if the macro is in scope
-//     in_scope_values: ScopeSet<InternedString>,
-//     source_id: Option<SourceId>,
-// }
 
 impl<'a> VisitorMutRef for Expander<'a> {
     type Output = Result<()>;
@@ -309,169 +341,6 @@ impl<'a> VisitorMutRef for Expander<'a> {
         Ok(())
     }
 }
-
-// TODO: See if we can do this without blowing the stack
-// impl<'a> ConsumingVisitor for Expander<'a> {
-//     type Output = Result<ExprKind>;
-
-//     fn visit_if(&mut self, mut f: Box<super::ast::If>) -> Self::Output {
-//         f.test_expr = self.visit(f.test_expr)?;
-//         f.then_expr = self.visit(f.then_expr)?;
-//         f.else_expr = self.visit(f.else_expr)?;
-//         Ok(ExprKind::If(f))
-//     }
-
-//     fn visit_define(&mut self, mut define: Box<super::ast::Define>) -> Self::Output {
-//         define.body = self.visit(define.body)?;
-//         Ok(ExprKind::Define(define))
-//     }
-
-//     fn visit_lambda_function(
-//         &mut self,
-//         mut lambda_function: Box<super::ast::LambdaFunction>,
-//     ) -> Self::Output {
-//         self.in_scope_values.push_layer();
-
-//         for value in &lambda_function.args {
-//             if let Some(ident) = value.atom_identifier() {
-//                 self.in_scope_values.define(*ident);
-//             }
-//         }
-
-//         lambda_function.body = self.visit(lambda_function.body)?;
-
-//         self.in_scope_values.pop_layer();
-
-//         Ok(ExprKind::LambdaFunction(lambda_function))
-//     }
-
-//     fn visit_begin(&mut self, mut begin: super::ast::Begin) -> Self::Output {
-//         begin.exprs = begin
-//             .exprs
-//             .into_iter()
-//             .map(|e| self.visit(e))
-//             .collect::<Result<Vec<_>>>()?;
-//         Ok(ExprKind::Begin(begin))
-//     }
-
-//     fn visit_return(&mut self, mut r: Box<super::ast::Return>) -> Self::Output {
-//         r.expr = self.visit(r.expr)?;
-//         Ok(ExprKind::Return(r))
-//     }
-
-//     fn visit_quote(&mut self, quote: Box<super::ast::Quote>) -> Self::Output {
-//         // println!("Visiting quote with : {:?}", quote);
-//         // quote.expr = self.visit(quote.expr)?;
-//         Ok(ExprKind::Quote(quote))
-//     }
-
-//     fn visit_macro(&mut self, m: Box<super::ast::Macro>) -> Self::Output {
-//         stop!(BadSyntax => format!("unexpected macro definition in expand visitor: {}", m); m.location.span)
-//     }
-
-//     fn visit_atom(&mut self, a: Atom) -> Self::Output {
-//         Ok(ExprKind::Atom(a))
-//     }
-
-//     fn visit_list(&mut self, mut l: super::ast::List) -> Self::Output {
-//         match l.first() {
-//             Some(ExprKind::Atom(
-//                 ident @ Atom {
-//                     syn:
-//                         SyntaxObject {
-//                             ty: TokenType::Identifier(s),
-//                             ..
-//                         },
-//                 },
-//             )) if *s == *LAMBDA_SYMBOL || *s == *LAMBDA => {
-//                 if let ExprKind::LambdaFunction(lambda) = parse_lambda(&ident.clone(), l.args)? {
-//                     return self.visit_lambda_function(lambda);
-//                 } else {
-//                     unreachable!()
-//                 }
-//             }
-
-//             Some(ExprKind::Atom(
-//                 ident @ Atom {
-//                     syn:
-//                         SyntaxObject {
-//                             ty: TokenType::Lambda,
-//                             ..
-//                         },
-//                 },
-//             )) => {
-//                 if let ExprKind::LambdaFunction(lambda) = parse_lambda(&ident.clone(), l.args)? {
-//                     return self.visit_lambda_function(lambda);
-//                 } else {
-//                     unreachable!()
-//                 }
-//             }
-
-//             Some(ExprKind::Atom(Atom {
-//                 syn:
-//                     SyntaxObject {
-//                         ty: TokenType::Identifier(s),
-//                         span: sp,
-//                         ..
-//                     },
-//             })) => {
-//                 if let Some(m) = self.map.get(s) {
-//                     // If this macro has been overwritten by any local value, respect
-//                     // the local binding and do not expand the macro
-//                     if !self.in_scope_values.contains(s) {
-//                         if self.source_id.is_none()
-//                             || self.source_id.is_some() && self.source_id == sp.source_id()
-//                         {
-//                             let expanded = m.expand(l.clone(), *sp)?;
-//                             self.changed = true;
-//                             return self.visit(expanded);
-//                         }
-
-//                         // let expanded = m.expand(l.clone(), *sp)?;
-//                         // self.changed = true;
-//                         // return self.visit(expanded);
-//                     }
-//                 }
-//             }
-//             _ => {}
-//         }
-
-//         l.args = l
-//             .args
-//             .into_iter()
-//             .map(|e| self.visit(e))
-//             .collect::<Result<Vec<_>>>()?;
-
-//         Ok(ExprKind::List(l))
-//     }
-
-//     fn visit_syntax_rules(&mut self, l: Box<super::ast::SyntaxRules>) -> Self::Output {
-//         stop!(Generic => "unexpected syntax-rules definition"; l.location.span)
-//     }
-
-//     fn visit_set(&mut self, mut s: Box<super::ast::Set>) -> Self::Output {
-//         s.variable = self.visit(s.variable)?;
-//         s.expr = self.visit(s.expr)?;
-//         Ok(ExprKind::Set(s))
-//     }
-
-//     fn visit_require(&mut self, s: super::ast::Require) -> Self::Output {
-//         Ok(ExprKind::Require(s))
-//     }
-
-//     fn visit_let(&mut self, mut l: Box<super::ast::Let>) -> Self::Output {
-//         let mut visited_bindings = Vec::new();
-
-//         for (binding, expr) in l.bindings {
-//             visited_bindings.push((self.visit(binding)?, self.visit(expr)?));
-//         }
-
-//         l.bindings = visited_bindings;
-//         l.body_expr = self.visit(l.body_expr)?;
-
-//         Ok(ExprKind::Let(l))
-//     }
-// }
 
 pub fn expand_kernel_in_env_with_allowed(
     mut expr: ExprKind,
@@ -824,7 +693,7 @@ fn expand_keyword_arguments(lambda_function: &mut super::ast::LambdaFunction) ->
 impl<'a> VisitorMutRef for KernelExpander<'a> {
     type Output = Result<()>;
 
-    fn visit_if(&mut self, mut f: &mut super::ast::If) -> Self::Output {
+    fn visit_if(&mut self, f: &mut super::ast::If) -> Self::Output {
         self.visit(&mut f.test_expr)?;
         self.visit(&mut f.then_expr)?;
         self.visit(&mut f.else_expr)
@@ -875,219 +744,9 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
         Ok(())
     }
 
-    fn visit_list(&mut self, l: &mut super::ast::List) -> Self::Output {
+    fn visit_list(&mut self, _l: &mut super::ast::List) -> Self::Output {
         Ok(())
     }
-
-    // TODO: This is not the best way of doing things, but for now we can accept it for the sake of progress
-    // fn visit_list(&mut self, mut l: super::ast::List) -> Self::Output {
-    //     // todo!()
-    //     if let Some(ExprKind::Atom(Atom {
-    //         syn:
-    //             SyntaxObject {
-    //                 ty: TokenType::Identifier(s),
-    //                 ..
-    //             },
-    //     })) = l.first().cloned()
-    //     {
-    //         if let Some(map) = &mut self.map {
-    //             if map
-    //                 .contains_syntax_object_macro(&s, self.environment.as_ref().map(|x| x.as_ref()))
-    //                 && self
-    //                     .allowed_macros
-    //                     .as_ref()
-    //                     .map(|x| x.contains(&s))
-    //                     .unwrap_or(true)
-    //             {
-    //                 let expanded = map.expand_syntax_object(
-    //                     &s,
-    //                     ExprKind::List(l),
-    //                     self.environment
-    //                         .as_ref()
-    //                         .map(|x| x.as_ref())
-    //                         .unwrap_or("default"),
-    //                 )?;
-    //                 self.changed = true;
-
-    //                 self.depth += 1;
-
-    //                 let result = self.visit(expanded);
-
-    //                 self.depth -= 1;
-
-    //                 return result;
-    //             }
-    //         }
-
-    //         //
-    //         if s == *REQUIRE_DYLIB {
-    //             match &l.args[1..] {
-    //                 [ExprKind::Atom(Atom {
-    //                     syn:
-    //                         SyntaxObject {
-    //                             ty: TokenType::StringLiteral(dylib_name),
-    //                             ..
-    //                         },
-    //                 }), ExprKind::List(List { args, .. })] => {
-    //                     // TODO: if it can't be found, the module needs to be marked as `MaybeDylib`
-    //                     // and use the binds that are listed in the dylib require spec, something like:
-    //                     // (require-builtin steel/obviouslydylib/sqlite (only-in ... ... ...)) <-
-    //                     // Then, we can _attempt_ to load the dylib at runtime. If we can't we move on, and
-    //                     // otherwise we can error if the identifiers are not lining up.
-    //                     // (require-dylib "<name>.so" (onlt-in <spec> ))
-
-    //                     // if let Some(module) = self.builtin_modules.get(s.as_str()) {
-    //                     //     return Ok(module.to_syntax(None));
-    //                     // } else {
-    //                     //     stop!(BadSyntax => "require-builtin: module not found: {}", s);
-    //                     // }
-
-    //                     match args.as_slice() {
-    //                         [ExprKind::Atom(Atom {
-    //                             syn:
-    //                                 SyntaxObject {
-    //                                     ty: TokenType::Identifier(s),
-    //                                     ..
-    //                                 },
-    //                         }), rest @ ..]
-    //                             if s.resolve() == "only-in" =>
-    //                         {
-    //                             // self.builtin_modules.
-
-    //                             let mut names = Vec::with_capacity(rest.len());
-
-    //                             for expr in rest {
-    //                                 if let Some(identifier) = expr.atom_identifier() {
-    //                                     names.push(identifier);
-    //                                 } else {
-    //                                     stop!(BadSyntax => "require-dylib `only-in` modifier expects identifiers")
-    //                                 }
-    //                             }
-
-    //                             return Ok(BuiltInModule::dylib_to_syntax(
-    //                                 dylib_name.as_str(),
-    //                                 names.iter().map(|x| x.resolve()),
-    //                                 None,
-    //                             ));
-    //                         }
-    //                         _ => {
-    //                             stop!(BadSyntax => "require-dylib expects on `only-in` modifier")
-    //                         }
-    //                     }
-    //                 }
-
-    //                 _ => {
-    //                     stop!(BadSyntax => "require-dylib malformed")
-    //                 }
-    //             }
-    //         }
-
-    //         if s == *REQUIRE_BUILTIN {
-    //             match &l.args[1..] {
-    //                 [ExprKind::Atom(Atom {
-    //                     syn:
-    //                         SyntaxObject {
-    //                             ty: TokenType::StringLiteral(s),
-    //                             span,
-    //                             ..
-    //                         },
-    //                 })] => {
-    //                     // TODO: if it can't be found, the module needs to be marked as `MaybeDylib`
-    //                     // and use the binds that are listed in the dylib require spec, something like:
-    //                     // (require-builtin steel/obviouslydylib/sqlite (only-in ... ... ...)) <-
-    //                     // Then, we can _attempt_ to load the dylib at runtime. If we can't we move on, and
-    //                     // otherwise we can error if the identifiers are not lining up.
-    //                     if let Some(module) = self.builtin_modules.get(s.as_str()) {
-    //                         return Ok(module.to_syntax(None));
-    //                     } else {
-    //                         stop!(BadSyntax => format!("require-builtin: module not found: {}", s); *span);
-    //                     }
-    //                 }
-
-    //                 [ExprKind::Atom(Atom {
-    //                     syn:
-    //                         SyntaxObject {
-    //                             ty: TokenType::Identifier(s),
-    //                             span,
-    //                             ..
-    //                         },
-    //                 })] => {
-    //                     if let Some(module) = self.builtin_modules.get(s.resolve()) {
-    //                         return Ok(module.to_syntax(None));
-    //                     } else {
-    //                         stop!(BadSyntax => format!("require-builtin: module not found: {}", s); *span);
-    //                     }
-    //                 }
-
-    //                 [ExprKind::Atom(Atom {
-    //                     syn:
-    //                         SyntaxObject {
-    //                             ty: TokenType::StringLiteral(s),
-    //                             span,
-    //                             ..
-    //                         },
-    //                 }), ExprKind::Atom(Atom {
-    //                     syn:
-    //                         SyntaxObject {
-    //                             ty: TokenType::Identifier(az),
-    //                             ..
-    //                         },
-    //                 }), ExprKind::Atom(Atom {
-    //                     syn:
-    //                         SyntaxObject {
-    //                             ty: TokenType::Identifier(prefix),
-    //                             ..
-    //                         },
-    //                 })] if *az == *AS_KEYWORD => {
-    //                     if let Some(module) = self.builtin_modules.get(s.as_str()) {
-    //                         return Ok(module.to_syntax(Some(prefix.resolve())));
-    //                     } else {
-    //                         stop!(BadSyntax => format!("require-builtin: module not found: {}", s); *span);
-    //                     }
-    //                 }
-
-    //                 [ExprKind::Atom(Atom {
-    //                     syn:
-    //                         SyntaxObject {
-    //                             ty: TokenType::Identifier(s),
-    //                             span,
-    //                             ..
-    //                         },
-    //                 }), ExprKind::Atom(Atom {
-    //                     syn:
-    //                         SyntaxObject {
-    //                             ty: TokenType::Identifier(az),
-    //                             ..
-    //                         },
-    //                 }), ExprKind::Atom(Atom {
-    //                     syn:
-    //                         SyntaxObject {
-    //                             ty: TokenType::Identifier(prefix),
-    //                             ..
-    //                         },
-    //                 })] if *az == *AS_KEYWORD => {
-    //                     if let Some(module) = self.builtin_modules.get(s.resolve()) {
-    //                         return Ok(module.to_syntax(Some(prefix.resolve())));
-    //                     } else {
-    //                         stop!(BadSyntax => format!("require-builtin: module not found: {}", s); *span);
-    //                     }
-    //                 }
-
-    //                 _ => {
-    //                     stop!(ArityMismatch => "require-builtin malformed - follows the pattern (require-builtin \"<module>\") or (require-builtin \"<module>\" as <prefix>")
-    //                 }
-    //             }
-    //         }
-    //     }
-
-    //     l.args = l
-    //         .args
-    //         .into_iter()
-    //         .map(|e| self.visit(e))
-    //         .collect::<Result<Vec<_>>>()?;
-
-    //     Ok(ExprKind::List(l))
-    // }
 
     fn visit_syntax_rules(&mut self, l: &mut super::ast::SyntaxRules) -> Self::Output {
         stop!(Generic => "unexpected syntax-rules definition"; l.location.span)
@@ -1108,8 +767,6 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
         for (binding, expr) in l.bindings.iter_mut() {
             self.visit(binding)?;
             self.visit(expr)?;
-
-            // visited_bindings.push((self.visit(binding)?, self.visit(expr)?));
         }
 
         // l.bindings = visited_bindings;
@@ -1283,8 +940,6 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                                         },
                                 })] => {
                                     if let Some(module) = self.builtin_modules.get(s.resolve()) {
-                                        // return Ok(module.to_syntax(None));
-
                                         *expr = module.to_syntax(None);
                                         return Ok(());
                                     } else {
@@ -1345,8 +1000,6 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                                         *expr = module.to_syntax(Some(prefix.resolve()));
 
                                         return Ok(());
-
-                                        // return Ok(module.to_syntax(Some(prefix.resolve())));
                                     } else {
                                         stop!(BadSyntax => format!("require-builtin: module not found: {}", s); *span);
                                     }
@@ -1374,329 +1027,6 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
         res
     }
 }
-
-// TODO: Replace all instances of ConsumingVisitor with VisitorMutRef
-// impl<'a> super::visitors::ConsumingVisitor for KernelExpander<'a> {
-//     type Output = Result<ExprKind>;
-
-//     fn visit_if(&mut self, mut f: Box<super::ast::If>) -> Self::Output {
-//         f.test_expr = self.visit(f.test_expr)?;
-//         f.then_expr = self.visit(f.then_expr)?;
-//         f.else_expr = self.visit(f.else_expr)?;
-//         Ok(ExprKind::If(f))
-//     }
-
-//     fn visit_define(&mut self, mut define: Box<super::ast::Define>) -> Self::Output {
-//         define.body = self.visit(define.body)?;
-//         Ok(ExprKind::Define(define))
-//     }
-
-//     // TODO: Kernel expander should have the liberty to parse everything
-//     // As a normal expression in order to match behavior
-//     fn visit_lambda_function(
-//         &mut self,
-//         mut lambda_function: Box<super::ast::LambdaFunction>,
-//     ) -> Self::Output {
-//         // TODO: Unfortunately this wipes out the span
-//         // There needs to be
-
-//         lambda_function.body = self.visit(lambda_function.body)?;
-
-//         // Expand keyword arguments if we can
-//         lambda_function = expand_keyword_arguments(lambda_function)?;
-
-//         // lambda_function.body = self.visit(lambda_function.body)?;
-//         Ok(ExprKind::LambdaFunction(lambda_function))
-//     }
-
-//     fn visit_begin(&mut self, mut begin: super::ast::Begin) -> Self::Output {
-//         begin.exprs = begin
-//             .exprs
-//             .into_iter()
-//             .map(|e| self.visit(e))
-//             .collect::<Result<Vec<_>>>()?;
-//         Ok(ExprKind::Begin(begin))
-//     }
-
-//     fn visit_return(&mut self, mut r: Box<super::ast::Return>) -> Self::Output {
-//         r.expr = self.visit(r.expr)?;
-//         Ok(ExprKind::Return(r))
-//     }
-
-//     fn visit_quote(&mut self, mut quote: Box<super::ast::Quote>) -> Self::Output {
-//         quote.expr = self.visit(quote.expr)?;
-//         Ok(ExprKind::Quote(quote))
-//     }
-
-//     fn visit_macro(&mut self, m: Box<super::ast::Macro>) -> Self::Output {
-//         stop!(BadSyntax => format!("unexpected macro definition in kernel expander: {}", m); m.location.span)
-//     }
-
-//     fn visit_atom(&mut self, a: Atom) -> Self::Output {
-//         Ok(ExprKind::Atom(a))
-//     }
-
-//     // TODO: This is not the best way of doing things, but for now we can accept it for the sake of progress
-//     fn visit_list(&mut self, mut l: super::ast::List) -> Self::Output {
-//         // todo!()
-//         if let Some(ExprKind::Atom(Atom {
-//             syn:
-//                 SyntaxObject {
-//                     ty: TokenType::Identifier(s),
-//                     ..
-//                 },
-//         })) = l.first().cloned()
-//         {
-//             if let Some(map) = &mut self.map {
-//                 if map
-//                     .contains_syntax_object_macro(&s, self.environment.as_ref().map(|x| x.as_ref()))
-//                     && self
-//                         .allowed_macros
-//                         .as_ref()
-//                         .map(|x| x.contains(&s))
-//                         .unwrap_or(true)
-//                 {
-//                     let expanded = map.expand_syntax_object(
-//                         &s,
-//                         ExprKind::List(l),
-//                         self.environment
-//                             .as_ref()
-//                             .map(|x| x.as_ref())
-//                             .unwrap_or("default"),
-//                     )?;
-//                     self.changed = true;
-
-//                     self.depth += 1;
-
-//                     let result = self.visit(expanded);
-
-//                     self.depth -= 1;
-
-//                     return result;
-//                 }
-//             }
-
-//             //
-//             if s == *REQUIRE_DYLIB {
-//                 match &l.args[1..] {
-//                     [ExprKind::Atom(Atom {
-//                         syn:
-//                             SyntaxObject {
-//                                 ty: TokenType::StringLiteral(dylib_name),
-//                                 ..
-//                             },
-//                     }), ExprKind::List(List { args, .. })] => {
-//                         // TODO: if it can't be found, the module needs to be marked as `MaybeDylib`
-//                         // and use the binds that are listed in the dylib require spec, something like:
-//                         // (require-builtin steel/obviouslydylib/sqlite (only-in ... ... ...)) <-
-//                         // Then, we can _attempt_ to load the dylib at runtime. If we can't we move on, and
-//                         // otherwise we can error if the identifiers are not lining up.
-//                         // (require-dylib "<name>.so" (onlt-in <spec> ))
-
-//                         // if let Some(module) = self.builtin_modules.get(s.as_str()) {
-//                         //     return Ok(module.to_syntax(None));
-//                         // } else {
-//                         //     stop!(BadSyntax => "require-builtin: module not found: {}", s);
-//                         // }
-
-//                         match args.as_slice() {
-//                             [ExprKind::Atom(Atom {
-//                                 syn:
-//                                     SyntaxObject {
-//                                         ty: TokenType::Identifier(s),
-//                                         ..
-//                                     },
-//                             }), rest @ ..]
-//                                 if s.resolve() == "only-in" =>
-//                             {
-//                                 // self.builtin_modules.
-
-//                                 let mut names = Vec::with_capacity(rest.len());
-
-//                                 for expr in rest {
-//                                     if let Some(identifier) = expr.atom_identifier() {
-//                                         names.push(identifier);
-//                                     } else {
-//                                         stop!(BadSyntax => "require-dylib `only-in` modifier expects identifiers")
-//                                     }
-//                                 }
-
-//                                 return Ok(BuiltInModule::dylib_to_syntax(
-//                                     dylib_name.as_str(),
-//                                     names.iter().map(|x| x.resolve()),
-//                                     None,
-//                                 ));
-//                             }
-//                             _ => {
-//                                 stop!(BadSyntax => "require-dylib expects on `only-in` modifier")
-//                             }
-//                         }
-//                     }
-
-//                     _ => {
-//                         stop!(BadSyntax => "require-dylib malformed")
-//                     }
-//                 }
-//             }
-
-//             if s == *REQUIRE_BUILTIN {
-//                 match &l.args[1..] {
-//                     [ExprKind::Atom(Atom {
-//                         syn:
-//                             SyntaxObject {
-//                                 ty: TokenType::StringLiteral(s),
-//                                 span,
-//                                 ..
-//                             },
-//                     })] => {
-//                         // TODO: if it can't be found, the module needs to be marked as `MaybeDylib`
-//                         // and use the binds that are listed in the dylib require spec, something like:
-//                         // (require-builtin steel/obviouslydylib/sqlite (only-in ... ... ...)) <-
-//                         // Then, we can _attempt_ to load the dylib at runtime. If we can't we move on, and
-//                         // otherwise we can error if the identifiers are not lining up.
-//                         if let Some(module) = self.builtin_modules.get(s.as_str()) {
-//                             return Ok(module.to_syntax(None));
-//                         } else {
-//                             stop!(BadSyntax => format!("require-builtin: module not found: {}", s); *span);
-//                         }
-//                     }
-
-//                     [ExprKind::Atom(Atom {
-//                         syn:
-//                             SyntaxObject {
-//                                 ty: TokenType::Identifier(s),
-//                                 span,
-//                                 ..
-//                             },
-//                     })] => {
-//                         if let Some(module) = self.builtin_modules.get(s.resolve()) {
-//                             return Ok(module.to_syntax(None));
-//                         } else {
-//                             stop!(BadSyntax => format!("require-builtin: module not found: {}", s); *span);
-//                         }
-//                     }
-
-//                     [ExprKind::Atom(Atom {
-//                         syn:
-//                             SyntaxObject {
-//                                 ty: TokenType::StringLiteral(s),
-//                                 span,
-//                                 ..
-//                             },
-//                     }), ExprKind::Atom(Atom {
-//                         syn:
-//                             SyntaxObject {
-//                                 ty: TokenType::Identifier(az),
-//                                 ..
-//                             },
-//                     }), ExprKind::Atom(Atom {
-//                         syn:
-//                             SyntaxObject {
-//                                 ty: TokenType::Identifier(prefix),
-//                                 ..
-//                             },
-//                     })] if *az == *AS_KEYWORD => {
-//                         if let Some(module) = self.builtin_modules.get(s.as_str()) {
-//                             return Ok(module.to_syntax(Some(prefix.resolve())));
-//                         } else {
-//                             stop!(BadSyntax => format!("require-builtin: module not found: {}", s); *span);
-//                         }
-//                     }
-
-//                     [ExprKind::Atom(Atom {
-//                         syn:
-//                             SyntaxObject {
-//                                 ty: TokenType::Identifier(s),
-//                                 span,
-//                                 ..
-//                             },
-//                     }), ExprKind::Atom(Atom {
-//                         syn:
-//                             SyntaxObject {
-//                                 ty: TokenType::Identifier(az),
-//                                 ..
-//                             },
-//                     }), ExprKind::Atom(Atom {
-//                         syn:
-//                             SyntaxObject {
-//                                 ty: TokenType::Identifier(prefix),
-//                                 ..
-//                             },
-//                     })] if *az == *AS_KEYWORD => {
-//                         if let Some(module) = self.builtin_modules.get(s.resolve()) {
-//                             return Ok(module.to_syntax(Some(prefix.resolve())));
-//                         } else {
-//                             stop!(BadSyntax => format!("require-builtin: module not found: {}", s); *span);
-//                         }
-//                     }
-
-//                     _ => {
-//                         stop!(ArityMismatch => "require-builtin malformed - follows the pattern (require-builtin \"<module>\") or (require-builtin \"<module>\" as <prefix>")
-//                     }
-//                 }
-//             }
-//         }
-
-//         l.args = l
-//             .args
-//             .into_iter()
-//             .map(|e| self.visit(e))
-//             .collect::<Result<Vec<_>>>()?;
-
-//         Ok(ExprKind::List(l))
-//     }
-
-//     fn visit_syntax_rules(&mut self, l: Box<super::ast::SyntaxRules>) -> Self::Output {
-//         stop!(Generic => "unexpected syntax-rules definition"; l.location.span)
-//     }
-
-//     fn visit_set(&mut self, mut s: Box<super::ast::Set>) -> Self::Output {
-//         s.variable = self.visit(s.variable)?;
-//         s.expr = self.visit(s.expr)?;
-//         Ok(ExprKind::Set(s))
-//     }
-
-//     fn visit_require(&mut self, s: super::ast::Require) -> Self::Output {
-//         Ok(ExprKind::Require(s))
-//     }
-
-//     fn visit_let(&mut self, mut l: Box<super::ast::Let>) -> Self::Output {
-//         let mut visited_bindings = Vec::new();
-
-//         for (binding, expr) in l.bindings {
-//             visited_bindings.push((self.visit(binding)?, self.visit(expr)?));
-//         }
-
-//         l.bindings = visited_bindings;
-//         l.body_expr = self.visit(l.body_expr)?;
-
-//         Ok(ExprKind::Let(l))
-//     }
-
-//     fn visit(&mut self, expr: ExprKind) -> Self::Output {
-//         if self.depth > 96 {
-//             stop!(BadSyntax => "Current expansion depth of defmacro style macros exceeded: depth capped at 96"; get_span(&expr));
-//         }
-
-//         let res = match expr {
-//             ExprKind::If(f) => self.visit_if(f),
-//             ExprKind::Define(d) => self.visit_define(d),
-//             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
-//             ExprKind::Begin(b) => self.visit_begin(b),
-//             ExprKind::Return(r) => self.visit_return(r),
-//             ExprKind::Let(l) => self.visit_let(l),
-//             ExprKind::Quote(q) => self.visit_quote(q),
-//             ExprKind::Macro(m) => self.visit_macro(m),
-//             ExprKind::Atom(a) => self.visit_atom(a),
-//             ExprKind::List(l) => self.visit_list(l),
-//             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
-//             ExprKind::Set(s) => self.visit_set(s),
-//             ExprKind::Require(r) => self.visit_require(r),
-//         };
-
-//         res
-//     }
-// }
 
 fn _define_quoted_ast_node(ast_name: ExprKind, expanded_expr: &ExprKind) -> ExprKind {
     ExprKind::Define(Box::new(Define::new(
@@ -1761,7 +1091,7 @@ mod expansion_tests {
             Span::default(),
         );
 
-        let mut map = HashMap::new();
+        let mut map = FxHashMap::default();
         map.insert("when".into(), m);
 
         let mut input: ExprKind = List::new(vec![

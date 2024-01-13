@@ -53,7 +53,7 @@ use std::{
     sync::Arc,
 };
 
-use fxhash::FxBuildHasher;
+use fxhash::{FxBuildHasher, FxHashMap};
 use im_rc::HashMap as ImmutableHashMap;
 use lasso::ThreadedRodeo;
 use serde::{Deserialize, Serialize};
@@ -304,7 +304,7 @@ macro_rules! time {
 }
 
 thread_local! {
-    pub(crate) static DEFAULT_PRELUDE_MACROS: RefCell<HashMap<InternedString, SteelMacro>> = RefCell::new(HashMap::new());
+    pub(crate) static DEFAULT_PRELUDE_MACROS: RefCell<FxHashMap<InternedString, SteelMacro>> = RefCell::new(HashMap::default());
 
     pub(crate) static DEFAULT_DOC_MACROS: RefCell<HashMap<InternedString, SteelMacro>> = RefCell::new(
         HashMap::new());
@@ -334,6 +334,9 @@ impl Engine {
             register_builtin_modules(&mut vm)
         );
 
+        // TODO: Emit bytecode for this, and load this directly.
+        // If we can just load from bytecode, we'll be fine!
+
         time!(
             "engine-creation",
             "Loading the ALL_MODULES prelude code",
@@ -350,24 +353,6 @@ impl Engine {
         for core in core_libraries.into_iter() {
             vm.compile_and_run_raw_program(core).unwrap();
         }
-
-        // vm.compile_and_run_raw_program(
-        //     r#"
-
-        // (define-syntax @doc
-        //     (syntax-rules ()
-        //         [(@doc comment expression)
-        //         expression]))
-        //     "#,
-        // )
-        // .unwrap();
-
-        // let at_doc = "@doc".into();
-
-        // DEFAULT_DOC_MACROS.with(|x| {
-        //     x.borrow_mut()
-        //         .insert(at_doc, vm.in_scope_macros_mut().remove(&at_doc).unwrap())
-        // });
 
         // Initialize the global macro environment with the default one. This way
         // values won't leak when top level macros are defined - and modules can clone from
@@ -484,26 +469,6 @@ impl Engine {
             vm
         }
     }
-
-    // fn load_from_bootstrap(vm: &mut Engine) -> Option<Vec<Vec<ExprKind>>> {
-    //     let bootstrap: BootstrapImage =
-    //         bincode::deserialize(include_bytes!("../boot/bootstrap.bin")).unwrap();
-
-    //     // Set the syntax object id to be AFTER the previous items have been parsed
-    //     SYNTAX_OBJECT_ID.store(
-    //         bootstrap.syntax_object_id,
-    //         std::sync::atomic::Ordering::Relaxed,
-    //     );
-
-    //     // Set up the interner to have this latest state
-    //     if crate::parser::interner::initialize_with(bootstrap.interner).is_err() {
-    //         return None;
-    //     }
-
-    //     vm.sources = bootstrap.sources;
-
-    //     Some(bootstrap.programs)
-    // }
 
     fn load_from_bootstrap(vm: &mut Engine) -> Option<Vec<RawProgramWithSymbols>> {
         if matches!(option_env!("STEEL_BOOTSTRAP"), Some("false") | None) {
@@ -1373,9 +1338,7 @@ impl Engine {
 
         for expr in &mut program.instructions {
             // Reform the program to conform to the current state of _this_ engine.
-            for i in 0..expr.len() {
-                let instruction = &mut expr[i];
-
+            for instruction in expr.iter_mut() {
                 match instruction {
                     Instruction {
                         op_code: OpCode::PUSHCONST,
@@ -1902,7 +1865,7 @@ impl Engine {
             .compile_module(path.into(), &mut self.sources, self.modules.clone())
     }
 
-    pub fn modules(&self) -> &HashMap<PathBuf, CompiledModule> {
+    pub fn modules(&self) -> &FxHashMap<PathBuf, CompiledModule> {
         self.compiler.modules()
     }
 
@@ -1920,11 +1883,11 @@ impl Engine {
         &self.compiler.symbol_map
     }
 
-    pub fn in_scope_macros(&self) -> &HashMap<InternedString, SteelMacro> {
+    pub fn in_scope_macros(&self) -> &FxHashMap<InternedString, SteelMacro> {
         &self.compiler.macro_env
     }
 
-    pub fn in_scope_macros_mut(&mut self) -> &mut HashMap<InternedString, SteelMacro> {
+    pub fn in_scope_macros_mut(&mut self) -> &mut FxHashMap<InternedString, SteelMacro> {
         &mut self.compiler.macro_env
     }
 

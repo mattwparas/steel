@@ -3,7 +3,7 @@ use crate::{
     tokens::TokenType::{self},
 };
 
-use std::{convert::TryFrom, fmt::Write, sync::atomic::Ordering};
+use std::{convert::TryFrom, fmt::Write};
 
 use crate::tokens::MaybeBigInt;
 use pretty::RcDoc;
@@ -13,7 +13,7 @@ use std::ops::Deref;
 
 use super::{
     interner::InternedString,
-    parser::{SyntaxObjectId, SYNTAX_OBJECT_ID},
+    parser::{SyntaxObjectId},
     span::Span,
 };
 

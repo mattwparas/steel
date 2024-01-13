@@ -20,6 +20,7 @@ use std::{
 use fxhash::FxHashMap;
 use log::error;
 use serde::{Deserialize, Serialize};
+use smallvec::{smallvec, SmallVec};
 use steel_parser::tokens::MaybeBigInt;
 
 use super::{ast::Quote, interner::InternedString, parser::Parser};
@@ -40,7 +41,7 @@ pub fn path_from_working_dir<P: AsRef<Path>>(path: P) -> std::io::Result<PathBuf
 /// Manages macros for a single namespace
 #[derive(Default, Serialize, Deserialize, Debug)]
 pub struct LocalMacroManager {
-    macros: HashMap<InternedString, SteelMacro>,
+    macros: FxHashMap<InternedString, SteelMacro>,
 }
 
 impl LocalMacroManager {
@@ -279,7 +280,7 @@ impl MacroCase {
     ) -> Result<Self> {
         let PatternPair { pattern, mut body } = pattern_pair;
 
-        let args = if let ExprKind::List(l) = pattern {
+        let mut args = if let ExprKind::List(l) = pattern {
             MacroPattern::parse_from_list(l, name, special_forms)?
         } else {
             stop!(Generic => "unable to parse macro");
@@ -300,7 +301,9 @@ impl MacroCase {
 
         RenameIdentifiersVisitor::new(&args_str, special_forms).rename_identifiers(&mut body);
 
-        let args = args.into_iter().map(|x| x.mangle(special_forms)).collect();
+        // let args = args.into_iter().map(|x| x.mangle(special_forms)).collect();
+
+        args.iter_mut().for_each(|x| x.mangle(special_forms));
 
         // println!("Found args: {:?}", args);
         // println!("Renamed body: {:?}", &body);
@@ -431,34 +434,40 @@ impl std::fmt::Debug for MacroPattern {
 }
 
 impl MacroPattern {
-    fn mangle(&self, special_forms: &[InternedString]) -> Self {
+    fn mangle(&mut self, special_forms: &[InternedString]) {
         use MacroPattern::*;
         match self {
             Single(s) => {
                 if special_forms.contains(s) {
-                    Single(*s)
+                    // Single(*s)
                 } else {
-                    Single(("##".to_string() + s.resolve()).into())
+                    *self = Single(("##".to_string() + s.resolve()).into())
                 }
             }
-            Syntax(s) => {
-                // if special_forms.contains(s) {
-                Syntax(*s)
-                // } else {
-                // Syntax("##".to_string() + s)
-                // }
-            }
+            // Syntax(_) => {
+            // if special_forms.contains(s) {
+            // Syntax(*s)
+            // } else {
+            // Syntax("##".to_string() + s)
+            // }
+            // }
             Many(s) => {
                 if special_forms.contains(s) {
-                    Many(*s)
+                    // Many(*s)
+
+                    // *self = Many(*s)
                 } else {
-                    Many(("##".to_string() + s.resolve()).into())
+                    *self = Many(("##".to_string() + s.resolve()).into())
                 }
             }
             // Silly, needs revisiting
-            ManyNested(m) => ManyNested(m.iter().map(|x| x.mangle(special_forms)).collect()),
-            Nested(v) => Nested(v.iter().map(|x| x.mangle(special_forms)).collect()),
-            _ => self.clone(),
+            ManyNested(m) => {
+                m.iter_mut().for_each(|x| x.mangle(special_forms));
+            }
+            Nested(v) => {
+                v.iter_mut().for_each(|x| x.mangle(special_forms));
+            }
+            _ => {}
         }
     }
 
@@ -593,25 +602,31 @@ impl MacroPattern {
 
 impl MacroPattern {
     // TODO make this not so trash
-    pub fn deconstruct(&self) -> Vec<&InternedString> {
-        match self {
-            Self::Syntax(s) => vec![s],
-            Self::Single(s) => vec![s],
-            Self::Many(s) => vec![s],
-            Self::ManyNested(v) => v.iter().flat_map(|x| x.deconstruct()).collect(),
-            Self::Nested(v) => v.iter().flat_map(|x| x.deconstruct()).collect(),
-            _ => vec![],
-        }
-    }
+    // pub fn deconstruct(&self) -> Vec<&InternedString> {
+    //     match self {
+    //         Self::Syntax(s) => vec![s],
+    //         Self::Single(s) => vec![s],
+    //         Self::Many(s) => vec![s],
+    //         Self::ManyNested(v) => v.iter().flat_map(|x| x.deconstruct()).collect(),
+    //         Self::Nested(v) => v.iter().flat_map(|x| x.deconstruct()).collect(),
+    //         _ => vec![],
+    //     }
+    // }
 
     // TODO: Don't do this?
-    pub fn deconstruct_without_syntax(&self) -> Vec<&InternedString> {
+    pub fn deconstruct_without_syntax(&self) -> SmallVec<[&InternedString; 8]> {
         match self {
-            Self::Single(s) => vec![s],
-            Self::Many(s) => vec![s],
-            Self::Nested(v) => v.iter().flat_map(|x| x.deconstruct()).collect(),
-            Self::ManyNested(v) => v.iter().flat_map(|x| x.deconstruct()).collect(),
-            _ => vec![],
+            Self::Single(s) => smallvec![s],
+            Self::Many(s) => smallvec![s],
+            Self::Nested(v) => v
+                .iter()
+                .flat_map(|x| x.deconstruct_without_syntax())
+                .collect(),
+            Self::ManyNested(v) => v
+                .iter()
+                .flat_map(|x| x.deconstruct_without_syntax())
+                .collect(),
+            _ => smallvec![],
         }
     }
 
@@ -912,7 +927,7 @@ pub fn collect_bindings(
             MacroPattern::ManyNested(children) => {
                 // dbg!(children);
 
-                let exprs_to_destruct = token_iter.collect::<Vec<_>>();
+                let exprs_to_destruct = token_iter.collect::<smallvec::SmallVec<[_; 8]>>();
 
                 for i in 0..children.len() {
                     let mut values_to_bind = Vec::new();

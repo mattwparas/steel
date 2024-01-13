@@ -516,7 +516,7 @@ impl Kernel {
         expr: ExprKind,
         environment: &str,
     ) -> Result<ExprKind> {
-        // println!("Expanding: {} with {}", ident, expr);
+        let now = std::time::Instant::now();
 
         let span = get_span(&expr);
 
@@ -543,10 +543,14 @@ impl Kernel {
 
         let result = self
             .engine
-            .call_function_with_args(function, vec![syntax_objects])
+            .call_function_with_args_from_mut_slice(function, &mut [syntax_objects])
             .map_err(|x| x.set_span(span))?;
 
         // This shouldn't be lowering all the way. It should just be back to list right?
-        TryFromSteelValVisitorForExprKind::root(&result)
+        let res = TryFromSteelValVisitorForExprKind::root(&result);
+
+        log::debug!(target: "pipeline_time", "Kernel expansion time: {:?}", now.elapsed());
+
+        res
     }
 }

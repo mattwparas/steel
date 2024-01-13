@@ -61,6 +61,7 @@ use crate::{
 use crate::primitives::web::requests::requests_module;
 
 use crate::values::lists::List;
+use fxhash::FxHashSet;
 use im_rc::HashMap;
 use num::{Signed, ToPrimitive};
 use once_cell::sync::Lazy;
@@ -312,6 +313,10 @@ thread_local! {
     pub static TYPE_ID_MODULE: BuiltInModule = build_type_id_module();
     pub static OPTION_MODULE: BuiltInModule = build_option_structs();
     pub static PRELUDE_MODULE: BuiltInModule = prelude();
+
+    pub(crate) static PRELUDE_INTERNED_STRINGS: FxHashSet<InternedString> = PRELUDE_MODULE.with(|x| x.names().into_iter().map(|x| x.into()).collect());
+
+
     pub static TIME_MODULE: BuiltInModule = time_module();
     pub static THREADING_MODULE: BuiltInModule = threading_module();
 

@@ -116,6 +116,8 @@ impl RegisterValue for BuiltInModule {
 pub static MODULE_GET: Lazy<InternedString> = Lazy::new(|| "%module-get%".into());
 pub static VOID: Lazy<InternedString> = Lazy::new(|| "void".into());
 pub static GET_DYLIB: Lazy<InternedString> = Lazy::new(|| "#%get-dylib".into());
+pub static VOID_MODULE: Lazy<InternedString> =
+    Lazy::new(|| "%-builtin-module-steel/constants".into());
 
 // Global function table
 thread_local! {
@@ -381,7 +383,7 @@ impl BuiltInModuleRepr {
 
         defines.push(ExprKind::List(crate::parser::ast::List::new(vec![
             ExprKind::atom(*MODULE_GET),
-            ExprKind::atom("%-builtin-module-steel/constants"),
+            ExprKind::atom(*VOID_MODULE),
             ExprKind::Quote(Box::new(crate::parser::ast::Quote::new(
                 ExprKind::atom(*VOID),
                 SyntaxObject::default(TokenType::Quote),
@@ -626,7 +628,7 @@ impl BuiltInModule {
 
         defines.push(ExprKind::List(crate::parser::ast::List::new(vec![
             ExprKind::atom(*MODULE_GET),
-            ExprKind::atom("%-builtin-module-".to_string() + "steel/constants"),
+            ExprKind::atom("%-builtin-module-steel/constants"),
             ExprKind::Quote(Box::new(crate::parser::ast::Quote::new(
                 ExprKind::atom(*VOID),
                 SyntaxObject::default(TokenType::Quote),

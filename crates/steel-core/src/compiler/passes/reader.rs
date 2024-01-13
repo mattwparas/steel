@@ -1,5 +1,5 @@
 use crate::parser::{
-    ast::{ExprKind, List},
+    ast::{ExprKind},
     interner::InternedString,
 };
 

@@ -18,9 +18,10 @@ use crate::{
 };
 use crate::{parser::expand_visitor::Expander, rvals::Result};
 
+use fxhash::{FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
-use smallvec::SmallVec;
-use steel_parser::expr_list;
+// use smallvec::SmallVec;
+use steel_parser::{ast::PROTO_HASH_GET, expr_list};
 
 use std::{
     borrow::Cow,
@@ -47,6 +48,18 @@ use super::{
     },
     program::{CONTRACT_OUT, FOR_SYNTAX, ONLY_IN, PREFIX_IN, REQUIRE_IDENT_SPEC},
 };
+
+macro_rules! time {
+    ($label:expr, $e:expr) => {{
+        let now = std::time::Instant::now();
+
+        let e = $e;
+
+        log::debug!(target: "pipeline_time", "{}: {:?}", $label, now.elapsed());
+
+        e
+    }};
+}
 
 macro_rules! declare_builtins {
     ( $( $name:expr => $path:expr ), *) => {
@@ -109,21 +122,21 @@ pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| std::env::var("STEEL_
 /// if it needs to be recompiled
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ModuleManager {
-    compiled_modules: HashMap<PathBuf, CompiledModule>,
-    file_metadata: HashMap<PathBuf, SystemTime>,
-    visited: HashSet<PathBuf>,
+    compiled_modules: FxHashMap<PathBuf, CompiledModule>,
+    file_metadata: FxHashMap<PathBuf, SystemTime>,
+    visited: FxHashSet<PathBuf>,
     custom_builtins: HashMap<String, String>,
 }
 
 impl ModuleManager {
     pub(crate) fn new(
-        compiled_modules: HashMap<PathBuf, CompiledModule>,
-        file_metadata: HashMap<PathBuf, SystemTime>,
+        compiled_modules: FxHashMap<PathBuf, CompiledModule>,
+        file_metadata: FxHashMap<PathBuf, SystemTime>,
     ) -> Self {
         ModuleManager {
             compiled_modules,
             file_metadata,
-            visited: HashSet::new(),
+            visited: FxHashSet::default(),
             custom_builtins: HashMap::new(),
         }
     }
@@ -136,23 +149,23 @@ impl ModuleManager {
         self.custom_builtins.insert(module_name, text);
     }
 
-    pub fn modules(&self) -> &HashMap<PathBuf, CompiledModule> {
+    pub fn modules(&self) -> &FxHashMap<PathBuf, CompiledModule> {
         &self.compiled_modules
     }
 
-    pub fn modules_mut(&mut self) -> &mut HashMap<PathBuf, CompiledModule> {
+    pub fn modules_mut(&mut self) -> &mut FxHashMap<PathBuf, CompiledModule> {
         &mut self.compiled_modules
     }
 
     pub(crate) fn default() -> Self {
-        Self::new(HashMap::new(), HashMap::new())
+        Self::new(FxHashMap::default(), FxHashMap::default())
     }
 
     // Add the module directly to the compiled module cache
     pub(crate) fn add_module(
         &mut self,
         path: PathBuf,
-        global_macro_map: &mut HashMap<InternedString, SteelMacro>,
+        global_macro_map: &mut FxHashMap<InternedString, SteelMacro>,
         kernel: &mut Option<Kernel>,
         sources: &mut Sources,
         builtin_modules: ModuleContainer,
@@ -185,10 +198,10 @@ impl ModuleManager {
     // #[allow(unused)]
     pub(crate) fn compile_main(
         &mut self,
-        global_macro_map: &mut HashMap<InternedString, SteelMacro>,
+        global_macro_map: &mut FxHashMap<InternedString, SteelMacro>,
         kernel: &mut Option<Kernel>,
         sources: &mut Sources,
-        exprs: Vec<ExprKind>,
+        mut exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
         builtin_modules: ModuleContainer,
         lifted_kernel_environments: &mut HashMap<String, KernelDefMacroSpec>,
@@ -202,11 +215,11 @@ impl ModuleManager {
         // For instance, (cond) is global, but (define-syntax blagh) might be local to main
         // if a module then defines a function (blagh) that is used inside its scope, this would expand the macro in that scope
         // which we do not want
-        let non_macro_expressions = extract_macro_defs(exprs, global_macro_map)?;
+        extract_macro_defs(&mut exprs, global_macro_map)?;
 
         let mut module_builder = ModuleBuilder::main(
             path,
-            non_macro_expressions,
+            exprs,
             &mut self.compiled_modules,
             &mut self.visited,
             &mut self.file_metadata,
@@ -219,9 +232,9 @@ impl ModuleManager {
 
         let mut module_statements = module_builder.compile()?;
 
-        for expr in module_builder.source_ast.iter_mut() {
-            expand(expr, global_macro_map)?;
-        }
+        // for expr in module_builder.source_ast.iter_mut() {
+        //     expand(expr, global_macro_map)?;
+        // }
 
         // let mut ast = module_builder.source_ast;
 
@@ -322,10 +335,10 @@ impl ModuleManager {
                                         }
 
                                         // TODO: THe contract has to get mangled with the prefix as well?
-                                        let contract = l.args.get(2).unwrap();
+                                        let _contract = l.args.get(2).unwrap();
 
                                         let hash_get = expr_list![
-                                            ExprKind::ident("%proto-hash-get%"),
+                                            ExprKind::atom(*PROTO_HASH_GET),
                                             ExprKind::atom(
                                                 "__module-".to_string() + &other_module_prefix
                                             ),
@@ -392,7 +405,7 @@ impl ModuleManager {
                                         }
 
                                         let hash_get = expr_list![
-                                            ExprKind::ident("%proto-hash-get%"),
+                                            ExprKind::atom(*PROTO_HASH_GET),
                                             ExprKind::atom(
                                                 "__module-".to_string() + &other_module_prefix
                                             ),
@@ -461,7 +474,7 @@ impl ModuleManager {
                             }
 
                             let hash_get = expr_list![
-                                ExprKind::ident("%proto-hash-get%"),
+                                ExprKind::atom(*PROTO_HASH_GET),
                                 ExprKind::atom("__module-".to_string() + &other_module_prefix),
                                 ExprKind::Quote(Box::new(Quote::new(
                                     provide.clone(),
@@ -513,7 +526,7 @@ impl ModuleManager {
             }
         }
 
-        let mut mangled_asts = Vec::new();
+        let mut mangled_asts = Vec::with_capacity(ast.len());
 
         // TODO: Move this to the lower level as well
         // It seems we're only doing this expansion at the top level, but we _should_ do this at the lower level as well
@@ -523,7 +536,7 @@ impl ModuleManager {
         {
             let require_for_syntax = require_object.path.get_path();
 
-            let (module, mut in_scope_macros, mut name_mangler) = Self::find_in_scope_macros(
+            let (module, in_scope_macros, mut name_mangler) = Self::find_in_scope_macros(
                 &self.compiled_modules,
                 require_for_syntax.as_ref(),
                 &require_object,
@@ -544,7 +557,7 @@ impl ModuleManager {
                     lifted_kernel_environments.insert(
                         module_name.clone(),
                         KernelDefMacroSpec {
-                            _env: module_name,
+                            _env: module_name.clone(),
                             _exported: None,
                             name_mangler: name_mangler.clone(),
                         },
@@ -566,7 +579,7 @@ impl ModuleManager {
             //     );
             // }
 
-            let module_name = Cow::from(module.name.to_str().unwrap().to_string());
+            // let module_name = Cow::from(module.name.to_str().unwrap().to_string());
 
             for expr in ast.iter_mut() {
                 // @matt 12/8/2023
@@ -588,7 +601,7 @@ impl ModuleManager {
                 // These are macros
                 let mut expander = Expander::new(&in_scope_macros);
                 expander.expand(expr)?;
-                let mut changed = false;
+                let changed = false;
 
                 // (first_round_expanded, changed) = expand_kernel_in_env_with_allowed(
                 //     first_round_expanded,
@@ -622,7 +635,7 @@ impl ModuleManager {
                 // }
 
                 if expander.changed || changed {
-                    let source_id = sources.get_source_id(&module.name).unwrap();
+                    let _source_id = sources.get_source_id(&module.name).unwrap();
 
                     // let mut fully_expanded = first_round_expanded;
 
@@ -777,9 +790,11 @@ impl ModuleManager {
         // solved with scoped imports of the standard library explicitly
         module_statements.append(&mut ast);
 
-        for expr in module_statements.iter_mut() {
-            expand(expr, global_macro_map)?;
-        }
+        time!("Top level macro evaluation time", {
+            for expr in module_statements.iter_mut() {
+                expand(expr, global_macro_map)?;
+            }
+        });
 
         // @Matt 7/4/23
         // TODO: With mangling, this could cause problems. We'll want to un-mangle quotes AFTER the macro has been expanded,
@@ -795,13 +810,13 @@ impl ModuleManager {
     }
 
     fn find_in_scope_macros<'a>(
-        compiled_modules: &'a HashMap<PathBuf, CompiledModule>,
+        compiled_modules: &'a FxHashMap<PathBuf, CompiledModule>,
         require_for_syntax: &'a PathBuf,
         require_object: &'a RequireObject,
         mangled_asts: &'a mut Vec<ExprKind>,
     ) -> (
         &'a CompiledModule,
-        HashMap<InternedString, SteelMacro>,
+        FxHashMap<InternedString, SteelMacro>,
         NameMangler,
     ) {
         let module = compiled_modules
@@ -845,7 +860,7 @@ impl ModuleManager {
 
                 x
             })
-            .collect::<HashMap<_, _>>();
+            .collect::<FxHashMap<_, _>>();
 
         // If the require_object specifically imports things, we should reference it
 
@@ -933,10 +948,10 @@ impl ModuleManager {
     pub(crate) fn expand_expressions(
         &mut self,
         global_macro_map: &mut HashMap<InternedString, SteelMacro>,
-        exprs: Vec<ExprKind>,
+        mut exprs: Vec<ExprKind>,
     ) -> Result<Vec<ExprKind>> {
-        let non_macro_expressions = extract_macro_defs(exprs, global_macro_map)?;
-        non_macro_expressions
+        extract_macro_defs(&mut exprs, global_macro_map)?;
+        exprs
             .into_iter()
             .map(|x| expand(x, global_macro_map))
             .collect()
@@ -953,7 +968,7 @@ pub struct CompiledModule {
     provides: Vec<ExprKind>,
     require_objects: Vec<RequireObject>,
     provides_for_syntax: Vec<InternedString>,
-    pub(crate) macro_map: HashMap<InternedString, SteelMacro>,
+    pub(crate) macro_map: FxHashMap<InternedString, SteelMacro>,
     ast: Vec<ExprKind>,
     emitted: bool,
 }
@@ -965,7 +980,7 @@ impl CompiledModule {
         provides: Vec<ExprKind>,
         require_objects: Vec<RequireObject>,
         provides_for_syntax: Vec<InternedString>,
-        macro_map: HashMap<InternedString, SteelMacro>,
+        macro_map: FxHashMap<InternedString, SteelMacro>,
         ast: Vec<ExprKind>,
     ) -> Self {
         Self {
@@ -997,8 +1012,8 @@ impl CompiledModule {
 
     fn to_top_level_module(
         &self,
-        modules: &HashMap<PathBuf, CompiledModule>,
-        global_macro_map: &HashMap<InternedString, SteelMacro>,
+        modules: &FxHashMap<PathBuf, CompiledModule>,
+        global_macro_map: &FxHashMap<InternedString, SteelMacro>,
     ) -> Result<ExprKind> {
         let mut globals = collect_globals(&self.ast);
 
@@ -1076,7 +1091,7 @@ impl CompiledModule {
                                         }
 
                                         let hash_get = expr_list![
-                                            ExprKind::ident("%proto-hash-get%"),
+                                            ExprKind::atom(*PROTO_HASH_GET),
                                             ExprKind::atom(
                                                 "__module-".to_string() + &other_module_prefix
                                             ),
@@ -1128,7 +1143,7 @@ impl CompiledModule {
                                         // (bind/c contract name 'name)
 
                                         let mut name = l.args.get(1).unwrap().clone();
-                                        let contract = l.args.get(2).unwrap();
+                                        let _contract = l.args.get(2).unwrap();
 
                                         if !explicit_requires.is_empty()
                                             && !name
@@ -1167,7 +1182,7 @@ impl CompiledModule {
                                         globals.insert(*name.atom_identifier().unwrap());
 
                                         let hash_get = expr_list![
-                                            ExprKind::ident("%proto-hash-get%"),
+                                            ExprKind::atom(*PROTO_HASH_GET),
                                             ExprKind::atom(
                                                 "__module-".to_string() + &other_module_prefix
                                             ),
@@ -1248,7 +1263,7 @@ impl CompiledModule {
                             let define = ExprKind::Define(Box::new(Define::new(
                                 ExprKind::atom(prefix.clone() + provide_ident.resolve()),
                                 expr_list![
-                                    ExprKind::ident("%proto-hash-get%"),
+                                    ExprKind::atom(*PROTO_HASH_GET),
                                     ExprKind::atom("__module-".to_string() + &other_module_prefix),
                                     ExprKind::Quote(Box::new(Quote::new(
                                         raw_provide.clone(),
@@ -1584,19 +1599,19 @@ struct ModuleBuilder<'a> {
     name: PathBuf,
     main: bool,
     source_ast: Vec<ExprKind>,
-    macro_map: HashMap<InternedString, SteelMacro>,
+    macro_map: FxHashMap<InternedString, SteelMacro>,
     // TODO: Change the requires / requires_for_syntax to just be a require enum?
     require_objects: Vec<RequireObject>,
 
     provides: Vec<ExprKind>,
     provides_for_syntax: Vec<ExprKind>,
-    compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
-    visited: &'a mut HashSet<PathBuf>,
-    file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
+    compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
+    visited: &'a mut FxHashSet<PathBuf>,
+    file_metadata: &'a mut FxHashMap<PathBuf, SystemTime>,
     sources: &'a mut Sources,
     kernel: &'a mut Option<Kernel>,
     builtin_modules: ModuleContainer,
-    global_macro_map: &'a HashMap<InternedString, SteelMacro>,
+    global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
     custom_builtins: &'a HashMap<String, String>,
 }
 
@@ -1606,13 +1621,13 @@ impl<'a> ModuleBuilder<'a> {
     fn main(
         name: Option<PathBuf>,
         source_ast: Vec<ExprKind>,
-        compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
-        visited: &'a mut HashSet<PathBuf>,
-        file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
+        compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
+        visited: &'a mut FxHashSet<PathBuf>,
+        file_metadata: &'a mut FxHashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
-        global_macro_map: &'a HashMap<InternedString, SteelMacro>,
+        global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
     ) -> Result<Self> {
         // TODO don't immediately canonicalize the path unless we _know_ its coming from a path
@@ -1974,7 +1989,7 @@ impl<'a> ModuleBuilder<'a> {
                 // These are macros
                 let mut expander = Expander::new(&in_scope_macros);
                 expander.expand(expr)?;
-                let mut changed = false;
+                let changed = false;
 
                 // dbg!(expander.changed);
 
@@ -2250,7 +2265,9 @@ impl<'a> ModuleBuilder<'a> {
 
         // let exprs = std::mem::take(&mut self.source_ast);
 
-        for expr in self.source_ast.iter_mut() {
+        let mut error = None;
+
+        self.source_ast.retain_mut(|expr| {
             if let ExprKind::Macro(_) = expr {
                 // Replace with dummy begin value so we don't have to copy
                 // everything other for every macro definition
@@ -2262,28 +2279,33 @@ impl<'a> ModuleBuilder<'a> {
                 std::mem::swap(expr, &mut taken_expr);
 
                 if let ExprKind::Macro(m) = taken_expr {
-                    let generated_macro = SteelMacro::parse_from_ast_macro(m)?;
-                    let name = generated_macro.name();
-                    self.macro_map.insert(*name, generated_macro);
+                    match SteelMacro::parse_from_ast_macro(m) {
+                        Ok(generated_macro) => {
+                            let name = generated_macro.name();
+                            self.macro_map.insert(*name, generated_macro);
+                        }
+                        Err(e) => {
+                            if error.is_none() {
+                                error = Some(e);
+                            }
+                            // error = Some(e);
+                            return false;
+                        }
+                    }
                 } else {
                     unreachable!();
                 }
+
+                return false;
             }
 
-            // else {
-            //     // non_macros.push(expr)
-            // }
+            true
+        });
+
+        if let Some(e) = error {
+            return Err(e);
         }
 
-        // if let ExprKind::Macro(m) = expr {
-        //     let generated_macro = SteelMacro::parse_from_ast_macro(m)?;
-        //     let name = generated_macro.name();
-        //     self.macro_map.insert(*name, generated_macro);
-        // } else {
-        //     non_macros.push(expr)
-        // }
-
-        // self.source_ast = non_macros;
         Ok(())
     }
 
@@ -2333,6 +2355,8 @@ impl<'a> ModuleBuilder<'a> {
     // I think these will already be collected for the macro, however I think for syntax should be found earlier
     // Otherwise the macro expansion will not be able to understand it
     fn collect_provides(&mut self) -> Result<()> {
+        // let now = std::time::Instant::now();
+
         let mut non_provides = Vec::with_capacity(self.source_ast.len());
         let exprs = std::mem::take(&mut self.source_ast);
 
@@ -2366,6 +2390,10 @@ impl<'a> ModuleBuilder<'a> {
                     }
                     ExprKind::Begin(b) => {
                         let exprs = std::mem::take(&mut b.exprs);
+
+                        // Reserve capacity for these to be moved to the top level
+                        non_provides.reserve(exprs.len());
+
                         walk(module_builder, exprs, non_provides)?;
                     }
                     _ => {}
@@ -2380,6 +2408,9 @@ impl<'a> ModuleBuilder<'a> {
         walk(self, exprs, &mut non_provides)?;
 
         self.source_ast = non_provides;
+
+        // log::debug!(target: "pipeline_time", "Collecting provides time: {:?}", now.elapsed());
+
         Ok(())
     }
 
@@ -2634,13 +2665,13 @@ impl<'a> ModuleBuilder<'a> {
     fn new_built_in(
         name: PathBuf,
         input: &str,
-        compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
-        visited: &'a mut HashSet<PathBuf>,
-        file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
+        compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
+        visited: &'a mut FxHashSet<PathBuf>,
+        file_metadata: &'a mut FxHashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
-        global_macro_map: &'a HashMap<InternedString, SteelMacro>,
+        global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
     ) -> Result<Self> {
         ModuleBuilder::raw(
@@ -2659,13 +2690,13 @@ impl<'a> ModuleBuilder<'a> {
 
     fn new_from_path(
         name: PathBuf,
-        compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
-        visited: &'a mut HashSet<PathBuf>,
-        file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
+        compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
+        visited: &'a mut FxHashSet<PathBuf>,
+        file_metadata: &'a mut FxHashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
-        global_macro_map: &'a HashMap<InternedString, SteelMacro>,
+        global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
     ) -> Result<Self> {
         ModuleBuilder::raw(
@@ -2684,13 +2715,13 @@ impl<'a> ModuleBuilder<'a> {
 
     fn raw(
         name: PathBuf,
-        compiled_modules: &'a mut HashMap<PathBuf, CompiledModule>,
-        visited: &'a mut HashSet<PathBuf>,
-        file_metadata: &'a mut HashMap<PathBuf, SystemTime>,
+        compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
+        visited: &'a mut FxHashSet<PathBuf>,
+        file_metadata: &'a mut FxHashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
-        global_macro_map: &'a HashMap<InternedString, SteelMacro>,
+        global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
     ) -> Self {
         ModuleBuilder {

@@ -32,24 +32,6 @@ pub fn derive_steel(input: TokenStream) -> TokenStream {
     }
 }
 
-fn _parse_key_value_pair(args: &Punctuated<Meta, Token![,]>) -> (String, String) {
-    for nested_meta in args.iter() {
-        if let Meta::NameValue(n) = nested_meta {
-            let key = n.path.get_ident().unwrap().to_string();
-            if let Expr::Lit(ExprLit {
-                lit: Lit::Str(s), ..
-            }) = &n.value
-            {
-                return (key, s.value());
-            }
-        }
-
-        panic!("Expected a key value pair");
-    }
-
-    panic!("Expected a key value pair");
-}
-
 fn parse_key_value_pairs(args: &Punctuated<Meta, Token![,]>) -> HashMap<String, String> {
     let mut map = HashMap::new();
 
@@ -444,7 +426,6 @@ pub fn function(
     // values in the
     if rest_arg_generic_inner_type {
         let mut conversion_functions = conversion_functions.collect::<Vec<_>>();
-        let arg_enumerate = arg_enumerate;
         let mut arg_index = arg_enumerate
             .map(|(i, _)| quote! { #i })
             .collect::<Vec<_>>();

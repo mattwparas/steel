@@ -1,4 +1,4 @@
-use im_lists::list::List;
+use crate::values::lists::SteelList as List;
 use rusqlite::{
     params_from_iter,
     types::{FromSql, ToSqlOutput, Value},
@@ -51,7 +51,7 @@ impl FromSql for SteelVal {
 fn prepare_and_execute(
     connection: &Connection,
     sql: SteelString,
-    params: List<im_lists::list::List<SteelVal>>,
+    params: List<List<SteelVal>>,
 ) -> Result<usize> {
     let mut statement = connection.prepare(sql.as_str())?;
 
