@@ -5,7 +5,12 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use steel::stdlib::PRELUDE;
 use steel::steel_vm::{engine::Engine, register_fn::RegisterFn};
 
-fn benchmark_template(c: &mut Criterion, name: &str, script: &str, warmup: &str) {
+fn benchmark_template(
+    c: &mut Criterion,
+    name: &'static str,
+    script: &'static str,
+    warmup: &'static str,
+) {
     let mut vm = Engine::new();
     vm.compile_and_run_raw_program(PRELUDE).unwrap();
     vm.compile_and_run_raw_program(black_box(warmup)).unwrap();

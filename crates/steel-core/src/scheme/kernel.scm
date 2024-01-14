@@ -199,15 +199,16 @@
     (when (and maybe-procedure-field (> maybe-procedure-field (length fields)))
       (error! "struct #:prop:procedure cannot refer to an index that is out of bounds"))
 
+    (define struct-options-name (concat-symbols '___ struct-name '-options___))
+    (define struct-prop-name (concat-symbols 'struct: struct-name))
+    (define struct-predicate (concat-symbols struct-name '?))
+
     `(begin
        ; (#%black-box "STRUCT" (quote ,struct-name))
-       (define ,(concat-symbols '___ struct-name '-options___)
-         (hash ,@(hash->list options-map)))
+       (define ,struct-options-name (hash ,@(hash->list options-map)))
        (define ,struct-name 'unintialized)
-       (define ,(concat-symbols 'struct: struct-name)
-         'uninitialized)
-       (define ,(concat-symbols struct-name '?)
-         'uninitialized)
+       (define ,struct-prop-name 'uninitialized)
+       (define ,struct-predicate 'uninitialized)
        ,@(map (lambda (field)
                 `(define ,(concat-symbols struct-name '- field)
                    'uninitialized))
@@ -221,31 +222,28 @@
                   fields)
              (list))
 
-       ;; TODO: Change this to plain let to see the error
        (%plain-let
         ([prototypes (make-struct-type (quote ,struct-name) ,field-count)])
         (%plain-let
          ([struct-type-descriptor (list-ref prototypes 0)] [constructor-proto (list-ref prototypes 1)]
                                                            [predicate-proto (list-ref prototypes 2)]
                                                            [getter-proto (list-ref prototypes 3)])
-         (set! ,(concat-symbols 'struct: struct-name) struct-type-descriptor)
-         (#%vtable-update-entry! struct-type-descriptor
-                                 ,maybe-procedure-field
-                                 ,(concat-symbols '___ struct-name '-options___))
+         (set! ,struct-prop-name struct-type-descriptor)
+         (#%vtable-update-entry! struct-type-descriptor ,maybe-procedure-field ,struct-options-name)
          ,(if mutable?
               `(set! ,struct-name
                      (lambda ,fields (constructor-proto ,@(map (lambda (x) `(#%box ,x)) fields))))
 
               `(set! ,struct-name constructor-proto))
-         ,(new-make-predicate struct-name fields)
+         ,(new-make-predicate struct-predicate struct-name fields)
          ,@
          (if mutable? (mutable-make-getters struct-name fields) (new-make-getters struct-name fields))
          ;; If this is a mutable struct, generate the setters
          ,@(if mutable? (mutable-make-setters struct-name fields) (list))
          void)))))
 
-(define (new-make-predicate struct-name fields)
-  `(set! ,(concat-symbols struct-name '?) predicate-proto))
+(define (new-make-predicate struct-predicate-name struct-name fields)
+  `(set! ,struct-predicate-name predicate-proto))
 
 ; (define (new-make-constructor struct-name procedure-index fields)
 ;   `(set!

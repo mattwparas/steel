@@ -1,4 +1,4 @@
-use fxhash::FxHashMap;
+use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use quickscope::ScopeSet;
 use steel_parser::ast::{parse_lambda, Begin};
 use steel_parser::parser::SourceId;
@@ -88,7 +88,7 @@ pub fn expand(expr: &mut ExprKind, map: &FxHashMap<InternedString, SteelMacro>) 
     let mut expander = Expander {
         map,
         changed: false,
-        in_scope_values: ScopeSet::new(),
+        in_scope_values: ScopeSet::default(),
         source_id: None,
     };
     expander.visit(expr)
@@ -102,7 +102,7 @@ pub fn expand_with_source_id(
     let mut expander = Expander {
         map,
         changed: false,
-        in_scope_values: ScopeSet::new(),
+        in_scope_values: ScopeSet::default(),
         source_id: Some(source_id),
     };
 
@@ -113,7 +113,7 @@ pub struct Expander<'a> {
     map: &'a FxHashMap<InternedString, SteelMacro>,
     pub(crate) changed: bool,
     // We're going to actually check if the macro is in scope
-    in_scope_values: ScopeSet<InternedString>,
+    in_scope_values: ScopeSet<InternedString, FxBuildHasher>,
     source_id: Option<SourceId>,
 }
 
@@ -122,7 +122,7 @@ impl<'a> Expander<'a> {
         Self {
             map,
             changed: false,
-            in_scope_values: ScopeSet::new(),
+            in_scope_values: ScopeSet::default(),
             source_id: None,
         }
     }
@@ -347,7 +347,7 @@ pub fn expand_kernel_in_env_with_allowed(
     kernel: Option<&mut Kernel>,
     builtin_modules: ModuleContainer,
     env: &str,
-    allowed: &HashSet<InternedString>,
+    allowed: &FxHashSet<InternedString>,
 ) -> Result<(ExprKind, bool)> {
     let mut expander = KernelExpander {
         map: kernel,
@@ -430,7 +430,7 @@ pub struct KernelExpander<'a> {
     builtin_modules: ModuleContainer,
     environment: Option<&'a str>,
     depth: usize,
-    allowed_macros: Option<&'a HashSet<InternedString>>,
+    allowed_macros: Option<&'a FxHashSet<InternedString>>,
 }
 
 impl<'a> KernelExpander<'a> {

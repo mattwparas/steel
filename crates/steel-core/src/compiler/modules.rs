@@ -1750,11 +1750,11 @@ impl<'a> ModuleBuilder<'a> {
                 let input = BUILT_INS
                     .iter()
                     .find(|x| x.0 == module.to_str().unwrap())
-                    .map(|x| x.1)
+                    .map(|x| Cow::Borrowed(x.1))
                     .or_else(|| {
                         self.custom_builtins
                             .get(module.to_str().unwrap())
-                            .map(|x| x.as_str())
+                            .map(|x| Cow::Owned(x.to_string()))
                     })
                     .ok_or_else(
                         crate::throw!(Generic => "Unable to find builtin module: {:?}", module),
@@ -2664,7 +2664,7 @@ impl<'a> ModuleBuilder<'a> {
     #[allow(clippy::too_many_arguments)]
     fn new_built_in(
         name: PathBuf,
-        input: &str,
+        input: Cow<'static, str>,
         compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
         visited: &'a mut FxHashSet<PathBuf>,
         file_metadata: &'a mut FxHashMap<PathBuf, SystemTime>,
@@ -2745,17 +2745,21 @@ impl<'a> ModuleBuilder<'a> {
         }
     }
 
-    fn parse_builtin(mut self, input: &str) -> Result<Self> {
+    fn parse_builtin(mut self, input: Cow<'static, str>) -> Result<Self> {
+        let now = std::time::Instant::now();
+
         let id = self
             .sources
-            .add_source(input.to_string(), Some(self.name.clone()));
+            .add_source(input.clone(), Some(self.name.clone()));
 
-        let parsed = Parser::new_from_source(input, self.name.clone(), Some(id))
+        let parsed = Parser::new_from_source(&input, self.name.clone(), Some(id))
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
             .collect::<std::result::Result<Vec<_>, ParseError>>()?;
 
         self.source_ast = parsed;
+
+        log::debug!(target: "pipeline_time", "Parsing: {:?} - {:?}", self.name, now.elapsed());
 
         // self.source_ast.pretty_print();
 

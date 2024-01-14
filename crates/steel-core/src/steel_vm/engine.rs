@@ -46,6 +46,7 @@ use crate::{
     SteelErr,
 };
 use std::{
+    borrow::Cow,
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
     path::PathBuf,
@@ -148,7 +149,7 @@ pub struct EngineStatistics {
 pub struct Engine {
     virtual_machine: SteelThread,
     compiler: Compiler,
-    constants: Option<ImmutableHashMap<InternedString, SteelVal>>,
+    constants: Option<ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>>,
     modules: ModuleContainer,
     sources: Sources,
     #[cfg(feature = "dylibs")]
@@ -287,7 +288,7 @@ impl RegisterValue for Engine {
 }
 
 #[steel_derive::function(name = "#%get-dylib")]
-fn load_module_noop(target: &crate::rvals::SteelString) -> crate::rvals::Result<SteelVal> {
+pub fn load_module_noop(target: &crate::rvals::SteelString) -> crate::rvals::Result<SteelVal> {
     stop!(Generic => "This engine has not been given the capability to load dylibs")
 }
 
@@ -316,6 +317,7 @@ impl Engine {
     /// kernel in the compiler
     pub(crate) fn new_kernel() -> Self {
         log::debug!(target:"kernel", "Instantiating a new kernel");
+        let mut total_time = std::time::Instant::now();
         let mut now = std::time::Instant::now();
 
         let mut vm = Engine {
@@ -334,15 +336,53 @@ impl Engine {
             register_builtin_modules(&mut vm)
         );
 
-        // TODO: Emit bytecode for this, and load this directly.
-        // If we can just load from bytecode, we'll be fine!
+        // These are used for creating the bootstrapped image
+        let USE_BOOTSTRAP = false;
+        let EMIT_BOOTSTRAP = false;
 
-        time!(
-            "engine-creation",
-            "Loading the ALL_MODULES prelude code",
-            vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
+        if EMIT_BOOTSTRAP {
+            let bootstrap = vm
+                .emit_raw_program(
+                    crate::steel_vm::primitives::ALL_MODULES,
+                    PathBuf::from("dumb.scm"),
+                )
                 .unwrap()
-        );
+                .into_serializable_program()
+                .map(|program| NonInteractiveProgramImage {
+                    sources: vm.sources.clone(),
+                    program,
+                })
+                .unwrap();
+
+            let mut output = PathBuf::from("crates/steel-core/src/boot/all-modules-builtins.boot");
+
+            bootstrap.write_bytes_to_file(&output);
+        };
+
+        if USE_BOOTSTRAP {
+            time!(
+                "engine-creation",
+                "Loading the ALL_MODULES prelude code from bootstrap",
+                {
+                    let program = NonInteractiveProgramImage::from_bytes(include_bytes!(
+                        "../boot/all-modules-builtins.boot"
+                    ));
+
+                    vm.sources = program.sources;
+
+                    let raw_program =
+                        SerializableRawProgramWithSymbols::into_raw_program(program.program);
+                    vm.run_raw_program(raw_program).unwrap();
+                }
+            )
+        } else {
+            time!(
+                "engine-creation",
+                "Loading the ALL_MODULES prelude code",
+                vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
+                    .unwrap()
+            );
+        }
 
         // log::debug!(target: "kernel", "Registered modules in the kernel!: {:?}", now.elapsed());
 
@@ -364,6 +404,8 @@ impl Engine {
         });
 
         log::debug!(target: "kernel", "Loaded prelude in the kernel!: {:?}", now.elapsed());
+
+        log::debug!(target: "pipeline_time", "Total kernel loading time: {:?}", total_time.elapsed());
 
         vm
     }
@@ -504,8 +546,8 @@ impl Engine {
     }
 
     /// Creates a statically linked program ready to deserialize
-    pub fn create_non_interactive_program_image(
-        expr: &str,
+    pub fn create_non_interactive_program_image<E: AsRef<str> + Into<Cow<'static, str>>>(
+        expr: E,
         path: PathBuf,
     ) -> Result<NonInteractiveProgramImage> {
         let mut engine = Engine::new();
@@ -961,7 +1003,10 @@ impl Engine {
     }
 
     /// Nothing fancy, just run it
-    pub fn run(&mut self, input: &str) -> Result<Vec<SteelVal>> {
+    pub fn run<E: AsRef<str> + Into<Cow<'static, str>>>(
+        &mut self,
+        input: E,
+    ) -> Result<Vec<SteelVal>> {
         self.compile_and_run_raw_program(input)
     }
 
@@ -1018,12 +1063,12 @@ impl Engine {
     where
         T: ReferenceMarker<'b, Static = EXT>,
     {
-        self.with_mut_reference(obj).consume(|engine, args| {
+        self.with_mut_reference(obj).consume(move |engine, args| {
             let mut args = args.into_iter();
 
             engine.update_value(bind_to, args.next().unwrap());
 
-            let res = engine.compile_and_run_raw_program(script);
+            let res = engine.compile_and_run_raw_program(Cow::Owned(script.to_owned()));
 
             engine.update_value(bind_to, SteelVal::Void);
 
@@ -1051,7 +1096,8 @@ impl Engine {
 
             engine.update_value(bind_to, args.next().unwrap());
 
-            let res = engine.compile_and_run_raw_program_with_path(script, path.clone());
+            let res = engine
+                .compile_and_run_raw_program_with_path(Cow::Owned(script.to_owned()), path.clone());
 
             engine.update_value(bind_to, SteelVal::Void);
 
@@ -1151,7 +1197,7 @@ impl Engine {
         let core_libraries = &[crate::stdlib::PRELUDE];
 
         for core in core_libraries {
-            self.compile_and_run_raw_program(core)?;
+            self.compile_and_run_raw_program(*core)?;
         }
 
         Ok(self)
@@ -1173,7 +1219,7 @@ impl Engine {
         let core_libraries = &[crate::stdlib::PRELUDE];
 
         for core in core_libraries {
-            self.compile_and_run_raw_program(core)?;
+            self.compile_and_run_raw_program(*core)?;
         }
 
         Ok(self)
@@ -1222,7 +1268,10 @@ impl Engine {
     //     self.compiler.compile_program(expr, None, constants)
     // }
 
-    pub fn emit_raw_program_no_path(&mut self, expr: &str) -> Result<RawProgramWithSymbols> {
+    pub fn emit_raw_program_no_path<E: AsRef<str> + Into<Cow<'static, str>>>(
+        &mut self,
+        expr: E,
+    ) -> Result<RawProgramWithSymbols> {
         let constants = self.constants();
         self.compiler.compile_executable(
             expr,
@@ -1233,7 +1282,11 @@ impl Engine {
         )
     }
 
-    pub fn emit_raw_program(&mut self, expr: &str, path: PathBuf) -> Result<RawProgramWithSymbols> {
+    pub fn emit_raw_program<E: AsRef<str> + Into<Cow<'static, str>>>(
+        &mut self,
+        expr: E,
+        path: PathBuf,
+    ) -> Result<RawProgramWithSymbols> {
         let constants = self.constants();
         self.compiler.compile_executable(
             expr,
@@ -1371,9 +1424,9 @@ impl Engine {
     }
 
     // TODO -> clean up this API a lot
-    pub fn compile_and_run_raw_program_with_path(
+    pub fn compile_and_run_raw_program_with_path<E: AsRef<str> + Into<Cow<'static, str>>>(
         &mut self,
-        exprs: &str,
+        exprs: E,
         path: PathBuf,
     ) -> Result<Vec<SteelVal>> {
         let constants = self.constants();
@@ -1404,7 +1457,10 @@ impl Engine {
         self.run_raw_program(program)
     }
 
-    pub fn compile_and_run_raw_program(&mut self, exprs: &str) -> Result<Vec<SteelVal>> {
+    pub fn compile_and_run_raw_program<E: AsRef<str> + Into<Cow<'static, str>>>(
+        &mut self,
+        exprs: E,
+    ) -> Result<Vec<SteelVal>> {
         let constants = self.constants();
         let program = self.compiler.compile_executable(
             exprs,
@@ -1823,7 +1879,7 @@ impl Engine {
 
     // TODO this does not take into account the issues with
     // people registering new functions that shadow the original one
-    fn constants(&mut self) -> ImmutableHashMap<InternedString, SteelVal> {
+    fn constants(&mut self) -> ImmutableHashMap<InternedString, SteelVal, FxBuildHasher> {
         // TODO: The constants need to be invalidated, if any of them are redefined within
         // the scope of execution.
 
@@ -1847,9 +1903,11 @@ impl Engine {
                     }
                 }
             }
+
+            return hm.clone();
         }
 
-        let mut hm = ImmutableHashMap::new();
+        let mut hm = ImmutableHashMap::default();
         for constant in CONSTANTS {
             if let Ok(v) = self.extract_value(constant) {
                 hm.insert((*constant).into(), v);
@@ -1906,7 +1964,7 @@ impl Engine {
         self.sources.get_path(source_id)
     }
 
-    pub fn get_source(&self, source_id: &SourceId) -> Option<String> {
+    pub fn get_source(&self, source_id: &SourceId) -> Option<Cow<'static, str>> {
         self.sources
             .sources
             .lock()

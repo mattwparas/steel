@@ -25,7 +25,7 @@ use crate::{
         span_visitor::get_span,
         tokens::TokenType,
     },
-    steel_vm::primitives::MODULE_IDENTIFIERS,
+    steel_vm::primitives::{builtin_to_reserved, MODULE_IDENTIFIERS},
     stop, throw, SteelErr, SteelVal,
 };
 
@@ -177,12 +177,17 @@ impl SemanticInformation {
     }
 }
 
+// TODO: Make arguments just be a small vec of 8 args?
 #[derive(Debug, Clone)]
 pub struct FunctionInformation {
     // Just a mapping of the vars to their scope info - holds which vars are being
     // captured by this function
-    captured_vars: FxHashMap<InternedString, ScopeInfo>,
-    arguments: FxHashMap<InternedString, ScopeInfo>,
+    // captured_vars: FxHashMap<InternedString, ScopeInfo>,
+    captured_vars: SmallVec<[(InternedString, ScopeInfo); 8]>,
+
+    // arguments: FxHashMap<InternedString, ScopeInfo>,
+    arguments: SmallVec<[(InternedString, ScopeInfo); 8]>,
+
     // Keeps a mapping of vars to their scope info, if the variable was mutated
     // if this variable was mutated and inevitably captured, we want to know
     // mutated_vars: HashMap<String, ScopeInfo>,
@@ -198,9 +203,12 @@ pub struct FunctionInformation {
 
 impl FunctionInformation {
     pub fn new(
-        captured_vars: FxHashMap<InternedString, ScopeInfo>,
-        arguments: FxHashMap<InternedString, ScopeInfo>,
+        mut captured_vars: SmallVec<[(InternedString, ScopeInfo); 8]>,
+        // arguments: FxHashMap<InternedString, ScopeInfo>,
+        arguments: SmallVec<[(InternedString, ScopeInfo); 8]>,
     ) -> Self {
+        captured_vars.sort_by_key(|x| x.1.id);
+
         Self {
             captured_vars,
             arguments,
@@ -210,11 +218,11 @@ impl FunctionInformation {
         }
     }
 
-    pub fn captured_vars(&self) -> &FxHashMap<InternedString, ScopeInfo> {
+    pub fn captured_vars(&self) -> &[(InternedString, ScopeInfo)] {
         &self.captured_vars
     }
 
-    pub fn arguments(&self) -> &FxHashMap<InternedString, ScopeInfo> {
+    pub fn arguments(&self) -> &[(InternedString, ScopeInfo)] {
         &self.arguments
     }
 
@@ -248,6 +256,8 @@ impl CallSiteInformation {
     }
 }
 
+// TODO: Make this just a smallvec of (InternedString, ScopeInfo)
+// aka, assoc list - less allocations
 #[derive(Debug, Clone)]
 pub struct LetInformation {
     pub stack_offset: usize,
@@ -278,13 +288,14 @@ pub enum SemanticInformationType {
 }
 
 // Populate the metadata about individual
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Clone)]
 pub struct Analysis {
     // TODO: make these be specific IDs for semantic id, function id, and call info id
     pub(crate) info: FxHashMap<SyntaxObjectId, SemanticInformation>,
     pub(crate) function_info: FxHashMap<usize, FunctionInformation>,
     pub(crate) call_info: FxHashMap<usize, CallSiteInformation>,
     pub(crate) let_info: FxHashMap<usize, LetInformation>,
+    pub(crate) scope: ScopeMap<InternedString, ScopeInfo, FxBuildHasher>,
 }
 
 impl Analysis {
@@ -294,6 +305,7 @@ impl Analysis {
             function_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
             call_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
             let_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
+            scope: ScopeMap::default(),
         }
     }
 
@@ -303,6 +315,7 @@ impl Analysis {
         self.function_info.clear();
         self.call_info.clear();
         self.let_info.clear();
+        self.scope.clear_all();
     }
 
     pub fn identifier_info(&self) -> &FxHashMap<SyntaxObjectId, SemanticInformation> {
@@ -327,6 +340,7 @@ impl Analysis {
             function_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
             call_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
             let_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
+            scope: ScopeMap::default(),
         };
 
         analysis.run(exprs);
@@ -338,21 +352,21 @@ impl Analysis {
         let mut mutated_and_captured_vars = self
             .function_info
             .values()
-            .flat_map(|x| x.captured_vars.values())
+            .flat_map(|x| x.captured_vars.iter().map(|x| &x.1))
             .chain(self.let_info.values().flat_map(|x| x.arguments.values()))
             .filter(|x| x.captured && x.mutated)
             .map(|x| x.id)
             .collect::<FxHashSet<_>>();
 
         for value in self.function_info.values_mut() {
-            for x in value.captured_vars.values_mut() {
+            for (_, x) in value.captured_vars.iter_mut() {
                 if mutated_and_captured_vars.contains(&x.id) {
                     x.mutated = true;
                     x.captured = true;
                 }
             }
 
-            for x in value.arguments.values_mut() {
+            for (_, x) in value.arguments.iter_mut() {
                 if mutated_and_captured_vars.contains(&x.id) {
                     x.mutated = true;
                     x.captured = true;
@@ -366,7 +380,8 @@ impl Analysis {
 
         self.function_info
             .values()
-            .flat_map(|x| x.captured_vars.values())
+            // .flat_map(|x| x.captured_vars.values())
+            .flat_map(|x| x.captured_vars.iter().map(|x| &x.1))
             .chain(self.let_info.values().flat_map(|x| x.arguments.values()))
             .filter(|x| x.captured && x.mutated)
             .map(|x| x.id)
@@ -375,14 +390,16 @@ impl Analysis {
             });
 
         for value in self.function_info.values_mut() {
-            for x in value.captured_vars.values_mut() {
+            // for x in value.captured_vars.values_mut() {
+            for (_, x) in value.captured_vars.iter_mut() {
                 if mutated_and_captured_vars.contains(&x.id) {
                     x.mutated = true;
                     x.captured = true;
                 }
             }
 
-            for x in value.arguments.values_mut() {
+            // for x in value.arguments.values_mut() {
+            for (_, x) in value.arguments.iter_mut() {
                 if mutated_and_captured_vars.contains(&x.id) {
                     x.mutated = true;
                     x.captured = true;
@@ -398,21 +415,24 @@ impl Analysis {
         let mutated_and_captured_vars = self
             .function_info
             .values()
-            .flat_map(|x| x.captured_vars.values())
+            // .flat_map(|x| x.captured_vars.values())
+            .flat_map(|x| x.captured_vars.iter().map(|x| &x.1))
             .chain(self.let_info.values().flat_map(|x| x.arguments.values()))
             .filter(|x| x.captured && x.mutated)
             .map(|x| x.id)
             .collect::<FxHashSet<_>>();
 
         for value in self.function_info.values_mut() {
-            for x in value.captured_vars.values_mut() {
+            // for x in value.captured_vars.values_mut() {
+            for (_, x) in value.captured_vars.iter_mut() {
                 if mutated_and_captured_vars.contains(&x.id) {
                     x.mutated = true;
                     x.captured = true;
                 }
             }
 
-            for x in value.arguments.values_mut() {
+            // for x in value.arguments.values_mut() {
+            for (_, x) in value.arguments.iter_mut() {
                 if mutated_and_captured_vars.contains(&x.id) {
                     x.mutated = true;
                     x.captured = true;
@@ -439,7 +459,6 @@ impl Analysis {
 
     pub fn visit_top_level_define_function_without_body(
         &mut self,
-        scope: &mut ScopeMap<InternedString, ScopeInfo>,
         define: &crate::parser::ast::Define,
     ) {
         let name = define.name.atom_identifier().unwrap();
@@ -460,27 +479,27 @@ impl Analysis {
 
         // If this variable name is already in scope, we should mark that this variable
         // shadows the previous id
-        if let Some(shadowed_var) = scope.get(name) {
+        if let Some(shadowed_var) = self.scope.get(name) {
             semantic_info = semantic_info.shadows(shadowed_var.id)
         }
 
         // log::trace!("Defining global: {:?}", define.name);
         // println!("Defining global: {}", define.name);
-        define_var(scope, define);
+        define_var(&mut self.scope, define);
 
         self.insert(define.name.atom_syntax_object().unwrap(), semantic_info);
     }
 
     // TODO: This needs to just take an iterator?
     pub fn run(&mut self, exprs: &[ExprKind]) {
-        let mut scope: ScopeMap<InternedString, ScopeInfo> = ScopeMap::new();
+        // let mut scope: ScopeMap<InternedString, ScopeInfo> = ScopeMap::new();
 
         // TODO: Functions should be globally resolvable but top level identifiers cannot be used before they are defined
         // The way this is implemented right now doesn't respect that
         for expr in exprs.iter() {
             if let ExprKind::Define(define) = expr {
                 if define.body.lambda_function().is_some() {
-                    self.visit_top_level_define_function_without_body(&mut scope, define);
+                    self.visit_top_level_define_function_without_body(define);
                 }
             }
 
@@ -488,7 +507,7 @@ impl Analysis {
                 for expr in &b.exprs {
                     if let ExprKind::Define(define) = expr {
                         if define.body.lambda_function().is_some() {
-                            self.visit_top_level_define_function_without_body(&mut scope, define);
+                            self.visit_top_level_define_function_without_body(define);
                         }
                     }
                 }
@@ -496,7 +515,7 @@ impl Analysis {
         }
 
         for expr in exprs {
-            let mut pass = AnalysisPass::new(self, &mut scope);
+            let mut pass = AnalysisPass::new(self);
 
             match expr {
                 ExprKind::Define(define) => {
@@ -677,8 +696,7 @@ impl ScopeInfo {
 
 struct AnalysisPass<'a> {
     info: &'a mut Analysis,
-    scope: &'a mut ScopeMap<InternedString, ScopeInfo>,
-    captures: ScopeMap<InternedString, ScopeInfo>,
+    captures: ScopeMap<InternedString, ScopeInfo, FxBuildHasher>,
     tail_call_eligible: bool,
     escape_analysis: bool,
     defining_context: Option<SyntaxObjectId>,
@@ -696,7 +714,7 @@ struct AnalysisPass<'a> {
 }
 
 fn define_var(
-    scope: &mut ScopeMap<InternedString, ScopeInfo>,
+    scope: &mut ScopeMap<InternedString, ScopeInfo, FxBuildHasher>,
     define: &crate::parser::ast::Define,
 ) {
     scope.define(
@@ -706,10 +724,9 @@ fn define_var(
 }
 
 impl<'a> AnalysisPass<'a> {
-    pub fn new(info: &'a mut Analysis, scope: &'a mut ScopeMap<InternedString, ScopeInfo>) -> Self {
+    pub fn new(info: &'a mut Analysis) -> Self {
         AnalysisPass {
             info,
-            scope,
             captures: ScopeMap::default(),
             tail_call_eligible: false,
             escape_analysis: false,
@@ -732,7 +749,8 @@ impl<'a> AnalysisPass<'a> {
         &self,
         let_level_bindings: &[&InternedString],
     ) -> HashSet<InternedString> {
-        self.scope
+        self.info
+            .scope
             .iter()
             .filter(|x| !x.1.captured)
             .filter(|x| !let_level_bindings.contains(&x.0))
@@ -743,8 +761,9 @@ impl<'a> AnalysisPass<'a> {
     fn get_captured_vars(
         &self,
         let_level_bindings: &[&InternedString],
-    ) -> FxHashMap<InternedString, ScopeInfo> {
-        self.scope
+    ) -> SmallVec<[(InternedString, ScopeInfo); 8]> {
+        self.info
+            .scope
             .iter()
             .filter(|x| x.1.captured)
             .filter(|x| !let_level_bindings.contains(&x.0))
@@ -762,7 +781,7 @@ impl<'a> AnalysisPass<'a> {
 
         // If this variable name is already in scope, we should mark that this variable
         // shadows the previous id
-        if let Some(shadowed_var) = self.scope.get(name) {
+        if let Some(shadowed_var) = self.info.scope.get(name) {
             semantic_info = semantic_info.shadows(shadowed_var.id);
 
             if let Some(existing_analysis) = self.info.info.get_mut(&shadowed_var.id) {
@@ -785,7 +804,7 @@ impl<'a> AnalysisPass<'a> {
         }
 
         // println!("Defining global: {}", define.name);
-        define_var(self.scope, define);
+        define_var(&mut self.info.scope, define);
 
         self.info.insert(name_syntax_object, semantic_info);
     }
@@ -799,12 +818,12 @@ impl<'a> AnalysisPass<'a> {
         let name = define.name.atom_identifier().unwrap();
 
         let mut semantic_info = SemanticInformation::new(
-            if self.scope.depth() == 1 {
+            if self.info.scope.depth() == 1 {
                 IdentifierStatus::Global
             } else {
                 identifier_status_if_local
             },
-            self.scope.depth(),
+            self.info.scope.depth(),
             define.name.atom_syntax_object().unwrap().span,
         );
 
@@ -818,12 +837,12 @@ impl<'a> AnalysisPass<'a> {
 
         // If this variable name is already in scope, we should mark that this variable
         // shadows the previous id
-        if let Some(shadowed_var) = self.scope.get(name) {
+        if let Some(shadowed_var) = self.info.scope.get(name) {
             // log::debug!("Redefining previous variable: {:?}", name);
             semantic_info = semantic_info.shadows(shadowed_var.id);
         }
 
-        define_var(self.scope, define);
+        define_var(&mut self.info.scope, define);
 
         self.info
             .insert(define.name.atom_syntax_object().unwrap(), semantic_info);
@@ -839,8 +858,8 @@ impl<'a> AnalysisPass<'a> {
             .get(&lambda_function.syntax_object_id)
             .map(|x| {
                 x.captured_vars()
-                    .values()
-                    .filter(|x| x.captured && x.mutated)
+                    .iter()
+                    .filter(|(_, x)| x.captured && x.mutated)
                     .count()
             });
 
@@ -857,7 +876,7 @@ impl<'a> AnalysisPass<'a> {
                 .function_info
                 .get(&lambda_function.syntax_object_id)
             {
-                if let Some(info) = info.arguments.get(name) {
+                if let Some((_, info)) = info.arguments.iter().find(|(x, _)| x == name) {
                     // println!("Found information: {:#?}", info);
                     info.mutated && info.captured
                 } else {
@@ -869,7 +888,7 @@ impl<'a> AnalysisPass<'a> {
 
             // TODO: clean this up like a lot
             if heap_alloc {
-                self.scope.define(
+                self.info.scope.define(
                     *name,
                     ScopeInfo::new_heap_allocated_var(
                         id,
@@ -892,7 +911,9 @@ impl<'a> AnalysisPass<'a> {
 
                 mut_var_offset += 1;
             } else {
-                self.scope.define(*name, ScopeInfo::new_local(id, index));
+                self.info
+                    .scope
+                    .define(*name, ScopeInfo::new_local(id, index));
 
                 // Throw in a dummy info so that no matter what, we have something to refer to
                 // in the event of a set!
@@ -909,14 +930,17 @@ impl<'a> AnalysisPass<'a> {
         }
     }
 
-    fn pop_top_layer(&mut self) -> FxHashMap<InternedString, ScopeInfo> {
+    // fn pop_top_layer(&mut self) -> FxHashMap<InternedString, ScopeInfo> {
+    fn pop_top_layer(&mut self) -> SmallVec<[(InternedString, ScopeInfo); 8]> {
         let arguments = self
+            .info
             .scope
             .iter_top()
             .map(|x| (x.0.clone(), x.1.clone()))
-            .collect::<FxHashMap<_, _>>();
+            // .collect::<FxHashMap<_, _>>();
+            .collect();
 
-        self.scope.pop_layer();
+        self.info.scope.pop_layer();
 
         // let temporary_args = self
         //     .scope
@@ -939,14 +963,15 @@ impl<'a> AnalysisPass<'a> {
     fn find_and_mark_captured_arguments(
         &mut self,
         lambda_function: &LambdaFunction,
-        captured_vars: &FxHashMap<InternedString, ScopeInfo>,
+        captured_vars: &[(InternedString, ScopeInfo)],
         depth: usize,
-        arguments: &FxHashMap<InternedString, ScopeInfo>,
+        // arguments: &FxHashMap<InternedString, ScopeInfo>,
+        arguments: &[(InternedString, ScopeInfo)],
     ) {
         for var in &lambda_function.args {
             let ident = var.atom_identifier().unwrap();
 
-            let kind = if let Some(info) = captured_vars.get(ident) {
+            let kind = if let Some((_, info)) = captured_vars.iter().find(|x| x.0 == *ident) {
                 if info.mutated {
                     IdentifierStatus::HeapAllocated
                 } else {
@@ -967,7 +992,12 @@ impl<'a> AnalysisPass<'a> {
             // Update the usage count to collect how many times the variable was referenced
             // Inside of the scope in which the variable existed
             // TODO: merge this into one
-            let count = arguments.get(ident).unwrap().usage_count;
+            let count = arguments
+                .iter()
+                .find(|x| x.0 == *ident)
+                .unwrap()
+                .1
+                .usage_count;
 
             // if count == 0 {
             // log::debug!("Found unused argument: {:?}", ident);
@@ -977,7 +1007,7 @@ impl<'a> AnalysisPass<'a> {
 
             // If this variable name is already in scope, we should mark that this variable
             // shadows the previous id
-            if let Some(shadowed_var) = self.scope.get(ident) {
+            if let Some(shadowed_var) = self.info.scope.get(ident) {
                 semantic_info = semantic_info.shadows(shadowed_var.id)
             }
 
@@ -1065,7 +1095,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // that information - it _has_ to at least be calling something
         if !l.is_empty() {
             // Mark the call site - see what happens
-            let mut call_site_kind = if eligibility && self.scope.depth() > 1 {
+            let mut call_site_kind = if eligibility && self.info.scope.depth() > 1 {
                 CallKind::TailCall
             } else {
                 CallKind::Normal
@@ -1192,10 +1222,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
         self.tail_call_eligible = eligibility;
 
-        let is_top_level = self.scope.depth() == 1;
+        let is_top_level = self.info.scope.depth() == 1;
 
         if is_top_level {
-            self.scope.push_layer();
+            self.info.scope.push_layer();
         }
 
         let alloc_capture_count = self
@@ -1203,14 +1233,17 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             .and_then(|x| self.info.function_info.get(&x))
             .map(|x| {
                 x.captured_vars()
-                    .values()
-                    .filter(|x| x.captured && x.mutated)
+                    // .values()
+                    .iter()
+                    .filter(|(_, x)| x.captured && x.mutated)
                     .count()
             });
 
         // We don't want to include normal variables when keeping track
         // of the offset
         let mut mutable_var_offset = 0;
+
+        let let_info = self.info.let_info.get(&l.syntax_object_id);
 
         for arg in l.local_bindings() {
             // println!("{}", arg);
@@ -1219,7 +1252,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             let name = arg.atom_identifier().unwrap();
             let id = arg.atom_syntax_object().unwrap().syntax_object_id;
 
-            let heap_alloc = if let Some(info) = self.info.let_info.get(&l.syntax_object_id) {
+            let heap_alloc = if let Some(info) = &let_info {
                 if let Some(info) = info.arguments.get(name) {
                     info.mutated && info.captured
                 } else {
@@ -1231,7 +1264,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
             #[allow(clippy::diverging_sub_expression)]
             if heap_alloc {
-                self.scope.define(
+                self.info.scope.define(
                     *name,
                     ScopeInfo::new_heap_allocated_var(
                         id,
@@ -1247,7 +1280,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     arg.atom_syntax_object().unwrap(),
                     SemanticInformation::new(
                         IdentifierStatus::HeapAllocated,
-                        self.scope.depth(),
+                        self.info.scope.depth(),
                         arg.atom_syntax_object().unwrap().span,
                     ),
                 );
@@ -1260,14 +1293,15 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // println!("{}", l);
                 // println!("Top Level: {}", is_top_level);
 
-                self.scope
+                self.info
+                    .scope
                     .define(*name, ScopeInfo::new_local(id, stack_offset));
 
-                self.info.insert(
-                    arg.atom_syntax_object().unwrap(),
+                self.info.info.insert(
+                    arg.atom_syntax_object().unwrap().syntax_object_id,
                     SemanticInformation::new(
                         IdentifierStatus::LetVar,
-                        self.scope.depth(),
+                        self.info.scope.depth(),
                         arg.atom_syntax_object().unwrap().span,
                     ),
                 );
@@ -1290,7 +1324,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             // dbg!(name.resolve());
             // dbg!(self.scope.keys().map(|x| x.resolve()).collect::<Vec<_>>());
 
-            let scoped_info = self.scope.remove(name).unwrap();
+            let scoped_info = self.info.scope.remove(name).unwrap();
 
             if let Some(id) = &scoped_info.last_used {
                 self.info.get_mut(id).unwrap().last_usage = true;
@@ -1313,7 +1347,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         }
 
         if is_top_level {
-            self.scope.pop_layer();
+            self.info.scope.pop_layer();
         }
 
         self.stack_offset = rollback_offset;
@@ -1349,15 +1383,15 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
             // Handle the immutable variables being patched in
             {
-                let mut sorted_vars = vars
-                    .iter_mut()
-                    .filter(|x| !x.1.mutated)
-                    .collect::<SmallVec<[_; 8]>>();
-                sorted_vars.sort_by_key(|x| x.1.id);
+                // let mut sorted_vars = vars
+                //     .iter_mut()
+                //     .filter(|x| !x.1.mutated)
+                //     .collect::<SmallVec<[_; 8]>>();
+                // sorted_vars.sort_by_key(|x| x.1.id);
 
                 // So for now, we sort by id, then map these directly to indices that will live in the
                 // corresponding captured closure
-                for (index, (key, value)) in sorted_vars.iter_mut().enumerate() {
+                for (index, (key, value)) in vars.iter_mut().filter(|x| !x.1.mutated).enumerate() {
                     // If we've already captured this variable, mark it as being captured from the enclosing environment
                     // TODO: If there is shadowing, this might not work?
                     if let Some(captured_var) = self.captures.get(key) {
@@ -1398,13 +1432,13 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             }
 
             {
-                let mut captured_and_mutated = vars
-                    .iter_mut()
-                    .filter(|x| x.1.mutated)
-                    .collect::<SmallVec<[_; 8]>>();
-                captured_and_mutated.sort_by_key(|x| x.1.id);
+                // let mut captured_and_mutated = vars
+                //     .iter_mut()
+                //     .filter(|x| x.1.mutated)
+                //     .collect::<SmallVec<[_; 8]>>();
+                // captured_and_mutated.sort_by_key(|x| x.1.id);
 
-                for (index, (key, value)) in captured_and_mutated.iter_mut().enumerate() {
+                for (index, (key, value)) in vars.iter_mut().filter(|x| x.1.mutated).enumerate() {
                     // value.heap_offset = Some(index);
 
                     // If we've already captured this variable, mark it as being captured from the enclosing environment
@@ -1460,7 +1494,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         }
 
         // We're entering a new scope since we've entered a lambda function
-        self.scope.push_layer();
+        self.info.scope.push_layer();
 
         // let let_level_bindings = lambda_function.arguments().unwrap();
 
@@ -1471,7 +1505,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             .collect::<Option<_>>()
             .unwrap();
 
-        let depth = self.scope.depth();
+        let depth = self.info.scope.depth();
 
         self.visit_func_args(lambda_function, depth);
 
@@ -1510,7 +1544,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         let mut captured_vars = self.get_captured_vars(&let_level_bindings);
 
         for (var, value) in self.captures.iter() {
-            if let Some(scope_info) = captured_vars.get_mut(var) {
+            if let Some((_, scope_info)) = captured_vars.iter_mut().find(|x| x.0 == *var) {
                 scope_info.captured_from_enclosing = value.captured_from_enclosing;
             }
         }
@@ -1532,7 +1566,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // the last usage of the variables there. That way, all exit points of the function
         // actually get marked
 
-        for id in arguments.values().filter_map(|x| x.last_used) {
+        for id in arguments.iter().filter_map(|x| x.1.last_used) {
             self.info.get_mut(&id).unwrap().last_usage = true;
         }
 
@@ -1552,23 +1586,35 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             // println!("slated for removal length: {}", slated_for_removal.len());
 
             if lambda_bottoms_out {
-                captured_vars.retain(|x: &InternedString, _| self.vars_used.contains(x));
+                captured_vars.retain(|(x, _)| self.vars_used.contains(x));
 
-                for var in info.captured_vars.keys() {
-                    if !captured_vars.contains_key(var) {
+                for (var, _) in info.captured_vars.iter() {
+                    if !captured_vars.iter().find(|x| x.0 == *var).is_some() {
                         slated_for_removal.push(*var);
                     }
                 }
 
                 for var in slated_for_removal {
-                    info.captured_vars.remove(&var);
+                    let position = info.captured_vars.iter().position(|x| x.0 == var);
+
+                    if let Some(position) = position {
+                        info.captured_vars.remove(position);
+                    }
                 }
+
+                // for var in slated_for_removal {
+                // info.captured_vars.remove(&var);
+
+                // info.captured_vars.swap_remove()
+
+                // info.captured_vars.retain(|x| !slated_for_removal.contains(x)));
+                // }
 
                 // println!("Captured vars dropped: {}", before - captured_vars.len());
             }
 
             for (var, value) in captured_vars {
-                if let Some(scope_info) = info.captured_vars.get_mut(&var) {
+                if let Some((_, scope_info)) = info.captured_vars.iter_mut().find(|x| x.0 == var) {
                     scope_info.captured_from_enclosing = value.captured_from_enclosing;
                     scope_info.heap_offset = value.heap_offset;
                 };
@@ -1611,33 +1657,26 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         if let Some(name) = name {
             // Mark that we've used this
             self.vars_used.push(*name);
+            // let mut found: Option<SyntaxObjectId> = None;
 
             // Gather the id of the variable that is in fact mutated
-            if let Some(scope_info) = self.scope.get_mut(name) {
+            if let Some(scope_info) = self.info.scope.get_mut(name) {
                 // Bump the usage count
                 // TODO Also mark this as mutated
                 scope_info.usage_count += 1;
 
+                // found = Some(scope_info.id);
+                scope_info.mutated = true;
                 let id = scope_info.id;
+                // drop(scope_info);
+
                 if let Some(var) = self.info.get_mut(&id) {
                     var.set_bang = true;
-                    scope_info.mutated = true;
-                    // scope_info.read_heap_offset = var.read_heap_offset;
-
-                    // while let Some(reference) = var.refers_to.and_then(|x| self.info.get_mut(&x)) {
-                    //     reference.set_bang = true;
-                    //     var = reference;
-                    // }
-
-                    // var.refers
+                    // scope_info.mutated = true;
+                } else {
+                    // scope_info.mutated = false;
                 }
-                // else {
-                //     log::debug!("Unable to find var: {name} in info map to update to set!");
-                // }
             }
-            // else {
-            //     log::debug!("Variable not yet in scope: {name}");
-            // }
         }
 
         self.visit(&s.variable);
@@ -1645,7 +1684,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
     fn visit_atom(&mut self, a: &'a crate::parser::ast::Atom) {
         let name = a.ident();
-        let depth = self.scope.depth();
+        let depth = self.info.scope.depth();
         // Snag the current id of this node - we're gonna want this for later
         let current_id = a.syn.syntax_object_id;
 
@@ -1659,18 +1698,24 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
             // Check if its a global var - otherwise, we want to check if its a free
             // identifier
-            if let Some(depth) = self.scope.height_of(ident) {
+
+            // TODO: Checking if this is a global var can probably cause some
+            // issues by repeatedly checking this.
+
+            if let Some(depth) = self.info.scope.height_of(ident) {
                 if depth == 0 {
                     // Mark the parent as used
-                    let global_var = self.scope.get_mut(ident).unwrap();
+                    let global_var = self.info.scope.get_mut(ident).unwrap();
                     global_var.usage_count += 1;
 
-                    self.info.get_mut(&global_var.id).unwrap().usage_count += 1;
+                    let global_var_id = global_var.id;
+
+                    self.info.get_mut(&global_var_id).unwrap().usage_count += 1;
 
                     let mut semantic_information =
                         SemanticInformation::new(IdentifierStatus::Global, depth, a.syn.span)
                             .with_usage_count(1)
-                            .refers_to(global_var.id);
+                            .refers_to(global_var_id);
 
                     // if self.info.info.get(&global_var.id).unwrap().builtin {
                     //     println!("FOUND USAGE OF BUILTIN: {}", ident);
@@ -1698,11 +1743,11 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             }
 
             // If this contains a key at the top, then it shouldn't be marked as captured by this scope
-            if self.scope.contains_key_at_top(ident) {
+            if self.info.scope.contains_key_at_top(ident) {
                 // Set it to not be captured if its contained at the top level
                 // self.scope.get_mut(ident).unwrap().captured = false;
 
-                let mut_ref = self.scope.get_mut(ident).unwrap();
+                let mut_ref = self.info.scope.get_mut(ident).unwrap();
 
                 // Not sure if this is going to be a problem...
                 // Because if its captured at this stage, I think we want it to be marked as captured
@@ -1713,26 +1758,36 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // Mark this as last touched by this identifier
                 mut_ref.last_used = Some(current_id);
 
+                let mut_ref_id = mut_ref.id;
+                let mut_ref_heap_offset = mut_ref.heap_offset;
+                let mut_ref_read_heap_offset = mut_ref.read_heap_offset;
+                let mut_ref_usage_count = mut_ref.usage_count;
+                let mut_ref_captured = mut_ref.captured;
+                let mut_ref_mutated = mut_ref.mutated;
+                let mut_ref_stack_offset = mut_ref.stack_offset;
+
+                // drop(mut_ref);
+
                 // In the event there is a local define, we want to count the usage here
-                if let Some(local_define) = self.info.get_mut(&mut_ref.id) {
-                    local_define.usage_count = mut_ref.usage_count;
+                if let Some(local_define) = self.info.get_mut(&mut_ref_id) {
+                    local_define.usage_count = mut_ref_usage_count;
                 }
 
                 let mut semantic_info =
                     SemanticInformation::new(IdentifierStatus::Local, depth, a.syn.span)
                         .with_usage_count(1)
-                        .refers_to(mut_ref.id);
+                        .refers_to(mut_ref_id);
 
-                if let Some(stack_offset) = mut_ref.stack_offset {
+                if let Some(stack_offset) = mut_ref_stack_offset {
                     semantic_info = semantic_info.with_offset(stack_offset);
                 } else {
                     // log::debug!("Stack offset missing from local define")
                 }
 
-                if mut_ref.captured && mut_ref.mutated {
+                if mut_ref_captured && mut_ref_mutated {
                     semantic_info.kind = IdentifierStatus::HeapAllocated;
-                    semantic_info.heap_offset = mut_ref.heap_offset;
-                    semantic_info.read_heap_offset = mut_ref.read_heap_offset;
+                    semantic_info.heap_offset = mut_ref_heap_offset;
+                    semantic_info.read_heap_offset = mut_ref_read_heap_offset;
                 }
 
                 self.info.insert(&a.syn, semantic_info);
@@ -1768,7 +1823,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 };
 
                 // We also want to mark the current var thats actually in scope as last used as well
-                if let Some(in_scope) = self.scope.get_mut(ident) {
+                if let Some(in_scope) = self.info.scope.get_mut(ident) {
                     in_scope.last_used = Some(current_id);
                     in_scope.captured = true;
 
@@ -1836,17 +1891,25 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             // variables exists in the local scope - i.e, the var has been patched in via a closure,
             // we could 1. do closure conversion on it via rewriting, or could 2. automatically
             // patch those vars in
-            if let Some(is_captured) = self.scope.get_mut(ident) {
+            if let Some(is_captured) = self.info.scope.get_mut(ident) {
                 is_captured.captured = true;
                 is_captured.usage_count += 1;
 
                 // TODO: Make sure we want to mark this identifier as last used
                 is_captured.last_used = Some(current_id);
 
+                // drop(is_captured);
+
+                let is_captured_id = is_captured.id;
+                let is_captured_stack_offset = is_captured.stack_offset;
+                let is_captured_usage_count = is_captured.usage_count;
+
+                // drop(is_captured);
+
                 let mut identifier_status = IdentifierStatus::Captured;
 
-                if let Some(local_define) = self.info.get_mut(&is_captured.id) {
-                    local_define.usage_count = is_captured.usage_count;
+                if let Some(local_define) = self.info.get_mut(&is_captured_id) {
+                    local_define.usage_count = is_captured_usage_count;
 
                     // If this _is_ in fact a locally defined function, we don't want to capture it
                     // This is something that is going to get lifted to the top environment anyway
@@ -1859,14 +1922,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 let mut semantic_info =
                     SemanticInformation::new(identifier_status, depth, a.syn.span)
                         .with_usage_count(1)
-                        .refers_to(is_captured.id);
+                        .refers_to(is_captured_id);
                 // .with_offset(
                 //     is_captured
                 //         .stack_offset
                 //         .expect("Local variables should have an offset"),
                 // );
 
-                if let Some(stack_offset) = is_captured.stack_offset {
+                if let Some(stack_offset) = is_captured_stack_offset {
                     semantic_info = semantic_info.with_offset(stack_offset);
                 } else {
                     // log::debug!("Stack offset missing from local define")
@@ -2712,8 +2775,8 @@ impl<'a> VisitorMutRefUnit for LiftPureFunctionsToGlobalScope<'a> {
                             return;
                         }
 
-                        for arg in info.arguments().values() {
-                            if arg.mutated {
+                        for arg in info.arguments() {
+                            if arg.1.mutated {
                                 return;
                             }
                         }
@@ -2829,8 +2892,8 @@ impl<'a> VisitorMutRefUnit for ElideSingleArgumentLambdaApplications<'a> {
                         }
 
                         if let Some(info) = self.analysis.get_function_info(&lf) {
-                            for arg in info.arguments().values() {
-                                if arg.mutated {
+                            for arg in info.arguments() {
+                                if arg.1.mutated {
                                     return;
                                 }
                             }
@@ -2952,7 +3015,8 @@ impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
             // Which arguments do we need to wrap up
             for var in &lambda_function.args {
                 if let Some(ident) = var.atom_identifier() {
-                    if let Some(arg) = function_info.arguments().get(ident) {
+                    if let Some((_, arg)) = function_info.arguments().iter().find(|x| x.0 == *ident)
+                    {
                         if arg.captured && arg.mutated {
                             mutable_variables.push(var.clone());
                         }
@@ -2973,12 +3037,14 @@ impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
                     lambda_function.location.clone(),
                 );
 
-                // Box the values!
-                let mut mutable_variables: Vec<_> =
-                    mutable_variables.into_iter().map(box_argument).collect();
+                let mut new_expr = Vec::with_capacity(mutable_variables.len() + 1);
 
-                mutable_variables.insert(0, ExprKind::LambdaFunction(Box::new(wrapped_lambda)));
-                lambda_function.body = ExprKind::List(List::new(mutable_variables));
+                new_expr.push(ExprKind::LambdaFunction(Box::new(wrapped_lambda)));
+
+                // Box the values!
+                new_expr.extend(mutable_variables.into_iter().map(box_argument));
+
+                lambda_function.body = ExprKind::List(List::new(new_expr));
             }
         }
     }
@@ -3120,7 +3186,9 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesInsideMacros<'a> {
         if let Some(ident) = a.ident_mut() {
             if self.identifiers_to_replace.contains(ident) {
                 if let Some((_, builtin_name)) = ident.resolve().split_once(MANGLER_SEPARATOR) {
-                    *ident = ("#%prim.".to_string() + builtin_name).into();
+                    // *ident = ("#%prim.".to_string() + builtin_name).into();
+
+                    *ident = builtin_to_reserved(builtin_name);
                     self.changed = true;
                 }
             }
@@ -3186,7 +3254,9 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
 
                         self.identifiers_to_replace.insert(*ident);
 
-                        *ident = ("#%prim.".to_string() + builtin_name).into();
+                        // *ident = ("#%prim.".to_string() + builtin_name).into();
+
+                        *ident = builtin_to_reserved(builtin_name);
 
                         // println!("top level - MUTATED IDENT TO BE: {} -> {}", original, ident);
                     }
@@ -3211,7 +3281,8 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
 
                                     self.identifiers_to_replace.insert(*ident);
 
-                                    *ident = ("#%prim.".to_string() + builtin_name).into();
+                                    // *ident = ("#%prim.".to_string() + builtin_name).into();
+                                    *ident = builtin_to_reserved(builtin_name);
 
                                     // println!("MUTATED IDENT TO BE: {} -> {}", original, ident);
 
@@ -3336,7 +3407,7 @@ struct FunctionCallCollector<'a> {
     functions: FxHashMap<InternedString, FxHashSet<InternedString>>,
     black_box: InternedString,
     context: Option<InternedString>,
-    constants: ImmutableHashMap<InternedString, SteelVal>,
+    constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
     should_mangle: bool,
 }
 
@@ -3344,7 +3415,7 @@ impl<'a> FunctionCallCollector<'a> {
     pub fn mangle(
         analysis: &'a Analysis,
         exprs: &mut Vec<ExprKind>,
-        constants: ImmutableHashMap<InternedString, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         should_mangle: bool,
     ) -> FxHashMap<InternedString, FxHashSet<InternedString>> {
         let black_box: InternedString = "#%black-box".into();
@@ -3819,10 +3890,10 @@ impl<'a> SemanticAnalysis<'a> {
             now.elapsed()
         );
 
-        if macro_replacer.changed || !macro_replacer.identifiers_to_replace.is_empty() {
-            log::info!(target: "pipeline_time", "Skipping analysis...");
-            self.analysis.fresh_from_exprs(self.exprs);
-        }
+        // if macro_replacer.changed || !macro_replacer.identifiers_to_replace.is_empty() {
+        //     log::info!(target: "pipeline_time", "Skipping analysis...");
+        //     self.analysis.fresh_from_exprs(self.exprs);
+        // }
 
         self
     }
@@ -4040,7 +4111,8 @@ impl<'a> SemanticAnalysis<'a> {
 
         // log::debug!("Re-running the semantic analysis after removing unused globals");
 
-        self.analysis.fresh_from_exprs(self.exprs);
+        // Skip running the analysis here? Nothing will have changed?
+        // self.analysis.fresh_from_exprs(self.exprs);
 
         self
     }
@@ -4092,7 +4164,7 @@ impl<'a> SemanticAnalysis<'a> {
 
     pub fn run_black_box(
         &mut self,
-        constants: ImmutableHashMap<InternedString, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         should_mangle: bool,
     ) -> FxHashMap<InternedString, FxHashSet<InternedString>> {
         let map = FunctionCallCollector::mangle(
@@ -5651,11 +5723,10 @@ mod analysis_pass_tests {
         {
             let mut analysis = SemanticAnalysis::new(&mut exprs);
 
-            let constants = im_rc::hashmap! {
-                "+".into() => SteelVal::Void,
-                "<=".into() => SteelVal::Void,
-                "-".into() => SteelVal::Void,
-            };
+            let mut constants = im_rc::HashMap::default();
+            constants.insert("+".into(), SteelVal::Void);
+            constants.insert("<=".into(), SteelVal::Void);
+            constants.insert("-".into(), SteelVal::Void);
 
             let result = analysis.run_black_box(constants, true);
 

@@ -1,6 +1,4 @@
-
-
-use fxhash::FxHashMap;
+use fxhash::{FxBuildHasher, FxHashMap};
 use quickscope::{ScopeMap, ScopeSet};
 
 use crate::parser::{
@@ -13,9 +11,9 @@ use super::VisitorMutRefUnit;
 #[derive(Clone)]
 pub struct RenameShadowedVariables {
     modified: bool,
-    scope: ScopeSet<InternedString>,
+    scope: ScopeSet<InternedString, FxBuildHasher>,
     // Modify the variable with the depth
-    shadows: ScopeMap<InternedString, usize>,
+    shadows: ScopeMap<InternedString, usize, FxBuildHasher>,
     str_modifiers: FxHashMap<usize, String>,
 }
 
@@ -28,8 +26,8 @@ impl Default for RenameShadowedVariables {
 impl RenameShadowedVariables {
     pub fn new() -> Self {
         Self {
-            scope: ScopeSet::new(),
-            shadows: ScopeMap::new(),
+            scope: ScopeSet::default(),
+            shadows: ScopeMap::default(),
             modified: false,
             str_modifiers: FxHashMap::default(),
         }

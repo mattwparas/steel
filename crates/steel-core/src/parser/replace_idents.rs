@@ -1,11 +1,11 @@
-use fxhash::FxHashMap;
+use fxhash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 
 use crate::compiler::passes::{VisitorMutControlFlow, VisitorMutRefUnit};
 use crate::compiler::program::SYNTAX_SPAN;
+use crate::parser::parser::SyntaxObject;
 use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
-use crate::{parser::parser::SyntaxObject};
 use crate::{
     compiler::program::{DATUM_SYNTAX, SYNTAX_CONST_IF},
     parser::ast::ExprKind,
@@ -67,7 +67,7 @@ struct EllipsesExpanderVisitor<'a> {
     bindings: &'a mut FxHashMap<InternedString, ExprKind>,
     binding_kind: &'a mut FxHashMap<InternedString, BindingKind>,
     found_length: Option<usize>,
-    collected: HashSet<InternedString>,
+    collected: SmallVec<[InternedString; 8]>,
     error: Option<String>,
 }
 
@@ -81,7 +81,7 @@ impl<'a> EllipsesExpanderVisitor<'a> {
             bindings,
             binding_kind,
             found_length: None,
-            collected: HashSet::new(),
+            collected: SmallVec::default(),
             error: None,
         };
 
@@ -107,10 +107,10 @@ impl<'a> VisitorMutControlFlow for EllipsesExpanderVisitor<'a> {
                         }
 
                         // Found this one, use it
-                        self.collected.insert(*(a.ident().unwrap()));
+                        self.collected.push(*(a.ident().unwrap()));
                     } else {
                         self.found_length = Some(found_list.len());
-                        self.collected.insert(*(a.ident().unwrap()));
+                        self.collected.push(*(a.ident().unwrap()));
                     }
                 }
             }
@@ -189,7 +189,13 @@ impl<'a> ReplaceExpressions<'a> {
                     };
 
                     // Split off into small vec?
-                    let back_chunk = vec_exprs.split_off(ellipses_pos - 1);
+                    // let back_chunk = vec_exprs.split_off(ellipses_pos - 1);
+
+                    let back_chunk = vec_exprs
+                        .drain(ellipses_pos - 1..)
+                        .collect::<SmallVec<[_; 8]>>();
+
+                    vec_exprs.reserve(list_of_exprs.len() + back_chunk[2..].len());
 
                     vec_exprs.extend_from_slice(list_of_exprs);
 
@@ -251,7 +257,14 @@ impl<'a> ReplaceExpressions<'a> {
                         self.bindings.insert(key, value);
                     }
 
-                    let back_chunk = vec_exprs.split_off(ellipses_pos - 1);
+                    let back_chunk = vec_exprs
+                        .drain(ellipses_pos - 1..)
+                        .collect::<SmallVec<[_; 8]>>();
+
+                    // let back_chunk = vec_exprs.split_off(ellipses_pos - 1);
+
+                    vec_exprs.reserve(expanded_expressions.len() + back_chunk[2..].len());
+
                     vec_exprs.extend(expanded_expressions);
                     vec_exprs.extend_from_slice(&back_chunk[2..]);
 

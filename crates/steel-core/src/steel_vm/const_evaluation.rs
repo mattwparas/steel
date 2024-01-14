@@ -28,6 +28,7 @@ use std::{
     rc::{Rc, Weak},
 };
 
+use fxhash::{FxBuildHasher, FxHashSet};
 // use fxhash::FxHashSet;
 use im_rc::HashMap;
 
@@ -38,27 +39,27 @@ use super::cache::MemoizationTable;
 type SharedEnv = Rc<RefCell<ConstantEnv>>;
 
 struct ConstantEnv {
-    bindings: HashMap<InternedString, SteelVal>,
-    used_bindings: HashSet<InternedString>,
-    non_constant_bound: HashSet<InternedString>,
+    bindings: HashMap<InternedString, SteelVal, FxBuildHasher>,
+    used_bindings: HashSet<InternedString, FxBuildHasher>,
+    non_constant_bound: HashSet<InternedString, FxBuildHasher>,
     parent: Option<Weak<RefCell<ConstantEnv>>>,
 }
 
 impl ConstantEnv {
-    fn root(bindings: HashMap<InternedString, SteelVal>) -> Self {
+    fn root(bindings: HashMap<InternedString, SteelVal, FxBuildHasher>) -> Self {
         Self {
             bindings,
-            used_bindings: HashSet::new(),
-            non_constant_bound: HashSet::new(),
+            used_bindings: HashSet::default(),
+            non_constant_bound: HashSet::default(),
             parent: None,
         }
     }
 
     fn new_subexpression(parent: Weak<RefCell<ConstantEnv>>) -> Self {
         Self {
-            bindings: HashMap::new(),
-            used_bindings: HashSet::new(),
-            non_constant_bound: HashSet::new(),
+            bindings: HashMap::default(),
+            used_bindings: HashSet::default(),
+            non_constant_bound: HashSet::default(),
             parent: Some(parent),
         }
     }
@@ -124,7 +125,7 @@ impl ConstantEnv {
 // Holds the arena for all environments to eventually be dropped together
 pub struct ConstantEvaluatorManager<'a> {
     global_env: SharedEnv,
-    set_idents: HashSet<InternedString>,
+    set_idents: FxHashSet<InternedString>,
     pub(crate) changed: bool,
     opt_level: OptLevel,
     memoization_table: &'a mut MemoizationTable,
@@ -134,13 +135,13 @@ pub struct ConstantEvaluatorManager<'a> {
 impl<'a> ConstantEvaluatorManager<'a> {
     pub fn new(
         memoization_table: &'a mut MemoizationTable,
-        constant_bindings: HashMap<InternedString, SteelVal>,
+        constant_bindings: HashMap<InternedString, SteelVal, FxBuildHasher>,
         opt_level: OptLevel,
         kernel: &'a mut Option<Kernel>,
     ) -> Self {
         Self {
             global_env: Rc::new(RefCell::new(ConstantEnv::root(constant_bindings))),
-            set_idents: HashSet::new(),
+            set_idents: HashSet::default(),
             changed: false,
             opt_level,
             memoization_table,
@@ -226,7 +227,7 @@ impl<'a> ConstantEvaluatorManager<'a> {
 
 struct ConstantEvaluator<'a> {
     bindings: SharedEnv,
-    set_idents: &'a HashSet<InternedString>,
+    set_idents: &'a FxHashSet<InternedString>,
     expr_level_set_idents: &'a [InternedString],
     changed: bool,
     opt_level: OptLevel,
@@ -248,7 +249,7 @@ fn steelval_to_atom(value: &SteelVal) -> Option<TokenType<InternedString>> {
 impl<'a> ConstantEvaluator<'a> {
     fn new(
         bindings: Rc<RefCell<ConstantEnv>>,
-        set_idents: &'a HashSet<InternedString>,
+        set_idents: &'a FxHashSet<InternedString>,
         expr_level_set_idents: &'a [InternedString],
         opt_level: OptLevel,
         memoization_table: &'a mut MemoizationTable,
@@ -893,13 +894,13 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 // TODO: If the value is local, we need to exclude it:
 // entering and exiting a scope should push and pop it off.
 struct CollectSet<'a> {
-    set_idents: &'a mut HashSet<InternedString>,
-    scopes: quickscope::ScopeSet<InternedString>,
+    set_idents: &'a mut FxHashSet<InternedString>,
+    scopes: quickscope::ScopeSet<InternedString, FxBuildHasher>,
     pub expr_level_set_idents: smallvec::SmallVec<[InternedString; 32]>,
 }
 
 impl<'a> CollectSet<'a> {
-    fn new(set_idents: &'a mut HashSet<InternedString>) -> Self {
+    fn new(set_idents: &'a mut FxHashSet<InternedString>) -> Self {
         Self {
             set_idents,
             scopes: quickscope::ScopeSet::default(),

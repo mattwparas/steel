@@ -83,7 +83,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             );
 
             let contents = fs::read_to_string(&path)?;
-            let res = vm.compile_and_run_raw_program_with_path(&contents, path.clone());
+            let res = vm.compile_and_run_raw_program_with_path(contents.clone(), path.clone());
 
             if let Err(e) = res {
                 e.emit_result(path.to_str().unwrap(), &contents);
@@ -143,7 +143,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
         } => {
             let contents = fs::read_to_string(&path)?;
 
-            let program = vm.emit_raw_program(&contents, path.clone());
+            let program = vm.emit_raw_program(contents.clone(), path.clone());
 
             match program {
                 Ok(program) => {
@@ -187,7 +187,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             let core_libraries = &[steel::stdlib::PRELUDE];
 
             for core in core_libraries {
-                let res = vm.compile_and_run_raw_program(core);
+                let res = vm.compile_and_run_raw_program(*core);
                 if let Err(e) = res {
                     eprintln!("{e}");
                     return Ok(());
@@ -196,7 +196,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
 
             let contents =
                 fs::read_to_string(&path).expect("Something went wrong reading the file");
-            let res = vm.compile_and_run_raw_program_with_path(&contents, path.clone());
+            let res = vm.compile_and_run_raw_program_with_path(contents.clone(), path.clone());
 
             if let Err(e) = res {
                 e.emit_result(path.to_str().unwrap(), &contents);
@@ -218,7 +218,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
 
             // Something went wrong - TODO: Raise the error correctly
             let non_interactive_program =
-                Engine::create_non_interactive_program_image(&entrypoint, file).unwrap();
+                Engine::create_non_interactive_program_image(entrypoint, file).unwrap();
 
             let mut temporary_output = PathBuf::from("steel_target/src");
 

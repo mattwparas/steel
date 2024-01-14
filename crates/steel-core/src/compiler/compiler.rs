@@ -21,14 +21,14 @@ use crate::{
     parser::parser::Sources,
 };
 
-use std::iter::Iterator;
+use std::{borrow::Cow, iter::Iterator};
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
 };
 
 // TODO: Replace the usages of hashmap with this directly
-use fxhash::{FxHashMap, FxHashSet};
+use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::rvals::{Result, SteelVal};
@@ -431,33 +431,35 @@ impl Compiler {
         &mut self,
         exprs: Vec<ExprKind>,
         builtin_modules: ModuleContainer,
-        constants: ImmutableHashMap<InternedString, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {
         self.compile_raw_program(exprs, constants, builtin_modules, None, sources)
     }
 
-    pub fn compile_executable(
+    pub fn compile_executable<E: AsRef<str> + Into<Cow<'static, str>>>(
         &mut self,
-        expr_str: &str,
+        expr_str: E,
         path: Option<PathBuf>,
-        constants: ImmutableHashMap<InternedString, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         builtin_modules: ModuleContainer,
         sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {
         #[cfg(feature = "profiling")]
         let now = Instant::now();
 
-        let id = sources.add_source(expr_str.to_string(), path.clone());
+        let expr_str = expr_str.into();
+
+        let id = sources.add_source(expr_str.clone(), path.clone());
 
         // Could fail here
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> = if let Some(p) = &path {
-            Parser::new_from_source(expr_str, p.clone(), Some(id))
+            Parser::new_from_source(expr_str.as_ref(), p.clone(), Some(id))
                 .without_lowering()
                 .map(|x| x.and_then(lower_macro_and_require_definitions))
                 .collect()
         } else {
-            Parser::new(expr_str, Some(id))
+            Parser::new(expr_str.as_ref(), Some(id))
                 .without_lowering()
                 .map(|x| x.and_then(lower_macro_and_require_definitions))
                 .collect()
@@ -481,7 +483,7 @@ impl Compiler {
     pub fn emit_expanded_ast(
         &mut self,
         expr_str: &str,
-        constants: ImmutableHashMap<InternedString, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         path: Option<PathBuf>,
         sources: &mut Sources,
         builtin_modules: ModuleContainer,
@@ -503,7 +505,7 @@ impl Compiler {
     pub fn emit_expanded_ast_without_optimizations(
         &mut self,
         expr_str: &str,
-        constants: ImmutableHashMap<InternedString, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         path: Option<PathBuf>,
         sources: &mut Sources,
         builtin_modules: ModuleContainer,
@@ -607,7 +609,7 @@ impl Compiler {
     fn expand_ast(
         &mut self,
         exprs: Vec<ExprKind>,
-        constants: ImmutableHashMap<InternedString, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         builtin_modules: ModuleContainer,
         path: Option<PathBuf>,
         sources: &mut Sources,
@@ -821,7 +823,7 @@ impl Compiler {
     fn lower_expressions_impl(
         &mut self,
         exprs: Vec<ExprKind>,
-        constants: ImmutableHashMap<InternedString, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         builtin_modules: ModuleContainer,
         path: Option<PathBuf>,
         sources: &mut Sources,
@@ -1006,7 +1008,7 @@ impl Compiler {
     fn compile_raw_program(
         &mut self,
         exprs: Vec<ExprKind>,
-        constants: ImmutableHashMap<InternedString, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         builtin_modules: ModuleContainer,
         path: Option<PathBuf>,
         sources: &mut Sources,
@@ -1047,7 +1049,7 @@ impl Compiler {
 
     fn apply_const_evaluation(
         &mut self,
-        constants: ImmutableHashMap<InternedString, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         mut expanded_statements: Vec<ExprKind>,
         use_kernel: bool,
     ) -> Result<Vec<ExprKind>> {

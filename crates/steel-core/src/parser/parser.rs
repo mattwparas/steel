@@ -1,6 +1,7 @@
 use crate::rvals::{IntoSteelVal, SteelString};
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 
+use std::borrow::Cow;
 use std::str;
 use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, path::PathBuf};
@@ -38,7 +39,7 @@ impl FromSteelVal for SourceId {
 pub(crate) struct InterierSources {
     paths: HashMap<SourceId, PathBuf>,
     reverse: HashMap<PathBuf, SourceId>,
-    sources: Vec<String>,
+    sources: Vec<Cow<'static, str>>,
 }
 
 impl InterierSources {
@@ -60,17 +61,21 @@ impl InterierSources {
     // TODO: Source Id should probably be a weak pointer back here rather than an ID
     // that way if in the event we _do_ leak some strings or the sources are just unreachable
     // we can clean up any remaining things
-    pub fn add_source(&mut self, source: String, path: Option<PathBuf>) -> SourceId {
+    pub fn add_source(
+        &mut self,
+        source: impl Into<Cow<'static, str>>,
+        path: Option<PathBuf>,
+    ) -> SourceId {
         // We're overwriting the existing source
         if let Some(path) = &path {
             if let Some(id) = self.reverse.get(path) {
-                self.sources[id.0] = source;
+                self.sources[id.0] = source.into();
                 return *id;
             }
         }
 
         let index = self.sources.len();
-        self.sources.push(source);
+        self.sources.push(source.into());
 
         let id = SourceId(index);
 
@@ -82,7 +87,7 @@ impl InterierSources {
         id
     }
 
-    pub fn get(&self, source_id: SourceId) -> Option<&String> {
+    pub fn get(&self, source_id: SourceId) -> Option<&Cow<'static, str>> {
         self.sources.get(source_id.0)
     }
 
@@ -113,7 +118,11 @@ impl Sources {
         }
     }
 
-    pub fn add_source(&mut self, source: String, path: Option<PathBuf>) -> SourceId {
+    pub fn add_source(
+        &mut self,
+        source: impl Into<Cow<'static, str>>,
+        path: Option<PathBuf>,
+    ) -> SourceId {
         self.sources.lock().unwrap().add_source(source, path)
     }
 

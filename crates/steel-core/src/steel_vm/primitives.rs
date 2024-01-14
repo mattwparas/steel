@@ -61,7 +61,7 @@ use crate::{
 use crate::primitives::web::requests::requests_module;
 
 use crate::values::lists::List;
-use fxhash::FxHashSet;
+use fxhash::{FxHashMap, FxHashSet};
 use im_rc::HashMap;
 use num::{Signed, ToPrimitive};
 use once_cell::sync::Lazy;
@@ -517,6 +517,30 @@ pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::n
 
     set
 });
+
+pub(crate) static ALL_MODULES_EXPANDED: &str = include_str!("../boot/all-modules-expanded.scm");
+
+pub(crate) static PRELUDE_TO_RESERVED_MAP: Lazy<FxHashMap<String, InternedString>> =
+    Lazy::new(|| {
+        PRELUDE_INTERNED_STRINGS.with(|x| {
+            x.iter()
+                .map(|x| {
+                    (
+                        x.resolve().to_string(),
+                        ("#%prim.".to_string() + x.resolve()).into(),
+                    )
+                })
+                .collect()
+        })
+    });
+
+pub fn builtin_to_reserved(ident: &str) -> InternedString {
+    if let Some(value) = PRELUDE_TO_RESERVED_MAP.get(ident) {
+        *value
+    } else {
+        ("#%prim.".to_string() + ident).into()
+    }
+}
 
 // TODO: Make the prelude string generation lazy - so that
 // the first time we load (steel/base) we don't have to regenerate
@@ -1606,6 +1630,8 @@ fn meta_module() -> BuiltInModule {
         )
         .register_value("get-contract-struct", SteelVal::FuncV(get_contract))
         .register_fn("current-os!", || std::env::consts::OS);
+
+    module.register_native_fn_definition(super::engine::LOAD_MODULE_NOOP_DEFINITION);
 
     // TODO: Remove
     #[cfg(feature = "dylibs")]

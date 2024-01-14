@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use steel_parser::tokens::TokenType;
 
 use crate::{
@@ -36,7 +37,7 @@ pub(crate) fn fresh_kernel_image() -> Engine {
     KERNEL_IMAGE.with(|x| x.clone())
 }
 
-type TransformerMap = HashMap<String, HashSet<InternedString>>;
+type TransformerMap = FxHashMap<String, FxHashSet<InternedString>>;
 
 // Internal set of transformers that we'll embed
 #[derive(Clone, Debug)]
@@ -327,7 +328,7 @@ impl Kernel {
     // TODO: Have this report errors
     pub fn load_program_for_comptime(
         &mut self,
-        constants: im_rc::HashMap<InternedString, SteelVal>,
+        constants: im_rc::HashMap<InternedString, SteelVal, FxBuildHasher>,
         exprs: &mut Vec<ExprKind>,
     ) -> Result<()> {
         let mut analysis = SemanticAnalysis::new(exprs);
@@ -457,7 +458,7 @@ impl Kernel {
         // todo!("Run through every expression, and memoize them by calling (set! <ident> (make-memoize <ident>))")
     }
 
-    pub fn exported_defmacros(&self, environment: &str) -> Option<HashSet<InternedString>> {
+    pub fn exported_defmacros(&self, environment: &str) -> Option<FxHashSet<InternedString>> {
         self.transformers
             .set
             .read()
