@@ -1,10 +1,4 @@
-use std::{
-    cell::Cell,
-    path::PathBuf,
-    rc::Rc,
-    result,
-    sync::atomic::{AtomicUsize},
-};
+use std::{cell::Cell, path::PathBuf, rc::Rc, result, sync::atomic::AtomicUsize};
 
 use serde::{Deserialize, Serialize};
 

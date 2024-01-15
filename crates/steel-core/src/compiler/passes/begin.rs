@@ -1,5 +1,4 @@
-
-use log::{debug};
+use log::debug;
 use steel_parser::tokens::MaybeBigInt;
 
 use crate::parser::{
@@ -7,7 +6,7 @@ use crate::parser::{
     parser::SyntaxObject,
 };
 use crate::parser::{interner::InternedString, tokens::TokenType};
-use std::{time::Instant};
+use std::time::Instant;
 
 use super::{Folder, VisitorMutRefUnit, VisitorMutUnit};
 
