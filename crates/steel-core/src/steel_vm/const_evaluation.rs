@@ -179,7 +179,7 @@ impl<'a> ConstantEvaluatorManager<'a> {
                 &self.set_idents,
                 &expr_level_set_idents,
                 self.opt_level,
-                self.memoization_table,
+                self._memoization_table,
                 self.kernel,
             );
             let mut output = eval.visit(expr)?;
@@ -231,7 +231,7 @@ struct ConstantEvaluator<'a> {
     expr_level_set_idents: &'a [InternedString],
     changed: bool,
     opt_level: OptLevel,
-    memoization_table: &'a mut MemoizationTable,
+    _memoization_table: &'a mut MemoizationTable,
     kernel: &'a mut Option<Kernel>,
 }
 
@@ -261,7 +261,7 @@ impl<'a> ConstantEvaluator<'a> {
             expr_level_set_idents,
             changed: false,
             opt_level,
-            memoization_table,
+            _memoization_table: memoization_table,
             kernel,
         }
     }
