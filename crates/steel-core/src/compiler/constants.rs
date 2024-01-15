@@ -11,6 +11,7 @@ use std::{cell::RefCell, rc::Rc};
 
 // TODO add the serializing and deserializing for constants
 use serde::{Deserialize, Serialize};
+use steel_parser::parser::lower_entire_ast;
 
 // Shared constant map - for repeated in memory execution of a program, this is going to share the same
 // underlying representation.
@@ -106,9 +107,10 @@ impl ConstantMap {
     }
 
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
-        // let vector_val = self.to_constant_expr_map()?;
-
         let str_vector = self.to_constant_expr_map();
+
+        println!("{:?}", str_vector);
+
         let result = bincode::serialize(&str_vector);
 
         Ok(result.unwrap())
@@ -121,17 +123,19 @@ impl ConstantMap {
     pub fn from_bytes(encoded: &[u8]) -> Result<ConstantMap> {
         let str_vector: Vec<String> = bincode::deserialize(encoded).unwrap();
 
-        // println!("{:?}", str_vector);
-
         str_vector
             .into_iter()
             .map(|x| {
                 // Parse the input
                 let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
                     Parser::new_flat(&x, None).collect();
-                let parsed = parsed?;
+                let mut parsed = parsed?;
 
-                TryFromExprKindForSteelVal::try_from_expr_kind_quoted(parsed[0].clone())
+                lower_entire_ast(&mut parsed[0])?;
+
+                // println!("{}", &parsed[0]);
+
+                TryFromExprKindForSteelVal::try_from_expr_kind(parsed[0].clone())
 
                 // Ok(SteelVal::try_from(parsed[0].clone()).unwrap())
             })

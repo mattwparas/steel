@@ -1,3 +1,4 @@
+use fxhash::FxHashSet;
 use steel_parser::ast::DEFINE;
 
 use crate::{
@@ -10,7 +11,6 @@ use crate::{
 };
 
 use super::VisitorMutRefUnit;
-use std::collections::HashSet;
 
 /*
 Steps for doing having scoped macros
@@ -22,8 +22,8 @@ Steps for doing having scoped macros
     - Copy the code for B, mangle it and then include it in A directly
 */
 
-pub fn collect_globals(exprs: &[ExprKind]) -> HashSet<InternedString> {
-    let mut global_defs = HashSet::new();
+pub fn collect_globals(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
+    let mut global_defs = FxHashSet::default();
 
     for expr in exprs {
         match expr {
@@ -130,12 +130,12 @@ impl<'a> VisitorMutRefUnit for NameUnMangler<'a> {
 
 #[derive(Clone)]
 pub struct NameMangler {
-    pub(crate) globals: HashSet<InternedString>,
+    pub(crate) globals: FxHashSet<InternedString>,
     prefix: String,
 }
 
 impl NameMangler {
-    pub fn new(globals: HashSet<InternedString>, prefix: String) -> Self {
+    pub fn new(globals: FxHashSet<InternedString>, prefix: String) -> Self {
         Self { globals, prefix }
     }
 

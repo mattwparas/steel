@@ -213,6 +213,7 @@ of the string
 ### **string-ci>=?**
 ### **string-ci>?**
 ### **string-ref**
+### **string-replace**
 ### **string<=?**
 ### **string<?**
 ### **string=?**

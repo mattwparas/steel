@@ -3,8 +3,6 @@ use std::io::{BufReader, BufWriter};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::rc::Rc;
 
-use im_lists::list::List;
-
 use crate::values::port::{SteelPort, SteelPortRepr};
 use crate::values::structs::SteelResult;
 use crate::SteelVal;
@@ -127,7 +125,7 @@ impl ChildProcess {
 }
 
 impl CommandBuilder {
-    pub fn new(command: String, args: List<String>) -> CommandBuilder {
+    pub fn new(command: String, args: crate::values::lists::SteelList<String>) -> CommandBuilder {
         let mut command = Command::new(command);
 
         command.args(&args);

@@ -7,6 +7,12 @@ fn package_contains_dependency_on_steel(packages: &[Package]) -> Option<&Package
     packages.iter().find(|x| x.name == "steel-core")
 }
 
+/*
+TODO:
+- Desired output directory / do not copy to native automatically
+- Specify target architecture
+*/
+
 fn main() -> Result<(), Box<dyn Error>> {
     // let build_target = Command::new("cargo")
     //     .arg("build")
@@ -20,10 +26,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     steel_home.push("native");
 
     let metadata = MetadataCommand::new().exec()?;
-
-    // println!("{:#?}", metadata?.root_package());
-
-    // let package_name = metadata?.root_package().expect("Missing cargo toml!").
 
     let package = match metadata.root_package() {
         Some(p) => p,
@@ -63,7 +65,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     if last.target.kind == ["cdylib"] {
         println!("Found a cdylib!");
-        // println!("{:#?}", last);
 
         for file in last.filenames {
             let filename = file.file_name().unwrap();
@@ -78,7 +79,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     } else if last.target.kind == ["dylib"] {
         println!("Found a dylib!");
-        // println!("{:#?}", last);
 
         for file in last.filenames {
             let filename = file.file_name().unwrap();

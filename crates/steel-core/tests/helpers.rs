@@ -31,7 +31,7 @@ pub fn test_lines(input: impl BufRead, output: impl BufRead) {
 // TODO -> clean this up
 // the many references are broken
 pub fn test_line(input: &str, output: &[&str], evaluator: &mut Engine) {
-    let result = evaluator.compile_and_run_raw_program(input);
+    let result = evaluator.compile_and_run_raw_program(input.to_string());
     match result {
         Ok(vals) => {
             println!("Expected values: {output:?}");

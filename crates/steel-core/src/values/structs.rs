@@ -35,6 +35,7 @@ use std::{
 
 use super::closed::Heap;
 use super::functions::BoxedDynFunction;
+use super::lists::List;
 
 enum StringOrMagicNumber {
     String(Rc<String>),
@@ -100,6 +101,11 @@ impl Custom for StructTypeDescriptor {
 impl StructTypeDescriptor {
     fn name(&self) -> InternedString {
         VTABLE.with(|x| x.borrow().entries[self.0].name)
+    }
+
+    // TODO: Use inline reference to avoid reference count when getting the fields
+    fn fields(&self) -> SteelVal {
+        FIELDS_KEY.with(|key| VTABLE.with(|x| x.borrow().entries[self.0].properties[&key].clone()))
     }
 }
 
@@ -497,6 +503,73 @@ impl UserDefinedStruct {
     // }
 }
 
+// Update the given struct in place, without having to allocate a new one
+// This in practice should yield some nice performance
+pub fn struct_update_primitive(args: &mut [SteelVal]) -> Result<SteelVal> {
+    if let Some((SteelVal::CustomStruct(s), fields)) = args.split_first_mut() {
+        let mut fields = fields.iter_mut();
+
+        let struct_fields = s.type_descriptor.fields();
+
+        let struct_fields_list = struct_fields
+            .list()
+            .ok_or_else(throw!(TypeMismatch => "struct fields are not a list!"))?;
+
+        // Fast path, we have less than 5 pairs of keys to change. Past that
+        // we'll have to use some heap allocations
+        let mut fields_to_update = smallvec::SmallVec::<[(usize, &mut SteelVal); 5]>::new();
+
+        match Gc::get_mut(s) {
+            Some(s) => {
+                populate_fields_offsets(fields, struct_fields_list, &mut fields_to_update)?;
+
+                for (idx, value) in fields_to_update {
+                    std::mem::swap(&mut s.fields[idx], value);
+                }
+
+                Ok(std::mem::replace(&mut args[0], SteelVal::Void))
+            }
+
+            None => {
+                let mut s = s.unwrap();
+                populate_fields_offsets(fields, struct_fields_list, &mut fields_to_update)?;
+                for (idx, value) in fields_to_update {
+                    std::mem::swap(&mut s.fields[idx], value);
+                }
+
+                Ok(SteelVal::CustomStruct(Gc::new(s)))
+            }
+        }
+    } else {
+        stop!(TypeMismatch => "struct-copy expects a struct in the first position, found: {:?}", args);
+    }
+}
+
+fn populate_fields_offsets<'a>(
+    mut fields: std::slice::IterMut<'a, SteelVal>,
+    struct_fields_list: &List<SteelVal>,
+    fields_to_update: &mut smallvec::SmallVec<[(usize, &'a mut SteelVal); 5]>,
+) -> Result<()> {
+    Ok(loop {
+        match (fields.next(), fields.next()) {
+            (Some(key), Some(value)) => {
+                // check all of the struct offsets first, otherwise roll back the applied changes to the struct?
+                let struct_offset = struct_fields_list
+                    .iter()
+                    .enumerate()
+                    .find(|(index, element)| *element == key)
+                    .ok_or_else(throw!(Generic => "field not found on struct: {}", key))?;
+
+                fields_to_update.push((struct_offset.0, value));
+            }
+            (None, None) => break,
+            _ => {
+                stop!(ArityMismatch => "struct-update must have a value for every key!");
+            }
+        }
+    })
+}
+
 pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
     if args.len() != 2 {
         stop!(ArityMismatch => "make-struct-type expects 2 args, found: {}", args.len())
@@ -698,6 +771,7 @@ thread_local! {
 
     pub static TRANSPARENT_KEY: SteelVal = SteelVal::SymbolV("#:transparent".into());
     pub static MUTABLE_KEY: SteelVal = SteelVal::SymbolV("#:mutable".into());
+    pub static FIELDS_KEY: SteelVal = SteelVal::SymbolV("#:fields".into());
 
     // Consult this to get values. It is possible, the vtable is _not_ populated for a given thread.
     // The only way that can happen is if a struct is constructed on another thread?

@@ -414,6 +414,46 @@ impl SteelThread {
         result
     }
 
+    pub(crate) fn call_function_from_mut_slice(
+        &mut self,
+        constant_map: ConstantMap,
+        function: SteelVal,
+        args: &mut [SteelVal],
+    ) -> Result<SteelVal> {
+        match function {
+            SteelVal::FuncV(func) => func(args).map_err(|x| x.set_span_if_none(Span::default())),
+            SteelVal::BoxedFunction(func) => {
+                func.func()(args).map_err(|x| x.set_span_if_none(Span::default()))
+            }
+            // SteelVal::ContractedFunction(cf) => {
+            //     let arg_vec: Vec<_> = args.into_iter().collect();
+            //     cf.apply(arg_vec, cur_inst_span, self)
+            // }
+            SteelVal::MutFunc(func) => func(args).map_err(|x| x.set_span_if_none(Span::default())),
+            // SteelVal::BuiltIn(func) => {
+            //     let arg_vec: Vec<_> = args.into_iter().collect();
+            //     func(self, &arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+            // }
+            SteelVal::Closure(closure) => {
+                // Create phony span vec
+                let spans = closure.body_exp().iter().map(|_| Span::default()).collect();
+
+                let mut vm_instance = VmCore::new_unchecked(
+                    Rc::new([]),
+                    constant_map,
+                    Rc::clone(&spans),
+                    self,
+                    &spans,
+                );
+
+                vm_instance.call_with_args(&closure, args.iter().cloned())
+            }
+            _ => {
+                stop!(TypeMismatch => format!("application not a procedure: {function}"))
+            }
+        }
+    }
+
     pub(crate) fn call_function(
         &mut self,
         constant_map: ConstantMap,
@@ -603,14 +643,14 @@ impl SteelThread {
                 // Clean up
                 self.stack.clear();
 
-                #[cfg(feature = "profiling")]
-                if log_enabled!(target: "pipeline_time", log::Level::Debug) {
-                    debug!(
-                        target: "pipeline_time",
-                        "VM Evaluation Time: {:?}",
-                        execution_time.elapsed()
-                    );
-                };
+                // #[cfg(feature = "profiling")]
+                // if log_enabled!(target: "pipeline_time", log::Level::Debug) {
+                //     debug!(
+                //         target: "pipeline_time",
+                //         "VM Evaluation Time: {:?}",
+                //         execution_time.elapsed()
+                //     );
+                // };
 
                 // println!("FINISHED");
 
@@ -1541,11 +1581,10 @@ impl<'a> VmCore<'a> {
     // }
 
     pub(crate) fn vm(&mut self) -> Result<SteelVal> {
-        // let mut cur_inst;
-
-        if self.depth > 64 {
+        // if self.depth > 1024 {
+        if self.depth > 1024 * 128 {
             // TODO: Unwind the callstack? Patch over to the VM call stack rather than continue to do recursive calls?
-            stop!(Generic => "stack overflow! The rust call stack is currently used for transducers, so we impose a hard recursion limit of 64"; self.current_span());
+            stop!(Generic => "stack overflow! The rust call stack is currently used for transducers, so we impose a hard recursion limit of 1024"; self.current_span());
         }
 
         macro_rules! inline_primitive {
@@ -6094,7 +6133,7 @@ fn tco_jump_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 
     let current_arity = payload_size as usize;
     // This is the number of (local) functions we need to pop to get back to the place we want to be at
-    let depth = ctx.instructions[ctx.ip + 1].payload_size as usize;
+    // let depth = ctx.instructions[ctx.ip + 1].payload_size as usize;
 
     // println!("Depth: {:?}", depth);
     // println!("Function stack length: {:?}", self.function_stack.len());

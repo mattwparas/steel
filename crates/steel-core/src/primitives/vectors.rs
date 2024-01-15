@@ -1,9 +1,128 @@
 use crate::gc::Gc;
-use crate::rvals::SteelVal::*;
 use crate::rvals::{Result, SteelVal};
+use crate::rvals::{SteelVal::*, SteelVector};
 use crate::steel_vm::vm::VmCore;
 use crate::stop;
+use crate::values::lists::Pair;
 use im_rc::Vector;
+
+#[steel_derive::function(name = "vector-push")]
+fn vector_push(vector: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
+    match vector {
+        SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
+            Some(v) => {
+                v.push_back(value);
+                Ok(std::mem::replace(vector, SteelVal::Void))
+            }
+            None => Ok(SteelVal::VectorV(SteelVector(Gc::new({
+                let mut v = v.unwrap();
+                v.push_back(value);
+                v
+            })))),
+        },
+
+        SteelVal::MutableVector(m) => {
+            m.strong_ptr().borrow_mut().value.push(value);
+            Ok(SteelVal::Void)
+        }
+
+        _ => {
+            stop!(TypeMismatch => "vector-push expected either a mutable or immutable vector, found: {:?}", vector);
+        }
+    }
+}
+
+#[steel_derive::function(name = "vector-push-front")]
+fn immutable_vector_push_front(vector: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
+    match vector {
+        SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
+            Some(v) => {
+                v.push_front(value);
+                Ok(std::mem::replace(vector, SteelVal::Void))
+            }
+            None => Ok(SteelVal::VectorV(SteelVector(Gc::new({
+                let mut v = v.unwrap();
+                v.push_front(value);
+                v
+            })))),
+        },
+
+        // SteelVal::MutableVector(m) => {
+        //     m.strong_ptr().borrow_mut().value.push(value);
+        //     Ok(SteelVal::Void)
+        // }
+        _ => {
+            stop!(TypeMismatch => "vector-push-front expected an immutable vector, found: {:?}", vector);
+        }
+    }
+}
+
+#[steel_derive::function(name = "immutable-vector-set")]
+fn immutable_vector_set(vector: &mut SteelVal, index: usize, value: SteelVal) -> Result<SteelVal> {
+    match vector {
+        SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
+            Some(v) => {
+                if index > v.len() {
+                    stop!(Generic => "immutable-vector-set: index out of bounds - attempted to index at offset: {} with length {}", index, v.len());
+                }
+
+                v.set(index, value);
+                Ok(std::mem::replace(vector, SteelVal::Void))
+            }
+            None => Ok(SteelVal::VectorV(SteelVector(Gc::new({
+                if index > v.len() {
+                    stop!(Generic => "immutable-vector-set: index out of bounds - attempted to index at offset: {} with length {}", index, v.len());
+                }
+
+                let mut v = v.unwrap();
+                v.set(index, value);
+                v
+            })))),
+        },
+
+        _ => {
+            stop!(TypeMismatch => "vector-push-front expected an immutable vector, found: {:?}", vector);
+        }
+    }
+}
+
+#[steel_derive::function(name = "immutable-vector-pop-back")]
+fn immutable_vector_pop_back(vector: &mut SteelVal) -> Result<SteelVal> {
+    match vector {
+        SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
+            Some(v) => {
+                let back = v.pop_back();
+
+                match back {
+                    Some(back) => {
+                        let vector = std::mem::replace(vector, SteelVal::Void);
+                        Ok(SteelVal::Pair(Gc::new(Pair {
+                            car: back,
+                            cdr: vector,
+                        })))
+                    }
+                    None => Ok(SteelVal::BoolV(false)),
+                }
+            }
+            None => {
+                // Ok(SteelVal::VectorV(SteelVector(Gc::new({
+                // if index > v.len() {
+                //     stop!(Generic => "immutable-vector-set: index out of bounds - attempted to index at offset: {} with length {}", index, v.len());
+                // }
+
+                // let mut v = v.unwrap();
+                // v.set(index, value);
+                // v
+                todo!()
+                // })))),
+            }
+        },
+
+        _ => {
+            stop!(TypeMismatch => "vector-push-front expected an immutable vector, found: {:?}", vector);
+        }
+    }
+}
 
 pub struct VectorOperations {}
 impl VectorOperations {

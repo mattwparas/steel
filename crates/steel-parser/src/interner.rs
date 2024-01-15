@@ -1,3 +1,4 @@
+use fxhash::FxBuildHasher;
 use lasso::Key;
 use lasso::Spur;
 use once_cell::sync::OnceCell;
@@ -34,7 +35,7 @@ impl InternedString {
     pub fn from_static(ident: &'static str) -> Self {
         Self(
             INTERNER
-                .get_or_init(|| Arc::new(ThreadedRodeo::new()))
+                .get_or_init(|| Arc::new(ThreadedRodeo::with_hasher(FxBuildHasher::default())))
                 .get_or_intern_static(ident),
         )
     }
@@ -42,7 +43,7 @@ impl InternedString {
     pub fn from_string(ident: String) -> Self {
         Self(
             INTERNER
-                .get_or_init(|| Arc::new(ThreadedRodeo::new()))
+                .get_or_init(|| Arc::new(ThreadedRodeo::with_hasher(FxBuildHasher::default())))
                 .get_or_intern(ident),
         )
     }
@@ -73,7 +74,7 @@ impl From<&str> for InternedString {
     fn from(ident: &str) -> Self {
         Self(
             INTERNER
-                .get_or_init(|| Arc::new(ThreadedRodeo::new()))
+                .get_or_init(|| Arc::new(ThreadedRodeo::with_hasher(FxBuildHasher::default())))
                 .get_or_intern(ident),
         )
     }
@@ -114,17 +115,19 @@ impl fmt::Display for InternedString {
 
 use lasso::ThreadedRodeo;
 
-static INTERNER: OnceCell<Arc<ThreadedRodeo>> = OnceCell::new();
+static INTERNER: OnceCell<Arc<ThreadedRodeo<Spur, fxhash::FxBuildHasher>>> = OnceCell::new();
 
-pub fn take_interner() -> Arc<ThreadedRodeo> {
+pub fn take_interner() -> Arc<ThreadedRodeo<Spur, fxhash::FxBuildHasher>> {
     Arc::clone(INTERNER.get().unwrap())
 }
 
-pub fn initialize_with(interner: Arc<ThreadedRodeo>) -> Result<(), Arc<ThreadedRodeo>> {
+pub fn initialize_with(
+    interner: Arc<ThreadedRodeo<Spur, fxhash::FxBuildHasher>>,
+) -> Result<(), Arc<ThreadedRodeo<Spur, fxhash::FxBuildHasher>>> {
     INTERNER.set(interner)
 }
 
-pub fn get_interner() -> Option<&'static Arc<ThreadedRodeo>> {
+pub fn get_interner() -> Option<&'static Arc<ThreadedRodeo<Spur, fxhash::FxBuildHasher>>> {
     INTERNER.get()
 }
 
@@ -138,7 +141,7 @@ pub fn add_interner(interner: Arc<ThreadedRodeo>) {
 
 #[test]
 fn test_initialization() {
-    INTERNER.get_or_init(|| Arc::new(ThreadedRodeo::new()));
+    INTERNER.get_or_init(|| Arc::new(ThreadedRodeo::with_hasher(FxBuildHasher::default())));
     let key = INTERNER.get().unwrap().get_or_intern_static("hello world");
 
     let resolved_string = INTERNER.get().unwrap().resolve(&key);

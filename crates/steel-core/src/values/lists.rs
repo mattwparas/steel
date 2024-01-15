@@ -1,8 +1,11 @@
 use std::cell::Cell;
 
-use im_lists::handler::DropHandler;
+use im_lists::handler::{DefaultDropHandler, DropHandler};
 
-use crate::SteelVal;
+use crate::{
+    rvals::{FromSteelVal, IntoSteelVal},
+    SteelVal,
+};
 
 // TODO:
 // Builtin immutable pairs
@@ -113,9 +116,35 @@ mod list_drop_handler {
     }
 }
 
+pub type SteelList<T> =
+    im_lists::list::GenericList<T, im_lists::shared::RcPointer, 256, 1, DefaultDropHandler>;
+
 // TODO: Change this to just be something like `SteelList`
 pub type List<T> =
     im_lists::list::GenericList<T, im_lists::shared::RcPointer, 256, 1, DropHandlerChoice>;
 
 pub type ConsumingIterator<T> =
     im_lists::list::ConsumingIter<T, im_lists::shared::RcPointer, 256, 1, DropHandlerChoice>;
+
+impl<T: FromSteelVal + Clone, D: im_lists::handler::DropHandler<Self>> FromSteelVal
+    for im_lists::list::GenericList<T, im_lists::shared::RcPointer, 256, 1, D>
+{
+    fn from_steelval(val: &SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::ListV(l) = val {
+            l.iter().map(T::from_steelval).collect()
+        } else {
+            stop!(TypeMismatch => "Unable to convert SteelVal to List, found: {}", val);
+        }
+    }
+}
+
+impl<T: IntoSteelVal + Clone, D: im_lists::handler::DropHandler<Self>> IntoSteelVal
+    for im_lists::list::GenericList<T, im_lists::shared::RcPointer, 256, 1, D>
+{
+    fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
+        self.into_iter()
+            .map(|x| x.into_steelval())
+            .collect::<crate::rvals::Result<List<_>>>()
+            .map(SteelVal::ListV)
+    }
+}

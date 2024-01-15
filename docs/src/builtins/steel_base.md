@@ -91,6 +91,20 @@ r#"=> #<hashmap {
 'b: 20,
 }>"#,
 ```
+### **hash-clear**
+Clears the entries out of the existing hashmap.
+Will attempt to reuse the existing memory if there are no other references
+to the hashmap.
+
+(hash-clear h) -> hash?
+
+h: hash?
+
+#### Examples
+```scheme
+> (hash-clear (hash 'a 10 'b 20))
+=> '#hash()
+```
 ### **hash-contains?**
 Checks whether the given map contains the given key. Key must be hashable.
 
@@ -104,6 +118,18 @@ Checks whether the given map contains the given key. Key must be hashable.
 ```scheme
 > (hash-contains? (hash 'a 10 'b 20) 'a) ;; => #true
 > (hash-contains? (hash 'a 10 'b 20) 'not-there) ;; => #false
+```
+### **hash-empty?**
+Checks whether the hash map is empty
+
+(hash-empty? m) -> bool?
+
+m: hash?
+
+#### Examples
+```scheme
+> (hash-empty? (hash 'a 10)) ;; => #f
+> (hash-emptY? (hash)) ;; => #true
 ```
 ### **hash-insert**
 Returns a new hashmap with the additional key value pair added. Performs a functional update,
@@ -138,6 +164,18 @@ Returns the keys of the given hash map as a list.
 
 ```scheme
 > (hash-keys->list? (hash 'a 'b 20)) ;; => '(a b)
+```
+### **hash-keys->vector**
+Returns the keys of the given hash map as an immutable vector
+
+(hash-keys->vector map) -> (vectorof any/c)?
+
+map: hash?
+
+#### Examples
+```scheme
+> (hash-keys->vector (hash 'a 10 'b 20)),
+=> ['a 'b]",
 ```
 ### **hash-length**
 Returns the number of key value pairs in the map
@@ -177,6 +215,18 @@ Gets the `key` from the given `map`. Returns #false if the key does not exist.
 > (hash-try-get (hash 'a 10 'b 20) 'b) ;; => 20
 > (hash-try-get (hash 'a 10 'b 20) 'does-not-exist) ;; => #false
 ```
+### **hash-union**
+Constructs the union of two hashmaps, keeping the values
+in the left map when the keys exist in both maps.
+
+Will reuse memory where possible.
+
+(hash-union l r) -> hash?
+
+#### Examples
+```scheme
+> (hash-union (hash 'a 10) (hash 'b 20)) ;; => '#hash((a . 10) (b . 20))
+```
 ### **hash-values->list**
 Returns the values of the given hash map as a list
 
@@ -186,8 +236,20 @@ map: hash?
 
 #### Examples
 ```scheme
-> (hash-values->list? (hash 'a 10 'b 20) 'a)",
-r#"=> '(10 20)",
+> (hash-values->list? (hash 'a 10 'b 20)),
+=> '(10 20)",
+```
+### **hash-values->vector**
+Returns the values of the given hash map as an immutable vector
+
+(hash-values->vector map) -> (vectorof any/c)?
+
+map: hash?
+
+#### Examples
+```scheme
+> (hash-keys->vector (hash 'a 10 'b 20)),
+=> [10 10]",
 ```
 ### **input-port?**
 Checks if a given value is an input port
@@ -562,12 +624,15 @@ of the string
 ```
 ### **#%black-box**
 ### **#%box**
+### **#%debug-syntax->exprkind**
 ### **#%default-input-port**
 ### **#%default-output-port**
 ### **#%function-ptr-table**
 ### **#%function-ptr-table-add**
 ### **#%function-ptr-table-get**
+### **#%get-dylib**
 ### **#%iterator-finished**
+### **#%native-fn-ptr-doc**
 ### **#%private-cycle-collector**
 ### **#%private-cycle-collector-get**
 ### **#%private-cycle-collector-values**
@@ -575,6 +640,7 @@ of the string
 ### **#%set-box!**
 ### **#%stream-cdr**
 ### **#%struct-property-ref**
+### **#%struct-update**
 ### **#%syntax/raw**
 ### **#%unbox**
 ### **#%vtable-update-entry!**
@@ -620,6 +686,7 @@ of the string
 ### **call-with-current-continuation**
 ### **call-with-exception-handler**
 ### **call/cc**
+### **cdr-null?**
 ### **channel->recv**
 ### **channel->send**
 ### **channel->try-recv**
@@ -668,10 +735,7 @@ of the string
 ### **get-contract-struct**
 ### **get-output-string**
 ### **get-test-mode**
-### **hash-clear**
-### **hash-empty?**
 ### **hash-get**
-### **hash-union**
 ### **hash?**
 ### **hashset**
 ### **hashset->list**
@@ -681,8 +745,6 @@ of the string
 ### **hashset-insert**
 ### **hashset-length**
 ### **hashset-subset?**
-### **hm-keys->vector**
-### **hm-values->vector**
 ### **inspect-bytecode**
 ### **instant/elapsed**
 ### **instant/now**
@@ -747,10 +809,10 @@ of the string
 ### **read-to-string**
 ### **round**
 ### **run!**
-### **set-box!**
 ### **set-current-dir!**
 ### **set-env-var!**
 ### **set-piped-stdout!**
+### **set-strong-box!**
 ### **set-test-mode!**
 ### **set?**
 ### **spawn-process**
@@ -769,12 +831,14 @@ of the string
 ### **string-ci>=?**
 ### **string-ci>?**
 ### **string-ref**
+### **string-replace**
 ### **string<=?**
 ### **string<?**
 ### **string=?**
 ### **string>=?**
 ### **string>?**
 ### **string?**
+### **struct->list**
 ### **struct?**
 ### **substring**
 ### **symbol->string**
@@ -782,6 +846,7 @@ of the string
 ### **syntax->datum**
 ### **syntax-e**
 ### **syntax-loc**
+### **syntax-span**
 ### **syntax/loc**
 ### **syntax?**
 ### **taking**
@@ -791,7 +856,7 @@ of the string
 ### **time/sleep-ms**
 ### **transduce**
 ### **try-list-ref**
-### **unbox**
+### **unbox-strong**
 ### **value->iterator**
 ### **value->jsexpr-string**
 ### **value->string**

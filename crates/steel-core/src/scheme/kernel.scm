@@ -31,19 +31,25 @@
 ;; which will then load and register macros accordingly.
 (define-syntax defmacro
   (syntax-rules ()
-    [(defmacro environment (name arg) expr)
+    [(defmacro environment
+       (name arg)
+       expr)
      (begin
        (register-macro-transformer! (symbol->string 'name) environment)
        (define (name arg)
          expr))]
 
-    [(defmacro environment (name arg) exprs ...)
+    [(defmacro environment
+       (name arg)
+       exprs ...)
      (begin
        (register-macro-transformer! (symbol->string 'name) environment)
        (define (name arg)
          exprs ...))]
 
-    [(defmacro environment name expr)
+    [(defmacro environment
+       name
+       expr)
      (begin
        (register-macro-transformer! (symbol->string 'name) environment)
        (define name expr))]))
@@ -57,8 +63,7 @@
        (define (name arg)
          expr))]
 
-    [(#%define-syntax (name arg)
-       exprs ...)
+    [(#%define-syntax (name arg) exprs ...)
      (begin
        (register-macro-transformer! (symbol->string 'name) "default")
        (define (name arg)
@@ -101,18 +106,16 @@
   (equal? x '#:transparent))
 
 (#%define-syntax (struct expr)
-  (define unwrapped (syntax-e expr))
-  (define struct-name (syntax->datum (second unwrapped)))
-  (define fields (syntax->datum (third unwrapped)))
-  (define options
-    (let ([raw (cdddr unwrapped)])
-      ; (displayln raw)
-      (if (empty? raw) raw (map syntax->datum raw))))
-
-  (define result (struct-impl struct-name fields options))
-
-  (syntax/loc result
-    (syntax-span expr)))
+                 (define unwrapped (syntax-e expr))
+                 (define struct-name (syntax->datum (second unwrapped)))
+                 (define fields (syntax->datum (third unwrapped)))
+                 (define options
+                   (let ([raw (cdddr unwrapped)])
+                     ; (displayln raw)
+                     (if (empty? raw) raw (map syntax->datum raw))))
+                 (define result (struct-impl struct-name fields options))
+                 (syntax/loc result
+                   (syntax-span expr)))
 
 ;; Macro for creating a new struct, in the form of:
 ;; `(struct <struct-name> (fields ...) options ...)`
@@ -196,15 +199,16 @@
     (when (and maybe-procedure-field (> maybe-procedure-field (length fields)))
       (error! "struct #:prop:procedure cannot refer to an index that is out of bounds"))
 
+    (define struct-options-name (concat-symbols '___ struct-name '-options___))
+    (define struct-prop-name (concat-symbols 'struct: struct-name))
+    (define struct-predicate (concat-symbols struct-name '?))
+
     `(begin
        ; (#%black-box "STRUCT" (quote ,struct-name))
-       (define ,(concat-symbols '___ struct-name '-options___)
-         (hash ,@(hash->list options-map)))
+       (define ,struct-options-name (hash ,@(hash->list options-map)))
        (define ,struct-name 'unintialized)
-       (define ,(concat-symbols 'struct: struct-name)
-         'uninitialized)
-       (define ,(concat-symbols struct-name '?)
-         'uninitialized)
+       (define ,struct-prop-name 'uninitialized)
+       (define ,struct-predicate 'uninitialized)
        ,@(map (lambda (field)
                 `(define ,(concat-symbols struct-name '- field)
                    'uninitialized))
@@ -218,31 +222,28 @@
                   fields)
              (list))
 
-       ;; TODO: Change this to plain let to see the error
        (%plain-let
         ([prototypes (make-struct-type (quote ,struct-name) ,field-count)])
         (%plain-let
          ([struct-type-descriptor (list-ref prototypes 0)] [constructor-proto (list-ref prototypes 1)]
                                                            [predicate-proto (list-ref prototypes 2)]
                                                            [getter-proto (list-ref prototypes 3)])
-         (set! ,(concat-symbols 'struct: struct-name) struct-type-descriptor)
-         (#%vtable-update-entry! struct-type-descriptor
-                                 ,maybe-procedure-field
-                                 ,(concat-symbols '___ struct-name '-options___))
+         (set! ,struct-prop-name struct-type-descriptor)
+         (#%vtable-update-entry! struct-type-descriptor ,maybe-procedure-field ,struct-options-name)
          ,(if mutable?
               `(set! ,struct-name
                      (lambda ,fields (constructor-proto ,@(map (lambda (x) `(#%box ,x)) fields))))
 
               `(set! ,struct-name constructor-proto))
-         ,(new-make-predicate struct-name fields)
+         ,(new-make-predicate struct-predicate struct-name fields)
          ,@
          (if mutable? (mutable-make-getters struct-name fields) (new-make-getters struct-name fields))
          ;; If this is a mutable struct, generate the setters
          ,@(if mutable? (mutable-make-setters struct-name fields) (list))
          void)))))
 
-(define (new-make-predicate struct-name fields)
-  `(set! ,(concat-symbols struct-name '?) predicate-proto))
+(define (new-make-predicate struct-predicate-name struct-name fields)
+  `(set! ,struct-predicate-name predicate-proto))
 
 ; (define (new-make-constructor struct-name procedure-index fields)
 ;   `(set!
@@ -305,35 +306,34 @@
 ;             (enumerate 0 '() bindings))))
 
 (#%define-syntax (define-values expr)
-  ; (displayln expr)
-  (define underlying (syntax-e expr))
-  (define bindings (syntax->datum (second underlying)))
-  (define expression (third underlying))
-
-  (define unreadable-list-name (make-unreadable '#%proto-define-values-binding-gensym__))
-
-  `(begin
-     (define ,unreadable-list-name ,expression)
-     ,@(map (lambda (binding-index-pair)
-              `(define ,(car binding-index-pair)
-                 (list-ref ,unreadable-list-name ,(list-ref binding-index-pair 1))))
-            (enumerate 0 '() bindings))))
+                 ; (displayln expr)
+                 (define underlying (syntax-e expr))
+                 (define bindings (syntax->datum (second underlying)))
+                 (define expression (third underlying))
+                 (define unreadable-list-name
+                   (make-unreadable '#%proto-define-values-binding-gensym__))
+                 `(begin
+                    (define ,unreadable-list-name ,expression)
+                    ,@(map (lambda (binding-index-pair)
+                             `(define ,(car binding-index-pair)
+                                (list-ref ,unreadable-list-name ,(list-ref binding-index-pair 1))))
+                           (enumerate 0 '() bindings))))
 
 (#%define-syntax (#%better-lambda expr)
-  ; (displayln "Expanding: " expr)
-  ; (displayln "unwrapping one level..." (syntax-e expr))
-  (quasisyntax (list 10 20 30)))
+                 ; (displayln "Expanding: " expr)
+                 ; (displayln "unwrapping one level..." (syntax-e expr))
+                 (quasisyntax (list 10 20 30)))
 
 ;; TODO: make this not so suspect, but it does work!
 (#%define-syntax (#%current-kernel-transformers expr)
-  (cons 'list (map (lambda (x) (list 'quote x)) (current-macro-transformers!))))
+                 (cons 'list (map (lambda (x) (list 'quote x)) (current-macro-transformers!))))
 
 (#%define-syntax (#%fake-lambda expr)
-  (define underlying (syntax-e expr))
-  (define rest (cdr underlying))
-  ; (displayln rest)
-  ; (displayln (syntax-e (list-ref rest 1)))
-  (cons '#%plain-lambda rest))
+                 (define underlying (syntax-e expr))
+                 (define rest (cdr underlying))
+                 ; (displayln rest)
+                 ; (displayln (syntax-e (list-ref rest 1)))
+                 (cons '#%plain-lambda rest))
 
 ;; Implement defmacro!
 ;; Defmacro: Load functions that operate on syntax, directly into the kernel.

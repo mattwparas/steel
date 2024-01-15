@@ -1,3 +1,4 @@
+use crate::rvals::SteelHashSet;
 use crate::stop;
 use crate::values::lists::List;
 use crate::{
@@ -13,7 +14,7 @@ declare_const_ref_functions!(
     HS_CONSTRUCT => hs_construct,
     HS_LENGTH => hs_length,
     HS_CONTAINS => hs_contains,
-    HS_INSERT => hs_insert,
+    // HS_INSERT => hs_insert,
     HS_TO_LIST => keys_to_list,
     HS_TO_VEC => keys_to_vector,
     HS_CLEAR => clear,
@@ -27,7 +28,7 @@ pub(crate) fn hashset_module() -> BuiltInModule {
         .register_value("hashset", HS_CONSTRUCT)
         .register_value("hashset-length", HS_LENGTH)
         .register_value("hashset-contains?", HS_CONTAINS)
-        .register_value("hashset-insert", HS_INSERT)
+        .register_native_fn_definition(HS_INSERT_DEFINITION)
         .register_value("hashset->list", HS_TO_LIST)
         .register_value("hashset->vector", HS_TO_VEC)
         .register_value("hashset-clear", HS_CLEAR)
@@ -64,24 +65,23 @@ pub fn hs_length(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-pub fn hs_insert(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 2 {
-        stop!(ArityMismatch => "set insert takes 2 arguments")
-    }
+#[steel_derive::function(name = "hashset-insert")]
+pub fn hs_insert(hashset: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
+    if value.is_hashable() {
+        if let SteelVal::HashSetV(SteelHashSet(hs)) = hashset {
+            match Gc::get_mut(hs) {
+                Some(m) => {
+                    m.insert(value);
+                    Ok(std::mem::replace(hashset, SteelVal::Void))
+                }
 
-    let hashset = &args[0];
-    let key = &args[1];
-
-    if let SteelVal::HashSetV(hs) = hashset {
-        let mut hs = hs.0.unwrap();
-        if key.is_hashable() {
-            hs.insert(key.clone());
+                None => Ok(SteelVal::HashSetV(SteelHashSet(Gc::new(hs.update(value))))),
+            }
         } else {
-            stop!(TypeMismatch => "hash key not hashable!");
+            stop!(TypeMismatch => "set insert takes a set")
         }
-        Ok(SteelVal::HashSetV(Gc::new(hs).into()))
     } else {
-        stop!(TypeMismatch => "set insert takes a set")
+        stop!(TypeMismatch => "hash key not hashable!");
     }
 }
 
@@ -248,11 +248,11 @@ mod hashset_tests {
 
     #[test]
     fn hs_insert_from_empty() {
-        let args = [
+        let mut args = [
             SteelVal::HashSetV(Gc::new(im_rc::HashSet::new()).into()),
             SteelVal::StringV("foo".into()),
         ];
-        let res = hs_insert(&args);
+        let res = steel_hs_insert(&mut args);
         let expected = SteelVal::HashSetV(
             Gc::new(
                 vec![SteelVal::StringV("foo".into())]

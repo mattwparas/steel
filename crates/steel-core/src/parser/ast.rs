@@ -52,11 +52,17 @@ pub(crate) struct TryFromSteelValVisitorForExprKind {
 
 impl TryFromSteelValVisitorForExprKind {
     pub fn root(value: &SteelVal) -> std::result::Result<ExprKind, SteelErr> {
+        // let now = std::time::Instant::now();
+
         Self {
             qq_depth: 0,
             quoted: false,
         }
         .visit(value)
+
+        // log::debug!(target: "pipeline_time", "SteelVal->ExprKind time: {:?}", now.elapsed());
+
+        // res
     }
 
     // type Error = &'static str;

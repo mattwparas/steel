@@ -10,4 +10,4 @@ description = "Document generation for steel"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-steel-core = { path = "../steel-core", version = "0.5.0", features = ["modules"] }
+steel-core = { path = "../steel-core", version = "0.6.0", features = ["modules"] }

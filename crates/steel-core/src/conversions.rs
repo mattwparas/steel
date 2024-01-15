@@ -34,29 +34,6 @@ impl IntoSteelVal for SteelVal {
 //     }
 // }
 
-impl<T: FromSteelVal + Clone, D: im_lists::handler::DropHandler<Self>> FromSteelVal
-    for im_lists::list::GenericList<T, im_lists::shared::RcPointer, 256, 1, D>
-{
-    fn from_steelval(val: &SteelVal) -> Result<Self> {
-        if let SteelVal::ListV(l) = val {
-            l.iter().map(T::from_steelval).collect()
-        } else {
-            stop!(TypeMismatch => "Unable to convert SteelVal to List, found: {}", val);
-        }
-    }
-}
-
-impl<T: IntoSteelVal + Clone, D: im_lists::handler::DropHandler<Self>> IntoSteelVal
-    for im_lists::list::GenericList<T, im_lists::shared::RcPointer, 256, 1, D>
-{
-    fn into_steelval(self) -> Result<SteelVal> {
-        self.into_iter()
-            .map(|x| x.into_steelval())
-            .collect::<Result<List<_>>>()
-            .map(SteelVal::ListV)
-    }
-}
-
 impl FromSteelVal for Gc<im_rc::HashMap<SteelVal, SteelVal>> {
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::HashMapV(hm) = val {

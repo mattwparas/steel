@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use steel_parser::tokens::TokenType;
 
 use crate::{
@@ -36,7 +37,7 @@ pub(crate) fn fresh_kernel_image() -> Engine {
     KERNEL_IMAGE.with(|x| x.clone())
 }
 
-type TransformerMap = HashMap<String, HashSet<InternedString>>;
+type TransformerMap = FxHashMap<String, FxHashSet<InternedString>>;
 
 // Internal set of transformers that we'll embed
 #[derive(Clone, Debug)]
@@ -224,7 +225,7 @@ impl Kernel {
             BeginForSyntax(usize),
         }
 
-        let mut def_macro_expr_indices = Vec::new();
+        let mut def_macro_expr_indices = smallvec::SmallVec::<[IndexKind; 5]>::new();
 
         let mut provide_definitions = vec![ExprKind::ident("provide")];
 
@@ -268,7 +269,7 @@ impl Kernel {
         // Fill up the define macro expressions with the correct ones
         // Lets do some debug logging to make sure this even makes sense
         // in the first place
-        let mut def_macro_exprs = Vec::with_capacity(def_macro_expr_indices.len());
+        let mut def_macro_exprs = Vec::with_capacity(def_macro_expr_indices.len() + 3);
 
         def_macro_exprs.push(ExprKind::ident("#%syntax-transformer-module"));
         def_macro_exprs.push(ExprKind::ident(&environment));
@@ -327,7 +328,7 @@ impl Kernel {
     // TODO: Have this report errors
     pub fn load_program_for_comptime(
         &mut self,
-        constants: im_rc::HashMap<InternedString, SteelVal>,
+        constants: im_rc::HashMap<InternedString, SteelVal, FxBuildHasher>,
         exprs: &mut Vec<ExprKind>,
     ) -> Result<()> {
         let mut analysis = SemanticAnalysis::new(exprs);
@@ -457,7 +458,7 @@ impl Kernel {
         // todo!("Run through every expression, and memoize them by calling (set! <ident> (make-memoize <ident>))")
     }
 
-    pub fn exported_defmacros(&self, environment: &str) -> Option<HashSet<InternedString>> {
+    pub fn exported_defmacros(&self, environment: &str) -> Option<FxHashSet<InternedString>> {
         self.transformers
             .set
             .read()
@@ -516,7 +517,7 @@ impl Kernel {
         expr: ExprKind,
         environment: &str,
     ) -> Result<ExprKind> {
-        // println!("Expanding: {} with {}", ident, expr);
+        let now = std::time::Instant::now();
 
         let span = get_span(&expr);
 
@@ -543,10 +544,14 @@ impl Kernel {
 
         let result = self
             .engine
-            .call_function_with_args(function, vec![syntax_objects])
+            .call_function_with_args_from_mut_slice(function, &mut [syntax_objects])
             .map_err(|x| x.set_span(span))?;
 
         // This shouldn't be lowering all the way. It should just be back to list right?
-        TryFromSteelValVisitorForExprKind::root(&result)
+        let res = TryFromSteelValVisitorForExprKind::root(&result);
+
+        log::debug!(target: "pipeline_time", "Kernel expansion time: {:?}", now.elapsed());
+
+        res
     }
 }

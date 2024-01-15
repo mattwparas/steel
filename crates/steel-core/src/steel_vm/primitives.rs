@@ -32,16 +32,20 @@ use crate::{
     rvals::{
         as_underlying_type,
         cycles::{BreadthFirstSearchSteelValVisitor, SteelCycleCollector},
-        FromSteelVal, SteelString, ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
+        FromSteelVal, FunctionSignature, MutFunctionSignature, SteelString, ITERATOR_FINISHED,
+        NUMBER_EQUALITY_DEFINITION,
     },
     steel_vm::{
-        builtin::{get_function_name, Arity},
+        builtin::{get_function_metadata, get_function_name, Arity},
         vm::threads::threading_module,
     },
     values::{
         closed::HeapRef,
         functions::{attach_contract_struct, get_contract, LambdaMetadataTable},
-        structs::{build_type_id_module, make_struct_type, SteelResult, UserDefinedStruct},
+        structs::{
+            build_type_id_module, make_struct_type, struct_update_primitive, SteelResult,
+            UserDefinedStruct,
+        },
     },
 };
 use crate::{
@@ -57,6 +61,7 @@ use crate::{
 use crate::primitives::web::requests::requests_module;
 
 use crate::values::lists::List;
+use fxhash::{FxHashMap, FxHashSet};
 use im_rc::HashMap;
 use num::{Signed, ToPrimitive};
 use once_cell::sync::Lazy;
@@ -308,6 +313,10 @@ thread_local! {
     pub static TYPE_ID_MODULE: BuiltInModule = build_type_id_module();
     pub static OPTION_MODULE: BuiltInModule = build_option_structs();
     pub static PRELUDE_MODULE: BuiltInModule = prelude();
+
+    pub(crate) static PRELUDE_INTERNED_STRINGS: FxHashSet<InternedString> = PRELUDE_MODULE.with(|x| x.names().into_iter().map(|x| x.into()).collect());
+
+
     pub static TIME_MODULE: BuiltInModule = time_module();
     pub static THREADING_MODULE: BuiltInModule = threading_module();
 
@@ -508,6 +517,28 @@ pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::n
 
     set
 });
+
+pub(crate) static PRELUDE_TO_RESERVED_MAP: Lazy<FxHashMap<String, InternedString>> =
+    Lazy::new(|| {
+        PRELUDE_INTERNED_STRINGS.with(|x| {
+            x.iter()
+                .map(|x| {
+                    (
+                        x.resolve().to_string(),
+                        ("#%prim.".to_string() + x.resolve()).into(),
+                    )
+                })
+                .collect()
+        })
+    });
+
+pub fn builtin_to_reserved(ident: &str) -> InternedString {
+    if let Some(value) = PRELUDE_TO_RESERVED_MAP.get(ident) {
+        *value
+    } else {
+        ("#%prim.".to_string() + ident).into()
+    }
+}
 
 // TODO: Make the prelude string generation lazy - so that
 // the first time we load (steel/base) we don't have to regenerate
@@ -1153,6 +1184,40 @@ fn lookup_function_name(value: SteelVal) -> Option<SteelVal> {
     }
 }
 
+fn lookup_doc(value: SteelVal) -> bool {
+    match value {
+        // SteelVal::BoxedFunction(f) => ,
+        SteelVal::FuncV(f) => {
+            let metadata = get_function_metadata(
+                crate::steel_vm::builtin::BuiltInFunctionTypePointer::Reference(
+                    f as *const FunctionSignature,
+                ),
+            );
+
+            if let Some(data) = metadata.and_then(|x| x.doc) {
+                println!("{}", data);
+                true
+            } else {
+                false
+            }
+        }
+        SteelVal::MutFunc(f) => {
+            let metadata = get_function_metadata(
+                crate::steel_vm::builtin::BuiltInFunctionTypePointer::Mutable(
+                    f as *const MutFunctionSignature,
+                ),
+            );
+            if let Some(data) = metadata.and_then(|x| x.doc) {
+                println!("{}", data);
+                true
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
 // Only works with fixed size arity functions
 fn arity(value: SteelVal) -> UnRecoverableResult {
     match value {
@@ -1535,8 +1600,13 @@ fn meta_module() -> BuiltInModule {
         .register_fn("set-env-var!", std::env::set_var::<String, String>)
         .register_fn("arity?", arity)
         .register_fn("function-name", lookup_function_name)
+        .register_fn("#%native-fn-ptr-doc", lookup_doc)
         .register_fn("multi-arity?", is_multi_arity)
         .register_value("make-struct-type", SteelVal::FuncV(make_struct_type))
+        .register_value(
+            "#%struct-update",
+            SteelVal::MutFunc(struct_update_primitive),
+        )
         // .register_fn("struct-properties", UserDefinedStruct::properties)
         // .register_value(
         //     "box",
@@ -1558,6 +1628,8 @@ fn meta_module() -> BuiltInModule {
         )
         .register_value("get-contract-struct", SteelVal::FuncV(get_contract))
         .register_fn("current-os!", || std::env::consts::OS);
+
+    module.register_native_fn_definition(super::engine::LOAD_MODULE_NOOP_DEFINITION);
 
     // TODO: Remove
     #[cfg(feature = "dylibs")]

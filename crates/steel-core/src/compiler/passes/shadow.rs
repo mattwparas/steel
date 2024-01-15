@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-
+use fxhash::{FxBuildHasher, FxHashMap};
 use quickscope::{ScopeMap, ScopeSet};
 
 use crate::parser::{
@@ -9,12 +8,13 @@ use crate::parser::{
 
 use super::VisitorMutRefUnit;
 
+#[derive(Clone)]
 pub struct RenameShadowedVariables {
     modified: bool,
-    scope: ScopeSet<InternedString>,
+    scope: ScopeSet<InternedString, FxBuildHasher>,
     // Modify the variable with the depth
-    shadows: ScopeMap<InternedString, usize>,
-    str_modifiers: HashMap<usize, String>,
+    shadows: ScopeMap<InternedString, usize, FxBuildHasher>,
+    str_modifiers: FxHashMap<usize, String>,
 }
 
 impl Default for RenameShadowedVariables {
@@ -26,10 +26,25 @@ impl Default for RenameShadowedVariables {
 impl RenameShadowedVariables {
     pub fn new() -> Self {
         Self {
-            scope: ScopeSet::new(),
-            shadows: ScopeMap::new(),
+            scope: ScopeSet::default(),
+            shadows: ScopeMap::default(),
             modified: false,
-            str_modifiers: HashMap::new(),
+            str_modifiers: FxHashMap::default(),
+        }
+    }
+
+    fn clear(&mut self) {
+        self.scope.clear_all();
+        self.shadows.clear_all();
+        self.modified = false;
+        self.str_modifiers.clear();
+    }
+
+    pub fn rename_shadowed_variables(&mut self, exprs: &mut [ExprKind]) {
+        self.clear();
+
+        for expr in exprs.iter_mut() {
+            self.visit(expr);
         }
     }
 
@@ -111,8 +126,11 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
     }
 
     fn visit_let(&mut self, l: &mut crate::parser::ast::Let) {
+        l.bindings.iter_mut().for_each(|x| self.visit(&mut x.1));
         self.scope.push_layer();
         self.shadows.push_layer();
+
+        // l.bindings.iter_mut().for_each(|x| self.visit(&mut x.1));
 
         for variable in l
             .bindings
@@ -144,7 +162,7 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
         }
 
         //
-        l.bindings.iter_mut().for_each(|x| self.visit(&mut x.1));
+        // l.bindings.iter_mut().for_each(|x| self.visit(&mut x.1));
         self.visit(&mut l.body_expr);
 
         // TODO: Insert the code here to mark these variables as in scope
