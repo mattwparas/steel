@@ -23,8 +23,6 @@ use super::{
     kernel::Kernel,
 };
 
-use std::collections::HashSet;
-
 use crate::parser::expander::SteelMacro;
 
 pub fn extract_macro_defs(

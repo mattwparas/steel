@@ -2,7 +2,7 @@ use once_cell::sync::Lazy;
 
 use crate::parser::{ast::ExprKind, interner::InternedString};
 
-use super::{Folder, VisitorMutRefUnit};
+use super::VisitorMutRefUnit;
 
 pub struct MultipleArityFunctions {
     dot: InternedString,

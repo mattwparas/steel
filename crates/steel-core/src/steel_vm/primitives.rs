@@ -518,8 +518,6 @@ pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::n
     set
 });
 
-pub(crate) static ALL_MODULES_EXPANDED: &str = include_str!("../boot/all-modules-expanded.scm");
-
 pub(crate) static PRELUDE_TO_RESERVED_MAP: Lazy<FxHashMap<String, InternedString>> =
     Lazy::new(|| {
         PRELUDE_INTERNED_STRINGS.with(|x| {

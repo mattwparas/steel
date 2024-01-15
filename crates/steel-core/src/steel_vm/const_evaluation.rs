@@ -128,7 +128,7 @@ pub struct ConstantEvaluatorManager<'a> {
     set_idents: FxHashSet<InternedString>,
     pub(crate) changed: bool,
     opt_level: OptLevel,
-    memoization_table: &'a mut MemoizationTable,
+    _memoization_table: &'a mut MemoizationTable,
     kernel: &'a mut Option<Kernel>,
 }
 
@@ -144,7 +144,7 @@ impl<'a> ConstantEvaluatorManager<'a> {
             set_idents: HashSet::default(),
             changed: false,
             opt_level,
-            memoization_table,
+            _memoization_table: memoization_table,
             kernel,
         }
     }

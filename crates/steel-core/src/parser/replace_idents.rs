@@ -1,4 +1,4 @@
-use fxhash::{FxHashMap, FxHashSet};
+use fxhash::{FxHashMap};
 use smallvec::SmallVec;
 
 use crate::compiler::passes::{VisitorMutControlFlow, VisitorMutRefUnit};
@@ -17,7 +17,7 @@ use super::expander::BindingKind;
 use super::visitors::VisitorMutRef;
 use super::{ast::Atom, interner::InternedString};
 
-use std::collections::HashSet;
+
 use std::ops::ControlFlow;
 
 // const DATUM_TO_SYNTAX: &str = "datum->syntax";
