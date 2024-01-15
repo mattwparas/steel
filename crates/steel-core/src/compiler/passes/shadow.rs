@@ -126,8 +126,11 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
     }
 
     fn visit_let(&mut self, l: &mut crate::parser::ast::Let) {
+        l.bindings.iter_mut().for_each(|x| self.visit(&mut x.1));
         self.scope.push_layer();
         self.shadows.push_layer();
+
+        // l.bindings.iter_mut().for_each(|x| self.visit(&mut x.1));
 
         for variable in l
             .bindings
@@ -159,7 +162,7 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
         }
 
         //
-        l.bindings.iter_mut().for_each(|x| self.visit(&mut x.1));
+        // l.bindings.iter_mut().for_each(|x| self.visit(&mut x.1));
         self.visit(&mut l.body_expr);
 
         // TODO: Insert the code here to mark these variables as in scope

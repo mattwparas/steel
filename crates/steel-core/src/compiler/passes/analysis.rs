@@ -566,11 +566,20 @@ impl Analysis {
     pub fn insert(&mut self, object: &SyntaxObject, metadata: SemanticInformation) {
         // self.info.insert(object.syntax_object_id, metadata);
 
-        if let Some(existing_metadata) = self.info.get_mut(&object.syntax_object_id) {
-            *existing_metadata = metadata;
-        } else {
-            self.info.insert(object.syntax_object_id, metadata);
+        match self.info.entry(object.syntax_object_id) {
+            hash_map::Entry::Occupied(m) => {
+                *m.into_mut() = metadata;
+            }
+            hash_map::Entry::Vacant(e) => {
+                e.insert(metadata);
+            }
         }
+
+        // if let Some(existing_metadata) = self.info.get_mut(&object.syntax_object_id) {
+        //     *existing_metadata = metadata;
+        // } else {
+        //     self.info.insert(object.syntax_object_id, metadata);
+        // }
     }
 
     #[inline(always)]
@@ -816,15 +825,17 @@ impl<'a> AnalysisPass<'a> {
         identifier_status_if_local: IdentifierStatus,
     ) {
         let name = define.name.atom_identifier().unwrap();
+        let atom_syntax_object = define.name.atom_syntax_object().unwrap();
+        let depth = self.info.scope.depth();
 
         let mut semantic_info = SemanticInformation::new(
-            if self.info.scope.depth() == 1 {
+            if depth == 1 {
                 IdentifierStatus::Global
             } else {
                 identifier_status_if_local
             },
-            self.info.scope.depth(),
-            define.name.atom_syntax_object().unwrap().span,
+            depth,
+            atom_syntax_object.span,
         );
 
         if is_a_builtin_definition(define) {
@@ -844,8 +855,7 @@ impl<'a> AnalysisPass<'a> {
 
         define_var(&mut self.info.scope, define);
 
-        self.info
-            .insert(define.name.atom_syntax_object().unwrap(), semantic_info);
+        self.info.insert(atom_syntax_object, semantic_info);
     }
 
     // Visit the function arguments, marking these as defining in our scope
@@ -1243,16 +1253,16 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // of the offset
         let mut mutable_var_offset = 0;
 
-        let let_info = self.info.let_info.get(&l.syntax_object_id);
+        // let let_info = self.info.let_info.get(&l.syntax_object_id);
 
-        for arg in l.local_bindings() {
+        for (index, arg) in l.local_bindings().enumerate() {
             // println!("{}", arg);
             // println!("{}", l);
 
             let name = arg.atom_identifier().unwrap();
             let id = arg.atom_syntax_object().unwrap().syntax_object_id;
 
-            let heap_alloc = if let Some(info) = &let_info {
+            let heap_alloc = if let Some(info) = self.info.let_info.get(&l.syntax_object_id) {
                 if let Some(info) = info.arguments.get(name) {
                     info.mutated && info.captured
                 } else {
@@ -1268,7 +1278,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     *name,
                     ScopeInfo::new_heap_allocated_var(
                         id,
-                        todo!("Need to include the stack offset here!"),
+                        // todo!("Need to include the stack offset here!"),
+                        index,
                         mutable_var_offset + alloc_capture_count.unwrap(),
                     ),
                 );
@@ -1601,16 +1612,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         info.captured_vars.remove(position);
                     }
                 }
-
-                // for var in slated_for_removal {
-                // info.captured_vars.remove(&var);
-
-                // info.captured_vars.swap_remove()
-
-                // info.captured_vars.retain(|x| !slated_for_removal.contains(x)));
-                // }
-
-                // println!("Captured vars dropped: {}", before - captured_vars.len());
             }
 
             for (var, value) in captured_vars {
@@ -1693,15 +1694,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         if let Some(ident) = name {
             // Mark that we've seen this one
             self.vars_used.push(*ident);
-            // Mark that this was perhaps used in tail position
-            // self.ids_referenced_in_tail_position.insert(current_id);
 
             // Check if its a global var - otherwise, we want to check if its a free
             // identifier
-
-            // TODO: Checking if this is a global var can probably cause some
-            // issues by repeatedly checking this.
-
             if let Some(depth) = self.info.scope.height_of(ident) {
                 if depth == 0 {
                     // Mark the parent as used
@@ -1780,9 +1775,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                 if let Some(stack_offset) = mut_ref_stack_offset {
                     semantic_info = semantic_info.with_offset(stack_offset);
-                } else {
-                    // log::debug!("Stack offset missing from local define")
                 }
+                // else {
+                // log::debug!("Stack offset missing from local define")
+                // }
 
                 if mut_ref_captured && mut_ref_mutated {
                     semantic_info.kind = IdentifierStatus::HeapAllocated;
@@ -2998,6 +2994,64 @@ impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
 
     fn visit_define(&mut self, define: &mut Define) {
         self.visit(&mut define.body);
+    }
+
+    // TODO: Implement the wrapper for lets here as well
+    fn visit_let(&mut self, l: &mut Let) {
+        l.bindings.iter_mut().for_each(|x| self.visit(&mut x.1));
+        self.visit(&mut l.body_expr);
+
+        let let_info = self.analysis.let_info.get(&l.syntax_object_id);
+
+        if let Some(let_info) = let_info {
+            let mut mutable_variables = Vec::new();
+
+            // Which arguments do we need to wrap up
+            for (var, _) in &l.bindings {
+                if let Some(ident) = var.atom_identifier() {
+                    if let Some((_, arg)) = let_info.arguments.iter().find(|x| *x.0 == *ident) {
+                        if arg.captured && arg.mutated {
+                            mutable_variables.push(var.clone());
+                        }
+                    }
+                } else {
+                    unreachable!()
+                }
+            }
+
+            if !mutable_variables.is_empty() {
+                // let mut body = ExprKind::List(List::new(Vec::new()));
+
+                // std::mem::swap(&mut lambda_function.body, &mut body);
+
+                // let wrapped_lambda = LambdaFunction::new(
+                //     mutable_variables.clone(),
+                //     body,
+                //     lambda_function.location.clone(),
+                // );
+
+                // let mut new_expr = Vec::with_capacity(mutable_variables.len() + 1);
+
+                // new_expr.push(ExprKind::LambdaFunction(Box::new(wrapped_lambda)));
+
+                // // Box the values!
+                // new_expr.extend(mutable_variables.into_iter().map(box_argument));
+
+                // lambda_function.body = ExprKind::List(List::new(new_expr));
+
+                let new_let = Let::new(
+                    mutable_variables
+                        .clone()
+                        .into_iter()
+                        .zip(mutable_variables.into_iter().map(box_argument))
+                        .collect(),
+                    std::mem::take(&mut l.body_expr),
+                    l.location.clone(),
+                );
+
+                l.body_expr = new_let.into();
+            }
+        }
     }
 
     fn visit_lambda_function(&mut self, lambda_function: &mut LambdaFunction) {

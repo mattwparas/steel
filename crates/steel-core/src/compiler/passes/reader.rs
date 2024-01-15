@@ -1,7 +1,6 @@
-use crate::parser::{
-    ast::{ExprKind},
-    interner::InternedString,
-};
+use once_cell::sync::Lazy;
+
+use crate::parser::{ast::ExprKind, interner::InternedString};
 
 use super::{Folder, VisitorMutRefUnit};
 
@@ -9,13 +8,16 @@ pub struct MultipleArityFunctions {
     dot: InternedString,
 }
 
+pub static DOT: Lazy<InternedString> = Lazy::new(|| ".".into());
+
 impl MultipleArityFunctions {
+    // TODO: Intern this once
     pub fn new() -> Self {
-        MultipleArityFunctions { dot: ".".into() }
+        MultipleArityFunctions { dot: *DOT }
     }
 
     pub fn expand_multiple_arity_functions(exprs: &mut Vec<ExprKind>) {
-        let dot = ".".into();
+        let dot = *DOT;
 
         for expr in exprs.iter_mut() {
             MultipleArityFunctions { dot }.visit(expr)

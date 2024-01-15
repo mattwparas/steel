@@ -484,22 +484,20 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         // }
     }
 
-    fn visit_define(&mut self, define: Box<crate::parser::ast::Define>) -> Self::Output {
+    fn visit_define(&mut self, mut define: Box<crate::parser::ast::Define>) -> Self::Output {
         let identifier = &define.name.atom_identifier_or_else(
             throw!(BadSyntax => format!("Define expects an identifier, found: {}", define.name); define.location.span),
         )?;
 
-        let body = self.visit(define.body)?;
+        define.body = self.visit(define.body)?;
 
-        if let Some(c) = self.to_constant(&body) {
+        if let Some(c) = self.to_constant(&define.body) {
             self.bindings.borrow_mut().bind(identifier, c);
         } else {
             self.bindings.borrow_mut().bind_non_constant(identifier);
         }
 
-        Ok(ExprKind::Define(
-            Define::new(define.name, body, define.location).into(),
-        ))
+        Ok(ExprKind::Define(define))
     }
 
     fn visit_lambda_function(
@@ -526,15 +524,12 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
     }
 
     // TODO remove constants from the begins
-    fn visit_begin(&mut self, begin: crate::parser::ast::Begin) -> Self::Output {
-        Ok(ExprKind::Begin(Begin::new(
-            begin
-                .exprs
-                .into_iter()
-                .map(|x| self.visit(x))
-                .collect::<Result<Vec<_>>>()?,
-            begin.location,
-        )))
+    fn visit_begin(&mut self, mut begin: crate::parser::ast::Begin) -> Self::Output {
+        for expr in begin.exprs.iter_mut() {
+            *expr = self.visit(std::mem::take(expr))?;
+        }
+
+        Ok(ExprKind::Begin(begin))
     }
 
     fn visit_return(&mut self, mut r: Box<crate::parser::ast::Return>) -> Self::Output {
@@ -551,14 +546,39 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
     }
 
     fn visit_atom(&mut self, a: crate::parser::ast::Atom) -> Self::Output {
-        if let Some(inner) = self.eval_atom(&a.syn) {
-            // TODO Check this part - be able to propagate quoted values
-            if let Some(new_token) = steelval_to_atom(&inner) {
-                let atom = Atom::new(SyntaxObject::new(new_token, a.syn.span));
-                return Ok(ExprKind::Atom(atom));
+        // if let Some(inner) = self.eval_atom(&a.syn) {
+        //     // TODO Check this part - be able to propagate quoted values
+        //     if let Some(new_token) = steelval_to_atom(&inner) {
+        //         let atom = Atom::new(SyntaxObject::new(new_token, a.syn.span));
+        //         return Ok(ExprKind::Atom(atom));
+        //     }
+        // }
+        // Ok(ExprKind::Atom(a))
+
+        match &a.syn.ty {
+            TokenType::Identifier(s) => {
+                // If we found a set identifier, skip it
+                if self.set_idents.get(&s).is_some() || self.expr_level_set_idents.contains(&s) {
+                    self.bindings.borrow_mut().unbind(&s);
+
+                    return Ok(ExprKind::Atom(a));
+                };
+                if let Some(new_token) = self
+                    .bindings
+                    .borrow_mut()
+                    .get(&s)
+                    .and_then(|x| steelval_to_atom(&x))
+                {
+                    return Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
+                        new_token, a.syn.span,
+                    ))));
+                } else {
+                    Ok(ExprKind::Atom(a))
+                }
             }
+
+            _ => Ok(ExprKind::Atom(a)),
         }
-        Ok(ExprKind::Atom(a))
     }
 
     // Certainly the most complicated case: function application
@@ -746,8 +766,8 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             // self.bindings = parent;
 
             // Find which variables and arguments are actually used in the body of the function
-            let mut actually_used_variables = Vec::new();
-            let mut actually_used_arguments = Vec::new();
+            let mut actually_used_variables = smallvec::SmallVec::<[_; 8]>::new();
+            let mut actually_used_arguments = smallvec::SmallVec::<[_; 8]>::new();
 
             let mut non_constant_arguments = Vec::new();
 

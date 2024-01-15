@@ -11,11 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::ops::Deref;
 
-use super::{
-    interner::InternedString,
-    parser::{SyntaxObjectId},
-    span::Span,
-};
+use super::{interner::InternedString, parser::SyntaxObjectId, span::Span};
 
 // TODO: Have this macro share the implementation crate wide
 macro_rules! define_symbols {
@@ -125,6 +121,12 @@ pub enum ExprKind {
     List(List),
     Set(Box<Set>),
     Require(Require),
+}
+
+impl Default for ExprKind {
+    fn default() -> Self {
+        ExprKind::List(List::new(Vec::new()))
+    }
 }
 
 #[test]
