@@ -43,8 +43,6 @@ use crate::parser::tokens::TokenType;
 
 use crate::stop;
 
-use log::{debug, log_enabled};
-
 use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
 use super::{
@@ -468,8 +466,8 @@ impl Compiler {
         // println!("Finished parsing");
 
         #[cfg(feature = "profiling")]
-        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
-            debug!(target: "pipeline_time", "Parsing Time: {:?}", now.elapsed());
+        if log::log_enabled!(target: "pipeline_time", log::Level::Debug) {
+            log::debug!(target: "pipeline_time", "Parsing Time: {:?}", now.elapsed());
         }
 
         let parsed = parsed?;
@@ -1108,8 +1106,8 @@ impl Compiler {
         }
 
         #[cfg(feature = "profiling")]
-        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
-            debug!(
+        if log::log_enabled!(target: "pipeline_time", log::Level::Debug) {
+            log::debug!(
                 target: "pipeline_time",
                 "Const Evaluation Time: {:?}",
                 opt_time.elapsed()

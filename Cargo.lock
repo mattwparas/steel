@@ -3115,7 +3115,7 @@ dependencies = [
 
 [[package]]
 name = "steel-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "abi_stable",
  "anyhow",
@@ -3160,7 +3160,7 @@ dependencies = [
 
 [[package]]
 name = "steel-derive"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3169,7 +3169,7 @@ dependencies = [
 
 [[package]]
 name = "steel-doc"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "steel-core",
 ]
@@ -3185,7 +3185,7 @@ dependencies = [
 
 [[package]]
 name = "steel-interpreter"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "clap",
  "env_logger",
@@ -3200,7 +3200,7 @@ dependencies = [
 
 [[package]]
 name = "steel-language-server"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "dashmap",
  "env_logger",
@@ -3216,7 +3216,7 @@ dependencies = [
 
 [[package]]
 name = "steel-parser"
-version = "0.4.0"
+version = "0.6.0"
 dependencies = [
  "fxhash",
  "lasso",
@@ -3243,7 +3243,7 @@ dependencies = [
 
 [[package]]
 name = "steel-repl"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "colored",
  "rustyline",
@@ -3254,7 +3254,7 @@ dependencies = [
 
 [[package]]
 name = "steel-sys-info"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "abi_stable",
  "steel-core",
@@ -3263,7 +3263,7 @@ dependencies = [
 
 [[package]]
 name = "steel-toml"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "abi_stable",
  "steel-core",
