@@ -19,6 +19,20 @@ r#"=> #<hashmap {
 'b: 20,
 }>"#,
 ```
+### **hash-clear**
+Clears the entries out of the existing hashmap.
+Will attempt to reuse the existing memory if there are no other references
+to the hashmap.
+
+(hash-clear h) -> hash?
+
+h: hash?
+
+#### Examples
+```scheme
+> (hash-clear (hash 'a 10 'b 20))
+=> '#hash()
+```
 ### **hash-contains?**
 Checks whether the given map contains the given key. Key must be hashable.
 
@@ -32,6 +46,18 @@ Checks whether the given map contains the given key. Key must be hashable.
 ```scheme
 > (hash-contains? (hash 'a 10 'b 20) 'a) ;; => #true
 > (hash-contains? (hash 'a 10 'b 20) 'not-there) ;; => #false
+```
+### **hash-empty?**
+Checks whether the hash map is empty
+
+(hash-empty? m) -> bool?
+
+m: hash?
+
+#### Examples
+```scheme
+> (hash-empty? (hash 'a 10)) ;; => #f
+> (hash-emptY? (hash)) ;; => #true
 ```
 ### **hash-insert**
 Returns a new hashmap with the additional key value pair added. Performs a functional update,
@@ -66,6 +92,18 @@ Returns the keys of the given hash map as a list.
 
 ```scheme
 > (hash-keys->list? (hash 'a 'b 20)) ;; => '(a b)
+```
+### **hash-keys->vector**
+Returns the keys of the given hash map as an immutable vector
+
+(hash-keys->vector map) -> (vectorof any/c)?
+
+map: hash?
+
+#### Examples
+```scheme
+> (hash-keys->vector (hash 'a 10 'b 20)),
+=> ['a 'b]",
 ```
 ### **hash-length**
 Returns the number of key value pairs in the map
@@ -105,6 +143,18 @@ Gets the `key` from the given `map`. Returns #false if the key does not exist.
 > (hash-try-get (hash 'a 10 'b 20) 'b) ;; => 20
 > (hash-try-get (hash 'a 10 'b 20) 'does-not-exist) ;; => #false
 ```
+### **hash-union**
+Constructs the union of two hashmaps, keeping the values
+in the left map when the keys exist in both maps.
+
+Will reuse memory where possible.
+
+(hash-union l r) -> hash?
+
+#### Examples
+```scheme
+> (hash-union (hash 'a 10) (hash 'b 20)) ;; => '#hash((a . 10) (b . 20))
+```
 ### **hash-values->list**
 Returns the values of the given hash map as a list
 
@@ -114,13 +164,20 @@ map: hash?
 
 #### Examples
 ```scheme
-> (hash-values->list? (hash 'a 10 'b 20) 'a)",
-r#"=> '(10 20)",
+> (hash-values->list? (hash 'a 10 'b 20)),
+=> '(10 20)",
+```
+### **hash-values->vector**
+Returns the values of the given hash map as an immutable vector
+
+(hash-values->vector map) -> (vectorof any/c)?
+
+map: hash?
+
+#### Examples
+```scheme
+> (hash-keys->vector (hash 'a 10 'b 20)),
+=> [10 10]",
 ```
 ### **%keyword-hash**
-### **hash-clear**
-### **hash-empty?**
 ### **hash-get**
-### **hash-union**
-### **hm-keys->vector**
-### **hm-values->vector**
