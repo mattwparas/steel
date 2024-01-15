@@ -1,4 +1,4 @@
-use fxhash::{FxHashMap};
+use fxhash::FxHashMap;
 use smallvec::SmallVec;
 
 use crate::compiler::passes::{VisitorMutControlFlow, VisitorMutRefUnit};
@@ -16,7 +16,6 @@ use crate::rvals::Result;
 use super::expander::BindingKind;
 use super::visitors::VisitorMutRef;
 use super::{ast::Atom, interner::InternedString};
-
 
 use std::ops::ControlFlow;
 
