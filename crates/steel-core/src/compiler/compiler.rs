@@ -615,11 +615,6 @@ impl Compiler {
         let mut expanded_statements =
             self.expand_expressions(exprs, path, sources, builtin_modules.clone())?;
 
-        // expanded_statements = expanded_statements
-        //     .into_iter()
-        //     .map(lower_entire_ast)
-        //     .collect::<std::result::Result<Vec<_>, ParseError>>()?;
-
         log::debug!(target: "expansion-phase", "Expanding macros -> phase 1");
 
         if let Some(kernel) = self.kernel.as_mut() {
@@ -638,13 +633,14 @@ impl Compiler {
             crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
         }
 
-        // expanded_statements = expanded_statements
-        //     .into_iter()
-        //     .map(lower_entire_ast)
-        //     .collect::<std::result::Result<Vec<_>, ParseError>>()?;
-
-        // TODO: Merge this loop with the above?
         for expr in expanded_statements.iter_mut() {
+            expand_kernel_in_env(
+                expr,
+                self.kernel.as_mut(),
+                builtin_modules.clone(),
+                "top-level",
+            )?;
+            crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
             lower_entire_ast(expr)?;
 
             for module in &self.lifted_macro_environments {
@@ -653,7 +649,7 @@ impl Compiler {
 
                     crate::parser::expand_visitor::expand_with_source_id(
                         expr, macro_env, source_id,
-                    )?;
+                    )?
                 }
             }
 
@@ -680,54 +676,8 @@ impl Compiler {
 
             // TODO: If we have this, then we have to lower all of the expressions again
             crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
-        }
 
-        // expanded_statements = expanded_statements
-        //     .into_iter()
-        //     .map(|x| {
-        //         let mut x = x;
-
-        //         for module in &self.lifted_macro_environments {
-        //             if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
-        //                 let source_id = sources.get_source_id(module).unwrap();
-
-        //                 x = crate::parser::expand_visitor::expand(x, macro_env)?
-        //             }
-        //         }
-
-        //         // Lift all of the kernel macros as well?
-        //         for (module, lifted_env) in &mut self.lifted_kernel_environments {
-        //             let mut changed = false;
-
-        //             (x, changed) = expand_kernel_in_env_with_change(
-        //                 x,
-        //                 self.kernel.as_mut(),
-        //                 builtin_modules.clone(),
-        //                 module.to_string(),
-        //             )?;
-
-        //             if changed {
-        //                 lifted_env.name_mangler.visit(&mut x);
-        //             }
-        //         }
-
-        //         expand_kernel_in_env(
-        //             x,
-        //             self.kernel.as_mut(),
-        //             builtin_modules.clone(),
-        //             "top-level".to_string(),
-        //         )
-        //         // TODO: If we have this, then we have to lower all of the expressions again
-        //         .and_then(|x| crate::parser::expand_visitor::expand(x, &self.macro_env))
-        //     })
-        //     .collect::<Result<Vec<_>>>()?;
-
-        // expanded_statements = expanded_statements
-        //     .into_iter()
-        //     .map(lower_entire_ast)
-        //     .collect::<std::result::Result<Vec<_>, ParseError>>()?;
-
-        for expr in expanded_statements.iter_mut() {
+            // for expr in expanded_statements.iter_mut() {
             lower_entire_ast(expr)?;
         }
 
@@ -738,9 +688,9 @@ impl Compiler {
 
         self.shadowed_variable_renamer
             .rename_shadowed_variables(&mut expanded_statements);
-        // RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
 
-        let mut analysis = Analysis::from_exprs(&expanded_statements);
+        let mut analysis = std::mem::take(&mut self.analysis);
+        analysis.fresh_from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
 
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
@@ -814,6 +764,8 @@ impl Compiler {
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
         semantic.replace_anonymous_function_calls_with_plain_lets();
+
+        self.analysis = semantic.into_analysis();
 
         Ok(expanded_statements)
     }
