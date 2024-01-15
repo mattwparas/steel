@@ -19,7 +19,7 @@ path = "src/main.rs"
 
 [workspace.dependencies]
 # This has to line up with the workspace version above
-steel-core = { path = "./crates/steel-core", version = "0.5.0", features = ["web", "sqlite", "dylibs", "markdown", "stacker"] }
+steel-core = { path = "./crates/steel-core", version = "0.5.0", features = ["web", "sqlite", "dylibs", "markdown", "stacker", "profiling"] }
 
 [dependencies]
 once_cell = "1.17.0"
@@ -41,6 +41,6 @@ members = [
 ]
 
 [profile.release]
-# debug = false
-debug = true
+debug = false
+# debug = true
 lto = true
