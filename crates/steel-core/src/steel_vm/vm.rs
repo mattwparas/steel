@@ -45,6 +45,7 @@ use crate::values::lists::List;
 use log::{debug, log_enabled};
 use num::ToPrimitive;
 use once_cell::sync::Lazy;
+use smallvec::SmallVec;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
 
@@ -297,7 +298,6 @@ thread_local! {
 #[derive(Clone)]
 pub struct SteelThread {
     pub(crate) global_env: Env,
-    // Maybe a neat idea, what if we used an immutable vector here?
     pub(crate) stack: Vec<SteelVal>,
     profiler: OpCodeOccurenceProfiler,
     function_interner: FunctionInterner,
@@ -3217,9 +3217,11 @@ impl<'a> VmCore<'a> {
             let values = self
                 .thread
                 .stack
-                .split_off(self.thread.stack.len() - amount_to_remove);
+                .drain(self.thread.stack.len() - amount_to_remove..)
+                .collect();
+            // .split_off(self.thread.stack.len() - amount_to_remove);
 
-            let list = SteelVal::ListV(List::from(values));
+            let list = SteelVal::ListV(values);
 
             self.thread.stack.push(list);
 
@@ -3385,7 +3387,8 @@ impl<'a> VmCore<'a> {
         let args = self
             .thread
             .stack
-            .split_off(self.thread.stack.len() - payload_size);
+            .drain(self.thread.stack.len() - payload_size..)
+            .collect::<SmallVec<[_; 4]>>();
 
         let result = func(self, &args).map(|x| {
             x.map_err(|x| {
