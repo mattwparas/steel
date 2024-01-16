@@ -1,5 +1,6 @@
 use std::sync::atomic::AtomicUsize;
 
+use smallvec::SmallVec;
 use steel_parser::tokens::MaybeBigInt;
 
 use crate::{
@@ -879,7 +880,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             .arguments
             .values()
             .filter(|x| x.captured && x.mutated)
-            .collect::<Vec<_>>();
+            .collect::<SmallVec<[_; 8]>>();
 
         heap_allocated_arguments.sort_by_key(|x| x.stack_offset);
 

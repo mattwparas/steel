@@ -1,92 +1,37 @@
-use crate::parser::{
-    ast::{ExprKind, List},
-    interner::InternedString,
-};
+use once_cell::sync::Lazy;
 
-use super::Folder;
+use crate::parser::{ast::ExprKind, interner::InternedString};
 
-pub struct ExpandMethodCalls {}
-
-impl ExpandMethodCalls {
-    pub fn expand_methods(exprs: Vec<ExprKind>) -> Vec<ExprKind> {
-        ExpandMethodCalls {}.fold(exprs)
-    }
-}
-
-impl Folder for ExpandMethodCalls {
-    #[inline]
-    fn visit_list(&mut self, mut l: List) -> ExprKind {
-        if l.args.is_empty() {
-            l.args = l.args.into_iter().map(|e| self.visit(e)).collect();
-            return ExprKind::List(l);
-        }
-
-        // println!("Visiting list: {:?}", l);
-
-        if let Some(func) = l.first_ident().map(|x| x.to_string()) {
-            // println!("Inside this if statement");
-            // println!("Func: {:?}", func);
-
-            if func.contains('.') {
-                let words = func.split('.').collect::<Vec<_>>();
-
-                if words.len() != 2 {
-                    l.args = l.args.into_iter().map(|e| self.visit(e)).collect();
-                    return ExprKind::List(l);
-                } else {
-                    // Here we're going to transform (struct.method ...)
-                    // into (method struct)
-                    let mut first = l.args.remove(0);
-                    let mut second = first.clone();
-
-                    // method
-                    first.update_string_in_atom(words[0].into());
-
-                    // struct
-                    second.update_string_in_atom(words[1].into());
-
-                    // method pushed on first
-                    l.args.insert(0, first);
-
-                    // then the struct
-                    l.args.insert(0, second);
-
-                    l.args = l.args.into_iter().map(|e| self.visit(e)).collect();
-
-                    // println!("Expanded method call: {:?}", l);
-
-                    return ExprKind::List(l);
-                }
-            }
-        }
-
-        l.args = l.args.into_iter().map(|e| self.visit(e)).collect();
-        ExprKind::List(l)
-    }
-}
+use super::VisitorMutRefUnit;
 
 pub struct MultipleArityFunctions {
     dot: InternedString,
 }
 
+pub static DOT: Lazy<InternedString> = Lazy::new(|| ".".into());
+
 impl MultipleArityFunctions {
+    // TODO: Intern this once
     pub fn new() -> Self {
-        MultipleArityFunctions { dot: ".".into() }
+        MultipleArityFunctions { dot: *DOT }
     }
 
-    pub fn expand_multiple_arity_functions(exprs: Vec<ExprKind>) -> Vec<ExprKind> {
-        MultipleArityFunctions { dot: ".".into() }.fold(exprs)
+    pub fn expand_multiple_arity_functions(exprs: &mut Vec<ExprKind>) {
+        let dot = *DOT;
+
+        for expr in exprs.iter_mut() {
+            MultipleArityFunctions { dot }.visit(expr)
+        }
     }
 }
 
-impl Folder for MultipleArityFunctions {
+impl VisitorMutRefUnit for MultipleArityFunctions {
     #[inline]
-    fn visit_lambda_function(
-        &mut self,
-        mut lambda_function: Box<crate::parser::ast::LambdaFunction>,
-    ) -> ExprKind {
+    fn visit_lambda_function(&mut self, lambda_function: &mut crate::parser::ast::LambdaFunction) {
         // Visit the body
-        lambda_function.body = self.visit(lambda_function.body);
+        // lambda_function.body = self.visit(lambda_function.body);
+
+        self.visit(&mut lambda_function.body);
 
         let mut dot_count = 0;
 
@@ -110,13 +55,14 @@ impl Folder for MultipleArityFunctions {
                     lambda_function.args.remove(dot_index);
                     lambda_function.rest = true;
 
-                    log::debug!(target: "reader-macros", "transformed multi-arity function");
-                } else {
-                    return ExprKind::LambdaFunction(lambda_function);
+                    // log::debug!(target: "reader-macros", "transformed multi-arity function");
                 }
+                // else {
+                //     return ExprKind::LambdaFunction(lambda_function);
+                // }
             }
         }
 
-        ExprKind::LambdaFunction(lambda_function)
+        // ExprKind::LambdaFunction(lambda_function)
     }
 }

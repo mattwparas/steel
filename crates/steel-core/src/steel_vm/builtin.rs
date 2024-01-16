@@ -3,9 +3,13 @@ use std::{borrow::Cow, cell::RefCell, rc::Rc, sync::Arc};
 use crate::{
     containers::RegisterValue,
     parser::{ast::ExprKind, interner::InternedString, parser::SyntaxObject, tokens::TokenType},
-    rvals::{Custom, FromSteelVal, FunctionSignature, IntoSteelVal, Result, SteelVal, TypeKind},
+    rvals::{
+        Custom, FromSteelVal, FunctionSignature, IntoSteelVal, MutFunctionSignature, Result,
+        SteelVal, TypeKind,
+    },
     values::functions::BoxedDynFunction,
 };
+use fxhash::FxBuildHasher;
 use im_rc::HashMap;
 use once_cell::sync::Lazy;
 
@@ -38,29 +42,36 @@ pub struct BuiltInModule {
 #[derive(Clone, Debug)]
 struct BuiltInModuleRepr {
     pub(crate) name: Rc<str>,
-    values: HashMap<Arc<str>, SteelVal>,
+    values: HashMap<Arc<str>, SteelVal, FxBuildHasher>,
     docs: Box<InternalDocumentation>,
     // Add the metadata separate from the pointer, keeps the pointer slim
-    fn_ptr_table: HashMap<*const FunctionSignature, FunctionSignatureMetadata>,
+    fn_ptr_table: HashMap<BuiltInFunctionTypePointer, FunctionSignatureMetadata>,
     // We don't need to generate this every time, just need to
     // clone it?
     generated_expression: RefCell<Option<ExprKind>>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 // Probably need something more interesting than just an integer for the arity
 pub struct FunctionSignatureMetadata {
     pub name: &'static str,
     pub arity: Arity,
     pub is_const: bool,
+    pub doc: Option<MarkdownDoc<'static>>,
 }
 
 impl FunctionSignatureMetadata {
-    pub fn new(name: &'static str, arity: Arity, is_const: bool) -> Self {
+    pub fn new(
+        name: &'static str,
+        arity: Arity,
+        is_const: bool,
+        doc: Option<MarkdownDoc<'static>>,
+    ) -> Self {
         Self {
             name,
             arity,
             is_const,
+            doc,
         }
     }
 }
@@ -105,23 +116,45 @@ impl RegisterValue for BuiltInModule {
 pub static MODULE_GET: Lazy<InternedString> = Lazy::new(|| "%module-get%".into());
 pub static VOID: Lazy<InternedString> = Lazy::new(|| "void".into());
 pub static GET_DYLIB: Lazy<InternedString> = Lazy::new(|| "#%get-dylib".into());
+pub static VOID_MODULE: Lazy<InternedString> =
+    Lazy::new(|| "%-builtin-module-steel/constants".into());
 
 // Global function table
 thread_local! {
-    pub static FUNCTION_TABLE: RefCell<HashMap<*const FunctionSignature, FunctionSignatureMetadata>> = RefCell::new(HashMap::new());
+    pub static FUNCTION_TABLE: RefCell<HashMap<BuiltInFunctionTypePointer, FunctionSignatureMetadata>> = RefCell::new(HashMap::new());
 }
 
 pub fn get_function_name(function: FunctionSignature) -> Option<FunctionSignatureMetadata> {
     FUNCTION_TABLE.with(|x| {
         x.borrow()
-            .get(&(function as *const FunctionSignature))
-            .copied()
+            .get(&BuiltInFunctionTypePointer::Reference(
+                function as *const FunctionSignature,
+            ))
+            .cloned()
     })
+}
+
+pub fn get_function_metadata(
+    function: BuiltInFunctionTypePointer,
+) -> Option<FunctionSignatureMetadata> {
+    FUNCTION_TABLE.with(|x| x.borrow().get(&function).cloned())
+}
+
+#[derive(Copy, Clone)]
+pub enum BuiltInFunctionType {
+    Reference(FunctionSignature),
+    Mutable(MutFunctionSignature),
+}
+
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
+pub enum BuiltInFunctionTypePointer {
+    Reference(*const FunctionSignature),
+    Mutable(*const MutFunctionSignature),
 }
 
 pub struct NativeFunctionDefinition {
     pub name: &'static str,
-    pub func: fn(&[SteelVal]) -> Result<SteelVal>,
+    pub func: BuiltInFunctionType,
     pub arity: Arity,
     pub doc: Option<MarkdownDoc<'static>>,
     pub is_const: bool,
@@ -132,7 +165,7 @@ impl BuiltInModuleRepr {
     pub fn new<T: Into<Rc<str>>>(name: T) -> Self {
         Self {
             name: name.into(),
-            values: HashMap::new(),
+            values: HashMap::default(),
             docs: Box::new(InternalDocumentation::new()),
             fn_ptr_table: HashMap::new(),
             generated_expression: RefCell::new(None),
@@ -145,19 +178,40 @@ impl BuiltInModuleRepr {
 
     pub(crate) fn add_to_fn_ptr_table(
         &mut self,
-        value: FunctionSignature,
+        value: BuiltInFunctionType,
         data: FunctionSignatureMetadata,
     ) -> &mut Self {
-        // Store this in a globally accessible place for printing
-        FUNCTION_TABLE.with(|table| {
-            table
-                .borrow_mut()
-                .insert(value as *const FunctionSignature, data)
-        });
+        match value {
+            BuiltInFunctionType::Reference(value) => {
+                // Store this in a globally accessible place for printing
+                FUNCTION_TABLE.with(|table| {
+                    table.borrow_mut().insert(
+                        BuiltInFunctionTypePointer::Reference(value as *const FunctionSignature),
+                        data.clone(),
+                    )
+                });
 
-        // Probably don't need to store it in both places?
-        self.fn_ptr_table
-            .insert(value as *const FunctionSignature, data);
+                // Probably don't need to store it in both places?
+                self.fn_ptr_table.insert(
+                    BuiltInFunctionTypePointer::Reference(value as *const FunctionSignature),
+                    data,
+                );
+            }
+
+            BuiltInFunctionType::Mutable(value) => {
+                FUNCTION_TABLE.with(|table| {
+                    table.borrow_mut().insert(
+                        BuiltInFunctionTypePointer::Mutable(value as *const MutFunctionSignature),
+                        data.clone(),
+                    )
+                });
+
+                self.fn_ptr_table.insert(
+                    BuiltInFunctionTypePointer::Mutable(value as *const MutFunctionSignature),
+                    data,
+                );
+            }
+        }
 
         self
     }
@@ -167,13 +221,20 @@ impl BuiltInModuleRepr {
     }
 
     pub fn search(&self, value: SteelVal) -> Option<FunctionSignatureMetadata> {
-        if let SteelVal::FuncV(f) = value {
-            self.fn_ptr_table
-                .get(&(f as *const FunctionSignature))
-                .cloned()
-            // None
-        } else {
-            None
+        match value {
+            SteelVal::FuncV(f) => self
+                .fn_ptr_table
+                .get(&BuiltInFunctionTypePointer::Reference(
+                    f as *const FunctionSignature,
+                ))
+                .cloned(),
+            SteelVal::MutFunc(f) => self
+                .fn_ptr_table
+                .get(&BuiltInFunctionTypePointer::Mutable(
+                    f as *const MutFunctionSignature,
+                ))
+                .cloned(),
+            _ => None,
         }
     }
 
@@ -228,8 +289,6 @@ impl BuiltInModuleRepr {
         self.docs.register_doc(definition, description.into());
         self
     }
-
-    // pub fn docs(&self) ->
 
     pub fn get_doc(&self, definition: String) {
         if let Some(value) = self.docs.get(&definition) {
@@ -292,6 +351,7 @@ impl BuiltInModuleRepr {
         }
 
         let module_name = self.unreadable_name();
+        let module_name_expr = ExprKind::atom(module_name.clone());
 
         let mut defines = self
             .values
@@ -310,7 +370,7 @@ impl BuiltInModuleRepr {
                     ExprKind::atom(name),
                     ExprKind::List(crate::parser::ast::List::new(vec![
                         ExprKind::atom(*MODULE_GET),
-                        ExprKind::atom(module_name.clone()),
+                        module_name_expr.clone(),
                         ExprKind::Quote(Box::new(crate::parser::ast::Quote::new(
                             ExprKind::atom(x.to_string()),
                             SyntaxObject::default(TokenType::Quote),
@@ -323,7 +383,7 @@ impl BuiltInModuleRepr {
 
         defines.push(ExprKind::List(crate::parser::ast::List::new(vec![
             ExprKind::atom(*MODULE_GET),
-            ExprKind::atom("%-builtin-module-".to_string() + "steel/constants"),
+            ExprKind::atom(*VOID_MODULE),
             ExprKind::Quote(Box::new(crate::parser::ast::Quote::new(
                 ExprKind::atom(*VOID),
                 SyntaxObject::default(TokenType::Quote),
@@ -376,7 +436,10 @@ impl BuiltInModule {
         arity: Arity,
     ) -> &mut Self {
         // Just automatically add it to the function pointer table to help out with searching
-        self.add_to_fn_ptr_table(func, FunctionSignatureMetadata::new(name, arity, false));
+        self.add_to_fn_ptr_table(
+            BuiltInFunctionType::Reference(func),
+            FunctionSignatureMetadata::new(name, arity, false, None),
+        );
         self.register_value(name, SteelVal::FuncV(func))
     }
 
@@ -386,14 +449,26 @@ impl BuiltInModule {
     ) -> &mut Self {
         self.add_to_fn_ptr_table(
             definition.func,
-            FunctionSignatureMetadata::new(definition.name, definition.arity, definition.is_const),
+            FunctionSignatureMetadata::new(
+                definition.name,
+                definition.arity,
+                definition.is_const,
+                definition.doc.clone(),
+            ),
         );
 
         if let Some(doc) = definition.doc {
             self.register_doc(definition.name, doc);
         }
 
-        self.register_value(definition.name, SteelVal::FuncV(definition.func));
+        match definition.func {
+            BuiltInFunctionType::Reference(value) => {
+                self.register_value(definition.name, SteelVal::FuncV(value));
+            }
+            BuiltInFunctionType::Mutable(value) => {
+                self.register_value(definition.name, SteelVal::MutFunc(value));
+            }
+        }
 
         self
     }
@@ -410,7 +485,7 @@ impl BuiltInModule {
 
     pub(crate) fn add_to_fn_ptr_table(
         &mut self,
-        value: FunctionSignature,
+        value: BuiltInFunctionType,
         data: FunctionSignatureMetadata,
     ) -> &mut Self {
         self.module.borrow_mut().add_to_fn_ptr_table(value, data);
@@ -553,7 +628,7 @@ impl BuiltInModule {
 
         defines.push(ExprKind::List(crate::parser::ast::List::new(vec![
             ExprKind::atom(*MODULE_GET),
-            ExprKind::atom("%-builtin-module-".to_string() + "steel/constants"),
+            ExprKind::atom("%-builtin-module-steel/constants"),
             ExprKind::Quote(Box::new(crate::parser::ast::Quote::new(
                 ExprKind::atom(*VOID),
                 SyntaxObject::default(TokenType::Quote),
@@ -660,7 +735,7 @@ pub struct ValueDoc<'a> {
     pub description: &'a str,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MarkdownDoc<'a>(pub &'a str);
 
 impl<'a> std::fmt::Display for MarkdownDoc<'a> {

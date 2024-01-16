@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::steel_vm::engine::Engine;
 
 fn generate_asserting_machine() -> Engine {
@@ -5,14 +7,14 @@ fn generate_asserting_machine() -> Engine {
     vm
 }
 
-pub(crate) fn assert_script<T: AsRef<str>>(script: T) {
+pub(crate) fn assert_script<T: AsRef<str> + Into<Cow<'static, str>>>(script: T) {
     let mut vm = generate_asserting_machine();
-    assert!(vm.compile_and_run_raw_program(script.as_ref()).is_ok());
+    assert!(vm.compile_and_run_raw_program(script).is_ok());
 }
 
-pub(crate) fn assert_script_error<T: AsRef<str>>(script: T) {
+pub(crate) fn assert_script_error<T: AsRef<str> + Into<Cow<'static, str>>>(script: T) {
     let mut vm = generate_asserting_machine();
-    assert!(vm.compile_and_run_raw_program(script.as_ref()).is_err());
+    assert!(vm.compile_and_run_raw_program(script).is_err());
 }
 
 macro_rules! test_harness_success {

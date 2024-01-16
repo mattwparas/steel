@@ -33,7 +33,7 @@ fn display_help() {
 fn finish_load_or_interrupt(vm: &mut Engine, exprs: String, path: PathBuf) {
     // let file_name = path.to_str().unwrap().to_string();
 
-    let res = vm.compile_and_run_raw_program_with_path(exprs.as_str(), path);
+    let res = vm.compile_and_run_raw_program_with_path(exprs, path);
 
     match res {
         Ok(r) => r.into_iter().for_each(|x| match x {
@@ -56,7 +56,7 @@ fn finish_load_or_interrupt(vm: &mut Engine, exprs: String, path: PathBuf) {
 fn finish_or_interrupt(vm: &mut Engine, line: String, print_time: bool) {
     let now = Instant::now();
 
-    let res = vm.compile_and_run_raw_program(&line);
+    let res = vm.compile_and_run_raw_program(line);
 
     match res {
         Ok(r) => r.into_iter().for_each(|x| match x {

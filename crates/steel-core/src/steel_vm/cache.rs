@@ -1,6 +1,6 @@
 use std::{collections::HashMap, rc::Weak};
 
-use im_lists::list::List;
+use crate::values::lists::List;
 use weak_table::WeakKeyHashMap;
 
 use crate::{rvals::Custom, values::functions::ByteCodeLambda, SteelVal};

@@ -214,10 +214,16 @@ pub struct SyntaxObjectFromExprKind {
 
 impl SyntaxObjectFromExprKind {
     pub fn try_from_expr_kind(e: ExprKind) -> Result<SteelVal> {
+        // let now = std::time::Instant::now();
+
         SyntaxObjectFromExprKind {
             _inside_quote: false,
         }
         .visit(e)
+
+        // log::debug!(target: "pipeline_time", "ExprKind->SyntaxObject time: {:?}", now.elapsed());
+
+        // res
     }
 }
 

@@ -165,7 +165,18 @@ fn transduce(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if let SteelVal::ReducerV(r) = &reducer {
         // TODO get rid of this unwrap
         // just pass a reference instead
-        Some(ctx.call_transduce(&transducers, collection.clone(), r.unwrap(), None))
+
+        if ctx.depth > 32 {
+            #[cfg(feature = "stacker")]
+            return stacker::maybe_grow(32 * 1024, 1024 * 1024, || {
+                Some(ctx.call_transduce(&transducers, collection.clone(), r.unwrap(), None))
+            });
+
+            #[cfg(not(feature = "stacker"))]
+            Some(ctx.call_transduce(&transducers, collection.clone(), r.unwrap(), None))
+        } else {
+            Some(ctx.call_transduce(&transducers, collection.clone(), r.unwrap(), None))
+        }
     } else {
         builtin_stop!(TypeMismatch => format!("transduce requires that the last argument be a reducer, found: {reducer}"))
     }

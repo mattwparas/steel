@@ -14,7 +14,7 @@ impl Env {
     /// top level global env has no parent
     pub fn root() -> Self {
         Env {
-            bindings_vec: Vec::new(),
+            bindings_vec: Vec::with_capacity(1024),
         }
     }
 

@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use crate::{
     compiler::{
         constants::ConstantMap,
@@ -11,31 +9,26 @@ use crate::{
     },
     core::labels::Expr,
     parser::{
-        ast::AstTools,
-        expand_visitor::{expand_kernel, expand_kernel_in_env, expand_kernel_in_env_with_change},
+        expand_visitor::{expand_kernel_in_env, expand_kernel_in_env_with_change},
         interner::InternedString,
         kernel::Kernel,
         parser::{lower_entire_ast, lower_macro_and_require_definitions},
     },
-    steel_vm::{
-        builtin::BuiltInModule,
-        cache::MemoizationTable,
-        engine::{ModuleContainer, DEFAULT_DOC_MACROS},
-    },
+    steel_vm::{cache::MemoizationTable, engine::ModuleContainer},
 };
 use crate::{
     core::{instructions::Instruction, opcode::OpCode},
     parser::parser::Sources,
 };
 
+use std::{borrow::Cow, iter::Iterator};
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
 };
-use std::{iter::Iterator, rc::Rc};
 
 // TODO: Replace the usages of hashmap with this directly
-use fxhash::FxHashMap;
+use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::rvals::{Result, SteelVal};
@@ -49,8 +42,6 @@ use crate::parser::tokens::TokenType;
 // use crate::core::instructions::{densify, DenseInstruction};
 
 use crate::stop;
-
-use log::{debug, log_enabled};
 
 use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
@@ -87,7 +78,7 @@ impl DebruijnIndicesInterner {
                         contents:
                             Some(Expr::Atom(SyntaxObject {
                                 ty: TokenType::Identifier(s),
-                                span,
+                                // span,
                                 ..
                             })),
                         ..
@@ -117,7 +108,7 @@ impl DebruijnIndicesInterner {
                         contents:
                             Some(Expr::Atom(SyntaxObject {
                                 ty: TokenType::Identifier(s),
-                                span,
+                                // span,
                                 ..
                             })),
                         ..
@@ -280,8 +271,8 @@ pub enum OptLevel {
 
 #[derive(Clone)]
 pub(crate) struct KernelDefMacroSpec {
-    pub(crate) env: String,
-    pub(crate) exported: Option<HashSet<InternedString>>,
+    pub(crate) _env: String,
+    pub(crate) _exported: Option<HashSet<InternedString>>,
     pub(crate) name_mangler: NameMangler,
 }
 
@@ -289,25 +280,28 @@ pub(crate) struct KernelDefMacroSpec {
 pub struct Compiler {
     pub(crate) symbol_map: SymbolMap,
     pub(crate) constant_map: ConstantMap,
-    pub(crate) macro_env: HashMap<InternedString, SteelMacro>,
+    pub(crate) macro_env: FxHashMap<InternedString, SteelMacro>,
     module_manager: ModuleManager,
     opt_level: OptLevel,
     pub(crate) kernel: Option<Kernel>,
     memoization_table: MemoizationTable,
-    mangled_identifiers: HashSet<InternedString>,
+    mangled_identifiers: FxHashSet<InternedString>,
     // Try this out?
     lifted_kernel_environments: HashMap<String, KernelDefMacroSpec>,
     // Macros that... we need to compile against directly at the top level
     // This is really just a hack, but it solves cases for interactively
     // running at the top level using private macros.
     lifted_macro_environments: HashSet<PathBuf>,
+
+    analysis: Analysis,
+    shadowed_variable_renamer: RenameShadowedVariables,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct SerializableCompiler {
     pub(crate) symbol_map: SymbolMap,
     pub(crate) constant_map: SerializableConstantMap,
-    pub(crate) macro_env: HashMap<InternedString, SteelMacro>,
+    pub(crate) macro_env: FxHashMap<InternedString, SteelMacro>,
     pub(crate) opt_level: OptLevel,
     pub(crate) module_manager: ModuleManager,
 }
@@ -343,7 +337,7 @@ impl Default for Compiler {
         Compiler::new(
             SymbolMap::new(),
             ConstantMap::new(),
-            HashMap::new(),
+            FxHashMap::default(),
             ModuleManager::default(),
         )
     }
@@ -353,7 +347,7 @@ impl Compiler {
     fn new(
         symbol_map: SymbolMap,
         constant_map: ConstantMap,
-        macro_env: HashMap<InternedString, SteelMacro>,
+        macro_env: FxHashMap<InternedString, SteelMacro>,
         module_manager: ModuleManager,
     ) -> Compiler {
         Compiler {
@@ -364,16 +358,18 @@ impl Compiler {
             opt_level: OptLevel::Three,
             kernel: None,
             memoization_table: MemoizationTable::new(),
-            mangled_identifiers: HashSet::new(),
+            mangled_identifiers: FxHashSet::default(),
             lifted_kernel_environments: HashMap::new(),
             lifted_macro_environments: HashSet::new(),
+            analysis: Analysis::pre_allocated(),
+            shadowed_variable_renamer: RenameShadowedVariables::default(),
         }
     }
 
     fn new_with_kernel(
         symbol_map: SymbolMap,
         constant_map: ConstantMap,
-        macro_env: HashMap<InternedString, SteelMacro>,
+        macro_env: FxHashMap<InternedString, SteelMacro>,
         module_manager: ModuleManager,
         kernel: Kernel,
     ) -> Compiler {
@@ -385,17 +381,19 @@ impl Compiler {
             opt_level: OptLevel::Three,
             kernel: Some(kernel),
             memoization_table: MemoizationTable::new(),
-            mangled_identifiers: HashSet::new(),
+            mangled_identifiers: FxHashSet::default(),
             lifted_kernel_environments: HashMap::new(),
             lifted_macro_environments: HashSet::new(),
+            analysis: Analysis::pre_allocated(),
+            shadowed_variable_renamer: RenameShadowedVariables::default(),
         }
     }
 
-    pub(crate) fn default_from_kernel(kernel: Kernel) -> Compiler {
+    pub(crate) fn _default_from_kernel(kernel: Kernel) -> Compiler {
         Compiler::new_with_kernel(
             SymbolMap::new(),
             ConstantMap::new(),
-            HashMap::new(),
+            FxHashMap::default(),
             ModuleManager::default(),
             kernel,
         )
@@ -405,7 +403,7 @@ impl Compiler {
         Compiler::new_with_kernel(
             SymbolMap::new(),
             ConstantMap::new(),
-            HashMap::new(),
+            FxHashMap::default(),
             ModuleManager::default(),
             Kernel::new(),
         )
@@ -431,33 +429,35 @@ impl Compiler {
         &mut self,
         exprs: Vec<ExprKind>,
         builtin_modules: ModuleContainer,
-        constants: ImmutableHashMap<InternedString, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {
         self.compile_raw_program(exprs, constants, builtin_modules, None, sources)
     }
 
-    pub fn compile_executable(
+    pub fn compile_executable<E: AsRef<str> + Into<Cow<'static, str>>>(
         &mut self,
-        expr_str: &str,
+        expr_str: E,
         path: Option<PathBuf>,
-        constants: ImmutableHashMap<InternedString, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         builtin_modules: ModuleContainer,
         sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {
         #[cfg(feature = "profiling")]
         let now = Instant::now();
 
-        let id = sources.add_source(expr_str.to_string(), path.clone());
+        let expr_str = expr_str.into();
+
+        let id = sources.add_source(expr_str.clone(), path.clone());
 
         // Could fail here
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> = if let Some(p) = &path {
-            Parser::new_from_source(expr_str, p.clone(), Some(id))
+            Parser::new_from_source(expr_str.as_ref(), p.clone(), Some(id))
                 .without_lowering()
                 .map(|x| x.and_then(lower_macro_and_require_definitions))
                 .collect()
         } else {
-            Parser::new(expr_str, Some(id))
+            Parser::new(expr_str.as_ref(), Some(id))
                 .without_lowering()
                 .map(|x| x.and_then(lower_macro_and_require_definitions))
                 .collect()
@@ -466,8 +466,8 @@ impl Compiler {
         // println!("Finished parsing");
 
         #[cfg(feature = "profiling")]
-        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
-            debug!(target: "pipeline_time", "Parsing Time: {:?}", now.elapsed());
+        if log::log_enabled!(target: "pipeline_time", log::Level::Debug) {
+            log::debug!(target: "pipeline_time", "Parsing Time: {:?}", now.elapsed());
         }
 
         let parsed = parsed?;
@@ -481,7 +481,7 @@ impl Compiler {
     pub fn emit_expanded_ast(
         &mut self,
         expr_str: &str,
-        constants: ImmutableHashMap<InternedString, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         path: Option<PathBuf>,
         sources: &mut Sources,
         builtin_modules: ModuleContainer,
@@ -503,7 +503,7 @@ impl Compiler {
     pub fn emit_expanded_ast_without_optimizations(
         &mut self,
         expr_str: &str,
-        constants: ImmutableHashMap<InternedString, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         path: Option<PathBuf>,
         sources: &mut Sources,
         builtin_modules: ModuleContainer,
@@ -537,7 +537,7 @@ impl Compiler {
         )
     }
 
-    pub fn modules(&self) -> &HashMap<PathBuf, CompiledModule> {
+    pub fn modules(&self) -> &FxHashMap<PathBuf, CompiledModule> {
         self.module_manager.modules()
     }
 
@@ -569,34 +569,37 @@ impl Compiler {
         &mut self,
         expanded_statements: Vec<ExprKind>,
     ) -> Result<Vec<Vec<Instruction>>> {
-        let mut results = Vec::new();
-        let mut instruction_buffer = Vec::new();
-        let mut index_buffer = Vec::new();
+        let mut results = Vec::with_capacity(expanded_statements.len());
+        // let mut instruction_buffer = Vec::new();
+        // let mut index_buffer = Vec::new();
 
         let analysis = {
-            let mut analysis = Analysis::from_exprs(&expanded_statements);
-            analysis.populate_captures(&expanded_statements);
-            analysis.populate_captures(&expanded_statements);
+            let mut analysis = std::mem::take(&mut self.analysis);
+
+            analysis.fresh_from_exprs(&expanded_statements);
+            analysis.populate_captures_twice(&expanded_statements);
+
+            // let mut analysis = Analysis::from_exprs(&expanded_statements);
+            // analysis.populate_captures(&expanded_statements);
+            // analysis.populate_captures(&expanded_statements);
             analysis
         };
 
-        // expanded_statements.pretty_print();
-
         for expr in expanded_statements {
-            let mut instructions =
+            let instructions =
                 super::code_gen::CodeGenerator::new(&mut self.constant_map, &analysis)
                     .top_level_compile(&expr)?;
 
-            // TODO: I don't think this needs to be here anymore
-            // inject_heap_save_to_pop(&mut instructions);
-            index_buffer.push(instructions.len());
-            instruction_buffer.append(&mut instructions);
+            results.push(instructions);
         }
 
-        for idx in index_buffer {
-            let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
-            results.push(extracted);
-        }
+        // This... cannot be efficient?
+        // for idx in index_buffer {
+        //     let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();
+        //     results.push(extracted);
+        // }
+
+        self.analysis = analysis;
 
         Ok(results)
     }
@@ -604,18 +607,13 @@ impl Compiler {
     fn expand_ast(
         &mut self,
         exprs: Vec<ExprKind>,
-        constants: ImmutableHashMap<InternedString, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         builtin_modules: ModuleContainer,
         path: Option<PathBuf>,
         sources: &mut Sources,
     ) -> Result<Vec<ExprKind>> {
         let mut expanded_statements =
             self.expand_expressions(exprs, path, sources, builtin_modules.clone())?;
-
-        // expanded_statements = expanded_statements
-        //     .into_iter()
-        //     .map(lower_entire_ast)
-        //     .collect::<std::result::Result<Vec<_>, ParseError>>()?;
 
         log::debug!(target: "expansion-phase", "Expanding macros -> phase 1");
 
@@ -624,77 +622,75 @@ impl Compiler {
             kernel.load_syntax_transformers(&mut expanded_statements, "top-level".to_string())?;
         }
 
-        expanded_statements = expanded_statements
-            .into_iter()
-            .map(|x| {
-                expand_kernel_in_env(
-                    x,
+        for expr in expanded_statements.iter_mut() {
+            expand_kernel_in_env(
+                expr,
+                self.kernel.as_mut(),
+                builtin_modules.clone(),
+                "top-level",
+            )?;
+
+            crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
+        }
+
+        for expr in expanded_statements.iter_mut() {
+            expand_kernel_in_env(
+                expr,
+                self.kernel.as_mut(),
+                builtin_modules.clone(),
+                "top-level",
+            )?;
+            crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
+            lower_entire_ast(expr)?;
+
+            for module in &self.lifted_macro_environments {
+                if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
+                    let source_id = sources.get_source_id(module).unwrap();
+
+                    crate::parser::expand_visitor::expand_with_source_id(
+                        expr, macro_env, source_id,
+                    )?
+                }
+            }
+
+            // Lift all of the kernel macros as well?
+            for (module, lifted_env) in &mut self.lifted_kernel_environments {
+                let changed = expand_kernel_in_env_with_change(
+                    expr,
                     self.kernel.as_mut(),
                     builtin_modules.clone(),
-                    "top-level".to_string(),
-                )
-                .and_then(|x| crate::parser::expand_visitor::expand(x, &self.macro_env))
-            })
-            .collect::<Result<Vec<_>>>()?;
+                    &module,
+                )?;
 
-        expanded_statements = expanded_statements
-            .into_iter()
-            .map(lower_entire_ast)
-            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
-
-        expanded_statements = expanded_statements
-            .into_iter()
-            .map(|x| {
-                let mut x = x;
-
-                for module in &self.lifted_macro_environments {
-                    if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
-                        let source_id = sources.get_source_id(module).unwrap();
-
-                        x = crate::parser::expand_visitor::expand(x, macro_env)?
-                    }
+                if changed {
+                    lifted_env.name_mangler.visit(expr);
                 }
+            }
 
-                // Lift all of the kernel macros as well?
-                for (module, lifted_env) in &mut self.lifted_kernel_environments {
-                    let mut changed = false;
+            expand_kernel_in_env(
+                expr,
+                self.kernel.as_mut(),
+                builtin_modules.clone(),
+                "top-level",
+            )?;
 
-                    (x, changed) = expand_kernel_in_env_with_change(
-                        x,
-                        self.kernel.as_mut(),
-                        builtin_modules.clone(),
-                        module.to_string(),
-                    )?;
+            // TODO: If we have this, then we have to lower all of the expressions again
+            crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
 
-                    if changed {
-                        lifted_env.name_mangler.visit(&mut x);
-                    }
-                }
-
-                expand_kernel_in_env(
-                    x,
-                    self.kernel.as_mut(),
-                    builtin_modules.clone(),
-                    "top-level".to_string(),
-                )
-                // TODO: If we have this, then we have to lower all of the expressions again
-                .and_then(|x| crate::parser::expand_visitor::expand(x, &self.macro_env))
-            })
-            .collect::<Result<Vec<_>>>()?;
-
-        expanded_statements = expanded_statements
-            .into_iter()
-            .map(lower_entire_ast)
-            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
+            // for expr in expanded_statements.iter_mut() {
+            lower_entire_ast(expr)?;
+        }
 
         log::debug!(target: "expansion-phase", "Beginning constant folding");
 
         let mut expanded_statements =
             self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
 
-        RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
+        self.shadowed_variable_renamer
+            .rename_shadowed_variables(&mut expanded_statements);
 
-        let mut analysis = Analysis::from_exprs(&expanded_statements);
+        let mut analysis = std::mem::take(&mut self.analysis);
+        analysis.fresh_from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
 
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
@@ -724,7 +720,10 @@ impl Compiler {
         let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
         // After define expansion, we'll want this
-        RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
+        // RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
+
+        self.shadowed_variable_renamer
+            .rename_shadowed_variables(&mut expanded_statements);
 
         analysis.fresh_from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
@@ -738,8 +737,8 @@ impl Compiler {
         semantic.refresh_variables();
 
         // Replace mutation with boxes
-        semantic.populate_captures();
-        semantic.populate_captures();
+
+        semantic.populate_captures_twice();
 
         semantic.replace_mutable_captured_variables_with_boxes();
 
@@ -748,10 +747,13 @@ impl Compiler {
         let mut analysis = semantic.into_analysis();
 
         // Rename them again
-        RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
+        // RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
 
-        let mut expanded_statements =
-            MultipleArityFunctions::expand_multiple_arity_functions(expanded_statements);
+        self.shadowed_variable_renamer
+            .rename_shadowed_variables(&mut expanded_statements);
+
+        // let mut expanded_statements =
+        MultipleArityFunctions::expand_multiple_arity_functions(&mut expanded_statements);
 
         log::info!(target: "expansion-phase", "Aggressive constant evaluation with memoization");
 
@@ -763,34 +765,27 @@ impl Compiler {
 
         semantic.replace_anonymous_function_calls_with_plain_lets();
 
+        self.analysis = semantic.into_analysis();
+
         Ok(expanded_statements)
     }
 
     fn lower_expressions_impl(
         &mut self,
         exprs: Vec<ExprKind>,
-        constants: ImmutableHashMap<InternedString, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         builtin_modules: ModuleContainer,
         path: Option<PathBuf>,
         sources: &mut Sources,
     ) -> Result<Vec<ExprKind>> {
+        let now = Instant::now();
+
         let mut expanded_statements =
             self.expand_expressions(exprs, path, sources, builtin_modules.clone())?;
 
-        // expanded_statements = expanded_statements
-        //     .into_iter()
-        //     .map(lower_entire_ast)
-        //     .collect::<std::result::Result<Vec<_>, ParseError>>()?;
+        log::debug!(target: "pipeline_time", "Phase 1 module expansion time: {:?}", now.elapsed());
 
-        // if log_enabled!(log::Level::Debug) {
-        //     debug!(
-        //         "Generating instructions for the expression: {:?}",
-        //         expanded_statements
-        //             .iter()
-        //             .map(|x| x.to_string())
-        //             .collect::<Vec<_>>()
-        //     );
-        // }
+        let now = Instant::now();
 
         log::debug!(target: "expansion-phase", "Expanding macros -> phase 1");
 
@@ -799,98 +794,76 @@ impl Compiler {
             kernel.load_syntax_transformers(&mut expanded_statements, "top-level".to_string())?;
         }
 
-        expanded_statements = expanded_statements
-            .into_iter()
-            .map(|mut x| {
-                // // Expanded any / all lifted environments:
-                // let mut x = x;
+        for expr in expanded_statements.iter_mut() {
+            expand_kernel_in_env(
+                expr,
+                self.kernel.as_mut(),
+                builtin_modules.clone(),
+                "top-level",
+            )?;
+            crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
+            lower_entire_ast(expr)?;
 
-                // // Lift all of the kernel macros as well?
-                // for (module, lifted_env) in &self.lifted_kernel_environments {
-                //     dbg!(&module);
+            for module in &self.lifted_macro_environments {
+                if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
+                    let source_id = sources.get_source_id(module).unwrap();
 
-                //     x = expand_kernel_in_env(
-                //         x,
-                //         self.kernel.as_mut(),
-                //         builtin_modules.clone(),
-                //         module.to_string(),
-                //     )?;
-                // }
+                    crate::parser::expand_visitor::expand_with_source_id(
+                        expr, macro_env, source_id,
+                    )?
+                }
+            }
 
-                expand_kernel_in_env(
-                    x,
+            // Lift all of the kernel macros as well?
+            for (module, lifted_env) in &mut self.lifted_kernel_environments {
+                let changed = expand_kernel_in_env_with_change(
+                    expr,
                     self.kernel.as_mut(),
                     builtin_modules.clone(),
-                    "top-level".to_string(),
-                )
-                .and_then(|x| crate::parser::expand_visitor::expand(x, &self.macro_env))
-            })
-            .collect::<Result<Vec<_>>>()?;
+                    &module,
+                )?;
 
-        expanded_statements = expanded_statements
-            .into_iter()
-            .map(lower_entire_ast)
-            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
-
-        expanded_statements = expanded_statements
-            .into_iter()
-            .map(|x| {
-                let mut x = x;
-
-                for module in &self.lifted_macro_environments {
-                    if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
-                        let source_id = sources.get_source_id(module).unwrap();
-
-                        // x = crate::parser::expand_visitor::expand_with_source_id(
-                        //     x, macro_env, source_id,
-                        // )?
-
-                        x = crate::parser::expand_visitor::expand(x, macro_env)?
-                    }
+                if changed {
+                    lifted_env.name_mangler.visit(expr);
                 }
+            }
 
-                // Lift all of the kernel macros as well?
-                for (module, lifted_env) in &mut self.lifted_kernel_environments {
-                    let mut changed = false;
+            expand_kernel_in_env(
+                expr,
+                self.kernel.as_mut(),
+                builtin_modules.clone(),
+                "top-level",
+            )?;
 
-                    (x, changed) = expand_kernel_in_env_with_change(
-                        x,
-                        self.kernel.as_mut(),
-                        builtin_modules.clone(),
-                        module.to_string(),
-                    )?;
+            // TODO: If we have this, then we have to lower all of the expressions again
+            crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
 
-                    if changed {
-                        lifted_env.name_mangler.visit(&mut x);
-                    }
-                }
+            // for expr in expanded_statements.iter_mut() {
+            lower_entire_ast(expr)?;
+        }
 
-                expand_kernel_in_env(
-                    x,
-                    self.kernel.as_mut(),
-                    builtin_modules.clone(),
-                    "top-level".to_string(),
-                )
-                // TODO: If we have this, then we have to lower all of the expressions again
-                .and_then(|x| crate::parser::expand_visitor::expand(x, &self.macro_env))
-            })
-            .collect::<Result<Vec<_>>>()?;
-
-        expanded_statements = expanded_statements
-            .into_iter()
-            .map(lower_entire_ast)
-            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
-
-        // Let's do the @doc macro here?
+        log::debug!(target: "pipeline_time", "Top level macro expansion time: {:?}", now.elapsed());
 
         log::debug!(target: "expansion-phase", "Beginning constant folding");
 
         let mut expanded_statements =
             self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
 
-        RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
+        let now = Instant::now();
 
-        let mut analysis = Analysis::from_exprs(&expanded_statements);
+        // RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
+
+        self.shadowed_variable_renamer
+            .rename_shadowed_variables(&mut expanded_statements);
+
+        let mut analysis = std::mem::take(&mut self.analysis);
+
+        // let mut analysis = Analysis::from_exprs(&expanded_statements);
+
+        // Pre populate the analysis here
+        analysis.fresh_from_exprs(&expanded_statements);
+
+        // let mut analysis = Analysis::from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
 
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
@@ -918,8 +891,11 @@ impl Compiler {
 
         let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
 
+        self.shadowed_variable_renamer
+            .rename_shadowed_variables(&mut expanded_statements);
+
         // After define expansion, we'll want this
-        RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
+        // RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
 
         analysis.fresh_from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
@@ -931,7 +907,7 @@ impl Compiler {
         // Check if the values are redefined!
         semantic.check_if_values_are_redefined()?;
 
-        semantic.refresh_variables();
+        // semantic.refresh_variables();
         semantic.flatten_anonymous_functions();
         semantic.refresh_variables();
 
@@ -941,39 +917,33 @@ impl Compiler {
 
         semantic.replace_mutable_captured_variables_with_boxes();
 
-        // if log_enabled!(log::Level::Debug) {
-        //     debug!(
-        //         "Successfully expanded defines: {:?}",
-        //         expanded_statements
-        //             .iter()
-        //             .map(|x| x.to_string())
-        //             .collect::<Vec<_>>()
-        //     );
-        // }
-
         log::debug!(target: "expansion-phase", "Expanding multiple arity functions");
 
         let mut analysis = semantic.into_analysis();
 
         // Rename them again
-        RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
+        // RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
+        self.shadowed_variable_renamer
+            .rename_shadowed_variables(&mut expanded_statements);
 
         // TODO - make sure I want to keep this
-        let mut expanded_statements =
-            MultipleArityFunctions::expand_multiple_arity_functions(expanded_statements);
+        // let mut expanded_statements =
+        MultipleArityFunctions::expand_multiple_arity_functions(&mut expanded_statements);
 
         log::info!(target: "expansion-phase", "Aggressive constant evaluation with memoization");
 
         // Begin lowering anonymous function calls to lets
 
-        // let mut analysis = Analysis::from_exprs(&expanded_statements);
-        // let mut analysis = semantic.into_analysis();
         analysis.fresh_from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
         // semantic.populate_captures();
 
         semantic.replace_anonymous_function_calls_with_plain_lets();
+
+        log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());
+
+        self.analysis = semantic.into_analysis();
 
         Ok(expanded_statements)
 
@@ -988,14 +958,14 @@ impl Compiler {
     fn compile_raw_program(
         &mut self,
         exprs: Vec<ExprKind>,
-        constants: ImmutableHashMap<InternedString, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         builtin_modules: ModuleContainer,
         path: Option<PathBuf>,
         sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {
         log::debug!(target: "expansion-phase", "Expanding macros -> phase 0");
 
-        let mut expanded_statements =
+        let expanded_statements =
             self.lower_expressions_impl(exprs, constants, builtin_modules, path, sources)?;
 
         // expanded_statements.pretty_print();
@@ -1019,17 +989,17 @@ impl Compiler {
         Ok(raw_program)
     }
 
-    fn run_const_evaluation_with_memoization(
+    fn _run_const_evaluation_with_memoization(
         &mut self,
-        constants: ImmutableHashMap<InternedString, SteelVal>,
-        mut expanded_statements: Vec<ExprKind>,
+        _constants: ImmutableHashMap<InternedString, SteelVal>,
+        mut _expanded_statements: Vec<ExprKind>,
     ) -> Result<Vec<ExprKind>> {
         todo!("Implement kernel level const evaluation here!")
     }
 
     fn apply_const_evaluation(
         &mut self,
-        constants: ImmutableHashMap<InternedString, SteelVal>,
+        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         mut expanded_statements: Vec<ExprKind>,
         use_kernel: bool,
     ) -> Result<Vec<ExprKind>> {
@@ -1040,31 +1010,36 @@ impl Compiler {
 
         if use_kernel {
             if let Some(kernel) = self.kernel.as_mut() {
-                kernel.load_program_for_comptime(constants.clone(), &mut expanded_statements);
+                kernel.load_program_for_comptime(constants.clone(), &mut expanded_statements)?;
             }
         }
+
+        let mut manager = ConstantEvaluatorManager::new(
+            &mut self.memoization_table,
+            constants.clone(),
+            self.opt_level,
+            if use_kernel {
+                &mut self.kernel
+            } else {
+                &mut maybe_kernel
+            },
+        );
 
         match self.opt_level {
             // TODO
             // Cut this off at 10 iterations no matter what
             OptLevel::Three => {
-                for _ in 0..10 {
-                    let mut manager = ConstantEvaluatorManager::new(
-                        &mut self.memoization_table,
-                        constants.clone(),
-                        self.opt_level,
-                        if use_kernel {
-                            &mut self.kernel
-                        } else {
-                            &mut maybe_kernel
-                        },
-                    );
-                    expanded_statements = manager.run(expanded_statements)?;
+                // for _ in 0..10 {
+                // println!("Running const evaluation");
 
-                    if !manager.changed {
-                        break;
-                    }
-                }
+                expanded_statements = manager.run(expanded_statements)?;
+
+                // if !manager.changed {
+                //     break;
+                // }
+
+                // manager.changed = false;
+                // }
             }
             OptLevel::Two => {
                 expanded_statements = ConstantEvaluatorManager::new(
@@ -1083,8 +1058,8 @@ impl Compiler {
         }
 
         #[cfg(feature = "profiling")]
-        if log_enabled!(target: "pipeline_time", log::Level::Debug) {
-            debug!(
+        if log::log_enabled!(target: "pipeline_time", log::Level::Debug) {
+            log::debug!(
                 target: "pipeline_time",
                 "Const Evaluation Time: {:?}",
                 opt_time.elapsed()

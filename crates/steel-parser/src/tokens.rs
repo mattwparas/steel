@@ -66,10 +66,7 @@ pub fn parse_unicode_str(slice: &str) -> Option<char> {
 
         let decoded: u8 = decode_hex(&rest).ok()?.into_iter().sum();
         let uinitial: u32 = decoded.into();
-        let result = char::try_from(uinitial).ok();
-
-        // println!("{result:?}");
-        result
+        char::try_from(uinitial).ok()
     } else if slice.starts_with("#\\u") {
         let rest = slice.trim_start_matches("#\\u").to_lowercase();
 
@@ -85,9 +82,7 @@ pub fn parse_unicode_str(slice: &str) -> Option<char> {
 
         let uinitial: u32 = decoded.into();
 
-        let result = char::try_from(uinitial).ok();
-
-        result
+        char::try_from(uinitial).ok()
     } else {
         None
     }

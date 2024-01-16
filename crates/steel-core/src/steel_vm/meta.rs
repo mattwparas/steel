@@ -2,6 +2,7 @@
 
 // pub type BuiltInSignature = fn(Vec<SteelVal>, &mut dyn VmContext) -> Result<SteelVal>;`
 
+use std::borrow::Cow;
 use std::{cell::RefCell, convert::TryFrom, io::Write, rc::Rc};
 
 use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
@@ -77,15 +78,16 @@ impl EngineWrapper {
         match expr {
             SteelVal::StringV(expr) => self
                 .0
-                .compile_and_run_raw_program(expr.as_ref())
+                .compile_and_run_raw_program(Cow::from(expr.as_ref().to_string()))
                 .map(|x| x.into()),
             SteelVal::ListV(list) => {
                 let values = list
                     .iter()
                     .map(|x| x.to_string())
                     .map(|x| {
-                        self.0
-                            .compile_and_run_raw_program(x.trim_start_matches('\''))
+                        self.0.compile_and_run_raw_program(Cow::from(
+                            x.trim_start_matches('\'').to_string(),
+                        ))
                     })
                     .collect::<Result<Vec<Vec<SteelVal>>>>();
 
@@ -179,15 +181,16 @@ pub fn expand_macros(arguments: &[SteelVal]) -> Result<SteelVal> {
         .collect::<std::result::Result<Vec<Vec<_>>, ParseError>>()?;
 
     // Separate by define-syntax
-    let (macros, non_macros) = separate_by(parsed.into_iter().flatten(), |x| {
+    let (macros, mut non_macros) = separate_by(parsed.into_iter().flatten(), |x| {
         matches!(x, ExprKind::Macro(_))
     });
 
     let macro_manager = LocalMacroManager::from_exprs(macros)?;
 
     // Expand the macros, convert them back to a consumable expression
-    macro_manager
-        .expand(non_macros)?
+    macro_manager.expand(&mut non_macros)?;
+
+    non_macros
         .into_iter()
         .map(SteelVal::try_from)
         .collect::<Result<List<_>>>()
@@ -245,7 +248,7 @@ pub fn eval(program: String) -> List<SteelVal> {
     // In order to be actually parsable - might be worth doing ExprKind::try_from
     // instead of writing to a string and reparsing directly...
 
-    let res = engine.compile_and_run_raw_program(&program);
+    let res = engine.compile_and_run_raw_program(Cow::from(program.clone()));
 
     // Set it back to be the usual output port, which in this case is usually just standard out
     // This way after the evaluation is done, the output port is back to being

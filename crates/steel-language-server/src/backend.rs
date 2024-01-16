@@ -524,11 +524,13 @@ impl LanguageServer for Backend {
                     steel::compiler::passes::analysis::SemanticInformationType::Function(info) => {
                         completions.extend(
                             info.arguments()
-                                .keys()
+                                .iter()
+                                .map(|x| &x.0)
                                 .filter_map(filter_interned_string)
                                 .chain(
                                     info.captured_vars()
-                                        .keys()
+                                        .iter()
+                                        .map(|x| &x.0)
                                         .filter_map(filter_interned_string),
                                 ),
                         );
@@ -834,7 +836,7 @@ impl ExternalModuleResolver {
             if file.path().is_file() {
                 let contents = std::fs::read_to_string(file.path())?;
 
-                let result = engine.compile_and_run_raw_program(&contents)?;
+                let result = engine.compile_and_run_raw_program(contents)?;
 
                 for value in result {
                     if let Ok(module) = BuiltInModule::from_steelval(&value) {
@@ -949,7 +951,7 @@ fn configure_lints() -> std::result::Result<UserDefinedLintEngine, Box<dyn Error
             if file.path().is_file() {
                 let contents = std::fs::read_to_string(file.path())?;
 
-                engine.compile_and_run_raw_program(&contents)?;
+                engine.compile_and_run_raw_program(contents)?;
             }
         }
     } else {

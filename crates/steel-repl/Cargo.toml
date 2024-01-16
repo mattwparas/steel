@@ -14,4 +14,4 @@ rustyline = "10.1.1"
 rustyline-derive = "0.7.0"
 colored = "2.0.0"
 steel-core = { workspace = true }
-steel-parser = { path = "../steel-parser", version = "0.4.0"}
+steel-parser = { path = "../steel-parser", version = "0.6.0"}

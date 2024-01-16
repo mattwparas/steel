@@ -1,3 +1,5 @@
+use smallvec::SmallVec;
+
 use crate::parser::ast::ExprKind;
 use crate::parser::span::Span;
 use crate::parser::visitors::Visitor;
@@ -5,10 +7,10 @@ use crate::parser::visitors::Visitor;
 use super::ast::Atom;
 
 pub fn get_span(expr: &ExprKind) -> Span {
-    CoalescingSpanVisitor {}.visit(expr)
+    CoalescingSpanVisitor.visit(expr)
 }
 
-struct CoalescingSpanVisitor {}
+pub struct CoalescingSpanVisitor;
 
 impl Visitor for CoalescingSpanVisitor {
     type Output = Span;
@@ -58,7 +60,11 @@ impl Visitor for CoalescingSpanVisitor {
     }
 
     fn visit_list(&self, l: &super::ast::List) -> Self::Output {
-        let span_vec = l.args.iter().map(|x| self.visit(x)).collect::<Vec<_>>();
+        let span_vec = l
+            .args
+            .iter()
+            .map(|x| self.visit(x))
+            .collect::<SmallVec<[_; 16]>>();
         Span::coalesce_span(&span_vec)
     }
 

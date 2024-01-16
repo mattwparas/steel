@@ -9,7 +9,7 @@ use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{
     punctuated::Punctuated, Data, DeriveInput, Expr, ExprLit, FnArg, Ident, ItemFn, Lit, Meta,
-    ReturnType, Signature, Type,
+    ReturnType, Signature, Type, TypeReference,
 };
 
 #[proc_macro_derive(Steel)]
@@ -30,24 +30,6 @@ pub fn derive_steel(input: TokenStream) -> TokenStream {
             output.into()
         }
     }
-}
-
-fn _parse_key_value_pair(args: &Punctuated<Meta, Token![,]>) -> (String, String) {
-    for nested_meta in args.iter() {
-        if let Meta::NameValue(n) = nested_meta {
-            let key = n.path.get_ident().unwrap().to_string();
-            if let Expr::Lit(ExprLit {
-                lit: Lit::Str(s), ..
-            }) = &n.value
-            {
-                return (key, s.value());
-            }
-        }
-
-        panic!("Expected a key value pair");
-    }
-
-    panic!("Expected a key value pair");
 }
 
 fn parse_key_value_pairs(args: &Punctuated<Meta, Token![,]>) -> HashMap<String, String> {
@@ -202,7 +184,7 @@ pub fn native(
         quote! {
             pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
                 name: #value,
-                func: #function_name,
+                func: crate::steel_vm::builtin::BuiltInFunctionType::Reference(#function_name),
                 arity: crate::steel_vm::builtin::Arity::#arity_number,
                 doc: Some(crate::steel_vm::builtin::MarkdownDoc(#doc)),
                 is_const: #is_const,
@@ -213,7 +195,7 @@ pub fn native(
         quote! {
             pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
                 name: #value,
-                func: #function_name,
+                func: crate::steel_vm::builtin::BuiltInFunctionType::Reference(#function_name),
                 arity: crate::steel_vm::builtin::Arity::#arity_number,
                 doc: None,
                 is_const: #is_const,
@@ -357,6 +339,20 @@ pub fn function(
 
     let arity_number = type_vec.len();
 
+    // TODO: Awful hack, but this just keeps track of which
+    // variables are presented as mutable, which we can then use to chn
+    let promote_to_mutable = type_vec.iter().any(|x| {
+        if let Type::Reference(TypeReference {
+            mutability: Some(_),
+            ..
+        }) = **x
+        {
+            true
+        } else {
+            false
+        }
+    });
+
     let conversion_functions = type_vec.clone().into_iter().map(|x| {
         if let Type::Reference(_) = *x {
             quote! { primitive_as_ref }
@@ -367,7 +363,7 @@ pub fn function(
         }
     });
 
-    let arg_enumerate = type_vec.into_iter().enumerate();
+    let arg_enumerate = type_vec.iter().enumerate();
     let arg_type = arg_enumerate.clone().map(|(_, x)| x);
     let arg_index = arg_enumerate.clone().map(|(i, _)| i);
     // let function_names_with_colon = std::iter::repeat(function_name_with_colon.clone());
@@ -392,11 +388,21 @@ pub fn function(
         quote! { Exact }
     };
 
+    let function_type = if promote_to_mutable {
+        quote! {
+            crate::steel_vm::builtin::BuiltInFunctionType::Mutable(#copied_function_name)
+        }
+    } else {
+        quote! {
+            crate::steel_vm::builtin::BuiltInFunctionType::Reference(#copied_function_name)
+        }
+    };
+
     let definition_struct = if let Some(doc) = maybe_doc_comments {
         quote! {
             pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
                 name: #value,
-                func: #copied_function_name,
+                func: #function_type,
                 arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
                 doc: Some(crate::steel_vm::builtin::MarkdownDoc(#doc)),
                 is_const: #is_const,
@@ -407,7 +413,7 @@ pub fn function(
         quote! {
             pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
                 name: #value,
-                func: #copied_function_name,
+                func: #function_type,
                 arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
                 doc: None,
                 is_const: #is_const,
@@ -420,7 +426,6 @@ pub fn function(
     // values in the
     if rest_arg_generic_inner_type {
         let mut conversion_functions = conversion_functions.collect::<Vec<_>>();
-        let arg_enumerate = arg_enumerate;
         let mut arg_index = arg_enumerate
             .map(|(i, _)| quote! { #i })
             .collect::<Vec<_>>();
@@ -475,6 +480,82 @@ pub fn function(
 
         // Uncomment this to see the generated code
         // eprintln!("{}", output.to_string());
+
+        return output.into();
+    }
+
+    // TODO: Promotion to mutable means we can both avoid allocations and also
+    // take advantage of linear types to reduce ref count thrash
+
+    if promote_to_mutable {
+        let temporary_fields: Vec<_> = type_vec
+            .iter()
+            .enumerate()
+            .map(|(i, _)| {
+                Ident::new(
+                    &("temporary_".to_string() + &i.to_string()),
+                    sign.ident.span(),
+                )
+            })
+            .collect();
+
+        let output = quote! {
+                // Not sure why, but it says this is unused even when generating functions
+                // marked as pub
+                #[allow(dead_code)]
+                #modified_input
+
+                #definition_struct
+
+                pub fn #copied_function_name(args: &mut [SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
+
+                    use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef, PrimitiveAsRefMut};
+
+                    // if args.len() != #arity_number {
+                    //     crate::stop!(ArityMismatch => format!("{} expected {} arguments, got {}", #value, #arity_number.to_string(), args.len()))
+                    // }
+
+
+                    fn err_thunk(mut err: crate::rerrs::SteelErr) -> crate::rerrs::SteelErr {
+                        err.prepend_message(#function_name_with_colon);
+                        err.set_kind(crate::rerrs::ErrorKind::TypeMismatch);
+                        err
+                    };
+
+                    if let [ #(#temporary_fields,)* ] = args {
+
+                        let res = #function_name(
+                            #(
+                                // TODO: Distinguish reference types here if possible - make a special implementation
+                                // for builtin pointer types here to distinguish them
+                                <#arg_type>::#conversion_functions(#temporary_fields)
+                                    .map_err(err_thunk)?,
+                            )*
+                        );
+
+                        #ret_val
+                    } else {
+                        crate::stop!(ArityMismatch => format!("{} expected {} arguments, got {}", #value, #arity_number.to_string(), args.len()))
+
+                    }
+
+                        // if let [arg1, arg2, ..] = &mut vec[..] {
+            //  println!("{}:{} says '{}'", ip, port, msg);
+            // check_two(arg1, arg2);
+        // }
+
+                    // let res = #function_name(
+                    //     #(
+                    //         // TODO: Distinguish reference types here if possible - make a special implementation
+                    //         // for builtin pointer types here to distinguish them
+                    //         <#arg_type>::#conversion_functions(&mut std::mem::replace(&mut args[#arg_index], SteelVal::Void))
+                    //             .map_err(err_thunk)?,
+                    //     )*
+                    // );
+
+                    // #ret_val
+                }
+            };
 
         return output.into();
     }

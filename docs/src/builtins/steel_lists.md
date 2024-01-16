@@ -172,6 +172,7 @@ error[E11]: Generic
 1 │ (third '())
 │  ^^^^^^ third: index out of bounds - list did not have an element in the second position: []
 ```
+### **cdr-null?**
 ### **list->string**
 ### **list-tail**
 ### **push-back**
