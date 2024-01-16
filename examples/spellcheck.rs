@@ -5,7 +5,7 @@ extern crate steel_repl;
 use steel_derive::Steel;
 
 use steel::steel_vm::engine::Engine;
-use steel_repl::repl::repl_base;
+use steel_repl::run_repl;
 
 use std::cell::RefCell;
 use std::cmp::{max, min};
@@ -45,7 +45,7 @@ fn main() {
         e.emit_result("spellcheck.rkt", contents);
     }
 
-    finish(repl_base(vm))
+    finish(run_repl(vm))
 }
 
 fn finish(result: Result<(), std::io::Error>) -> ! {
