@@ -14,9 +14,13 @@
 (define (bananas)
   (error "Hello world"))
 
+;;@doc
+;; Does this show up?
 (define (foo-bar-baz)
   10)
 
+;;@doc
+;; How does this get rendered?
 (define/contract (my-fun-contracted-function x y)
   (->/c int? int? int?)
   (+ x y))
