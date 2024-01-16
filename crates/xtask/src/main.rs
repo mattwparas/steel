@@ -56,14 +56,113 @@ fn generate_docs() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn install_everything() -> Result<(), Box<dyn Error>> {
+    println!("Installing `steel`...");
+
+    let mut workspace_dir = workspace_dir();
+
+    std::process::Command::new("cargo")
+        .arg("install")
+        .arg("--path")
+        .arg(".")
+        .arg("--force")
+        .spawn()?
+        .wait()?;
+
+    println!("Successfully installed `steel`");
+
+    println!("Installing `steel-language-server`");
+
+    workspace_dir.push("crates");
+    workspace_dir.push("steel-language-server");
+
+    std::process::Command::new("cargo")
+        .arg("install")
+        .arg("--path")
+        .arg(&workspace_dir)
+        .spawn()?
+        .wait()?;
+
+    println!("Successfully installed `steel-language-server`");
+
+    workspace_dir.pop();
+
+    workspace_dir.push("cargo-steel-lib");
+
+    println!("Installing `cargo-steel-lib`");
+
+    std::process::Command::new("cargo")
+        .arg("install")
+        .arg("--path")
+        .arg(&workspace_dir)
+        .spawn()?
+        .wait()?;
+
+    println!("Successfully installed `cargo-steel-lib`");
+
+    println!("Installing all dylibs");
+
+    let dylibs = &[
+        "steel-sys-info",
+        "steel-websockets",
+        "steel-webrequests",
+        "steel-webserver",
+    ];
+
+    workspace_dir.pop();
+
+    // Could build in parallel, but we can do sequentially for now
+    for dylib in dylibs {
+        workspace_dir.push(dylib);
+
+        std::process::Command::new("cargo")
+            .arg("steel-lib")
+            .current_dir(&workspace_dir)
+            .spawn()?
+            .wait()?;
+
+        workspace_dir.pop();
+    }
+
+    println!("Finished.");
+
+    Ok(())
+}
+
+fn install_cogs() -> Result<(), Box<dyn Error>> {
+    let mut workspace_dir = workspace_dir();
+    workspace_dir.push("cogs");
+
+    std::process::Command::new("cargo")
+        .arg("run")
+        .arg("--")
+        .arg("install.scm")
+        .current_dir(workspace_dir)
+        .spawn()?
+        .wait()?;
+
+    Ok(())
+}
+
+fn run_tests() -> Result<(), Box<dyn Error>> {
+    std::process::Command::new("cargo")
+        .arg("test")
+        .arg("--all")
+        .spawn()?
+        .wait()?;
+
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let task = std::env::args().nth(1);
     match task {
         None => {}
         Some(t) => match t.as_str() {
+            "install" => install_everything()?,
+            "cogs" => install_cogs()?,
             "docgen" => generate_docs()?,
-            // "themelint" => tasks::themelint(env::args().nth(2))?,
-            // "query-check" => tasks::querycheck()?,
+            "test" => run_tests()?,
             invalid => return Err(format!("Invalid task name: {}", invalid).into()),
         },
     };
