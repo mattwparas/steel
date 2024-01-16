@@ -2,9 +2,9 @@
 
 #### steel/strings
 
-Strings in Steel are immutable, fixed length arrays of characters. They are heap
-allocated, and are implemented under the hood as referenced counted Rust
-`Strings`. Rust `Strings` are stored as UTF-8 encoded bytes.
+Strings in Steel are immutable, fixed length arrays of characters. They are heap allocated, and
+are implemented under the hood as referenced counted Rust `Strings`. Rust `Strings` are stored
+as UTF-8 encoded bytes.
 
 ### **char=?**
 Checks if two characters are equal
@@ -130,7 +130,7 @@ Concatenates all of the given strings into one
 ```
 
 ### **string-length**
-Get the length of the given string in utf8 bytes.
+Get the length of the given string in UTF-8 bytes.
 
 (string-length string?) -> int?
 

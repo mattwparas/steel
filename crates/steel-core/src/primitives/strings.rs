@@ -13,8 +13,9 @@ fn char_upcase(c: char) -> char {
 
 /// # steel/strings
 ///
-/// Strings in Steel are immutable, fixed length arrays of characters. They are heap allocated,
-/// and are implemented under the hood as referenced counted rust `Strings`.
+/// Strings in Steel are immutable, fixed length arrays of characters. They are heap allocated, and
+/// are implemented under the hood as referenced counted Rust `Strings`. Rust `Strings` are stored
+/// as UTF-8 encoded bytes.
 #[steel_derive::define_module(name = "steel/strings")]
 pub fn string_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/strings");
@@ -270,6 +271,7 @@ pub fn replace(value: &SteelString, from: &SteelString, to: &SteelString) -> Res
 /// # Examples
 /// ```scheme
 /// > (to-string 10) ;; => "10"
+/// > (to-string 10 20) ;; => "10 20"
 /// > (to-string "hello" "world") ;; => "hello world"
 /// ```
 #[native(name = "to-string", arity = "AtLeast(0)")]
@@ -529,7 +531,7 @@ pub fn ends_with(value: &SteelString, suffix: &SteelString) -> bool {
     value.ends_with(suffix.as_str())
 }
 
-/// Get the length of the given string
+/// Get the length of the given string in UTF-8 bytes.
 ///
 /// (string-length string?) -> int?
 ///
@@ -537,6 +539,8 @@ pub fn ends_with(value: &SteelString, suffix: &SteelString) -> bool {
 ///
 /// ```scheme
 /// > (string-length "apples") ;; => 6
+/// > (string-length "✅") ;; => 3
+/// > (string-length "🤖") ;; => 4
 /// ```
 #[function(name = "string-length")]
 pub fn string_length(value: &SteelString) -> usize {
@@ -553,7 +557,7 @@ pub fn string_length(value: &SteelString) -> usize {
 /// ```scheme
 /// > (string-append) ;; => ""
 /// > (string-append "foo" "bar") ;; => "foobar"
-// ```
+/// ```
 #[function(name = "string-append")]
 pub fn string_append(mut rest: RestArgsIter<'_, &SteelString>) -> Result<SteelVal> {
     rest.0

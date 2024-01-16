@@ -4,7 +4,7 @@ extern crate steel_repl;
 
 use steel::steel_vm::engine::Engine;
 use steel_doc::walk_dir;
-use steel_repl::repl::repl_base;
+use steel_repl::run_repl;
 
 use std::path::PathBuf;
 use std::process;
@@ -63,7 +63,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             action: None,
             ..
         } => {
-            repl_base(vm)?;
+            run_repl(vm)?;
             Ok(())
         }
 
@@ -202,7 +202,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
                 e.emit_result(path.to_str().unwrap(), &contents);
             }
 
-            repl_base(vm)?;
+            run_repl(vm)?;
             Ok(())
         }
 
@@ -307,7 +307,7 @@ lto = true
         }
 
         _ => {
-            repl_base(vm)?;
+            run_repl(vm)?;
             Ok(())
         }
     }

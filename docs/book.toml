@@ -5,7 +5,9 @@ multilingual = false
 src = "src"
 title = "Steel"
 
+# https://github.com/slowsage/mdbook-pagetoc
 [preprocessor.pagetoc]
+
 [output.html]
 additional-css = ["theme/pagetoc.css"]
 additional-js  = ["theme/pagetoc.js"]

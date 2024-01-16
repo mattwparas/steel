@@ -90,7 +90,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     / ___// /____  ___  / /          Version 0.5.0
     \__ \/ __/ _ \/ _ \/ /           https://github.com/mattwparas/steel
    ___/ / /_/  __/  __/ /            :? for help
-  /____/\__/\___/\___/_/ 
+  /____/\__/\___/\___/_/
     "#
         .bright_yellow()
         .bold()

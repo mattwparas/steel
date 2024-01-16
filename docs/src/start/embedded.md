@@ -63,9 +63,9 @@ Repl functionality is provided by the `steel-repl` crate.
 steel-repl = { git="https://github.com/mattwparas/steel.git", branch = "master" }
 ```
 
-### repl_base
+### run_repl
 
-`repl_base` runs the Steel repl until an IO error is encountered or the user
+`run_repl` runs the Steel repl until an IO error is encountered or the user
 exits the repl. The repl may be exited by:
 
 - Running the `(quit)` Steel Scheme function.
@@ -73,5 +73,5 @@ exits the repl. The repl may be exited by:
 
 ```rust,noplaypen
 let steel_engine = Engine::new();
-steel_repl::repl::repl_base(steel_engine).unwrap();
+steel_repl::run_repl(steel_engine).unwrap();
 ```
