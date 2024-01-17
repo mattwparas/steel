@@ -717,7 +717,7 @@ impl Compiler {
 
         let mut analysis = semantic.into_analysis();
 
-        let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
+        let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
 
         // After define expansion, we'll want this
         // RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
@@ -842,6 +842,8 @@ impl Compiler {
             lower_entire_ast(expr)?;
         }
 
+        // TODO: Check that defines are in legal positions, post expansion.
+
         log::debug!(target: "pipeline_time", "Top level macro expansion time: {:?}", now.elapsed());
 
         log::debug!(target: "expansion-phase", "Beginning constant folding");
@@ -897,7 +899,7 @@ impl Compiler {
 
         let mut analysis = semantic.into_analysis();
 
-        let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
+        let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
 
         self.shadowed_variable_renamer
             .rename_shadowed_variables(&mut expanded_statements);
