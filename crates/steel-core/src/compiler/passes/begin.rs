@@ -296,7 +296,6 @@ pub fn flatten_begins_and_expand_defines(
         .map(|mut x| {
             let mut checker = CheckDefinesAreInLegalPositions { depth: 0 };
             checker.visit(&mut x)?;
-
             Ok(x)
         })
         .collect();
