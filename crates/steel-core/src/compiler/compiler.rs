@@ -810,19 +810,11 @@ impl Compiler {
 
             for module in &self.lifted_macro_environments {
                 if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
-                    // TODO: This _should_ work, but it doesn't.
-                    // As a result, we'll run into issues with potentially expanding
-                    // macros from other environments in this one.
-                    //
-                    // For now, we'll let it slide for the sake of not having everything break.
+                    let source_id = sources.get_source_id(module).unwrap();
 
-                    // let source_id = sources.get_source_id(module).unwrap();
-
-                    // crate::parser::expand_visitor::expand_with_source_id(
-                    //     expr, macro_env, source_id,
-                    // )?;
-
-                    crate::parser::expand_visitor::expand(expr, macro_env)?
+                    crate::parser::expand_visitor::expand_with_source_id(
+                        expr, macro_env, source_id,
+                    )?;
                 }
             }
 

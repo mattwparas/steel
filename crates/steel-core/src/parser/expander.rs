@@ -146,7 +146,7 @@ pub struct SteelMacro {
     special_forms: Vec<InternedString>,
     cases: Vec<MacroCase>,
     mangled: bool,
-    location: Span,
+    pub(crate) location: Span,
 }
 
 impl SteelMacro {
