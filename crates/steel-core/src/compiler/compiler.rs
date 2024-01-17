@@ -647,9 +647,13 @@ impl Compiler {
                 if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
                     let source_id = sources.get_source_id(module).unwrap();
 
+                    // println!("Expanding macros from: {:?}", module);
+
                     crate::parser::expand_visitor::expand_with_source_id(
                         expr, macro_env, source_id,
                     )?
+
+                    // crate::parser::expand_visitor::expand(expr, macro_env)?
                 }
             }
 
@@ -810,7 +814,7 @@ impl Compiler {
 
                     crate::parser::expand_visitor::expand_with_source_id(
                         expr, macro_env, source_id,
-                    )?
+                    )?;
                 }
             }
 

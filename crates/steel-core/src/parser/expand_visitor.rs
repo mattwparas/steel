@@ -206,11 +206,15 @@ impl<'a> VisitorMutRef for Expander<'a> {
                             },
                     })) => {
                         if let Some(m) = self.map.get(s) {
+                            // println!("Macro: {} - source id: {:?}", s, sp.source_id());
+                            // println!("Source id: {:?}", self.source_id);
+
                             // If this macro has been overwritten by any local value, respect
                             // the local binding and do not expand the macro
                             if !self.in_scope_values.contains(s) {
                                 if self.source_id.is_none()
-                                    || self.source_id.is_some() && self.source_id == sp.source_id()
+                                    || self.source_id.is_some()
+                                        && self.source_id == m.location.source_id()
                                 {
                                     let span = *sp;
 
