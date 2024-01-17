@@ -1495,7 +1495,8 @@ impl Engine {
         result
     }
 
-    /// TODO: Add doc for this
+    // TODO: Add doc for this
+    #[doc(hidden)]
     pub fn environment_offset(&self) -> GlobalCheckpoint {
         GlobalCheckpoint {
             symbol_map_offset: self.compiler.symbol_map.len(),
@@ -1503,7 +1504,8 @@ impl Engine {
         }
     }
 
-    /// TODO: Add doc for this
+    // TODO: Add doc for this
+    #[doc(hidden)]
     pub fn rollback_to_checkpoint(&mut self, checkpoint: GlobalCheckpoint) -> Result<()> {
         self.compiler
             .symbol_map
