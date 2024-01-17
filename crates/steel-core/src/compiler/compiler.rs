@@ -866,6 +866,14 @@ impl Compiler {
         // let mut analysis = Analysis::from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
 
+        // let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+
+        // println!("MARKER HERE--------------------------");
+
+        // expanded_statements.pretty_print();
+
+        // println!("END MARKER---------------------------");
+
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
         // This is definitely broken still

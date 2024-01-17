@@ -1449,31 +1449,62 @@ impl CompiledModule {
             SyntaxObject::default(TokenType::Quote),
         )));
 
-        let mut offset = None;
+        // let mut offset = None;
 
         // Find offset of first non builtin require definition:
-        for (idx, expr) in exprs.iter().enumerate() {
-            if let ExprKind::Define(d) = expr {
-                if !is_a_builtin_definition(d) {
-                    // println!("Found offset at: {:?}", offset);
+        // for (idx, expr) in exprs.iter().enumerate() {
+        //     if let ExprKind::Define(d) = expr {
+        //         // if !is_a_builtin_definition(d) || !is_a_require_definition(d) {
+        //         if !is_a_builtin_definition(d) {
+        //             // println!("Found offset at: {:?}", offset);
 
-                    offset = Some(idx);
-                    break;
-                }
-            }
-        }
+        //             offset = Some(idx);
+        //             println!("Found offset at: {:?}", offset);
+        //             break;
+        //         }
+        //     }
+        // }
 
         exprs.push(module_define);
 
-        if let Some(offset) = offset {
-            for (idx, expr) in provide_definitions.into_iter().enumerate() {
-                exprs.insert(offset + idx, expr);
-            }
-        } else {
-            provide_definitions.append(&mut exprs);
-        }
+        // exprs.append(&mut provide_definitions);
 
-        // println!("------ {}", module_define.to_pretty(60));
+        let mut builtin_definitions = Vec::new();
+
+        exprs.retain_mut(|expr| {
+            if let ExprKind::Define(d) = expr {
+                if is_a_builtin_definition(d) {
+                    builtin_definitions.push(std::mem::take(expr));
+                    false
+                } else {
+                    true
+                }
+            } else {
+                true
+            }
+        });
+
+        builtin_definitions.append(&mut provide_definitions);
+        builtin_definitions.append(&mut exprs);
+
+        // provide_definitions.append(&mut builtin_definitions);
+        // provide_definitions.append(&mut exprs);
+
+        exprs = builtin_definitions;
+
+        // if let Some(offset) = offset {
+        // for (idx, expr) in provide_definitions.into_iter().enumerate() {
+        //     exprs.insert(offset + idx, expr);
+        // }
+        // } else {
+        // provide_definitions.append(&mut exprs);
+        // }
+
+        // println!("MODULE DEFINITIONS----");
+
+        // exprs.pretty_print();
+
+        // println!("END MODULE DEFINITIONS");
 
         // exprs.pretty_print();
 

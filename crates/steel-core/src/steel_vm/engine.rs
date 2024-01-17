@@ -145,6 +145,12 @@ pub struct EngineStatistics {
     pub sources_size: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct GlobalCheckpoint {
+    symbol_map_offset: usize,
+    globals_offset: usize,
+}
+
 #[derive(Clone)]
 pub struct Engine {
     virtual_machine: SteelThread,
@@ -1487,6 +1493,29 @@ impl Engine {
         }
 
         result
+    }
+
+    // TODO: Add doc for this
+    #[doc(hidden)]
+    pub fn environment_offset(&self) -> GlobalCheckpoint {
+        GlobalCheckpoint {
+            symbol_map_offset: self.compiler.symbol_map.len(),
+            globals_offset: self.virtual_machine.global_env.len(),
+        }
+    }
+
+    // TODO: Add doc for this
+    #[doc(hidden)]
+    pub fn rollback_to_checkpoint(&mut self, checkpoint: GlobalCheckpoint) -> Result<()> {
+        self.compiler
+            .symbol_map
+            .roll_back(checkpoint.symbol_map_offset);
+        self.virtual_machine
+            .global_env
+            .bindings_vec
+            .truncate(checkpoint.globals_offset);
+
+        Ok(())
     }
 
     pub fn run_raw_program(&mut self, program: RawProgramWithSymbols) -> Result<Vec<SteelVal>> {

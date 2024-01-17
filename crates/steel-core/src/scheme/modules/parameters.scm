@@ -151,7 +151,7 @@
 
                                                ; (displayln winders)
 
-                                               (displayln "catching exception here")
+                                               ; (displayln "catching exception here")
 
                                                (set! winders (cdr winders))
                                                (out)

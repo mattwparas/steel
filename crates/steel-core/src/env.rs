@@ -11,6 +11,10 @@ impl Env {
         self.bindings_vec.get(idx).cloned()
     }
 
+    pub fn len(&self) -> usize {
+        self.bindings_vec.len()
+    }
+
     /// top level global env has no parent
     pub fn root() -> Self {
         Env {

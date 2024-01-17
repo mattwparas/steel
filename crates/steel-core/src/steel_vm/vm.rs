@@ -4443,6 +4443,10 @@ pub(crate) fn list_modules(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Resul
     Some(Ok(SteelVal::ListV(modules)))
 }
 
+pub(crate) fn environment_offset(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(Ok(ctx.thread.global_env.len().into_steelval().unwrap()))
+}
+
 // TODO: This apply does not respect tail position
 // Something like this: (define (loop) (apply loop '()))
 // _should_ result in an infinite loop. In the current form, this is a Rust stack overflow.

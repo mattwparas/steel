@@ -493,6 +493,7 @@ impl Analysis {
     // TODO: This needs to just take an iterator?
     pub fn run(&mut self, exprs: &[ExprKind]) {
         // let mut scope: ScopeMap<InternedString, ScopeInfo> = ScopeMap::new();
+        self.scope.clear_all();
 
         // TODO: Functions should be globally resolvable but top level identifiers cannot be used before they are defined
         // The way this is implemented right now doesn't respect that
@@ -564,16 +565,16 @@ impl Analysis {
     }
 
     pub fn insert(&mut self, object: &SyntaxObject, metadata: SemanticInformation) {
-        // self.info.insert(object.syntax_object_id, metadata);
+        self.info.insert(object.syntax_object_id, metadata);
 
-        match self.info.entry(object.syntax_object_id) {
-            hash_map::Entry::Occupied(m) => {
-                *m.into_mut() = metadata;
-            }
-            hash_map::Entry::Vacant(e) => {
-                e.insert(metadata);
-            }
-        }
+        // match self.info.entry(object.syntax_object_id) {
+        //     hash_map::Entry::Occupied(m) => {
+        //         *m.into_mut() = metadata;
+        //     }
+        //     hash_map::Entry::Vacant(e) => {
+        //         e.insert(metadata);
+        //     }
+        // }
 
         // if let Some(existing_metadata) = self.info.get_mut(&object.syntax_object_id) {
         //     *existing_metadata = metadata;
@@ -849,7 +850,6 @@ impl<'a> AnalysisPass<'a> {
         // If this variable name is already in scope, we should mark that this variable
         // shadows the previous id
         if let Some(shadowed_var) = self.info.scope.get(name) {
-            // log::debug!("Redefining previous variable: {:?}", name);
             semantic_info = semantic_info.shadows(shadowed_var.id);
         }
 
@@ -1949,7 +1949,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // TODO: We _really_ should be providing the built-ins in a better way thats not
                 // passing around a thread local
                 // if crate::steel_vm::primitives::PRELUDE_MODULE.with(|x| x.contains(ident.resolve()))
-
                 if crate::steel_vm::primitives::PRELUDE_INTERNED_STRINGS.with(|x| x.contains(ident))
                 {
                     semantic_info.mark_builtin();
@@ -3293,8 +3292,8 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
             //     .map(|x| x.resolve().ends_with("get-test-mode"))
             //     .unwrap_or_default()
             // {
-            //     println!("Visiting: {}", a);
-            //     println!("{:#?}", info);
+            // println!("Visiting: {}", a);
+            // println!("{:#?}", info);
             // }
 
             if info.builtin && !info.is_shadowed && info.shadows.is_none() {
@@ -3322,6 +3321,10 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
 
                 if let Some(refers_to) = info.refers_to {
                     if let Some(info) = self.analysis.info.get(&refers_to) {
+                        // println!("Visiting: {}", a);
+                        // println!("{:#?}", info);
+                        // println!("Self id: {}", refers_to);
+
                         if info.builtin && !info.is_shadowed && info.shadows.is_none() {
                             // todo!()
 
@@ -3908,9 +3911,9 @@ impl<'a> SemanticAnalysis<'a> {
             changed: false,
         };
 
-        if macro_replacer.identifiers_to_replace.is_empty() {
-            return self;
-        }
+        // if macro_replacer.identifiers_to_replace.is_empty() {
+        //     return self;
+        // }
 
         for steel_macro in macros.values_mut() {
             if !steel_macro.is_mangled() {
@@ -3945,8 +3948,8 @@ impl<'a> SemanticAnalysis<'a> {
         );
 
         // if macro_replacer.changed || !macro_replacer.identifiers_to_replace.is_empty() {
-        //     log::info!(target: "pipeline_time", "Skipping analysis...");
-        //     self.analysis.fresh_from_exprs(self.exprs);
+        // log::info!(target: "pipeline_time", "Skipping analysis...");
+        self.analysis.fresh_from_exprs(self.exprs);
         // }
 
         self
@@ -3990,6 +3993,8 @@ impl<'a> SemanticAnalysis<'a> {
                                         if *func == module_get_interned || *func == proto_hash_get {
                                             // If this is found inside of a macro, do not remove it
 
+                                            // println!("REMOVING: {}", define);
+
                                             found = true;
                                             break;
                                         }
@@ -4016,6 +4021,7 @@ impl<'a> SemanticAnalysis<'a> {
                                                 if *func == module_get_interned
                                                     || *func == proto_hash_get
                                                 {
+                                                    // println!("REMOVING: {}", define);
                                                     found = true;
                                                     break;
                                                 }
@@ -4163,10 +4169,10 @@ impl<'a> SemanticAnalysis<'a> {
 
         // self.exprs.push(ExprKind::ident("void"));
 
-        // log::debug!("Re-running the semantic analysis after removing unused globals");
+        log::debug!("Re-running the semantic analysis after removing unused globals");
 
         // Skip running the analysis here? Nothing will have changed?
-        // self.analysis.fresh_from_exprs(self.exprs);
+        self.analysis.fresh_from_exprs(self.exprs);
 
         self
     }
@@ -4564,7 +4570,7 @@ impl<'a> SemanticAnalysis<'a> {
 
         if elider.re_run_analysis {
             // log::debug!(
-            //     "Re-running the semantic analysis after modifications during lambda lifting"
+            // "Re-running the semantic analysis after modifications during lambda lifting"
             // );
 
             self.analysis.fresh_from_exprs(self.exprs);
