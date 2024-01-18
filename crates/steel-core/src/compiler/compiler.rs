@@ -54,6 +54,7 @@ use super::{
 
 use im_rc::HashMap as ImmutableHashMap;
 
+#[cfg(feature = "profiling")]
 use std::time::Instant;
 
 // use itertools::Itertools;
@@ -782,13 +783,16 @@ impl Compiler {
         path: Option<PathBuf>,
         sources: &mut Sources,
     ) -> Result<Vec<ExprKind>> {
+        #[cfg(feature = "profiling")]
         let now = Instant::now();
 
         let mut expanded_statements =
             self.expand_expressions(exprs, path, sources, builtin_modules.clone())?;
 
+        #[cfg(feature = "profiling")]
         log::debug!(target: "pipeline_time", "Phase 1 module expansion time: {:?}", now.elapsed());
 
+        #[cfg(feature = "profiling")]
         let now = Instant::now();
 
         log::debug!(target: "expansion-phase", "Expanding macros -> phase 1");
@@ -848,6 +852,7 @@ impl Compiler {
 
         // TODO: Check that defines are in legal positions, post expansion.
 
+        #[cfg(feature = "profiling")]
         log::debug!(target: "pipeline_time", "Top level macro expansion time: {:?}", now.elapsed());
 
         log::debug!(target: "expansion-phase", "Beginning constant folding");
@@ -855,6 +860,7 @@ impl Compiler {
         let mut expanded_statements =
             self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
 
+        #[cfg(feature = "profiling")]
         let now = Instant::now();
 
         // RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
@@ -955,6 +961,7 @@ impl Compiler {
 
         semantic.replace_anonymous_function_calls_with_plain_lets();
 
+        #[cfg(feature = "profiling")]
         log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());
 
         self.analysis = semantic.into_analysis();

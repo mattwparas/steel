@@ -2,7 +2,8 @@ use crate::gc::Gc;
 use crate::SteelVal;
 use crate::{rvals::Custom, steel_vm::builtin::MarkdownDoc};
 use chrono::Local;
-use std::{time::Duration, time::Instant};
+use std::time::Duration;
+use std::time::Instant;
 use steel_derive::function;
 
 use crate::steel_vm::builtin::BuiltInModule;

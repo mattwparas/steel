@@ -390,6 +390,7 @@ impl Heap {
     ) {
         log::debug!(target: "gc", "Marking the heap");
 
+        #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
 
         let mut context = MarkAndSweepContext {
@@ -439,8 +440,10 @@ impl Heap {
 
         context.visit();
 
+        #[cfg(feature = "profiling")]
         log::debug!(target: "gc", "Mark: Time taken: {:?}", now.elapsed());
 
+        #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
 
         log::debug!(target: "gc", "--- Sweeping ---");
@@ -463,6 +466,7 @@ impl Heap {
 
         ROOTS.with(|x| x.borrow_mut().increment_generation());
 
+        #[cfg(feature = "profiling")]
         log::debug!(target: "gc", "Sweep: Time taken: {:?}", now.elapsed());
     }
 }
