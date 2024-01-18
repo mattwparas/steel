@@ -1,9 +1,25 @@
-# Making a new dynamic library
+# Making a Steel Module in Rust
 
-In this guide, we'll make a new shared library that will wrap the `sys-info` crate.
+Sometimes you may want to create a Steel module by calling Rust. This can be
+useful to:
 
+- Optimize a performance critical codepath with Rust.
+- Take advantage of Rust's rich ecosystem.
 
-## Getting started
+Whatever the case, Steel provides facilities to create reusable modules based on
+Rust code. Steel refers to these as `Native Modules`.
+
+## Guide
+
+In this guide, we'll make a `Native Module` that will wrap the `sys-info`
+crate. There are roughly 3 steps:
+
+1. Create a new Rust library of type "cdylib".
+1. Define a module and register types and functions to it.
+1. Build the Steel crate and install it to `$STEEL_HOME/native`.
+1. Use the library from Steel with `#%require-dylib`.
+
+### Creating a cdylib library
 
 To start, create a new library using `cargo`:
 
@@ -19,14 +35,14 @@ This should create a directory structure as follows:
 │   └── lib.rs
 ```
 
-We'll want to make this a `cdylib` library, so we'll adjust the `Cargo.toml` as follows:
+We'll want to make this a `cdylib` library, so we'll adjust the `Cargo.toml` as
+follows:
 
 ```toml
 [package]
 name = "steel-sys-info"
 version.workspace = true
 edition = "2021"
-
 
 [lib]
 name = "steel_sys_info"
@@ -40,13 +56,15 @@ abi_stable = "0.11.1"
 sys-info = "0.9.1"
 ```
 
-This means that when we run `cargo build` we'll produce a `.so` library that we can then load from `steel`.
+This means that when we run `cargo build` we'll produce a shared library (`.so`
+file). The shared library can be loaded into other programs, Steel in our case.
 
 ## Creating a module
 
-For the purposes of this example, we'll create a module that wraps the `MemInfo` struct, and expose
-the information there. Since we'll be implementing traits that are defined inside the `steel` crate, we'll
-need to create a struct to wrap the `sys_info::MemInfo` struct:
+For the purposes of this example, we'll create a module that wraps the `MemInfo`
+struct, and expose the information there. Since we'll be implementing traits
+that are defined inside the `steel` crate, we'll need to create a struct to wrap
+the `sys_info::MemInfo` struct:
 
 ```rust,noplaypen
 struct MemoryInfo {
@@ -84,7 +102,8 @@ impl MemoryInfo {
 }
 ```
 
-Now that we've done that, we can expose this to steel by implementing the `Custom` type for the struct, and declaring an `FFIModule`:
+Now that we've done that, we can expose this to steel by implementing the
+`Custom` type for the struct, and declaring an `FFIModule`:
 
 ```rust,noplaypen
 // Using ABI Stable types is very important
@@ -116,15 +135,19 @@ fn create_module() -> FFIModule {
 
     module
 }
-  
 ```
 
-The `register_fn` API will perform all of the necessary coercions necessary to make this as safe as possible. At the end of the day, this is FFI and we are loading shared libraries, so there is some unsafe Rust code, however steel uses the underlying `abi_stable` library in order to make interactions with the shared library as safe as possible.
+The `register_fn` API will perform all of the necessary coercions necessary to
+make this as safe as possible. At the end of the day, this is FFI and we are
+loading shared libraries, so there is some unsafe Rust code, however steel uses
+the underlying `abi_stable` library in order to make interactions with the
+shared library as safe as possible.
 
 
 ### Installing the library
 
-To install the dylib in a location where the `steel` interpreter will find it, from the root of the library just run:
+To install the dylib in a location where the `steel` interpreter will find it,
+from the root of the library just run:
 
 ```
 $ cargo steel-lib
@@ -134,7 +157,12 @@ This will build the crate, and copy the resulting dylib to `$STEEL_HOME/native`.
 
 ### Using the library from Steel
 
-To load the library, use the syntax `#%require-dylib` - This operates similary to a standard `require`, in that all of the modifiers you're used to using work, such as `only-in` and `prefix-in`. However, the argument is no longer the path to the library, but rather the name of the library without the extension. By default, the library will be named the `[lib]` name used in the toml, prefixed with `lib`.
+To load the library, use the syntax `#%require-dylib` - This operates similary
+to a standard `require`, in that all of the modifiers you're used to using work,
+such as `only-in` and `prefix-in`. However, the argument is no longer the path
+to the library, but rather the name of the library without the extension. By
+default, the library will be named the `[lib]` name used in the toml, prefixed
+with `lib`.
 
 ```scheme
 (#%require-dylib "libsteel_sys_info"
@@ -157,4 +185,5 @@ To load the library, use the syntax `#%require-dylib` - This operates similary t
 
 ```
 
-This can then be installed as a library itself on the machine, and required just like any other library, using a `cog.scm` file for the manifest.
+This can then be installed as a library itself on the machine, and required just
+like any other library, using a `cog.scm` file for the manifest.
