@@ -7,12 +7,12 @@ useful to:
 - Take advantage of Rust's rich ecosystem.
 
 Whatever the case, Steel provides facilities to create reusable modules based on
-Rust code. Steel refers to these as `Native Modules`.
+Rust code. This process involves compiling Rust into a `dylib`.
 
 ## Guide
 
-In this guide, we'll make a `Native Module` that will wrap the `sys-info`
-crate. There are roughly 3 steps:
+In this guide, we'll make a `dylib` that will wrap the `sys-info` crate. There
+are roughly 3 steps:
 
 1. Create a new Rust library of type "cdylib".
 1. Define a module and register types and functions to it.

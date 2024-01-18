@@ -7,7 +7,7 @@ The Steel Playground allows you to try Steel out directly from your browser. Vis
 The Steel Playground's environment is as follows:
 
 - Builtin modules are supported and are automatically imported.
-- Native modules are not supported.
+- Dylibs are not supported.
 
 ## Output
 
