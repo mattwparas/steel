@@ -296,6 +296,8 @@ pub struct Compiler {
 
     analysis: Analysis,
     shadowed_variable_renamer: RenameShadowedVariables,
+
+    search_dirs: Vec<PathBuf>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -364,6 +366,7 @@ impl Compiler {
             lifted_macro_environments: HashSet::new(),
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
+            search_dirs: Vec::new(),
         }
     }
 
@@ -387,6 +390,7 @@ impl Compiler {
             lifted_macro_environments: HashSet::new(),
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
+            search_dirs: Vec::new(),
         }
     }
 
@@ -424,6 +428,10 @@ impl Compiler {
 
     pub fn register_builtin(&mut self, name: String, contents: String) {
         self.module_manager.add_builtin_module(name, contents);
+    }
+
+    pub fn add_search_directory(&mut self, dir: PathBuf) {
+        self.search_dirs.push(dir);
     }
 
     pub fn compile_executable_from_expressions(
@@ -549,7 +557,7 @@ impl Compiler {
         sources: &mut Sources,
         builtin_modules: ModuleContainer,
     ) -> Result<Vec<ExprKind>> {
-        #[cfg(feature = "modules")]
+        // #[cfg(feature = "modules")]
         return self.module_manager.compile_main(
             &mut self.macro_env,
             &mut self.kernel,
@@ -559,11 +567,12 @@ impl Compiler {
             builtin_modules,
             &mut self.lifted_kernel_environments,
             &mut self.lifted_macro_environments,
+            &self.search_dirs,
         );
 
-        #[cfg(not(feature = "modules"))]
-        self.module_manager
-            .expand_expressions(&mut self.macro_env, exprs)
+        // #[cfg(not(feature = "modules"))]
+        // self.module_manager
+        //     .expand_expressions(&mut self.macro_env, exprs)
     }
 
     fn generate_instructions_for_executable(

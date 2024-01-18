@@ -1191,6 +1191,15 @@ impl Engine {
         engine
     }
 
+    /// Adds a directory for the engine to resolve paths from.
+    ///
+    /// By default, the engine will search $STEEL_HOME/cogs for modules,
+    /// but any additional path added this way will increase the module
+    /// resolution search space.
+    pub fn add_search_directory(&mut self, dir: PathBuf) {
+        self.compiler.add_search_directory(dir)
+    }
+
     pub(crate) fn new_printer() -> Self {
         let mut engine = fresh_kernel_image();
 

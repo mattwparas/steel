@@ -192,6 +192,7 @@ impl ModuleManager {
             builtin_modules,
             global_macro_map,
             &self.custom_builtins,
+            &[],
         )?;
 
         module_builder.compile()?;
@@ -212,6 +213,7 @@ impl ModuleManager {
         builtin_modules: ModuleContainer,
         lifted_kernel_environments: &mut HashMap<String, KernelDefMacroSpec>,
         lifted_macro_environments: &mut HashSet<PathBuf>,
+        search_dirs: &[PathBuf],
     ) -> Result<Vec<ExprKind>> {
         // Wipe the visited set on entry
         self.visited.clear();
@@ -234,6 +236,7 @@ impl ModuleManager {
             builtin_modules,
             global_macro_map,
             &self.custom_builtins,
+            search_dirs,
         )?;
 
         let mut module_statements = module_builder.compile()?;
@@ -1650,6 +1653,7 @@ struct ModuleBuilder<'a> {
     builtin_modules: ModuleContainer,
     global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
     custom_builtins: &'a HashMap<String, String>,
+    search_dirs: &'a [PathBuf],
 }
 
 impl<'a> ModuleBuilder<'a> {
@@ -1666,6 +1670,7 @@ impl<'a> ModuleBuilder<'a> {
         builtin_modules: ModuleContainer,
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
+        search_dirs: &'a [PathBuf],
     ) -> Result<Self> {
         // TODO don't immediately canonicalize the path unless we _know_ its coming from a path
         // change the path to not always be required
@@ -1697,6 +1702,7 @@ impl<'a> ModuleBuilder<'a> {
             builtin_modules,
             global_macro_map,
             custom_builtins,
+            search_dirs,
         })
     }
 
@@ -1875,6 +1881,7 @@ impl<'a> ModuleBuilder<'a> {
                     self.builtin_modules.clone(),
                     self.global_macro_map,
                     self.custom_builtins,
+                    self.search_dirs,
                 )?;
 
                 // Walk the tree and compile any dependencies
@@ -2526,7 +2533,35 @@ impl<'a> ModuleBuilder<'a> {
                         current = home;
 
                         log::info!("Searching STEEL_HOME for {:?}", current);
+
+                        if !current.exists() {
+                            for dir in self.search_dirs {
+                                let mut dir = dir.clone();
+                                dir.push(s);
+
+                                if dir.exists() {
+                                    current = dir;
+                                    break;
+                                }
+                            }
+                        }
                     } else {
+                        // TODO: Check if this module exists in STEEL_HOME first. If it does, we'll take that as our candidate
+                        // and then continue on to the final module resolution part.
+                        //
+                        // If it doesn't exist, we should iterate through the search directories and attempt to find
+                        // a matching path there.
+
+                        for dir in self.search_dirs {
+                            let mut dir = dir.clone();
+                            dir.push(s);
+
+                            if dir.exists() {
+                                current = dir;
+                                break;
+                            }
+                        }
+
                         stop!(Generic => format!("Module not found: {:?} with STEEL_HOME: {:?}", current, home); *span)
                     }
                 }
@@ -2637,8 +2672,30 @@ impl<'a> ModuleBuilder<'a> {
                                         home.push(path);
                                         current = home;
 
+                                        if !current.exists() {
+                                            for dir in self.search_dirs {
+                                                let mut dir = dir.clone();
+                                                dir.push(path);
+
+                                                if dir.exists() {
+                                                    current = dir;
+                                                    break;
+                                                }
+                                            }
+                                        }
+
                                         log::info!("Searching STEEL_HOME for {:?}", current);
                                     } else {
+                                        for dir in self.search_dirs {
+                                            let mut dir = dir.clone();
+                                            dir.push(path);
+
+                                            if dir.exists() {
+                                                current = dir;
+                                                break;
+                                            }
+                                        }
+
                                         stop!(Generic => format!("Module not found: {:?}", current); r.location.span)
                                     }
                                 }
@@ -2733,6 +2790,7 @@ impl<'a> ModuleBuilder<'a> {
             builtin_modules,
             global_macro_map,
             custom_builtins,
+            &[],
         )
         .parse_builtin(input)
     }
@@ -2747,6 +2805,7 @@ impl<'a> ModuleBuilder<'a> {
         builtin_modules: ModuleContainer,
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
+        search_dirs: &'a [PathBuf],
     ) -> Result<Self> {
         ModuleBuilder::raw(
             name,
@@ -2758,6 +2817,7 @@ impl<'a> ModuleBuilder<'a> {
             builtin_modules,
             global_macro_map,
             custom_builtins,
+            search_dirs,
         )
         .parse_from_path()
     }
@@ -2772,6 +2832,7 @@ impl<'a> ModuleBuilder<'a> {
         builtin_modules: ModuleContainer,
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
+        search_dirs: &'a [PathBuf],
     ) -> Self {
         ModuleBuilder {
             name,
@@ -2791,6 +2852,7 @@ impl<'a> ModuleBuilder<'a> {
             builtin_modules,
             global_macro_map,
             custom_builtins,
+            search_dirs,
         }
     }
 
