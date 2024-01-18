@@ -18,6 +18,7 @@ use crate::{
         port::SendablePort,
         structs::SerializableUserDefinedStruct,
         transducers::{Reducer, Transducer},
+        SteelPortRepr,
     },
     values::{functions::BoxedDynFunction, structs::UserDefinedStruct},
 };
@@ -30,10 +31,12 @@ use std::{
     fmt,
     future::Future,
     hash::{Hash, Hasher},
+    io::Write,
     ops::Deref,
     pin::Pin,
     rc::Rc,
     result,
+    sync::{Arc, Mutex},
     task::Context,
 };
 
@@ -1216,6 +1219,14 @@ pub enum SteelVal {
 }
 
 impl SteelVal {
+    pub fn new_dyn_writer_port(port: impl Write + Send + Sync + 'static) -> SteelVal {
+        SteelVal::PortV(SteelPort {
+            port: Rc::new(RefCell::new(SteelPortRepr::DynWriter(Arc::new(
+                Mutex::new(port),
+            )))),
+        })
+    }
+
     pub fn anonymous_boxed_function(
         function: std::sync::Arc<
             dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> + Send + Sync + 'static,
