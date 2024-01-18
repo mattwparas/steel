@@ -647,6 +647,7 @@ fn filter_interned_string_with_char(
 
     if !resolved.starts_with("#")
         && !resolved.starts_with("%")
+        && !resolved.starts_with("mangler")
         && !resolved.starts_with("mangler#%")
         && !resolved.starts_with("!!dummy-rest")
         && !resolved.starts_with("__module-mangler")

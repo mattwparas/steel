@@ -54,6 +54,7 @@ async fn main() {
             if !resolved.starts_with("#")
                 && !resolved.starts_with("%")
                 && !resolved.starts_with("mangler#%")
+                && !resolved.starts_with("mangler")
             {
                 defined_globals.insert(resolved.to_string());
             }
