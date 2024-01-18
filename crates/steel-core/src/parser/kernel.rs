@@ -517,6 +517,7 @@ impl Kernel {
         expr: ExprKind,
         environment: &str,
     ) -> Result<ExprKind> {
+        #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
 
         let span = get_span(&expr);
@@ -550,6 +551,7 @@ impl Kernel {
         // This shouldn't be lowering all the way. It should just be back to list right?
         let res = TryFromSteelValVisitorForExprKind::root(&result);
 
+        #[cfg(feature = "profiling")]
         log::debug!(target: "pipeline_time", "Kernel expansion time: {:?}", now.elapsed());
 
         res

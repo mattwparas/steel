@@ -42,7 +42,6 @@ weak-table = "0.3.2"
 rand = "0.8.5"
 # TODO: Consider only depending on the sub crate
 num = "0.4.0"
-which = "4.4.0"
 radix_fmt = "1.0.0"
 
 # For structs
@@ -67,6 +66,9 @@ anyhow = { version = "1", optional = true }
 
 stacker = { version = "0.1.15", optional = true }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+which = { version = "4.4.0" }
+
 [dev-dependencies]
 proptest = "1.1.0"
 criterion = "0.5.1"
@@ -76,7 +78,9 @@ env_logger = "0.10.0"
 steel-gen = { path = "../steel-gen", version = "0.2.0" }
 
 [features]
+# TODO: Deprecate the modules feature flag, it no longer does anything
 default = ["modules"]
+wasm = []
 modules = []
 jit = ["dep:cranelift", "dep:cranelift-module", "dep:cranelift-jit"]
 dynamic = []

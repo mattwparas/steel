@@ -325,10 +325,12 @@ impl Analysis {
     pub fn fresh_from_exprs(&mut self, exprs: &[ExprKind]) {
         self.clear();
 
+        #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
 
         self.run(exprs);
 
+        #[cfg(feature = "profiling")]
         log::debug!(target: "pipeline_time", "Analysis time: {:?}", now.elapsed());
     }
 
@@ -3896,6 +3898,7 @@ impl<'a> SemanticAnalysis<'a> {
         module_manager: &mut ModuleManager,
         table: &mut FxHashSet<InternedString>,
     ) -> &mut Self {
+        #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
 
         let mut replacer =
@@ -3941,6 +3944,7 @@ impl<'a> SemanticAnalysis<'a> {
             macro_replacer.visit(expr);
         }
 
+        #[cfg(feature = "profiling")]
         log::info!(
             target: "pipeline_time",
             "Replacing non shadowed globals time: {:?}",
@@ -3961,6 +3965,7 @@ impl<'a> SemanticAnalysis<'a> {
         macros: &FxHashMap<InternedString, SteelMacro>,
         module_manager: &ModuleManager,
     ) -> &mut Self {
+        #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
 
         let module_get_interned: InternedString = "%module-get%".into();
@@ -4038,6 +4043,7 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         if !found {
+            #[cfg(feature = "profiling")]
             log::debug!(target: "pipeline_time", "Removing unused globals time: {:?}", now.elapsed());
 
             return self;
@@ -4165,6 +4171,7 @@ impl<'a> SemanticAnalysis<'a> {
             return true;
         });
 
+        #[cfg(feature = "profiling")]
         log::debug!(target: "pipeline_time", "Removing unused globals time: {:?}", now.elapsed());
 
         // self.exprs.push(ExprKind::ident("void"));
@@ -4312,6 +4319,7 @@ impl<'a> SemanticAnalysis<'a> {
     }
 
     pub fn replace_anonymous_function_calls_with_plain_lets(&mut self) -> &mut Self {
+        #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
 
         let mut re_run_analysis = false;
@@ -4360,6 +4368,7 @@ impl<'a> SemanticAnalysis<'a> {
 
         self.find_anonymous_function_calls_and_mutate_with(func);
 
+        #[cfg(feature = "profiling")]
         log::debug!(target: "pipeline_time", "Anonymous function calls -> lets time: {:?}", now.elapsed());
 
         if re_run_analysis {

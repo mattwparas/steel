@@ -1,4 +1,3 @@
-use log::debug;
 use steel_parser::{
     ast::{Define, If, Let, Macro, Quote, Require, Return, SyntaxRules},
     tokens::MaybeBigInt,
@@ -10,6 +9,8 @@ use crate::parser::{
     visitors::VisitorMutRef,
 };
 use crate::parser::{interner::InternedString, tokens::TokenType};
+
+#[cfg(feature = "profiling")]
 use std::time::Instant;
 
 use super::{Folder, VisitorMutRefUnit, VisitorMutUnit};
@@ -284,6 +285,7 @@ impl VisitorMutRefUnit for FlattenBegin {
 pub fn flatten_begins_and_expand_defines(
     exprs: Vec<ExprKind>,
 ) -> crate::rvals::Result<Vec<ExprKind>> {
+    #[cfg(feature = "profiling")]
     let flatten_begins_and_expand_defines_time = Instant::now();
 
     let res = exprs
@@ -300,7 +302,8 @@ pub fn flatten_begins_and_expand_defines(
         })
         .collect();
 
-    debug!(
+    #[cfg(feature = "profiling")]
+    log::debug!(
         target: "pipeline_time",
         "Flatten begins and expand defines time: {:?}",
         flatten_begins_and_expand_defines_time.elapsed()

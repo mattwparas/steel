@@ -916,6 +916,38 @@ impl RawProgramWithSymbols {
         self
     }
 
+    pub fn debug_generate_instructions(
+        mut self,
+        symbol_map: &mut SymbolMap,
+    ) -> Result<Vec<String>> {
+        let mut interner = DebruijnIndicesInterner::default();
+
+        for expression in &mut self.instructions {
+            interner.collect_first_pass_defines(expression, symbol_map)?
+        }
+
+        for expression in &mut self.instructions {
+            interner.collect_second_pass_defines(expression, symbol_map)?
+        }
+
+        // TODO try here - the loop condition local const arity two seems to rely on the
+        // existence of having been already adjusted by the interner
+        for instructions in &mut self.instructions {
+            // loop_condition_local_const_arity_two(instructions);
+            specialize_constants(instructions)?;
+        }
+
+        // Put the new struct functions at the front
+        // struct_instructions.append(&mut self.instructions);
+        // self.instructions = struct_instructions;
+
+        Ok(self
+            .instructions
+            .into_iter()
+            .map(|i| crate::core::instructions::disassemble(&i))
+            .collect())
+    }
+
     pub fn debug_build(mut self, _name: String, symbol_map: &mut SymbolMap) -> Result<()> {
         #[cfg(feature = "profiling")]
         let now = Instant::now();
@@ -1017,7 +1049,10 @@ impl RawProgramWithSymbols {
         Ok(Executable {
             name: Rc::new(name),
             version: Rc::new(self.version),
-            time_stamp: SystemTime::now(),
+            #[cfg(not(target_arch = "wasm32"))]
+            time_stamp: Some(SystemTime::now()),
+            #[cfg(target_arch = "wasm32")]
+            time_stamp: None,
             instructions: instructions
                 .into_iter()
                 .map(|x| Rc::from(x.into_boxed_slice()))
@@ -1091,7 +1126,7 @@ fn extract_spans(
 pub struct Executable {
     pub(crate) name: Rc<String>,
     pub(crate) version: Rc<String>,
-    pub(crate) time_stamp: SystemTime, // TODO -> don't use system time, probably not as portable, prefer date time
+    pub(crate) time_stamp: Option<SystemTime>, // TODO -> don't use system time, probably not as portable, prefer date time
     pub(crate) instructions: Vec<Rc<[DenseInstruction]>>,
     pub(crate) constant_map: ConstantMap,
     pub(crate) spans: Vec<Rc<[Span]>>,
@@ -1102,7 +1137,7 @@ impl Executable {
         &self.name
     }
 
-    pub fn time_stamp(&self) -> &SystemTime {
+    pub fn time_stamp(&self) -> &Option<SystemTime> {
         &self.time_stamp
     }
 }
