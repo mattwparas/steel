@@ -45,6 +45,7 @@ use crate::values::lists::List;
 use log::{debug, log_enabled};
 use num::ToPrimitive;
 use once_cell::sync::Lazy;
+use smallvec::SmallVec;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
 
@@ -297,7 +298,6 @@ thread_local! {
 #[derive(Clone)]
 pub struct SteelThread {
     pub(crate) global_env: Env,
-    // Maybe a neat idea, what if we used an immutable vector here?
     pub(crate) stack: Vec<SteelVal>,
     profiler: OpCodeOccurenceProfiler,
     function_interner: FunctionInterner,
@@ -434,6 +434,18 @@ impl SteelThread {
             //     let arg_vec: Vec<_> = args.into_iter().collect();
             //     func(self, &arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             // }
+            SteelVal::CustomStruct(ref s) => {
+                if let Some(procedure) = s.maybe_proc() {
+                    if let SteelVal::HeapAllocated(h) = procedure {
+                        self.call_function_from_mut_slice(constant_map, h.get(), args)
+                    } else {
+                        self.call_function_from_mut_slice(constant_map, procedure.clone(), args)
+                    }
+                } else {
+                    stop!(TypeMismatch => format!("application not a procedure: {function}"))
+                }
+            }
+
             SteelVal::Closure(closure) => {
                 // Create phony span vec
                 let spans = closure.body_exp().iter().map(|_| Span::default()).collect();
@@ -481,6 +493,17 @@ impl SteelThread {
             //     let arg_vec: Vec<_> = args.into_iter().collect();
             //     func(self, &arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             // }
+            SteelVal::CustomStruct(ref s) => {
+                if let Some(procedure) = s.maybe_proc() {
+                    if let SteelVal::HeapAllocated(h) = procedure {
+                        self.call_function(constant_map, h.get(), args)
+                    } else {
+                        self.call_function(constant_map, procedure.clone(), args)
+                    }
+                } else {
+                    stop!(TypeMismatch => format!("application not a procedure: {function}"))
+                }
+            }
             SteelVal::Closure(closure) => {
                 // let prev_length = self.stack.len();
 
@@ -3217,9 +3240,11 @@ impl<'a> VmCore<'a> {
             let values = self
                 .thread
                 .stack
-                .split_off(self.thread.stack.len() - amount_to_remove);
+                .drain(self.thread.stack.len() - amount_to_remove..)
+                .collect();
+            // .split_off(self.thread.stack.len() - amount_to_remove);
 
-            let list = SteelVal::ListV(List::from(values));
+            let list = SteelVal::ListV(values);
 
             self.thread.stack.push(list);
 
@@ -3385,7 +3410,8 @@ impl<'a> VmCore<'a> {
         let args = self
             .thread
             .stack
-            .split_off(self.thread.stack.len() - payload_size);
+            .drain(self.thread.stack.len() - payload_size..)
+            .collect::<SmallVec<[_; 4]>>();
 
         let result = func(self, &args).map(|x| {
             x.map_err(|x| {
@@ -4438,6 +4464,10 @@ pub(crate) fn list_modules(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Resul
         .collect();
 
     Some(Ok(SteelVal::ListV(modules)))
+}
+
+pub(crate) fn environment_offset(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(Ok(ctx.thread.global_env.len().into_steelval().unwrap()))
 }
 
 // TODO: This apply does not respect tail position

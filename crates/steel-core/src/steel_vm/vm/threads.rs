@@ -13,10 +13,12 @@ use super::*;
 // TODO: Do proper logging here for thread spawning
 macro_rules! time {
     ($label:expr, $e:expr) => {{
+        #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
 
         let e = $e;
 
+        #[cfg(feature = "profiling")]
         log::debug!(target: "threads", "{}: {:?}", $label, now.elapsed());
 
         e
@@ -132,6 +134,7 @@ struct MovableFunctionInterner {
 fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     use crate::rvals::SerializableSteelVal;
 
+    #[cfg(feature = "profiling")]
     let now = std::time::Instant::now();
 
     // Need a new:
@@ -379,6 +382,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             constant_map,
         };
 
+        #[cfg(feature = "profiling")]
         log::info!(target: "threads", "Time taken to spawn thread: {:?}", now.elapsed());
 
         // Call the function!

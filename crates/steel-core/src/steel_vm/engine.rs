@@ -145,6 +145,12 @@ pub struct EngineStatistics {
     pub sources_size: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct GlobalCheckpoint {
+    symbol_map_offset: usize,
+    globals_offset: usize,
+}
+
 #[derive(Clone)]
 pub struct Engine {
     virtual_machine: SteelThread,
@@ -294,10 +300,12 @@ pub fn load_module_noop(target: &crate::rvals::SteelString) -> crate::rvals::Res
 
 macro_rules! time {
     ($target:expr, $label:expr, $e:expr) => {{
+        #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
 
         let e = $e;
 
+        #[cfg(feature = "profiling")]
         log::debug!(target: $target, "{}: {:?}", $label, now.elapsed());
 
         e
@@ -317,7 +325,9 @@ impl Engine {
     /// kernel in the compiler
     pub(crate) fn new_kernel() -> Self {
         log::debug!(target:"kernel", "Instantiating a new kernel");
+        #[cfg(feature = "profiling")]
         let mut total_time = std::time::Instant::now();
+        #[cfg(feature = "profiling")]
         let mut now = std::time::Instant::now();
 
         let mut vm = Engine {
@@ -376,22 +386,25 @@ impl Engine {
         //         }
         //     )
         // } else {
+
         time!(
             "engine-creation",
             "Loading the ALL_MODULES prelude code",
             vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
-                .unwrap()
+                .expect("loading ALL_MODULES failed")
         );
         // }
 
         // log::debug!(target: "kernel", "Registered modules in the kernel!: {:?}", now.elapsed());
 
+        #[cfg(feature = "profiling")]
         let mut now = std::time::Instant::now();
 
         let core_libraries = [crate::stdlib::PRELUDE];
 
         for core in core_libraries.into_iter() {
-            vm.compile_and_run_raw_program(core).unwrap();
+            vm.compile_and_run_raw_program(core)
+                .expect("Loading the standard library failed");
         }
 
         // Initialize the global macro environment with the default one. This way
@@ -403,8 +416,10 @@ impl Engine {
             *guard = vm.in_scope_macros().clone();
         });
 
+        #[cfg(feature = "profiling")]
         log::debug!(target: "kernel", "Loaded prelude in the kernel!: {:?}", now.elapsed());
 
+        #[cfg(feature = "profiling")]
         log::debug!(target: "pipeline_time", "Total kernel loading time: {:?}", total_time.elapsed());
 
         vm
@@ -1162,6 +1177,7 @@ impl Engine {
 
         engine.compiler.kernel = Some(Kernel::new());
 
+        #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
 
         if let Err(e) = engine.run(PRELUDE_WITHOUT_BASE) {
@@ -1169,6 +1185,7 @@ impl Engine {
             panic!("This shouldn't happen!");
         }
 
+        #[cfg(feature = "profiling")]
         log::info!(target: "engine-creation", "Engine Creation: {:?}", now.elapsed());
 
         engine
@@ -1295,6 +1312,11 @@ impl Engine {
             self.modules.clone(),
             &mut self.sources,
         )
+    }
+
+    #[doc(hidden)]
+    pub fn debug_build_strings(&mut self, program: RawProgramWithSymbols) -> Result<Vec<String>> {
+        program.debug_generate_instructions(&mut self.compiler.symbol_map)
     }
 
     pub fn debug_print_build(
@@ -1487,6 +1509,29 @@ impl Engine {
         }
 
         result
+    }
+
+    // TODO: Add doc for this
+    #[doc(hidden)]
+    pub fn environment_offset(&self) -> GlobalCheckpoint {
+        GlobalCheckpoint {
+            symbol_map_offset: self.compiler.symbol_map.len(),
+            globals_offset: self.virtual_machine.global_env.len(),
+        }
+    }
+
+    // TODO: Add doc for this
+    #[doc(hidden)]
+    pub fn rollback_to_checkpoint(&mut self, checkpoint: GlobalCheckpoint) -> Result<()> {
+        self.compiler
+            .symbol_map
+            .roll_back(checkpoint.symbol_map_offset);
+        self.virtual_machine
+            .global_env
+            .bindings_vec
+            .truncate(checkpoint.globals_offset);
+
+        Ok(())
     }
 
     pub fn run_raw_program(&mut self, program: RawProgramWithSymbols) -> Result<Vec<SteelVal>> {
@@ -1890,11 +1935,11 @@ impl Engine {
                         .compiler
                         .get_idx(constant)
                         .ok_or_else(throw!(
-                            Generic => format!("unreachable")
+                            Generic => format!("Constants: unreachable")
                         ))
                         .and_then(|idx| {
                             self.virtual_machine.extract_value(idx).ok_or_else(throw!(
-                                Generic => "unreachable"
+                                Generic => "Constants: unreachable"
                             ))
                         });
 

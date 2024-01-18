@@ -1,14 +1,147 @@
-use log::debug;
-use steel_parser::tokens::MaybeBigInt;
+use steel_parser::{
+    ast::{Define, If, Let, Macro, Quote, Require, Return, SyntaxRules},
+    tokens::MaybeBigInt,
+};
 
 use crate::parser::{
     ast::{Atom, Begin, ExprKind, LambdaFunction, List, Set},
     parser::SyntaxObject,
+    visitors::VisitorMutRef,
 };
 use crate::parser::{interner::InternedString, tokens::TokenType};
+
+#[cfg(feature = "profiling")]
 use std::time::Instant;
 
 use super::{Folder, VisitorMutRefUnit, VisitorMutUnit};
+
+pub(crate) struct CheckDefinesAreInLegalPositions {
+    depth: usize,
+}
+impl VisitorMutRef for CheckDefinesAreInLegalPositions {
+    type Output = crate::rvals::Result<()>;
+
+    #[inline]
+    fn visit_lambda_function(&mut self, lambda_function: &mut LambdaFunction) -> Self::Output {
+        for var in &mut lambda_function.args {
+            self.visit(var)?;
+        }
+        self.depth += 1;
+        self.visit(&mut lambda_function.body)?;
+        self.depth -= 1;
+        Ok(())
+    }
+
+    #[inline]
+    fn visit_if(&mut self, f: &mut If) -> Self::Output {
+        self.depth += 1;
+        self.visit(&mut f.test_expr)?;
+        self.visit(&mut f.then_expr)?;
+        self.visit(&mut f.else_expr)?;
+        self.depth -= 1;
+
+        Ok(())
+    }
+
+    #[inline]
+    fn visit_let(&mut self, l: &mut Let) -> Self::Output {
+        self.depth += 1;
+
+        for x in l.bindings.iter_mut() {
+            self.visit(&mut x.1)?;
+        }
+
+        self.visit(&mut l.body_expr)?;
+        self.depth -= 1;
+
+        Ok(())
+    }
+
+    #[inline]
+    fn visit_define(&mut self, define: &mut Define) -> Self::Output {
+        if self.depth != 0 {
+            crate::stop!(BadSyntax => "Define cannot exist except at the top level, unless within another lexical context or begin expression"; define.location.span);
+        }
+
+        self.visit(&mut define.name)?;
+        self.visit(&mut define.body)?;
+
+        Ok(())
+    }
+
+    fn visit_begin(&mut self, begin: &mut Begin) -> Self::Output {
+        for expr in &mut begin.exprs {
+            self.visit(expr)?;
+        }
+
+        Ok(())
+    }
+
+    fn visit(&mut self, expr: &mut ExprKind) -> Self::Output {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Let(l) => self.visit_let(l),
+        }
+    }
+
+    #[inline]
+    fn visit_return(&mut self, r: &mut Return) -> Self::Output {
+        self.visit(&mut r.expr)?;
+        Ok(())
+    }
+
+    #[inline]
+    fn visit_quote(&mut self, quote: &mut Quote) -> Self::Output {
+        self.visit(&mut quote.expr)?;
+        Ok(())
+    }
+
+    #[inline]
+    fn visit_macro(&mut self, _m: &mut Macro) -> Self::Output {
+        Ok(())
+    }
+
+    #[inline]
+    fn visit_atom(&mut self, _a: &mut Atom) -> Self::Output {
+        Ok(())
+    }
+
+    #[inline]
+    fn visit_list(&mut self, l: &mut List) -> Self::Output {
+        for expr in &mut l.args {
+            self.visit(expr)?;
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn visit_syntax_rules(&mut self, _l: &mut SyntaxRules) -> Self::Output {
+        Ok(())
+    }
+
+    #[inline]
+    fn visit_set(&mut self, s: &mut Set) -> Self::Output {
+        self.visit(&mut s.variable)?;
+        self.visit(&mut s.expr)?;
+        Ok(())
+    }
+
+    #[inline]
+    fn visit_require(&mut self, _s: &mut Require) -> Self::Output {
+        Ok(())
+    }
+}
 
 pub(crate) struct FlattenBegin {}
 impl FlattenBegin {
@@ -149,7 +282,10 @@ impl VisitorMutRefUnit for FlattenBegin {
 //     }
 // }
 
-pub fn flatten_begins_and_expand_defines(exprs: Vec<ExprKind>) -> Vec<ExprKind> {
+pub fn flatten_begins_and_expand_defines(
+    exprs: Vec<ExprKind>,
+) -> crate::rvals::Result<Vec<ExprKind>> {
+    #[cfg(feature = "profiling")]
     let flatten_begins_and_expand_defines_time = Instant::now();
 
     let res = exprs
@@ -159,9 +295,15 @@ pub fn flatten_begins_and_expand_defines(exprs: Vec<ExprKind>) -> Vec<ExprKind> 
             x
         })
         .map(ConvertDefinesToLets::convert_defines)
+        .map(|mut x| {
+            let mut checker = CheckDefinesAreInLegalPositions { depth: 0 };
+            checker.visit(&mut x)?;
+            Ok(x)
+        })
         .collect();
 
-    debug!(
+    #[cfg(feature = "profiling")]
+    log::debug!(
         target: "pipeline_time",
         "Flatten begins and expand defines time: {:?}",
         flatten_begins_and_expand_defines_time.elapsed()
@@ -223,6 +365,24 @@ impl Folder for ConvertDefinesToLets {
         lambda_function.body = self.visit(lambda_function.body);
         self.depth -= 1;
         ExprKind::LambdaFunction(lambda_function)
+    }
+
+    #[inline]
+    fn visit_let(&mut self, mut l: Box<steel_parser::ast::Let>) -> ExprKind {
+        let mut visited_bindings = Vec::new();
+
+        self.depth += 1;
+
+        for (binding, expr) in l.bindings {
+            visited_bindings.push((self.visit(binding), self.visit(expr)));
+        }
+
+        l.bindings = visited_bindings;
+        l.body_expr = self.visit(l.body_expr);
+
+        self.depth -= 1;
+
+        ExprKind::Let(l)
     }
 
     // TODO

@@ -51,10 +51,12 @@ use super::{
 
 macro_rules! time {
     ($label:expr, $e:expr) => {{
+        #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
 
         let e = $e;
 
+        #[cfg(feature = "profiling")]
         log::debug!(target: "pipeline_time", "{}: {:?}", $label, now.elapsed());
 
         e
@@ -114,7 +116,11 @@ create_prelude!(
     // for_syntax "#%private/steel/match"
 );
 
+#[cfg(not(target_arch = "wasm32"))]
 pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| std::env::var("STEEL_HOME").ok());
+
+#[cfg(target_arch = "wasm32")]
+pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| None);
 
 /// Manages the modules
 /// keeps some visited state on the manager for traversal
@@ -944,18 +950,18 @@ impl ModuleManager {
         (module, in_scope_macros, name_mangler)
     }
 
-    #[cfg(not(feature = "modules"))]
-    pub(crate) fn expand_expressions(
-        &mut self,
-        global_macro_map: &mut HashMap<InternedString, SteelMacro>,
-        mut exprs: Vec<ExprKind>,
-    ) -> Result<Vec<ExprKind>> {
-        extract_macro_defs(&mut exprs, global_macro_map)?;
-        exprs
-            .into_iter()
-            .map(|x| expand(x, global_macro_map))
-            .collect()
-    }
+    // #[cfg(not(feature = "modules"))]
+    // pub(crate) fn expand_expressions(
+    //     &mut self,
+    //     global_macro_map: &mut HashMap<InternedString, SteelMacro>,
+    //     mut exprs: Vec<ExprKind>,
+    // ) -> Result<Vec<ExprKind>> {
+    //     extract_macro_defs(&mut exprs, global_macro_map)?;
+    //     exprs
+    //         .into_iter()
+    //         .map(|x| expand(x, global_macro_map))
+    //         .collect()
+    // }
 }
 
 // Pre-compile module to bytecode? Is it even possible?
@@ -1449,31 +1455,62 @@ impl CompiledModule {
             SyntaxObject::default(TokenType::Quote),
         )));
 
-        let mut offset = None;
+        // let mut offset = None;
 
         // Find offset of first non builtin require definition:
-        for (idx, expr) in exprs.iter().enumerate() {
-            if let ExprKind::Define(d) = expr {
-                if !is_a_builtin_definition(d) {
-                    // println!("Found offset at: {:?}", offset);
+        // for (idx, expr) in exprs.iter().enumerate() {
+        //     if let ExprKind::Define(d) = expr {
+        //         // if !is_a_builtin_definition(d) || !is_a_require_definition(d) {
+        //         if !is_a_builtin_definition(d) {
+        //             // println!("Found offset at: {:?}", offset);
 
-                    offset = Some(idx);
-                    break;
-                }
-            }
-        }
+        //             offset = Some(idx);
+        //             println!("Found offset at: {:?}", offset);
+        //             break;
+        //         }
+        //     }
+        // }
 
         exprs.push(module_define);
 
-        if let Some(offset) = offset {
-            for (idx, expr) in provide_definitions.into_iter().enumerate() {
-                exprs.insert(offset + idx, expr);
-            }
-        } else {
-            provide_definitions.append(&mut exprs);
-        }
+        // exprs.append(&mut provide_definitions);
 
-        // println!("------ {}", module_define.to_pretty(60));
+        let mut builtin_definitions = Vec::new();
+
+        exprs.retain_mut(|expr| {
+            if let ExprKind::Define(d) = expr {
+                if is_a_builtin_definition(d) {
+                    builtin_definitions.push(std::mem::take(expr));
+                    false
+                } else {
+                    true
+                }
+            } else {
+                true
+            }
+        });
+
+        builtin_definitions.append(&mut provide_definitions);
+        builtin_definitions.append(&mut exprs);
+
+        // provide_definitions.append(&mut builtin_definitions);
+        // provide_definitions.append(&mut exprs);
+
+        exprs = builtin_definitions;
+
+        // if let Some(offset) = offset {
+        // for (idx, expr) in provide_definitions.into_iter().enumerate() {
+        //     exprs.insert(offset + idx, expr);
+        // }
+        // } else {
+        // provide_definitions.append(&mut exprs);
+        // }
+
+        // println!("MODULE DEFINITIONS----");
+
+        // exprs.pretty_print();
+
+        // println!("END MODULE DEFINITIONS");
 
         // exprs.pretty_print();
 
@@ -1634,11 +1671,15 @@ impl<'a> ModuleBuilder<'a> {
         // change the path to not always be required
         // if its not required we know its not coming in
 
+        #[cfg(not(target_arch = "wasm32"))]
         let name = if let Some(p) = name {
             std::fs::canonicalize(p)?
         } else {
             std::env::current_dir()?
         };
+
+        #[cfg(target_arch = "wasm32")]
+        let name = PathBuf::new();
 
         Ok(ModuleBuilder {
             name,
@@ -1795,6 +1836,10 @@ impl<'a> ModuleBuilder<'a> {
                 .filter(|x| matches!(x.path, PathOrBuiltIn::Path(_)))
                 .map(|x| x.path.get_path())
             {
+                if cfg!(target_arch = "wasm32") {
+                    stop!(Generic => "requiring modules is not supported for wasm");
+                }
+
                 let last_modified = std::fs::metadata(module.as_ref())?.modified()?;
 
                 // Check if we should compile based on the last time modified
@@ -2463,6 +2508,10 @@ impl<'a> ModuleBuilder<'a> {
                     return Ok(());
                 }
 
+                if cfg!(target_arch = "wasm32") {
+                    stop!(Generic => "requiring modules is not supported for wasm");
+                }
+
                 let mut current = self.name.clone();
                 if current.is_file() {
                     current.pop();
@@ -2746,6 +2795,7 @@ impl<'a> ModuleBuilder<'a> {
     }
 
     fn parse_builtin(mut self, input: Cow<'static, str>) -> Result<Self> {
+        #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
 
         let id = self
@@ -2759,6 +2809,7 @@ impl<'a> ModuleBuilder<'a> {
 
         self.source_ast = parsed;
 
+        #[cfg(feature = "profiling")]
         log::debug!(target: "pipeline_time", "Parsing: {:?} - {:?}", self.name, now.elapsed());
 
         // self.source_ast.pretty_print();

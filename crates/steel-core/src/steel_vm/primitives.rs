@@ -1572,6 +1572,10 @@ fn meta_module() -> BuiltInModule {
         )
         .register_value("breakpoint!", SteelVal::BuiltIn(super::vm::breakpoint))
         .register_value(
+            "#%environment-length",
+            SteelVal::BuiltIn(super::vm::environment_offset),
+        )
+        .register_value(
             "call-with-current-continuation",
             SteelVal::BuiltIn(super::vm::call_cc),
         )

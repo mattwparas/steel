@@ -54,6 +54,7 @@ use super::{
 
 use im_rc::HashMap as ImmutableHashMap;
 
+#[cfg(feature = "profiling")]
 use std::time::Instant;
 
 // use itertools::Itertools;
@@ -647,9 +648,13 @@ impl Compiler {
                 if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
                     let source_id = sources.get_source_id(module).unwrap();
 
+                    // println!("Expanding macros from: {:?}", module);
+
                     crate::parser::expand_visitor::expand_with_source_id(
                         expr, macro_env, source_id,
                     )?
+
+                    // crate::parser::expand_visitor::expand(expr, macro_env)?
                 }
             }
 
@@ -717,7 +722,7 @@ impl Compiler {
 
         let mut analysis = semantic.into_analysis();
 
-        let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
+        let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
 
         // After define expansion, we'll want this
         // RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
@@ -778,13 +783,16 @@ impl Compiler {
         path: Option<PathBuf>,
         sources: &mut Sources,
     ) -> Result<Vec<ExprKind>> {
+        #[cfg(feature = "profiling")]
         let now = Instant::now();
 
         let mut expanded_statements =
             self.expand_expressions(exprs, path, sources, builtin_modules.clone())?;
 
+        #[cfg(feature = "profiling")]
         log::debug!(target: "pipeline_time", "Phase 1 module expansion time: {:?}", now.elapsed());
 
+        #[cfg(feature = "profiling")]
         let now = Instant::now();
 
         log::debug!(target: "expansion-phase", "Expanding macros -> phase 1");
@@ -810,7 +818,7 @@ impl Compiler {
 
                     crate::parser::expand_visitor::expand_with_source_id(
                         expr, macro_env, source_id,
-                    )?
+                    )?;
                 }
             }
 
@@ -842,6 +850,9 @@ impl Compiler {
             lower_entire_ast(expr)?;
         }
 
+        // TODO: Check that defines are in legal positions, post expansion.
+
+        #[cfg(feature = "profiling")]
         log::debug!(target: "pipeline_time", "Top level macro expansion time: {:?}", now.elapsed());
 
         log::debug!(target: "expansion-phase", "Beginning constant folding");
@@ -849,6 +860,7 @@ impl Compiler {
         let mut expanded_statements =
             self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
 
+        #[cfg(feature = "profiling")]
         let now = Instant::now();
 
         // RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
@@ -865,6 +877,14 @@ impl Compiler {
 
         // let mut analysis = Analysis::from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
+
+        // let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+
+        // println!("MARKER HERE--------------------------");
+
+        // expanded_statements.pretty_print();
+
+        // println!("END MARKER---------------------------");
 
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
@@ -889,7 +909,7 @@ impl Compiler {
 
         let mut analysis = semantic.into_analysis();
 
-        let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements);
+        let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
 
         self.shadowed_variable_renamer
             .rename_shadowed_variables(&mut expanded_statements);
@@ -941,6 +961,7 @@ impl Compiler {
 
         semantic.replace_anonymous_function_calls_with_plain_lets();
 
+        #[cfg(feature = "profiling")]
         log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());
 
         self.analysis = semantic.into_analysis();

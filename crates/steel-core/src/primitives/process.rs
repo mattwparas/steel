@@ -42,10 +42,14 @@ struct ProcessExitStatus {
 }
 
 fn binary_exists_on_path(binary: String) -> Option<String> {
+    #[cfg(not(target_arch = "wasm32"))]
     match which::which(binary) {
         Ok(v) => Some(v.into_os_string().into_string().unwrap()),
         Err(_) => None,
     }
+
+    #[cfg(target_arch = "wasm32")]
+    None
 }
 
 impl ProcessExitStatus {
