@@ -434,6 +434,18 @@ impl SteelThread {
             //     let arg_vec: Vec<_> = args.into_iter().collect();
             //     func(self, &arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             // }
+            SteelVal::CustomStruct(ref s) => {
+                if let Some(procedure) = s.maybe_proc() {
+                    if let SteelVal::HeapAllocated(h) = procedure {
+                        self.call_function_from_mut_slice(constant_map, h.get(), args)
+                    } else {
+                        self.call_function_from_mut_slice(constant_map, procedure.clone(), args)
+                    }
+                } else {
+                    stop!(TypeMismatch => format!("application not a procedure: {function}"))
+                }
+            }
+
             SteelVal::Closure(closure) => {
                 // Create phony span vec
                 let spans = closure.body_exp().iter().map(|_| Span::default()).collect();
@@ -481,6 +493,17 @@ impl SteelThread {
             //     let arg_vec: Vec<_> = args.into_iter().collect();
             //     func(self, &arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             // }
+            SteelVal::CustomStruct(ref s) => {
+                if let Some(procedure) = s.maybe_proc() {
+                    if let SteelVal::HeapAllocated(h) = procedure {
+                        self.call_function(constant_map, h.get(), args)
+                    } else {
+                        self.call_function(constant_map, procedure.clone(), args)
+                    }
+                } else {
+                    stop!(TypeMismatch => format!("application not a procedure: {function}"))
+                }
+            }
             SteelVal::Closure(closure) => {
                 // let prev_length = self.stack.len();
 
