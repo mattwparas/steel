@@ -35,8 +35,12 @@ This should create a directory structure as follows:
 │   └── lib.rs
 ```
 
-We'll want to make this a `cdylib` library, so we'll adjust the `Cargo.toml` as
-follows:
+We'll want to make this a `cdylib` library for Steel, so we'll perform the following adjustments in `Cargo.toml`:
+
+1. Set the `crate-type` to `"cdylib"`.
+1. Include `steel-core` with the `dylibs` feature as a dependency.
+1. Include `abi_stable` as a dependency. This is required by some `steel-core`
+   macros.
 
 ```toml
 [package]
@@ -51,7 +55,7 @@ crate-type = ["cdylib"]
 [dependencies]
 # I'm running this example based on the `steel-sys-info` library found in the steel repo. If you're
 # running this on your own, use whichever steel version you'd like to target and pin to that.
-steel-core = { workspace = true }
+steel-core = { workspace = true, features = ["dylibs"] }
 abi_stable = "0.11.1"
 sys-info = "0.9.1"
 ```
