@@ -1,5 +1,6 @@
 use std::rc::Rc;
 
+use abi_stable::std_types::RBoxError;
 use steel::{
     rvals::{Custom, SerializableSteelVal},
     steel_vm::ffi::{FFIModule, FFIValue, IntoFFIVal, RegisterFFIFn},
@@ -7,7 +8,69 @@ use steel::{
 
 use pulldown_cmark::{CodeBlockKind, CowStr, Event, Options, Parser, Tag};
 
-// options.insert(Options::ENABLE_STRIKETHROUGH);
+use syntect::highlighting::{Color, ThemeSet};
+use syntect::{html::highlighted_html_for_string, parsing::SyntaxSet};
+
+// fn main() {
+// let ss = SyntaxSet::load_defaults_newlines();
+// let ts = ThemeSet::load_defaults();
+
+// let args: Vec<String> = std::env::args().collect();
+// if args.len() < 2 {
+//     println!("Please pass in a file to highlight");
+//     return;
+// }
+
+// let style = "
+//     pre {
+//         font-size:13px;
+//         font-family: Consolas, \"Liberation Mono\", Menlo, Courier, monospace;
+//     }";
+// println!("<head><title>{}</title><style>{}</style></head>", &args[1], style);
+// let theme = &ts.themes["base16-ocean.dark"];
+// let c = theme.settings.background.unwrap_or(Color::WHITE);
+// println!("<body style=\"background-color:#{:02x}{:02x}{:02x};\">\n", c.r, c.g, c.b);
+// let html = highlighted_html_for_file(&args[1], &ss, theme).unwrap();
+// println!("{}", html);
+// println!("</body>");
+// }
+
+struct SyntaxHighlighter {
+    ss: SyntaxSet,
+    ts: ThemeSet,
+}
+
+impl Custom for SyntaxHighlighter {}
+
+struct SyntectError(syntect::Error);
+impl Custom for SyntectError {}
+
+impl SyntaxHighlighter {
+    pub fn new() -> Self {
+        Self {
+            ss: SyntaxSet::load_defaults_newlines(),
+            ts: ThemeSet::load_defaults(),
+        }
+    }
+
+    pub fn highlight_text(&self, language: String, input: String) -> Result<String, SyntectError> {
+        // dbg!(self.ss.syntaxes());
+
+        // for s in self.ss.syntaxes() {
+        //     println!("{}", s.name);
+        // }
+
+        let reference = self.ss.find_syntax_by_name(&language).unwrap();
+
+        highlighted_html_for_string(
+            &input,
+            &self.ss,
+            reference,
+            &self.ts.themes["base16-ocean.dark"],
+        )
+        .map_err(SyntectError)
+    }
+}
 
 pub struct MarkdownEvent {
     event: Event<'static>,
@@ -40,6 +103,15 @@ impl MarkdownEvent {
         matches!(self.event, Event::Code(_))
     }
 
+    fn set_code(&mut self, input: String) -> bool {
+        if let Event::Code(ref mut text) = &mut self.event {
+            *text = input.into();
+            true
+        } else {
+            false
+        }
+    }
+
     fn is_html(&self) -> bool {
         matches!(self.event, Event::Html(_))
     }
@@ -59,6 +131,10 @@ impl MarkdownEvent {
         } else {
             false
         }
+    }
+
+    fn set_event_as_html(&mut self, html_text: String) {
+        self.event = Event::Html(html_text.into());
     }
 
     fn as_text(&self) -> Option<String> {
@@ -255,8 +331,9 @@ impl MarkdownParser {
             // the source location that we're referencing around for
             // the same lifetime as this object.
             parser: unsafe {
-                std::mem::transmute::<Parser<'_, '_>, Parser<'static, 'static>>(Parser::new(
+                std::mem::transmute::<Parser<'_, '_>, Parser<'static, 'static>>(Parser::new_ext(
                     &source,
+                    Options::all(),
                 ))
             },
         }
@@ -307,11 +384,13 @@ pub fn build_module() -> FFIModule {
         .register_fn("event->html-string", MarkdownEvent::to_html)
         .register_fn("event-text?", MarkdownEvent::is_text)
         .register_fn("event-code?", MarkdownEvent::is_code)
+        .register_fn("set-event-code!", MarkdownEvent::set_code)
         .register_fn("event-html?", MarkdownEvent::is_html)
         .register_fn("event-start?", MarkdownEvent::is_start)
         .register_fn("event-end?", MarkdownEvent::is_end)
         .register_fn("event->text", MarkdownEvent::as_text)
         .register_fn("set-event-text!", MarkdownEvent::set_text)
+        .register_fn("set-event-as-html!", MarkdownEvent::set_event_as_html)
         .register_fn("event->code", MarkdownEvent::as_code)
         .register_fn("event->html", MarkdownEvent::as_html)
         .register_fn("event->start-tag", MarkdownEvent::as_start_tag)
@@ -341,6 +420,11 @@ pub fn build_module() -> FFIModule {
         .register_fn("code-block->fenced", MarkdownCodeBlockKind::as_fenced)
         .register_fn("event->string", |event: &MarkdownEvent| -> String {
             format!("{:?}", event.event)
-        });
+        })
+        .register_fn("syntax-highlighter", SyntaxHighlighter::new)
+        .register_fn(
+            "syntax-highlighter/text->highlighted-html",
+            SyntaxHighlighter::highlight_text,
+        );
     module
 }
