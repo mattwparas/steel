@@ -97,7 +97,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     );
 
     #[cfg(target_os = "windows")]
-    let mut prompt = "λ > ";
+    let mut prompt = String::from("λ > ");
 
     #[cfg(not(target_os = "windows"))]
     let mut prompt = format!("{}", "λ > ".bright_green().bold().italic());
