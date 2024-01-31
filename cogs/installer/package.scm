@@ -79,21 +79,24 @@
                                    #:sha (or (hash-try-get dylib-dependency '#:sha) void))]
 
     [(hash-contains? dylib-dependency '#:workspace-root)
-     (define source
-       (append-with-separator (hash-get package 'path) (hash-get dylib-dependency '#:workspace-root)))
+     ; (define source
+     ;   (append-with-separator (hash-get package 'path) (hash-get dylib-dependency '#:workspace-root)))
      (define destination
        (append-with-separator *NATIVE-SOURCES-DIR* (hash-get dylib-dependency '#:name)))
 
-     (displayln "=> Copying from: " source "->" destination)
+     (run-dylib-installation destination #:subdir (or (hash-try-get dylib-dependency '#:subdir) ""))
 
-     (when (path-exists? destination)
-       (delete-directory! destination))
+     ; (displayln "=> Copying from: " source "->" destination)
 
-     (copy-directory-recursively! source destination)
+     ; (when (path-exists? destination)
+     ;   (delete-directory! destination))
 
-     (displayln "=> Finished copying!")
+     ; (copy-directory-recursively! source destination)
 
-     (run-dylib-installation destination #:subdir (or (hash-try-get dylib-dependency '#:subdir) ""))]
+     ; (displayln "=> Finished copying!")
+
+     ; (run-dylib-installation destination #:subdir (or (hash-try-get dylib-dependency '#:subdir) ""))
+     ]
 
     [else
      (run-dylib-installation (append-with-separator *STEEL_HOME*
@@ -101,7 +104,7 @@
                              #:subdir (or (hash-try-get dylib-dependency '#:subdir) ""))]))
 
 ;; TODO: Decide if we actually need the package spec here
-(define (fetch-and-install-cog-dependency-from-spec package cog-dependency)
+(define (fetch-and-install-cog-dependency-from-spec cog-dependency)
 
   ;; For each cog, go through and install the package to the `STEEL_HOME` directory.
   ;; This should not only check if the package is installed, but also check
@@ -148,8 +151,7 @@
 ;; those as well.
 (define (walk-and-install package)
   ;; Check the direct cog level dependencies
-  (for-each (lambda (spec) (fetch-and-install-cog-dependency-from-spec package spec))
-            (hash-ref package 'dependencies))
+  (for-each fetch-and-install-cog-dependency-from-spec (hash-ref package 'dependencies))
 
   ;; Check the dylibs next
   (for-each (lambda (spec) (install-dylib-from-spec package spec))
