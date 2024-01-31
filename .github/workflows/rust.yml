@@ -46,9 +46,6 @@ jobs:
           cd cogs/
           cargo run -- install.scm
 
-      - name: install websockets dylib
-        run: cd crates/steel-websockets && cargo steel-lib
-
       - uses: actions-rs/cargo@v1
         env:
           STEEL_HOME: ${{ env.STEEL_HOME }}
