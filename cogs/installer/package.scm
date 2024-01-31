@@ -79,12 +79,12 @@
                                    #:sha (or (hash-try-get dylib-dependency '#:sha) void))]
 
     [(hash-contains? dylib-dependency '#:workspace-root)
-     ; (define source
-     ;   (append-with-separator (hash-get package 'path) (hash-get dylib-dependency '#:workspace-root)))
-     (define destination
-       (append-with-separator *NATIVE-SOURCES-DIR* (hash-get dylib-dependency '#:name)))
+     (define source
+       (append-with-separator (hash-get package 'path) (hash-get dylib-dependency '#:workspace-root)))
+     ; (define destination
+     ;   (append-with-separator *NATIVE-SOURCES-DIR* (hash-get dylib-dependency '#:name)))
 
-     (run-dylib-installation destination #:subdir (or (hash-try-get dylib-dependency '#:subdir) ""))
+     (run-dylib-installation source #:subdir (or (hash-try-get dylib-dependency '#:subdir) ""))
 
      ; (displayln "=> Copying from: " source "->" destination)
 
