@@ -84,6 +84,7 @@ pub fn extract_macro_defs(
 
 pub fn expand(expr: &mut ExprKind, map: &FxHashMap<InternedString, SteelMacro>) -> Result<()> {
     let mut expander = Expander {
+        depth: 0,
         map,
         changed: false,
         in_scope_values: ScopeSet::default(),
@@ -98,6 +99,7 @@ pub fn expand_with_source_id(
     source_id: SourceId,
 ) -> Result<()> {
     let mut expander = Expander {
+        depth: 0,
         map,
         changed: false,
         in_scope_values: ScopeSet::default(),
@@ -113,6 +115,7 @@ pub struct Expander<'a> {
     // We're going to actually check if the macro is in scope
     in_scope_values: ScopeSet<InternedString, FxBuildHasher>,
     source_id: Option<SourceId>,
+    depth: usize,
 }
 
 impl<'a> Expander<'a> {
@@ -122,6 +125,7 @@ impl<'a> Expander<'a> {
             changed: false,
             in_scope_values: ScopeSet::default(),
             source_id: None,
+            depth: 0,
         }
     }
 
@@ -135,6 +139,10 @@ impl<'a> VisitorMutRef for Expander<'a> {
 
     fn visit(&mut self, expr: &mut ExprKind) -> Self::Output {
         // println!("expanding: {}", expr);
+
+        if self.depth > 512 {
+            stop!(Generic => "macro expansion depth reached!");
+        }
 
         match expr {
             ExprKind::If(f) => self.visit_if(f),
@@ -222,7 +230,11 @@ impl<'a> VisitorMutRef for Expander<'a> {
                                         m.expand(List::new(std::mem::take(&mut l.args)), span)?;
                                     self.changed = true;
 
+                                    self.depth += 1;
+
                                     self.visit(&mut expanded)?;
+
+                                    self.depth -= 1;
 
                                     *expr = expanded;
 

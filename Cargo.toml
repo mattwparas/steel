@@ -31,6 +31,11 @@ log = "0.4.17"
 clap = { version = "4.1.4", features = ["derive"] }
 steel-doc = { path = "./crates/steel-doc", version = "0.6.0"}
 
+# [target.'cfg(not(target_env = "msvc"))'.dependencies]
+# tikv-jemallocator = "0.5"
+
+# mimalloc = { version = "*", default-features = false }
+
 [dev-dependencies]
 serde = { version = "1.0.152", features = ["derive"] }
 
@@ -38,6 +43,7 @@ serde = { version = "1.0.152", features = ["derive"] }
 members = [
     ".",
     "crates/*",
+    "libs/*",
 ]
 
 [profile.release]

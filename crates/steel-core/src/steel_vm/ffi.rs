@@ -217,6 +217,13 @@ impl FromFFIVal for String {
     }
 }
 
+// TODO: Handle this properly for overflow
+impl From<usize> for FFIValue {
+    fn from(value: usize) -> Self {
+        FFIValue::IntV(value as isize)
+    }
+}
+
 impl From<String> for FFIValue {
     fn from(value: String) -> Self {
         FFIValue::StringV(RString::from(value))
@@ -298,6 +305,12 @@ impl<T: FromFFIVal> FromFFIVal for Vec<T> {
         } else {
             conversion_error!(Vec, val)
         }
+    }
+}
+
+impl FromFFIVal for FFIValue {
+    fn from_ffi_val(val: FFIValue) -> RResult<Self, RBoxError> {
+        RResult::ROk(val)
     }
 }
 

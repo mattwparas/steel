@@ -28,6 +28,9 @@
   (~> (read-file-to-string path) read! expression-contains-provide))
 
 (define (require-file path)
+
+  (displayln "Parsing: " path)
+
   (when (and (ends-with? path ".scm") (path-contains-provide path))
 
     (displayln "Loading: " path)

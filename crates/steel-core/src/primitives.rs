@@ -16,7 +16,7 @@ mod symbols;
 pub mod time;
 pub mod transducers;
 mod utils;
-mod vectors;
+pub mod vectors;
 
 #[cfg(feature = "web")]
 pub mod web;

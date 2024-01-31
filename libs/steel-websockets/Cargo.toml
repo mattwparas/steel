@@ -1,10 +1,10 @@
 [package]
-name = "steel-webrequests"
+name = "steel-websockets"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "steel_webrequests"
+name = "steel_websockets"
 crate-type = ["cdylib"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -12,4 +12,4 @@ crate-type = ["cdylib"]
 [dependencies]
 steel-core = { workspace = true }
 abi_stable = "0.11.1"
-ureq = { version = "2.6.2", features = ["json"] }
+tungstenite = { version = "0.18.0", features = ["rustls-tls-native-roots"] }
