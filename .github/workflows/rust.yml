@@ -33,6 +33,8 @@ jobs:
         run: cargo build --verbose
         
       - name: install steel dylib installer
+        env:
+          STEEL_HOME: ${{ env.STEEL_HOME }}
         run: mkdir $STEEL_HOME/native && cd crates/cargo-steel-lib && cargo install --path .
 
       - name: Install cogs
