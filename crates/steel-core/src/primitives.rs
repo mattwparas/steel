@@ -724,7 +724,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashMap<SteelVal, SteelVal>> {
         if let SteelVal::HashMapV(hm) = val {
             Ok(&hm.0)
         } else {
-            crate::stop!(ConversionError => format!("Canto convert steel value: {} to hashmap", val))
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to hashmap", val))
         }
     }
 
@@ -744,7 +744,7 @@ impl<'a> PrimitiveAsRefMut<'a> for &'a mut Gc<im_rc::HashMap<SteelVal, SteelVal>
         if let SteelVal::HashMapV(hm) = val {
             Ok(&mut hm.0)
         } else {
-            crate::stop!(ConversionError => format!("Canto convert steel value: {} to hashmap", val))
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to hashmap", val))
         }
     }
 
@@ -764,7 +764,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelHashMap {
         if let SteelVal::HashMapV(hm) = val {
             Ok(hm)
         } else {
-            crate::stop!(ConversionError => format!("Canto convert steel value: {} to hashmap", val))
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to hashmap", val))
         }
     }
 
