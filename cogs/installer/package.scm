@@ -43,7 +43,7 @@
 ;; Given a package spec, install that package directly to the file system
 (define/contract (install-package package)
   (->/c hash? string?)
-                
+
   (define destination
     (string-append *STEEL_HOME* "/" (symbol->string (hash-get package 'package-name))))
 
@@ -70,7 +70,7 @@
 (define (install-dylib-from-spec package dylib-dependency)
 
   (displayln "Attempting to install: " dylib-dependency)
-  
+
   (cond
     [(hash-contains? dylib-dependency '#:git-url)
      (download-and-install-library (hash-ref dylib-dependency '#:name)
@@ -79,17 +79,17 @@
                                    #:sha (or (hash-try-get dylib-dependency '#:sha) void))]
 
     [(hash-contains? dylib-dependency '#:workspace-root)
-     (define source (append-with-separator (hash-get package 'path) (hash-get dylib-dependency '#:workspace-root)))
-     (define destination (append-with-separator *NATIVE-SOURCES-DIR* (hash-get dylib-dependency '#:name)))
+     (define source
+       (append-with-separator (hash-get package 'path) (hash-get dylib-dependency '#:workspace-root)))
+     (define destination
+       (append-with-separator *NATIVE-SOURCES-DIR* (hash-get dylib-dependency '#:name)))
 
      (displayln "=> Copying from: " source "->" destination)
 
      (when (path-exists? destination)
        (delete-directory! destination))
-     
-     (copy-directory-recursively!
-       source
-      destination)
+
+     (copy-directory-recursively! source destination)
 
      (displayln "=> Finished copying!")
 
@@ -101,7 +101,7 @@
                              #:subdir (or (hash-try-get dylib-dependency '#:subdir) ""))]))
 
 ;; TODO: Decide if we actually need the package spec here
-(define (fetch-and-install-cog-dependency-from-spec cog-dependency)
+(define (fetch-and-install-cog-dependency-from-spec package cog-dependency)
 
   ;; For each cog, go through and install the package to the `STEEL_HOME` directory.
   ;; This should not only check if the package is installed, but also check
@@ -112,8 +112,8 @@
       ;; First, attempt to resolve it via the git url if it is provided.
       [(hash-contains? cog-dependency '#:git-url)
 
-       (displayln "-- Git url found for: " (hash-ref cog-dependency '#:name'))
-       
+       (displayln "-- Git url found for: " (hash-ref cog-dependency '#:name))
+
        (let ([package (download-cog-to-sources-and-parse-module
                        (hash-ref cog-dependency '#:name)
                        (hash-ref cog-dependency '#:git-url)
@@ -133,7 +133,11 @@
 
       ;; Attempt to find the local path to the package if this is
       ;; just another package installed locally.
-      [(hash-contains? cog-dependency '#:path) (error "Local path dependencies not yet implemented")]
+      [(hash-contains? cog-dependency '#:path)
+
+       (define source (hash-get cog-dependency '#:path))
+
+       (install-package (car (parse-cog source)))]
 
       ;; We're unable to find the package! Logically, here would be a place
       ;; we'd check against some kind of package index to help with this.
@@ -144,7 +148,8 @@
 ;; those as well.
 (define (walk-and-install package)
   ;; Check the direct cog level dependencies
-  (for-each fetch-and-install-cog-dependency-from-spec (hash-ref package 'dependencies))
+  (for-each (lambda (spec) (fetch-and-install-cog-dependency-from-spec package spec))
+            (hash-ref package 'dependencies))
 
   ;; Check the dylibs next
   (for-each (lambda (spec) (install-dylib-from-spec package spec))

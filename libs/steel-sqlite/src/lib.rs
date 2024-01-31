@@ -7,7 +7,7 @@ use rusqlite::{
     Connection, Statement, ToSql, Transaction,
 };
 use steel::{
-    rvals::{Custom, CustomType},
+    rvals::{as_underlying_type, Custom},
     steel_vm::ffi::{FFIModule, FFIValue, RegisterFFIFn},
 };
 
@@ -43,7 +43,7 @@ impl SqliteConnection {
 
 fn is_connection(value: FFIValue) -> bool {
     if let FFIValue::Custom { custom } = value {
-        return custom.as_any_ref().is::<SqliteConnection>();
+        return as_underlying_type::<SqliteConnection>(custom.inner.borrow().as_ref()).is_some();
     } else {
         false
     }
@@ -51,7 +51,7 @@ fn is_connection(value: FFIValue) -> bool {
 
 fn is_transaction(value: FFIValue) -> bool {
     if let FFIValue::Custom { custom } = value {
-        return custom.as_any_ref().is::<SqliteTransaction>();
+        return as_underlying_type::<SqliteTransaction>(custom.inner.borrow().as_ref()).is_some();
     } else {
         false
     }
@@ -59,7 +59,8 @@ fn is_transaction(value: FFIValue) -> bool {
 
 fn is_prepared_statement(value: FFIValue) -> bool {
     if let FFIValue::Custom { custom } = value {
-        return custom.as_any_ref().is::<SqlitePreparedStatement>();
+        return as_underlying_type::<SqlitePreparedStatement>(custom.inner.borrow().as_ref())
+            .is_some();
     } else {
         false
     }

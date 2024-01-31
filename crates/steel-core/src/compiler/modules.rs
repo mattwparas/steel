@@ -44,7 +44,7 @@ use super::{
     passes::{
         analysis::is_a_builtin_definition,
         begin::FlattenBegin,
-        mangle::{collect_globals, NameMangler, NameUnMangler},
+        mangle::{collect_globals, NameMangler},
     },
     program::{FOR_SYNTAX, ONLY_IN, PREFIX_IN, REQUIRE_IDENT_SPEC},
 };
@@ -1303,7 +1303,7 @@ impl CompiledModule {
 
         // Afterwards, walk through and unmangle any quoted values, since these
         // were intended to be used with non mangled values.
-        let mut name_unmangler = NameUnMangler::new(&prefix);
+        // let name_unmangler = NameUnMangler::new(&prefix);
 
         name_mangler.mangle_vars(&mut exprs);
 

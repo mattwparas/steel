@@ -31,6 +31,9 @@ jobs:
 
       - name: Build
         run: cargo build --verbose
+        
+      - name: install steel dylib installer
+        run: mkdir $STEEL_HOME/native && cd crates/cargo-steel-lib && cargo install --path .
 
       - name: Install cogs
         env:
@@ -40,9 +43,6 @@ jobs:
           mkdir -p .steel/cogs
           cd cogs/
           cargo run -- install.scm
-
-      - name: install steel dylib installer
-        run: mkdir $STEEL_HOME/native && cd crates/cargo-steel-lib && cargo install --path .
 
       - name: install websockets dylib
         run: cd crates/steel-websockets && cargo steel-lib

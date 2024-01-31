@@ -19,9 +19,9 @@
          SqlitePreparedStatement?
          open-in-memory
          open
-         (contract/out prepare (->/c SqliteConnection? SqlitePreparedStatement?))
-         (contract/out execute (->/c SqlitePreparedStatement? list?))
-         (contract/out query (->/c SqlitePreparedStatement? list?))
+         (contract/out prepare (->/c SqliteConnection? string? any/c))
+         (contract/out execute (->/c SqlitePreparedStatement? list? any/c))
+         (contract/out query (->/c SqlitePreparedStatement? list? list?))
          (contract/out begin/transaction (->/c SqliteConnection? SqliteTransaction?))
          (contract/out transaction/finish (->/c SqliteTransaction? any/c))
          (contract/out transaction/commit (->/c SqliteTransaction? any/c))
@@ -50,8 +50,8 @@
 ;    insert-statement
 ;    (list (list "Steven" "likes to eat") (list "Alex" "likes biking") (list "Matt" "likes running"))))
 
-; ;; Takes about 0.5 seconds, which seems pretty acceptable!
-; ; (transduce (range 0 100000) (into-for-each insert-data))
+; ; ;; Takes about 0.5 seconds, which seems pretty acceptable!
+; ; ; (transduce (range 0 100000) (into-for-each insert-data))
 
 ; (define read-statement (prepare connection "Select id, name, data FROM person LIMIT 100"))
 
