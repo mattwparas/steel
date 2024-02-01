@@ -95,6 +95,11 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
         .bright_yellow()
         .bold()
     );
+
+    #[cfg(target_os = "windows")]
+    let mut prompt = String::from("λ > ");
+
+    #[cfg(not(target_os = "windows"))]
     let mut prompt = format!("{}", "λ > ".bright_green().bold().italic());
 
     let mut rl = Editor::<RustylineHelper>::new().expect("Unable to instantiate the repl!");
