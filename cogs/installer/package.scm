@@ -47,21 +47,14 @@
   (define destination
     (string-append *STEEL_HOME* "/" (symbol->string (hash-get package 'package-name))))
 
-  (displayln "Installing: " package)
-
-  ; (define dylib-dependencies (or (hash-try-get package 'dylibs) '()))
-  ; (define cogs-dependencies (or (hash-try-get package 'dependencies) '()))
+  (displayln "=> Installing: " package)
 
   ;; Install the package cog sources to the target location.
   ;; When this package does not have any dylibs, this is a trivial copy to the
   ;; sources directory.
   (copy-directory-recursively! (hash-get package 'path) destination)
 
-  (displayln "Copied package over to: " destination)
-
-  ;; Attempt to install the package from the destination
-  ; (when (not (empty? dylib-dependencies))
-  ;   (for-each (lambda (dylib) (install-dylib-from-spec package dylib)) dylib-dependencies))
+  (displayln "=> Copied package over to: " destination)
 
   (walk-and-install package)
 
@@ -81,22 +74,7 @@
     [(hash-contains? dylib-dependency '#:workspace-root)
      (define source
        (append-with-separator (hash-get package 'path) (hash-get dylib-dependency '#:workspace-root)))
-     ; (define destination
-     ;   (append-with-separator *NATIVE-SOURCES-DIR* (hash-get dylib-dependency '#:name)))
-
-     (run-dylib-installation source #:subdir (or (hash-try-get dylib-dependency '#:subdir) ""))
-
-     ; (displayln "=> Copying from: " source "->" destination)
-
-     ; (when (path-exists? destination)
-     ;   (delete-directory! destination))
-
-     ; (copy-directory-recursively! source destination)
-
-     ; (displayln "=> Finished copying!")
-
-     ; (run-dylib-installation destination #:subdir (or (hash-try-get dylib-dependency '#:subdir) ""))
-     ]
+     (run-dylib-installation source #:subdir (or (hash-try-get dylib-dependency '#:subdir) ""))]
 
     [else
      (run-dylib-installation (append-with-separator *STEEL_HOME*

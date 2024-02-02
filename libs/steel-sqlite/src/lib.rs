@@ -325,5 +325,6 @@ pub fn build_module() -> FFIModule {
         .register_fn("transaction/try-commit", SqliteTransaction::try_commit)
         .register_fn("transaction/rollback", SqliteTransaction::rollback)
         .register_fn("transaction/try-finish", SqliteTransaction::try_finish);
+
     module
 }
