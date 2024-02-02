@@ -324,7 +324,15 @@ impl BuiltInModuleRepr {
 
     // This _will_ panic given an incorrect value. This will be tied together by macros only allowing legal entries
     pub fn get(&self, name: String) -> SteelVal {
-        self.values.get(name.as_str()).unwrap().clone()
+        match self.values.get(name.as_str()) {
+            Some(v) => v.clone(),
+            None => {
+                panic!(
+                    "symbol {name} not found in module {module_name}",
+                    module_name = self.name
+                );
+            }
+        }
     }
 
     /// This does the boot strapping for bundling modules
@@ -584,8 +592,6 @@ impl BuiltInModule {
 
     // This _will_ panic given an incorrect value. This will be tied together by macros only allowing legal entries
     pub fn get(&self, name: String) -> SteelVal {
-        // self.values.get(name.as_str()).unwrap().clone()
-
         self.module.borrow().get(name)
     }
 

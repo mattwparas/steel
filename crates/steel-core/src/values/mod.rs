@@ -11,6 +11,6 @@ pub(crate) mod transducers;
 
 pub use closed::RootToken;
 pub use closed::RootedSteelVal;
-pub use port::{SteelPort, SteelPortRepr};
+pub use port::SteelPortRepr;
 
 // pub(crate) mod upvalue;
