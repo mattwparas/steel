@@ -456,7 +456,7 @@ dependencies = [
  "clap_lex",
  "is-terminal",
  "once_cell",
- "strsim",
+ "strsim 0.10.0",
  "termcolor",
 ]
 
@@ -3152,6 +3152,7 @@ dependencies = [
  "steel-derive",
  "steel-gen",
  "steel-parser",
+ "strsim 0.11.0",
  "termimad",
  "url",
  "weak-table",
@@ -3330,6 +3331,12 @@ name = "strsim"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
+
+[[package]]
+name = "strsim"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ee073c9e4cd00e28217186dbe12796d692868f432bf2e97ee73bed0c56dfa01"
 
 [[package]]
 name = "syn"
@@ -4089,7 +4096,7 @@ checksum = "a75e78c0cc60a76de5d93f9dad05651105351e151b6446ab305514945d7588aa"
 dependencies = [
  "log",
  "ordered-float",
- "strsim",
+ "strsim 0.10.0",
  "thiserror",
  "wezterm-dynamic-derive",
 ]

@@ -327,10 +327,17 @@ impl BuiltInModuleRepr {
         match self.values.get(name.as_str()) {
             Some(v) => v.clone(),
             None => {
-                panic!(
-                    "symbol {name} not found in module {module_name}",
-                    module_name = self.name
-                );
+                let known_symbols = self.values.keys().map(Arc::as_ref);
+                match find_closest_match(&name, known_symbols) {
+                    Some(closest_match) => panic!(
+                        "symbol {name:?} not found in module {module_name}, did you mean {closest_match:?}?",
+                        module_name = self.name
+                    ),
+                    None => panic!(
+                        "symbol {name:?} not found in module {module_name}",
+                        module_name = self.name
+                    ),
+                }
             }
         }
     }
@@ -830,4 +837,17 @@ impl<'a> From<MarkdownDoc<'a>> for Documentation<'a> {
     fn from(val: MarkdownDoc<'a>) -> Self {
         Documentation::Markdown(val)
     }
+}
+
+pub(crate) fn find_closest_match<'a>(
+    target: &str,
+    candidates: impl IntoIterator<Item = &'a str>,
+) -> Option<&'a str> {
+    candidates
+        .into_iter()
+        .map(|candidate| (strsim::normalized_levenshtein(target, candidate), candidate))
+        .filter(|(sim, _)| *sim > 0.8)
+        // The key must be converted to a type that implements std::cmp::Ord.
+        .max_by_key(|(sim, _)| (*sim * 100.0) as usize)
+        .map(|(_, s)| s)
 }
