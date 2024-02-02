@@ -46,7 +46,7 @@ mod call_cc_tests {
         (let ((cc (current-continuation)))
             (if (continuation? cc)
                 (set! *thread-queue* (append *thread-queue* (list cc)))
-                (begin 
+                (begin
                     (thunk)
                     (quit)))))
 
@@ -66,7 +66,7 @@ mod call_cc_tests {
                 (set! *thread-queue* (cdr *thread-queue*))
                 (next-thread 'resume))
             (halt)))
-        
+
         ; start-threads : -> ...
         (define (start-threads)
         (let ((cc (current-continuation)))
@@ -175,8 +175,8 @@ mod register_fn_tests {
         (define foo (external-function 10 25))
         (define bar (option-function "applesauce"))
         (define baz (result-function "bananas"))
-        (define res (transduce (range 0 10) 
-                               (taking 5) 
+        (define res (transduce (range 0 10)
+                               (taking 5)
                                (into-reducer external-function 0)))
         (assert! (equal? (map adding-one '(0 1 2 3)) '(1 2 3 4)))
         (assert! (equal? (filter always-true '(0 1 2 3)) '(0 1 2 3)))
@@ -318,7 +318,7 @@ mod contract_tests {
           (define/contract (blagh func y)
             (->/c (->/c even? odd?) even? even?)
             (+ 1 (func y)))
-            
+
           (assert! (equal? (blagh (lambda (x) (+ x 1)) 2) 4))
         "#;
         assert_script(script);
@@ -568,11 +568,43 @@ mod contract_tests {
         (define exec-list (transduce (range 0 100) xyz (into-list)))
         (define exec-vector (transduce (range 0 100) xyz (into-vector)))
         (define my-sum (transduce (range 0 100) xyz (into-reducer + 0)))
-        
+
         (assert! (equal? exec-list '(2 4 6 8 10 12 14 16 18 20)))
         (assert! (equal? exec-vector (vector 2 4 6 8 10 12 14 16 18 20)))
         (assert! (equal? my-sum 110))
         "#;
         assert_script(script);
+    }
+}
+
+#[cfg(test)]
+mod find_closest_match_tests {
+    use crate::steel_vm::builtin::find_closest_match;
+
+    #[test]
+    fn similar_candidate_returns_similiar_candidate() {
+        assert_eq!(
+            find_closest_match("make-struct", ["unrelated", "--make-struct"]),
+            Some("--make-struct")
+        );
+    }
+
+    #[test]
+    fn no_similar_strings_returns_none() {
+        assert_eq!(
+            find_closest_match("make-struct", ["unrelated", "make-tuple"]),
+            None
+        );
+    }
+
+    #[test]
+    fn multiple_similar_strings_returns_most_similar() {
+        assert_eq!(
+            find_closest_match(
+                "make-struct",
+                ["unrelated", "--make-struct", "--make-stract"]
+            ),
+            Some("--make-struct")
+        );
     }
 }

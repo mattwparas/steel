@@ -1141,10 +1141,7 @@ fn get_environment_variable(var: String) -> Result<SteelVal> {
 }
 
 fn maybe_get_environment_variable(var: String) -> SteelResult<SteelVal, SteelErr> {
-    std::env::var(var)
-        .map(|x| x.into_steelval().unwrap())
-        .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
-        .into()
+    get_environment_variable(var).into()
 }
 
 fn sandboxed_meta_module() -> BuiltInModule {
