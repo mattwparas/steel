@@ -49,12 +49,6 @@ enum EmitAction {
 
 pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
     let mut vm = Engine::new();
-
-    // let mut vm = Engine::top_level_load_from_bootstrap(include_bytes!(concat!(
-    //     env!("OUT_DIR"),
-    //     "/bootstrap.bin"
-    // )));
-
     vm.register_value("std::env::args", steel::SteelVal::ListV(vec![].into()));
 
     match clap_args {
@@ -122,15 +116,9 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             }),
             ..
         } => {
-            // todo!()
-
             let mut writer = std::io::BufWriter::new(std::io::stdout());
-
             walk_dir(&mut writer, path, &mut vm)?;
-
             Ok(())
-
-            // todo!()
         }
 
         Args {
@@ -142,7 +130,6 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             ..
         } => {
             let contents = fs::read_to_string(&path)?;
-
             let program = vm.emit_raw_program(contents.clone(), path.clone());
 
             match program {
@@ -272,28 +259,7 @@ steel-core = { git = "https://github.com/mattwparas/steel.git", features = ["web
 debug = false
 lto = true
             "#;
-
-            // IF DEVELOPING: Uncomment this
-            //             let toml_file = r#"
-            // [package]
-            // name = "steel-executable"
-            // authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
-            // edition = "2021"
-            // license = "MIT OR Apache-2.0"
-            // version = "0.1.0"
-
-            // [workspace]
-
-            // [dependencies]
-            // steel-core = { path = "", features = ["web", "sqlite", "dylibs"] }
-
-            // [profile.release]
-            // debug = false
-            // lto = true
-            //             "#;
-
             std::fs::write(&temporary_output, toml_file).unwrap();
-
             std::process::Command::new("cargo")
                 .current_dir("steel_target")
                 .arg("build")

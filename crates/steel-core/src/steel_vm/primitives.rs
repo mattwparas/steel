@@ -964,37 +964,19 @@ fn number_module() -> BuiltInModule {
 
 #[inline(always)]
 pub fn equality_primitive(args: &[SteelVal]) -> Result<SteelVal> {
-    // if args.is_empty() {
-    //     stop!(ArityMismatch => "expected at least one argument");
-    // }
-
-    // for (left, right) in args.iter().tuple_windows() {
-    //     if left != right {
-    //         return Ok(SteelVal::BoolV(false));
-    //     }
-    // }
-
     Ok(SteelVal::BoolV(args.windows(2).all(|x| x[0] == x[1])))
-
-    // Ok(SteelVal::BoolV(true))
 }
 
-// TODO: Align with the above using windows
 pub fn gte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     if args.is_empty() {
         stop!(ArityMismatch => "expected at least one argument");
     }
 
-    for window in args.windows(2) {
-        if let &[left, right] = &window {
-            match left.partial_cmp(&right) {
-                None | Some(Ordering::Less) => return Ok(SteelVal::BoolV(false)),
-                _ => continue,
-            }
-        }
-    }
-
-    Ok(SteelVal::BoolV(true))
+    Ok(SteelVal::BoolV(args.windows(2).all(|x| {
+        x[0].partial_cmp(&x[1])
+            .map(|x| x != Ordering::Less)
+            .unwrap_or(false)
+    })))
 }
 
 #[inline(always)]
@@ -1003,26 +985,11 @@ pub fn lte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
         stop!(ArityMismatch => "expected at least one argument");
     }
 
-    // Ok(SteelVal::BoolV(args.is_sorted_by()))
-
-    // self.as_slice().windows(2).all(|w| {
-    //     compare(&&w[0], &&w[1]).map(|o| o != Ordering::Greater).unwrap_or(false)
-    // })
-
-    // for &[left, right] in args.windows(2) {
-    //     match left.partial_cmp(&right) {
-    //         None | Some(Ordering::Greater) => return Ok(SteelVal::BoolV(false)),
-    //         _ => continue,
-    //     }
-    // }
-
     Ok(SteelVal::BoolV(args.windows(2).all(|x| {
         x[0].partial_cmp(&x[1])
             .map(|x| x != Ordering::Greater)
             .unwrap_or(false)
     })))
-
-    // Ok(SteelVal::BoolV(true))
 }
 
 fn equality_module() -> BuiltInModule {

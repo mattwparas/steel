@@ -460,29 +460,21 @@ impl Compiler {
         let id = sources.add_source(expr_str.clone(), path.clone());
 
         // Could fail here
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> = if let Some(p) = &path {
-            Parser::new_from_source(expr_str.as_ref(), p.clone(), Some(id))
-                .without_lowering()
-                .map(|x| x.and_then(lower_macro_and_require_definitions))
-                .collect()
-        } else {
-            Parser::new(expr_str.as_ref(), Some(id))
-                .without_lowering()
-                .map(|x| x.and_then(lower_macro_and_require_definitions))
-                .collect()
-        };
-
-        // println!("Finished parsing");
+        let parsed: std::result::Result<Vec<ExprKind>, ParseError> = path
+            .as_ref()
+            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.clone(), Some(id)))
+            .unwrap_or_else(|| Parser::new(expr_str.as_ref(), Some(id)))
+            .without_lowering()
+            .map(|x| x.and_then(lower_macro_and_require_definitions))
+            .collect();
 
         #[cfg(feature = "profiling")]
         if log::log_enabled!(target: "pipeline_time", log::Level::Debug) {
             log::debug!(target: "pipeline_time", "Parsing Time: {:?}", now.elapsed());
         }
 
-        let parsed = parsed?;
-
         // TODO fix this hack
-        self.compile_raw_program(parsed, constants, builtin_modules, path, sources)
+        self.compile_raw_program(parsed?, constants, builtin_modules, path, sources)
     }
 
     // TODO: Add a flag/function for parsing comments as well
