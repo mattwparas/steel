@@ -71,7 +71,7 @@ use futures_util::future::Shared;
 use futures_util::FutureExt;
 
 use crate::values::lists::List;
-use num::ToPrimitive;
+use num::{BigInt, ToPrimitive};
 use steel_parser::tokens::MaybeBigInt;
 
 use self::cycles::{CycleDetector, IterativeDropHandler};
@@ -2020,12 +2020,17 @@ pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
 impl PartialOrd for SteelVal {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
-            (NumV(n), NumV(o)) => n.partial_cmp(o),
+            (IntV(l), IntV(r)) => l.partial_cmp(r),
+            (IntV(l), NumV(r)) => (*l as f64).partial_cmp(r),
+            (IntV(l), BigNum(r)) => BigInt::from(*l).partial_cmp(r),
+            (NumV(l), IntV(r)) => l.partial_cmp(&(*r as f64)),
+            (NumV(l), NumV(r)) => l.partial_cmp(r),
+            (NumV(l), BigNum(r)) => l.partial_cmp(&r.to_f64()?),
+            (BigNum(l), IntV(r)) => l.as_ref().partial_cmp(&BigInt::from(*r)),
+            (BigNum(l), NumV(r)) => l.to_f64()?.partial_cmp(r),
+            (BigNum(l), BigNum(r)) => l.as_ref().partial_cmp(r.as_ref()),
             (StringV(s), StringV(o)) => s.partial_cmp(o),
             (CharV(l), CharV(r)) => l.partial_cmp(r),
-            (IntV(l), IntV(r)) => l.partial_cmp(r),
-            (NumV(l), IntV(r)) => l.partial_cmp(&(*r as f64)),
-            (IntV(l), NumV(r)) => (*l as f64).partial_cmp(r),
             _ => None, // unimplemented for other types
         }
     }
@@ -2159,5 +2164,51 @@ mod or_else_tests {
     fn symbol_or_else_test_bad() {
         let input = SteelVal::Void;
         assert!(input.symbol_or_else(throw!(Generic => "test")).is_err())
+    }
+
+    #[test]
+    fn num_and_char_are_not_ordered() {
+        assert_eq!(SteelVal::IntV(0).partial_cmp(&SteelVal::CharV('0')), None);
+        assert_eq!(SteelVal::NumV(0.0).partial_cmp(&SteelVal::CharV('0')), None);
+        assert_eq!(
+            SteelVal::BigNum(Gc::new(BigInt::default())).partial_cmp(&SteelVal::CharV('0')),
+            None
+        );
+    }
+
+    #[test]
+    fn number_cmp() {
+        let less_cases = [
+            (SteelVal::IntV(-10), SteelVal::IntV(1)),
+            (
+                SteelVal::IntV(-10),
+                SteelVal::BigNum(Gc::new(BigInt::from(1))),
+            ),
+            (SteelVal::NumV(-10.0), SteelVal::IntV(1)),
+            (SteelVal::IntV(-10), SteelVal::NumV(1.0)),
+            (
+                SteelVal::BigNum(Gc::new(BigInt::from(-10))),
+                SteelVal::BigNum(Gc::new(BigInt::from(1))),
+            ),
+            (
+                SteelVal::NumV(-10.0),
+                SteelVal::BigNum(Gc::new(BigInt::from(1))),
+            ),
+        ];
+        for (l, r) in less_cases {
+            assert_eq!(l.partial_cmp(&r), Some(Ordering::Less));
+            assert_eq!(r.partial_cmp(&l), Some(Ordering::Greater));
+        }
+        let equal_cases = [
+            SteelVal::IntV(-10),
+            SteelVal::NumV(-10.0),
+            SteelVal::BigNum(Gc::new(BigInt::from(-10))),
+            // Added to test that the number is equal even if it points to a different object.
+            SteelVal::BigNum(Gc::new(BigInt::from(-10))),
+        ]
+        .into_iter();
+        for (l, r) in equal_cases.clone().zip(equal_cases.clone()) {
+            assert_eq!(l.partial_cmp(&r), Some(Ordering::Equal));
+        }
     }
 }
