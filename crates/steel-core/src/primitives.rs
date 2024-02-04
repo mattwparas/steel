@@ -18,12 +18,6 @@ pub mod transducers;
 mod utils;
 pub mod vectors;
 
-#[cfg(feature = "web")]
-pub mod web;
-
-#[cfg(feature = "sqlite")]
-pub mod sqlite;
-
 pub use lists::UnRecoverableResult;
 
 use crate::values::closed::HeapRef;
