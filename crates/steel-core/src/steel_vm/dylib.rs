@@ -47,7 +47,8 @@ impl RootModule for GenerateModule_Ref {
 
 // Load from the directory
 pub fn load_root_module_in_directory(file: &Path) -> Result<GenerateModule_Ref, LibraryError> {
-    GenerateModule_Ref::load_from_file(file)
+    abi_stable::library::lib_header_from_path(&file)
+        .and_then(|x| x.init_root_module::<GenerateModule_Ref>())
 }
 
 #[derive(Clone)]
@@ -96,8 +97,6 @@ impl DylibContainers {
                     let paths = std::fs::read_dir(home).unwrap();
 
                     for path in paths {
-                        // println!("{:?}", path);
-
                         let path = path.unwrap().path();
 
                         if path.extension().unwrap() != "so" && path.extension().unwrap() != "dylib"
@@ -110,7 +109,6 @@ impl DylibContainers {
                             // .file_name()
                             .and_then(|x| x.to_str())
                             .unwrap();
-                        log::info!(target: "dylibs", "Loading dylib: {}", path_name);
 
                         // Didn't match! skip it
                         if path_name != target.as_str() {
@@ -122,6 +120,8 @@ impl DylibContainers {
                         if module_guard.iter().find(|x| x.0 == path_name).is_some() {
                             continue;
                         }
+
+                        log::info!(target: "dylibs", "Loading dylib: {:?}", path);
 
                         // Load the module in
                         let container = load_root_module_in_directory(&path).unwrap();

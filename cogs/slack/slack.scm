@@ -1,4 +1,10 @@
-(require-builtin steel/web/requests)
+(require (only-in "steel-webrequests/webrequests.scm"
+                  client/new
+                  client/post
+                  with-bearer-auth
+                  call-with-json-body
+                  call
+                  response->json))
 
 (#%require-dylib "libsteel_websockets"
                  (only-in ws/message-ping?
@@ -23,7 +29,7 @@
 (define (env-var! var)
   (let ([e (maybe-get-env-var var)]) (if (Err? e) "TODO" (unwrap-ok e))))
 
-(define client (request/client))
+(define client (client/new))
 
 (define *SLACK_API_TOKEN* (env-var! "SLACK_API_TOKEN"))
 (define *SLACK_API_WS_TOKEN* (env-var! "SLACK_API_WS_TOKEN"))
@@ -34,21 +40,18 @@
 (define (send-message channel content)
   (~> client
       (client/post *post-message-url*)
-      (request/bearer-auth *SLACK_API_TOKEN*)
-      (request/json (hash 'channel channel 'text content))
-      (request/send)))
+      (with-bearer-auth *SLACK_API_TOKEN*)
+      (call-with-json-body (hash 'channel channel 'text content))))
 
 (define (get-ws-url)
   (log/info! "Requesting a websocket url")
   (~> client
       (client/post *ws-connection-url*)
-      (request/bearer-auth *SLACK_API_WS_TOKEN*)
-      (request/json (hash))
-      (request/send)
-      (response->json)
+      (with-bearer-auth *SLACK_API_WS_TOKEN*)
+      (call)
+      ; (call-with-json-body (hash))
+      response->json
       (hash-get 'url)))
-
-; (define *ws-url* (get-ws-url))
 
 (define (connect-to-slack-socket url)
   (~> url (ws/connect) (first)))
