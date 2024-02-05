@@ -889,3 +889,14 @@
 
      (begin
        expr)]))
+
+(define-syntax #%require-dylib
+  (syntax-rules (prefix-in only-in)
+    [(_ dylib-name (prefix-in prefix (only-in name ...)))
+     (begin
+       (define (datum->syntax prefix name)
+         (%module-get% (#%get-dylib dylib-name) (quote name))) ...)]
+
+    [(_ dylib-name (only-in name ...))
+     (begin
+       (define name (%module-get% (#%get-dylib dylib-name) (quote name))) ...)]))

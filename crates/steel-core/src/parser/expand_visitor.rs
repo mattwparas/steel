@@ -855,52 +855,52 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                             }
                         }
 
-                        if s == *REQUIRE_DYLIB {
-                            match &l.args[1..] {
-                                [ExprKind::Atom(Atom {
-                                    syn:
-                                        SyntaxObject {
-                                            ty: TokenType::StringLiteral(dylib_name),
-                                            ..
-                                        },
-                                }), ExprKind::List(List { args, .. })] => match args.as_slice() {
-                                    [ExprKind::Atom(Atom {
-                                        syn:
-                                            SyntaxObject {
-                                                ty: TokenType::Identifier(s),
-                                                ..
-                                            },
-                                    }), rest @ ..]
-                                        if s.resolve() == "only-in" =>
-                                    {
-                                        let mut names = Vec::with_capacity(rest.len());
+                        // if s == *REQUIRE_DYLIB {
+                        //     match &l.args[1..] {
+                        //         [ExprKind::Atom(Atom {
+                        //             syn:
+                        //                 SyntaxObject {
+                        //                     ty: TokenType::StringLiteral(dylib_name),
+                        //                     ..
+                        //                 },
+                        //         }), ExprKind::List(List { args, .. })] => match args.as_slice() {
+                        //             [ExprKind::Atom(Atom {
+                        //                 syn:
+                        //                     SyntaxObject {
+                        //                         ty: TokenType::Identifier(s),
+                        //                         ..
+                        //                     },
+                        //             }), rest @ ..]
+                        //                 if s.resolve() == "only-in" =>
+                        //             {
+                        //                 let mut names = Vec::with_capacity(rest.len());
 
-                                        for expr in rest {
-                                            if let Some(identifier) = expr.atom_identifier() {
-                                                names.push(identifier);
-                                            } else {
-                                                stop!(BadSyntax => "require-dylib `only-in` modifier expects identifiers")
-                                            }
-                                        }
+                        //                 for expr in rest {
+                        //                     if let Some(identifier) = expr.atom_identifier() {
+                        //                         names.push(identifier);
+                        //                     } else {
+                        //                         stop!(BadSyntax => "require-dylib `only-in` modifier expects identifiers")
+                        //                     }
+                        //                 }
 
-                                        *expr = BuiltInModule::dylib_to_syntax(
-                                            dylib_name.as_str(),
-                                            names.iter().map(|x| x.resolve()),
-                                            None,
-                                        );
+                        //                 *expr = BuiltInModule::dylib_to_syntax(
+                        //                     dylib_name.as_str(),
+                        //                     names.iter().map(|x| x.resolve()),
+                        //                     None,
+                        //                 );
 
-                                        return Ok(());
-                                    }
-                                    _ => {
-                                        stop!(BadSyntax => "require-dylib expects an `only-in` modifier")
-                                    }
-                                },
+                        //                 return Ok(());
+                        //             }
+                        //             _ => {
+                        //                 stop!(BadSyntax => "require-dylib expects an `only-in` modifier")
+                        //             }
+                        //         },
 
-                                _ => {
-                                    stop!(BadSyntax => "require-dylib malformed")
-                                }
-                            }
-                        }
+                        //         _ => {
+                        //             stop!(BadSyntax => "require-dylib malformed")
+                        //         }
+                        //     }
+                        // }
 
                         if s == *REQUIRE_BUILTIN {
                             match &l.args[1..] {
