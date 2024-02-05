@@ -12,6 +12,7 @@ cd steel &&
 mkdir -p .steel/cogs &&
 export STEEL_HOME="$(pwd)/.steel" &&
 cargo build &&
+cargo install --path crates/cargo-steel-lib &&
 pushd cogs &&
 cargo run -- install.scm &&
 popd &&
