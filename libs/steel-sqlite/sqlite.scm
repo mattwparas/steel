@@ -1,18 +1,18 @@
 (#%require-dylib "libsteel_sqlite"
-                 (only-in open-in-memory
-                          prepare
-                          execute
-                          query
-                          begin/transaction
-                          transaction/finish
-                          transaction/commit
-                          transaction/try-commit
-                          transaction/rollback
-                          transaction/try-finish
-                          SqliteConnection?
-                          SqliteTransaction?
-                          SqlitePreparedStatement?
-                          open))
+                 (only-in sqlite/open-in-memory
+                          sqlite/prepare
+                          sqlite/execute
+                          sqlite/query
+                          sqlite/begin/transaction
+                          sqlite/transaction/finish
+                          sqlite/transaction/commit
+                          sqlite/transaction/try-commit
+                          sqlite/transaction/rollback
+                          sqlite/transaction/try-finish
+                          sqlite/SqliteConnection?
+                          sqlite/SqliteTransaction?
+                          sqlite/SqlitePreparedStatement?
+                          sqlite/open))
 
 (provide SqliteConnection?
          SqliteTransaction?
@@ -30,32 +30,66 @@
          (contract/out run-transaction
                        (->/c SqliteConnection? (->/c SqliteTransaction? any/c) any/c)))
 
-; (define connection (open-in-memory))
+;;@doc
+;; Prepares a sqlite statement for further use.
+(define prepare sqlite/prepare)
 
-; (let ([prepared-statement
-;        (prepare
-;         connection
-;         "CREATE TABLE IF NOT EXISTS person (
-;         id   INTEGER PRIMARY KEY,
-;         name TEXT NOT NULL,
-;         data TEXT
-;     )")])
+;;@doc
+;; Opens an in-memory sqlite database
+(define open-in-memory sqlite/open-in-memory)
 
-;   (execute prepared-statement '()))
+;;@doc
+;; Execute a sqlite statement with a list of parameters, without returning any rows.
+(define execute sqlite/execute)
 
-; (define insert-statement (prepare connection "INSERT INTO person (name, data) VALUES (?1, ?2)"))
+;;@doc
+;; Run a sqlite statement with a list of parameters, returning the rows found.
+(define query sqlite/query)
 
-; (define (insert-data _)
-;   (execute
-;    insert-statement
-;    (list (list "Steven" "likes to eat") (list "Alex" "likes biking") (list "Matt" "likes running"))))
+;;@doc
+;; Start a sqlite transaction
+(define begin/transaction sqlite/begin/transaction)
 
-; ; ;; Takes about 0.5 seconds, which seems pretty acceptable!
-; ; ; (transduce (range 0 100000) (into-for-each insert-data))
+;;@doc
+;; Mark a transaction as finished. This will default to the behavior specified
+;; for when the transaction goes out of scope, which in this case would be to
+;; roll back.
+(define transaction/finish sqlite/transaction/finish)
 
-; (define read-statement (prepare connection "Select id, name, data FROM person LIMIT 100"))
+;;@doc
+;; Commit a transaction. If the transaction has already been committed, this will
+;; raise an exception.
+(define transaction/commit sqlite/transaction/commit)
 
-; (transduce (range 0 100000) (into-for-each (lambda (_) (query read-statement '()))))
+;;@doc
+;; Attempts to commit a transaction. If the transaction has already been finished, this
+;; will do nothing.
+(define transaction/try-commit sqlite/transaction/try-commit)
+
+;;@doc
+;; Roll back a transaction.
+(define transaction/rollback sqlite/transaction/rollback)
+
+;;@doc
+;; Attempt to finish a transaction. If the transaction has been already been finished,
+;; this will do nothing.
+(define transaction/try-finish sqlite/transaction/try-finish)
+
+;;@doc
+;; Test if the value is a `SqliteConnection`.
+(define SqliteConnection? sqlite/SqliteConnection?)
+
+;;@doc
+;; Test if the value is a `SqliteTransaction`
+(define SqliteTransaction? sqlite/SqliteTransaction?)
+
+;;@doc
+;; Test if the value is a `SqlitePreparedStatement`
+(define SqlitePreparedStatement? sqlite/SqlitePreparedStatement?)
+
+;;@doc
+;; Open a sqlite transaction against a given path.
+(define open sqlite/open)
 
 ;;@doc
 ;; Run the thunk with the transaction, catching any exceptions
@@ -72,23 +106,3 @@
                   (thunk transaction)
                   (transaction/try-commit transaction))
                 (lambda () (transaction/try-finish transaction))))
-
-; (define read-statement (prepare connection "Select id, name, data FROM person"))
-
-; (displayln (query read-statement '()))
-
-; (connection/execute!
-;  connection
-; "CREATE TABLE person (
-;        id   INTEGER PRIMARY KEY,
-;        name TEXT NOT NULL,
-;        data TEXT
-;    )"
-;  '())
-
-; (connection/prepare-and-execute!
-;  connection
-;  "INSERT INTO person (name, data) VALUES (?1, ?2)"
-;  (list (list "Steven" "likes to eat") (list "Alex" "likes biking") (list "Matt" "likes running")))
-
-; (time! (connection/prepare-and-query! connection "SELECT id, name, data FROM person" '()))

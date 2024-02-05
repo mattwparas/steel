@@ -855,7 +855,6 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                             }
                         }
 
-                        //
                         if s == *REQUIRE_DYLIB {
                             match &l.args[1..] {
                                 [ExprKind::Atom(Atom {
@@ -864,55 +863,38 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                                             ty: TokenType::StringLiteral(dylib_name),
                                             ..
                                         },
-                                }), ExprKind::List(List { args, .. })] => {
-                                    // TODO: if it can't be found, the module needs to be marked as `MaybeDylib`
-                                    // and use the binds that are listed in the dylib require spec, something like:
-                                    // (require-builtin steel/obviouslydylib/sqlite (only-in ... ... ...)) <-
-                                    // Then, we can _attempt_ to load the dylib at runtime. If we can't we move on, and
-                                    // otherwise we can error if the identifiers are not lining up.
-                                    // (require-dylib "<name>.so" (onlt-in <spec> ))
+                                }), ExprKind::List(List { args, .. })] => match args.as_slice() {
+                                    [ExprKind::Atom(Atom {
+                                        syn:
+                                            SyntaxObject {
+                                                ty: TokenType::Identifier(s),
+                                                ..
+                                            },
+                                    }), rest @ ..]
+                                        if s.resolve() == "only-in" =>
+                                    {
+                                        let mut names = Vec::with_capacity(rest.len());
 
-                                    // if let Some(module) = self.builtin_modules.get(s.as_str()) {
-                                    //     return Ok(module.to_syntax(None));
-                                    // } else {
-                                    //     stop!(BadSyntax => "require-builtin: module not found: {}", s);
-                                    // }
-
-                                    match args.as_slice() {
-                                        [ExprKind::Atom(Atom {
-                                            syn:
-                                                SyntaxObject {
-                                                    ty: TokenType::Identifier(s),
-                                                    ..
-                                                },
-                                        }), rest @ ..]
-                                            if s.resolve() == "only-in" =>
-                                        {
-                                            // self.builtin_modules.
-
-                                            let mut names = Vec::with_capacity(rest.len());
-
-                                            for expr in rest {
-                                                if let Some(identifier) = expr.atom_identifier() {
-                                                    names.push(identifier);
-                                                } else {
-                                                    stop!(BadSyntax => "require-dylib `only-in` modifier expects identifiers")
-                                                }
+                                        for expr in rest {
+                                            if let Some(identifier) = expr.atom_identifier() {
+                                                names.push(identifier);
+                                            } else {
+                                                stop!(BadSyntax => "require-dylib `only-in` modifier expects identifiers")
                                             }
-
-                                            *expr = BuiltInModule::dylib_to_syntax(
-                                                dylib_name.as_str(),
-                                                names.iter().map(|x| x.resolve()),
-                                                None,
-                                            );
-
-                                            return Ok(());
                                         }
-                                        _ => {
-                                            stop!(BadSyntax => "require-dylib expects on `only-in` modifier")
-                                        }
+
+                                        *expr = BuiltInModule::dylib_to_syntax(
+                                            dylib_name.as_str(),
+                                            names.iter().map(|x| x.resolve()),
+                                            None,
+                                        );
+
+                                        return Ok(());
                                     }
-                                }
+                                    _ => {
+                                        stop!(BadSyntax => "require-dylib expects an `only-in` modifier")
+                                    }
+                                },
 
                                 _ => {
                                     stop!(BadSyntax => "require-dylib malformed")
