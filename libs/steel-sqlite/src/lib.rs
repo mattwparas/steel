@@ -311,29 +311,20 @@ pub fn build_module() -> FFIModule {
     let mut module = FFIModule::new("dylib/steel/sqlite");
 
     module
-        .register_fn("sqlite/prepare", SqliteConnection::prepare)
-        .register_fn("sqlite/SqliteConnection?", is_connection)
-        .register_fn("sqlite/SqliteTransaction?", is_transaction)
-        .register_fn("sqlite/SqlitePreparedStatement?", is_prepared_statement)
-        .register_fn("sqlite/open-in-memory", SqliteConnection::open_in_memory)
-        .register_fn("sqlite/open", SqliteConnection::open)
-        .register_fn("sqlite/execute", SqlitePreparedStatement::execute)
-        .register_fn("sqlite/query", SqlitePreparedStatement::query)
-        .register_fn(
-            "sqlite/begin/transaction",
-            SqliteConnection::begin_transaction,
-        )
-        .register_fn("sqlite/transaction/finish", SqliteTransaction::finish)
-        .register_fn("sqlite/transaction/commit", SqliteTransaction::commit)
-        .register_fn(
-            "sqlite/transaction/try-commit",
-            SqliteTransaction::try_commit,
-        )
-        .register_fn("sqlite/transaction/rollback", SqliteTransaction::rollback)
-        .register_fn(
-            "sqlite/transaction/try-finish",
-            SqliteTransaction::try_finish,
-        );
+        .register_fn("prepare", SqliteConnection::prepare)
+        .register_fn("SqliteConnection?", is_connection)
+        .register_fn("SqliteTransaction?", is_transaction)
+        .register_fn("SqlitePreparedStatement?", is_prepared_statement)
+        .register_fn("open-in-memory", SqliteConnection::open_in_memory)
+        .register_fn("open", SqliteConnection::open)
+        .register_fn("execute", SqlitePreparedStatement::execute)
+        .register_fn("query", SqlitePreparedStatement::query)
+        .register_fn("begin/transaction", SqliteConnection::begin_transaction)
+        .register_fn("transaction/finish", SqliteTransaction::finish)
+        .register_fn("transaction/commit", SqliteTransaction::commit)
+        .register_fn("transaction/try-commit", SqliteTransaction::try_commit)
+        .register_fn("transaction/rollback", SqliteTransaction::rollback)
+        .register_fn("transaction/try-finish", SqliteTransaction::try_finish);
 
     module
 }

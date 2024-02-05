@@ -1,18 +1,18 @@
 (#%require-dylib "libsteel_sqlite"
-                 (only-in sqlite/open-in-memory
-                          sqlite/prepare
-                          sqlite/execute
-                          sqlite/query
-                          sqlite/begin/transaction
-                          sqlite/transaction/finish
-                          sqlite/transaction/commit
-                          sqlite/transaction/try-commit
-                          sqlite/transaction/rollback
-                          sqlite/transaction/try-finish
-                          sqlite/SqliteConnection?
-                          sqlite/SqliteTransaction?
-                          sqlite/SqlitePreparedStatement?
-                          sqlite/open))
+                 (prefix-in (only-in open-in-memory
+                                     prepare
+                                     execute
+                                     query
+                                     begin/transaction
+                                     transaction/finish
+                                     transaction/commit
+                                     transaction/try-commit
+                                     transaction/rollback
+                                     transaction/try-finish
+                                     SqliteConnection?
+                                     SqliteTransaction?
+                                     SqlitePreparedStatement?
+                                     open)))
 
 (provide SqliteConnection?
          SqliteTransaction?
