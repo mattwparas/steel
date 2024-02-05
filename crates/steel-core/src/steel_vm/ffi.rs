@@ -207,6 +207,16 @@ impl From<FfiFuture<RResult<FFIValue, RBoxError>>> for FFIValue {
     }
 }
 
+impl FromFFIVal for RString {
+    fn from_ffi_val(val: FFIValue) -> RResult<Self, RBoxError> {
+        if let FFIValue::StringV(s) = val {
+            RResult::ROk(s)
+        } else {
+            conversion_error!(string, val)
+        }
+    }
+}
+
 impl FromFFIVal for String {
     fn from_ffi_val(val: FFIValue) -> RResult<Self, RBoxError> {
         if let FFIValue::StringV(s) = val {
@@ -214,6 +224,13 @@ impl FromFFIVal for String {
         } else {
             conversion_error!(string, val)
         }
+    }
+}
+
+// TODO: Handle this properly for overflow
+impl From<usize> for FFIValue {
+    fn from(value: usize) -> Self {
+        FFIValue::IntV(value as isize)
     }
 }
 
@@ -298,6 +315,12 @@ impl<T: FromFFIVal> FromFFIVal for Vec<T> {
         } else {
             conversion_error!(Vec, val)
         }
+    }
+}
+
+impl FromFFIVal for FFIValue {
+    fn from_ffi_val(val: FFIValue) -> RResult<Self, RBoxError> {
+        RResult::ROk(val)
     }
 }
 
@@ -615,6 +638,7 @@ impl<RET: IntoFFIVal, FN: Fn() -> RET + SendSyncStatic> RegisterFFIFn<FN, Wrappe
     fn register_fn(&mut self, name: &str, func: FN) -> &mut Self {
         let f = move |args: RVec<FFIValue>| -> RResult<FFIValue, RBoxError> {
             if !args.is_empty() {
+                // TODO: Fix the error message here if possible. Might require cloning the string?
                 let error: Box<dyn std::error::Error + Send + Sync> = "arity mismatch".into();
 
                 let rbox = RBoxError::from_box(error);
@@ -661,6 +685,71 @@ macro_rules! declare_module {
     };
 }
 
+// TODO:
+// Values that are safe to cross the FFI Boundary as arguments from
+// `SteelVal`s. This means the values can be borrowed without
+// copying in certain situations, assuming we can do that optimization.
+#[repr(C)]
+#[derive(StableAbi)]
+pub enum FFIArg<'a> {
+    StringRef(RStr<'a>),
+    BoxedFunction(FFIBoxedDynFunction),
+    BoolV(bool),
+    NumV(f64),
+    IntV(isize),
+    Void,
+    StringV(RString),
+    Vector(RVec<FFIArg<'a>>),
+    CharV {
+        #[sabi(unsafe_opaque_field)]
+        c: char,
+    },
+    Custom {
+        #[sabi(unsafe_opaque_field)]
+        custom: OpaqueFFIValue,
+    },
+    HashMap(RHashMap<FFIArg<'a>, FFIArg<'a>>),
+    Future {
+        #[sabi(unsafe_opaque_field)]
+        fut: FfiFuture<RResult<FFIArg<'a>, RBoxError>>,
+    },
+}
+
+impl<'a> std::hash::Hash for FFIArg<'a> {
+    fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {
+        todo!()
+    }
+}
+
+impl<'a> PartialEq for FFIArg<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::NumV(l), Self::NumV(r)) => l == r,
+            (Self::BoolV(l), Self::BoolV(r)) => l == r,
+            (Self::IntV(l), Self::IntV(r)) => l == r,
+            (Self::StringV(l), Self::StringV(r)) => l == r,
+            (Self::CharV { c: l }, Self::CharV { c: r }) => l == r,
+            (Self::Void, Self::Void) => true,
+            (Self::Vector(l), Self::Vector(r)) => l == r,
+            (Self::HashMap(l), Self::HashMap(r)) => l == r,
+            (_, _) => false,
+        }
+    }
+}
+
+impl<'a> Eq for FFIArg<'a> {}
+
+// See this example:
+// fn test(arg: &SteelVal) -> FFIValue {
+//     if let SteelVal::StringV(string) = arg {
+//         let ffi_arg = FFIArg::StringRef(RStr::from_str(string.as_ref()));
+
+//         todo!()
+//     }
+
+//     FFIValue::Void
+// }
+
 /// Values that are safe to cross the FFI Boundary.
 #[repr(C)]
 #[derive(StableAbi)]
@@ -687,7 +776,7 @@ pub enum FFIValue {
     Future {
         #[sabi(unsafe_opaque_field)]
         fut: FfiFuture<RResult<FFIValue, RBoxError>>,
-    }, // Future(Pin<RBox<dyn Future<Output = RResult<FFIValue, RBoxError>>>>),
+    },
 }
 
 impl std::hash::Hash for FFIValue {
@@ -728,6 +817,25 @@ impl std::fmt::Debug for FFIValue {
             FFIValue::Vector(v) => write!(f, "{:?}", v),
             FFIValue::HashMap(h) => write!(f, "{:?}", h),
             FFIValue::Future { .. } => write!(f, "#<future>"),
+        }
+    }
+}
+
+impl<'a> std::fmt::Debug for FFIArg<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BoxedFunction(func) => write!(f, "{:?}", func),
+            Self::Custom { .. } => write!(f, "#<OpaqueFFIValue>"),
+            Self::BoolV(b) => write!(f, "{:?}", b),
+            Self::NumV(n) => write!(f, "{:?}", n),
+            Self::IntV(i) => write!(f, "{:?}", i),
+            Self::CharV { c } => write!(f, "{}", c),
+            Self::Void => write!(f, "#<void>"),
+            Self::StringV(s) => write!(f, "{}", s),
+            Self::StringRef(s) => write!(f, "{}", s),
+            Self::Vector(v) => write!(f, "{:?}", v),
+            Self::HashMap(h) => write!(f, "{:?}", h),
+            Self::Future { .. } => write!(f, "#<future>"),
         }
     }
 }
@@ -839,6 +947,8 @@ pub struct FFIBoxedDynFunction {
     pub name: RString,
     pub arity: usize,
     // TODO: See if theres a better option here
+    // If this is changed to `RVec<FFIArg<'a>>` I think we'll save a handful
+    // of allocations for strings
     #[sabi(unsafe_opaque_field)]
     pub function:
         Arc<dyn Fn(RVec<FFIValue>) -> RResult<FFIValue, RBoxError> + Send + Sync + 'static>,
@@ -847,6 +957,58 @@ pub struct FFIBoxedDynFunction {
 impl std::fmt::Debug for FFIBoxedDynFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "#<{}:{}:{:p}>", self.name, self.arity, self.function)
+    }
+}
+
+pub fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
+    match value {
+        SteelVal::BoolV(b) => Ok(FFIArg::BoolV(*b)),
+        SteelVal::IntV(i) => Ok(FFIArg::IntV(*i)),
+        SteelVal::NumV(n) => Ok(FFIArg::NumV(*n)),
+        SteelVal::CharV(c) => Ok(FFIArg::CharV { c: *c }),
+        SteelVal::Void => Ok(FFIArg::Void),
+        // We can really only look at values that were made from the FFI boundary.
+        SteelVal::Custom(c) => {
+            if let Some(c) = as_underlying_type::<OpaqueFFIValue>(c.borrow().as_ref()) {
+                Ok(FFIArg::Custom { custom: c.clone() })
+            } else {
+                // TODO: Re-enable this, so that the check is back in
+                // place. Otherwise, this could be dangerous?
+
+                Ok(FFIArg::Custom {
+                    custom: OpaqueFFIValue {
+                        name: RString::from(c.borrow().name()),
+                        inner: c.clone(),
+                    },
+                })
+
+                // stop!(TypeMismatch => "This opaque type did not originate from an FFI boundary, and thus cannot be passed across it: {:?}", value);
+            }
+        }
+        SteelVal::HashMapV(h) => h
+            .iter()
+            .map(|(key, value)| {
+                let key = as_ffi_argument(key)?;
+                let value = as_ffi_argument(value)?;
+
+                Ok((key, value))
+            })
+            .collect::<Result<_>>()
+            .map(FFIArg::HashMap),
+        SteelVal::ListV(l) => l
+            .into_iter()
+            .map(as_ffi_argument)
+            .collect::<Result<_>>()
+            .map(FFIArg::Vector),
+
+        // TODO:
+        // Don't copy the string unless we have to!
+        // SteelVal::StringV(s) => Ok(FFIValue::StringV(s.as_str().into())),
+        SteelVal::StringV(s) => Ok(FFIArg::StringRef(RStr::from_str(s.as_str()))),
+
+        _ => {
+            stop!(TypeMismatch => "Cannot proceed with the conversion from steelval to FFI Value. This will only succeed for a subset of values deemed as FFI-safe-enough: {:?}", value)
+        }
     }
 }
 
@@ -891,6 +1053,8 @@ pub fn as_ffi_value(value: &SteelVal) -> Result<FFIValue> {
             .collect::<Result<_>>()
             .map(FFIValue::Vector),
 
+        // TODO:
+        // Don't copy the string unless we have to!
         SteelVal::StringV(s) => Ok(FFIValue::StringV(s.as_str().into())),
 
         _ => {

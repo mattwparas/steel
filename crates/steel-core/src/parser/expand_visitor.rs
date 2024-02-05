@@ -5,11 +5,9 @@ use steel_parser::parser::SourceId;
 
 use crate::compiler::passes::reader::MultipleArityFunctions;
 use crate::compiler::passes::VisitorMutRefUnit;
-use crate::compiler::program::REQUIRE_DYLIB;
 use crate::parser::ast::ExprKind;
 use crate::parser::parser::SyntaxObject;
 use crate::parser::span_visitor::get_span;
-use crate::steel_vm::builtin::BuiltInModule;
 use crate::steel_vm::engine::ModuleContainer;
 use crate::{compiler::program::AS_KEYWORD, parser::tokens::TokenType};
 use crate::{compiler::program::REQUIRE_BUILTIN, rvals::Result};
@@ -84,6 +82,7 @@ pub fn extract_macro_defs(
 
 pub fn expand(expr: &mut ExprKind, map: &FxHashMap<InternedString, SteelMacro>) -> Result<()> {
     let mut expander = Expander {
+        depth: 0,
         map,
         changed: false,
         in_scope_values: ScopeSet::default(),
@@ -98,6 +97,7 @@ pub fn expand_with_source_id(
     source_id: SourceId,
 ) -> Result<()> {
     let mut expander = Expander {
+        depth: 0,
         map,
         changed: false,
         in_scope_values: ScopeSet::default(),
@@ -113,6 +113,7 @@ pub struct Expander<'a> {
     // We're going to actually check if the macro is in scope
     in_scope_values: ScopeSet<InternedString, FxBuildHasher>,
     source_id: Option<SourceId>,
+    depth: usize,
 }
 
 impl<'a> Expander<'a> {
@@ -122,6 +123,7 @@ impl<'a> Expander<'a> {
             changed: false,
             in_scope_values: ScopeSet::default(),
             source_id: None,
+            depth: 0,
         }
     }
 
@@ -135,6 +137,10 @@ impl<'a> VisitorMutRef for Expander<'a> {
 
     fn visit(&mut self, expr: &mut ExprKind) -> Self::Output {
         // println!("expanding: {}", expr);
+
+        if self.depth > 512 {
+            stop!(Generic => "macro expansion depth reached!");
+        }
 
         match expr {
             ExprKind::If(f) => self.visit_if(f),
@@ -222,7 +228,11 @@ impl<'a> VisitorMutRef for Expander<'a> {
                                         m.expand(List::new(std::mem::take(&mut l.args)), span)?;
                                     self.changed = true;
 
+                                    self.depth += 1;
+
                                     self.visit(&mut expanded)?;
+
+                                    self.depth -= 1;
 
                                     *expr = expanded;
 
@@ -840,71 +850,6 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                                 return Ok(());
 
                                 // return result;
-                            }
-                        }
-
-                        //
-                        if s == *REQUIRE_DYLIB {
-                            match &l.args[1..] {
-                                [ExprKind::Atom(Atom {
-                                    syn:
-                                        SyntaxObject {
-                                            ty: TokenType::StringLiteral(dylib_name),
-                                            ..
-                                        },
-                                }), ExprKind::List(List { args, .. })] => {
-                                    // TODO: if it can't be found, the module needs to be marked as `MaybeDylib`
-                                    // and use the binds that are listed in the dylib require spec, something like:
-                                    // (require-builtin steel/obviouslydylib/sqlite (only-in ... ... ...)) <-
-                                    // Then, we can _attempt_ to load the dylib at runtime. If we can't we move on, and
-                                    // otherwise we can error if the identifiers are not lining up.
-                                    // (require-dylib "<name>.so" (onlt-in <spec> ))
-
-                                    // if let Some(module) = self.builtin_modules.get(s.as_str()) {
-                                    //     return Ok(module.to_syntax(None));
-                                    // } else {
-                                    //     stop!(BadSyntax => "require-builtin: module not found: {}", s);
-                                    // }
-
-                                    match args.as_slice() {
-                                        [ExprKind::Atom(Atom {
-                                            syn:
-                                                SyntaxObject {
-                                                    ty: TokenType::Identifier(s),
-                                                    ..
-                                                },
-                                        }), rest @ ..]
-                                            if s.resolve() == "only-in" =>
-                                        {
-                                            // self.builtin_modules.
-
-                                            let mut names = Vec::with_capacity(rest.len());
-
-                                            for expr in rest {
-                                                if let Some(identifier) = expr.atom_identifier() {
-                                                    names.push(identifier);
-                                                } else {
-                                                    stop!(BadSyntax => "require-dylib `only-in` modifier expects identifiers")
-                                                }
-                                            }
-
-                                            *expr = BuiltInModule::dylib_to_syntax(
-                                                dylib_name.as_str(),
-                                                names.iter().map(|x| x.resolve()),
-                                                None,
-                                            );
-
-                                            return Ok(());
-                                        }
-                                        _ => {
-                                            stop!(BadSyntax => "require-dylib expects on `only-in` modifier")
-                                        }
-                                    }
-                                }
-
-                                _ => {
-                                    stop!(BadSyntax => "require-dylib malformed")
-                                }
                             }
                         }
 

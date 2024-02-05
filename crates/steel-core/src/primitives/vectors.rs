@@ -1,11 +1,71 @@
 use crate::gc::Gc;
 use crate::rvals::{Result, SteelVal};
 use crate::rvals::{SteelVal::*, SteelVector};
+use crate::steel_vm::builtin::BuiltInModule;
 use crate::steel_vm::vm::VmCore;
 use crate::stop;
 use crate::values::lists::Pair;
 use im_rc::Vector;
 
+#[steel_derive::define_module(name = "steel/immutable-vectors")]
+pub fn immutable_vectors_module() -> BuiltInModule {
+    let mut module = BuiltInModule::new("steel/immutable-vectors");
+
+    module
+        .register_native_fn_definition(IMMUTABLE_VECTOR_PUSH_DEFINITION)
+        .register_native_fn_definition(IMMUTABLE_VECTOR_REST_DEFINITION)
+        .register_native_fn_definition(IMMUTABLE_VECTOR_PUSH_FRONT_DEFINITION)
+        .register_native_fn_definition(IMMUTABLE_VECTOR_SET_DEFINITION)
+        .register_native_fn_definition(IMMUTABLE_VECTOR_DROP_DEFINITION)
+        .register_native_fn_definition(IMMUTABLE_VECTOR_TAKE_DEFINITION);
+
+    module
+}
+
+#[steel_derive::function(name = "immutable-vector-rest")]
+fn immutable_vector_rest(vector: &mut SteelVal) -> Result<SteelVal> {
+    match vector {
+        SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
+            Some(v) => {
+                v.pop_front();
+                Ok(std::mem::replace(vector, SteelVal::Void))
+            }
+            None => Ok(SteelVal::VectorV(SteelVector(Gc::new({
+                let mut v = v.unwrap();
+                v.pop_front();
+                v
+            })))),
+        },
+
+        _ => {
+            stop!(TypeMismatch => "immutable-vector-rest expected either a mutable or immutable vector, found: {:?}", vector);
+        }
+    }
+}
+
+/// Pushes a value to the back of the vector, returning a new vector.
+#[steel_derive::function(name = "immutable-vector-push")]
+fn immutable_vector_push(vector: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
+    match vector {
+        SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
+            Some(v) => {
+                v.push_back(value);
+                Ok(std::mem::replace(vector, SteelVal::Void))
+            }
+            None => Ok(SteelVal::VectorV(SteelVector(Gc::new({
+                let mut v = v.unwrap();
+                v.push_back(value);
+                v
+            })))),
+        },
+
+        _ => {
+            stop!(TypeMismatch => "immutable-vector-push expected either a mutable or immutable vector, found: {:?}", vector);
+        }
+    }
+}
+
+/// Pushes a value to the back of the vector, returning a new vector.
 #[steel_derive::function(name = "vector-push")]
 fn vector_push(vector: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
     match vector {
@@ -123,6 +183,84 @@ fn immutable_vector_pop_back(vector: &mut SteelVal) -> Result<SteelVal> {
         }
     }
 }
+
+#[steel_derive::function(name = "immutable-vector-take")]
+fn immutable_vector_take(vector: &mut SteelVal, count: usize) -> Result<SteelVal> {
+    match vector {
+        SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
+            Some(v) => {
+                v.truncate(count);
+                Ok(std::mem::replace(vector, SteelVal::Void))
+            }
+            None => Ok(SteelVal::VectorV(SteelVector(Gc::new(v.take(count))))),
+        },
+
+        _ => {
+            stop!(TypeMismatch => "immutable-vector-take expected an immutable vector, found: {:?}", vector);
+        }
+    }
+}
+
+// #[steel_derive::function(name = "immutable-vector-drop-right")]
+// fn immutable_vector_drop_right(vector: &mut SteelVal, count: usize) -> Result<SteelVal> {
+//     match vector {
+//         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
+//             Some(v) => {
+//                 v.truncate(v.len() - count);
+//                 Ok(std::mem::replace(vector, SteelVal::Void))
+//             }
+//             None => Ok(SteelVal::VectorV(SteelVector(Gc::new(
+//                 v.take(v.len() - count),
+//             )))),
+//         },
+
+//         _ => {
+//             stop!(TypeMismatch => "immutable-vector-drop-right expected an immutable vector, found: {:?}", vector);
+//         }
+//     }
+// }
+
+#[steel_derive::function(name = "immutable-vector-drop")]
+fn immutable_vector_drop(vector: &mut SteelVal, count: usize) -> Result<SteelVal> {
+    match vector {
+        SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
+            Some(v) => {
+                for _ in 0..count {
+                    v.pop_front();
+                }
+
+                // v.truncate(count);
+                Ok(std::mem::replace(vector, SteelVal::Void))
+            }
+            None => Ok(SteelVal::VectorV(SteelVector(Gc::new(v.skip(count))))),
+        },
+
+        _ => {
+            stop!(TypeMismatch => "immutable-vector-drop expected an immutable vector, found: {:?}", vector);
+        }
+    }
+}
+
+// #[steel_derive::function(name = "immutable-vector-take-right")]
+// fn immutable_vector_take_right(vector: &mut SteelVal, count: usize) -> Result<SteelVal> {
+//     match vector {
+//         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
+//             Some(v) => {
+//                 for _ in 0..count {
+//                     v.pop_front();
+//                 }
+
+//                 // v.truncate(count);
+//                 Ok(std::mem::replace(vector, SteelVal::Void))
+//             }
+//             None => Ok(SteelVal::VectorV(SteelVector(Gc::new(v.take(count))))),
+//         },
+
+//         _ => {
+//             stop!(TypeMismatch => "immutable-vector-drop expected an immutable vector, found: {:?}", vector);
+//         }
+//     }
+// }
 
 pub struct VectorOperations {}
 impl VectorOperations {

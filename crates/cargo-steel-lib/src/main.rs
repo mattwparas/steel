@@ -14,13 +14,6 @@ TODO:
 */
 
 fn main() -> Result<(), Box<dyn Error>> {
-    // let build_target = Command::new("cargo")
-    //     .arg("build")
-    //     .arg("--release")
-    //     .spawn()?
-    //     .wait()?
-    //     .success();
-
     let mut steel_home = PathBuf::from(std::env::var("STEEL_HOME")?);
 
     steel_home.push("native");

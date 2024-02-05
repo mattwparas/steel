@@ -25,6 +25,7 @@ use crate::{
         random::random_module,
         string_module,
         time::time_module,
+        vectors::immutable_vectors_module,
         ControlOperations, IoFunctions, MetaOperations, NumOperations, StreamOperations,
         SymbolOperations, VectorOperations,
     },
@@ -56,9 +57,6 @@ use crate::{
     rvals::{Result, SteelVal},
     SteelErr,
 };
-
-#[cfg(feature = "web")]
-use crate::primitives::web::requests::requests_module;
 
 use crate::values::lists::List;
 use fxhash::{FxHashMap, FxHashSet};
@@ -290,6 +288,9 @@ thread_local! {
     pub static LIST_MODULE: BuiltInModule = list_module();
     pub static STRING_MODULE: BuiltInModule = string_module();
     pub static VECTOR_MODULE: BuiltInModule = vector_module();
+
+    pub static IMMUTABLE_VECTOR_MODULE: BuiltInModule = immutable_vectors_module();
+
     pub static STREAM_MODULE: BuiltInModule = stream_module();
     // pub static CONTRACT_MODULE: BuiltInModule = contract_module();
     pub static IDENTITY_MODULE: BuiltInModule = identity_module();
@@ -324,11 +325,6 @@ thread_local! {
     pub static MUTABLE_VECTOR_MODULE: BuiltInModule = mutable_vector_module();
     pub static PRIVATE_READER_MODULE: BuiltInModule = reader_module();
 
-    #[cfg(feature = "web")]
-    pub static REQUESTS_MODULE: BuiltInModule = requests_module();
-
-    #[cfg(feature = "sqlite")]
-    pub static SQLITE_MODULE: BuiltInModule = crate::primitives::sqlite::sqlite_module();
 }
 
 pub fn prelude() -> BuiltInModule {
@@ -481,11 +477,7 @@ pub fn register_builtin_modules(engine: &mut Engine) {
     engine.register_module(MUTABLE_VECTOR_MODULE.with(|x| x.clone()));
     engine.register_module(PRIVATE_READER_MODULE.with(|x| x.clone()));
 
-    #[cfg(feature = "web")]
-    engine.register_module(REQUESTS_MODULE.with(|x| x.clone()));
-
-    #[cfg(feature = "sqlite")]
-    engine.register_module(SQLITE_MODULE.with(|x| x.clone()));
+    engine.register_module(IMMUTABLE_VECTOR_MODULE.with(|x| x.clone()));
 }
 
 pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::new(|| {
@@ -1032,7 +1024,7 @@ pub fn transducer_module() -> BuiltInModule {
     module
         .register_native_fn("compose", compose, Arity::AtLeast(0))
         .register_native_fn("mapping", map, Arity::Exact(1))
-        .register_native_fn("flattening", flatten, Arity::Exact(1))
+        .register_native_fn("flattening", flatten, Arity::Exact(0))
         .register_native_fn("flat-mapping", flat_map, Arity::Exact(1))
         .register_native_fn("filtering", filter, Arity::Exact(1))
         .register_native_fn("taking", take, Arity::Exact(1))
