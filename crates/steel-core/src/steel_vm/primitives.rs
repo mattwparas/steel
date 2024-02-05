@@ -1,5 +1,3 @@
-use std::{cell::RefCell, cmp::Ordering};
-
 use super::{
     builtin::BuiltInModule,
     cache::WeakMemoizationTable,
@@ -7,6 +5,7 @@ use super::{
     register_fn::RegisterFn,
     vm::{get_test_mode, list_modules, set_test_mode, VmCore},
 };
+use crate::values::lists::List;
 use crate::{
     gc::Gc,
     parser::{
@@ -56,15 +55,14 @@ use crate::{
     rvals::{Result, SteelVal},
     SteelErr,
 };
-
-#[cfg(feature = "web")]
-use crate::primitives::web::requests::requests_module;
-
-use crate::values::lists::List;
 use fxhash::{FxHashMap, FxHashSet};
 use im_rc::HashMap;
 use num::{Signed, ToPrimitive};
 use once_cell::sync::Lazy;
+use std::{cell::RefCell, cmp::Ordering};
+
+#[cfg(feature = "web")]
+use crate::primitives::web::requests::requests_module;
 
 macro_rules! ensure_tonicity_two {
     ($check_fn:expr) => {{
@@ -855,9 +853,10 @@ fn stream_module() -> BuiltInModule {
 #[steel_derive::function(name = "exact->inexact", constant = true)]
 fn exact_to_inexact(number: &SteelVal) -> Result<SteelVal> {
     match number {
-        SteelVal::IntV(i) => Ok(SteelVal::NumV(*i as f64)),
-        SteelVal::NumV(n) => Ok(SteelVal::NumV(*n)),
+        SteelVal::IntV(i) => (*i as f64).into_steelval(),
+        SteelVal::NumV(n) => n.into_steelval(),
         SteelVal::BigNum(n) => Ok(SteelVal::NumV(n.to_f64().unwrap())),
+        SteelVal::FractV(f) => f.to_f64().unwrap().into_steelval(),
         _ => stop!(TypeMismatch => "exact->inexact expects a number type, found: {}", number),
     }
 }
@@ -877,6 +876,7 @@ fn abs(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(i) => Ok(SteelVal::IntV(i.abs())),
         SteelVal::NumV(n) => Ok(SteelVal::NumV(n.abs())),
+        SteelVal::FractV(f) => f.abs().into_steelval(),
         SteelVal::BigNum(n) => n.abs().into_steelval(),
         _ => stop!(TypeMismatch => "abs expects a number type, found: {}", number),
     }

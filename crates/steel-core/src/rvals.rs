@@ -71,7 +71,7 @@ use futures_util::future::Shared;
 use futures_util::FutureExt;
 
 use crate::values::lists::List;
-use num::{BigInt, ToPrimitive};
+use num::{BigInt, Rational32, ToPrimitive};
 use steel_parser::tokens::MaybeBigInt;
 
 use self::cycles::{CycleDetector, IterativeDropHandler};
@@ -1140,14 +1140,16 @@ pub enum TypeKind {
 /// A value as represented in the runtime.
 #[derive(Clone)]
 pub enum SteelVal {
-    /// Represents a bytecode closure
+    /// Represents a bytecode closure.
     Closure(Gc<ByteCodeLambda>),
-    /// Represents a boolean value
+    /// Represents a boolean value.
     BoolV(bool),
-    /// Represents a number, currently only f64 numbers are supported
+    /// Represents a number, currently only f64 numbers are supported.
     NumV(f64),
-    /// Represents an integer
+    /// Represents an integer.
     IntV(isize),
+    /// Represents a fraction.
+    FractV(Rational32),
     /// Represents a character type
     CharV(char),
     /// Vectors are represented as `im_rc::Vector`'s, which are immutable
@@ -1179,9 +1181,8 @@ pub enum SteelVal {
     FutureFunc(BoxedAsyncFunctionSignature),
     // Boxed Future Result
     FutureV(Gc<FutureResult>),
-
+    // A stream of `SteelVal`.
     StreamV(Gc<LazyStream>),
-
     /// Custom closure
     BoxedFunction(Rc<BoxedDynFunction>),
     // Continuation
@@ -1191,9 +1192,8 @@ pub enum SteelVal {
     // CompiledFunction(Box<JitFunctionPointer>),
     // List
     ListV(crate::values::lists::List<SteelVal>),
-
+    // Holds a pair that contains 2 `SteelVal`.
     Pair(Gc<crate::values::lists::Pair>),
-
     // Mutable functions
     MutFunc(MutFunctionSignature),
     // Built in functions
@@ -1203,18 +1203,16 @@ pub enum SteelVal {
     // This should delegate to the underlying iterator - can allow for faster raw iteration if possible
     // Should allow for polling just a raw "next" on underlying elements
     BoxedIterator(Gc<RefCell<OpaqueIterator>>),
-
+    // Contains a syntax object.
     SyntaxObject(Gc<Syntax>),
-
     // Mutable storage, with Gc backing
     // Boxed(HeapRef),
     Boxed(Gc<RefCell<SteelVal>>),
-
+    // Holds a SteelVal on the heap.
     HeapAllocated(HeapRef<SteelVal>),
-
     // TODO: This itself, needs to be boxed unfortunately.
     Reference(Rc<OpaqueReference<'static>>),
-
+    // Like IntV but supports larger values.
     BigNum(Gc<num::BigInt>),
 }
 

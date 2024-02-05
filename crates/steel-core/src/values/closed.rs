@@ -8,7 +8,7 @@ use crate::{
     steel_vm::vm::{Continuation, ContinuationMark},
     values::lists::List,
 };
-use num::BigInt;
+use num::{BigInt, Rational32};
 
 use crate::{
     gc::{unsafe_erased_pointers::OpaqueReference, Gc},
@@ -603,7 +603,6 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     fn default_output(&mut self) -> Self::Output {}
 
     fn pop_front(&mut self) -> Option<SteelVal> {
-        // self.queue.pop_front()
         self.queue.pop()
     }
 
@@ -624,7 +623,6 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
             | SteelVal::BuiltIn(_)
             | SteelVal::BigNum(_) => return,
             _ => {
-                // self.queue.push_back(value);
                 self.queue.push(value);
             }
         }
@@ -729,6 +727,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
         }
     }
     fn visit_int(&mut self, _int: isize) -> Self::Output {}
+    fn visit_fract(&mut self, _: Rational32) -> Self::Output {}
 
     fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output {
         for value in list {

@@ -122,6 +122,7 @@ pub enum TokenType<S> {
     Keyword(S),
     NumberLiteral(f64),
     IntegerLiteral(MaybeBigInt),
+    FractionLiteral(MaybeBigInt, MaybeBigInt),
     StringLiteral(String),
     Error,
 }
@@ -167,6 +168,7 @@ impl<'a> TokenType<&'a str> {
             BooleanLiteral(x) => BooleanLiteral(x),
             NumberLiteral(x) => NumberLiteral(x),
             IntegerLiteral(x) => IntegerLiteral(x),
+            FractionLiteral(n, d) => FractionLiteral(n, d),
             StringLiteral(x) => StringLiteral(x),
             QuoteTick => QuoteTick,
             Unquote => Unquote,
@@ -205,6 +207,7 @@ impl<'a> TokenType<&'a str> {
 
             NumberLiteral(x) => NumberLiteral(x),
             IntegerLiteral(x) => IntegerLiteral(x),
+            FractionLiteral(n, d) => FractionLiteral(n, d),
             StringLiteral(x) => StringLiteral(x),
             QuoteTick => QuoteTick,
             Unquote => Unquote,
@@ -259,6 +262,7 @@ impl<T: fmt::Display> fmt::Display for TokenType<T> {
             Identifier(x) => write!(f, "{x}"),
             NumberLiteral(x) => write!(f, "{x:?}"),
             IntegerLiteral(x) => write!(f, "{x}"),
+            FractionLiteral(n, d) => write!(f, "{n}/{d}"),
             StringLiteral(x) => write!(f, "\"{x}\""),
             // BigIntegerLiteral(x) => write!(f, "{x}"),
             Keyword(x) => write!(f, "{x}"),

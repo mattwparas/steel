@@ -1,4 +1,4 @@
-use num::{Integer, ToPrimitive, Zero};
+use num::{Integer, Rational32, ToPrimitive, Zero};
 
 use crate::rvals::{Custom, IntoSteelVal, Result, SteelVal};
 use crate::stop;
@@ -78,18 +78,20 @@ pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     }
 
     if args.len() == 1 {
-        match &args[0] {
-            SteelVal::IntV(1) => return 1isize.into_steelval(),
-            SteelVal::IntV(n) => return (*n as f64).recip().into_steelval(),
-            SteelVal::NumV(n) => return n.recip().into_steelval(),
+        return match &args[0] {
+            SteelVal::IntV(n) => match i32::try_from(*n) {
+                Ok(n) => Rational32::new(1, n).into_steelval(),
+                Err(_) => todo!(),
+            },
+            SteelVal::NumV(n) => n.recip().into_steelval(),
+            SteelVal::FractV(f) => f.recip().into_steelval(),
             unexpected => {
                 stop!(TypeMismatch => "division expects a number, found: {:?}", unexpected)
             }
-        }
+        };
     }
 
     let mut no_floats = true;
-
     let floats: Result<Vec<f64>> = args
         .iter()
         .map(|x| match x {

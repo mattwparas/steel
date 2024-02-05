@@ -25,6 +25,7 @@ pub mod web;
 pub mod sqlite;
 
 pub use lists::UnRecoverableResult;
+use num::Rational32;
 
 use crate::values::closed::HeapRef;
 use crate::values::lists::List;
@@ -234,65 +235,6 @@ impl FromSteelVal for SteelVal {
     }
 }
 
-// TODO make intosteelval return a result type
-// This allows errors to propagate
-// @Matt - TODO: 4/29/22 -> Decide how natively Result and Option types should be integrated
-// Directly into Steel. At the moment we _could_ bail out and just rely entirely on Rust
-// types, but then we may have to more carefully integrate with functions in the std library
-// in order to interact. We also could convert directly into a Steel representation, i.e.
-// (make-struct Ok (x))
-// (make-struct Err (x))
-// This could make it easier to integrate natively, but also opaquely wrapping it allows for
-// perhaps better performance
-// impl<T: IntoSteelVal, E: IntoSteelVal> Custom for Result<T, E> {}
-
-// impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for Result<T, E> {
-//     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
-//         match self {
-//             Ok(s) => Ok(create_result_ok_struct(s.into_steelval()?)),
-//             Err(e) => crate::stop!(Generic => format!("{:?}", e)),
-//         }
-//     }
-// }
-
-// impl<T: IntoSteelVal, E: std::fmt::Debug> IntoSteelVal for Result<T, E> {
-//     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
-
-//     }
-// }
-
-// impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for Result<T, E> {
-//     fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
-//         if val.is_struct() {
-//             if let SteelVal::MutableVector(v) = val {
-//                 let lock = v.borrow();
-//                 // 0 -> magic symbol
-//                 // 1 -> name
-//                 // 2 -> options
-//                 // 3 -> data
-//                 let name = lock.get(1);
-//                 let inner = lock.get(3);
-
-//                 if let Some(SteelVal::SymbolV(name)) = name {
-//                     match name.as_str() {
-//                         "Ok" => Ok(Ok(T::from_steelval(inner.unwrap())?)),
-//                         "Err" => Ok(Err(E::from_steelval(inner.unwrap())?)),
-//                         _ => {
-//                             stop!(ConversionError => format!("Failed converting an instance of a steel struct into a Rust result type: found an instance of a struct with the name: {:?}, expecting either `Ok` or `Err`", name))
-//                         }
-//                     }
-//                 } else {
-//                     stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type, found an instance of a struct without a name - expected a name and found: {:?}", name))
-//                 }
-//             } else {
-//                 unreachable!()
-//             }
-//         } else {
-//             stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type: {:?}", val));
-//         }
-//     }
-// }
-
 impl FromSteelVal for () {
     fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
         if let SteelVal::Void = val {
@@ -312,6 +254,12 @@ impl IntoSteelVal for () {
 impl From<()> for SteelVal {
     fn from(_: ()) -> SteelVal {
         SteelVal::Void
+    }
+}
+
+impl IntoSteelVal for Rational32 {
+    fn into_steelval(self) -> Result<SteelVal, SteelErr> {
+        Ok(SteelVal::FractV(self))
     }
 }
 
