@@ -259,7 +259,11 @@ impl From<()> for SteelVal {
 
 impl IntoSteelVal for Rational32 {
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
-        Ok(SteelVal::FractV(self))
+        if self.is_integer() {
+            self.numer().into_steelval()
+        } else {
+            Ok(SteelVal::FractV(self))
+        }
     }
 }
 

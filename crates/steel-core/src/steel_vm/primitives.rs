@@ -18,7 +18,7 @@ use crate::{
         hashmaps::{HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,
         lists::{list_module, UnRecoverableResult},
-        nums::{quotient, SPECIAL_ADD_DEFINITION},
+        nums::{quotient, ADD_PRIMITIVE_DEFINITION},
         port_module,
         process::process_module,
         random::random_module,
@@ -854,9 +854,9 @@ fn stream_module() -> BuiltInModule {
 fn exact_to_inexact(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(i) => (*i as f64).into_steelval(),
+        SteelVal::FractV(f) => f.to_f64().unwrap().into_steelval(),
         SteelVal::NumV(n) => n.into_steelval(),
         SteelVal::BigNum(n) => Ok(SteelVal::NumV(n.to_f64().unwrap())),
-        SteelVal::FractV(f) => f.to_f64().unwrap().into_steelval(),
         _ => stop!(TypeMismatch => "exact->inexact expects a number type, found: {}", number),
     }
 }
@@ -866,8 +866,15 @@ fn exact_to_inexact(number: &SteelVal) -> Result<SteelVal> {
 //   x : real?
 // Returns the integer closest to x, resolving ties in favor of an even number, but +inf.0, -inf.0, and +nan.0 round to themselves.
 #[steel_derive::function(name = "round", constant = true)]
-fn round(number: f64) -> f64 {
-    number.round()
+fn round(number: &SteelVal) -> Result<SteelVal> {
+    match number {
+        SteelVal::IntV(i) => i.into_steelval(),
+        SteelVal::NumV(n) => n.round().into_steelval(),
+        // TODO: Handle overflow case on roundup.
+        SteelVal::FractV(f) => f.round().into_steelval(),
+        SteelVal::BigNum(n) => Ok(SteelVal::BigNum(n.clone())),
+        _ => stop!(TypeMismatch => "round expects a number type, found: {}", number),
+    }
 }
 
 /// Returns the absolute value of the given input
@@ -943,7 +950,7 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
 fn number_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/numbers");
     module
-        .register_native_fn_definition(SPECIAL_ADD_DEFINITION)
+        .register_native_fn_definition(ADD_PRIMITIVE_DEFINITION)
         .register_value("f+", NumOperations::float_add())
         .register_value("*", NumOperations::multiply())
         .register_value("/", NumOperations::divide())
