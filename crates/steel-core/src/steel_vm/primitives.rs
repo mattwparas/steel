@@ -58,9 +58,6 @@ use crate::{
     SteelErr,
 };
 
-#[cfg(feature = "web")]
-use crate::primitives::web::requests::requests_module;
-
 use crate::values::lists::List;
 use fxhash::{FxHashMap, FxHashSet};
 use im_rc::HashMap;
@@ -328,11 +325,6 @@ thread_local! {
     pub static MUTABLE_VECTOR_MODULE: BuiltInModule = mutable_vector_module();
     pub static PRIVATE_READER_MODULE: BuiltInModule = reader_module();
 
-    #[cfg(feature = "web")]
-    pub static REQUESTS_MODULE: BuiltInModule = requests_module();
-
-    #[cfg(feature = "sqlite")]
-    pub static SQLITE_MODULE: BuiltInModule = crate::primitives::sqlite::sqlite_module();
 }
 
 pub fn prelude() -> BuiltInModule {
@@ -486,12 +478,6 @@ pub fn register_builtin_modules(engine: &mut Engine) {
     engine.register_module(PRIVATE_READER_MODULE.with(|x| x.clone()));
 
     engine.register_module(IMMUTABLE_VECTOR_MODULE.with(|x| x.clone()));
-
-    #[cfg(feature = "web")]
-    engine.register_module(REQUESTS_MODULE.with(|x| x.clone()));
-
-    #[cfg(feature = "sqlite")]
-    engine.register_module(SQLITE_MODULE.with(|x| x.clone()));
 }
 
 pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::new(|| {
