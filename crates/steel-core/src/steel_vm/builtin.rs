@@ -589,58 +589,6 @@ impl BuiltInModule {
         self.module.borrow().get(name)
     }
 
-    // When we're loading dylib, we won't know anything about it until _after_ it is loaded. We don't explicitly
-    // want to load it before we need it, since the compiler should be able to analyze a dylib without having to
-    // have the dylib built and loaded into memory to do so.
-    pub fn dylib_to_syntax<'a>(
-        dylib_name: &'a str,
-        names: impl Iterator<Item = &'a str>,
-        prefix: Option<&str>,
-    ) -> ExprKind {
-        let mut defines = names
-            .map(|x| {
-                // TODO: Consider a custom delimeter as well
-                // If we have a prefix, put the prefix at the front and append x
-                // Otherwise, just default to using the provided name
-                let name = prefix
-                    .map(|pre| pre.to_string() + x)
-                    .unwrap_or_else(|| x.to_string());
-
-                ExprKind::Define(Box::new(crate::parser::ast::Define::new(
-                    // TODO: Add the custom prefix here
-                    // Handling a more complex case of qualifying imports
-                    ExprKind::atom(name),
-                    ExprKind::List(crate::parser::ast::List::new(vec![
-                        ExprKind::atom(*MODULE_GET),
-                        ExprKind::List(crate::parser::ast::List::new(vec![
-                            ExprKind::atom(*GET_DYLIB),
-                            ExprKind::string_lit(dylib_name.to_string()),
-                        ])),
-                        ExprKind::Quote(Box::new(crate::parser::ast::Quote::new(
-                            ExprKind::atom(x.to_string()),
-                            SyntaxObject::default(TokenType::Quote),
-                        ))),
-                    ])),
-                    SyntaxObject::default(TokenType::Define),
-                )))
-            })
-            .collect::<Vec<_>>();
-
-        defines.push(ExprKind::List(crate::parser::ast::List::new(vec![
-            ExprKind::atom(*MODULE_GET),
-            ExprKind::atom("%-builtin-module-steel/constants"),
-            ExprKind::Quote(Box::new(crate::parser::ast::Quote::new(
-                ExprKind::atom(*VOID),
-                SyntaxObject::default(TokenType::Quote),
-            ))),
-        ])));
-
-        ExprKind::Begin(crate::parser::ast::Begin::new(
-            defines,
-            SyntaxObject::default(TokenType::Begin),
-        ))
-    }
-
     /// This does the boot strapping for bundling modules
     /// Rather than expose a native hash-get, the built in module above should expose a raw
     /// function to fetch a dependency. It will be a packaged #<BuiltInModule> with only a function to
