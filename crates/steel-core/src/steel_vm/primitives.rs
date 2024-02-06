@@ -855,7 +855,7 @@ fn exact_to_inexact(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(i) => (*i as f64).into_steelval(),
         SteelVal::FractV(f) => f.to_f64().unwrap().into_steelval(),
-        SteelVal::BigFractV(f) => f.to_f64().unwrap().into_steelval(),
+        SteelVal::BigFract(f) => f.to_f64().unwrap().into_steelval(),
         SteelVal::NumV(n) => n.into_steelval(),
         SteelVal::BigNum(n) => Ok(SteelVal::NumV(n.to_f64().unwrap())),
         _ => stop!(TypeMismatch => "exact->inexact expects a number type, found: {}", number),
@@ -872,7 +872,7 @@ fn round(number: &SteelVal) -> Result<SteelVal> {
         SteelVal::IntV(i) => i.into_steelval(),
         SteelVal::NumV(n) => n.round().into_steelval(),
         SteelVal::FractV(f) => f.round().into_steelval(),
-        SteelVal::BigFractV(f) => f.round().into_steelval(),
+        SteelVal::BigFract(f) => f.round().into_steelval(),
         SteelVal::BigNum(n) => Ok(SteelVal::BigNum(n.clone())),
         _ => stop!(TypeMismatch => "round expects a number type, found: {}", number),
     }
@@ -885,7 +885,7 @@ fn abs(number: &SteelVal) -> Result<SteelVal> {
         SteelVal::IntV(i) => Ok(SteelVal::IntV(i.abs())),
         SteelVal::NumV(n) => Ok(SteelVal::NumV(n.abs())),
         SteelVal::FractV(f) => f.abs().into_steelval(),
-        SteelVal::BigFractV(f) => f.abs().into_steelval(),
+        SteelVal::BigFract(f) => f.abs().into_steelval(),
         SteelVal::BigNum(n) => n.abs().into_steelval(),
         _ => stop!(TypeMismatch => "abs expects a number type, found: {}", number),
     }
@@ -902,7 +902,7 @@ fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
         (SteelVal::IntV(l), SteelVal::FractV(r)) => {
             (*l as f64).powf(r.to_f64().unwrap()).into_steelval()
         }
-        (SteelVal::IntV(l), SteelVal::BigFractV(r)) => {
+        (SteelVal::IntV(l), SteelVal::BigFract(r)) => {
             (*l as f64).powf(r.to_f64().unwrap()).into_steelval()
         }
         (SteelVal::NumV(l), SteelVal::NumV(r)) => Ok(SteelVal::NumV(l.powf(*r))),
@@ -910,7 +910,7 @@ fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
             l.powi(*r as i32).into_steelval()
         }
         (SteelVal::NumV(l), SteelVal::FractV(r)) => Ok(SteelVal::NumV(l.powf(r.to_f64().unwrap()))),
-        (SteelVal::NumV(l), SteelVal::BigFractV(r)) => {
+        (SteelVal::NumV(l), SteelVal::BigFract(r)) => {
             Ok(SteelVal::NumV(l.powf(r.to_f64().unwrap())))
         }
         (SteelVal::FractV(l), SteelVal::FractV(r)) => l
@@ -925,22 +925,22 @@ fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
                 .pow(BigInt::from(*r))
                 .into_steelval(),
         },
-        (SteelVal::FractV(l), SteelVal::BigFractV(r)) => l
+        (SteelVal::FractV(l), SteelVal::BigFract(r)) => l
             .to_f64()
             .unwrap()
             .powf(r.to_f64().unwrap())
             .into_steelval(),
-        (SteelVal::BigFractV(l), SteelVal::FractV(r)) => l
+        (SteelVal::BigFract(l), SteelVal::FractV(r)) => l
             .to_f64()
             .unwrap()
             .powf(r.to_f64().unwrap())
             .into_steelval(),
-        (SteelVal::BigFractV(l), SteelVal::NumV(r)) => l.to_f64().unwrap().powf(*r).into_steelval(),
-        (SteelVal::BigFractV(l), SteelVal::IntV(r)) => match i32::try_from(*r) {
+        (SteelVal::BigFract(l), SteelVal::NumV(r)) => l.to_f64().unwrap().powf(*r).into_steelval(),
+        (SteelVal::BigFract(l), SteelVal::IntV(r)) => match i32::try_from(*r) {
             Ok(r) => l.as_ref().pow(r).into_steelval(),
             Err(_) => l.as_ref().clone().pow(BigInt::from(*r)).into_steelval(),
         },
-        (SteelVal::BigFractV(l), SteelVal::BigFractV(r)) => l
+        (SteelVal::BigFract(l), SteelVal::BigFract(r)) => l
             .to_f64()
             .unwrap()
             .powf(r.to_f64().unwrap())
@@ -963,7 +963,7 @@ fn exp(left: &SteelVal) -> Result<SteelVal> {
         SteelVal::FractV(f) => std::f64::consts::E
             .powf(f.to_f64().unwrap())
             .into_steelval(),
-        SteelVal::BigFractV(f) => std::f64::consts::E
+        SteelVal::BigFract(f) => std::f64::consts::E
             .powf(f.to_f64().unwrap())
             .into_steelval(),
         _ => {
@@ -993,7 +993,7 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
         (SteelVal::IntV(arg), SteelVal::IntV(base)) => Ok(SteelVal::IntV(arg.ilog(*base) as isize)),
         (SteelVal::NumV(arg), SteelVal::NumV(n)) => Ok(SteelVal::NumV(arg.log(*n))),
         (SteelVal::NumV(arg), SteelVal::IntV(base)) => Ok(SteelVal::NumV(arg.log(*base as f64))),
-        // TODO: Support BigNum, FractV, and BigFractV.
+        // TODO: Support BigNum, FractV, and BigFract.
         _ => {
             stop!(TypeMismatch => "log expects one or two numbers, found: {} and {}", first, base);
         }

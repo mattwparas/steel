@@ -274,7 +274,7 @@ impl IntoSteelVal for BigRational {
         }
         match (self.numer().to_i32(), self.denom().to_i32()) {
             (Some(n), Some(d)) => Rational32::new(n, d).into_steelval(),
-            _ => Ok(SteelVal::BigFractV(Gc::new(self))),
+            _ => Ok(SteelVal::BigFract(Gc::new(self))),
         }
     }
 }
