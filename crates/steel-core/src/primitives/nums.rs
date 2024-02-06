@@ -130,14 +130,12 @@ pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
         match x {
             SteelVal::IntV(n) => match i32::try_from(*n) {
                 Ok(n) => Rational32::new(1, n).into_steelval(),
-                Err(_) => todo!(),
+                Err(_) => BigRational::new(BigInt::from(1), BigInt::from(*n)).into_steelval(),
             },
             SteelVal::NumV(n) => n.recip().into_steelval(),
             SteelVal::FractV(f) => f.recip().into_steelval(),
             SteelVal::BigFractV(f) => f.recip().into_steelval(),
-            SteelVal::BigNum(n) => BigRational::new(1.into(), n.as_ref().clone())
-                .recip()
-                .into_steelval(),
+            SteelVal::BigNum(n) => BigRational::new(1.into(), n.as_ref().clone()).into_steelval(),
             unexpected => {
                 stop!(TypeMismatch => "/ expects a number, but found: {:?}", unexpected)
             }
