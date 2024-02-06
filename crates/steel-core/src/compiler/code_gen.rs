@@ -1,8 +1,3 @@
-use std::sync::atomic::AtomicUsize;
-
-use smallvec::SmallVec;
-use steel_parser::tokens::MaybeBigInt;
-
 use crate::{
     compiler::passes::analysis::IdentifierStatus::{
         Captured, Free, Global, HeapAllocated, LetVar, Local, LocallyDefinedFunction,
@@ -22,6 +17,10 @@ use crate::{
     rvals::IntoSteelVal,
     stop, SteelVal,
 };
+use num::{BigInt, BigRational, Rational32};
+use smallvec::SmallVec;
+use std::sync::atomic::AtomicUsize;
+use steel_parser::tokens::MaybeBigInt;
 
 use super::{
     constants::ConstantMap,
@@ -48,25 +47,34 @@ pub struct CodeGenerator<'a> {
     local_count: Vec<usize>,
 }
 
+/// Converts a syntax object's token into a `SteelVal` or returns an error if it is not a valid
+/// `SteelVal`.
 fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
     match &t.ty {
         TokenType::BooleanLiteral(b) => Ok((*b).into()),
         TokenType::NumberLiteral(n) => Ok(SteelVal::NumV(*n)),
         TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.into())),
         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
-        TokenType::IntegerLiteral(steel_parser::tokens::MaybeBigInt::Small(n)) => {
-            Ok(SteelVal::IntV(*n))
-        }
+        TokenType::IntegerLiteral(MaybeBigInt::Small(n)) => Ok(SteelVal::IntV(*n)),
         TokenType::IntegerLiteral(MaybeBigInt::Big(b)) => b.clone().into_steelval(),
+        TokenType::FractionLiteral(MaybeBigInt::Small(n), MaybeBigInt::Small(d)) => {
+            match (i32::try_from(*n), i32::try_from(*d)) {
+                (Ok(n), Ok(d)) => Rational32::new(n, d).into_steelval(),
+                _ => BigRational::new(BigInt::from(*n), BigInt::from(*d)).into_steelval(),
+            }
+        }
+        TokenType::FractionLiteral(n, d) => {
+            BigRational::new(BigInt::from(n.clone()), BigInt::from(d.clone())).into_steelval()
+        }
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
         TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
         what => {
-            // println!("getting here in the eval_atom - code_gen");
             stop!(UnexpectedToken => what; t.span)
         }
     }
 }
 
+/// TODO: Consider reusing `eval_atom` as there is a lot of shared functionality.
 fn try_eval_atom(t: &SyntaxObject) -> Option<SteelVal> {
     match &t.ty {
         TokenType::BooleanLiteral(b) => Some((*b).into()),
@@ -74,9 +82,7 @@ fn try_eval_atom(t: &SyntaxObject) -> Option<SteelVal> {
         TokenType::NumberLiteral(n) => Some(SteelVal::NumV(*n)),
         TokenType::StringLiteral(s) => Some(SteelVal::StringV(s.into())),
         TokenType::CharacterLiteral(c) => Some(SteelVal::CharV(*c)),
-        TokenType::IntegerLiteral(steel_parser::tokens::MaybeBigInt::Small(n)) => {
-            Some(SteelVal::IntV(*n))
-        }
+        TokenType::IntegerLiteral(MaybeBigInt::Small(n)) => Some(SteelVal::IntV(*n)),
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
         TokenType::Keyword(k) => Some(SteelVal::SymbolV(k.clone().into())),
         _what => {
@@ -981,10 +987,12 @@ mod code_gen_tests {
         let mut constants = ConstantMap::new();
 
         let mut code_gen = CodeGenerator::new(&mut constants, &analysis);
-
         code_gen.visit(&exprs[0]).unwrap();
-
-        println!("{:#?}", code_gen.instructions);
+        assert!(
+            code_gen.instructions.is_empty(),
+            "{:#?}",
+            code_gen.instructions
+        );
     }
 
     #[test]

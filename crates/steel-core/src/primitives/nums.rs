@@ -404,7 +404,7 @@ impl NumOperations {
     }
 }
 
-impl IntoSteelVal for num::BigInt {
+impl IntoSteelVal for BigInt {
     fn into_steelval(self) -> Result<SteelVal> {
         match self.to_isize() {
             Some(i) => i.into_steelval(),

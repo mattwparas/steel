@@ -209,50 +209,63 @@ impl<'a> Lexer<'a> {
 
     fn read_number(&mut self) -> TokenType<&'a str> {
         while let Some(&c) = self.chars.peek() {
-            if matches!(c, '(' | '[' | ')' | ']') {
-                break;
-            }
-
-            if c.is_whitespace() {
-                break;
-            }
-
-            if c == '.' {
-                break;
-            }
-
-            if !c.is_numeric() {
-                self.eat();
-                return self.read_word();
-            }
-
-            self.eat();
-        }
-
-        if let Some(&'.') = self.chars.peek() {
-            self.eat();
-
-            while let Some(&c) = self.chars.peek() {
-                if matches!(c, '(' | '[' | ')' | ']') {
-                    break;
-                }
-                if c.is_whitespace() {
-                    break;
-                }
-
-                if !c.is_numeric() {
+            match c {
+                '(' | ')' | '[' | ']' => break,
+                '.' | '/' => break,
+                c if c.is_whitespace() => break,
+                c if c.is_numeric() => self.eat(),
+                _ => {
                     self.eat();
                     return self.read_word();
                 }
-
-                self.eat();
-                // num.push(c);
-            }
-
-            return TokenType::NumberLiteral(self.slice().parse().unwrap());
+            };
         }
+        match self.chars.peek().copied() {
+            Some('.') => {
+                self.eat();
+                while let Some(&c) = self.chars.peek() {
+                    if matches!(c, '(' | '[' | ')' | ']') {
+                        break;
+                    }
+                    if c.is_whitespace() {
+                        break;
+                    }
 
-        TokenType::IntegerLiteral(self.slice().parse().unwrap())
+                    if !c.is_numeric() {
+                        self.eat();
+                        return self.read_word();
+                    }
+                    self.eat();
+                }
+                TokenType::NumberLiteral(self.slice().parse().unwrap())
+            }
+            Some('/') => {
+                let numerator_text = self.slice();
+                self.eat();
+                while let Some(&c) = self.chars.peek() {
+                    if matches!(c, '(' | '[' | ')' | ']') {
+                        break;
+                    }
+                    if c.is_whitespace() {
+                        break;
+                    }
+                    if !c.is_numeric() {
+                        self.eat();
+                        return self.read_word();
+                    }
+                    self.eat();
+                }
+                let denominator_text = &self.slice()[numerator_text.len() + 1..];
+                if denominator_text.is_empty() {
+                    self.read_word()
+                } else {
+                    let numerator: MaybeBigInt = numerator_text.parse().unwrap();
+                    let denominator: MaybeBigInt = denominator_text.parse().unwrap();
+                    TokenType::FractionLiteral(numerator, denominator)
+                }
+            }
+            _ => TokenType::IntegerLiteral(self.slice().parse().unwrap()),
+        }
     }
 
     fn read_rest_of_line(&mut self) {
@@ -478,6 +491,8 @@ impl<'a> Iterator for Lexer<'a> {
 
 #[cfg(test)]
 mod lexer_tests {
+    use std::str::FromStr;
+
     use super::*;
     use crate::span::Span;
     use crate::tokens::{MaybeBigInt, TokenType::*};
@@ -714,6 +729,79 @@ mod lexer_tests {
         );
 
         assert_eq!(s.next(), None);
+    }
+
+    #[test]
+    fn test_fractions() {
+        let test_cases: &[(_, &[Token<'static, &'static str>])] = &[
+            (
+                "1/4",
+                &[Token {
+                    ty: FractionLiteral(MaybeBigInt::Small(1), MaybeBigInt::Small(4)),
+                    source: "1/4",
+                    span: Span::new(0, 3, None),
+                }],
+            ),
+            (
+                "11111111111111111111/22222222222222222222",
+                &[Token {
+                    ty: FractionLiteral(
+                        MaybeBigInt::from_str("11111111111111111111").unwrap(),
+                        MaybeBigInt::from_str("22222222222222222222").unwrap(),
+                    ),
+                    source: "11111111111111111111/22222222222222222222",
+                    span: Span::new(0, 41, None),
+                }],
+            ),
+            (
+                "1/",
+                &[Token {
+                    ty: Identifier("1/"),
+                    source: "1/",
+                    span: Span::new(0, 2, None),
+                }],
+            ),
+            (
+                "1/4.0",
+                &[Token {
+                    ty: Identifier("1/4.0"),
+                    source: "1/4.0",
+                    span: Span::new(0, 5, None),
+                }],
+            ),
+            (
+                "1//4",
+                &[Token {
+                    ty: Identifier("1//4"),
+                    source: "1//4",
+                    span: Span::new(0, 4, None),
+                }],
+            ),
+            (
+                "1 / 4",
+                &[
+                    Token {
+                        ty: IntegerLiteral(MaybeBigInt::Small(1)),
+                        source: "1",
+                        span: Span::new(0, 1, None),
+                    },
+                    Token {
+                        ty: Identifier("/"),
+                        source: "/",
+                        span: Span::new(2, 3, None),
+                    },
+                    Token {
+                        ty: IntegerLiteral(MaybeBigInt::Small(4)),
+                        source: "4",
+                        span: Span::new(4, 5, None),
+                    },
+                ],
+            ),
+        ];
+        for (expr, expected) in test_cases {
+            let got: Vec<_> = TokenStream::new(expr, true, None).collect();
+            assert_eq!(got.as_slice(), *expected);
+        }
     }
 
     #[test]

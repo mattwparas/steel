@@ -17,6 +17,7 @@ use crate::{
     rvals::IntoSteelVal,
 };
 
+use num::{BigInt, BigRational};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, convert::TryInto, rc::Rc, time::SystemTime};
 use steel_parser::tokens::MaybeBigInt;
@@ -40,8 +41,12 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
         TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.into())),
         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
         TokenType::IntegerLiteral(MaybeBigInt::Small(n)) => Ok(SteelVal::IntV(*n)),
-        // TODO: @Matt - This doesn't need to happen at all. It will just lead to unnecessary cloning.
+        // TODO: @Matt - There is unnecessary cloning of big ingegers.
         TokenType::IntegerLiteral(MaybeBigInt::Big(b)) => b.clone().into_steelval(),
+        TokenType::FractionLiteral(n, d) => {
+            // TODO: Parse as Rational32. BigRational incurs extra overhead.
+            BigRational::new(BigInt::from(n.clone()), BigInt::from(d.clone())).into_steelval()
+        }
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
         TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
         what => {
@@ -120,7 +125,6 @@ pub fn specialize_constants(instructions: &mut [Instruction]) -> Result<()> {
                 ..
             }) => {
                 let value = eval_atom(syn)?;
-
                 let opcode = match &value {
                     SteelVal::IntV(0) => OpCode::LOADINT0,
                     SteelVal::IntV(1) => OpCode::LOADINT1,
