@@ -1894,16 +1894,15 @@ impl PartialEq for SteelVal {
         match (self, other) {
             (Void, Void) => true,
             (BoolV(l), BoolV(r)) => l == r,
-            (BigNum(l), BigNum(r)) => l == r,
             (IntV(l), IntV(r)) => l == r,
-
-            // Floats shouls also be considered equal
             (NumV(l), NumV(r)) => l == r,
-
+            (FractV(l), FractV(r)) => l == r,
+            (BigNum(l), BigNum(r)) => l == r,
             (StringV(l), StringV(r)) => l == r,
-            // (VectorV(l), VectorV(r)) => l == r,
             (SymbolV(l), SymbolV(r)) => l == r,
             (CharV(l), CharV(r)) => l == r,
+            (FuncV(l), FuncV(r)) => *l as usize == *r as usize,
+            // (VectorV(l), VectorV(r)) => l == r,
             // (ListV(l), ListV(r)) => l == r,
             // (HashSetV(l), HashSetV(r)) => l == r,
             // (HashMapV(l), HashMapV(r)) => l == r,
@@ -1911,7 +1910,6 @@ impl PartialEq for SteelVal {
             // (IterV(l), IterV(r)) => l == r,
             // (ListV(l), ListV(r)) => l == r,
             // (CustomStruct(l), CustomStruct(r)) => l == r,
-            (FuncV(l), FuncV(r)) => *l as usize == *r as usize,
             // (Custom(l), Custom(r)) => Gc::ptr_eq(l, r),
             // (HeapAllocated(l), HeapAllocated(r)) => l.get() == r.get(),
             (left, right) => LEFT_QUEUE.with(|left_queue| {

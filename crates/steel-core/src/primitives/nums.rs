@@ -357,7 +357,6 @@ impl IntoSteelVal for num::BigInt {
 
 #[cfg(test)]
 mod num_op_tests {
-
     use super::*;
     use crate::rvals::SteelVal::*;
     use crate::throw;

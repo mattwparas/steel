@@ -1583,32 +1583,6 @@ impl SteelVal {
     }
 }
 
-// TODO come back to this for the constant map
-
-// impl Serialize for SteelVal {
-//     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-//     where
-//         S: Serializer,
-//     {
-//         match self {
-//             SteelVal::BoolV(b) => serializer.serialize_newtype_variant("SteelVal", 0, "BoolV", b),
-//             SteelVal::NumV(n) => serializer.serialize_newtype_variant("SteelVal", 1, "NumV", n),
-//             SteelVal::IntV(n) => serializer.serialize_newtype_variant("SteelVal", 2, "IntV", n),
-//             SteelVal::CharV(c) => serializer.serialize_newtype_variant("SteelVal", 3, "CharV", c),
-//             SteelVal::StringV(s) => {
-//                 serializer.serialize_newtype_variant("SteelVal", 7, "StringV", s)
-//             }
-//             SteelVal::Pair(car, cdr) => {
-//                 let mut state = serializer.serialize_tuple_variant("SteelVal", 4, "Pair", 2)?;
-//                 state.serialize_field(car)?;
-//                 state.serialize_field(cdr)?;
-//                 state.end()
-//             }
-//             _ => panic!("Cannot serialize enum variant: {}", self),
-//         }
-//     }
-// }
-
 impl Hash for SteelVal {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
@@ -1963,9 +1937,14 @@ pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
         (IntV(l), IntV(r)) => l == r,
         (NumV(l), NumV(r)) => l == r,
         (IntV(l), NumV(r)) | (NumV(r), IntV(l)) => integer_float_equality(*l, *r),
+        (FractV(l), FractV(r)) => l == r,
+        (FractV(_), IntV(_))
+        | (IntV(_), FractV(_))
+        | (FractV(_), BigNum(_))
+        | (BigNum(_), FractV(_)) => false,
+        (FractV(l), NumV(r)) | (NumV(r), FractV(l)) => l.to_f64().unwrap() == *r,
         (BigNum(l), BigNum(r)) => l == r,
         (BigNum(l), NumV(r)) | (NumV(r), BigNum(l)) => bignum_float_equality(l, *r),
-
         // Should be impossible to have an integer and a bignum be the same value
         (IntV(_), BigNum(_)) | (BigNum(_), IntV(_)) => false,
 
@@ -1976,56 +1955,26 @@ pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
 }
 
 // TODO add tests
-// impl PartialEq for SteelVal {
-//     fn eq(&self, other: &Self) -> bool {
-//         match (self, other) {
-//             (Void, Void) => true,
-//             (BoolV(l), BoolV(r)) => l == r,
-//             (BigNum(l), BigNum(r)) => l == r,
-//             // (NumV(l), NumV(r)) => l == r,
-//             (IntV(l), IntV(r)) => l == r,
-
-//             // Floats shouls also be considered equal
-//             (NumV(l), NumV(r)) => l == r,
-
-//             (StringV(l), StringV(r)) => l == r,
-//             (VectorV(l), VectorV(r)) => l == r,
-//             (SymbolV(l), SymbolV(r)) => l == r,
-//             (CharV(l), CharV(r)) => l == r,
-//             (HashSetV(l), HashSetV(r)) => l == r,
-//             (HashMapV(l), HashMapV(r)) => l == r,
-//             (Closure(l), Closure(r)) => l == r,
-//             (IterV(l), IterV(r)) => l == r,
-//             (ListV(l), ListV(r)) => l == r,
-//             (CustomStruct(l), CustomStruct(r)) => l == r,
-//             (FuncV(l), FuncV(r)) => *l == *r,
-//             (Custom(l), Custom(r)) => Gc::ptr_eq(l, r),
-//             (HeapAllocated(l), HeapAllocated(r)) => l.get() == r.get(),
-//             //TODO
-//             (_, _) => false, // (l, r) => {
-//                              //     let left = unwrap!(l, usize);
-//                              //     let right = unwrap!(r, usize);
-//                              //     match (left, right) {
-//                              //         (Ok(l), Ok(r)) => l == r,
-//                              //         (_, _) => false,
-//                              //     }
-//                              // }
-//         }
-//     }
-// }
-
-// TODO add tests
 impl PartialOrd for SteelVal {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
             (IntV(l), IntV(r)) => l.partial_cmp(r),
             (IntV(l), NumV(r)) => (*l as f64).partial_cmp(r),
+            // TODO: Compare without converting to f64 to avoid precision loss.
+            (IntV(l), FractV(r)) => (*l as f64).partial_cmp(&r.to_f64().unwrap()),
             (IntV(l), BigNum(r)) => BigInt::from(*l).partial_cmp(r),
             (NumV(l), IntV(r)) => l.partial_cmp(&(*r as f64)),
             (NumV(l), NumV(r)) => l.partial_cmp(r),
+            (NumV(l), FractV(r)) => l.partial_cmp(&r.to_f64()?),
             (NumV(l), BigNum(r)) => l.partial_cmp(&r.to_f64()?),
+            (FractV(l), FractV(r)) => l.partial_cmp(&r),
+            // TODO: Compare without converting to f64 to avoid precision loss.
+            (FractV(l), IntV(r)) => l.to_f64()?.partial_cmp(&r.to_f64()?),
+            (FractV(l), NumV(r)) => l.to_f64()?.partial_cmp(&r),
+            (FractV(l), BigNum(r)) => l.to_f64()?.partial_cmp(&r.to_f64()?),
             (BigNum(l), IntV(r)) => l.as_ref().partial_cmp(&BigInt::from(*r)),
             (BigNum(l), NumV(r)) => l.to_f64()?.partial_cmp(r),
+            (BigNum(l), FractV(r)) => l.to_f64()?.partial_cmp(&r.to_f64()?),
             (BigNum(l), BigNum(r)) => l.as_ref().partial_cmp(r.as_ref()),
             (StringV(s), StringV(o)) => s.partial_cmp(o),
             (CharV(l), CharV(r)) => l.partial_cmp(r),
