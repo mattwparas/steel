@@ -57,7 +57,7 @@ use crate::{
 };
 use fxhash::{FxHashMap, FxHashSet};
 use im_rc::HashMap;
-use num::{Signed, ToPrimitive};
+use num::{pow::Pow, Signed, ToPrimitive};
 use once_cell::sync::Lazy;
 use std::{cell::RefCell, cmp::Ordering};
 
@@ -893,12 +893,29 @@ fn abs(number: &SteelVal) -> Result<SteelVal> {
 fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     match (left, right) {
         (SteelVal::IntV(l), SteelVal::IntV(r)) if *r < (u32::MAX as isize) => {
-            Ok(SteelVal::IntV(l.pow(*r as u32)))
+            l.pow(*r as u32).into_steelval()
         }
-        (SteelVal::NumV(l), SteelVal::IntV(r)) if *r < (i32::MAX as isize) => {
-            Ok(SteelVal::NumV(l.powi(*r as i32)))
+        (SteelVal::IntV(l), SteelVal::NumV(r)) => (*l as f64).powf(*r).into_steelval(),
+        (SteelVal::IntV(l), SteelVal::FractV(r)) => {
+            (*l as f64).powf(r.to_f64().unwrap()).into_steelval()
         }
         (SteelVal::NumV(l), SteelVal::NumV(r)) => Ok(SteelVal::NumV(l.powf(*r))),
+        (SteelVal::NumV(l), SteelVal::IntV(r)) if *r < (i32::MAX as isize) => {
+            l.powi(*r as i32).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::FractV(r)) => Ok(SteelVal::NumV(l.powf(r.to_f64().unwrap()))),
+        // Test Case: (expt 1/4 -1/2)
+        (SteelVal::FractV(l), SteelVal::FractV(r)) => l
+            .to_f64()
+            .unwrap()
+            .powf(r.to_f64().unwrap())
+            .into_steelval(),
+        (SteelVal::FractV(l), SteelVal::NumV(r)) => l.to_f64().unwrap().powf(*r).into_steelval(),
+        (SteelVal::FractV(l), SteelVal::IntV(r)) => match i32::try_from(*r) {
+            Ok(r) => l.pow(r).into_steelval(),
+            Err(_) => todo!(),
+        },
+        // TODO: Handle BigNum.
         _ => {
             stop!(TypeMismatch => "expt expected two numbers")
         }
@@ -909,11 +926,14 @@ fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
 #[steel_derive::function(name = "exp", constant = true)]
 fn exp(left: &SteelVal) -> Result<SteelVal> {
     match left {
-        SteelVal::IntV(i) if *i == 0 => Ok(SteelVal::IntV(1)),
+        SteelVal::IntV(0) => Ok(SteelVal::IntV(1)),
         SteelVal::IntV(l) if *l < i32::MAX as isize => {
             Ok(SteelVal::NumV(std::f64::consts::E.powi(*l as i32)))
         }
         SteelVal::NumV(n) => Ok(SteelVal::NumV(std::f64::consts::E.powf(*n))),
+        SteelVal::FractV(f) => std::f64::consts::E
+            .powf(f.to_f64().unwrap())
+            .into_steelval(),
         _ => {
             stop!(Generic => "integer power too large to be used for exponent")
         }
@@ -941,6 +961,7 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
         (SteelVal::IntV(arg), SteelVal::IntV(base)) => Ok(SteelVal::IntV(arg.ilog(*base) as isize)),
         (SteelVal::NumV(arg), SteelVal::NumV(n)) => Ok(SteelVal::NumV(arg.log(*n))),
         (SteelVal::NumV(arg), SteelVal::IntV(base)) => Ok(SteelVal::NumV(arg.log(*base as f64))),
+        // TODO: Support BigNum and FractV.
         _ => {
             stop!(TypeMismatch => "log expects one or two numbers, found: {} and {}", first, base);
         }

@@ -113,7 +113,7 @@ pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
         [x, y] => multiply_2_impl(x, &recip(y)?),
         [x, ys @ ..] => {
             let d = multiply_primitive_impl(ys)?;
-            multiply_2_impl(&x, &d)
+            multiply_2_impl(&x, &recip(&d)?)
         }
     }
 }
@@ -124,14 +124,10 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     let negate = |x: &SteelVal| match x {
         SteelVal::NumV(x) => (-x).into_steelval(),
         SteelVal::IntV(x) => (-x).into_steelval(),
-        SteelVal::FractV(x) => {
-            // TODO: Consider using `checked_sub` to be safer.
-            if x.numer() == &i32::MIN {
-                todo!()
-            } else {
-                x.neg().into_steelval()
-            }
-        }
+        SteelVal::FractV(x) => match 0i32.checked_sub(*x.numer()) {
+            Some(n) => Rational32::new(n, *x.denom()).into_steelval(),
+            None => todo!(),
+        },
         SteelVal::BigNum(x) => x.as_ref().neg().into_steelval(),
         _ => unreachable!(),
     };
@@ -243,6 +239,7 @@ impl NumOperations {
             match &args[0] {
                 SteelVal::IntV(n) => Ok(SteelVal::BoolV(n & 1 == 0)),
                 SteelVal::BigNum(n) => Ok(SteelVal::BoolV(n.is_even())),
+                SteelVal::NumV(n) if n.fract() == 0.0 => (*n as i64).is_even().into_steelval(),
                 _ => {
                     stop!(TypeMismatch => format!("even? requires an integer, found: {:?}", &args[0]))
                 }
@@ -259,6 +256,7 @@ impl NumOperations {
             match &args[0] {
                 SteelVal::IntV(n) => Ok(SteelVal::BoolV(n & 1 == 1)),
                 SteelVal::BigNum(n) => Ok(SteelVal::BoolV(n.is_odd())),
+                SteelVal::NumV(n) if n.fract() == 0.0 => (*n as i64).is_odd().into_steelval(),
                 _ => {
                     stop!(TypeMismatch => format!("odd? requires an integer, found: {:?}", &args[0]))
                 }
