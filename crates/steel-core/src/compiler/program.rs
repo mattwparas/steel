@@ -41,10 +41,11 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
         TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.into())),
         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
         TokenType::IntegerLiteral(MaybeBigInt::Small(n)) => Ok(SteelVal::IntV(*n)),
-        // TODO: @Matt - There is unnecessary cloning of big ingegers.
+        // TODO: @Matt - There is unnecessary cloning of big integers.
         TokenType::IntegerLiteral(MaybeBigInt::Big(b)) => b.clone().into_steelval(),
         TokenType::FractionLiteral(n, d) => {
-            // TODO: Parse as Rational32. BigRational incurs extra overhead.
+            // TODO: Parse as `Rational32`. BigRational incurs extra overhead even if
+            // `into_steelval` converts it back into a `Rataional32`.
             BigRational::new(BigInt::from(n.clone()), BigInt::from(d.clone())).into_steelval()
         }
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed

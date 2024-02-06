@@ -753,6 +753,15 @@ mod lexer_tests {
                     span: Span::new(0, 41, None),
                 }],
             ),
+            // The items below are not valid fractions despite containing a /.
+            (
+                "/",
+                &[Token {
+                    ty: Identifier("/"),
+                    source: "/",
+                    span: Span::new(0, 1, None),
+                }],
+            ),
             (
                 "1/",
                 &[Token {
