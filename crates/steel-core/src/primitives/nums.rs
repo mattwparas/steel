@@ -154,7 +154,10 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     ensure_args_are_numbers("/", args)?;
     let negate = |x: &SteelVal| match x {
         SteelVal::NumV(x) => (-x).into_steelval(),
-        SteelVal::IntV(x) => (-x).into_steelval(),
+        SteelVal::IntV(x) => match x.checked_neg() {
+            Some(res) => res.into_steelval(),
+            None => BigInt::from(*x).neg().into_steelval(),
+        },
         SteelVal::FractV(x) => match 0i32.checked_sub(*x.numer()) {
             Some(n) => Rational32::new(n, *x.denom()).into_steelval(),
             None => BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom()))
@@ -162,7 +165,7 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
                 .into_steelval(),
         },
         SteelVal::BigFract(x) => x.as_ref().neg().into_steelval(),
-        SteelVal::BigNum(x) => x.as_ref().neg().into_steelval(),
+        SteelVal::BigNum(x) => x.as_ref().clone().neg().into_steelval(),
         _ => unreachable!(),
     };
     match args {
