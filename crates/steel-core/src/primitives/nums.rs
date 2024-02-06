@@ -393,8 +393,6 @@ impl NumOperations {
         SteelVal::FuncV(multiply_primitive)
     }
 
-    // TODO implement the full numerical tower
-    // For now, only support division into floats
     pub fn divide() -> SteelVal {
         SteelVal::FuncV(divide_primitive)
     }

@@ -44,13 +44,13 @@
 	       (/ 2.0 5 10))
 
 ;; Fraction operations.
-(assert-equal! (/ 4)
+(assert-equal! 1/4
 	       (/ 4))
-(assert-equal! (/ 4)
+(assert-equal! 1/4
 	       (* (/ 8) 2))
-(assert-equal! (/ 7 12)
+(assert-equal! 7/12
 	       (+ (/ 4) (/ 3)))
 (assert-equal! (/ 7.0 12.0)
 	       (+ 0.25 (/ 3)))
-(assert-equal! (/ -4)
+(assert-equal! -1/4
 	       (- (/ 4)))
