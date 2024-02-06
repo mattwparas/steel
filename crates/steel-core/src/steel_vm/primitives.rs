@@ -56,7 +56,6 @@ use crate::{
     rvals::{Result, SteelVal},
     SteelErr,
 };
-use crate::values::lists::List;
 use fxhash::{FxHashMap, FxHashSet};
 use im_rc::HashMap;
 use num::{pow::Pow, BigInt, BigRational, Signed, ToPrimitive};
