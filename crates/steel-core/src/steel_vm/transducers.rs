@@ -541,6 +541,10 @@ impl<'global, 'a> VmCore<'a> {
                                 Ok((iter.next().cloned().unwrap(), iter.next().cloned().unwrap()))
                             }
                         }
+                        // TODO: Attempt to reuse the storage here
+                        SteelVal::Pair(p) => {
+                            Ok((p.car.clone(), p.cdr.clone()))
+                        }
                         other => {
                             stop!(TypeMismatch => format!("Unable to convert: {other} to pair that can be used to construct a hashmap"));
                         }

@@ -74,13 +74,9 @@ mod list_drop_handler {
             // println!("Current depth: {}", DEPTH.with(|x| x.get()));
 
             if obj.strong_count() == 1 {
-                if obj.len() == 0 {
-                    // println!("Early returning");
-                    // DEPTH.with(|x| x.set(x.get() - 1));
+                if obj.is_empty() {
                     return;
                 }
-
-                // println!("Doing stuff...");
 
                 if DROP_BUFFER
                     .try_with(|drop_buffer| {

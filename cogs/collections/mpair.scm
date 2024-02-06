@@ -1,5 +1,7 @@
 ;; Compatible layer for R7RS Mutable pairs.
 
+; (require "steel/result")
+
 (struct mcons (mcar mcdr)
   #:mutable
   #:printer (lambda (obj printer)

@@ -289,8 +289,22 @@ fn tokentype_error_to_parse_error(t: &Token<'_, InternedString>) -> ParseError {
     }
 }
 
+fn strip_shebang_line(input: &str) -> &str {
+    if input.starts_with("#!") {
+        let stripped = input.trim_start_matches("#!");
+        match stripped.char_indices().skip_while(|x| x.1 != '\n').next() {
+            Some((pos, _)) => &stripped[pos..],
+            None => "",
+        }
+    } else {
+        input
+    }
+}
+
 impl<'a> Parser<'a> {
     pub fn new(input: &'a str, source_id: Option<SourceId>) -> Self {
+        let input = strip_shebang_line(input);
+
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
             quote_stack: Vec::new(),
@@ -311,6 +325,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn new_flat(input: &'a str, source_id: Option<SourceId>) -> Self {
+        let input = strip_shebang_line(input);
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
             quote_stack: Vec::new(),
@@ -330,6 +345,7 @@ impl<'a> Parser<'a> {
         source_name: PathBuf,
         source_id: Option<SourceId>,
     ) -> Self {
+        let input = strip_shebang_line(input);
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
             quote_stack: Vec::new(),
@@ -346,6 +362,7 @@ impl<'a> Parser<'a> {
 
     // Attach comments!
     pub fn doc_comment_parser(input: &'a str, source_id: Option<SourceId>) -> Self {
+        let input = strip_shebang_line(input);
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
             quote_stack: Vec::new(),

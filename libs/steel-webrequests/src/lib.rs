@@ -1,3 +1,4 @@
+use abi_stable::std_types::RString;
 use steel::rvals::Custom;
 use steel::{
     declare_module,
@@ -12,6 +13,13 @@ fn create_module() -> FFIModule {
     let mut module = FFIModule::new("steel/web/blocking/requests".to_string());
 
     module
+        .register_fn("client/new", Client::new)
+        .register_fn("client/get", Client::get)
+        .register_fn("client/post", Client::post)
+        .register_fn("client/put", Client::put)
+        .register_fn("client/patch", Client::patch)
+        .register_fn("client/delete", Client::delete)
+        .register_fn("client/head", Client::head)
         .register_fn("get", get)
         .register_fn("post", post)
         .register_fn("put", put)
@@ -39,6 +47,9 @@ fn create_module() -> FFIModule {
 struct BlockingRequest(Option<Request>);
 struct BlockingResponse(Response);
 
+#[derive(Clone)]
+struct Client(ureq::Agent);
+
 enum BlockingError {
     Ureq(ureq::Error),
     ResponseAlreadyUsed,
@@ -47,6 +58,37 @@ enum BlockingError {
 impl Custom for BlockingRequest {}
 impl Custom for BlockingResponse {}
 impl Custom for BlockingError {}
+impl Custom for Client {}
+
+impl Client {
+    fn new() -> Self {
+        Self(ureq::agent())
+    }
+
+    fn get(&self, url: RString) -> BlockingRequest {
+        BlockingRequest(Some(self.0.get(&url)))
+    }
+
+    fn post(&self, url: RString) -> BlockingRequest {
+        BlockingRequest(Some(self.0.post(&url)))
+    }
+
+    fn put(&self, url: RString) -> BlockingRequest {
+        BlockingRequest(Some(self.0.put(&url)))
+    }
+
+    fn patch(&self, url: RString) -> BlockingRequest {
+        BlockingRequest(Some(self.0.patch(&url)))
+    }
+
+    fn delete(&self, url: RString) -> BlockingRequest {
+        BlockingRequest(Some(self.0.delete(&url)))
+    }
+
+    fn head(&self, url: RString) -> BlockingRequest {
+        BlockingRequest(Some(self.0.head(&url)))
+    }
+}
 
 fn get(url: String) -> BlockingRequest {
     BlockingRequest(Some(ureq::get(&url)))

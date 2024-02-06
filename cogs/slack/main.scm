@@ -6,7 +6,6 @@
 
 (define/contract (process-message body)
   (->/c hash? any/c)
-  ;   (displayln body)
 
   (log/info! body)
 
