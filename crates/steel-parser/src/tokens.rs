@@ -1,4 +1,5 @@
 use core::ops;
+use num_bigint::BigInt;
 use std::fmt;
 use TokenType::*;
 
@@ -130,7 +131,7 @@ pub enum TokenType<S> {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum MaybeBigInt {
     Small(isize),
-    Big(num_bigint::BigInt),
+    Big(BigInt),
 }
 
 impl FromStr for MaybeBigInt {
@@ -148,6 +149,15 @@ impl std::fmt::Display for MaybeBigInt {
         match self {
             Self::Small(s) => write!(f, "{s}"),
             Self::Big(b) => write!(f, "{b}"),
+        }
+    }
+}
+
+impl From<MaybeBigInt> for BigInt {
+    fn from(v: MaybeBigInt) -> BigInt {
+        match v {
+            MaybeBigInt::Small(x) => x.into(),
+            MaybeBigInt::Big(x) => x.into(),
         }
     }
 }

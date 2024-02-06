@@ -71,7 +71,7 @@ use futures_util::future::Shared;
 use futures_util::FutureExt;
 
 use crate::values::lists::List;
-use num::{BigInt, Rational32, ToPrimitive};
+use num::{BigInt, BigRational, Rational32, ToPrimitive};
 use steel_parser::tokens::MaybeBigInt;
 
 use self::cycles::{CycleDetector, IterativeDropHandler};
@@ -1213,7 +1213,9 @@ pub enum SteelVal {
     // TODO: This itself, needs to be boxed unfortunately.
     Reference(Rc<OpaqueReference<'static>>),
     // Like IntV but supports larger values.
-    BigNum(Gc<num::BigInt>),
+    BigNum(Gc<BigInt>),
+    // Like FractV but supports larger numerators and denominators.
+    BigFractV(Gc<BigRational>),
 }
 
 impl SteelVal {
@@ -1938,44 +1940,65 @@ pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
         (NumV(l), NumV(r)) => l == r,
         (IntV(l), NumV(r)) | (NumV(r), IntV(l)) => integer_float_equality(*l, *r),
         (FractV(l), FractV(r)) => l == r,
-        (FractV(_), IntV(_))
-        | (IntV(_), FractV(_))
-        | (FractV(_), BigNum(_))
-        | (BigNum(_), FractV(_)) => false,
         (FractV(l), NumV(r)) | (NumV(r), FractV(l)) => l.to_f64().unwrap() == *r,
         (BigNum(l), BigNum(r)) => l == r,
         (BigNum(l), NumV(r)) | (NumV(r), BigNum(l)) => bignum_float_equality(l, *r),
-        // Should be impossible to have an integer and a bignum be the same value
+        (BigFractV(l), BigFractV(r)) => l == r,
+        (BigFractV(l), NumV(r)) | (NumV(r), BigFractV(l)) => l.to_f64().unwrap() == *r,
+        // The below should be impossible as integers/bignums freely convert into each
+        // other. Similar for fract/int/bigfract/bignum.
+        (FractV(_), IntV(_))
+        | (IntV(_), FractV(_))
+        | (FractV(_), BigNum(_))
+        | (BigNum(_), FractV(_))
+        | (FractV(_), BigFractV(_))
+        | (BigFractV(_), FractV(_)) => false,
+        (BigFractV(_), IntV(_))
+        | (IntV(_), BigFractV(_))
+        | (BigFractV(_), BigNum(_))
+        | (BigNum(_), BigFractV(_)) => false,
         (IntV(_), BigNum(_)) | (BigNum(_), IntV(_)) => false,
-
         _ => stop!(TypeMismatch => "= expects two numbers, found: {:?} and {:?}", left, right),
     };
 
     Ok(SteelVal::BoolV(result))
 }
 
+fn partial_cmp_f64(l: &impl ToPrimitive, r: &impl ToPrimitive) -> Option<Ordering> {
+    l.to_f64()?.partial_cmp(&r.to_f64()?)
+}
+
 // TODO add tests
 impl PartialOrd for SteelVal {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        // TODO: Attempt to avoid converting to f64 for cases below as it may lead to precision
+        // loss at tiny and large values.
         match (self, other) {
             (IntV(l), IntV(r)) => l.partial_cmp(r),
-            (IntV(l), NumV(r)) => (*l as f64).partial_cmp(r),
-            // TODO: Compare without converting to f64 to avoid precision loss.
-            (IntV(l), FractV(r)) => (*l as f64).partial_cmp(&r.to_f64().unwrap()),
+            (IntV(l), NumV(r)) => partial_cmp_f64(l, r),
+            (IntV(l), FractV(r)) => partial_cmp_f64(l, r),
+            (IntV(l), BigFractV(r)) => partial_cmp_f64(l, r.as_ref()),
             (IntV(l), BigNum(r)) => BigInt::from(*l).partial_cmp(r),
-            (NumV(l), IntV(r)) => l.partial_cmp(&(*r as f64)),
+            (NumV(l), IntV(r)) => partial_cmp_f64(l, r),
             (NumV(l), NumV(r)) => l.partial_cmp(r),
-            (NumV(l), FractV(r)) => l.partial_cmp(&r.to_f64()?),
-            (NumV(l), BigNum(r)) => l.partial_cmp(&r.to_f64()?),
+            (NumV(l), FractV(r)) => partial_cmp_f64(l, r),
+            (NumV(l), BigFractV(r)) => partial_cmp_f64(l, r.as_ref()),
+            (NumV(l), BigNum(r)) => partial_cmp_f64(l, r.as_ref()),
             (FractV(l), FractV(r)) => l.partial_cmp(&r),
-            // TODO: Compare without converting to f64 to avoid precision loss.
-            (FractV(l), IntV(r)) => l.to_f64()?.partial_cmp(&r.to_f64()?),
+            (FractV(l), IntV(r)) => partial_cmp_f64(l, r),
             (FractV(l), NumV(r)) => l.to_f64()?.partial_cmp(&r),
+            (FractV(l), BigFractV(r)) => partial_cmp_f64(l, r.as_ref()),
             (FractV(l), BigNum(r)) => l.to_f64()?.partial_cmp(&r.to_f64()?),
             (BigNum(l), IntV(r)) => l.as_ref().partial_cmp(&BigInt::from(*r)),
             (BigNum(l), NumV(r)) => l.to_f64()?.partial_cmp(r),
-            (BigNum(l), FractV(r)) => l.to_f64()?.partial_cmp(&r.to_f64()?),
             (BigNum(l), BigNum(r)) => l.as_ref().partial_cmp(r.as_ref()),
+            (BigNum(l), FractV(r)) => partial_cmp_f64(l.as_ref(), r),
+            (BigNum(l), BigFractV(r)) => partial_cmp_f64(l.as_ref(), r.as_ref()),
+            (BigFractV(l), BigFractV(r)) => l.as_ref().partial_cmp(r.as_ref()),
+            (BigFractV(l), IntV(r)) => partial_cmp_f64(l.as_ref(), r),
+            (BigFractV(l), NumV(r)) => partial_cmp_f64(l.as_ref(), r),
+            (BigFractV(l), FractV(r)) => partial_cmp_f64(l.as_ref(), r),
+            (BigFractV(l), BigNum(r)) => partial_cmp_f64(l.as_ref(), r.as_ref()),
             (StringV(s), StringV(o)) => s.partial_cmp(o),
             (CharV(l), CharV(r)) => l.partial_cmp(r),
             _ => None, // unimplemented for other types

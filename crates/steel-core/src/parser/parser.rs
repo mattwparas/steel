@@ -1,7 +1,7 @@
 use crate::rvals::{IntoSteelVal, SteelString};
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 
-use num::Rational32;
+use num::{BigRational, Rational32};
 use std::borrow::Cow;
 use std::str;
 use std::sync::{Arc, Mutex};
@@ -165,10 +165,10 @@ impl TryFrom<SyntaxObject> for SteelVal {
             FractionLiteral(MaybeBigInt::Small(n), MaybeBigInt::Small(d)) => {
                 match (i32::try_from(n), i32::try_from(d)) {
                     (Ok(n), Ok(d)) => Rational32::new(n, d).into_steelval(),
-                    _ => todo!(),
+                    _ => BigRational::new(n.into(), d.into()).into_steelval(),
                 }
             }
-            FractionLiteral(_, _) => todo!(),
+            FractionLiteral(n, d) => BigRational::new(n.into(), d.into()).into_steelval(),
             StringLiteral(x) => Ok(StringV(x.into())),
             Keyword(x) => Ok(SymbolV(x.into())),
             QuoteTick => {

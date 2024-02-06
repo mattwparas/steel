@@ -193,6 +193,12 @@ impl TryFrom<&SteelVal> for ExprKind {
                         MaybeBigInt::Small(*x.denom() as isize),
                     ),
                 )))),
+                BigFractV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                    FractionLiteral(
+                        MaybeBigInt::Big(x.numer().clone()),
+                        MaybeBigInt::Big(x.denom().clone()),
+                    ),
+                )))),
                 BigNum(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                     IntegerLiteral(MaybeBigInt::Big(x.unwrap())),
                 )))),

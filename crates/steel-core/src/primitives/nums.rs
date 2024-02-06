@@ -1,14 +1,18 @@
 use std::ops::Neg;
 
-use num::{BigInt, CheckedAdd, CheckedMul, Integer, Rational32, ToPrimitive};
+use num::{BigInt, BigRational, CheckedAdd, CheckedMul, Integer, Rational32, ToPrimitive};
 
-use crate::rvals::{Custom, IntoSteelVal, Result, SteelVal};
+use crate::rvals::{IntoSteelVal, Result, SteelVal};
 use crate::stop;
 
 fn ensure_args_are_numbers(op: &str, args: &[SteelVal]) -> Result<()> {
     for arg in args {
         match arg {
-            SteelVal::NumV(_) | SteelVal::FractV(_) | SteelVal::IntV(_) | SteelVal::BigNum(_) => {}
+            SteelVal::NumV(_)
+            | SteelVal::FractV(_)
+            | SteelVal::IntV(_)
+            | SteelVal::BigNum(_)
+            | SteelVal::BigFractV(_) => {}
             v => stop!(TypeMismatch => "{op} expects a number, found: {:?}", v),
         };
     }
@@ -29,6 +33,8 @@ fn multiply_2_impl(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
         (SteelVal::NumV(x), SteelVal::FractV(y)) | (SteelVal::FractV(y), SteelVal::NumV(x)) => {
             (x * y.to_f64().unwrap()).into_steelval()
         }
+        (SteelVal::NumV(x), SteelVal::BigFractV(y))
+        | (SteelVal::BigFractV(y), SteelVal::NumV(x)) => (x * y.to_f64().unwrap()).into_steelval(),
         (SteelVal::IntV(x), SteelVal::IntV(y)) => match x.checked_mul(y) {
             Some(res) => res.into_steelval(),
             None => {
@@ -44,19 +50,46 @@ fn multiply_2_impl(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
             match i32::try_from(*x) {
                 Ok(x) => match y.checked_mul(&Rational32::new(x, 1)) {
                     Some(res) => res.into_steelval(),
-                    None => unimplemented!("BigFractions are not yet supported"),
+                    None => {
+                        let mut res =
+                            BigRational::new(BigInt::from(*y.numer()), BigInt::from(*y.denom()));
+                        res *= BigInt::from(x);
+                        res.into_steelval()
+                    }
                 },
-                Err(_) => unimplemented!("BigFractions are not yet supported"),
+                Err(_) => {
+                    let mut res =
+                        BigRational::new(BigInt::from(*y.numer()), BigInt::from(*y.denom()));
+                    res *= BigInt::from(*x);
+                    res.into_steelval()
+                }
             }
+        }
+        (SteelVal::IntV(x), SteelVal::BigFractV(y))
+        | (SteelVal::BigFractV(y), SteelVal::IntV(x)) => {
+            let mut res = y.as_ref().clone();
+            res *= BigInt::from(*x);
+            res.into_steelval()
         }
         (SteelVal::FractV(x), SteelVal::FractV(y)) => match x.checked_mul(y) {
             Some(res) => res.into_steelval(),
             None => {
-                unimplemented!("BigFractions are not yet supported")
+                let mut res = BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom()));
+                res *= BigRational::new(BigInt::from(*y.numer()), BigInt::from(*y.denom()));
+                res.into_steelval()
             }
         },
-        (SteelVal::FractV(_), SteelVal::BigNum(_)) | (SteelVal::BigNum(_), SteelVal::FractV(_)) => {
-            unimplemented!("BigFractions are not yet supported")
+        (SteelVal::FractV(x), SteelVal::BigNum(y)) | (SteelVal::BigNum(y), SteelVal::FractV(x)) => {
+            let mut res = BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom()));
+            res *= y.as_ref();
+            res.into_steelval()
+        }
+        (SteelVal::BigFractV(x), SteelVal::BigFractV(y)) => {
+            (x.as_ref() + y.as_ref()).into_steelval()
+        }
+        (SteelVal::BigFractV(x), SteelVal::BigNum(y))
+        | (SteelVal::BigNum(y), SteelVal::BigFractV(x)) => {
+            (x.as_ref() + y.as_ref()).into_steelval()
         }
         (SteelVal::BigNum(x), SteelVal::BigNum(y)) => (x.as_ref() + y.as_ref()).into_steelval(),
         _ => unreachable!(),
@@ -101,6 +134,10 @@ pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
             },
             SteelVal::NumV(n) => n.recip().into_steelval(),
             SteelVal::FractV(f) => f.recip().into_steelval(),
+            SteelVal::BigFractV(f) => f.recip().into_steelval(),
+            SteelVal::BigNum(n) => BigRational::new(1.into(), n.as_ref().clone())
+                .recip()
+                .into_steelval(),
             unexpected => {
                 stop!(TypeMismatch => "/ expects a number, but found: {:?}", unexpected)
             }
@@ -126,8 +163,11 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
         SteelVal::IntV(x) => (-x).into_steelval(),
         SteelVal::FractV(x) => match 0i32.checked_sub(*x.numer()) {
             Some(n) => Rational32::new(n, *x.denom()).into_steelval(),
-            None => todo!(),
+            None => BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom()))
+                .neg()
+                .into_steelval(),
         },
+        SteelVal::BigFractV(x) => x.as_ref().neg().into_steelval(),
         SteelVal::BigNum(x) => x.as_ref().neg().into_steelval(),
         _ => unreachable!(),
     };
@@ -165,20 +205,44 @@ pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
         (SteelVal::NumV(x), SteelVal::FractV(y)) | (SteelVal::FractV(y), SteelVal::NumV(x)) => {
             (x + y.to_f64().unwrap()).into_steelval()
         }
+        (SteelVal::NumV(x), SteelVal::BigFractV(y))
+        | (SteelVal::BigFractV(y), SteelVal::NumV(x)) => (x + y.to_f64().unwrap()).into_steelval(),
         // Cases that interact with `FractV`.
         (SteelVal::FractV(x), SteelVal::FractV(y)) => (x + y).into_steelval(),
         (SteelVal::FractV(x), SteelVal::IntV(y)) | (SteelVal::IntV(y), SteelVal::FractV(x)) => {
             match i32::try_from(*y) {
                 Ok(y) => match x.checked_add(&Rational32::new(y, 1)) {
                     Some(res) => res.into_steelval(),
-                    None => todo!(),
+                    None => {
+                        let res =
+                            BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom()))
+                                * BigInt::from(y);
+                        res.into_steelval()
+                    }
                 },
-                Err(_) => todo!(),
+                Err(_) => {
+                    let res = BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom()))
+                        * BigInt::from(*y);
+                    res.into_steelval()
+                }
             }
         }
-        (SteelVal::FractV(_x), SteelVal::BigNum(_y))
-        | (SteelVal::BigNum(_y), SteelVal::FractV(_x)) => {
-            todo!()
+        (SteelVal::FractV(x), SteelVal::BigNum(y)) | (SteelVal::BigNum(y), SteelVal::FractV(x)) => {
+            let res =
+                BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom())) * y.as_ref();
+            res.into_steelval()
+        }
+        // Cases that interact with `BigFractV`. Hopefully not too common, for performance reasons.
+        (SteelVal::BigFractV(x), SteelVal::BigFractV(y)) => {
+            (x.as_ref() + y.as_ref()).into_steelval()
+        }
+        (SteelVal::BigFractV(x), SteelVal::IntV(y))
+        | (SteelVal::IntV(y), SteelVal::BigFractV(x)) => {
+            (x.as_ref() + BigInt::from(*y)).into_steelval()
+        }
+        (SteelVal::BigFractV(x), SteelVal::BigNum(y))
+        | (SteelVal::BigNum(y), SteelVal::BigFractV(x)) => {
+            (x.as_ref() * y.as_ref()).into_steelval()
         }
         // Remaining cases that interact with `BigNum`. Probably not too common.
         (SteelVal::BigNum(x), SteelVal::BigNum(y)) => {
@@ -347,11 +411,12 @@ impl NumOperations {
     }
 }
 
-impl Custom for num::BigRational {}
-
 impl IntoSteelVal for num::BigInt {
     fn into_steelval(self) -> Result<SteelVal> {
-        Ok(SteelVal::BigNum(crate::gc::Gc::new(self)))
+        match self.to_isize() {
+            Some(i) => i.into_steelval(),
+            None => Ok(SteelVal::BigNum(crate::gc::Gc::new(self))),
+        }
     }
 }
 
