@@ -1,5 +1,3 @@
-use std::{cell::RefCell, cmp::Ordering};
-
 use super::{
     builtin::BuiltInModule,
     cache::WeakMemoizationTable,
@@ -7,6 +5,7 @@ use super::{
     register_fn::RegisterFn,
     vm::{get_test_mode, list_modules, set_test_mode, VmCore},
 };
+use crate::values::lists::List;
 use crate::{
     gc::Gc,
     parser::{
@@ -19,7 +18,7 @@ use crate::{
         hashmaps::{HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,
         lists::{list_module, UnRecoverableResult},
-        nums::{quotient, SPECIAL_ADD_DEFINITION},
+        nums::{quotient, ADD_PRIMITIVE_DEFINITION},
         port_module,
         process::process_module,
         random::random_module,
@@ -57,12 +56,14 @@ use crate::{
     rvals::{Result, SteelVal},
     SteelErr,
 };
-
-use crate::values::lists::List;
 use fxhash::{FxHashMap, FxHashSet};
 use im_rc::HashMap;
-use num::{Signed, ToPrimitive};
+use num::{pow::Pow, BigInt, BigRational, Signed, ToPrimitive};
 use once_cell::sync::Lazy;
+use std::{cell::RefCell, cmp::Ordering};
+
+#[cfg(feature = "web")]
+use crate::primitives::web::requests::requests_module;
 
 macro_rules! ensure_tonicity_two {
     ($check_fn:expr) => {{
@@ -847,8 +848,10 @@ fn stream_module() -> BuiltInModule {
 #[steel_derive::function(name = "exact->inexact", constant = true)]
 fn exact_to_inexact(number: &SteelVal) -> Result<SteelVal> {
     match number {
-        SteelVal::IntV(i) => Ok(SteelVal::NumV(*i as f64)),
-        SteelVal::NumV(n) => Ok(SteelVal::NumV(*n)),
+        SteelVal::IntV(i) => (*i as f64).into_steelval(),
+        SteelVal::FractV(f) => f.to_f64().unwrap().into_steelval(),
+        SteelVal::BigFract(f) => f.to_f64().unwrap().into_steelval(),
+        SteelVal::NumV(n) => n.into_steelval(),
         SteelVal::BigNum(n) => Ok(SteelVal::NumV(n.to_f64().unwrap())),
         _ => stop!(TypeMismatch => "exact->inexact expects a number type, found: {}", number),
     }
@@ -859,8 +862,15 @@ fn exact_to_inexact(number: &SteelVal) -> Result<SteelVal> {
 //   x : real?
 // Returns the integer closest to x, resolving ties in favor of an even number, but +inf.0, -inf.0, and +nan.0 round to themselves.
 #[steel_derive::function(name = "round", constant = true)]
-fn round(number: f64) -> f64 {
-    number.round()
+fn round(number: &SteelVal) -> Result<SteelVal> {
+    match number {
+        SteelVal::IntV(i) => i.into_steelval(),
+        SteelVal::NumV(n) => n.round().into_steelval(),
+        SteelVal::FractV(f) => f.round().into_steelval(),
+        SteelVal::BigFract(f) => f.round().into_steelval(),
+        SteelVal::BigNum(n) => Ok(SteelVal::BigNum(n.clone())),
+        _ => stop!(TypeMismatch => "round expects a number type, found: {}", number),
+    }
 }
 
 /// Returns the absolute value of the given input
@@ -869,21 +879,67 @@ fn abs(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(i) => Ok(SteelVal::IntV(i.abs())),
         SteelVal::NumV(n) => Ok(SteelVal::NumV(n.abs())),
+        SteelVal::FractV(f) => f.abs().into_steelval(),
+        SteelVal::BigFract(f) => f.abs().into_steelval(),
         SteelVal::BigNum(n) => n.abs().into_steelval(),
         _ => stop!(TypeMismatch => "abs expects a number type, found: {}", number),
     }
 }
 
+// TODO: Add support for BigNum.
 #[steel_derive::function(name = "expt", constant = true)]
 fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     match (left, right) {
         (SteelVal::IntV(l), SteelVal::IntV(r)) if *r < (u32::MAX as isize) => {
-            Ok(SteelVal::IntV(l.pow(*r as u32)))
+            l.pow(*r as u32).into_steelval()
         }
-        (SteelVal::NumV(l), SteelVal::IntV(r)) if *r < (i32::MAX as isize) => {
-            Ok(SteelVal::NumV(l.powi(*r as i32)))
+        (SteelVal::IntV(l), SteelVal::NumV(r)) => (*l as f64).powf(*r).into_steelval(),
+        (SteelVal::IntV(l), SteelVal::FractV(r)) => {
+            (*l as f64).powf(r.to_f64().unwrap()).into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::BigFract(r)) => {
+            (*l as f64).powf(r.to_f64().unwrap()).into_steelval()
         }
         (SteelVal::NumV(l), SteelVal::NumV(r)) => Ok(SteelVal::NumV(l.powf(*r))),
+        (SteelVal::NumV(l), SteelVal::IntV(r)) if *r < (i32::MAX as isize) => {
+            l.powi(*r as i32).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::FractV(r)) => Ok(SteelVal::NumV(l.powf(r.to_f64().unwrap()))),
+        (SteelVal::NumV(l), SteelVal::BigFract(r)) => {
+            Ok(SteelVal::NumV(l.powf(r.to_f64().unwrap())))
+        }
+        (SteelVal::FractV(l), SteelVal::FractV(r)) => l
+            .to_f64()
+            .unwrap()
+            .powf(r.to_f64().unwrap())
+            .into_steelval(),
+        (SteelVal::FractV(l), SteelVal::NumV(r)) => l.to_f64().unwrap().powf(*r).into_steelval(),
+        (SteelVal::FractV(l), SteelVal::IntV(r)) => match i32::try_from(*r) {
+            Ok(r) => l.pow(r).into_steelval(),
+            Err(_) => BigRational::new((*l.numer()).into(), (*l.denom()).into())
+                .pow(BigInt::from(*r))
+                .into_steelval(),
+        },
+        (SteelVal::FractV(l), SteelVal::BigFract(r)) => l
+            .to_f64()
+            .unwrap()
+            .powf(r.to_f64().unwrap())
+            .into_steelval(),
+        (SteelVal::BigFract(l), SteelVal::FractV(r)) => l
+            .to_f64()
+            .unwrap()
+            .powf(r.to_f64().unwrap())
+            .into_steelval(),
+        (SteelVal::BigFract(l), SteelVal::NumV(r)) => l.to_f64().unwrap().powf(*r).into_steelval(),
+        (SteelVal::BigFract(l), SteelVal::IntV(r)) => match i32::try_from(*r) {
+            Ok(r) => l.as_ref().pow(r).into_steelval(),
+            Err(_) => l.as_ref().clone().pow(BigInt::from(*r)).into_steelval(),
+        },
+        (SteelVal::BigFract(l), SteelVal::BigFract(r)) => l
+            .to_f64()
+            .unwrap()
+            .powf(r.to_f64().unwrap())
+            .into_steelval(),
         _ => {
             stop!(TypeMismatch => "expt expected two numbers")
         }
@@ -894,11 +950,17 @@ fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
 #[steel_derive::function(name = "exp", constant = true)]
 fn exp(left: &SteelVal) -> Result<SteelVal> {
     match left {
-        SteelVal::IntV(i) if *i == 0 => Ok(SteelVal::IntV(1)),
+        SteelVal::IntV(0) => Ok(SteelVal::IntV(1)),
         SteelVal::IntV(l) if *l < i32::MAX as isize => {
             Ok(SteelVal::NumV(std::f64::consts::E.powi(*l as i32)))
         }
         SteelVal::NumV(n) => Ok(SteelVal::NumV(std::f64::consts::E.powf(*n))),
+        SteelVal::FractV(f) => std::f64::consts::E
+            .powf(f.to_f64().unwrap())
+            .into_steelval(),
+        SteelVal::BigFract(f) => std::f64::consts::E
+            .powf(f.to_f64().unwrap())
+            .into_steelval(),
         _ => {
             stop!(Generic => "integer power too large to be used for exponent")
         }
@@ -926,6 +988,7 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
         (SteelVal::IntV(arg), SteelVal::IntV(base)) => Ok(SteelVal::IntV(arg.ilog(*base) as isize)),
         (SteelVal::NumV(arg), SteelVal::NumV(n)) => Ok(SteelVal::NumV(arg.log(*n))),
         (SteelVal::NumV(arg), SteelVal::IntV(base)) => Ok(SteelVal::NumV(arg.log(*base as f64))),
+        // TODO: Support BigNum, FractV, and BigFract.
         _ => {
             stop!(TypeMismatch => "log expects one or two numbers, found: {} and {}", first, base);
         }
@@ -935,7 +998,7 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
 fn number_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/numbers");
     module
-        .register_native_fn_definition(SPECIAL_ADD_DEFINITION)
+        .register_native_fn_definition(ADD_PRIMITIVE_DEFINITION)
         .register_value("f+", NumOperations::float_add())
         .register_value("*", NumOperations::multiply())
         .register_value("/", NumOperations::divide())

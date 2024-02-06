@@ -4,7 +4,6 @@ use crate::core::instructions::pretty_print_dense_instructions;
 use crate::primitives::lists::cons;
 use crate::primitives::lists::new as new_list;
 use crate::primitives::lists::steel_car;
-use crate::primitives::nums::special_add;
 use crate::steel_vm::primitives::steel_set_box;
 use crate::steel_vm::primitives::steel_set_box_mutable;
 use crate::steel_vm::primitives::steel_unbox;
@@ -12,6 +11,7 @@ use crate::steel_vm::primitives::steel_unbox_mutable;
 use crate::values::closed::Heap;
 use crate::values::functions::SerializedLambda;
 use crate::values::structs::UserDefinedStruct;
+use crate::values::transducers::Reducer;
 use crate::{
     compiler::constants::ConstantMap,
     core::{instructions::DenseInstruction, opcode::OpCode},
@@ -23,7 +23,6 @@ use crate::{
     steel_vm::primitives::{equality_primitive, lte_primitive},
     values::transducers::Transducers,
 };
-use crate::{primitives::nums::add_primitive_faster, values::transducers::Reducer};
 
 use crate::{
     env::Env,
@@ -4712,7 +4711,7 @@ impl OpCodeOccurenceProfiler {
             | OpCode::TCOJMP
             | OpCode::POPPURE
             | OpCode::LTEIMMEDIATEIF
-            // | OpCode::FUNC 
+            // | OpCode::FUNC
             => {
 
                 let block_pattern = BlockPattern {
@@ -5886,7 +5885,7 @@ fn list_handler_no_stack(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
 
 // OpCode::ADD
 fn add_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    handler_inline_primitive_payload!(ctx, special_add, payload);
+    handler_inline_primitive_payload!(ctx, add_primitive, payload);
     Ok(())
 }
 
