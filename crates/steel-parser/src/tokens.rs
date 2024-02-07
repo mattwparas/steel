@@ -214,7 +214,6 @@ impl<'a> TokenType<&'a str> {
             CloseParen => CloseParen,
             CharacterLiteral(x) => CharacterLiteral(x),
             BooleanLiteral(x) => BooleanLiteral(x),
-
             NumberLiteral(x) => NumberLiteral(x),
             IntegerLiteral(x) => IntegerLiteral(x),
             FractionLiteral(n, d) => FractionLiteral(n, d),

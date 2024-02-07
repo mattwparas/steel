@@ -1591,10 +1591,12 @@ impl Hash for SteelVal {
             BoolV(b) => b.hash(state),
             NumV(n) => n.to_string().hash(state),
             IntV(i) => i.hash(state),
+            FractV(f) => f.hash(state),
             CharV(c) => c.hash(state),
             ListV(l) => l.hash(state),
             CustomStruct(s) => s.hash(state),
             BigNum(n) => n.hash(state),
+            BigFract(f) => f.hash(state),
             // Pair(cell) => {
             //     cell.hash(state);
             // }
@@ -1618,9 +1620,8 @@ impl Hash for SteelVal {
             HashSetV(hs) => hs.hash(state),
             SyntaxObject(s) => s.raw.hash(state),
             _ => {
-                println!("Trying to hash: {self:?}");
-                unimplemented!()
-            } // Promise(_) => unimplemented!(),
+                unimplemented!("Attempted to has unsupported value: {self:?}")
+            }
         }
     }
 }

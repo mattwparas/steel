@@ -17,6 +17,7 @@ use crate::{
     rvals::IntoSteelVal,
 };
 
+use num::{BigInt, BigRational, Rational32};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, convert::TryInto, rc::Rc, time::SystemTime};
 use steel_parser::tokens::MaybeBigInt;
@@ -40,8 +41,18 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
         TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.into())),
         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
         TokenType::IntegerLiteral(MaybeBigInt::Small(n)) => Ok(SteelVal::IntV(*n)),
-        // TODO: @Matt - This doesn't need to happen at all. It will just lead to unnecessary cloning.
+        // TODO: @Matt - There is unnecessary cloning of BigInt.
         TokenType::IntegerLiteral(MaybeBigInt::Big(b)) => b.clone().into_steelval(),
+        TokenType::FractionLiteral(MaybeBigInt::Small(n), MaybeBigInt::Small(d)) => {
+            match (i32::try_from(*n), i32::try_from(*d)) {
+                (Ok(n), Ok(d)) => Rational32::new(n, d).into_steelval(),
+                _ => BigRational::new(BigInt::from(n.clone()), BigInt::from(d.clone()))
+                    .into_steelval(),
+            }
+        }
+        TokenType::FractionLiteral(n, d) => {
+            BigRational::new(BigInt::from(n.clone()), BigInt::from(d.clone())).into_steelval()
+        }
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
         TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
         what => {
@@ -120,7 +131,6 @@ pub fn specialize_constants(instructions: &mut [Instruction]) -> Result<()> {
                 ..
             }) => {
                 let value = eval_atom(syn)?;
-
                 let opcode = match &value {
                     SteelVal::IntV(0) => OpCode::LOADINT0,
                     SteelVal::IntV(1) => OpCode::LOADINT1,

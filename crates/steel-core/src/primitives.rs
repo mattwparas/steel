@@ -19,7 +19,7 @@ mod utils;
 pub mod vectors;
 
 pub use lists::UnRecoverableResult;
-use num::{BigRational, Rational32, ToPrimitive};
+use num::{BigInt, BigRational, Rational32, ToPrimitive};
 
 use crate::values::closed::HeapRef;
 use crate::values::lists::List;
@@ -261,10 +261,20 @@ impl IntoSteelVal for Rational32 {
     }
 }
 
+impl IntoSteelVal for BigInt {
+    fn into_steelval(self) -> Result<SteelVal, SteelErr> {
+        match self.to_isize() {
+            Some(i) => i.into_steelval(),
+            None => Ok(SteelVal::BigNum(crate::gc::Gc::new(self))),
+        }
+    }
+}
+
 impl IntoSteelVal for BigRational {
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         if self.is_integer() {
-            return Ok(SteelVal::BigNum(Gc::new(self.numer().clone())));
+            let (n, _) = self.into();
+            return n.into_steelval();
         }
         match (self.numer().to_i32(), self.denom().to_i32()) {
             (Some(n), Some(d)) => Rational32::new(n, d).into_steelval(),

@@ -84,10 +84,10 @@ fn multiply_2_impl(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
             res *= y.as_ref();
             res.into_steelval()
         }
-        (SteelVal::BigFract(x), SteelVal::BigFract(y)) => (x.as_ref() + y.as_ref()).into_steelval(),
+        (SteelVal::BigFract(x), SteelVal::BigFract(y)) => (x.as_ref() * y.as_ref()).into_steelval(),
         (SteelVal::BigFract(x), SteelVal::BigNum(y))
-        | (SteelVal::BigNum(y), SteelVal::BigFract(x)) => (x.as_ref() + y.as_ref()).into_steelval(),
-        (SteelVal::BigNum(x), SteelVal::BigNum(y)) => (x.as_ref() + y.as_ref()).into_steelval(),
+        | (SteelVal::BigNum(y), SteelVal::BigFract(x)) => (x.as_ref() * y.as_ref()).into_steelval(),
+        (SteelVal::BigNum(x), SteelVal::BigNum(y)) => (x.as_ref() * y.as_ref()).into_steelval(),
         _ => unreachable!(),
     }
 }
@@ -393,23 +393,12 @@ impl NumOperations {
         SteelVal::FuncV(multiply_primitive)
     }
 
-    // TODO implement the full numerical tower
-    // For now, only support division into floats
     pub fn divide() -> SteelVal {
         SteelVal::FuncV(divide_primitive)
     }
 
     pub fn subtract() -> SteelVal {
         SteelVal::FuncV(subtract_primitive)
-    }
-}
-
-impl IntoSteelVal for num::BigInt {
-    fn into_steelval(self) -> Result<SteelVal> {
-        match self.to_isize() {
-            Some(i) => i.into_steelval(),
-            None => Ok(SteelVal::BigNum(crate::gc::Gc::new(self))),
-        }
     }
 }
 
