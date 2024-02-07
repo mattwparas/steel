@@ -16,6 +16,8 @@
 	       (+ 1 2 3.0 4))
 (assert-equal! 7/12
 	       (+ 1/4 1/3))
+(assert-equal! 120.0
+	       (+ 1e2 2e1))
 ;; Float + Fraction is promoted to Float.
 (assert-equal! (/ 7.0 12.0)
 	       (+ 0.25 1/3))

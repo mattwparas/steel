@@ -10,10 +10,13 @@ description = "Parser for use within steel"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serde = { version = "1.0.152", features = ["derive", "rc"] }
-serde_derive = "1.0.152"
-num-bigint = { version = "0.4.0", features = ["serde"] }
+fxhash = "0.2.1"
 lasso = { version = "0.7.2", features = ["multi-threaded", "serialize"] }
+num-bigint = { version = "0.4.0", features = ["serde"] }
 once_cell = "1.18.0"
 pretty = "0.12.1"
-fxhash = "0.2.1"
+serde = { version = "1.0.152", features = ["derive", "rc"] }
+serde_derive = "1.0.152"
+
+[dev-dependencies]
+pretty_assertions = "1.4" # Only used by unit tests.

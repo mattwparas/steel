@@ -208,11 +208,18 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_number(&mut self) -> TokenType<&'a str> {
+        // Tracks if 'e' or 'E' has been encountered. This is used for scientific notation. For
+        // example: 1.43E2 is equivalent to 1.43 * 10^2.
+        let mut has_e = false;
         while let Some(&c) = self.chars.peek() {
             match c {
                 c if c.is_numeric() => self.eat(),
                 '(' | ')' | '[' | ']' => break,
                 '.' | '/' => break,
+                'e' | 'E' => {
+                    has_e = true;
+                    break;
+                }
                 c if c.is_whitespace() => break,
                 _ => {
                     self.eat();
@@ -221,11 +228,15 @@ impl<'a> Lexer<'a> {
             };
         }
         match self.chars.peek().copied() {
-            Some('.') => {
+            Some('.') | Some('e') | Some('E') => {
                 self.eat();
                 while let Some(&c) = self.chars.peek() {
                     match c {
                         c if c.is_numeric() => {
+                            self.eat();
+                        }
+                        'e' | 'E' if !has_e => {
+                            has_e = true;
                             self.eat();
                         }
                         '(' | '[' | ')' | ']' => break,
@@ -236,7 +247,11 @@ impl<'a> Lexer<'a> {
                         }
                     }
                 }
-                TokenType::NumberLiteral(self.slice().parse().unwrap())
+                let text = self.slice();
+                match text.chars().last() {
+                    Some('e') | Some('E') => self.read_word(),
+                    _ => TokenType::NumberLiteral(text.parse().unwrap()),
+                }
             }
             Some('/') => {
                 let numerator_text = self.slice();
@@ -495,6 +510,7 @@ mod lexer_tests {
     use super::*;
     use crate::span::Span;
     use crate::tokens::{MaybeBigInt, TokenType::*};
+    use pretty_assertions::assert_eq;
 
     // TODO: Figure out why this just cause an infinite loop when parsing it?
     #[test]
@@ -672,62 +688,63 @@ mod lexer_tests {
 
     #[test]
     fn test_number() {
-        let mut s = TokenStream::new("0 -0 -1.2 +2.3 999 1.", true, None);
+        let got: Vec<_> =
+            TokenStream::new("0 -0 -1.2 +2.3 999 1. 1e2 1E2 1.2e2 1.2E2", true, None).collect();
         assert_eq!(
-            s.next(),
-            Some(Token {
-                ty: IntegerLiteral(MaybeBigInt::Small(0)),
-                source: "0",
-                span: Span::new(0, 1, None),
-            })
+            got.as_slice(),
+            &[
+                Token {
+                    ty: IntegerLiteral(MaybeBigInt::Small(0)),
+                    source: "0",
+                    span: Span::new(0, 1, None),
+                },
+                Token {
+                    ty: IntegerLiteral(MaybeBigInt::Small(0)),
+                    source: "-0",
+                    span: Span::new(2, 4, None),
+                },
+                Token {
+                    ty: NumberLiteral(-1.2),
+                    source: "-1.2",
+                    span: Span::new(5, 9, None),
+                },
+                Token {
+                    ty: NumberLiteral(2.3),
+                    source: "+2.3",
+                    span: Span::new(10, 14, None),
+                },
+                Token {
+                    ty: IntegerLiteral(MaybeBigInt::Small(999)),
+                    source: "999",
+                    span: Span::new(15, 18, None),
+                },
+                Token {
+                    ty: NumberLiteral(1.0),
+                    source: "1.",
+                    span: Span::new(19, 21, None),
+                },
+                Token {
+                    ty: NumberLiteral(100.0),
+                    source: "1e2",
+                    span: Span::new(22, 25, None),
+                },
+                Token {
+                    ty: NumberLiteral(100.0),
+                    source: "1E2",
+                    span: Span::new(26, 29, None),
+                },
+                Token {
+                    ty: NumberLiteral(120.0),
+                    source: "1.2e2",
+                    span: Span::new(30, 35, None),
+                },
+                Token {
+                    ty: NumberLiteral(120.0),
+                    source: "1.2E2",
+                    span: Span::new(36, 41, None),
+                },
+            ]
         );
-
-        assert_eq!(
-            s.next(),
-            Some(Token {
-                ty: IntegerLiteral(MaybeBigInt::Small(0)),
-                source: "-0",
-                span: Span::new(2, 4, None),
-            })
-        );
-
-        assert_eq!(
-            s.next(),
-            Some(Token {
-                ty: NumberLiteral(-1.2),
-                source: "-1.2",
-                span: Span::new(5, 9, None),
-            })
-        );
-
-        assert_eq!(
-            s.next(),
-            Some(Token {
-                ty: NumberLiteral(2.3),
-                source: "+2.3",
-                span: Span::new(10, 14, None),
-            })
-        );
-
-        assert_eq!(
-            s.next(),
-            Some(Token {
-                ty: IntegerLiteral(MaybeBigInt::Small(999)),
-                source: "999",
-                span: Span::new(15, 18, None),
-            })
-        );
-
-        assert_eq!(
-            s.next(),
-            Some(Token {
-                ty: NumberLiteral(1.0),
-                source: "1.",
-                span: Span::new(19, 21, None),
-            })
-        );
-
-        assert_eq!(s.next(), None);
     }
 
     #[test]
@@ -740,6 +757,31 @@ mod lexer_tests {
                     source: "1/4",
                     span: Span::new(0, 3, None),
                 }],
+            ),
+            (
+                "(1/4 1/3)",
+                &[
+                    Token {
+                        ty: OpenParen,
+                        source: "(",
+                        span: Span::new(0, 1, None),
+                    },
+                    Token {
+                        ty: FractionLiteral(MaybeBigInt::Small(1), MaybeBigInt::Small(4)),
+                        source: "1/4",
+                        span: Span::new(1, 4, None),
+                    },
+                    Token {
+                        ty: FractionLiteral(MaybeBigInt::Small(1), MaybeBigInt::Small(3)),
+                        source: "1/3",
+                        span: Span::new(5, 8, None),
+                    },
+                    Token {
+                        ty: CloseParen,
+                        source: ")",
+                        span: Span::new(8, 9, None),
+                    },
+                ],
             ),
             (
                 "11111111111111111111/22222222222222222222",
@@ -814,45 +856,27 @@ mod lexer_tests {
 
     #[test]
     fn test_string() {
-        let mut s = TokenStream::new(r#" "" "Foo bar" "\"\\" "#, true, None);
-
+        let got: Vec<_> = TokenStream::new(r#" "" "Foo bar" "\"\\" "#, true, None).collect();
         assert_eq!(
-            s.next(),
-            Some(Token {
-                ty: StringLiteral("".to_owned()),
-                source: "\"\"",
-                span: Span::new(1, 3, None),
-            })
+            got.as_slice(),
+            &[
+                Token {
+                    ty: StringLiteral(r#""#.to_string()),
+                    source: r#""""#,
+                    span: Span::new(1, 3, None),
+                },
+                Token {
+                    ty: StringLiteral(r#"Foo bar"#.to_string()),
+                    source: r#""Foo bar""#,
+                    span: Span::new(4, 13, None),
+                },
+                Token {
+                    ty: StringLiteral(r#""\"#.to_string()),
+                    source: r#""\"\\""#,
+                    span: Span::new(14, 20, None),
+                },
+            ]
         );
-
-        assert_eq!(
-            s.next(),
-            Some(Token {
-                ty: StringLiteral("Foo bar".to_owned()),
-                source: "\"Foo bar\"",
-                span: Span::new(4, 13, None),
-            })
-        );
-
-        // TODO come check out this test
-        // assert_eq!(
-        //     s.next(),
-        //     Some(Token {
-        //         ty: StringLiteral(r#""\"\\""#.to_owned()),
-        //         source: r#""\"\\""#,
-        //         span: Span::new(14, 20, None),
-        //     })
-        // );
-        // assert_eq!(
-        //     s.next(),
-        //     Some(Token {
-        //         ty: Error,
-        //         source: "\"\\\"",
-        //         span: Span::new(14, 17, None),
-        //     })
-        // );
-
-        // assert_eq!(s.next(), None);
     }
 
     #[test]
