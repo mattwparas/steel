@@ -1,19 +1,13 @@
+use crate::parser::SourceId;
+use crate::span::Span;
 use core::ops;
 use num_bigint::BigInt;
-use std::fmt;
-use TokenType::*;
-
-// use logos::{Lexer, Logos};
-
-use crate::span::Span;
-
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
-
 use std::convert::TryFrom;
+use std::fmt;
 use std::num::ParseIntError;
-
-use crate::parser::SourceId;
+use std::str::FromStr;
+use TokenType::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DecodeHexError {
