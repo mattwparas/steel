@@ -210,10 +210,10 @@ impl<'a> Lexer<'a> {
     fn read_number(&mut self) -> TokenType<&'a str> {
         while let Some(&c) = self.chars.peek() {
             match c {
+                c if c.is_numeric() => self.eat(),
                 '(' | ')' | '[' | ']' => break,
                 '.' | '/' => break,
                 c if c.is_whitespace() => break,
-                c if c.is_numeric() => self.eat(),
                 _ => {
                     self.eat();
                     return self.read_word();
@@ -224,18 +224,17 @@ impl<'a> Lexer<'a> {
             Some('.') => {
                 self.eat();
                 while let Some(&c) = self.chars.peek() {
-                    if matches!(c, '(' | '[' | ')' | ']') {
-                        break;
+                    match c {
+                        c if c.is_numeric() => {
+                            self.eat();
+                        }
+                        '(' | '[' | ')' | ']' => break,
+                        c if c.is_whitespace() => break,
+                        _ => {
+                            self.eat();
+                            return self.read_word();
+                        }
                     }
-                    if c.is_whitespace() {
-                        break;
-                    }
-
-                    if !c.is_numeric() {
-                        self.eat();
-                        return self.read_word();
-                    }
-                    self.eat();
                 }
                 TokenType::NumberLiteral(self.slice().parse().unwrap())
             }
@@ -243,17 +242,17 @@ impl<'a> Lexer<'a> {
                 let numerator_text = self.slice();
                 self.eat();
                 while let Some(&c) = self.chars.peek() {
-                    if matches!(c, '(' | '[' | ')' | ']') {
-                        break;
+                    match c {
+                        c if c.is_numeric() => {
+                            self.eat();
+                        }
+                        '(' | '[' | ')' | ']' => break,
+                        c if c.is_whitespace() => break,
+                        _ => {
+                            self.eat();
+                            return self.read_word();
+                        }
                     }
-                    if c.is_whitespace() {
-                        break;
-                    }
-                    if !c.is_numeric() {
-                        self.eat();
-                        return self.read_word();
-                    }
-                    self.eat();
                 }
                 let denominator_text = &self.slice()[numerator_text.len() + 1..];
                 if denominator_text.is_empty() {
