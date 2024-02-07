@@ -1620,8 +1620,8 @@ impl Hash for SteelVal {
             HashSetV(hs) => hs.hash(state),
             SyntaxObject(s) => s.raw.hash(state),
             _ => {
-                unimplemented!("Trying to hash: {self:?}")
-            } // Promise(_) => unimplemented!(),
+                unimplemented!("Attempted to has unsupported value: {self:?}")
+            }
         }
     }
 }

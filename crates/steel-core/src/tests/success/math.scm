@@ -61,6 +61,8 @@
 ;; Promotion from int -> bignum, with multiplication
 (assert-equal! 18446744073709551614
 	       (* 2 9223372036854775807))
+(assert-equal! 85070591730234615856620279821087277056
+	       (* 9223372036854775807 9223372036854775808))
 
 ;; Division
 (assert-equal! 0.25

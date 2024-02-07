@@ -84,14 +84,10 @@ fn multiply_2_impl(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
             res *= y.as_ref();
             res.into_steelval()
         }
-        (SteelVal::BigFract(x), SteelVal::BigFract(y)) => (x.as_ref() + y.as_ref()).into_steelval(),
+        (SteelVal::BigFract(x), SteelVal::BigFract(y)) => (x.as_ref() * y.as_ref()).into_steelval(),
         (SteelVal::BigFract(x), SteelVal::BigNum(y))
-        | (SteelVal::BigNum(y), SteelVal::BigFract(x)) => {
-            let mut res = BigRational::new(y.as_ref().clone(), BigInt::from(1));
-            res *= x.as_ref();
-            res.into_steelval()
-        }
-        (SteelVal::BigNum(x), SteelVal::BigNum(y)) => (x.as_ref() + y.as_ref()).into_steelval(),
+        | (SteelVal::BigNum(y), SteelVal::BigFract(x)) => (x.as_ref() * y.as_ref()).into_steelval(),
+        (SteelVal::BigNum(x), SteelVal::BigNum(y)) => (x.as_ref() * y.as_ref()).into_steelval(),
         _ => unreachable!(),
     }
 }
