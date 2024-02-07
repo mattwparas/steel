@@ -687,6 +687,52 @@ mod lexer_tests {
     }
 
     #[test]
+    fn test_almost_literals() {
+        let got: Vec<_> =
+            TokenStream::new("1e 1ee 1.2e5.4 1E10/4 1.45# 3- e10", true, None).collect();
+        assert_eq!(
+            got.as_slice(),
+            &[
+                Token {
+                    ty: Identifier("1e"),
+                    source: "1e",
+                    span: Span::new(0, 2, None),
+                },
+                Token {
+                    ty: Identifier("1ee"),
+                    source: "1ee",
+                    span: Span::new(3, 6, None),
+                },
+                Token {
+                    ty: Identifier("1.2e5.4"),
+                    source: "1.2e5.4",
+                    span: Span::new(7, 14, None),
+                },
+                Token {
+                    ty: Identifier("1E10/4"),
+                    source: "1E10/4",
+                    span: Span::new(15, 21, None),
+                },
+                Token {
+                    ty: Identifier("1.45#"),
+                    source: "1.45#",
+                    span: Span::new(22, 27, None),
+                },
+                Token {
+                    ty: Identifier("3-"),
+                    source: "3-",
+                    span: Span::new(28, 30, None),
+                },
+                Token {
+                    ty: Identifier("e10"),
+                    source: "e10",
+                    span: Span::new(31, 34, None),
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn test_number() {
         let got: Vec<_> =
             TokenStream::new("0 -0 -1.2 +2.3 999 1. 1e2 1E2 1.2e2 1.2E2", true, None).collect();
@@ -749,109 +795,94 @@ mod lexer_tests {
 
     #[test]
     fn test_fractions() {
-        let test_cases: &[(_, &[Token<'static, &'static str>])] = &[
-            (
-                "1/4",
-                &[Token {
+        let got: Vec<_> = TokenStream::new(
+            r#"
+                1/4
+                (1/4 1/3)
+                11111111111111111111/22222222222222222222
+                /
+                1/
+                1/4.0
+                1//4
+                1 / 4
+"#,
+            true,
+            None,
+        )
+        .collect();
+        assert_eq!(
+            got.as_slice(),
+            &[
+                Token {
                     ty: FractionLiteral(MaybeBigInt::Small(1), MaybeBigInt::Small(4)),
                     source: "1/4",
-                    span: Span::new(0, 3, None),
-                }],
-            ),
-            (
-                "(1/4 1/3)",
-                &[
-                    Token {
-                        ty: OpenParen,
-                        source: "(",
-                        span: Span::new(0, 1, None),
-                    },
-                    Token {
-                        ty: FractionLiteral(MaybeBigInt::Small(1), MaybeBigInt::Small(4)),
-                        source: "1/4",
-                        span: Span::new(1, 4, None),
-                    },
-                    Token {
-                        ty: FractionLiteral(MaybeBigInt::Small(1), MaybeBigInt::Small(3)),
-                        source: "1/3",
-                        span: Span::new(5, 8, None),
-                    },
-                    Token {
-                        ty: CloseParen,
-                        source: ")",
-                        span: Span::new(8, 9, None),
-                    },
-                ],
-            ),
-            (
-                "11111111111111111111/22222222222222222222",
-                &[Token {
+                    span: Span::new(17, 20, None),
+                },
+                Token {
+                    ty: OpenParen,
+                    source: "(",
+                    span: Span::new(37, 38, None),
+                },
+                Token {
+                    ty: FractionLiteral(MaybeBigInt::Small(1), MaybeBigInt::Small(4)),
+                    source: "1/4",
+                    span: Span::new(38, 41, None),
+                },
+                Token {
+                    ty: FractionLiteral(MaybeBigInt::Small(1), MaybeBigInt::Small(3)),
+                    source: "1/3",
+                    span: Span::new(42, 45, None),
+                },
+                Token {
+                    ty: CloseParen,
+                    source: ")",
+                    span: Span::new(45, 46, None),
+                },
+                Token {
                     ty: FractionLiteral(
                         MaybeBigInt::from_str("11111111111111111111").unwrap(),
                         MaybeBigInt::from_str("22222222222222222222").unwrap(),
                     ),
                     source: "11111111111111111111/22222222222222222222",
-                    span: Span::new(0, 41, None),
-                }],
-            ),
-            // The items below are not valid fractions despite containing a /.
-            (
-                "/",
-                &[Token {
+                    span: Span::new(63, 104, None),
+                },
+                Token {
                     ty: Identifier("/"),
                     source: "/",
-                    span: Span::new(0, 1, None),
-                }],
-            ),
-            (
-                "1/",
-                &[Token {
+                    span: Span::new(121, 122, None),
+                },
+                Token {
                     ty: Identifier("1/"),
                     source: "1/",
-                    span: Span::new(0, 2, None),
-                }],
-            ),
-            (
-                "1/4.0",
-                &[Token {
+                    span: Span::new(139, 141, None),
+                },
+                Token {
                     ty: Identifier("1/4.0"),
                     source: "1/4.0",
-                    span: Span::new(0, 5, None),
-                }],
-            ),
-            (
-                "1//4",
-                &[Token {
+                    span: Span::new(158, 163, None),
+                },
+                Token {
                     ty: Identifier("1//4"),
                     source: "1//4",
-                    span: Span::new(0, 4, None),
-                }],
-            ),
-            (
-                "1 / 4",
-                &[
-                    Token {
-                        ty: IntegerLiteral(MaybeBigInt::Small(1)),
-                        source: "1",
-                        span: Span::new(0, 1, None),
-                    },
-                    Token {
-                        ty: Identifier("/"),
-                        source: "/",
-                        span: Span::new(2, 3, None),
-                    },
-                    Token {
-                        ty: IntegerLiteral(MaybeBigInt::Small(4)),
-                        source: "4",
-                        span: Span::new(4, 5, None),
-                    },
-                ],
-            ),
-        ];
-        for (expr, expected) in test_cases {
-            let got: Vec<_> = TokenStream::new(expr, true, None).collect();
-            assert_eq!(got.as_slice(), *expected);
-        }
+                    span: Span::new(180, 184, None),
+                },
+                Token {
+                    ty: IntegerLiteral(MaybeBigInt::Small(1)),
+                    source: "1",
+                    span: Span::new(201, 202, None),
+                },
+                Token {
+                    ty: Identifier("/"),
+                    source: "/",
+                    span: Span::new(203, 204, None),
+                },
+                Token {
+                    ty: IntegerLiteral(MaybeBigInt::Small(4)),
+                    source: "4",
+                    span: Span::new(205, 206, None),
+                },
+            ]
+        );
     }
 
     #[test]
