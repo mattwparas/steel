@@ -79,7 +79,7 @@ You can use and enjoy all features provided by the Steel Interpreter by installi
   `source ~/.bashrc` / `source ~/.config/fish/config.fish` (depending on your kryptonite)
 
 
-## Running
+## Running a Steel file
 
-  6. Finally, compile and execute your Steel files like so:\
+  6. Finally, compile and execute your Steel files from your terminal like so:\
   `steel \<steel_file.scm\>`
