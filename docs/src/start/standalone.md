@@ -44,8 +44,11 @@ You can use and enjoy all features provided by the Steel Interpreter by installi
 *Nota bene*: forget not the trailing dot (*i.e.* `.`) as it represents your current working directory.
 
   - There is a second manner to install Steel interpreter with Cargo. The only difference is that it reads your 
-  `cargo.lock` file if it exists. (Having added the `--locked` flag to the previous `cargo install --path .` would have 
-  produced the exact same result). Simply run:\
+  `cargo.lock` file if it exists.\
+  As a side note, having added the `--locked` flag to the previous `cargo install --path .` command would have 
+  produced the exact same result than the following one.\
+  
+  Simply run:\
   `cargo build --release`
   
   The release flag will take a bit longer to build all the file objects due to optimization passes but will act faster
@@ -60,6 +63,7 @@ You can use and enjoy all features provided by the Steel Interpreter by installi
   set paths = [
     ~/\<your/path/to/steel/directory\>/target/release`
   $@paths]
+  ```
   
   5. Then run `exec elvish` and your are good to go! You can check your newly added path by typing:\
   `pprint $paths`
