@@ -13,9 +13,11 @@ fn ensure_args_are_numbers(op: &str, args: &[SteelVal]) -> Result<()> {
     Ok(())
 }
 
+/// Multiplies `x` and `y` without any type checking.
+///
 /// # Precondition
 /// - `x` and `y` must be valid numerical types.
-fn multiply_2_impl(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
+fn multiply_unchecked(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
     match (x, y) {
         (SteelVal::NumV(x), SteelVal::NumV(y)) => (x * y).into_steelval(),
         (SteelVal::NumV(x), SteelVal::IntV(y)) | (SteelVal::IntV(y), SteelVal::NumV(x)) => {
@@ -24,10 +26,11 @@ fn multiply_2_impl(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
         (SteelVal::NumV(x), SteelVal::BigNum(y)) | (SteelVal::BigNum(y), SteelVal::NumV(x)) => {
             (x * y.to_f64().unwrap()).into_steelval()
         }
-        (SteelVal::NumV(x), SteelVal::FractV(y)) | (SteelVal::FractV(y), SteelVal::NumV(x)) => {
+        (SteelVal::NumV(x), SteelVal::Rational(y)) | (SteelVal::Rational(y), SteelVal::NumV(x)) => {
             (x * y.to_f64().unwrap()).into_steelval()
         }
-        (SteelVal::NumV(x), SteelVal::BigFract(y)) | (SteelVal::BigFract(y), SteelVal::NumV(x)) => {
+        (SteelVal::NumV(x), SteelVal::BigRational(y))
+        | (SteelVal::BigRational(y), SteelVal::NumV(x)) => {
             (x * y.to_f64().unwrap()).into_steelval()
         }
         (SteelVal::IntV(x), SteelVal::IntV(y)) => match x.checked_mul(y) {
@@ -41,7 +44,7 @@ fn multiply_2_impl(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
         (SteelVal::IntV(x), SteelVal::BigNum(y)) | (SteelVal::BigNum(y), SteelVal::IntV(x)) => {
             (y.as_ref() * x).into_steelval()
         }
-        (SteelVal::IntV(x), SteelVal::FractV(y)) | (SteelVal::FractV(y), SteelVal::IntV(x)) => {
+        (SteelVal::IntV(x), SteelVal::Rational(y)) | (SteelVal::Rational(y), SteelVal::IntV(x)) => {
             match i32::try_from(*x) {
                 Ok(x) => match y.checked_mul(&Rational32::new(x, 1)) {
                     Some(res) => res.into_steelval(),
@@ -60,12 +63,13 @@ fn multiply_2_impl(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
                 }
             }
         }
-        (SteelVal::IntV(x), SteelVal::BigFract(y)) | (SteelVal::BigFract(y), SteelVal::IntV(x)) => {
+        (SteelVal::IntV(x), SteelVal::BigRational(y))
+        | (SteelVal::BigRational(y), SteelVal::IntV(x)) => {
             let mut res = y.as_ref().clone();
             res *= BigInt::from(*x);
             res.into_steelval()
         }
-        (SteelVal::FractV(x), SteelVal::FractV(y)) => match x.checked_mul(y) {
+        (SteelVal::Rational(x), SteelVal::Rational(y)) => match x.checked_mul(y) {
             Some(res) => res.into_steelval(),
             None => {
                 let mut res = BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom()));
@@ -73,14 +77,19 @@ fn multiply_2_impl(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
                 res.into_steelval()
             }
         },
-        (SteelVal::FractV(x), SteelVal::BigNum(y)) | (SteelVal::BigNum(y), SteelVal::FractV(x)) => {
+        (SteelVal::Rational(x), SteelVal::BigNum(y))
+        | (SteelVal::BigNum(y), SteelVal::Rational(x)) => {
             let mut res = BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom()));
             res *= y.as_ref();
             res.into_steelval()
         }
-        (SteelVal::BigFract(x), SteelVal::BigFract(y)) => (x.as_ref() * y.as_ref()).into_steelval(),
-        (SteelVal::BigFract(x), SteelVal::BigNum(y))
-        | (SteelVal::BigNum(y), SteelVal::BigFract(x)) => (x.as_ref() * y.as_ref()).into_steelval(),
+        (SteelVal::BigRational(x), SteelVal::BigRational(y)) => {
+            (x.as_ref() * y.as_ref()).into_steelval()
+        }
+        (SteelVal::BigRational(x), SteelVal::BigNum(y))
+        | (SteelVal::BigNum(y), SteelVal::BigRational(x)) => {
+            (x.as_ref() * y.as_ref()).into_steelval()
+        }
         (SteelVal::BigNum(x), SteelVal::BigNum(y)) => (x.as_ref() * y.as_ref()).into_steelval(),
         _ => unreachable!(),
     }
@@ -92,13 +101,13 @@ fn multiply_primitive_impl(args: &[SteelVal]) -> Result<SteelVal> {
     match args {
         [] => 1.into_steelval(),
         [x] => x.clone().into_steelval(),
-        [x, y] => multiply_2_impl(x, y).into_steelval(),
+        [x, y] => multiply_unchecked(x, y).into_steelval(),
         [x, y, zs @ ..] => {
-            let mut res = multiply_2_impl(x, y)?;
+            let mut res = multiply_unchecked(x, y)?;
             for z in zs {
                 // TODO: This use case could be optimized to reuse state instead of creating a new
                 // object each time.
-                res = multiply_2_impl(&res, &z)?;
+                res = multiply_unchecked(&res, &z)?;
             }
             res.into_steelval()
         }
@@ -125,8 +134,8 @@ pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
                 Err(_) => BigRational::new(BigInt::from(1), BigInt::from(*n)).into_steelval(),
             },
             SteelVal::NumV(n) => n.recip().into_steelval(),
-            SteelVal::FractV(f) => f.recip().into_steelval(),
-            SteelVal::BigFract(f) => f.recip().into_steelval(),
+            SteelVal::Rational(f) => f.recip().into_steelval(),
+            SteelVal::BigRational(f) => f.recip().into_steelval(),
             SteelVal::BigNum(n) => BigRational::new(1.into(), n.as_ref().clone()).into_steelval(),
             unexpected => {
                 stop!(TypeMismatch => "/ expects a number, but found: {:?}", unexpected)
@@ -137,10 +146,10 @@ pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
         [] => stop!(ArityMismatch => "/ requires at least one argument"),
         [x] => recip(x),
         // TODO: Provide custom implementation to optimize by joining the multiply and recip calls.
-        [x, y] => multiply_2_impl(x, &recip(y)?),
+        [x, y] => multiply_unchecked(x, &recip(y)?),
         [x, ys @ ..] => {
             let d = multiply_primitive_impl(ys)?;
-            multiply_2_impl(&x, &recip(&d)?)
+            multiply_unchecked(&x, &recip(&d)?)
         }
     }
 }
@@ -154,13 +163,13 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
             Some(res) => res.into_steelval(),
             None => BigInt::from(*x).neg().into_steelval(),
         },
-        SteelVal::FractV(x) => match 0i32.checked_sub(*x.numer()) {
+        SteelVal::Rational(x) => match 0i32.checked_sub(*x.numer()) {
             Some(n) => Rational32::new(n, *x.denom()).into_steelval(),
             None => BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom()))
                 .neg()
                 .into_steelval(),
         },
-        SteelVal::BigFract(x) => x.as_ref().neg().into_steelval(),
+        SteelVal::BigRational(x) => x.as_ref().neg().into_steelval(),
         SteelVal::BigNum(x) => x.as_ref().clone().neg().into_steelval(),
         _ => unreachable!(),
     };
@@ -195,15 +204,16 @@ pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
         (SteelVal::NumV(x), SteelVal::BigNum(y)) | (SteelVal::BigNum(y), SteelVal::NumV(x)) => {
             (x + y.to_f64().unwrap()).into_steelval()
         }
-        (SteelVal::NumV(x), SteelVal::FractV(y)) | (SteelVal::FractV(y), SteelVal::NumV(x)) => {
+        (SteelVal::NumV(x), SteelVal::Rational(y)) | (SteelVal::Rational(y), SteelVal::NumV(x)) => {
             (x + y.to_f64().unwrap()).into_steelval()
         }
-        (SteelVal::NumV(x), SteelVal::BigFract(y)) | (SteelVal::BigFract(y), SteelVal::NumV(x)) => {
+        (SteelVal::NumV(x), SteelVal::BigRational(y))
+        | (SteelVal::BigRational(y), SteelVal::NumV(x)) => {
             (x + y.to_f64().unwrap()).into_steelval()
         }
-        // Cases that interact with `FractV`.
-        (SteelVal::FractV(x), SteelVal::FractV(y)) => (x + y).into_steelval(),
-        (SteelVal::FractV(x), SteelVal::IntV(y)) | (SteelVal::IntV(y), SteelVal::FractV(x)) => {
+        // Cases that interact with `Rational`.
+        (SteelVal::Rational(x), SteelVal::Rational(y)) => (x + y).into_steelval(),
+        (SteelVal::Rational(x), SteelVal::IntV(y)) | (SteelVal::IntV(y), SteelVal::Rational(x)) => {
             match i32::try_from(*y) {
                 Ok(y) => match x.checked_add(&Rational32::new(y, 1)) {
                     Some(res) => res.into_steelval(),
@@ -221,18 +231,25 @@ pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
                 }
             }
         }
-        (SteelVal::FractV(x), SteelVal::BigNum(y)) | (SteelVal::BigNum(y), SteelVal::FractV(x)) => {
+        (SteelVal::Rational(x), SteelVal::BigNum(y))
+        | (SteelVal::BigNum(y), SteelVal::Rational(x)) => {
             let res =
                 BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom())) * y.as_ref();
             res.into_steelval()
         }
-        // Cases that interact with `BigFract`. Hopefully not too common, for performance reasons.
-        (SteelVal::BigFract(x), SteelVal::BigFract(y)) => (x.as_ref() + y.as_ref()).into_steelval(),
-        (SteelVal::BigFract(x), SteelVal::IntV(y)) | (SteelVal::IntV(y), SteelVal::BigFract(x)) => {
+        // Cases that interact with `BigRational`. For the sake of performance, hopefully not too
+        // common.
+        (SteelVal::BigRational(x), SteelVal::BigRational(y)) => {
+            (x.as_ref() + y.as_ref()).into_steelval()
+        }
+        (SteelVal::BigRational(x), SteelVal::IntV(y))
+        | (SteelVal::IntV(y), SteelVal::BigRational(x)) => {
             (x.as_ref() + BigInt::from(*y)).into_steelval()
         }
-        (SteelVal::BigFract(x), SteelVal::BigNum(y))
-        | (SteelVal::BigNum(y), SteelVal::BigFract(x)) => (x.as_ref() * y.as_ref()).into_steelval(),
+        (SteelVal::BigRational(x), SteelVal::BigNum(y))
+        | (SteelVal::BigNum(y), SteelVal::BigRational(x)) => {
+            (x.as_ref() * y.as_ref()).into_steelval()
+        }
         // Remaining cases that interact with `BigNum`. Probably not too common.
         (SteelVal::BigNum(x), SteelVal::BigNum(y)) => {
             let mut res = x.as_ref().clone();
@@ -264,7 +281,7 @@ pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 pub fn exactp(value: &SteelVal) -> bool {
     matches!(
         value,
-        SteelVal::IntV(_) | SteelVal::BigNum(_) | SteelVal::FractV(_) | SteelVal::BigFract(_)
+        SteelVal::IntV(_) | SteelVal::BigNum(_) | SteelVal::Rational(_) | SteelVal::BigRational(_)
     )
 }
 
@@ -369,7 +386,7 @@ mod num_op_tests {
     fn division_on_single_integer_returns_reciprocal_rational() {
         assert_eq!(
             divide_primitive(&[IntV(10)]).unwrap().to_string(),
-            FractV(Rational32::new(1, 10)).to_string()
+            Rational(Rational32::new(1, 10)).to_string()
         );
     }
 
@@ -379,7 +396,7 @@ mod num_op_tests {
             divide_primitive(&[Rational32::new(2, 5).into_steelval().unwrap()])
                 .unwrap()
                 .to_string(),
-            FractV(Rational32::new(5, 2)).to_string()
+            Rational(Rational32::new(5, 2)).to_string()
         );
     }
 
@@ -394,7 +411,7 @@ mod num_op_tests {
     }
 
     #[test]
-    fn division_on_bignum_returns_bigfract() {
+    fn division_on_bignum_returns_bigrational() {
         assert_eq!(
             divide_primitive(
                 &([BigInt::from_str("18446744073709551616")
@@ -404,7 +421,7 @@ mod num_op_tests {
             )
             .unwrap()
             .to_string(),
-            BigFract(Gc::new(BigRational::new(
+            BigRational(Gc::new(num::BigRational::new(
                 BigInt::from(1),
                 BigInt::from_str("18446744073709551616").unwrap()
             )))
@@ -431,7 +448,7 @@ mod num_op_tests {
     #[test]
     fn multiply_multiple_numbers() {
         assert_eq!(
-            multiply_primitive(&[IntV(16), NumV(2.0), FractV(Rational32::new(1, 4))])
+            multiply_primitive(&[IntV(16), NumV(2.0), Rational(Rational32::new(1, 4))])
                 .unwrap()
                 .to_string(),
             NumV(8.0).to_string(),

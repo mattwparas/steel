@@ -680,8 +680,8 @@ pub fn numberp(value: &SteelVal) -> bool {
         value,
         SteelVal::IntV(_)
             | SteelVal::BigNum(_)
-            | SteelVal::FractV(_)
-            | SteelVal::BigFract(_)
+            | SteelVal::Rational(_)
+            | SteelVal::BigRational(_)
             | SteelVal::NumV(_)
     )
 }
@@ -707,8 +707,8 @@ fn realp(value: &SteelVal) -> bool {
         value,
         SteelVal::IntV(_)
             | SteelVal::BigNum(_)
-            | SteelVal::FractV(_)
-            | SteelVal::BigFract(_)
+            | SteelVal::Rational(_)
+            | SteelVal::BigRational(_)
             | SteelVal::NumV(_)
     )
 }
@@ -717,7 +717,7 @@ fn realp(value: &SteelVal) -> bool {
 fn rationalp(value: &SteelVal) -> bool {
     matches!(
         value,
-        SteelVal::IntV(_) | SteelVal::BigNum(_) | SteelVal::FractV(_) | SteelVal::BigFract(_)
+        SteelVal::IntV(_) | SteelVal::BigNum(_) | SteelVal::Rational(_) | SteelVal::BigRational(_)
     )
 }
 
@@ -880,8 +880,8 @@ fn stream_module() -> BuiltInModule {
 fn exact_to_inexact(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(i) => (*i as f64).into_steelval(),
-        SteelVal::FractV(f) => f.to_f64().unwrap().into_steelval(),
-        SteelVal::BigFract(f) => f.to_f64().unwrap().into_steelval(),
+        SteelVal::Rational(f) => f.to_f64().unwrap().into_steelval(),
+        SteelVal::BigRational(f) => f.to_f64().unwrap().into_steelval(),
         SteelVal::NumV(n) => n.into_steelval(),
         SteelVal::BigNum(n) => Ok(SteelVal::NumV(n.to_f64().unwrap())),
         _ => stop!(TypeMismatch => "exact->inexact expects a number type, found: {}", number),
@@ -897,8 +897,8 @@ fn round(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(i) => i.into_steelval(),
         SteelVal::NumV(n) => n.round().into_steelval(),
-        SteelVal::FractV(f) => f.round().into_steelval(),
-        SteelVal::BigFract(f) => f.round().into_steelval(),
+        SteelVal::Rational(f) => f.round().into_steelval(),
+        SteelVal::BigRational(f) => f.round().into_steelval(),
         SteelVal::BigNum(n) => Ok(SteelVal::BigNum(n.clone())),
         _ => stop!(TypeMismatch => "round expects a number type, found: {}", number),
     }
@@ -910,8 +910,8 @@ fn abs(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(i) => Ok(SteelVal::IntV(i.abs())),
         SteelVal::NumV(n) => Ok(SteelVal::NumV(n.abs())),
-        SteelVal::FractV(f) => f.abs().into_steelval(),
-        SteelVal::BigFract(f) => f.abs().into_steelval(),
+        SteelVal::Rational(f) => f.abs().into_steelval(),
+        SteelVal::BigRational(f) => f.abs().into_steelval(),
         SteelVal::BigNum(n) => n.abs().into_steelval(),
         _ => stop!(TypeMismatch => "abs expects a number type, found: {}", number),
     }
@@ -925,48 +925,52 @@ fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
             l.pow(*r as u32).into_steelval()
         }
         (SteelVal::IntV(l), SteelVal::NumV(r)) => (*l as f64).powf(*r).into_steelval(),
-        (SteelVal::IntV(l), SteelVal::FractV(r)) => {
+        (SteelVal::IntV(l), SteelVal::Rational(r)) => {
             (*l as f64).powf(r.to_f64().unwrap()).into_steelval()
         }
-        (SteelVal::IntV(l), SteelVal::BigFract(r)) => {
+        (SteelVal::IntV(l), SteelVal::BigRational(r)) => {
             (*l as f64).powf(r.to_f64().unwrap()).into_steelval()
         }
         (SteelVal::NumV(l), SteelVal::NumV(r)) => Ok(SteelVal::NumV(l.powf(*r))),
         (SteelVal::NumV(l), SteelVal::IntV(r)) if *r < (i32::MAX as isize) => {
             l.powi(*r as i32).into_steelval()
         }
-        (SteelVal::NumV(l), SteelVal::FractV(r)) => Ok(SteelVal::NumV(l.powf(r.to_f64().unwrap()))),
-        (SteelVal::NumV(l), SteelVal::BigFract(r)) => {
+        (SteelVal::NumV(l), SteelVal::Rational(r)) => {
             Ok(SteelVal::NumV(l.powf(r.to_f64().unwrap())))
         }
-        (SteelVal::FractV(l), SteelVal::FractV(r)) => l
+        (SteelVal::NumV(l), SteelVal::BigRational(r)) => {
+            Ok(SteelVal::NumV(l.powf(r.to_f64().unwrap())))
+        }
+        (SteelVal::Rational(l), SteelVal::Rational(r)) => l
             .to_f64()
             .unwrap()
             .powf(r.to_f64().unwrap())
             .into_steelval(),
-        (SteelVal::FractV(l), SteelVal::NumV(r)) => l.to_f64().unwrap().powf(*r).into_steelval(),
-        (SteelVal::FractV(l), SteelVal::IntV(r)) => match i32::try_from(*r) {
+        (SteelVal::Rational(l), SteelVal::NumV(r)) => l.to_f64().unwrap().powf(*r).into_steelval(),
+        (SteelVal::Rational(l), SteelVal::IntV(r)) => match i32::try_from(*r) {
             Ok(r) => l.pow(r).into_steelval(),
             Err(_) => BigRational::new((*l.numer()).into(), (*l.denom()).into())
                 .pow(BigInt::from(*r))
                 .into_steelval(),
         },
-        (SteelVal::FractV(l), SteelVal::BigFract(r)) => l
+        (SteelVal::Rational(l), SteelVal::BigRational(r)) => l
             .to_f64()
             .unwrap()
             .powf(r.to_f64().unwrap())
             .into_steelval(),
-        (SteelVal::BigFract(l), SteelVal::FractV(r)) => l
+        (SteelVal::BigRational(l), SteelVal::Rational(r)) => l
             .to_f64()
             .unwrap()
             .powf(r.to_f64().unwrap())
             .into_steelval(),
-        (SteelVal::BigFract(l), SteelVal::NumV(r)) => l.to_f64().unwrap().powf(*r).into_steelval(),
-        (SteelVal::BigFract(l), SteelVal::IntV(r)) => match i32::try_from(*r) {
+        (SteelVal::BigRational(l), SteelVal::NumV(r)) => {
+            l.to_f64().unwrap().powf(*r).into_steelval()
+        }
+        (SteelVal::BigRational(l), SteelVal::IntV(r)) => match i32::try_from(*r) {
             Ok(r) => l.as_ref().pow(r).into_steelval(),
             Err(_) => l.as_ref().clone().pow(BigInt::from(*r)).into_steelval(),
         },
-        (SteelVal::BigFract(l), SteelVal::BigFract(r)) => l
+        (SteelVal::BigRational(l), SteelVal::BigRational(r)) => l
             .to_f64()
             .unwrap()
             .powf(r.to_f64().unwrap())
@@ -986,10 +990,10 @@ fn exp(left: &SteelVal) -> Result<SteelVal> {
             Ok(SteelVal::NumV(std::f64::consts::E.powi(*l as i32)))
         }
         SteelVal::NumV(n) => Ok(SteelVal::NumV(std::f64::consts::E.powf(*n))),
-        SteelVal::FractV(f) => std::f64::consts::E
+        SteelVal::Rational(f) => std::f64::consts::E
             .powf(f.to_f64().unwrap())
             .into_steelval(),
-        SteelVal::BigFract(f) => std::f64::consts::E
+        SteelVal::BigRational(f) => std::f64::consts::E
             .powf(f.to_f64().unwrap())
             .into_steelval(),
         _ => {
@@ -1019,7 +1023,7 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
         (SteelVal::IntV(arg), SteelVal::IntV(base)) => Ok(SteelVal::IntV(arg.ilog(*base) as isize)),
         (SteelVal::NumV(arg), SteelVal::NumV(n)) => Ok(SteelVal::NumV(arg.log(*n))),
         (SteelVal::NumV(arg), SteelVal::IntV(base)) => Ok(SteelVal::NumV(arg.log(*base as f64))),
-        // TODO: Support BigNum, FractV, and BigFract.
+        // TODO: Support BigNum, Rational, and BigRational.
         _ => {
             stop!(TypeMismatch => "log expects one or two numbers, found: {} and {}", first, base);
         }

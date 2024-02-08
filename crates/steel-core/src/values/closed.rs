@@ -727,8 +727,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
         }
     }
     fn visit_int(&mut self, _int: isize) -> Self::Output {}
-    fn visit_fract(&mut self, _: Rational32) -> Self::Output {}
-    fn visit_bigfract(&mut self, _: Gc<BigRational>) -> Self::Output {}
+    fn visit_rational(&mut self, _: Rational32) -> Self::Output {}
+    fn visit_bigrational(&mut self, _: Gc<BigRational>) -> Self::Output {}
 
     fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output {
         for value in list {
