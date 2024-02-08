@@ -5,7 +5,6 @@ use super::{
     register_fn::RegisterFn,
     vm::{get_test_mode, list_modules, set_test_mode, VmCore},
 };
-use crate::values::lists::List;
 use crate::{
     gc::Gc,
     parser::{
@@ -18,7 +17,10 @@ use crate::{
         hashmaps::{HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,
         lists::{list_module, UnRecoverableResult},
-        nums::{quotient, ADD_PRIMITIVE_DEFINITION},
+        nums::{
+            quotient, ADD_PRIMITIVE_DEFINITION, DIVIDE_PRIMITIVE_DEFINITION, INEXACTP_DEFINITION,
+            MULTIPLY_PRIMITIVE_DEFINITION, SUBTRACT_PRIMITIVE_DEFINITION,
+        },
         port_module,
         process::process_module,
         random::random_module,
@@ -48,6 +50,7 @@ use crate::{
         },
     },
 };
+use crate::{primitives::nums::EXACTP_DEFINITION, values::lists::List};
 use crate::{
     rvals::IntoSteelVal,
     values::structs::{build_option_structs, build_result_structs},
@@ -671,14 +674,26 @@ fn not(value: &SteelVal) -> bool {
     matches!(value, SteelVal::BoolV(false))
 }
 
+#[steel_derive::function(name = "number?", constant = true)]
+pub fn numberp(value: &SteelVal) -> bool {
+    matches!(
+        value,
+        SteelVal::IntV(_)
+            | SteelVal::BigNum(_)
+            | SteelVal::FractV(_)
+            | SteelVal::BigFract(_)
+            | SteelVal::NumV(_)
+    )
+}
+
 #[steel_derive::function(name = "int?", constant = true)]
 fn intp(value: &SteelVal) -> bool {
-    matches!(value, SteelVal::IntV(_))
+    matches!(value, SteelVal::IntV(_) | SteelVal::BigNum(_))
 }
 
 #[steel_derive::function(name = "integer?", constant = true)]
 fn integerp(value: &SteelVal) -> bool {
-    matches!(value, SteelVal::IntV(_))
+    intp(value)
 }
 
 #[steel_derive::function(name = "float?", constant = true)]
@@ -686,9 +701,24 @@ fn floatp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::NumV(_))
 }
 
-#[steel_derive::function(name = "number?", constant = true)]
-fn numberp(value: &SteelVal) -> bool {
-    matches!(value, SteelVal::NumV(_) | SteelVal::IntV(_))
+#[steel_derive::function(name = "real?", constant = true)]
+fn realp(value: &SteelVal) -> bool {
+    matches!(
+        value,
+        SteelVal::IntV(_)
+            | SteelVal::BigNum(_)
+            | SteelVal::FractV(_)
+            | SteelVal::BigFract(_)
+            | SteelVal::NumV(_)
+    )
+}
+
+#[steel_derive::function(name = "rational?", constant = true)]
+fn rationalp(value: &SteelVal) -> bool {
+    matches!(
+        value,
+        SteelVal::IntV(_) | SteelVal::BigNum(_) | SteelVal::FractV(_) | SteelVal::BigFract(_)
+    )
 }
 
 #[steel_derive::function(name = "string?", constant = true)]
@@ -790,11 +820,12 @@ fn identity_module() -> BuiltInModule {
     module
         // .register_value("int?", gen_pred!(IntV))
         .register_native_fn_definition(NOT_DEFINITION)
-        .register_native_fn_definition(INTEGERP_DEFINITION)
+        .register_native_fn_definition(NUMBERP_DEFINITION)
         .register_native_fn_definition(INTP_DEFINITION)
+        .register_native_fn_definition(INTEGERP_DEFINITION)
         .register_native_fn_definition(FLOATP_DEFINITION)
-        .register_native_fn_definition(NUMBERP_DEFINITION)
-        .register_native_fn_definition(NUMBERP_DEFINITION)
+        .register_native_fn_definition(REALP_DEFINITION)
+        .register_native_fn_definition(RATIONALP_DEFINITION)
         .register_native_fn_definition(STRINGP_DEFINITION)
         .register_native_fn_definition(LISTP_DEFINITION)
         .register_native_fn_definition(VECTORP_DEFINITION)
@@ -1000,9 +1031,9 @@ fn number_module() -> BuiltInModule {
     module
         .register_native_fn_definition(ADD_PRIMITIVE_DEFINITION)
         .register_value("f+", NumOperations::float_add())
-        .register_value("*", NumOperations::multiply())
-        .register_value("/", NumOperations::divide())
-        .register_value("-", NumOperations::subtract())
+        .register_native_fn_definition(MULTIPLY_PRIMITIVE_DEFINITION)
+        .register_native_fn_definition(DIVIDE_PRIMITIVE_DEFINITION)
+        .register_native_fn_definition(SUBTRACT_PRIMITIVE_DEFINITION)
         .register_value("even?", NumOperations::even())
         .register_value("odd?", NumOperations::odd())
         .register_fn("quotient", quotient)
@@ -1011,6 +1042,8 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(EXPT_DEFINITION)
         .register_native_fn_definition(ROUND_DEFINITION)
         .register_native_fn_definition(EXACT_TO_INEXACT_DEFINITION)
+        .register_native_fn_definition(EXACTP_DEFINITION)
+        .register_native_fn_definition(INEXACTP_DEFINITION)
         .register_native_fn_definition(EXP_DEFINITION)
         .register_native_fn_definition(LOG_DEFINITION);
 

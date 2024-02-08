@@ -1,20 +1,14 @@
-use std::ops::Neg;
-
-use num::{BigInt, BigRational, CheckedAdd, CheckedMul, Integer, Rational32, ToPrimitive};
-
 use crate::rvals::{IntoSteelVal, Result, SteelVal};
+use crate::steel_vm::primitives::numberp;
 use crate::stop;
+use num::{BigInt, BigRational, CheckedAdd, CheckedMul, Integer, Rational32, ToPrimitive};
+use std::ops::Neg;
 
 fn ensure_args_are_numbers(op: &str, args: &[SteelVal]) -> Result<()> {
     for arg in args {
-        match arg {
-            SteelVal::NumV(_)
-            | SteelVal::FractV(_)
-            | SteelVal::IntV(_)
-            | SteelVal::BigNum(_)
-            | SteelVal::BigFract(_) => {}
-            v => stop!(TypeMismatch => "{op} expects a number, found: {:?}", v),
-        };
+        if !numberp(arg) {
+            stop!(TypeMismatch => "{op} expects a number, found: {:?}", arg)
+        }
     }
     Ok(())
 }
@@ -111,6 +105,7 @@ fn multiply_primitive_impl(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+#[steel_derive::native(name = "*", constant = true, arity = "AtLeast(0)")]
 pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     ensure_args_are_numbers("*", args)?;
     multiply_primitive_impl(args)
@@ -120,6 +115,7 @@ pub fn quotient(l: isize, r: isize) -> isize {
     l / r
 }
 
+#[steel_derive::native(name = "/", constant = true, arity = "AtLeast(1)")]
 pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     ensure_args_are_numbers("/", args)?;
     let recip = |x: &SteelVal| -> Result<SteelVal> {
@@ -149,9 +145,9 @@ pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-#[inline(always)]
+#[steel_derive::native(name = "-", constant = true, arity = "AtLeast(1)")]
 pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
-    ensure_args_are_numbers("/", args)?;
+    ensure_args_are_numbers("-", args)?;
     let negate = |x: &SteelVal| match x {
         SteelVal::NumV(x) => (-x).into_steelval(),
         SteelVal::IntV(x) => match x.checked_neg() {
@@ -264,6 +260,19 @@ pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+#[steel_derive::function(name = "exact?", constant = true)]
+pub fn exactp(value: &SteelVal) -> bool {
+    matches!(
+        value,
+        SteelVal::IntV(_) | SteelVal::BigNum(_) | SteelVal::FractV(_) | SteelVal::BigFract(_)
+    )
+}
+
+#[steel_derive::function(name = "inexact?", constant = true)]
+pub fn inexactp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::NumV(_))
+}
+
 pub struct NumOperations {}
 impl NumOperations {
     pub fn arithmetic_shift() -> SteelVal {
@@ -321,50 +330,6 @@ impl NumOperations {
         })
     }
 
-    pub fn integer_add() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.is_empty() {
-                stop!(ArityMismatch => "+ requires at least one argument")
-            }
-
-            let mut sum = 0;
-
-            for arg in args {
-                if let SteelVal::IntV(n) = arg {
-                    sum += n;
-                } else {
-                    stop!(TypeMismatch => "+ expected a number, found {:?}", arg);
-                }
-            }
-
-            Ok(SteelVal::IntV(sum))
-        })
-    }
-
-    pub fn integer_sub() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.is_empty() {
-                stop!(ArityMismatch => "+ requires at least one argument")
-            }
-
-            let mut sum = if let SteelVal::IntV(n) = &args[0] {
-                *n
-            } else {
-                stop!(TypeMismatch => "- expected a number, found {:?}", &args[0])
-            };
-
-            for arg in &args[1..] {
-                if let SteelVal::IntV(n) = arg {
-                    sum -= n;
-                } else {
-                    stop!(TypeMismatch => "+ expected a number, found {:?}", arg);
-                }
-            }
-
-            Ok(SteelVal::IntV(sum))
-        })
-    }
-
     pub fn float_add() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.is_empty() {
@@ -384,22 +349,6 @@ impl NumOperations {
             Ok(SteelVal::NumV(sum))
         })
     }
-
-    pub fn adder() -> SteelVal {
-        SteelVal::FuncV(add_primitive)
-    }
-
-    pub fn multiply() -> SteelVal {
-        SteelVal::FuncV(multiply_primitive)
-    }
-
-    pub fn divide() -> SteelVal {
-        SteelVal::FuncV(divide_primitive)
-    }
-
-    pub fn subtract() -> SteelVal {
-        SteelVal::FuncV(subtract_primitive)
-    }
 }
 
 #[cfg(test)]
@@ -416,63 +365,56 @@ mod num_op_tests {
     #[test]
     fn division_test() {
         let args = vec![IntV(10), IntV(2)];
-
-        let output = apply_function(NumOperations::divide(), args).unwrap();
+        let got = divide_primitive(&args).unwrap();
         let expected = IntV(5);
-        assert_eq!(output.to_string(), expected.to_string());
+        assert_eq!(got.to_string(), expected.to_string());
     }
 
     #[test]
     fn multiplication_test() {
         let args = vec![IntV(10), IntV(2)];
-
-        let output = apply_function(NumOperations::multiply(), args).unwrap();
+        let got = multiply_primitive(&args).unwrap();
         let expected = IntV(20);
-        assert_eq!(output, expected);
+        assert_eq!(got, expected);
     }
 
     #[test]
     fn multiplication_different_types() {
         let args = vec![IntV(10), NumV(2.0)];
-
-        let output = apply_function(NumOperations::multiply(), args).unwrap();
+        let got = multiply_primitive(&args).unwrap();
         let expected = NumV(20.0);
-        assert_eq!(output.to_string(), expected.to_string());
+        assert_eq!(got.to_string(), expected.to_string());
     }
 
     #[test]
     fn addition_different_types() {
         let args = vec![IntV(10), NumV(2.0)];
-
-        let output = apply_function(NumOperations::adder(), args).unwrap();
+        let got = add_primitive(&args).unwrap();
         let expected = NumV(12.0);
-        assert_eq!(output.to_string(), expected.to_string());
+        assert_eq!(got.to_string(), expected.to_string());
     }
 
     #[test]
     fn subtraction_different_types() {
         let args = vec![IntV(10), NumV(2.0)];
-
-        let output = apply_function(NumOperations::subtract(), args).unwrap();
+        let got = subtract_primitive(&args).unwrap();
         let expected = NumV(8.0);
-        assert_eq!(output.to_string(), expected.to_string());
+        assert_eq!(got.to_string(), expected.to_string());
     }
 
     #[test]
     fn test_integer_add() {
         let args = vec![IntV(10), IntV(2)];
-
-        let output = apply_function(NumOperations::integer_add(), args).unwrap();
+        let got = add_primitive(&args).unwrap();
         let expected = IntV(12);
-        assert_eq!(output, expected);
+        assert_eq!(got, expected);
     }
 
     #[test]
     fn test_integer_sub() {
         let args = vec![IntV(10), IntV(2)];
-
-        let output = apply_function(NumOperations::integer_sub(), args).unwrap();
+        let got = subtract_primitive(&args).unwrap();
         let expected = IntV(8);
-        assert_eq!(output, expected);
+        assert_eq!(got, expected);
     }
 }
