@@ -158,8 +158,8 @@ impl CycleDetector {
             BoolV(b) => write!(f, "#{b}"),
             NumV(x) => write!(f, "{x:?}"),
             IntV(x) => write!(f, "{x}"),
-            FractV(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
-            BigFract(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
+            Rational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
+            BigRational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
             StringV(s) => write!(f, "{s:?}"),
             BigNum(b) => write!(f, "{}", b.as_ref()),
             CharV(c) => {
@@ -282,8 +282,8 @@ impl CycleDetector {
             BoolV(b) => write!(f, "#{b}"),
             NumV(x) => write!(f, "{x:?}"),
             IntV(x) => write!(f, "{x}"),
-            FractV(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
-            BigFract(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
+            Rational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
+            BigRational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
             StringV(s) => write!(f, "{s:?}"),
             CharV(c) => {
                 if c.is_ascii_control() {
@@ -577,8 +577,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
     fn visit_bool(&mut self, _boolean: bool) -> Self::Output {}
     fn visit_float(&mut self, _float: f64) -> Self::Output {}
     fn visit_int(&mut self, _int: isize) -> Self::Output {}
-    fn visit_fract(&mut self, _: Rational32) -> Self::Output {}
-    fn visit_bigfract(&mut self, _: Gc<BigRational>) -> Self::Output {}
+    fn visit_rational(&mut self, _: Rational32) -> Self::Output {}
+    fn visit_bigrational(&mut self, _: Gc<BigRational>) -> Self::Output {}
     fn visit_bignum(&mut self, _bignum: Gc<BigInt>) -> Self::Output {}
     fn visit_char(&mut self, _c: char) -> Self::Output {}
 
@@ -891,8 +891,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
     fn visit_bool(&mut self, _boolean: bool) {}
     fn visit_float(&mut self, _float: f64) {}
     fn visit_int(&mut self, _int: isize) {}
-    fn visit_fract(&mut self, _: Rational32) {}
-    fn visit_bigfract(&mut self, _: Gc<BigRational>) {}
+    fn visit_rational(&mut self, _: Rational32) {}
+    fn visit_bigrational(&mut self, _: Gc<BigRational>) {}
     fn visit_char(&mut self, _c: char) {}
     fn visit_void(&mut self) {}
     fn visit_string(&mut self, _string: SteelString) {}
@@ -1106,8 +1106,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
                 BoolV(b) => self.visit_bool(b),
                 NumV(n) => self.visit_float(n),
                 IntV(i) => self.visit_int(i),
-                FractV(x) => self.visit_fract(x),
-                BigFract(x) => self.visit_bigfract(x),
+                Rational(x) => self.visit_rational(x),
+                BigRational(x) => self.visit_bigrational(x),
                 BigNum(b) => self.visit_bignum(b),
                 CharV(c) => self.visit_char(c),
                 VectorV(v) => self.visit_immutable_vector(v),
@@ -1171,8 +1171,8 @@ pub trait BreadthFirstSearchSteelValVisitor {
                 BoolV(b) => self.visit_bool(b),
                 NumV(n) => self.visit_float(n),
                 IntV(i) => self.visit_int(i),
-                FractV(x) => self.visit_fract(x),
-                BigFract(x) => self.visit_bigfract(x),
+                Rational(x) => self.visit_rational(x),
+                BigRational(x) => self.visit_bigrational(x),
                 BigNum(b) => self.visit_bignum(b),
                 CharV(c) => self.visit_char(c),
                 VectorV(v) => self.visit_immutable_vector(v),
@@ -1209,13 +1209,13 @@ pub trait BreadthFirstSearchSteelValVisitor {
     }
 
     fn visit_closure(&mut self, closure: Gc<ByteCodeLambda>) -> Self::Output;
-    fn visit_bool(&mut self, boolean: bool) -> Self::Output;
-    fn visit_float(&mut self, float: f64) -> Self::Output;
-    fn visit_int(&mut self, int: isize) -> Self::Output;
-    fn visit_fract(&mut self, fract: Rational32) -> Self::Output;
-    fn visit_bigfract(&mut self, _: Gc<BigRational>) -> Self::Output;
+    fn visit_bool(&mut self, _: bool) -> Self::Output;
+    fn visit_float(&mut self, _: f64) -> Self::Output;
+    fn visit_int(&mut self, _: isize) -> Self::Output;
+    fn visit_rational(&mut self, _: Rational32) -> Self::Output;
+    fn visit_bigrational(&mut self, _: Gc<BigRational>) -> Self::Output;
     fn visit_bignum(&mut self, _: Gc<BigInt>) -> Self::Output;
-    fn visit_char(&mut self, c: char) -> Self::Output;
+    fn visit_char(&mut self, _: char) -> Self::Output;
     fn visit_immutable_vector(&mut self, vector: SteelVector) -> Self::Output;
     fn visit_void(&mut self) -> Self::Output;
     fn visit_string(&mut self, string: SteelString) -> Self::Output;
@@ -1263,8 +1263,8 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
                 BoolV(b) => self.visit_bool(*b),
                 NumV(n) => self.visit_float(*n),
                 IntV(i) => self.visit_int(*i),
-                FractV(x) => self.visit_fract(*x),
-                BigFract(x) => self.visit_bigfract(x),
+                Rational(x) => self.visit_rational(*x),
+                BigRational(x) => self.visit_bigrational(x),
                 CharV(c) => self.visit_char(*c),
                 VectorV(v) => self.visit_immutable_vector(v),
                 Void => self.visit_void(),
@@ -1304,8 +1304,8 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
     fn visit_bool(&mut self, boolean: bool) -> Self::Output;
     fn visit_float(&mut self, float: f64) -> Self::Output;
     fn visit_int(&mut self, int: isize) -> Self::Output;
-    fn visit_fract(&mut self, fract: Rational32) -> Self::Output;
-    fn visit_bigfract(&mut self, _: &'a Gc<BigRational>) -> Self::Output;
+    fn visit_rational(&mut self, fract: Rational32) -> Self::Output;
+    fn visit_bigrational(&mut self, _: &'a Gc<BigRational>) -> Self::Output;
     fn visit_bignum(&mut self, _: &'a Gc<BigInt>) -> Self::Output;
     fn visit_char(&mut self, c: char) -> Self::Output;
     fn visit_immutable_vector(&mut self, vector: &'a SteelVector) -> Self::Output;
@@ -1773,8 +1773,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
     fn visit_bool(&mut self, _boolean: bool) -> Self::Output {}
     fn visit_float(&mut self, _float: f64) -> Self::Output {}
     fn visit_int(&mut self, _int: isize) -> Self::Output {}
-    fn visit_fract(&mut self, _: Rational32) -> Self::Output {}
-    fn visit_bigfract(&mut self, _: Gc<BigRational>) -> Self::Output {}
+    fn visit_rational(&mut self, _: Rational32) -> Self::Output {}
+    fn visit_bigrational(&mut self, _: Gc<BigRational>) -> Self::Output {}
     fn visit_bignum(&mut self, _bignum: Gc<BigInt>) -> Self::Output {}
     fn visit_char(&mut self, _c: char) -> Self::Output {}
     fn visit_void(&mut self) -> Self::Output {}
@@ -1906,8 +1906,8 @@ impl PartialEq for SteelVal {
             (BoolV(l), BoolV(r)) => l == r,
             (IntV(l), IntV(r)) => l == r,
             (NumV(l), NumV(r)) => l == r,
-            (FractV(l), FractV(r)) => l == r,
-            (BigFract(l), BigFract(r)) => l == r,
+            (Rational(l), Rational(r)) => l == r,
+            (BigRational(l), BigRational(r)) => l == r,
             (BigNum(l), BigNum(r)) => l == r,
             (StringV(l), StringV(r)) => l == r,
             (SymbolV(l), SymbolV(r)) => l == r,
