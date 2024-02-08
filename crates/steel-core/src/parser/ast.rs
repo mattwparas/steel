@@ -187,13 +187,13 @@ impl TryFrom<&SteelVal> for ExprKind {
                 IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                     IntegerLiteral(MaybeBigInt::Small(*x)),
                 )))),
-                FractV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                Rational(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                     FractionLiteral(
                         MaybeBigInt::Small(*x.numer() as isize),
                         MaybeBigInt::Small(*x.denom() as isize),
                     ),
                 )))),
-                BigFract(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                BigRational(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                     FractionLiteral(
                         MaybeBigInt::Big(x.numer().clone()),
                         MaybeBigInt::Big(x.denom().clone()),

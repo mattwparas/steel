@@ -7,7 +7,23 @@
 	 (assert! ok))))))
 
 ;; Number types
+(define inf (/ 0.0))
 (assert! (not (equal? 10 10.0)))
+(assert! (integer? 1))
+(assert! (not (integer? 1.2)))
+(assert! (not (integer? inf)))
+(assert! (rational? 1))
+(assert! (rational? 1/4))
+(assert! (rational? 1.2))
+(assert! (not (rational? inf)))
+(assert! (number? 1))
+(assert! (number? 1/4))
+(assert! (number? 1.2))
+(assert! (number? inf))
+(assert! (real? 1))
+(assert! (real? 1/4))
+(assert! (real? 1.2))
+(assert! (real? inf))
 
 ;; Addition
 (assert-equal! 10
@@ -18,7 +34,7 @@
 	       (+ 1/4 1/3))
 (assert-equal! 120.0
 	       (+ 1e2 2e1))
-;; Float + Fraction is promoted to Float.
+;; Float + Rational is promoted to Float.
 (assert-equal! (/ 7.0 12.0)
 	       (+ 0.25 1/3))
 (assert-equal! 9223372036854775808
@@ -83,6 +99,20 @@
 	       (/ 11111111111111111111 22222222222222222222))
 (assert-equal! 1/2
 	       (/ 11111111111111111111 22222222222222222222))
+
+;; Rounding
+(assert-equal! 3
+	       (round 3))
+(assert-equal! 1
+	       (round 4/3))
+(assert-equal! 2
+	       (round 5/3))
+(assert-equal! 2.0
+	       (round 2.1))
+(assert-equal! 3.0
+	       (round 2.6))
+(assert-equal! 9223372036854775808
+	       (round 9223372036854775808))
 
 ;; Comparisons
 (assert! (< -10 9223372036854775808))
