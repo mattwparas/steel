@@ -354,25 +354,67 @@ impl NumOperations {
 #[cfg(test)]
 mod num_op_tests {
     use super::*;
-    use crate::rvals::SteelVal::*;
-    use crate::throw;
-
-    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<SteelVal> {
-        func.func_or_else(throw!(BadSyntax => "num op tests"))
-            .unwrap()(&args)
-    }
+    use crate::{gc::Gc, rvals::SteelVal::*};
+    use std::str::FromStr;
 
     #[test]
     fn division_test() {
-        let args = vec![IntV(10), IntV(2)];
-        let got = divide_primitive(&args).unwrap();
-        let expected = IntV(5);
-        assert_eq!(got.to_string(), expected.to_string());
+        assert_eq!(
+            divide_primitive(&[IntV(10), IntV(2)]).unwrap().to_string(),
+            IntV(5).to_string()
+        );
+    }
+
+    #[test]
+    fn division_on_single_integer_returns_reciprocal_rational() {
+        assert_eq!(
+            divide_primitive(&[IntV(10)]).unwrap().to_string(),
+            FractV(Rational32::new(1, 10)).to_string()
+        );
+    }
+
+    #[test]
+    fn division_on_single_rational_returns_reciprocal_rational() {
+        assert_eq!(
+            divide_primitive(&[Rational32::new(2, 5).into_steelval().unwrap()])
+                .unwrap()
+                .to_string(),
+            FractV(Rational32::new(5, 2)).to_string()
+        );
+    }
+
+    #[test]
+    fn division_on_rational_with_numerator_one_returns_integer() {
+        assert_eq!(
+            divide_primitive(&[Rational32::new(1, 5).into_steelval().unwrap()])
+                .unwrap()
+                .to_string(),
+            IntV(5).to_string()
+        );
+    }
+
+    #[test]
+    fn division_on_bignum_returns_bigfract() {
+        assert_eq!(
+            divide_primitive(
+                &([BigInt::from_str("18446744073709551616")
+                    .unwrap()
+                    .into_steelval()
+                    .unwrap(),])
+            )
+            .unwrap()
+            .to_string(),
+            BigFract(Gc::new(BigRational::new(
+                BigInt::from(1),
+                BigInt::from_str("18446744073709551616").unwrap()
+            )))
+            .to_string()
+        );
     }
 
     #[test]
     fn multiplication_test() {
-        let args = vec![IntV(10), IntV(2)];
+        let args = [IntV(10), IntV(2)];
         let got = multiply_primitive(&args).unwrap();
         let expected = IntV(20);
         assert_eq!(got, expected);
@@ -380,23 +422,67 @@ mod num_op_tests {
 
     #[test]
     fn multiplication_different_types() {
-        let args = vec![IntV(10), NumV(2.0)];
+        let args = [IntV(10), NumV(2.0)];
         let got = multiply_primitive(&args).unwrap();
         let expected = NumV(20.0);
         assert_eq!(got.to_string(), expected.to_string());
     }
 
     #[test]
-    fn addition_different_types() {
-        let args = vec![IntV(10), NumV(2.0)];
-        let got = add_primitive(&args).unwrap();
-        let expected = NumV(12.0);
-        assert_eq!(got.to_string(), expected.to_string());
+    fn multiply_multiple_numbers() {
+        assert_eq!(
+            multiply_primitive(&[IntV(16), NumV(2.0), FractV(Rational32::new(1, 4))])
+                .unwrap()
+                .to_string(),
+            NumV(8.0).to_string(),
+        );
+    }
+
+    #[test]
+    fn adding_exact_with_inexact_returns_inexact() {
+        assert_eq!(
+            add_primitive(&([IntV(10), NumV(2.0)])).unwrap().to_string(),
+            NumV(12.0).to_string()
+        );
+        assert_eq!(
+            add_primitive(
+                &([
+                    BigInt::from_str("18446744073709551616")
+                        .unwrap()
+                        .into_steelval()
+                        .unwrap(),
+                    NumV(18446744073709551616.0),
+                ])
+            )
+            .unwrap()
+            .to_string(),
+            NumV(18446744073709551616.0 * 2.0).to_string()
+        );
+        assert_eq!(
+            add_primitive(
+                &([
+                    BigInt::from_str("18446744073709551616")
+                        .unwrap()
+                        .into_steelval()
+                        .unwrap(),
+                    NumV(18446744073709551616.0),
+                ])
+            )
+            .unwrap()
+            .to_string(),
+            NumV(18446744073709551616.0 * 2.0).to_string()
+        );
+        assert_eq!(
+            add_primitive(&([Rational32::new(1, 2).into_steelval().unwrap(), NumV(0.5),]))
+                .unwrap()
+                .to_string(),
+            NumV(1.0).to_string()
+        );
     }
 
     #[test]
     fn subtraction_different_types() {
-        let args = vec![IntV(10), NumV(2.0)];
+        let args = [IntV(10), NumV(2.0)];
         let got = subtract_primitive(&args).unwrap();
         let expected = NumV(8.0);
         assert_eq!(got.to_string(), expected.to_string());
@@ -404,7 +490,7 @@ mod num_op_tests {
 
     #[test]
     fn test_integer_add() {
-        let args = vec![IntV(10), IntV(2)];
+        let args = [IntV(10), IntV(2)];
         let got = add_primitive(&args).unwrap();
         let expected = IntV(12);
         assert_eq!(got, expected);
@@ -412,7 +498,7 @@ mod num_op_tests {
 
     #[test]
     fn test_integer_sub() {
-        let args = vec![IntV(10), IntV(2)];
+        let args = [IntV(10), IntV(2)];
         let got = subtract_primitive(&args).unwrap();
         let expected = IntV(8);
         assert_eq!(got, expected);
