@@ -5,7 +5,6 @@ use super::{
     register_fn::RegisterFn,
     vm::{get_test_mode, list_modules, set_test_mode, VmCore},
 };
-use crate::values::lists::List;
 use crate::{
     gc::Gc,
     parser::{
@@ -18,7 +17,10 @@ use crate::{
         hashmaps::{HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,
         lists::{list_module, UnRecoverableResult},
-        nums::{quotient, ADD_PRIMITIVE_DEFINITION},
+        nums::{
+            quotient, ADD_PRIMITIVE_DEFINITION, DIVIDE_PRIMITIVE_DEFINITION, INEXACTP_DEFINITION,
+            MULTIPLY_PRIMITIVE_DEFINITION, SUBTRACT_PRIMITIVE_DEFINITION,
+        },
         port_module,
         process::process_module,
         random::random_module,
@@ -48,6 +50,7 @@ use crate::{
         },
     },
 };
+use crate::{primitives::nums::EXACTP_DEFINITION, values::lists::List};
 use crate::{
     rvals::IntoSteelVal,
     values::structs::{build_option_structs, build_result_structs},
@@ -671,14 +674,26 @@ fn not(value: &SteelVal) -> bool {
     matches!(value, SteelVal::BoolV(false))
 }
 
+#[steel_derive::function(name = "number?", constant = true)]
+pub fn numberp(value: &SteelVal) -> bool {
+    matches!(
+        value,
+        SteelVal::IntV(_)
+            | SteelVal::BigNum(_)
+            | SteelVal::Rational(_)
+            | SteelVal::BigRational(_)
+            | SteelVal::NumV(_)
+    )
+}
+
 #[steel_derive::function(name = "int?", constant = true)]
 fn intp(value: &SteelVal) -> bool {
-    matches!(value, SteelVal::IntV(_))
+    matches!(value, SteelVal::IntV(_) | SteelVal::BigNum(_))
 }
 
 #[steel_derive::function(name = "integer?", constant = true)]
 fn integerp(value: &SteelVal) -> bool {
-    matches!(value, SteelVal::IntV(_))
+    intp(value)
 }
 
 #[steel_derive::function(name = "float?", constant = true)]
@@ -686,9 +701,41 @@ fn floatp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::NumV(_))
 }
 
-#[steel_derive::function(name = "number?", constant = true)]
-fn numberp(value: &SteelVal) -> bool {
-    matches!(value, SteelVal::NumV(_) | SteelVal::IntV(_))
+#[steel_derive::function(name = "real?", constant = true)]
+fn realp(value: &SteelVal) -> bool {
+    matches!(
+        value,
+        SteelVal::IntV(_)
+            | SteelVal::BigNum(_)
+            | SteelVal::Rational(_)
+            | SteelVal::BigRational(_)
+            | SteelVal::NumV(_)
+    )
+}
+
+/// Returns #t if obj is a rational number, #f otherwise.
+/// Rational numbers are numbers that can be expressed as the quotient of two numbers.
+/// For example, 3/4, -5/2, 0.25, and 0 are rational numbers, while
+///
+/// (rational? value) -> bool?
+///
+/// Examples:
+/// ```scheme
+///   (rational? (/ 0.0)) ⇒ #f
+///   (rational? 3.5)     ⇒ #t
+///   (rational? 6/10)    ⇒ #t
+///   (rational? 6/3)     ⇒ #t
+/// ```
+#[steel_derive::function(name = "rational?", constant = true)]
+fn rationalp(value: &SteelVal) -> bool {
+    match value {
+        SteelVal::IntV(_)
+        | SteelVal::BigNum(_)
+        | SteelVal::Rational(_)
+        | SteelVal::BigRational(_) => true,
+        SteelVal::NumV(n) => n.is_finite(),
+        _ => false,
+    }
 }
 
 #[steel_derive::function(name = "string?", constant = true)]
@@ -790,11 +837,12 @@ fn identity_module() -> BuiltInModule {
     module
         // .register_value("int?", gen_pred!(IntV))
         .register_native_fn_definition(NOT_DEFINITION)
-        .register_native_fn_definition(INTEGERP_DEFINITION)
+        .register_native_fn_definition(NUMBERP_DEFINITION)
         .register_native_fn_definition(INTP_DEFINITION)
+        .register_native_fn_definition(INTEGERP_DEFINITION)
         .register_native_fn_definition(FLOATP_DEFINITION)
-        .register_native_fn_definition(NUMBERP_DEFINITION)
-        .register_native_fn_definition(NUMBERP_DEFINITION)
+        .register_native_fn_definition(REALP_DEFINITION)
+        .register_native_fn_definition(RATIONALP_DEFINITION)
         .register_native_fn_definition(STRINGP_DEFINITION)
         .register_native_fn_definition(LISTP_DEFINITION)
         .register_native_fn_definition(VECTORP_DEFINITION)
@@ -849,8 +897,8 @@ fn stream_module() -> BuiltInModule {
 fn exact_to_inexact(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(i) => (*i as f64).into_steelval(),
-        SteelVal::FractV(f) => f.to_f64().unwrap().into_steelval(),
-        SteelVal::BigFract(f) => f.to_f64().unwrap().into_steelval(),
+        SteelVal::Rational(f) => f.to_f64().unwrap().into_steelval(),
+        SteelVal::BigRational(f) => f.to_f64().unwrap().into_steelval(),
         SteelVal::NumV(n) => n.into_steelval(),
         SteelVal::BigNum(n) => Ok(SteelVal::NumV(n.to_f64().unwrap())),
         _ => stop!(TypeMismatch => "exact->inexact expects a number type, found: {}", number),
@@ -866,8 +914,8 @@ fn round(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(i) => i.into_steelval(),
         SteelVal::NumV(n) => n.round().into_steelval(),
-        SteelVal::FractV(f) => f.round().into_steelval(),
-        SteelVal::BigFract(f) => f.round().into_steelval(),
+        SteelVal::Rational(f) => f.round().into_steelval(),
+        SteelVal::BigRational(f) => f.round().into_steelval(),
         SteelVal::BigNum(n) => Ok(SteelVal::BigNum(n.clone())),
         _ => stop!(TypeMismatch => "round expects a number type, found: {}", number),
     }
@@ -879,8 +927,8 @@ fn abs(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(i) => Ok(SteelVal::IntV(i.abs())),
         SteelVal::NumV(n) => Ok(SteelVal::NumV(n.abs())),
-        SteelVal::FractV(f) => f.abs().into_steelval(),
-        SteelVal::BigFract(f) => f.abs().into_steelval(),
+        SteelVal::Rational(f) => f.abs().into_steelval(),
+        SteelVal::BigRational(f) => f.abs().into_steelval(),
         SteelVal::BigNum(n) => n.abs().into_steelval(),
         _ => stop!(TypeMismatch => "abs expects a number type, found: {}", number),
     }
@@ -894,48 +942,52 @@ fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
             l.pow(*r as u32).into_steelval()
         }
         (SteelVal::IntV(l), SteelVal::NumV(r)) => (*l as f64).powf(*r).into_steelval(),
-        (SteelVal::IntV(l), SteelVal::FractV(r)) => {
+        (SteelVal::IntV(l), SteelVal::Rational(r)) => {
             (*l as f64).powf(r.to_f64().unwrap()).into_steelval()
         }
-        (SteelVal::IntV(l), SteelVal::BigFract(r)) => {
+        (SteelVal::IntV(l), SteelVal::BigRational(r)) => {
             (*l as f64).powf(r.to_f64().unwrap()).into_steelval()
         }
         (SteelVal::NumV(l), SteelVal::NumV(r)) => Ok(SteelVal::NumV(l.powf(*r))),
         (SteelVal::NumV(l), SteelVal::IntV(r)) if *r < (i32::MAX as isize) => {
             l.powi(*r as i32).into_steelval()
         }
-        (SteelVal::NumV(l), SteelVal::FractV(r)) => Ok(SteelVal::NumV(l.powf(r.to_f64().unwrap()))),
-        (SteelVal::NumV(l), SteelVal::BigFract(r)) => {
+        (SteelVal::NumV(l), SteelVal::Rational(r)) => {
             Ok(SteelVal::NumV(l.powf(r.to_f64().unwrap())))
         }
-        (SteelVal::FractV(l), SteelVal::FractV(r)) => l
+        (SteelVal::NumV(l), SteelVal::BigRational(r)) => {
+            Ok(SteelVal::NumV(l.powf(r.to_f64().unwrap())))
+        }
+        (SteelVal::Rational(l), SteelVal::Rational(r)) => l
             .to_f64()
             .unwrap()
             .powf(r.to_f64().unwrap())
             .into_steelval(),
-        (SteelVal::FractV(l), SteelVal::NumV(r)) => l.to_f64().unwrap().powf(*r).into_steelval(),
-        (SteelVal::FractV(l), SteelVal::IntV(r)) => match i32::try_from(*r) {
+        (SteelVal::Rational(l), SteelVal::NumV(r)) => l.to_f64().unwrap().powf(*r).into_steelval(),
+        (SteelVal::Rational(l), SteelVal::IntV(r)) => match i32::try_from(*r) {
             Ok(r) => l.pow(r).into_steelval(),
             Err(_) => BigRational::new((*l.numer()).into(), (*l.denom()).into())
                 .pow(BigInt::from(*r))
                 .into_steelval(),
         },
-        (SteelVal::FractV(l), SteelVal::BigFract(r)) => l
+        (SteelVal::Rational(l), SteelVal::BigRational(r)) => l
             .to_f64()
             .unwrap()
             .powf(r.to_f64().unwrap())
             .into_steelval(),
-        (SteelVal::BigFract(l), SteelVal::FractV(r)) => l
+        (SteelVal::BigRational(l), SteelVal::Rational(r)) => l
             .to_f64()
             .unwrap()
             .powf(r.to_f64().unwrap())
             .into_steelval(),
-        (SteelVal::BigFract(l), SteelVal::NumV(r)) => l.to_f64().unwrap().powf(*r).into_steelval(),
-        (SteelVal::BigFract(l), SteelVal::IntV(r)) => match i32::try_from(*r) {
+        (SteelVal::BigRational(l), SteelVal::NumV(r)) => {
+            l.to_f64().unwrap().powf(*r).into_steelval()
+        }
+        (SteelVal::BigRational(l), SteelVal::IntV(r)) => match i32::try_from(*r) {
             Ok(r) => l.as_ref().pow(r).into_steelval(),
             Err(_) => l.as_ref().clone().pow(BigInt::from(*r)).into_steelval(),
         },
-        (SteelVal::BigFract(l), SteelVal::BigFract(r)) => l
+        (SteelVal::BigRational(l), SteelVal::BigRational(r)) => l
             .to_f64()
             .unwrap()
             .powf(r.to_f64().unwrap())
@@ -955,10 +1007,10 @@ fn exp(left: &SteelVal) -> Result<SteelVal> {
             Ok(SteelVal::NumV(std::f64::consts::E.powi(*l as i32)))
         }
         SteelVal::NumV(n) => Ok(SteelVal::NumV(std::f64::consts::E.powf(*n))),
-        SteelVal::FractV(f) => std::f64::consts::E
+        SteelVal::Rational(f) => std::f64::consts::E
             .powf(f.to_f64().unwrap())
             .into_steelval(),
-        SteelVal::BigFract(f) => std::f64::consts::E
+        SteelVal::BigRational(f) => std::f64::consts::E
             .powf(f.to_f64().unwrap())
             .into_steelval(),
         _ => {
@@ -988,7 +1040,7 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
         (SteelVal::IntV(arg), SteelVal::IntV(base)) => Ok(SteelVal::IntV(arg.ilog(*base) as isize)),
         (SteelVal::NumV(arg), SteelVal::NumV(n)) => Ok(SteelVal::NumV(arg.log(*n))),
         (SteelVal::NumV(arg), SteelVal::IntV(base)) => Ok(SteelVal::NumV(arg.log(*base as f64))),
-        // TODO: Support BigNum, FractV, and BigFract.
+        // TODO: Support BigNum, Rational, and BigRational.
         _ => {
             stop!(TypeMismatch => "log expects one or two numbers, found: {} and {}", first, base);
         }
@@ -1000,9 +1052,9 @@ fn number_module() -> BuiltInModule {
     module
         .register_native_fn_definition(ADD_PRIMITIVE_DEFINITION)
         .register_value("f+", NumOperations::float_add())
-        .register_value("*", NumOperations::multiply())
-        .register_value("/", NumOperations::divide())
-        .register_value("-", NumOperations::subtract())
+        .register_native_fn_definition(MULTIPLY_PRIMITIVE_DEFINITION)
+        .register_native_fn_definition(DIVIDE_PRIMITIVE_DEFINITION)
+        .register_native_fn_definition(SUBTRACT_PRIMITIVE_DEFINITION)
         .register_value("even?", NumOperations::even())
         .register_value("odd?", NumOperations::odd())
         .register_fn("quotient", quotient)
@@ -1011,6 +1063,8 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(EXPT_DEFINITION)
         .register_native_fn_definition(ROUND_DEFINITION)
         .register_native_fn_definition(EXACT_TO_INEXACT_DEFINITION)
+        .register_native_fn_definition(EXACTP_DEFINITION)
+        .register_native_fn_definition(INEXACTP_DEFINITION)
         .register_native_fn_definition(EXP_DEFINITION)
         .register_native_fn_definition(LOG_DEFINITION);
 

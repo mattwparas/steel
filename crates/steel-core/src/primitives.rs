@@ -18,44 +18,37 @@ pub mod transducers;
 mod utils;
 pub mod vectors;
 
-pub use lists::UnRecoverableResult;
-use num::{BigInt, BigRational, Rational32, ToPrimitive};
-
-use crate::values::closed::HeapRef;
-use crate::values::lists::List;
-use crate::values::structs::UserDefinedStruct;
-pub use control::ControlOperations;
-pub use fs::fs_module;
-pub use io::IoFunctions;
-pub use meta_ops::MetaOperations;
-pub use nums::NumOperations;
-pub use ports::port_module;
-pub use streams::StreamOperations;
-pub use symbols::SymbolOperations;
-pub use vectors::VectorOperations;
-
-pub use strings::string_module;
-
-pub use nums::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
-
+use crate::gc::Gc;
+use crate::rvals::{FromSteelVal, IntoSteelVal};
 use crate::rvals::{
     FunctionSignature, PrimitiveAsRef, PrimitiveAsRefMut, SteelHashMap, SteelHashSet, SteelVal,
     SteelVector,
 };
+use crate::values::closed::HeapRef;
+use crate::values::lists::List;
 use crate::values::port::SteelPort;
+use crate::values::structs::UserDefinedStruct;
 use crate::{
     rerrs::{ErrorKind, SteelErr},
     rvals::SteelString,
 };
+pub use control::ControlOperations;
+pub use fs::fs_module;
 use im_rc::Vector;
-
+pub use io::IoFunctions;
+pub use lists::UnRecoverableResult;
+pub use meta_ops::MetaOperations;
+use num::{BigInt, BigRational, Rational32, ToPrimitive};
+pub use nums::NumOperations;
+pub use nums::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
+pub use ports::port_module;
 use std::cell::RefCell;
 use std::convert::TryFrom;
 use std::result;
-
-use crate::rvals::{FromSteelVal, IntoSteelVal};
-
-use crate::gc::Gc;
+pub use streams::StreamOperations;
+pub use strings::string_module;
+pub use symbols::SymbolOperations;
+pub use vectors::VectorOperations;
 
 macro_rules! try_from_impl {
     ($type:ident => $($body:ty),*) => {
@@ -256,7 +249,7 @@ impl IntoSteelVal for Rational32 {
         if self.is_integer() {
             self.numer().into_steelval()
         } else {
-            Ok(SteelVal::FractV(self))
+            Ok(SteelVal::Rational(self))
         }
     }
 }
@@ -278,7 +271,7 @@ impl IntoSteelVal for BigRational {
         }
         match (self.numer().to_i32(), self.denom().to_i32()) {
             (Some(n), Some(d)) => Rational32::new(n, d).into_steelval(),
-            _ => Ok(SteelVal::BigFract(Gc::new(self))),
+            _ => Ok(SteelVal::BigRational(Gc::new(self))),
         }
     }
 }
