@@ -7,7 +7,23 @@
 	 (assert! ok))))))
 
 ;; Number types
+(define inf (/ 0.0))
 (assert! (not (equal? 10 10.0)))
+(assert! (integer? 1))
+(assert! (not (integer? 1.2)))
+(assert! (not (integer? inf)))
+(assert! (rational? 1))
+(assert! (rational? 1/4))
+(assert! (rational? 1.2))
+(assert! (not (rational? inf)))
+(assert! (number? 1))
+(assert! (number? 1/4))
+(assert! (number? 1.2))
+(assert! (number? inf))
+(assert! (real? 1))
+(assert! (real? 1/4))
+(assert! (real? 1.2))
+(assert! (real? inf))
 
 ;; Addition
 (assert-equal! 10

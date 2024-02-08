@@ -713,12 +713,29 @@ fn realp(value: &SteelVal) -> bool {
     )
 }
 
+/// Returns #t if obj is a rational number, #f otherwise.
+/// Rational numbers are numbers that can be expressed as the quotient of two numbers.
+/// For example, 3/4, -5/2, 0.25, and 0 are rational numbers, while
+///
+/// (rational? value) -> bool?
+///
+/// Examples:
+/// ```scheme
+///   (rational? (/ 0.0)) ⇒ #f
+///   (rational? 3.5)     ⇒ #t
+///   (rational? 6/10)    ⇒ #t
+///   (rational? 6/3)     ⇒ #t
+/// ```
 #[steel_derive::function(name = "rational?", constant = true)]
 fn rationalp(value: &SteelVal) -> bool {
-    matches!(
-        value,
-        SteelVal::IntV(_) | SteelVal::BigNum(_) | SteelVal::Rational(_) | SteelVal::BigRational(_)
-    )
+    match value {
+        SteelVal::IntV(_)
+        | SteelVal::BigNum(_)
+        | SteelVal::Rational(_)
+        | SteelVal::BigRational(_) => true,
+        SteelVal::NumV(n) => n.is_finite(),
+        _ => false,
+    }
 }
 
 #[steel_derive::function(name = "string?", constant = true)]
