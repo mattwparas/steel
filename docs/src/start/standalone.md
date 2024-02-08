@@ -108,6 +108,6 @@ You can use and enjoy all features provided by the Steel Interpreter by installi
   `cd cogs`\
   `cargo --run install.scm`
 
-  9. Finally, install the code coverage tool test which will be of great user in the case your intend to contribute to
+  9. Finally, install the code coverage tool test, which will be of great use in the case you intend to contribute to
   Steel development:
   `cargo install cargo-tapaulin`
