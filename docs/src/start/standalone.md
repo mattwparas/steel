@@ -92,22 +92,11 @@ You can use and enjoy all features provided by the Steel Interpreter by installi
   `steel \<steel_file.scm\>`
 
 
-### Installing built-in modules
+## Preparing ground for subsequent Steel packages
 
-  7. Define `STEEL_HOME` and add it as a new environment variable. It will serve a your default location to install 
-  subsequent packages to preserve a sane installation tree.
-  You can try a hidden directory to avoid remove it by accident:
-  `export PATH=${PWD}/.steel:$PATH`
-
-  Of course, you adopt the method to update your `PATH` variable according to your actual shell. See sub-section n°4 of
-  the current document for more details on how to proceed.
-  Like before, forget not to regenerate your interactive shell to activate the new path name without having to start a
+  6. You can optionally define `STEEL_HOME` as a sub-directory of your choice to set up properly a path name for your
+  subsequent Steel package's installations.\
+    Like before, forget not to regenerate your interactive shell to activate the new path name without having to start a
   new user session.
 
-  8. Navigate through the installer sub-directory and run the built-in modules' installation:
-  `cd cogs`\
-  `cargo --run install.scm`
 
-  9. Finally, install the code coverage tool test, which will be of great use in the case you intend to contribute to
-  Steel development:
-  `cargo install cargo-tapaulin`
