@@ -202,6 +202,7 @@ impl TryFrom<&SteelVal> for ExprKind {
                 BigNum(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                     IntegerLiteral(MaybeBigInt::Big(x.unwrap())),
                 )))),
+                Complex(_) => unimplemented!("Complex numbers not fully supported yet. See https://github.com/mattwparas/steel/issues/62 for current status."),
                 VectorV(lst) => {
                     let items: std::result::Result<Vec<ExprKind>, &'static str> =
                         lst.iter().map(|x| inner_try_from(x, depth + 1)).collect();

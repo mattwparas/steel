@@ -17,7 +17,7 @@ fn ensure_args_are_numbers(op: &str, args: &[SteelVal]) -> Result<()> {
 ///
 /// # Precondition
 /// - `x` and `y` must be valid numerical types.
-fn multiply_unchecked(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
+fn multiply_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
     match (x, y) {
         (SteelVal::NumV(x), SteelVal::NumV(y)) => (x * y).into_steelval(),
         (SteelVal::NumV(x), SteelVal::IntV(y)) | (SteelVal::IntV(y), SteelVal::NumV(x)) => {
@@ -107,13 +107,13 @@ fn multiply_primitive_impl(args: &[SteelVal]) -> Result<SteelVal> {
     match args {
         [] => 1.into_steelval(),
         [x] => x.clone().into_steelval(),
-        [x, y] => multiply_unchecked(x, y).into_steelval(),
+        [x, y] => multiply_two(x, y).into_steelval(),
         [x, y, zs @ ..] => {
-            let mut res = multiply_unchecked(x, y)?;
+            let mut res = multiply_two(x, y)?;
             for z in zs {
                 // TODO: This use case could be optimized to reuse state instead of creating a new
                 // object each time.
-                res = multiply_unchecked(&res, &z)?;
+                res = multiply_two(&res, &z)?;
             }
             res.into_steelval()
         }
@@ -152,15 +152,19 @@ pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
         [] => stop!(ArityMismatch => "/ requires at least one argument"),
         [x] => recip(x),
         // TODO: Provide custom implementation to optimize by joining the multiply and recip calls.
-        [x, y] => multiply_unchecked(x, &recip(y)?),
+        [x, y] => multiply_two(x, &recip(y)?),
         [x, ys @ ..] => {
             let d = multiply_primitive_impl(ys)?;
-            multiply_unchecked(&x, &recip(&d)?)
+            multiply_two(&x, &recip(&d)?)
         }
     }
 }
 
-fn negate_unchecked(value: &SteelVal) -> Result<SteelVal> {
+/// Negate a number.
+///
+/// # Precondition
+/// `value` must be a number.
+fn negate(value: &SteelVal) -> Result<SteelVal> {
     match value {
         SteelVal::NumV(x) => (-x).into_steelval(),
         SteelVal::IntV(x) => match x.checked_neg() {
@@ -185,10 +189,10 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     ensure_args_are_numbers("-", args)?;
     match args {
         [] => stop!(TypeMismatch => "- requires at least one argument"),
-        [x] => negate_unchecked(x),
+        [x] => negate(x),
         [x, ys @ ..] => {
-            let y = negate_unchecked(&add_primitive(ys)?)?;
-            add_two_unchecked(x, &y)
+            let y = negate(&add_primitive(ys)?)?;
+            add_two(x, &y)
         }
     }
 }
@@ -197,7 +201,7 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 ///
 /// # Precondition
 /// x and y must be valid numbers.
-fn add_two_unchecked(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
+fn add_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
     match (x, y) {
         // Simple integer case. Probably very common.
         (SteelVal::IntV(x), SteelVal::IntV(y)) => match x.checked_add(y) {
@@ -285,11 +289,11 @@ pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     match args {
         [] => 0.into_steelval(),
         [x] => x.clone().into_steelval(),
-        [x, y] => add_two_unchecked(x, y),
+        [x, y] => add_two(x, y),
         [x, y, zs @ ..] => {
-            let mut res = add_two_unchecked(x, y)?;
+            let mut res = add_two(x, y)?;
             for z in zs {
-                res = add_two_unchecked(&res, z)?;
+                res = add_two(&res, z)?;
             }
             res.into_steelval()
         }
@@ -299,31 +303,24 @@ pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 #[cold]
 fn multiply_complex(x: &SteelComplex, y: &SteelComplex) -> Result<SteelVal> {
     // TODO: Optimize the implementation if needed.
-    let real = add_two_unchecked(
-        &multiply_unchecked(&x.re, &y.re)?,
-        &negate_unchecked(&multiply_unchecked(&x.im, &y.im)?)?,
+    let real = add_two(
+        &multiply_two(&x.re, &y.re)?,
+        &negate(&multiply_two(&x.im, &y.im)?)?,
     )?;
-    let im = add_two_unchecked(
-        &multiply_unchecked(&x.re, &y.im)?,
-        &multiply_unchecked(&x.im, &y.re)?,
-    )?;
+    let im = add_two(&multiply_two(&x.re, &y.im)?, &multiply_two(&x.im, &y.re)?)?;
     SteelComplex::new(real, im).into_steelval()
 }
 
 #[cold]
 fn negate_complex(x: &SteelComplex) -> Result<SteelVal> {
     // TODO: Optimize the implementation if needed.
-    SteelComplex::new(negate_unchecked(&x.re)?, negate_unchecked(&x.im)?).into_steelval()
+    SteelComplex::new(negate(&x.re)?, negate(&x.im)?).into_steelval()
 }
 
 #[cold]
 fn add_complex(x: &SteelComplex, y: &SteelComplex) -> Result<SteelVal> {
     // TODO: Optimize the implementation if needed.
-    SteelComplex::new(
-        add_two_unchecked(&x.re, &y.re)?,
-        add_two_unchecked(&x.im, &y.im)?,
-    )
-    .into_steelval()
+    SteelComplex::new(add_two(&x.re, &y.re)?, add_two(&x.im, &y.im)?).into_steelval()
 }
 
 #[steel_derive::function(name = "exact?", constant = true)]

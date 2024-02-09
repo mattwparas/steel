@@ -34,8 +34,8 @@ use crate::{
     rvals::{
         as_underlying_type,
         cycles::{BreadthFirstSearchSteelValVisitor, SteelCycleCollector},
-        FromSteelVal, FunctionSignature, MutFunctionSignature, SteelString, ITERATOR_FINISHED,
-        NUMBER_EQUALITY_DEFINITION,
+        FromSteelVal, FunctionSignature, MutFunctionSignature, SteelComplex, SteelString,
+        ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
     },
     steel_vm::{
         builtin::{get_function_metadata, get_function_name, Arity},
@@ -908,7 +908,10 @@ fn exact_to_inexact(number: &SteelVal) -> Result<SteelVal> {
         SteelVal::BigRational(f) => f.to_f64().unwrap().into_steelval(),
         SteelVal::NumV(n) => n.into_steelval(),
         SteelVal::BigNum(n) => Ok(SteelVal::NumV(n.to_f64().unwrap())),
-        _ => stop!(TypeMismatch => "exact->inexact expects a number type, found: {}", number),
+        SteelVal::Complex(x) => {
+            SteelComplex::new(exact_to_inexact(&x.re)?, exact_to_inexact(&x.im)?).into_steelval()
+        }
+        _ => stop!(TypeMismatch => "exact->inexact expects a number type, found: {number}"),
     }
 }
 
@@ -924,7 +927,7 @@ fn round(number: &SteelVal) -> Result<SteelVal> {
         SteelVal::Rational(f) => f.round().into_steelval(),
         SteelVal::BigRational(f) => f.round().into_steelval(),
         SteelVal::BigNum(n) => Ok(SteelVal::BigNum(n.clone())),
-        _ => stop!(TypeMismatch => "round expects a number type, found: {}", number),
+        _ => stop!(TypeMismatch => "round expects a real number, found: {number}"),
     }
 }
 
@@ -937,7 +940,7 @@ fn abs(number: &SteelVal) -> Result<SteelVal> {
         SteelVal::Rational(f) => f.abs().into_steelval(),
         SteelVal::BigRational(f) => f.abs().into_steelval(),
         SteelVal::BigNum(n) => n.abs().into_steelval(),
-        _ => stop!(TypeMismatch => "abs expects a number type, found: {}", number),
+        _ => stop!(TypeMismatch => "abs expects a real number, found: {number}"),
     }
 }
 
@@ -999,8 +1002,8 @@ fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
             .unwrap()
             .powf(r.to_f64().unwrap())
             .into_steelval(),
-        _ => {
-            stop!(TypeMismatch => "expt expected two numbers")
+        (l, r) => {
+            stop!(TypeMismatch => "expt expected two numbers but found {} and {}", l, r)
         }
     }
 }
