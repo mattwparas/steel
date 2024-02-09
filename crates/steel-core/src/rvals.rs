@@ -71,7 +71,7 @@ use futures_util::future::Shared;
 use futures_util::FutureExt;
 
 use crate::values::lists::List;
-use num::{BigInt, ToPrimitive};
+use num::{BigInt, BigRational, Rational32, ToPrimitive};
 use steel_parser::tokens::MaybeBigInt;
 
 use self::cycles::{CycleDetector, IterativeDropHandler};
@@ -1140,14 +1140,16 @@ pub enum TypeKind {
 /// A value as represented in the runtime.
 #[derive(Clone)]
 pub enum SteelVal {
-    /// Represents a bytecode closure
+    /// Represents a bytecode closure.
     Closure(Gc<ByteCodeLambda>),
-    /// Represents a boolean value
+    /// Represents a boolean value.
     BoolV(bool),
-    /// Represents a number, currently only f64 numbers are supported
+    /// Represents a number, currently only f64 numbers are supported.
     NumV(f64),
-    /// Represents an integer
+    /// Represents an integer.
     IntV(isize),
+    /// Represents a rational number.
+    Rational(Rational32),
     /// Represents a character type
     CharV(char),
     /// Vectors are represented as `im_rc::Vector`'s, which are immutable
@@ -1179,9 +1181,8 @@ pub enum SteelVal {
     FutureFunc(BoxedAsyncFunctionSignature),
     // Boxed Future Result
     FutureV(Gc<FutureResult>),
-
+    // A stream of `SteelVal`.
     StreamV(Gc<LazyStream>),
-
     /// Custom closure
     BoxedFunction(Rc<BoxedDynFunction>),
     // Continuation
@@ -1191,9 +1192,8 @@ pub enum SteelVal {
     // CompiledFunction(Box<JitFunctionPointer>),
     // List
     ListV(crate::values::lists::List<SteelVal>),
-
+    // Holds a pair that contains 2 `SteelVal`.
     Pair(Gc<crate::values::lists::Pair>),
-
     // Mutable functions
     MutFunc(MutFunctionSignature),
     // Built in functions
@@ -1203,19 +1203,19 @@ pub enum SteelVal {
     // This should delegate to the underlying iterator - can allow for faster raw iteration if possible
     // Should allow for polling just a raw "next" on underlying elements
     BoxedIterator(Gc<RefCell<OpaqueIterator>>),
-
+    // Contains a syntax object.
     SyntaxObject(Gc<Syntax>),
-
     // Mutable storage, with Gc backing
     // Boxed(HeapRef),
     Boxed(Gc<RefCell<SteelVal>>),
-
+    // Holds a SteelVal on the heap.
     HeapAllocated(HeapRef<SteelVal>),
-
     // TODO: This itself, needs to be boxed unfortunately.
     Reference(Rc<OpaqueReference<'static>>),
-
-    BigNum(Gc<num::BigInt>),
+    // Like IntV but supports larger values.
+    BigNum(Gc<BigInt>),
+    // Like Rational but supports larger numerators and denominators.
+    BigRational(Gc<BigRational>),
 }
 
 impl SteelVal {
@@ -1585,42 +1585,18 @@ impl SteelVal {
     }
 }
 
-// TODO come back to this for the constant map
-
-// impl Serialize for SteelVal {
-//     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-//     where
-//         S: Serializer,
-//     {
-//         match self {
-//             SteelVal::BoolV(b) => serializer.serialize_newtype_variant("SteelVal", 0, "BoolV", b),
-//             SteelVal::NumV(n) => serializer.serialize_newtype_variant("SteelVal", 1, "NumV", n),
-//             SteelVal::IntV(n) => serializer.serialize_newtype_variant("SteelVal", 2, "IntV", n),
-//             SteelVal::CharV(c) => serializer.serialize_newtype_variant("SteelVal", 3, "CharV", c),
-//             SteelVal::StringV(s) => {
-//                 serializer.serialize_newtype_variant("SteelVal", 7, "StringV", s)
-//             }
-//             SteelVal::Pair(car, cdr) => {
-//                 let mut state = serializer.serialize_tuple_variant("SteelVal", 4, "Pair", 2)?;
-//                 state.serialize_field(car)?;
-//                 state.serialize_field(cdr)?;
-//                 state.end()
-//             }
-//             _ => panic!("Cannot serialize enum variant: {}", self),
-//         }
-//     }
-// }
-
 impl Hash for SteelVal {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
             BoolV(b) => b.hash(state),
             NumV(n) => n.to_string().hash(state),
             IntV(i) => i.hash(state),
+            Rational(f) => f.hash(state),
             CharV(c) => c.hash(state),
             ListV(l) => l.hash(state),
             CustomStruct(s) => s.hash(state),
             BigNum(n) => n.hash(state),
+            BigRational(f) => f.hash(state),
             // Pair(cell) => {
             //     cell.hash(state);
             // }
@@ -1644,9 +1620,8 @@ impl Hash for SteelVal {
             HashSetV(hs) => hs.hash(state),
             SyntaxObject(s) => s.raw.hash(state),
             _ => {
-                println!("Trying to hash: {self:?}");
-                unimplemented!()
-            } // Promise(_) => unimplemented!(),
+                unimplemented!("Attempted to has unsupported value: {self:?}")
+            }
         }
     }
 }
@@ -1965,70 +1940,66 @@ pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
         (IntV(l), IntV(r)) => l == r,
         (NumV(l), NumV(r)) => l == r,
         (IntV(l), NumV(r)) | (NumV(r), IntV(l)) => integer_float_equality(*l, *r),
+        (Rational(l), Rational(r)) => l == r,
+        (Rational(l), NumV(r)) | (NumV(r), Rational(l)) => l.to_f64().unwrap() == *r,
         (BigNum(l), BigNum(r)) => l == r,
         (BigNum(l), NumV(r)) | (NumV(r), BigNum(l)) => bignum_float_equality(l, *r),
-
-        // Should be impossible to have an integer and a bignum be the same value
+        (BigRational(l), BigRational(r)) => l == r,
+        (BigRational(l), NumV(r)) | (NumV(r), BigRational(l)) => l.to_f64().unwrap() == *r,
+        // The below should be impossible as integers/bignums freely convert into each
+        // other. Similar for int/bignum/rational/bigrational.
+        (Rational(_), IntV(_))
+        | (IntV(_), Rational(_))
+        | (Rational(_), BigNum(_))
+        | (BigNum(_), Rational(_))
+        | (Rational(_), BigRational(_))
+        | (BigRational(_), Rational(_)) => false,
+        (BigRational(_), IntV(_))
+        | (IntV(_), BigRational(_))
+        | (BigRational(_), BigNum(_))
+        | (BigNum(_), BigRational(_)) => false,
         (IntV(_), BigNum(_)) | (BigNum(_), IntV(_)) => false,
-
         _ => stop!(TypeMismatch => "= expects two numbers, found: {:?} and {:?}", left, right),
     };
 
     Ok(SteelVal::BoolV(result))
 }
 
-// TODO add tests
-// impl PartialEq for SteelVal {
-//     fn eq(&self, other: &Self) -> bool {
-//         match (self, other) {
-//             (Void, Void) => true,
-//             (BoolV(l), BoolV(r)) => l == r,
-//             (BigNum(l), BigNum(r)) => l == r,
-//             // (NumV(l), NumV(r)) => l == r,
-//             (IntV(l), IntV(r)) => l == r,
-
-//             // Floats shouls also be considered equal
-//             (NumV(l), NumV(r)) => l == r,
-
-//             (StringV(l), StringV(r)) => l == r,
-//             (VectorV(l), VectorV(r)) => l == r,
-//             (SymbolV(l), SymbolV(r)) => l == r,
-//             (CharV(l), CharV(r)) => l == r,
-//             (HashSetV(l), HashSetV(r)) => l == r,
-//             (HashMapV(l), HashMapV(r)) => l == r,
-//             (Closure(l), Closure(r)) => l == r,
-//             (IterV(l), IterV(r)) => l == r,
-//             (ListV(l), ListV(r)) => l == r,
-//             (CustomStruct(l), CustomStruct(r)) => l == r,
-//             (FuncV(l), FuncV(r)) => *l == *r,
-//             (Custom(l), Custom(r)) => Gc::ptr_eq(l, r),
-//             (HeapAllocated(l), HeapAllocated(r)) => l.get() == r.get(),
-//             //TODO
-//             (_, _) => false, // (l, r) => {
-//                              //     let left = unwrap!(l, usize);
-//                              //     let right = unwrap!(r, usize);
-//                              //     match (left, right) {
-//                              //         (Ok(l), Ok(r)) => l == r,
-//                              //         (_, _) => false,
-//                              //     }
-//                              // }
-//         }
-//     }
-// }
+fn partial_cmp_f64(l: &impl ToPrimitive, r: &impl ToPrimitive) -> Option<Ordering> {
+    l.to_f64()?.partial_cmp(&r.to_f64()?)
+}
 
 // TODO add tests
 impl PartialOrd for SteelVal {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        // TODO: Attempt to avoid converting to f64 for cases below as it may lead to precision
+        // loss at tiny and large values.
         match (self, other) {
             (IntV(l), IntV(r)) => l.partial_cmp(r),
-            (IntV(l), NumV(r)) => (*l as f64).partial_cmp(r),
+            (IntV(l), NumV(r)) => partial_cmp_f64(l, r),
+            (IntV(l), Rational(r)) => partial_cmp_f64(l, r),
+            (IntV(l), BigRational(r)) => partial_cmp_f64(l, r.as_ref()),
             (IntV(l), BigNum(r)) => BigInt::from(*l).partial_cmp(r),
-            (NumV(l), IntV(r)) => l.partial_cmp(&(*r as f64)),
+            (NumV(l), IntV(r)) => partial_cmp_f64(l, r),
             (NumV(l), NumV(r)) => l.partial_cmp(r),
-            (NumV(l), BigNum(r)) => l.partial_cmp(&r.to_f64()?),
+            (NumV(l), Rational(r)) => partial_cmp_f64(l, r),
+            (NumV(l), BigRational(r)) => partial_cmp_f64(l, r.as_ref()),
+            (NumV(l), BigNum(r)) => partial_cmp_f64(l, r.as_ref()),
+            (Rational(l), Rational(r)) => l.partial_cmp(&r),
+            (Rational(l), IntV(r)) => partial_cmp_f64(l, r),
+            (Rational(l), NumV(r)) => l.to_f64()?.partial_cmp(&r),
+            (Rational(l), BigRational(r)) => partial_cmp_f64(l, r.as_ref()),
+            (Rational(l), BigNum(r)) => l.to_f64()?.partial_cmp(&r.to_f64()?),
             (BigNum(l), IntV(r)) => l.as_ref().partial_cmp(&BigInt::from(*r)),
             (BigNum(l), NumV(r)) => l.to_f64()?.partial_cmp(r),
             (BigNum(l), BigNum(r)) => l.as_ref().partial_cmp(r.as_ref()),
+            (BigNum(l), Rational(r)) => partial_cmp_f64(l.as_ref(), r),
+            (BigNum(l), BigRational(r)) => partial_cmp_f64(l.as_ref(), r.as_ref()),
+            (BigRational(l), BigRational(r)) => l.as_ref().partial_cmp(r.as_ref()),
+            (BigRational(l), IntV(r)) => partial_cmp_f64(l.as_ref(), r),
+            (BigRational(l), NumV(r)) => partial_cmp_f64(l.as_ref(), r),
+            (BigRational(l), Rational(r)) => partial_cmp_f64(l.as_ref(), r),
+            (BigRational(l), BigNum(r)) => partial_cmp_f64(l.as_ref(), r.as_ref()),
             (StringV(s), StringV(o)) => s.partial_cmp(o),
             (CharV(l), CharV(r)) => l.partial_cmp(r),
             _ => None, // unimplemented for other types

@@ -2,12 +2,6 @@ use crate::parser::{
     parser::SyntaxObject, tokens::TokenType::*, tryfrom_visitor::TryFromExprKindForSteelVal,
 };
 
-// use std::{convert::TryFrom, fmt::Write, sync::atomic::Ordering};
-
-// use pretty::RcDoc;
-// use serde::{Deserialize, Serialize};
-// use std::fmt;
-// use std::ops::Deref;
 use steel_parser::tokens::MaybeBigInt;
 
 use crate::{
@@ -193,7 +187,18 @@ impl TryFrom<&SteelVal> for ExprKind {
                 IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                     IntegerLiteral(MaybeBigInt::Small(*x)),
                 )))),
-
+                Rational(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                    FractionLiteral(
+                        MaybeBigInt::Small(*x.numer() as isize),
+                        MaybeBigInt::Small(*x.denom() as isize),
+                    ),
+                )))),
+                BigRational(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                    FractionLiteral(
+                        MaybeBigInt::Big(x.numer().clone()),
+                        MaybeBigInt::Big(x.denom().clone()),
+                    ),
+                )))),
                 BigNum(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                     IntegerLiteral(MaybeBigInt::Big(x.unwrap())),
                 )))),
