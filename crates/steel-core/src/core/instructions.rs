@@ -119,11 +119,11 @@ pub struct DenseInstruction {
     // Function IDs need to be interned _again_ before patched into the code?
     // Also: We should be able to get away with a u16 here. Just grab places where u16
     // won't fit and convert to something else.
-    pub payload_size: u16,
+    pub payload_size: u32,
 }
 
 impl DenseInstruction {
-    pub fn new(op_code: OpCode, payload_size: u16) -> DenseInstruction {
+    pub fn new(op_code: OpCode, payload_size: u32) -> DenseInstruction {
         DenseInstruction {
             op_code,
             payload_size,
