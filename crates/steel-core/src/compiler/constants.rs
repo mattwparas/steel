@@ -6,9 +6,9 @@ use crate::parser::{
     parser::{ParseError, Parser},
 };
 
-use std::collections::HashMap;
 use std::{cell::RefCell, rc::Rc};
 
+use fxhash::{FxHashMap, FxHashSet};
 // TODO add the serializing and deserializing for constants
 use serde::{Deserialize, Serialize};
 use steel_parser::parser::lower_entire_ast;
@@ -17,7 +17,7 @@ use steel_parser::parser::lower_entire_ast;
 // underlying representation.
 #[derive(Debug, PartialEq)]
 pub struct ConstantMap {
-    map: Rc<RefCell<HashMap<SteelVal, usize>>>,
+    map: Rc<RefCell<FxHashMap<SteelVal, usize>>>,
     values: Rc<RefCell<Vec<SteelVal>>>,
 }
 
@@ -47,7 +47,7 @@ impl ConstantMap {
     pub fn new() -> ConstantMap {
         ConstantMap {
             values: Rc::new(RefCell::new(Vec::new())),
-            map: Rc::new(RefCell::new(HashMap::new())),
+            map: Rc::new(RefCell::new(FxHashMap::default())),
         }
     }
 
@@ -57,8 +57,8 @@ impl ConstantMap {
 
     pub fn to_serializable_vec(
         &self,
-        serializer: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-        visited: &mut std::collections::HashSet<usize>,
+        serializer: &mut FxHashMap<usize, SerializableSteelVal>,
+        visited: &mut FxHashSet<usize>,
     ) -> Vec<SerializableSteelVal> {
         self.values
             .borrow()

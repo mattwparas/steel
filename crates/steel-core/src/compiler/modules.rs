@@ -23,12 +23,7 @@ use once_cell::sync::Lazy;
 // use smallvec::SmallVec;
 use steel_parser::{ast::PROTO_HASH_GET, expr_list};
 
-use std::{
-    borrow::Cow,
-    collections::{HashMap, HashSet},
-    io::Read,
-    path::PathBuf,
-};
+use std::{borrow::Cow, io::Read, path::PathBuf};
 
 use crate::parser::expander::SteelMacro;
 use crate::stop;
@@ -131,7 +126,7 @@ pub(crate) struct ModuleManager {
     compiled_modules: FxHashMap<PathBuf, CompiledModule>,
     file_metadata: FxHashMap<PathBuf, SystemTime>,
     visited: FxHashSet<PathBuf>,
-    custom_builtins: HashMap<String, String>,
+    custom_builtins: FxHashMap<String, String>,
 }
 
 impl ModuleManager {
@@ -143,7 +138,7 @@ impl ModuleManager {
             compiled_modules,
             file_metadata,
             visited: FxHashSet::default(),
-            custom_builtins: HashMap::new(),
+            custom_builtins: FxHashMap::default(),
         }
     }
 
@@ -211,8 +206,8 @@ impl ModuleManager {
         mut exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
         builtin_modules: ModuleContainer,
-        lifted_kernel_environments: &mut HashMap<String, KernelDefMacroSpec>,
-        lifted_macro_environments: &mut HashSet<PathBuf>,
+        lifted_kernel_environments: &mut FxHashMap<String, KernelDefMacroSpec>,
+        lifted_macro_environments: &mut FxHashSet<PathBuf>,
         search_dirs: &[PathBuf],
     ) -> Result<Vec<ExprKind>> {
         // Wipe the visited set on entry
@@ -267,7 +262,7 @@ impl ModuleManager {
         //     })
         //     .collect::<Vec<_>>();
 
-        let mut explicit_requires = HashMap::new();
+        let mut explicit_requires = FxHashMap::default();
 
         for require_object in &module_builder.require_objects {
             let path = require_object.path.get_path();
@@ -1036,7 +1031,7 @@ impl CompiledModule {
         // ;; Refresh the module definition in this namespace
         // (define a-module.rkt-b (hash-get 'b b-module.rkt-b))
 
-        let mut explicit_requires = HashMap::new();
+        let mut explicit_requires = FxHashMap::default();
 
         // TODO: This is the same as the top level, they should be merged
         for require_object in &self.require_objects {
@@ -1652,7 +1647,7 @@ struct ModuleBuilder<'a> {
     kernel: &'a mut Option<Kernel>,
     builtin_modules: ModuleContainer,
     global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
-    custom_builtins: &'a HashMap<String, String>,
+    custom_builtins: &'a FxHashMap<String, String>,
     search_dirs: &'a [PathBuf],
 }
 
@@ -1669,7 +1664,7 @@ impl<'a> ModuleBuilder<'a> {
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
-        custom_builtins: &'a HashMap<String, String>,
+        custom_builtins: &'a FxHashMap<String, String>,
         search_dirs: &'a [PathBuf],
     ) -> Result<Self> {
         // TODO don't immediately canonicalize the path unless we _know_ its coming from a path
@@ -2781,7 +2776,7 @@ impl<'a> ModuleBuilder<'a> {
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
-        custom_builtins: &'a HashMap<String, String>,
+        custom_builtins: &'a FxHashMap<String, String>,
     ) -> Result<Self> {
         ModuleBuilder::raw(
             name,
@@ -2807,7 +2802,7 @@ impl<'a> ModuleBuilder<'a> {
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
-        custom_builtins: &'a HashMap<String, String>,
+        custom_builtins: &'a FxHashMap<String, String>,
         search_dirs: &'a [PathBuf],
     ) -> Result<Self> {
         ModuleBuilder::raw(
@@ -2834,7 +2829,7 @@ impl<'a> ModuleBuilder<'a> {
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
-        custom_builtins: &'a HashMap<String, String>,
+        custom_builtins: &'a FxHashMap<String, String>,
         search_dirs: &'a [PathBuf],
     ) -> Self {
         ModuleBuilder {

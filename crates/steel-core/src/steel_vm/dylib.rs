@@ -1,7 +1,6 @@
 #![allow(non_camel_case_types)]
 use std::{
     cell::RefCell,
-    collections::HashMap,
     path::{Path, PathBuf},
     rc::Rc,
     sync::{Arc, Mutex},
@@ -14,6 +13,7 @@ use abi_stable::{
     std_types::RBox,
     StableAbi,
 };
+use fxhash::FxHashMap;
 use once_cell::sync::Lazy;
 
 use crate::rvals::{IntoSteelVal, SteelString, SteelVal};
@@ -25,7 +25,7 @@ static LOADED_MODULES: Lazy<Arc<Mutex<Vec<(String, GenerateModule_Ref)>>>> =
     Lazy::new(|| Arc::new(Mutex::new(Vec::new())));
 
 thread_local! {
-    static BUILT_DYLIBS: Rc<RefCell<HashMap<String, BuiltInModule>>> = Rc::new(RefCell::new(HashMap::new()));
+    static BUILT_DYLIBS: Rc<RefCell<FxHashMap<String, BuiltInModule>>> = Rc::new(RefCell::new(FxHashMap::default()));
 }
 
 #[repr(C)]

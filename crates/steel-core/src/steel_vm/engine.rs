@@ -48,7 +48,6 @@ use crate::{
 use std::{
     borrow::Cow,
     cell::{Cell, RefCell},
-    collections::{HashMap, HashSet},
     path::PathBuf,
     rc::Rc,
     sync::Arc,
@@ -313,10 +312,10 @@ macro_rules! time {
 }
 
 thread_local! {
-    pub(crate) static DEFAULT_PRELUDE_MACROS: RefCell<FxHashMap<InternedString, SteelMacro>> = RefCell::new(HashMap::default());
+    pub(crate) static DEFAULT_PRELUDE_MACROS: RefCell<FxHashMap<InternedString, SteelMacro>> = RefCell::new(FxHashMap::default());
 
-    pub(crate) static DEFAULT_DOC_MACROS: RefCell<HashMap<InternedString, SteelMacro>> = RefCell::new(
-        HashMap::new());
+    pub(crate) static DEFAULT_DOC_MACROS: RefCell<FxHashMap<InternedString, SteelMacro>> = RefCell::new(
+        FxHashMap::default());
 }
 
 impl Engine {

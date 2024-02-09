@@ -43,12 +43,13 @@ use crate::{
     values::functions::ByteCodeLambda,
 };
 use std::rc::Weak;
-use std::{cell::RefCell, collections::HashMap, iter::Iterator, rc::Rc};
+use std::{cell::RefCell, iter::Iterator, rc::Rc};
 
 use super::builtin::DocTemplate;
 
 use crate::values::lists::List;
 
+use fxhash::FxHashMap;
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
 use num::ToPrimitive;
@@ -4543,8 +4544,8 @@ pub struct BlockMetadata {
 
 #[derive(Clone)]
 pub struct OpCodeOccurenceProfiler {
-    occurrences: HashMap<(OpCode, usize), usize>,
-    time: HashMap<(OpCode, usize), std::time::Duration>,
+    occurrences: FxHashMap<(OpCode, usize), usize>,
+    time: FxHashMap<(OpCode, usize), std::time::Duration>,
     starting_index: Option<usize>,
     ending_index: Option<usize>,
     sample_count: usize,
@@ -4553,8 +4554,8 @@ pub struct OpCodeOccurenceProfiler {
 impl OpCodeOccurenceProfiler {
     pub fn new() -> Self {
         OpCodeOccurenceProfiler {
-            occurrences: HashMap::new(),
-            time: HashMap::new(),
+            occurrences: FxHashMap::default(),
+            time: FxHashMap::default(),
             starting_index: None,
             ending_index: None,
             sample_count: 0,
@@ -5036,9 +5037,8 @@ macro_rules! opcode_to_function {
     };
 }
 
-static SUPER_PATTERNS: Lazy<
-    std::collections::HashMap<Vec<OpCode>, for<'r> fn(&'r mut VmCore<'_>) -> Result<()>>,
-> = Lazy::new(|| create_super_instruction_map());
+static SUPER_PATTERNS: Lazy<FxHashMap<Vec<OpCode>, for<'r> fn(&'r mut VmCore<'_>) -> Result<()>>> =
+    Lazy::new(|| create_super_instruction_map());
 
 // lazy_static! {
 //     static ref SUPER_PATTERNS: std::collections::HashMap<
@@ -5048,10 +5048,10 @@ static SUPER_PATTERNS: Lazy<
 // }
 
 fn create_super_instruction_map(
-) -> std::collections::HashMap<Vec<OpCode>, for<'r> fn(&'r mut VmCore<'_>) -> Result<()>> {
+) -> FxHashMap<Vec<OpCode>, for<'r> fn(&'r mut VmCore<'_>) -> Result<()>> {
     use OpCode::*;
 
-    let mut map = HashMap::new();
+    let mut map = FxHashMap::default();
 
     macro_rules! create_super_pattern {
         ($($args:tt),*) => {

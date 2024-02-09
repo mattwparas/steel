@@ -1,12 +1,12 @@
 use crate::throw;
 use crate::{parser::interner::InternedString, rvals::Result};
+use fxhash::FxHashMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct SymbolMap {
     values: Vec<InternedString>,
-    map: HashMap<InternedString, usize>,
+    map: FxHashMap<InternedString, usize>,
 }
 
 impl Default for SymbolMap {
@@ -19,7 +19,7 @@ impl SymbolMap {
     pub fn new() -> Self {
         SymbolMap {
             values: Vec::new(),
-            map: HashMap::new(),
+            map: FxHashMap::default(),
         }
     }
 

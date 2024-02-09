@@ -1,6 +1,7 @@
 #![allow(unused)]
 #![allow(clippy::type_complexity)]
 
+use fxhash::{FxHashMap, FxHashSet};
 use im_rc::HashMap;
 use once_cell::sync::Lazy;
 
@@ -660,8 +661,8 @@ impl VTable {
     }
 
     pub(crate) fn sendable_entries(
-        serializer: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-        visited: &mut std::collections::HashSet<usize>,
+        serializer: &mut FxHashMap<usize, SerializableSteelVal>,
+        visited: &mut FxHashSet<usize>,
     ) -> Result<Vec<SendableVTableEntry>> {
         VTABLE.with(|x| {
             x.borrow()

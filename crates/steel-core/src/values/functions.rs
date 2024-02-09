@@ -2,14 +2,13 @@
 
 use std::{
     cell::{Cell, RefCell},
-    collections::HashMap,
     convert::TryFrom,
     hash::Hasher,
     rc::Rc,
     sync::Arc,
 };
 
-use fxhash::FxHashSet;
+use fxhash::{FxHashMap, FxHashSet};
 
 use crate::{
     core::{instructions::DenseInstruction, opcode::OpCode},
@@ -51,7 +50,7 @@ use super::{
 // Keep track of this metadata table for getting the docs associated
 // with a given function?
 pub struct LambdaMetadataTable {
-    fn_ptr_table: HashMap<usize, SteelString>,
+    fn_ptr_table: FxHashMap<usize, SteelString>,
 }
 
 impl Custom for LambdaMetadataTable {}
@@ -59,7 +58,7 @@ impl Custom for LambdaMetadataTable {}
 impl LambdaMetadataTable {
     pub fn new() -> Self {
         Self {
-            fn_ptr_table: HashMap::new(),
+            fn_ptr_table: FxHashMap::default(),
         }
     }
 
@@ -87,7 +86,7 @@ impl LambdaMetadataTable {
 
     // TODO: This will need to get called in other places
     pub fn collect_garbage(&mut self, keep_set: impl Iterator<Item = usize>) {
-        let set = keep_set.collect::<std::collections::HashSet<_>>();
+        let set = keep_set.collect::<FxHashSet<_>>();
 
         self.fn_ptr_table.retain(|k, _| set.contains(k));
     }

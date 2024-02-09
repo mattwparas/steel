@@ -1,11 +1,12 @@
 use crate::rvals::{IntoSteelVal, SteelString};
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 
+use fxhash::FxHashMap;
 use num::{BigRational, Rational32};
 use std::borrow::Cow;
+use std::path::PathBuf;
 use std::str;
 use std::sync::{Arc, Mutex};
-use std::{collections::HashMap, path::PathBuf};
 use steel_parser::tokens::MaybeBigInt;
 
 use serde::{Deserialize, Serialize};
@@ -38,16 +39,16 @@ impl FromSteelVal for SourceId {
 
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub(crate) struct InterierSources {
-    paths: HashMap<SourceId, PathBuf>,
-    reverse: HashMap<PathBuf, SourceId>,
+    paths: FxHashMap<SourceId, PathBuf>,
+    reverse: FxHashMap<PathBuf, SourceId>,
     sources: Vec<Cow<'static, str>>,
 }
 
 impl InterierSources {
     pub fn new() -> Self {
         InterierSources {
-            paths: HashMap::new(),
-            reverse: HashMap::new(),
+            paths: FxHashMap::default(),
+            reverse: FxHashMap::default(),
             sources: Vec::new(),
         }
     }

@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::{Arc, RwLock},
-};
+use std::sync::{Arc, RwLock};
 
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use steel_parser::tokens::TokenType;
@@ -54,7 +51,7 @@ struct Transformers {
 #[derive(Clone)]
 pub struct Kernel {
     transformers: Transformers,
-    constants: HashSet<InternedString>,
+    constants: FxHashSet<InternedString>,
     pub(crate) engine: Box<Engine>,
 }
 
@@ -69,7 +66,7 @@ impl Kernel {
         let mut engine = fresh_kernel_image();
 
         let transformers = Transformers {
-            set: Arc::new(RwLock::new(HashMap::default())),
+            set: Arc::new(RwLock::new(FxHashMap::default())),
         };
 
         let embedded_transformer_object = transformers.clone();
@@ -117,7 +114,7 @@ impl Kernel {
         Kernel {
             // macros,
             transformers,
-            constants: HashSet::new(),
+            constants: FxHashSet::default(),
             engine: Box::new(engine),
         }
     }

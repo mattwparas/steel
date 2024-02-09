@@ -10,7 +10,6 @@ use crate::parser::span::Span;
 use crate::rvals::Result;
 use std::cell::RefCell;
 use std::{
-    collections::HashMap,
     fs::File,
     io::{Read, Write},
     iter::FromIterator,
@@ -137,7 +136,7 @@ impl FromIterator<SteelMacro> for LocalMacroManager {
 
 // Global macro manager, manages macros across modules
 pub struct GlobalMacroManager {
-    _scopes: HashMap<PathBuf, HashMap<String, SteelMacro>>,
+    _scopes: FxHashMap<PathBuf, FxHashMap<String, SteelMacro>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -968,7 +967,7 @@ pub fn collect_bindings(
                         }
                         // These I'll need to handle
                         MacroPattern::Nested(nested_children) => {
-                            let mut final_bindings: HashMap<_, Vec<_>> = HashMap::new();
+                            let mut final_bindings: FxHashMap<_, Vec<_>> = FxHashMap::default();
 
                             for expr in values_to_bind {
                                 let list_expr =

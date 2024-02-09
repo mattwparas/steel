@@ -23,14 +23,12 @@ use crate::{
 };
 use std::{
     cell::RefCell,
-    collections::HashSet,
     convert::TryFrom,
     rc::{Rc, Weak},
 };
 
 use fxhash::{FxBuildHasher, FxHashSet};
-// use fxhash::FxHashSet;
-use im_rc::HashMap;
+use im_rc::HashMap as ImmutableHashMap;
 
 use steel_parser::tokens::MaybeBigInt;
 
@@ -39,27 +37,27 @@ use super::cache::MemoizationTable;
 type SharedEnv = Rc<RefCell<ConstantEnv>>;
 
 struct ConstantEnv {
-    bindings: HashMap<InternedString, SteelVal, FxBuildHasher>,
-    used_bindings: HashSet<InternedString, FxBuildHasher>,
-    non_constant_bound: HashSet<InternedString, FxBuildHasher>,
+    bindings: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
+    used_bindings: FxHashSet<InternedString>,
+    non_constant_bound: FxHashSet<InternedString>,
     parent: Option<Weak<RefCell<ConstantEnv>>>,
 }
 
 impl ConstantEnv {
-    fn root(bindings: HashMap<InternedString, SteelVal, FxBuildHasher>) -> Self {
+    fn root(bindings: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>) -> Self {
         Self {
             bindings,
-            used_bindings: HashSet::default(),
-            non_constant_bound: HashSet::default(),
+            used_bindings: FxHashSet::default(),
+            non_constant_bound: FxHashSet::default(),
             parent: None,
         }
     }
 
     fn new_subexpression(parent: Weak<RefCell<ConstantEnv>>) -> Self {
         Self {
-            bindings: HashMap::default(),
-            used_bindings: HashSet::default(),
-            non_constant_bound: HashSet::default(),
+            bindings: ImmutableHashMap::default(),
+            used_bindings: FxHashSet::default(),
+            non_constant_bound: FxHashSet::default(),
             parent: Some(parent),
         }
     }
@@ -135,13 +133,13 @@ pub struct ConstantEvaluatorManager<'a> {
 impl<'a> ConstantEvaluatorManager<'a> {
     pub fn new(
         memoization_table: &'a mut MemoizationTable,
-        constant_bindings: HashMap<InternedString, SteelVal, FxBuildHasher>,
+        constant_bindings: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         opt_level: OptLevel,
         kernel: &'a mut Option<Kernel>,
     ) -> Self {
         Self {
             global_env: Rc::new(RefCell::new(ConstantEnv::root(constant_bindings))),
-            set_idents: HashSet::default(),
+            set_idents: FxHashSet::default(),
             changed: false,
             opt_level,
             _memoization_table: memoization_table,
