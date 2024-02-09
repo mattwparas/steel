@@ -3,8 +3,8 @@ extern crate proc_macro2;
 #[macro_use]
 extern crate syn;
 extern crate quote;
-use std::collections::HashMap;
 
+use fxhash::FxHashMap;
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{
@@ -32,8 +32,8 @@ pub fn derive_steel(input: TokenStream) -> TokenStream {
     }
 }
 
-fn parse_key_value_pairs(args: &Punctuated<Meta, Token![,]>) -> HashMap<String, String> {
-    let mut map = HashMap::new();
+fn parse_key_value_pairs(args: &Punctuated<Meta, Token![,]>) -> FxHashMap<String, String> {
+    let mut map = FxHashMap::default();
 
     for nested_meta in args.iter() {
         if let Meta::NameValue(n) = nested_meta {
