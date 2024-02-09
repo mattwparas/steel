@@ -76,6 +76,8 @@ impl Env {
                 SteelVal::HeapAllocated(f0) => SteelVal::HeapAllocated(f0.clone()),
                 SteelVal::Reference(f0) => SteelVal::Reference(f0.clone()),
                 SteelVal::BigNum(f0) => SteelVal::BigNum(f0.clone()),
+                SteelVal::Rational(f0) => SteelVal::Rational(f0.clone()),
+                SteelVal::BigRational(f0) => SteelVal::BigRational(f0.clone()),
             }
         }
     }

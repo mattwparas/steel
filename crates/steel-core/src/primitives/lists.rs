@@ -322,17 +322,17 @@ macro_rules! debug_unreachable {
 // it is _not possible_ for the value to be anything but a list. Eliding these checks in hot loops
 // can prove to be beneficial.
 
-pub(crate) fn unsafe_cons(args: &mut [SteelVal]) -> Result<SteelVal> {
-    match (args[0].clone(), &mut args[1]) {
-        (left, SteelVal::ListV(right)) => {
-            right.cons_mut(left);
+// pub(crate) fn unsafe_cons(args: &mut [SteelVal]) -> Result<SteelVal> {
+//     match (args[0].clone(), &mut args[1]) {
+//         (left, SteelVal::ListV(right)) => {
+//             right.cons_mut(left);
 
-            // Consider moving in a default value instead of cloning?
-            Ok(SteelVal::ListV(right.clone()))
-        }
-        _ => unsafe { debug_unreachable!() },
-    }
-}
+//             // Consider moving in a default value instead of cloning?
+//             Ok(SteelVal::ListV(right.clone()))
+//         }
+//         _ => unsafe { debug_unreachable!() },
+//     }
+// }
 
 /// Returns a newly allocated list of the elements in the range (n, m]
 ///
