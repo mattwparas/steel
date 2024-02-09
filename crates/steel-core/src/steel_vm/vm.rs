@@ -2,12 +2,12 @@
 
 use crate::core::instructions::pretty_print_dense_instructions;
 use crate::primitives::lists::car;
+use crate::primitives::lists::cdr;
 use crate::primitives::lists::cons;
 use crate::primitives::lists::is_empty;
 use crate::primitives::lists::new as new_list;
 use crate::primitives::lists::steel_car;
-use crate::primitives::lists::steel_test_cdr;
-use crate::primitives::lists::test_cdr;
+use crate::primitives::lists::steel_cdr;
 use crate::primitives::nums::add_two;
 // use crate::primitives::lists::unsafe_cons;
 use crate::rvals::number_equality;
@@ -5821,7 +5821,7 @@ fn not_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 }
 
 fn cdr_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    handler_inline_primitive_payload_1_single!(ctx, test_cdr);
+    handler_inline_primitive_payload_1_single!(ctx, cdr);
     Ok(())
 }
 
