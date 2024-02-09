@@ -3369,6 +3369,7 @@ version = "0.6.0"
 dependencies = [
  "dashmap",
  "env_logger",
+ "fxhash",
  "log",
  "once_cell",
  "ropey",

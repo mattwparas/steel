@@ -2,7 +2,6 @@
 
 use std::{
     cell::RefCell,
-    collections::{HashMap, HashSet},
     error::Error,
     path::PathBuf,
     sync::{Arc, RwLock},
@@ -10,6 +9,7 @@ use std::{
 
 use dashmap::{DashMap, DashSet};
 
+use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use ropey::Rope;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -52,7 +52,7 @@ pub struct Backend {
     pub ast_map: DashMap<String, Vec<ExprKind>>,
     pub document_map: DashMap<String, Rope>,
     // TODO: This needs to hold macros to help with resolving definitions
-    pub _macro_map: DashMap<String, HashMap<InternedString, SteelMacro>>,
+    pub _macro_map: DashMap<String, FxHashMap<InternedString, SteelMacro>>,
     pub ignore_set: Arc<DashSet<InternedString>>,
     pub globals_set: Arc<DashSet<InternedString>>,
     pub defined_globals: DashSet<String>,
@@ -186,7 +186,7 @@ impl LanguageServer for Backend {
             let (syntax_object_id, information) =
                 analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri).unwrap())?;
 
-            let mut syntax_object_id_to_interned_string = HashMap::new();
+            let mut syntax_object_id_to_interned_string = FxHashMap::default();
             syntax_object_id_to_interned_string.insert(*syntax_object_id, None);
 
             // If this is a builtin, reference the engine's internal documentation
@@ -516,8 +516,10 @@ impl LanguageServer for Backend {
 
             let now = std::time::Instant::now();
 
-            let mut completions: HashSet<String> =
-                HashSet::with_capacity(contexts.len() + self.defined_globals.len());
+            let mut completions: FxHashSet<String> = FxHashSet::<String>::with_capacity_and_hasher(
+                contexts.len() + self.defined_globals.len(),
+                FxBuildHasher::default(),
+            );
 
             for context in contexts {
                 match context {
@@ -694,11 +696,12 @@ impl Backend {
         let diagnostics = {
             let program = ENGINE.with_borrow_mut(|x| {
                 // TODO: Reuse this!a
-                let macro_env_before: HashSet<InternedString> =
+                let macro_env_before: FxHashSet<InternedString> =
                     x.in_scope_macros().keys().copied().collect();
 
                 // TODO: Add span to the macro definition!
-                let mut introduced_macros: HashMap<InternedString, SteelMacro> = HashMap::new();
+                let mut introduced_macros: FxHashMap<InternedString, SteelMacro> =
+                    FxHashMap::default();
 
                 let expressions = x.emit_expanded_ast_without_optimizations(
                     &expression,
@@ -821,7 +824,7 @@ pub fn make_error(mut diagnostic: Diagnostic) -> Diagnostic {
 }
 
 pub struct ExternalModuleResolver {
-    modules: HashMap<String, BuiltInModule>,
+    modules: FxHashMap<String, BuiltInModule>,
 }
 
 impl ExternalModuleResolver {
@@ -829,7 +832,7 @@ impl ExternalModuleResolver {
         engine: &mut Engine,
         directory: PathBuf,
     ) -> std::result::Result<Self, Box<dyn Error>> {
-        let mut modules = HashMap::new();
+        let mut modules = FxHashMap::default();
 
         for file in std::fs::read_dir(&directory)? {
             let file = file?;
@@ -875,7 +878,7 @@ thread_local! {
 // At one time, call the lints, collecting the diagnostics each time.
 struct UserDefinedLintEngine {
     engine: Engine,
-    lints: Arc<RwLock<HashSet<String>>>,
+    lints: Arc<RwLock<FxHashSet<String>>>,
 }
 
 impl UserDefinedLintEngine {
@@ -925,7 +928,7 @@ fn configure_lints() -> std::result::Result<UserDefinedLintEngine, Box<dyn Error
     let mut engine = Engine::new();
 
     let mut diagnostics = BuiltInModule::new("lsp/diagnostics");
-    let lints = Arc::new(RwLock::new(HashSet::new()));
+    let lints = Arc::new(RwLock::new(FxHashSet::default()));
 
     diagnostics.register_fn("suggest", move |span: Span, message: SteelString| {
         log::debug!("Adding suggestion at: {:?} - {:?}", span, message);
