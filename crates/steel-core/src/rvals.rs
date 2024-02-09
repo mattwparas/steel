@@ -9,7 +9,10 @@ use crate::{
         tokens::TokenType,
     },
     rerrs::{ErrorKind, SteelErr},
-    steel_vm::vm::{threads::closure_into_serializable, BuiltInSignature, Continuation},
+    steel_vm::{
+        primitives::realp,
+        vm::{threads::closure_into_serializable, BuiltInSignature, Continuation},
+    },
     values::port::SteelPort,
     values::{
         closed::{Heap, HeapRef, MarkAndSweepContext},
@@ -22,7 +25,7 @@ use crate::{
     },
     values::{functions::BoxedDynFunction, structs::UserDefinedStruct},
 };
-
+use std::vec::IntoIter;
 use std::{
     any::{Any, TypeId},
     cell::{Ref, RefCell, RefMut},
@@ -39,8 +42,6 @@ use std::{
     sync::{Arc, Mutex},
     task::Context,
 };
-
-use std::vec::IntoIter;
 
 // TODO
 #[macro_export]
@@ -71,7 +72,7 @@ use futures_util::future::Shared;
 use futures_util::FutureExt;
 
 use crate::values::lists::List;
-use num::{BigInt, BigRational, Rational32, ToPrimitive};
+use num::{BigInt, BigRational, Rational32, Signed, ToPrimitive, Zero};
 use steel_parser::tokens::MaybeBigInt;
 
 use self::cycles::{CycleDetector, IterativeDropHandler};
@@ -1216,6 +1217,53 @@ pub enum SteelVal {
     BigNum(Gc<BigInt>),
     // Like Rational but supports larger numerators and denominators.
     BigRational(Gc<BigRational>),
+    // A complex number.
+    Complex(Gc<SteelComplex>),
+}
+
+/// Contains a complex number.
+///
+/// TODO: Optimize the contents of complex value. Holding `SteelVal` makes it easier to use existing
+/// operations but a more specialized representation may be faster.
+#[derive(Clone, Hash, PartialEq)]
+pub struct SteelComplex {
+    /// The real part of the complex number.
+    pub re: SteelVal,
+    /// The imaginary part of the complex number.
+    pub im: SteelVal,
+}
+
+impl SteelComplex {
+    pub fn new(real: SteelVal, imaginary: SteelVal) -> SteelComplex {
+        SteelComplex {
+            re: real,
+            im: imaginary,
+        }
+    }
+}
+
+impl IntoSteelVal for SteelComplex {
+    fn into_steelval(self) -> Result<SteelVal> {
+        Ok(match self.im {
+            NumV(n) if n.is_zero() => self.re,
+            IntV(0) => self.re,
+            _ => SteelVal::Complex(Gc::new(self)),
+        })
+    }
+}
+
+impl SteelComplex {
+    /// Returns `true` if the imaginary part is negative.
+    fn imaginary_is_negative(&self) -> bool {
+        match &self.im {
+            NumV(x) => x.is_negative(),
+            IntV(x) => x.is_negative(),
+            Rational(x) => x.is_negative(),
+            BigNum(x) => x.is_negative(),
+            SteelVal::BigRational(x) => x.is_negative(),
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl SteelVal {
@@ -1592,11 +1640,12 @@ impl Hash for SteelVal {
             NumV(n) => n.to_string().hash(state),
             IntV(i) => i.hash(state),
             Rational(f) => f.hash(state),
+            BigNum(n) => n.hash(state),
+            BigRational(f) => f.hash(state),
+            Complex(x) => x.hash(state),
             CharV(c) => c.hash(state),
             ListV(l) => l.hash(state),
             CustomStruct(s) => s.hash(state),
-            BigNum(n) => n.hash(state),
-            BigRational(f) => f.hash(state),
             // Pair(cell) => {
             //     cell.hash(state);
             // }
@@ -1959,10 +2008,14 @@ pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
         | (BigRational(_), BigNum(_))
         | (BigNum(_), BigRational(_)) => false,
         (IntV(_), BigNum(_)) | (BigNum(_), IntV(_)) => false,
+        (Complex(x), Complex(y)) => {
+            number_equality(&x.re, &y.re)? == BoolV(true)
+                && number_equality(&x.im, &y.re)? == BoolV(true)
+        }
+        (Complex(_), _) | (_, Complex(_)) => false,
         _ => stop!(TypeMismatch => "= expects two numbers, found: {:?} and {:?}", left, right),
     };
-
-    Ok(SteelVal::BoolV(result))
+    Ok(BoolV(result))
 }
 
 fn partial_cmp_f64(l: &impl ToPrimitive, r: &impl ToPrimitive) -> Option<Ordering> {
@@ -1972,8 +2025,8 @@ fn partial_cmp_f64(l: &impl ToPrimitive, r: &impl ToPrimitive) -> Option<Orderin
 // TODO add tests
 impl PartialOrd for SteelVal {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        // TODO: Attempt to avoid converting to f64 for cases below as it may lead to precision
-        // loss at tiny and large values.
+        // TODO: Attempt to avoid converting to f64 for cases below as it may lead to precision loss
+        // at tiny and large values.
         match (self, other) {
             (IntV(l), IntV(r)) => l.partial_cmp(r),
             (IntV(l), NumV(r)) => partial_cmp_f64(l, r),
@@ -2002,7 +2055,15 @@ impl PartialOrd for SteelVal {
             (BigRational(l), BigNum(r)) => partial_cmp_f64(l.as_ref(), r.as_ref()),
             (StringV(s), StringV(o)) => s.partial_cmp(o),
             (CharV(l), CharV(r)) => l.partial_cmp(r),
-            _ => None, // unimplemented for other types
+            (l, r) => {
+                // All real numbers (not complex) should have order defined.
+                debug_assert!(
+                    !(realp(l) && realp(r)),
+                    "Numbers {l:?} and {r:?} should implement partial_cmp"
+                );
+                // Unimplemented for other types
+                None
+            }
         }
     }
 }
