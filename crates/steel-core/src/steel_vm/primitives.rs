@@ -911,7 +911,7 @@ fn exact_to_inexact(number: &SteelVal) -> Result<SteelVal> {
         SteelVal::Complex(x) => {
             SteelComplex::new(exact_to_inexact(&x.re)?, exact_to_inexact(&x.im)?).into_steelval()
         }
-        _ => stop!(TypeMismatch => "exact->inexact expects a number type, found: {number}"),
+        _ => stop!(TypeMismatch => "exact->inexact expects a number type, found: {}", number),
     }
 }
 
@@ -927,7 +927,7 @@ fn round(number: &SteelVal) -> Result<SteelVal> {
         SteelVal::Rational(f) => f.round().into_steelval(),
         SteelVal::BigRational(f) => f.round().into_steelval(),
         SteelVal::BigNum(n) => Ok(SteelVal::BigNum(n.clone())),
-        _ => stop!(TypeMismatch => "round expects a real number, found: {number}"),
+        _ => stop!(TypeMismatch => "round expects a real number, found: {}", number),
     }
 }
 
@@ -940,7 +940,7 @@ fn abs(number: &SteelVal) -> Result<SteelVal> {
         SteelVal::Rational(f) => f.abs().into_steelval(),
         SteelVal::BigRational(f) => f.abs().into_steelval(),
         SteelVal::BigNum(n) => n.abs().into_steelval(),
-        _ => stop!(TypeMismatch => "abs expects a real number, found: {number}"),
+        _ => stop!(TypeMismatch => "abs expects a real number, found: {}", number),
     }
 }
 
