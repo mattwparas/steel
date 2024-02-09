@@ -1917,6 +1917,7 @@ impl PartialEq for SteelVal {
             (Rational(l), Rational(r)) => l == r,
             (BigRational(l), BigRational(r)) => l == r,
             (BigNum(l), BigNum(r)) => l == r,
+            (Complex(l), Complex(r)) => l == r,
             (StringV(l), StringV(r)) => l == r,
             (SymbolV(l), SymbolV(r)) => l == r,
             (CharV(l), CharV(r)) => l == r,
@@ -1931,76 +1932,78 @@ impl PartialEq for SteelVal {
             // (CustomStruct(l), CustomStruct(r)) => l == r,
             // (Custom(l), Custom(r)) => Gc::ptr_eq(l, r),
             // (HeapAllocated(l), HeapAllocated(r)) => l.get() == r.get(),
-            (left, right) => LEFT_QUEUE.with(|left_queue| {
-                RIGHT_QUEUE.with(|right_queue| {
-                    VISITED_SET.with(|visited_set| {
-                        match (
-                            left_queue.try_borrow_mut(),
-                            right_queue.try_borrow_mut(),
-                            visited_set.try_borrow_mut(),
-                        ) {
-                            (Ok(mut left_queue), Ok(mut right_queue), Ok(mut visited_set)) => {
-                                let mut equality_handler = RecursiveEqualityHandler {
-                                    left: EqualityVisitor {
-                                        queue: &mut left_queue,
-                                    },
-                                    right: EqualityVisitor {
-                                        queue: &mut right_queue,
-                                    },
-                                    visited: &mut visited_set,
-                                    // found_mutable_object: false,
-                                };
+            (left, right) => {
+                LEFT_QUEUE.with(|left_queue| {
+                    RIGHT_QUEUE.with(|right_queue| {
+                        VISITED_SET.with(|visited_set| {
+                            match (
+                                left_queue.try_borrow_mut(),
+                                right_queue.try_borrow_mut(),
+                                visited_set.try_borrow_mut(),
+                            ) {
+                                (Ok(mut left_queue), Ok(mut right_queue), Ok(mut visited_set)) => {
+                                    let mut equality_handler = RecursiveEqualityHandler {
+                                        left: EqualityVisitor {
+                                            queue: &mut left_queue,
+                                        },
+                                        right: EqualityVisitor {
+                                            queue: &mut right_queue,
+                                        },
+                                        visited: &mut visited_set,
+                                        // found_mutable_object: false,
+                                    };
 
-                                let res =
-                                    equality_handler.compare_equality(left.clone(), right.clone());
+                                    let res = equality_handler
+                                        .compare_equality(left.clone(), right.clone());
 
-                                // EQ_DEPTH.with(|x| x.set(0));
+                                    // EQ_DEPTH.with(|x| x.set(0));
 
-                                reset_eq_depth();
+                                    reset_eq_depth();
 
-                                // Clean up!
-                                equality_handler.left.queue.clear();
-                                equality_handler.right.queue.clear();
-                                equality_handler.visited.clear();
+                                    // Clean up!
+                                    equality_handler.left.queue.clear();
+                                    equality_handler.right.queue.clear();
+                                    equality_handler.visited.clear();
 
-                                res
+                                    res
+                                }
+                                _ => {
+                                    let mut left_queue = Vec::new();
+                                    let mut right_queue = Vec::new();
+
+                                    let mut visited_set = fxhash::FxHashSet::default();
+
+                                    // EQ_DEPTH.with(|x| x.set(x.get() + 1));
+
+                                    increment_eq_depth();
+
+                                    // println!("{}", EQ_DEPTH.with(|x| x.get()));
+
+                                    let mut equality_handler = RecursiveEqualityHandler {
+                                        left: EqualityVisitor {
+                                            queue: &mut left_queue,
+                                        },
+                                        right: EqualityVisitor {
+                                            queue: &mut right_queue,
+                                        },
+                                        visited: &mut visited_set,
+                                        // found_mutable_object: false,
+                                    };
+
+                                    let res = equality_handler
+                                        .compare_equality(left.clone(), right.clone());
+
+                                    // EQ_DEPTH.with(|x| x.set(x.get() - 1));
+
+                                    decrement_eq_depth();
+
+                                    res
+                                }
                             }
-                            _ => {
-                                let mut left_queue = Vec::new();
-                                let mut right_queue = Vec::new();
-
-                                let mut visited_set = fxhash::FxHashSet::default();
-
-                                // EQ_DEPTH.with(|x| x.set(x.get() + 1));
-
-                                increment_eq_depth();
-
-                                // println!("{}", EQ_DEPTH.with(|x| x.get()));
-
-                                let mut equality_handler = RecursiveEqualityHandler {
-                                    left: EqualityVisitor {
-                                        queue: &mut left_queue,
-                                    },
-                                    right: EqualityVisitor {
-                                        queue: &mut right_queue,
-                                    },
-                                    visited: &mut visited_set,
-                                    // found_mutable_object: false,
-                                };
-
-                                let res =
-                                    equality_handler.compare_equality(left.clone(), right.clone());
-
-                                // EQ_DEPTH.with(|x| x.set(x.get() - 1));
-
-                                decrement_eq_depth();
-
-                                res
-                            }
-                        }
+                        })
                     })
                 })
-            }),
+            }
         }
     }
 }

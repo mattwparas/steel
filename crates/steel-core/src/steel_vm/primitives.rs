@@ -708,7 +708,7 @@ fn floatp(value: &SteelVal) -> bool {
 }
 
 #[steel_derive::function(name = "real?", constant = true)]
-fn realp(value: &SteelVal) -> bool {
+pub fn realp(value: &SteelVal) -> bool {
     matches!(
         value,
         SteelVal::IntV(_)
