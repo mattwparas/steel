@@ -1,11 +1,10 @@
+use super::parser::SourceId;
+use crate::tokens::parse_unicode_str;
 use crate::tokens::{MaybeBigInt, Token, TokenType};
+use smallvec::SmallVec;
 use std::iter::Iterator;
 use std::marker::PhantomData;
-
-use super::parser::SourceId;
 use std::{iter::Peekable, str::Chars};
-
-use crate::tokens::parse_unicode_str;
 
 pub struct OwnedString;
 
@@ -208,77 +207,34 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_number(&mut self) -> TokenType<&'a str> {
-        // Tracks if 'e' or 'E' has been encountered. This is used for scientific notation. For
-        // example: 1.43E2 is equivalent to 1.43 * 10^2.
-        let mut has_e = false;
         while let Some(&c) = self.chars.peek() {
             match c {
-                c if c.is_numeric() => self.eat(),
-                '(' | ')' | '[' | ']' => break,
-                '.' | '/' => break,
-                'e' | 'E' => {
-                    has_e = true;
-                    break;
-                }
-                c if c.is_whitespace() => break,
-                _ => {
+                c if c.is_numeric() => {
                     self.eat();
-                    return self.read_word();
                 }
-            };
+                '.' | '/' | 'e' | 'E' | 'i' => {
+                    self.eat();
+                }
+                '(' | ')' | '[' | ']' => {
+                    return if let Some(t) = parse_number(self.slice()) {
+                        t
+                    } else {
+                        self.read_word()
+                    }
+                }
+                c if c.is_whitespace() => {
+                    return if let Some(t) = parse_number(self.slice()) {
+                        t
+                    } else {
+                        self.read_word()
+                    }
+                }
+                _ => return self.read_word(),
+            }
         }
-        match self.chars.peek().copied() {
-            Some('.') | Some('e') | Some('E') => {
-                self.eat();
-                while let Some(&c) = self.chars.peek() {
-                    match c {
-                        c if c.is_numeric() => {
-                            self.eat();
-                        }
-                        'e' | 'E' if !has_e => {
-                            has_e = true;
-                            self.eat();
-                        }
-                        '(' | '[' | ')' | ']' => break,
-                        c if c.is_whitespace() => break,
-                        _ => {
-                            self.eat();
-                            return self.read_word();
-                        }
-                    }
-                }
-                let text = self.slice();
-                match text.chars().last() {
-                    Some('e') | Some('E') => self.read_word(),
-                    _ => TokenType::NumberLiteral(text.parse().unwrap()),
-                }
-            }
-            Some('/') => {
-                let numerator_text = self.slice();
-                self.eat();
-                while let Some(&c) = self.chars.peek() {
-                    match c {
-                        c if c.is_numeric() => {
-                            self.eat();
-                        }
-                        '(' | '[' | ')' | ']' => break,
-                        c if c.is_whitespace() => break,
-                        _ => {
-                            self.eat();
-                            return self.read_word();
-                        }
-                    }
-                }
-                let denominator_text = &self.slice()[numerator_text.len() + 1..];
-                if denominator_text.is_empty() {
-                    self.read_word()
-                } else {
-                    let numerator: MaybeBigInt = numerator_text.parse().unwrap();
-                    let denominator: MaybeBigInt = denominator_text.parse().unwrap();
-                    TokenType::FractionLiteral(numerator, denominator)
-                }
-            }
-            _ => TokenType::IntegerLiteral(self.slice().parse().unwrap()),
+        match parse_number(self.slice()) {
+            Some(n) => n,
+            None => self.read_word(),
         }
     }
 
@@ -500,6 +456,106 @@ impl<'a> Iterator for Lexer<'a> {
             Some(_) => self.eat().map(|e| Err(TokenError::UnexpectedChar(e))),
             None => None,
         }
+    }
+}
+
+// Split the string by + and -. Returns at most 2 elements or `None` if there were more than 2.
+fn split_into_complex<'a>(s: &'a str) -> Option<SmallVec<[NumPart<'a>; 2]>> {
+    let classify_num_part = |s: &'a str| -> NumPart<'a> {
+        match s.chars().last() {
+            Some('i') => NumPart::Imaginary(&s[..s.len() - 1]),
+            _ => NumPart::Real(s),
+        }
+    };
+    let idxs: SmallVec<[usize; 3]> = s
+        .match_indices(|c| matches!(c, '+' | '-'))
+        .take(3)
+        .map(|(idx, _)| idx)
+        .collect();
+    let parts = match idxs.as_slice() {
+        [] | [0] => SmallVec::from_iter(std::iter::once(s).map(classify_num_part)),
+        [idx] | [0, idx] => {
+            SmallVec::from_iter([&s[0..*idx], &s[*idx..]].into_iter().map(classify_num_part))
+        }
+        _ => return None,
+    };
+    Some(parts)
+}
+
+enum NumPart<'a> {
+    Real(&'a str),
+    Imaginary(&'a str),
+}
+
+fn parse_real(s: &str) -> Option<TokenType<&str>> {
+    let mut has_e = false;
+    let mut has_dot = false;
+    let mut frac_position = None;
+    for (idx, ch) in s.chars().enumerate() {
+        match ch {
+            '+' => {
+                if idx != 0 {
+                    return None;
+                }
+            }
+            '-' => {
+                if idx != 0 {
+                    return None;
+                }
+            }
+            'e' | 'E' => {
+                if has_e {
+                    return None;
+                };
+                has_e = true;
+            }
+            '/' => {
+                frac_position = match frac_position {
+                    Some(_) => return None,
+                    None => Some(idx),
+                }
+            }
+            '.' => {
+                if has_dot {
+                    return None;
+                }
+                has_dot = true
+            }
+            _ => {}
+        }
+    }
+    if has_e || has_dot {
+        s.parse().map(|f| TokenType::NumberLiteral(f)).ok()
+    } else if let Some(p) = frac_position {
+        let (n_str, d_str) = s.split_at(p);
+        let d_str = &d_str[1..];
+        let n: MaybeBigInt = n_str.parse().ok()?;
+        let d: MaybeBigInt = d_str.parse().ok()?;
+        Some(TokenType::FractionLiteral(n, d))
+    } else {
+        let int: MaybeBigInt = s.parse().ok()?;
+        Some(TokenType::IntegerLiteral(int))
+    }
+}
+
+fn parse_number(s: &str) -> Option<TokenType<&str>> {
+    match split_into_complex(s)?.as_slice() {
+        [NumPart::Real(x)] => parse_real(x),
+        [NumPart::Imaginary(x)] => match parse_real(x)? {
+            TokenType::NumberLiteral(_) => todo!(),
+            TokenType::IntegerLiteral(_) => todo!(),
+            TokenType::FractionLiteral(_, _) => todo!(),
+            TokenType::StringLiteral(_) => todo!(),
+            TokenType::Error => todo!(),
+            _ => unreachable!(),
+        },
+        [NumPart::Real(re), NumPart::Imaginary(im)]
+        | [NumPart::Imaginary(im), NumPart::Real(re)] => {
+            let _ = parse_real(re)?;
+            let _ = parse_real(im)?;
+            todo!()
+        }
+        _ => None,
     }
 }
 

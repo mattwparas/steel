@@ -156,9 +156,15 @@ impl From<MaybeBigInt> for BigInt {
     }
 }
 
+#[cfg(test)]
 #[test]
 fn check_token_size() {
-    println!("{}", std::mem::size_of::<TokenType<&str>>());
+    let actual = std::mem::size_of::<TokenType<&str>>();
+    let limit = std::mem::size_of::<String>() + 1;
+    assert!(
+        actual <= limit,
+        "Token size is {actual} but limit is {limit}."
+    );
 }
 
 impl<'a> TokenType<&'a str> {
