@@ -8,6 +8,7 @@ use crate::primitives::lists::new as new_list;
 use crate::primitives::lists::steel_car;
 use crate::primitives::lists::steel_test_cdr;
 use crate::primitives::lists::test_cdr;
+use crate::primitives::nums::add_two;
 // use crate::primitives::lists::unsafe_cons;
 use crate::rvals::number_equality;
 use crate::rvals::steel_number_equality;
@@ -6338,34 +6339,7 @@ fn lte_handler_none_int(_: &mut VmCore<'_>, l: SteelVal, r: isize) -> Result<boo
 
 #[inline(always)]
 fn add_handler_none_none(l: &SteelVal, r: &SteelVal) -> Result<SteelVal> {
-    match (l, r) {
-        (SteelVal::IntV(l), SteelVal::IntV(r)) => {
-            if let Some(res) = l.checked_add(*r) {
-                Ok(SteelVal::IntV(res))
-            } else {
-                let mut big = num::BigInt::default();
-
-                big += *l;
-                big += *r;
-
-                big.into_steelval()
-            }
-        }
-        (SteelVal::IntV(l), SteelVal::NumV(r)) => Ok(SteelVal::NumV(*l as f64 + r)),
-        (SteelVal::NumV(l), SteelVal::IntV(r)) => Ok(SteelVal::NumV(l + *r as f64)),
-        (SteelVal::NumV(l), SteelVal::NumV(r)) => Ok(SteelVal::NumV(l + r)),
-
-        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => (l.as_ref() + r.as_ref()).into_steelval(),
-
-        (SteelVal::IntV(l), SteelVal::BigNum(r)) => (r.as_ref() + *l).into_steelval(),
-
-        (SteelVal::BigNum(l), SteelVal::IntV(r)) => (l.as_ref() + *r).into_steelval(),
-
-        (SteelVal::NumV(l), SteelVal::BigNum(r)) => Ok(SteelVal::NumV(r.to_f64().unwrap() + *l)),
-        (SteelVal::BigNum(l), SteelVal::NumV(r)) => Ok(SteelVal::NumV(l.to_f64().unwrap() + *r)),
-
-        _ => stop!(TypeMismatch => "+ expected two numbers, found: {} and {}", l, r),
-    }
+    add_two(l, r)
 }
 
 #[cfg(feature = "dynamic")]
