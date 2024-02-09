@@ -40,46 +40,7 @@ impl Env {
 
     #[inline(always)]
     pub fn repl_lookup_idx(&self, idx: usize) -> SteelVal {
-        {
-            let ref this = self.bindings_vec[idx];
-            match this {
-                SteelVal::Closure(f0) => SteelVal::Closure(f0.clone()),
-                SteelVal::BoolV(f0) => SteelVal::BoolV(f0.clone()),
-                SteelVal::NumV(f0) => SteelVal::NumV(f0.clone()),
-                SteelVal::IntV(f0) => SteelVal::IntV(f0.clone()),
-                SteelVal::CharV(f0) => SteelVal::CharV(f0.clone()),
-                SteelVal::VectorV(f0) => SteelVal::VectorV(f0.clone()),
-                SteelVal::Void => SteelVal::Void,
-                SteelVal::StringV(f0) => SteelVal::StringV(f0.clone()),
-                SteelVal::FuncV(f0) => SteelVal::FuncV(f0.clone()),
-                SteelVal::SymbolV(f0) => SteelVal::SymbolV(f0.clone()),
-                SteelVal::Custom(f0) => SteelVal::Custom(f0.clone()),
-                SteelVal::HashMapV(f0) => SteelVal::HashMapV(f0.clone()),
-                SteelVal::HashSetV(f0) => SteelVal::HashSetV(f0.clone()),
-                SteelVal::CustomStruct(f0) => SteelVal::CustomStruct(f0.clone()),
-                SteelVal::PortV(f0) => SteelVal::PortV(f0.clone()),
-                SteelVal::IterV(f0) => SteelVal::IterV(f0.clone()),
-                SteelVal::ReducerV(f0) => SteelVal::ReducerV(f0.clone()),
-                SteelVal::FutureFunc(f0) => SteelVal::FutureFunc(f0.clone()),
-                SteelVal::FutureV(f0) => SteelVal::FutureV(f0.clone()),
-                SteelVal::StreamV(f0) => SteelVal::StreamV(f0.clone()),
-                SteelVal::BoxedFunction(f0) => SteelVal::BoxedFunction(f0.clone()),
-                SteelVal::ContinuationFunction(f0) => SteelVal::ContinuationFunction(f0.clone()),
-                SteelVal::ListV(f0) => SteelVal::ListV(f0.clone()),
-                SteelVal::Pair(f0) => SteelVal::Pair(f0.clone()),
-                SteelVal::MutFunc(f0) => SteelVal::MutFunc(f0.clone()),
-                SteelVal::BuiltIn(f0) => SteelVal::BuiltIn(f0.clone()),
-                SteelVal::MutableVector(f0) => SteelVal::MutableVector(f0.clone()),
-                SteelVal::BoxedIterator(f0) => SteelVal::BoxedIterator(f0.clone()),
-                SteelVal::SyntaxObject(f0) => SteelVal::SyntaxObject(f0.clone()),
-                SteelVal::Boxed(f0) => SteelVal::Boxed(f0.clone()),
-                SteelVal::HeapAllocated(f0) => SteelVal::HeapAllocated(f0.clone()),
-                SteelVal::Reference(f0) => SteelVal::Reference(f0.clone()),
-                SteelVal::BigNum(f0) => SteelVal::BigNum(f0.clone()),
-                SteelVal::Rational(f0) => SteelVal::Rational(f0.clone()),
-                SteelVal::BigRational(f0) => SteelVal::BigRational(f0.clone()),
-            }
-        }
+        self.bindings_vec[idx].clone()
     }
 
     /// Get the value located at that index
