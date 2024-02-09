@@ -2,16 +2,16 @@
 
 use std::{env::current_dir, error::Error, io::BufWriter, path::PathBuf};
 
+use fxhash::FxHashSet;
 use steel::steel_vm::engine::Engine;
 
-use std::collections::HashSet;
 use std::io::Write;
 
 struct DocumentGenerator {
     // Root directory for generated documentation to go
     output_dir: PathBuf,
     // Final output locations
-    writers: HashSet<PathBuf>,
+    writers: FxHashSet<PathBuf>,
 }
 
 impl DocumentGenerator {
@@ -31,7 +31,7 @@ impl DocumentGenerator {
 
         Self {
             output_dir,
-            writers: HashSet::new(),
+            writers: FxHashSet::default(),
         }
     }
 

@@ -3337,6 +3337,7 @@ dependencies = [
 name = "steel-doc"
 version = "0.6.0"
 dependencies = [
+ "fxhash",
  "steel-core",
 ]
 
