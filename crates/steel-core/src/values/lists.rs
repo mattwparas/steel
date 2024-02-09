@@ -55,24 +55,18 @@ mod list_drop_handler {
 
     use crate::rvals::cycles::{drop_impls::DROP_BUFFER, IterativeDropHandler};
 
-    impl
-        DropHandler<
-            im_lists::list::GenericList<SteelVal, im_lists::shared::RcPointer, 256, 1, Self>,
-        > for ListDropHandler
+    impl DropHandler<im_lists::list::GenericList<SteelVal, im_lists::shared::RcPointer, 4, 2, Self>>
+        for ListDropHandler
     {
         fn drop_handler(
             obj: &mut im_lists::list::GenericList<
                 SteelVal,
                 im_lists::shared::RcPointer,
-                256,
-                1,
+                4,
+                2,
                 Self,
             >,
         ) {
-            // println!("CALLING DROP HANDLER: {}", obj.strong_count());
-            // DEPTH.with(|x| x.set(x.get() + 1));
-            // println!("Current depth: {}", DEPTH.with(|x| x.get()));
-
             if obj.strong_count() == 1 {
                 if obj.is_empty() {
                     return;
@@ -81,16 +75,55 @@ mod list_drop_handler {
                 if DROP_BUFFER
                     .try_with(|drop_buffer| {
                         if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
+                            // Optimistically check what these values are. If they're
+                            // primitives, then we can just skip pushing them back
+                            // entirely.
                             for value in std::mem::take(obj).draining_iterator() {
-                                drop_buffer.push_back(value);
+                                match &value {
+                                    SteelVal::BoolV(_)
+                                    | SteelVal::NumV(_)
+                                    | SteelVal::IntV(_)
+                                    | SteelVal::CharV(_)
+                                    | SteelVal::Void
+                                    | SteelVal::StringV(_)
+                                    | SteelVal::FuncV(_)
+                                    | SteelVal::SymbolV(_)
+                                    | SteelVal::FutureFunc(_)
+                                    | SteelVal::FutureV(_)
+                                    | SteelVal::BoxedFunction(_)
+                                    | SteelVal::MutFunc(_)
+                                    | SteelVal::BuiltIn(_)
+                                    | SteelVal::BigNum(_) => continue,
+                                    _ => {
+                                        drop_buffer.push_back(value);
+                                    }
+                                }
                             }
 
                             IterativeDropHandler::bfs(&mut drop_buffer);
                         } else {
                             let mut drop_buffer = VecDeque::new();
 
-                            for value in std::mem::take(obj) {
-                                drop_buffer.push_back(value);
+                            for value in std::mem::take(obj).draining_iterator() {
+                                match &value {
+                                    SteelVal::BoolV(_)
+                                    | SteelVal::NumV(_)
+                                    | SteelVal::IntV(_)
+                                    | SteelVal::CharV(_)
+                                    | SteelVal::Void
+                                    | SteelVal::StringV(_)
+                                    | SteelVal::FuncV(_)
+                                    | SteelVal::SymbolV(_)
+                                    | SteelVal::FutureFunc(_)
+                                    | SteelVal::FutureV(_)
+                                    | SteelVal::BoxedFunction(_)
+                                    | SteelVal::MutFunc(_)
+                                    | SteelVal::BuiltIn(_)
+                                    | SteelVal::BigNum(_) => continue,
+                                    _ => {
+                                        drop_buffer.push_back(value);
+                                    }
+                                }
                             }
 
                             IterativeDropHandler::bfs(&mut drop_buffer);
@@ -100,7 +133,25 @@ mod list_drop_handler {
                 {
                     let mut drop_buffer = VecDeque::new();
                     for value in std::mem::take(obj).draining_iterator() {
-                        drop_buffer.push_back(value);
+                        match &value {
+                            SteelVal::BoolV(_)
+                            | SteelVal::NumV(_)
+                            | SteelVal::IntV(_)
+                            | SteelVal::CharV(_)
+                            | SteelVal::Void
+                            | SteelVal::StringV(_)
+                            | SteelVal::FuncV(_)
+                            | SteelVal::SymbolV(_)
+                            | SteelVal::FutureFunc(_)
+                            | SteelVal::FutureV(_)
+                            | SteelVal::BoxedFunction(_)
+                            | SteelVal::MutFunc(_)
+                            | SteelVal::BuiltIn(_)
+                            | SteelVal::BigNum(_) => continue,
+                            _ => {
+                                drop_buffer.push_back(value);
+                            }
+                        }
                     }
 
                     IterativeDropHandler::bfs(&mut drop_buffer);
@@ -113,17 +164,17 @@ mod list_drop_handler {
 }
 
 pub type SteelList<T> =
-    im_lists::list::GenericList<T, im_lists::shared::RcPointer, 256, 1, DefaultDropHandler>;
+    im_lists::list::GenericList<T, im_lists::shared::RcPointer, 4, 2, DefaultDropHandler>;
 
 // TODO: Change this to just be something like `SteelList`
 pub type List<T> =
-    im_lists::list::GenericList<T, im_lists::shared::RcPointer, 256, 1, DropHandlerChoice>;
+    im_lists::list::GenericList<T, im_lists::shared::RcPointer, 4, 2, DropHandlerChoice>;
 
 pub type ConsumingIterator<T> =
-    im_lists::list::ConsumingIter<T, im_lists::shared::RcPointer, 256, 1, DropHandlerChoice>;
+    im_lists::list::ConsumingIter<T, im_lists::shared::RcPointer, 4, 2, DropHandlerChoice>;
 
 impl<T: FromSteelVal + Clone, D: im_lists::handler::DropHandler<Self>> FromSteelVal
-    for im_lists::list::GenericList<T, im_lists::shared::RcPointer, 256, 1, D>
+    for im_lists::list::GenericList<T, im_lists::shared::RcPointer, 4, 2, D>
 {
     fn from_steelval(val: &SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::ListV(l) = val {
@@ -135,7 +186,7 @@ impl<T: FromSteelVal + Clone, D: im_lists::handler::DropHandler<Self>> FromSteel
 }
 
 impl<T: IntoSteelVal + Clone, D: im_lists::handler::DropHandler<Self>> IntoSteelVal
-    for im_lists::list::GenericList<T, im_lists::shared::RcPointer, 256, 1, D>
+    for im_lists::list::GenericList<T, im_lists::shared::RcPointer, 4, 2, D>
 {
     fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
         self.into_iter()

@@ -183,10 +183,8 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-#[steel_derive::native(name = "+", constant = true, arity = "AtLeast(0)")]
-pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
-    ensure_args_are_numbers("+", args)?;
-    let add = |x: &SteelVal, y: &SteelVal| match (x, y) {
+pub fn add_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
+    match (x, y) {
         // Simple integer case. Probably very common.
         (SteelVal::IntV(x), SteelVal::IntV(y)) => match x.checked_add(y) {
             Some(res) => res.into_steelval(),
@@ -262,15 +260,20 @@ pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
             res.into_steelval()
         }
         _ => unreachable!(),
-    };
+    }
+}
+
+#[steel_derive::native(name = "+", constant = true, arity = "AtLeast(0)")]
+pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
+    ensure_args_are_numbers("+", args)?;
     match args {
         [] => 0.into_steelval(),
         [x] => x.clone().into_steelval(),
-        [x, y] => add(x, y),
+        [x, y] => add_two(x, y),
         [x, y, zs @ ..] => {
-            let mut res = add(x, y)?;
+            let mut res = add_two(x, y)?;
             for z in zs {
-                res = add(&res, z)?;
+                res = add_two(&res, z)?;
             }
             res.into_steelval()
         }

@@ -19,16 +19,16 @@ use crate::core::utils::{
 };
 
 declare_const_ref_functions! {
-    REVERSE => reverse,
     LAST => last,
     TRY_LIST_REF => try_list_ref,
     LIST_TO_STRING => steel_list_to_string,
 }
 
 declare_const_mut_ref_functions! {
+    REVERSE => reverse,
     CONS => cons,
     REST => rest,
-    CDR => cdr,
+    CDR => steel_cdr,
     APPEND => append,
     PUSH_BACK => push_back,
 }
@@ -240,7 +240,7 @@ pub fn new(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (empty? '()) ;; => #true
 /// ```
 #[steel_derive::function(name = "empty?")]
-fn is_empty(list: &SteelVal) -> bool {
+pub fn is_empty(list: &SteelVal) -> bool {
     list.list().map(|x| x.is_empty()).unwrap_or_default()
 }
 
@@ -279,7 +279,10 @@ pub fn cons(args: &mut [SteelVal]) -> Result<SteelVal> {
     if args.len() != 2 {
         stop!(ArityMismatch => "cons takes only two arguments")
     }
-    match (args[0].clone(), &mut args[1]) {
+    match (
+        std::mem::replace(&mut args[0], SteelVal::Void),
+        &mut args[1],
+    ) {
         (left, SteelVal::ListV(right)) => {
             right.cons_mut(left);
 
@@ -317,20 +320,15 @@ macro_rules! debug_unreachable {
 // This is really just for use cases where we absolutely, 100% know, that within the body of a function,
 // it is _not possible_ for the value to be anything but a list. Eliding these checks in hot loops
 // can prove to be beneficial.
-// unsafe fn unsafe_cons(args: &mut [SteelVal]) -> SteelVal {
+
+// pub(crate) fn unsafe_cons(args: &mut [SteelVal]) -> Result<SteelVal> {
 //     match (args[0].clone(), &mut args[1]) {
 //         (left, SteelVal::ListV(right)) => {
 //             right.cons_mut(left);
-
 //             // Consider moving in a default value instead of cloning?
-//             SteelVal::ListV(right.clone())
+//             Ok(SteelVal::ListV(right.clone()))
 //         }
-//         _ => debug_unreachable!(),
-//         // Silly, but this then gives us a special "pair" that is different
-//         // from a real bonafide list
-//         // (left, right) => Ok(SteelVal::Pair(Gc::new(Pair::cons(left, right.clone())))),
-//         // TODO: Replace with an immutable pair here!
-//         // (left, right) => Ok(SteelVal::ListV(vec![left, right.clone()].into())),
+//         _ => unsafe { debug_unreachable!() },
 //     }
 // }
 
@@ -386,11 +384,11 @@ This function takes time proportional to the length of lst."#,
     examples: &[("> (reverse (list 1 2 3 4))", "=> '(4 3 2 1)")],
 };
 
-fn reverse(args: &[SteelVal]) -> Result<SteelVal> {
+fn reverse(args: &mut [SteelVal]) -> Result<SteelVal> {
     arity_check!(reverse, args, 1);
 
-    if let SteelVal::ListV(l) = &args[0] {
-        Ok(SteelVal::ListV(l.clone().reverse()))
+    if let SteelVal::ListV(l) = std::mem::replace(&mut args[0], SteelVal::Void) {
+        Ok(SteelVal::ListV(l.reverse()))
     } else {
         stop!(TypeMismatch => "reverse expects a list")
     }
@@ -447,7 +445,7 @@ fn first(list: &List<SteelVal>) -> Result<SteelVal> {
 /// > (car (cons 2 3)) ;; => 2
 /// ```
 #[steel_derive::function(name = "car", constant = true)]
-fn car(list: &SteelVal) -> Result<SteelVal> {
+pub(crate) fn car(list: &SteelVal) -> Result<SteelVal> {
     match list {
         SteelVal::ListV(l) => l
             .car()
@@ -496,24 +494,23 @@ fn cdr_is_null(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-fn cdr(args: &mut [SteelVal]) -> Result<SteelVal> {
-    arity_check!(rest, args, 1);
-
-    match &mut args[0] {
-        SteelVal::ListV(l) => {
+#[steel_derive::function(name = "cdr", constant = true)]
+pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
+    match std::mem::replace(arg, SteelVal::Void) {
+        SteelVal::ListV(mut l) => {
             if l.is_empty() {
                 stop!(Generic => "cdr expects a non empty list");
             }
 
             match l.rest_mut() {
-                Some(l) => Ok(SteelVal::ListV(l.clone())),
-                None => Ok(SteelVal::ListV(l.clone())),
+                Some(_) => Ok(SteelVal::ListV(l)),
+                None => Ok(SteelVal::ListV(l)),
             }
         }
 
         SteelVal::Pair(p) => Ok(p.cdr()),
         _ => {
-            stop!(TypeMismatch => format!("cdr expects a list, found: {}", &args[0]))
+            stop!(TypeMismatch => format!("cdr expects a list, found: {}", &arg))
         }
     }
 }
@@ -766,7 +763,7 @@ mod list_operation_tests {
     #[test]
     fn cdr_normal_input_2_elements() {
         let mut args = [crate::list![1i32, 2i32]];
-        let res = cdr(&mut args);
+        let res = steel_cdr(&mut args);
         let expected = crate::list![2i32];
         assert_eq!(res.unwrap(), expected);
     }
@@ -774,7 +771,7 @@ mod list_operation_tests {
     #[test]
     fn cdr_normal_input_3_elements() {
         let mut args = [crate::list![1i32, 2i32, 3i32]];
-        let res = cdr(&mut args);
+        let res = steel_cdr(&mut args);
         let expected = crate::list![2i32, 3i32];
         assert_eq!(res.unwrap(), expected);
     }
@@ -782,7 +779,7 @@ mod list_operation_tests {
     #[test]
     fn cdr_bad_input() {
         let mut args = [SteelVal::IntV(1)];
-        let res = cdr(&mut args);
+        let res = steel_cdr(&mut args);
         let expected = ErrorKind::TypeMismatch;
         assert_eq!(res.unwrap_err().kind(), expected);
     }
@@ -790,7 +787,7 @@ mod list_operation_tests {
     #[test]
     fn cdr_too_many_args() {
         let mut args = [SteelVal::NumV(1.0), SteelVal::NumV(2.0)];
-        let res = cdr(&mut args);
+        let res = steel_cdr(&mut args);
         let expected = ErrorKind::ArityMismatch;
         assert_eq!(res.unwrap_err().kind(), expected);
     }
@@ -798,7 +795,7 @@ mod list_operation_tests {
     #[test]
     fn cdr_single_element_list() {
         let mut args = [SteelVal::ListV(vec![SteelVal::NumV(1.0)].into())];
-        let res = cdr(&mut args);
+        let res = steel_cdr(&mut args);
         let expected = SteelVal::ListV(List::new());
         assert_eq!(res.unwrap(), expected);
     }

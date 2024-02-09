@@ -38,12 +38,6 @@ impl Env {
         }
     }
 
-    /// Search starting from the current environment
-    /// for `idx`, looking through the parent chain in order.
-    ///
-    /// if found, return that value
-    ///
-    /// Otherwise, error with `FreeIdentifier`
     #[inline(always)]
     pub fn repl_lookup_idx(&self, idx: usize) -> SteelVal {
         self.bindings_vec[idx].clone()

@@ -1,9 +1,18 @@
 #![allow(unused)]
 
 use crate::core::instructions::pretty_print_dense_instructions;
+use crate::primitives::lists::car;
+use crate::primitives::lists::cdr;
 use crate::primitives::lists::cons;
+use crate::primitives::lists::is_empty;
 use crate::primitives::lists::new as new_list;
 use crate::primitives::lists::steel_car;
+use crate::primitives::lists::steel_cdr;
+use crate::primitives::nums::add_two;
+// use crate::primitives::lists::unsafe_cons;
+use crate::rvals::number_equality;
+use crate::rvals::steel_number_equality;
+use crate::steel_vm::primitives::steel_not;
 use crate::steel_vm::primitives::steel_set_box;
 use crate::steel_vm::primitives::steel_set_box_mutable;
 use crate::steel_vm::primitives::steel_unbox;
@@ -149,6 +158,9 @@ pub struct StackFrame {
     pub(crate) function: crate::gc::unsafe_roots::MaybeRooted<ByteCodeLambda>,
 
     ip: usize,
+
+    // TODO: This should just be... *const [DenseInstruction]
+    // Since Rc<DenseInstruction> should always just be alive?
     instructions: Rc<[DenseInstruction]>,
 
     // TODO: Delete this one!
@@ -771,6 +783,7 @@ impl ContinuationMark {
 }
 
 impl Continuation {
+    #[inline(always)]
     pub fn close_marks(ctx: &VmCore<'_>, stack_frame: &StackFrame) -> bool {
         if let Some(cont_mark) = stack_frame
             .weak_continuation_mark
@@ -1409,18 +1422,10 @@ impl<'a> VmCore<'a> {
                 let arg_vec = [arg];
                 func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
-            // SteelVal::ContractedFunction(cf) => {
-            //     let arg_vec = vec![arg];
-            //     cf.apply(arg_vec, cur_inst_span, self)
-            // }
             SteelVal::MutFunc(func) => {
-                let mut arg_vec: Vec<_> = vec![arg];
+                let mut arg_vec = [arg];
                 func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
-            // SteelVal::BuiltIn(func) => {
-            //     let arg_vec = [arg];
-            //     func(self, &arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
-            // }
             SteelVal::Closure(closure) => self.call_with_one_arg(closure, arg),
             _ => Err(err()),
         }
@@ -1570,27 +1575,24 @@ impl<'a> VmCore<'a> {
         closure: &Gc<ByteCodeLambda>,
         arg: SteelVal,
     ) -> Result<SteelVal> {
+        thread_local! {
+            static EMPTY_INSTRUCTIONS: Rc<[DenseInstruction]> = Rc::new([]);
+        }
+
         let prev_length = self.thread.stack.len();
 
         self.thread.stack_frames.push(StackFrame::new(
             prev_length,
             Gc::clone(closure),
             0,
-            Rc::from([]),
-            // Rc::from([]),
+            EMPTY_INSTRUCTIONS.with(|x| x.clone()),
         ));
 
         self.sp = prev_length;
 
-        // println!("PUSHING NEW STACK INDEX ON");
-
-        // self.stack_index.push(prev_length);
         self.thread.stack.push(arg);
-        // self.function_stack
-        //     .push(CallContext::new(Gc::clone(closure)));
 
         self.adjust_stack_for_multi_arity(closure, 1, &mut 0)?;
-
         self.call_with_instructions_and_reset_state(closure.body_exp())
     }
 
@@ -1748,51 +1750,30 @@ impl<'a> VmCore<'a> {
             let instr = self.instructions[self.ip];
 
             match instr {
-                DenseInstruction {
-                    op_code: OpCode::DynSuperInstruction,
-                    payload_size,
-                    ..
-                } => {
-                    self.cut_sequence();
+                // DenseInstruction {
+                //     op_code: OpCode::DynSuperInstruction,
+                //     payload_size,
+                //     ..
+                // } => {
+                //     self.cut_sequence();
 
-                    // TODO: Store in a different spot? So that we can avoid cloning on every iteration?
-                    let super_instruction =
-                        { self.thread.super_instructions[payload_size as usize].clone() };
+                //     // TODO: Store in a different spot? So that we can avoid cloning on every iteration?
+                //     let super_instruction =
+                //         { self.thread.super_instructions[payload_size as usize].clone() };
 
-                    super_instruction.call(self)?;
-                }
-
+                //     super_instruction.call(self)?;
+                // }
                 DenseInstruction {
                     op_code: OpCode::POPN,
                     payload_size,
                     ..
                 } => {
                     let last = self.thread.stack.pop().unwrap();
-
-                    // println!("-- POP N: {} -- ", payload_size);
-
-                    // println!("popping: {}", payload_size);
-                    // println!("Stack length: {:?}", self.thread.stack.len());
-
-                    // println!("{:#?}", self.thread.stack);
-
-                    // if payload_size as usize > self.thread.stack.len() {
-                    //     self.thread.stack.clear()
-                    // } else {
-                    //     self.thread
-                    //         .stack
-                    //         .truncate(self.thread.stack.len() - payload_size as usize);
-                    // }
-
                     self.thread
                         .stack
                         .truncate(self.thread.stack.len() - payload_size as usize);
-
                     self.thread.stack.push(last);
-
                     self.ip += 1;
-
-                    // todo!()
                 }
 
                 DenseInstruction {
@@ -1807,8 +1788,6 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::POPPURE,
                     ..
                 } => {
-                    // println!("-- POP PURE --");
-
                     if let Some(r) = self.handle_pop_pure() {
                         return r;
                     }
@@ -1882,6 +1861,20 @@ impl<'a> VmCore<'a> {
                 }
 
                 DenseInstruction {
+                    op_code: OpCode::NOT,
+                    ..
+                } => {
+                    not_handler(self)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::CDR,
+                    ..
+                } => {
+                    cdr_handler(self)?;
+                }
+
+                DenseInstruction {
                     op_code: OpCode::ADDREGISTER,
                     ..
                 } => {
@@ -1917,22 +1910,25 @@ impl<'a> VmCore<'a> {
                     // get the local
                     // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
                     let offset = self.get_offset();
-                    let local_value =
-                        self.thread.stack[read_local.payload_size as usize + offset].clone();
+                    let l = &self.thread.stack[read_local.payload_size as usize + offset];
 
                     // get the const value, if it can fit into the value...
-                    let const_val = push_const.payload_size as isize;
+                    let r = push_const.payload_size as isize;
 
                     // sub_handler_none_int
 
-                    let result = sub_handler_none_int(self, local_value, const_val)?;
+                    // TODO: Inline this here - so that we can just refer to the value
+                    // and don't have to invoke a clone here.
+                    // let result = sub_handler_none_int(self, local_value, const_val)?;
 
-                    // let result = match $name(&[local_value, const_val]) {
-                    //     Ok(value) => value,
-                    //     Err(e) => return Err(e.set_span_if_none(self.current_span())),
-                    // };
-
-                    // let result
+                    let result = match l {
+                        SteelVal::IntV(l) => SteelVal::IntV(l - r),
+                        SteelVal::NumV(l) => SteelVal::NumV(l - r as f64),
+                        _ => {
+                            cold();
+                            stop!(TypeMismatch => "sub expected a number, found: {}", l)
+                        }
+                    };
 
                     self.thread.stack.push(result);
 
@@ -1950,23 +1946,21 @@ impl<'a> VmCore<'a> {
                     // get the local
                     // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
                     let offset = self.get_offset();
-                    let local_value =
-                        self.thread.stack[read_local.payload_size as usize + offset].clone();
+                    let l = &self.thread.stack[read_local.payload_size as usize + offset];
 
                     // get the const value, if it can fit into the value...
-                    let const_val = push_const.payload_size as isize;
+                    let r = push_const.payload_size as isize;
 
                     // sub_handler_none_int
 
                     // TODO: Probably elide the stack push if the next inst is an IF
-                    let result = lte_handler_none_int(self, local_value, const_val)?;
+                    // let result = lte_handler_none_int(self, local_value, const_val)?;
 
-                    // let result = match $name(&[local_value, const_val]) {
-                    //     Ok(value) => value,
-                    //     Err(e) => return Err(e.set_span_if_none(self.current_span())),
-                    // };
-
-                    // let result
+                    let result = match l {
+                        SteelVal::IntV(l) => *l <= r,
+                        SteelVal::NumV(l) => *l <= r as f64,
+                        _ => stop!(TypeMismatch => "lte expected an number, found: {}", r),
+                    };
 
                     self.thread.stack.push(SteelVal::BoolV(result));
 
@@ -1984,16 +1978,21 @@ impl<'a> VmCore<'a> {
                     // get the local
                     // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
                     let offset = self.get_offset();
-                    let local_value =
-                        self.thread.stack[read_local.payload_size as usize + offset].clone();
+                    let l = &self.thread.stack[read_local.payload_size as usize + offset];
 
                     // get the const value, if it can fit into the value...
-                    let const_val = push_const.payload_size as isize;
+                    let r = push_const.payload_size as isize;
 
                     // sub_handler_none_int
 
                     // TODO: Probably elide the stack push if the next inst is an IF
-                    let result = lte_handler_none_int(self, local_value, const_val)?;
+                    // let result = lte_handler_none_int(self, local_value, const_val)?;
+
+                    let result = match l {
+                        SteelVal::IntV(l) => *l <= r,
+                        SteelVal::NumV(l) => *l <= r as f64,
+                        _ => stop!(TypeMismatch => "lte expected an number, found: {}", r),
+                    };
 
                     // let result = match $name(&[local_value, const_val]) {
                     //     Ok(value) => value,
@@ -2026,8 +2025,6 @@ impl<'a> VmCore<'a> {
                 } => {
                     // add_handler_payload(self, 2)?;
 
-                    let last_index = self.thread.stack.len() - 2;
-
                     let right = self.thread.stack.pop().unwrap();
                     let left = self.thread.stack.last().unwrap();
 
@@ -2036,23 +2033,9 @@ impl<'a> VmCore<'a> {
                         Err(e) => return Err(e.set_span_if_none(self.current_span())),
                     };
 
-                    // let result = match $name(&mut $ctx.thread.stack[last_index..]) {
-                    //     Ok(value) => value,
-                    //     Err(e) => return Err(e.set_span_if_none($ctx.current_span())),
-                    // };
-
-                    // This is the old way... lets see if the below way improves the speed
-                    // $ctx.thread.stack.truncate(last_index);
-                    // $ctx.thread.stack.push(result);
-
-                    // self.thread.stack.truncate(last_index + 1);
-                    // *self.thread.stack.last_mut().unwrap() = result;
-
                     *self.thread.stack.last_mut().unwrap() = result;
 
                     self.ip += 2;
-
-                    // inline_primitive!(add_primitive, payload_size)
                 }
                 DenseInstruction {
                     op_code: OpCode::SUB,
@@ -2081,6 +2064,24 @@ impl<'a> VmCore<'a> {
                     ..
                 } => {
                     inline_primitive!(equality_primitive, payload_size);
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::NUMEQUAL,
+                    ..
+                } => {
+                    number_equality_handler(self)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::NULL,
+                    ..
+                } => {
+                    // Simply fast path case for checking null or empty
+                    let last = self.thread.stack.last_mut().unwrap();
+                    let result = is_empty(last);
+                    *last = SteelVal::BoolV(result);
+                    self.ip += 2;
                 }
 
                 DenseInstruction {
@@ -2192,22 +2193,6 @@ impl<'a> VmCore<'a> {
                     self.ip += 1;
                 }
 
-                // DenseInstruction {
-                //     op_code: OpCode::MOVEREADLOCALCALLGLOBAL,
-                //     payload_size,
-                //     ..
-                // } => {
-                //     self.handle_move_local(payload_size as usize)?;
-
-                //     // Move to the next iteration of the loop
-                //     let next_inst = self.instructions[self.ip];
-                //     self.ip += 1;
-                //     let next_next_inst = self.instructions[self.ip];
-                //     self.handle_call_global(
-                //         next_inst.payload_size as usize,
-                //         next_next_inst.payload_size as usize,
-                //     )?;
-                // }
                 DenseInstruction {
                     op_code: OpCode::SETLOCAL,
                     payload_size,
@@ -2267,7 +2252,6 @@ impl<'a> VmCore<'a> {
                     self.ip += 1;
                     let next_inst = self.instructions[self.ip];
                     self.handle_call_global(
-                        // next_inst.payload_size as usize,
                         payload_size as usize,
                         next_inst.payload_size as usize,
                     )?;
@@ -2277,17 +2261,10 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
-                    // println!("calling global tail");
-                    // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
                     let next_inst = self.instructions[self.ip + 1];
-                    // dbg!(payload_size);
-                    // dbg!(next_inst.payload_size);
-                    // println!("Calling global tail");
                     self.handle_tail_call_global(
-                        // next_inst.payload_size as usize,
                         payload_size as usize,
                         next_inst.payload_size as usize,
-                        // next_inst.payload_size as usize,
                     )?;
                 }
                 DenseInstruction {
@@ -2297,9 +2274,6 @@ impl<'a> VmCore<'a> {
                 } => {
                     // TODO: @Matt -> don't pop the function off of the stack, just read it from there directly.
                     let func = self.thread.stack.pop().unwrap();
-                    // println!("Calling: {}", func);
-                    // pretty_print_dense_instructions(&self.instructions);
-                    // println!("ip: {}", self.ip);
                     self.handle_function_call(func, payload_size as usize)?;
                 }
                 // Tail call basically says "hey this function is exiting"
@@ -2399,17 +2373,7 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::BEGINSCOPE,
                     ..
                 } => {
-                    // todo!()
                     self.ip += 1;
-                    // self.stack_index.push(self.stack.len());
-                }
-                DenseInstruction {
-                    op_code: OpCode::LetVar,
-                    ..
-                } => {
-                    // todo!()
-                    self.ip += 1;
-                    // self.stack_index.push(self.stack.len());
                 }
                 DenseInstruction {
                     op_code: OpCode::SETALLOC,
@@ -2424,32 +2388,17 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::ALLOC,
                     ..
                 } => alloc_handler(self)?,
-                // todo!("Implement patching in vars from the stack to the heap");
                 DenseInstruction {
                     op_code: OpCode::LETENDSCOPE,
                     ..
                 } => {
                     let_end_scope_handler(self)?;
                 }
-                // DenseInstruction {
-                //     op_code: OpCode::POP,
-                //     payload_size,
-                //     ..
-                // } => {
-                //     if let Some(r) = self.handle_pop(payload_size) {
-                //         return r;
-                //     }
-                // }
                 DenseInstruction {
                     op_code: OpCode::BIND,
                     payload_size,
                     ..
                 } => self.handle_bind(payload_size as usize),
-                // DenseInstruction {
-                //     op_code: OpCode::SCLOSURE,
-                //     payload_size,
-                //     ..
-                // } => self.handle_start_closure(payload_size as usize),
                 DenseInstruction {
                     op_code: OpCode::NEWSCLOSURE,
                     payload_size,
@@ -2474,7 +2423,6 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::Arity,
                     ..
                 } => {
-                    // println!("HITTING THIS - THIS SHOULDNT HAPPEN");
                     self.ip += 1;
                 }
                 DenseInstruction {
@@ -2485,7 +2433,6 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::PASS,
                     ..
                 } => {
-                    // log::warn!("Hitting a pass - this shouldn't happen");
                     self.ip += 1;
                 }
 
@@ -2595,13 +2542,13 @@ impl<'a> VmCore<'a> {
         }
     }
 
+    #[inline(always)]
     fn close_continuation_marks(&self, last: &StackFrame) -> bool {
         // TODO: @Matt - continuation marks should actually do something here
         // What we'd like: This marks the stack frame going out of scope. Since it is going out of scope,
         // the stack frame should check if there are marks here, specifying that we should grab
         // the values out of the existing frame, and "close" the open continuation. That way the continuation (if called)
         // does not need to actually copy the entire frame eagerly, but rather can do so lazily.
-
         Continuation::close_marks(self, last)
     }
 
@@ -2612,69 +2559,27 @@ impl<'a> VmCore<'a> {
 
         self.pop_count -= 1;
 
-        // unwrap just because we want to see if we have something here
-        // rolling back the function stack
-        // self.function_stack.pop();
-
         let last = self.thread.stack_frames.pop();
 
         // let should_return = self.stack_frames.is_empty();
         let should_continue = self.pop_count != 0;
 
         if should_continue {
-            // #[cfg(feature = "unsafe-internals")]
-            // let last = unsafe { last.unwrap_unchecked() };
-
-            // #[cfg(not(feature = "unsafe-internals"))]
             let last = last.unwrap();
-
-            // Update the current frame to be the last one
-            //
-            // self.current_frame = last.clone();
-
-            // let ret_val = self.stack.pop().unwrap();
 
             let rollback_index = last.sp;
 
-            // let ret_val = self.thread.stack.pop().unwrap();
-
-            // for _ in rollback_index..self.thread.stack.len() {
-            //     self.thread.stack.pop();
-            // }
-
-            // self.thread.stack.push(ret_val);
-
-            if self.close_continuation_marks(&last) {
-                // println!("Closed continuation mark");
-                // dbg!(&self.thread.stack);
-            }
-
-            // dbg!(self.thread.stack_frames.len());
-
-            // dbg!(rollback_index);
-            // dbg!(self.thread.stack.len());
-            // last.continuation_mark.map(|x| println!("{:p}", x.inner));
+            self.close_continuation_marks(&last);
 
             let _ = self
                 .thread
                 .stack
                 .drain(rollback_index..self.thread.stack.len() - 1);
 
-            // for value in values {
-            //     dbg!(value);
-            // }
-
-            // self.update_state_with_frame(last);
-            // self.close_continuation_marks(&last);
-
             self.ip = last.ip;
             self.instructions = last.instructions;
 
             self.sp = self.get_last_stack_frame_sp();
-
-            // self.sp = last.index;
-
-            // self.sp = rollback_index;
 
             None
         } else {
@@ -2683,13 +2588,12 @@ impl<'a> VmCore<'a> {
                     .with_span(self.current_span())
             });
 
-            last.as_ref().map(|x| {
-                if self.close_continuation_marks(x) {
-                    println!("%%%%%% closed frame %%%%%")
-                }
-            });
-
-            let rollback_index = last.map(|x| x.sp).unwrap_or(0);
+            let rollback_index = last
+                .map(|x| {
+                    self.close_continuation_marks(&x);
+                    x.sp
+                })
+                .unwrap_or(0);
 
             // Move forward past the pop
             self.ip += 1;
@@ -2719,7 +2623,11 @@ impl<'a> VmCore<'a> {
         stop!(Generic => error_message.to_string(); span);
     }
 
-    // #[inline(always)]
+    // TODO: One neat thing to do here would be to
+    // put a guard to move the value out of the top level before
+    // the expression for the set, in an effort to try to
+    // get in place mutation.
+    // Basically a `MoveReadGlobal`
     fn handle_set(&mut self, index: usize) -> Result<()> {
         let value_to_assign = self.thread.stack.pop().unwrap();
 
@@ -3294,14 +3202,13 @@ impl<'a> VmCore<'a> {
     fn handle_tail_call(&mut self, stack_func: SteelVal, payload_size: usize) -> Result<()> {
         use SteelVal::*;
         match stack_func {
-            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
             FuncV(f) => self.call_primitive_func(f, payload_size),
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
-            // ContractedFunction(cf) => self.call_contracted_function_tail_call(&cf, payload_size),
-            ContinuationFunction(cc) => self.call_continuation(cc),
+            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
             Closure(closure) => self.new_handle_tail_call_closure(closure, payload_size),
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
             CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+            ContinuationFunction(cc) => self.call_continuation(cc),
             _ => {
                 // println!("{:?}", self.stack);
                 // println!("{:?}", self.stack_index);
@@ -3469,7 +3376,7 @@ impl<'a> VmCore<'a> {
         }
     }
 
-    // #[inline(always)]
+    #[inline(always)]
     fn call_primitive_func(
         &mut self,
         f: fn(&[SteelVal]) -> Result<SteelVal>,
@@ -4189,21 +4096,13 @@ impl<'a> VmCore<'a> {
         use SteelVal::*;
 
         match stack_func {
-            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
             FuncV(f) => self.call_primitive_func(f, payload_size),
-            FutureFunc(f) => self.call_future_func(f, payload_size),
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
-            // ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size),
-            ContinuationFunction(cc) => self.call_continuation(cc),
             Closure(closure) => self.handle_function_call_closure(closure, payload_size),
-            // #[cfg(feature = "jit")]
-            // CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
-            // Contract(c) => self.call_contract(&c, payload_size),
-            BuiltIn(f) => {
-                // println!("Calling builtin function, non tail call");
-                // self.ip += 1;
-                self.call_builtin_func(f, payload_size)
-            }
+            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
+            FutureFunc(f) => self.call_future_func(f, payload_size),
+            ContinuationFunction(cc) => self.call_continuation(cc),
+            BuiltIn(f) => self.call_builtin_func(f, payload_size),
             CustomStruct(s) => self.call_custom_struct(&s, payload_size),
             _ => {
                 log::error!("{stack_func:?}");
@@ -5787,6 +5686,52 @@ macro_rules! handler_inline_primitive_payload {
     }};
 }
 
+macro_rules! handler_inline_primitive_payload_1 {
+    ($ctx:expr, $name:tt) => {{
+        let last_index = $ctx.thread.stack.len() - 1;
+
+        let result = match $name(&mut $ctx.thread.stack[last_index..]) {
+            Ok(value) => value,
+            Err(e) => return Err(e.set_span_if_none($ctx.current_span())),
+        };
+
+        *$ctx.thread.stack.last_mut().unwrap() = result;
+
+        $ctx.ip += 2;
+    }};
+}
+
+macro_rules! handler_inline_primitive_payload_1_single {
+    ($ctx:expr, $name:tt) => {{
+        let last = $ctx.thread.stack.last_mut().unwrap();
+
+        let result = match $name(last) {
+            Ok(value) => value,
+            Err(e) => return Err(e.set_span_if_none($ctx.current_span())),
+        };
+
+        *last = result;
+
+        $ctx.ip += 2;
+    }};
+}
+
+macro_rules! handler_inline_primitive_payload_2 {
+    ($ctx:expr, $name:tt) => {{
+        let mut last = $ctx.thread.stack.pop().unwrap();
+        let mut second_last = $ctx.thread.stack.last_mut().unwrap();
+
+        let result = match $name(second_last, &mut last) {
+            Ok(value) => value,
+            Err(e) => return Err(e.set_span_if_none($ctx.current_span())),
+        };
+
+        *second_last = result;
+
+        $ctx.ip += 2;
+    }};
+}
+
 // OpCode::ADD
 fn add_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     handler_inline_primitive!(ctx, add_primitive);
@@ -5866,7 +5811,22 @@ fn setbox_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 }
 
 fn car_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    handler_inline_primitive_payload!(ctx, steel_car, 1);
+    handler_inline_primitive_payload_1_single!(ctx, car);
+    Ok(())
+}
+
+fn not_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    handler_inline_primitive_payload_1!(ctx, steel_not);
+    Ok(())
+}
+
+fn cdr_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    handler_inline_primitive_payload_1_single!(ctx, cdr);
+    Ok(())
+}
+
+fn number_equality_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    handler_inline_primitive_payload_2!(ctx, number_equality);
     Ok(())
 }
 
@@ -6379,34 +6339,7 @@ fn lte_handler_none_int(_: &mut VmCore<'_>, l: SteelVal, r: isize) -> Result<boo
 
 #[inline(always)]
 fn add_handler_none_none(l: &SteelVal, r: &SteelVal) -> Result<SteelVal> {
-    match (l, r) {
-        (SteelVal::IntV(l), SteelVal::IntV(r)) => {
-            if let Some(res) = l.checked_add(*r) {
-                Ok(SteelVal::IntV(res))
-            } else {
-                let mut big = num::BigInt::default();
-
-                big += *l;
-                big += *r;
-
-                big.into_steelval()
-            }
-        }
-        (SteelVal::IntV(l), SteelVal::NumV(r)) => Ok(SteelVal::NumV(*l as f64 + r)),
-        (SteelVal::NumV(l), SteelVal::IntV(r)) => Ok(SteelVal::NumV(l + *r as f64)),
-        (SteelVal::NumV(l), SteelVal::NumV(r)) => Ok(SteelVal::NumV(l + r)),
-
-        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => (l.as_ref() + r.as_ref()).into_steelval(),
-
-        (SteelVal::IntV(l), SteelVal::BigNum(r)) => (r.as_ref() + *l).into_steelval(),
-
-        (SteelVal::BigNum(l), SteelVal::IntV(r)) => (l.as_ref() + *r).into_steelval(),
-
-        (SteelVal::NumV(l), SteelVal::BigNum(r)) => Ok(SteelVal::NumV(r.to_f64().unwrap() + *l)),
-        (SteelVal::BigNum(l), SteelVal::NumV(r)) => Ok(SteelVal::NumV(l.to_f64().unwrap() + *r)),
-
-        _ => stop!(TypeMismatch => "+ expected two numbers, found: {} and {}", l, r),
-    }
+    add_two(l, r)
 }
 
 #[cfg(feature = "dynamic")]
