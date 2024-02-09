@@ -24,7 +24,6 @@ use crate::{
 use std::path::PathBuf;
 use std::{borrow::Cow, iter::Iterator};
 
-// TODO: Replace the usages of hashmap with this directly
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
