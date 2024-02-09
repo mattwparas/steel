@@ -88,11 +88,13 @@ declare_opcodes! {
         MUL;
         DIV;
         EQUAL;
+        NUMEQUAL;
+        NULL;
         LTE;
         CONS; // Cons should be... probably specialized
         LIST;
         CAR;
-        // CDR;
+        CDR;
         NEWBOX;
         SETBOX;
         UNBOX;
@@ -111,7 +113,9 @@ declare_opcodes! {
         SUBIMMEDIATE;
         LTEIMMEDIATE;
         BINOPADD;
-        LTEIMMEDIATEIF
+        BINOPSUB;
+        LTEIMMEDIATEIF;
+        NOT
     }
 
     // Super instructions

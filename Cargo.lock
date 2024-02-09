@@ -1514,8 +1514,6 @@ dependencies = [
 [[package]]
 name = "im-lists"
 version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c07eff2c41645923382085ea8627509e5184f7a668f75d0c1e16091f7af4798"
 dependencies = [
  "smallvec",
 ]

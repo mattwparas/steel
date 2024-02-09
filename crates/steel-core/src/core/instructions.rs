@@ -117,11 +117,13 @@ pub fn disassemble(instructions: &[Instruction]) -> String {
 pub struct DenseInstruction {
     pub op_code: OpCode,
     // Function IDs need to be interned _again_ before patched into the code?
-    pub payload_size: u32,
+    // Also: We should be able to get away with a u16 here. Just grab places where u16
+    // won't fit and convert to something else.
+    pub payload_size: u16,
 }
 
 impl DenseInstruction {
-    pub fn new(op_code: OpCode, payload_size: u32) -> DenseInstruction {
+    pub fn new(op_code: OpCode, payload_size: u16) -> DenseInstruction {
         DenseInstruction {
             op_code,
             payload_size,

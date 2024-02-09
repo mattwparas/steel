@@ -26,7 +26,10 @@ serde = { version = "1.0.193", features = ["derive", "rc"] }
 serde_derive = "1.0.193"
 bincode = "1.3.3"
 pretty = "0.12.1"
-im-lists = "0.7.1"
+# im-lists = "0.7.1"
+
+im-lists = { path = "../../../list-experiments" }
+
 strsim = "0.11.0"
 
 quickscope = "0.2.0"

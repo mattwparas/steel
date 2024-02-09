@@ -19,13 +19,13 @@ use crate::core::utils::{
 };
 
 declare_const_ref_functions! {
-    REVERSE => reverse,
     LAST => last,
     TRY_LIST_REF => try_list_ref,
     LIST_TO_STRING => steel_list_to_string,
 }
 
 declare_const_mut_ref_functions! {
+    REVERSE => reverse,
     CONS => cons,
     REST => rest,
     CDR => cdr,
@@ -83,6 +83,7 @@ pub fn list_module() -> BuiltInModule {
     module
         .register_native_fn_definition(NEW_DEFINITION)
         .register_value_with_doc("cons", crate::primitives::lists::CONS, CONS_DOC)
+        // .register_value("#%unsafe.cons", SteelVal::MutFunc(unsafe_cons))
         .register_native_fn_definition(RANGE_DEFINITION)
         .register_native_fn_definition(LENGTH_DEFINITION)
         .register_value_with_doc("last", crate::primitives::lists::LAST, LAST_DOC)
@@ -240,7 +241,7 @@ pub fn new(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (empty? '()) ;; => #true
 /// ```
 #[steel_derive::function(name = "empty?")]
-fn is_empty(list: &SteelVal) -> bool {
+pub fn is_empty(list: &SteelVal) -> bool {
     list.list().map(|x| x.is_empty()).unwrap_or_default()
 }
 
@@ -279,7 +280,10 @@ pub fn cons(args: &mut [SteelVal]) -> Result<SteelVal> {
     if args.len() != 2 {
         stop!(ArityMismatch => "cons takes only two arguments")
     }
-    match (args[0].clone(), &mut args[1]) {
+    match (
+        std::mem::replace(&mut args[0], SteelVal::Void),
+        &mut args[1],
+    ) {
         (left, SteelVal::ListV(right)) => {
             right.cons_mut(left);
 
@@ -317,22 +321,18 @@ macro_rules! debug_unreachable {
 // This is really just for use cases where we absolutely, 100% know, that within the body of a function,
 // it is _not possible_ for the value to be anything but a list. Eliding these checks in hot loops
 // can prove to be beneficial.
-// unsafe fn unsafe_cons(args: &mut [SteelVal]) -> SteelVal {
-//     match (args[0].clone(), &mut args[1]) {
-//         (left, SteelVal::ListV(right)) => {
-//             right.cons_mut(left);
 
-//             // Consider moving in a default value instead of cloning?
-//             SteelVal::ListV(right.clone())
-//         }
-//         _ => debug_unreachable!(),
-//         // Silly, but this then gives us a special "pair" that is different
-//         // from a real bonafide list
-//         // (left, right) => Ok(SteelVal::Pair(Gc::new(Pair::cons(left, right.clone())))),
-//         // TODO: Replace with an immutable pair here!
-//         // (left, right) => Ok(SteelVal::ListV(vec![left, right.clone()].into())),
-//     }
-// }
+pub(crate) fn unsafe_cons(args: &mut [SteelVal]) -> Result<SteelVal> {
+    match (args[0].clone(), &mut args[1]) {
+        (left, SteelVal::ListV(right)) => {
+            right.cons_mut(left);
+
+            // Consider moving in a default value instead of cloning?
+            Ok(SteelVal::ListV(right.clone()))
+        }
+        _ => unsafe { debug_unreachable!() },
+    }
+}
 
 /// Returns a newly allocated list of the elements in the range (n, m]
 ///
@@ -386,11 +386,11 @@ This function takes time proportional to the length of lst."#,
     examples: &[("> (reverse (list 1 2 3 4))", "=> '(4 3 2 1)")],
 };
 
-fn reverse(args: &[SteelVal]) -> Result<SteelVal> {
+fn reverse(args: &mut [SteelVal]) -> Result<SteelVal> {
     arity_check!(reverse, args, 1);
 
-    if let SteelVal::ListV(l) = &args[0] {
-        Ok(SteelVal::ListV(l.clone().reverse()))
+    if let SteelVal::ListV(l) = std::mem::replace(&mut args[0], SteelVal::Void) {
+        Ok(SteelVal::ListV(l.reverse()))
     } else {
         stop!(TypeMismatch => "reverse expects a list")
     }
@@ -447,7 +447,7 @@ fn first(list: &List<SteelVal>) -> Result<SteelVal> {
 /// > (car (cons 2 3)) ;; => 2
 /// ```
 #[steel_derive::function(name = "car", constant = true)]
-fn car(list: &SteelVal) -> Result<SteelVal> {
+pub(crate) fn car(list: &SteelVal) -> Result<SteelVal> {
     match list {
         SteelVal::ListV(l) => l
             .car()
@@ -496,18 +496,39 @@ fn cdr_is_null(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-fn cdr(args: &mut [SteelVal]) -> Result<SteelVal> {
-    arity_check!(rest, args, 1);
-
-    match &mut args[0] {
-        SteelVal::ListV(l) => {
+#[steel_derive::function(name = "cdr", constant = true)]
+pub(crate) fn test_cdr(arg: &mut SteelVal) -> Result<SteelVal> {
+    match std::mem::replace(arg, SteelVal::Void) {
+        SteelVal::ListV(mut l) => {
             if l.is_empty() {
                 stop!(Generic => "cdr expects a non empty list");
             }
 
             match l.rest_mut() {
-                Some(l) => Ok(SteelVal::ListV(l.clone())),
-                None => Ok(SteelVal::ListV(l.clone())),
+                Some(_) => Ok(SteelVal::ListV(l)),
+                None => Ok(SteelVal::ListV(l)),
+            }
+        }
+
+        SteelVal::Pair(p) => Ok(p.cdr()),
+        _ => {
+            stop!(TypeMismatch => format!("cdr expects a list, found: {}", &arg))
+        }
+    }
+}
+
+fn cdr(args: &mut [SteelVal]) -> Result<SteelVal> {
+    arity_check!(rest, args, 1);
+
+    match std::mem::replace(&mut args[0], SteelVal::Void) {
+        SteelVal::ListV(mut l) => {
+            if l.is_empty() {
+                stop!(Generic => "cdr expects a non empty list");
+            }
+
+            match l.rest_mut() {
+                Some(_) => Ok(SteelVal::ListV(l)),
+                None => Ok(SteelVal::ListV(l)),
             }
         }
 

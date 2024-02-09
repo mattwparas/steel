@@ -165,7 +165,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
 
                 if let TokenType::Identifier(ident) = ident.ty {
                     match ident {
-                        _ if ident == *PRIM_CONS_SYMBOL => {
+                        _ if ident == *PRIM_CONS_SYMBOL && arity == 2 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::CONS;
                                 x.payload_size = 2;
@@ -182,30 +182,51 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                         //         continue;
                         //     }
                         // }
-                        _ if ident == *BOX || ident == *PRIM_BOX => {
+                        _ if ident == *BOX || ident == *PRIM_BOX && arity == 1 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::NEWBOX;
                                 continue;
                             }
                         }
 
-                        _ if ident == *UNBOX || ident == *PRIM_UNBOX => {
+                        _ if ident == *UNBOX || ident == *PRIM_UNBOX && arity == 1 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::UNBOX;
                                 continue;
                             }
                         }
 
-                        _ if ident == *SETBOX || ident == *PRIM_SETBOX => {
+                        _ if ident == *SETBOX || ident == *PRIM_SETBOX && arity == 1 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::SETBOX;
                                 continue;
                             }
                         }
 
-                        _ if ident == *PRIM_CAR => {
+                        _ if ident == *PRIM_CAR && arity == 1 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::CAR;
+                                continue;
+                            }
+                        }
+
+                        _ if ident == *PRIM_CDR && arity == 1 => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::CDR;
+                                continue;
+                            }
+                        }
+
+                        _ if ident == *PRIM_NOT && arity == 1 => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::NOT;
+                                continue;
+                            }
+                        }
+
+                        _ if ident == *PRIM_NULL && arity == 1 => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::NULL;
                                 continue;
                             }
                         }
@@ -337,9 +358,12 @@ define_primitive_symbols! {
     (PRIM_DIV, DIV) => "/",
     (PRIM_STAR, STAR) => "*",
     (PRIM_EQUAL, EQUAL) => "equal?",
+    (PRIM_NUM_EQUAL, NUM_EQUAL) => "=",
     (PRIM_LTE, LTE) => "<=",
     (PRIM_CAR, CAR_SYMBOL) => "car",
     (PRIM_CDR, CDR_SYMBOL) => "cdr",
+    (PRIM_NOT, NOT_SYMBOL) => "not",
+    (PRIM_NULL, NULL_SYMBOL) => "null?",
 }
 
 define_symbols! {
@@ -425,9 +449,11 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
             let replaced = match *ident {
                 x if x == *PRIM_PLUS && *payload_size == 2 => Some(OpCode::BINOPADD),
                 x if x == *PRIM_PLUS && *payload_size > 0 => Some(OpCode::ADD),
+                // x if x == *PRIM_MINUS && *payload_size == 2 => Some(OpCode::BINOPSUB),
                 x if x == *PRIM_MINUS && *payload_size > 0 => Some(OpCode::SUB),
                 x if x == *PRIM_DIV && *payload_size > 0 => Some(OpCode::DIV),
                 x if x == *PRIM_STAR && *payload_size > 0 => Some(OpCode::MUL),
+                x if x == *PRIM_NUM_EQUAL && *payload_size == 2 => Some(OpCode::NUMEQUAL),
                 x if x == *PRIM_EQUAL && *payload_size > 0 => Some(OpCode::EQUAL),
                 x if x == *PRIM_LTE && *payload_size > 0 => Some(OpCode::LTE),
                 _ => None,
@@ -1106,9 +1132,8 @@ fn extract_spans(
                     DenseInstruction::new(
                         i.op_code,
                         i.payload_size.try_into().unwrap_or_else(|_| {
-                            // println!("{:?}", len);
                             println!("{:?}", i);
-                            panic!("Uh oh ")
+                            panic!("Unable to lower instruction to bytecode!")
                         }),
                     )
                 })
