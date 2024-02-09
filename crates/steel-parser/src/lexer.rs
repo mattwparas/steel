@@ -1072,7 +1072,7 @@ mod lexer_tests {
         let s = TokenStream::new("9223372036854775808", true, None); // isize::MAX + 1
         let res: Vec<Token<&str>> = s.collect();
 
-        let expected_bigint = "9223372036854775808".parse().unwrap();
+        let expected_bigint = Box::new("9223372036854775808".parse().unwrap());
 
         let expected: Vec<Token<&str>> = vec![Token {
             ty: IntegerLiteral(MaybeBigInt::Big(expected_bigint)),
@@ -1088,7 +1088,7 @@ mod lexer_tests {
         let s = TokenStream::new("-9223372036854775809", true, None); // isize::MIN - 1
         let res: Vec<Token<&str>> = s.collect();
 
-        let expected_bigint = "-9223372036854775809".parse().unwrap();
+        let expected_bigint = Box::new("-9223372036854775809".parse().unwrap());
 
         let expected: Vec<Token<&str>> = vec![Token {
             ty: IntegerLiteral(MaybeBigInt::Big(expected_bigint)),

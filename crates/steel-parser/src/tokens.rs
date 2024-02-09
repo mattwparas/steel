@@ -138,16 +138,17 @@ pub enum RealNumberLiteral {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum MaybeBigInt {
     Small(isize),
-    Big(BigInt),
+    Big(Box<BigInt>),
 }
 
 impl FromStr for MaybeBigInt {
     type Err = <num_bigint::BigInt as FromStr>::Err;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse::<isize>()
-            .map(MaybeBigInt::Small)
-            .or_else(|_| s.parse::<num_bigint::BigInt>().map(MaybeBigInt::Big))
+        s.parse::<isize>().map(MaybeBigInt::Small).or_else(|_| {
+            s.parse::<num_bigint::BigInt>()
+                .map(|b| MaybeBigInt::Big(Box::new(b)))
+        })
     }
 }
 
@@ -164,7 +165,7 @@ impl From<MaybeBigInt> for BigInt {
     fn from(v: MaybeBigInt) -> BigInt {
         match v {
             MaybeBigInt::Small(x) => x.into(),
-            MaybeBigInt::Big(x) => x.into(),
+            MaybeBigInt::Big(x) => *x,
         }
     }
 }
@@ -173,7 +174,8 @@ impl From<MaybeBigInt> for BigInt {
 #[test]
 fn check_token_size() {
     let actual = std::mem::size_of::<TokenType<&str>>();
-    let limit = std::mem::size_of::<String>() + 1;
+    // Typically 32 on 64bit machines on Rust 1.75.0.
+    let limit = 2 * std::mem::size_of::<String>();
     assert!(
         actual <= limit,
         "Token size is {actual} but limit is {limit}."

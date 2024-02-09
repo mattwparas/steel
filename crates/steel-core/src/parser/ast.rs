@@ -73,7 +73,7 @@ impl TryFromSteelValVisitorForExprKind {
             )))),
 
             BigNum(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                IntegerLiteral(MaybeBigInt::Big(x.unwrap())),
+                IntegerLiteral(MaybeBigInt::Big(Box::new(x.unwrap()))),
             )))),
 
             VectorV(lst) => {
@@ -195,12 +195,12 @@ impl TryFrom<&SteelVal> for ExprKind {
                 )))),
                 BigRational(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                     FractionLiteral(
-                        MaybeBigInt::Big(x.numer().clone()),
-                        MaybeBigInt::Big(x.denom().clone()),
+                        MaybeBigInt::Big(Box::new(x.numer().clone())),
+                        MaybeBigInt::Big(Box::new(x.denom().clone())),
                     ),
                 )))),
                 BigNum(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    IntegerLiteral(MaybeBigInt::Big(x.unwrap())),
+                    IntegerLiteral(MaybeBigInt::Big(Box::new(x.unwrap()))),
                 )))),
                 Complex(_) => unimplemented!("Complex numbers not fully supported yet. See https://github.com/mattwparas/steel/issues/62 for current details."),
                 VectorV(lst) => {
