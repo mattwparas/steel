@@ -541,14 +541,19 @@ fn parse_real(s: &str) -> Option<TokenType<&str>> {
 fn parse_number(s: &str) -> Option<TokenType<&str>> {
     match split_into_complex(s)?.as_slice() {
         [NumPart::Real(x)] => parse_real(x),
-        [NumPart::Imaginary(x)] => match parse_real(x)? {
-            TokenType::NumberLiteral(_) => todo!(),
-            TokenType::IntegerLiteral(_) => todo!(),
-            TokenType::FractionLiteral(_, _) => todo!(),
-            TokenType::StringLiteral(_) => todo!(),
-            TokenType::Error => todo!(),
-            _ => unreachable!(),
-        },
+        [NumPart::Imaginary(x)] => {
+            if !matches!(x.chars().next(), Some('+') | Some('-')) {
+                return None;
+            };
+            match parse_real(x)? {
+                TokenType::NumberLiteral(_) => todo!(),
+                TokenType::IntegerLiteral(_) => todo!(),
+                TokenType::FractionLiteral(_, _) => todo!(),
+                TokenType::StringLiteral(_) => todo!(),
+                TokenType::Error => todo!(),
+                _ => unreachable!(),
+            }
+        }
         [NumPart::Real(re), NumPart::Imaginary(im)]
         | [NumPart::Imaginary(im), NumPart::Real(re)] => {
             let _ = parse_real(re)?;
