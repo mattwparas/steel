@@ -683,7 +683,13 @@ pub fn numberp(value: &SteelVal) -> bool {
             | SteelVal::Rational(_)
             | SteelVal::BigRational(_)
             | SteelVal::NumV(_)
+            | SteelVal::Complex(_)
     )
+}
+
+#[steel_derive::function(name = "complex?", constant = true)]
+pub fn complexp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::Complex(_))
 }
 
 #[steel_derive::function(name = "int?", constant = true)]
@@ -838,6 +844,7 @@ fn identity_module() -> BuiltInModule {
         // .register_value("int?", gen_pred!(IntV))
         .register_native_fn_definition(NOT_DEFINITION)
         .register_native_fn_definition(NUMBERP_DEFINITION)
+        .register_native_fn_definition(COMPLEXP_DEFINITION)
         .register_native_fn_definition(INTP_DEFINITION)
         .register_native_fn_definition(INTEGERP_DEFINITION)
         .register_native_fn_definition(FLOATP_DEFINITION)

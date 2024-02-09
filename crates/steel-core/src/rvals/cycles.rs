@@ -160,6 +160,10 @@ impl CycleDetector {
             IntV(x) => write!(f, "{x}"),
             Rational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
             BigRational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
+            Complex(x) if x.imaginary_is_negative() => {
+                write!(f, "{re}{im}i", re = x.re, im = x.im)
+            }
+            Complex(x) => write!(f, "{re}+{im}i", re = x.re, im = x.im),
             StringV(s) => write!(f, "{s:?}"),
             BigNum(b) => write!(f, "{}", b.as_ref()),
             CharV(c) => {
@@ -284,6 +288,7 @@ impl CycleDetector {
             IntV(x) => write!(f, "{x}"),
             Rational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
             BigRational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
+            Complex(x) => write!(f, "{re}+{im}i", re = x.re, im = x.im),
             StringV(s) => write!(f, "{s:?}"),
             CharV(c) => {
                 if c.is_ascii_control() {
@@ -1109,6 +1114,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
                 Rational(x) => self.visit_rational(x),
                 BigRational(x) => self.visit_bigrational(x),
                 BigNum(b) => self.visit_bignum(b),
+                Complex(_) => unimplemented!(),
                 CharV(c) => self.visit_char(c),
                 VectorV(v) => self.visit_immutable_vector(v),
                 Void => self.visit_void(),
@@ -1174,6 +1180,7 @@ pub trait BreadthFirstSearchSteelValVisitor {
                 Rational(x) => self.visit_rational(x),
                 BigRational(x) => self.visit_bigrational(x),
                 BigNum(b) => self.visit_bignum(b),
+                Complex(_) => unimplemented!(),
                 CharV(c) => self.visit_char(c),
                 VectorV(v) => self.visit_immutable_vector(v),
                 Void => self.visit_void(),
@@ -1265,6 +1272,7 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
                 IntV(i) => self.visit_int(*i),
                 Rational(x) => self.visit_rational(*x),
                 BigRational(x) => self.visit_bigrational(x),
+                Complex(_) => unimplemented!(),
                 CharV(c) => self.visit_char(*c),
                 VectorV(v) => self.visit_immutable_vector(v),
                 Void => self.visit_void(),

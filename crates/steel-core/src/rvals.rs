@@ -71,7 +71,7 @@ use futures_util::future::Shared;
 use futures_util::FutureExt;
 
 use crate::values::lists::List;
-use num::{BigInt, BigRational, Rational32, ToPrimitive};
+use num::{BigInt, BigRational, Rational32, Signed, ToPrimitive, Zero};
 use steel_parser::tokens::MaybeBigInt;
 
 use self::cycles::{CycleDetector, IterativeDropHandler};
@@ -1216,6 +1216,53 @@ pub enum SteelVal {
     BigNum(Gc<BigInt>),
     // Like Rational but supports larger numerators and denominators.
     BigRational(Gc<BigRational>),
+    // A complex number.
+    Complex(Gc<SteelComplex>),
+}
+
+/// Contains a complex number.
+///
+/// TODO: Optimize the contents of complex value. Holding `SteelVal` makes it easier to use existing
+/// operations but a more specialized representation may be faster.
+#[derive(Clone)]
+pub struct SteelComplex {
+    /// The real part of the complex number.
+    pub re: SteelVal,
+    /// The imaginary part of the complex number.
+    pub im: SteelVal,
+}
+
+impl SteelComplex {
+    pub fn new(real: SteelVal, imaginary: SteelVal) -> SteelComplex {
+        SteelComplex {
+            re: real,
+            im: imaginary,
+        }
+    }
+}
+
+impl IntoSteelVal for SteelComplex {
+    fn into_steelval(self) -> Result<SteelVal> {
+        Ok(match self.im {
+            NumV(n) if n.is_zero() => self.re,
+            IntV(0) => self.re,
+            _ => SteelVal::Complex(Gc::new(self)),
+        })
+    }
+}
+
+impl SteelComplex {
+    /// Returns `true` if the imaginary part is negative.
+    fn imaginary_is_negative(&self) -> bool {
+        match &self.im {
+            NumV(x) => x.is_negative(),
+            IntV(x) => x.is_negative(),
+            Rational(x) => x.is_negative(),
+            BigNum(x) => x.is_negative(),
+            SteelVal::BigRational(x) => x.is_negative(),
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl SteelVal {
