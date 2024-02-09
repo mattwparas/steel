@@ -214,8 +214,7 @@ impl<'global, 'a> VmCore<'a> {
                 cur_inst_span,
             ))),
             SteelVal::StringV(s) => Ok(Box::new(s.chars().map(|x| Ok(SteelVal::CharV(x))))),
-            SteelVal::ListV(l) => Ok(Box::new(l.into_iter().cloned().map(Ok))),
-            // SteelVal::StructV(s) => Ok(Box::new(s.iter().cloned().map(Ok))),
+            SteelVal::ListV(l) => Ok(Box::new(l.clone().into_iter().map(Ok))),
             SteelVal::HashSetV(hs) => Ok(Box::new(hs.iter().cloned().map(Ok))),
             SteelVal::HashMapV(hm) => {
                 Ok(Box::new(hm.iter().map(|x| {
@@ -247,22 +246,40 @@ impl<'global, 'a> VmCore<'a> {
 
         let mut iter = Self::res_iterator(&root, Rc::clone(&vm), cur_inst_span, &mut nursery)?;
 
+        // TODO: Almost assuredly, this will not work with continuations, since we won't be
+        // able to capture the rust stack. The best thing to do is probably to "reconstruct"
+        // or pause the closures along the way, so that we could resume this step inside the
+        // continuation at a later time if necessary.
         for t in ops {
             iter = match t {
                 Transducers::Map(stack_func) => {
                     let vm_copy = Rc::clone(&vm);
 
-                    // TODO: Probably should just capture a continuation here?
-                    let switch_statement = move |arg| {
-                        vm_copy.borrow_mut().call_func_or_else(
-                            stack_func,
-                            arg?,
-                            cur_inst_span,
-                            throw!(TypeMismatch => "map expected a function"; *cur_inst_span),
-                        )
-                    };
-
-                    Box::new(iter.map(switch_statement))
+                    // Inlining the switch on the function here saves a decent chunk
+                    // of time since we don't have to dispatch on the function each time.
+                    // Note: This optimization should also be copied to each of the below
+                    // statements, but before that happens I want to figure out
+                    // how to make this all work with continuations.
+                    match stack_func {
+                        SteelVal::FuncV(func) => Box::new(iter.map(move |arg| {
+                            let arg_vec = [arg?];
+                            func(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+                        })),
+                        SteelVal::BoxedFunction(func) => Box::new(iter.map(move |arg| {
+                            let arg_vec = [arg?];
+                            func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+                        })),
+                        SteelVal::MutFunc(func) => Box::new(iter.map(move |arg| {
+                            let mut arg_vec = [arg?];
+                            func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
+                        })),
+                        SteelVal::Closure(closure) => {
+                            Box::new(iter.map(move |arg| {
+                                vm_copy.borrow_mut().call_with_one_arg(closure, arg?)
+                            }))
+                        }
+                        _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
+                    }
                 }
                 Transducers::Filter(stack_func) => {
                     let vm_copy = Rc::clone(&vm);

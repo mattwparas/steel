@@ -689,7 +689,7 @@ pub fn numberp(value: &SteelVal) -> bool {
 
 #[steel_derive::function(name = "complex?", constant = true)]
 pub fn complexp(value: &SteelVal) -> bool {
-    matches!(value, SteelVal::Complex(_))
+    numberp(value)
 }
 
 #[steel_derive::function(name = "int?", constant = true)]

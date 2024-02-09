@@ -36,7 +36,6 @@ use crate::rvals::Result;
 pub(crate) static FUNCTION_ID: AtomicUsize = AtomicUsize::new(0);
 
 fn fresh_function_id() -> usize {
-    // println!("{:?}", FUNCTION_ID);
     FUNCTION_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
@@ -124,11 +123,11 @@ impl<'a> CodeGenerator<'a> {
         let value = eval_atom(syn)?;
 
         let idx = self.constant_map.add_or_get(value);
+        // First, lets check that the value fits
         self.push(
             LabeledInstruction::builder(OpCode::PUSHCONST)
                 .payload(idx)
-                .contents(syn.clone())
-                .constant(true),
+                .contents(syn.clone()),
         );
         Ok(())
     }
@@ -651,8 +650,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 // TODO: This is a little suspect, we're doing a bunch of stuff twice
                 // that we really don't need. In fact, we probably can get away with just...
                 // embedding the steel val directly here.
-                .list_contents(crate::parser::ast::ExprKind::Quote(Box::new(quote.clone())))
-                .constant(true),
+                .list_contents(crate::parser::ast::ExprKind::Quote(Box::new(quote.clone()))),
         );
 
         Ok(())

@@ -1,5 +1,5 @@
 use crate::rvals::{IntoSteelVal, Result, SteelComplex, SteelVal};
-use crate::steel_vm::primitives::numberp;
+use crate::steel_vm::primitives::{numberp, realp};
 use crate::stop;
 use num::{BigInt, BigRational, CheckedAdd, CheckedMul, Integer, Rational32, ToPrimitive};
 use std::ops::Neg;
@@ -201,7 +201,7 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 ///
 /// # Precondition
 /// x and y must be valid numbers.
-fn add_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
+pub fn add_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
     match (x, y) {
         // Simple integer case. Probably very common.
         (SteelVal::IntV(x), SteelVal::IntV(y)) => match x.checked_add(y) {
@@ -279,6 +279,10 @@ fn add_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
         }
         // Complex numbers
         (SteelVal::Complex(x), SteelVal::Complex(y)) => add_complex(x, y),
+        (SteelVal::Complex(x), y) | (y, SteelVal::Complex(x)) => {
+            debug_assert!(realp(y));
+            add_complex(x, &SteelComplex::new(y.clone(), SteelVal::IntV(0)))
+        }
         _ => unreachable!(),
     }
 }

@@ -23,13 +23,22 @@ pub enum Expr {
 }
 
 #[derive(Clone, Debug)]
-pub struct LabeledInstruction {
+pub struct CompactInstruction {
     pub op_code: OpCode,
     pub payload_size: usize,
     pub contents: Option<Expr>,
     pub tag: Option<Label>,
     pub goto: Option<Label>,
     pub constant: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct LabeledInstruction {
+    pub op_code: OpCode,
+    pub payload_size: usize,
+    pub contents: Option<Expr>,
+    pub tag: Option<Label>,
+    pub goto: Option<Label>,
 }
 
 impl LabeledInstruction {
@@ -40,7 +49,6 @@ impl LabeledInstruction {
             contents: None,
             tag: None,
             goto: None,
-            constant: false,
         }
     }
 
@@ -66,11 +74,6 @@ impl LabeledInstruction {
 
     pub fn goto(mut self, goto: Label) -> Self {
         self.goto = Some(goto);
-        self
-    }
-
-    pub fn constant(mut self, constant: bool) -> Self {
-        self.constant = constant;
         self
     }
 
