@@ -116,10 +116,23 @@ pub enum TokenType<S> {
     Identifier(S),
     Keyword(S),
     NumberLiteral(f64),
+    // TODO: Replace Number/Integer/Fraction literal with new enum.
+    // NumberLiteral(NumberLiteral),
     IntegerLiteral(MaybeBigInt),
     FractionLiteral(MaybeBigInt, MaybeBigInt),
     StringLiteral(String),
     Error,
+}
+
+pub enum NumberLiteral {
+    Real(RealNumberLiteral),
+    Complex(RealNumberLiteral, RealNumberLiteral),
+}
+
+pub enum RealNumberLiteral {
+    Int(MaybeBigInt),
+    Fraction(MaybeBigInt, MaybeBigInt),
+    Inexact(f64),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
