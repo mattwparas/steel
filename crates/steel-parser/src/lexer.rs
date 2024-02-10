@@ -533,7 +533,7 @@ fn parse_real(s: &str) -> Option<RealLiteral> {
         let d_str = &d_str[1..];
         let n: IntLiteral = n_str.parse().ok()?;
         let d: IntLiteral = d_str.parse().ok()?;
-        Some(RealLiteral::Fraction(n, d))
+        Some(RealLiteral::Rational(n, d))
     } else {
         let int: IntLiteral = s.parse().ok()?;
         Some(RealLiteral::Int(int))
@@ -848,7 +848,7 @@ mod lexer_tests {
     }
 
     #[test]
-    fn test_fractions() {
+    fn test_rationals() {
         let got: Vec<_> = TokenStream::new(
             r#"
                 1/4
@@ -868,7 +868,7 @@ mod lexer_tests {
             got.as_slice(),
             &[
                 Token {
-                    ty: RealLiteral::Fraction(IntLiteral::Small(1), IntLiteral::Small(4)).into(),
+                    ty: RealLiteral::Rational(IntLiteral::Small(1), IntLiteral::Small(4)).into(),
                     source: "1/4",
                     span: Span::new(17, 20, None),
                 },
@@ -878,12 +878,12 @@ mod lexer_tests {
                     span: Span::new(37, 38, None),
                 },
                 Token {
-                    ty: RealLiteral::Fraction(IntLiteral::Small(1), IntLiteral::Small(4)).into(),
+                    ty: RealLiteral::Rational(IntLiteral::Small(1), IntLiteral::Small(4)).into(),
                     source: "1/4",
                     span: Span::new(38, 41, None),
                 },
                 Token {
-                    ty: RealLiteral::Fraction(IntLiteral::Small(1), IntLiteral::Small(3)).into(),
+                    ty: RealLiteral::Rational(IntLiteral::Small(1), IntLiteral::Small(3)).into(),
                     source: "1/3",
                     span: Span::new(42, 45, None),
                 },
@@ -893,7 +893,7 @@ mod lexer_tests {
                     span: Span::new(45, 46, None),
                 },
                 Token {
-                    ty: RealLiteral::Fraction(
+                    ty: RealLiteral::Rational(
                         IntLiteral::from_str("11111111111111111111").unwrap(),
                         IntLiteral::from_str("22222222222222222222").unwrap(),
                     )

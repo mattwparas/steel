@@ -523,12 +523,19 @@ impl MacroPattern {
                             RealLiteral::Int(IntLiteral::Small(i)) => {
                                 pattern_vec.push(MacroPattern::IntLiteral(i))
                             }
+                            RealLiteral::Int(IntLiteral::Big(_)) => {
+                                stop!(BadSyntax => format!("big integers not supported: {}", re));
+                            }
                             RealLiteral::Inexact(f) => {
                                 pattern_vec.push(MacroPattern::FloatLiteral(f))
                             }
-                            _ => todo!(),
+                            RealLiteral::Rational(_, _) => {
+                                stop!(BadSyntax => format!("rationals numbers are not supported: {}", re))
+                            }
                         },
-                        NumberLiteral::Complex(_, _) => todo!(),
+                        c @ NumberLiteral::Complex(_, _) => {
+                            stop!(BadSyntax => format!("complex numbers not supported: {}", c))
+                        }
                     },
                     TokenType::CharacterLiteral(c) => {
                         pattern_vec.push(MacroPattern::CharacterLiteral(c));

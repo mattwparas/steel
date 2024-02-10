@@ -36,7 +36,7 @@ pub fn number_literal_to_steel(n: &NumberLiteral) -> Result<SteelVal> {
     let real_to_steel = |re: &RealLiteral| match re {
         RealLiteral::Int(IntLiteral::Small(i)) => i.into_steelval(),
         RealLiteral::Int(IntLiteral::Big(i)) => i.clone().into_steelval(),
-        RealLiteral::Fraction(n, d) => match (n, d) {
+        RealLiteral::Rational(n, d) => match (n, d) {
             (IntLiteral::Small(n), IntLiteral::Small(d)) => {
                 match (i32::try_from(*n), i32::try_from(*d)) {
                     (Ok(n), Ok(d)) => Rational32::new(n, d).into_steelval(),

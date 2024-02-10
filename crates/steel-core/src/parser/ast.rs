@@ -187,13 +187,13 @@ impl TryFrom<&SteelVal> for ExprKind {
                     RealLiteral::Int(IntLiteral::Small(*x)).into(),
                 )))),
                 Rational(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    RealLiteral::Fraction(
+                    RealLiteral::Rational(
                         IntLiteral::Small(*x.numer() as isize),
                         IntLiteral::Small(*x.denom() as isize),
                     ).into(),
                 )))),
                 BigRational(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    RealLiteral::Fraction(
+                    RealLiteral::Rational(
                         IntLiteral::Big(Box::new(x.numer().clone())),
                         IntLiteral::Big(Box::new(x.denom().clone())),
                     ).into(),

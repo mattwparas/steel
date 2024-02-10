@@ -148,7 +148,7 @@ fn real_literal_to_steelval(r: RealLiteral) -> Result<SteelVal, SteelErr> {
     match r {
         RealLiteral::Int(IntLiteral::Small(x)) => x.into_steelval(),
         RealLiteral::Int(IntLiteral::Big(x)) => x.into_steelval(),
-        RealLiteral::Fraction(n, d) => BigRational::new(n.into(), d.into()).into_steelval(),
+        RealLiteral::Rational(n, d) => BigRational::new(n.into(), d.into()).into_steelval(),
         RealLiteral::Inexact(f) => f.into_steelval(),
     }
 }

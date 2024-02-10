@@ -1307,14 +1307,14 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
         ret
     }
 
-    fn visit_closure(&mut self, closure: &'a Gc<ByteCodeLambda>) -> Self::Output;
-    fn visit_bool(&mut self, boolean: bool) -> Self::Output;
-    fn visit_float(&mut self, float: f64) -> Self::Output;
-    fn visit_int(&mut self, int: isize) -> Self::Output;
-    fn visit_rational(&mut self, fract: Rational32) -> Self::Output;
+    fn visit_closure(&mut self, _: &'a Gc<ByteCodeLambda>) -> Self::Output;
+    fn visit_bool(&mut self, _: bool) -> Self::Output;
+    fn visit_float(&mut self, _: f64) -> Self::Output;
+    fn visit_int(&mut self, _: isize) -> Self::Output;
+    fn visit_rational(&mut self, _: Rational32) -> Self::Output;
     fn visit_bigrational(&mut self, _: &'a Gc<BigRational>) -> Self::Output;
     fn visit_bignum(&mut self, _: &'a Gc<BigInt>) -> Self::Output;
-    fn visit_char(&mut self, c: char) -> Self::Output;
+    fn visit_char(&mut self, _: char) -> Self::Output;
     fn visit_immutable_vector(&mut self, vector: &'a SteelVector) -> Self::Output;
     fn visit_void(&mut self) -> Self::Output;
     fn visit_string(&mut self, string: &'a SteelString) -> Self::Output;

@@ -150,7 +150,7 @@ impl<S> From<NumberLiteral> for TokenType<S> {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum RealLiteral {
     Int(IntLiteral),
-    Fraction(IntLiteral, IntLiteral),
+    Rational(IntLiteral, IntLiteral),
     Inexact(f64),
 }
 
@@ -158,7 +158,7 @@ impl RealLiteral {
     fn is_negative(&self) -> bool {
         match self {
             RealLiteral::Int(i) => i.is_negative(),
-            RealLiteral::Fraction(n, _) => n.is_negative(),
+            RealLiteral::Rational(n, _) => n.is_negative(),
             RealLiteral::Inexact(f) => f.is_sign_negative(),
         }
     }
@@ -180,7 +180,7 @@ impl Display for RealLiteral {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RealLiteral::Int(i) => i.fmt(f),
-            RealLiteral::Fraction(n, d) => write!(f, "{n}/{d}"),
+            RealLiteral::Rational(n, d) => write!(f, "{n}/{d}"),
             RealLiteral::Inexact(x) => write!(f, "{x}"),
         }
     }
