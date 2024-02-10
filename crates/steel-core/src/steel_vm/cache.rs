@@ -1,6 +1,7 @@
-use std::{collections::HashMap, rc::Weak};
+use std::rc::Weak;
 
 use crate::values::lists::List;
+use fxhash::FxHashMap;
 use weak_table::WeakKeyHashMap;
 
 use crate::{rvals::Custom, values::functions::ByteCodeLambda, SteelVal};
@@ -14,13 +15,13 @@ struct FunctionArgs {
 #[derive(Clone, Debug)]
 // For now this has... no capacity, and no eviction strategy
 pub struct MemoizationTable {
-    table: HashMap<FunctionArgs, SteelVal>,
+    table: FxHashMap<FunctionArgs, SteelVal>,
 }
 
 impl MemoizationTable {
     pub fn new() -> Self {
         Self {
-            table: HashMap::default(),
+            table: FxHashMap::default(),
         }
     }
 
@@ -45,7 +46,7 @@ impl MemoizationTable {
 }
 
 pub struct WeakMemoizationTable {
-    table: WeakKeyHashMap<Weak<ByteCodeLambda>, HashMap<List<SteelVal>, SteelVal>>,
+    table: WeakKeyHashMap<Weak<ByteCodeLambda>, FxHashMap<List<SteelVal>, SteelVal>>,
 }
 
 impl WeakMemoizationTable {
@@ -67,7 +68,7 @@ impl WeakMemoizationTable {
             if let Some(map) = self.table.get_mut(&l) {
                 map.insert(arguments, value);
             } else {
-                let mut map = HashMap::new();
+                let mut map = FxHashMap::default();
                 map.insert(arguments, value);
 
                 self.table.insert(l.0, map);

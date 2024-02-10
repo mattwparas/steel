@@ -1,7 +1,8 @@
 #![allow(unused)]
 #![allow(clippy::type_complexity)]
 
-use im_rc::HashMap;
+use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
+use im_rc::HashMap as ImmutableHashMap;
 use once_cell::sync::Lazy;
 
 use crate::compiler::map::SymbolMap;
@@ -45,7 +46,7 @@ enum StringOrMagicNumber {
 // #[derive(Debug)]
 pub struct VTableEntry {
     pub(crate) name: InternedString,
-    pub(crate) properties: Gc<im_rc::HashMap<SteelVal, SteelVal>>,
+    pub(crate) properties: Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>,
     pub(crate) proc: Option<usize>,
     pub(crate) transparent: bool,
     pub(crate) mutable: bool,
@@ -75,7 +76,7 @@ impl VTableEntry {
 #[derive(Debug, Clone, Hash)]
 pub enum Properties {
     BuiltIn,
-    Local(Gc<im_rc::HashMap<SteelVal, SteelVal>>),
+    Local(Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>),
 }
 
 impl Properties {
@@ -643,7 +644,7 @@ struct SteelTraitImplementation {}
 // name as a key, and use that to grab the properties. Under any circumstance that I am aware of,
 // the entry in the vtable should be alive for as long as the struct is legally allowed to be accessed.
 pub struct VTable {
-    map: fxhash::FxHashMap<InternedString, Gc<im_rc::HashMap<SteelVal, SteelVal>>>,
+    map: fxhash::FxHashMap<InternedString, Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>>,
 
     traits: fxhash::FxHashMap<InternedString, fxhash::FxHashMap<InternedString, Vec<SteelVal>>>,
 
@@ -651,17 +652,22 @@ pub struct VTable {
 }
 
 impl VTable {
-    fn insert(name: InternedString, options: Gc<im_rc::HashMap<SteelVal, SteelVal>>) {
+    fn insert(
+        name: InternedString,
+        options: Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>,
+    ) {
         VTABLE.with(|x| x.borrow_mut().map.insert(name, options));
     }
 
-    fn get(name: &InternedString) -> Option<Gc<im_rc::HashMap<SteelVal, SteelVal>>> {
+    fn get(
+        name: &InternedString,
+    ) -> Option<Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>> {
         VTABLE.with(|x| x.borrow().map.get(name).cloned())
     }
 
     pub(crate) fn sendable_entries(
-        serializer: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-        visited: &mut std::collections::HashSet<usize>,
+        serializer: &mut FxHashMap<usize, SerializableSteelVal>,
+        visited: &mut FxHashSet<usize>,
     ) -> Result<Vec<SendableVTableEntry>> {
         VTABLE.with(|x| {
             x.borrow()
@@ -729,7 +735,7 @@ impl VTable {
     pub fn set_entry(
         descriptor: &StructTypeDescriptor,
         proc: Option<usize>,
-        properties: Gc<im_rc::HashMap<SteelVal, SteelVal>>,
+        properties: Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>,
     ) {
         VTABLE.with(|x| {
             let mut guard = x.borrow_mut();
@@ -780,9 +786,9 @@ thread_local! {
 
         let mut map = fxhash::FxHashMap::default();
 
-        let result_options = Gc::new(im_rc::hashmap! {
-            SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
-        });
+        let result_options = Gc::new(ImmutableHashMap::<_, _, FxBuildHasher>::from(vec![
+            (SteelVal::SymbolV("#:transparent".into()), SteelVal::BoolV(true))
+        ]));
 
         map.insert("Ok".into(), result_options.clone());
         map.insert("Err".into(), result_options.clone());
@@ -797,10 +803,10 @@ thread_local! {
         }))
     };
 
-    pub static DEFAULT_PROPERTIES: Gc<im_rc::HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::HashMap::new());
-    pub static STANDARD_OPTIONS: Gc<im_rc::HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
-            SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
-    });
+    pub static DEFAULT_PROPERTIES: Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>> = Gc::new(ImmutableHashMap::default());
+    pub static STANDARD_OPTIONS: Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>> = Gc::new(ImmutableHashMap::from(vec![
+            (SteelVal::SymbolV("#:transparent".into()), SteelVal::BoolV(true))
+    ]));
 
 
     pub static OK_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*OK_RESULT_LABEL, None);
@@ -811,9 +817,9 @@ thread_local! {
 
     // pub static OK_RESULT_LABEL: Rc<String> = Rc::new("Ok".into());
     // pub static ERR_RESULT_LABEL: Rc<String> = Rc::new("Err".into());
-    // pub static RESULT_OPTIONS: Gc<im_rc::HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
-        // SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
-    // });
+    // pub static RESULT_OPTIONS: Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>> = Gc::new(ImmutableHashMap::from(vec![
+        // (SteelVal::SymbolV("#:transparent".into()), SteelVal::BoolV(true)),
+    // ]));
     pub static OK_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
             Rc::new(Box::new(UserDefinedStruct::constructor_thunk(
             1,
@@ -831,9 +837,9 @@ thread_local! {
 
     // pub static SOME_OPTION_LABEL: Rc<String> = Rc::new("Some".into());
     // pub static NONE_LABEL: Rc<String> = Rc::new("None".into());
-    pub static OPTION_OPTIONS: Gc<im_rc::HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
-        SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
-    });
+    pub static OPTION_OPTIONS: Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>> = Gc::new(ImmutableHashMap::from(vec![
+        (SteelVal::SymbolV("#:transparent".into()), SteelVal::BoolV(true)),
+    ]));
     pub static SOME_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
         // let name = SOME_OPTION_LABEL.with(|x| Rc::clone(x));
         Rc::new(Box::new(UserDefinedStruct::constructor_thunk(

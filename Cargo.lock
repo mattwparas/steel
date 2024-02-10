@@ -3327,6 +3327,7 @@ dependencies = [
 name = "steel-derive"
 version = "0.5.0"
 dependencies = [
+ "fxhash",
  "proc-macro2",
  "quote",
  "syn 2.0.39",
@@ -3336,6 +3337,7 @@ dependencies = [
 name = "steel-doc"
 version = "0.6.0"
 dependencies = [
+ "fxhash",
  "steel-core",
 ]
 
@@ -3369,6 +3371,7 @@ version = "0.6.0"
 dependencies = [
  "dashmap",
  "env_logger",
+ "fxhash",
  "log",
  "once_cell",
  "ropey",
@@ -3484,6 +3487,7 @@ dependencies = [
  "abi_stable",
  "axum",
  "crossbeam",
+ "fxhash",
  "serde_json",
  "steel-core",
  "tokio",

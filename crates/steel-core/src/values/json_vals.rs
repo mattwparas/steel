@@ -5,7 +5,8 @@ use crate::{
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
     throw,
 };
-use im_rc::HashMap;
+use fxhash::FxBuildHasher;
+use im_rc::HashMap as ImmutableHashMap;
 use serde_json::{Map, Number, Value};
 use std::convert::{TryFrom, TryInto};
 
@@ -73,7 +74,7 @@ fn unescape(s: &str) -> String {
 impl TryFrom<Map<String, Value>> for SteelVal {
     type Error = SteelErr;
     fn try_from(map: Map<String, Value>) -> std::result::Result<Self, Self::Error> {
-        let mut hm = HashMap::new();
+        let mut hm = ImmutableHashMap::<_, _, FxBuildHasher>::default();
         for (key, value) in map {
             hm.insert(SteelVal::SymbolV(key.into()), value.try_into()?);
         }
@@ -185,7 +186,6 @@ mod json_tests {
     use super::*;
 
     use crate::rvals::SteelVal::*;
-    use im_rc::hashmap;
 
     fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<SteelVal> {
         func.func_or_else(throw!(BadSyntax => "hash tests"))
@@ -201,10 +201,10 @@ mod json_tests {
         let result = apply_function(string_to_jsexpr(), args);
 
         let expected = SteelVal::HashMapV(
-            Gc::new(hashmap! {
-                SymbolV("a".into()) => StringV("applesauce".into()),
-                SymbolV("b".into()) => StringV("bananas".into())
-            })
+            Gc::new(im_rc::HashMap::from(vec![
+                (SymbolV("a".into()), StringV("applesauce".into())),
+                (SymbolV("b".into()), StringV("bananas".into())),
+            ]))
             .into(),
         );
 

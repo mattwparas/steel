@@ -48,7 +48,6 @@ use crate::{
 use std::{
     borrow::Cow,
     cell::{Cell, RefCell},
-    collections::{HashMap, HashSet},
     path::PathBuf,
     rc::Rc,
     sync::Arc,
@@ -81,7 +80,7 @@ pub trait ModuleResolver {
 
 #[derive(Clone, Default)]
 pub struct ModuleContainer {
-    modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
+    modules: ImmutableHashMap<Rc<str>, BuiltInModule, FxBuildHasher>,
     // For modules that don't exist in memory. This could be useful for a world
     // in which a builtin module exists BUT we'd like to resolve the module for
     // inference purposes.
@@ -125,11 +124,13 @@ impl ModuleContainer {
         })
     }
 
-    pub fn inner(&self) -> &ImmutableHashMap<Rc<str>, BuiltInModule> {
+    pub fn inner(&self) -> &ImmutableHashMap<Rc<str>, BuiltInModule, FxBuildHasher> {
         &self.modules
     }
 
-    pub(crate) fn inner_mut(&mut self) -> &mut ImmutableHashMap<Rc<str>, BuiltInModule> {
+    pub(crate) fn inner_mut(
+        &mut self,
+    ) -> &mut ImmutableHashMap<Rc<str>, BuiltInModule, FxBuildHasher> {
         &mut self.modules
     }
 
@@ -313,10 +314,10 @@ macro_rules! time {
 }
 
 thread_local! {
-    pub(crate) static DEFAULT_PRELUDE_MACROS: RefCell<FxHashMap<InternedString, SteelMacro>> = RefCell::new(HashMap::default());
+    pub(crate) static DEFAULT_PRELUDE_MACROS: RefCell<FxHashMap<InternedString, SteelMacro>> = RefCell::new(FxHashMap::default());
 
-    pub(crate) static DEFAULT_DOC_MACROS: RefCell<HashMap<InternedString, SteelMacro>> = RefCell::new(
-        HashMap::new());
+    pub(crate) static DEFAULT_DOC_MACROS: RefCell<FxHashMap<InternedString, SteelMacro>> = RefCell::new(
+        FxHashMap::default());
 }
 
 impl Engine {
@@ -1961,7 +1962,7 @@ impl Engine {
             return hm.clone();
         }
 
-        let mut hm = ImmutableHashMap::default();
+        let mut hm = ImmutableHashMap::<_, _, FxBuildHasher>::default();
         for constant in CONSTANTS {
             if let Ok(v) = self.extract_value(constant) {
                 hm.insert((*constant).into(), v);

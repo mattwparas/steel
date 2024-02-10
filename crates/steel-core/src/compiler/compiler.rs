@@ -21,13 +21,9 @@ use crate::{
     parser::parser::Sources,
 };
 
+use std::path::PathBuf;
 use std::{borrow::Cow, iter::Iterator};
-use std::{
-    collections::{HashMap, HashSet},
-    path::PathBuf,
-};
 
-// TODO: Replace the usages of hashmap with this directly
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
@@ -61,8 +57,8 @@ use std::time::Instant;
 
 #[derive(Default)]
 pub struct DebruijnIndicesInterner {
-    flat_defines: HashSet<InternedString>,
-    second_pass_defines: HashSet<InternedString>,
+    flat_defines: FxHashSet<InternedString>,
+    second_pass_defines: FxHashSet<InternedString>,
 }
 
 impl DebruijnIndicesInterner {
@@ -273,7 +269,7 @@ pub enum OptLevel {
 #[derive(Clone)]
 pub(crate) struct KernelDefMacroSpec {
     pub(crate) _env: String,
-    pub(crate) _exported: Option<HashSet<InternedString>>,
+    pub(crate) _exported: Option<FxHashSet<InternedString>>,
     pub(crate) name_mangler: NameMangler,
 }
 
@@ -288,11 +284,11 @@ pub struct Compiler {
     memoization_table: MemoizationTable,
     mangled_identifiers: FxHashSet<InternedString>,
     // Try this out?
-    lifted_kernel_environments: HashMap<String, KernelDefMacroSpec>,
+    lifted_kernel_environments: FxHashMap<String, KernelDefMacroSpec>,
     // Macros that... we need to compile against directly at the top level
     // This is really just a hack, but it solves cases for interactively
     // running at the top level using private macros.
-    lifted_macro_environments: HashSet<PathBuf>,
+    lifted_macro_environments: FxHashSet<PathBuf>,
 
     analysis: Analysis,
     shadowed_variable_renamer: RenameShadowedVariables,
@@ -362,8 +358,8 @@ impl Compiler {
             kernel: None,
             memoization_table: MemoizationTable::new(),
             mangled_identifiers: FxHashSet::default(),
-            lifted_kernel_environments: HashMap::new(),
-            lifted_macro_environments: HashSet::new(),
+            lifted_kernel_environments: FxHashMap::default(),
+            lifted_macro_environments: FxHashSet::default(),
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
             search_dirs: Vec::new(),
@@ -386,8 +382,8 @@ impl Compiler {
             kernel: Some(kernel),
             memoization_table: MemoizationTable::new(),
             mangled_identifiers: FxHashSet::default(),
-            lifted_kernel_environments: HashMap::new(),
-            lifted_macro_environments: HashSet::new(),
+            lifted_kernel_environments: FxHashMap::default(),
+            lifted_macro_environments: FxHashSet::default(),
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
             search_dirs: Vec::new(),
@@ -1013,7 +1009,7 @@ impl Compiler {
 
     fn _run_const_evaluation_with_memoization(
         &mut self,
-        _constants: ImmutableHashMap<InternedString, SteelVal>,
+        _constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         mut _expanded_statements: Vec<ExprKind>,
     ) -> Result<Vec<ExprKind>> {
         todo!("Implement kernel level const evaluation here!")

@@ -1,4 +1,5 @@
-use std::{collections::HashSet, io::Write};
+use fxhash::FxHashSet;
+use std::io::Write;
 use steel::steel_vm::engine::Engine;
 
 fn format_markdown_doc<W: Write>(writer: &mut W, doc: &str) {
@@ -19,7 +20,7 @@ fn main() {
         .create("generated")
         .unwrap();
 
-    let mut found_definitions: HashSet<String> = HashSet::new();
+    let mut found_definitions: FxHashSet<String> = FxHashSet::default();
 
     for (module_name, module) in engine.builtin_modules().inner().iter() {
         let module_name_without_slashes = module_name.replace("/", "_");

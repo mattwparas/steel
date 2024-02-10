@@ -1,14 +1,14 @@
+use fxhash::FxHashSet;
+
 use crate::parser::ast::ExprKind;
 use crate::parser::parser::SyntaxObject;
 use crate::parser::tokens::TokenType;
 use crate::parser::visitors::VisitorMutRef;
 
-use std::collections::HashSet;
-
 use super::interner::InternedString;
 
 pub struct RenameIdentifiersVisitor<'a> {
-    introduced_identifiers: HashSet<InternedString>,
+    introduced_identifiers: FxHashSet<InternedString>,
     pattern_variables: &'a [&'a InternedString],
     syntax: &'a [InternedString],
 }
@@ -16,7 +16,7 @@ pub struct RenameIdentifiersVisitor<'a> {
 impl<'a> RenameIdentifiersVisitor<'a> {
     pub fn new(pattern_variables: &'a [&'a InternedString], syntax: &'a [InternedString]) -> Self {
         RenameIdentifiersVisitor {
-            introduced_identifiers: HashSet::new(),
+            introduced_identifiers: FxHashSet::default(),
             pattern_variables,
             syntax,
         }

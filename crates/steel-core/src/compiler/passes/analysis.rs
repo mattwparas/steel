@@ -1,7 +1,4 @@
-use std::{
-    collections::{hash_map, HashMap, HashSet},
-    hash::BuildHasherDefault,
-};
+use std::{collections::hash_map, hash::BuildHasherDefault};
 
 use im_rc::HashMap as ImmutableHashMap;
 use quickscope::ScopeMap;
@@ -301,10 +298,10 @@ pub struct Analysis {
 impl Analysis {
     pub fn pre_allocated() -> Self {
         Analysis {
-            info: HashMap::with_capacity_and_hasher(3584, FxBuildHasher::default()),
-            function_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
-            call_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
-            let_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
+            info: FxHashMap::with_capacity_and_hasher(3584, FxBuildHasher::default()),
+            function_info: FxHashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
+            call_info: FxHashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
+            let_info: FxHashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
             scope: ScopeMap::default(),
         }
     }
@@ -338,10 +335,10 @@ impl Analysis {
         // let mut analysis = Analysis::default();
 
         let mut analysis = Analysis {
-            info: HashMap::with_capacity_and_hasher(3584, FxBuildHasher::default()),
-            function_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
-            call_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
-            let_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
+            info: FxHashMap::with_capacity_and_hasher(3584, FxBuildHasher::default()),
+            function_info: FxHashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
+            call_info: FxHashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
+            let_info: FxHashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
             scope: ScopeMap::default(),
         };
 
@@ -760,7 +757,7 @@ impl<'a> AnalysisPass<'a> {
     fn _get_possible_captures(
         &self,
         let_level_bindings: &[&InternedString],
-    ) -> HashSet<InternedString> {
+    ) -> FxHashSet<InternedString> {
         self.info
             .scope
             .iter()
@@ -2594,7 +2591,7 @@ impl<'a> VisitorMutUnitRef<'a> for FreeIdentifierVisitor<'a> {
 
 // TODO: Don't need the analysis at all
 struct IdentifierFinder<'a> {
-    ids: &'a mut HashMap<SyntaxObjectId, Option<InternedString>>,
+    ids: &'a mut FxHashMap<SyntaxObjectId, Option<InternedString>>,
 }
 
 impl<'a> VisitorMutUnitRef<'a> for IdentifierFinder<'a> {
@@ -3737,7 +3734,7 @@ impl<'a> SemanticAnalysis<'a> {
     // Syntax object must be the id associated with a given require define statement
     pub fn resolve_required_identifiers(
         &self,
-        identifiers: HashSet<SyntaxObjectId>,
+        identifiers: FxHashSet<SyntaxObjectId>,
     ) -> Vec<(SyntaxObjectId, RequiredIdentifierInformation<'_>)> {
         let mut results = Vec::new();
 
@@ -4546,8 +4543,8 @@ impl<'a> SemanticAnalysis<'a> {
     // happen if the analysis gets invalidated by refreshing the vars.
     pub fn syntax_object_ids_to_identifiers<'b>(
         &self,
-        ids: &'a mut HashMap<SyntaxObjectId, Option<InternedString>>,
-    ) -> &mut HashMap<SyntaxObjectId, Option<InternedString>> {
+        ids: &'a mut FxHashMap<SyntaxObjectId, Option<InternedString>>,
+    ) -> &mut FxHashMap<SyntaxObjectId, Option<InternedString>> {
         let mut identifier_finder = IdentifierFinder { ids };
 
         for expr in self.exprs.iter() {
@@ -4591,7 +4588,7 @@ impl<'a> SemanticAnalysis<'a> {
 
     pub fn check_if_values_are_redefined(&mut self) -> Result<&mut Self, SteelErr> {
         // TODO: Maybe reuse this memory somehow?
-        let mut non_builtin_definitions = HashSet::new();
+        let mut non_builtin_definitions = FxHashSet::default();
 
         for expr in self.exprs.iter() {
             match expr {
@@ -5792,7 +5789,7 @@ mod analysis_pass_tests {
         {
             let mut analysis = SemanticAnalysis::new(&mut exprs);
 
-            let mut constants = im_rc::HashMap::default();
+            let mut constants = ImmutableHashMap::<_, _, FxBuildHasher>::default();
             constants.insert("+".into(), SteelVal::Void);
             constants.insert("<=".into(), SteelVal::Void);
             constants.insert("-".into(), SteelVal::Void);

@@ -7,8 +7,6 @@ use std::io::{BufRead, BufReader};
 use steel::PRELUDE;
 use steel::{steel_vm::engine::Engine, SteelVal};
 
-// use std::collections::HashMap;
-
 /// test to make sure file used as input leads to output
 pub fn test_from_files(input_path: &str, output_path: &str) {
     let inputfile = File::open(input_path).unwrap();

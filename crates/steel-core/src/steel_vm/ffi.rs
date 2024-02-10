@@ -24,6 +24,7 @@ use abi_stable::{
 use futures_util::FutureExt;
 
 pub use async_ffi::{FfiFuture, FutureExt as FfiFutureExt};
+use fxhash::FxBuildHasher;
 
 #[macro_export]
 macro_rules! ffi_try {
@@ -870,7 +871,7 @@ impl FFIValue {
 
                     Ok((k, v))
                 })
-                .collect::<Result<im_rc::HashMap<_, _>>>()
+                .collect::<Result<im_rc::HashMap<_, _, FxBuildHasher>>>()
                 .map(Gc::new)
                 .map(SteelHashMap::from)
                 .map(SteelVal::HashMapV),
@@ -922,7 +923,7 @@ impl IntoSteelVal for FFIValue {
 
                     Ok((k, v))
                 })
-                .collect::<Result<im_rc::HashMap<_, _>>>()
+                .collect::<Result<im_rc::HashMap<_, _, FxBuildHasher>>>()
                 .map(Gc::new)
                 .map(SteelHashMap::from)
                 .map(SteelVal::HashMapV),

@@ -1,6 +1,4 @@
-use std::collections::HashSet;
-
-use fxhash::FxHashMap;
+use fxhash::{FxHashMap, FxHashSet};
 
 use crate::{
     rvals::{Custom, HeapSerializer, SerializableSteelVal, SerializedHeapRef},
@@ -58,8 +56,8 @@ thread_local! {
 
 pub fn closure_into_serializable(
     c: &ByteCodeLambda,
-    serializer: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-    visited: &mut std::collections::HashSet<usize>,
+    serializer: &mut FxHashMap<usize, SerializableSteelVal>,
+    visited: &mut FxHashSet<usize>,
 ) -> Result<SerializedLambda> {
     if let Some(mut prototype) = CACHED_CLOSURES.with(|x| x.borrow().get(&c.id).cloned()) {
         let mut prototype = SerializedLambda {
@@ -148,8 +146,8 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
         stop!(ArityMismatch => "spawn-thread! accepts one argument, found: {}", args.len())
     }
 
-    let mut initial_map = HashMap::new();
-    let mut visited = HashSet::new();
+    let mut initial_map = FxHashMap::default();
+    let mut visited = FxHashSet::default();
 
     // If it is a native function, theres no reason we can't just call it on a new thread, most likely.
     // There might be some funny business with thread local values, but for now we'll just accept it.
@@ -274,8 +272,8 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             .map(|(key, value)| (key, SerializedHeapRef::Serialized(Some(value))))
             .collect();
 
-        let mut patcher = HashMap::new();
-        let mut built_functions = HashMap::new();
+        let mut patcher = FxHashMap::default();
+        let mut built_functions = FxHashMap::default();
 
         let mut serializer = HeapSerializer {
             heap: &mut heap,
@@ -460,8 +458,8 @@ pub fn threading_module() -> BuiltInModule {
             |channel: &std::sync::mpsc::Sender<SerializableSteelVal>,
              val: SteelVal|
              -> Result<()> {
-                let mut map = HashMap::new();
-                let mut visited = HashSet::new();
+                let mut map = FxHashMap::default();
+                let mut visited = FxHashSet::default();
 
                 // TODO: Handle this here somehow, we don't want to use an empty map
                 let serializable =
@@ -488,9 +486,9 @@ pub fn threading_module() -> BuiltInModule {
                 .map_err(|e| SteelErr::new(ErrorKind::Generic, e.to_string()))?;
 
             let mut heap = Heap::new_empty();
-            let mut fake_heap = HashMap::new();
-            let mut patcher = HashMap::new();
-            let mut built_functions = HashMap::new();
+            let mut fake_heap = FxHashMap::default();
+            let mut patcher = FxHashMap::default();
+            let mut built_functions = FxHashMap::default();
             let mut serializer = HeapSerializer {
                 heap: &mut heap,
                 fake_heap: &mut fake_heap,
@@ -513,9 +511,9 @@ pub fn threading_module() -> BuiltInModule {
                 let value = receiver.try_recv();
 
                 let mut heap = Heap::new_empty();
-                let mut fake_heap = HashMap::new();
-                let mut patcher = HashMap::new();
-                let mut built_functions = HashMap::new();
+                let mut fake_heap = FxHashMap::default();
+                let mut patcher = FxHashMap::default();
+                let mut built_functions = FxHashMap::default();
                 let mut serializer = HeapSerializer {
                     heap: &mut heap,
                     fake_heap: &mut fake_heap,

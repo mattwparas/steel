@@ -1,12 +1,9 @@
 #![allow(unused)]
 
-use std::{
-    collections::{BTreeSet, HashMap},
-    iter::FlatMap,
-    path::PathBuf,
-};
+use std::{collections::BTreeSet, iter::FlatMap, path::PathBuf};
 
 use dashmap::DashSet;
+use fxhash::FxHashMap;
 use ropey::Rope;
 use steel::{
     compiler::passes::{
@@ -125,9 +122,9 @@ pub struct StaticArityChecker;
 impl DiagnosticGenerator for StaticArityChecker {
     fn diagnose(&mut self, context: &mut DiagnosticContext) -> Vec<Diagnostic> {
         let mut arity_checker = StaticArityChecking {
-            known_functions: HashMap::new(),
+            known_functions: FxHashMap::default(),
             analysis: &context.analysis,
-            known_contracts: HashMap::new(),
+            known_contracts: FxHashMap::default(),
         };
 
         for expr in context.analysis.exprs.iter() {
@@ -230,10 +227,10 @@ impl DiagnosticGenerator for StaticArityChecker {
 //     * We know the arity
 pub struct StaticArityChecking<'a> {
     // Arity check the known functions
-    known_functions: HashMap<SyntaxObjectId, usize>,
+    known_functions: FxHashMap<SyntaxObjectId, usize>,
     // If we can, we can attach the contract information as well,
     // to do any static error checking at the call site.
-    known_contracts: HashMap<SyntaxObjectId, StaticContract>,
+    known_contracts: FxHashMap<SyntaxObjectId, StaticContract>,
 
     analysis: &'a SemanticAnalysis<'a>,
 }
@@ -281,7 +278,7 @@ impl<'a> VisitorMutUnitRef<'a> for StaticArityChecking<'a> {
 }
 
 pub struct StaticCallSiteArityChecker<'a, 'b> {
-    known_functions: HashMap<SyntaxObjectId, usize>,
+    known_functions: FxHashMap<SyntaxObjectId, usize>,
     context: &'a mut DiagnosticContext<'b>,
     diagnostics: Vec<Diagnostic>,
 }
@@ -662,8 +659,8 @@ impl StaticContract {
 
 #[derive(Default, Debug)]
 pub struct GlobalContractCollector {
-    contracts: HashMap<InternedString, StaticContract>,
-    syntax_id_to_string: HashMap<SyntaxObjectId, InternedString>,
+    contracts: FxHashMap<InternedString, StaticContract>,
+    syntax_id_to_string: FxHashMap<SyntaxObjectId, InternedString>,
 }
 
 impl<'a> VisitorMutUnitRef<'a> for GlobalContractCollector {
@@ -710,8 +707,8 @@ fn resolve_contracts() {
         .unwrap();
 
     let mut collector = GlobalContractCollector {
-        contracts: HashMap::default(),
-        syntax_id_to_string: HashMap::default(),
+        contracts: FxHashMap::default(),
+        syntax_id_to_string: FxHashMap::default(),
     };
 
     for expr in &exprs {

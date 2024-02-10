@@ -17,9 +17,10 @@ use crate::{
     rvals::IntoSteelVal,
 };
 
+use fxhash::FxHashMap;
 use num::{BigInt, BigRational, Rational32};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, convert::TryInto, rc::Rc, time::SystemTime};
+use std::{convert::TryInto, rc::Rc, time::SystemTime};
 use steel_parser::tokens::MaybeBigInt;
 
 #[cfg(feature = "profiling")]
@@ -650,7 +651,7 @@ impl SerializableProgram {
         Program {
             constant_map,
             instructions: self.instructions,
-            ast: HashMap::new(),
+            ast: FxHashMap::default(),
         }
     }
 }
@@ -660,14 +661,14 @@ impl SerializableProgram {
 pub struct Program {
     pub instructions: Vec<Vec<DenseInstruction>>,
     pub constant_map: ConstantMap,
-    pub ast: HashMap<usize, ExprKind>,
+    pub ast: FxHashMap<usize, ExprKind>,
 }
 
 impl Program {
     pub fn new(
         instructions: Vec<Vec<DenseInstruction>>,
         constant_map: ConstantMap,
-        ast: HashMap<usize, ExprKind>,
+        ast: FxHashMap<usize, ExprKind>,
     ) -> Self {
         Program {
             instructions,
@@ -778,7 +779,7 @@ impl RawProgramWithSymbols {
             .flat_map(|x| x.iter())
             .filter(|x| !matches!(x.op_code, OpCode::PASS));
 
-        let mut occurrences = HashMap::new();
+        let mut occurrences = FxHashMap::default();
         for instr in iter {
             *occurrences.entry(instr.op_code).or_default() += 1;
         }

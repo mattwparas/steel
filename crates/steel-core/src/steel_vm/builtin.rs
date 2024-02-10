@@ -10,7 +10,7 @@ use crate::{
     values::functions::BoxedDynFunction,
 };
 use fxhash::FxBuildHasher;
-use im_rc::HashMap;
+use im_rc::HashMap as ImmutableHashMap;
 use once_cell::sync::Lazy;
 
 /// A module to be consumed by the Steel Engine for later on demand access by scripts
@@ -42,10 +42,11 @@ pub struct BuiltInModule {
 #[derive(Clone, Debug)]
 struct BuiltInModuleRepr {
     pub(crate) name: Rc<str>,
-    values: HashMap<Arc<str>, SteelVal, FxBuildHasher>,
+    values: ImmutableHashMap<Arc<str>, SteelVal, FxBuildHasher>,
     docs: Box<InternalDocumentation>,
     // Add the metadata separate from the pointer, keeps the pointer slim
-    fn_ptr_table: HashMap<BuiltInFunctionTypePointer, FunctionSignatureMetadata>,
+    fn_ptr_table:
+        ImmutableHashMap<BuiltInFunctionTypePointer, FunctionSignatureMetadata, FxBuildHasher>,
     // We don't need to generate this every time, just need to
     // clone it?
     generated_expression: RefCell<Option<ExprKind>>,
@@ -121,7 +122,7 @@ pub static VOID_MODULE: Lazy<InternedString> =
 
 // Global function table
 thread_local! {
-    pub static FUNCTION_TABLE: RefCell<HashMap<BuiltInFunctionTypePointer, FunctionSignatureMetadata>> = RefCell::new(HashMap::new());
+    pub static FUNCTION_TABLE: RefCell<ImmutableHashMap<BuiltInFunctionTypePointer, FunctionSignatureMetadata, FxBuildHasher>> = RefCell::new(ImmutableHashMap::default());
 }
 
 pub fn get_function_name(function: FunctionSignature) -> Option<FunctionSignatureMetadata> {
@@ -165,9 +166,9 @@ impl BuiltInModuleRepr {
     pub fn new<T: Into<Rc<str>>>(name: T) -> Self {
         Self {
             name: name.into(),
-            values: HashMap::default(),
+            values: ImmutableHashMap::default(),
             docs: Box::new(InternalDocumentation::new()),
-            fn_ptr_table: HashMap::new(),
+            fn_ptr_table: ImmutableHashMap::default(),
             generated_expression: RefCell::new(None),
         }
     }
@@ -625,13 +626,13 @@ impl BuiltInModule {
 /// Documentation representation
 #[derive(Clone, Debug)]
 pub struct InternalDocumentation {
-    definitions: im_rc::HashMap<Cow<'static, str>, Documentation<'static>>,
+    definitions: ImmutableHashMap<Cow<'static, str>, Documentation<'static>, FxBuildHasher>,
 }
 
 impl InternalDocumentation {
     pub fn new() -> Self {
         Self {
-            definitions: im_rc::HashMap::new(),
+            definitions: ImmutableHashMap::default(),
         }
     }
 
@@ -647,7 +648,9 @@ impl InternalDocumentation {
         self.definitions.get(definition)
     }
 
-    pub fn definitions(&self) -> &im_rc::HashMap<Cow<'static, str>, Documentation<'static>> {
+    pub fn definitions(
+        &self,
+    ) -> &ImmutableHashMap<Cow<'static, str>, Documentation<'static>, FxBuildHasher> {
         &self.definitions
     }
 }
