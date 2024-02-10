@@ -526,7 +526,7 @@ impl MacroPattern {
                             RealLiteral::Int(IntLiteral::Big(_)) => {
                                 stop!(BadSyntax => format!("big integers not supported: {}", re));
                             }
-                            RealLiteral::Inexact(f) => {
+                            RealLiteral::Float(f) => {
                                 pattern_vec.push(MacroPattern::FloatLiteral(f))
                             }
                             RealLiteral::Rational(_, _) => {
@@ -733,7 +733,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &[ExprKind]) -> bool {
                     ExprKind::Atom(Atom {
                         syn:
                             SyntaxObject {
-                                ty: TokenType::Number(NumberLiteral::Real(RealLiteral::Inexact(s))),
+                                ty: TokenType::Number(NumberLiteral::Real(RealLiteral::Float(s))),
                                 ..
                             },
                     }) if s == f => continue,

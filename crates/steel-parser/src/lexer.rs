@@ -527,7 +527,7 @@ fn parse_real(s: &str) -> Option<RealLiteral> {
         }
     }
     if has_e || has_dot {
-        s.parse().map(|f| RealLiteral::Inexact(f)).ok()
+        s.parse().map(|f| RealLiteral::Float(f)).ok()
     } else if let Some(p) = frac_position {
         let (n_str, d_str) = s.split_at(p);
         let d_str = &d_str[1..];
@@ -804,12 +804,12 @@ mod lexer_tests {
                     span: Span::new(2, 4, None),
                 },
                 Token {
-                    ty: RealLiteral::Inexact(-1.2).into(),
+                    ty: RealLiteral::Float(-1.2).into(),
                     source: "-1.2",
                     span: Span::new(5, 9, None),
                 },
                 Token {
-                    ty: RealLiteral::Inexact(2.3).into(),
+                    ty: RealLiteral::Float(2.3).into(),
                     source: "+2.3",
                     span: Span::new(10, 14, None),
                 },
@@ -819,27 +819,27 @@ mod lexer_tests {
                     span: Span::new(15, 18, None),
                 },
                 Token {
-                    ty: RealLiteral::Inexact(1.0).into(),
+                    ty: RealLiteral::Float(1.0).into(),
                     source: "1.",
                     span: Span::new(19, 21, None),
                 },
                 Token {
-                    ty: RealLiteral::Inexact(100.0).into(),
+                    ty: RealLiteral::Float(100.0).into(),
                     source: "1e2",
                     span: Span::new(22, 25, None),
                 },
                 Token {
-                    ty: RealLiteral::Inexact(100.0).into(),
+                    ty: RealLiteral::Float(100.0).into(),
                     source: "1E2",
                     span: Span::new(26, 29, None),
                 },
                 Token {
-                    ty: RealLiteral::Inexact(120.0).into(),
+                    ty: RealLiteral::Float(120.0).into(),
                     source: "1.2e2",
                     span: Span::new(30, 35, None),
                 },
                 Token {
-                    ty: RealLiteral::Inexact(120.0).into(),
+                    ty: RealLiteral::Float(120.0).into(),
                     source: "1.2E2",
                     span: Span::new(36, 41, None),
                 },
@@ -985,8 +985,8 @@ mod lexer_tests {
                 },
                 Token {
                     ty: NumberLiteral::Complex(
-                        RealLiteral::Inexact(1.0).into(),
-                        RealLiteral::Inexact(2.0).into()
+                        RealLiteral::Float(1.0).into(),
+                        RealLiteral::Float(2.0).into()
                     )
                     .into(),
                     source: "1.0+2.0i",
@@ -995,7 +995,7 @@ mod lexer_tests {
                 Token {
                     ty: NumberLiteral::Complex(
                         IntLiteral::Small(3).into(),
-                        RealLiteral::Inexact(-4.0).into()
+                        RealLiteral::Float(-4.0).into()
                     )
                     .into(),
                     source: "3-4.0i",
@@ -1004,7 +1004,7 @@ mod lexer_tests {
                 Token {
                     ty: NumberLiteral::Complex(
                         IntLiteral::Small(0).into(),
-                        RealLiteral::Inexact(1.0).into()
+                        RealLiteral::Float(1.0).into()
                     )
                     .into(),
                     source: "+1.0i",

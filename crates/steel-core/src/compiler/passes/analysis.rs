@@ -2547,7 +2547,7 @@ impl<'a> VisitorMutRefUnit for RemovedUnusedImports<'a> {
                                 TokenType::Number(n) => match n {
                                     NumberLiteral::Real(r) => match r {
                                         RealLiteral::Int(IntLiteral::Small(_))
-                                        | RealLiteral::Inexact(_) => true,
+                                        | RealLiteral::Float(_) => true,
                                         _ => false,
                                     },
                                     NumberLiteral::Complex(_, _) => false,

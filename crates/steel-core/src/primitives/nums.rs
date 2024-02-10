@@ -132,9 +132,7 @@ pub fn quotient(l: isize, r: isize) -> isize {
 
 #[cold]
 fn complex_reciprocal(c: &SteelComplex) -> Result<SteelVal> {
-    println!("start: {c:?}");
     let denominator = add_two(&multiply_two(&c.re, &c.re)?, &multiply_two(&c.im, &c.im)?)?;
-    println!("{denominator:?}");
     let re = divide_primitive(&[c.re.clone(), denominator.clone()])?;
     let neg_im = divide_primitive(&[c.re.clone(), denominator])?;
     SteelComplex::new(re, subtract_primitive(&[neg_im])?).into_steelval()

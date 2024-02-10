@@ -240,7 +240,7 @@ struct ConstantEvaluator<'a> {
 fn steelval_to_atom(value: &SteelVal) -> Option<TokenType<InternedString>> {
     match value {
         SteelVal::BoolV(b) => Some(TokenType::BooleanLiteral(*b)),
-        SteelVal::NumV(n) => Some(RealLiteral::Inexact(*n).into()),
+        SteelVal::NumV(n) => Some(RealLiteral::Float(*n).into()),
         SteelVal::CharV(c) => Some(TokenType::CharacterLiteral(*c)),
         SteelVal::IntV(i) => Some(IntLiteral::Small(*i).into()),
         SteelVal::StringV(s) => Some(TokenType::StringLiteral(s.to_string())),

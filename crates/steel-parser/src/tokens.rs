@@ -151,7 +151,7 @@ impl<S> From<NumberLiteral> for TokenType<S> {
 pub enum RealLiteral {
     Int(IntLiteral),
     Rational(IntLiteral, IntLiteral),
-    Inexact(f64),
+    Float(f64),
 }
 
 impl RealLiteral {
@@ -159,7 +159,7 @@ impl RealLiteral {
         match self {
             RealLiteral::Int(i) => i.is_negative(),
             RealLiteral::Rational(n, _) => n.is_negative(),
-            RealLiteral::Inexact(f) => f.is_sign_negative(),
+            RealLiteral::Float(f) => f.is_sign_negative(),
         }
     }
 }
@@ -181,7 +181,7 @@ impl Display for RealLiteral {
         match self {
             RealLiteral::Int(i) => i.fmt(f),
             RealLiteral::Rational(n, d) => write!(f, "{n}/{d}"),
-            RealLiteral::Inexact(x) => write!(f, "{x}"),
+            RealLiteral::Float(x) => write!(f, "{x}"),
         }
     }
 }

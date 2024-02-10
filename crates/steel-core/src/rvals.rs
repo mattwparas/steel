@@ -565,7 +565,7 @@ impl ast::TryFromSteelValVisitorForExprKind {
                 span,
             )))),
             NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                RealLiteral::Inexact(*x).into(),
+                RealLiteral::Float(*x).into(),
                 span,
             )))),
             IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
@@ -694,7 +694,7 @@ impl Syntax {
                 TokenType::BooleanLiteral(*x),
             )))),
             NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                RealLiteral::Inexact(*x).into(),
+                RealLiteral::Float(*x).into(),
             )))),
             IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                 RealLiteral::Int(IntLiteral::Small(*x)).into(),
@@ -738,7 +738,7 @@ impl Syntax {
                 span,
             )))),
             NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                RealLiteral::Inexact(*x).into(),
+                RealLiteral::Float(*x).into(),
                 span,
             )))),
             IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(

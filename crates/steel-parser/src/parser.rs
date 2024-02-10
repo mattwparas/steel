@@ -1809,7 +1809,7 @@ mod parser_tests {
                         atom("+"),
                         int(2),
                         ExprKind::Atom(Atom::new(SyntaxObject::default(
-                            RealLiteral::Inexact(3.5).into(),
+                            RealLiteral::Float(3.5).into(),
                         ))),
                     ])),
                 ])),

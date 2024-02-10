@@ -54,7 +54,7 @@ pub fn number_literal_to_steel(n: &NumberLiteral) -> Result<SteelVal> {
                 BigRational::new(*n.clone(), *d.clone()).into_steelval()
             }
         },
-        RealLiteral::Inexact(f) => f.into_steelval(),
+        RealLiteral::Float(f) => f.into_steelval(),
     };
     match n {
         NumberLiteral::Real(re) => real_to_steel(re),

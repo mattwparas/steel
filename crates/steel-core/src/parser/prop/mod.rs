@@ -153,7 +153,7 @@ fn tokentype_strategy() -> impl Strategy<Value = TokenType<InternedString>> {
         ident_strategy().prop_map(Identifier),
         any::<isize>().prop_map(|x| IntLiteral::Small(x).into()),
         any::<bool>().prop_map(BooleanLiteral),
-        any::<f64>().prop_map(|x| RealLiteral::Inexact(x).into())
+        any::<f64>().prop_map(|x| RealLiteral::Float(x).into())
     ]
 }
 

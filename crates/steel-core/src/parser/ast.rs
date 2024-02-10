@@ -66,7 +66,7 @@ impl TryFromSteelValVisitorForExprKind {
                 BooleanLiteral(*x),
             )))),
             NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                RealLiteral::Inexact(*x).into(),
+                RealLiteral::Float(*x).into(),
             )))),
             IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                 RealLiteral::Int(IntLiteral::Small(*x)).into(),
@@ -181,7 +181,7 @@ impl TryFrom<&SteelVal> for ExprKind {
                     BooleanLiteral(*x),
                 )))),
                 NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-		    RealLiteral::Inexact(*x).into(),
+		    RealLiteral::Float(*x).into(),
                 )))),
                 IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                     RealLiteral::Int(IntLiteral::Small(*x)).into(),
