@@ -21,7 +21,7 @@ use fxhash::FxHashMap;
 use log::error;
 use serde::{Deserialize, Serialize};
 use smallvec::{smallvec, SmallVec};
-use steel_parser::tokens::MaybeBigInt;
+use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
 
 use super::{ast::Quote, interner::InternedString, parser::Parser};
 
@@ -189,7 +189,7 @@ impl SteelMacro {
     pub fn parse_from_ast_macro(ast_macro: Box<Macro>) -> Result<Self> {
         let name = *ast_macro
             .name
-            .atom_identifier_or_else(throw!(BadSyntax => "macros only currently support 
+            .atom_identifier_or_else(throw!(BadSyntax => "macros only currently support
                     identifiers as the name"; ast_macro.location.span))?;
 
         let sp = ast_macro.location.span;
@@ -518,14 +518,27 @@ impl MacroPattern {
                     TokenType::BooleanLiteral(b) => {
                         pattern_vec.push(MacroPattern::BooleanLiteral(b));
                     }
-                    TokenType::IntegerLiteral(MaybeBigInt::Small(i)) => {
-                        pattern_vec.push(MacroPattern::IntLiteral(i));
-                    }
+                    TokenType::Number(n) => match n {
+                        NumberLiteral::Real(re) => match re {
+                            RealLiteral::Int(IntLiteral::Small(i)) => {
+                                pattern_vec.push(MacroPattern::IntLiteral(i))
+                            }
+                            RealLiteral::Int(IntLiteral::Big(_)) => {
+                                stop!(BadSyntax => format!("big integers not supported: {}", re));
+                            }
+                            RealLiteral::Float(f) => {
+                                pattern_vec.push(MacroPattern::FloatLiteral(f))
+                            }
+                            RealLiteral::Rational(_, _) => {
+                                stop!(BadSyntax => format!("rationals numbers are not supported: {}", re))
+                            }
+                        },
+                        c @ NumberLiteral::Complex(_, _) => {
+                            stop!(BadSyntax => format!("complex numbers not supported: {}", c))
+                        }
+                    },
                     TokenType::CharacterLiteral(c) => {
                         pattern_vec.push(MacroPattern::CharacterLiteral(c));
-                    }
-                    TokenType::NumberLiteral(n) => {
-                        pattern_vec.push(MacroPattern::FloatLiteral(n));
                     }
                     TokenType::StringLiteral(s) => {
                         pattern_vec.push(MacroPattern::StringLiteral(s));
@@ -566,7 +579,7 @@ impl MacroPattern {
                                 pattern_vec.push(MacroPattern::Quote(s));
                             }
                             _ => {
-                                stop!(TypeMismatch => "syntax-rules with quote don't 
+                                stop!(TypeMismatch => "syntax-rules with quote don't
                                     yet support arbitrary constants yet")
                                 // pattern_vec.push(MacroPattern::Single(t.clone()));
                             }
@@ -707,7 +720,10 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &[ExprKind]) -> bool {
                     ExprKind::Atom(Atom {
                         syn:
                             SyntaxObject {
-                                ty: TokenType::IntegerLiteral(MaybeBigInt::Small(s)),
+                                ty:
+                                    TokenType::Number(NumberLiteral::Real(RealLiteral::Int(
+                                        IntLiteral::Small(s),
+                                    ))),
                                 ..
                             },
                     }) if s == i => continue,
@@ -717,7 +733,7 @@ pub fn match_vec_pattern(args: &[MacroPattern], list: &[ExprKind]) -> bool {
                     ExprKind::Atom(Atom {
                         syn:
                             SyntaxObject {
-                                ty: TokenType::NumberLiteral(s),
+                                ty: TokenType::Number(NumberLiteral::Real(RealLiteral::Float(s))),
                                 ..
                             },
                     }) if s == f => continue,
@@ -1042,9 +1058,9 @@ mod match_vec_pattern_tests {
     }
 
     fn atom_int(n: isize) -> ExprKind {
-        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::IntegerLiteral(
-            MaybeBigInt::Small(n),
-        ))))
+        ExprKind::Atom(Atom::new(SyntaxObject::default(
+            IntLiteral::Small(n).into(),
+        )))
     }
 
     #[test]
@@ -1194,9 +1210,9 @@ mod collect_bindings_tests {
     }
 
     fn atom_int(n: isize) -> ExprKind {
-        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::IntegerLiteral(
-            MaybeBigInt::Small(n),
-        ))))
+        ExprKind::Atom(Atom::new(SyntaxObject::default(
+            IntLiteral::Small(n).into(),
+        )))
     }
 
     #[test]
@@ -1399,9 +1415,9 @@ mod macro_case_expand_test {
     }
 
     fn atom_int(n: isize) -> ExprKind {
-        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::IntegerLiteral(
-            MaybeBigInt::Small(n),
-        ))))
+        ExprKind::Atom(Atom::new(SyntaxObject::default(
+            IntLiteral::Small(n).into(),
+        )))
     }
 
     #[test]

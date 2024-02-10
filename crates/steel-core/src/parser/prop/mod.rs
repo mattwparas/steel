@@ -6,6 +6,7 @@ use crate::parser::span::Span;
 // use super::
 use proptest::prelude::*;
 use std::convert::TryFrom;
+use steel_parser::tokens::{IntLiteral, RealLiteral};
 
 use crate::parser::ast::{Atom, Begin, Define, If, List, Quote};
 
@@ -150,9 +151,9 @@ fn tokentype_strategy() -> impl Strategy<Value = TokenType<InternedString>> {
         any::<char>().prop_map(CharacterLiteral),
         string_strategy().prop_map(StringLiteral),
         ident_strategy().prop_map(Identifier),
-        any::<isize>().prop_map(|x| IntegerLiteral(steel_parser::tokens::MaybeBigInt::Small(x))),
+        any::<isize>().prop_map(|x| IntLiteral::Small(x).into()),
         any::<bool>().prop_map(BooleanLiteral),
-        any::<f64>().prop_map(NumberLiteral)
+        any::<f64>().prop_map(|x| RealLiteral::Float(x).into())
     ]
 }
 

@@ -140,13 +140,9 @@ impl Highlighter for RustylineHelper {
                     // }
                 }
                 // steel::parser::tokens::TokenType::Keyword(_) => todo!(),
-                TokenType::NumberLiteral(_) | TokenType::IntegerLiteral(_) => {
-                    // println!("Found something to replace! @ {:?}", token.span().range());
-
+                TokenType::Number(_) => {
                     let highlighted = format!("{}", token.source().bright_yellow());
                     ranges_to_replace.push((token.span().range(), highlighted));
-
-                    // line_to_highlight.replace_range(token.span().range(), &highlighted);
                 }
                 TokenType::StringLiteral(_) => {
                     let highlighted = format!("{}", token.source().bright_green());

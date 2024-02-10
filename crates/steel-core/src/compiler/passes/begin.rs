@@ -1,6 +1,6 @@
 use steel_parser::{
     ast::{Define, If, Let, Macro, Quote, Require, Return, SyntaxRules},
-    tokens::MaybeBigInt,
+    tokens::IntLiteral,
 };
 
 use crate::parser::{
@@ -434,20 +434,19 @@ impl ExpressionType {
         matches!(self, ExpressionType::Expression)
     }
 
-    fn eval_atom(t: &SyntaxObject) -> bool {
+    fn is_atom(t: &SyntaxObject) -> bool {
         matches!(
             t.ty,
             TokenType::BooleanLiteral(_)
-                | TokenType::NumberLiteral(_)
+                | TokenType::Number(_)
                 | TokenType::StringLiteral(_)
                 | TokenType::CharacterLiteral(_)
-                | TokenType::IntegerLiteral(_)
         )
     }
 
     fn is_constant(expr: &ExprKind) -> bool {
         match expr {
-            ExprKind::Atom(Atom { syn, .. }) => Self::eval_atom(syn),
+            ExprKind::Atom(Atom { syn, .. }) => Self::is_atom(syn),
             _ => false,
         }
     }
@@ -642,7 +641,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                 if let ExprKind::Define(d) = &exprs[i] {
                     top_level_arguments.push(d.name.clone());
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                        TokenType::IntegerLiteral(MaybeBigInt::Small(123)),
+                        IntLiteral::Small(123).into(),
                     ))));
                     let name_prime =
                         atom("_____".to_string() + name.resolve() + i.to_string().as_str());
@@ -660,7 +659,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                 if let ExprKind::Define(d) = &exprs[i] {
                     top_level_arguments.push(d.name.clone());
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                        TokenType::IntegerLiteral(MaybeBigInt::Small(123)),
+                        IntLiteral::Small(123).into(),
                     ))));
                     let name_prime =
                         atom("_____".to_string() + name.resolve() + i.to_string().as_str());
@@ -689,7 +688,7 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
                 if let ExprKind::Define(d) = &exprs[i] {
                     top_level_arguments.push(d.name.clone());
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                        TokenType::IntegerLiteral(MaybeBigInt::Small(123)),
+                        IntLiteral::Small(123).into(),
                     ))));
                     let name_prime =
                         atom("_____".to_string() + name.resolve() + i.to_string().as_str());
@@ -835,9 +834,9 @@ mod flatten_begin_test {
     }
 
     fn int(num: isize) -> ExprKind {
-        ExprKind::Atom(Atom::new(SyntaxObject::default(IntegerLiteral(
-            MaybeBigInt::Small(num),
-        ))))
+        ExprKind::Atom(Atom::new(SyntaxObject::default(
+            IntLiteral::Small(num).into(),
+        )))
     }
 
     #[test]

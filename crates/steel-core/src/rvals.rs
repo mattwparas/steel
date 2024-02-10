@@ -73,7 +73,7 @@ use futures_util::FutureExt;
 
 use crate::values::lists::List;
 use num::{BigInt, BigRational, Rational32, Signed, ToPrimitive, Zero};
-use steel_parser::tokens::MaybeBigInt;
+use steel_parser::tokens::{IntLiteral, RealLiteral};
 
 use self::cycles::{CycleDetector, IterativeDropHandler};
 
@@ -565,11 +565,11 @@ impl ast::TryFromSteelValVisitorForExprKind {
                 span,
             )))),
             NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                TokenType::NumberLiteral(*x),
+                RealLiteral::Float(*x).into(),
                 span,
             )))),
             IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                TokenType::IntegerLiteral(MaybeBigInt::Small(*x)),
+                RealLiteral::Int(IntLiteral::Small(*x)).into(),
                 span,
             )))),
             VectorV(lst) => {
@@ -694,10 +694,10 @@ impl Syntax {
                 TokenType::BooleanLiteral(*x),
             )))),
             NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                TokenType::NumberLiteral(*x),
+                RealLiteral::Float(*x).into(),
             )))),
             IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                TokenType::IntegerLiteral(MaybeBigInt::Small(*x)),
+                RealLiteral::Int(IntLiteral::Small(*x)).into(),
             )))),
             VectorV(lst) => {
                 let items: Result<Vec<ExprKind>> =
@@ -738,11 +738,11 @@ impl Syntax {
                 span,
             )))),
             NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                TokenType::NumberLiteral(*x),
+                RealLiteral::Float(*x).into(),
                 span,
             )))),
             IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                TokenType::IntegerLiteral(MaybeBigInt::Small(*x)),
+                RealLiteral::Int(IntLiteral::Small(*x)).into(),
                 span,
             )))),
             VectorV(lst) => {
@@ -1225,7 +1225,7 @@ pub enum SteelVal {
 ///
 /// TODO: Optimize the contents of complex value. Holding `SteelVal` makes it easier to use existing
 /// operations but a more specialized representation may be faster.
-#[derive(Clone, Hash, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq)]
 pub struct SteelComplex {
     /// The real part of the complex number.
     pub re: SteelVal,
@@ -1240,6 +1240,18 @@ impl SteelComplex {
             im: imaginary,
         }
     }
+
+    /// Returns `true` if the imaginary part is negative.
+    fn imaginary_is_negative(&self) -> bool {
+        match &self.im {
+            NumV(x) => x.is_negative(),
+            IntV(x) => x.is_negative(),
+            Rational(x) => x.is_negative(),
+            BigNum(x) => x.is_negative(),
+            SteelVal::BigRational(x) => x.is_negative(),
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl IntoSteelVal for SteelComplex {
@@ -1252,16 +1264,12 @@ impl IntoSteelVal for SteelComplex {
     }
 }
 
-impl SteelComplex {
-    /// Returns `true` if the imaginary part is negative.
-    fn imaginary_is_negative(&self) -> bool {
-        match &self.im {
-            NumV(x) => x.is_negative(),
-            IntV(x) => x.is_negative(),
-            Rational(x) => x.is_negative(),
-            BigNum(x) => x.is_negative(),
-            SteelVal::BigRational(x) => x.is_negative(),
-            _ => unreachable!(),
+impl fmt::Display for SteelComplex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.imaginary_is_negative() {
+            write!(f, "{re}{im}i", re = self.re, im = self.im)
+        } else {
+            write!(f, "{re}+{im}i", re = self.re, im = self.im)
         }
     }
 }
@@ -2079,7 +2087,6 @@ impl fmt::Display for SteelVal {
         };
 
         CycleDetector::detect_and_display_cycles(self, f)
-
         // display_helper(self, f)
     }
 }

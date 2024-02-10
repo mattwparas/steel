@@ -1,11 +1,10 @@
-use crate::tokens::{MaybeBigInt, Token, TokenType};
+use super::parser::SourceId;
+use crate::tokens::{parse_unicode_str, NumberLiteral, RealLiteral};
+use crate::tokens::{IntLiteral, Token, TokenType};
+use smallvec::SmallVec;
 use std::iter::Iterator;
 use std::marker::PhantomData;
-
-use super::parser::SourceId;
 use std::{iter::Peekable, str::Chars};
-
-use crate::tokens::parse_unicode_str;
 
 pub struct OwnedString;
 
@@ -176,21 +175,21 @@ impl<'a> Lexer<'a> {
                 let hex = isize::from_str_radix(hex.strip_prefix("#x").unwrap(), 16)
                     .map_err(|_| TokenError::MalformedHexInteger)?;
 
-                Ok(TokenType::IntegerLiteral(MaybeBigInt::Small(hex)))
+                Ok(IntLiteral::Small(hex).into())
             }
 
             octal if octal.starts_with("#o") => {
                 let hex = isize::from_str_radix(octal.strip_prefix("#o").unwrap(), 8)
                     .map_err(|_| TokenError::MalformedOctalInteger)?;
 
-                Ok(TokenType::IntegerLiteral(MaybeBigInt::Small(hex)))
+                Ok(IntLiteral::Small(hex).into())
             }
 
             binary if binary.starts_with("#b") => {
                 let hex = isize::from_str_radix(binary.strip_prefix("#b").unwrap(), 2)
                     .map_err(|_| TokenError::MalformedBinaryInteger)?;
 
-                Ok(TokenType::IntegerLiteral(MaybeBigInt::Small(hex)))
+                Ok(IntLiteral::Small(hex).into())
             }
 
             keyword if keyword.starts_with("#:") => Ok(TokenType::Keyword(self.slice())),
@@ -208,77 +207,34 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_number(&mut self) -> TokenType<&'a str> {
-        // Tracks if 'e' or 'E' has been encountered. This is used for scientific notation. For
-        // example: 1.43E2 is equivalent to 1.43 * 10^2.
-        let mut has_e = false;
         while let Some(&c) = self.chars.peek() {
             match c {
-                c if c.is_numeric() => self.eat(),
-                '(' | ')' | '[' | ']' => break,
-                '.' | '/' => break,
-                'e' | 'E' => {
-                    has_e = true;
-                    break;
-                }
-                c if c.is_whitespace() => break,
-                _ => {
+                c if c.is_numeric() => {
                     self.eat();
-                    return self.read_word();
                 }
-            };
+                '+' | '-' | '.' | '/' | 'e' | 'E' | 'i' => {
+                    self.eat();
+                }
+                '(' | ')' | '[' | ']' => {
+                    return if let Some(t) = parse_number(self.slice()) {
+                        t.into()
+                    } else {
+                        self.read_word()
+                    }
+                }
+                c if c.is_whitespace() => {
+                    return if let Some(t) = parse_number(self.slice()) {
+                        t.into()
+                    } else {
+                        self.read_word()
+                    }
+                }
+                _ => return self.read_word(),
+            }
         }
-        match self.chars.peek().copied() {
-            Some('.') | Some('e') | Some('E') => {
-                self.eat();
-                while let Some(&c) = self.chars.peek() {
-                    match c {
-                        c if c.is_numeric() => {
-                            self.eat();
-                        }
-                        'e' | 'E' if !has_e => {
-                            has_e = true;
-                            self.eat();
-                        }
-                        '(' | '[' | ')' | ']' => break,
-                        c if c.is_whitespace() => break,
-                        _ => {
-                            self.eat();
-                            return self.read_word();
-                        }
-                    }
-                }
-                let text = self.slice();
-                match text.chars().last() {
-                    Some('e') | Some('E') => self.read_word(),
-                    _ => TokenType::NumberLiteral(text.parse().unwrap()),
-                }
-            }
-            Some('/') => {
-                let numerator_text = self.slice();
-                self.eat();
-                while let Some(&c) = self.chars.peek() {
-                    match c {
-                        c if c.is_numeric() => {
-                            self.eat();
-                        }
-                        '(' | '[' | ')' | ']' => break,
-                        c if c.is_whitespace() => break,
-                        _ => {
-                            self.eat();
-                            return self.read_word();
-                        }
-                    }
-                }
-                let denominator_text = &self.slice()[numerator_text.len() + 1..];
-                if denominator_text.is_empty() {
-                    self.read_word()
-                } else {
-                    let numerator: MaybeBigInt = numerator_text.parse().unwrap();
-                    let denominator: MaybeBigInt = denominator_text.parse().unwrap();
-                    TokenType::FractionLiteral(numerator, denominator)
-                }
-            }
-            _ => TokenType::IntegerLiteral(self.slice().parse().unwrap()),
+        match parse_number(self.slice()) {
+            Some(n) => n.into(),
+            None => self.read_word(),
         }
     }
 
@@ -503,13 +459,111 @@ impl<'a> Iterator for Lexer<'a> {
     }
 }
 
+// Split the string by + and -. Returns at most 2 elements or `None` if there were more than 2.
+fn split_into_complex<'a>(s: &'a str) -> Option<SmallVec<[NumPart<'a>; 2]>> {
+    let classify_num_part = |s: &'a str| -> NumPart<'a> {
+        match s.chars().last() {
+            Some('i') => NumPart::Imaginary(&s[..s.len() - 1]),
+            _ => NumPart::Real(s),
+        }
+    };
+    let idxs: SmallVec<[usize; 3]> = s
+        .char_indices()
+        .filter(|(_, ch)| *ch == '+' || *ch == '-')
+        .map(|(idx, _)| idx)
+        .take(3)
+        .collect();
+    let parts = match idxs.as_slice() {
+        [] | [0] => SmallVec::from_iter(std::iter::once(s).map(classify_num_part)),
+        [idx] | [0, idx] => {
+            SmallVec::from_iter([&s[0..*idx], &s[*idx..]].into_iter().map(classify_num_part))
+        }
+        _ => return None,
+    };
+    Some(parts)
+}
+
+#[derive(Debug)]
+enum NumPart<'a> {
+    Real(&'a str),
+    Imaginary(&'a str),
+}
+
+fn parse_real(s: &str) -> Option<RealLiteral> {
+    let mut has_e = false;
+    let mut has_dot = false;
+    let mut frac_position = None;
+    for (idx, ch) in s.chars().enumerate() {
+        match ch {
+            '+' => {
+                if idx != 0 {
+                    return None;
+                }
+            }
+            '-' => {
+                if idx != 0 {
+                    return None;
+                }
+            }
+            'e' | 'E' => {
+                if has_e {
+                    return None;
+                };
+                has_e = true;
+            }
+            '/' => {
+                frac_position = match frac_position {
+                    Some(_) => return None,
+                    None => Some(idx),
+                }
+            }
+            '.' => {
+                if has_dot {
+                    return None;
+                }
+                has_dot = true
+            }
+            _ => {}
+        }
+    }
+    if has_e || has_dot {
+        s.parse().map(|f| RealLiteral::Float(f)).ok()
+    } else if let Some(p) = frac_position {
+        let (n_str, d_str) = s.split_at(p);
+        let d_str = &d_str[1..];
+        let n: IntLiteral = n_str.parse().ok()?;
+        let d: IntLiteral = d_str.parse().ok()?;
+        Some(RealLiteral::Rational(n, d))
+    } else {
+        let int: IntLiteral = s.parse().ok()?;
+        Some(RealLiteral::Int(int))
+    }
+}
+
+fn parse_number(s: &str) -> Option<NumberLiteral> {
+    match split_into_complex(s)?.as_slice() {
+        [NumPart::Real(x)] => parse_real(x).map(NumberLiteral::from),
+        [NumPart::Imaginary(x)] => {
+            if !matches!(x.chars().next(), Some('+') | Some('-')) {
+                return None;
+            };
+            Some(NumberLiteral::Complex(IntLiteral::Small(0).into(), parse_real(x)?).into())
+        }
+        [NumPart::Real(re), NumPart::Imaginary(im)]
+        | [NumPart::Imaginary(im), NumPart::Real(re)] => {
+            Some(NumberLiteral::Complex(parse_real(re)?, parse_real(im)?))
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod lexer_tests {
     use std::str::FromStr;
 
     use super::*;
     use crate::span::Span;
-    use crate::tokens::{MaybeBigInt, TokenType::*};
+    use crate::tokens::{IntLiteral, TokenType::*};
     use pretty_assertions::assert_eq;
 
     // TODO: Figure out why this just cause an infinite loop when parsing it?
@@ -733,59 +787,59 @@ mod lexer_tests {
     }
 
     #[test]
-    fn test_number() {
+    fn test_real_numbers() {
         let got: Vec<_> =
             TokenStream::new("0 -0 -1.2 +2.3 999 1. 1e2 1E2 1.2e2 1.2E2", true, None).collect();
         assert_eq!(
             got.as_slice(),
             &[
                 Token {
-                    ty: IntegerLiteral(MaybeBigInt::Small(0)),
+                    ty: IntLiteral::Small(0).into(),
                     source: "0",
                     span: Span::new(0, 1, None),
                 },
                 Token {
-                    ty: IntegerLiteral(MaybeBigInt::Small(0)),
+                    ty: IntLiteral::Small(0).into(),
                     source: "-0",
                     span: Span::new(2, 4, None),
                 },
                 Token {
-                    ty: NumberLiteral(-1.2),
+                    ty: RealLiteral::Float(-1.2).into(),
                     source: "-1.2",
                     span: Span::new(5, 9, None),
                 },
                 Token {
-                    ty: NumberLiteral(2.3),
+                    ty: RealLiteral::Float(2.3).into(),
                     source: "+2.3",
                     span: Span::new(10, 14, None),
                 },
                 Token {
-                    ty: IntegerLiteral(MaybeBigInt::Small(999)),
+                    ty: IntLiteral::Small(999).into(),
                     source: "999",
                     span: Span::new(15, 18, None),
                 },
                 Token {
-                    ty: NumberLiteral(1.0),
+                    ty: RealLiteral::Float(1.0).into(),
                     source: "1.",
                     span: Span::new(19, 21, None),
                 },
                 Token {
-                    ty: NumberLiteral(100.0),
+                    ty: RealLiteral::Float(100.0).into(),
                     source: "1e2",
                     span: Span::new(22, 25, None),
                 },
                 Token {
-                    ty: NumberLiteral(100.0),
+                    ty: RealLiteral::Float(100.0).into(),
                     source: "1E2",
                     span: Span::new(26, 29, None),
                 },
                 Token {
-                    ty: NumberLiteral(120.0),
+                    ty: RealLiteral::Float(120.0).into(),
                     source: "1.2e2",
                     span: Span::new(30, 35, None),
                 },
                 Token {
-                    ty: NumberLiteral(120.0),
+                    ty: RealLiteral::Float(120.0).into(),
                     source: "1.2E2",
                     span: Span::new(36, 41, None),
                 },
@@ -794,7 +848,7 @@ mod lexer_tests {
     }
 
     #[test]
-    fn test_fractions() {
+    fn test_rationals() {
         let got: Vec<_> = TokenStream::new(
             r#"
                 1/4
@@ -814,7 +868,7 @@ mod lexer_tests {
             got.as_slice(),
             &[
                 Token {
-                    ty: FractionLiteral(MaybeBigInt::Small(1), MaybeBigInt::Small(4)),
+                    ty: RealLiteral::Rational(IntLiteral::Small(1), IntLiteral::Small(4)).into(),
                     source: "1/4",
                     span: Span::new(17, 20, None),
                 },
@@ -824,12 +878,12 @@ mod lexer_tests {
                     span: Span::new(37, 38, None),
                 },
                 Token {
-                    ty: FractionLiteral(MaybeBigInt::Small(1), MaybeBigInt::Small(4)),
+                    ty: RealLiteral::Rational(IntLiteral::Small(1), IntLiteral::Small(4)).into(),
                     source: "1/4",
                     span: Span::new(38, 41, None),
                 },
                 Token {
-                    ty: FractionLiteral(MaybeBigInt::Small(1), MaybeBigInt::Small(3)),
+                    ty: RealLiteral::Rational(IntLiteral::Small(1), IntLiteral::Small(3)).into(),
                     source: "1/3",
                     span: Span::new(42, 45, None),
                 },
@@ -839,10 +893,11 @@ mod lexer_tests {
                     span: Span::new(45, 46, None),
                 },
                 Token {
-                    ty: FractionLiteral(
-                        MaybeBigInt::from_str("11111111111111111111").unwrap(),
-                        MaybeBigInt::from_str("22222222222222222222").unwrap(),
-                    ),
+                    ty: RealLiteral::Rational(
+                        IntLiteral::from_str("11111111111111111111").unwrap(),
+                        IntLiteral::from_str("22222222222222222222").unwrap(),
+                    )
+                    .into(),
                     source: "11111111111111111111/22222222222222222222",
                     span: Span::new(63, 104, None),
                 },
@@ -867,7 +922,7 @@ mod lexer_tests {
                     span: Span::new(180, 184, None),
                 },
                 Token {
-                    ty: IntegerLiteral(MaybeBigInt::Small(1)),
+                    ty: IntLiteral::Small(1).into(),
                     source: "1",
                     span: Span::new(201, 202, None),
                 },
@@ -877,9 +932,118 @@ mod lexer_tests {
                     span: Span::new(203, 204, None),
                 },
                 Token {
-                    ty: IntegerLiteral(MaybeBigInt::Small(4)),
+                    ty: IntLiteral::Small(4).into(),
                     source: "4",
                     span: Span::new(205, 206, None),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_complex_numbers() {
+        let got: Vec<_> =
+            TokenStream::new("1+2i 3-4i +5+6i +1i 1.0+2.0i 3-4.0i +1.0i", true, None).collect();
+        assert_eq!(
+            got.as_slice(),
+            &[
+                Token {
+                    ty: NumberLiteral::Complex(
+                        IntLiteral::Small(1).into(),
+                        IntLiteral::Small(2).into()
+                    )
+                    .into(),
+                    source: "1+2i",
+                    span: Span::new(0, 4, None),
+                },
+                Token {
+                    ty: NumberLiteral::Complex(
+                        IntLiteral::Small(3).into(),
+                        IntLiteral::Small(-4).into()
+                    )
+                    .into(),
+                    source: "3-4i",
+                    span: Span::new(5, 9, None),
+                },
+                Token {
+                    ty: NumberLiteral::Complex(
+                        IntLiteral::Small(5).into(),
+                        IntLiteral::Small(6).into()
+                    )
+                    .into(),
+                    source: "+5+6i",
+                    span: Span::new(10, 15, None),
+                },
+                Token {
+                    ty: NumberLiteral::Complex(
+                        IntLiteral::Small(0).into(),
+                        IntLiteral::Small(1).into()
+                    )
+                    .into(),
+                    source: "+1i",
+                    span: Span::new(16, 19, None),
+                },
+                Token {
+                    ty: NumberLiteral::Complex(
+                        RealLiteral::Float(1.0).into(),
+                        RealLiteral::Float(2.0).into()
+                    )
+                    .into(),
+                    source: "1.0+2.0i",
+                    span: Span::new(20, 28, None),
+                },
+                Token {
+                    ty: NumberLiteral::Complex(
+                        IntLiteral::Small(3).into(),
+                        RealLiteral::Float(-4.0).into()
+                    )
+                    .into(),
+                    source: "3-4.0i",
+                    span: Span::new(29, 35, None),
+                },
+                Token {
+                    ty: NumberLiteral::Complex(
+                        IntLiteral::Small(0).into(),
+                        RealLiteral::Float(1.0).into()
+                    )
+                    .into(),
+                    source: "+1.0i",
+                    span: Span::new(36, 41, None),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_malformed_complex_numbers_are_identifiers() {
+        let got: Vec<_> = TokenStream::new("i -i 1i+1i 4+i -4+-2i", true, None).collect();
+        assert_eq!(
+            got.as_slice(),
+            &[
+                Token {
+                    ty: Identifier("i"),
+                    source: "i",
+                    span: Span::new(0, 1, None),
+                },
+                Token {
+                    ty: Identifier("-i"),
+                    source: "-i",
+                    span: Span::new(2, 4, None),
+                },
+                Token {
+                    ty: Identifier("1i+1i"),
+                    source: "1i+1i",
+                    span: Span::new(5, 10, None),
+                },
+                Token {
+                    ty: Identifier("4+i"),
+                    source: "4+i",
+                    span: Span::new(11, 14, None),
+                },
+                Token {
+                    ty: Identifier("-4+-2i"),
+                    source: "-4+-2i",
+                    span: Span::new(15, 21, None),
                 },
             ]
         );
@@ -1016,10 +1180,10 @@ mod lexer_tests {
         let s = TokenStream::new("9223372036854775808", true, None); // isize::MAX + 1
         let res: Vec<Token<&str>> = s.collect();
 
-        let expected_bigint = "9223372036854775808".parse().unwrap();
+        let expected_bigint = Box::new("9223372036854775808".parse().unwrap());
 
         let expected: Vec<Token<&str>> = vec![Token {
-            ty: IntegerLiteral(MaybeBigInt::Big(expected_bigint)),
+            ty: IntLiteral::Big(expected_bigint).into(),
             source: "9223372036854775808",
             span: Span::new(0, 19, None),
         }];
@@ -1032,10 +1196,10 @@ mod lexer_tests {
         let s = TokenStream::new("-9223372036854775809", true, None); // isize::MIN - 1
         let res: Vec<Token<&str>> = s.collect();
 
-        let expected_bigint = "-9223372036854775809".parse().unwrap();
+        let expected_bigint = Box::new("-9223372036854775809".parse().unwrap());
 
         let expected: Vec<Token<&str>> = vec![Token {
-            ty: IntegerLiteral(MaybeBigInt::Big(expected_bigint)),
+            ty: IntLiteral::Big(expected_bigint).into(),
             source: "-9223372036854775809",
             span: Span::new(0, 20, None),
         }];

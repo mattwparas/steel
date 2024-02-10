@@ -130,6 +130,14 @@ pub fn quotient(l: isize, r: isize) -> isize {
     l / r
 }
 
+#[cold]
+fn complex_reciprocal(c: &SteelComplex) -> Result<SteelVal> {
+    let denominator = add_two(&multiply_two(&c.re, &c.re)?, &multiply_two(&c.im, &c.im)?)?;
+    let re = divide_primitive(&[c.re.clone(), denominator.clone()])?;
+    let neg_im = divide_primitive(&[c.re.clone(), denominator])?;
+    SteelComplex::new(re, subtract_primitive(&[neg_im])?).into_steelval()
+}
+
 #[steel_derive::native(name = "/", constant = true, arity = "AtLeast(1)")]
 pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     ensure_args_are_numbers("/", args)?;
@@ -143,6 +151,7 @@ pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
             SteelVal::Rational(r) => r.recip().into_steelval(),
             SteelVal::BigRational(r) => r.recip().into_steelval(),
             SteelVal::BigNum(n) => BigRational::new(1.into(), n.as_ref().clone()).into_steelval(),
+            SteelVal::Complex(c) => complex_reciprocal(c),
             unexpected => {
                 stop!(TypeMismatch => "/ expects a number, but found: {:?}", unexpected)
             }

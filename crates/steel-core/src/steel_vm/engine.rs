@@ -17,7 +17,10 @@ use crate::{
         compiler::{Compiler, SerializableCompiler},
         map::SymbolMap,
         modules::{CompiledModule, PRELUDE_WITHOUT_BASE},
-        program::{Executable, RawProgramWithSymbols, SerializableRawProgramWithSymbols},
+        program::{
+            number_literal_to_steel, Executable, RawProgramWithSymbols,
+            SerializableRawProgramWithSymbols,
+        },
     },
     containers::RegisterValue,
     core::{instructions::Instruction, labels::Expr},
@@ -29,11 +32,8 @@ use crate::{
         ast::ExprKind,
         expander::SteelMacro,
         interner::{get_interner, take_interner, InternedString},
-        parser::SYNTAX_OBJECT_ID,
-    },
-    parser::{
         kernel::{fresh_kernel_image, Kernel},
-        parser::{ParseError, Parser, Sources},
+        parser::{ParseError, Parser, Sources, SYNTAX_OBJECT_ID},
     },
     rerrs::{back_trace, back_trace_to_string},
     rvals::{
@@ -61,7 +61,7 @@ use serde::{Deserialize, Serialize};
 use steel_gen::OpCode;
 use steel_parser::{
     parser::{SourceId, SyntaxObject},
-    tokens::{MaybeBigInt, TokenType},
+    tokens::{IntLiteral, TokenType},
 };
 
 use crate::parser::ast::IteratorExtensions;
@@ -1404,13 +1404,9 @@ impl Engine {
         fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
             match &t.ty {
                 TokenType::BooleanLiteral(b) => Ok((*b).into()),
-                TokenType::NumberLiteral(n) => Ok(SteelVal::NumV(*n)),
+                TokenType::Number(n) => number_literal_to_steel(n),
                 TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.into())),
                 TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
-                TokenType::IntegerLiteral(steel_parser::tokens::MaybeBigInt::Small(n)) => {
-                    Ok(SteelVal::IntV(*n))
-                }
-                TokenType::IntegerLiteral(MaybeBigInt::Big(b)) => b.clone().into_steelval(),
                 // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
                 TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
                 what => {
