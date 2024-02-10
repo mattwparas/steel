@@ -1,8 +1,11 @@
-use crate::parser::{
-    parser::SyntaxObject, tokens::TokenType::*, tryfrom_visitor::TryFromExprKindForSteelVal,
+use crate::{
+    parser::{
+        parser::SyntaxObject, tokens::TokenType::*, tryfrom_visitor::TryFromExprKindForSteelVal,
+    },
+    rvals::SteelComplex,
 };
 
-use steel_parser::tokens::{IntLiteral, RealLiteral};
+use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
 
 use crate::{
     rerrs::SteelErr,
@@ -163,6 +166,27 @@ impl TryFromSteelValVisitorForExprKind {
     }
 }
 
+#[cold]
+fn complex_to_literal(v: &SteelComplex) -> Result<NumberLiteral, &'static str> {
+    let val_to_real = |real_val: &SteelVal| -> Result<RealLiteral, &'static str> {
+        let l = match real_val {
+            NumV(n) => (*n).into(),
+            IntV(n) => (*n).into(),
+            Rational(n) => (*n).into(),
+            BigNum(n) => IntLiteral::Big(Box::new(n.as_ref().clone())).into(),
+            BigRational(n) => RealLiteral::Rational(
+                IntLiteral::Big(Box::new(n.numer().clone())),
+                IntLiteral::Big(Box::new(n.denom().clone())),
+            ),
+            _ => return Err("SteelVal not a valid real number"),
+        };
+        Ok(l)
+    };
+    let re = val_to_real(&v.re)?;
+    let im = val_to_real(&v.im)?;
+    Ok(NumberLiteral::Complex(re, im))
+}
+
 /// Sometimes you want to execute a list
 /// as if it was an expression
 impl TryFrom<&SteelVal> for ExprKind {
@@ -181,7 +205,7 @@ impl TryFrom<&SteelVal> for ExprKind {
                     BooleanLiteral(*x),
                 )))),
                 NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-		    RealLiteral::Float(*x).into(),
+                    RealLiteral::Float(*x).into(),
                 )))),
                 IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                     RealLiteral::Int(IntLiteral::Small(*x)).into(),
@@ -190,18 +214,23 @@ impl TryFrom<&SteelVal> for ExprKind {
                     RealLiteral::Rational(
                         IntLiteral::Small(*x.numer() as isize),
                         IntLiteral::Small(*x.denom() as isize),
-                    ).into(),
+                    )
+                    .into(),
                 )))),
                 BigRational(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                     RealLiteral::Rational(
                         IntLiteral::Big(Box::new(x.numer().clone())),
                         IntLiteral::Big(Box::new(x.denom().clone())),
-                    ).into(),
+                    )
+                    .into(),
                 )))),
                 BigNum(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                     RealLiteral::Int(IntLiteral::Big(Box::new(x.unwrap()))).into(),
                 )))),
-                Complex(_) => unimplemented!("Complex numbers not fully supported yet. See https://github.com/mattwparas/steel/issues/62 for current details."),
+                Complex(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
+                    complex_to_literal(x)?.into(),
+                )))
+                .into()),
                 VectorV(lst) => {
                     let items: std::result::Result<Vec<ExprKind>, &'static str> =
                         lst.iter().map(|x| inner_try_from(x, depth + 1)).collect();

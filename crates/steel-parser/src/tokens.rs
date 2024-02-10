@@ -1,7 +1,7 @@
 use crate::parser::SourceId;
 use crate::span::Span;
 use core::ops;
-use num::{BigInt, Signed};
+use num::{BigInt, Rational32, Signed};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt::{self, Display};
@@ -176,6 +176,27 @@ impl<S> From<RealLiteral> for TokenType<S> {
     }
 }
 
+impl From<f64> for RealLiteral {
+    fn from(value: f64) -> RealLiteral {
+        RealLiteral::Float(value)
+    }
+}
+
+impl From<isize> for RealLiteral {
+    fn from(value: isize) -> RealLiteral {
+        RealLiteral::Int(IntLiteral::Small(value))
+    }
+}
+
+impl From<Rational32> for RealLiteral {
+    fn from(value: Rational32) -> RealLiteral {
+        RealLiteral::Rational(
+            (*value.numer() as isize).into(),
+            (*value.denom() as isize).into(),
+        )
+    }
+}
+
 impl Display for RealLiteral {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -239,6 +260,18 @@ impl From<IntLiteral> for BigInt {
             IntLiteral::Small(x) => x.into(),
             IntLiteral::Big(x) => *x,
         }
+    }
+}
+
+impl From<isize> for IntLiteral {
+    fn from(value: isize) -> Self {
+        IntLiteral::Small(value)
+    }
+}
+
+impl From<BigInt> for IntLiteral {
+    fn from(value: BigInt) -> Self {
+        IntLiteral::Big(Box::new(value))
     }
 }
 
