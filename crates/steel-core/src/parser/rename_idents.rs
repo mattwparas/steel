@@ -157,7 +157,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
 #[cfg(test)]
 mod rename_visitor_tests {
 
-    use steel_parser::tokens::MaybeBigInt;
+    use steel_parser::tokens::IntLiteral;
 
     use super::TokenType::*;
     use super::*;
@@ -170,9 +170,9 @@ mod rename_visitor_tests {
     }
 
     fn atom_int(n: isize) -> ExprKind {
-        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::IntegerLiteral(
-            MaybeBigInt::Small(n),
-        ))))
+        ExprKind::Atom(Atom::new(SyntaxObject::default(
+            IntLiteral::Small(n).into(),
+        )))
     }
 
     #[test]

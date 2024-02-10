@@ -115,44 +115,60 @@ pub enum TokenType<S> {
     BooleanLiteral(bool),
     Identifier(S),
     Keyword(S),
-    NumberLiteral(f64),
-    // TODO: Replace Number/Integer/Fraction literal with new enum.
-    // NumberLiteral(NumberLiteral),
-    IntegerLiteral(MaybeBigInt),
-    FractionLiteral(MaybeBigInt, MaybeBigInt),
+    Number(NumberLiteral),
     StringLiteral(String),
     Error,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum NumberLiteral {
-    Real(RealNumberLiteral),
-    Complex(RealNumberLiteral, RealNumberLiteral),
+    Real(RealLiteral),
+    Complex(RealLiteral, RealLiteral),
 }
 
-pub enum RealNumberLiteral {
-    Int(MaybeBigInt),
-    Fraction(MaybeBigInt, MaybeBigInt),
+impl<S> From<NumberLiteral> for TokenType<S> {
+    fn from(n: NumberLiteral) -> Self {
+        TokenType::Number(n)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum RealLiteral {
+    Int(IntLiteral),
+    Fraction(IntLiteral, IntLiteral),
     Inexact(f64),
 }
 
+impl From<RealLiteral> for NumberLiteral {
+    fn from(value: RealLiteral) -> Self {
+        NumberLiteral::Real(value).into()
+    }
+}
+
+impl<S> From<RealLiteral> for TokenType<S> {
+    fn from(value: RealLiteral) -> Self {
+        NumberLiteral::Real(value).into()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub enum MaybeBigInt {
+pub enum IntLiteral {
     Small(isize),
     Big(Box<BigInt>),
 }
 
-impl FromStr for MaybeBigInt {
+impl FromStr for IntLiteral {
     type Err = <num_bigint::BigInt as FromStr>::Err;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse::<isize>().map(MaybeBigInt::Small).or_else(|_| {
+        s.parse::<isize>().map(IntLiteral::Small).or_else(|_| {
             s.parse::<num_bigint::BigInt>()
-                .map(|b| MaybeBigInt::Big(Box::new(b)))
+                .map(|b| IntLiteral::Big(Box::new(b)))
         })
     }
 }
 
-impl std::fmt::Display for MaybeBigInt {
+impl std::fmt::Display for IntLiteral {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Small(s) => write!(f, "{s}"),
@@ -161,11 +177,23 @@ impl std::fmt::Display for MaybeBigInt {
     }
 }
 
-impl From<MaybeBigInt> for BigInt {
-    fn from(v: MaybeBigInt) -> BigInt {
+impl<S> From<IntLiteral> for TokenType<S> {
+    fn from(value: IntLiteral) -> Self {
+        RealLiteral::Int(value).into()
+    }
+}
+
+impl From<IntLiteral> for RealLiteral {
+    fn from(value: IntLiteral) -> Self {
+        RealLiteral::Int(value)
+    }
+}
+
+impl From<IntLiteral> for BigInt {
+    fn from(v: IntLiteral) -> BigInt {
         match v {
-            MaybeBigInt::Small(x) => x.into(),
-            MaybeBigInt::Big(x) => *x,
+            IntLiteral::Small(x) => x.into(),
+            IntLiteral::Big(x) => *x,
         }
     }
 }
@@ -191,9 +219,7 @@ impl<'a> TokenType<&'a str> {
             CloseParen => CloseParen,
             CharacterLiteral(x) => CharacterLiteral(x),
             BooleanLiteral(x) => BooleanLiteral(x),
-            NumberLiteral(x) => NumberLiteral(x),
-            IntegerLiteral(x) => IntegerLiteral(x),
-            FractionLiteral(n, d) => FractionLiteral(n, d),
+            Number(x) => Number(x),
             StringLiteral(x) => StringLiteral(x),
             QuoteTick => QuoteTick,
             Unquote => Unquote,
@@ -229,9 +255,7 @@ impl<'a> TokenType<&'a str> {
             CloseParen => CloseParen,
             CharacterLiteral(x) => CharacterLiteral(x),
             BooleanLiteral(x) => BooleanLiteral(x),
-            NumberLiteral(x) => NumberLiteral(x),
-            IntegerLiteral(x) => IntegerLiteral(x),
-            FractionLiteral(n, d) => FractionLiteral(n, d),
+            Number(x) => Number(x),
             StringLiteral(x) => StringLiteral(x),
             QuoteTick => QuoteTick,
             Unquote => Unquote,
@@ -284,11 +308,8 @@ impl<T: fmt::Display> fmt::Display for TokenType<T> {
             CharacterLiteral(x) => character_special_display(*x, f),
             BooleanLiteral(x) => write!(f, "#{x}"),
             Identifier(x) => write!(f, "{x}"),
-            NumberLiteral(x) => write!(f, "{x:?}"),
-            IntegerLiteral(x) => write!(f, "{x}"),
-            FractionLiteral(n, d) => write!(f, "{n}/{d}"),
+            Number(x) => write!(f, "{x:?}"),
             StringLiteral(x) => write!(f, "\"{x}\""),
-            // BigIntegerLiteral(x) => write!(f, "{x}"),
             Keyword(x) => write!(f, "{x}"),
             QuoteTick => write!(f, "'"),
             Unquote => write!(f, ","),

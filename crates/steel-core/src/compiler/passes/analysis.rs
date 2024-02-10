@@ -6,7 +6,11 @@ use std::{
 use im_rc::HashMap as ImmutableHashMap;
 use quickscope::ScopeMap;
 use smallvec::SmallVec;
-use steel_parser::{ast::PROTO_HASH_GET, parser::SourceId};
+use steel_parser::{
+    ast::PROTO_HASH_GET,
+    parser::SourceId,
+    tokens::{IntLiteral, NumberLiteral, RealLiteral},
+};
 
 use crate::{
     compiler::{
@@ -2539,12 +2543,17 @@ impl<'a> VisitorMutRefUnit for RemovedUnusedImports<'a> {
                         .filter(|x| match l.args.get(*x) {
                             Some(ExprKind::List(l)) => l.is_a_builtin_expr(),
                             Some(ExprKind::Quote(_)) => true,
-                            Some(ExprKind::Atom(a)) => matches!(
-                                a.syn.ty,
-                                TokenType::NumberLiteral(_)
-                                    | TokenType::IntegerLiteral(_)
-                                    | TokenType::BooleanLiteral(_)
-                            ),
+                            Some(ExprKind::Atom(a)) => match &a.syn.ty {
+                                TokenType::Number(n) => match n {
+                                    NumberLiteral::Real(r) => match r {
+                                        RealLiteral::Int(IntLiteral::Small(_))
+                                        | RealLiteral::Inexact(_) => true,
+                                        _ => false,
+                                    },
+                                    NumberLiteral::Complex(_, _) => false,
+                                },
+                                _ => false,
+                            },
                             _ => false,
                         })
                         .collect();
@@ -4789,7 +4798,7 @@ mod analysis_pass_tests {
     #[test]
     fn test_unused_arguments() {
         let script = r#"
-            
+
 (define ##lambda-lifting##loop119067
   (λ (port sum)
     (%plain-let
@@ -5234,7 +5243,7 @@ mod analysis_pass_tests {
 (define cdr
   (λ (a)
     (if (mcons? a) (mcons-mcdr a) (#%prim.cdr a))))
-            
+
         "#;
 
         let mut exprs = Parser::parse(script).unwrap();
@@ -5290,7 +5299,7 @@ mod analysis_pass_tests {
     #[test]
     fn transducer_last_usages() {
         let script = r#"
-        
+
         (define tmap
             (λ (f)
               (λ (reducer)
@@ -5375,7 +5384,7 @@ mod analysis_pass_tests {
     #[test]
     fn last_usages_test() {
         let script = r#"
-        (define Y 
+        (define Y
             (lambda (f)
                 ((lambda (x) (x x))
                 (lambda (x) (f (lambda (y) ((x x) y)))))))
@@ -5400,7 +5409,7 @@ mod analysis_pass_tests {
     fn mutated_and_captured() {
         let script = r#"
             (define (foo x)
-                (lambda (y) 
+                (lambda (y)
                     (displayln x)
                     (set! x y)))
         "#;
@@ -5415,7 +5424,7 @@ mod analysis_pass_tests {
     fn local_vars() {
         let script = r#"
             (define (applesauce)
-                (+ 10 20 30 
+                (+ 10 20 30
                     (%plain-let ((a 10) (b 20))
                         (+ a b))))
         "#;
@@ -5690,7 +5699,7 @@ mod analysis_pass_tests {
                 (define func (lambda () x))
                 ;; This is pretty eligible for some sort of
                 ;; lifting? closure conversion?
-                (define func 
+                (define func
                     (let ((a 10) (b 20) (c 30))
                         (lambda () (+ a b c))))
 
@@ -5727,7 +5736,7 @@ mod analysis_pass_tests {
     fn test_lifting_local_functions_to_global_scope() {
         let script = r#"
             (define (test)
-                (mapping (lambda (x) 10) (list 1 2 3 4 5)))        
+                (mapping (lambda (x) 10) (list 1 2 3 4 5)))
         "#;
 
         let mut exprs = Parser::parse(script).unwrap();
@@ -5747,7 +5756,7 @@ mod analysis_pass_tests {
     fn test_rudimentary_escape_analysis() {
         let script = r#"
             (define (adder x)
-                
+
                 (map (lambda (y) (+ x y)) (list 1 2 3 4 5))
 
                 (black-box (lambda (y) (+ x y))))
@@ -5772,8 +5781,8 @@ mod analysis_pass_tests {
     #[test]
     fn test_black_box_mangling() {
         let script = r#"
-            (define (fib n) 
-                (if (<= n 2) 
+            (define (fib n)
+                (if (<= n 2)
                     1
                     (+ (fib (- n 1)) (fib (- n 2)))))
 
@@ -5871,7 +5880,7 @@ mod analysis_pass_tests {
 
         ;(define (foo x y z)
         ;    (let ((x x) (y y))
-        ;        (lambda (extra-arg x) 
+        ;        (lambda (extra-arg x)
         ;            (set! x 100)
         ;            (set! foo "hello world")
         ;            (+ z z z))))
@@ -5881,7 +5890,7 @@ mod analysis_pass_tests {
         ;        (foo x y z)
         ;        (foo 1 2 3)
         ;        (foo 10 20 30)))
-        
+
         ;(foo "applesauce" "bananas" "sauce")
         "#;
 

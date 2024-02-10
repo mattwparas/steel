@@ -1,12 +1,12 @@
-use crate::rvals::{IntoSteelVal, SteelString};
+use crate::rvals::{IntoSteelVal, SteelComplex, SteelString};
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 
-use num::{BigRational, Rational32};
+use num::BigRational;
 use std::borrow::Cow;
 use std::str;
 use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, path::PathBuf};
-use steel_parser::tokens::MaybeBigInt;
+use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
 
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -144,6 +144,15 @@ thread_local! {
     static LAMBDA_SYMBOL: SteelString = "lambda".into();
 }
 
+fn real_literal_to_steelval(r: RealLiteral) -> Result<SteelVal, SteelErr> {
+    match r {
+        RealLiteral::Int(IntLiteral::Small(x)) => x.into_steelval(),
+        RealLiteral::Int(IntLiteral::Big(x)) => x.into_steelval(),
+        RealLiteral::Fraction(n, d) => BigRational::new(n.into(), d.into()).into_steelval(),
+        RealLiteral::Inexact(f) => f.into_steelval(),
+    }
+}
+
 impl TryFrom<SyntaxObject> for SteelVal {
     type Error = SteelErr;
 
@@ -159,16 +168,14 @@ impl TryFrom<SyntaxObject> for SteelVal {
             CharacterLiteral(x) => Ok(CharV(x)),
             BooleanLiteral(x) => Ok(BoolV(x)),
             Identifier(x) => Ok(SymbolV(x.into())),
-            NumberLiteral(x) => Ok(NumV(x)),
-            IntegerLiteral(MaybeBigInt::Small(x)) => Ok(IntV(x)),
-            IntegerLiteral(MaybeBigInt::Big(b)) => b.into_steelval(),
-            FractionLiteral(MaybeBigInt::Small(n), MaybeBigInt::Small(d)) => {
-                match (i32::try_from(n), i32::try_from(d)) {
-                    (Ok(n), Ok(d)) => Rational32::new(n, d).into_steelval(),
-                    _ => BigRational::new(n.into(), d.into()).into_steelval(),
+            Number(x) => match x {
+                NumberLiteral::Real(r) => real_literal_to_steelval(r),
+                NumberLiteral::Complex(re, im) => SteelComplex {
+                    re: real_literal_to_steelval(re)?,
+                    im: real_literal_to_steelval(im)?,
                 }
-            }
-            FractionLiteral(n, d) => BigRational::new(n.into(), d.into()).into_steelval(),
+                .into_steelval(),
+            },
             StringLiteral(x) => Ok(StringV(x.into())),
             Keyword(x) => Ok(SymbolV(x.into())),
             QuoteTick => {

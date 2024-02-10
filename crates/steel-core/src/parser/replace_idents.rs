@@ -313,9 +313,8 @@ impl<'a> ReplaceExpressions<'a> {
                     // TODO -> what happens if reserved tokens are in here
                     match ty {
                         TokenType::BooleanLiteral(_)
-                        | TokenType::IntegerLiteral(_)
                         | TokenType::CharacterLiteral(_)
-                        | TokenType::NumberLiteral(_)
+                        | TokenType::Number(_) // todo!()
                         | TokenType::StringLiteral(_) => return Ok(Some(then_expr.clone())),
                         TokenType::Identifier(s) => {
                             if let Some(ExprKind::Atom(Atom {
@@ -327,9 +326,8 @@ impl<'a> ReplaceExpressions<'a> {
                                 if matches!(
                                     ty,
                                     TokenType::BooleanLiteral(_)
-                                        | TokenType::IntegerLiteral(_)
+                                        | TokenType::Number(_) // todo!()
                                         | TokenType::CharacterLiteral(_)
-                                        | TokenType::NumberLiteral(_)
                                         | TokenType::StringLiteral(_)
                                 ) {
                                     return Ok(Some(then_expr.clone()));

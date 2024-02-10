@@ -73,7 +73,7 @@ use futures_util::FutureExt;
 
 use crate::values::lists::List;
 use num::{BigInt, BigRational, Rational32, Signed, ToPrimitive, Zero};
-use steel_parser::tokens::MaybeBigInt;
+use steel_parser::tokens::{IntLiteral, RealLiteral};
 
 use self::cycles::{CycleDetector, IterativeDropHandler};
 
@@ -565,11 +565,11 @@ impl ast::TryFromSteelValVisitorForExprKind {
                 span,
             )))),
             NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                TokenType::NumberLiteral(*x),
+                RealLiteral::Inexact(*x).into(),
                 span,
             )))),
             IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                TokenType::IntegerLiteral(MaybeBigInt::Small(*x)),
+                RealLiteral::Int(IntLiteral::Small(*x)).into(),
                 span,
             )))),
             VectorV(lst) => {
@@ -694,10 +694,10 @@ impl Syntax {
                 TokenType::BooleanLiteral(*x),
             )))),
             NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                TokenType::NumberLiteral(*x),
+                RealLiteral::Inexact(*x).into(),
             )))),
             IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                TokenType::IntegerLiteral(MaybeBigInt::Small(*x)),
+                RealLiteral::Int(IntLiteral::Small(*x)).into(),
             )))),
             VectorV(lst) => {
                 let items: Result<Vec<ExprKind>> =
@@ -738,11 +738,11 @@ impl Syntax {
                 span,
             )))),
             NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                TokenType::NumberLiteral(*x),
+                RealLiteral::Inexact(*x).into(),
                 span,
             )))),
             IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                TokenType::IntegerLiteral(MaybeBigInt::Small(*x)),
+                RealLiteral::Int(IntLiteral::Small(*x)).into(),
                 span,
             )))),
             VectorV(lst) => {

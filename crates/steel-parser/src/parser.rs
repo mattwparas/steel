@@ -1487,7 +1487,8 @@ mod parser_tests {
     // use super::TokenType::*;
     use super::*;
     use crate::parser::ast::{Begin, Define, If, LambdaFunction, Quote, Return};
-    use crate::{parser::ast::ExprKind, tokens::MaybeBigInt};
+    use crate::tokens::RealLiteral;
+    use crate::{parser::ast::ExprKind, tokens::IntLiteral};
 
     fn atom(ident: &str) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
@@ -1496,9 +1497,9 @@ mod parser_tests {
     }
 
     fn int(num: isize) -> ExprKind {
-        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::IntegerLiteral(
-            MaybeBigInt::Small(num),
-        ))))
+        ExprKind::Atom(Atom::new(SyntaxObject::default(
+            IntLiteral::Small(num).into(),
+        )))
     }
 
     fn character(c: char) -> ExprKind {
@@ -1807,9 +1808,9 @@ mod parser_tests {
                     ExprKind::List(List::new(vec![
                         atom("+"),
                         int(2),
-                        ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::NumberLiteral(
-                            3.5,
-                        )))),
+                        ExprKind::Atom(Atom::new(SyntaxObject::default(
+                            RealLiteral::Inexact(3.5).into(),
+                        ))),
                     ])),
                 ])),
             ],
@@ -2356,7 +2357,7 @@ mod parser_tests {
     #[test]
     fn test_quote_with_inner_sub_expr_even_more_nested() {
         assert_parse(
-            "(list 
+            "(list
                 (if (null? contents)
                 '(#f '())
                 (list (car contents) (cdr contents))))",
@@ -2438,7 +2439,7 @@ mod parser_tests {
         let a: Result<Vec<ExprKind>> = Parser::new_flat(
             r#"
             ;; (define foo (quote a)) (require foo bar)
-                
+
                ;;  (define (foo) (if 10 20 30))
 
                ;; (define (foo) (quote (define 10 20)))
@@ -2463,9 +2464,9 @@ mod parser_tests {
                  (begin (handler err) (shift k (k void))))
                (λ ()
                  (begin expr ...)))))))
-                
-                
-                
+
+
+
                 "#,
             None,
         )

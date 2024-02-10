@@ -1,6 +1,6 @@
 use super::parser::SourceId;
-use crate::tokens::parse_unicode_str;
-use crate::tokens::{MaybeBigInt, Token, TokenType};
+use crate::tokens::{parse_unicode_str, NumberLiteral, RealLiteral};
+use crate::tokens::{IntLiteral, Token, TokenType};
 use smallvec::SmallVec;
 use std::iter::Iterator;
 use std::marker::PhantomData;
@@ -175,21 +175,21 @@ impl<'a> Lexer<'a> {
                 let hex = isize::from_str_radix(hex.strip_prefix("#x").unwrap(), 16)
                     .map_err(|_| TokenError::MalformedHexInteger)?;
 
-                Ok(TokenType::IntegerLiteral(MaybeBigInt::Small(hex)))
+                Ok(IntLiteral::Small(hex).into())
             }
 
             octal if octal.starts_with("#o") => {
                 let hex = isize::from_str_radix(octal.strip_prefix("#o").unwrap(), 8)
                     .map_err(|_| TokenError::MalformedOctalInteger)?;
 
-                Ok(TokenType::IntegerLiteral(MaybeBigInt::Small(hex)))
+                Ok(IntLiteral::Small(hex).into())
             }
 
             binary if binary.starts_with("#b") => {
                 let hex = isize::from_str_radix(binary.strip_prefix("#b").unwrap(), 2)
                     .map_err(|_| TokenError::MalformedBinaryInteger)?;
 
-                Ok(TokenType::IntegerLiteral(MaybeBigInt::Small(hex)))
+                Ok(IntLiteral::Small(hex).into())
             }
 
             keyword if keyword.starts_with("#:") => Ok(TokenType::Keyword(self.slice())),
@@ -217,14 +217,14 @@ impl<'a> Lexer<'a> {
                 }
                 '(' | ')' | '[' | ']' => {
                     return if let Some(t) = parse_number(self.slice()) {
-                        t
+                        t.into()
                     } else {
                         self.read_word()
                     }
                 }
                 c if c.is_whitespace() => {
                     return if let Some(t) = parse_number(self.slice()) {
-                        t
+                        t.into()
                     } else {
                         self.read_word()
                     }
@@ -233,7 +233,7 @@ impl<'a> Lexer<'a> {
             }
         }
         match parse_number(self.slice()) {
-            Some(n) => n,
+            Some(n) => n.into(),
             None => self.read_word(),
         }
     }
@@ -487,7 +487,7 @@ enum NumPart<'a> {
     Imaginary(&'a str),
 }
 
-fn parse_real(s: &str) -> Option<TokenType<&str>> {
+fn parse_real(s: &str) -> Option<RealLiteral> {
     let mut has_e = false;
     let mut has_dot = false;
     let mut frac_position = None;
@@ -525,34 +525,27 @@ fn parse_real(s: &str) -> Option<TokenType<&str>> {
         }
     }
     if has_e || has_dot {
-        s.parse().map(|f| TokenType::NumberLiteral(f)).ok()
+        s.parse().map(|f| RealLiteral::Inexact(f)).ok()
     } else if let Some(p) = frac_position {
         let (n_str, d_str) = s.split_at(p);
         let d_str = &d_str[1..];
-        let n: MaybeBigInt = n_str.parse().ok()?;
-        let d: MaybeBigInt = d_str.parse().ok()?;
-        Some(TokenType::FractionLiteral(n, d))
+        let n: IntLiteral = n_str.parse().ok()?;
+        let d: IntLiteral = d_str.parse().ok()?;
+        Some(RealLiteral::Fraction(n, d))
     } else {
-        let int: MaybeBigInt = s.parse().ok()?;
-        Some(TokenType::IntegerLiteral(int))
+        let int: IntLiteral = s.parse().ok()?;
+        Some(RealLiteral::Int(int))
     }
 }
 
-fn parse_number(s: &str) -> Option<TokenType<&str>> {
+fn parse_number(s: &str) -> Option<NumberLiteral> {
     match split_into_complex(s)?.as_slice() {
-        [NumPart::Real(x)] => parse_real(x),
+        [NumPart::Real(x)] => parse_real(x).map(NumberLiteral::from),
         [NumPart::Imaginary(x)] => {
             if !matches!(x.chars().next(), Some('+') | Some('-')) {
                 return None;
             };
-            match parse_real(x)? {
-                TokenType::NumberLiteral(_) => todo!(),
-                TokenType::IntegerLiteral(_) => todo!(),
-                TokenType::FractionLiteral(_, _) => todo!(),
-                TokenType::StringLiteral(_) => todo!(),
-                TokenType::Error => todo!(),
-                _ => unreachable!(),
-            }
+            Some(NumberLiteral::Complex(IntLiteral::Small(0).into(), parse_real(x)?).into())
         }
         [NumPart::Real(re), NumPart::Imaginary(im)]
         | [NumPart::Imaginary(im), NumPart::Real(re)] => {
@@ -570,7 +563,7 @@ mod lexer_tests {
 
     use super::*;
     use crate::span::Span;
-    use crate::tokens::{MaybeBigInt, TokenType::*};
+    use crate::tokens::{IntLiteral, TokenType::*};
     use pretty_assertions::assert_eq;
 
     // TODO: Figure out why this just cause an infinite loop when parsing it?
@@ -801,52 +794,52 @@ mod lexer_tests {
             got.as_slice(),
             &[
                 Token {
-                    ty: IntegerLiteral(MaybeBigInt::Small(0)),
+                    ty: IntLiteral::Small(0).into(),
                     source: "0",
                     span: Span::new(0, 1, None),
                 },
                 Token {
-                    ty: IntegerLiteral(MaybeBigInt::Small(0)),
+                    ty: IntLiteral::Small(0).into(),
                     source: "-0",
                     span: Span::new(2, 4, None),
                 },
                 Token {
-                    ty: NumberLiteral(-1.2),
+                    ty: RealLiteral::Inexact(-1.2).into(),
                     source: "-1.2",
                     span: Span::new(5, 9, None),
                 },
                 Token {
-                    ty: NumberLiteral(2.3),
+                    ty: RealLiteral::Inexact(2.3).into(),
                     source: "+2.3",
                     span: Span::new(10, 14, None),
                 },
                 Token {
-                    ty: IntegerLiteral(MaybeBigInt::Small(999)),
+                    ty: IntLiteral::Small(999).into(),
                     source: "999",
                     span: Span::new(15, 18, None),
                 },
                 Token {
-                    ty: NumberLiteral(1.0),
+                    ty: RealLiteral::Inexact(1.0).into(),
                     source: "1.",
                     span: Span::new(19, 21, None),
                 },
                 Token {
-                    ty: NumberLiteral(100.0),
+                    ty: RealLiteral::Inexact(100.0).into(),
                     source: "1e2",
                     span: Span::new(22, 25, None),
                 },
                 Token {
-                    ty: NumberLiteral(100.0),
+                    ty: RealLiteral::Inexact(100.0).into(),
                     source: "1E2",
                     span: Span::new(26, 29, None),
                 },
                 Token {
-                    ty: NumberLiteral(120.0),
+                    ty: RealLiteral::Inexact(120.0).into(),
                     source: "1.2e2",
                     span: Span::new(30, 35, None),
                 },
                 Token {
-                    ty: NumberLiteral(120.0),
+                    ty: RealLiteral::Inexact(120.0).into(),
                     source: "1.2E2",
                     span: Span::new(36, 41, None),
                 },
@@ -875,7 +868,7 @@ mod lexer_tests {
             got.as_slice(),
             &[
                 Token {
-                    ty: FractionLiteral(MaybeBigInt::Small(1), MaybeBigInt::Small(4)),
+                    ty: RealLiteral::Fraction(IntLiteral::Small(1), IntLiteral::Small(4)).into(),
                     source: "1/4",
                     span: Span::new(17, 20, None),
                 },
@@ -885,12 +878,12 @@ mod lexer_tests {
                     span: Span::new(37, 38, None),
                 },
                 Token {
-                    ty: FractionLiteral(MaybeBigInt::Small(1), MaybeBigInt::Small(4)),
+                    ty: RealLiteral::Fraction(IntLiteral::Small(1), IntLiteral::Small(4)).into(),
                     source: "1/4",
                     span: Span::new(38, 41, None),
                 },
                 Token {
-                    ty: FractionLiteral(MaybeBigInt::Small(1), MaybeBigInt::Small(3)),
+                    ty: RealLiteral::Fraction(IntLiteral::Small(1), IntLiteral::Small(3)).into(),
                     source: "1/3",
                     span: Span::new(42, 45, None),
                 },
@@ -900,10 +893,11 @@ mod lexer_tests {
                     span: Span::new(45, 46, None),
                 },
                 Token {
-                    ty: FractionLiteral(
-                        MaybeBigInt::from_str("11111111111111111111").unwrap(),
-                        MaybeBigInt::from_str("22222222222222222222").unwrap(),
-                    ),
+                    ty: RealLiteral::Fraction(
+                        IntLiteral::from_str("11111111111111111111").unwrap(),
+                        IntLiteral::from_str("22222222222222222222").unwrap(),
+                    )
+                    .into(),
                     source: "11111111111111111111/22222222222222222222",
                     span: Span::new(63, 104, None),
                 },
@@ -928,7 +922,7 @@ mod lexer_tests {
                     span: Span::new(180, 184, None),
                 },
                 Token {
-                    ty: IntegerLiteral(MaybeBigInt::Small(1)),
+                    ty: IntLiteral::Small(1).into(),
                     source: "1",
                     span: Span::new(201, 202, None),
                 },
@@ -938,7 +932,7 @@ mod lexer_tests {
                     span: Span::new(203, 204, None),
                 },
                 Token {
-                    ty: IntegerLiteral(MaybeBigInt::Small(4)),
+                    ty: IntLiteral::Small(4).into(),
                     source: "4",
                     span: Span::new(205, 206, None),
                 },
@@ -1080,7 +1074,7 @@ mod lexer_tests {
         let expected_bigint = Box::new("9223372036854775808".parse().unwrap());
 
         let expected: Vec<Token<&str>> = vec![Token {
-            ty: IntegerLiteral(MaybeBigInt::Big(expected_bigint)),
+            ty: IntLiteral::Big(expected_bigint).into(),
             source: "9223372036854775808",
             span: Span::new(0, 19, None),
         }];
@@ -1096,7 +1090,7 @@ mod lexer_tests {
         let expected_bigint = Box::new("-9223372036854775809".parse().unwrap());
 
         let expected: Vec<Token<&str>> = vec![Token {
-            ty: IntegerLiteral(MaybeBigInt::Big(expected_bigint)),
+            ty: IntLiteral::Big(expected_bigint).into(),
             source: "-9223372036854775809",
             span: Span::new(0, 20, None),
         }];

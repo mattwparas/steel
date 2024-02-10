@@ -1,5 +1,6 @@
 use crate::compiler::passes::reader::MultipleArityFunctions;
 use crate::compiler::passes::VisitorMutRefUnit;
+use crate::compiler::program::number_literal_to_steel;
 use crate::rvals::{Result, SteelVal};
 use crate::{
     compiler::compiler::OptLevel,
@@ -32,7 +33,7 @@ use fxhash::{FxBuildHasher, FxHashSet};
 // use fxhash::FxHashSet;
 use im_rc::HashMap;
 
-use steel_parser::tokens::MaybeBigInt;
+use steel_parser::tokens::{IntLiteral, RealLiteral};
 
 use super::cache::MemoizationTable;
 
@@ -238,9 +239,10 @@ struct ConstantEvaluator<'a> {
 fn steelval_to_atom(value: &SteelVal) -> Option<TokenType<InternedString>> {
     match value {
         SteelVal::BoolV(b) => Some(TokenType::BooleanLiteral(*b)),
-        SteelVal::NumV(n) => Some(TokenType::NumberLiteral(*n)),
+        SteelVal::NumV(n) => Some(RealLiteral::Inexact(*n).into()),
         SteelVal::CharV(c) => Some(TokenType::CharacterLiteral(*c)),
-        SteelVal::IntV(i) => Some(TokenType::IntegerLiteral(MaybeBigInt::Small(*i))),
+        SteelVal::IntV(i) => Some(IntLiteral::Small(*i).into()),
+        // todo!() figure out if the rest of the num types should be done as well.
         SteelVal::StringV(s) => Some(TokenType::StringLiteral(s.to_string())),
         _ => None,
     }
@@ -289,10 +291,10 @@ impl<'a> ConstantEvaluator<'a> {
                 };
                 self.bindings.borrow_mut().get(s)
             }
-            TokenType::NumberLiteral(n) => Some(SteelVal::NumV(*n)),
+            // todo!() figure out if it is ok to expand scope of eval_atom.
+            TokenType::Number(n) => number_literal_to_steel(n).ok(),
             TokenType::StringLiteral(s) => Some(SteelVal::StringV(s.clone().into())),
             TokenType::CharacterLiteral(c) => Some(SteelVal::CharV(*c)),
-            TokenType::IntegerLiteral(MaybeBigInt::Small(n)) => Some(SteelVal::IntV(*n)),
             _ => None,
         }
     }

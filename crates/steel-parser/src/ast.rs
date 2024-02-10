@@ -5,7 +5,7 @@ use crate::{
 
 use std::{convert::TryFrom, fmt::Write};
 
-use crate::tokens::MaybeBigInt;
+use crate::tokens::IntLiteral;
 use pretty::RcDoc;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -188,7 +188,7 @@ impl ExprKind {
 
     pub fn integer_literal(value: isize, span: Span) -> ExprKind {
         ExprKind::Atom(crate::ast::Atom::new(SyntaxObject::new(
-            TokenType::IntegerLiteral(MaybeBigInt::Small(value)),
+            IntLiteral::Small(value).into(),
             span,
         )))
     }
@@ -2332,10 +2332,10 @@ mod pretty_print_tests {
     #[test]
     fn pretty_set() {
         let expression = r#"
-            (define test-function 
-                (lambda (a b c) 
-                    (begin 
-                        (set! bananas 10) 
+            (define test-function
+                (lambda (a b c)
+                    (begin
+                        (set! bananas 10)
                         (if applesauce 100 #f)
                         (if applesauce 100 (if applesauce 100 #f)))))"#;
         let parsed_expr = parse(expression);

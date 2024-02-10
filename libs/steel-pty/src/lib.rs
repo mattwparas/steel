@@ -47,7 +47,7 @@ struct PtyProcess {
     // tokenizer
 }
 
-use futures::{lock::Mutex, FutureExt, StreamExt};
+use futures::{lock::Mutex, FutureExt};
 
 // impl FromSteelVal for Element
 

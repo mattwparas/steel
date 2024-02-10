@@ -2,7 +2,7 @@ use crate::parser::{
     parser::SyntaxObject, tokens::TokenType::*, tryfrom_visitor::TryFromExprKindForSteelVal,
 };
 
-use steel_parser::tokens::MaybeBigInt;
+use steel_parser::tokens::{IntLiteral, RealLiteral};
 
 use crate::{
     rerrs::SteelErr,
@@ -66,16 +66,15 @@ impl TryFromSteelValVisitorForExprKind {
                 BooleanLiteral(*x),
             )))),
             NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                NumberLiteral(*x),
+                RealLiteral::Inexact(*x).into(),
             )))),
             IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                IntegerLiteral(MaybeBigInt::Small(*x)),
+                RealLiteral::Int(IntLiteral::Small(*x)).into(),
             )))),
 
             BigNum(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                IntegerLiteral(MaybeBigInt::Big(Box::new(x.unwrap()))),
+                RealLiteral::Int(IntLiteral::Big(Box::new(x.unwrap()))).into(),
             )))),
-
             VectorV(lst) => {
                 let items: std::result::Result<Vec<ExprKind>, _> =
                     lst.iter().map(|x| self.visit(x)).collect();
@@ -182,25 +181,25 @@ impl TryFrom<&SteelVal> for ExprKind {
                     BooleanLiteral(*x),
                 )))),
                 NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    NumberLiteral(*x),
+		    RealLiteral::Inexact(*x).into(),
                 )))),
                 IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    IntegerLiteral(MaybeBigInt::Small(*x)),
+                    RealLiteral::Int(IntLiteral::Small(*x)).into(),
                 )))),
                 Rational(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    FractionLiteral(
-                        MaybeBigInt::Small(*x.numer() as isize),
-                        MaybeBigInt::Small(*x.denom() as isize),
-                    ),
+                    RealLiteral::Fraction(
+                        IntLiteral::Small(*x.numer() as isize),
+                        IntLiteral::Small(*x.denom() as isize),
+                    ).into(),
                 )))),
                 BigRational(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    FractionLiteral(
-                        MaybeBigInt::Big(Box::new(x.numer().clone())),
-                        MaybeBigInt::Big(Box::new(x.denom().clone())),
-                    ),
+                    RealLiteral::Fraction(
+                        IntLiteral::Big(Box::new(x.numer().clone())),
+                        IntLiteral::Big(Box::new(x.denom().clone())),
+                    ).into(),
                 )))),
                 BigNum(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    IntegerLiteral(MaybeBigInt::Big(Box::new(x.unwrap()))),
+                    RealLiteral::Int(IntLiteral::Big(Box::new(x.unwrap()))).into(),
                 )))),
                 Complex(_) => unimplemented!("Complex numbers not fully supported yet. See https://github.com/mattwparas/steel/issues/62 for current details."),
                 VectorV(lst) => {
