@@ -1404,7 +1404,6 @@ impl Engine {
         fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
             match &t.ty {
                 TokenType::BooleanLiteral(b) => Ok((*b).into()),
-                // todo!() figure out if ok to expand scope of eval atom.
                 TokenType::Number(n) => number_literal_to_steel(n),
                 TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.into())),
                 TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
