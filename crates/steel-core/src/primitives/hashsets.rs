@@ -6,7 +6,6 @@ use crate::{
     rvals::{Result, SteelVal},
 };
 use crate::{gc::Gc, steel_vm::builtin::BuiltInModule};
-use fxhash::FxBuildHasher;
 use im_rc::HashSet as ImmutableHashSet;
 
 use crate::primitives::VectorOperations;
@@ -39,7 +38,7 @@ pub(crate) fn hashset_module() -> BuiltInModule {
 }
 
 pub fn hs_construct(args: &[SteelVal]) -> Result<SteelVal> {
-    let mut hs = ImmutableHashSet::<_, FxBuildHasher>::default();
+    let mut hs = ImmutableHashSet::new();
 
     for key in args {
         if key.is_hashable() {
@@ -178,12 +177,7 @@ pub fn list_to_hashset(args: &[SteelVal]) -> Result<SteelVal> {
     }
     if let SteelVal::ListV(l) = &args[0] {
         Ok(SteelVal::HashSetV(
-            Gc::new(
-                l.iter()
-                    .cloned()
-                    .collect::<ImmutableHashSet<_, FxBuildHasher>>(),
-            )
-            .into(),
+            Gc::new(l.iter().cloned().collect::<ImmutableHashSet<_>>()).into(),
         ))
     } else {
         stop!(TypeMismatch => "list->hashset takes a hashset");
@@ -215,7 +209,7 @@ mod hashset_tests {
                 ]
                 .into_iter()
                 .map(Gc::new)
-                .collect::<ImmutableHashSet<_, FxBuildHasher>>(),
+                .collect::<ImmutableHashSet<_>>(),
             )
             .into(),
         );
@@ -245,7 +239,7 @@ mod hashset_tests {
                 ]
                 .into_iter()
                 .map(Gc::new)
-                .collect::<ImmutableHashSet<_, FxBuildHasher>>(),
+                .collect::<ImmutableHashSet<_>>(),
             )
             .into(),
         );
@@ -255,7 +249,7 @@ mod hashset_tests {
     #[test]
     fn hs_insert_from_empty() {
         let mut args = [
-            SteelVal::HashSetV(Gc::new(ImmutableHashSet::<_, FxBuildHasher>::default()).into()),
+            SteelVal::HashSetV(Gc::new(ImmutableHashSet::new()).into()),
             SteelVal::StringV("foo".into()),
         ];
         let res = steel_hs_insert(&mut args);
@@ -264,7 +258,7 @@ mod hashset_tests {
                 vec![SteelVal::StringV("foo".into())]
                     .into_iter()
                     .map(Gc::new)
-                    .collect::<ImmutableHashSet<_, FxBuildHasher>>(),
+                    .collect::<ImmutableHashSet<_>>(),
             )
             .into(),
         );
@@ -279,7 +273,7 @@ mod hashset_tests {
                     vec![SteelVal::StringV("foo".into())]
                         .into_iter()
                         .map(Gc::new)
-                        .collect::<ImmutableHashSet<_, FxBuildHasher>>(),
+                        .collect::<ImmutableHashSet<_>>(),
                 )
                 .into(),
             ),
@@ -298,7 +292,7 @@ mod hashset_tests {
                     vec![SteelVal::StringV("foo".into())]
                         .into_iter()
                         .map(Gc::new)
-                        .collect::<ImmutableHashSet<_, FxBuildHasher>>(),
+                        .collect::<ImmutableHashSet<_>>(),
                 )
                 .into(),
             ),
@@ -319,7 +313,7 @@ mod hashset_tests {
                     SteelVal::StringV("baz".into()),
                 ]
                 .into_iter()
-                .collect::<ImmutableHashSet<_, FxBuildHasher>>(),
+                .collect::<ImmutableHashSet<_>>(),
             )
             .into(),
         )];

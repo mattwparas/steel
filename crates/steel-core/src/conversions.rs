@@ -290,7 +290,7 @@ impl<A: FromSteelVal, B: FromSteelVal> FromSteelVal for (A, B) {
 // HashSet
 impl<K: IntoSteelVal> IntoSteelVal for FxHashSet<K> {
     fn into_steelval(mut self) -> Result<SteelVal> {
-        let mut hs = im_rc::HashSet::<SteelVal, FxBuildHasher>::default();
+        let mut hs = im_rc::HashSet::new();
         for value in self.drain() {
             hs.insert(value.into_steelval()?);
         }
@@ -429,10 +429,10 @@ mod conversion_tests {
         input.insert("bar".to_string());
 
         let expected = SteelVal::HashSetV(
-            Gc::new(im_rc::HashSet::<_, FxBuildHasher>::from(vec![
+            Gc::new(im_rc::hashset![
                 SteelVal::StringV("foo".into()),
                 SteelVal::StringV("bar".into()),
-            ]))
+            ])
             .into(),
         );
 
@@ -442,10 +442,10 @@ mod conversion_tests {
     #[test]
     fn hashset_from_steelval_hashset() {
         let input = SteelVal::HashSetV(
-            Gc::new(im_rc::HashSet::<_, FxBuildHasher>::from(vec![
+            Gc::new(im_rc::hashset![
                 SteelVal::StringV("foo".into()),
                 SteelVal::StringV("bar".into()),
-            ]))
+            ])
             .into(),
         );
 

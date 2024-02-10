@@ -1108,18 +1108,18 @@ impl From<Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>> for SteelHash
 }
 
 #[derive(Clone, PartialEq)]
-pub struct SteelHashSet(pub(crate) Gc<im_rc::HashSet<SteelVal, FxBuildHasher>>);
+pub struct SteelHashSet(pub(crate) Gc<im_rc::HashSet<SteelVal>>);
 
 impl Deref for SteelHashSet {
-    type Target = im_rc::HashSet<SteelVal, FxBuildHasher>;
+    type Target = im_rc::HashSet<SteelVal>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl From<Gc<im_rc::HashSet<SteelVal, FxBuildHasher>>> for SteelHashSet {
-    fn from(value: Gc<im_rc::HashSet<SteelVal, FxBuildHasher>>) -> Self {
+impl From<Gc<im_rc::HashSet<SteelVal>>> for SteelHashSet {
+    fn from(value: Gc<im_rc::HashSet<SteelVal>>) -> Self {
         SteelHashSet(value)
     }
 }

@@ -537,7 +537,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelVector {
     }
 }
 
-impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashSet<SteelVal, FxBuildHasher>> {
+impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashSet<SteelVal>> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::HashSetV(p) = val {

@@ -570,7 +570,7 @@ impl<'global, 'a> VmCore<'a> {
                     }
                 }).collect::<Result<im_rc::HashMap<_, _, FxBuildHasher>>>().map(|x| SteelVal::HashMapV(Gc::new(x).into()))
             },
-            Reducer::HashSet => iter.collect::<Result<im_rc::HashSet<_, FxBuildHasher>>>().map(|x| SteelVal::HashSetV(Gc::new(x).into())),
+            Reducer::HashSet => iter.collect::<Result<im_rc::HashSet<_>>>().map(|x| SteelVal::HashSetV(Gc::new(x).into())),
             Reducer::String => todo!(),
             Reducer::Last => iter.last().unwrap_or_else(|| stop!(Generic => "`last` found empty list - `last` requires at least one element in the sequence")),
             Reducer::ForEach(f) => {
