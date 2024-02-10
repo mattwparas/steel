@@ -434,7 +434,7 @@ impl ExpressionType {
         matches!(self, ExpressionType::Expression)
     }
 
-    fn eval_atom(t: &SyntaxObject) -> bool {
+    fn is_atom(t: &SyntaxObject) -> bool {
         matches!(
             t.ty,
             TokenType::BooleanLiteral(_)
@@ -446,7 +446,7 @@ impl ExpressionType {
 
     fn is_constant(expr: &ExprKind) -> bool {
         match expr {
-            ExprKind::Atom(Atom { syn, .. }) => Self::eval_atom(syn),
+            ExprKind::Atom(Atom { syn, .. }) => Self::is_atom(syn),
             _ => false,
         }
     }

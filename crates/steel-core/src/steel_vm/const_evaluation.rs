@@ -236,13 +236,13 @@ struct ConstantEvaluator<'a> {
     kernel: &'a mut Option<Kernel>,
 }
 
+// Converts the atom value into a `TokenType`.
 fn steelval_to_atom(value: &SteelVal) -> Option<TokenType<InternedString>> {
     match value {
         SteelVal::BoolV(b) => Some(TokenType::BooleanLiteral(*b)),
         SteelVal::NumV(n) => Some(RealLiteral::Inexact(*n).into()),
         SteelVal::CharV(c) => Some(TokenType::CharacterLiteral(*c)),
         SteelVal::IntV(i) => Some(IntLiteral::Small(*i).into()),
-        // todo!() figure out if the rest of the num types should be done as well.
         SteelVal::StringV(s) => Some(TokenType::StringLiteral(s.to_string())),
         _ => None,
     }

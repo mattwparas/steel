@@ -47,20 +47,13 @@ pub struct CodeGenerator<'a> {
 /// Converts a syntax object's token into a `SteelVal` or returns an error if it is not a valid
 /// `SteelVal`.
 fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
-    match &t.ty {
-        TokenType::BooleanLiteral(b) => Ok((*b).into()),
-        TokenType::Number(n) => number_literal_to_steel(n),
-        TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.into())),
-        TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
-        // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
-        TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
-        what => {
-            stop!(UnexpectedToken => what; t.span)
-        }
+    match try_eval_atom(t) {
+        Some(v) => Ok(v),
+        None => stop!(UnexpectedToken => t.ty; t.span),
     }
 }
 
-/// TODO: Consider reusing `eval_atom` as there is a lot of shared functionality.
+/// This is similar to eval_atom but does not allocate a string on a failed match.
 fn try_eval_atom(t: &SyntaxObject) -> Option<SteelVal> {
     match &t.ty {
         TokenType::BooleanLiteral(b) => Some((*b).into()),
@@ -73,7 +66,6 @@ fn try_eval_atom(t: &SyntaxObject) -> Option<SteelVal> {
         _what => {
             // println!("getting here in the eval_atom - code_gen");
             // stop!(UnexpectedToken => what; t.span)
-
             return None;
         }
     }

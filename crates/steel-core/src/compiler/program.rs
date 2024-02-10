@@ -33,6 +33,7 @@ use super::{compiler::DebruijnIndicesInterner, map::SymbolMap};
 const _TILE_SUPER_INSTRUCTIONS: bool = false;
 
 pub fn number_literal_to_steel(n: &NumberLiteral) -> Result<SteelVal> {
+    // real_to_steel does some cloning of bignums. It may be possible to optimize this away.
     let real_to_steel = |re: &RealLiteral| match re {
         RealLiteral::Int(IntLiteral::Small(i)) => i.into_steelval(),
         RealLiteral::Int(IntLiteral::Big(i)) => i.clone().into_steelval(),
@@ -65,14 +66,13 @@ pub fn number_literal_to_steel(n: &NumberLiteral) -> Result<SteelVal> {
     }
 }
 
-/// evaluates an atom expression in given environment
+/// Evaluates an atom expression in given environment.
 fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
     match &t.ty {
         TokenType::BooleanLiteral(b) => Ok((*b).into()),
         TokenType::Number(n) => number_literal_to_steel(n),
         TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.into())),
         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
-        // TODO: @Matt - There is unnecessary cloning of BigInt.
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
         TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
         what => {
@@ -130,13 +130,9 @@ pub fn specialize_read_local(instructions: &mut [Instruction]) {
 }
 
 pub fn specialize_constants(instructions: &mut [Instruction]) -> Result<()> {
-    if instructions.is_empty() {
-        return Ok(());
-    }
-
-    for i in 0..instructions.len() {
-        match instructions.get(i) {
-            Some(Instruction {
+    for instruction in instructions.iter_mut() {
+        match instruction {
+            Instruction {
                 op_code: OpCode::PUSHCONST,
                 contents:
                     Some(Expr::Atom(SyntaxObject {
@@ -144,12 +140,12 @@ pub fn specialize_constants(instructions: &mut [Instruction]) -> Result<()> {
                         ..
                     })),
                 ..
-            }) => continue,
-            Some(Instruction {
+            } => continue,
+            Instruction {
                 op_code: OpCode::PUSHCONST,
                 contents: Some(Expr::Atom(syn)),
                 ..
-            }) => {
+            } => {
                 let value = eval_atom(syn)?;
                 let opcode = match &value {
                     SteelVal::IntV(0) => OpCode::LOADINT0,
@@ -157,13 +153,11 @@ pub fn specialize_constants(instructions: &mut [Instruction]) -> Result<()> {
                     SteelVal::IntV(2) => OpCode::LOADINT2,
                     _ => continue,
                 };
-
-                instructions.get_mut(i).unwrap().op_code = opcode;
+                instruction.op_code = opcode;
             }
             _ => continue,
         }
     }
-
     Ok(())
 }
 
