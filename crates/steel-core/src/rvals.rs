@@ -65,7 +65,7 @@ macro_rules! list {
 
 use SteelVal::*;
 
-use fxhash::{FxHashMap, FxHashSet};
+use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use im_rc::{HashMap as ImmutableHashMap, Vector};
 
 use futures_task::noop_waker_ref;
@@ -890,7 +890,7 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                             from_serializable_value(ctx, v),
                         )
                     })
-                    .collect::<ImmutableHashMap<_, _>>(),
+                    .collect::<ImmutableHashMap<_, _, FxBuildHasher>>(),
             )
             .into(),
         ),
@@ -1074,52 +1074,52 @@ pub fn into_serializable_value(
 pub struct SteelMutableVector(pub(crate) Gc<RefCell<Vec<SteelVal>>>);
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct SteelVector(pub(crate) Gc<im_rc::Vector<SteelVal>>);
+pub struct SteelVector(pub(crate) Gc<Vector<SteelVal>>);
 
 impl Deref for SteelVector {
-    type Target = im_rc::Vector<SteelVal>;
+    type Target = Vector<SteelVal>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl From<Gc<im_rc::Vector<SteelVal>>> for SteelVector {
-    fn from(value: Gc<im_rc::Vector<SteelVal>>) -> Self {
+impl From<Gc<Vector<SteelVal>>> for SteelVector {
+    fn from(value: Gc<Vector<SteelVal>>) -> Self {
         SteelVector(value)
     }
 }
 
 #[derive(Clone, PartialEq)]
-pub struct SteelHashMap(pub(crate) Gc<ImmutableHashMap<SteelVal, SteelVal>>);
+pub struct SteelHashMap(pub(crate) Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>);
 
 impl Deref for SteelHashMap {
-    type Target = ImmutableHashMap<SteelVal, SteelVal>;
+    type Target = ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl From<Gc<ImmutableHashMap<SteelVal, SteelVal>>> for SteelHashMap {
-    fn from(value: Gc<ImmutableHashMap<SteelVal, SteelVal>>) -> Self {
+impl From<Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>> for SteelHashMap {
+    fn from(value: Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>) -> Self {
         SteelHashMap(value)
     }
 }
 
 #[derive(Clone, PartialEq)]
-pub struct SteelHashSet(pub(crate) Gc<im_rc::HashSet<SteelVal>>);
+pub struct SteelHashSet(pub(crate) Gc<im_rc::HashSet<SteelVal, FxBuildHasher>>);
 
 impl Deref for SteelHashSet {
-    type Target = im_rc::HashSet<SteelVal>;
+    type Target = im_rc::HashSet<SteelVal, FxBuildHasher>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl From<Gc<im_rc::HashSet<SteelVal>>> for SteelHashSet {
-    fn from(value: Gc<im_rc::HashSet<SteelVal>>) -> Self {
+impl From<Gc<im_rc::HashSet<SteelVal, FxBuildHasher>>> for SteelHashSet {
+    fn from(value: Gc<im_rc::HashSet<SteelVal, FxBuildHasher>>) -> Self {
         SteelHashSet(value)
     }
 }
@@ -1737,7 +1737,7 @@ impl SteelVal {
     // }
 
     pub fn empty_hashmap() -> SteelVal {
-        SteelVal::HashMapV(Gc::new(ImmutableHashMap::new()).into())
+        SteelVal::HashMapV(Gc::new(ImmutableHashMap::<_, _, FxBuildHasher>::default()).into())
     }
 }
 

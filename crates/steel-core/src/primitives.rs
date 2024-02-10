@@ -34,6 +34,7 @@ use crate::{
 };
 pub use control::ControlOperations;
 pub use fs::fs_module;
+use fxhash::FxBuildHasher;
 use im_rc::Vector;
 pub use io::IoFunctions;
 pub use lists::UnRecoverableResult;
@@ -536,7 +537,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelVector {
     }
 }
 
-impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashSet<SteelVal>> {
+impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashSet<SteelVal, FxBuildHasher>> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::HashSetV(p) = val {
@@ -679,7 +680,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelString {
     }
 }
 
-impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashMap<SteelVal, SteelVal>> {
+impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashMap<SteelVal, SteelVal, FxBuildHasher>> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::HashMapV(hm) = val {
@@ -699,7 +700,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashMap<SteelVal, SteelVal>> {
     }
 }
 
-impl<'a> PrimitiveAsRefMut<'a> for &'a mut Gc<im_rc::HashMap<SteelVal, SteelVal>> {
+impl<'a> PrimitiveAsRefMut<'a> for &'a mut Gc<im_rc::HashMap<SteelVal, SteelVal, FxBuildHasher>> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a mut SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::HashMapV(hm) = val {

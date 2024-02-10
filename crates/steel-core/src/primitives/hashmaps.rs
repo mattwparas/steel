@@ -5,7 +5,8 @@ use crate::{
     rvals::{Result, SteelVal},
     steel_vm::builtin::BuiltInModule,
 };
-use im_rc::HashMap;
+use fxhash::FxBuildHasher;
+use im_rc::HashMap as ImmutableHashMap;
 
 use crate::primitives::VectorOperations;
 
@@ -61,7 +62,7 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
 /// ```
 #[steel_derive::native(name = "hash", arity = "AtLeast(0)")]
 pub fn hm_construct(args: &[SteelVal]) -> Result<SteelVal> {
-    let mut hm = HashMap::new();
+    let mut hm = ImmutableHashMap::<_, _, FxBuildHasher>::default();
 
     let mut arg_iter = args.iter().cloned();
 
@@ -85,7 +86,7 @@ pub fn hm_construct(args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 pub fn hm_construct_keywords(args: &[SteelVal]) -> Result<SteelVal> {
-    let mut hm = HashMap::new();
+    let mut hm = ImmutableHashMap::<_, _, FxBuildHasher>::default();
 
     let mut arg_iter = args.iter().cloned();
 
@@ -158,7 +159,10 @@ pub fn hash_insert(map: &mut SteelVal, key: SteelVal, value: SteelVal) -> Result
 /// > (hash-ref (hash 'a 10 'b 20) 'b) ;; => 20
 /// ```
 #[function(name = "hash-ref")]
-pub fn hash_ref(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> Result<SteelVal> {
+pub fn hash_ref(
+    map: &Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>,
+    key: &SteelVal,
+) -> Result<SteelVal> {
     if key.is_hashable() {
         match map.get(key) {
             Some(value) => Ok(value.clone()),
@@ -183,7 +187,10 @@ pub fn hash_ref(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> Result
 /// > (hash-try-get (hash 'a 10 'b 20) 'does-not-exist) ;; => #false
 /// ```
 #[function(name = "hash-try-get")]
-pub fn hash_try_get(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> SteelVal {
+pub fn hash_try_get(
+    map: &Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>,
+    key: &SteelVal,
+) -> SteelVal {
     match map.get(key) {
         Some(v) => v.clone(),
         None => SteelVal::BoolV(false),
@@ -202,7 +209,7 @@ pub fn hash_try_get(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> St
 /// > (hash-length (hash 'a 10 'b 20)) ;; => 2
 /// ```
 #[function(name = "hash-length")]
-pub fn hash_length(map: &Gc<HashMap<SteelVal, SteelVal>>) -> usize {
+pub fn hash_length(map: &Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>) -> usize {
     map.len()
 }
 
@@ -220,7 +227,10 @@ pub fn hash_length(map: &Gc<HashMap<SteelVal, SteelVal>>) -> usize {
 /// > (hash-contains? (hash 'a 10 'b 20) 'not-there) ;; => #false
 /// ```
 #[function(name = "hash-contains?")]
-pub fn hash_contains(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> Result<SteelVal> {
+pub fn hash_contains(
+    map: &Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>,
+    key: &SteelVal,
+) -> Result<SteelVal> {
     if key.is_hashable() {
         Ok(SteelVal::BoolV(map.contains_key(key)))
     } else {
@@ -242,7 +252,9 @@ pub fn hash_contains(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> R
 /// > (hash-keys->list? (hash 'a 'b 20)) ;; => '(a b)
 /// ```
 #[function(name = "hash-keys->list")]
-pub fn keys_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
+pub fn keys_to_list(
+    hashmap: &Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>,
+) -> Result<SteelVal> {
     Ok(SteelVal::ListV(hashmap.keys().cloned().collect()))
 }
 
@@ -258,7 +270,9 @@ pub fn keys_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVa
 ///   => '(10 20)",
 /// ```
 #[steel_derive::function(name = "hash-values->list")]
-pub fn values_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
+pub fn values_to_list(
+    hashmap: &Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>,
+) -> Result<SteelVal> {
     Ok(SteelVal::ListV(hashmap.values().cloned().collect()))
 }
 
@@ -274,7 +288,9 @@ pub fn values_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<Steel
 ///   => ['a 'b]",
 /// ```
 #[steel_derive::function(name = "hash-keys->vector")]
-pub fn keys_to_vector(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
+pub fn keys_to_vector(
+    hashmap: &Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>,
+) -> Result<SteelVal> {
     VectorOperations::vec_construct_iter_normal(hashmap.keys().cloned())
 }
 
@@ -290,7 +306,9 @@ pub fn keys_to_vector(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<Steel
 ///   => [10 10]",
 /// ```
 #[steel_derive::function(name = "hash-values->vector")]
-pub fn values_to_vector(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
+pub fn values_to_vector(
+    hashmap: &Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>,
+) -> Result<SteelVal> {
     VectorOperations::vec_construct_iter_normal(hashmap.values().cloned())
 }
 
@@ -316,7 +334,9 @@ pub fn clear(hashmap: &mut SteelVal) -> Result<SteelVal> {
                 m.clear();
                 Ok(std::mem::replace(hashmap, SteelVal::Void))
             }
-            None => Ok(SteelVal::HashMapV(Gc::new(HashMap::new()).into())),
+            None => Ok(SteelVal::HashMapV(
+                Gc::new(ImmutableHashMap::<_, _, FxBuildHasher>::default()).into(),
+            )),
         }
     } else {
         stop!(TypeMismatch => "hash-clear expected a hashmap, found: {:?}", hashmap);
@@ -335,7 +355,7 @@ pub fn clear(hashmap: &mut SteelVal) -> Result<SteelVal> {
 /// > (hash-emptY? (hash)) ;; => #true
 /// ```
 #[steel_derive::function(name = "hash-empty?")]
-pub fn hm_empty(hm: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
+pub fn hm_empty(hm: &Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(hm.is_empty()))
 }
 
@@ -395,7 +415,6 @@ pub fn hm_union(mut hml: &mut SteelVal, mut hmr: &mut SteelVal) -> Result<SteelV
 #[cfg(test)]
 mod hashmap_tests {
     use super::*;
-    use im_rc::hashmap;
 
     use crate::rvals::{SteelString, SteelVal::*};
 
@@ -409,10 +428,10 @@ mod hashmap_tests {
         ];
         let res = hm_construct(&args);
         let expected = SteelVal::HashMapV(
-            Gc::new(hashmap! {
-                StringV("foo".into()) => StringV("bar".into()),
-                StringV("foo2".into()) => StringV("bar2".into())
-            })
+            Gc::new(im_rc::HashMap::<_, _, FxBuildHasher>::from(vec![
+                (StringV("foo".into()), StringV("bar".into())),
+                (StringV("foo2".into()), StringV("bar2".into())),
+            ]))
             .into(),
         );
         assert_eq!(res.unwrap(), expected);
@@ -432,10 +451,10 @@ mod hashmap_tests {
         ];
         let res = hm_construct(&args);
         let expected = SteelVal::HashMapV(
-            Gc::new(hashmap! {
-                StringV("foo".into()) => StringV("bar".into()),
-                StringV("foo2".into()) => StringV("bar2".into())
-            })
+            Gc::new(im_rc::HashMap::<_, _, FxBuildHasher>::from(vec![
+                (StringV("foo".into()), StringV("bar".into())),
+                (StringV("foo2".into()), StringV("bar2".into())),
+            ]))
             .into(),
         );
         assert_eq!(res.unwrap(), expected);
@@ -444,15 +463,16 @@ mod hashmap_tests {
     #[test]
     fn hm_insert_from_empty() {
         let mut args = [
-            HashMapV(Gc::new(hashmap![]).into()),
+            HashMapV(Gc::new(im_rc::HashMap::<_, _, FxBuildHasher>::default()).into()),
             StringV("foo".into()),
             StringV("bar".into()),
         ];
         let res = steel_hash_insert(&mut args);
         let expected = SteelVal::HashMapV(
-            Gc::new(hashmap! {
-                StringV("foo".into()) => StringV("bar".into())
-            })
+            Gc::new(im_rc::HashMap::<_, _, FxBuildHasher>::from(vec![(
+                StringV("foo".into()),
+                StringV("bar".into()),
+            )]))
             .into(),
         );
         assert_eq!(res.unwrap(), expected);
@@ -462,9 +482,10 @@ mod hashmap_tests {
     fn hm_get_found() {
         let args = [
             HashMapV(
-                Gc::new(hashmap! {
-                    StringV("foo".into()) => StringV("bar".into())
-                })
+                Gc::new(im_rc::HashMap::<_, _, FxBuildHasher>::from(vec![(
+                    StringV("foo".into()),
+                    StringV("bar".into()),
+                )]))
                 .into(),
             ),
             StringV("foo".into()),
@@ -478,9 +499,10 @@ mod hashmap_tests {
     fn hm_get_error() {
         let args = [
             HashMapV(
-                Gc::new(hashmap! {
-                    StringV("foo".into()) => StringV("bar".into())
-                })
+                Gc::new(im_rc::HashMap::<_, _, FxBuildHasher>::from(vec![(
+                    StringV("foo".into()),
+                    StringV("bar".into()),
+                )]))
                 .into(),
             ),
             StringV("garbage".into()),
@@ -493,9 +515,10 @@ mod hashmap_tests {
     fn hm_try_get_found() {
         let args = [
             HashMapV(
-                Gc::new(hashmap! {
-                    StringV("foo".into()) => StringV("bar".into())
-                })
+                Gc::new(im_rc::HashMap::<_, _, FxBuildHasher>::from(vec![(
+                    StringV("foo".into()),
+                    StringV("bar".into()),
+                )]))
                 .into(),
             ),
             StringV("foo".into()),
@@ -509,9 +532,10 @@ mod hashmap_tests {
     fn hm_try_get_error() {
         let args = [
             HashMapV(
-                Gc::new(hashmap! {
-                    StringV("foo".into()) => StringV("bar".into())
-                })
+                Gc::new(im_rc::HashMap::<_, _, FxBuildHasher>::from(vec![(
+                    StringV("foo".into()),
+                    StringV("bar".into()),
+                )]))
                 .into(),
             ),
             StringV("garbage".into()),
@@ -525,9 +549,10 @@ mod hashmap_tests {
     fn hm_contains_true() {
         let args = [
             HashMapV(
-                Gc::new(hashmap! {
-                    StringV("foo".into()) => StringV("bar".into())
-                })
+                Gc::new(im_rc::HashMap::<_, _, FxBuildHasher>::from(vec![(
+                    StringV("foo".into()),
+                    StringV("bar".into()),
+                )]))
                 .into(),
             ),
             StringV("foo".into()),
@@ -541,9 +566,10 @@ mod hashmap_tests {
     fn hm_contains_false() {
         let args = [
             HashMapV(
-                Gc::new(hashmap! {
-                    StringV("foo".into()) => StringV("bar".into())
-                })
+                Gc::new(im_rc::HashMap::<_, _, FxBuildHasher>::from(vec![(
+                    StringV("foo".into()),
+                    StringV("bar".into()),
+                )]))
                 .into(),
             ),
             StringV("bar".into()),
@@ -556,11 +582,11 @@ mod hashmap_tests {
     #[test]
     fn hm_keys_to_vector_normal() {
         let args = vec![HashMapV(
-            Gc::new(hashmap! {
-                StringV("foo".into()) => StringV("bar".into()),
-                StringV("bar".into()) => StringV("baz".into()),
-                StringV("baz".into()) => StringV("quux".into())
-            })
+            Gc::new(im_rc::HashMap::<_, _, FxBuildHasher>::from(vec![
+                (StringV("foo".into()), StringV("bar".into())),
+                (StringV("bar".into()), StringV("baz".into())),
+                (StringV("baz".into()), StringV("quux".into())),
+            ]))
             .into(),
         )];
         let res = steel_keys_to_vector(&args);
@@ -612,11 +638,11 @@ mod hashmap_tests {
     #[test]
     fn hm_values_to_vector_normal() {
         let args = vec![HashMapV(
-            Gc::new(hashmap! {
-                StringV("foo".into()) => StringV("bar".into()),
-                StringV("bar".into()) => StringV("baz".into()),
-                StringV("baz".into()) => StringV("quux".into())
-            })
+            Gc::new(im_rc::HashMap::<_, _, FxBuildHasher>::from(vec![
+                (StringV("foo".into()), StringV("bar".into())),
+                (StringV("bar".into()), StringV("baz".into())),
+                (StringV("baz".into()), StringV("quux".into())),
+            ]))
             .into(),
         )];
         let res = steel_values_to_vector(&args);

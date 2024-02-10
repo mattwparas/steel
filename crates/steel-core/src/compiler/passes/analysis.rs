@@ -5789,7 +5789,7 @@ mod analysis_pass_tests {
         {
             let mut analysis = SemanticAnalysis::new(&mut exprs);
 
-            let mut constants = im_rc::HashMap::default();
+            let mut constants = ImmutableHashMap::<_, _, FxBuildHasher>::default();
             constants.insert("+".into(), SteelVal::Void);
             constants.insert("<=".into(), SteelVal::Void);
             constants.insert("-".into(), SteelVal::Void);

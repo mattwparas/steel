@@ -1,4 +1,4 @@
-use fxhash::{FxHashMap, FxHashSet};
+use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 
 use crate::values::lists::List;
 
@@ -33,7 +33,7 @@ impl IntoSteelVal for SteelVal {
 //     }
 // }
 
-impl FromSteelVal for Gc<im_rc::HashMap<SteelVal, SteelVal>> {
+impl FromSteelVal for Gc<im_rc::HashMap<SteelVal, SteelVal, FxBuildHasher>> {
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::HashMapV(hm) = val {
             Ok(hm.0.clone())
@@ -224,7 +224,7 @@ impl FromSteelVal for Box<str> {
 // HashMap
 impl<K: IntoSteelVal, V: IntoSteelVal> IntoSteelVal for FxHashMap<K, V> {
     fn into_steelval(mut self) -> Result<SteelVal> {
-        let mut hm = im_rc::HashMap::new();
+        let mut hm = im_rc::HashMap::<SteelVal, SteelVal, FxBuildHasher>::default();
         for (key, val) in self.drain() {
             hm.insert(key.into_steelval()?, val.into_steelval()?);
         }
@@ -290,7 +290,7 @@ impl<A: FromSteelVal, B: FromSteelVal> FromSteelVal for (A, B) {
 // HashSet
 impl<K: IntoSteelVal> IntoSteelVal for FxHashSet<K> {
     fn into_steelval(mut self) -> Result<SteelVal> {
-        let mut hs = im_rc::HashSet::new();
+        let mut hs = im_rc::HashSet::<SteelVal, FxBuildHasher>::default();
         for value in self.drain() {
             hs.insert(value.into_steelval()?);
         }
@@ -380,10 +380,16 @@ mod conversion_tests {
         input.insert("foo2".to_string(), "bar2".to_string());
 
         let expected = SteelVal::HashMapV(
-            Gc::new(im_rc::hashmap! {
-                SteelVal::StringV("foo".into()) => SteelVal::StringV("bar".into()),
-                SteelVal::StringV("foo2".into()) => SteelVal::StringV("bar2".into())
-            })
+            Gc::new(im_rc::HashMap::<_, _, FxBuildHasher>::from(vec![
+                (
+                    SteelVal::StringV("foo".into()),
+                    SteelVal::StringV("bar".into()),
+                ),
+                (
+                    SteelVal::StringV("foo2".into()),
+                    SteelVal::StringV("bar2".into()),
+                ),
+            ]))
             .into(),
         );
 
@@ -393,10 +399,16 @@ mod conversion_tests {
     #[test]
     fn hashmap_from_steelval_hashmap() {
         let input = SteelVal::HashMapV(
-            Gc::new(im_rc::hashmap! {
-                SteelVal::StringV("foo".into()) => SteelVal::StringV("bar".into()),
-                SteelVal::StringV("foo2".into()) => SteelVal::StringV("bar2".into())
-            })
+            Gc::new(im_rc::HashMap::<_, _, FxBuildHasher>::from(vec![
+                (
+                    SteelVal::StringV("foo".into()),
+                    SteelVal::StringV("bar".into()),
+                ),
+                (
+                    SteelVal::StringV("foo2".into()),
+                    SteelVal::StringV("bar2".into()),
+                ),
+            ]))
             .into(),
         );
 
@@ -417,10 +429,10 @@ mod conversion_tests {
         input.insert("bar".to_string());
 
         let expected = SteelVal::HashSetV(
-            Gc::new(im_rc::hashset! {
+            Gc::new(im_rc::HashSet::<_, FxBuildHasher>::from(vec![
                 SteelVal::StringV("foo".into()),
-                SteelVal::StringV("bar".into())
-            })
+                SteelVal::StringV("bar".into()),
+            ]))
             .into(),
         );
 
@@ -430,10 +442,10 @@ mod conversion_tests {
     #[test]
     fn hashset_from_steelval_hashset() {
         let input = SteelVal::HashSetV(
-            Gc::new(im_rc::hashset! {
+            Gc::new(im_rc::HashSet::<_, FxBuildHasher>::from(vec![
                 SteelVal::StringV("foo".into()),
-                SteelVal::StringV("bar".into())
-            })
+                SteelVal::StringV("bar".into()),
+            ]))
             .into(),
         );
 

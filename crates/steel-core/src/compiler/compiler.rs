@@ -1009,7 +1009,7 @@ impl Compiler {
 
     fn _run_const_evaluation_with_memoization(
         &mut self,
-        _constants: ImmutableHashMap<InternedString, SteelVal>,
+        _constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         mut _expanded_statements: Vec<ExprKind>,
     ) -> Result<Vec<ExprKind>> {
         todo!("Implement kernel level const evaluation here!")
