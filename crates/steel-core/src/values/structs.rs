@@ -46,7 +46,7 @@ enum StringOrMagicNumber {
 // #[derive(Debug)]
 pub struct VTableEntry {
     pub(crate) name: InternedString,
-    pub(crate) properties: Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>,
+    pub(crate) properties: Gc<ImmutableHashMap<SteelVal, SteelVal>>,
     pub(crate) proc: Option<usize>,
     pub(crate) transparent: bool,
     pub(crate) mutable: bool,
@@ -644,9 +644,9 @@ struct SteelTraitImplementation {}
 // name as a key, and use that to grab the properties. Under any circumstance that I am aware of,
 // the entry in the vtable should be alive for as long as the struct is legally allowed to be accessed.
 pub struct VTable {
-    map: fxhash::FxHashMap<InternedString, Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>>,
+    map: FxHashMap<InternedString, Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>>,
 
-    traits: fxhash::FxHashMap<InternedString, fxhash::FxHashMap<InternedString, Vec<SteelVal>>>,
+    traits: FxHashMap<InternedString, FxHashMap<InternedString, Vec<SteelVal>>>,
 
     entries: Vec<VTableEntry>,
 }
@@ -735,7 +735,7 @@ impl VTable {
     pub fn set_entry(
         descriptor: &StructTypeDescriptor,
         proc: Option<usize>,
-        properties: Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>>,
+        properties: Gc<ImmutableHashMap<SteelVal, SteelVal>>,
     ) {
         VTABLE.with(|x| {
             let mut guard = x.borrow_mut();
@@ -803,8 +803,8 @@ thread_local! {
         }))
     };
 
-    pub static DEFAULT_PROPERTIES: Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>> = Gc::new(ImmutableHashMap::default());
-    pub static STANDARD_OPTIONS: Gc<ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>> = Gc::new(ImmutableHashMap::from(vec![
+    pub static DEFAULT_PROPERTIES: Gc<ImmutableHashMap<SteelVal, SteelVal>> = Gc::new(ImmutableHashMap::default());
+    pub static STANDARD_OPTIONS: Gc<ImmutableHashMap<SteelVal, SteelVal>> = Gc::new(ImmutableHashMap::from(vec![
             (SteelVal::SymbolV("#:transparent".into()), SteelVal::BoolV(true))
     ]));
 

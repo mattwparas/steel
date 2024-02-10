@@ -1,4 +1,4 @@
-use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
+use fxhash::{FxHashMap, FxHashSet};
 
 use crate::values::lists::List;
 
@@ -33,7 +33,7 @@ impl IntoSteelVal for SteelVal {
 //     }
 // }
 
-impl FromSteelVal for Gc<im_rc::HashMap<SteelVal, SteelVal, FxBuildHasher>> {
+impl FromSteelVal for Gc<im_rc::HashMap<SteelVal, SteelVal>> {
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::HashMapV(hm) = val {
             Ok(hm.0.clone())
@@ -224,7 +224,7 @@ impl FromSteelVal for Box<str> {
 // HashMap
 impl<K: IntoSteelVal, V: IntoSteelVal> IntoSteelVal for FxHashMap<K, V> {
     fn into_steelval(mut self) -> Result<SteelVal> {
-        let mut hm = im_rc::HashMap::<SteelVal, SteelVal, FxBuildHasher>::default();
+        let mut hm = im_rc::HashMap::<SteelVal, SteelVal>::default();
         for (key, val) in self.drain() {
             hm.insert(key.into_steelval()?, val.into_steelval()?);
         }
@@ -380,16 +380,10 @@ mod conversion_tests {
         input.insert("foo2".to_string(), "bar2".to_string());
 
         let expected = SteelVal::HashMapV(
-            Gc::new(im_rc::HashMap::<_, _, FxBuildHasher>::from(vec![
-                (
-                    SteelVal::StringV("foo".into()),
-                    SteelVal::StringV("bar".into()),
-                ),
-                (
-                    SteelVal::StringV("foo2".into()),
-                    SteelVal::StringV("bar2".into()),
-                ),
-            ]))
+            Gc::new(im_rc::hashmap! {
+                SteelVal::StringV("foo".into()) => SteelVal::StringV("bar".into()),
+                SteelVal::StringV("foo2".into()) => SteelVal::StringV("bar2".into())
+            })
             .into(),
         );
 
@@ -399,16 +393,10 @@ mod conversion_tests {
     #[test]
     fn hashmap_from_steelval_hashmap() {
         let input = SteelVal::HashMapV(
-            Gc::new(im_rc::HashMap::<_, _, FxBuildHasher>::from(vec![
-                (
-                    SteelVal::StringV("foo".into()),
-                    SteelVal::StringV("bar".into()),
-                ),
-                (
-                    SteelVal::StringV("foo2".into()),
-                    SteelVal::StringV("bar2".into()),
-                ),
-            ]))
+            Gc::new(im_rc::hashmap! {
+                SteelVal::StringV("foo".into()) => SteelVal::StringV("bar".into()),
+                SteelVal::StringV("foo2".into()) => SteelVal::StringV("bar2".into()),
+            })
             .into(),
         );
 

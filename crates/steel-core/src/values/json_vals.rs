@@ -5,7 +5,6 @@ use crate::{
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
     throw,
 };
-use fxhash::FxBuildHasher;
 use im_rc::HashMap as ImmutableHashMap;
 use serde_json::{Map, Number, Value};
 use std::convert::{TryFrom, TryInto};
@@ -74,7 +73,7 @@ fn unescape(s: &str) -> String {
 impl TryFrom<Map<String, Value>> for SteelVal {
     type Error = SteelErr;
     fn try_from(map: Map<String, Value>) -> std::result::Result<Self, Self::Error> {
-        let mut hm = ImmutableHashMap::<_, _, FxBuildHasher>::default();
+        let mut hm = ImmutableHashMap::new();
         for (key, value) in map {
             hm.insert(SteelVal::SymbolV(key.into()), value.try_into()?);
         }
