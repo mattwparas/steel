@@ -1,6 +1,5 @@
 use axum::{extract::Query, http::StatusCode, routing::get, Router};
-use fxhash::FxHashMap;
-use std::net::SocketAddr;
+use std::{collections::HashMap, net::SocketAddr};
 use steel::{
     rvals::{Custom, SerializableSteelVal},
     steel_vm::ffi::{FFIModule, FFIValue, IntoFFIVal, RegisterFFIFn},
@@ -21,7 +20,7 @@ struct Request {
     typ: RequestType,
     path: String,
     body: Option<String>,
-    query_parameters: FxHashMap<String, String>,
+    query_parameters: HashMap<String, String>,
 }
 
 impl Custom for Request {}
@@ -209,7 +208,7 @@ fn spawn_server(
                         &route,
                         get(
                             |Path(path): Path<String>,
-                             Query(params): Query<FxHashMap<String, String>>,
+                             Query(params): Query<std::collections::HashMap<String, String>>,
                              body: Option<String>| async move {
                                 let request = Request {
                                     typ: RequestType::Get,

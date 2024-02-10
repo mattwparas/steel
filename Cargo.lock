@@ -3487,7 +3487,6 @@ dependencies = [
  "abi_stable",
  "axum",
  "crossbeam",
- "fxhash",
  "serde_json",
  "steel-core",
  "tokio",
