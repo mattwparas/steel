@@ -1225,7 +1225,7 @@ pub enum SteelVal {
 ///
 /// TODO: Optimize the contents of complex value. Holding `SteelVal` makes it easier to use existing
 /// operations but a more specialized representation may be faster.
-#[derive(Clone, Hash, PartialEq)]
+#[derive(Clone, Debug, Hash, PartialEq)]
 pub struct SteelComplex {
     /// The real part of the complex number.
     pub re: SteelVal,
