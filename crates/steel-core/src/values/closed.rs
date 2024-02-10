@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    rvals::{OpaqueIterator, SteelVector},
+    rvals::{OpaqueIterator, SteelComplex, SteelVector},
     steel_vm::vm::{Continuation, ContinuationMark},
     values::lists::List,
 };
@@ -607,6 +607,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     }
 
     fn push_back(&mut self, value: SteelVal) {
+        // TODO: Determine if all numbers should push back.
         match &value {
             SteelVal::BoolV(_)
             | SteelVal::NumV(_)
@@ -628,8 +629,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
         }
     }
 
-    fn visit_bignum(&mut self, _bignum: Gc<BigInt>) -> Self::Output {}
-
+    fn visit_bignum(&mut self, _: Gc<BigInt>) -> Self::Output {}
+    fn visit_complex(&mut self, _: Gc<SteelComplex>) -> Self::Output {}
     fn visit_bool(&mut self, _boolean: bool) -> Self::Output {}
     fn visit_boxed_function(&mut self, _function: Rc<BoxedDynFunction>) -> Self::Output {}
     // TODO: Revisit this when the boxed iterator is cleaned up

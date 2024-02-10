@@ -1240,6 +1240,18 @@ impl SteelComplex {
             im: imaginary,
         }
     }
+
+    /// Returns `true` if the imaginary part is negative.
+    fn imaginary_is_negative(&self) -> bool {
+        match &self.im {
+            NumV(x) => x.is_negative(),
+            IntV(x) => x.is_negative(),
+            Rational(x) => x.is_negative(),
+            BigNum(x) => x.is_negative(),
+            SteelVal::BigRational(x) => x.is_negative(),
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl IntoSteelVal for SteelComplex {
@@ -1252,16 +1264,12 @@ impl IntoSteelVal for SteelComplex {
     }
 }
 
-impl SteelComplex {
-    /// Returns `true` if the imaginary part is negative.
-    fn imaginary_is_negative(&self) -> bool {
-        match &self.im {
-            NumV(x) => x.is_negative(),
-            IntV(x) => x.is_negative(),
-            Rational(x) => x.is_negative(),
-            BigNum(x) => x.is_negative(),
-            SteelVal::BigRational(x) => x.is_negative(),
-            _ => unreachable!(),
+impl fmt::Display for SteelComplex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.imaginary_is_negative() {
+            write!(f, "{re}{im}i", re = self.re, im = self.im)
+        } else {
+            write!(f, "{re}+{im}i", re = self.re, im = self.im)
         }
     }
 }
@@ -2079,7 +2087,6 @@ impl fmt::Display for SteelVal {
         };
 
         CycleDetector::detect_and_display_cycles(self, f)
-
         // display_helper(self, f)
     }
 }

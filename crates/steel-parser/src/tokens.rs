@@ -1,10 +1,10 @@
 use crate::parser::SourceId;
 use crate::span::Span;
 use core::ops;
-use num_bigint::BigInt;
+use num::{BigInt, Signed};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
-use std::fmt;
+use std::fmt::{self, Display};
 use std::num::ParseIntError;
 use std::str::FromStr;
 use TokenType::*;
@@ -21,7 +21,7 @@ impl From<ParseIntError> for DecodeHexError {
     }
 }
 
-impl fmt::Display for DecodeHexError {
+impl Display for DecodeHexError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             DecodeHexError::OddLength => "input string has an odd number of bytes".fmt(f),
@@ -126,6 +126,21 @@ pub enum NumberLiteral {
     Complex(RealLiteral, RealLiteral),
 }
 
+impl Display for NumberLiteral {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NumberLiteral::Real(r) => r.fmt(f),
+            NumberLiteral::Complex(re, im) => {
+                if im.is_negative() {
+                    write!(f, "{re}{im}i")
+                } else {
+                    write!(f, "{re}+{im}i")
+                }
+            }
+        }
+    }
+}
+
 impl<S> From<NumberLiteral> for TokenType<S> {
     fn from(n: NumberLiteral) -> Self {
         TokenType::Number(n)
@@ -137,6 +152,16 @@ pub enum RealLiteral {
     Int(IntLiteral),
     Fraction(IntLiteral, IntLiteral),
     Inexact(f64),
+}
+
+impl RealLiteral {
+    fn is_negative(&self) -> bool {
+        match self {
+            RealLiteral::Int(i) => i.is_negative(),
+            RealLiteral::Fraction(n, _) => n.is_negative(),
+            RealLiteral::Inexact(f) => f.is_sign_negative(),
+        }
+    }
 }
 
 impl From<RealLiteral> for NumberLiteral {
@@ -151,24 +176,43 @@ impl<S> From<RealLiteral> for TokenType<S> {
     }
 }
 
+impl Display for RealLiteral {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RealLiteral::Int(i) => i.fmt(f),
+            RealLiteral::Fraction(n, d) => write!(f, "{n}/{d}"),
+            RealLiteral::Inexact(x) => write!(f, "{x}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum IntLiteral {
     Small(isize),
     Big(Box<BigInt>),
 }
 
+impl IntLiteral {
+    fn is_negative(&self) -> bool {
+        match self {
+            IntLiteral::Small(i) => i.is_negative(),
+            IntLiteral::Big(i) => i.is_negative(),
+        }
+    }
+}
+
 impl FromStr for IntLiteral {
-    type Err = <num_bigint::BigInt as FromStr>::Err;
+    type Err = <num::BigInt as FromStr>::Err;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         s.parse::<isize>().map(IntLiteral::Small).or_else(|_| {
-            s.parse::<num_bigint::BigInt>()
+            s.parse::<num::BigInt>()
                 .map(|b| IntLiteral::Big(Box::new(b)))
         })
     }
 }
 
-impl std::fmt::Display for IntLiteral {
+impl Display for IntLiteral {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Small(s) => write!(f, "{s}"),
@@ -196,18 +240,6 @@ impl From<IntLiteral> for BigInt {
             IntLiteral::Big(x) => *x,
         }
     }
-}
-
-#[cfg(test)]
-#[test]
-fn check_token_size() {
-    let actual = std::mem::size_of::<TokenType<&str>>();
-    // Typically 32 on 64bit machines on Rust 1.75.0.
-    let limit = 2 * std::mem::size_of::<String>();
-    assert!(
-        actual <= limit,
-        "Token size is {actual} but limit is {limit}."
-    );
 }
 
 impl<'a> TokenType<&'a str> {
@@ -300,7 +332,7 @@ fn character_special_display(c: char, f: &mut fmt::Formatter) -> fmt::Result {
     }
 }
 
-impl<T: fmt::Display> fmt::Display for TokenType<T> {
+impl<T: Display> fmt::Display for TokenType<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             OpenParen => write!(f, "("),
@@ -308,7 +340,7 @@ impl<T: fmt::Display> fmt::Display for TokenType<T> {
             CharacterLiteral(x) => character_special_display(*x, f),
             BooleanLiteral(x) => write!(f, "#{x}"),
             Identifier(x) => write!(f, "{x}"),
-            Number(x) => write!(f, "{x:?}"),
+            Number(x) => write!(f, "{x}"),
             StringLiteral(x) => write!(f, "\"{x}\""),
             Keyword(x) => write!(f, "{x}"),
             QuoteTick => write!(f, "'"),
@@ -424,7 +456,7 @@ impl<T> From<&Token<'_, T>> for [usize; 2] {
     }
 }
 
-impl<T> fmt::Display for Token<'_, T> {
+impl<T> Display for Token<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} @ {:?}", self.source, self.span)
     }

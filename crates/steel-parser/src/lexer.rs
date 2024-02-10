@@ -212,7 +212,7 @@ impl<'a> Lexer<'a> {
                 c if c.is_numeric() => {
                     self.eat();
                 }
-                '.' | '/' | 'e' | 'E' | 'i' => {
+                '+' | '-' | '.' | '/' | 'e' | 'E' | 'i' => {
                     self.eat();
                 }
                 '(' | ')' | '[' | ']' => {
@@ -468,9 +468,10 @@ fn split_into_complex<'a>(s: &'a str) -> Option<SmallVec<[NumPart<'a>; 2]>> {
         }
     };
     let idxs: SmallVec<[usize; 3]> = s
-        .match_indices(|c| matches!(c, '+' | '-'))
-        .take(3)
+        .char_indices()
+        .filter(|(_, ch)| *ch == '+' || *ch == '-')
         .map(|(idx, _)| idx)
+        .take(3)
         .collect();
     let parts = match idxs.as_slice() {
         [] | [0] => SmallVec::from_iter(std::iter::once(s).map(classify_num_part)),
@@ -482,6 +483,7 @@ fn split_into_complex<'a>(s: &'a str) -> Option<SmallVec<[NumPart<'a>; 2]>> {
     Some(parts)
 }
 
+#[derive(Debug)]
 enum NumPart<'a> {
     Real(&'a str),
     Imaginary(&'a str),
@@ -549,9 +551,7 @@ fn parse_number(s: &str) -> Option<NumberLiteral> {
         }
         [NumPart::Real(re), NumPart::Imaginary(im)]
         | [NumPart::Imaginary(im), NumPart::Real(re)] => {
-            let _ = parse_real(re)?;
-            let _ = parse_real(im)?;
-            todo!()
+            Some(NumberLiteral::Complex(parse_real(re)?, parse_real(im)?))
         }
         _ => None,
     }
@@ -787,7 +787,7 @@ mod lexer_tests {
     }
 
     #[test]
-    fn test_number() {
+    fn test_real_numbers() {
         let got: Vec<_> =
             TokenStream::new("0 -0 -1.2 +2.3 999 1. 1e2 1E2 1.2e2 1.2E2", true, None).collect();
         assert_eq!(
@@ -935,6 +935,115 @@ mod lexer_tests {
                     ty: IntLiteral::Small(4).into(),
                     source: "4",
                     span: Span::new(205, 206, None),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_complex_numbers() {
+        let got: Vec<_> =
+            TokenStream::new("1+2i 3-4i +5+6i +1i 1.0+2.0i 3-4.0i +1.0i", true, None).collect();
+        assert_eq!(
+            got.as_slice(),
+            &[
+                Token {
+                    ty: NumberLiteral::Complex(
+                        IntLiteral::Small(1).into(),
+                        IntLiteral::Small(2).into()
+                    )
+                    .into(),
+                    source: "1+2i",
+                    span: Span::new(0, 4, None),
+                },
+                Token {
+                    ty: NumberLiteral::Complex(
+                        IntLiteral::Small(3).into(),
+                        IntLiteral::Small(-4).into()
+                    )
+                    .into(),
+                    source: "3-4i",
+                    span: Span::new(5, 9, None),
+                },
+                Token {
+                    ty: NumberLiteral::Complex(
+                        IntLiteral::Small(5).into(),
+                        IntLiteral::Small(6).into()
+                    )
+                    .into(),
+                    source: "+5+6i",
+                    span: Span::new(10, 15, None),
+                },
+                Token {
+                    ty: NumberLiteral::Complex(
+                        IntLiteral::Small(0).into(),
+                        IntLiteral::Small(1).into()
+                    )
+                    .into(),
+                    source: "+1i",
+                    span: Span::new(16, 19, None),
+                },
+                Token {
+                    ty: NumberLiteral::Complex(
+                        RealLiteral::Inexact(1.0).into(),
+                        RealLiteral::Inexact(2.0).into()
+                    )
+                    .into(),
+                    source: "1.0+2.0i",
+                    span: Span::new(20, 28, None),
+                },
+                Token {
+                    ty: NumberLiteral::Complex(
+                        IntLiteral::Small(3).into(),
+                        RealLiteral::Inexact(-4.0).into()
+                    )
+                    .into(),
+                    source: "3-4.0i",
+                    span: Span::new(29, 35, None),
+                },
+                Token {
+                    ty: NumberLiteral::Complex(
+                        IntLiteral::Small(0).into(),
+                        RealLiteral::Inexact(1.0).into()
+                    )
+                    .into(),
+                    source: "+1.0i",
+                    span: Span::new(36, 41, None),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_malformed_complex_numbers_are_identifiers() {
+        let got: Vec<_> = TokenStream::new("i -i 1i+1i 4+i -4+-2i", true, None).collect();
+        assert_eq!(
+            got.as_slice(),
+            &[
+                Token {
+                    ty: Identifier("i"),
+                    source: "i",
+                    span: Span::new(0, 1, None),
+                },
+                Token {
+                    ty: Identifier("-i"),
+                    source: "-i",
+                    span: Span::new(2, 4, None),
+                },
+                Token {
+                    ty: Identifier("1i+1i"),
+                    source: "1i+1i",
+                    span: Span::new(5, 10, None),
+                },
+                Token {
+                    ty: Identifier("4+i"),
+                    source: "4+i",
+                    span: Span::new(11, 14, None),
+                },
+                Token {
+                    ty: Identifier("-4+-2i"),
+                    source: "-4+-2i",
+                    span: Span::new(15, 21, None),
                 },
             ]
         );
