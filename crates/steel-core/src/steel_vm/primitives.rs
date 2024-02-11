@@ -59,8 +59,7 @@ use crate::{
     rvals::{Result, SteelVal},
     SteelErr,
 };
-use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
-use im_rc::HashMap as ImmutableHashMap;
+use fxhash::{FxHashMap, FxHashSet};
 use num::{pow::Pow, BigInt, BigRational, Signed, ToPrimitive};
 use once_cell::sync::Lazy;
 use std::{cell::RefCell, cmp::Ordering};
@@ -1431,7 +1430,7 @@ impl crate::rvals::Custom for MutableVector {
 }
 
 struct MutableHashTable {
-    table: ImmutableHashMap<SteelVal, SteelVal, FxBuildHasher>,
+    table: FxHashMap<SteelVal, SteelVal>,
 }
 
 impl crate::rvals::Custom for MutableHashTable {
@@ -1446,7 +1445,7 @@ impl crate::rvals::Custom for MutableHashTable {
 impl MutableHashTable {
     pub fn new() -> Self {
         Self {
-            table: ImmutableHashMap::default(),
+            table: FxHashMap::default(),
         }
     }
 
