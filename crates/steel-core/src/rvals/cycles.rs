@@ -1,10 +1,9 @@
-use crate::{parser::lexer, values::lists::Pair};
-use num::BigInt;
-use std::{cell::Cell, collections::VecDeque, fmt::Display};
-
 use crate::steel_vm::{
     builtin::get_function_name, engine::Engine, vm::Continuation, vm::ContinuationMark,
 };
+use crate::values::lists::Pair;
+use num::BigInt;
+use std::{cell::Cell, collections::VecDeque};
 
 use super::*;
 
@@ -197,17 +196,7 @@ impl CycleDetector {
 
         let res = match val {
             BoolV(b) => write!(f, "#{b}"),
-            NumV(x) => {
-                if x.is_nan() {
-                    lexer::NAN.fmt(f)
-                } else if x.is_sign_negative() && x.is_infinite() {
-                    lexer::NEG_INFINITY.fmt(f)
-                } else if x.is_infinite() {
-                    lexer::INFINITY.fmt(f)
-                } else {
-                    write!(f, "{x:?}")
-                }
-            }
+            NumV(x) => write!(f, "{}", RealLiteral::Float(*x)),
             IntV(x) => write!(f, "{x}"),
             Rational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
             BigRational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
