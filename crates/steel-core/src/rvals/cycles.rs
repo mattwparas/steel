@@ -47,6 +47,7 @@ pub(super) struct CycleDetector {
     depth: usize,
 }
 
+/// Specifies how to format for the `format_with_cycles` function.
 #[derive(PartialEq)]
 enum FormatType {
     Normal,
