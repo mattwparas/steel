@@ -15,6 +15,7 @@
 (assert! (rational? 1/4))
 (assert! (rational? 1.2))
 (assert! (not (rational? -inf.0)))
+(assert! (not (rational? -nan.0)))
 (assert! (number? 1))
 (assert! (number? 1/4))
 (assert! (number? 1.2))
