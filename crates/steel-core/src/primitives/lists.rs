@@ -509,8 +509,8 @@ pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
         }
 
         SteelVal::Pair(p) => Ok(p.cdr()),
-        _ => {
-            stop!(TypeMismatch => format!("cdr expects a list, found: {}", &arg))
+        arg => {
+            stop!(TypeMismatch => format!("cdr expects a list, found: {}", arg))
         }
     }
 }
