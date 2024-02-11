@@ -6,6 +6,11 @@ use std::iter::Iterator;
 use std::marker::PhantomData;
 use std::{iter::Peekable, str::Chars};
 
+pub const INFINITY: &str = "+inf.0";
+pub const NEG_INFINITY: &str = "-inf.0";
+pub const NAN: &str = "+nan.0";
+pub const NEG_NAN: &str = "-nan.0";
+
 pub struct OwnedString;
 
 impl ToOwnedString<String> for OwnedString {
@@ -21,14 +26,14 @@ pub trait ToOwnedString<T> {
 pub type Span = core::ops::Range<usize>;
 
 pub struct Lexer<'a> {
+    /// The source of the lexer.
     source: &'a str,
-
+    /// An iterator over the characters.
     chars: Peekable<Chars<'a>>,
-
+    /// The  next token to return or `None` if it should be parsed.
+    queued: Option<TokenType<&'a str>>,
     token_start: usize,
     token_end: usize,
-    // skip_comments: bool,
-    // source_id: Option<SourceId>,
 }
 
 impl<'a> Lexer<'a> {
@@ -36,17 +41,15 @@ impl<'a> Lexer<'a> {
         Self {
             source,
             chars: source.chars().peekable(),
+            queued: None,
             token_start: 0,
             token_end: 0,
-            // skip_comments,
-            // source_id,
         }
     }
 
     fn eat(&mut self) -> Option<char> {
         if let Some(c) = self.chars.next() {
             self.token_end += c.len_utf8();
-
             Some(c)
         } else {
             None
@@ -282,8 +285,18 @@ impl<'a> Lexer<'a> {
             "set!" => TokenType::Set,
             "require" => TokenType::Require,
             "if" => TokenType::If,
-
-            identifier => TokenType::Identifier(identifier),
+            INFINITY => TokenType::Number(RealLiteral::Float(f64::INFINITY).into()),
+            NEG_INFINITY => TokenType::Number(RealLiteral::Float(f64::NEG_INFINITY).into()),
+            NAN => TokenType::Number(RealLiteral::Float(f64::NAN).into()),
+            NEG_NAN => TokenType::Number(RealLiteral::Float(f64::NAN).into()),
+            identifier => {
+                if identifier.len() > 1 && identifier.starts_with('+') && self.queued.is_none() {
+                    self.queued = Some(TokenType::Identifier(&identifier[1..]));
+                    TokenType::Identifier("+")
+                } else {
+                    TokenType::Identifier(identifier)
+                }
+            }
         }
     }
 }
@@ -385,6 +398,9 @@ impl<'a> Iterator for Lexer<'a> {
     type Item = Result<TokenType<&'a str>>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if let Some(t) = self.queued.take() {
+            return Some(Ok(t));
+        }
         // Crunch until the next input
         self.consume_whitespace();
 
@@ -429,15 +445,7 @@ impl<'a> Iterator for Lexer<'a> {
                     Some(Ok(TokenType::Unquote))
                 }
             }
-
-            Some('+') => {
-                self.eat();
-                match self.chars.peek() {
-                    Some(&c) if c.is_numeric() => Some(Ok(self.read_number())),
-                    _ => Some(Ok(TokenType::Identifier(self.slice()))),
-                }
-            }
-            Some('-') => {
+            Some('+') | Some('-') => {
                 self.eat();
                 match self.chars.peek() {
                     Some(&c) if c.is_numeric() => Some(Ok(self.read_number())),
@@ -788,8 +796,12 @@ mod lexer_tests {
 
     #[test]
     fn test_real_numbers() {
-        let got: Vec<_> =
-            TokenStream::new("0 -0 -1.2 +2.3 999 1. 1e2 1E2 1.2e2 1.2E2", true, None).collect();
+        let got: Vec<_> = TokenStream::new(
+            "0 -0 -1.2 +2.3 999 1. 1e2 1E2 1.2e2 1.2E2 +inf.0 -inf.0",
+            true,
+            None,
+        )
+        .collect();
         assert_eq!(
             got.as_slice(),
             &[
@@ -843,7 +855,30 @@ mod lexer_tests {
                     source: "1.2E2",
                     span: Span::new(36, 41, None),
                 },
+                Token {
+                    ty: RealLiteral::Float(f64::INFINITY).into(),
+                    source: "+inf.0",
+                    span: Span::new(42, 48, None),
+                },
+                Token {
+                    ty: RealLiteral::Float(f64::NEG_INFINITY).into(),
+                    source: "-inf.0",
+                    span: Span::new(49, 55, None),
+                },
             ]
+        );
+    }
+
+    #[test]
+    fn test_nan() {
+        // nan does not equal nan so we have to run the is_nan predicate.
+        let got = TokenStream::new("+nan.0", true, None).next().unwrap();
+        assert!(
+            matches!(got.ty, TokenType::Number(NumberLiteral::Real(RealLiteral::Float(x))) if x.is_nan())
+        );
+        let got = TokenStream::new("-nan.0", true, None).next().unwrap();
+        assert!(
+            matches!(got.ty, TokenType::Number(NumberLiteral::Real(RealLiteral::Float(x))) if x.is_nan())
         );
     }
 
