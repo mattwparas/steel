@@ -1,6 +1,6 @@
 # Using Steel on its own
 
-## Preambule
+## 0. Preambule
 This document includes some features of ABNF (Augmented Backus Naur form), which is a meta-language used to define
 another language and proves itself always useful in documentations associated with programming languages and softwares.
 To know more about its full specifications, see: [RFC5234](https://www.rfc-editor.org/rfc/rfc5234) and its superseeded
@@ -16,7 +16,7 @@ The main considerations are defined as follow:
     
 Of course, those semantic mechanisms will NOT appear anywhere in your command lines!
 
-## Installing Steel Interpreter
+## 1. Installing Steel Interpreter
 
 You can use and enjoy all features provided by the Steel Interpreter by installing it and running it on its own.
 
@@ -56,20 +56,20 @@ You can use and enjoy all features provided by the Steel Interpreter by installi
   when executing subsequent runs.
 
 
-## Updating interactive shell environment
+## 2. Updating interactive shell environment
 
-  4. Add the portable binary executable path name to your `PATH` environment variable.
+  1. Add the portable binary executable path name to your `PATH` environment variable.
     
     - For those who adopt Bash or Zsh as their daily driver, simply feed the new path like the following:\
   `export PATH=~/\<your/path/to/steel/directory\>/target/release:$PATH`
   
-  Then run the subsequent command to regenerate your environment variable:\
+  2. Then run the subsequent command to regenerate your environment variable:\
   `source ~/.bashrc`
   
     - With respect to `Fish` shell users, simply proceed this way:\
   `fish_add_path \<your/path/to/steel/directory\>/target/release`
 
-  Now reload your interactive shell with the newly added environment variable like so:\
+  3. From now on, you may wish to reload your interactive shell with the newly added environment variable like so:\
   `source ~/.config/fish/config.fish`
   
   - And for those who make use of `elvish` as their beloved shell, add the following into your `rc.elv` file:\
@@ -79,24 +79,38 @@ You can use and enjoy all features provided by the Steel Interpreter by installi
   $@paths]
   ```
   
-  Finally, just type:\
+  4. Finally, just type:\
   `exec elvish`
   
   You can optionally check if your $paths environment variable has been properly fed with the new path name:\
   `pprint $paths`
 
 
-## Running a Steel file
+## 3. Executing a Steel program
 
-  5. Finally, compile and execute your Steel files from your terminal like so:\
+  You can compile and execute your Steel programs from your terminal like so:\
   `steel \<steel_file.scm\>`
 
 
-## Preparing ground for subsequent Steel packages
+## 4. Preparing ground for subsequent Steel packages
 
-  6. You can optionally define `STEEL_HOME` as a sub-directory of your choice to set up properly a path name for your
+  You can optionally define `STEEL_HOME` as a sub-directory of your choice to set up properly a path name for your
   subsequent Steel package's installations.\
-    Like before, forget not to regenerate your interactive shell to activate the new path name without having to start a
+  Like before, forget not to regenerate your interactive shell to activate the new path name without having to start a
   new user session.
 
 
+## 5. Updating the Steel compiler
+
+  0. The modus operandus is straightforward. Navigate through your installation path:
+  cd <path/to/steel/installation/repertoire`
+  
+  1. Simply fetch the latest changes from the official Steel repository to update your local one by running the
+  following command:\
+  `git pull [--rebase]`
+  
+  The optional flag may be required to avoid rebasing some non-local changes if the upstream branch was rebased since
+  last fetched.
+
+  2. Re-run the build using `cargo` package manager with one command or the other:
+  `cargo install --path .` / `cargo build --release`
