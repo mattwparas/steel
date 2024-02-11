@@ -1,6 +1,6 @@
-use crate::values::lists::Pair;
+use crate::{parser::lexer, values::lists::Pair};
 use num::BigInt;
-use std::{cell::Cell, collections::VecDeque};
+use std::{cell::Cell, collections::VecDeque, fmt::Display};
 
 use crate::steel_vm::{
     builtin::get_function_name, engine::Engine, vm::Continuation, vm::ContinuationMark,
@@ -152,10 +152,62 @@ impl CycleDetector {
         if self.depth > 128 {
             return write!(f, "...");
         }
+        let res = match val {
+            Custom(x) => write!(f, "#<{}>", x.borrow().display()?),
+            CustomStruct(s) => {
+                let guard = s;
+                {
+                    if guard
+                        .get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
+                        .and_then(|x| x.as_bool())
+                        .unwrap_or_default()
+                    {
+                        write!(f, "({}", guard.name())?;
+
+                        for i in guard.fields.iter() {
+                            write!(f, " ")?;
+                            self.format_with_cycles(i, f)?;
+                        }
+
+                        write!(f, ")")
+                    } else {
+                        write!(f, "({})", guard.name())
+                    }
+                }
+            }
+            HeapAllocated(b) => write!(f, "'#&{}", b.get()),
+            _ => {
+                self.depth -= 1;
+                let res = self.format_with_cycles(val, f);
+                self.depth += 1;
+                res
+            }
+        };
+
+        self.depth -= 1;
+
+        res
+    }
+
+    fn format_with_cycles(&mut self, val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
+        self.depth += 1;
+        if self.depth > 128 {
+            return write!(f, "...");
+        }
 
         let res = match val {
             BoolV(b) => write!(f, "#{b}"),
-            NumV(x) => write!(f, "{x:?}"),
+            NumV(x) => {
+                if x.is_nan() {
+                    lexer::NAN.fmt(f)
+                } else if x.is_sign_negative() && x.is_infinite() {
+                    lexer::NEG_INFINITY.fmt(f)
+                } else if x.is_infinite() {
+                    lexer::INFINITY.fmt(f)
+                } else {
+                    write!(f, "{x:?}")
+                }
+            }
             IntV(x) => write!(f, "{x}"),
             Rational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
             BigRational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
@@ -178,130 +230,6 @@ impl CycleDetector {
                 } else {
                     write!(f, "#<function>")
                 }
-            }
-            Void => write!(f, "#<void>"),
-            SymbolV(s) => write!(f, "{s}"),
-            VectorV(lst) => {
-                let mut iter = lst.iter();
-                write!(f, "'#(")?;
-                if let Some(last) = iter.next_back() {
-                    for item in iter {
-                        self.format_with_cycles(item, f)?;
-                        write!(f, " ")?;
-                    }
-                    self.format_with_cycles(last, f)?;
-                }
-                write!(f, ")")
-            }
-            Custom(x) => write!(f, "#<{}>", x.borrow().display()?),
-            CustomStruct(s) => {
-                let guard = s;
-
-                {
-                    if guard
-                        .get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
-                        .and_then(|x| x.as_bool())
-                        .unwrap_or_default()
-                    {
-                        write!(f, "({}", guard.name())?;
-
-                        for i in guard.fields.iter() {
-                            write!(f, " ")?;
-                            self.format_with_cycles(i, f)?;
-                        }
-
-                        write!(f, ")")
-                    } else {
-                        write!(f, "({})", guard.name())
-                    }
-                }
-            }
-
-            PortV(_) => write!(f, "#<port>"),
-            Closure(_) => write!(f, "#<bytecode-closure>"),
-            HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm.as_ref()),
-            IterV(_) => write!(f, "#<iterator>"),
-            HashSetV(hs) => write!(f, "#<hashset {:?}>", hs.0),
-            FutureFunc(_) => write!(f, "#<future-func>"),
-            FutureV(_) => write!(f, "#<future>"),
-            StreamV(_) => write!(f, "#<stream>"),
-            BoxedFunction(b) => {
-                if let Some(name) = b.name() {
-                    write!(f, "#<function:{}>", name)
-                } else {
-                    write!(f, "#<function>")
-                }
-            }
-            ContinuationFunction(_) => write!(f, "#<continuation>"),
-            // #[cfg(feature = "jit")]
-            // CompiledFunction(_) => write!(f, "#<compiled-function>"),
-            ListV(l) => {
-                write!(f, "(")?;
-
-                let mut iter = l.iter().peekable();
-
-                while let Some(item) = iter.next() {
-                    self.format_with_cycles(item, f)?;
-                    if iter.peek().is_some() {
-                        write!(f, " ")?
-                    }
-                }
-
-                write!(f, ")")
-            }
-            MutFunc(_) => write!(f, "#<function>"),
-            BuiltIn(_) => write!(f, "#<function>"),
-            ReducerV(_) => write!(f, "#<reducer>"),
-            MutableVector(v) => write!(f, "{:?}", v.get()),
-            SyntaxObject(s) => {
-                if let Some(raw) = &s.raw {
-                    write!(f, "#<syntax:{:?} {:?}>", s.span, raw)
-                } else {
-                    write!(f, "#<syntax:{:?} {:?}>", s.span, s.syntax)
-                }
-            }
-            BoxedIterator(_) => write!(f, "#<iterator>"),
-            Boxed(b) => write!(f, "'#&{}", b.borrow()),
-            Reference(x) => write!(f, "{}", x.format()?),
-            HeapAllocated(b) => write!(f, "'#&{}", b.get()),
-        };
-
-        self.depth -= 1;
-
-        res
-    }
-
-    fn format_with_cycles(&mut self, val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
-        self.depth += 1;
-
-        if self.depth > 128 {
-            return write!(f, "...");
-        }
-
-        let res = match val {
-            BoolV(b) => write!(f, "#{b}"),
-            NumV(x) => write!(f, "{x:?}"),
-            IntV(x) => write!(f, "{x}"),
-            Rational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
-            BigRational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
-            Complex(x) => write!(f, "{}", x.as_ref()),
-            StringV(s) => write!(f, "{s:?}"),
-            CharV(c) => {
-                if c.is_ascii_control() {
-                    write!(f, "{}", c)
-                } else {
-                    write!(f, "#\\{c}")
-                }
-            }
-            FuncV(func) => {
-                if let Some(name) = get_function_name(*func) {
-                    write!(f, "#<function:{}>", name.name)
-                } else {
-                    write!(f, "#<function>")
-                }
-            }
-            Pair(p) => {
-                write!(f, "({} . {})", p.car(), p.cdr())
             }
             Void => write!(f, "#<void>"),
             SymbolV(s) => write!(f, "{s}"),
@@ -374,16 +302,8 @@ impl CycleDetector {
                         write!(f, " ")?
                     }
                 }
-
-                // for item in l.iter().pe
-
-                // for item in l {
-                //     display_helper(item, f)?;
-                //     write!(f, " ")?;
-                // }
                 write!(f, ")")
             }
-            // write!(f, "#<list {:?}>", l),
             MutFunc(_) => write!(f, "#<function>"),
             BuiltIn(_) => write!(f, "#<function>"),
             ReducerV(_) => write!(f, "#<reducer>"),
@@ -398,7 +318,6 @@ impl CycleDetector {
             BoxedIterator(_) => write!(f, "#<iterator>"),
             Boxed(b) => write!(f, "'#&{}", b.borrow()),
             Reference(x) => write!(f, "{}", x.format()?),
-            BigNum(b) => write!(f, "{}", b.as_ref()),
             HeapAllocated(b) => {
                 if let Some(id) = b.get().as_ptr_usize().and_then(|x| self.cycles.get(&x)) {
                     write!(f, "#{id}#")

@@ -1,3 +1,4 @@
+use crate::lexer;
 use crate::parser::SourceId;
 use crate::span::Span;
 use core::ops;
@@ -199,10 +200,21 @@ impl From<Rational32> for RealLiteral {
 
 impl Display for RealLiteral {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        println!("I'm supposed to print {self}.");
         match self {
             RealLiteral::Int(i) => i.fmt(f),
             RealLiteral::Rational(n, d) => write!(f, "{n}/{d}"),
-            RealLiteral::Float(x) => write!(f, "{x}"),
+            RealLiteral::Float(x) => {
+                if x.is_nan() {
+                    write!(f, "{}", lexer::NAN)
+                } else if x.is_infinite() && x.is_sign_negative() {
+                    write!(f, "{}", lexer::NEG_INFINITY)
+                } else if x.is_infinite() {
+                    write!(f, "{}", lexer::INFINITY)
+                } else {
+                    x.fmt(f)
+                }
+            }
         }
     }
 }
