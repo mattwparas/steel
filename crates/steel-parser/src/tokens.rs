@@ -200,7 +200,6 @@ impl From<Rational32> for RealLiteral {
 
 impl Display for RealLiteral {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        println!("I'm supposed to print {self}.");
         match self {
             RealLiteral::Int(i) => i.fmt(f),
             RealLiteral::Rational(n, d) => write!(f, "{n}/{d}"),
