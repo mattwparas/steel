@@ -47,6 +47,12 @@ pub(super) struct CycleDetector {
     depth: usize,
 }
 
+#[derive(PartialEq)]
+enum FormatType {
+    Normal,
+    TopLevel,
+}
+
 impl CycleDetector {
     pub(super) fn detect_and_display_cycles(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
         // Consider using one shared queue here
@@ -130,66 +136,25 @@ impl CycleDetector {
             };
 
             write!(f, "#{id}=")?;
-            self.top_level_format_with_cycles(&node, f)?;
+            self.format_with_cycles(&node, f, FormatType::TopLevel)?;
             writeln!(f)?;
         }
 
         if !self.values.contains(val) {
-            self.format_with_cycles(val, f)?;
+            self.format_with_cycles(val, f, FormatType::Normal)?;
         }
 
         Ok(())
     }
 
-    fn top_level_format_with_cycles(
+    fn format_with_cycles(
         &mut self,
         val: &SteelVal,
         f: &mut fmt::Formatter,
+        format_type: FormatType,
     ) -> fmt::Result {
         self.depth += 1;
 
-        if self.depth > 128 {
-            return write!(f, "...");
-        }
-        let res = match val {
-            Custom(x) => write!(f, "#<{}>", x.borrow().display()?),
-            CustomStruct(s) => {
-                let guard = s;
-                {
-                    if guard
-                        .get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
-                        .and_then(|x| x.as_bool())
-                        .unwrap_or_default()
-                    {
-                        write!(f, "({}", guard.name())?;
-
-                        for i in guard.fields.iter() {
-                            write!(f, " ")?;
-                            self.format_with_cycles(i, f)?;
-                        }
-
-                        write!(f, ")")
-                    } else {
-                        write!(f, "({})", guard.name())
-                    }
-                }
-            }
-            HeapAllocated(b) => write!(f, "'#&{}", b.get()),
-            _ => {
-                self.depth -= 1;
-                let res = self.format_with_cycles(val, f);
-                self.depth += 1;
-                res
-            }
-        };
-
-        self.depth -= 1;
-
-        res
-    }
-
-    fn format_with_cycles(&mut self, val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
-        self.depth += 1;
         if self.depth > 128 {
             return write!(f, "...");
         }
@@ -198,11 +163,11 @@ impl CycleDetector {
             BoolV(b) => write!(f, "#{b}"),
             NumV(x) => write!(f, "{}", RealLiteral::Float(*x)),
             IntV(x) => write!(f, "{x}"),
+            BigNum(b) => write!(f, "{}", b.as_ref()),
             Rational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
             BigRational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
             Complex(x) => write!(f, "{}", x.as_ref()),
             StringV(s) => write!(f, "{s:?}"),
-            BigNum(b) => write!(f, "{}", b.as_ref()),
             CharV(c) => {
                 if c.is_ascii_control() {
                     write!(f, "{}", c)
@@ -224,25 +189,54 @@ impl CycleDetector {
             SymbolV(s) => write!(f, "{s}"),
             VectorV(lst) => {
                 let mut iter = lst.iter();
-                write!(f, "(")?;
+                match format_type {
+                    FormatType::Normal => write!(f, "(")?,
+                    FormatType::TopLevel => write!(f, "'#(")?,
+                };
                 if let Some(last) = iter.next_back() {
                     for item in iter {
-                        self.format_with_cycles(item, f)?;
+                        self.format_with_cycles(item, f, FormatType::Normal)?;
                         write!(f, " ")?;
                     }
-                    self.format_with_cycles(last, f)?;
+                    self.format_with_cycles(last, f, FormatType::Normal)?;
                 }
                 write!(f, ")")
             }
-            Custom(x) => write!(f, "{}", x.borrow().display()?),
-            CustomStruct(s) => {
-                if let Some(id) = self.cycles.get(&(s.as_ptr() as usize)) {
-                    write!(f, "#{id}#")
-                } else {
-                    let guard = s;
+            Custom(x) => match format_type {
+                FormatType::Normal => write!(f, "{}", x.borrow().display()?),
+                FormatType::TopLevel => write!(f, "#<{}>", x.borrow().display()?),
+            },
+            CustomStruct(s) => match format_type {
+                FormatType::Normal => {
+                    if let Some(id) = self.cycles.get(&(s.as_ptr() as usize)) {
+                        write!(f, "#{id}#")
+                    } else {
+                        let guard = s;
 
+                        {
+                            if s.get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
+                                .and_then(|x| x.as_bool())
+                                .unwrap_or_default()
+                            {
+                                write!(f, "({}", guard.name())?;
+
+                                for i in guard.fields.iter() {
+                                    write!(f, " ")?;
+                                    self.format_with_cycles(i, f, FormatType::Normal)?;
+                                }
+
+                                write!(f, ")")
+                            } else {
+                                write!(f, "({})", guard.name())
+                            }
+                        }
+                    }
+                }
+                FormatType::TopLevel => {
+                    let guard = s;
                     {
-                        if s.get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
+                        if guard
+                            .get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
                             .and_then(|x| x.as_bool())
                             .unwrap_or_default()
                         {
@@ -250,7 +244,7 @@ impl CycleDetector {
 
                             for i in guard.fields.iter() {
                                 write!(f, " ")?;
-                                self.format_with_cycles(i, f)?;
+                                self.format_with_cycles(i, f, FormatType::Normal)?;
                             }
 
                             write!(f, ")")
@@ -259,8 +253,7 @@ impl CycleDetector {
                         }
                     }
                 }
-            }
-
+            },
             PortV(_) => write!(f, "#<port>"),
             Closure(_) => write!(f, "#<bytecode-closure>"),
             HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm.as_ref()),
@@ -268,7 +261,6 @@ impl CycleDetector {
             HashSetV(hs) => write!(f, "#<hashset {:?}>", hs.0),
             FutureFunc(_) => write!(f, "#<future-func>"),
             FutureV(_) => write!(f, "#<future>"),
-            // Promise(_) => write!(f, "#<promise>"),
             StreamV(_) => write!(f, "#<stream>"),
             BoxedFunction(b) => {
                 if let Some(name) = b.name() {
@@ -286,13 +278,14 @@ impl CycleDetector {
                 let mut iter = l.iter().peekable();
 
                 while let Some(item) = iter.next() {
-                    self.format_with_cycles(item, f)?;
+                    self.format_with_cycles(item, f, FormatType::Normal)?;
                     if iter.peek().is_some() {
                         write!(f, " ")?
                     }
                 }
                 write!(f, ")")
             }
+            // write!(f, "#<list {:?}>", l),
             MutFunc(_) => write!(f, "#<function>"),
             BuiltIn(_) => write!(f, "#<function>"),
             ReducerV(_) => write!(f, "#<reducer>"),
@@ -308,10 +301,14 @@ impl CycleDetector {
             Boxed(b) => write!(f, "'#&{}", b.borrow()),
             Reference(x) => write!(f, "{}", x.format()?),
             HeapAllocated(b) => {
-                if let Some(id) = b.get().as_ptr_usize().and_then(|x| self.cycles.get(&x)) {
-                    write!(f, "#{id}#")
-                } else {
-                    write!(f, "'#&{}", b.get())
+                let maybe_id = b.get().as_ptr_usize().and_then(|x| self.cycles.get(&x));
+                match (maybe_id, format_type) {
+                    (Some(id), FormatType::Normal) => {
+                        write!(f, "#{id}#")
+                    }
+                    _ => {
+                        write!(f, "'#&{}", b.get())
+                    }
                 }
             }
         };
