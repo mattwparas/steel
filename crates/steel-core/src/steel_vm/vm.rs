@@ -647,6 +647,8 @@ impl SteelThread {
                     }
                 }
 
+                self.stack.clear();
+
                 return Err(e);
             } else {
                 // self.profiler.report();
