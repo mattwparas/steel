@@ -8,7 +8,7 @@ use crate::primitives::lists::is_empty;
 use crate::primitives::lists::new as new_list;
 use crate::primitives::lists::steel_car;
 use crate::primitives::lists::steel_cdr;
-use crate::primitives::nums::add_two;
+use crate::primitives::numbers::add_two;
 // use crate::primitives::lists::unsafe_cons;
 use crate::rvals::number_equality;
 use crate::rvals::steel_number_equality;

@@ -1,8 +1,334 @@
 use crate::rvals::{IntoSteelVal, Result, SteelComplex, SteelVal};
-use crate::steel_vm::primitives::{numberp, realp};
 use crate::stop;
-use num::{BigInt, BigRational, CheckedAdd, CheckedMul, Integer, Rational32, ToPrimitive};
+use num::{
+    pow::Pow, BigInt, BigRational, CheckedAdd, CheckedMul, Integer, Rational32, Signed, ToPrimitive,
+};
 use std::ops::Neg;
+
+#[steel_derive::function(name = "number?", constant = true)]
+pub fn numberp(value: &SteelVal) -> bool {
+    matches!(
+        value,
+        SteelVal::IntV(_)
+            | SteelVal::BigNum(_)
+            | SteelVal::Rational(_)
+            | SteelVal::BigRational(_)
+            | SteelVal::NumV(_)
+            | SteelVal::Complex(_)
+    )
+}
+
+#[steel_derive::function(name = "complex?", constant = true)]
+pub fn complexp(value: &SteelVal) -> bool {
+    numberp(value)
+}
+
+#[steel_derive::function(name = "real?", constant = true)]
+pub fn realp(value: &SteelVal) -> bool {
+    matches!(
+        value,
+        SteelVal::IntV(_)
+            | SteelVal::BigNum(_)
+            | SteelVal::Rational(_)
+            | SteelVal::BigRational(_)
+            | SteelVal::NumV(_)
+    )
+}
+
+/// Returns #t if obj is a rational number, #f otherwise.
+/// Rational numbers are numbers that can be expressed as the quotient of two numbers.
+/// For example, 3/4, -5/2, 0.25, and 0 are rational numbers, while
+///
+/// (rational? value) -> bool?
+///
+/// Examples:
+/// ```scheme
+///   (rational? (/ 0.0)) ⇒ #f
+///   (rational? 3.5)     ⇒ #t
+///   (rational? 6/10)    ⇒ #t
+///   (rational? 6/3)     ⇒ #t
+/// ```
+#[steel_derive::function(name = "rational?", constant = true)]
+fn rationalp(value: &SteelVal) -> bool {
+    match value {
+        SteelVal::IntV(_)
+        | SteelVal::BigNum(_)
+        | SteelVal::Rational(_)
+        | SteelVal::BigRational(_) => true,
+        SteelVal::NumV(n) => n.is_finite(),
+        _ => false,
+    }
+}
+
+#[steel_derive::function(name = "int?", constant = true)]
+fn intp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::IntV(_) | SteelVal::BigNum(_))
+}
+
+#[steel_derive::function(name = "integer?", constant = true)]
+fn integerp(value: &SteelVal) -> bool {
+    intp(value)
+}
+
+#[steel_derive::function(name = "float?", constant = true)]
+fn floatp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::NumV(_))
+}
+
+#[steel_derive::native(name = "-", constant = true, arity = "AtLeast(1)")]
+pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
+    ensure_args_are_numbers("-", args)?;
+    match args {
+        [] => stop!(TypeMismatch => "- requires at least one argument"),
+        [x] => negate(x),
+        [x, ys @ ..] => {
+            let y = negate(&add_primitive(ys)?)?;
+            add_two(x, &y)
+        }
+    }
+}
+
+#[steel_derive::native(name = "+", constant = true, arity = "AtLeast(0)")]
+pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
+    ensure_args_are_numbers("+", args)?;
+    match args {
+        [] => 0.into_steelval(),
+        [x] => x.clone().into_steelval(),
+        [x, y] => add_two(x, y),
+        [x, y, zs @ ..] => {
+            let mut res = add_two(x, y)?;
+            for z in zs {
+                res = add_two(&res, z)?;
+            }
+            res.into_steelval()
+        }
+    }
+}
+
+#[steel_derive::native(name = "*", constant = true, arity = "AtLeast(0)")]
+pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
+    ensure_args_are_numbers("*", args)?;
+    multiply_primitive_impl(args)
+}
+
+#[steel_derive::native(name = "/", constant = true, arity = "AtLeast(1)")]
+pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
+    ensure_args_are_numbers("/", args)?;
+    let recip = |x: &SteelVal| -> Result<SteelVal> {
+        match x {
+            SteelVal::IntV(n) => match i32::try_from(*n) {
+                Ok(n) => Rational32::new(1, n).into_steelval(),
+                Err(_) => BigRational::new(BigInt::from(1), BigInt::from(*n)).into_steelval(),
+            },
+            SteelVal::NumV(n) => n.recip().into_steelval(),
+            SteelVal::Rational(r) => r.recip().into_steelval(),
+            SteelVal::BigRational(r) => r.recip().into_steelval(),
+            SteelVal::BigNum(n) => BigRational::new(1.into(), n.as_ref().clone()).into_steelval(),
+            SteelVal::Complex(c) => complex_reciprocal(c),
+            unexpected => {
+                stop!(TypeMismatch => "/ expects a number, but found: {:?}", unexpected)
+            }
+        }
+    };
+    match &args {
+        [] => stop!(ArityMismatch => "/ requires at least one argument"),
+        [x] => recip(x),
+        // TODO: Provide custom implementation to optimize by joining the multiply and recip calls.
+        [x, y] => multiply_two(x, &recip(y)?),
+        [x, ys @ ..] => {
+            let d = multiply_primitive_impl(ys)?;
+            multiply_two(&x, &recip(&d)?)
+        }
+    }
+}
+
+#[steel_derive::function(name = "exact?", constant = true)]
+pub fn exactp(value: &SteelVal) -> bool {
+    match value {
+        SteelVal::IntV(_)
+        | SteelVal::BigNum(_)
+        | SteelVal::Rational(_)
+        | SteelVal::BigRational(_) => true,
+        SteelVal::Complex(x) => exactp(&x.re) && exactp(&x.im),
+        _ => false,
+    }
+}
+
+#[steel_derive::function(name = "inexact?", constant = true)]
+pub fn inexactp(value: &SteelVal) -> bool {
+    match value {
+        SteelVal::NumV(_) => true,
+        SteelVal::Complex(x) => inexactp(&x.re) || inexactp(&x.im),
+        _ => false,
+    }
+}
+
+#[steel_derive::function(name = "exact->inexact", constant = true)]
+fn exact_to_inexact(number: &SteelVal) -> Result<SteelVal> {
+    match number {
+        SteelVal::IntV(i) => (*i as f64).into_steelval(),
+        SteelVal::Rational(f) => f.to_f64().unwrap().into_steelval(),
+        SteelVal::BigRational(f) => f.to_f64().unwrap().into_steelval(),
+        SteelVal::NumV(n) => n.into_steelval(),
+        SteelVal::BigNum(n) => Ok(SteelVal::NumV(n.to_f64().unwrap())),
+        SteelVal::Complex(x) => {
+            SteelComplex::new(exact_to_inexact(&x.re)?, exact_to_inexact(&x.im)?).into_steelval()
+        }
+        _ => stop!(TypeMismatch => "exact->inexact expects a number type, found: {}", number),
+    }
+}
+
+#[steel_derive::function(name = "inexact->exact", constant = true)]
+fn inexact_to_exact(_: &SteelVal) -> Result<SteelVal> {
+    todo!()
+}
+
+/// Returns the absolute value of the given input
+#[steel_derive::function(name = "abs", constant = true)]
+fn abs(number: &SteelVal) -> Result<SteelVal> {
+    match number {
+        SteelVal::IntV(i) => Ok(SteelVal::IntV(i.abs())),
+        SteelVal::NumV(n) => Ok(SteelVal::NumV(n.abs())),
+        SteelVal::Rational(f) => f.abs().into_steelval(),
+        SteelVal::BigRational(f) => f.abs().into_steelval(),
+        SteelVal::BigNum(n) => n.as_ref().abs().into_steelval(),
+        _ => stop!(TypeMismatch => "abs expects a real number, found: {}", number),
+    }
+}
+
+// Docs from racket:
+// (round x) → (or/c integer? +inf.0 -inf.0 +nan.0)
+//   x : real?
+// Returns the integer closest to x, resolving ties in favor of an even number, but +inf.0, -inf.0, and +nan.0 round to themselves.
+#[steel_derive::function(name = "round", constant = true)]
+fn round(number: &SteelVal) -> Result<SteelVal> {
+    match number {
+        SteelVal::IntV(i) => i.into_steelval(),
+        SteelVal::NumV(n) => n.round().into_steelval(),
+        SteelVal::Rational(f) => f.round().into_steelval(),
+        SteelVal::BigRational(f) => f.round().into_steelval(),
+        SteelVal::BigNum(n) => Ok(SteelVal::BigNum(n.clone())),
+        _ => stop!(TypeMismatch => "round expects a real number, found: {}", number),
+    }
+}
+
+// TODO: Add support for BigNum.
+#[steel_derive::function(name = "expt", constant = true)]
+fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
+    match (left, right) {
+        (SteelVal::IntV(l), SteelVal::IntV(r)) if *r < (u32::MAX as isize) => {
+            l.pow(*r as u32).into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::NumV(r)) => (*l as f64).powf(*r).into_steelval(),
+        (SteelVal::IntV(l), SteelVal::Rational(r)) => {
+            (*l as f64).powf(r.to_f64().unwrap()).into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::BigRational(r)) => {
+            (*l as f64).powf(r.to_f64().unwrap()).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::NumV(r)) => Ok(SteelVal::NumV(l.powf(*r))),
+        (SteelVal::NumV(l), SteelVal::IntV(r)) if *r < (i32::MAX as isize) => {
+            l.powi(*r as i32).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::Rational(r)) => {
+            Ok(SteelVal::NumV(l.powf(r.to_f64().unwrap())))
+        }
+        (SteelVal::NumV(l), SteelVal::BigRational(r)) => {
+            Ok(SteelVal::NumV(l.powf(r.to_f64().unwrap())))
+        }
+        (SteelVal::Rational(l), SteelVal::Rational(r)) => l
+            .to_f64()
+            .unwrap()
+            .powf(r.to_f64().unwrap())
+            .into_steelval(),
+        (SteelVal::Rational(l), SteelVal::NumV(r)) => l.to_f64().unwrap().powf(*r).into_steelval(),
+        (SteelVal::Rational(l), SteelVal::IntV(r)) => match i32::try_from(*r) {
+            Ok(r) => l.pow(r).into_steelval(),
+            Err(_) => {
+                let base = BigRational::new(BigInt::from(*l.numer()), BigInt::from(*l.denom()));
+                let exp = BigInt::from(*r);
+                base.pow(exp).into_steelval()
+            }
+        },
+        (SteelVal::Rational(l), SteelVal::BigRational(r)) => l
+            .to_f64()
+            .unwrap()
+            .powf(r.to_f64().unwrap())
+            .into_steelval(),
+        (SteelVal::BigRational(l), SteelVal::Rational(r)) => l
+            .to_f64()
+            .unwrap()
+            .powf(r.to_f64().unwrap())
+            .into_steelval(),
+        (SteelVal::BigRational(l), SteelVal::NumV(r)) => {
+            l.to_f64().unwrap().powf(*r).into_steelval()
+        }
+        (SteelVal::BigRational(l), SteelVal::IntV(r)) => match i32::try_from(*r) {
+            Ok(r) => l.as_ref().pow(r).into_steelval(),
+            Err(_) => {
+                let exp = BigInt::from(*r);
+                l.as_ref().clone().pow(exp).into_steelval()
+            }
+        },
+        (SteelVal::BigRational(l), SteelVal::BigRational(r)) => l
+            .to_f64()
+            .unwrap()
+            .powf(r.to_f64().unwrap())
+            .into_steelval(),
+        (l, r) => {
+            stop!(TypeMismatch => "expt expected two numbers but found {} and {}", l, r)
+        }
+    }
+}
+
+/// Returns Euler's number raised to the power of z.
+#[steel_derive::function(name = "exp", constant = true)]
+fn exp(left: &SteelVal) -> Result<SteelVal> {
+    match left {
+        SteelVal::IntV(0) => Ok(SteelVal::IntV(1)),
+        SteelVal::IntV(l) if *l < i32::MAX as isize => {
+            Ok(SteelVal::NumV(std::f64::consts::E.powi(*l as i32)))
+        }
+        SteelVal::NumV(n) => Ok(SteelVal::NumV(std::f64::consts::E.powf(*n))),
+        SteelVal::Rational(f) => std::f64::consts::E
+            .powf(f.to_f64().unwrap())
+            .into_steelval(),
+        SteelVal::BigRational(f) => std::f64::consts::E
+            .powf(f.to_f64().unwrap())
+            .into_steelval(),
+        _ => {
+            stop!(Generic => "integer power too large to be used for exponent")
+        }
+    }
+}
+
+#[steel_derive::native(name = "log", arity = "AtLeast(1)")]
+fn log(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.len() > 2 {
+        stop!(ArityMismatch => "log expects one or two arguments, found: {}", args.len());
+    }
+
+    let first = &args[0];
+    let base = args
+        .get(1)
+        .cloned()
+        .unwrap_or(SteelVal::NumV(std::f64::consts::E));
+
+    match (first, &base) {
+        (SteelVal::IntV(1), _) => Ok(SteelVal::IntV(0)),
+        (SteelVal::IntV(_) | SteelVal::NumV(_), SteelVal::IntV(1)) => {
+            stop!(Generic => "log: divide by zero with args: {} and {}", first, base);
+        }
+        (SteelVal::IntV(arg), SteelVal::NumV(n)) => Ok(SteelVal::NumV((*arg as f64).log(*n))),
+        (SteelVal::IntV(arg), SteelVal::IntV(base)) => Ok(SteelVal::IntV(arg.ilog(*base) as isize)),
+        (SteelVal::NumV(arg), SteelVal::NumV(n)) => Ok(SteelVal::NumV(arg.log(*n))),
+        (SteelVal::NumV(arg), SteelVal::IntV(base)) => Ok(SteelVal::NumV(arg.log(*base as f64))),
+        // TODO: Support BigNum, Rational, and BigRational.
+        _ => {
+            stop!(TypeMismatch => "log expects one or two numbers, found: {} and {}", first, base);
+        }
+    }
+}
 
 fn ensure_args_are_numbers(op: &str, args: &[SteelVal]) -> Result<()> {
     for arg in args {
@@ -120,12 +446,6 @@ fn multiply_primitive_impl(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-#[steel_derive::native(name = "*", constant = true, arity = "AtLeast(0)")]
-pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
-    ensure_args_are_numbers("*", args)?;
-    multiply_primitive_impl(args)
-}
-
 pub fn quotient(l: isize, r: isize) -> isize {
     l / r
 }
@@ -136,37 +456,6 @@ fn complex_reciprocal(c: &SteelComplex) -> Result<SteelVal> {
     let re = divide_primitive(&[c.re.clone(), denominator.clone()])?;
     let neg_im = divide_primitive(&[c.re.clone(), denominator])?;
     SteelComplex::new(re, subtract_primitive(&[neg_im])?).into_steelval()
-}
-
-#[steel_derive::native(name = "/", constant = true, arity = "AtLeast(1)")]
-pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
-    ensure_args_are_numbers("/", args)?;
-    let recip = |x: &SteelVal| -> Result<SteelVal> {
-        match x {
-            SteelVal::IntV(n) => match i32::try_from(*n) {
-                Ok(n) => Rational32::new(1, n).into_steelval(),
-                Err(_) => BigRational::new(BigInt::from(1), BigInt::from(*n)).into_steelval(),
-            },
-            SteelVal::NumV(n) => n.recip().into_steelval(),
-            SteelVal::Rational(r) => r.recip().into_steelval(),
-            SteelVal::BigRational(r) => r.recip().into_steelval(),
-            SteelVal::BigNum(n) => BigRational::new(1.into(), n.as_ref().clone()).into_steelval(),
-            SteelVal::Complex(c) => complex_reciprocal(c),
-            unexpected => {
-                stop!(TypeMismatch => "/ expects a number, but found: {:?}", unexpected)
-            }
-        }
-    };
-    match &args {
-        [] => stop!(ArityMismatch => "/ requires at least one argument"),
-        [x] => recip(x),
-        // TODO: Provide custom implementation to optimize by joining the multiply and recip calls.
-        [x, y] => multiply_two(x, &recip(y)?),
-        [x, ys @ ..] => {
-            let d = multiply_primitive_impl(ys)?;
-            multiply_two(&x, &recip(&d)?)
-        }
-    }
 }
 
 /// Negate a number.
@@ -190,19 +479,6 @@ fn negate(value: &SteelVal) -> Result<SteelVal> {
         SteelVal::BigNum(x) => x.as_ref().clone().neg().into_steelval(),
         SteelVal::Complex(x) => negate_complex(x),
         _ => unreachable!(),
-    }
-}
-
-#[steel_derive::native(name = "-", constant = true, arity = "AtLeast(1)")]
-pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
-    ensure_args_are_numbers("-", args)?;
-    match args {
-        [] => stop!(TypeMismatch => "- requires at least one argument"),
-        [x] => negate(x),
-        [x, ys @ ..] => {
-            let y = negate(&add_primitive(ys)?)?;
-            add_two(x, &y)
-        }
     }
 }
 
@@ -296,23 +572,6 @@ pub fn add_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
     }
 }
 
-#[steel_derive::native(name = "+", constant = true, arity = "AtLeast(0)")]
-pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
-    ensure_args_are_numbers("+", args)?;
-    match args {
-        [] => 0.into_steelval(),
-        [x] => x.clone().into_steelval(),
-        [x, y] => add_two(x, y),
-        [x, y, zs @ ..] => {
-            let mut res = add_two(x, y)?;
-            for z in zs {
-                res = add_two(&res, z)?;
-            }
-            res.into_steelval()
-        }
-    }
-}
-
 #[cold]
 fn multiply_complex(x: &SteelComplex, y: &SteelComplex) -> Result<SteelVal> {
     // TODO: Optimize the implementation if needed.
@@ -334,27 +593,6 @@ fn negate_complex(x: &SteelComplex) -> Result<SteelVal> {
 fn add_complex(x: &SteelComplex, y: &SteelComplex) -> Result<SteelVal> {
     // TODO: Optimize the implementation if needed.
     SteelComplex::new(add_two(&x.re, &y.re)?, add_two(&x.im, &y.im)?).into_steelval()
-}
-
-#[steel_derive::function(name = "exact?", constant = true)]
-pub fn exactp(value: &SteelVal) -> bool {
-    match value {
-        SteelVal::IntV(_)
-        | SteelVal::BigNum(_)
-        | SteelVal::Rational(_)
-        | SteelVal::BigRational(_) => true,
-        SteelVal::Complex(x) => exactp(&x.re) && exactp(&x.im),
-        _ => false,
-    }
-}
-
-#[steel_derive::function(name = "inexact?", constant = true)]
-pub fn inexactp(value: &SteelVal) -> bool {
-    match value {
-        SteelVal::NumV(_) => true,
-        SteelVal::Complex(x) => inexactp(&x.re) || inexactp(&x.im),
-        _ => false,
-    }
 }
 
 pub struct NumOperations {}

@@ -8,11 +8,9 @@ use crate::{
         span::Span,
         tokens::TokenType,
     },
+    primitives::numbers::*,
     rerrs::{ErrorKind, SteelErr},
-    steel_vm::{
-        primitives::realp,
-        vm::{threads::closure_into_serializable, BuiltInSignature, Continuation},
-    },
+    steel_vm::vm::{threads::closure_into_serializable, BuiltInSignature, Continuation},
     values::port::SteelPort,
     values::{
         closed::{Heap, HeapRef, MarkAndSweepContext},
