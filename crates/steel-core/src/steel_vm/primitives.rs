@@ -766,7 +766,6 @@ fn procedurep(value: &SteelVal) -> bool {
 fn identity_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/identity");
     module
-        // .register_value("int?", gen_pred!(IntV))
         .register_native_fn_definition(NOT_DEFINITION)
         .register_native_fn_definition(NUMBERP_DEFINITION)
         .register_native_fn_definition(COMPLEXP_DEFINITION)
@@ -835,16 +834,23 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(SUBTRACT_PRIMITIVE_DEFINITION)
         .register_value("even?", NumOperations::even())
         .register_value("odd?", NumOperations::odd())
-        .register_fn("quotient", quotient)
         .register_value("arithmetic-shift", NumOperations::arithmetic_shift())
         .register_native_fn_definition(ABS_DEFINITION)
-        .register_native_fn_definition(EXPT_DEFINITION)
-        .register_native_fn_definition(ROUND_DEFINITION)
-        .register_native_fn_definition(EXACT_TO_INEXACT_DEFINITION)
+        .register_native_fn_definition(CEILING_DEFINITION)
+        .register_native_fn_definition(DENOMINATOR_DEFINITION)
         .register_native_fn_definition(EXACTP_DEFINITION)
-        .register_native_fn_definition(INEXACTP_DEFINITION)
+        .register_native_fn_definition(EXACT_TO_INEXACT_DEFINITION)
+        .register_native_fn_definition(EXPT_DEFINITION)
         .register_native_fn_definition(EXP_DEFINITION)
-        .register_native_fn_definition(LOG_DEFINITION);
+        .register_native_fn_definition(FINITEP_DEFINITION)
+        .register_native_fn_definition(FLOOR_DEFINITION)
+        .register_native_fn_definition(INEXACTP_DEFINITION)
+        .register_native_fn_definition(INEXACT_TO_EXACT_DEFINITION)
+        .register_native_fn_definition(INFINITEP_DEFINITION)
+        .register_native_fn_definition(LOG_DEFINITION)
+        .register_native_fn_definition(NUMERATOR_DEFINITION)
+        .register_native_fn_definition(ROUND_DEFINITION)
+        .register_native_fn_definition(SQUARE_DEFINITION);
 
     module
 }
