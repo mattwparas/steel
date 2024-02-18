@@ -191,8 +191,24 @@ fn exact_to_inexact(number: &SteelVal) -> Result<SteelVal> {
 }
 
 #[steel_derive::function(name = "inexact->exact", constant = true)]
-fn inexact_to_exact(_: &SteelVal) -> Result<SteelVal> {
-    todo!()
+fn inexact_to_exact(number: &SteelVal) -> Result<SteelVal> {
+    match number {
+        SteelVal::IntV(x) => x.into_steelval(),
+        SteelVal::Rational(x) => x.into_steelval(),
+        SteelVal::BigRational(x) => SteelVal::BigRational(x.clone()).into_steelval(),
+        SteelVal::NumV(x) => {
+            let x_isize = *x as isize;
+            if x_isize as f64 == *x {
+                return x_isize.into_steelval();
+            }
+            BigRational::from_float(*x).into_steelval()
+        }
+        SteelVal::BigNum(x) => SteelVal::BigNum(x.clone()).into_steelval(),
+        SteelVal::Complex(x) => {
+            SteelComplex::new(inexact_to_exact(&x.re)?, inexact_to_exact(&x.im)?).into_steelval()
+        }
+        _ => steelerr!(TypeMismatch => "exact->inexact expects a number type, found: {}", number),
+    }
 }
 
 fn finitep_impl(number: &SteelVal) -> Result<bool> {
@@ -397,7 +413,7 @@ fn exp(left: &SteelVal) -> Result<SteelVal> {
 #[steel_derive::function(name = "floor", constant = true)]
 fn floor(number: &SteelVal) -> Result<SteelVal> {
     match number {
-        SteelVal::NumV(x) => Ok(SteelVal::IntV(x.floor() as isize)),
+        SteelVal::NumV(x) => Ok(SteelVal::NumV(x.floor())),
         SteelVal::IntV(x) => x.into_steelval(),
         SteelVal::Rational(x) => x.floor().into_steelval(),
         SteelVal::BigNum(x) => Ok(SteelVal::BigNum(x.clone())),
@@ -464,7 +480,7 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
         (SteelVal::NumV(arg), SteelVal::IntV(base)) => Ok(SteelVal::NumV(arg.log(*base as f64))),
         // TODO: Support BigNum, Rational, and BigRational.
         _ => {
-            stop!(TypeMismatch => "log expects one or two numbers, found: {} and {}", first, base);
+            steelerr!(TypeMismatch => "log expects one or two numbers, found: {} and {}", first, base)
         }
     }
 }

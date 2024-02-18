@@ -16,8 +16,7 @@ use crate::{
         hashmaps::{hashmap_module, HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,
         lists::{list_module, UnRecoverableResult},
-        numbers::*,
-        port_module,
+        numbers, port_module,
         process::process_module,
         random::random_module,
         string_module,
@@ -767,13 +766,13 @@ fn identity_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/identity");
     module
         .register_native_fn_definition(NOT_DEFINITION)
-        .register_native_fn_definition(NUMBERP_DEFINITION)
-        .register_native_fn_definition(COMPLEXP_DEFINITION)
-        .register_native_fn_definition(INTP_DEFINITION)
-        .register_native_fn_definition(INTEGERP_DEFINITION)
-        .register_native_fn_definition(FLOATP_DEFINITION)
-        .register_native_fn_definition(REALP_DEFINITION)
-        .register_native_fn_definition(RATIONALP_DEFINITION)
+        .register_native_fn_definition(numbers::NUMBERP_DEFINITION)
+        .register_native_fn_definition(numbers::COMPLEXP_DEFINITION)
+        .register_native_fn_definition(numbers::INTP_DEFINITION)
+        .register_native_fn_definition(numbers::INTEGERP_DEFINITION)
+        .register_native_fn_definition(numbers::FLOATP_DEFINITION)
+        .register_native_fn_definition(numbers::REALP_DEFINITION)
+        .register_native_fn_definition(numbers::RATIONALP_DEFINITION)
         .register_native_fn_definition(STRINGP_DEFINITION)
         .register_native_fn_definition(LISTP_DEFINITION)
         .register_native_fn_definition(VECTORP_DEFINITION)
@@ -827,30 +826,30 @@ fn stream_module() -> BuiltInModule {
 fn number_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/numbers");
     module
-        .register_native_fn_definition(ADD_PRIMITIVE_DEFINITION)
+        .register_native_fn_definition(numbers::ADD_PRIMITIVE_DEFINITION)
         .register_value("f+", NumOperations::float_add())
-        .register_native_fn_definition(MULTIPLY_PRIMITIVE_DEFINITION)
-        .register_native_fn_definition(DIVIDE_PRIMITIVE_DEFINITION)
-        .register_native_fn_definition(SUBTRACT_PRIMITIVE_DEFINITION)
+        .register_native_fn_definition(numbers::MULTIPLY_PRIMITIVE_DEFINITION)
+        .register_native_fn_definition(numbers::DIVIDE_PRIMITIVE_DEFINITION)
+        .register_native_fn_definition(numbers::SUBTRACT_PRIMITIVE_DEFINITION)
         .register_value("even?", NumOperations::even())
         .register_value("odd?", NumOperations::odd())
         .register_value("arithmetic-shift", NumOperations::arithmetic_shift())
-        .register_native_fn_definition(ABS_DEFINITION)
-        .register_native_fn_definition(CEILING_DEFINITION)
-        .register_native_fn_definition(DENOMINATOR_DEFINITION)
-        .register_native_fn_definition(EXACTP_DEFINITION)
-        .register_native_fn_definition(EXACT_TO_INEXACT_DEFINITION)
-        .register_native_fn_definition(EXPT_DEFINITION)
-        .register_native_fn_definition(EXP_DEFINITION)
-        .register_native_fn_definition(FINITEP_DEFINITION)
-        .register_native_fn_definition(FLOOR_DEFINITION)
-        .register_native_fn_definition(INEXACTP_DEFINITION)
-        .register_native_fn_definition(INEXACT_TO_EXACT_DEFINITION)
-        .register_native_fn_definition(INFINITEP_DEFINITION)
-        .register_native_fn_definition(LOG_DEFINITION)
-        .register_native_fn_definition(NUMERATOR_DEFINITION)
-        .register_native_fn_definition(ROUND_DEFINITION)
-        .register_native_fn_definition(SQUARE_DEFINITION);
+        .register_native_fn_definition(numbers::ABS_DEFINITION)
+        .register_native_fn_definition(numbers::CEILING_DEFINITION)
+        .register_native_fn_definition(numbers::DENOMINATOR_DEFINITION)
+        .register_native_fn_definition(numbers::EXACTP_DEFINITION)
+        .register_native_fn_definition(numbers::EXACT_TO_INEXACT_DEFINITION)
+        .register_native_fn_definition(numbers::EXPT_DEFINITION)
+        .register_native_fn_definition(numbers::EXP_DEFINITION)
+        .register_native_fn_definition(numbers::FINITEP_DEFINITION)
+        .register_native_fn_definition(numbers::FLOOR_DEFINITION)
+        .register_native_fn_definition(numbers::INEXACTP_DEFINITION)
+        .register_native_fn_definition(numbers::INEXACT_TO_EXACT_DEFINITION)
+        .register_native_fn_definition(numbers::INFINITEP_DEFINITION)
+        .register_native_fn_definition(numbers::LOG_DEFINITION)
+        .register_native_fn_definition(numbers::NUMERATOR_DEFINITION)
+        .register_native_fn_definition(numbers::ROUND_DEFINITION)
+        .register_native_fn_definition(numbers::SQUARE_DEFINITION);
 
     module
 }

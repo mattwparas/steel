@@ -26,6 +26,8 @@
 (assert! (real? 1.2))
 (assert! (real? +inf.0))
 (assert! (real? -nan.0))
+(assert! (not (float? 1/3)))
+(assert! (float? 0.3))
 (assert! (not (real? 1+2i)))
 (assert! (not (real? +2i)))
 (assert! (not (real? 1.0+2.0i)))
@@ -119,7 +121,111 @@
 (assert-equal! 1/5-1/5i
 	       (/ 1+2i))
 
-;; Rounding
+;; Comparisons
+(assert! (< -10 9223372036854775808))
+(assert! (< -10.1 9223372036854775808))
+(assert! (< 9223372036854775808
+	    9993372036854775808))
+
+(assert! (exact? 3))
+(assert! (exact? 3/10))
+(assert! (exact? 100000000000000000000000000))
+(assert! (exact? 100000000000000000000000000/3))
+(assert! (not (exact? 3.5)))
+(assert! (exact? 3+1i))
+(assert! (not (exact? 3.0+1i)))
+
+(assert! (not (inexact? 3)))
+(assert! (not (inexact? 3/10)))
+(assert! (not (inexact? 100000000000000000000000000)))
+(assert! (not (inexact? 100000000000000000000000000/3)))
+(assert! (inexact? 3.5))
+(assert! (not (inexact? 3+1i)))
+(assert! (inexact? 3.0+1i))
+
+(assert-equal! 0.5
+               (exact->inexact 1/2))
+(assert-equal! 0.5
+               (exact->inexact 0.5))
+
+(assert-equal! 1/2
+               (inexact->exact 0.5))
+(assert-equal! 1/2
+               (inexact->exact 1/2))
+(assert-equal! 2
+               (inexact->exact 2))
+
+(assert! (finite? 1))
+(assert! (finite? 1.0))
+(assert! (finite? 1/2))
+(assert! (not (finite? +nan.0)))
+(assert! (not (finite? +inf.0)))
+(assert! (not (finite? -inf.0)))
+
+(assert! (not (infinite? 1)))
+(assert! (not (infinite? 1.0)))
+(assert! (not (infinite? 1/2)))
+(assert! (not (finite? +nan.0)))
+(assert! (infinite? +inf.0))
+(assert! (infinite? -inf.0))
+
+(assert-equal! 10
+               (abs -10))
+(assert-equal! 10/3
+               (abs -10/3))
+(assert-equal! 10.0
+               (abs -10.0))
+
+(assert-equal! 10.0
+               (ceiling 9.1))
+(assert-equal! 9.0
+               (floor 9.1))
+(assert-equal! 10.0
+               (ceiling 10.0))
+(assert-equal! 10.0
+               (floor 10.0))
+(assert-equal! 10
+               (ceiling 10))
+(assert-equal! 10
+               (floor 10))
+(assert-equal! -9.0
+               (ceiling -9.1))
+(assert-equal! -10.0
+               (floor -9.1))
+(assert-equal! 1
+               (ceiling 1/2))
+(assert-equal! 0
+               (floor 1/2))
+(assert-equal! 0
+               (ceiling -1/2))
+(assert-equal! -1
+               (floor -1/2))
+
+(assert-equal! 3
+               (numerator 3))
+(assert-equal! 3
+               (numerator 3/2))
+(assert-equal! 1
+               (denominator 3))
+(assert-equal! 2
+               (denominator 3/2))
+
+(assert-equal! 4
+               (expt 2 2))
+(assert-equal! 4.0
+               (expt 2.0 2.0))
+(assert-equal! 1/4
+               (expt 1/2 2))
+(assert-equal! 0.25
+               (expt 1/2 2.0))
+(assert-equal! 2.0
+               (expt 4 1/2))
+(assert-equal! 2.0
+               (expt 4 0.5))
+
+(assert-equal! 1
+               (exp 0))
+
 (assert-equal! 3
 	       (round 3))
 (assert-equal! 1
@@ -133,8 +239,22 @@
 (assert-equal! 9223372036854775808
 	       (round 9223372036854775808))
 
-;; Comparisons
-(assert! (< -10 9223372036854775808))
-(assert! (< -10.1 9223372036854775808))
-(assert! (< 9223372036854775808
-	    9993372036854775808))
+(assert-equal! 4
+               (square 2))
+(assert-equal! 4.0
+               (square 2.0))
+(assert-equal! 1/4
+               (square 1/2))
+
+(assert-equal! 0
+               (log 1 100))
+(assert-equal! 2
+               (log 100 10))
+(assert-equal! 2.0
+               (log 100.0 10.0))
+(assert-equal! 2.0
+               (log 100.0 10))
+(assert-equal! 2.0
+               (log 100 10.0))
+(assert-equal! 1.0
+               (log (exp 1)))

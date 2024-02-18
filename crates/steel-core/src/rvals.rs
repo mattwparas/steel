@@ -8,7 +8,7 @@ use crate::{
         span::Span,
         tokens::TokenType,
     },
-    primitives::numbers::*,
+    primitives::numbers::realp,
     rerrs::{ErrorKind, SteelErr},
     steel_vm::vm::{threads::closure_into_serializable, BuiltInSignature, Continuation},
     values::port::SteelPort,
