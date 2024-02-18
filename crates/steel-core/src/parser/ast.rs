@@ -266,7 +266,6 @@ impl TryFrom<&SteelVal> for ExprKind {
 
                 Pair(_) => Err("Can't convert from pair to expression!"),
 
-                // StructClosureV(_) => Err("Can't convert from struct-function to expression!"),
                 PortV(_) => Err("Can't convert from port to expression!"),
                 Closure(_) => Err("Can't convert from bytecode closure to expression"),
                 HashMapV(_) => Err("Can't convert from hashmap to expression!"),
@@ -274,14 +273,9 @@ impl TryFrom<&SteelVal> for ExprKind {
                 IterV(_) => Err("Can't convert from iterator to expression!"),
                 FutureFunc(_) => Err("Can't convert from future function to expression!"),
                 FutureV(_) => Err("Can't convert future to expression!"),
-                // Promise(_) => Err("Can't convert from promise to expression!"),
                 StreamV(_) => Err("Can't convert from stream to expression!"),
-                // Contract(_) => Err("Can't convert from contract to expression!"),
-                // ContractedFunction(_) => Err("Can't convert from contracted function to expression!"),
                 BoxedFunction(_) => Err("Can't convert from boxed function to expression!"),
                 ContinuationFunction(_) => Err("Can't convert from continuation to expression!"),
-                // #[cfg(feature = "jit")]
-                // CompiledFunction(_) => Err("Can't convert from function to expression!"),
                 MutFunc(_) => Err("Can't convert from function to expression!"),
                 BuiltIn(_) => Err("Can't convert from function to expression!"),
                 ReducerV(_) => Err("Can't convert from reducer to expression!"),
@@ -291,6 +285,7 @@ impl TryFrom<&SteelVal> for ExprKind {
                 Boxed(_) => Err("Can't convert from boxed steel val to expression!"),
                 Reference(_) => Err("Can't convert from opaque reference type to expression!"),
                 HeapAllocated(_) => Err("Can't convert from heap allocated value to expression!"),
+                ByteVector(_) => Err("Can't convert from bytevector to expression!"),
             }
         }
 

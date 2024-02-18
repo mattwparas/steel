@@ -36,6 +36,12 @@ async fn main() {
         cloned_ignore_set.insert(InternedString::from(global));
     });
 
+    let additional_search_paths = Arc::new(DashSet::new());
+    let cloned_additional_search_paths = additional_search_paths.clone();
+    resolver_engine.register_fn("#%register-additional-search-path", move |path: String| {
+        cloned_additional_search_paths.insert(path);
+    });
+
     let home_directory =
         std::env::var("STEEL_LSP_HOME").expect("Have you set your STEEL_LSP_HOME path?");
 
@@ -44,6 +50,12 @@ async fn main() {
             ExternalModuleResolver::new(&mut resolver_engine, PathBuf::from(home_directory))
                 .unwrap(),
         )
+    });
+
+    ENGINE.with_borrow_mut(|x| {
+        for dir in additional_search_paths.iter() {
+            x.add_search_directory(PathBuf::from(dir.to_string()));
+        }
     });
 
     let defined_globals = DashSet::new();

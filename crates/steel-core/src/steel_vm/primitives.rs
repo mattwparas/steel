@@ -12,6 +12,7 @@ use crate::{
         tryfrom_visitor::TryFromExprKindForSteelVal,
     },
     primitives::{
+        bytevectors::bytevector_module,
         fs_module,
         hashmaps::hashmap_module,
         hashmaps::{HM_CONSTRUCT, HM_GET, HM_INSERT},
@@ -60,13 +61,9 @@ use crate::{
     SteelErr,
 };
 use fxhash::{FxHashMap, FxHashSet};
-use im_rc::HashMap;
 use num::{pow::Pow, BigInt, BigRational, Signed, ToPrimitive};
 use once_cell::sync::Lazy;
 use std::{cell::RefCell, cmp::Ordering};
-
-#[cfg(feature = "web")]
-use crate::primitives::web::requests::requests_module;
 
 macro_rules! ensure_tonicity_two {
     ($check_fn:expr) => {{
@@ -295,6 +292,8 @@ thread_local! {
 
     pub static IMMUTABLE_VECTOR_MODULE: BuiltInModule = immutable_vectors_module();
 
+    pub static BYTEVECTOR_MODULE: BuiltInModule = bytevector_module();
+
     pub static STREAM_MODULE: BuiltInModule = stream_module();
     // pub static CONTRACT_MODULE: BuiltInModule = contract_module();
     pub static IDENTITY_MODULE: BuiltInModule = identity_module();
@@ -325,7 +324,6 @@ thread_local! {
     pub static TIME_MODULE: BuiltInModule = time_module();
     pub static THREADING_MODULE: BuiltInModule = threading_module();
 
-    pub static MUTABLE_HASH_MODULE: BuiltInModule = mutable_hashmap_module();
     pub static MUTABLE_VECTOR_MODULE: BuiltInModule = mutable_vector_module();
     pub static PRIVATE_READER_MODULE: BuiltInModule = reader_module();
 
@@ -359,6 +357,7 @@ pub fn prelude() -> BuiltInModule {
         .with_module(TYPE_ID_MODULE.with(|x| x.clone()))
         .with_module(TIME_MODULE.with(|x| x.clone()))
         .with_module(THREADING_MODULE.with(|x| x.clone()))
+        .with_module(BYTEVECTOR_MODULE.with(|x| x.clone()))
 }
 
 pub fn register_builtin_modules_without_io(engine: &mut Engine) {
@@ -474,10 +473,10 @@ pub fn register_builtin_modules(engine: &mut Engine) {
         .register_module(PRELUDE_MODULE.with(|x| x.clone()))
         .register_module(TIME_MODULE.with(|x| x.clone()))
         .register_module(RANDOM_MODULE.with(|x| x.clone()))
-        .register_module(THREADING_MODULE.with(|x| x.clone()));
+        .register_module(THREADING_MODULE.with(|x| x.clone()))
+        .register_module(BYTEVECTOR_MODULE.with(|x| x.clone()));
 
     // Private module
-    engine.register_module(MUTABLE_HASH_MODULE.with(|x| x.clone()));
     engine.register_module(MUTABLE_VECTOR_MODULE.with(|x| x.clone()));
     engine.register_module(PRIVATE_READER_MODULE.with(|x| x.clone()));
 
@@ -509,6 +508,7 @@ pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::n
     set.insert("%-builtin-module-steel/core/result".into());
     set.insert("%-builtin-module-steel/core/option".into());
     set.insert("%-builtin-module-steel/threads".into());
+    set.insert("%-builtin-module-steel/bytevectors".into());
     set.insert("%-builtin-module-steel/base".into());
 
     set
@@ -565,7 +565,7 @@ pub static ALL_MODULES: &str = r#"
     (require-builtin steel/core/option)
     (require-builtin steel/core/types)
     (require-builtin steel/threads)
-
+    (require-builtin steel/bytevectors)
 
     (require-builtin steel/hash as #%prim.)
     (require-builtin steel/sets as #%prim.)
@@ -591,6 +591,7 @@ pub static ALL_MODULES: &str = r#"
     (require-builtin steel/core/option as #%prim.)
     (require-builtin steel/core/types as #%prim.)
     (require-builtin steel/threads as #%prim.)
+    (require-builtin steel/bytevectors as #%prim.)
 
 "#;
 
@@ -619,6 +620,7 @@ pub static ALL_MODULES_RESERVED: &str = r#"
     (require-builtin steel/core/option as #%prim.)
     (require-builtin steel/core/types as #%prim.)
     (require-builtin steel/threads as #%prim.)
+    (require-builtin steel/bytevectors as #%prim.)
 "#;
 
 pub static SANDBOXED_MODULES: &str = r#"
@@ -1430,35 +1432,6 @@ impl crate::rvals::Custom for MutableVector {
     }
 }
 
-struct MutableHashTable {
-    table: HashMap<SteelVal, SteelVal>,
-}
-
-impl crate::rvals::Custom for MutableHashTable {
-    fn gc_visit_children(&self, context: &mut crate::values::closed::MarkAndSweepContext) {
-        for (key, value) in &self.table {
-            context.push_back(key.clone());
-            context.push_back(value.clone());
-        }
-    }
-}
-
-impl MutableHashTable {
-    pub fn new() -> Self {
-        Self {
-            table: HashMap::new(),
-        }
-    }
-
-    pub fn insert(&mut self, key: SteelVal, value: SteelVal) {
-        self.table.insert(key, value);
-    }
-
-    pub fn get(&self, key: SteelVal) -> Option<SteelVal> {
-        self.table.get(&key).cloned()
-    }
-}
-
 struct Reader {
     buffer: String,
     offset: usize,
@@ -1550,17 +1523,6 @@ fn mutable_vector_module() -> BuiltInModule {
         .register_fn("mutable-vector->list", MutableVector::vector_to_list)
         .register_fn("mutable-vector-empty?", MutableVector::vector_is_empty)
         .register_fn("mutable-vector-from-list", MutableVector::vector_from_list);
-
-    module
-}
-
-fn mutable_hashmap_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("#%private/steel/mhash");
-
-    module
-        .register_fn("mhash", MutableHashTable::new)
-        .register_fn("mhash-set!", MutableHashTable::insert)
-        .register_fn("mhash-ref", MutableHashTable::get);
 
     module
 }

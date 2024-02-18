@@ -1,3 +1,4 @@
+pub mod bytevectors;
 pub mod contracts;
 mod control;
 mod fs;
@@ -19,7 +20,7 @@ mod utils;
 pub mod vectors;
 
 use crate::gc::Gc;
-use crate::rvals::{FromSteelVal, IntoSteelVal};
+use crate::rvals::{FromSteelVal, IntoSteelVal, SteelByteVector};
 use crate::rvals::{
     FunctionSignature, PrimitiveAsRef, PrimitiveAsRefMut, SteelHashMap, SteelHashSet, SteelVal,
     SteelVector,
@@ -129,6 +130,45 @@ impl From<i64> for SteelVal {
         } else {
             SteelVal::BigNum(Gc::new(value.into()))
         }
+    }
+}
+
+impl FromSteelVal for u8 {
+    fn from_steelval(val: &SteelVal) -> crate::rvals::Result<Self> {
+        match val {
+            SteelVal::IntV(v) => (*v).try_into().map_err(|_err| {
+                SteelErr::new(
+                    ErrorKind::ConversionError,
+                    format!("Unable to convert isize to u8: {}", v),
+                )
+            }),
+            SteelVal::BigNum(n) => n.as_ref().try_into().map_err(|_err| {
+                SteelErr::new(
+                    ErrorKind::ConversionError,
+                    format!("Unable to convert bignum to u8: {:?}", n),
+                )
+            }),
+            _ => Err(SteelErr::new(
+                ErrorKind::ConversionError,
+                format!("Unable to convert steelval to u8: {}", val),
+            )),
+        }
+    }
+}
+
+impl From<usize> for SteelVal {
+    fn from(value: usize) -> Self {
+        if value > isize::MAX as usize {
+            SteelVal::BigNum(Gc::new(value.into()))
+        } else {
+            SteelVal::IntV(value as isize)
+        }
+    }
+}
+
+impl IntoSteelVal for usize {
+    fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
+        Ok(SteelVal::from(self))
     }
 }
 
@@ -277,9 +317,9 @@ impl IntoSteelVal for BigRational {
 }
 
 from_f64!(f64, f32);
-from_for_isize!(i32, i16, i8, u8, u16, u32, u64, usize, isize);
+from_for_isize!(i32, i16, i8, u8, u16, u32, u64, isize);
 try_from_impl!(NumV => f64, f32);
-try_from_impl!(IntV => i32, i16, i8, u8, u16, u32, u64, usize, isize);
+try_from_impl!(IntV => i32, i16, i8, u16, u32, u64, usize, isize);
 
 impl TryFrom<SteelVal> for String {
     type Error = SteelErr;
@@ -377,6 +417,22 @@ impl<'a, L: PrimitiveAsRef<'a>, R: PrimitiveAsRef<'a>> PrimitiveAsRef<'a> for Ei
         L::maybe_primitive_as_ref(val)
             .map(Either::Left)
             .or_else(|| R::maybe_primitive_as_ref(val).map(Either::Right))
+    }
+}
+
+impl<'a> PrimitiveAsRef<'a> for &'a SteelByteVector {
+    fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
+        Self::maybe_primitive_as_ref(val).ok_or_else(
+            crate::throw!(ConversionError => format!("Cannot convert value to bytevector: {}", val)),
+        )
+    }
+
+    fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self> {
+        if let SteelVal::ByteVector(s) = val {
+            Some(s)
+        } else {
+            None
+        }
     }
 }
 
@@ -713,6 +769,26 @@ impl<'a> PrimitiveAsRefMut<'a> for &'a mut Gc<im_rc::HashMap<SteelVal, SteelVal>
     fn maybe_primitive_as_ref(val: &'a mut SteelVal) -> Option<Self> {
         if let SteelVal::HashMapV(hm) = val {
             Some(&mut hm.0)
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a> PrimitiveAsRefMut<'a> for &'a mut SteelByteVector {
+    #[inline(always)]
+    fn primitive_as_ref(val: &'a mut SteelVal) -> crate::rvals::Result<Self> {
+        if let SteelVal::ByteVector(hm) = val {
+            Ok(hm)
+        } else {
+            crate::stop!(ConversionError => format!("Cannot convert steel value: {} to bytevector", val))
+        }
+    }
+
+    #[inline(always)]
+    fn maybe_primitive_as_ref(val: &'a mut SteelVal) -> Option<Self> {
+        if let SteelVal::ByteVector(hm) = val {
+            Some(hm)
         } else {
             None
         }

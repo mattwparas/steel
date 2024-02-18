@@ -622,6 +622,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
             | SteelVal::BoxedFunction(_)
             | SteelVal::MutFunc(_)
             | SteelVal::BuiltIn(_)
+            | SteelVal::ByteVector(_)
             | SteelVal::BigNum(_) => return,
             _ => {
                 self.queue.push(value);
@@ -629,6 +630,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
         }
     }
 
+    fn visit_bytevector(&mut self, _bytevector: crate::rvals::SteelByteVector) -> Self::Output {}
     fn visit_bignum(&mut self, _: Gc<BigInt>) -> Self::Output {}
     fn visit_complex(&mut self, _: Gc<SteelComplex>) -> Self::Output {}
     fn visit_bool(&mut self, _boolean: bool) -> Self::Output {}

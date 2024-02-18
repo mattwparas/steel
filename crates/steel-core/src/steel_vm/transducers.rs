@@ -182,18 +182,6 @@ fn transduce(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     }
 }
 
-// struct VecGuard<'a> {
-//     guard: Ref<'a, Vec<SteelVal>>,
-// }
-
-// impl<'b> Deref for VecGuard<'b> {
-//     type Target = Vec<SteelVal>;
-
-//     fn deref(&self) -> &Vec<SteelVal> {
-//         &self.guard
-//     }
-// }
-
 impl<'global, 'a> VmCore<'a> {
     // With transducers, we also need reducers
     // reducers should define _how_ a value is going to be converted away

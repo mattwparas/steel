@@ -171,56 +171,60 @@ impl std::fmt::Display for UserDefinedStruct {
     }
 }
 
+thread_local! {
+    pub static FIELDS_RECYCLER: RefCell<FieldsRecycler> = RefCell::new(FieldsRecycler::new());
+}
+
+const RECYCLER_CAPACITY: usize = 128;
+
+pub struct FieldsRecycler {
+    // Allocations that we'll save around.
+    vecs: Vec<Vec<SteelVal>>,
+}
+
+impl FieldsRecycler {
+    pub fn new() -> Self {
+        Self { vecs: Vec::new() }
+    }
+
+    pub fn allocate_with(fields: &[SteelVal]) -> Vec<SteelVal> {
+        FIELDS_RECYCLER.with(|x| x.borrow_mut().allocate_with_contents(fields))
+    }
+
+    pub fn free(vec: Vec<SteelVal>) {
+        FIELDS_RECYCLER.with(|x| x.borrow_mut().free_vec(vec))
+    }
+
+    fn allocate_with_contents(&mut self, fields: &[SteelVal]) -> Vec<SteelVal> {
+        // println!("Recyclable values: {}", self.vecs.len());
+
+        if let Some(mut vec) = self.vecs.pop() {
+            // println!("Reusing vec");
+
+            vec.shrink_to(fields.len());
+            vec.extend_from_slice(fields);
+
+            return vec;
+        } else {
+            return fields.to_vec();
+        }
+    }
+
+    // Note: hopefully this vec has been cleared first!
+    fn free_vec(&mut self, mut vec: Vec<SteelVal>) {
+        if self.vecs.len() < RECYCLER_CAPACITY {
+            vec.clear();
+            self.vecs.push(vec);
+        }
+    }
+}
+
 impl UserDefinedStruct {
-    fn new(
-        // name: InternedString,
-        type_descriptor: StructTypeDescriptor,
-        fields: &[SteelVal],
-    ) -> Self {
-        // let (options, rest) = fields.split_first().ok_or_else(
-        //     throw!(ArityMismatch => "struct constructor expects at least one argument"),
-        // )?;
-
-        // let (proc, rest) = rest.split_first().ok_or_else(
-        //     throw!(ArityMismatch => "struct constructor expects at least one argument"),
-        // )?;
-
-        // todo!()
-
+    fn new(type_descriptor: StructTypeDescriptor, fields: &[SteelVal]) -> Self {
         Self {
-            // name,
-            fields: fields.to_vec(),
-            // properties: Properties::BuiltIn,
-            // proc: None,
+            fields: FieldsRecycler::allocate_with(fields),
             type_descriptor,
         }
-
-        // Ok(Self {
-
-        // })
-
-        // TODO: Don't use a hashmap for these properties. Probably best to have some kind of fixed purpose
-        // data structure? A hashmap is also fine, but something that is required to be constructed with only
-        // constants could be helpful.
-        // if let SteelVal::HashMapV(properties) = options.clone() {
-        // Don't do this - we don't want to have to do a hash every time?
-        // let proc = PROC_PROPERTY.with(|property_keyword| {
-        //     properties
-        //         .get(property_keyword)
-        //         .and_then(|value| value.as_usize())
-        // });
-
-        // Ok(Self {
-        // name,
-        // fields: rest.into(),
-        // len: fields.len(),
-        // properties: Properties::Local(properties),
-        // proc: proc.as_usize(),
-        // type_descriptor,
-        // })
-        // } else {
-        // stop!(TypeMismatch => format!("struct constructor expected a hashmap, found: {options}"))
-        // }
     }
 
     pub(crate) fn get(&self, val: &SteelVal) -> Option<SteelVal> {

@@ -115,7 +115,8 @@ declare_opcodes! {
         BINOPADD;
         BINOPSUB;
         LTEIMMEDIATEIF;
-        NOT
+        NOT;
+        Apply
     }
 
     // Super instructions

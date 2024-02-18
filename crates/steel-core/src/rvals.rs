@@ -155,6 +155,10 @@ pub trait Custom: private::Sealed {
     fn equality_hint(&self, _other: &dyn CustomType) -> bool {
         true
     }
+
+    fn equality_hint_general(&self, _other: &SteelVal) -> bool {
+        false
+    }
 }
 
 pub trait CustomType {
@@ -184,6 +188,10 @@ pub trait CustomType {
 
     fn check_equality_hint(&self, _other: &dyn CustomType) -> bool {
         true
+    }
+
+    fn check_equality_hint_general(&self, _other: &SteelVal) -> bool {
+        false
     }
 }
 
@@ -224,6 +232,10 @@ impl<T: Custom + 'static> CustomType for T {
 
     fn check_equality_hint(&self, other: &dyn CustomType) -> bool {
         self.equality_hint(other)
+    }
+
+    fn check_equality_hint_general(&self, other: &SteelVal) -> bool {
+        self.equality_hint_general(other)
     }
 }
 
@@ -1219,6 +1231,22 @@ pub enum SteelVal {
     BigRational(Gc<BigRational>),
     // A complex number.
     Complex(Gc<SteelComplex>),
+    // Byte vectors
+    ByteVector(SteelByteVector),
+}
+
+#[derive(Clone)]
+pub struct SteelByteVector {
+    // TODO: Consider using Box<[u8]>
+    pub(crate) vec: Gc<RefCell<Vec<u8>>>,
+}
+
+impl SteelByteVector {
+    pub fn new(vec: Vec<u8>) -> Self {
+        Self {
+            vec: Gc::new(RefCell::new(vec)),
+        }
+    }
 }
 
 /// Contains a complex number.
