@@ -9,8 +9,14 @@
 ;; Number types
 (assert! (not (equal? 10 10.0)))
 (assert! (integer? 1))
+(assert! (exact-integer? 1))
+ ;; Consider returning #f according to r7rs spec.
+(assert! (not (integer? 1.0)))
+(assert! (not (exact-integer? 1.0)))
 (assert! (not (integer? 1.2)))
+(assert! (not (exact-integer? 1.2)))
 (assert! (not (integer? +inf.0)))
+(assert! (not (exact-integer? +inf.0)))
 (assert! (rational? 1))
 (assert! (rational? 1/4))
 (assert! (rational? 1.2))

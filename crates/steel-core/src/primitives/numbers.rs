@@ -70,6 +70,11 @@ fn integerp(value: &SteelVal) -> bool {
     intp(value)
 }
 
+#[steel_derive::function(name = "exact-integer?", constant = true)]
+fn exact_integerp(value: &SteelVal) -> bool {
+    intp(value)
+}
+
 #[steel_derive::function(name = "float?", constant = true)]
 fn floatp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::NumV(_))
