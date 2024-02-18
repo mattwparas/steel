@@ -111,6 +111,17 @@ pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     multiply_primitive_impl(args)
 }
 
+#[steel_derive::native(name = "quotient", constant = true, arity = "Exact(2)")]
+pub fn quotient(args: &[SteelVal]) -> Result<SteelVal> {
+    match &args {
+        [l, r] => match (l, r) {
+            (SteelVal::IntV(l), SteelVal::IntV(r)) => (l / r).into_steelval(),
+            _ => steelerr!(TypeMismatch => "quotient only supports integers"),
+        },
+        _ => steelerr!(ArityMismatch => "quotient requires 2 arguments"),
+    }
+}
+
 #[steel_derive::native(name = "/", constant = true, arity = "AtLeast(1)")]
 pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     ensure_args_are_numbers("/", args)?;
