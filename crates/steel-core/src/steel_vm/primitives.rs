@@ -766,13 +766,14 @@ fn identity_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/identity");
     module
         .register_native_fn_definition(NOT_DEFINITION)
-        .register_native_fn_definition(numbers::NUMBERP_DEFINITION)
         .register_native_fn_definition(numbers::COMPLEXP_DEFINITION)
-        .register_native_fn_definition(numbers::INTP_DEFINITION)
-        .register_native_fn_definition(numbers::INTEGERP_DEFINITION)
+        .register_native_fn_definition(numbers::EXACT_INTEGERP_DEFINITION)
         .register_native_fn_definition(numbers::FLOATP_DEFINITION)
-        .register_native_fn_definition(numbers::REALP_DEFINITION)
+        .register_native_fn_definition(numbers::INTEGERP_DEFINITION)
+        .register_native_fn_definition(numbers::INTP_DEFINITION)
+        .register_native_fn_definition(numbers::NUMBERP_DEFINITION)
         .register_native_fn_definition(numbers::RATIONALP_DEFINITION)
+        .register_native_fn_definition(numbers::REALP_DEFINITION)
         .register_native_fn_definition(STRINGP_DEFINITION)
         .register_native_fn_definition(LISTP_DEFINITION)
         .register_native_fn_definition(VECTORP_DEFINITION)

@@ -107,10 +107,8 @@ impl Custom for FunctionSignatureMetadata {
 impl Custom for BuiltInModule {}
 
 impl RegisterValue for BuiltInModule {
-    #[track_caller]
     fn register_value_inner(&mut self, name: &str, value: SteelVal) -> &mut Self {
-        let previous = self.module.borrow_mut().values.insert(name.into(), value);
-        debug_assert!(previous.is_none(), "{name} already registered");
+        self.module.borrow_mut().values.insert(name.into(), value);
         self
     }
 }

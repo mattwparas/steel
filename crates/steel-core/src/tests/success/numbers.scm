@@ -9,7 +9,7 @@
 	 (displayln "Expected value " expected " but got " actual ".")
 	 (assert! ok))))))
 
-;; Number types
+;; ;; Number types
 (assert! (not (equal? 10 10.0)))
 (assert! (integer? 1))
 (assert! (exact-integer? 1))
