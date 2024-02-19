@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use crate::primitives::lists::car;
 use crate::primitives::lists::cdr;
 use crate::primitives::lists::cons;

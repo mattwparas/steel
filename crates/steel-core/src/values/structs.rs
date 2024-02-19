@@ -171,58 +171,57 @@ impl std::fmt::Display for UserDefinedStruct {
     }
 }
 
-thread_local! {
-    pub static FIELDS_RECYCLER: RefCell<FieldsRecycler> = RefCell::new(FieldsRecycler::new());
-}
+// thread_local! {
+//     pub static FIELDS_RECYCLER: RefCell<FieldsRecycler> = RefCell::new(FieldsRecycler::new());
+// }
 
-const RECYCLER_CAPACITY: usize = 128;
+// const RECYCLER_CAPACITY: usize = 128;
 
-pub struct FieldsRecycler {
-    // Allocations that we'll save around.
-    vecs: Vec<Vec<SteelVal>>,
-}
+// pub struct FieldsRecycler {
+//     // Allocations that we'll save around.
+//     vecs: Vec<Vec<SteelVal>>,
+// }
 
-impl FieldsRecycler {
-    pub fn new() -> Self {
-        Self { vecs: Vec::new() }
-    }
+// impl FieldsRecycler {
+//     pub fn new() -> Self {
+//         Self { vecs: Vec::new() }
+//     }
 
-    pub fn allocate_with(fields: &[SteelVal]) -> Vec<SteelVal> {
-        FIELDS_RECYCLER.with(|x| x.borrow_mut().allocate_with_contents(fields))
-    }
+//     pub fn allocate_with(fields: &[SteelVal]) -> Vec<SteelVal> {
+//         FIELDS_RECYCLER.with(|x| x.borrow_mut().allocate_with_contents(fields))
+//     }
 
-    pub fn free(vec: Vec<SteelVal>) {
-        FIELDS_RECYCLER.with(|x| x.borrow_mut().free_vec(vec))
-    }
+//     pub fn free(vec: Vec<SteelVal>) {
+//         FIELDS_RECYCLER.with(|x| x.borrow_mut().free_vec(vec))
+//     }
 
-    fn allocate_with_contents(&mut self, fields: &[SteelVal]) -> Vec<SteelVal> {
-        // println!("Recyclable values: {}", self.vecs.len());
+//     fn allocate_with_contents(&mut self, fields: &[SteelVal]) -> Vec<SteelVal> {
+//         // println!("Recyclable values: {}", self.vecs.len());
 
-        if let Some(mut vec) = self.vecs.pop() {
-            // println!("Reusing vec");
+//         if let Some(mut vec) = self.vecs.pop() {
+//             vec.shrink_to(fields.len());
+//             vec.extend_from_slice(fields);
 
-            vec.shrink_to(fields.len());
-            vec.extend_from_slice(fields);
+//             return vec;
+//         } else {
+//             return fields.to_vec();
+//         }
+//     }
 
-            return vec;
-        } else {
-            return fields.to_vec();
-        }
-    }
-
-    // Note: hopefully this vec has been cleared first!
-    fn free_vec(&mut self, mut vec: Vec<SteelVal>) {
-        if self.vecs.len() < RECYCLER_CAPACITY {
-            vec.clear();
-            self.vecs.push(vec);
-        }
-    }
-}
+//     // Note: hopefully this vec has been cleared first!
+//     fn free_vec(&mut self, mut vec: Vec<SteelVal>) {
+//         if self.vecs.len() < RECYCLER_CAPACITY {
+//             vec.clear();
+//             self.vecs.push(vec);
+//         }
+//     }
+// }
 
 impl UserDefinedStruct {
     fn new(type_descriptor: StructTypeDescriptor, fields: &[SteelVal]) -> Self {
         Self {
-            fields: FieldsRecycler::allocate_with(fields),
+            // fields: FieldsRecycler::allocate_with(fields),
+            fields: fields.to_vec(),
             type_descriptor,
         }
     }

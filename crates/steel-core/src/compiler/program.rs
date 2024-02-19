@@ -30,7 +30,7 @@ use log::{debug, log_enabled};
 
 use super::{compiler::DebruijnIndicesInterner, map::SymbolMap};
 
-const TILE_SUPER_INSTRUCTIONS: bool = true;
+const _TILE_SUPER_INSTRUCTIONS: bool = true;
 
 pub fn number_literal_to_steel(n: &NumberLiteral) -> Result<SteelVal> {
     // real_to_steel does some cloning of bignums. It may be possible to optimize this away.
@@ -505,6 +505,7 @@ pub const fn sequence_to_opcode(pattern: &[(OpCode, usize)]) -> &'static [steel_
     }
 }
 
+#[allow(unused)]
 pub fn tile_super_instructions(instructions: &mut [Instruction]) {
     #[cfg(feature = "dynamic")]
     {
@@ -554,7 +555,7 @@ pub fn tile_super_instructions(instructions: &mut [Instruction]) {
 
         // Super instruction tiling here!
 
-        if TILE_SUPER_INSTRUCTIONS {
+        if _TILE_SUPER_INSTRUCTIONS {
             tile::<11>(instructions);
             tile::<10>(instructions);
             tile::<9>(instructions);

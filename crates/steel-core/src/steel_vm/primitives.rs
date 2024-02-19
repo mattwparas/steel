@@ -56,8 +56,6 @@ use crate::{
     SteelErr,
 };
 use fxhash::{FxHashMap, FxHashSet};
-use im_rc::HashMap;
-use num::{pow::Pow, BigInt, BigRational, Signed, ToPrimitive};
 use once_cell::sync::Lazy;
 use std::{cell::RefCell, cmp::Ordering};
 
