@@ -1233,7 +1233,7 @@ pub enum SteelVal {
     ByteVector(SteelByteVector),
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct SteelByteVector {
     // TODO: Consider using Box<[u8]>
     pub(crate) vec: Gc<RefCell<Vec<u8>>>,
@@ -1662,6 +1662,7 @@ impl SteelVal {
             (BuiltIn(l), BuiltIn(r)) => *l as usize == *r as usize,
             (MutableVector(l), MutableVector(r)) => HeapRef::ptr_eq(l, r),
             (BigNum(l), BigNum(r)) => Gc::ptr_eq(l, r),
+            (ByteVector(l), ByteVector(r)) => Gc::ptr_eq(&l.vec, &r.vec),
             (_, _) => false,
         }
     }

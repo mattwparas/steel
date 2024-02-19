@@ -1,11 +1,9 @@
 # steel/strings
-
 #### steel/strings
 
 Strings in Steel are immutable, fixed length arrays of characters. They are heap allocated, and
 are implemented under the hood as referenced counted Rust `Strings`. Rust `Strings` are stored
 as UTF-8 encoded bytes.
-
 ### **char=?**
 Checks if two characters are equal
 
@@ -128,7 +126,6 @@ Concatenates all of the given strings into one
 > (string-append) ;; => ""
 > (string-append "foo" "bar") ;; => "foobar"
 ```
-
 ### **string-length**
 Get the length of the given string in UTF-8 bytes.
 
@@ -154,7 +151,6 @@ Concatenatives all of the inputs to their string representation, separated by sp
 > (to-string 10 20) ;; => "10 20"
 > (to-string "hello" "world") ;; => "hello world"
 ```
-
 ### **trim**
 Returns a new string with the leading and trailing whitespace removed.
 

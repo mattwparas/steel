@@ -1,6 +1,7 @@
 # steel/meta
 ### **#%black-box**
 ### **#%box**
+### **#%environment-length**
 ### **#%function-ptr-table**
 ### **#%function-ptr-table-add**
 ### **#%function-ptr-table-get**
