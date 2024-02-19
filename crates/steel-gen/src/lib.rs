@@ -222,8 +222,6 @@ impl StackToSSAConverter {
                     max_ip_read += 1;
                 }
                 Double(CALLGLOBAL, n) => {
-                    // println!("Stack: {:?}", self.stack);
-
                     let args = self
                         .stack
                         .split_off(self.stack.len() - n)
@@ -252,10 +250,48 @@ impl StackToSSAConverter {
                         let local = self.push();
 
                         lines.line(format!(
-                            "let {local} = opcode_to_ssa_handler!(CALLGLOBAL)(ctx, &mut [{args}])?;"
+                            "let Some({local}) = opcode_to_ssa_handler!(CALLGLOBAL)(ctx, &mut [{args}])? else {{
+                                return Ok(());
+                            }};"
                         ));
                     }
                 }
+
+                // TODO: Handle the numeric equality case
+                Double(NUMEQUAL, n) => {
+                    let args = self
+                        .stack
+                        .split_off(self.stack.len() - n)
+                        .into_iter()
+                        .map(|x| x.to_string() + ".into(), ")
+                        .collect::<String>();
+
+                    if index == last - 1 {
+                        // For whatever is left, push on to the SteelThread stack
+                        for value in &self.stack {
+                            match value.type_hint {
+                                TypeHint::Int | TypeHint::Bool | TypeHint::Float => {
+                                    lines.line(format!("ctx.thread.stack.push({value}.into());"))
+                                }
+                                // It is already confirmed to be... something thats non primitive.
+                                _ => lines.line(format!("ctx.thread.stack.push({value});")),
+                            };
+                        }
+
+                        self.stack.clear();
+
+                        lines.line(format!(
+                            "opcode_to_ssa_handler!(CALLGLOBAL, Tail)(ctx, &mut [{args}])?;"
+                        ));
+                    } else {
+                        let local = self.push_with_hint(TypeHint::Bool);
+
+                        lines.line(format!(
+                            "let {local} = opcode_to_ssa_handler!(NUMEQUAL)(ctx, {args})?;"
+                        ));
+                    }
+                }
+
                 Double(READLOCAL, n) => {
                     if self.local_offset.is_none()
                         || self.local_offset.is_some() && self.local_offset.unwrap() > *n
@@ -812,9 +848,9 @@ impl Pattern {
 
         patterns.clear();
 
-        let iter = op_codes.iter();
+        let mut iter = op_codes.iter();
 
-        for op in iter {
+        while let Some(op) = iter.next() {
             match op {
                 (
                     LOADINT0 | LOADINT1 | LOADINT2 | READLOCAL0 | READLOCAL1 | READLOCAL2
@@ -833,9 +869,13 @@ impl Pattern {
                 //
                 // Even better - this can be speculative! We attempt to call a builtin, but if its not,
                 // we just fall through to the normal calling behavior!
-                (CALLGLOBAL, n) => {
-                    // let arity = iter.next().unwrap();
-                    patterns.push(Pattern::Double(CALLGLOBAL, *n))
+                (CALLGLOBAL, _) => {
+                    let arity = iter.next().unwrap();
+                    patterns.push(Pattern::Double(CALLGLOBAL, arity.1))
+                }
+                (NUMEQUAL, _) => {
+                    let arity = iter.next().unwrap();
+                    patterns.push(Pattern::Double(NUMEQUAL, arity.1))
                 }
                 _ => {
                     continue;
@@ -1022,10 +1062,17 @@ fn test() {
     use OpCode::*;
 
     let op_codes = vec![
-        (MOVEREADLOCAL0, 0),
-        (LOADINT2, 225),
-        (SUB, 2),
-        (CALLGLOBAL, 1),
+        (OpCode::BEGINSCOPE, 0),
+        (OpCode::READLOCAL0, 0),
+        (OpCode::CALLGLOBAL, 75),
+        (OpCode::FUNC, 1),
+        (OpCode::READLOCAL1, 1),
+        (OpCode::PUSHCONST, 565),
+        (OpCode::CALLGLOBAL, 75),
+        (OpCode::FUNC, 1),
+        (OpCode::NUMEQUAL, 2),
+        (OpCode::PASS, 2),
+        (OpCode::IF, 22),
     ];
 
     let op_codes = Pattern::from_opcodes(&op_codes);

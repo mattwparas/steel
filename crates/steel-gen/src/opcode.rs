@@ -127,22 +127,31 @@ declare_opcodes! {
             CaseLambdaDispatch =>
                                   (OpCode::BEGINSCOPE, 0),
                                   (OpCode::READLOCAL0, 0),
-                                  (OpCode::CALLGLOBAL, 1),
-                                  (OpCode::Arity, 92),
+                                  (OpCode::CALLGLOBAL, 75),
+                                  (OpCode::FUNC, 1),
                                   (OpCode::READLOCAL1, 1),
-                                  (OpCode::LOADINT0, 0),
-                                  (OpCode::CALLGLOBAL, 2),
-                                  (OpCode::Arity, 181),
+                                  (OpCode::PUSHCONST, 565),
+                                  (OpCode::CALLGLOBAL, 75),
+                                  (OpCode::FUNC, 1),
+                                  (OpCode::NUMEQUAL, 2),
+                                  (OpCode::PASS, 2),
                                   (OpCode::IF, 22),
-        ];
-
-        [
-            ReadLocal1PushConstEqualIf => (OpCode::READLOCAL1, 1),
-                                          (OpCode::PUSHCONST, 335),
-                                          (OpCode::EQUAL, 2),
-                                          (OpCode::PASS, 0),
-                                          (OpCode::IF, 8),
         ]
+
+        // [
+        //     ReadLocal1PushConstEqualIf => (OpCode::READLOCAL1, 1),
+        //                                   (OpCode::PUSHCONST, 335),
+        //                                   (OpCode::EQUAL, 2),
+        //                                   (OpCode::PASS, 0),
+        //                                   (OpCode::IF, 8),
+        // ];
+
+        // [
+        //     ReadLocal2CallGlobalIf => (OpCode::READLOCAL2, 2),
+        //                               (OpCode::CALLGLOBAL, 1),
+        //                               (OpCode::FUNC, 1),
+        //                               (OpCode::IF, 8),
+        // ]
 
         // 16    READLOCAL0         : 0      ##args
         // 17    CALLGLOBAL         : 1      length
