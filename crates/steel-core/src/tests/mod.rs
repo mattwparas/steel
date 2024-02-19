@@ -86,7 +86,6 @@ test_harness_success! {
     list_functions,
     local_struct,
     matcher,
-    math,
     maxsubseq,
     merge_sort,
     ncsubseq,

@@ -6,7 +6,8 @@ pub mod hashsets;
 mod io;
 pub mod lists;
 pub mod meta_ops;
-pub mod nums;
+/// Implements numbers as defined in section 6.2 of the R7RS spec.
+pub mod numbers;
 pub mod ports;
 pub mod process;
 pub mod random;
@@ -39,8 +40,9 @@ pub use io::IoFunctions;
 pub use lists::UnRecoverableResult;
 pub use meta_ops::MetaOperations;
 use num::{BigInt, BigRational, Rational32, ToPrimitive};
-pub use nums::NumOperations;
-pub use nums::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
+pub use numbers::{
+    add_primitive, divide_primitive, multiply_primitive, subtract_primitive, NumOperations,
+};
 pub use ports::port_module;
 use std::cell::RefCell;
 use std::convert::TryFrom;
