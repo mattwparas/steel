@@ -30,7 +30,7 @@ use log::{debug, log_enabled};
 
 use super::{compiler::DebruijnIndicesInterner, map::SymbolMap};
 
-const _TILE_SUPER_INSTRUCTIONS: bool = false;
+const _TILE_SUPER_INSTRUCTIONS: bool = true;
 
 pub fn number_literal_to_steel(n: &NumberLiteral) -> Result<SteelVal> {
     // real_to_steel does some cloning of bignums. It may be possible to optimize this away.
@@ -505,7 +505,8 @@ pub const fn sequence_to_opcode(pattern: &[(OpCode, usize)]) -> &'static [steel_
     }
 }
 
-pub fn tile_super_instructions(_instructions: &mut [Instruction]) {
+#[allow(unused)]
+pub fn tile_super_instructions(instructions: &mut [Instruction]) {
     #[cfg(feature = "dynamic")]
     {
         pub fn tile<const N: usize>(instructions: &mut [Instruction]) {
@@ -535,7 +536,10 @@ pub fn tile_super_instructions(_instructions: &mut [Instruction]) {
                     steel_gen::Pattern::from_opcodes_with_buffer(&buffer, &mut pattern_buffer);
 
                     if crate::steel_vm::vm::pattern_exists(&pattern_buffer) {
-                        log::debug!(target: "super-instructions", "Applying tiling for: {:?}", op_code);
+                        // log::debug!(target: "super-instructions", "Applying tiling for: {:?}", op_code);
+
+                        // println!("Applying tiling for: {:?}", op_code);
+                        // println!("{:?}", pattern_buffer);
 
                         instructions[i].op_code = op_code;
 
@@ -552,6 +556,8 @@ pub fn tile_super_instructions(_instructions: &mut [Instruction]) {
         // Super instruction tiling here!
 
         if _TILE_SUPER_INSTRUCTIONS {
+            tile::<11>(instructions);
+            tile::<10>(instructions);
             tile::<9>(instructions);
             tile::<8>(instructions);
             tile::<7>(instructions);

@@ -1,5 +1,6 @@
 (#%require-dylib "libsteel_sqlite"
-                 (prefix-in (only-in open-in-memory
+                 (prefix-in sqlite/
+                            (only-in open-in-memory
                                      prepare
                                      execute
                                      query

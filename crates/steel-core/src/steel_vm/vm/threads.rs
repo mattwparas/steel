@@ -374,7 +374,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             stack: Vec::with_capacity(64),
             profiler: OpCodeOccurenceProfiler::new(),
             function_interner,
-            super_instructions: Vec::new(),
+            // _super_instructions: Vec::new(),
             heap,
             runtime_options: thread.runtime_options,
             current_frame: StackFrame::main(),

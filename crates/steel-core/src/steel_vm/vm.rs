@@ -1,21 +1,14 @@
 #![allow(unused)]
 
-use crate::core::instructions::pretty_print_dense_instructions;
 use crate::primitives::lists::car;
 use crate::primitives::lists::cdr;
 use crate::primitives::lists::cons;
 use crate::primitives::lists::is_empty;
 use crate::primitives::lists::new as new_list;
-use crate::primitives::lists::steel_car;
-use crate::primitives::lists::steel_cdr;
 use crate::primitives::numbers::add_two;
-// use crate::primitives::lists::unsafe_cons;
 use crate::rvals::number_equality;
-use crate::rvals::steel_number_equality;
 use crate::steel_vm::primitives::steel_not;
-use crate::steel_vm::primitives::steel_set_box;
 use crate::steel_vm::primitives::steel_set_box_mutable;
-use crate::steel_vm::primitives::steel_unbox;
 use crate::steel_vm::primitives::steel_unbox_mutable;
 use crate::values::closed::Heap;
 use crate::values::functions::SerializedLambda;
@@ -51,15 +44,11 @@ use crate::values::lists::List;
 
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
-use num::ToPrimitive;
-use once_cell::sync::Lazy;
 use smallvec::SmallVec;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
 
-use crate::rvals::{
-    as_underlying_type, from_serializable_value, into_serializable_value, IntoSteelVal,
-};
+use crate::rvals::{from_serializable_value, into_serializable_value, IntoSteelVal};
 
 pub(crate) mod threads;
 pub(crate) use threads::{spawn_thread, thread_join};
@@ -229,33 +218,33 @@ impl StackFrame {
         self
     }
 
-    fn new_rooted(
-        stack_index: usize,
-        #[cfg(feature = "unsafe-internals")] function: crate::gc::unsafe_roots::MaybeRooted<
-            ByteCodeLambda,
-        >,
-        #[cfg(not(feature = "unsafe-internals"))] function: Gc<ByteCodeLambda>,
-        ip: usize,
-        instructions: Rc<[DenseInstruction]>,
-        // span_id: usize,
-        // spans: Rc<[Span]>,
-    ) -> Self {
-        Self {
-            sp: stack_index,
-            #[cfg(feature = "unsafe-internals")]
-            function,
-            #[cfg(not(feature = "unsafe-internals"))]
-            function,
-            ip,
-            instructions,
-            // span: None,
-            handler: None,
+    // fn new_rooted(
+    //     stack_index: usize,
+    //     #[cfg(feature = "unsafe-internals")] function: crate::gc::unsafe_roots::MaybeRooted<
+    //         ByteCodeLambda,
+    //     >,
+    //     #[cfg(not(feature = "unsafe-internals"))] function: Gc<ByteCodeLambda>,
+    //     ip: usize,
+    //     instructions: Rc<[DenseInstruction]>,
+    //     // span_id: usize,
+    //     // spans: Rc<[Span]>,
+    // ) -> Self {
+    //     Self {
+    //         sp: stack_index,
+    //         #[cfg(feature = "unsafe-internals")]
+    //         function,
+    //         #[cfg(not(feature = "unsafe-internals"))]
+    //         function,
+    //         ip,
+    //         instructions,
+    //         // span: None,
+    //         handler: None,
 
-            weak_continuation_mark: None,
-            // spans,
-            // span_id,
-        }
-    }
+    //         weak_continuation_mark: None,
+    //         // spans,
+    //         // span_id,
+    //     }
+    // }
 
     pub fn main() -> Self {
         let function = Gc::new(ByteCodeLambda::main(Vec::new()));
@@ -312,8 +301,7 @@ pub struct SteelThread {
     pub(crate) stack: Vec<SteelVal>,
     profiler: OpCodeOccurenceProfiler,
     function_interner: FunctionInterner,
-    super_instructions: Vec<Rc<DynamicBlock>>,
-
+    // _super_instructions: Vec<Rc<DynamicBlock>>,
     pub(crate) heap: Heap,
     // If contracts are set to off - contract construction results in a no-op,
     // so we don't need generics on the thread
@@ -338,11 +326,11 @@ impl RunTimeOptions {
     }
 }
 
-struct InstructionChunk {
-    start: usize,
-    end: usize,
-    id: usize,
-}
+// struct InstructionChunk {
+//     start: usize,
+//     end: usize,
+//     id: usize,
+// }
 
 #[derive(PartialEq)]
 struct SpanId(usize);
@@ -374,8 +362,7 @@ impl SteelThread {
             stack: Vec::with_capacity(128),
             profiler: OpCodeOccurenceProfiler::new(),
             function_interner: FunctionInterner::default(),
-            super_instructions: Vec::new(),
-
+            // _super_instructions: Vec::new(),
             heap: Heap::new(),
             runtime_options: RunTimeOptions::new(),
             stack_frames: Vec::with_capacity(128),
@@ -651,44 +638,12 @@ impl SteelThread {
 
                 return Err(e);
             } else {
-                // self.profiler.report();
-                // self.profiler.report_time_spend();
-                // self.profiler.report_basic_blocks();
-
-                // self.upvalue_head = vm_instance.upvalue_head;
-
-                // println!(
-                //     "------ Total trace samples: {} ------",
-                //     self.profiler.sample_count
-                // );
-
-                // panic!("GETTING HERE")
-
-                // println!("GETTING HERE");
-
-                // while self.stack.pop().is_some() {}
-
-                // dbg!(self.stack_frames.len());
-
                 for frame in &vm_instance.thread.stack_frames {
-                    if Continuation::close_marks(&vm_instance, &frame) {
-                        println!("_____ Closed frame in pop ______");
-                    }
+                    Continuation::close_marks(&vm_instance, &frame);
                 }
 
                 // Clean up
                 self.stack.clear();
-
-                // #[cfg(feature = "profiling")]
-                // if log_enabled!(target: "pipeline_time", log::Level::Debug) {
-                //     debug!(
-                //         target: "pipeline_time",
-                //         "VM Evaluation Time: {:?}",
-                //         execution_time.elapsed()
-                //     );
-                // };
-
-                // println!("FINISHED");
 
                 return result;
             }
@@ -1026,88 +981,83 @@ impl<'a> VmContext for VmCore<'a> {
 }
 
 // TODO: Make dynamic block use this
-enum FunctionBlock {
-    Specialized(for<'r> fn(&'r mut VmCore<'_>) -> Result<()>),
-    Unrolled(Rc<[for<'r> fn(&'r mut VmCore<'_>) -> Result<()>]>),
-}
+// enum FunctionBlock {
+//     Specialized(for<'r> fn(&'r mut VmCore<'_>) -> Result<()>),
+//     Unrolled(Rc<[for<'r> fn(&'r mut VmCore<'_>) -> Result<()>]>),
+// }
 
 // Construct a basic block for a series of instructions
 // Note: A call to either apply or call/cc should invalidate this, as it fundamentally
 // violates the principle of a basic block.
-#[derive(Clone)]
-pub struct DynamicBlock {
-    basic_block: InstructionPattern,
-    entry_inst: DenseInstruction,
-    header_func: Option<for<'r> fn(&'r mut VmCore<'_>, usize) -> Result<()>>,
-    handlers: Rc<[for<'r> fn(&'r mut VmCore<'_>) -> Result<()>]>,
-    specialized: Option<for<'r> fn(&'r mut VmCore<'_>, usize) -> Result<()>>,
-}
+// #[derive(Clone)]
+// pub struct DynamicBlock {
+//     basic_block: InstructionPattern,
+//     entry_inst: DenseInstruction,
+//     header_func: Option<for<'r> fn(&'r mut VmCore<'_>, usize) -> Result<()>>,
+//     handlers: Rc<[for<'r> fn(&'r mut VmCore<'_>) -> Result<()>]>,
+//     specialized: Option<for<'r> fn(&'r mut VmCore<'_>, usize) -> Result<()>>,
+// }
 
-impl DynamicBlock {
-    fn call(&self, context: &mut VmCore<'_>) -> Result<()> {
-        // println!("---- Entering dynamic block ----");
-        // println!("{:#?}", self.basic_block);
+// impl DynamicBlock {
+// fn call(&self, context: &mut VmCore<'_>) -> Result<()> {
+//     // println!("---- Entering dynamic block ----");
+//     // println!("{:#?}", self.basic_block);
 
-        if let Some(specialized) = self.specialized {
-            specialized(context, self.entry_inst.payload_size as usize)?;
-        } else {
-            if let Some(header) = self.header_func {
-                // println!("Calling special entry block");
-                header(context, self.entry_inst.payload_size as usize)?;
-            }
+//     if let Some(specialized) = self.specialized {
+//         specialized(context, self.entry_inst.payload_size as usize)?;
+//     } else {
+//         if let Some(header) = self.header_func {
+//             // println!("Calling special entry block");
+//             header(context, self.entry_inst.payload_size as usize)?;
+//         }
 
-            for func in self.handlers.iter() {
-                func(context)?;
-            }
-        }
+//         for func in self.handlers.iter() {
+//             func(context)?;
+//         }
+//     }
 
-        // println!("---- Exited dynamic block ----");
-        // println!(
-        // "Current op code: {:?}",
-        // context.instructions[context.ip].op_code
-        // );
-        Ok(())
-    }
+//     Ok(())
+// }
 
-    #[cfg(feature = "dynamic")]
-    fn construct_basic_block(head: DenseInstruction, basic_block: InstructionPattern) -> Self {
-        // TODO: Drop the first
-        let mut handlers = basic_block.block.iter().peekable();
-        // .map(|x| OP_CODE_TABLE[x as usize]);
-        // .collect();
+//     #[cfg(feature = "dynamic")]
+//     fn construct_basic_block(head: DenseInstruction, basic_block: InstructionPattern) -> Self {
+//         // TODO: Drop the first
+//         let mut handlers = basic_block.block.iter().peekable();
+//         // .map(|x| OP_CODE_TABLE[x as usize]);
+//         // .collect();
 
-        let mut header_func = None;
+//         let mut header_func = None;
 
-        log::debug!(target: "super-instructions", "{basic_block:#?}");
+//         log::debug!(target: "super-instructions", "{basic_block:#?}");
 
-        if let Some(first) = handlers.peek() {
-            header_func = op_code_requires_payload(first.0);
-        }
+//         if let Some(first) = handlers.peek() {
+//             header_func = op_code_requires_payload(first.0);
+//         }
 
-        if header_func.is_some() {
-            handlers.next();
-        }
+//         if header_func.is_some() {
+//             handlers.next();
+//         }
 
-        let op_codes: Vec<_> = handlers.clone().copied().collect();
+//         let op_codes: Vec<_> = handlers.clone().copied().collect();
 
-        let specialized = dynamic::DYNAMIC_SUPER_PATTERNS.get(&op_codes);
+//         let specialized = dynamic::DYNAMIC_SUPER_PATTERNS.get(&op_codes);
 
-        if specialized.is_some() {
-            println!("Found specialized function!");
-        }
+//         if specialized.is_some() {
+//             println!("Found specialized function!");
+//         }
 
-        let handlers = handlers.map(|x| OP_CODE_TABLE[x.0 as usize]).collect();
+//         let handlers = handlers.map(|x| OP_CODE_TABLE[x.0 as usize]).collect();
 
-        Self {
-            basic_block,
-            handlers,
-            entry_inst: head,
-            header_func,
-            // TODO: Come back and add the specialized ones back in
-            specialized,
-        }
-    }
-}
+//         Self {
+//             basic_block,
+//             handlers,
+//             entry_inst: head,
+//             header_func,
+//             // TODO: Come back and add the specialized ones back in
+//             specialized,
+//         }
+//     }
+// }
 
 pub struct VmCore<'a> {
     pub(crate) instructions: Rc<[DenseInstruction]>,
@@ -1213,16 +1163,7 @@ impl<'a> VmCore<'a> {
     }
 
     fn new_open_continuation_from_state(&self) -> Continuation {
-        // println!("Creating new open continuation");
-
-        // return MaybeContinuation {
-        //     inner: Rc::new(RefCell::new(ContinuationMark::Closed(
-        //         self.new_closed_continuation_from_state(),
-        //     ))),
-        // };
-
         let offset = self.get_offset();
-
         Continuation {
             inner: Rc::new(RefCell::new(ContinuationMark::Open(OpenContinuationMark {
                 current_frame: self.thread.stack_frames.last().unwrap().clone(),
@@ -1240,9 +1181,6 @@ impl<'a> VmCore<'a> {
 
     // Could be neat at some point: https://docs.rs/stacker/latest/stacker/
     fn new_closed_continuation_from_state(&self) -> ClosedContinuation {
-        // dbg!(&self.thread.stack.len());
-        // dbg!(&self.thread.stack_frames.len());
-
         ClosedContinuation {
             stack: self.thread.stack.clone(),
             instructions: Rc::clone(&self.instructions),
@@ -1352,17 +1290,7 @@ impl<'a> VmCore<'a> {
 
     // #[inline(always)]
     fn construct_continuation_function(&self) -> Continuation {
-        // let captured_continuation = self.new_continuation_from_state();
-
-        let continuation = self.new_open_continuation_from_state();
-
-        // SteelVal::ContinuationFunction(continuation)
-
-        continuation
-    }
-
-    fn construct_oneshot_continuation_function(&self) -> SteelVal {
-        todo!()
+        self.new_open_continuation_from_state()
     }
 
     // Reset state FULLY
@@ -1709,21 +1637,21 @@ impl<'a> VmCore<'a> {
 
                 log::debug!(target: "super-instructions", "{:#?}", pat);
 
-                if USE_SUPER_INSTRUCTIONS {
-                    // Index of the starting opcode
-                    let start = pat.pattern.start;
+                // if USE_SUPER_INSTRUCTIONS {
+                //     // Index of the starting opcode
+                //     let start = pat.pattern.start;
 
-                    let id = self.thread.super_instructions.len();
+                //     let id = self.thread.super_instructions.len();
 
-                    let guard = self.thread.stack_frames.last_mut().unwrap();
+                //     let guard = self.thread.stack_frames.last_mut().unwrap();
 
-                    // Next run should get the new sequence of opcodes
-                    let (head, _) = guard.function.update_to_super_instruction(start, id);
+                //     // Next run should get the new sequence of opcodes
+                //     let (head, _) = guard.function.update_to_super_instruction(start, id);
 
-                    let block = DynamicBlock::construct_basic_block(head, pat);
+                //     let block = DynamicBlock::construct_basic_block(head, pat);
 
-                    self.thread.super_instructions.push(Rc::new(block));
-                }
+                //     self.thread.super_instructions.push(Rc::new(block));
+                // }
                 // self.thread.super_instructions.push(Rc::new(|ctx| {
                 //     block.call(ctx);
                 // }))
@@ -1824,6 +1752,14 @@ impl<'a> VmCore<'a> {
                     ..
                 } => {
                     cons_handler(self)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::Apply,
+                    // payload_size,
+                    ..
+                } => {
+                    todo!()
                 }
 
                 DenseInstruction {
@@ -2030,7 +1966,7 @@ impl<'a> VmCore<'a> {
                     let right = self.thread.stack.pop().unwrap();
                     let left = self.thread.stack.last().unwrap();
 
-                    let result = match add_handler_none_none(left, &right) {
+                    let result = match handlers::add_handler_none_none(left, &right) {
                         Ok(value) => value,
                         Err(e) => return Err(e.set_span_if_none(self.current_span())),
                     };
@@ -2444,11 +2380,11 @@ impl<'a> VmCore<'a> {
                     // TODO: Dispatch on the function here for super instructions!
                     dynamic::vm_match_dynamic_super_instruction(self, instr)?;
 
-                    crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-                    panic!(
-                        "Unhandled opcode: {:?} @ {}",
-                        self.instructions[self.ip], self.ip
-                    );
+                    // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+                    // panic!(
+                    //     "Unhandled opcode: {:?} @ {}",
+                    //     self.instructions[self.ip], self.ip
+                    // );
                 }
             }
         }
@@ -2544,6 +2480,10 @@ impl<'a> VmCore<'a> {
         }
     }
 
+    // TODO: Anytime we genuinely close a continuation mark, we should check that we
+    // are not in a recursive installment of the VM. Any recursive call sharing the
+    // stack will need to be instrumented with the point in time that we are at
+    // with respect to the existing continuation.
     #[inline(always)]
     fn close_continuation_marks(&self, last: &StackFrame) -> bool {
         // TODO: @Matt - continuation marks should actually do something here
@@ -3179,24 +3119,24 @@ impl<'a> VmCore<'a> {
             log::debug!(target: "super-instructions", "Found a hot pattern, creating super instruction...");
             log::debug!(target: "super-instructions", "{:#?}", pat);
 
-            if USE_SUPER_INSTRUCTIONS {
-                // Index of the starting opcode
-                let start = pat.pattern.start;
+            // if USE_SUPER_INSTRUCTIONS {
+            //     // Index of the starting opcode
+            //     let start = pat.pattern.start;
 
-                let id = self.thread.super_instructions.len();
+            //     let id = self.thread.super_instructions.len();
 
-                let guard = self.thread.stack_frames.last_mut().unwrap();
+            //     let guard = self.thread.stack_frames.last_mut().unwrap();
 
-                // We don't want to repeatedly thrash by calculating hashes for the block pattern, so
-                // we mark the tail of the block directly on the function itself.
-                // guard.function.mark_block_tail(self.ip);
+            //     // We don't want to repeatedly thrash by calculating hashes for the block pattern, so
+            //     // we mark the tail of the block directly on the function itself.
+            //     // guard.function.mark_block_tail(self.ip);
 
-                // Next run should get the new sequence of opcodes
-                let (head, _) = guard.function.update_to_super_instruction(start, id);
+            //     // Next run should get the new sequence of opcodes
+            //     let (head, _) = guard.function.update_to_super_instruction(start, id);
 
-                let block = DynamicBlock::construct_basic_block(head, pat);
-                self.thread.super_instructions.push(Rc::new(block));
-            }
+            //     let block = DynamicBlock::construct_basic_block(head, pat);
+            //     self.thread.super_instructions.push(Rc::new(block));
+            // }
         }
     }
 
@@ -3236,71 +3176,6 @@ impl<'a> VmCore<'a> {
         self.thread.stack.truncate(last_index);
 
         self.thread.stack.push(result);
-        self.ip += 1;
-        Ok(())
-    }
-
-    // NOTE: Here, the last element on the stack _is_ the function we're referring to. In this case, just avoid
-    // touching the last element and move on.
-    fn call_boxed_func_on_stack(
-        &mut self,
-        func: Rc<dyn Fn(&[SteelVal]) -> Result<SteelVal>>,
-        payload_size: usize,
-    ) -> Result<()> {
-        // stack is [args ... function]
-        let len = self.thread.stack.len();
-        // This is the start of the arguments
-        let last_index = len - payload_size - 1;
-
-        // Peek the range for the [args ... function]
-        //                        ~~~~~~~~~~
-        // let result = func(self.stack.peek_range_double(last_index..len))
-        //     .map_err(|x| x.set_span_if_none(self.current_span()))?;
-
-        let result = match func(&self.thread.stack[last_index..len]) {
-            Ok(value) => value,
-            Err(e) => return Err(e.set_span_if_none(self.current_span())),
-        };
-
-        // This is the old way, but now given that the function is included on the stack, this should work...
-        // self.stack.truncate(last_index);
-        // self.stack.push(result);
-
-        self.thread.stack.truncate(last_index + 1);
-        *self.thread.stack.last_mut().unwrap() = result;
-
-        self.ip += 1;
-        Ok(())
-    }
-
-    // #[inline(always)]
-    fn call_primitive_func_on_stack(
-        &mut self,
-        func: fn(&[SteelVal]) -> Result<SteelVal>,
-        payload_size: usize,
-    ) -> Result<()> {
-        // stack is [args ... function]
-        let len = self.thread.stack.len();
-        // This is the start of the arguments
-        let last_index = len - payload_size - 1;
-
-        // Peek the range for the [args ... function]
-        //                        ~~~~~~~~~~
-        // let result = func(self.stack.peek_range_double(last_index..len))
-        //     .map_err(|x| x.set_span_if_none(self.current_span()))?;
-
-        let result = match func(&self.thread.stack[last_index..len]) {
-            Ok(value) => value,
-            Err(e) => return Err(e.set_span_if_none(self.current_span())),
-        };
-
-        // This is the old way, but now given that the function is included on the stack, this should work...
-        // self.stack.truncate(last_index);
-        // self.stack.push(result);
-
-        self.thread.stack.truncate(last_index + 1);
-        *self.thread.stack.last_mut().unwrap() = result;
-
         self.ip += 1;
         Ok(())
     }
@@ -3811,7 +3686,7 @@ impl<'a> VmCore<'a> {
     #[inline(always)]
     fn handle_function_call_closure_jit_without_profiling(
         &mut self,
-        mut closure: Gc<ByteCodeLambda>,
+        closure: Gc<ByteCodeLambda>,
         payload_size: usize,
     ) -> Result<()> {
         self.adjust_stack_for_multi_arity(&closure, payload_size, &mut 0)?;
@@ -3850,57 +3725,57 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
-    #[inline(always)]
-    fn handle_function_call_closure_jit_without_profiling_ref(
-        &mut self,
-        mut closure: &Gc<ByteCodeLambda>,
-        payload_size: usize,
-    ) -> Result<()> {
-        self.adjust_stack_for_multi_arity(closure, payload_size, &mut 0)?;
+    // #[inline(always)]
+    // fn handle_function_call_closure_jit_without_profiling_ref(
+    //     &mut self,
+    //     mut closure: &Gc<ByteCodeLambda>,
+    //     payload_size: usize,
+    // ) -> Result<()> {
+    //     self.adjust_stack_for_multi_arity(closure, payload_size, &mut 0)?;
 
-        self.sp = self.thread.stack.len() - closure.arity();
+    //     self.sp = self.thread.stack.len() - closure.arity();
 
-        let mut instructions = closure.body_exp();
-        // let mut spans = closure.spans();
+    //     let mut instructions = closure.body_exp();
+    //     // let mut spans = closure.spans();
 
-        std::mem::swap(&mut instructions, &mut self.instructions);
-        // std::mem::swap(&mut spans, &mut self.spans);
+    //     std::mem::swap(&mut instructions, &mut self.instructions);
+    //     // std::mem::swap(&mut spans, &mut self.spans);
 
-        // Do this _after_ the multi arity business
-        // TODO: can these rcs be avoided
-        self.thread.stack_frames.push(
-            StackFrame::new_rooted(
-                self.sp,
-                // Almost assuredly UB - there really just needs to be a runtime reference
-                // on the value that gets passed around, or we just need to
-                #[cfg(feature = "unsafe-internals")]
-                crate::gc::unsafe_roots::MaybeRooted::from_root(closure),
-                #[cfg(not(feature = "unsafe-internals"))]
-                closure.clone(),
-                self.ip + 1,
-                instructions,
-            ), // .with_span(self.current_span()),
-        );
+    //     // Do this _after_ the multi arity business
+    //     // TODO: can these rcs be avoided
+    //     self.thread.stack_frames.push(
+    //         StackFrame::new_rooted(
+    //             self.sp,
+    //             // Almost assuredly UB - there really just needs to be a runtime reference
+    //             // on the value that gets passed around, or we just need to
+    //             #[cfg(feature = "unsafe-internals")]
+    //             crate::gc::unsafe_roots::MaybeRooted::from_root(closure),
+    //             #[cfg(not(feature = "unsafe-internals"))]
+    //             closure.clone(),
+    //             self.ip + 1,
+    //             instructions,
+    //         ), // .with_span(self.current_span()),
+    //     );
 
-        // self.current_arity = Some(closure.arity());
+    //     // self.current_arity = Some(closure.arity());
 
-        self.check_stack_overflow()?;
+    //     self.check_stack_overflow()?;
 
-        // closure arity here is the number of true arguments
-        // self.stack_index.push(self.stack.len() - closure.arity());
+    //     // closure arity here is the number of true arguments
+    //     // self.stack_index.push(self.stack.len() - closure.arity());
 
-        // TODO use new heap
-        // self.heap
-        //     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
-        // self.heap.collect_garbage();
+    //     // TODO use new heap
+    //     // self.heap
+    //     //     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
+    //     // self.heap.collect_garbage();
 
-        self.pop_count += 1;
+    //     self.pop_count += 1;
 
-        // self.instructions = instructions;
-        // self.spans = spans;
-        self.ip = 0;
-        Ok(())
-    }
+    //     // self.instructions = instructions;
+    //     // self.spans = spans;
+    //     self.ip = 0;
+    //     Ok(())
+    // }
 
     // TODO improve this a bit
     // #[inline(always)]
@@ -3924,57 +3799,6 @@ impl<'a> VmCore<'a> {
     }
 
     #[inline(always)]
-    fn handle_function_call_closure_jit_ref(
-        &mut self,
-        closure: &Gc<ByteCodeLambda>,
-        payload_size: usize,
-    ) -> Result<()> {
-        // Record the end of the existing sequence
-        self.cut_sequence();
-
-        // Jit profiling -> Make sure that we really only trace once we pass a certain threshold
-        // For instance, if this function
-        #[cfg(feature = "dynamic")]
-        {
-            closure.increment_call_count();
-        }
-
-        self.handle_function_call_closure_jit_without_profiling_ref(closure, payload_size)
-    }
-
-    #[inline(always)]
-    fn handle_global_function_call_by_reference(
-        &mut self,
-        stack_func: &SteelVal,
-        payload_size: usize,
-    ) -> Result<()> {
-        use SteelVal::*;
-
-        match stack_func {
-            Closure(closure) => self.handle_function_call_closure_jit_ref(closure, payload_size)?,
-            FuncV(f) => self.call_primitive_func(*f, payload_size)?,
-            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size)?,
-            MutFunc(f) => self.call_primitive_mut_func(*f, payload_size)?,
-            FutureFunc(f) => self.call_future_func(f.clone(), payload_size)?,
-            // ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size)?,
-            ContinuationFunction(cc) => self.call_continuation(cc.clone())?,
-            // #[cfg(feature = "jit")]
-            // CompiledFunction(function) => self.call_compiled_function(function, payload_size)?,
-            // Contract(c) => self.call_contract(&c, payload_size)?,
-            BuiltIn(f) => self.call_builtin_func(*f, payload_size)?,
-            // CustomStruct(s) => self.call_custom_struct_global(&s.borrow(), payload_size)?,
-            _ => {
-                // Explicitly mark this as unlikely
-                cold();
-                log::error!("{stack_func:?}");
-                log::error!("Stack: {:?}", self.thread.stack);
-                stop!(BadSyntax => "Function application not a procedure or function type not supported"; self.current_span());
-            }
-        }
-        Ok(())
-    }
-
-    #[inline(always)]
     fn handle_global_function_call(
         &mut self,
         stack_func: SteelVal,
@@ -3982,17 +3806,13 @@ impl<'a> VmCore<'a> {
     ) -> Result<()> {
         use SteelVal::*;
 
-        // println!("Calling global: {}", stack_func);
-
         match stack_func {
             Closure(closure) => self.handle_function_call_closure_jit(closure, payload_size),
             FuncV(f) => self.call_primitive_func(f, payload_size),
             BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
             FutureFunc(f) => self.call_future_func(f, payload_size),
-            // ContractedFunction(cf) => self.call_contracted_function(&cf, payload_size),
             ContinuationFunction(cc) => self.call_continuation(cc),
-            // Contract(c) => self.call_contract(&c, payload_size),
             BuiltIn(f) => {
                 // self.ip -= 1;
                 self.call_builtin_func(f, payload_size)
@@ -4013,16 +3833,29 @@ impl<'a> VmCore<'a> {
         &mut self,
         stack_func: SteelVal,
         args: &mut [SteelVal],
-    ) -> Result<SteelVal> {
+    ) -> Result<Option<SteelVal>> {
         use SteelVal::*;
 
         self.ip += 1;
 
-        match &stack_func {
-            BoxedFunction(f) => f.func()(args),
-            MutFunc(f) => f(args),
-            FuncV(f) => f(args),
-            FutureFunc(f) => Ok(SteelVal::FutureV(Gc::new(f(args)?))),
+        match stack_func {
+            BoxedFunction(f) => f.func()(args).map(Some),
+            MutFunc(f) => f(args).map(Some),
+            FuncV(f) => f(args).map(Some),
+            FutureFunc(f) => Ok(SteelVal::FutureV(Gc::new(f(args)?))).map(Some),
+            Closure(closure) => {
+                let arity = args.len();
+
+                for arg in args {
+                    self.thread
+                        .stack
+                        .push(std::mem::replace(arg, SteelVal::Void));
+                }
+
+                self.handle_function_call_closure_jit(closure, arity)
+                    .map(|_| None)
+            }
+            // TODO: Implement this for other functions
             _ => {
                 log::error!("{stack_func:?}");
                 log::error!("Stack: {:?}", self.thread.stack);
@@ -4033,55 +3866,55 @@ impl<'a> VmCore<'a> {
         // Ok(())
     }
 
-    #[inline(always)]
-    fn handle_non_instr_global_function_call_lazy_push(
-        &mut self,
-        stack_func: SteelVal,
-        args: &mut [SteelVal],
-    ) -> Result<()> {
-        use SteelVal::*;
+    // #[inline(always)]
+    // fn handle_non_instr_global_function_call_lazy_push(
+    //     &mut self,
+    //     stack_func: SteelVal,
+    //     args: &mut [SteelVal],
+    // ) -> Result<()> {
+    //     use SteelVal::*;
 
-        // self.ip += 1;
+    //     // self.ip += 1;
 
-        match stack_func {
-            BoxedFunction(f) => {
-                self.ip += 1;
-                self.thread.stack.push(f.func()(args)?)
-            }
-            MutFunc(f) => {
-                self.ip += 1;
-                self.thread.stack.push(f(args)?)
-            }
-            FuncV(f) => {
-                self.ip += 1;
-                self.thread.stack.push(f(args)?)
-            }
-            FutureFunc(f) => {
-                self.ip += 1;
-                self.thread.stack.push(SteelVal::FutureV(Gc::new(f(args)?)))
-            }
-            Closure(closure) => {
-                let arity = args.len();
+    //     match stack_func {
+    //         BoxedFunction(f) => {
+    //             self.ip += 1;
+    //             self.thread.stack.push(f.func()(args)?)
+    //         }
+    //         MutFunc(f) => {
+    //             self.ip += 1;
+    //             self.thread.stack.push(f(args)?)
+    //         }
+    //         FuncV(f) => {
+    //             self.ip += 1;
+    //             self.thread.stack.push(f(args)?)
+    //         }
+    //         FutureFunc(f) => {
+    //             self.ip += 1;
+    //             self.thread.stack.push(SteelVal::FutureV(Gc::new(f(args)?)))
+    //         }
+    //         Closure(closure) => {
+    //             let arity = args.len();
 
-                self.thread.stack.reserve(arity);
+    //             self.thread.stack.reserve(arity);
 
-                for arg in args {
-                    self.thread.stack.push(arg.clone());
-                }
+    //             for arg in args {
+    //                 self.thread.stack.push(arg.clone());
+    //             }
 
-                // If we're here, we're already done profiling, and don't need to profile anymore
-                self.handle_function_call_closure_jit(closure, arity)?;
-            }
-            // BuiltIn(f) => f(self, args),
-            _ => {
-                log::error!("Lazy push: {stack_func:?}");
-                log::error!("Stack: {:?}", self.thread.stack);
-                stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {stack_func}"); self.current_span());
-            }
-        }
+    //             // If we're here, we're already done profiling, and don't need to profile anymore
+    //             self.handle_function_call_closure_jit(closure, arity)?;
+    //         }
+    //         // BuiltIn(f) => f(self, args),
+    //         _ => {
+    //             log::error!("Lazy push: {stack_func:?}");
+    //             log::error!("Stack: {:?}", self.thread.stack);
+    //             stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {stack_func}"); self.current_span());
+    //         }
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     // #[inline(always)]
     // fn call_contract(&mut self, contract: &Gc<ContractType>, payload_size: usize) -> Result<()> {
@@ -4811,73 +4644,73 @@ impl OpCodeOccurenceProfiler {
 
 // If the op code requires the original payload from the instruction that we're overwriting, we should
 // attach it to the basic block, because otherwise we'll have lost the payload
-fn op_code_requires_payload(
-    op_code: OpCode,
-) -> Option<for<'r> fn(&'r mut VmCore<'_>, usize) -> Result<()>> {
-    match op_code {
-        OpCode::VOID => None,
-        OpCode::PUSH => Some(push_handler_with_payload),
-        OpCode::IF => todo!(),
-        OpCode::JMP => todo!(),
-        OpCode::FUNC => Some(func_handler_with_payload),
-        OpCode::SCLOSURE => todo!(),
-        OpCode::ECLOSURE => todo!(),
-        OpCode::BIND => Some(bind_handler_with_payload),
-        OpCode::SDEF => todo!(),
-        OpCode::EDEF => todo!(),
-        OpCode::POPPURE => todo!(),
-        OpCode::PASS => todo!(),
-        OpCode::PUSHCONST => Some(push_const_handler_with_payload),
-        OpCode::NDEFS => todo!(),
-        OpCode::PANIC => None,
-        OpCode::TAILCALL => todo!(),
-        OpCode::SET => Some(set_handler_with_payload),
-        OpCode::READLOCAL => Some(local_handler_with_payload),
-        OpCode::READLOCAL0 => None,
-        OpCode::READLOCAL1 => None,
-        OpCode::READLOCAL2 => None,
-        OpCode::READLOCAL3 => None,
-        OpCode::SETLOCAL => Some(set_local_handler_with_payload),
-        OpCode::COPYCAPTURESTACK => todo!(),
-        OpCode::COPYCAPTURECLOSURE => todo!(),
-        OpCode::COPYHEAPCAPTURECLOSURE => todo!(),
-        OpCode::FIRSTCOPYHEAPCAPTURECLOSURE => todo!(),
-        OpCode::TCOJMP => todo!(),
-        OpCode::CALLGLOBAL => Some(call_global_handler_with_payload),
-        OpCode::CALLGLOBALTAIL => todo!(),
-        OpCode::LOADINT0 => None,
-        OpCode::LOADINT1 => None,
-        OpCode::LOADINT2 => None,
-        OpCode::CGLOCALCONST => todo!(),
-        OpCode::MOVEREADLOCAL => Some(move_local_handler_with_payload),
-        OpCode::MOVEREADLOCAL0 => None,
-        OpCode::MOVEREADLOCAL1 => None,
-        OpCode::MOVEREADLOCAL2 => None,
-        OpCode::MOVEREADLOCAL3 => None,
-        OpCode::READCAPTURED => Some(read_captured_handler_with_payload),
-        OpCode::BEGINSCOPE => None,
-        OpCode::LETENDSCOPE => Some(let_end_scope_handler_with_payload),
-        OpCode::PUREFUNC => Some(pure_function_handler_with_payload),
-        OpCode::ADD => Some(add_handler_payload),
-        OpCode::SUB => Some(sub_handler_payload),
-        OpCode::MUL => Some(multiply_handler_payload),
-        OpCode::DIV => Some(division_handler_payload),
-        OpCode::EQUAL => Some(equality_handler_payload),
-        OpCode::LTE => Some(lte_handler_payload),
-        OpCode::NEWSCLOSURE => Some(new_sclosure_handler_with_payload),
-        OpCode::ADDREGISTER => todo!(),
-        OpCode::SUBREGISTER => todo!(),
-        OpCode::LTEREGISTER => todo!(),
-        OpCode::SUBREGISTER1 => todo!(),
-        OpCode::ALLOC => None,
-        OpCode::READALLOC => Some(read_alloc_handler_with_payload),
-        OpCode::SETALLOC => Some(set_alloc_handler_with_payload),
-        // OpCode::GIMMICK => todo!(),
-        // OpCode::MOVEREADLOCALCALLGLOBAL => Some(move_read_local_call_global_handler_payload),
-        OpCode::DynSuperInstruction => todo!(),
-        _ => None,
-    }
-}
+// fn op_code_requires_payload(
+//     op_code: OpCode,
+// ) -> Option<for<'r> fn(&'r mut VmCore<'_>, usize) -> Result<()>> {
+//     match op_code {
+//         OpCode::VOID => None,
+//         OpCode::PUSH => Some(push_handler_with_payload),
+//         OpCode::IF => todo!(),
+//         OpCode::JMP => todo!(),
+//         OpCode::FUNC => Some(func_handler_with_payload),
+//         OpCode::SCLOSURE => todo!(),
+//         OpCode::ECLOSURE => todo!(),
+//         OpCode::BIND => Some(bind_handler_with_payload),
+//         OpCode::SDEF => todo!(),
+//         OpCode::EDEF => todo!(),
+//         OpCode::POPPURE => todo!(),
+//         OpCode::PASS => todo!(),
+//         OpCode::PUSHCONST => Some(push_const_handler_with_payload),
+//         OpCode::NDEFS => todo!(),
+//         OpCode::PANIC => None,
+//         OpCode::TAILCALL => todo!(),
+//         OpCode::SET => Some(set_handler_with_payload),
+//         OpCode::READLOCAL => Some(local_handler_with_payload),
+//         OpCode::READLOCAL0 => None,
+//         OpCode::READLOCAL1 => None,
+//         OpCode::READLOCAL2 => None,
+//         OpCode::READLOCAL3 => None,
+//         OpCode::SETLOCAL => Some(set_local_handler_with_payload),
+//         OpCode::COPYCAPTURESTACK => todo!(),
+//         OpCode::COPYCAPTURECLOSURE => todo!(),
+//         OpCode::COPYHEAPCAPTURECLOSURE => todo!(),
+//         OpCode::FIRSTCOPYHEAPCAPTURECLOSURE => todo!(),
+//         OpCode::TCOJMP => todo!(),
+//         OpCode::CALLGLOBAL => Some(call_global_handler_with_payload),
+//         OpCode::CALLGLOBALTAIL => todo!(),
+//         OpCode::LOADINT0 => None,
+//         OpCode::LOADINT1 => None,
+//         OpCode::LOADINT2 => None,
+//         OpCode::CGLOCALCONST => todo!(),
+//         OpCode::MOVEREADLOCAL => Some(move_local_handler_with_payload),
+//         OpCode::MOVEREADLOCAL0 => None,
+//         OpCode::MOVEREADLOCAL1 => None,
+//         OpCode::MOVEREADLOCAL2 => None,
+//         OpCode::MOVEREADLOCAL3 => None,
+//         OpCode::READCAPTURED => Some(read_captured_handler_with_payload),
+//         OpCode::BEGINSCOPE => None,
+//         OpCode::LETENDSCOPE => Some(let_end_scope_handler_with_payload),
+//         OpCode::PUREFUNC => Some(pure_function_handler_with_payload),
+//         OpCode::ADD => Some(add_handler_payload),
+//         OpCode::SUB => Some(sub_handler_payload),
+//         OpCode::MUL => Some(multiply_handler_payload),
+//         OpCode::DIV => Some(division_handler_payload),
+//         OpCode::EQUAL => Some(equality_handler_payload),
+//         OpCode::LTE => Some(lte_handler_payload),
+//         OpCode::NEWSCLOSURE => Some(new_sclosure_handler_with_payload),
+//         OpCode::ADDREGISTER => todo!(),
+//         OpCode::SUBREGISTER => todo!(),
+//         OpCode::LTEREGISTER => todo!(),
+//         OpCode::SUBREGISTER1 => todo!(),
+//         OpCode::ALLOC => None,
+//         OpCode::READALLOC => Some(read_alloc_handler_with_payload),
+//         OpCode::SETALLOC => Some(set_alloc_handler_with_payload),
+//         // OpCode::GIMMICK => todo!(),
+//         // OpCode::MOVEREADLOCALCALLGLOBAL => Some(move_read_local_call_global_handler_payload),
+//         OpCode::DynSuperInstruction => todo!(),
+//         _ => None,
+//     }
+// }
 
 // Table to map opcode discriminant directly to an individual handler function
 // Why do we want this? When generating dynamic super instructions, we create
@@ -4886,161 +4719,161 @@ fn op_code_requires_payload(
 // on the main VM context. In order to construct these sequences, we will need to be able
 // to grab a basic block from the running sequence, and directly patch an instruction set
 // on the fly, to transfer context over to that sequence.
-static OP_CODE_TABLE: [for<'r> fn(&'r mut VmCore<'_>) -> Result<()>; 66] = [
-    void_handler,
-    push_handler,
-    if_handler,   // If
-    jump_handler, // jmp
-    func_handler,
-    dummy, // sclosure
-    dummy, // eclosure
-    bind_handler,
-    dummy, // sdef
-    dummy, // edef
-    dummy, // pop
-    dummy, // popn
-    dummy, // pass
-    push_const_handler,
-    dummy, // ndefs,
-    panic_handler,
-    tail_call_handler, // tailcall
-    set_handler,
-    local_handler,
-    local_handler0,
-    local_handler1,
-    local_handler2,
-    local_handler3,
-    set_local_handler,
-    dummy,            // copycapturestack
-    dummy,            // copycaptureclosure
-    dummy,            // copyheapcaptureclosure
-    dummy,            // firstcopyheapcaptureclosure
-    tco_jump_handler, // tcojmp
-    call_global_handler,
-    call_global_tail_handler, // callglobaltail
-    handle_load_int0,
-    handle_load_int1,
-    handle_load_int2,
-    dummy, // cglocalconst
-    move_local_handler,
-    move_local_handler0,
-    move_local_handler1,
-    move_local_handler2,
-    move_local_handler3,
-    read_captured_handler,
-    begin_scope_handler,
-    let_end_scope_handler,
-    pure_function_handler,
-    add_handler,
-    sub_handler,
-    multiply_handler,
-    division_handler,
-    equality_handler,
-    lte_handler,
-    new_sclosure_handler,
-    dummy, // addregister
-    dummy, // subregister
-    dummy, // lteregister
-    dummy, // subregister
-    alloc_handler,
-    read_alloc_handler,
-    set_alloc_handler,
-    // dummy,                               // gimmick
-    // move_read_local_call_global_handler, // movereadlocalcallglobal,
-    dummy, // dynsuperinstruction,
-    dummy,
-    dummy,
-    dummy,
-    dummy,
-    dummy,
-    binop_add_handler,
-    dummy,
-];
+// static OP_CODE_TABLE: [for<'r> fn(&'r mut VmCore<'_>) -> Result<()>; 66] = [
+//     void_handler,
+//     push_handler,
+//     if_handler,   // If
+//     jump_handler, // jmp
+//     func_handler,
+//     dummy, // sclosure
+//     dummy, // eclosure
+//     bind_handler,
+//     dummy, // sdef
+//     dummy, // edef
+//     dummy, // pop
+//     dummy, // popn
+//     dummy, // pass
+//     push_const_handler,
+//     dummy, // ndefs,
+//     panic_handler,
+//     tail_call_handler, // tailcall
+//     set_handler,
+//     local_handler,
+//     local_handler0,
+//     local_handler1,
+//     local_handler2,
+//     local_handler3,
+//     set_local_handler,
+//     dummy,            // copycapturestack
+//     dummy,            // copycaptureclosure
+//     dummy,            // copyheapcaptureclosure
+//     dummy,            // firstcopyheapcaptureclosure
+//     tco_jump_handler, // tcojmp
+//     call_global_handler,
+//     call_global_tail_handler, // callglobaltail
+//     handle_load_int0,
+//     handle_load_int1,
+//     handle_load_int2,
+//     dummy, // cglocalconst
+//     move_local_handler,
+//     move_local_handler0,
+//     move_local_handler1,
+//     move_local_handler2,
+//     move_local_handler3,
+//     read_captured_handler,
+//     begin_scope_handler,
+//     let_end_scope_handler,
+//     pure_function_handler,
+//     add_handler,
+//     sub_handler,
+//     multiply_handler,
+//     division_handler,
+//     equality_handler,
+//     lte_handler,
+//     new_sclosure_handler,
+//     dummy, // addregister
+//     dummy, // subregister
+//     dummy, // lteregister
+//     dummy, // subregister
+//     alloc_handler,
+//     read_alloc_handler,
+//     set_alloc_handler,
+//     // dummy,                               // gimmick
+//     // move_read_local_call_global_handler, // movereadlocalcallglobal,
+//     dummy, // dynsuperinstruction,
+//     dummy,
+//     dummy,
+//     dummy,
+//     dummy,
+//     dummy,
+//     binop_add_handler,
+//     dummy,
+// ];
 
-macro_rules! opcode_to_function {
-    (VOID) => {
-        void_handler
-    };
-    (PUSH) => {
-        push_handler
-    };
-    (FUNC) => {
-        func_handler
-    };
-    (BIND) => {
-        bind_handler
-    };
-    (PUSHCONST) => {
-        push_const_handler
-    };
-    (PANIC) => {
-        panic_handler
-    };
-    (SET) => {
-        set_handler
-    };
-    (READLOCAL0) => {
-        local_handler0
-    };
-    (LOADINT2) => {
-        handle_load_int2
-    };
-    (LTE) => {
-        lte_handler
-    };
-    (MOVEREADLOCAL0) => {
-        move_local_handler0
-    };
-    (SUB) => {
-        sub_handler
-    };
-    (LOADINT1) => {
-        handle_load_int1
-    };
-    (MUL) => {
-        multiply_handler
-    };
-    (MOVEREADLOCAL1) => {
-        move_local_handler1
-    };
-    (READLOCAL1) => {
-        local_handler1
-    };
-    (READLOCAL2) => {
-        local_handler2
-    };
-    (READLOCAL3) => {
-        local_handler3
-    };
-    (LOADINT0) => {
-        handle_load_int0
-    };
-    (CALLGLOBAL) => {
-        call_global_handler
-    };
-    (READCAPTURED) => {
-        read_captured_handler
-    };
-    (IF) => {
-        if_handler
-    };
-    (EQUAL) => {
-        equality_handler
-    };
-    (JMP) => {
-        jump_handler
-    };
-    (ADD) => {
-        add_handler
-    };
-    (TAILCALL) => {
-        tail_call_handler
-    };
-}
+// macro_rules! opcode_to_function {
+//     (VOID) => {
+//         void_handler
+//     };
+//     (PUSH) => {
+//         push_handler
+//     };
+//     (FUNC) => {
+//         func_handler
+//     };
+//     (BIND) => {
+//         bind_handler
+//     };
+//     (PUSHCONST) => {
+//         push_const_handler
+//     };
+//     (PANIC) => {
+//         panic_handler
+//     };
+//     (SET) => {
+//         set_handler
+//     };
+//     (READLOCAL0) => {
+//         local_handler0
+//     };
+//     (LOADINT2) => {
+//         handle_load_int2
+//     };
+//     (LTE) => {
+//         lte_handler
+//     };
+//     (MOVEREADLOCAL0) => {
+//         move_local_handler0
+//     };
+//     (SUB) => {
+//         sub_handler
+//     };
+//     (LOADINT1) => {
+//         handle_load_int1
+//     };
+//     (MUL) => {
+//         multiply_handler
+//     };
+//     (MOVEREADLOCAL1) => {
+//         move_local_handler1
+//     };
+//     (READLOCAL1) => {
+//         local_handler1
+//     };
+//     (READLOCAL2) => {
+//         local_handler2
+//     };
+//     (READLOCAL3) => {
+//         local_handler3
+//     };
+//     (LOADINT0) => {
+//         handle_load_int0
+//     };
+//     (CALLGLOBAL) => {
+//         call_global_handler
+//     };
+//     (READCAPTURED) => {
+//         read_captured_handler
+//     };
+//     (IF) => {
+//         if_handler
+//     };
+//     (EQUAL) => {
+//         equality_handler
+//     };
+//     (JMP) => {
+//         jump_handler
+//     };
+//     (ADD) => {
+//         add_handler
+//     };
+//     (TAILCALL) => {
+//         tail_call_handler
+//     };
+// }
 
-static SUPER_PATTERNS: Lazy<
-    std::collections::HashMap<Vec<OpCode>, for<'r> fn(&'r mut VmCore<'_>) -> Result<()>>,
-> = Lazy::new(|| create_super_instruction_map());
+// static SUPER_PATTERNS: Lazy<
+//     std::collections::HashMap<Vec<OpCode>, for<'r> fn(&'r mut VmCore<'_>) -> Result<()>>,
+// > = Lazy::new(|| create_super_instruction_map());
 
 // lazy_static! {
 //     static ref SUPER_PATTERNS: std::collections::HashMap<
@@ -5049,98 +4882,98 @@ static SUPER_PATTERNS: Lazy<
 //     > = create_super_instruction_map();
 // }
 
-fn create_super_instruction_map(
-) -> std::collections::HashMap<Vec<OpCode>, for<'r> fn(&'r mut VmCore<'_>) -> Result<()>> {
-    use OpCode::*;
+// fn create_super_instruction_map(
+// ) -> std::collections::HashMap<Vec<OpCode>, for<'r> fn(&'r mut VmCore<'_>) -> Result<()>> {
+//     use OpCode::*;
 
-    let mut map = HashMap::new();
+//     let mut map = HashMap::new();
 
-    macro_rules! create_super_pattern {
-        ($($args:tt),*) => {
+//     macro_rules! create_super_pattern {
+//         ($($args:tt),*) => {
 
-            // fn func(ctx: &mut VmCore<'_>) -> Result<()> {
-            //     $(
-            //         OP_CODE_TABLE[$args as usize](ctx)?;
-            //     )*
+//             // fn func(ctx: &mut VmCore<'_>) -> Result<()> {
+//             //     $(
+//             //         OP_CODE_TABLE[$args as usize](ctx)?;
+//             //     )*
 
-            //     Ok(())
-            // }
+//             //     Ok(())
+//             // }
 
-            // TODO: This isn't actually doing the correct mapping. Set up a const mapping instead using macros
-            map.insert(vec![
-                $($args,)*
-            ], |ctx: &mut VmCore<'_>| -> Result<()> {
-                $(
-                    opcode_to_function!($args)(ctx)?;
-                )*
+//             // TODO: This isn't actually doing the correct mapping. Set up a const mapping instead using macros
+//             map.insert(vec![
+//                 $($args,)*
+//             ], |ctx: &mut VmCore<'_>| -> Result<()> {
+//                 $(
+//                     opcode_to_function!($args)(ctx)?;
+//                 )*
 
-                Ok(())
-            } as for<'r> fn(&'r mut VmCore<'_>) -> Result<()>);
-        };
-    }
+//                 Ok(())
+//             } as for<'r> fn(&'r mut VmCore<'_>) -> Result<()>);
+//         };
+//     }
 
-    // Fib patterns identified from the benchmarks
-    // yes, this is explicitly gaming the benchmarks. But the idea is sound,
-    // and this is just a start.
-    // create_super_pattern!(READLOCAL0, LOADINT2, LTE, IF);
+//     // Fib patterns identified from the benchmarks
+//     // yes, this is explicitly gaming the benchmarks. But the idea is sound,
+//     // and this is just a start.
+//     // create_super_pattern!(READLOCAL0, LOADINT2, LTE, IF);
 
-    map.insert(
-        vec![READLOCAL0, LOADINT2, LTE, IF],
-        specialized_lte0 as for<'r> fn(&'r mut VmCore<'_>) -> Result<()>,
-    );
+//     map.insert(
+//         vec![READLOCAL0, LOADINT2, LTE, IF],
+//         specialized_lte0 as for<'r> fn(&'r mut VmCore<'_>) -> Result<()>,
+//     );
 
-    map.insert(
-        vec![MOVEREADLOCAL0, LOADINT2, SUB, CALLGLOBAL],
-        specialized_sub02 as for<'r> fn(&'r mut VmCore<'_>) -> Result<()>,
-    );
+//     map.insert(
+//         vec![MOVEREADLOCAL0, LOADINT2, SUB, CALLGLOBAL],
+//         specialized_sub02 as for<'r> fn(&'r mut VmCore<'_>) -> Result<()>,
+//     );
 
-    map.insert(
-        vec![READLOCAL0, LOADINT1, SUB, CALLGLOBAL],
-        specialized_sub01 as for<'r> fn(&'r mut VmCore<'_>) -> Result<()>,
-    );
+//     map.insert(
+//         vec![READLOCAL0, LOADINT1, SUB, CALLGLOBAL],
+//         specialized_sub01 as for<'r> fn(&'r mut VmCore<'_>) -> Result<()>,
+//     );
 
-    // create_super_pattern!(MOVEREADLOCAL0, LOADINT2, SUB, CALLGLOBAL);
-    // create_super_pattern!(READLOCAL0, LOADINT1, SUB, CALLGLOBAL);
+//     // create_super_pattern!(MOVEREADLOCAL0, LOADINT2, SUB, CALLGLOBAL);
+//     // create_super_pattern!(READLOCAL0, LOADINT1, SUB, CALLGLOBAL);
 
-    // bin trees patterns
-    create_super_pattern!(
-        READLOCAL0,
-        LOADINT2,
-        MUL,
-        MOVEREADLOCAL1,
-        LOADINT1,
-        SUB,
-        READLOCAL2,
-        LOADINT1,
-        SUB,
-        READLOCAL3,
-        CALLGLOBAL
-    );
+//     // bin trees patterns
+//     create_super_pattern!(
+//         READLOCAL0,
+//         LOADINT2,
+//         MUL,
+//         MOVEREADLOCAL1,
+//         LOADINT1,
+//         SUB,
+//         READLOCAL2,
+//         LOADINT1,
+//         SUB,
+//         READLOCAL3,
+//         CALLGLOBAL
+//     );
 
-    create_super_pattern!(READLOCAL1, LOADINT0, CALLGLOBAL, IF);
-    create_super_pattern!(MOVEREADLOCAL0, LOADINT0, READCAPTURED, TAILCALL);
-    create_super_pattern!(MOVEREADLOCAL0, LOADINT2, READCAPTURED, TAILCALL);
+//     create_super_pattern!(READLOCAL1, LOADINT0, CALLGLOBAL, IF);
+//     create_super_pattern!(MOVEREADLOCAL0, LOADINT0, READCAPTURED, TAILCALL);
+//     create_super_pattern!(MOVEREADLOCAL0, LOADINT2, READCAPTURED, TAILCALL);
 
-    // Ack patterns
-    create_super_pattern!(READLOCAL0, LOADINT0, EQUAL, IF);
+//     // Ack patterns
+//     create_super_pattern!(READLOCAL0, LOADINT0, EQUAL, IF);
 
-    create_super_pattern!(READLOCAL1, LOADINT0, EQUAL, IF);
+//     create_super_pattern!(READLOCAL1, LOADINT0, EQUAL, IF);
 
-    create_super_pattern!(
-        READLOCAL0,
-        LOADINT1,
-        SUB,
-        MOVEREADLOCAL0,
-        MOVEREADLOCAL1,
-        LOADINT1,
-        SUB,
-        CALLGLOBAL
-    );
+//     create_super_pattern!(
+//         READLOCAL0,
+//         LOADINT1,
+//         SUB,
+//         MOVEREADLOCAL0,
+//         MOVEREADLOCAL1,
+//         LOADINT1,
+//         SUB,
+//         CALLGLOBAL
+//     );
 
-    create_super_pattern!(READLOCAL1, LOADINT1, ADD, JMP);
+//     create_super_pattern!(READLOCAL1, LOADINT1, ADD, JMP);
 
-    map
-}
+//     map
+// }
 
 /*
 
@@ -5209,230 +5042,6 @@ of the VM context.
 
 */
 
-fn specialized_lte0(ctx: &mut VmCore<'_>) -> Result<()> {
-    // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
-    let offset = ctx.get_offset();
-    let value = ctx.thread.stack[offset].clone();
-
-    let result = lte_binop(value, 2);
-    ctx.ip += 4;
-
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    // change to truthy...
-    if result {
-        ctx.ip += 1;
-    } else {
-        ctx.ip = payload_size as usize;
-    }
-
-    Ok(())
-}
-
-fn specialized_sub02(ctx: &mut VmCore<'_>) -> Result<()> {
-    // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
-    let offset = ctx.get_offset();
-    let value = ctx.thread.stack[offset].clone();
-
-    ctx.thread.stack.push(sub_binop(value, 2)?);
-    ctx.ip += 4;
-    Ok(())
-}
-
-fn specialized_sub01(ctx: &mut VmCore<'_>) -> Result<()> {
-    let offset = ctx.get_offset();
-    // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
-    let value = ctx.thread.stack[offset].clone();
-
-    ctx.thread.stack.push(sub_binop(value, 1)?);
-    ctx.ip += 4;
-
-    call_global_handler(ctx)
-}
-
-pub fn lte_binop(l: SteelVal, r: isize) -> bool {
-    match l {
-        SteelVal::IntV(l) => l <= r,
-        _ => false,
-    }
-}
-
-pub fn sub_binop(l: SteelVal, r: isize) -> Result<SteelVal> {
-    match l {
-        SteelVal::IntV(l) => Ok(SteelVal::IntV(l - r)),
-        SteelVal::NumV(l) => Ok(SteelVal::NumV(l - r as f64)),
-        _ => stop!(TypeMismatch => "sub given wrong types"),
-    }
-}
-
-fn dummy(_: &mut VmCore<'_>) -> Result<()> {
-    panic!("Unimplemented op code handler!")
-}
-
-#[inline(always)]
-fn handle_push_no_stack(ctx: &mut VmCore<'_>, index: usize) -> Result<SteelVal> {
-    let value = ctx.thread.global_env.repl_lookup_idx(index);
-    ctx.ip += 1;
-    Ok(value)
-}
-
-#[inline(always)]
-fn handle_local_no_stack(ctx: &mut VmCore<'_>, index: usize) -> Result<SteelVal> {
-    let offset = ctx.get_offset();
-    let value = ctx.thread.stack[index + offset].clone();
-    ctx.ip += 1;
-    Ok(value)
-}
-
-#[inline(always)]
-fn handle_read_captures_no_stack(ctx: &mut VmCore<'_>, index: usize) -> Result<SteelVal> {
-    let value = ctx.thread.stack_frames.last().unwrap().function.captures()[index].clone();
-
-    ctx.ip += 1;
-    Ok(value)
-}
-
-#[inline(always)]
-fn handle_move_local_no_stack(ctx: &mut VmCore<'_>, index: usize) -> Result<SteelVal> {
-    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
-    // let offset = ctx.stack_frames.last().unwrap().index;
-    let offset = ctx.get_offset();
-    let value = ctx.move_from_stack(index + offset);
-    ctx.ip += 1;
-    Ok(value)
-}
-
-#[inline(always)]
-fn handle_move_local_0_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
-    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
-    // let offset = ctx.stack_frames.last().unwrap().index;
-    let offset = ctx.get_offset();
-    let value = ctx.move_from_stack(offset);
-    ctx.ip += 1;
-    Ok(value)
-}
-
-#[inline(always)]
-fn handle_move_local_1_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
-    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
-    // let offset = ctx.stack_frames.last().unwrap().index;
-    let offset = ctx.get_offset();
-    let value = ctx.move_from_stack(offset + 1);
-    ctx.ip += 1;
-    Ok(value)
-}
-
-#[inline(always)]
-fn handle_local_0_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
-    let offset = ctx.get_offset();
-    let value = ctx.thread.stack[offset].clone();
-    ctx.ip += 1;
-    Ok(value)
-}
-
-#[inline(always)]
-fn handle_local_1_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
-    let offset = ctx.get_offset();
-    let value = ctx.thread.stack[offset + 1].clone();
-    ctx.ip += 1;
-    Ok(value)
-}
-
-// OpCode::VOID
-fn void_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    ctx.thread.stack.push(SteelVal::Void);
-    ctx.ip += 1;
-    Ok(())
-}
-
-// OpCode::PUSH
-fn push_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    let index = ctx.instructions[ctx.ip].payload_size;
-    ctx.handle_push(index as usize)
-}
-
-// OpCode::PUSH
-fn push_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    ctx.handle_push(payload)
-}
-
-// OpCode::FUNC
-fn func_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    let func = ctx.thread.stack.pop().unwrap();
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    ctx.handle_function_call(func, payload_size as usize)
-}
-
-// OpCode::FUNC
-fn func_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    let func = ctx.thread.stack.pop().unwrap();
-    ctx.handle_function_call(func, payload)
-}
-
-// OpCode::BIND
-fn bind_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    let index = ctx.instructions[ctx.ip].payload_size;
-    ctx.handle_bind(index as usize);
-    Ok(())
-}
-
-// OpCode::BIND
-fn bind_handler_with_payload(ctx: &mut VmCore<'_>, index: usize) -> Result<()> {
-    ctx.handle_bind(index);
-    Ok(())
-}
-
-// OpCode::PUSHCONST
-fn push_const_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    let val = ctx.constants.get(payload_size as usize);
-    ctx.thread.stack.push(val);
-    ctx.ip += 1;
-    Ok(())
-}
-
-fn push_const_handler_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    let val = ctx.constants.get(payload_size as usize);
-    ctx.ip += 1;
-    Ok(val)
-}
-
-// OpCode::PUSHCONST
-fn push_const_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    let val = ctx.constants.get(payload);
-    ctx.thread.stack.push(val);
-    ctx.ip += 1;
-    Ok(())
-}
-
-// OpCode::PANIC
-fn panic_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    ctx.handle_panic(ctx.current_span())
-}
-
-// OpCode::SET
-fn set_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    let index = ctx.instructions[ctx.ip].payload_size;
-    ctx.handle_set(index as usize)
-}
-
-// OpCode::SET
-fn set_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    ctx.handle_set(payload)
-}
-
-// OpCode::READLOCAL
-#[inline(always)]
-fn local_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    let index = ctx.instructions[ctx.ip].payload_size;
-    ctx.handle_local(index as usize)
-}
-
-// OpCode::READLOCAL
-fn local_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    ctx.handle_local(payload)
-}
-
 // OpCode::READLOCAL0
 #[inline(always)]
 fn local_handler0(ctx: &mut VmCore<'_>) -> Result<()> {
@@ -5488,7 +5097,10 @@ fn call_global_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Res
 }
 
 // TODO: Have a way to know the correct arity?
-fn call_global_handler_no_stack(ctx: &mut VmCore<'_>, args: &mut [SteelVal]) -> Result<SteelVal> {
+fn call_global_handler_no_stack(
+    ctx: &mut VmCore<'_>,
+    args: &mut [SteelVal],
+) -> Result<Option<SteelVal>> {
     // ctx.ip += 1;
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     ctx.ip += 1;
@@ -5502,23 +5114,12 @@ fn call_global_handler_no_stack(ctx: &mut VmCore<'_>, args: &mut [SteelVal]) -> 
     ctx.handle_non_instr_global_function_call(func, args)
 }
 
-// Call a global function with the given arguments, but only push the args to the stack
-// if we need to
-
-#[inline(always)]
-fn call_global_handler_with_args(ctx: &mut VmCore<'_>, args: &mut [SteelVal]) -> Result<()> {
-    // ctx.ip += 1;
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    ctx.ip += 1;
-
-    // TODO: Track the op codes of the surrounding values as well
-    // let next_inst = ctx.instructions[ctx.ip];
-
-    // println!("Looking up a function at index: {}", payload_size as usize);
-    // panic!("Call global handler with args");
-
-    let func = ctx.thread.global_env.repl_lookup_idx(payload_size as usize);
-    ctx.handle_non_instr_global_function_call_lazy_push(func, args)
+fn num_equal_handler_no_stack(ctx: &mut VmCore<'_>, l: SteelVal, r: SteelVal) -> Result<bool> {
+    if let SteelVal::BoolV(b) = number_equality(&l, &r)? {
+        Ok(b)
+    } else {
+        unreachable!()
+    }
 }
 
 // OpCode::LOADINT0
@@ -5721,7 +5322,7 @@ macro_rules! handler_inline_primitive_payload_1_single {
 macro_rules! handler_inline_primitive_payload_2 {
     ($ctx:expr, $name:tt) => {{
         let mut last = $ctx.thread.stack.pop().unwrap();
-        let mut second_last = $ctx.thread.stack.last_mut().unwrap();
+        let second_last = $ctx.thread.stack.last_mut().unwrap();
 
         let result = match $name(second_last, &mut last) {
             Ok(value) => value,
@@ -5735,49 +5336,12 @@ macro_rules! handler_inline_primitive_payload_2 {
 }
 
 // OpCode::ADD
-fn add_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    handler_inline_primitive!(ctx, add_primitive);
-    Ok(())
-}
-
-fn binop_add_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    let last_index = ctx.thread.stack.len() - 2;
-
-    let right = ctx.thread.stack.pop().unwrap();
-    let left = ctx.thread.stack.last().unwrap();
-
-    let result = match add_handler_none_none(left, &right) {
-        Ok(value) => value,
-        Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
-    };
-
-    // let result = match $name(&mut $ctx.thread.stack[last_index..]) {
-    //     Ok(value) => value,
-    //     Err(e) => return Err(e.set_span_if_none($ctx.current_span())),
-    // };
-
-    // This is the old way... lets see if the below way improves the speed
-    // $ctx.thread.stack.truncate(last_index);
-    // $ctx.thread.stack.push(result);
-
-    // self.thread.stack.truncate(last_index + 1);
-    // *self.thread.stack.last_mut().unwrap() = result;
-
-    *ctx.thread.stack.last_mut().unwrap() = result;
-
-    ctx.ip += 2;
-
-    Ok(())
-}
-
 fn cons_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     handler_inline_primitive_payload!(ctx, cons, 2);
     Ok(())
 }
 
 fn new_box_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    // let last_index = ctx.thread.stack.len() - 1;
-
     let last = ctx.thread.stack.pop().unwrap();
 
     let allocated_var = ctx.thread.heap.allocate(
@@ -5788,13 +5352,6 @@ fn new_box_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     );
 
     let result = SteelVal::HeapAllocated(allocated_var);
-
-    // This is the old way... lets see if the below way improves the speed
-    // $ctx.thread.stack.truncate(last_index);
-    // $ctx.thread.stack.push(result);
-
-    // ctx.thread.stack.truncate(last_index + 1);
-    // *ctx.thread.stack.last_mut().unwrap() = result;
 
     ctx.thread.stack.push(result);
 
@@ -5832,17 +5389,9 @@ fn number_equality_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     Ok(())
 }
 
-fn cons_handler_no_stack(ctx: &mut VmCore<'_>) -> Result<()> {
-    todo!()
-}
-
 fn list_handler(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
     handler_inline_primitive_payload!(ctx, new_list, payload);
     Ok(())
-}
-
-fn list_handler_no_stack(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    todo!()
 }
 
 // OpCode::ADD
@@ -5851,62 +5400,17 @@ fn add_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
     Ok(())
 }
 
-// OpCode::SUB
-#[inline(always)]
-fn sub_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    handler_inline_primitive!(ctx, subtract_primitive);
-    Ok(())
-}
+// // OpCode::SUB
+// #[inline(always)]
+// fn sub_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+//     handler_inline_primitive!(ctx, subtract_primitive);
+//     Ok(())
+// }
 
 // OpCode::SUB
 #[inline(always)]
 fn sub_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
     handler_inline_primitive_payload!(ctx, subtract_primitive, payload);
-    Ok(())
-}
-
-// OpCode::MULT
-fn multiply_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    handler_inline_primitive!(ctx, multiply_primitive);
-    Ok(())
-}
-
-// OpCode::MULT
-fn multiply_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    handler_inline_primitive_payload!(ctx, multiply_primitive, payload);
-    Ok(())
-}
-
-// OpCode::DIV
-#[inline(always)]
-fn division_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    handler_inline_primitive!(ctx, divide_primitive);
-    Ok(())
-}
-
-// OpCode::DIV
-fn division_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    handler_inline_primitive_payload!(ctx, divide_primitive, payload);
-    Ok(())
-}
-
-// OpCode::EQUAL
-#[inline(always)]
-fn equality_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    handler_inline_primitive!(ctx, equality_primitive);
-    Ok(())
-}
-
-// OpCode::EQUAL
-fn equality_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    handler_inline_primitive_payload!(ctx, equality_primitive, payload);
-    Ok(())
-}
-
-// OpCode::LTE
-#[inline(always)]
-fn lte_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    handler_inline_primitive!(ctx, lte_primitive);
     Ok(())
 }
 
@@ -5957,41 +5461,6 @@ fn read_alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
         .borrow()[payload_size]
         .get();
 
-    // dbg!(payload_size);
-
-    // dbg!(ctx
-    //     .thread
-    //     .stack_frames
-    //     .last()
-    //     .unwrap()
-    //     .function
-    //     .heap_allocated()
-    //     .borrow()
-    //     .iter()
-    //     .map(|x| x.get())
-    //     .collect::<Vec<_>>());
-
-    // dbg!(&value);
-
-    ctx.thread.stack.push(value);
-    ctx.ip += 1;
-
-    Ok(())
-}
-
-// OpCode::READALLOC
-#[inline(always)]
-fn read_alloc_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
-    let value = ctx
-        .thread
-        .stack_frames
-        .last()
-        .unwrap()
-        .function
-        .heap_allocated()
-        .borrow()[payload_size]
-        .get();
-
     ctx.thread.stack.push(value);
     ctx.ip += 1;
 
@@ -6020,328 +5489,587 @@ fn set_alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     Ok(())
 }
 
-// OpCode::SETALLOC
-#[inline(always)]
-fn set_alloc_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
-    let value_to_assign = ctx.thread.stack.pop().unwrap();
+#[allow(unused)]
+mod handlers {
 
-    let old_value = ctx
-        .thread
-        .stack_frames
-        .last()
-        .unwrap()
-        .function
-        .heap_allocated()
-        .borrow_mut()[payload_size]
-        .set(value_to_assign);
+    use super::*;
 
-    ctx.thread.stack.push(old_value);
-    ctx.ip += 1;
+    fn add_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+        handler_inline_primitive!(ctx, add_primitive);
+        Ok(())
+    }
 
-    Ok(())
-}
+    fn binop_add_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+        let last_index = ctx.thread.stack.len() - 2;
 
-// OpCode::NEWSCLOSURE
-fn new_sclosure_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    let payload_size = ctx.instructions[ctx.ip].payload_size as usize;
+        let right = ctx.thread.stack.pop().unwrap();
+        let left = ctx.thread.stack.last().unwrap();
 
-    ctx.handle_new_start_closure(payload_size)
-}
+        let result = match handlers::add_handler_none_none(left, &right) {
+            Ok(value) => value,
+            Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
+        };
 
-// OpCode::NEWSCLOSURE
-fn new_sclosure_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
-    ctx.handle_new_start_closure(payload_size)
-}
+        *ctx.thread.stack.last_mut().unwrap() = result;
 
-#[inline(always)]
-fn jump_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    ctx.ip = payload_size as usize;
-    Ok(())
-}
+        ctx.ip += 2;
 
-#[inline(always)]
-fn if_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    // change to truthy...
-    if ctx.thread.stack.pop().unwrap().is_truthy() {
+        Ok(())
+    }
+
+    // OpCode::READALLOC
+    #[inline(always)]
+    fn read_alloc_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
+        let value = ctx
+            .thread
+            .stack_frames
+            .last()
+            .unwrap()
+            .function
+            .heap_allocated()
+            .borrow()[payload_size]
+            .get();
+
+        ctx.thread.stack.push(value);
         ctx.ip += 1;
-    } else {
-        ctx.ip = payload_size as usize;
-    }
-    Ok(())
-}
 
-#[inline(always)]
-fn raw_if_handler(ctx: &mut VmCore<'_>, arg: SteelVal) {
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    // change to truthy...
-    if arg.is_truthy() {
-        ctx.ip += 1;
-    } else {
-        ctx.ip = payload_size as usize;
-    }
-}
-
-#[inline(always)]
-fn if_handler_with_bool(ctx: &mut VmCore<'_>, condition: bool) {
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    // change to truthy...
-    if condition {
-        ctx.ip += 1;
-    } else {
-        ctx.ip = payload_size as usize;
-    }
-}
-
-#[inline(always)]
-fn call_global_tail_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    // assert!(ctx.ip + 1 < ctx.instructions.len());
-
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    // ctx.ip += 1;
-    let next_inst = ctx.instructions[ctx.ip + 1];
-
-    // println!("{:?}, {:?}", payload_size, next_inst.payload_size);
-
-    ctx.handle_tail_call_global(payload_size as usize, next_inst.payload_size as usize)
-
-    // ctx.handle_tail_call_global(payload_size as usize, next_inst.payload_size as usize)
-}
-
-#[inline(always)]
-fn tail_call_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    let func = ctx.thread.stack.pop().unwrap();
-    ctx.handle_tail_call(func, payload_size as usize)
-}
-
-#[inline(always)]
-fn tco_jump_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    // println!("At tco jump");
-
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-
-    let current_arity = payload_size as usize;
-    // This is the number of (local) functions we need to pop to get back to the place we want to be at
-    // let depth = ctx.instructions[ctx.ip + 1].payload_size as usize;
-
-    // println!("Depth: {:?}", depth);
-    // println!("Function stack length: {:?}", self.function_stack.len());
-    // println!("Stack index: {:?}", self.stack_index);
-    // println!(
-    //     "Instruction stack length: {:?}",
-    //     self.instruction_stack.len()
-    // );
-
-    // for function in function_stack {
-
-    // }
-
-    // for _ in 0..depth {
-    // println!("Popping");
-    // self.function_stack.pop();
-    // self.stack_index.pop();
-    // ctx.thread.stack_frames.pop();
-    // self.instruction_stack.pop();
-    // ctx.pop_count -= 1;
-    // }
-
-    let last_stack_frame = ctx.thread.stack_frames.last().unwrap();
-
-    ctx.instructions = last_stack_frame.function.body_exp();
-    // ctx.spans = last_stack_frame.function.spans();
-    ctx.sp = last_stack_frame.sp;
-
-    // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-
-    // panic!("Stopping");
-
-    ctx.ip = 0;
-
-    let closure_arity = last_stack_frame.function.arity();
-
-    if current_arity != closure_arity {
-        stop!(ArityMismatch => format!("tco: function expected {closure_arity} arguments, found {current_arity}"); ctx.current_span());
+        Ok(())
     }
 
-    // HACK COME BACK TO THIS
-    // if self.ip == 0 && self.heap.len() > self.heap.limit() {
-    // TODO collect here
-    // self.heap.collect_garbage();
-    // }
-    // let offset = self.stack_index.last().copied().unwrap_or(0);
-    // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
-    let offset = ctx.sp;
+    fn specialized_lte0(ctx: &mut VmCore<'_>) -> Result<()> {
+        // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
+        let offset = ctx.get_offset();
+        let value = ctx.thread.stack[offset].clone();
 
-    // We should have arity at this point, drop the stack up to this point
-    // take the last arity off the stack, go back and replace those in order
-    // [... arg1 arg2 arg3]
-    //      ^^^ <- back = this index
-    // offset = the start of the stack frame
-    // Copy the arg1 arg2 arg3 values to
-    // [... frame-start ... arg1 arg2 arg3]
-    //      ^^^^^^~~~~~~~~
-    // let back = ctx.stack.len() - current_arity;
-    // for i in 0..current_arity {
-    //     ctx.stack[offset + i] = ctx.stack[back + i].clone();
-    // }
+        let result = lte_binop(value, 2);
+        ctx.ip += 4;
 
-    // // self.stack.truncate(offset + current_arity);
-    // ctx.stack.truncate(offset + current_arity);
+        let payload_size = ctx.instructions[ctx.ip].payload_size;
+        // change to truthy...
+        if result {
+            ctx.ip += 1;
+        } else {
+            ctx.ip = payload_size as usize;
+        }
 
-    let back = ctx.thread.stack.len() - current_arity;
-    // for i in 0..current_arity {
-    //     self.stack[offset + i] = self.stack[back + i].clone();
-    // }
-
-    // self.stack.truncate(offset + current_arity);
-
-    let _ = ctx.thread.stack.drain(offset..back);
-
-    Ok(())
-}
-
-// #[inline(always)]
-// fn pop_pure_handler(ctx: &mut VmCore<'_>) ->
-
-// | OpCode::CALLGLOBALTAIL
-// | OpCode::TAILCALL
-// | OpCode::TCOJMP
-// | OpCode::POPPURE
-
-// MUL | SUB | DIV
-
-#[inline(always)]
-fn add_handler_int_int(_: &mut VmCore<'_>, l: isize, r: isize) -> isize {
-    l + r
-}
-
-#[inline(always)]
-fn add_handler_int_float(_: &mut VmCore<'_>, l: isize, r: f64) -> f64 {
-    l as f64 + r
-}
-
-#[inline(always)]
-fn add_handler_float_int(_: &mut VmCore<'_>, l: f64, r: isize) -> f64 {
-    l + r as f64
-}
-
-#[inline(always)]
-fn add_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
-    l + r
-}
-
-#[inline(always)]
-fn sub_handler_int_int(_: &mut VmCore<'_>, l: isize, r: isize) -> isize {
-    l - r
-}
-
-#[inline(always)]
-fn sub_handler_int_none(_: &mut VmCore<'_>, l: isize, r: SteelVal) -> Result<SteelVal> {
-    match r {
-        SteelVal::IntV(n) => Ok(SteelVal::IntV(l - n)),
-        SteelVal::NumV(r) => Ok(SteelVal::NumV(l as f64 - r)),
-        _ => stop!(TypeMismatch => "sub expected a number, found: {}", r),
+        Ok(())
     }
-}
 
-#[inline(always)]
-fn sub_handler_none_int(_: &mut VmCore<'_>, l: SteelVal, r: isize) -> Result<SteelVal> {
-    match l {
-        SteelVal::IntV(l) => Ok(SteelVal::IntV(l - r)),
-        SteelVal::NumV(l) => Ok(SteelVal::NumV(l - r as f64)),
-        _ => {
-            cold();
-            stop!(TypeMismatch => "sub expected a number, found: {}", l)
+    fn specialized_sub02(ctx: &mut VmCore<'_>) -> Result<()> {
+        // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
+        let offset = ctx.get_offset();
+        let value = ctx.thread.stack[offset].clone();
+
+        ctx.thread.stack.push(sub_binop(value, 2)?);
+        ctx.ip += 4;
+        Ok(())
+    }
+
+    fn specialized_sub01(ctx: &mut VmCore<'_>) -> Result<()> {
+        let offset = ctx.get_offset();
+        // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
+        let value = ctx.thread.stack[offset].clone();
+
+        ctx.thread.stack.push(sub_binop(value, 1)?);
+        ctx.ip += 4;
+
+        call_global_handler(ctx)
+    }
+
+    pub fn lte_binop(l: SteelVal, r: isize) -> bool {
+        match l {
+            SteelVal::IntV(l) => l <= r,
+            _ => false,
         }
     }
-}
 
-#[inline(always)]
-fn sub_handler_int_float(_: &mut VmCore<'_>, l: isize, r: f64) -> f64 {
-    l as f64 - r
-}
+    pub fn sub_binop(l: SteelVal, r: isize) -> Result<SteelVal> {
+        match l {
+            SteelVal::IntV(l) => Ok(SteelVal::IntV(l - r)),
+            SteelVal::NumV(l) => Ok(SteelVal::NumV(l - r as f64)),
+            _ => stop!(TypeMismatch => "sub given wrong types"),
+        }
+    }
 
-#[inline(always)]
-fn sub_handler_float_int(_: &mut VmCore<'_>, l: f64, r: isize) -> f64 {
-    l - r as f64
-}
+    fn dummy(_: &mut VmCore<'_>) -> Result<()> {
+        panic!("Unimplemented op code handler!")
+    }
 
-#[inline(always)]
-fn sub_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
-    l - r
-}
+    #[inline(always)]
+    fn handle_push_no_stack(ctx: &mut VmCore<'_>, index: usize) -> Result<SteelVal> {
+        let value = ctx.thread.global_env.repl_lookup_idx(index);
+        ctx.ip += 1;
+        Ok(value)
+    }
 
-#[inline(always)]
-fn multiply_handler_int_int(_: &mut VmCore<'_>, l: isize, r: isize) -> isize {
-    l * r
-}
+    #[inline(always)]
+    fn handle_local_no_stack(ctx: &mut VmCore<'_>, index: usize) -> Result<SteelVal> {
+        let offset = ctx.get_offset();
+        let value = ctx.thread.stack[index + offset].clone();
+        ctx.ip += 1;
+        Ok(value)
+    }
 
-#[inline(always)]
-fn multiply_handler_int_float(_: &mut VmCore<'_>, l: isize, r: f64) -> f64 {
-    l as f64 * r
-}
+    #[inline(always)]
+    fn handle_read_captures_no_stack(ctx: &mut VmCore<'_>, index: usize) -> Result<SteelVal> {
+        let value = ctx.thread.stack_frames.last().unwrap().function.captures()[index].clone();
 
-#[inline(always)]
-fn multiply_handler_float_int(_: &mut VmCore<'_>, l: f64, r: isize) -> f64 {
-    l * r as f64
-}
+        ctx.ip += 1;
+        Ok(value)
+    }
 
-#[inline(always)]
-fn multiply_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
-    l * r
-}
+    #[inline(always)]
+    fn handle_move_local_no_stack(ctx: &mut VmCore<'_>, index: usize) -> Result<SteelVal> {
+        // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+        // let offset = ctx.stack_frames.last().unwrap().index;
+        let offset = ctx.get_offset();
+        let value = ctx.move_from_stack(index + offset);
+        ctx.ip += 1;
+        Ok(value)
+    }
 
-#[inline(always)]
-fn multiply_handler_int_none(_: &mut VmCore<'_>, l: isize, r: SteelVal) -> Result<SteelVal> {
-    match r {
-        SteelVal::NumV(r) => Ok(SteelVal::NumV(l as f64 * r)),
-        SteelVal::IntV(n) => {
-            if let Some(res) = l.checked_mul(n) {
-                Ok(SteelVal::IntV(res))
-            } else {
-                let mut res = num::BigInt::from(l);
-                res *= n;
-                Ok(SteelVal::BigNum(Gc::new(res)))
+    #[inline(always)]
+    fn handle_move_local_0_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
+        // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+        // let offset = ctx.stack_frames.last().unwrap().index;
+        let offset = ctx.get_offset();
+        let value = ctx.move_from_stack(offset);
+        ctx.ip += 1;
+        Ok(value)
+    }
+
+    #[inline(always)]
+    fn handle_move_local_1_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
+        // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+        // let offset = ctx.stack_frames.last().unwrap().index;
+        let offset = ctx.get_offset();
+        let value = ctx.move_from_stack(offset + 1);
+        ctx.ip += 1;
+        Ok(value)
+    }
+
+    #[inline(always)]
+    pub fn handle_local_0_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
+        let offset = ctx.get_offset();
+        let value = ctx.thread.stack[offset].clone();
+        ctx.ip += 1;
+        Ok(value)
+    }
+
+    #[inline(always)]
+    pub fn handle_local_1_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
+        let offset = ctx.get_offset();
+        let value = ctx.thread.stack[offset + 1].clone();
+        ctx.ip += 1;
+        Ok(value)
+    }
+
+    #[inline(always)]
+    pub fn handle_local_2_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
+        let offset = ctx.get_offset();
+        let value = ctx.thread.stack[offset + 2].clone();
+        ctx.ip += 1;
+        Ok(value)
+    }
+
+    // OpCode::VOID
+    fn void_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+        ctx.thread.stack.push(SteelVal::Void);
+        ctx.ip += 1;
+        Ok(())
+    }
+
+    // OpCode::PUSH
+    fn push_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+        let index = ctx.instructions[ctx.ip].payload_size;
+        ctx.handle_push(index as usize)
+    }
+
+    // OpCode::PUSH
+    fn push_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+        ctx.handle_push(payload)
+    }
+
+    // OpCode::FUNC
+    fn func_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+        let func = ctx.thread.stack.pop().unwrap();
+        let payload_size = ctx.instructions[ctx.ip].payload_size;
+        ctx.handle_function_call(func, payload_size as usize)
+    }
+
+    // OpCode::FUNC
+    fn func_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+        let func = ctx.thread.stack.pop().unwrap();
+        ctx.handle_function_call(func, payload)
+    }
+
+    // OpCode::BIND
+    fn bind_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+        let index = ctx.instructions[ctx.ip].payload_size;
+        ctx.handle_bind(index as usize);
+        Ok(())
+    }
+
+    // OpCode::BIND
+    fn bind_handler_with_payload(ctx: &mut VmCore<'_>, index: usize) -> Result<()> {
+        ctx.handle_bind(index);
+        Ok(())
+    }
+
+    // OpCode::PUSHCONST
+    fn push_const_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+        let payload_size = ctx.instructions[ctx.ip].payload_size;
+        let val = ctx.constants.get(payload_size as usize);
+        ctx.thread.stack.push(val);
+        ctx.ip += 1;
+        Ok(())
+    }
+
+    pub fn push_const_handler_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
+        let payload_size = ctx.instructions[ctx.ip].payload_size;
+        let val = ctx.constants.get(payload_size as usize);
+        ctx.ip += 1;
+        Ok(val)
+    }
+
+    // OpCode::PUSHCONST
+    fn push_const_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+        let val = ctx.constants.get(payload);
+        ctx.thread.stack.push(val);
+        ctx.ip += 1;
+        Ok(())
+    }
+
+    // OpCode::PANIC
+    fn panic_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+        ctx.handle_panic(ctx.current_span())
+    }
+
+    // OpCode::SET
+    fn set_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+        let index = ctx.instructions[ctx.ip].payload_size;
+        ctx.handle_set(index as usize)
+    }
+
+    // OpCode::SET
+    fn set_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+        ctx.handle_set(payload)
+    }
+
+    // OpCode::READLOCAL
+    #[inline(always)]
+    fn local_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+        let index = ctx.instructions[ctx.ip].payload_size;
+        ctx.handle_local(index as usize)
+    }
+
+    // OpCode::READLOCAL
+    fn local_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+        ctx.handle_local(payload)
+    }
+
+    // OpCode::MULT
+    fn multiply_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+        handler_inline_primitive!(ctx, multiply_primitive);
+        Ok(())
+    }
+
+    // OpCode::MULT
+    fn multiply_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+        handler_inline_primitive_payload!(ctx, multiply_primitive, payload);
+        Ok(())
+    }
+
+    // OpCode::DIV
+    #[inline(always)]
+    fn division_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+        handler_inline_primitive!(ctx, divide_primitive);
+        Ok(())
+    }
+
+    // OpCode::DIV
+    fn division_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+        handler_inline_primitive_payload!(ctx, divide_primitive, payload);
+        Ok(())
+    }
+
+    // OpCode::EQUAL
+    #[inline(always)]
+    fn equality_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+        handler_inline_primitive!(ctx, equality_primitive);
+        Ok(())
+    }
+
+    // OpCode::EQUAL
+    fn equality_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+        handler_inline_primitive_payload!(ctx, equality_primitive, payload);
+        Ok(())
+    }
+
+    // OpCode::LTE
+    #[inline(always)]
+    fn lte_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+        handler_inline_primitive!(ctx, lte_primitive);
+        Ok(())
+    }
+
+    // OpCode::SETALLOC
+    #[inline(always)]
+    fn set_alloc_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
+        let value_to_assign = ctx.thread.stack.pop().unwrap();
+
+        let old_value = ctx
+            .thread
+            .stack_frames
+            .last()
+            .unwrap()
+            .function
+            .heap_allocated()
+            .borrow_mut()[payload_size]
+            .set(value_to_assign);
+
+        ctx.thread.stack.push(old_value);
+        ctx.ip += 1;
+
+        Ok(())
+    }
+
+    // OpCode::NEWSCLOSURE
+    fn new_sclosure_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+        let payload_size = ctx.instructions[ctx.ip].payload_size as usize;
+
+        ctx.handle_new_start_closure(payload_size)
+    }
+
+    // OpCode::NEWSCLOSURE
+    fn new_sclosure_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
+        ctx.handle_new_start_closure(payload_size)
+    }
+
+    #[inline(always)]
+    fn jump_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+        let payload_size = ctx.instructions[ctx.ip].payload_size;
+        ctx.ip = payload_size as usize;
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn if_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+        let payload_size = ctx.instructions[ctx.ip].payload_size;
+        // change to truthy...
+        if ctx.thread.stack.pop().unwrap().is_truthy() {
+            ctx.ip += 1;
+        } else {
+            ctx.ip = payload_size as usize;
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    pub fn raw_if_handler(ctx: &mut VmCore<'_>, arg: SteelVal) {
+        let payload_size = ctx.instructions[ctx.ip].payload_size;
+        // change to truthy...
+        if arg.is_truthy() {
+            ctx.ip += 1;
+        } else {
+            ctx.ip = payload_size as usize;
+        }
+    }
+
+    #[inline(always)]
+    pub fn if_handler_with_bool(ctx: &mut VmCore<'_>, condition: bool) {
+        let payload_size = ctx.instructions[ctx.ip].payload_size;
+        // change to truthy...
+        if condition {
+            ctx.ip += 1;
+        } else {
+            ctx.ip = payload_size as usize;
+        }
+    }
+
+    #[inline(always)]
+    fn call_global_tail_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+        let payload_size = ctx.instructions[ctx.ip].payload_size;
+        let next_inst = ctx.instructions[ctx.ip + 1];
+
+        ctx.handle_tail_call_global(payload_size as usize, next_inst.payload_size as usize)
+    }
+
+    #[inline(always)]
+    fn tail_call_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+        let payload_size = ctx.instructions[ctx.ip].payload_size;
+        let func = ctx.thread.stack.pop().unwrap();
+        ctx.handle_tail_call(func, payload_size as usize)
+    }
+
+    #[inline(always)]
+    fn tco_jump_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+        // println!("At tco jump");
+
+        let payload_size = ctx.instructions[ctx.ip].payload_size;
+
+        let current_arity = payload_size as usize;
+        let last_stack_frame = ctx.thread.stack_frames.last().unwrap();
+
+        ctx.instructions = last_stack_frame.function.body_exp();
+        ctx.sp = last_stack_frame.sp;
+
+        ctx.ip = 0;
+
+        let closure_arity = last_stack_frame.function.arity();
+
+        if current_arity != closure_arity {
+            stop!(ArityMismatch => format!("tco: function expected {closure_arity} arguments, found {current_arity}"); ctx.current_span());
+        }
+        let offset = ctx.sp;
+
+        let back = ctx.thread.stack.len() - current_arity;
+        let _ = ctx.thread.stack.drain(offset..back);
+
+        Ok(())
+    }
+
+    // #[inline(always)]
+    // fn pop_pure_handler(ctx: &mut VmCore<'_>) ->
+
+    // | OpCode::CALLGLOBALTAIL
+    // | OpCode::TAILCALL
+    // | OpCode::TCOJMP
+    // | OpCode::POPPURE
+
+    // MUL | SUB | DIV
+
+    #[inline(always)]
+    fn add_handler_int_int(_: &mut VmCore<'_>, l: isize, r: isize) -> isize {
+        l + r
+    }
+
+    #[inline(always)]
+    fn add_handler_int_float(_: &mut VmCore<'_>, l: isize, r: f64) -> f64 {
+        l as f64 + r
+    }
+
+    #[inline(always)]
+    fn add_handler_float_int(_: &mut VmCore<'_>, l: f64, r: isize) -> f64 {
+        l + r as f64
+    }
+
+    #[inline(always)]
+    fn add_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
+        l + r
+    }
+
+    #[inline(always)]
+    fn sub_handler_int_int(_: &mut VmCore<'_>, l: isize, r: isize) -> isize {
+        l - r
+    }
+
+    #[inline(always)]
+    fn sub_handler_int_none(_: &mut VmCore<'_>, l: isize, r: SteelVal) -> Result<SteelVal> {
+        match r {
+            SteelVal::IntV(n) => Ok(SteelVal::IntV(l - n)),
+            SteelVal::NumV(r) => Ok(SteelVal::NumV(l as f64 - r)),
+            _ => stop!(TypeMismatch => "sub expected a number, found: {}", r),
+        }
+    }
+
+    #[inline(always)]
+    fn sub_handler_none_int(_: &mut VmCore<'_>, l: SteelVal, r: isize) -> Result<SteelVal> {
+        match l {
+            SteelVal::IntV(l) => Ok(SteelVal::IntV(l - r)),
+            SteelVal::NumV(l) => Ok(SteelVal::NumV(l - r as f64)),
+            _ => {
+                cold();
+                stop!(TypeMismatch => "sub expected a number, found: {}", l)
             }
         }
-        _ => stop!(TypeMismatch => "multiply expected an number, found: {}", r),
     }
-}
 
-#[inline(always)]
-fn div_handler_int_int(_: &mut VmCore<'_>, l: isize, r: isize) -> isize {
-    l / r
-}
-
-#[inline(always)]
-fn div_handler_int_float(_: &mut VmCore<'_>, l: isize, r: f64) -> f64 {
-    l as f64 / r
-}
-
-#[inline(always)]
-fn div_handler_float_int(_: &mut VmCore<'_>, l: f64, r: isize) -> f64 {
-    l / r as f64
-}
-
-#[inline(always)]
-fn div_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
-    l / r
-}
-
-#[inline(always)]
-fn lte_handler_none_int(_: &mut VmCore<'_>, l: SteelVal, r: isize) -> Result<bool> {
-    match l {
-        SteelVal::IntV(l) => Ok(l <= r),
-        SteelVal::NumV(l) => Ok(l <= r as f64),
-        _ => stop!(TypeMismatch => "lte expected an number, found: {}", r),
+    #[inline(always)]
+    fn sub_handler_int_float(_: &mut VmCore<'_>, l: isize, r: f64) -> f64 {
+        l as f64 - r
     }
-}
 
-#[inline(always)]
-fn add_handler_none_none(l: &SteelVal, r: &SteelVal) -> Result<SteelVal> {
-    add_two(l, r)
+    #[inline(always)]
+    fn sub_handler_float_int(_: &mut VmCore<'_>, l: f64, r: isize) -> f64 {
+        l - r as f64
+    }
+
+    #[inline(always)]
+    fn sub_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
+        l - r
+    }
+
+    #[inline(always)]
+    fn multiply_handler_int_int(_: &mut VmCore<'_>, l: isize, r: isize) -> isize {
+        l * r
+    }
+
+    #[inline(always)]
+    fn multiply_handler_int_float(_: &mut VmCore<'_>, l: isize, r: f64) -> f64 {
+        l as f64 * r
+    }
+
+    #[inline(always)]
+    fn multiply_handler_float_int(_: &mut VmCore<'_>, l: f64, r: isize) -> f64 {
+        l * r as f64
+    }
+
+    #[inline(always)]
+    fn multiply_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
+        l * r
+    }
+
+    #[inline(always)]
+    fn multiply_handler_int_none(_: &mut VmCore<'_>, l: isize, r: SteelVal) -> Result<SteelVal> {
+        match r {
+            SteelVal::NumV(r) => Ok(SteelVal::NumV(l as f64 * r)),
+            SteelVal::IntV(n) => {
+                if let Some(res) = l.checked_mul(n) {
+                    Ok(SteelVal::IntV(res))
+                } else {
+                    let mut res = num::BigInt::from(l);
+                    res *= n;
+                    Ok(SteelVal::BigNum(Gc::new(res)))
+                }
+            }
+            _ => stop!(TypeMismatch => "multiply expected an number, found: {}", r),
+        }
+    }
+
+    #[inline(always)]
+    fn div_handler_int_int(_: &mut VmCore<'_>, l: isize, r: isize) -> isize {
+        l / r
+    }
+
+    #[inline(always)]
+    fn div_handler_int_float(_: &mut VmCore<'_>, l: isize, r: f64) -> f64 {
+        l as f64 / r
+    }
+
+    #[inline(always)]
+    fn div_handler_float_int(_: &mut VmCore<'_>, l: f64, r: isize) -> f64 {
+        l / r as f64
+    }
+
+    #[inline(always)]
+    fn div_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
+        l / r
+    }
+
+    #[inline(always)]
+    fn lte_handler_none_int(_: &mut VmCore<'_>, l: SteelVal, r: isize) -> Result<bool> {
+        match l {
+            SteelVal::IntV(l) => Ok(l <= r),
+            SteelVal::NumV(l) => Ok(l <= r as f64),
+            _ => stop!(TypeMismatch => "lte expected an number, found: {}", r),
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn add_handler_none_none(l: &SteelVal, r: &SteelVal) -> Result<SteelVal> {
+        add_two(l, r)
+    }
 }
 
 #[cfg(feature = "dynamic")]
@@ -6351,6 +6079,11 @@ pub(crate) use dynamic::pattern_exists;
 #[cfg(feature = "dynamic")]
 mod dynamic {
     use super::*;
+
+    use handlers::{
+        handle_local_0_no_stack, handle_local_1_no_stack, handle_local_2_no_stack,
+        if_handler_with_bool, push_const_handler_no_stack, raw_if_handler,
+    };
 
     #[macro_export]
     macro_rules! binop_opcode_to_ssa_handler {
@@ -6449,6 +6182,10 @@ mod dynamic {
             call_global_handler_with_args
         };
 
+        (NUMEQUAL) => {
+            num_equal_handler_no_stack
+        };
+
         (PUSHCONST) => {
             push_const_handler_no_stack
         };
@@ -6467,6 +6204,10 @@ mod dynamic {
 
         (READLOCAL1) => {
             handle_local_1_no_stack
+        };
+
+        (READLOCAL2) => {
+            handle_local_2_no_stack
         };
     }
 

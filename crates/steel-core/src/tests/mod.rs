@@ -55,6 +55,7 @@ test_harness_success! {
     babbage_problem,
     balanced_brackets,
     basic_apply,
+    bytevectors,
     calculator,
     capture_upvalue,
     capture_upvalues_arity_two,

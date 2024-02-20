@@ -169,6 +169,7 @@ impl CycleDetector {
             BigRational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
             Complex(x) => write!(f, "{}", x.as_ref()),
             StringV(s) => write!(f, "{s:?}"),
+            ByteVector(b) => write!(f, "{:?}", b.vec.borrow()),
             CharV(c) => {
                 if c.is_ascii_control() {
                     write!(f, "{}", c)
@@ -480,6 +481,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
         self.queue.push(value)
     }
 
+    fn visit_bytevector(&mut self, _bytevector: SteelByteVector) -> Self::Output {}
     fn visit_closure(&mut self, _closure: Gc<ByteCodeLambda>) -> Self::Output {}
     fn visit_bool(&mut self, _boolean: bool) -> Self::Output {}
     fn visit_float(&mut self, _float: f64) -> Self::Output {}
@@ -789,6 +791,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
             | SteelVal::BoxedFunction(_)
             | SteelVal::MutFunc(_)
             | SteelVal::BuiltIn(_)
+            | SteelVal::ByteVector(_)
             | SteelVal::BigNum(_) => return,
             _ => {
                 self.drop_buffer.push_back(value);
@@ -796,6 +799,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
         }
     }
 
+    fn visit_bytevector(&mut self, _bytevector: SteelByteVector) -> Self::Output {}
     fn visit_bool(&mut self, _boolean: bool) {}
     fn visit_float(&mut self, _float: f64) {}
     fn visit_int(&mut self, _int: isize) {}
@@ -1047,6 +1051,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
                 Reference(r) => self.visit_reference_value(r),
                 HeapAllocated(b) => self.visit_heap_allocated(b),
                 Pair(p) => self.visit_pair(p),
+                ByteVector(b) => self.visit_bytevector(b),
             };
         }
 
@@ -1113,6 +1118,7 @@ pub trait BreadthFirstSearchSteelValVisitor {
                 Reference(r) => self.visit_reference_value(r),
                 HeapAllocated(b) => self.visit_heap_allocated(b),
                 Pair(p) => self.visit_pair(p),
+                ByteVector(b) => self.visit_bytevector(b),
             };
         }
 
@@ -1155,6 +1161,7 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_reference_value(&mut self, reference: Rc<OpaqueReference<'static>>) -> Self::Output;
     fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output;
     fn visit_pair(&mut self, pair: Gc<Pair>) -> Self::Output;
+    fn visit_bytevector(&mut self, bytevector: SteelByteVector) -> Self::Output;
 }
 
 pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
@@ -1207,12 +1214,14 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
                 BigNum(b) => self.visit_bignum(b),
                 HeapAllocated(b) => self.visit_heap_allocated(b),
                 Pair(p) => self.visit_pair(p),
+                ByteVector(b) => self.visit_bytevector(b),
             };
         }
 
         ret
     }
 
+    fn visit_bytevector(&mut self, _: &'a SteelByteVector) -> Self::Output;
     fn visit_closure(&mut self, _: &'a Gc<ByteCodeLambda>) -> Self::Output;
     fn visit_bool(&mut self, _: bool) -> Self::Output;
     fn visit_float(&mut self, _: f64) -> Self::Output;
@@ -1467,6 +1476,69 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         return false;
                     }
                 }
+
+                (SteelVal::Custom(l), other) => {
+                    if l.borrow().check_equality_hint_general(&other) {
+                        self.left.visit_custom_type(l);
+
+                        match other {
+                            Closure(x) => self.right.visit_closure(x),
+                            VectorV(v) => self.right.visit_immutable_vector(v),
+                            SteelVal::Custom(r) => self.right.visit_custom_type(r),
+                            HashMapV(r) => self.right.visit_hash_map(r),
+                            HashSetV(r) => self.right.visit_hash_set(r),
+                            CustomStruct(r) => self.right.visit_steel_struct(r),
+                            PortV(r) => self.right.visit_port(r),
+                            IterV(r) => self.right.visit_transducer(r),
+                            ReducerV(r) => self.right.visit_reducer(r),
+                            ContinuationFunction(r) => self.right.visit_continuation(r),
+                            ListV(r) => self.right.visit_list(r),
+                            SteelVal::Pair(r) => self.right.visit_pair(r),
+                            MutableVector(r) => self.right.visit_mutable_vector(r),
+                            BoxedIterator(r) => self.right.visit_boxed_iterator(r),
+                            SteelVal::SyntaxObject(r) => self.right.visit_syntax_object(r),
+                            Boxed(r) => self.right.visit_boxed_value(r),
+                            HeapAllocated(r) => self.right.visit_heap_allocated(r),
+                            _ => {}
+                        }
+
+                        continue;
+                    } else {
+                        return false;
+                    }
+                }
+
+                (other, SteelVal::Custom(r)) => {
+                    if r.borrow().check_equality_hint_general(&other) {
+                        match other {
+                            Closure(x) => self.left.visit_closure(x),
+                            VectorV(v) => self.left.visit_immutable_vector(v),
+                            SteelVal::Custom(r) => self.left.visit_custom_type(r),
+                            HashMapV(r) => self.left.visit_hash_map(r),
+                            HashSetV(r) => self.left.visit_hash_set(r),
+                            CustomStruct(r) => self.left.visit_steel_struct(r),
+                            PortV(r) => self.left.visit_port(r),
+                            IterV(r) => self.left.visit_transducer(r),
+                            ReducerV(r) => self.left.visit_reducer(r),
+                            ContinuationFunction(r) => self.left.visit_continuation(r),
+                            ListV(r) => self.left.visit_list(r),
+                            SteelVal::Pair(r) => self.left.visit_pair(r),
+                            MutableVector(r) => self.left.visit_mutable_vector(r),
+                            BoxedIterator(r) => self.left.visit_boxed_iterator(r),
+                            SteelVal::SyntaxObject(r) => self.left.visit_syntax_object(r),
+                            Boxed(r) => self.left.visit_boxed_value(r),
+                            HeapAllocated(r) => self.left.visit_heap_allocated(r),
+                            _ => {}
+                        }
+
+                        self.right.visit_custom_type(r);
+
+                        continue;
+                    } else {
+                        return false;
+                    }
+                }
+
                 (SteelVal::HashMapV(l), SteelVal::HashMapV(r)) => {
                     if Gc::ptr_eq(&l.0, &r.0) {
                         println!("Found ptr equality");
@@ -1683,6 +1755,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
     fn visit_closure(&mut self, _closure: Gc<ByteCodeLambda>) -> Self::Output {}
 
     // Leaf nodes, we don't need to do anything here
+    fn visit_bytevector(&mut self, _bytevector: SteelByteVector) -> Self::Output {}
     fn visit_bool(&mut self, _boolean: bool) -> Self::Output {}
     fn visit_float(&mut self, _float: f64) -> Self::Output {}
     fn visit_int(&mut self, _int: isize) -> Self::Output {}
@@ -1828,6 +1901,7 @@ impl PartialEq for SteelVal {
             (SymbolV(l), SymbolV(r)) => l == r,
             (CharV(l), CharV(r)) => l == r,
             (FuncV(l), FuncV(r)) => *l as usize == *r as usize,
+            (ByteVector(l), ByteVector(r)) => l == r,
             // (VectorV(l), VectorV(r)) => l == r,
             // (ListV(l), ListV(r)) => l == r,
             // (HashSetV(l), HashSetV(r)) => l == r,

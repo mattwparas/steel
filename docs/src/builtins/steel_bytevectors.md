@@ -1,0 +1,118 @@
+# steel/bytevectors
+### **byte?**
+Returns #t if the given value is a byte, meaning an exact
+integer between 0 and 255 inclusive, #f otherwise.
+
+#### Examples
+```scheme
+(byte? 65) ;; => #t
+(byte? 0) ;; => #t
+(byte? 256) ;; => #f
+(byte? 100000) ;; => #f
+(byte? -1) ;; => #f
+```
+### **bytes**
+Returns a new mutable vector vectors with each byte as the given arguments.
+Each argument must satisfy the `byte?` predicate, meaning it is an exact
+integer range from 0 - 255 (inclusive)
+
+(bytes b ...)
+
+b : byte?
+
+
+#### Example
+```scheme
+(bytes 65 112 112 108 101)
+```
+### **bytes->list**
+Converts the bytevector to the equivalent list representation.
+
+#### Examples
+```scheme
+(bytes->list (bytes 0 1 2 3 4 5)) ;; => '(0 1 2 3 4 5)
+```
+### **bytes-append**
+Append two byte vectors into a new bytevector.
+
+#### Examples
+```scheme
+(bytes-append (bytes 0 1 2) (bytes 3 4 5)) ;; (bytes 0 1 2 3 4 5)
+```
+### **bytes-length**
+Returns the length of the given byte vector
+
+#### Examples
+```scheme
+(bytes-length (bytes 1 2 3 4 5)) ;; => 5
+```
+### **bytes-ref**
+Fetches the byte at the given index within the bytevector.
+If the index is out of bounds, this will error.
+
+(bytes-ref vector index)
+
+vector : bytes?
+index: (and exact? int?)
+
+#### Examples
+```scheme
+(bytes-ref (bytes 0 1 2 3 4 5) 3) ;; => 4
+(bytes-ref (bytes) 10) ;; error
+```
+### **bytes-set!**
+Sets the byte at the given index to the given byte. Will error
+if the index is out of bounds.
+
+(bytes-set! vector index byte)
+
+vector : bytes?
+index: (and exact? int?)
+byte: byte?
+
+#### Examples
+```scheme
+(define my-bytes (bytes 0 1 2 3 4 5))
+(bytes-set! my-bytes 0 100)
+(bytes-ref my-bytes 0) ;; => 100
+```
+### **bytes?**
+Returns `#t` if this value is a bytevector
+
+#### Examples
+```scheme
+(bytes? (bytes 0 1 2)) ;; => #t
+(bytes? (list 10 20 30)) ;; => #f
+```
+### **bytevector**
+Returns a new mutable vector vectors with each byte as the given arguments.
+Each argument must satisfy the `byte?` predicate, meaning it is an exact
+integer range from 0 - 255 (inclusive)
+
+(bytevector b ...)
+
+b : byte?
+
+
+#### Example
+```scheme
+(bytevector 65 112 112 108 101)
+```
+### **list->bytes**
+Converts the list of bytes to the equivalent bytevector representation.
+The list must contain _only_ values which satisfy the `byte?` predicate,
+otherwise this function will error.
+
+#### Examples
+```scheme
+(list->bytes (list 0 1 2 3 4 5)) ;; => (bytes 0 1 2 3 4 5)
+```
+### **string->bytes**
+Converts the given string to a bytevector
+
+#### Examples
+```scheme
+(string->bytes "Apple") ;; => (bytes 65 112 112 108 101)
+```
+### **bytevector-copy**
+### **make-bytes**

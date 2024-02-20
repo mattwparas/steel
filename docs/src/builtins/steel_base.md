@@ -1,6 +1,105 @@
 # steel/base
 ### **abs**
 Returns the absolute value of the given input
+### **byte?**
+Returns #t if the given value is a byte, meaning an exact
+integer between 0 and 255 inclusive, #f otherwise.
+
+#### Examples
+```scheme
+(byte? 65) ;; => #t
+(byte? 0) ;; => #t
+(byte? 256) ;; => #f
+(byte? 100000) ;; => #f
+(byte? -1) ;; => #f
+```
+### **bytes**
+Returns a new mutable vector vectors with each byte as the given arguments.
+Each argument must satisfy the `byte?` predicate, meaning it is an exact
+integer range from 0 - 255 (inclusive)
+
+(bytes b ...)
+
+b : byte?
+
+
+#### Example
+```scheme
+(bytes 65 112 112 108 101)
+```
+### **bytes->list**
+Converts the bytevector to the equivalent list representation.
+
+#### Examples
+```scheme
+(bytes->list (bytes 0 1 2 3 4 5)) ;; => '(0 1 2 3 4 5)
+```
+### **bytes-append**
+Append two byte vectors into a new bytevector.
+
+#### Examples
+```scheme
+(bytes-append (bytes 0 1 2) (bytes 3 4 5)) ;; (bytes 0 1 2 3 4 5)
+```
+### **bytes-length**
+Returns the length of the given byte vector
+
+#### Examples
+```scheme
+(bytes-length (bytes 1 2 3 4 5)) ;; => 5
+```
+### **bytes-ref**
+Fetches the byte at the given index within the bytevector.
+If the index is out of bounds, this will error.
+
+(bytes-ref vector index)
+
+vector : bytes?
+index: (and exact? int?)
+
+#### Examples
+```scheme
+(bytes-ref (bytes 0 1 2 3 4 5) 3) ;; => 4
+(bytes-ref (bytes) 10) ;; error
+```
+### **bytes-set!**
+Sets the byte at the given index to the given byte. Will error
+if the index is out of bounds.
+
+(bytes-set! vector index byte)
+
+vector : bytes?
+index: (and exact? int?)
+byte: byte?
+
+#### Examples
+```scheme
+(define my-bytes (bytes 0 1 2 3 4 5))
+(bytes-set! my-bytes 0 100)
+(bytes-ref my-bytes 0) ;; => 100
+```
+### **bytes?**
+Returns `#t` if this value is a bytevector
+
+#### Examples
+```scheme
+(bytes? (bytes 0 1 2)) ;; => #t
+(bytes? (list 10 20 30)) ;; => #f
+```
+### **bytevector**
+Returns a new mutable vector vectors with each byte as the given arguments.
+Each argument must satisfy the `byte?` predicate, meaning it is an exact
+integer range from 0 - 255 (inclusive)
+
+(bytevector b ...)
+
+b : byte?
+
+
+#### Example
+```scheme
+(bytevector 65 112 112 108 101)
+```
 ### **car**
 Returns the first element of the list l.
 
@@ -301,6 +400,15 @@ Returns a newly allocated list containing the vs as its elements.
 > (list 1 2 3 4 5) ;; => '(1 2 3 4 5)
 > (list (list 1 2) (list 3 4)) ;; => '((1 2) (3 4))
 ```
+### **list->bytes**
+Converts the list of bytes to the equivalent bytevector representation.
+The list must contain _only_ values which satisfy the `byte?` predicate,
+otherwise this function will error.
+
+#### Examples
+```scheme
+(list->bytes (list 0 1 2 3 4 5)) ;; => (bytes 0 1 2 3 4 5)
+```
 ### **list-ref**
 Returns the value located at the given index. Will raise an error if you try to index out of bounds.
 
@@ -390,6 +498,20 @@ Returns a newly allocated list of the elements in the range (n, m]
 ```scheme
 > (range 0 10) ;; => '(0 1 2 3 4 5 6 7 8 9)
 ```
+### **rational?**
+Returns #t if obj is a rational number, #f otherwise.
+Rational numbers are numbers that can be expressed as the quotient of two numbers.
+For example, 3/4, -5/2, 0.25, and 0 are rational numbers, while
+
+(rational? value) -> bool?
+
+Examples:
+```scheme
+(rational? (/ 0.0)) ⇒ #f
+(rational? 3.5)     ⇒ #t
+(rational? 6/10)    ⇒ #t
+(rational? 6/3)     ⇒ #t
+```
 ### **read-dir**
 Returns the contents of the directory as a list
 ### **read-port-to-string**
@@ -451,6 +573,13 @@ Gets the port handle to stdin
 ```
 ### **string**
 Constructs a string from the given characters
+### **string->bytes**
+Converts the given string to a bytevector
+
+#### Examples
+```scheme
+(string->bytes "Apple") ;; => (bytes 65 112 112 108 101)
+```
 ### **string->int**
 Converts a string into an int. Raises an error if the string cannot be converted to an integer.
 
@@ -515,8 +644,9 @@ Concatenates all of the given strings into one
 ```scheme
 > (string-append) ;; => ""
 > (string-append "foo" "bar") ;; => "foobar"
+```
 ### **string-length**
-Get the length of the given string
+Get the length of the given string in UTF-8 bytes.
 
 (string-length string?) -> int?
 
@@ -524,6 +654,8 @@ Get the length of the given string
 
 ```scheme
 > (string-length "apples") ;; => 6
+> (string-length "✅") ;; => 3
+> (string-length "🤖") ;; => 4
 ```
 ### **take**
 Returns the first n elements of the list l as a new list.
@@ -566,6 +698,7 @@ Concatenatives all of the inputs to their string representation, separated by sp
 #### Examples
 ```scheme
 > (to-string 10) ;; => "10"
+> (to-string 10 20) ;; => "10 20"
 > (to-string "hello" "world") ;; => "hello world"
 ```
 ### **trim**
@@ -627,6 +760,7 @@ of the string
 ### **#%debug-syntax->exprkind**
 ### **#%default-input-port**
 ### **#%default-output-port**
+### **#%environment-length**
 ### **#%function-ptr-table**
 ### **#%function-ptr-table-add**
 ### **#%function-ptr-table-get**
@@ -683,10 +817,12 @@ of the string
 ### **boolean?**
 ### **box**
 ### **breakpoint!**
+### **bytevector-copy**
 ### **call-with-current-continuation**
 ### **call-with-exception-handler**
 ### **call/cc**
 ### **cdr-null?**
+### **ceiling**
 ### **channel->recv**
 ### **channel->send**
 ### **channel->try-recv**
@@ -698,6 +834,7 @@ of the string
 ### **child-stdin**
 ### **child-stdout**
 ### **command**
+### **complex?**
 ### **compose**
 ### **concat-symbols**
 ### **continuation?**
@@ -706,6 +843,7 @@ of the string
 ### **current-milliseconds**
 ### **current-os!**
 ### **current-second**
+### **denominator**
 ### **dropping**
 ### **duration->seconds**
 ### **duration->string**
@@ -720,14 +858,18 @@ of the string
 ### **eval!**
 ### **even?**
 ### **exact->inexact**
+### **exact-integer?**
+### **exact?**
 ### **expand!**
 ### **expt**
 ### **extending**
 ### **f+**
 ### **filtering**
+### **finite?**
 ### **flat-mapping**
 ### **flattening**
 ### **float?**
+### **floor**
 ### **flush-output-port**
 ### **function-name**
 ### **function?**
@@ -745,6 +887,9 @@ of the string
 ### **hashset-insert**
 ### **hashset-length**
 ### **hashset-subset?**
+### **inexact->exact**
+### **inexact?**
+### **infinite?**
 ### **inspect-bytecode**
 ### **instant/elapsed**
 ### **instant/now**
@@ -773,6 +918,7 @@ of the string
 ### **list?**
 ### **local-time/now!**
 ### **log**
+### **make-bytes**
 ### **make-channels**
 ### **make-string**
 ### **make-struct-type**
@@ -789,6 +935,7 @@ of the string
 ### **not**
 ### **null?**
 ### **number?**
+### **numerator**
 ### **odd?**
 ### **open-output-string**
 ### **poll!**
@@ -807,6 +954,7 @@ of the string
 ### **read!**
 ### **read-line-from-port**
 ### **read-to-string**
+### **real?**
 ### **round**
 ### **run!**
 ### **set-current-dir!**
@@ -819,6 +967,7 @@ of the string
 ### **spawn-thread!**
 ### **split-many**
 ### **split-once**
+### **square**
 ### **stdout**
 ### **stdout-simple-displayln**
 ### **stream-car**
