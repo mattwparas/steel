@@ -1715,21 +1715,21 @@ impl SteelVal {
     pub fn is_truthy(&self) -> bool {
         match &self {
             SteelVal::BoolV(false) => false,
-            SteelVal::Void => false,
-            SteelVal::ListV(v) => !v.is_empty(),
+            // SteelVal::Void => false,
+            // SteelVal::ListV(v) => !v.is_empty(),
             _ => true,
         }
     }
 
-    #[inline(always)]
-    pub fn is_falsey(&self) -> bool {
-        match &self {
-            SteelVal::BoolV(false) => true,
-            SteelVal::Void => true,
-            SteelVal::ListV(v) => v.is_empty(),
-            _ => false,
-        }
-    }
+    // #[inline(always)]
+    // pub fn is_falsey(&self) -> bool {
+    //     match &self {
+    //         SteelVal::BoolV(false) => true,
+    //         SteelVal::Void => true,
+    //         SteelVal::ListV(v) => v.is_empty(),
+    //         _ => false,
+    //     }
+    // }
 
     #[inline(always)]
     pub fn is_future(&self) -> bool {
