@@ -1370,6 +1370,10 @@ fn meta_module() -> BuiltInModule {
         // .register_value("async-exec", MetaOperations::exec_async())
         .register_value("poll!", MetaOperations::poll_value())
         .register_value("block-on", MetaOperations::block_on())
+        .register_value(
+            "local-executor/block-on",
+            MetaOperations::block_on_with_local_executor(),
+        )
         .register_value("join!", MetaOperations::join_futures())
         .register_fn(
             "#%struct-property-ref",

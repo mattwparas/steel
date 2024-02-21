@@ -18,6 +18,7 @@ im-rc = "15.1.0"
 codespan-reporting = "0.11.1"
 log = "0.4.17"
 
+futures-executor = "0.3.28"
 futures-util = "0.3.28"
 futures-task = "0.3.28"
 
