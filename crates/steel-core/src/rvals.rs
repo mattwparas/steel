@@ -131,6 +131,10 @@ pub fn as_underlying_type<T: 'static>(value: &dyn CustomType) -> Option<&T> {
     value.as_any_ref().downcast_ref::<T>()
 }
 
+pub fn as_underlying_type_mut<T: 'static>(value: &mut dyn CustomType) -> Option<&mut T> {
+    value.as_any_ref_mut().downcast_mut::<T>()
+}
+
 pub trait Custom: private::Sealed {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
         None
@@ -1715,19 +1719,7 @@ impl SteelVal {
     pub fn is_truthy(&self) -> bool {
         match &self {
             SteelVal::BoolV(false) => false,
-            SteelVal::Void => false,
-            SteelVal::ListV(v) => !v.is_empty(),
             _ => true,
-        }
-    }
-
-    #[inline(always)]
-    pub fn is_falsey(&self) -> bool {
-        match &self {
-            SteelVal::BoolV(false) => true,
-            SteelVal::Void => true,
-            SteelVal::ListV(v) => v.is_empty(),
-            _ => false,
         }
     }
 

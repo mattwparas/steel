@@ -333,36 +333,40 @@
                 (lambda ()
                   (apply-contracted-function contracted-function
                                              '()
-                                             (if span (car span) (current-function-span))))]
+                                             (if (empty? span) (current-function-span) (car span))))]
 
                [(= 1 arity)
 
                 (lambda (arg)
-                  (apply-contracted-function-one-arg contracted-function
-                                                     arg
-                                                     (if span (car span) (current-function-span))))]
+                  (apply-contracted-function-one-arg
+                   contracted-function
+                   arg
+                   (if (empty? span) (current-function-span) (car span))))]
 
                [(= 2 arity)
 
                 (lambda (arg arg2)
-                  (apply-contracted-function-two-arg contracted-function
-                                                     arg
-                                                     arg2
-                                                     (if span (car span) (current-function-span))))]
+                  (apply-contracted-function-two-arg
+                   contracted-function
+                   arg
+                   arg2
+                   (if (empty? span) (current-function-span) (car span))))]
                [(= 3 arity)
 
                 (lambda (arg arg2 arg3)
-                  (apply-contracted-function-three-arg contracted-function
-                                                       arg
-                                                       arg2
-                                                       arg3
-                                                       (if span (car span) (current-function-span))))]
+                  (apply-contracted-function-three-arg
+                   contracted-function
+                   arg
+                   arg2
+                   arg3
+                   (if (empty? span) (current-function-span) (car span))))]
                [else
 
                 (lambda args
-                  (apply-contracted-function contracted-function
-                                             args
-                                             (if span (car span) (current-function-span))))])])
+                  (apply-contracted-function
+                   contracted-function
+                   args
+                   (if (empty? span) (current-function-span) (car span))))])])
         (attach-contract-struct! resulting-lambda-function
                                  (ContractedFunction-contract contracted-function))
         resulting-lambda-function))))

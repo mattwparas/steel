@@ -131,6 +131,20 @@ impl MetaOperations {
         })
     }
 
+    pub fn block_on_with_local_executor() -> SteelVal {
+        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
+            if args.len() != 1 {
+                stop!(Generic => "block-on! only takes one argument");
+            }
+
+            if let SteelVal::FutureV(fut) = args[0].clone() {
+                futures_executor::block_on(fut.unwrap().into_shared())
+            } else {
+                stop!(Generic => "block-on! accepts futures only");
+            }
+        })
+    }
+
     pub fn block_on() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
