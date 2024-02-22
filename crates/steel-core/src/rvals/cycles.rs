@@ -204,8 +204,15 @@ impl CycleDetector {
                 }
                 write!(f, ")")
             }
+            // TODO: Somehow getting an already borrowed error here on 208
             Custom(x) => match format_type {
-                FormatType::Normal => write!(f, "{}", x.borrow().display()?),
+                FormatType::Normal => write!(
+                    f,
+                    "{}",
+                    x.try_borrow()
+                        .map(|x| x.display())
+                        .unwrap_or(Ok(format!("#<{:p}>", x)))?
+                ),
                 FormatType::TopLevel => write!(f, "#<{}>", x.borrow().display()?),
             },
             CustomStruct(s) => match format_type {
