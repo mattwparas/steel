@@ -22,7 +22,10 @@ use crate::{
         random::random_module,
         string_module,
         time::time_module,
-        vectors::immutable_vectors_module,
+        vectors::{
+            immutable_vectors_module, MUTABLE_VECTOR_CLEAR_DEFINITION,
+            MUTABLE_VECTOR_POP_DEFINITION, MUTABLE_VECTOR_TO_LIST_DEFINITION,
+        },
         ControlOperations, IoFunctions, MetaOperations, NumOperations, StreamOperations,
         SymbolOperations, VectorOperations,
     },
@@ -637,9 +640,7 @@ pub static SANDBOXED_MODULES: &str = r#"
     (require-builtin steel/syntax)
 "#;
 
-// static MAP_MODULE: Lazy<BuiltInModule> = Lazy::new(hashmap);
-// static SET_MODULE: Lazy<BuiltInModule> = Lazy::new(hashset);
-
+// TODO: Clean this up a lot
 fn vector_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/vectors");
     module
@@ -661,7 +662,10 @@ fn vector_module() -> BuiltInModule {
         .register_value("push", VectorOperations::vec_push())
         .register_value("range-vec", VectorOperations::vec_range())
         .register_value("vec-append", VectorOperations::vec_append())
-        .register_value("vector-ref", VectorOperations::vec_ref());
+        .register_value("vector-ref", VectorOperations::vec_ref())
+        .register_native_fn_definition(MUTABLE_VECTOR_CLEAR_DEFINITION)
+        .register_native_fn_definition(MUTABLE_VECTOR_TO_LIST_DEFINITION)
+        .register_native_fn_definition(MUTABLE_VECTOR_POP_DEFINITION);
     module
 }
 

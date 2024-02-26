@@ -1,9 +1,10 @@
 use crate::gc::Gc;
-use crate::rvals::{Result, SteelVal};
+use crate::rvals::{IntoSteelVal, Result, SteelVal};
 use crate::rvals::{SteelVal::*, SteelVector};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::steel_vm::vm::VmCore;
 use crate::stop;
+use crate::values::closed::HeapRef;
 use crate::values::lists::Pair;
 use im_rc::Vector;
 
@@ -261,6 +262,35 @@ fn immutable_vector_drop(vector: &mut SteelVal, count: usize) -> Result<SteelVal
 //         }
 //     }
 // }
+
+#[steel_derive::function(name = "mutable-vector->clear")]
+fn mutable_vector_clear(vec: &HeapRef<Vec<SteelVal>>) {
+    // Snag the interior value
+    vec.strong_ptr().borrow_mut().value.clear()
+}
+
+#[steel_derive::function(name = "mutable-vector->string")]
+fn mutable_vector_to_list(vec: &HeapRef<Vec<SteelVal>>) -> Result<SteelVal> {
+    let guard = vec.strong_ptr();
+    let mut buf = String::new();
+
+    for maybe_char in guard.borrow().value.iter() {
+        if let SteelVal::CharV(c) = maybe_char {
+            buf.push(*c);
+        } else {
+            stop!(TypeMismatch => "mutable-vector->string expected a vector of chars, found: {:?}", maybe_char);
+        }
+    }
+
+    Ok(buf.into())
+}
+
+#[steel_derive::function(name = "mutable-vector-pop!")]
+fn mutable_vector_pop(vec: &HeapRef<Vec<SteelVal>>) -> Result<SteelVal> {
+    let last = vec.strong_ptr().borrow_mut().value.pop();
+
+    last.into_steelval()
+}
 
 pub struct VectorOperations {}
 impl VectorOperations {

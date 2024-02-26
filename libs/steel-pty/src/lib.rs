@@ -16,50 +16,36 @@ use std::{
         mpsc::{channel, Sender},
         Arc,
     },
+    thread::JoinHandle,
 };
 use steel::{
     declare_module,
     rvals::Custom,
-    steel_vm::ffi::{FFIModule, FFIValue, FfiFuture, FfiFutureExt, RegisterFFIFn},
+    steel_vm::ffi::{FFIModule, FFIValue, FfiFuture, FfiFutureExt, IntoFFIVal, RegisterFFIFn},
 };
 use termwiz::escape::{parser::Parser, Action};
 
 use tokio::sync::mpsc;
 
-// struct AnsiTokenizer {
-//     input: &'static str,
-//     tokenizer: AnsiIterator<'static>,
-// }
-
-// impl AnsiTokenizer {
-//     pub fn new(seed: String) -> Self {
-
-//     }
-// }
-
 struct PtyProcess {
     cancellation_token_sender: Sender<()>,
     command_sender: Sender<String>,
-    // output_receiver: Receiver<String>,
     async_receiver: Arc<Mutex<mpsc::UnboundedReceiver<String>>>,
-    pty_system: PtyPair,
+    _pty_system: PtyPair,
     child: Box<dyn Child + Send + Sync>,
-    // tokenizer
+    listener: Option<JoinHandle<()>>,
 }
 
 use futures::{lock::Mutex, FutureExt};
 
-// impl FromSteelVal for Element
-
 struct AnsiEscapeParser(termwiz::escape::parser::Parser);
 
+#[derive(Clone)]
 struct TermAction(Action);
 
+impl Custom for TermAction {}
+
 pub fn action_to_ffi_value(action: Action) -> FFIValue {
-    // todo!()
-
-    log::info!("action: {:?}", &action);
-
     match action {
         Action::Print(c) => FFIValue::CharV { c },
         Action::PrintString(s) => FFIValue::StringV(s.into()),
@@ -125,18 +111,18 @@ pub fn action_to_ffi_value(action: Action) -> FFIValue {
             // termwiz::escape::ControlCode::OSC => todo!(),
             // termwiz::escape::ControlCode::PM => todo!(),
             // termwiz::escape::ControlCode::APC => todo!(),
-            _ => FFIValue::Void,
+            _ => TermAction(action).into_ffi_val().unwrap(),
         },
         // Action::DeviceControl(_) => todo!(),
         // Action::OperatingSystemCommand(_) => todo!(),
-        Action::CSI(csi) => match csi {
+        Action::CSI(csi) => match &csi {
             // termwiz::escape::CSI::Sgr(_) => todo!(),
             termwiz::escape::CSI::Cursor(c) => match c {
                 // termwiz::escape::csi::Cursor::BackwardTabulation(_) => todo!(),
                 // termwiz::escape::csi::Cursor::TabulationClear(_) => todo!(),
                 // termwiz::escape::csi::Cursor::CharacterAbsolute(_) => todo!(),
                 // termwiz::escape::csi::Cursor::CharacterPositionAbsolute(_) => todo!(),
-                // termwiz::escape::csi::Cursor::CharacterPositionBackward(_) => todo!(),
+                // termwiz::escape::csi::Cursor::CharacterPositionBackward(_) => FFIValue::IntV(),
                 // termwiz::escape::csi::Cursor::CharacterPositionForward(_) => todo!(),
                 // termwiz::escape::csi::Cursor::CharacterAndLinePosition { line, col } => todo!(),
                 // termwiz::escape::csi::Cursor::LinePositionAbsolute(_) => todo!(),
@@ -159,9 +145,9 @@ pub fn action_to_ffi_value(action: Action) -> FFIValue {
                 // termwiz::escape::csi::Cursor::SetTopAndBottomMargins { top, bottom } => todo!(),
                 // termwiz::escape::csi::Cursor::SetLeftAndRightMargins { left, right } => todo!(),
                 // termwiz::escape::csi::Cursor::CursorStyle(_) => todo!(),
-                _ => FFIValue::IntV(3),
+                _ => TermAction(Action::CSI(csi)).into_ffi_val().unwrap(),
             },
-            termwiz::escape::CSI::Edit(e) => match e {
+            termwiz::escape::CSI::Edit(e) => match &e {
                 // termwiz::escape::csi::Edit::DeleteCharacter(_) => todo!(),
                 // termwiz::escape::csi::Edit::DeleteLine(_) => todo!(),
                 // termwiz::escape::csi::Edit::EraseCharacter(_) => todo!(),
@@ -176,7 +162,7 @@ pub fn action_to_ffi_value(action: Action) -> FFIValue {
                 // termwiz::escape::csi::Edit::ScrollUp(_) => todo!(),
                 // termwiz::escape::csi::Edit::EraseInDisplay(_) => todo!(),
                 // termwiz::escape::csi::Edit::Repeat(_) => todo!(),
-                _ => FFIValue::Void,
+                _ => TermAction(Action::CSI(csi)).into_ffi_val().unwrap(),
             },
             // termwiz::escape::CSI::Mode(_) => todo!(),
             // termwiz::escape::CSI::Device(_) => todo!(),
@@ -185,7 +171,7 @@ pub fn action_to_ffi_value(action: Action) -> FFIValue {
             // termwiz::escape::CSI::Keyboard(_) => todo!(),
             // termwiz::escape::CSI::SelectCharacterPath(_, _) => todo!(),
             // termwiz::escape::CSI::Unspecified(_) => todo!(),
-            _ => FFIValue::Void,
+            _ => TermAction(Action::CSI(csi)).into_ffi_val().unwrap(),
         },
         Action::Esc(esc) => match esc {
             termwiz::escape::Esc::Unspecified {
@@ -235,13 +221,13 @@ pub fn action_to_ffi_value(action: Action) -> FFIValue {
                 // termwiz::escape::EscCode::F2Press => todo!(),
                 // termwiz::escape::EscCode::F3Press => todo!(),
                 // termwiz::escape::EscCode::F4Press => todo!(),
-                _ => FFIValue::Void,
+                _ => TermAction(Action::Esc(esc)).into_ffi_val().unwrap(),
             },
         },
         // Action::Sixel(_) => todo!(),
         // Action::XtGetTcap(_) => todo!(),
         // Action::KittyImage(_) => todo!(),
-        _ => FFIValue::Void,
+        _ => TermAction(action).into_ffi_val().unwrap(),
     }
 }
 
@@ -296,7 +282,9 @@ impl PtyProcess {
 impl Custom for PtyProcess {}
 
 impl Drop for PtyProcess {
-    fn drop(self: &mut PtyProcess) {}
+    fn drop(self: &mut PtyProcess) {
+        self.kill();
+    }
 }
 
 declare_module!(create_module);
@@ -311,7 +299,10 @@ fn create_module() -> FFIModule {
         // .register_fn("pty-process-try-read-line", PtyProcess::try_read_line)
         .register_fn("async-try-read-line", PtyProcess::async_try_read_line)
         .register_fn("make-ansi-tokenizer", AnsiEscapeParser::new)
-        .register_fn("tokenize-line", AnsiEscapeParser::tokenize_ansi);
+        .register_fn("tokenize-line", AnsiEscapeParser::tokenize_ansi)
+        .register_fn("action->string", |action: &TermAction| {
+            format!("{:?}", action.0)
+        });
 
     module
 }
@@ -344,12 +335,10 @@ fn create_native_pty_system() -> PtyProcess {
 
     let (cancellation_token_sender, cancellation_token_receiver) = channel::<()>();
 
-    // let stay_alive = tx.clone();
-
     let mut reader = pair.master.try_clone_reader().unwrap();
     let mut writer = pair.master.take_writer().unwrap();
 
-    std::thread::spawn(move || {
+    let listener = std::thread::spawn(move || {
         // Consume the output from the child
 
         // let mut bufreader = BufReader::new(reader);
@@ -357,9 +346,7 @@ fn create_native_pty_system() -> PtyProcess {
         let mut read_buffer = [0; 65536];
 
         loop {
-            // let mut s = String::new();
-
-            // bufreader.read_line(&mut s).unwrap();
+            // println!("Reading stuff");
 
             if let Ok(size) = reader.read(&mut read_buffer) {
                 if size != 0 {
@@ -367,16 +354,22 @@ fn create_native_pty_system() -> PtyProcess {
                     // if let Ok(back) = String::from_utf8_lossy(&read_buffer[..size]) {
                     let r = async_sender.send(String::from_utf8_lossy(&read_buffer[..size]).into());
 
-                    r.ok(); // TODO: Figure out how to propagate the errors back
-                            // }
-                            // }
+                    if r.is_err() {
+                        break;
+                    }
                 }
-            }
-
-            if cancellation_token_receiver.try_recv().is_ok() {
+            } else {
                 break;
             }
+
+            match cancellation_token_receiver.try_recv() {
+                Ok(_) => break,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
+            }
         }
+
+        // println!("Finished");
     });
 
     let (command_sender, command_receiver) = channel::<String>();
@@ -414,23 +407,11 @@ fn create_native_pty_system() -> PtyProcess {
             while let Ok(command) = command_receiver.recv() {
                 writer.write_all(command.as_bytes()).unwrap();
             }
+
+            break;
         });
         // }
     }
-
-    // command_sender.send("ls -l\r".to_string()).unwrap();
-    // std::thread::sleep(std::time::Duration::from_millis(20));
-
-    // command_sender.send("ls -l\r".to_string()).unwrap();
-    // std::thread::sleep(std::time::Duration::from_millis(20));
-    // Wait for the child to complete
-    // println!("child status: {:?}", child.wait().unwrap());
-
-    // THIS IS HOW YOU KILL IT
-    // child.kill().unwrap();
-    // cancellation_token_sender.send(()).unwrap();
-
-    // child.wa
 
     // Take care to drop the master after our processes are
     // done, as some platforms get unhappy if it is dropped
@@ -442,8 +423,9 @@ fn create_native_pty_system() -> PtyProcess {
         command_sender,
         // output_receiver: rx,
         async_receiver: Arc::new(Mutex::new(async_receiver)),
-        pty_system: pair,
+        _pty_system: pair,
         child,
+        listener: Some(listener),
     }
 
     // Now wait for the xxxxxx to be read by our reader thread
