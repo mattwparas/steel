@@ -18,7 +18,8 @@ use crate::{
 };
 
 use abi_stable::{
-    std_types::{RBoxError, RCowStr, RHashMap, RResult, RSlice, RStr, RString, RVec, Tuple2},
+    external_types::RMutex,
+    std_types::{RArc, RBoxError, RCowStr, RHashMap, RResult, RSlice, RStr, RString, RVec, Tuple2},
     StableAbi,
 };
 use futures_util::FutureExt;
@@ -80,7 +81,9 @@ pub struct OpaqueFFIValue {
 
 impl Custom for OpaqueFFIValue {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
-        Some(Ok(format!("#<{}>", self.name)))
+        // TODO: This might... be a problem?
+        Some(Ok(format!("#<OpaqueFFIValue>")))
+        // , self.inner.borrow().name())))
     }
 
     // TODO: This is most likely, not correct. We're blindly taking the struct and now making
@@ -739,6 +742,17 @@ impl<'a> PartialEq for FFIArg<'a> {
 
 impl<'a> Eq for FFIArg<'a> {}
 
+// Write to the shared memory, hopefully it isn't a bottleneck?
+pub struct SharedFFIVector {
+    pub vec: RArc<RMutex<RVec<FFIValue>>>,
+}
+
+impl SharedFFIVector {
+    // fn read
+}
+
+impl Custom for SharedFFIVector {}
+
 // See this example:
 // fn test(arg: &SteelVal) -> FFIValue {
 //     if let SteelVal::StringV(string) = arg {
@@ -777,6 +791,7 @@ pub enum FFIValue {
         #[sabi(unsafe_opaque_field)]
         fut: FfiFuture<RResult<FFIValue, RBoxError>>,
     },
+    SharedBuffer(RArc<RMutex<RVec<FFIValue>>>),
 }
 
 impl std::hash::Hash for FFIValue {
@@ -817,6 +832,7 @@ impl std::fmt::Debug for FFIValue {
             FFIValue::Vector(v) => write!(f, "{:?}", v),
             FFIValue::HashMap(h) => write!(f, "{:?}", h),
             FFIValue::Future { .. } => write!(f, "#<future>"),
+            FFIValue::SharedBuffer(_) => write!(f, "#<SharedBuffer>"),
         }
     }
 }
@@ -836,6 +852,7 @@ impl<'a> std::fmt::Debug for FFIArg<'a> {
             Self::Vector(v) => write!(f, "{:?}", v),
             Self::HashMap(h) => write!(f, "{:?}", h),
             Self::Future { .. } => write!(f, "#<future>"),
+            // Self::SharedBuffer(_) => write!(f, "#<SharedBuffer>"),
         }
     }
 }
@@ -874,6 +891,9 @@ impl FFIValue {
                 .map(Gc::new)
                 .map(SteelHashMap::from)
                 .map(SteelVal::HashMapV),
+
+            Self::SharedBuffer(b) => SharedFFIVector { vec: b.clone() }.into_steelval(),
+
             // FFIValue::Future { fut } => Ok(SteelVal::FutureV(Gc::new(Sharedfut.map(|x| {
             //     match x {
             //         RResult::ROk(v) => {
@@ -937,6 +957,7 @@ impl IntoSteelVal for FFIValue {
                     .await
                 }),
             )))),
+            FFIValue::SharedBuffer(b) => SharedFFIVector { vec: b.clone() }.into_steelval(),
         }
     }
 }
