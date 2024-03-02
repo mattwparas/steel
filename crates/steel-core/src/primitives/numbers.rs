@@ -1,5 +1,6 @@
 use crate::rvals::{IntoSteelVal, Result, SteelComplex, SteelVal};
 use crate::{steelerr, stop};
+use num::Zero;
 use num::{
     pow::Pow, BigInt, BigRational, CheckedAdd, CheckedMul, Integer, Rational32, Signed, ToPrimitive,
 };
@@ -78,6 +79,86 @@ fn exact_integerp(value: &SteelVal) -> bool {
 #[steel_derive::function(name = "float?", constant = true)]
 fn floatp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::NumV(_))
+}
+
+/// Returns `#t` if the real number is Nan.
+///
+/// ```scheme
+/// (nan? +nan.0) => #t
+/// (nan? 100000) => #f
+/// ```
+#[steel_derive::function(name = "nan?", constant = true)]
+fn nanp(value: &SteelVal) -> Result<SteelVal> {
+    match value {
+        SteelVal::NumV(n) => n.is_nan().into_steelval(),
+        // The following types are numbers but can not be nan.
+        SteelVal::IntV(_)
+        | SteelVal::Rational(_)
+        | SteelVal::BigNum(_)
+        | SteelVal::BigRational(_) => false.into_steelval(),
+        _ => steelerr!(TypeMismatch => "nan? expected real number"),
+    }
+}
+
+/// Returns `#t` if the real number is 0 or 0.0.
+///
+/// ```scheme
+/// (zero? 0  ) => #f
+/// (zero? 0.0) => #t
+/// (zero? 0.1) => #f
+/// ```
+#[steel_derive::function(name = "zero?", constant = true)]
+fn zerop(value: &SteelVal) -> Result<SteelVal> {
+    match value {
+        SteelVal::NumV(x) => x.is_zero().into_steelval(),
+        SteelVal::IntV(0) => true.into_steelval(),
+        // The following types are numbers, but are casted to NumV or IntV if they are 0 by their
+        // into_steelval implementation.
+        SteelVal::IntV(_)
+        | SteelVal::Rational(_)
+        | SteelVal::BigNum(_)
+        | SteelVal::BigRational(_)
+        | SteelVal::Complex(_) => false.into_steelval(),
+        _ => steelerr!(TypeMismatch => "zero? expected number"),
+    }
+}
+
+/// Returns `#t` if the real number is positive.
+///
+/// ```scheme
+/// (positive?  0) => #f
+/// (positive?  1) => #t
+/// (positive? -1) => #f
+/// ```
+#[steel_derive::function(name = "positive?", constant = true)]
+fn positivep(value: &SteelVal) -> Result<SteelVal> {
+    match value {
+        SteelVal::NumV(n) => n.is_positive().into_steelval(),
+        SteelVal::IntV(n) => n.is_positive().into_steelval(),
+        SteelVal::Rational(n) => n.is_positive().into_steelval(),
+        SteelVal::BigNum(n) => n.is_positive().into_steelval(),
+        SteelVal::BigRational(n) => n.is_positive().into_steelval(),
+        _ => steelerr!(TypeMismatch => "positive? expected real number"),
+    }
+}
+
+/// Returns `#t` if the real number is negative.
+///
+/// ```scheme
+/// (negative?  0) => #f
+/// (negative?  1) => #f
+/// (negative? -1) => #t
+/// ```
+#[steel_derive::function(name = "negative?", constant = true)]
+fn negativep(value: &SteelVal) -> Result<SteelVal> {
+    match value {
+        SteelVal::NumV(n) => n.is_negative().into_steelval(),
+        SteelVal::IntV(n) => n.is_negative().into_steelval(),
+        SteelVal::Rational(n) => n.is_negative().into_steelval(),
+        SteelVal::BigNum(n) => n.is_negative().into_steelval(),
+        SteelVal::BigRational(n) => n.is_negative().into_steelval(),
+        _ => steelerr!(TypeMismatch => "negative? expected real number"),
+    }
 }
 
 #[steel_derive::native(name = "-", constant = true, arity = "AtLeast(1)")]
@@ -506,7 +587,7 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
 ///
 /// ```scheme
 /// (exact-integer-sqrt x) => '(root rem)
-/// (equal? x (+ (square root) rem)) => true
+/// (equal? x (+ (square root) rem)) => #t
 /// ```
 #[steel_derive::function(name = "exact-integer-sqrt", constant = true)]
 fn exact_integer_sqrt(number: &SteelVal) -> Result<SteelVal> {
@@ -1071,7 +1152,6 @@ mod num_op_tests {
 
     #[test]
     fn test_exact_integer_sqrt_fails_on_negative_or_noninteger() {
-        assert!(exact_integer_sqrt(&(-7).into()).is_err());
         assert!(exact_integer_sqrt(&(-7).into()).is_err());
         assert!(exact_integer_sqrt(&Rational32::new(-1, 2).into_steelval().unwrap()).is_err());
         assert!(exact_integer_sqrt(
