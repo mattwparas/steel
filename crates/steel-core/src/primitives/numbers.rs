@@ -508,12 +508,8 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
 /// (exact-integer-sqrt x) => '(root rem)
 /// (equal? x (+ (square root) rem)) => true
 /// ```
-#[steel_derive::native(name = "exact-integer-sqrt", arity = "Exact(1)")]
-fn exact_integer_sqrt(args: &[SteelVal]) -> Result<SteelVal> {
-    let number = match args {
-        [number] => number,
-        _ => unreachable!("arity set to Exact(1)"),
-    };
+#[steel_derive::function(name = "exact-integer-sqrt", constant = true)]
+fn exact_integer_sqrt(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(x) if *x >= 0 => {
             let (ans, rem) = exact_integer_impl(x);
@@ -1036,39 +1032,39 @@ mod num_op_tests {
     #[test]
     fn test_exact_integer_sqrt() {
         assert_eq!(
-            exact_integer_sqrt(&[0.into()]),
+            exact_integer_sqrt(&0.into()),
             (0.into_steelval().unwrap(), 0.into_steelval().unwrap()).into_steelval()
         );
         assert_eq!(
-            exact_integer_sqrt(&[1.into()]),
+            exact_integer_sqrt(&1.into()),
             (1.into_steelval().unwrap(), 0.into_steelval().unwrap()).into_steelval()
         );
         assert_eq!(
-            exact_integer_sqrt(&[2.into()]),
+            exact_integer_sqrt(&2.into()),
             (1.into_steelval().unwrap(), 1.into_steelval().unwrap()).into_steelval()
         );
         assert_eq!(
-            exact_integer_sqrt(&[2.into()]),
+            exact_integer_sqrt(&2.into()),
             (1.into_steelval().unwrap(), 1.into_steelval().unwrap()).into_steelval()
         );
         assert_eq!(
-            exact_integer_sqrt(&[3.into()]),
+            exact_integer_sqrt(&3.into()),
             (1.into_steelval().unwrap(), 2.into_steelval().unwrap()).into_steelval()
         );
         assert_eq!(
-            exact_integer_sqrt(&[4.into()]),
+            exact_integer_sqrt(&4.into()),
             (2.into_steelval().unwrap(), 0.into_steelval().unwrap()).into_steelval()
         );
         assert_eq!(
-            exact_integer_sqrt(&[5.into()]),
+            exact_integer_sqrt(&5.into()),
             (2.into_steelval().unwrap(), 1.into_steelval().unwrap()).into_steelval()
         );
         assert_eq!(
-            exact_integer_sqrt(&[6.into()]),
+            exact_integer_sqrt(&6.into()),
             (2.into_steelval().unwrap(), 2.into_steelval().unwrap()).into_steelval()
         );
         assert_eq!(
-            exact_integer_sqrt(&[7.into()]),
+            exact_integer_sqrt(&7.into()),
             (2.into_steelval().unwrap(), 3.into_steelval().unwrap()).into_steelval()
         );
     }
