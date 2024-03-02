@@ -842,6 +842,7 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(numbers::DENOMINATOR_DEFINITION)
         .register_native_fn_definition(numbers::EXACTP_DEFINITION)
         .register_native_fn_definition(numbers::EXACT_TO_INEXACT_DEFINITION)
+        .register_native_fn_definition(numbers::EXACT_INTEGER_SQRT_DEFINITION)
         .register_native_fn_definition(numbers::EXPT_DEFINITION)
         .register_native_fn_definition(numbers::EXP_DEFINITION)
         .register_native_fn_definition(numbers::FINITEP_DEFINITION)
