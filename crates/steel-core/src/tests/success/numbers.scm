@@ -267,3 +267,18 @@
                (log 100 10.0))
 (assert-equal! 1.0
                (log (exp 1)))
+
+(assert-equal! '(0 0)
+               (exact-integer-sqrt 0))
+(assert-equal! '(1 0)
+               (exact-integer-sqrt 1))
+(assert-equal! '(1 1)
+               (exact-integer-sqrt 2))
+(assert-equal! '(1 2)
+               (exact-integer-sqrt 3))
+(assert-equal! '(2 0)
+               (exact-integer-sqrt 4))
+(assert-equal! '(2 1)
+               (exact-integer-sqrt 5))
+(assert-equal! '(10000000000000000000000 4)
+               (exact-integer-sqrt 100000000000000000000000000000000000000000004))

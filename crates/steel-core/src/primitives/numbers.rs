@@ -488,7 +488,7 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
     match (first, &base) {
         (SteelVal::IntV(1), _) => Ok(SteelVal::IntV(0)),
         (SteelVal::IntV(_) | SteelVal::NumV(_), SteelVal::IntV(1)) => {
-            stop!(Generic => "log: divide by zero with args: {} and {}", first, base);
+            steelerr!(Generic => "log: divide by zero with args: {} and {}", first, base)
         }
         (SteelVal::IntV(arg), SteelVal::NumV(n)) => Ok(SteelVal::NumV((*arg as f64).log(*n))),
         (SteelVal::IntV(arg), SteelVal::IntV(base)) => Ok(SteelVal::IntV(arg.ilog(*base) as isize)),
@@ -499,6 +499,46 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
             steelerr!(TypeMismatch => "log expects one or two numbers, found: {} and {}", first, base)
         }
     }
+}
+
+/// Returns an integer that is closest (but not greater than) the square root of an integer and the
+/// remainder.
+///
+/// ```scheme
+/// (exact-integer-sqrt x) => '(root rem)
+/// (equal? x (+ (square root) rem)) => true
+/// ```
+#[steel_derive::native(name = "exact-integer-sqrt", arity = "Exact(1)")]
+fn exact_integer_sqrt(args: &[SteelVal]) -> Result<SteelVal> {
+    let number = match args {
+        [number] => number,
+        _ => unreachable!("arity set to Exact(1)"),
+    };
+    match number {
+        SteelVal::IntV(x) if *x >= 0 => {
+            let (ans, rem) = exact_integer_impl(x);
+            (ans.into_steelval()?, rem.into_steelval()?).into_steelval()
+        }
+        SteelVal::BigNum(x) => {
+            let (ans, rem) = exact_integer_impl(x.as_ref());
+            (ans.into_steelval()?, rem.into_steelval()?).into_steelval()
+        }
+        _ => {
+            steelerr!(TypeMismatch => "exact-integer-sqrt expects a non-negative integer but found {number}")
+        }
+    }
+}
+
+fn exact_integer_impl<'a, N>(target: &'a N) -> (N, N)
+where
+    N: num::integer::Roots + Clone,
+    &'a N: std::ops::Mul<&'a N, Output = N>,
+    N: std::ops::Sub<N, Output = N>,
+{
+    let x = target.sqrt();
+    let x_sq = x.clone() * x.clone();
+    let rem = target.clone() - x_sq;
+    (x, rem)
 }
 
 fn ensure_args_are_numbers(op: &str, args: &[SteelVal]) -> Result<()> {
@@ -780,7 +820,7 @@ impl NumOperations {
                         Ok(SteelVal::IntV(n >> -m))
                     }
                 }
-                _ => stop!(TypeMismatch => "arithmetic-shift expected 2 integers"),
+                _ => steelerr!(TypeMismatch => "arithmetic-shift expected 2 integers"),
             }
         })
     }
@@ -796,7 +836,7 @@ impl NumOperations {
                 SteelVal::BigNum(n) => Ok(SteelVal::BoolV(n.is_even())),
                 SteelVal::NumV(n) if n.fract() == 0.0 => (*n as i64).is_even().into_steelval(),
                 _ => {
-                    stop!(TypeMismatch => format!("even? requires an integer, found: {:?}", &args[0]))
+                    steelerr!(TypeMismatch => format!("even? requires an integer, found: {:?}", &args[0]))
                 }
             }
         })
@@ -813,7 +853,7 @@ impl NumOperations {
                 SteelVal::BigNum(n) => Ok(SteelVal::BoolV(n.is_odd())),
                 SteelVal::NumV(n) if n.fract() == 0.0 => (*n as i64).is_odd().into_steelval(),
                 _ => {
-                    stop!(TypeMismatch => format!("odd? requires an integer, found: {:?}", &args[0]))
+                    steelerr!(TypeMismatch => format!("odd? requires an integer, found: {:?}", &args[0]))
                 }
             }
         })
@@ -991,5 +1031,45 @@ mod num_op_tests {
         let got = subtract_primitive(&args).unwrap();
         let expected = IntV(8);
         assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn test_exact_integer_sqrt() {
+        assert_eq!(
+            exact_integer_sqrt(&[0.into()]),
+            (0.into_steelval().unwrap(), 0.into_steelval().unwrap()).into_steelval()
+        );
+        assert_eq!(
+            exact_integer_sqrt(&[1.into()]),
+            (1.into_steelval().unwrap(), 0.into_steelval().unwrap()).into_steelval()
+        );
+        assert_eq!(
+            exact_integer_sqrt(&[2.into()]),
+            (1.into_steelval().unwrap(), 1.into_steelval().unwrap()).into_steelval()
+        );
+        assert_eq!(
+            exact_integer_sqrt(&[2.into()]),
+            (1.into_steelval().unwrap(), 1.into_steelval().unwrap()).into_steelval()
+        );
+        assert_eq!(
+            exact_integer_sqrt(&[3.into()]),
+            (1.into_steelval().unwrap(), 2.into_steelval().unwrap()).into_steelval()
+        );
+        assert_eq!(
+            exact_integer_sqrt(&[4.into()]),
+            (2.into_steelval().unwrap(), 0.into_steelval().unwrap()).into_steelval()
+        );
+        assert_eq!(
+            exact_integer_sqrt(&[5.into()]),
+            (2.into_steelval().unwrap(), 1.into_steelval().unwrap()).into_steelval()
+        );
+        assert_eq!(
+            exact_integer_sqrt(&[6.into()]),
+            (2.into_steelval().unwrap(), 2.into_steelval().unwrap()).into_steelval()
+        );
+        assert_eq!(
+            exact_integer_sqrt(&[7.into()]),
+            (2.into_steelval().unwrap(), 3.into_steelval().unwrap()).into_steelval()
+        );
     }
 }
