@@ -515,7 +515,7 @@ fn exact_integer_sqrt(number: &SteelVal) -> Result<SteelVal> {
             let (ans, rem) = exact_integer_impl(x);
             (ans.into_steelval()?, rem.into_steelval()?).into_steelval()
         }
-        SteelVal::BigNum(x) => {
+        SteelVal::BigNum(x) if !x.is_negative() => {
             let (ans, rem) = exact_integer_impl(x.as_ref());
             (ans.into_steelval()?, rem.into_steelval()?).into_steelval()
         }
@@ -1067,5 +1067,35 @@ mod num_op_tests {
             exact_integer_sqrt(&7.into()),
             (2.into_steelval().unwrap(), 3.into_steelval().unwrap()).into_steelval()
         );
+    }
+
+    #[test]
+    fn test_exact_integer_sqrt_fails_on_negative_or_noninteger() {
+        assert!(exact_integer_sqrt(&(-7).into()).is_err());
+        assert!(exact_integer_sqrt(&(-7).into()).is_err());
+        assert!(exact_integer_sqrt(&Rational32::new(-1, 2).into_steelval().unwrap()).is_err());
+        assert!(exact_integer_sqrt(
+            &BigInt::from_str("-10000000000000000000000000000000000001")
+                .unwrap()
+                .into_steelval()
+                .unwrap()
+        )
+        .is_err());
+        assert!(exact_integer_sqrt(
+            &num::BigRational::new(
+                BigInt::from_str("-10000000000000000000000000000000000001").unwrap(),
+                BigInt::from_str("2").unwrap()
+            )
+            .into_steelval()
+            .unwrap()
+        )
+        .is_err());
+        assert!(exact_integer_sqrt(&(1.0).into()).is_err());
+        assert!(exact_integer_sqrt(
+            &SteelComplex::new(1.into(), 1.into())
+                .into_steelval()
+                .unwrap()
+        )
+        .is_err());
     }
 }
