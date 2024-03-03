@@ -855,10 +855,12 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(numbers::INEXACT_TO_EXACT_DEFINITION)
         .register_native_fn_definition(numbers::INFINITEP_DEFINITION)
         .register_native_fn_definition(numbers::LOG_DEFINITION)
+        .register_native_fn_definition(numbers::MAGNITUDE_DEFINITION)
         .register_native_fn_definition(numbers::NUMERATOR_DEFINITION)
         .register_native_fn_definition(numbers::QUOTIENT_DEFINITION)
         .register_native_fn_definition(numbers::ROUND_DEFINITION)
-        .register_native_fn_definition(numbers::SQUARE_DEFINITION);
+        .register_native_fn_definition(numbers::SQUARE_DEFINITION)
+        .register_native_fn_definition(numbers::SQRT_DEFINITION);
 
     module
 }
