@@ -208,10 +208,18 @@
 
 (assert-equal! 10
                (abs -10))
+(assert-equal! 10
+               (magnitude -10))
 (assert-equal! 10/3
                (abs -10/3))
+(assert-equal! 10/3
+               (magnitude -10/3))
 (assert-equal! 10.0
                (abs -10.0))
+(assert-equal! 10.0
+               (magnitude -10.0))
+(assert-equal! 5
+               (magnitude -3+4i))
 
 (assert-equal! 10.0
                (ceiling 9.1))
@@ -278,10 +286,26 @@
 
 (assert-equal! 4
                (square 2))
+(assert-equal! 2
+               (sqrt 4))
 (assert-equal! 4.0
                (square 2.0))
+(assert-equal! 2.0
+               (sqrt 4.0))
 (assert-equal! 1/4
                (square 1/2))
+(assert-equal! 1/2
+               (sqrt 1/4))
+(assert-equal! -7+24i
+               (square -3-4i))
+(assert-equal! -3-4i
+               (square 1-2i))
+(assert-equal! 1-2i
+               (sqrt -3-4i))
+(assert-equal! -3+4i
+               (square 1+2i))
+(assert-equal! 1+2i
+               (sqrt -3+4i))
 
 (assert-equal! 0
                (log 1 100))

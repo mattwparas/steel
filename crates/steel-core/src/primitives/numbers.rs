@@ -546,12 +546,127 @@ fn round(number: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Squares a number. This is equivalent to `(* x x)`
 #[steel_derive::function(name = "square", constant = true)]
 fn square(number: &SteelVal) -> Result<SteelVal> {
     if !numberp(number) {
         stop!(TypeMismatch => "square expects a number, found: {:?}", number)
     }
     multiply_two(&number, &number)
+}
+
+/// Takes a number and returns the square root. If the number is negative, then a complex number may
+/// be returned.
+///
+/// ```scheme
+/// (sqrt  -1)   => 0+1i
+/// (sqrt   4)   => 2
+/// (sqrt   2)   => 1.414..
+/// (sqrt 4/9)   => 2/3
+/// (sqrt -3-4i) => 1-2i
+/// ```
+#[steel_derive::function(name = "sqrt", constant = true)]
+fn sqrt(number: &SteelVal) -> Result<SteelVal> {
+    match number {
+        SteelVal::NumV(x) => {
+            if x.is_negative() {
+                let imag = x.neg().sqrt();
+                SteelComplex::new(0.0.into_steelval()?, imag.into_steelval()?).into_steelval()
+            } else {
+                x.sqrt().into_steelval()
+            }
+        }
+        SteelVal::IntV(x) => {
+            if x.is_negative() {
+                let sqrt = (*x as f64).abs().sqrt();
+                if sqrt as isize as f64 == sqrt {
+                    SteelComplex::new(0.into_steelval()?, (sqrt as isize).into_steelval()?)
+                        .into_steelval()
+                } else {
+                    SteelComplex::new(0.into_steelval()?, sqrt.into_steelval()?).into_steelval()
+                }
+            } else {
+                let sqrt = (*x as f64).sqrt();
+                if sqrt as isize as f64 == sqrt {
+                    (sqrt as isize).into_steelval()
+                } else {
+                    sqrt.into_steelval()
+                }
+            }
+        }
+        SteelVal::Rational(x) => {
+            let n = x.numer().abs();
+            let d = *x.denom();
+            let n_sqrt = (n as f64).sqrt();
+            let d_sqrt = (d as f64).sqrt();
+            let sqrt = if n_sqrt as i32 as f64 == n_sqrt && d_sqrt as i32 as f64 == d_sqrt {
+                Rational32::new(n_sqrt as i32, d_sqrt as i32).into_steelval()?
+            } else {
+                (n_sqrt / d_sqrt).into_steelval()?
+            };
+            if x.is_negative() {
+                let re = if exactp(&sqrt) {
+                    0.into_steelval()?
+                } else {
+                    0.0.into_steelval()?
+                };
+                SteelComplex::new(re, sqrt).into_steelval()
+            } else {
+                Ok(sqrt)
+            }
+        }
+        SteelVal::BigNum(n) => {
+            let sqrt = n.as_ref().to_f64().unwrap().sqrt();
+            if n.as_ref().is_negative() {
+                SteelComplex::new(0.0.into_steelval()?, sqrt.into_steelval()?).into_steelval()
+            } else {
+                sqrt.into_steelval()
+            }
+        }
+        SteelVal::BigRational(n) => {
+            let sqrt = n.as_ref().to_f64().unwrap().sqrt();
+            if n.as_ref().is_negative() {
+                SteelComplex::new(0.0.into_steelval()?, sqrt.into_steelval()?).into_steelval()
+            } else {
+                sqrt.into_steelval()
+            }
+        }
+        SteelVal::Complex(n) => {
+            let z_mag = magnitude(number)?;
+            let half = Rational32::new(1, 2).into_steelval()?;
+            let re = sqrt(&multiply_two(&add_two(&z_mag, &n.re)?, &half)?)?;
+            let im = sqrt(&multiply_two(&add_two(&z_mag, &negate(&n.re)?)?, &half)?)?;
+            if negativep(&n.im)? == SteelVal::BoolV(true) {
+                SteelComplex::new(re, negate(&im)?).into_steelval()
+            } else {
+                SteelComplex::new(re, im).into_steelval()
+            }
+        }
+        _ => steelerr!(TypeMismatch => "sqrt expected a number"),
+    }
+}
+
+/// Returns the magnitude of the number. For real numbers, this is equvalent to `(abs x)`. For
+/// complex numbers this returns its distance from `(0, 0)` in the complex plane.
+///
+/// ```scheme
+/// (magnitude -1/3) => 1/3
+/// (magnitude 3+4i) => 5
+/// ```
+#[steel_derive::function(name = "magnitude", constant = true)]
+fn magnitude(number: &SteelVal) -> Result<SteelVal> {
+    match number {
+        SteelVal::NumV(x) => x.abs().into_steelval(),
+        SteelVal::IntV(x) => x.abs().into_steelval(),
+        SteelVal::Rational(x) => x.abs().into_steelval(),
+        SteelVal::BigNum(x) => x.as_ref().abs().into_steelval(),
+        SteelVal::BigRational(x) => x.as_ref().abs().into_steelval(),
+        SteelVal::Complex(x) => {
+            let c_squared = add_two(&square(&x.re)?, &square(&x.im)?)?;
+            sqrt(&c_squared)
+        }
+        _ => steelerr!(TypeMismatch => "magnitude expects a number, found {number}"),
+    }
 }
 
 #[steel_derive::native(name = "log", arity = "AtLeast(1)")]
@@ -1177,5 +1292,32 @@ mod num_op_tests {
                 .unwrap()
         )
         .is_err());
+    }
+
+    #[test]
+    fn test_sqrt() {
+        assert_eq!(sqrt(&4isize.into()).unwrap(), 2isize.into());
+        assert_eq!(
+            sqrt(
+                &SteelComplex::new(0.into(), 2.into())
+                    .into_steelval()
+                    .unwrap()
+            )
+            .unwrap(),
+            SteelComplex::new(1.into(), 1.into())
+                .into_steelval()
+                .unwrap()
+        );
+        assert_eq!(
+            sqrt(
+                &SteelComplex::new((-3).into(), (-4).into())
+                    .into_steelval()
+                    .unwrap()
+            )
+            .unwrap(),
+            SteelComplex::new(1.into(), (-2).into())
+                .into_steelval()
+                .unwrap()
+        );
     }
 }
