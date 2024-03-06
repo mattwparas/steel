@@ -1316,6 +1316,16 @@ pub fn set_box_mutable(value: &HeapRef<SteelVal>, update: SteelVal) -> SteelVal 
     value.set_and_return(update)
 }
 
+#[steel_derive::function(name = "unbox")]
+pub fn plain_unbox_mutable(value: &HeapRef<SteelVal>) -> SteelVal {
+    value.get()
+}
+
+#[steel_derive::function(name = "set-box!")]
+pub fn plain_set_box_mutable(value: &HeapRef<SteelVal>, update: SteelVal) -> SteelVal {
+    value.set_and_return(update)
+}
+
 // TODO: Handle arity issues!!!
 fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let allocated_var = ctx.thread.heap.allocate(
@@ -1439,21 +1449,15 @@ fn meta_module() -> BuiltInModule {
             "#%struct-update",
             SteelVal::MutFunc(struct_update_primitive),
         )
-        // .register_fn("struct-properties", UserDefinedStruct::properties)
-        // .register_value(
-        //     "box",
-        //     SteelVal::BuiltIn(crate::primitives::meta_ops::steel_box),
-        // )
-        // .register_fn("unbox", HeapRef::get)
-        // .register_fn("set-box!", HeapRef::set_interior_mut)
-        .register_fn("box", SteelVal::boxed)
+        .register_fn("box-strong", SteelVal::boxed)
         .register_native_fn_definition(UNBOX_DEFINITION)
         .register_native_fn_definition(SET_BOX_DEFINITION)
         .register_value("#%box", SteelVal::BuiltIn(make_mutable_box))
-        // TODO: Deprecate these at some point
+        .register_value("box", SteelVal::BuiltIn(make_mutable_box))
         .register_native_fn_definition(SET_BOX_MUTABLE_DEFINITION)
         .register_native_fn_definition(UNBOX_MUTABLE_DEFINITION)
-        // .register_fn("unbox", |value: SteelVal| )
+        .register_native_fn_definition(PLAIN_UNBOX_MUTABLE_DEFINITION)
+        .register_native_fn_definition(PLAIN_SET_BOX_MUTABLE_DEFINITION)
         .register_value(
             "attach-contract-struct!",
             SteelVal::FuncV(attach_contract_struct),

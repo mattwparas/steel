@@ -845,7 +845,6 @@ pub enum SerializableSteelVal {
     CustomStruct(SerializableUserDefinedStruct),
     // Attempt to reuse the storage if possible
     HeapAllocated(usize),
-
     Port(SendablePort),
 }
 

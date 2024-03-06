@@ -112,6 +112,7 @@ pub struct ByteCodeLambda {
 
     pub(crate) is_multi_arity: bool,
     pub(crate) captures: Vec<SteelVal>,
+    // TODO: Delete this
     pub(crate) heap_allocated: RefCell<Vec<HeapRef<SteelVal>>>,
     // pub(crate) spans: Rc<[Span]>,
     #[cfg(feature = "dynamic")]
