@@ -6,7 +6,7 @@ use std::{cell::RefCell, rc::Rc, sync::mpsc::channel};
 use rustyline::error::ReadlineError;
 
 use rustyline::validate::MatchingBracketValidator;
-use rustyline::Editor;
+use rustyline::{config::Configurer, Editor};
 
 use std::path::{Path, PathBuf};
 use steel::{rvals::SteelVal, steel_vm::register_fn::RegisterFn};
@@ -103,6 +103,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     let mut prompt = format!("{}", "λ > ".bright_green().bold().italic());
 
     let mut rl = Editor::<RustylineHelper>::new().expect("Unable to instantiate the repl!");
+    rl.set_check_cursor_position(true);
 
     let current_dir = std::env::current_dir()?;
 
