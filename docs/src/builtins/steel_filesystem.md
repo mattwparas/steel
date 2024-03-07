@@ -13,6 +13,8 @@ Check the current working directory
 Deletes the directory
 ### **file-name**
 Gets the filename for a given path
+### **canonicalize-path**
+Returns canonical path with all components normalized
 ### **is-dir?**
 Checks if a path is a directory
 ### **is-file?**
