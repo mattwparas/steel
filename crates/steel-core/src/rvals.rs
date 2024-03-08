@@ -185,7 +185,6 @@ pub trait CustomType {
     fn drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
 
     fn visit_children(&self, _context: &mut MarkAndSweepContext) {}
-
     fn visit_children_for_equality(&self, _visitor: &mut cycles::EqualityVisitor) {}
 
     fn check_equality_hint(&self, _other: &dyn CustomType) -> bool {
