@@ -34,6 +34,12 @@ pub struct FreeList {
     // to fill in from. We don't have to slot at the back, we can
     // slot in over the things that have filled up otherwise.
     pub(crate) free_list: Vec<usize>,
+
+    pub(crate) threshold: usize,
+
+    pub(crate) multiplier: usize,
+
+    pub(crate) epoch: usize,
 }
 
 impl FreeList {
@@ -47,6 +53,20 @@ impl FreeList {
 
     pub fn shadowed_count(&self) -> usize {
         self.shadowed_slots.len()
+    }
+
+    pub fn should_collect(&self) -> bool {
+        self.shadowed_count() > self.threshold
+    }
+
+    pub fn increment_generation(&mut self) {
+        if self.epoch == 4 {
+            self.threshold = 100;
+            self.epoch = 1;
+        } else {
+            self.threshold *= self.multiplier;
+            self.epoch += 1;
+        }
     }
 }
 
@@ -72,7 +92,12 @@ impl SymbolMap {
         SymbolMap {
             values: Vec::new(),
             map: HashMap::new(),
-            free_list: FreeList::default(),
+            free_list: FreeList {
+                threshold: 100,
+                multiplier: 2,
+                epoch: 1,
+                ..Default::default()
+            },
         }
     }
 

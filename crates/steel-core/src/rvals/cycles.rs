@@ -1548,8 +1548,6 @@ impl<'a> RecursiveEqualityHandler<'a> {
 
                 (SteelVal::HashMapV(l), SteelVal::HashMapV(r)) => {
                     if Gc::ptr_eq(&l.0, &r.0) {
-                        println!("Found ptr equality");
-
                         continue;
                     }
 
