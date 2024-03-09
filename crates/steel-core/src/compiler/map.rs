@@ -2,7 +2,6 @@ use crate::throw;
 use crate::{parser::interner::InternedString, rvals::Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 /// At the REPL or within an application, a script might be repeatedly
 /// loaded. In this situation, the behavior that Steel picks is that
