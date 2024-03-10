@@ -43,6 +43,34 @@
 (assert! (not (real? +2.0i)))
 (assert! (not (real? 1.0+2i)))
 
+;; Other predicates
+(assert! (zero? 0.0))
+(assert! (zero? 0))
+(assert! (zero? 0+0i))
+(assert! (not (zero? 0.001)))
+(assert! (not (zero? -0.001)))
+(assert! (not (zero? 1)))
+(assert! (not (zero? -1)))
+(assert! (not (negative? 0)))
+(assert! (negative? -1))
+(assert! (negative? -1/2))
+(assert! (negative? -0.5))
+(assert! (not (negative? 1)))
+(assert! (not (negative? 1/2)))
+(assert! (not (negative? 0.5)))
+(assert! (not (positive? 0)))
+(assert! (positive? 1))
+(assert! (positive? 1/2))
+(assert! (positive? 0.5))
+(assert! (not (positive? -1)))
+(assert! (not (positive? -1/2)))
+(assert! (not (positive? -0.5)))
+(assert! (nan? +nan.0))
+(assert! (not (nan? 1.0)))
+(assert! (not (nan? -1.0)))
+(assert! (not (nan? 1)))
+(assert! (not (nan? -1)))
+
 ;; Addition
 (assert-equal! 10
 	       (+ 1 2 3 4))
@@ -180,10 +208,18 @@
 
 (assert-equal! 10
                (abs -10))
+(assert-equal! 10
+               (magnitude -10))
 (assert-equal! 10/3
                (abs -10/3))
+(assert-equal! 10/3
+               (magnitude -10/3))
 (assert-equal! 10.0
                (abs -10.0))
+(assert-equal! 10.0
+               (magnitude -10.0))
+(assert-equal! 5
+               (magnitude -3+4i))
 
 (assert-equal! 10.0
                (ceiling 9.1))
@@ -250,10 +286,26 @@
 
 (assert-equal! 4
                (square 2))
+(assert-equal! 2
+               (sqrt 4))
 (assert-equal! 4.0
                (square 2.0))
+(assert-equal! 2.0
+               (sqrt 4.0))
 (assert-equal! 1/4
                (square 1/2))
+(assert-equal! 1/2
+               (sqrt 1/4))
+(assert-equal! -7+24i
+               (square -3-4i))
+(assert-equal! -3-4i
+               (square 1-2i))
+(assert-equal! 1-2i
+               (sqrt -3-4i))
+(assert-equal! -3+4i
+               (square 1+2i))
+(assert-equal! 1+2i
+               (sqrt -3+4i))
 
 (assert-equal! 0
                (log 1 100))
@@ -267,3 +319,18 @@
                (log 100 10.0))
 (assert-equal! 1.0
                (log (exp 1)))
+
+(assert-equal! '(0 0)
+               (exact-integer-sqrt 0))
+(assert-equal! '(1 0)
+               (exact-integer-sqrt 1))
+(assert-equal! '(1 1)
+               (exact-integer-sqrt 2))
+(assert-equal! '(1 2)
+               (exact-integer-sqrt 3))
+(assert-equal! '(2 0)
+               (exact-integer-sqrt 4))
+(assert-equal! '(2 1)
+               (exact-integer-sqrt 5))
+(assert-equal! '(10000000000000000000000 4)
+               (exact-integer-sqrt 100000000000000000000000000000000000000000004))

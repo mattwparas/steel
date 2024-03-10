@@ -842,10 +842,15 @@ fn number_module() -> BuiltInModule {
         .register_value("odd?", NumOperations::odd())
         .register_value("arithmetic-shift", NumOperations::arithmetic_shift())
         .register_native_fn_definition(numbers::ABS_DEFINITION)
+        .register_native_fn_definition(numbers::NANP_DEFINITION)
+        .register_native_fn_definition(numbers::ZEROP_DEFINITION)
+        .register_native_fn_definition(numbers::POSITIVEP_DEFINITION)
+        .register_native_fn_definition(numbers::NEGATIVEP_DEFINITION)
         .register_native_fn_definition(numbers::CEILING_DEFINITION)
         .register_native_fn_definition(numbers::DENOMINATOR_DEFINITION)
         .register_native_fn_definition(numbers::EXACTP_DEFINITION)
         .register_native_fn_definition(numbers::EXACT_TO_INEXACT_DEFINITION)
+        .register_native_fn_definition(numbers::EXACT_INTEGER_SQRT_DEFINITION)
         .register_native_fn_definition(numbers::EXPT_DEFINITION)
         .register_native_fn_definition(numbers::EXP_DEFINITION)
         .register_native_fn_definition(numbers::FINITEP_DEFINITION)
@@ -854,10 +859,12 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(numbers::INEXACT_TO_EXACT_DEFINITION)
         .register_native_fn_definition(numbers::INFINITEP_DEFINITION)
         .register_native_fn_definition(numbers::LOG_DEFINITION)
+        .register_native_fn_definition(numbers::MAGNITUDE_DEFINITION)
         .register_native_fn_definition(numbers::NUMERATOR_DEFINITION)
         .register_native_fn_definition(numbers::QUOTIENT_DEFINITION)
         .register_native_fn_definition(numbers::ROUND_DEFINITION)
-        .register_native_fn_definition(numbers::SQUARE_DEFINITION);
+        .register_native_fn_definition(numbers::SQUARE_DEFINITION)
+        .register_native_fn_definition(numbers::SQRT_DEFINITION);
 
     module
 }

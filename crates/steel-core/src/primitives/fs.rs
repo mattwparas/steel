@@ -1,6 +1,7 @@
 use crate::rvals::{Custom, Result, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
-use crate::stop;
+use crate::{steelerr, stop, throw};
+use dirs;
 use std::env::current_dir;
 use std::path::{Path, PathBuf};
 
@@ -51,6 +52,7 @@ pub fn fs_module() -> BuiltInModule {
         .register_native_fn_definition(READ_DIR_DEFINITION)
         .register_native_fn_definition(PATH_EXISTS_DEFINITION)
         .register_native_fn_definition(FILE_NAME_DEFINITION)
+        .register_native_fn_definition(CANONICALIZE_PATH_DEFINITION)
         .register_native_fn_definition(CURRENT_DIRECTORY_DEFINITION)
         .register_native_fn_definition(GET_EXTENSION_DEFINITION);
     module
@@ -118,6 +120,32 @@ pub fn file_name(path: &SteelString) -> Result<SteelVal> {
             .file_name()
             .and_then(|x| x.to_str())
             .unwrap_or("")
+            .into(),
+    ))
+}
+
+/// Returns canonical path with all components normalized
+#[steel_derive::function(name = "canonicalize-path")]
+pub fn canonicalize_path(path: &SteelString) -> Result<SteelVal> {
+    let path = path.as_str();
+    let canonicalized = if path.len() > 0 && path.starts_with('~') {
+        if path.len() > 1 && !path.starts_with("~/") {
+            steelerr!(Generic => "references to other users home directories are not supported")?
+        } else {
+            let mut expanded = dirs::home_dir()
+                .ok_or_else(throw!(Generic => "could not determine user home directory"))?;
+            if path.len() > 2 {
+                expanded.push(&path[2..]);
+            }
+            fs::canonicalize(expanded)?
+        }
+    } else {
+        fs::canonicalize(path)?
+    };
+    Ok(SteelVal::StringV(
+        canonicalized
+            .to_str()
+            .ok_or_else(throw!(Generic => "path contains non-unicode characters"))?
             .into(),
     ))
 }
