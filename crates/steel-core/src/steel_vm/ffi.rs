@@ -60,29 +60,18 @@ impl FFIModule {
     }
 }
 
-// TODO: Wrap FFI Objects with this trait, have the object we pass around just be a normal one?
-// Making sure that we are not referencing static things (or memory accessed in the other one?)
-
 #[repr(C)]
 #[derive(Clone)]
 pub struct OpaqueFFIValue {
     pub name: RString,
+    // TODO: If instead we actually just have a separate FFI safe implementation
+    // of this, it should actually be just fine.
     pub inner: Gc<RefCell<Box<dyn CustomType>>>,
 }
 
-// #[repr(C)]
-// pub struct SendOpaqueFFIValue {
-//     pub name: RString,
-//     pub inner: RefCell<Box<dyn CustomType + Send>>,
-// }
-
-// impl Custom for SendOpaqueFFIValue {}
-
 impl Custom for OpaqueFFIValue {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
-        // TODO: This might... be a problem?
         Some(Ok(format!("#<OpaqueFFIValue>")))
-        // , self.inner.borrow().name())))
     }
 
     // TODO: This is most likely, not correct. We're blindly taking the struct and now making
