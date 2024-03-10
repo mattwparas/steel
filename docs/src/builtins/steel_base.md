@@ -916,6 +916,7 @@ of the string
 ### **list->string**
 ### **list-tail**
 ### **list?**
+### **local-executor/block-on**
 ### **local-time/now!**
 ### **log**
 ### **make-bytes**

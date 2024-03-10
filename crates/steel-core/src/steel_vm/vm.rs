@@ -218,34 +218,6 @@ impl StackFrame {
         self
     }
 
-    // fn new_rooted(
-    //     stack_index: usize,
-    //     #[cfg(feature = "unsafe-internals")] function: crate::gc::unsafe_roots::MaybeRooted<
-    //         ByteCodeLambda,
-    //     >,
-    //     #[cfg(not(feature = "unsafe-internals"))] function: Gc<ByteCodeLambda>,
-    //     ip: usize,
-    //     instructions: Rc<[DenseInstruction]>,
-    //     // span_id: usize,
-    //     // spans: Rc<[Span]>,
-    // ) -> Self {
-    //     Self {
-    //         sp: stack_index,
-    //         #[cfg(feature = "unsafe-internals")]
-    //         function,
-    //         #[cfg(not(feature = "unsafe-internals"))]
-    //         function,
-    //         ip,
-    //         instructions,
-    //         // span: None,
-    //         handler: None,
-
-    //         weak_continuation_mark: None,
-    //         // spans,
-    //         // span_id,
-    //     }
-    // }
-
     pub fn main() -> Self {
         let function = Gc::new(ByteCodeLambda::main(Vec::new()));
         StackFrame::new(0, function, 0, Rc::from([]))
@@ -300,7 +272,7 @@ pub struct SteelThread {
     pub(crate) global_env: Env,
     pub(crate) stack: Vec<SteelVal>,
     profiler: OpCodeOccurenceProfiler,
-    function_interner: FunctionInterner,
+    pub(crate) function_interner: FunctionInterner,
     // _super_instructions: Vec<Rc<DynamicBlock>>,
     pub(crate) heap: Heap,
     // If contracts are set to off - contract construction results in a no-op,
@@ -338,7 +310,7 @@ struct SpanId(usize);
 #[derive(Default, Clone)]
 pub struct FunctionInterner {
     closure_interner: fxhash::FxHashMap<usize, ByteCodeLambda>,
-    pure_function_interner: fxhash::FxHashMap<usize, Gc<ByteCodeLambda>>,
+    pub(crate) pure_function_interner: fxhash::FxHashMap<usize, Gc<ByteCodeLambda>>,
     // Functions will store a reference to a slot here, rather than any other way
     // getting the span can be super late bound then, and we don't need to worry about
     // cache misses nearly as much
@@ -2157,31 +2129,31 @@ impl<'a> VmCore<'a> {
                     self.thread.stack.push(SteelVal::INT_TWO);
                     self.ip += 1;
                 }
-                DenseInstruction {
-                    op_code: OpCode::CGLOCALCONST,
-                    payload_size,
-                    ..
-                } => {
-                    let read_local = &self.instructions[self.ip + 1];
-                    let push_const = &self.instructions[self.ip + 2];
+                // DenseInstruction {
+                //     op_code: OpCode::CGLOCALCONST,
+                //     payload_size,
+                //     ..
+                // } => {
+                //     let read_local = &self.instructions[self.ip + 1];
+                //     let push_const = &self.instructions[self.ip + 2];
 
-                    // Snag the function
-                    let func = self
-                        .thread
-                        .global_env
-                        .repl_lookup_idx(payload_size as usize);
+                //     // Snag the function
+                //     let func = self
+                //         .thread
+                //         .global_env
+                //         .repl_lookup_idx(payload_size as usize);
 
-                    // get the local
-                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
-                    let offset = self.get_offset();
-                    let local_value =
-                        self.thread.stack[read_local.payload_size as usize + offset].clone();
+                //     // get the local
+                //     // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                //     let offset = self.get_offset();
+                //     let local_value =
+                //         self.thread.stack[read_local.payload_size as usize + offset].clone();
 
-                    // get the const
-                    let const_val = self.constants.get(push_const.payload_size as usize);
+                //     // get the const
+                //     let const_val = self.constants.get(push_const.payload_size as usize);
 
-                    self.handle_lazy_function_call(func, local_value, const_val)?;
-                }
+                //     self.handle_lazy_function_call(func, local_value, const_val)?;
+                // }
                 DenseInstruction {
                     op_code: OpCode::CALLGLOBAL,
                     payload_size,

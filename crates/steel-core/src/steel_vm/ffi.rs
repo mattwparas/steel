@@ -60,27 +60,18 @@ impl FFIModule {
     }
 }
 
-// TODO: Wrap FFI Objects with this trait, have the object we pass around just be a normal one?
-// Making sure that we are not referencing static things (or memory accessed in the other one?)
-
 #[repr(C)]
 #[derive(Clone)]
 pub struct OpaqueFFIValue {
     pub name: RString,
+    // TODO: If instead we actually just have a separate FFI safe implementation
+    // of this, it should actually be just fine.
     pub inner: Gc<RefCell<Box<dyn CustomType>>>,
 }
 
-// #[repr(C)]
-// pub struct SendOpaqueFFIValue {
-//     pub name: RString,
-//     pub inner: RefCell<Box<dyn CustomType + Send>>,
-// }
-
-// impl Custom for SendOpaqueFFIValue {}
-
 impl Custom for OpaqueFFIValue {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
-        Some(Ok(format!("#<{}>", self.name)))
+        Some(Ok(format!("#<OpaqueFFIValue>")))
     }
 
     // TODO: This is most likely, not correct. We're blindly taking the struct and now making
@@ -739,17 +730,6 @@ impl<'a> PartialEq for FFIArg<'a> {
 
 impl<'a> Eq for FFIArg<'a> {}
 
-// See this example:
-// fn test(arg: &SteelVal) -> FFIValue {
-//     if let SteelVal::StringV(string) = arg {
-//         let ffi_arg = FFIArg::StringRef(RStr::from_str(string.as_ref()));
-
-//         todo!()
-//     }
-
-//     FFIValue::Void
-// }
-
 /// Values that are safe to cross the FFI Boundary.
 #[repr(C)]
 #[derive(StableAbi)]
@@ -874,6 +854,7 @@ impl FFIValue {
                 .map(Gc::new)
                 .map(SteelHashMap::from)
                 .map(SteelVal::HashMapV),
+
             // FFIValue::Future { fut } => Ok(SteelVal::FutureV(Gc::new(Sharedfut.map(|x| {
             //     match x {
             //         RResult::ROk(v) => {

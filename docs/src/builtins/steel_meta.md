@@ -43,6 +43,7 @@
 ### **inspect-bytecode**
 ### **iter-next!**
 ### **join!**
+### **local-executor/block-on**
 ### **make-struct-type**
 ### **maybe-get-env-var**
 ### **memory-address**

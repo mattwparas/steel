@@ -109,6 +109,25 @@ impl<'a> Lexer<'a> {
                         buf.push('\0');
                     }
 
+                    Some('x') => {
+                        self.eat();
+
+                        let digit1 = self.eat().ok_or_else(|| TokenError::MalformedByteEscape)?;
+                        let digit2 = self.eat().ok_or_else(|| TokenError::MalformedByteEscape)?;
+
+                        let mut chars = String::new();
+                        chars.push(digit1);
+                        chars.push(digit2);
+
+                        let byte = u8::from_str_radix(&chars, 16)
+                            .map_err(|_| TokenError::MalformedByteEscape)?;
+
+                        let char = char::from_u32(byte as u32)
+                            .ok_or_else(|| TokenError::MalformedByteEscape)?;
+
+                        buf.push(char);
+                    }
+
                     _ => return Err(TokenError::InvalidEscape),
                 },
                 _ => buf.push(c),
@@ -392,6 +411,7 @@ pub enum TokenError {
     MalformedHexInteger,
     MalformedOctalInteger,
     MalformedBinaryInteger,
+    MalformedByteEscape,
 }
 
 impl<'a> Iterator for Lexer<'a> {
