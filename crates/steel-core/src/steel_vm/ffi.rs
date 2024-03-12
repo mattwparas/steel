@@ -1,16 +1,16 @@
 use std::{
     borrow::Cow,
-    cell::{Ref, RefCell, RefMut},
+    cell::RefCell,
     marker::PhantomData,
     rc::Rc,
     sync::{Arc, Mutex},
 };
 
 use crate::{
-    gc::{unsafe_erased_pointers::OpaqueReference, Gc},
+    gc::Gc,
     rerrs::ErrorKind,
     rvals::{
-        as_underlying_type, Custom, CustomType, FutureResult, IntoSteelVal, Result, SRef,
+        as_underlying_type, as_underlying_type_mut, Custom, FutureResult, IntoSteelVal, Result,
         SteelHashMap, SteelVal,
     },
     values::functions::{BoxedDynFunction, StaticOrRcStr},
@@ -18,8 +18,11 @@ use crate::{
 };
 
 use abi_stable::{
-    std_types::{RBoxError, RCowStr, RHashMap, RResult, RSlice, RStr, RString, RVec, Tuple2},
-    StableAbi,
+    sabi_trait::TD_CanDowncast,
+    std_types::{
+        RArc, RBoxError, RCowStr, RHashMap, RResult, RSlice, RSliceMut, RStr, RString, RVec, Tuple2,
+    },
+    RMut, StableAbi,
 };
 use futures_util::FutureExt;
 
@@ -60,41 +63,83 @@ impl FFIModule {
     }
 }
 
-#[repr(C)]
-#[derive(Clone)]
-pub struct OpaqueFFIValue {
-    pub name: RString,
-    // TODO: If instead we actually just have a separate FFI safe implementation
-    // of this, it should actually be just fine.
-    pub inner: Gc<RefCell<Box<dyn CustomType>>>,
+#[abi_stable::sabi_trait]
+pub trait RFn<'a, In, Out>: Sync + Send {
+    fn call(&self, input: In) -> Out;
+}
+impl<'a, In: StableAbi, Out: StableAbi, F: Fn(In) -> Out + Send + Sync> RFn<'a, In, Out> for F {
+    fn call(&self, input: In) -> Out {
+        (self)(input)
+    }
 }
 
-impl Custom for OpaqueFFIValue {
+#[abi_stable::sabi_trait]
+pub trait OpaqueObject {}
+
+// Blanket implement this for all things that implement Custom!
+impl<T: Custom> OpaqueObject for T {}
+
+// #[repr(C)]
+// #[derive(Clone)]
+// pub struct OpaqueFFIValue {
+//     // pub name: RString,
+//     // TODO: If instead we actually just have a separate FFI safe implementation
+//     // of this, it should actually be just fine.
+//     pub inner: Gc<RefCell<Box<dyn CustomType>>>,
+// }
+
+// TODO: Swap this implementation with the above.
+#[repr(C)]
+// #[derive(Clone)]
+#[derive(StableAbi)]
+pub struct OpaqueFFIValueReturn {
+    pub inner: OpaqueObject_TO<'static, RBox<()>>,
+}
+
+#[repr(C)]
+#[derive(Clone)]
+pub struct NativeOpaqueFFIValue {
+    pub inner: Rc<RefCell<OpaqueFFIValueReturn>>,
+}
+
+impl Custom for NativeOpaqueFFIValue {}
+
+// impl Clone for OpaqueFFIValue {
+//     fn clone(&self) -> Self {
+//         Self {
+//             inner: OpaqueObject_TO::from_sabi(self.inner.obj.shallow_clone()),
+//         }
+
+//         // todo!()
+//     }
+// }
+
+impl Custom for OpaqueFFIValueReturn {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
         Some(Ok(format!("#<OpaqueFFIValue>")))
     }
 
     // TODO: This is most likely, not correct. We're blindly taking the struct and now making
     // it thread safe.
-    fn into_serializable_steelval(&mut self) -> Option<crate::rvals::SerializableSteelVal> {
-        self.inner.borrow_mut().as_serializable_steelval()
-    }
+    // fn into_serializable_steelval(&mut self) -> Option<crate::rvals::SerializableSteelVal> {
+    // self.inner.borrow_mut().as_serializable_steelval()
+    // }
 }
 
 // Unfortunately we'll have to wrap the incoming reference in multiple layers of indirection
-#[repr(C)]
-#[derive(Clone)]
-pub struct OpaqueFFIReference {
-    pub name: RString,
-    pub inner: OpaqueReference<'static>,
-}
+// #[repr(C)]
+// #[derive(Clone)]
+// pub struct OpaqueFFIReference {
+//     pub name: RString,
+//     pub inner: OpaqueReference<'static>,
+// }
 
-// Probably need to merge these together?
-impl Custom for OpaqueFFIReference {
-    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
-        Some(Ok(format!("#<{}>", self.name)))
-    }
-}
+// // Probably need to merge these together?
+// impl Custom for OpaqueFFIReference {
+//     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+//         Some(Ok(format!("#<{}>", self.name)))
+//     }
+// }
 
 use crate::steel_vm::register_fn::SendSyncStatic;
 
@@ -104,6 +149,10 @@ pub trait RegisterFFIFn<FN, ARGS, RET> {
 
 pub trait IntoFFIVal: Sized {
     fn into_ffi_val(self) -> RResult<FFIValue, RBoxError>;
+}
+
+pub trait IntoFFIArg: Sized {
+    fn into_ffi_arg(&self) -> RResult<FFIArg, RBoxError>;
 }
 
 // Probably can do a blanket impl here?
@@ -316,26 +365,23 @@ impl FromFFIVal for FFIValue {
 }
 
 // TODO: I think we can get rid of the unnecessary cloning... maybe?
-impl<T: Custom + Clone + 'static> FromFFIVal for T {
-    fn from_ffi_val(val: FFIValue) -> RResult<Self, RBoxError> {
-        if let FFIValue::Custom { custom } = &val {
-            if let Some(underlying) = as_underlying_type::<T>(custom.inner.borrow().as_ref()) {
-                return RResult::ROk(underlying.clone());
-            }
-        }
-        conversion_error!(Opaque, val)
-    }
-}
+// impl<T: Custom + Clone + 'static> FromFFIVal for T {
+//     fn from_ffi_val(val: FFIValue) -> RResult<Self, RBoxError> {
+//         if let FFIValue::Custom { custom } = &val {
+//             if let Some(underlying) = as_underlying_type::<T>(custom.inner.borrow().as_ref()) {
+//                 return RResult::ROk(underlying.clone());
+//             }
+//         }
+//         conversion_error!(Opaque, val)
+//     }
+// }
 
 // Convert this directly to the type we want on the way out
-impl<T: CustomType + 'static> From<T> for FFIValue {
+impl<T: OpaqueObject + 'static> From<T> for FFIValue {
     fn from(value: T) -> Self {
-        let name = RString::from(value.name());
-
         FFIValue::Custom {
-            custom: OpaqueFFIValue {
-                name,
-                inner: Gc::new(RefCell::new(Box::new(value))),
+            custom: OpaqueFFIValueReturn {
+                inner: OpaqueObject_TO::from_value(value, TD_CanDowncast),
             },
         }
     }
@@ -346,44 +392,114 @@ pub struct WrapperRef<ARGS>(PhantomData<ARGS>);
 pub struct WrapperMut<ARGS>(PhantomData<ARGS>);
 pub struct WrapperMutRef<ARGS>(PhantomData<ARGS>);
 
+// pub trait AsRefFFIVal: Sized {
+//     type Nursery: Default;
+
+//     fn as_ref<'b, 'a: 'b>(
+//         val: &'a FFIValue,
+//         _nursery: &'a mut Self::Nursery,
+//     ) -> RResult<SRef<'b, Self>, RBoxError>;
+
+//     fn as_mut_ref<'b, 'a: 'b>(val: &'a FFIValue) -> RResult<RefMut<'b, Self>, RBoxError>;
+// }
+
 pub trait AsRefFFIVal: Sized {
     type Nursery: Default;
 
     fn as_ref<'b, 'a: 'b>(
         val: &'a FFIValue,
         _nursery: &'a mut Self::Nursery,
-    ) -> RResult<SRef<'b, Self>, RBoxError>;
+    ) -> RResult<&'b Self, RBoxError>;
 
-    fn as_mut_ref<'b, 'a: 'b>(val: &'a FFIValue) -> RResult<RefMut<'b, Self>, RBoxError>;
+    fn as_mut_ref<'b, 'a: 'b>(val: &'a mut FFIValue) -> RResult<&'b mut Self, RBoxError>;
 }
 
-impl<T: CustomType + 'static> AsRefFFIVal for T {
+// impl<T: CustomType + 'static> AsRefFFIVal for T {
+//     type Nursery = ();
+
+//     fn as_ref<'b, 'a: 'b>(
+//         val: &'a FFIValue,
+//         _nursery: &'a mut Self::Nursery,
+//     ) -> RResult<SRef<'b, Self>, RBoxError> {
+//         if let FFIValue::Custom { custom } = val {
+//             let res = Ref::map(custom.inner.borrow(), |x| x.as_any_ref());
+
+//             if res.is::<T>() {
+//                 return RResult::ROk(SRef::Owned(Ref::map(res, |x| {
+//                     x.downcast_ref::<T>().unwrap()
+//                 })));
+//             }
+//         }
+
+//         return conversion_error!(OpaqueFFIValue, val);
+//     }
+
+//     fn as_mut_ref<'b, 'a: 'b>(val: &'a FFIValue) -> RResult<RefMut<'b, Self>, RBoxError> {
+//         if let FFIValue::Custom { custom } = val {
+//             let res = RefMut::map(custom.inner.borrow_mut(), |x| x.as_any_ref_mut());
+
+//             if res.is::<T>() {
+//                 return RResult::ROk(RefMut::map(res, |x| x.downcast_mut::<T>().unwrap()));
+//             }
+//         }
+
+//         return conversion_error!(OpaqueFFIValue, val);
+//     }
+// }
+
+impl<T: OpaqueObject + 'static> AsRefFFIVal for T {
     type Nursery = ();
 
     fn as_ref<'b, 'a: 'b>(
         val: &'a FFIValue,
         _nursery: &'a mut Self::Nursery,
-    ) -> RResult<SRef<'b, Self>, RBoxError> {
+    ) -> RResult<&'b Self, RBoxError> {
         if let FFIValue::Custom { custom } = val {
-            let res = Ref::map(custom.inner.borrow(), |x| x.as_any_ref());
+            // let res = Ref::map(custom.inner.borrow(), |x| x.as_any_ref());
 
-            if res.is::<T>() {
-                return RResult::ROk(SRef::Owned(Ref::map(res, |x| {
-                    x.downcast_ref::<T>().unwrap()
-                })));
+            // if res.is::<T>() {
+            //     return RResult::ROk(SRef::Owned(Ref::map(res, |x| {
+            //         x.downcast_ref::<T>().unwrap()
+            //     })));
+            // }
+
+            let downcast = custom.inner.obj.downcast_as::<T>();
+
+            match downcast {
+                Ok(v) => return RResult::ROk(v),
+                Err(_) => return conversion_error!(OpaqueFFIValue, val),
             }
+
+            // return custom.inner.obj.downcast_as::<T>();
         }
 
         return conversion_error!(OpaqueFFIValue, val);
     }
 
-    fn as_mut_ref<'b, 'a: 'b>(val: &'a FFIValue) -> RResult<RefMut<'b, Self>, RBoxError> {
+    fn as_mut_ref<'b, 'a: 'b>(val: &'a mut FFIValue) -> RResult<&'b mut Self, RBoxError> {
         if let FFIValue::Custom { custom } = val {
-            let res = RefMut::map(custom.inner.borrow_mut(), |x| x.as_any_ref_mut());
+            // let res = RefMut::map(custom.inner.borrow_mut(), |x| x.as_any_ref_mut());
 
-            if res.is::<T>() {
-                return RResult::ROk(RefMut::map(res, |x| x.downcast_mut::<T>().unwrap()));
+            // if res.is::<T>() {
+            //     return RResult::ROk(RefMut::map(res, |x| x.downcast_mut::<T>().unwrap()));
+            // }
+
+            // todo!()
+
+            // RArc::get_mut()
+
+            let downcast = custom.inner.obj.downcast_as_mut::<T>();
+
+            match downcast {
+                Ok(v) => return RResult::ROk(v),
+                Err(e) => {
+                    return RResult::RErr(ffi_error(
+                        format!("Value unable to be converted to Opaque: {:?}", e).into(),
+                    ));
+                }
             }
+
+            // todo!()
         }
 
         return conversion_error!(OpaqueFFIValue, val);
@@ -444,7 +560,7 @@ impl<RET: IntoFFIVal, SELF: AsRefFFIVal, FN: Fn(&SELF) -> RET + SendSyncStatic>
             FFIValue::BoxedFunction(FFIBoxedDynFunction {
                 name: RString::from(name),
                 arity: 0,
-                function: Arc::new(f),
+                function: RFn_TO::from_ptr(RArc::new(f), TD_CanDowncast),
             }),
         );
 
@@ -484,7 +600,8 @@ macro_rules! impl_register_fn_ffi {
                     FFIValue::BoxedFunction(FFIBoxedDynFunction {
                         name: RString::from(name),
                         arity: 0,
-                        function: Arc::new(f),
+                        // function: Arc::new(f),
+                        function: RFn_TO::from_ptr(RArc::new(f), TD_CanDowncast),
                     }),
                 );
 
@@ -507,9 +624,9 @@ macro_rules! impl_register_fn_ffi {
                     }
 
                     let mut arg_iter = args.into_iter();
-                    let rarg1 = arg_iter.next().unwrap();
+                    let mut rarg1 = arg_iter.next().unwrap();
 
-                    let mut arg1 = ffi_try!(<SELF>::as_mut_ref(&rarg1));
+                    let mut arg1 = ffi_try!(<SELF>::as_mut_ref(&mut rarg1));
 
                     let res = func(&mut arg1, $(ffi_try!(<$param>::from_ffi_val(arg_iter.next().unwrap())),)*);
 
@@ -521,7 +638,8 @@ macro_rules! impl_register_fn_ffi {
                     FFIValue::BoxedFunction(FFIBoxedDynFunction {
                         name: RString::from(name),
                         arity: 0,
-                        function: Arc::new(f),
+                        // function: Arc::new(f),
+                        function: RFn_TO::from_ptr(RArc::new(f), TD_CanDowncast),
                     }),
                 );
 
@@ -544,9 +662,9 @@ macro_rules! impl_register_fn_ffi {
                     }
 
                     let mut arg_iter = args.into_iter();
-                    let rarg1 = arg_iter.next().unwrap();
+                    let mut rarg1 = arg_iter.next().unwrap();
 
-                    let mut arg1 = ffi_try!(<SELF>::as_mut_ref(&rarg1));
+                    let mut arg1 = ffi_try!(<SELF>::as_mut_ref(&mut rarg1));
 
                     let res = func(&mut arg1, $(ffi_try!(<$param>::from_ffi_val(arg_iter.next().unwrap())),)*);
 
@@ -558,7 +676,8 @@ macro_rules! impl_register_fn_ffi {
                     FFIValue::BoxedFunction(FFIBoxedDynFunction {
                         name: RString::from(name),
                         arity: 0,
-                        function: Arc::new(f),
+                        // function: Arc::new(f),
+                        function: RFn_TO::from_ptr(RArc::new(f), TD_CanDowncast),
                     }),
                 );
 
@@ -600,9 +719,9 @@ impl<RET: IntoFFIVal, SELF: AsRefFFIVal, FN: Fn(&mut SELF) -> RET + SendSyncStat
             }
 
             let mut arg_iter = args.into_iter();
-            let rarg1 = arg_iter.next().unwrap();
+            let mut rarg1 = arg_iter.next().unwrap();
 
-            let mut arg1 = ffi_try!(<SELF>::as_mut_ref(&rarg1));
+            let mut arg1 = ffi_try!(<SELF>::as_mut_ref(&mut rarg1));
 
             let res = func(&mut arg1);
 
@@ -614,7 +733,8 @@ impl<RET: IntoFFIVal, SELF: AsRefFFIVal, FN: Fn(&mut SELF) -> RET + SendSyncStat
             FFIValue::BoxedFunction(FFIBoxedDynFunction {
                 name: RString::from(name),
                 arity: 0,
-                function: Arc::new(f),
+                // function: Arc::new(f),
+                function: RFn_TO::from_ptr(RArc::new(f), TD_CanDowncast),
             }),
         );
 
@@ -647,7 +767,8 @@ impl<RET: IntoFFIVal, FN: Fn() -> RET + SendSyncStatic> RegisterFFIFn<FN, Wrappe
             FFIValue::BoxedFunction(FFIBoxedDynFunction {
                 name: RString::from(name),
                 arity: 0,
-                function: Arc::new(f),
+                // function: Arc::new(f),
+                function: RFn_TO::from_ptr(RArc::new(f), TD_CanDowncast),
             }),
         );
 
@@ -676,6 +797,12 @@ macro_rules! declare_module {
     };
 }
 
+struct FFIVector {
+    vec: RVec<FFIValue>,
+}
+
+impl Custom for FFIVector {}
+
 // TODO:
 // Values that are safe to cross the FFI Boundary as arguments from
 // `SteelVal`s. This means the values can be borrowed without
@@ -691,14 +818,19 @@ pub enum FFIArg<'a> {
     Void,
     StringV(RString),
     Vector(RVec<FFIArg<'a>>),
+    VectorRef(RSliceMut<'a, FFIArg<'a>>),
     CharV {
         #[sabi(unsafe_opaque_field)]
         c: char,
     },
     Custom {
-        #[sabi(unsafe_opaque_field)]
-        custom: OpaqueFFIValue,
+        custom: OpaqueFFIValueReturn,
     },
+
+    CustomRef {
+        custom: RMut<'a, OpaqueObject_TO<'static, RBox<()>>>,
+    },
+
     HashMap(RHashMap<FFIArg<'a>, FFIArg<'a>>),
     Future {
         #[sabi(unsafe_opaque_field)]
@@ -749,9 +881,15 @@ pub enum FFIValue {
     // the StableAbi is a bit of a deal breaker in terms of its application. With certain restrictions on the
     // generation of dylibs, this might be totally fine.
     Custom {
-        #[sabi(unsafe_opaque_field)]
-        custom: OpaqueFFIValue,
+        custom: OpaqueFFIValueReturn,
     },
+
+    NativeCustom {
+        // This won't get passed down (or back) directly.
+        #[sabi(unsafe_opaque_field)]
+        custom: NativeOpaqueFFIValue,
+    },
+
     HashMap(RHashMap<FFIValue, FFIValue>),
     Future {
         #[sabi(unsafe_opaque_field)]
@@ -788,6 +926,7 @@ impl std::fmt::Debug for FFIValue {
         match self {
             FFIValue::BoxedFunction(func) => write!(f, "{:?}", func),
             FFIValue::Custom { .. } => write!(f, "#<OpaqueFFIValue>"),
+            FFIValue::NativeCustom { .. } => write!(f, "#<OpaqueFFIValue>"),
             FFIValue::BoolV(b) => write!(f, "{:?}", b),
             FFIValue::NumV(n) => write!(f, "{:?}", n),
             FFIValue::IntV(i) => write!(f, "{:?}", i),
@@ -801,24 +940,24 @@ impl std::fmt::Debug for FFIValue {
     }
 }
 
-impl<'a> std::fmt::Debug for FFIArg<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::BoxedFunction(func) => write!(f, "{:?}", func),
-            Self::Custom { .. } => write!(f, "#<OpaqueFFIValue>"),
-            Self::BoolV(b) => write!(f, "{:?}", b),
-            Self::NumV(n) => write!(f, "{:?}", n),
-            Self::IntV(i) => write!(f, "{:?}", i),
-            Self::CharV { c } => write!(f, "{}", c),
-            Self::Void => write!(f, "#<void>"),
-            Self::StringV(s) => write!(f, "{}", s),
-            Self::StringRef(s) => write!(f, "{}", s),
-            Self::Vector(v) => write!(f, "{:?}", v),
-            Self::HashMap(h) => write!(f, "{:?}", h),
-            Self::Future { .. } => write!(f, "#<future>"),
-        }
-    }
-}
+// impl<'a> std::fmt::Debug for FFIArg<'a> {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         match self {
+//             Self::BoxedFunction(func) => write!(f, "{:?}", func),
+//             Self::Custom { .. } => write!(f, "#<OpaqueFFIValue>"),
+//             Self::BoolV(b) => write!(f, "{:?}", b),
+//             Self::NumV(n) => write!(f, "{:?}", n),
+//             Self::IntV(i) => write!(f, "{:?}", i),
+//             Self::CharV { c } => write!(f, "{}", c),
+//             Self::Void => write!(f, "#<void>"),
+//             Self::StringV(s) => write!(f, "{}", s),
+//             Self::StringRef(s) => write!(f, "{}", s),
+//             Self::Vector(v) => write!(f, "{:?}", v),
+//             Self::HashMap(h) => write!(f, "{:?}", h),
+//             Self::Future { .. } => write!(f, "#<future>"),
+//         }
+//     }
+// }
 
 impl FFIValue {
     pub fn as_steelval(&self) -> Result<SteelVal> {
@@ -879,6 +1018,11 @@ impl IntoSteelVal for FFIValue {
             Self::Custom { custom } => {
                 Ok(SteelVal::Custom(Gc::new(RefCell::new(Box::new(custom)))))
             }
+
+            Self::NativeCustom { custom } => {
+                Ok(SteelVal::Custom(Gc::new(RefCell::new(Box::new(custom)))))
+            }
+
             Self::BoolV(b) => Ok(SteelVal::BoolV(b)),
             Self::NumV(n) => Ok(SteelVal::NumV(n)),
             Self::IntV(i) => Ok(SteelVal::IntV(i)),
@@ -923,21 +1067,42 @@ impl IntoSteelVal for FFIValue {
 }
 
 #[repr(C)]
-#[derive(StableAbi, Clone)]
+#[derive(StableAbi)]
 pub struct FFIBoxedDynFunction {
     pub name: RString,
     pub arity: usize,
     // TODO: See if theres a better option here
     // If this is changed to `RVec<FFIArg<'a>>` I think we'll save a handful
     // of allocations for strings
-    #[sabi(unsafe_opaque_field)]
+    // #[sabi(unsafe_opaque_field)]
+    // pub function:
+    //     Arc<dyn Fn(RVec<FFIValue>) -> RResult<FFIValue, RBoxError> + Send + Sync + 'static>,
+    pub function: RFn_TO<'static, 'static, RArc<()>, RVec<FFIValue>, RResult<FFIValue, RBoxError>>,
+}
+
+#[repr(C)]
+#[derive(StableAbi)]
+pub struct FFIBoxedDynFunctionTest {
+    pub name: RString,
+    pub arity: usize,
+    // Maybe 'static will work?
     pub function:
-        Arc<dyn Fn(RVec<FFIValue>) -> RResult<FFIValue, RBoxError> + Send + Sync + 'static>,
+        RFn_TO<'static, 'static, RArc<()>, RVec<FFIArg<'static>>, RResult<FFIValue, RBoxError>>,
+}
+
+impl Clone for FFIBoxedDynFunction {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            arity: self.arity.clone(),
+            function: RFn_TO::from_sabi(self.function.obj.shallow_clone()),
+        }
+    }
 }
 
 impl std::fmt::Debug for FFIBoxedDynFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "#<{}:{}:{:p}>", self.name, self.arity, self.function)
+        write!(f, "#<{}:{}>", self.name, self.arity)
     }
 }
 
@@ -950,20 +1115,32 @@ pub fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
         SteelVal::Void => Ok(FFIArg::Void),
         // We can really only look at values that were made from the FFI boundary.
         SteelVal::Custom(c) => {
-            if let Some(c) = as_underlying_type::<OpaqueFFIValue>(c.borrow().as_ref()) {
-                Ok(FFIArg::Custom { custom: c.clone() })
+            if let Some(c) =
+                as_underlying_type_mut::<OpaqueFFIValueReturn>(RefCell::borrow_mut(c).as_mut())
+            {
+                // let mut_ref = c.inner.obj.downcast_as()
+
+                // SAFETY:
+                // This should only be called internally, and the scope of the lifetime should be limited
+                // to macro generated code.
+                unsafe {
+                    Ok(FFIArg::CustomRef {
+                        custom: RMut::from_raw(&mut c.inner as *mut _),
+                    })
+                }
             } else {
-                // TODO: Re-enable this, so that the check is back in
-                // place. Otherwise, this could be dangerous?
+                todo!()
+                //     // TODO: Re-enable this, so that the check is back in
+                //     // place. Otherwise, this could be dangerous?
 
-                Ok(FFIArg::Custom {
-                    custom: OpaqueFFIValue {
-                        name: RString::from(c.borrow().name()),
-                        inner: c.clone(),
-                    },
-                })
+                //     Ok(FFIArg::Custom {
+                //         custom: OpaqueFFIValue {
+                //             name: RString::from(c.borrow().name()),
+                //             inner: c.clone(),
+                //         },
+                //     })
 
-                // stop!(TypeMismatch => "This opaque type did not originate from an FFI boundary, and thus cannot be passed across it: {:?}", value);
+                //     // stop!(TypeMismatch => "This opaque type did not originate from an FFI boundary, and thus cannot be passed across it: {:?}", value);
             }
         }
         SteelVal::HashMapV(h) => h
@@ -1002,21 +1179,24 @@ pub fn as_ffi_value(value: &SteelVal) -> Result<FFIValue> {
         SteelVal::Void => Ok(FFIValue::Void),
         // We can really only look at values that were made from the FFI boundary.
         SteelVal::Custom(c) => {
-            if let Some(c) = as_underlying_type::<OpaqueFFIValue>(c.borrow().as_ref()) {
-                Ok(FFIValue::Custom { custom: c.clone() })
+            if let Some(c) = as_underlying_type::<NativeOpaqueFFIValue>(c.borrow().as_ref()) {
+                return Ok(FFIValue::NativeCustom { custom: c.clone() });
             } else {
-                // TODO: Re-enable this, so that the check is back in
-                // place. Otherwise, this could be dangerous?
-
-                Ok(FFIValue::Custom {
-                    custom: OpaqueFFIValue {
-                        name: RString::from(c.borrow().name()),
-                        inner: c.clone(),
-                    },
-                })
-
-                // stop!(TypeMismatch => "This opaque type did not originate from an FFI boundary, and thus cannot be passed across it: {:?}", value);
+                stop!(TypeMismatch => "This opaque type did not originate from an FFI boundary, and thus cannot be passed across it: {:?}", value);
             }
+
+            // if let Some(c) = as_underlying_type::<OpaqueFFIValue>(c.borrow().as_ref()) {
+            //     Ok(FFIValue::Custom { custom: c.clone() })
+            // } else {
+            //     // TODO: Re-enable this, so that the check is back in
+            //     // place. Otherwise, this could be dangerous?
+
+            //     // Ok(FFIValue::Custom {
+            //     //     custom: OpaqueFFIValue { inner: c.clone() },
+            //     // })
+
+            //     stop!(TypeMismatch => "This opaque type did not originate from an FFI boundary, and thus cannot be passed across it: {:?}", value);
+            // }
         }
         SteelVal::HashMapV(h) => h
             .iter()
@@ -1048,7 +1228,8 @@ impl FFIBoxedDynFunction {
     fn as_boxed_dyn_function(&self) -> BoxedDynFunction {
         let name = self.name.to_string();
 
-        let cloned_function = Arc::clone(&self.function);
+        // let cloned_function = Arc::clone(&self.function);
+        let cloned_function = RFn_TO::from_sabi(self.function.obj.shallow_clone());
 
         let function = move |args: &[SteelVal]| -> crate::rvals::Result<SteelVal> {
             // Convert the arguments to the FFI types before passing through
@@ -1058,7 +1239,7 @@ impl FFIBoxedDynFunction {
                 .collect::<Result<RVec<_>>>()?;
 
             // Don't use RSlice - use a vec, so that we can consume the values (don't have to clone)
-            let result = (cloned_function)(args);
+            let result = cloned_function.call(args);
 
             match result {
                 RResult::ROk(output) => output.into_steelval(),
@@ -1086,7 +1267,7 @@ impl From<FFIBoxedDynFunction> for BoxedDynFunction {
                 .map(as_ffi_value)
                 .collect::<Result<RVec<_>>>()?;
 
-            let result = (value.function)(args);
+            let result = value.function.call(args);
 
             match result {
                 RResult::ROk(output) => output.into_steelval(),
