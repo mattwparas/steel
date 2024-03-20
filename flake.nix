@@ -42,15 +42,17 @@
           '';
         };
     in rec {
+      formatter = pkgs.alejandra;
       packages.steel = steel;
       legacyPackages = packages;
       defaultPackage = packages.steel;
-      devShell = with pkgs; mkShell {
-        buildInputs = [cargo openssl] ++ lib.optionals stdenv.isDarwin [darwin.apple_sdk.frameworks.Security];
-        nativeBuildInputs = [
-          pkg-config
-          rust-analyzer
-        ];
-      };
+      devShell = with pkgs;
+        mkShell {
+          buildInputs = [cargo openssl] ++ lib.optionals stdenv.isDarwin [darwin.apple_sdk.frameworks.Security];
+          nativeBuildInputs = [
+            pkg-config
+            rust-analyzer
+          ];
+        };
     });
 }
