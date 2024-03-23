@@ -1,0 +1,19 @@
+[package]
+name = "steel-async-webrequests"
+edition = "2021"
+version.workspace = true
+
+
+[lib]
+name = "steel_async_webrequests"
+crate-type = ["cdylib"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+steel-core = { path = "../../crates/steel-core", version = "0.6.0", features = ["dylibs"] }
+abi_stable = "0.11.1"
+isahc = { version = "1.7.2", features = ["json", "text-decoding"] }
+http = "*"
+base64 = "0.22.0"
+urlencoding = "2.1.3"

@@ -7,8 +7,11 @@ use rusqlite::{
     Connection, Statement, ToSql, Transaction,
 };
 use steel::{
-    rvals::{as_underlying_type, Custom},
-    steel_vm::ffi::{FFIModule, FFIValue, RegisterFFIFn},
+    rvals::Custom,
+    steel_vm::ffi::{
+        as_underlying_ffi_type, is_opaque_type, CustomRef, FFIArg, FFIModule, FFIValue,
+        RegisterFFIFn,
+    },
 };
 
 struct SqliteConnection {
@@ -41,26 +44,25 @@ impl SqliteConnection {
     }
 }
 
-fn is_connection(value: FFIValue) -> bool {
-    if let FFIValue::Custom { custom } = value {
-        return as_underlying_type::<SqliteConnection>(custom.inner.borrow().as_ref()).is_some();
+fn is_connection(value: FFIArg) -> bool {
+    if let FFIArg::CustomRef(CustomRef { custom, .. }) = value {
+        return as_underlying_ffi_type::<SqliteConnection>(custom.into_mut()).is_some();
     } else {
         false
     }
 }
 
-fn is_transaction(value: FFIValue) -> bool {
-    if let FFIValue::Custom { custom } = value {
-        return as_underlying_type::<SqliteTransaction>(custom.inner.borrow().as_ref()).is_some();
+fn is_transaction(value: FFIArg) -> bool {
+    if let FFIArg::CustomRef(CustomRef { custom, .. }) = value {
+        return as_underlying_ffi_type::<SqliteTransaction>(custom.into_mut()).is_some();
     } else {
         false
     }
 }
 
-fn is_prepared_statement(value: FFIValue) -> bool {
-    if let FFIValue::Custom { custom } = value {
-        return as_underlying_type::<SqlitePreparedStatement>(custom.inner.borrow().as_ref())
-            .is_some();
+fn is_prepared_statement(value: FFIArg) -> bool {
+    if let FFIArg::CustomRef(CustomRef { custom, .. }) = value {
+        return as_underlying_ffi_type::<SqlitePreparedStatement>(custom.into_mut()).is_some();
     } else {
         false
     }
@@ -312,9 +314,12 @@ pub fn build_module() -> FFIModule {
 
     module
         .register_fn("prepare", SqliteConnection::prepare)
-        .register_fn("SqliteConnection?", is_connection)
-        .register_fn("SqliteTransaction?", is_transaction)
-        .register_fn("SqlitePreparedStatement?", is_prepared_statement)
+        .register_fn("SqliteConnection?", is_opaque_type::<SqliteConnection>)
+        .register_fn("SqliteTransaction?", is_opaque_type::<SqliteTransaction>)
+        .register_fn(
+            "SqlitePreparedStatement?",
+            is_opaque_type::<SqlitePreparedStatement>,
+        )
         .register_fn("open-in-memory", SqliteConnection::open_in_memory)
         .register_fn("open", SqliteConnection::open)
         .register_fn("execute", SqlitePreparedStatement::execute)

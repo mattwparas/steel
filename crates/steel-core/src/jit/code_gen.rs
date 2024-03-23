@@ -6,7 +6,6 @@ use crate::jit::value::{
     decode, to_encoded_double, to_encoded_double_from_const_ptr, to_encoded_double_raw,
 };
 use crate::parser::ast::ExprKind;
-// use crate::rvals::ConsCell;
 use crate::SteelVal;
 use cranelift::prelude::types::{F64, I64};
 use cranelift::prelude::*;
@@ -16,9 +15,7 @@ use im_rc::Vector;
 use std::collections::{HashMap, HashSet};
 use std::slice;
 
-// use lazy_static::lazy_static;
 use std::cell::RefCell;
-// use typed_arena::Arena;
 
 use super::lower::lower_function;
 use super::sig::{JitFunctionPointer, Sig};
@@ -48,6 +45,17 @@ pub struct JIT {
 
     /// Legal vars - functions that are currently deemed legal to reference
     legal_vars: HashSet<String>,
+}
+
+// TODO:
+unsafe extern "C" fn length_list(value: i128) {
+    // Check that this value is actually an i128
+
+    let decoded = std::mem::transmute::<i128, SteelVal>(value);
+
+    let discriminant = std::mem::discriminant(&decoded);
+
+    todo!()
 }
 
 unsafe extern "C" fn length(value: f64) -> f64 {

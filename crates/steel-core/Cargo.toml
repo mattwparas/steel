@@ -36,6 +36,7 @@ fxhash = "0.2.1"
 steel-gen = { path = "../steel-gen", version = "0.2.0" }
 steel-parser = { path = "../steel-parser", version = "0.6.0" }
 steel-derive = { path = "../steel-derive", version = "0.5.0" }
+cargo-steel-lib = { path = "../cargo-steel-lib", version = "0.1.0" }
 chrono = { version = "0.4.23", default-features = false, features = ["std", "clock"] }
 dirs = "5.0.1"
 weak-table = "0.3.2"
@@ -59,13 +60,11 @@ cranelift = { version = "0.84.0", optional = true }
 cranelift-module = { version = "0.84.0", optional = true }
 cranelift-jit = { version = "0.84.0", optional = true }
 
-# Embedded dependencies for various popular libraries
-rusqlite =  { version = "0.28.0", features = ["bundled"], optional = true }
-reqwest = { version = "0.11.14", features = ["blocking", "json"], optional = true }
-url = { version = "2.3.1", optional = true }
 anyhow = { version = "1", optional = true }
 
 stacker = { version = "0.1.15", optional = true }
+
+
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 which = { version = "4.4.0" }
@@ -85,8 +84,6 @@ modules = []
 jit = ["dep:cranelift", "dep:cranelift-module", "dep:cranelift-jit"]
 dynamic = []
 profiling = []
-web = ["dep:reqwest", "dep:url"]
-sqlite = ["dep:rusqlite"]
 unsafe-internals = []
 anyhow = ["dep:anyhow"]
 dylibs = ["dep:abi_stable", "dep:async-ffi"]
