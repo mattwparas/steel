@@ -13,3 +13,4 @@ crate-type = ["cdylib"]
 steel-core = { path = "../../crates/steel-core", version = "0.6.0", features = ["dylibs"] }
 abi_stable = "0.11.1"
 ureq = { version = "2.6.2", features = ["json"] }
+async-channel = "2.2.0"
