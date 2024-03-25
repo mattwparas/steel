@@ -44,30 +44,6 @@ impl SqliteConnection {
     }
 }
 
-fn is_connection(value: FFIArg) -> bool {
-    if let FFIArg::CustomRef(CustomRef { custom, .. }) = value {
-        return as_underlying_ffi_type::<SqliteConnection>(custom.into_mut()).is_some();
-    } else {
-        false
-    }
-}
-
-fn is_transaction(value: FFIArg) -> bool {
-    if let FFIArg::CustomRef(CustomRef { custom, .. }) = value {
-        return as_underlying_ffi_type::<SqliteTransaction>(custom.into_mut()).is_some();
-    } else {
-        false
-    }
-}
-
-fn is_prepared_statement(value: FFIArg) -> bool {
-    if let FFIArg::CustomRef(CustomRef { custom, .. }) = value {
-        return as_underlying_ffi_type::<SqlitePreparedStatement>(custom.into_mut()).is_some();
-    } else {
-        false
-    }
-}
-
 struct SqlitePreparedStatement {
     _connection: Rc<Connection>,
     _sql: Rc<String>,
@@ -168,7 +144,7 @@ impl From<rusqlite::Error> for SqliteError {
 }
 
 impl SqlitePreparedStatement {
-    fn execute(&mut self, params: Vec<Vec<FFIValue>>) -> Result<usize, SqliteError> {
+    fn execute(&mut self, params: Vec<Vec<FFIArg>>) -> Result<usize, SqliteError> {
         let mut count = 0;
 
         if params.is_empty() {
@@ -189,7 +165,7 @@ impl SqlitePreparedStatement {
     // This is doing... lots of copying. Probably need to profile and figure out
     // a better interaction at the FFI boundary that doesn't require copying
     // the vector repeatedly
-    fn query(&mut self, params: Vec<FFIValue>) -> Result<FFIValue, SqliteError> {
+    fn query(&mut self, params: Vec<FFIArg>) -> Result<FFIValue, SqliteError> {
         let mut rows = self
             .prepared_statement
             .as_mut()
@@ -207,7 +183,7 @@ impl SqlitePreparedStatement {
                 let mut computed_row: RVec<FFIValue> = RVec::with_capacity(width);
 
                 for i in 0..width {
-                    computed_row.push(row.get(i).map(|x: FFIWrapper| x.0).unwrap())
+                    computed_row.push(row.get(i).map(|x: FFIReturn| x.0).unwrap())
                 }
 
                 results.push(FFIValue::Vector(computed_row));
@@ -218,7 +194,7 @@ impl SqlitePreparedStatement {
                 let mut i = 0;
                 let mut computed_row: RVec<FFIValue> = RVec::new();
 
-                while let Ok(value) = row.get::<_, FFIWrapper>(i) {
+                while let Ok(value) = row.get::<_, FFIReturn>(i) {
                     computed_row.push(value.0);
                     i += 1;
                 }
@@ -251,7 +227,8 @@ impl SqliteConnection {
     }
 }
 
-struct FFIWrapper(FFIValue);
+struct FFIWrapper<'a>(FFIArg<'a>);
+struct FFIReturn(FFIValue);
 
 #[derive(Debug)]
 struct SqliteConversionError(String);
@@ -265,15 +242,15 @@ impl std::fmt::Display for SqliteConversionError {
 impl std::error::Error for SqliteConversionError {}
 impl Custom for SqliteConnection {}
 
-impl ToSql for FFIWrapper {
+impl<'a> ToSql for FFIWrapper<'a> {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
         match &self.0 {
             // FFIValue::BoxedFunction(_) => todo!(),
             // FFIValue::BoolV(b) => Ok(rusqlite::types::ToSqlOutput::Owned(Value::Bo)),
-            FFIValue::NumV(f) => Ok(ToSqlOutput::Owned(Value::Real(*f))),
-            FFIValue::IntV(i) => Ok(ToSqlOutput::Owned(Value::Integer(*i as i64))),
-            FFIValue::Void => Ok(ToSqlOutput::Owned(Value::Null)),
-            FFIValue::StringV(s) => Ok(ToSqlOutput::Owned(Value::Text(s.to_string()))),
+            FFIArg::NumV(f) => Ok(ToSqlOutput::Owned(Value::Real(*f))),
+            FFIArg::IntV(i) => Ok(ToSqlOutput::Owned(Value::Integer(*i as i64))),
+            FFIArg::Void => Ok(ToSqlOutput::Owned(Value::Null)),
+            FFIArg::StringV(s) => Ok(ToSqlOutput::Owned(Value::Text(s.to_string()))),
             // FFIValue::Vector(_) => todo!(),
             // FFIValue::CharV { c } => todo!(),
             // FFIValue::Custom { custom } => todo!(),
@@ -288,13 +265,13 @@ impl ToSql for FFIWrapper {
     }
 }
 
-impl FromSql for FFIWrapper {
+impl FromSql for FFIReturn {
     fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
         match value {
-            rusqlite::types::ValueRef::Null => Ok(FFIWrapper(FFIValue::Void)),
-            rusqlite::types::ValueRef::Integer(i) => Ok(FFIWrapper(FFIValue::IntV(i as isize))),
-            rusqlite::types::ValueRef::Real(f) => Ok(FFIWrapper(FFIValue::NumV(f))),
-            rusqlite::types::ValueRef::Text(t) => Ok(FFIWrapper(FFIValue::StringV(
+            rusqlite::types::ValueRef::Null => Ok(FFIReturn(FFIValue::Void)),
+            rusqlite::types::ValueRef::Integer(i) => Ok(FFIReturn(FFIValue::IntV(i as isize))),
+            rusqlite::types::ValueRef::Real(f) => Ok(FFIReturn(FFIValue::NumV(f))),
+            rusqlite::types::ValueRef::Text(t) => Ok(FFIReturn(FFIValue::StringV(
                 RString::from_utf8(t).map_err(|e| FromSqlError::Other(Box::new(e)))?,
             ))),
             rusqlite::types::ValueRef::Blob(_) => Err(rusqlite::types::FromSqlError::Other(
