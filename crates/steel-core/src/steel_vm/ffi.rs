@@ -354,6 +354,25 @@ impl From<()> for FFIValue {
     }
 }
 
+impl<'a, T: FromFFIArg<'a>> FromFFIArg<'a> for Vec<T> {
+    fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
+        if let FFIArg::Vector(v) = val {
+            let mut collected = Vec::with_capacity(v.len());
+
+            for value in v {
+                match T::from_ffi_arg(value) {
+                    RResult::ROk(v) => collected.push(v),
+                    RResult::RErr(r) => return RResult::RErr(r),
+                }
+            }
+
+            RResult::ROk(collected)
+        } else {
+            conversion_error!(Vec, val)
+        }
+    }
+}
+
 impl<T: FromFFIVal> FromFFIVal for Vec<T> {
     fn from_ffi_val(val: FFIValue) -> RResult<Self, RBoxError> {
         if let FFIValue::Vector(v) = val {
