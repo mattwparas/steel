@@ -315,7 +315,11 @@ impl FromFFIVal for usize {
 impl<'a> FromFFIArg<'a> for usize {
     fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
         if let FFIArg::IntV(i) = val {
-            RResult::ROk(i as usize)
+            if i < 0 {
+                conversion_error!(usize, val)
+            } else {
+                RResult::ROk(i as usize)
+            }
         } else {
             conversion_error!(usize, val)
         }
