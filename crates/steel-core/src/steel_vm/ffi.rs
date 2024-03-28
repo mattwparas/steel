@@ -938,19 +938,9 @@ pub fn ffi_module() -> BuiltInModule {
 
     module
         .register_native_fn_definition(NEW_FFI_VECTOR_DEFINITION)
-        .register_fn("ffi-vector-ref", |vec: &FFIVector, index: usize| {
-            // TODO: Implement clone for pulling values out of a shared vector.
-            // vec.vec.get(index).clone().unwrap().into_steelval()
-        })
         .register_fn("mutable-string", || MutableString {
             string: RString::new(),
         });
-    //     .register_native_fn_definition(IMMUTABLE_VECTOR_PUSH_DEFINITION)
-    //     .register_native_fn_definition(IMMUTABLE_VECTOR_REST_DEFINITION)
-    //     .register_native_fn_definition(IMMUTABLE_VECTOR_PUSH_FRONT_DEFINITION)
-    //     .register_native_fn_definition(IMMUTABLE_VECTOR_SET_DEFINITION)
-    //     .register_native_fn_definition(IMMUTABLE_VECTOR_DROP_DEFINITION)
-    //     .register_native_fn_definition(IMMUTABLE_VECTOR_TAKE_DEFINITION);
 
     module
 }
