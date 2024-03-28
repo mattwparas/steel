@@ -38,6 +38,7 @@ use crate::{
     },
     steel_vm::{
         builtin::{get_function_metadata, get_function_name, Arity},
+        ffi::ffi_module,
         vm::threads::threading_module,
     },
     values::{
@@ -292,7 +293,6 @@ thread_local! {
     pub static BYTEVECTOR_MODULE: BuiltInModule = bytevector_module();
 
     pub static STREAM_MODULE: BuiltInModule = stream_module();
-    // pub static CONTRACT_MODULE: BuiltInModule = contract_module();
     pub static IDENTITY_MODULE: BuiltInModule = identity_module();
     pub static NUMBER_MODULE: BuiltInModule = number_module();
     pub static EQUALITY_MODULE: BuiltInModule = equality_module();
@@ -313,6 +313,9 @@ thread_local! {
     pub static RESULT_MODULE: BuiltInModule = build_result_structs();
     pub static TYPE_ID_MODULE: BuiltInModule = build_type_id_module();
     pub static OPTION_MODULE: BuiltInModule = build_option_structs();
+
+    pub static FFI_MODULE: BuiltInModule = ffi_module();
+
     pub static PRELUDE_MODULE: BuiltInModule = prelude();
 
     pub(crate) static PRELUDE_INTERNED_STRINGS: FxHashSet<InternedString> = PRELUDE_MODULE.with(|x| x.names().into_iter().map(|x| x.into()).collect());
@@ -471,7 +474,8 @@ pub fn register_builtin_modules(engine: &mut Engine) {
         .register_module(TIME_MODULE.with(|x| x.clone()))
         .register_module(RANDOM_MODULE.with(|x| x.clone()))
         .register_module(THREADING_MODULE.with(|x| x.clone()))
-        .register_module(BYTEVECTOR_MODULE.with(|x| x.clone()));
+        .register_module(BYTEVECTOR_MODULE.with(|x| x.clone()))
+        .register_module(FFI_MODULE.with(|x| x.clone()));
 
     // Private module
     engine.register_module(MUTABLE_VECTOR_MODULE.with(|x| x.clone()));
@@ -507,6 +511,7 @@ pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::n
     set.insert("%-builtin-module-steel/threads".into());
     set.insert("%-builtin-module-steel/bytevectors".into());
     set.insert("%-builtin-module-steel/base".into());
+    set.insert("%-builtin-module-steel/ffi".into());
 
     set
 });
@@ -589,7 +594,6 @@ pub static ALL_MODULES: &str = r#"
     (require-builtin steel/core/types as #%prim.)
     (require-builtin steel/threads as #%prim.)
     (require-builtin steel/bytevectors as #%prim.)
-
 "#;
 
 pub static ALL_MODULES_RESERVED: &str = r#"
@@ -1470,7 +1474,8 @@ fn meta_module() -> BuiltInModule {
             SteelVal::FuncV(attach_contract_struct),
         )
         .register_value("get-contract-struct", SteelVal::FuncV(get_contract))
-        .register_fn("current-os!", || std::env::consts::OS);
+        .register_fn("current-os!", || std::env::consts::OS)
+        .register_fn("#%build-dylib", || cargo_steel_lib::run().ok());
 
     #[cfg(not(feature = "dylibs"))]
     module.register_native_fn_definition(super::engine::LOAD_MODULE_NOOP_DEFINITION);

@@ -440,24 +440,19 @@ impl SteelThread {
         &mut self,
         constant_map: ConstantMap,
         function: SteelVal,
-        args: Vec<SteelVal>,
+        mut args: Vec<SteelVal>,
     ) -> Result<SteelVal> {
         match function {
-            SteelVal::FuncV(func) => {
-                let arg_vec: Vec<_> = args.into_iter().collect();
-                func(&arg_vec).map_err(|x| x.set_span_if_none(Span::default()))
-            }
+            SteelVal::FuncV(func) => func(&args).map_err(|x| x.set_span_if_none(Span::default())),
             SteelVal::BoxedFunction(func) => {
-                let arg_vec: Vec<_> = args.into_iter().collect();
-                func.func()(&arg_vec).map_err(|x| x.set_span_if_none(Span::default()))
+                func.func()(&args).map_err(|x| x.set_span_if_none(Span::default()))
             }
             // SteelVal::ContractedFunction(cf) => {
             //     let arg_vec: Vec<_> = args.into_iter().collect();
             //     cf.apply(arg_vec, cur_inst_span, self)
             // }
             SteelVal::MutFunc(func) => {
-                let mut arg_vec: Vec<_> = args.into_iter().collect();
-                func(&mut arg_vec).map_err(|x| x.set_span_if_none(Span::default()))
+                func(&mut args).map_err(|x| x.set_span_if_none(Span::default()))
             }
             // SteelVal::BuiltIn(func) => {
             //     let arg_vec: Vec<_> = args.into_iter().collect();
@@ -474,12 +469,14 @@ impl SteelThread {
                     stop!(TypeMismatch => format!("application not a procedure: {function}"))
                 }
             }
+            SteelVal::ContinuationFunction(c) => {
+                let mut vm_instance =
+                    VmCore::new_unchecked(Rc::new([]), constant_map, Rc::new([]), self, &[]);
+
+                vm_instance.call_cont_with_args(c, args)
+            }
             SteelVal::Closure(closure) => {
-                // let prev_length = self.stack.len();
-
-                // let frame = StackFrame::new(prev_length, Gc::clone(&closure), 0, Rc::from([]));
-
-                // Create phony span vec
+                // TODO: Revisit if we need this phony span vec!
                 let spans = closure.body_exp().iter().map(|_| Span::default()).collect();
 
                 let mut vm_instance = VmCore::new_unchecked(
@@ -492,13 +489,6 @@ impl SteelThread {
                     self,
                     &spans,
                 );
-
-                // vm_instance.call_func_or_else_many_args(
-                //     &function,
-                //     args,
-                //     &Span::default(),
-                //     throw!(TypeMismatch => format!("application not a procedure: {}", function)),
-                // );
 
                 vm_instance.call_with_args(&closure, args)
             }
@@ -1403,14 +1393,31 @@ impl<'a> VmCore<'a> {
     }
 
     // Call with an arbitrary number of arguments
+    pub(crate) fn call_cont_with_args(
+        &mut self,
+        cont: Continuation,
+        args: impl IntoIterator<Item = SteelVal>,
+    ) -> Result<SteelVal> {
+        let prev_length = self.thread.stack.len();
+
+        for arg in args {
+            self.thread.stack.push(arg);
+        }
+
+        self.call_continuation(cont)?;
+
+        self.thread
+            .stack
+            .pop()
+            .ok_or_else(throw!(Generic => "stack empty at pop!"))
+    }
+
+    // Call with an arbitrary number of arguments
     pub(crate) fn call_with_args(
         &mut self,
         closure: &Gc<ByteCodeLambda>,
         args: impl IntoIterator<Item = SteelVal>,
     ) -> Result<SteelVal> {
-        // println!("Arity: {:?}", closure.arity());
-        // println!("Multi arity: {:?}", closure.is_multi_arity);
-
         let prev_length = self.thread.stack.len();
 
         let instructions = closure.body_exp();
@@ -2696,12 +2703,73 @@ impl<'a> VmCore<'a> {
                     spans[self.ip..forward_jump_index].into()
                 }
             } else {
-                self.root_spans[self.ip..forward_jump_index].into()
+                // TODO: Under certain circumstances, it is possible we're doing some funky
+                // call/cc business, and the rooted spans don't make it back on during the call/cc
+                // section of the evaluation. In this case, we should try to optimistically store
+                // all of the spans that we have, rather than doing it lazily like we're doing now.
+                // See this body of code for an offending edge case:
+                /*
+
+                λ > (define the-empty-cont #f)
+                λ > (call/cc (lambda (k) (set! the-empty-cont k)))
+                => #false
+                λ > the-empty-cont
+                => #<procedure>
+                λ > (+ 10 20 30 40 (call/cc (k) (the-empty-cont k) k))
+                error[E02]: FreeIdentifier
+                  ┌─ :1:26
+                  │
+                1 │ (+ 10 20 30 40 (call/cc (k) (the-empty-cont k) k))
+                  │                          ^ k
+
+                λ > (+ 10 20 30 40 (call/cc (lambda (k) (the-empty-cont k) k)))
+                => #<procedure>
+                λ > ((+ 10 20 30 40 (call/cc (lambda (k) (the-empty-cont k) k))) 100)
+                => #<procedure>
+                λ > (+ 10 20 30 40 (call/cc (lambda (k) (the-empty-cont k) k)))
+                => #<procedure>
+                λ > ((+ 10 20 30 40 (call/cc (lambda (k) (the-empty-cont k) k))))
+                => #<procedure>
+                λ > ((+ 10 20 30 40 (call/cc (lambda (k) (the-empty-cont k) k))) 10)
+                => #<procedure>
+                λ > ((+ 10 20 30 40 (call/cc (lambda (k) (the-empty-cont k) k))) 100)
+                => #<procedure>
+                λ > (define the-next-cont #f)
+                λ > (+ 10 20 30 40 (call/cc (lambda (k) (set! the-next-cont k) k)))
+                error[E03]: TypeMismatch
+                  ┌─ :1:2
+                  │
+                1 │ (+ 10 20 30 40 (call/cc (lambda (k) (set! the-next-cont k) k)))
+                  │  ^ + expects a number, found: (Continuation)
+
+                λ > (+ 10 20 30 40 (call/cc (lambda (k) (set! the-next-cont k) (the-empty-cont #f))))
+
+                => #false
+                λ > the-next-cont
+                => #<procedure>
+                λ > (the-next-cont 10)
+                => 110
+                λ > (+ 10 20 30 40 (call/cc (lambda (k) (set! the-next-cont k) (the-empty-cont #f))) (begin (displayln "hello world") 100))
+                => #false
+                λ > (the-next-cont 10)
+                hello world
+                => 210
+                // λ > (+ 10 20 30 40 (call/cc (lambda (k) (set! the-next-cont k) (the-empty-cont #f))) (begin (displayln "hello world") (call/cc (lambda (k) (set! the-next-cont k) (the-empty-cont #f))) 100))
+                => #false
+                λ > (the-next-cont 10)
+                hello world
+                thread 'main' panicked at crates/steel-core/src/steel_vm/vm.rs:2699:32:
+                range end index 31 out of range for slice of length 4
+                note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+                                */
+                // self.root_spans[self.ip..forward_jump_index].into()
+                if let Some(span_range) = self.root_spans.get(self.ip..forward_jump_index) {
+                    span_range.into_iter().cloned().collect::<Vec<_>>().into()
+                } else {
+                    Rc::from(Vec::new())
+                }
             };
-
-            // if let Some(spans) = self.thread.function_interner.spans.get()
-
-            // let spans = self.spans[self.ip..forward_jump_index].into();
 
             // snag the arity from the eclosure instruction
             let arity = self.instructions[forward_index - 1].payload_size;
@@ -2721,7 +2789,7 @@ impl<'a> VmCore<'a> {
                 .pure_function_interner
                 .insert(closure_id, Gc::clone(&constructed_lambda));
 
-            // Put the spans into the
+            // Put the spans into the interner as well
             self.thread
                 .function_interner
                 .spans

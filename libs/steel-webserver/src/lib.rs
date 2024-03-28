@@ -1,8 +1,11 @@
+use abi_stable::std_types::{RBoxError, RResult};
 use axum::{extract::Query, http::StatusCode, routing::get, Router};
 use std::{collections::HashMap, net::SocketAddr};
 use steel::{
     rvals::{Custom, SerializableSteelVal},
-    steel_vm::ffi::{FFIModule, FFIValue, IntoFFIVal, RegisterFFIFn},
+    steel_vm::ffi::{
+        as_underlying_ffi_type, CustomRef, FFIArg, FFIModule, FFIValue, IntoFFIVal, RegisterFFIFn,
+    },
 };
 
 use crossbeam::channel::{unbounded, Receiver, Sender};
@@ -113,8 +116,25 @@ struct WrappedSender {
 }
 
 impl WrappedSender {
-    fn send(&self, value: RequestResult) {
-        self.sender.send(value).unwrap()
+    fn send(&self, value: FFIArg) -> RResult<FFIValue, RBoxError> {
+        if let FFIArg::CustomRef(CustomRef { mut custom, .. }) = value {
+            if let Some(inner) = as_underlying_ffi_type::<RequestResult>(custom.get_mut()) {
+                match inner {
+                    RequestResult::Ok(ref mut v) => {
+                        self.sender.send(RequestResult::Ok(std::mem::take(v))).ok();
+                    }
+                    RequestResult::Err(ref mut e) => {
+                        self.sender.send(RequestResult::Err(std::mem::take(e))).ok();
+                    }
+                }
+
+                RResult::ROk(FFIValue::Void)
+            } else {
+                false.into_ffi_val()
+            }
+        } else {
+            false.into_ffi_val()
+        }
     }
 }
 
@@ -189,10 +209,12 @@ impl WrappedJoinHandler {
 impl Custom for WrappedJoinHandler {}
 
 fn spawn_server(
-    command_messenger: CommandMessenger,
+    command_messenger: &mut CommandMessenger,
     routes: Vec<String>,
     port: usize,
 ) -> WrappedJoinHandler {
+    let command_messenger = command_messenger.clone();
+
     let handle = std::thread::spawn(move || {
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()

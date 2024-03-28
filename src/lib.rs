@@ -45,6 +45,9 @@ enum EmitAction {
     Doc { default_file: Option<PathBuf> },
     /// Experimental
     Compile { file: PathBuf },
+
+    /// Build a dylib from the root of this directory
+    Dylib,
 }
 
 pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
@@ -253,7 +256,7 @@ version = "0.1.0"
 
 
 [dependencies]
-steel-core = { git = "https://github.com/mattwparas/steel.git", features = ["web", "sqlite", "dylibs"] }
+steel-core = { git = "https://github.com/mattwparas/steel.git", features = ["dylibs"] }
 
 [profile.release]
 debug = false
@@ -269,6 +272,15 @@ lto = true
                 .wait()
                 .unwrap();
 
+            Ok(())
+        }
+
+        Args {
+            default_file: None,
+            action: Some(EmitAction::Dylib),
+            ..
+        } => {
+            cargo_steel_lib::run()?;
             Ok(())
         }
 

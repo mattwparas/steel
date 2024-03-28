@@ -1,5 +1,7 @@
 use std::net::TcpStream;
 
+use abi_stable::std_types::{RBoxError, RResult};
+use steel::steel_vm::ffi::{as_underlying_ffi_type, CustomRef, FFIArg, FFIValue};
 use tungstenite::{
     connect, handshake::client::Response, stream::MaybeTlsStream, Message, WebSocket,
 };
@@ -22,8 +24,24 @@ impl SteelWebSocket {
             .map_err(WebSocketError)
     }
 
-    fn write_message(&mut self, message: WebSocketMessage) -> Result<(), WebSocketError> {
-        self.0.write_message(message.0).map_err(WebSocketError)
+    fn write_message(&mut self, message: FFIArg) -> RResult<FFIValue, RBoxError> {
+        if let FFIArg::CustomRef(CustomRef { mut custom, .. }) = message {
+            if let Some(inner) = as_underlying_ffi_type::<WebSocketMessage>(custom.get_mut()) {
+                let result = self.0.write_message(std::mem::replace(
+                    &mut inner.0,
+                    Message::Text(String::new()),
+                ));
+
+                match result {
+                    Ok(_) => true.into_ffi_val(),
+                    Err(e) => RResult::RErr(RBoxError::new(e)),
+                }
+            } else {
+                false.into_ffi_val()
+            }
+        } else {
+            false.into_ffi_val()
+        }
     }
 }
 

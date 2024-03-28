@@ -1,7 +1,7 @@
-use abi_stable::std_types::RString;
+use abi_stable::std_types::{RBoxError, RResult};
 use steel::{
     rvals::Custom,
-    steel_vm::ffi::{FFIModule, RegisterFFIFn},
+    steel_vm::ffi::{FFIModule, FFIValue, IntoFFIVal, RegisterFFIFn},
 };
 
 use regex::Regex;
@@ -19,14 +19,19 @@ impl From<regex::Error> for RegexError {
 }
 
 impl SteelRegex {
-    fn new(re: RString) -> Result<Self, RegexError> {
-        Ok(SteelRegex(Regex::new(re.as_str())?))
+    fn new(re: String) -> RResult<FFIValue, RBoxError> {
+        match Regex::new(re.as_str()) {
+            Ok(v) => SteelRegex(v).into_ffi_val(),
+            Err(e) => RResult::RErr(RBoxError::new(e)),
+        }
+
+        // Ok(SteelRegex(Regex::new(re.as_str())?))
     }
 
     // TODO: Add string ref arguments so that these can take &str
     // to the FFI library so that these don't have to be copies.
-    fn is_match(&self, re: RString) -> bool {
-        self.0.is_match(re.as_str())
+    fn is_match(&self, re: &str) -> bool {
+        self.0.is_match(re)
     }
 }
 

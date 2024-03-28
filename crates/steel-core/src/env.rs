@@ -54,6 +54,12 @@ impl Env {
             self.bindings_vec[idx] = val;
         } else {
             if idx > self.bindings_vec.len() {
+                // TODO: This seems suspect. Try to understand
+                // what is happening here. This would be that values
+                // are getting interned to be at a global offset in the
+                // wrong order, which seems to be fine in general,
+                // assuming that the values then get actually updated
+                // to the correct values.
                 for _ in 0..(idx - self.bindings_vec.len()) {
                     self.bindings_vec.push(SteelVal::Void);
                 }
