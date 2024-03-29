@@ -5,3 +5,4 @@ docs/book
 docs/theme
 .vscode/
 /result
+.direnv/
