@@ -1475,7 +1475,10 @@ fn meta_module() -> BuiltInModule {
         )
         .register_value("get-contract-struct", SteelVal::FuncV(get_contract))
         .register_fn("current-os!", || std::env::consts::OS)
-        .register_fn("#%build-dylib", || cargo_steel_lib::run().ok());
+        .register_fn("#%build-dylib", || {
+            #[cfg(feature = "dylib-build")]
+            cargo_steel_lib::run().ok()
+        });
 
     #[cfg(not(feature = "dylibs"))]
     module.register_native_fn_definition(super::engine::LOAD_MODULE_NOOP_DEFINITION);
