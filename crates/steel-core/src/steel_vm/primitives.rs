@@ -511,7 +511,6 @@ pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::n
     set.insert("%-builtin-module-steel/threads".into());
     set.insert("%-builtin-module-steel/bytevectors".into());
     set.insert("%-builtin-module-steel/base".into());
-    set.insert("%-builtin-module-steel/ffi".into());
 
     set
 });
