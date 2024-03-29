@@ -1156,7 +1156,14 @@ impl<'a> VmCore<'a> {
         }
     }
 
-    // Grab the continuation - but this continuation can only be played once
+    // Grab the continuation - but this continuation can only be played once.
+    // The way this should probably be implemented is by checking that the continuation
+    // is open; In this scheme, it doesn't appear that we'll be able to continue computation
+    // correctly after this is created. We should leave it open - and then when closing the
+    // continuation, move the values in, rather than immediately closing it. This _might_ be
+    // how the existing call/cc implementation works already, which would be nice. However -
+    // when _replaying_ the continuation, we should also assume that it can only be replayed
+    // once to avoid copying the whole thing.
     fn new_oneshot_continuation_from_state(&mut self) -> ClosedContinuation {
         ClosedContinuation {
             stack: std::mem::take(&mut self.thread.stack),
