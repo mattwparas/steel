@@ -1,4 +1,3 @@
-use abi_stable::std_types::RString;
 use steel::rvals::Custom;
 use steel::{
     declare_module,
@@ -31,8 +30,8 @@ fn create_module() -> FFIModule {
         .register_fn("set-timeout/ms!", BlockingRequest::timeout_ms)
         .register_fn(
             "call",
-            |request: BlockingRequest| -> Result<SteelResponse, BlockingError> {
-                Request::call(request.0.unwrap())
+            |request: &mut BlockingRequest| -> Result<SteelResponse, BlockingError> {
+                Request::call(std::mem::take(&mut request.0).unwrap())
                     .map(|x| x.into())
                     .map_err(BlockingError::Ureq)
             },
@@ -65,28 +64,28 @@ impl Client {
         Self(ureq::agent())
     }
 
-    fn get(&self, url: RString) -> BlockingRequest {
-        BlockingRequest(Some(self.0.get(&url)))
+    fn get(&self, url: &str) -> BlockingRequest {
+        BlockingRequest(Some(self.0.get(url)))
     }
 
-    fn post(&self, url: RString) -> BlockingRequest {
-        BlockingRequest(Some(self.0.post(&url)))
+    fn post(&self, url: &str) -> BlockingRequest {
+        BlockingRequest(Some(self.0.post(url)))
     }
 
-    fn put(&self, url: RString) -> BlockingRequest {
-        BlockingRequest(Some(self.0.put(&url)))
+    fn put(&self, url: &str) -> BlockingRequest {
+        BlockingRequest(Some(self.0.put(url)))
     }
 
-    fn patch(&self, url: RString) -> BlockingRequest {
-        BlockingRequest(Some(self.0.patch(&url)))
+    fn patch(&self, url: &str) -> BlockingRequest {
+        BlockingRequest(Some(self.0.patch(url)))
     }
 
-    fn delete(&self, url: RString) -> BlockingRequest {
-        BlockingRequest(Some(self.0.delete(&url)))
+    fn delete(&self, url: &str) -> BlockingRequest {
+        BlockingRequest(Some(self.0.delete(url)))
     }
 
-    fn head(&self, url: RString) -> BlockingRequest {
-        BlockingRequest(Some(self.0.head(&url)))
+    fn head(&self, url: &str) -> BlockingRequest {
+        BlockingRequest(Some(self.0.head(url)))
     }
 }
 
