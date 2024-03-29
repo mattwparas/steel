@@ -864,7 +864,7 @@ pub struct CustomRef<'a> {
 #[repr(C)]
 #[derive(StableAbi)]
 pub struct VectorRef<'a> {
-    vec: RSliceMut<'a, FFIValue>,
+    pub vec: RSliceMut<'a, FFIValue>,
     #[sabi(unsafe_opaque_field)]
     guard: RefMut<'a, Box<dyn CustomType>>,
 }
@@ -938,6 +938,13 @@ pub fn ffi_module() -> BuiltInModule {
 
     module
         .register_native_fn_definition(NEW_FFI_VECTOR_DEFINITION)
+        .register_fn("ffi-vector-ref", |vec: &mut FFIVector, index: usize| {
+            let value = vec.vec.get(index);
+            match value {
+                Some(value) => FFIValue::try_clone(value),
+                None => None,
+            }
+        })
         .register_fn("mutable-string", || MutableString {
             string: RString::new(),
         });
