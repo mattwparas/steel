@@ -38,7 +38,6 @@ use crate::{
     },
     steel_vm::{
         builtin::{get_function_metadata, get_function_name, Arity},
-        ffi::ffi_module,
         vm::threads::threading_module,
     },
     values::{
@@ -62,6 +61,9 @@ use crate::{
 use fxhash::{FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
 use std::{cell::RefCell, cmp::Ordering};
+
+#[cfg(feature = "dylibs")]
+use crate::steel_vm::ffi::ffi_module;
 
 macro_rules! ensure_tonicity_two {
     ($check_fn:expr) => {{
@@ -314,6 +316,7 @@ thread_local! {
     pub static TYPE_ID_MODULE: BuiltInModule = build_type_id_module();
     pub static OPTION_MODULE: BuiltInModule = build_option_structs();
 
+    #[cfg(feature = "dylibs")]
     pub static FFI_MODULE: BuiltInModule = ffi_module();
 
     pub static PRELUDE_MODULE: BuiltInModule = prelude();
@@ -474,8 +477,10 @@ pub fn register_builtin_modules(engine: &mut Engine) {
         .register_module(TIME_MODULE.with(|x| x.clone()))
         .register_module(RANDOM_MODULE.with(|x| x.clone()))
         .register_module(THREADING_MODULE.with(|x| x.clone()))
-        .register_module(BYTEVECTOR_MODULE.with(|x| x.clone()))
-        .register_module(FFI_MODULE.with(|x| x.clone()));
+        .register_module(BYTEVECTOR_MODULE.with(|x| x.clone()));
+
+    #[cfg(feature = "dylibs")]
+    engine.register_module(FFI_MODULE.with(|x| x.clone()));
 
     // Private module
     engine.register_module(MUTABLE_VECTOR_MODULE.with(|x| x.clone()));
