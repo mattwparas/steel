@@ -1150,6 +1150,9 @@ pub enum TypeKind {
     List(Box<TypeKind>),
 }
 
+// TODO: Make this repr(transparent)
+// to work correctly with FFI
+
 /// A value as represented in the runtime.
 #[derive(Clone)]
 pub enum SteelVal {
