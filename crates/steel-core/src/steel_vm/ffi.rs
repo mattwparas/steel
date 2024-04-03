@@ -1351,39 +1351,6 @@ impl FFIBoxedDynFunction {
 
             let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
-            // {
-            //     use std::mem::MaybeUninit;
-
-            //     // Create an uninitialized array of `MaybeUninit`. The `assume_init` is
-            //     // safe because the type we are claiming to have initialized here is a
-            //     // bunch of `MaybeUninit`s, which do not require initialization.
-            //     let mut data: [MaybeUninit<FFIArg<'static>>; 16] =
-            //         unsafe { MaybeUninit::uninit().assume_init() };
-            //     // Count the number of elements we have assigned.
-            //     let mut data_len: usize = 0;
-
-            //     for elem in &mut data[0..args.len()] {
-            //         elem.write(as_underlying_type());
-            //         data_len += 1;
-            //     }
-
-            //     // For each item in the array, drop if we allocated it.
-            //     for elem in &mut data[0..data_len] {
-            //         unsafe {
-            //             elem.assume_init_drop();
-            //         }
-            //     }
-            // }
-
-            // // Disallow anything larger than 16 arguments for the sake of efficiency.
-            // // We probably (definitely) don't want to initialize these since we're going to then
-            // // allocate _a lot_ every time. A better option would probably be to just
-            // let mut other_args: [FFIArg<'_>; 16] = Default::default();
-
-            // for (i, arg) in args.into_iter().enumerate() {
-            //     other_args[i] = as_ffi_argument(arg)?;
-            // }
-
             // Attempt collecting and passing as an rslice?
             let mut other_args = args
                 .into_iter()
@@ -1398,12 +1365,6 @@ impl FFIBoxedDynFunction {
 
             // Get the slice
             let rslice = RSliceMut::from_mut_slice(lifted_slice);
-
-            // // Convert the arguments to the FFI types before passing through
-            // let args = args
-            //     .into_iter()
-            //     .map(as_ffi_argument)
-            //     .collect::<Result<RVec<_>>>()?;
 
             let result = cloned_function.call(rslice);
 
@@ -1429,12 +1390,6 @@ impl From<FFIBoxedDynFunction> for BoxedDynFunction {
 
         let function = move |args: &[SteelVal]| -> crate::rvals::Result<SteelVal> {
             let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
-
-            // Convert the arguments to the FFI types before passing through
-            // let args = args
-            //     .into_iter()
-            //     .map(as_ffi_argument)
-            //     .collect::<Result<RVec<_>>>()?;
 
             let mut other_args = args
                 .into_iter()
