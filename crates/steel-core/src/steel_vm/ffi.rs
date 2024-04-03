@@ -326,6 +326,16 @@ impl<'a> FromFFIArg<'a> for usize {
     }
 }
 
+impl<'a> FromFFIArg<'a> for char {
+    fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
+        if let FFIArg::CharV { c } = val {
+            RResult::ROk(c)
+        } else {
+            conversion_error!(usize, val)
+        }
+    }
+}
+
 impl FromFFIVal for isize {
     fn from_ffi_val(val: FFIValue) -> RResult<Self, RBoxError> {
         if let FFIValue::IntV(i) = val {
@@ -562,7 +572,7 @@ impl<RET: IntoFFIVal, SELF: AsRefFFIVal, FN: Fn(&SELF) -> RET + SendSyncStatic>
     RegisterFFIFn<FN, WrapperRef<(SELF,)>, RET> for FFIModule
 {
     fn register_fn(&mut self, name: &str, func: FN) -> &mut Self {
-        let f = move |args: RVec<FFIArg<'static>>| -> RResult<FFIValue, RBoxError> {
+        let f = move |args: RSliceMut<'static, FFIArg<'static>>| -> RResult<FFIValue, RBoxError> {
             if args.len() != 1 {
                 let error: Box<dyn std::error::Error + Send + Sync> = "arity mismatch".into();
 
@@ -602,7 +612,7 @@ macro_rules! impl_register_fn_ffi {
             RET: IntoFFIVal
         > RegisterFFIFn<FN, Wrapper<($($param,)*)>, RET> for FFIModule {
             fn register_fn(&mut self, name: &str, func: FN) -> &mut Self {
-                let f = move |args: RVec<FFIArg<'static>>| -> RResult<FFIValue, RBoxError> {
+                let f = move |args: RSliceMut<'static, FFIArg<'static>>| -> RResult<FFIValue, RBoxError> {
                     if args.len() != $arg_count {
                         let error: Box<dyn std::error::Error + Send + Sync> = format!("arity mismatch: expected: {}, found: {}", $arg_count, args.len()).into();
 
@@ -612,7 +622,7 @@ macro_rules! impl_register_fn_ffi {
                     }
 
                     let mut arg_iter = args.into_iter();
-                    let res = func($(ffi_try!(<$param>::from_ffi_arg(arg_iter.next().unwrap())),)*);
+                    let res = func($(ffi_try!(<$param>::from_ffi_arg(std::mem::replace(arg_iter.next().unwrap(), FFIArg::Void))),)*);
 
                     // let res = func($({
                     //     ffi_try!(<$param>::from_ffi_val());
@@ -640,7 +650,7 @@ macro_rules! impl_register_fn_ffi {
             RegisterFFIFn<FN, WrapperMutRef<(SELF, $($param,)*)>, RET> for FFIModule
         {
             fn register_fn(&mut self, name: &str, func: FN) -> &mut Self {
-                let f = move |args: RVec<FFIArg<'static>>| -> RResult<FFIValue, RBoxError> {
+                let f = move |args: RSliceMut<'static, FFIArg<'static>>| -> RResult<FFIValue, RBoxError> {
                     if  args.len() != $arg_count + 1 {
                         let error: Box<dyn std::error::Error + Send + Sync> = "arity mismatch".into();
 
@@ -654,7 +664,7 @@ macro_rules! impl_register_fn_ffi {
 
                     let mut arg1 = ffi_try!(<SELF>::as_mut_ref(&mut rarg1));
 
-                    let res = func(&mut arg1, $(ffi_try!(<$param>::from_ffi_arg(arg_iter.next().unwrap())),)*);
+                    let res = func(&mut arg1, $(ffi_try!(<$param>::from_ffi_arg(std::mem::replace(arg_iter.next().unwrap(), FFIArg::Void))),)*);
 
                     res.into_ffi_val()
                 };
@@ -678,7 +688,7 @@ macro_rules! impl_register_fn_ffi {
             RegisterFFIFn<FN, WrapperRef<(SELF, $($param,)*)>, RET> for FFIModule
         {
             fn register_fn(&mut self, name: &str, func: FN) -> &mut Self {
-                let f = move |args: RVec<FFIArg<'static>>| -> RResult<FFIValue, RBoxError> {
+                let f = move |args: RSliceMut<'static, FFIArg<'static>>| -> RResult<FFIValue, RBoxError> {
                     if args.len() != $arg_count + 1 {
                         let error: Box<dyn std::error::Error + Send + Sync> = "arity mismatch".into();
 
@@ -692,7 +702,7 @@ macro_rules! impl_register_fn_ffi {
 
                     let mut arg1 = ffi_try!(<SELF>::as_mut_ref(&mut rarg1));
 
-                    let res = func(&mut arg1, $(ffi_try!(<$param>::from_ffi_arg(arg_iter.next().unwrap())),)*);
+                    let res = func(&mut arg1, $(ffi_try!(<$param>::from_ffi_arg(std::mem::replace(arg_iter.next().unwrap(), FFIArg::Void))),)*);
 
                     res.into_ffi_val()
                 };
@@ -735,7 +745,7 @@ impl<RET: IntoFFIVal, SELF: AsRefFFIVal, FN: Fn(&mut SELF) -> RET + SendSyncStat
     RegisterFFIFn<FN, WrapperMut<(SELF,)>, RET> for FFIModule
 {
     fn register_fn(&mut self, name: &str, func: FN) -> &mut Self {
-        let f = move |args: RVec<FFIArg>| -> RResult<FFIValue, RBoxError> {
+        let f = move |args: RSliceMut<'static, FFIArg>| -> RResult<FFIValue, RBoxError> {
             if args.len() != 1 {
                 let error: Box<dyn std::error::Error + Send + Sync> =
                     format!("Arity mismatch, expected: 1, found: {}", args.len()).into();
@@ -774,7 +784,7 @@ impl<RET: IntoFFIVal, FN: Fn() -> RET + SendSyncStatic> RegisterFFIFn<FN, Wrappe
     for FFIModule
 {
     fn register_fn(&mut self, name: &str, func: FN) -> &mut Self {
-        let f = move |args: RVec<FFIArg>| -> RResult<FFIValue, RBoxError> {
+        let f = move |args: RSliceMut<'static, FFIArg>| -> RResult<FFIValue, RBoxError> {
             if !args.is_empty() {
                 // TODO: Fix the error message here if possible. Might require cloning the string?
                 let error: Box<dyn std::error::Error + Send + Sync> = "arity mismatch".into();
@@ -906,6 +916,12 @@ pub enum FFIArg<'a> {
         #[sabi(unsafe_opaque_field)]
         fut: FfiFuture<RResult<FFIArg<'a>, RBoxError>>,
     },
+}
+
+impl<'a> std::default::Default for FFIArg<'a> {
+    fn default() -> Self {
+        FFIArg::Void
+    }
 }
 
 impl<'a> std::hash::Hash for FFIArg<'a> {
@@ -1181,14 +1197,13 @@ impl IntoSteelVal for FFIValue {
 pub struct FFIBoxedDynFunction {
     pub name: RString,
     pub arity: usize,
-    // TODO: See if theres a better option here
-    // If this is changed to `RVec<FFIArg<'a>>` I think we'll save a handful
-    // of allocations for strings
-    // #[sabi(unsafe_opaque_field)]
-    // pub function:
-    //     Arc<dyn Fn(RVec<FFIValue>) -> RResult<FFIValue, RBoxError> + Send + Sync + 'static>,
-    pub function:
-        RFn_TO<'static, 'static, RArc<()>, RVec<FFIArg<'static>>, RResult<FFIValue, RBoxError>>,
+    pub function: RFn_TO<
+        'static,
+        'static,
+        RArc<()>,
+        RSliceMut<'static, FFIArg<'static>>,
+        RResult<FFIValue, RBoxError>,
+    >,
 }
 
 impl Clone for FFIBoxedDynFunction {
@@ -1214,24 +1229,6 @@ pub fn as_ffi_value(value: &SteelVal) -> Result<FFIValue> {
         SteelVal::NumV(n) => Ok(FFIValue::NumV(*n)),
         SteelVal::CharV(c) => Ok(FFIValue::CharV { c: *c }),
         SteelVal::Void => Ok(FFIValue::Void),
-        // We can really only look at values that were made from the FFI boundary.
-        // SteelVal::Custom(c) => {
-        //     if let Some(c) = as_underlying_type::<OpaqueFFIValue>(c.borrow().as_ref()) {
-        //         Ok(FFIValue::Custom { custom: c.clone() })
-        //     } else {
-        //         // TODO: Re-enable this, so that the check is back in
-        //         // place. Otherwise, this could be dangerous?
-
-        //         Ok(FFIValue::Custom {
-        //             custom: OpaqueFFIValue {
-        //                 name: RString::from(c.borrow().name()),
-        //                 inner: c.clone(),
-        //             },
-        //         })
-
-        //         // stop!(TypeMismatch => "This opaque type did not originate from an FFI boundary, and thus cannot be passed across it: {:?}", value);
-        //     }
-        // }
         SteelVal::HashMapV(h) => h
             .iter()
             .map(|(key, value)| {
@@ -1347,9 +1344,6 @@ impl FFIBoxedDynFunction {
     fn as_boxed_dyn_function(&self) -> BoxedDynFunction {
         let name = self.name.to_string();
 
-        // let cloned_function = Arc::clone(&self.function);
-        // let cloned_function = RFn_TO::from_sabi(self.function.obj.shallow_clone());
-
         let this = self.clone();
 
         let function = move |args: &[SteelVal]| -> crate::rvals::Result<SteelVal> {
@@ -1357,14 +1351,61 @@ impl FFIBoxedDynFunction {
 
             let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
-            // Convert the arguments to the FFI types before passing through
-            let args = args
+            // {
+            //     use std::mem::MaybeUninit;
+
+            //     // Create an uninitialized array of `MaybeUninit`. The `assume_init` is
+            //     // safe because the type we are claiming to have initialized here is a
+            //     // bunch of `MaybeUninit`s, which do not require initialization.
+            //     let mut data: [MaybeUninit<FFIArg<'static>>; 16] =
+            //         unsafe { MaybeUninit::uninit().assume_init() };
+            //     // Count the number of elements we have assigned.
+            //     let mut data_len: usize = 0;
+
+            //     for elem in &mut data[0..args.len()] {
+            //         elem.write(as_underlying_type());
+            //         data_len += 1;
+            //     }
+
+            //     // For each item in the array, drop if we allocated it.
+            //     for elem in &mut data[0..data_len] {
+            //         unsafe {
+            //             elem.assume_init_drop();
+            //         }
+            //     }
+            // }
+
+            // // Disallow anything larger than 16 arguments for the sake of efficiency.
+            // // We probably (definitely) don't want to initialize these since we're going to then
+            // // allocate _a lot_ every time. A better option would probably be to just
+            // let mut other_args: [FFIArg<'_>; 16] = Default::default();
+
+            // for (i, arg) in args.into_iter().enumerate() {
+            //     other_args[i] = as_ffi_argument(arg)?;
+            // }
+
+            // Attempt collecting and passing as an rslice?
+            let mut other_args = args
                 .into_iter()
                 .map(as_ffi_argument)
-                .collect::<Result<RVec<_>>>()?;
+                .collect::<Result<smallvec::SmallVec<[FFIArg<'_>; 16]>>>()?;
 
-            // Don't use RSlice - use a vec, so that we can consume the values (don't have to clone)
-            let result = cloned_function.call(args);
+            let lifted_slice = unsafe {
+                std::mem::transmute::<&mut [FFIArg], &'static mut [FFIArg]>(
+                    other_args.as_mut_slice(),
+                )
+            };
+
+            // Get the slice
+            let rslice = RSliceMut::from_mut_slice(lifted_slice);
+
+            // // Convert the arguments to the FFI types before passing through
+            // let args = args
+            //     .into_iter()
+            //     .map(as_ffi_argument)
+            //     .collect::<Result<RVec<_>>>()?;
+
+            let result = cloned_function.call(rslice);
 
             match result {
                 RResult::ROk(output) => output.into_steelval(),
@@ -1390,12 +1431,26 @@ impl From<FFIBoxedDynFunction> for BoxedDynFunction {
             let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             // Convert the arguments to the FFI types before passing through
-            let args = args
+            // let args = args
+            //     .into_iter()
+            //     .map(as_ffi_argument)
+            //     .collect::<Result<RVec<_>>>()?;
+
+            let mut other_args = args
                 .into_iter()
                 .map(as_ffi_argument)
-                .collect::<Result<RVec<_>>>()?;
+                .collect::<Result<smallvec::SmallVec<[FFIArg<'_>; 16]>>>()?;
 
-            let result = value.function.call(args);
+            let lifted_slice = unsafe {
+                std::mem::transmute::<&mut [FFIArg], &'static mut [FFIArg]>(
+                    other_args.as_mut_slice(),
+                )
+            };
+
+            // Get the slice
+            let rslice = RSliceMut::from_mut_slice(lifted_slice);
+
+            let result = value.function.call(rslice);
 
             match result {
                 RResult::ROk(output) => output.into_steelval(),
