@@ -29,6 +29,7 @@
 (define *STEEL_HOME* (~> "STEEL_HOME" (env-var) (append-with-separator "cogs")))
 (define *NATIVE-SOURCES-DIR* (~> "STEEL_HOME" (env-var) (append-with-separator "sources")))
 (define *COG-SOURCES* (~> "STEEL_HOME" (env-var) (append-with-separator "cog-sources")))
+(define *DYLIB-DIR* (~> "STEEL_HOME" (env-var) (append-with-separator "native")))
 
 (define (for-each func lst)
   (if (null? lst)
@@ -180,6 +181,10 @@
   ;; Grab the map of installed cogs on the file system.
   ;; We will check if the cog is already installed before patching over the directory
   (define installed-cogs (discover-cogs *STEEL_HOME*))
+
+  (when (not (path-exists? *DYLIB-DIR*))
+    (displayln "dylib directory does not exist, creating now...")
+    (create-directory! *DYLIB-DIR*))
 
   (transduce cogs-to-install
              (flat-mapping parse-cog)

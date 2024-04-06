@@ -21,6 +21,7 @@
 (define *COG_DIR* (path-from-steel-home "cogs"))
 (define *COG-SOURCES* (path-from-steel-home "cog-sources"))
 (define *NATIVE_SOURCES_DIR* (path-from-steel-home "sources"))
+(define *DYLIB-DIR* (path-from-steel-home "native"))
 
 ;;@doc
 ;; Most likely should use gix here instead of shelling out to git?
