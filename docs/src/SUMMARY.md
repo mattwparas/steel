@@ -1,6 +1,6 @@
 # Summary
 
-[Introduction](introduction/intro.md)
+[Introduction](introduction.md)
 
 - [Lisp](lisp/overview.md)
     - [Evaluation](lisp/evaluation.md)
