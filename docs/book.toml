@@ -1,13 +1,6 @@
 [book]
-authors = ["mattwparas"]
+authors = ["mattwparas", "fominok"]
 language = "en"
 multilingual = false
 src = "src"
-title = "Steel"
-
-# https://github.com/slowsage/mdbook-pagetoc
-[preprocessor.pagetoc]
-
-[output.html]
-additional-css = ["theme/pagetoc.css"]
-additional-js  = ["theme/pagetoc.js"]
+title = "The Book of Steel"
