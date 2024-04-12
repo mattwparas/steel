@@ -203,12 +203,9 @@ impl StackFrame {
             function,
             ip,
             instructions,
-            // span: None,
             handler: None,
 
             weak_continuation_mark: None,
-            // spans,
-            // span_id,
         }
     }
 
@@ -222,12 +219,6 @@ impl StackFrame {
         let function = Gc::new(ByteCodeLambda::main(Vec::new()));
         StackFrame::new(0, function, 0, Rc::from([]))
     }
-
-    // #[inline(always)]
-    // pub fn with_span(mut self, span: Span) -> Self {
-    //     self.span = Some(span);
-    //     self
-    // }
 
     #[inline(always)]
     pub fn set_function(&mut self, function: Gc<ByteCodeLambda>) {
@@ -246,14 +237,6 @@ impl StackFrame {
     pub fn set_continuation(&mut self, continuation: &Continuation) {
         self.weak_continuation_mark = Some(WeakContinuation::from_strong(&continuation));
     }
-
-    // pub fn set_span(&mut self, span: Span) {
-    //     self.span = Some(span);
-    // }
-
-    // pub fn attach_handler(&mut self, handler: SteelVal) {
-    //     self.handler = Some(handler);
-    // }
 
     pub fn with_handler(mut self, handler: SteelVal) -> Self {
         self.handler = Some(Rc::new(handler));
@@ -1232,24 +1215,18 @@ impl<'a> VmCore<'a> {
             {
                 // Close frame if the new continuation doesn't have it
                 if !marks_still_open.contains(&(cont_mark.as_ptr() as usize)) {
-                    // println!("Closing marks on stack frame, still open");
-
                     self.thread.stack.truncate(frame.sp);
                     self.ip = frame.ip;
                     self.sp = self.get_last_stack_frame_sp();
                     self.instructions = Rc::clone(&frame.instructions);
-
                     self.close_continuation_marks(&frame);
                     continue;
-                } else {
-                    // println!("Skipping closing frame: {:p}", cont_mark.inner);
                 }
             }
         }
 
         self.thread.stack = continuation.stack;
         self.instructions = continuation.instructions;
-        // self.spans = continuation.spans;
         self.ip = continuation.ip;
         self.sp = continuation.sp;
         self.pop_count = continuation.pop_count;
@@ -1271,14 +1248,6 @@ impl<'a> VmCore<'a> {
         let old_ip = self.ip;
         let old_instructions = std::mem::replace(&mut self.instructions, closure);
         let old_pop_count = self.pop_count;
-        // let old_spans = std::mem::replace(&mut self.spans, spans);
-
-        // dbg!(self.sp);
-
-        // dbg!(self.thread.stack_frames.last().map(|x| x.sp));
-        // let old_sp = self.sp;
-
-        // let old_stack_index = self.stack_index;
 
         self.ip = 0;
         // Force the execution to be done earlier
@@ -1295,11 +1264,6 @@ impl<'a> VmCore<'a> {
         self.pop_count = old_pop_count;
         // self.spans = old_spans;
         self.sp = self.thread.stack_frames.last().map(|x| x.sp).unwrap_or(0);
-
-        // dbg!(self.sp);
-        // dbg!(self.thread.stack_frames.last().map(|x| x.sp));
-
-        // self.stack_frames.pop();
 
         res
     }
@@ -1382,10 +1346,6 @@ impl<'a> VmCore<'a> {
                 let arg_vec: Vec<_> = args.into_iter().collect();
                 func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
-            // SteelVal::ContractedFunction(cf) => {
-            //     let arg_vec: Vec<_> = args.into_iter().collect();
-            //     cf.apply(arg_vec, cur_inst_span, self)
-            // }
             SteelVal::MutFunc(func) => {
                 let mut arg_vec: Vec<_> = args.into_iter().collect();
                 func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
@@ -1512,14 +1472,6 @@ impl<'a> VmCore<'a> {
         self.call_with_instructions_and_reset_state(closure.body_exp())
     }
 
-    // pub fn get_slice_of_size_two(&mut self) -> &mut [SteelVal] {
-    //     if let &mut [.., last, two] = self.thread.stack.as_mut_slice() {
-    //         &mut [last, two]
-    //     } else {
-    //         unreachable!()
-    //     }
-    // }
-
     pub(crate) fn vm(&mut self) -> Result<SteelVal> {
         // if self.depth > 1024 {
         if self.depth > 1024 * 128 {
@@ -1536,13 +1488,8 @@ impl<'a> VmCore<'a> {
                     Err(e) => return Err(e.set_span_if_none(self.current_span())),
                 };
 
-                // This is the old way... lets see if the below way improves the speed
-                // self.thread.stack.truncate(last_index);
-                // self.thread.stack.push(result);
-
                 self.thread.stack.truncate(last_index + 1);
                 *self.thread.stack.last_mut().unwrap() = result;
-                // self.thread.stack.push(result);
 
                 self.ip += 2;
             }};
@@ -3640,12 +3587,6 @@ impl<'a> VmCore<'a> {
     ) -> Result<()> {
         self.cut_sequence();
 
-        // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-
-        // println!("Handling function call for multi arity function");
-
-        // Jit profiling
-
         #[cfg(feature = "jit")]
         {
             closure.increment_call_count();
@@ -3655,79 +3596,25 @@ impl<'a> VmCore<'a> {
 
         self.sp = self.thread.stack.len() - closure.arity();
 
-        // {
-        //     // Current frame already has the instructions
-        //     self.current_frame.ip += 1;
-        //     self.current_frame = self.stack.len() - closure.arity();
+        let mut instructions = closure.body_exp();
 
-        //     self.stack_frames.push(self.current_frame);
-
-        //     let instructions = closure.body_exp();
-
-        //     self.current_frame = StackFrame::new(self.sp, closure, 0, instructions)
-        // }
-
-        let instructions = closure.body_exp();
-        // let spans = closure.spans();
-
-        self.thread.stack_frames.push(
-            StackFrame::new(
-                self.sp,
-                closure,
-                self.ip + 1,
-                Rc::clone(&self.instructions),
-                // Rc::clone(&self.spans),
-            ), // .with_span(self.current_span()),
-        );
-
-        // self.current_arity = Some(closure.arity());
+        self.thread.stack_frames.push(StackFrame::new(
+            self.sp,
+            closure,
+            self.ip + 1,
+            // Rc::clone(&self.instructions),
+            std::mem::replace(&mut self.instructions, instructions),
+        ));
 
         self.check_stack_overflow()?;
 
-        // self.stack_index.push(self.stack.len() - closure.arity());
-
-        // TODO use new heap
-        // self.heap
-        //     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
-        // self.heap.collect_garbage();
-
-        // self.instruction_stack.push(InstructionPointer::new(
-        //     self.ip + 1,
-        //     Rc::clone(&self.instructions),
-        // ));
         self.pop_count += 1;
 
-        // Move args into the stack, push stack onto stacks
-        // let stack = std::mem::replace(&mut self.stack, args.into());
-        // self.stacks.push(stack);
-
-        self.instructions = instructions;
-        // self.spans = spans;
+        // self.instructions = instructions;
 
         self.ip = 0;
         Ok(())
     }
-
-    // #[cfg(feature = "jit")]
-    // // #[inline(always)]
-    // fn call_compiled_function(
-    //     &mut self,
-    //     function: &JitFunctionPointer,
-    //     payload_size: usize,
-    // ) -> Result<()> {
-    //     if function.arity() != payload_size {
-    //         stop!(ArityMismatch => format!("function expected {} arguments, found {}", function.arity(), payload_size); self.current_span());
-    //     }
-
-    //     let result = function.call_func(&mut self.thread.stack);
-
-    //     // println!("Calling function!");
-
-    //     self.thread.stack.push(result);
-    //     self.ip += 1;
-
-    //     Ok(())
-    // }
 
     // TODO improve this a bit
     #[inline(always)]
@@ -3741,10 +3628,8 @@ impl<'a> VmCore<'a> {
         self.sp = self.thread.stack.len() - closure.arity();
 
         let mut instructions = closure.body_exp();
-        // let mut spans = closure.spans();
 
         std::mem::swap(&mut instructions, &mut self.instructions);
-        // std::mem::swap(&mut spans, &mut self.spans);
 
         // Do this _after_ the multi arity business
         // TODO: can these rcs be avoided
@@ -3752,77 +3637,13 @@ impl<'a> VmCore<'a> {
             StackFrame::new(self.sp, closure, self.ip + 1, instructions), // .with_span(self.current_span()),
         );
 
-        // self.current_arity = Some(closure.arity());
-
         self.check_stack_overflow()?;
-
-        // closure arity here is the number of true arguments
-        // self.stack_index.push(self.stack.len() - closure.arity());
-
-        // TODO use new heap
-        // self.heap
-        //     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
-        // self.heap.collect_garbage();
 
         self.pop_count += 1;
 
-        // self.instructions = instructions;
-        // self.spans = spans;
         self.ip = 0;
         Ok(())
     }
-
-    // #[inline(always)]
-    // fn handle_function_call_closure_jit_without_profiling_ref(
-    //     &mut self,
-    //     mut closure: &Gc<ByteCodeLambda>,
-    //     payload_size: usize,
-    // ) -> Result<()> {
-    //     self.adjust_stack_for_multi_arity(closure, payload_size, &mut 0)?;
-
-    //     self.sp = self.thread.stack.len() - closure.arity();
-
-    //     let mut instructions = closure.body_exp();
-    //     // let mut spans = closure.spans();
-
-    //     std::mem::swap(&mut instructions, &mut self.instructions);
-    //     // std::mem::swap(&mut spans, &mut self.spans);
-
-    //     // Do this _after_ the multi arity business
-    //     // TODO: can these rcs be avoided
-    //     self.thread.stack_frames.push(
-    //         StackFrame::new_rooted(
-    //             self.sp,
-    //             // Almost assuredly UB - there really just needs to be a runtime reference
-    //             // on the value that gets passed around, or we just need to
-    //             #[cfg(feature = "unsafe-internals")]
-    //             crate::gc::unsafe_roots::MaybeRooted::from_root(closure),
-    //             #[cfg(not(feature = "unsafe-internals"))]
-    //             closure.clone(),
-    //             self.ip + 1,
-    //             instructions,
-    //         ), // .with_span(self.current_span()),
-    //     );
-
-    //     // self.current_arity = Some(closure.arity());
-
-    //     self.check_stack_overflow()?;
-
-    //     // closure arity here is the number of true arguments
-    //     // self.stack_index.push(self.stack.len() - closure.arity());
-
-    //     // TODO use new heap
-    //     // self.heap
-    //     //     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
-    //     // self.heap.collect_garbage();
-
-    //     self.pop_count += 1;
-
-    //     // self.instructions = instructions;
-    //     // self.spans = spans;
-    //     self.ip = 0;
-    //     Ok(())
-    // }
 
     // TODO improve this a bit
     // #[inline(always)]
@@ -4067,23 +3888,9 @@ pub fn call_with_exception_handler(
                 .with_handler(handler),
             );
 
-            // ctx.stack_index.push(ctx.stack.len());
-
-            // Put the continuation as the argument
-            // Previously we put the continuation directly on the stack ourselves, but instead we now return as an argument
-            // ctx.stack.push(continuation);
-
-            // self.global_env = inner_env;
-            // ctx.instruction_stack.push(InstructionPointer::new(
-            //     ctx.ip + 1,
-            //     Rc::clone(&ctx.instructions),
-            // ));
             ctx.pop_count += 1;
 
             ctx.instructions = closure.body_exp();
-            // ctx.spans = closure.spans();
-            // ctx.function_stack
-            //     .push(CallContext::new(closure).with_span(ctx.current_span()));
 
             ctx.ip = 0;
         }
@@ -4116,11 +3923,7 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
         builtin_stop!(ArityMismatch => format!("call/cc expects one argument, found: {}", args.len()); ctx.current_span());
     }
 
-    // let function = ctx.stack.pop().unwrap();
-
     let function = args[0].clone();
-
-    // validate_closure_for_call_cc(&function, self.current_span())?;
 
     match &function {
         SteelVal::Closure(c) => {
@@ -4134,8 +3937,6 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
             builtin_stop!(Generic => format!("call/cc expects a function, found: {function}"); ctx.current_span())
         }
     }
-
-    // dbg!(&ctx.thread.stack_frames.last().map(|x| &x.continuation_mark));
 
     let continuation = ctx.construct_continuation_function();
 
@@ -4151,11 +3952,6 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
             }
 
             ctx.sp = ctx.thread.stack.len();
-
-            // ctx.thread
-            //     .stack_frames
-            //     .last_mut()
-            //     .map(|x| x.set_continuation(continuation.clone()));
 
             ctx.thread.stack_frames.push(
                 StackFrame::new(
@@ -4173,29 +3969,11 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
             ctx.instructions = closure.body_exp();
 
             ctx.ip = 0;
-
-            // let last = ctx.thread.stack_frames.last_mut().unwrap();
-
-            // let offset = last.sp;
-
-            // let back = ctx.thread.stack.len();
-            // let _ = ctx.thread.stack.drain(offset..back);
-            // ctx.instructions = closure.body_exp();
-
-            // last.set_function(closure);
-            // last.set_continuation(continuation.clone());
-
-            // ctx.ip = 0;
         }
         SteelVal::ContinuationFunction(cc) => {
-            // ctx.set_state_from_continuation(cc.unwrap());
-
-            // println!("Setting state from continuation...");
-
             Continuation::set_state_from_continuation(ctx, cc);
 
             ctx.ip += 1;
-            // ctx.stack.push(continuation);
         }
         SteelVal::FuncV(f) => return Some(f(&[SteelVal::ContinuationFunction(continuation)])),
 
@@ -4301,10 +4079,6 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
                         ctx.handle_function_call_closure(closure.clone(), l.len())
                     };
 
-                    // TODO: Fix this unwrap
-                    // let res = ctx.handle_function_call_closure(closure.clone(), l.len());
-                    // let res = ctx.new_handle_tail_call_closure(closure.clone(), l.len());
-
                     if res.is_err() {
                         // This is explicitly unreachable, since we're checking
                         // that this is an error variant
@@ -4314,14 +4088,11 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
                     None
                 }
                 SteelVal::ContinuationFunction(cc) => {
-                    // ctx.set_state_from_continuation(cc.unwrap());
-
                     Continuation::set_state_from_continuation(ctx, cc.clone());
 
                     ctx.ip += 1;
 
                     None
-                    // ctx.stack.push(continuation);
                 }
                 // TODO: Reuse the allocation for apply
                 SteelVal::FuncV(f) => {

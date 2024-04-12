@@ -27,6 +27,7 @@ use crate::{
 };
 use crate::{steel_vm::builtin::BuiltInModule, stop};
 use std::collections::VecDeque;
+use std::ops::Deref;
 use std::sync::Arc;
 use std::{
     cell::{Ref, RefCell},
@@ -36,6 +37,7 @@ use std::{
 use super::closed::Heap;
 use super::functions::BoxedDynFunction;
 use super::lists::List;
+use super::recycler::Recycle;
 
 enum StringOrMagicNumber {
     String(Rc<String>),
@@ -117,14 +119,7 @@ pub struct SerializableUserDefinedStruct {
 
 #[derive(Clone, Debug, Hash)]
 pub struct UserDefinedStruct {
-    // pub(crate) name: InternedString,
-
-    // TODO: Consider using... just a vec here.
-    #[cfg(feature = "smallvec")]
-    pub(crate) fields: smallvec::SmallVec<[SteelVal; 5]>,
-
-    #[cfg(not(feature = "smallvec"))]
-    pub(crate) fields: Vec<SteelVal>,
+    pub(crate) fields: Recycle<Vec<SteelVal>>,
 
     // Type Descriptor. Use this as an index into the VTable to find anything that we need.
     pub(crate) type_descriptor: StructTypeDescriptor,
@@ -145,7 +140,7 @@ impl UserDefinedStruct {
 // TODO: This could blow the stack for big trees...
 impl PartialEq for UserDefinedStruct {
     fn eq(&self, other: &Self) -> bool {
-        self.type_descriptor == other.type_descriptor && self.fields == other.fields
+        self.type_descriptor == other.type_descriptor && self.fields.deref() == other.fields.deref()
     }
 }
 
@@ -171,57 +166,12 @@ impl std::fmt::Display for UserDefinedStruct {
     }
 }
 
-// thread_local! {
-//     pub static FIELDS_RECYCLER: RefCell<FieldsRecycler> = RefCell::new(FieldsRecycler::new());
-// }
-
-// const RECYCLER_CAPACITY: usize = 128;
-
-// pub struct FieldsRecycler {
-//     // Allocations that we'll save around.
-//     vecs: Vec<Vec<SteelVal>>,
-// }
-
-// impl FieldsRecycler {
-//     pub fn new() -> Self {
-//         Self { vecs: Vec::new() }
-//     }
-
-//     pub fn allocate_with(fields: &[SteelVal]) -> Vec<SteelVal> {
-//         FIELDS_RECYCLER.with(|x| x.borrow_mut().allocate_with_contents(fields))
-//     }
-
-//     pub fn free(vec: Vec<SteelVal>) {
-//         FIELDS_RECYCLER.with(|x| x.borrow_mut().free_vec(vec))
-//     }
-
-//     fn allocate_with_contents(&mut self, fields: &[SteelVal]) -> Vec<SteelVal> {
-//         // println!("Recyclable values: {}", self.vecs.len());
-
-//         if let Some(mut vec) = self.vecs.pop() {
-//             vec.shrink_to(fields.len());
-//             vec.extend_from_slice(fields);
-
-//             return vec;
-//         } else {
-//             return fields.to_vec();
-//         }
-//     }
-
-//     // Note: hopefully this vec has been cleared first!
-//     fn free_vec(&mut self, mut vec: Vec<SteelVal>) {
-//         if self.vecs.len() < RECYCLER_CAPACITY {
-//             vec.clear();
-//             self.vecs.push(vec);
-//         }
-//     }
-// }
-
 impl UserDefinedStruct {
-    fn new(type_descriptor: StructTypeDescriptor, fields: &[SteelVal]) -> Self {
+    fn new(type_descriptor: StructTypeDescriptor, raw_fields: &[SteelVal]) -> Self {
+        let mut fields: Recycle<Vec<_>> = Recycle::new();
+        fields.extend_from_slice(raw_fields);
         Self {
-            // fields: FieldsRecycler::allocate_with(fields),
-            fields: fields.to_vec(),
+            fields,
             type_descriptor,
         }
     }
@@ -233,11 +183,6 @@ impl UserDefinedStruct {
                 .get(val)
                 .cloned()
         })
-
-        // match &self.properties {
-        // Properties::BuiltIn => VTable::get(&self.name).and_then(|x| x.get(val).cloned()),
-        // Properties::Local(p) => p.get(val).cloned(),
-        // }
     }
 
     #[inline(always)]
@@ -254,23 +199,15 @@ impl UserDefinedStruct {
     // to these structs and use them that way
     #[inline(always)]
     fn is_ok(&self) -> bool {
-        // todo!()
         self.type_descriptor.name() == *OK_RESULT_LABEL
-        // Arc::ptr_eq(&self.name, &OK_RESULT_LABEL.with(|x| Rc::clone(x)))
-        //     || self.name == OK_RESULT_LABEL.with(|x| Rc::clone(x))
     }
 
     #[inline(always)]
     fn is_err(&self) -> bool {
-        // todo!()
         self.type_descriptor.name() == *ERR_RESULT_LABEL
-        // Arc::ptr_eq(&self.name, &ERR_RESULT_LABEL.with(|x| Rc::clone(x)))
-        //     || self.name == ERR_RESULT_LABEL.with(|x| Rc::clone(x))
     }
 
     pub(crate) fn maybe_proc(&self) -> Option<&SteelVal> {
-        // self.proc.as_ref().map(|s| &self.fields[*s])
-
         VTABLE.with(|x| {
             x.borrow().entries[self.type_descriptor.0]
                 .proc
@@ -280,23 +217,20 @@ impl UserDefinedStruct {
     }
 
     fn new_with_options(
-        // name: InternedString,
         properties: Properties,
         type_descriptor: StructTypeDescriptor,
         rest: &[SteelVal],
     ) -> Self {
+        let mut fields: Recycle<Vec<_>> = Recycle::new();
+        fields.extend_from_slice(rest);
+
         Self {
-            // name,
-            fields: rest.to_vec(),
-            // len: rest.len() + 1,
-            // properties,
-            // proc: None,
+            fields,
             type_descriptor,
         }
     }
 
     fn constructor_thunk(
-        // options: Properties,
         len: usize,
         descriptor: StructTypeDescriptor,
     ) -> impl Fn(&[SteelVal]) -> Result<SteelVal> {
@@ -318,14 +252,7 @@ impl UserDefinedStruct {
         }
     }
 
-    fn constructor_with_options(
-        // options: Gc<HashMap<SteelVal, SteelVal>>,
-        // options: Properties,
-        len: usize,
-        descriptor: StructTypeDescriptor,
-    ) -> SteelVal {
-        // let out_name = Arc::clone(&name);
-
+    fn constructor_with_options(len: usize, descriptor: StructTypeDescriptor) -> SteelVal {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != len {
                 let error_message = format!(
@@ -355,8 +282,6 @@ impl UserDefinedStruct {
         len: usize,
         type_descriptor: StructTypeDescriptor,
     ) -> SteelVal {
-        // let out_name = Arc::clone(&name);
-
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != len {
                 let error_message = format!(
@@ -383,8 +308,6 @@ impl UserDefinedStruct {
     }
 
     fn predicate(descriptor: StructTypeDescriptor) -> SteelVal {
-        // let out_name = Arc::clone(&name);
-
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
                 let error_message = format!(
@@ -398,22 +321,18 @@ impl UserDefinedStruct {
                 SteelVal::CustomStruct(my_struct) if my_struct.type_descriptor == descriptor => {
                     true
                 }
-                // SteelVal::CustomStruct(my_struct) if my_struct.name == name => true,
                 _ => false,
             }))
         };
 
         SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
-            // Some(out_name),
             Some(descriptor.name().resolve().to_string().into()),
             Some(1),
         )))
     }
 
     fn getter_prototype(descriptor: StructTypeDescriptor) -> SteelVal {
-        // let out_name = Arc::clone(&name);
-
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
                 stop!(ArityMismatch => format!("{} expected two arguments", descriptor.name()));
@@ -425,8 +344,6 @@ impl UserDefinedStruct {
             match (&steel_struct, &idx) {
                 (SteelVal::CustomStruct(s), SteelVal::IntV(idx)) => {
                     if s.type_descriptor != descriptor {
-                        // println!("{}, {}", s.borrow().name.resolve(), name.resolve());
-
                         stop!(TypeMismatch => format!("Struct getter expected {}, found {:?}, {:?}", descriptor.name(), &s, &steel_struct));
                     }
 
@@ -453,15 +370,12 @@ impl UserDefinedStruct {
 
         SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
-            // Some(out_name),
             Some(descriptor.name().resolve().to_string().into()),
             Some(2),
         )))
     }
 
     fn getter_prototype_index(descriptor: StructTypeDescriptor, index: usize) -> SteelVal {
-        // let out_name = Arc::clone(&name);
-
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
                 stop!(ArityMismatch => "struct-ref expected one argument");
@@ -471,8 +385,6 @@ impl UserDefinedStruct {
 
             match &steel_struct {
                 SteelVal::CustomStruct(s) => {
-                    // println!("{}, {}", s.borrow().name.resolve(), name.resolve());
-
                     if s.type_descriptor != descriptor {
                         stop!(TypeMismatch => format!("Struct getter expected {}, found {:?}, {:?}", descriptor.name(), &s, &steel_struct));
                     }
@@ -500,10 +412,6 @@ impl UserDefinedStruct {
             Some(1),
         )))
     }
-
-    // pub fn properties(&self) -> SteelVal {
-    // SteelVal::HashMapV(self.properties.clone())
-    // }
 }
 
 // Update the given struct in place, without having to allocate a new one
@@ -617,20 +525,6 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
         .into(),
     ))
 }
-
-/*
-TODO:
-
-Create something like a type-id - dispatch from there to the proper implementation by consulting
-the VTable.
-
-Implementing a trait for a type should error if the trait is already implemented, and the predicate
-for checking if a trait is implemented should just consult the table.
-
-There should be a way to move things over
-
-
-*/
 
 // Implement internal thing here?
 struct SteelTrait {
@@ -812,11 +706,6 @@ thread_local! {
     pub static NONE_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*NONE_OPTION_LABEL, None);
 
 
-    // pub static OK_RESULT_LABEL: Rc<String> = Rc::new("Ok".into());
-    // pub static ERR_RESULT_LABEL: Rc<String> = Rc::new("Err".into());
-    // pub static RESULT_OPTIONS: Gc<im_rc::HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
-        // SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
-    // });
     pub static OK_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
             Rc::new(Box::new(UserDefinedStruct::constructor_thunk(
             1,
@@ -825,20 +714,16 @@ thread_local! {
     };
 
     pub static ERR_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
-        // let name = ERR_RESULT_LABEL.with(|x| Rc::clone(x));
         Rc::new(Box::new(UserDefinedStruct::constructor_thunk(
             1,
             ERR_DESCRIPTOR.with(|x| *x),
         )))
     };
 
-    // pub static SOME_OPTION_LABEL: Rc<String> = Rc::new("Some".into());
-    // pub static NONE_LABEL: Rc<String> = Rc::new("None".into());
     pub static OPTION_OPTIONS: Gc<im_rc::HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
         SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
     pub static SOME_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
-        // let name = SOME_OPTION_LABEL.with(|x| Rc::clone(x));
         Rc::new(Box::new(UserDefinedStruct::constructor_thunk(
             1,
             SOME_DESCRIPTOR.with(|x| *x),
@@ -846,7 +731,6 @@ thread_local! {
     };
 
     pub static NONE_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
-        // let name = NONE_LABEL.with(|x| Rc::clone(x));
         Rc::new(Box::new(UserDefinedStruct::constructor_thunk(
             0,
             NONE_DESCRIPTOR.with(|x| *x),
@@ -869,16 +753,7 @@ pub(crate) fn build_type_id_module() -> BuiltInModule {
 
     module
         .register_fn("#%vtable-update-entry!", VTable::set_entry)
-        // .register_value(
-        //     "TypeId",
-        //     SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
-        //         constructor,
-        //         Some(name.resolve().to_string().into()),
-        //         Some(2),
-        //     ))),
-        // )
         .register_value("TypeId?", predicate);
-    // .register_native_fn_definition(CUSTOM_TYPE_ID_DEFINITION);
 
     module
 }
@@ -913,11 +788,9 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
                 "Ok",
                 SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
                     Arc::new(UserDefinedStruct::constructor_thunk(
-                        // Rc::clone(&name),
                         1,
                         OK_DESCRIPTOR.with(|x| *x),
                     )),
-                    // Some(Rc::clone(&name)),
                     Some(name.resolve().to_string().into()),
                     Some(1),
                 ))),
@@ -1103,85 +976,3 @@ impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for std::result::Result<T, E
         }
     }
 }
-
-// #[cfg(test)]
-// mod struct_tests {
-
-//     use super::*;
-
-//     fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<SteelVal> {
-//         let func = func
-//             .boxed_func_or_else(throw!(BadSyntax => "string tests"))
-//             .unwrap();
-
-//         func(&args)
-//     }
-
-//     #[test]
-//     fn constructor_normal() {
-//         let args = vec![SteelVal::IntV(1), SteelVal::IntV(2)];
-//         let res = apply_function(constructor(Rc::from("Promise"), 2), args);
-//         let expected = SteelVal::StructV(Gc::new(SteelStruct {
-//             name: Rc::from("Promise"),
-//             fields: vec![SteelVal::IntV(1), SteelVal::IntV(2)],
-//         }));
-//         assert_eq!(res.unwrap(), expected)
-//     }
-
-//     #[test]
-//     fn setter_position_0() {
-//         let args = vec![
-//             SteelVal::StructV(Gc::new(SteelStruct {
-//                 name: Rc::from("Promise"),
-//                 fields: vec![SteelVal::IntV(1), SteelVal::IntV(2)],
-//             })),
-//             SteelVal::IntV(100),
-//         ];
-
-//         let res = apply_function(setter(Rc::from("Promise"), 0), args);
-//         let expected = SteelVal::StructV(Gc::new(SteelStruct {
-//             name: Rc::from("Promise"),
-//             fields: vec![SteelVal::IntV(100), SteelVal::IntV(2)],
-//         }));
-//         assert_eq!(res.unwrap(), expected);
-//     }
-
-//     #[test]
-//     fn setter_position_1() {
-//         let args = vec![
-//             SteelVal::StructV(Gc::new(SteelStruct {
-//                 name: Rc::from("Promise"),
-//                 fields: vec![SteelVal::IntV(1), SteelVal::IntV(2)],
-//             })),
-//             SteelVal::IntV(100),
-//         ];
-
-//         let res = apply_function(setter(Rc::from("Promise"), 1), args);
-//         let expected = SteelVal::StructV(Gc::new(SteelStruct {
-//             name: Rc::from("Promise"),
-//             fields: vec![SteelVal::IntV(1), SteelVal::IntV(100)],
-//         }));
-//         assert_eq!(res.unwrap(), expected);
-//     }
-
-//     #[test]
-//     fn getter_position_0() {
-//         let args = vec![SteelVal::StructV(Gc::new(SteelStruct {
-//             name: Rc::from("Promise"),
-//             fields: vec![SteelVal::IntV(1), SteelVal::IntV(2)],
-//         }))];
-
-//         let res = apply_function(getter(Rc::from("Promise"), 0), args);
-//         let expected = SteelVal::IntV(1);
-//         assert_eq!(res.unwrap(), expected);
-//     }
-// }
-
-// #[test]
-// fn small_vec_size() {
-//     println!(
-//         "{:?}",
-//         std::mem::size_of::<smallvec::SmallVec<[SteelVal; 5]>>()
-//     );
-//     println!("{:?}", std::mem::size_of::<MaybeHeapVec>())
-// }

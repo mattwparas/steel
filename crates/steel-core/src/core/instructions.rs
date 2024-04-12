@@ -28,18 +28,6 @@ impl Instruction {
     }
 }
 
-// Want to turn a steel struct directly into this struct
-// If we values themselves can be mapped
-// impl TryFrom<SteelStruct> for Instruction {
-//     type Error = crate::SteelErr;
-
-//     fn try_from(value: SteelStruct) -> Result<Self, Self::Error> {
-//         if value.name == "Instruction" {
-
-//         }
-//     }
-// }
-
 pub fn densify(instructions: Vec<Instruction>) -> Vec<DenseInstruction> {
     instructions.into_iter().map(|x| x.into()).collect()
 }
@@ -120,6 +108,15 @@ pub struct DenseInstruction {
     // Also: We should be able to get away with a u16 here. Just grab places where u16
     // won't fit and convert to something else.
     pub payload_size: u32,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct DenseInstruction2 {
+    pub op_code: OpCode,
+    // Function IDs need to be interned _again_ before patched into the code?
+    // Also: We should be able to get away with a u16 here. Just grab places where u16
+    // won't fit and convert to something else.
+    pub payload_size: u8,
 }
 
 impl DenseInstruction {

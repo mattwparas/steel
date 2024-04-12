@@ -1341,8 +1341,13 @@ pub fn plain_set_box_mutable(value: &HeapRef<SteelVal>, update: SteelVal) -> Ste
     value.set_and_return(update)
 }
 
-// TODO: Handle arity issues!!!
 fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    if args.len() != 1 {
+        return Some(Err(
+            throw!(ArityMismatch => "box expects one argument, found: {}", args.len())(),
+        ));
+    }
+
     let allocated_var = ctx.thread.heap.allocate(
         args[0].clone(), // TODO: Could actually move off of the stack entirely
         ctx.thread.stack.iter(),
@@ -1370,7 +1375,7 @@ pub fn black_box(_: &[SteelVal]) -> Result<SteelVal> {
 #[steel_derive::function(name = "struct->list")]
 pub fn struct_to_list(value: &UserDefinedStruct) -> Result<SteelVal> {
     if value.is_transparent() {
-        Ok(SteelVal::ListV(value.fields.clone().into()))
+        Ok(SteelVal::ListV((*value.fields).clone().into()))
     } else {
         Ok(SteelVal::BoolV(false))
     }

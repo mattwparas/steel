@@ -245,12 +245,6 @@
 (define (new-make-predicate struct-predicate-name struct-name fields)
   `(set! ,struct-predicate-name predicate-proto))
 
-; (define (new-make-constructor struct-name procedure-index fields)
-;   `(set!
-;     ,struct-name
-;     (lambda ,fields
-;       (constructor-proto ,(concat-symbols '___ struct-name '-options___) ,procedure-index ,@fields))))
-
 (define (mutable-make-getters struct-name fields)
   (map (lambda (field)
          `(set! ,(concat-symbols struct-name '- (car field))
@@ -296,15 +290,6 @@
 (define (make-unreadable symbol)
   (~>> symbol (symbol->string) (string-append "##") (string->symbol)))
 
-; (define (define-values bindings expr)
-;   `(begin
-;      (define ,(make-unreadable '#%proto-define-values-binding-gensym__)
-;        ,expr)
-;      ,@(map (lambda (binding-index-pair)
-;               `(define ,(car binding-index-pair)
-;                  ,(list-ref binding-index-pair 1)))
-;             (enumerate 0 '() bindings))))
-
 (#%define-syntax (define-values expr)
                  ; (displayln expr)
                  (define underlying (syntax-e expr))
@@ -319,10 +304,7 @@
                                 (list-ref ,unreadable-list-name ,(list-ref binding-index-pair 1))))
                            (enumerate 0 '() bindings))))
 
-(#%define-syntax (#%better-lambda expr)
-                 ; (displayln "Expanding: " expr)
-                 ; (displayln "unwrapping one level..." (syntax-e expr))
-                 (quasisyntax (list 10 20 30)))
+(#%define-syntax (#%better-lambda expr) (quasisyntax (list 10 20 30)))
 
 ;; TODO: make this not so suspect, but it does work!
 (#%define-syntax (#%current-kernel-transformers expr)
@@ -331,199 +313,4 @@
 (#%define-syntax (#%fake-lambda expr)
                  (define underlying (syntax-e expr))
                  (define rest (cdr underlying))
-                 ; (displayln rest)
-                 ; (displayln (syntax-e (list-ref rest 1)))
                  (cons '#%plain-lambda rest))
-
-;; Implement defmacro!
-;; Defmacro: Load functions that operate on syntax, directly into the kernel.
-;; And then, call those as such in the kernel via transformers.
-
-; (#%define-syntax )
-
-;; TODO: Come back to this once theres something to attach it to
-; (define (@doc expr comment)
-;   (if (equal? (car expr) 'define)
-;       `(begin
-;           (define ,(concat-symbols '__doc- (second expr)) ,comment)
-;           ,expr
-;        )
-;        expr))
-
-;; TODO: This is going to fail simply because when re-reading in the body of
-;; expanded functions. The parser is unable to parse already made un-parseable
-;; items. In this case, we should not re-parse the items, but rather
-;; convert the s-expression BACK into a typed ast instead.
-; (define (default-loop args found-pair)
-;   (cond [(empty? args) #f]
-;         [(pair? (car args)) (default-loop (cdr args) #t)]
-;         [else
-;          (if found-pair
-;              #t
-;              (default-loop (cdr args) #f))]))
-
-; (define (non-default-after-default? args)
-;   (default-loop args #f))
-
-; (define (%test-lambda% args body)
-;                                         ;   (->/c non-default-after-default? any/c any/c)
-;   (when (non-default-after-default? args)
-;     (error! "Non default argument occurs after a default argument"))
-;   (let (
-;         (args-len (length args))
-;         (non-default-bindings (filter (lambda (x) (not (pair? x))) args))
-;         (bindings
-;          (transduce
-;           ;; Now we have attached the index of the list to the iteration
-;           args
-;           ;; extract out the arguments that have a default associated
-;           ;; So from the argument list like so:
-;           ;; (a b [c <expr>] [d <expr>])
-;           ;; We will get out ([c <expr>] [d <expr>])
-;           (filtering (lambda (x) (pair? x)))
-;           (enumerating)
-;           ;; Map to the let form of (binding expr)
-;           (mapping (lambda (x)
-;                      ;; ( (x, expr), index )
-;                      ;; TODO: clean this up
-;                      (let ((var-name (car (list-ref x 1)))
-;                            (expr (car (cdr (list-ref x 1))))
-;                            (index (car x)))
-;                        `(,var-name (let ((,var-name (try-list-ref !!dummy-rest-arg!! ,index)))
-;                                      (if ,var-name ,var-name ,expr))))))
-;           (into-list))))
-
-;                                         ; (displayln bindings)
-
-;     ;; TODO: Yes I understand this violates the macro writers bill of rights
-;     ;; that being said I'm only doing this as a proof of concept anyway so it can be rewritten
-;     ;; to be simpler and put the weight on the compiler later
-;     (if (equal? args-len (length non-default-bindings))
-;         `(lambda ,args ,body)
-;                                         ; (displayln "hello world")
-;         `(lambda (,@non-default-bindings . !!dummy-rest-arg!!)
-;                                         ;  (displayln !!dummy-rest-arg!!)
-;            (if (> (+ ,(length non-default-bindings) (length !!dummy-rest-arg!!))
-;                   ,args-len)
-;                (error! "Arity mismatch - function expected " ,args-len)
-;                void)
-;            (let (,@bindings) ,body)))))
-
-; (define (keyword? symbol)
-;     (unless (symbol? symbol) (return! #false))
-;     (let ((symbol-as-list (-> symbol (symbol->string) (string->list))))
-;       (and (equal? (list-ref symbol-as-list 0) #\#)
-;            (equal? (list-ref symbol-as-list 1) #\:))))
-
-; (define (keyword? symbol)
-;   (and (symbol? symbol) (-> symbol (symbol->string) (starts-with? "#:"))))
-
-; (define (drop-while pred? lst)
-;   (cond [(empty? lst) lst]
-;         [(pred? (car lst)) (drop-while pred? (cdr lst))]
-;         [else lst]))
-
-; (define (take-while-accum pred? lst accum)
-;   (cond [(empty? lst) accum]
-;         [(pred? (car lst)) (take-while-accum pred? (cdr lst) (cons (car lst) accum))]
-;         [else accum]))
-
-; (define (take-while pred? lst)
-;   (reverse (take-while-accum pred? lst '())))
-
-; (define (all func lst)
-;   (if (null? lst)
-;       #t
-;       (if (func (car lst))
-;           (all func (cdr lst))
-;           #f)))
-
-; (define (contains? pred? lst)
-;                                         ; (displayln lst)
-;   (cond [(empty? lst) #f]
-;         [(pred? (car lst)) #t]
-;         [else (contains? pred? (cdr lst))]))
-
-; (define (contains-keywords? args)
-;   (contains? keyword? args))
-
-; (define (contains-defaults? args)
-;   (contains? pair? args))
-
-; (define (%better-lambda% args body)
-;   (cond [(contains-keywords? args) (%lambda-keyword% args body)]
-;         [(contains-defaults? args) (%test-lambda% args body)]
-;         [else => `(#%plain-lambda ,args ,body)]))
-
-; (define (%lambda-keyword% args body)
-;   ;; TODO: Using define here causes a bug with the internal define expansion
-;                                         ; (define keyword-args (drop-while (lambda (x) (not (keyword? x))) args))
-
-;   (define keyword-args (drop-while (lambda (x) (not (keyword? x))) args))
-;   (when (odd? (length keyword-args))
-;     (error! "keyword arguments malformed - each option requires a value"))
-
-;   (define non-keyword-args (take-while (lambda (x) (not (keyword? x))) args))
-;   (define keyword-map (apply hash keyword-args))
-;   (when (not (all keyword? (hash-keys->list keyword-map)))
-;     (error! "Non keyword arguments found after the first keyword argument"))
-
-;   (define bindings
-;     (transduce
-;      keyword-map
-;      (mapping (lambda (x)
-;                 (let* ((keyword (list-ref x 0))
-;                        (original-var-name (list-ref x 1))
-;                        (expr (if (pair? original-var-name)
-;                                  (list-ref original-var-name 1)
-;                                  original-var-name))
-;                        (var-name (if (pair? original-var-name)
-;                                      (list-ref original-var-name 0)
-;                                      original-var-name)))
-
-;                   `(,var-name (let ((,var-name (hash-try-get !!dummy-rest-arg!! (quote ,keyword))))
-;                                 (if (hash-contains? !!dummy-rest-arg!! (quote ,keyword))
-;                                     ,var-name
-;                                     (if
-;                                      ,(pair? original-var-name)
-;                                      ,expr
-;                                      (error!
-;                                       "Function application missing required keyword argument: "
-;                                       (quote ,keyword)))))))))
-;      (into-list)))
-
-;   `(lambda (,@non-keyword-args . !!dummy-rest-arg!!)
-;      (let ((!!dummy-rest-arg!! (apply hash !!dummy-rest-arg!!)))
-;        (let (,@bindings) ,body))))
-
-; (let ((keyword-args (drop-while (lambda (x) (not (keyword? x))) args))
-;       (non-keyword-args (take-while (lambda (x) (not (keyword? x))) args)))
-;     (when (odd? (length keyword-args))
-;         (error! "keyword arguments malformed - each option requires a value"))
-
-;     (let ((keyword-map (apply hash keyword-args)))
-;         (when (not (all keyword? (hash-keys->list keyword-map)))
-;             (error! "Non keyword arguments found after the first keyword argument"))
-
-;         (let ((bindings
-;                 (transduce
-;                   keyword-map
-;                    (mapping (lambda (x)
-;                         (let* ((keyword (list-ref x 0))
-;                                (original-var-name (list-ref x 1))
-;                                (expr (if (pair? original-var-name) (list-ref original-var-name 1) original-var-name))
-;                                (var-name (if (pair? original-var-name) (list-ref original-var-name 0) original-var-name)))
-
-;                             `(,var-name (let ((,var-name (hash-try-get !!dummy-rest-arg!! (quote ,keyword))))
-;                                           (if (hash-contains? !!dummy-rest-arg!! (quote ,keyword))
-;                                               ,var-name
-;                                               (if
-;                                                 ,(pair? original-var-name)
-;                                                 ,expr
-;                                                 (error! "Function application missing required keyword argument: " (quote ,keyword)))))))))
-;                    (into-list))))
-;             `(lambda (,@non-keyword-args . !!dummy-rest-arg!!)
-;                 (let ((!!dummy-rest-arg!! (apply hash !!dummy-rest-arg!!)))
-;                     (let (,@bindings) ,body)))))))
-
-; (define test (%lambda-keyword% (a b #:transparent [transparent #t]) (if transparent (begin (displayln "hello world") (+ a b)) (+ a b 10))))
