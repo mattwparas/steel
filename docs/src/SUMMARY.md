@@ -5,6 +5,7 @@
 - [Lisp](lisp/overview.md)
     - [Evaluation](lisp/evaluation.md)
     - [Literals](lisp/literals.md)
+    - [Function calls](lisp/fncalls.md)
     - [Symbols](lisp/symbols.md)
 
 - [Steel](about/about.md)
