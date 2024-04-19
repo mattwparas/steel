@@ -1419,33 +1419,35 @@ impl Engine {
         for expr in &mut program.instructions {
             // Reform the program to conform to the current state of _this_ engine.
             for instruction in expr.iter_mut() {
-                match instruction {
-                    Instruction {
-                        op_code: OpCode::PUSHCONST,
-                        contents: Some(Expr::Atom(constant_value)),
-                        ..
-                    } => {
-                        let value =
-                            eval_atom(&constant_value).expect("This must be a constant value");
+                todo!()
 
-                        instruction.payload_size = self.compiler.constant_map.add_or_get(value);
-                    }
+                // match instruction {
+                //     Instruction {
+                //         op_code: OpCode::PUSHCONST,
+                //         contents: Some(Expr::Atom(constant_value)),
+                //         ..
+                //     } => {
+                //         let value =
+                //             eval_atom(&constant_value).expect("This must be a constant value");
 
-                    Instruction {
-                        op_code: OpCode::PUSHCONST,
-                        contents: Some(Expr::List(expression)),
-                        ..
-                    } => {
-                        let value = SteelVal::try_from(expression.clone())
-                            .expect("This conversion must work");
+                //         instruction.payload_size = self.compiler.constant_map.add_or_get(value);
+                //     }
 
-                        instruction.payload_size = self.compiler.constant_map.add_or_get(value);
-                    }
+                //     Instruction {
+                //         op_code: OpCode::PUSHCONST,
+                //         contents: Some(Expr::List(expression)),
+                //         ..
+                //     } => {
+                //         let value = SteelVal::try_from(expression.clone())
+                //             .expect("This conversion must work");
 
-                    _ => {
-                        todo!()
-                    }
-                }
+                //         instruction.payload_size = self.compiler.constant_map.add_or_get(value);
+                //     }
+
+                //     _ => {
+                //         todo!()
+                //     }
+                // }
             }
         }
     }

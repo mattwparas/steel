@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use steel_parser::ast::ExprKind;
 
-use super::instructions::Instruction;
+use super::instructions::{u24, Instruction};
 use super::opcode::OpCode;
 use crate::parser::parser::SyntaxObject;
 
@@ -19,23 +19,13 @@ pub fn fresh() -> Label {
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub enum Expr {
     Atom(SyntaxObject),
-    List(ExprKind),
-}
-
-#[derive(Clone, Debug)]
-pub struct CompactInstruction {
-    pub op_code: OpCode,
-    pub payload_size: usize,
-    pub contents: Option<Expr>,
-    pub tag: Option<Label>,
-    pub goto: Option<Label>,
-    pub constant: bool,
+    List(Box<ExprKind>),
 }
 
 #[derive(Clone, Debug)]
 pub struct LabeledInstruction {
     pub op_code: OpCode,
-    pub payload_size: usize,
+    pub payload_size: u24,
     pub contents: Option<Expr>,
     pub tag: Option<Label>,
     pub goto: Option<Label>,
@@ -45,15 +35,24 @@ impl LabeledInstruction {
     pub fn builder(op_code: OpCode) -> Self {
         Self {
             op_code,
-            payload_size: 0,
+            payload_size: u24::from_u32(0),
             contents: None,
             tag: None,
             goto: None,
         }
     }
 
+    // TODO: Automatically split into two instructions
+    // if the instructions don't fit into one u24.
+    // There are only certain instructions where
+    // we'll need to do this.
     pub fn payload(mut self, payload_size: usize) -> Self {
-        self.payload_size = payload_size;
+        self.payload_size = u24::from_usize(payload_size);
+        self
+    }
+
+    pub fn payload_u24(mut self, payload: u24) -> Self {
+        self.payload_size = payload;
         self
     }
 
@@ -63,7 +62,7 @@ impl LabeledInstruction {
     }
 
     pub fn list_contents(mut self, contents: ExprKind) -> Self {
-        self.contents = Some(Expr::List(contents));
+        self.contents = Some(Expr::List(Box::new(contents)));
         self
     }
 

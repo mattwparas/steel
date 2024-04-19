@@ -16,9 +16,6 @@
 ; (struct Some (value) #:transparent)
 ; (struct None ())
 
-(define (Option? x)
-  (or (Some? x) (None? x)))
-
 ;; Contracts for option
 (define (Option/c pred)
   (make/c (fn (x)
@@ -50,11 +47,6 @@
 
 (define (unwrap option #:default [other #f])
   (if (Some? option) (Some->value option) other))
-
-(define unwrap
-  (case-lambda
-    [(option) (Some->value option)]
-    [(option default) (if (Some? option) (Some->value option) default)]))
 
 ;; Unwraps the given option or returns the given other value
 (define (unwrap-or option other)
