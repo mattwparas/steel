@@ -2,7 +2,7 @@
 
 
 "Lisp is outdated, Lisp is slow, Lisp has too many parentheses" &mdash; what excuses do people come
-up with to once again resort to using clumsy general-purpose scripting languages? While Lisp
+up with to once again resort to using clumsy mainstream scripting languages? While Lisp
 dates back to the 1960s, its foundational ideas are so simple and general that they transcend the
 concept of age, much like mathematics itself.
 
