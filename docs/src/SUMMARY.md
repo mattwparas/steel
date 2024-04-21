@@ -7,6 +7,7 @@
     - [Literals](lisp/literals.md)
     - [Function calls](lisp/fncalls.md)
     - [Symbols](lisp/symbols.md)
+    - [Bindings and Scopes](lisp/bindings_scopes.md)
 
 - [Steel](about/about.md)
     - [Features](about/features.md)
