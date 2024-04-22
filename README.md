@@ -16,6 +16,10 @@ An embeddable and extensible scheme dialect built in Rust.
     <b>Try it on the Playground</b>
 </a>
 
+<a href="https://mattwparas.github.io/steel/book">
+    <b>Read the Steel book (WIP)</b>
+</a>
+
 
 </div>
 
