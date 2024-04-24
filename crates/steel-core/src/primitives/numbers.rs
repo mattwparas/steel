@@ -214,7 +214,9 @@ pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     let recip = |x: &SteelVal| -> Result<SteelVal> {
         match x {
             SteelVal::IntV(n) => match i32::try_from(*n) {
-                Ok(0) => Ok(SteelVal::NumV(f64::INFINITY)),
+                Ok(0) => {
+                    stop!(Generic => "/: division by zero")
+                }
                 Ok(n) => Rational32::new(1, n).into_steelval(),
                 Err(_) => BigRational::new(BigInt::from(1), BigInt::from(*n)).into_steelval(),
             },
@@ -1089,10 +1091,12 @@ mod num_op_tests {
 
     #[test]
     fn dvision_by_integer_zero_returns_positive_infinity() {
-        assert_eq!(
-            divide_primitive(&[IntV(1), IntV(0)]).unwrap().to_string(),
-            NumV(f64::INFINITY).to_string()
-        )
+        // assert_eq!(
+        //     divide_primitive(&[IntV(1), IntV(0)]).unwrap().to_string(),
+        //     NumV(f64::INFINITY).to_string()
+        // )
+
+        assert!(divide_primitive(&[IntV(1), IntV(0)]).is_err())
     }
 
     #[test]
