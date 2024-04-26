@@ -13,6 +13,8 @@ use fxhash::FxBuildHasher;
 use im_rc::HashMap;
 use once_cell::sync::Lazy;
 
+use super::vm::BuiltInSignature;
+
 /// A module to be consumed by the Steel Engine for later on demand access by scripts
 /// to refresh the primitives that are being used. For instance, the VM should have support
 /// for a primitive like so, where "kernel" has functions like `list`, `cons`, `car`, and `cdr`:
@@ -144,12 +146,14 @@ pub fn get_function_metadata(
 pub enum BuiltInFunctionType {
     Reference(FunctionSignature),
     Mutable(MutFunctionSignature),
+    Context(BuiltInSignature),
 }
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub enum BuiltInFunctionTypePointer {
     Reference(*const FunctionSignature),
     Mutable(*const MutFunctionSignature),
+    Context(*const BuiltInSignature),
 }
 
 pub struct NativeFunctionDefinition {
@@ -210,6 +214,18 @@ impl BuiltInModuleRepr {
                     BuiltInFunctionTypePointer::Mutable(value as *const MutFunctionSignature),
                     data,
                 );
+            }
+
+            BuiltInFunctionType::Context(value) => {
+                FUNCTION_TABLE.with(|table| {
+                    table.borrow_mut().insert(
+                        BuiltInFunctionTypePointer::Context(value as *const _),
+                        data.clone(),
+                    )
+                });
+
+                self.fn_ptr_table
+                    .insert(BuiltInFunctionTypePointer::Context(value as *const _), data);
             }
         }
 
@@ -483,6 +499,9 @@ impl BuiltInModule {
             BuiltInFunctionType::Mutable(value) => {
                 self.register_value(definition.name, SteelVal::MutFunc(value));
             }
+            BuiltInFunctionType::Context(value) => {
+                self.register_value(definition.name, SteelVal::BuiltIn(value));
+            }
         }
 
         self
@@ -587,13 +606,10 @@ impl BuiltInModule {
         value: SteelVal,
         doc: DocTemplate<'static>,
     ) -> &mut Self {
-        // self.values.insert(name.into(), value);
-        // self.register_doc(Cow::from(name), doc);
-        // self
-
         self.module
             .borrow_mut()
             .register_value_with_doc(name, value, doc);
+
         self
     }
 

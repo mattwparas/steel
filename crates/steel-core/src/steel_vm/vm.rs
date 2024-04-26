@@ -5,6 +5,7 @@ use crate::primitives::lists::cdr;
 use crate::primitives::lists::cons;
 use crate::primitives::lists::is_empty;
 use crate::primitives::lists::new as new_list;
+use crate::primitives::lists::steel_cons;
 use crate::primitives::numbers::add_two;
 use crate::rvals::number_equality;
 use crate::steel_vm::primitives::steel_not;
@@ -39,6 +40,7 @@ use std::rc::Weak;
 use std::{cell::RefCell, collections::HashMap, iter::Iterator, rc::Rc};
 
 use super::builtin::DocTemplate;
+use super::builtin::MarkdownDoc;
 
 use crate::values::lists::List;
 
@@ -4207,16 +4209,22 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
     Some(Ok(SteelVal::ContinuationFunction(continuation)))
 }
 
-// TODO: Come back and finish this
-pub(crate) const APPLY_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(apply function lst) -> any",
-    params: &["function : function?", "lst : list?"],
-    description: r#"Applies the given `function` with arguments as the contents of the `lst`."#,
-    examples: &[
-        ("λ > (apply + (list 1 2 3 4))", "=> 10"),
-        ("λ > (apply list (list 1 2 3 4))", "=> '(1 2 3 4)"),
-    ],
-};
+pub(crate) const APPLY_DOC: MarkdownDoc<'static> = MarkdownDoc(
+    r#"
+Applies the given `function` with arguments as the contents of the `list`.
+
+(apply function lst) -> any?
+
+* function : function?
+* list: list?
+
+# Examples
+```scheme
+> (apply + (list 1 2 3 4)) ;; => 10
+> (apply list (list 1 2 3 4)) ;; => '(1 2 3 4)
+```
+    "#,
+);
 
 pub(crate) fn get_test_mode(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(Ok(ctx.thread.runtime_options.test.into()))
@@ -5384,7 +5392,7 @@ macro_rules! handler_inline_primitive_payload_2 {
 
 // OpCode::ADD
 fn cons_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    handler_inline_primitive_payload!(ctx, cons, 2);
+    handler_inline_primitive_payload!(ctx, steel_cons, 2);
     Ok(())
 }
 

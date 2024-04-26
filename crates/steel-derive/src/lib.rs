@@ -219,6 +219,82 @@ pub fn native(
     output.into()
 }
 
+#[proc_macro_attribute]
+pub fn native_mut(
+    args: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
+
+    let keyword_map = parse_key_value_pairs(&args);
+
+    let value = keyword_map
+        .get("name")
+        .expect("native definition requires a name!");
+
+    let arity_number = keyword_map
+        .get("arity")
+        .expect("native definition requires an arity");
+
+    let is_const = keyword_map
+        .get("constant")
+        .map(|x| x == "true")
+        .unwrap_or_default();
+
+    let arity_number: syn::Expr =
+        syn::parse_str(arity_number).expect("Unable to parse arity definition");
+
+    let input = parse_macro_input!(input as ItemFn);
+
+    let modified_input = input.clone();
+    let sign: Signature = input.clone().sig;
+
+    let maybe_doc_comments = parse_doc_comment(input);
+    let function_name = sign.ident.clone();
+
+    let doc_name = Ident::new(
+        &(function_name.to_string().to_uppercase() + "_DEFINITION"),
+        sign.ident.span(),
+    );
+
+    let definition_struct = if let Some(doc) = maybe_doc_comments {
+        quote! {
+            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
+                name: #value,
+                func: crate::steel_vm::builtin::BuiltInFunctionType::Mutable(#function_name),
+                arity: crate::steel_vm::builtin::Arity::#arity_number,
+                doc: Some(crate::steel_vm::builtin::MarkdownDoc(#doc)),
+                is_const: #is_const,
+                signature: None,
+            };
+        }
+    } else {
+        quote! {
+            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
+                name: #value,
+                func: crate::steel_vm::builtin::BuiltInFunctionType::Mutable(#function_name),
+                arity: crate::steel_vm::builtin::Arity::#arity_number,
+                doc: None,
+                is_const: #is_const,
+                signature: None,
+            };
+        }
+    };
+
+    let output = quote! {
+        // Not sure why, but it says this is unused even when generating functions
+        // marked as pub
+        #[allow(dead_code)]
+        #modified_input
+
+        #definition_struct
+    };
+
+    // Uncomment this to see the generated code
+    // eprintln!("{}", output.to_string());
+
+    output.into()
+}
 // See REmacs : https://github.com/remacs/remacs/blob/16b6fb9319a6d48fbc7b27d27c3234990f6718c5/rust_src/remacs-macros/lib.rs#L17-L161
 // TODO: Pass the new name in to this function
 #[proc_macro_attribute]
