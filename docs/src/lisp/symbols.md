@@ -11,7 +11,8 @@ An analogy from Rust can shed light on the concept of symbols. Consider the ques
 in `let a = 2;`" from a metaprogramming perspective. In this context, `a` can be understood as an
 identifier. Similarly, when invoking a declarative macro like `hello!(b)` with a macro definition
 of `macro_rules! hello { ($x:ident) => {} }`, it won't raise an error if `b` is not defined. In this
-scenario, `b` acts akin to a _symbol_.
+scenario, `b` acts akin to a _symbol_, the one we don't evaluate to any value behind it, but it
+still exists and usable, just on a different level.
 
 Symbols can reference values depending on the context in which they are evaluated. However, in some
 cases, symbols are used as themselves and may be compared directly. For example, when defining
