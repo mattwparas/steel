@@ -1600,8 +1600,7 @@ dependencies = [
 [[package]]
 name = "lasso"
 version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4644821e1c3d7a560fe13d842d13f587c07348a1a05d3a797152d41c90c56df2"
+source = "git+https://github.com/lcnr/lasso/?branch=patch-1#87767f540cd040764325a53fc790c27e17c69d33"
 dependencies = [
  "dashmap",
  "hashbrown 0.13.2",
