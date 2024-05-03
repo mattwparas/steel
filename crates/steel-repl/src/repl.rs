@@ -30,6 +30,24 @@ fn display_help() {
     );
 }
 
+fn display_startup() {
+    println!(
+        "{}",
+        format!(
+            r#"
+     _____ __            __
+    / ___// /____  ___  / /          Version {} 
+    \__ \/ __/ _ \/ _ \/ /           https://github.com/mattwparas/steel
+   ___/ / /_/  __/  __/ /            :? for help
+  /____/\__/\___/\___/_/
+    "#,
+            env!("CARGO_PKG_VERSION")
+        )
+        .bright_yellow()
+        .bold()
+    );
+}
+
 fn finish_load_or_interrupt(vm: &mut Engine, exprs: String, path: PathBuf) {
     // let file_name = path.to_str().unwrap().to_string();
 
@@ -83,18 +101,7 @@ fn finish_or_interrupt(vm: &mut Engine, line: String, print_time: bool) {
 /// Entire point for the repl
 /// Automatically adds the prelude and contracts for the core library
 pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
-    println!(
-        "{}",
-        r#"
-     _____ __            __
-    / ___// /____  ___  / /          Version 0.5.0
-    \__ \/ __/ _ \/ _ \/ /           https://github.com/mattwparas/steel
-   ___/ / /_/  __/  __/ /            :? for help
-  /____/\__/\___/\___/_/
-    "#
-        .bright_yellow()
-        .bold()
-    );
+    display_startup();
 
     #[cfg(target_os = "windows")]
     let mut prompt = String::from("λ > ");
