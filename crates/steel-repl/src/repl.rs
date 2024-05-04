@@ -26,6 +26,7 @@ fn display_help() {
         :? | :help  -- displays help dialog
         :quit       -- exits the REPL
         :pwd        -- displays the current working directory
+        :load       -- loads a file
         "
     );
 }
@@ -166,12 +167,10 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                     ":?" | ":help" => display_help(),
                     line if line.contains(":load") => {
                         let line = line.trim_start_matches(":load").trim();
-
-                        // Update the prompt to now include the new context
-                        prompt = format!(
-                            "{}",
-                            format!("λ ({line}) > ").bright_green().bold().italic(),
-                        );
+                        if line.is_empty() {
+                            eprintln!("No file provided");
+                            continue;
+                        }
 
                         let path = Path::new(line);
 
@@ -181,6 +180,12 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                             eprintln!("{e}");
                             continue;
                         }
+
+                        // Update the prompt to now include the new context
+                        prompt = format!(
+                            "{}",
+                            format!("λ ({line}) > ").bright_green().bold().italic(),
+                        );
 
                         let mut file = file?;
 
