@@ -61,7 +61,7 @@ fn get_repl_history_path() -> String {
             parsed_path = parsed_path.canonicalize().unwrap_or(parsed_path);
             parsed_path.push("history");
             parsed_path.to_string_lossy().into_owned()
-        },
+        }
         Err(_) => {
             let mut default_path = dirs::home_dir().unwrap_or_default();
             default_path.push(".steel/history");
