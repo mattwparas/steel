@@ -234,6 +234,7 @@ struct ConstantEvaluator<'a> {
     opt_level: OptLevel,
     _memoization_table: &'a mut MemoizationTable,
     kernel: &'a mut Option<Kernel>,
+    scope_contains_define: bool,
 }
 
 // Converts the atom value into a `TokenType`.
@@ -265,6 +266,7 @@ impl<'a> ConstantEvaluator<'a> {
             opt_level,
             _memoization_table: memoization_table,
             kernel,
+            scope_contains_define: false,
         }
     }
 
@@ -491,6 +493,8 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             throw!(BadSyntax => format!("Define expects an identifier, found: {}", define.name); define.location.span),
         )?;
 
+        self.scope_contains_define = true;
+
         define.body = self.visit(define.body)?;
 
         if let Some(c) = self.to_constant(&define.body) {
@@ -509,6 +513,9 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         let parent = Rc::clone(&self.bindings);
         let mut new_env = ConstantEnv::new_subexpression(Rc::downgrade(&parent));
 
+        let prev = self.scope_contains_define;
+        self.scope_contains_define = false;
+
         for arg in &lambda_function.args {
             let identifier = arg.atom_identifier_or_else(
                 throw!(BadSyntax => format!("lambda expects an identifier for the arguments, found: {arg}"); lambda_function.location.span),
@@ -520,6 +527,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
         lambda_function.body = self.visit(lambda_function.body)?;
 
+        self.scope_contains_define = prev;
         self.bindings = parent;
 
         Ok(ExprKind::LambdaFunction(lambda_function))
@@ -677,17 +685,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             // It is possible at this point, that multi arity functions have not yet been expanded.
             // We need to check if thats the case here
             if !l.rest {
-                // use crate::compiler::passes::Folder;
-
                 MultipleArityFunctions::new().visit_lambda_function(&mut l);
-
-                // if let ExprKind::LambdaFunction(out_lambda) =
-                //     MultipleArityFunctions::new().visit_lambda_function(l)
-                // {
-                //     l = out_lambda;
-                // } else {
-                //     unreachable!();
-                // }
             }
 
             if l.args.len() != args.len() && !l.rest {
@@ -798,9 +796,11 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             // Found no arguments are there are no non constant arguments
             // TODO: @Matt 12/30/23 - this is causing a miscompilation - actually used
             // arguments is found to be empty.
-            if actually_used_arguments.is_empty() && non_constant_arguments.is_empty() {
+            if actually_used_arguments.is_empty()
+                && non_constant_arguments.is_empty()
+                && !self.scope_contains_define
+            {
                 // println!("Found no used arguments or non constant arguments, returning the body");
-
                 // println!("Output: {}", output);
 
                 // Unwind the recursion before we bail out
