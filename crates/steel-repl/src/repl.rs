@@ -26,7 +26,26 @@ fn display_help() {
         :? | :help  -- displays help dialog
         :quit       -- exits the REPL
         :pwd        -- displays the current working directory
+        :load       -- loads a file
         "
+    );
+}
+
+fn display_startup() {
+    println!(
+        "{}",
+        format!(
+            r#"
+     _____ __            __
+    / ___// /____  ___  / /          Version {} 
+    \__ \/ __/ _ \/ _ \/ /           https://github.com/mattwparas/steel
+   ___/ / /_/  __/  __/ /            :? for help
+  /____/\__/\___/\___/_/
+    "#,
+            env!("CARGO_PKG_VERSION")
+        )
+        .bright_yellow()
+        .bold()
     );
 }
 
@@ -83,18 +102,7 @@ fn finish_or_interrupt(vm: &mut Engine, line: String, print_time: bool) {
 /// Entire point for the repl
 /// Automatically adds the prelude and contracts for the core library
 pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
-    println!(
-        "{}",
-        r#"
-     _____ __            __
-    / ___// /____  ___  / /          Version 0.5.0
-    \__ \/ __/ _ \/ _ \/ /           https://github.com/mattwparas/steel
-   ___/ / /_/  __/  __/ /            :? for help
-  /____/\__/\___/\___/_/
-    "#
-        .bright_yellow()
-        .bold()
-    );
+    display_startup();
 
     #[cfg(target_os = "windows")]
     let mut prompt = String::from("λ > ");
@@ -159,12 +167,10 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                     ":?" | ":help" => display_help(),
                     line if line.contains(":load") => {
                         let line = line.trim_start_matches(":load").trim();
-
-                        // Update the prompt to now include the new context
-                        prompt = format!(
-                            "{}",
-                            format!("λ ({line}) > ").bright_green().bold().italic(),
-                        );
+                        if line.is_empty() {
+                            eprintln!("No file provided");
+                            continue;
+                        }
 
                         let path = Path::new(line);
 
@@ -174,6 +180,12 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                             eprintln!("{e}");
                             continue;
                         }
+
+                        // Update the prompt to now include the new context
+                        prompt = format!(
+                            "{}",
+                            format!("λ ({line}) > ").bright_green().bold().italic(),
+                        );
 
                         let mut file = file?;
 

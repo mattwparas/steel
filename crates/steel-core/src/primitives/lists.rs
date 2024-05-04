@@ -1,7 +1,7 @@
 use crate::{
     gc::Gc,
     steel_vm::{
-        builtin::{BuiltInModule, DocTemplate},
+        builtin::{Arity, BuiltInFunctionType, BuiltInModule, NativeFunctionDefinition},
         vm::{apply, VmContext, APPLY_DOC},
     },
     values::lists::Pair,
@@ -19,25 +19,12 @@ use crate::core::utils::{
 };
 
 declare_const_ref_functions! {
-    LAST => last,
-    TRY_LIST_REF => try_list_ref,
     LIST_TO_STRING => steel_list_to_string,
 }
 
 declare_const_mut_ref_functions! {
-    REVERSE => reverse,
-    CONS => cons,
-    REST => rest,
-    CDR => steel_cdr,
-    APPEND => append,
     PUSH_BACK => push_back,
 }
-
-// pub(crate) const TEST_MAP: SteelVal = SteelVal::BuiltIn(test_map);
-
-// TODO replace all usages with const
-// const LENGTH: SteelVal = SteelVal::FuncV(length);
-// const NEW: SteelVal = SteelVal::FuncV(new);
 
 pub struct UnRecoverableResult(Result<SteelVal>);
 
@@ -60,8 +47,6 @@ impl From<Result<SteelVal>> for UnRecoverableResult {
     }
 }
 
-pub(crate) const TEST_APPLY: SteelVal = SteelVal::BuiltIn(apply);
-
 /// # steel/lists
 ///     
 /// Lists in Steel have an interface that matches those of classic schemes or lisps.
@@ -82,24 +67,30 @@ pub fn list_module() -> BuiltInModule {
 
     module
         .register_native_fn_definition(NEW_DEFINITION)
-        .register_value_with_doc("cons", crate::primitives::lists::CONS, CONS_DOC)
+        .register_native_fn_definition(CONS_DEFINITION)
         .register_native_fn_definition(RANGE_DEFINITION)
         .register_native_fn_definition(LENGTH_DEFINITION)
-        .register_value_with_doc("last", crate::primitives::lists::LAST, LAST_DOC)
+        .register_native_fn_definition(LAST_DEFINITION)
         .register_native_fn_definition(IS_EMPTY_DEFINITION)
         .register_native_fn_definition(FIRST_DEFINITION)
         .register_native_fn_definition(CAR_DEFINITION)
-        .register_value_with_doc("cdr", crate::primitives::lists::CDR, CDR_DOC)
-        .register_value_with_doc("rest", crate::primitives::lists::REST, REST_DOC)
-        .register_value_with_doc("append", crate::primitives::lists::APPEND, APPEND_DOC)
-        .register_value_with_doc("reverse", crate::primitives::lists::REVERSE, REVERSE_DOC)
+        .register_native_fn_definition(CDR_DEFINITION)
+        .register_native_fn_definition(REST_DEFINITION)
+        .register_native_fn_definition(APPEND_DEFINITION)
+        .register_native_fn_definition(REVERSE_DEFINITION)
         .register_native_fn_definition(LIST_REF_DEFINITION)
-        .register_value("try-list-ref", crate::primitives::lists::TRY_LIST_REF)
+        .register_native_fn_definition(TRY_LIST_REF_DEFINITION)
         .register_value("list->string", crate::primitives::lists::LIST_TO_STRING)
         .register_value("push-back", crate::primitives::lists::PUSH_BACK)
         .register_native_fn_definition(PAIR_DEFINITION)
-        // TODO move this to somewhere better than here
-        .register_value_with_doc("apply", TEST_APPLY, APPLY_DOC)
+        .register_native_fn_definition(NativeFunctionDefinition {
+            name: "apply",
+            func: BuiltInFunctionType::Context(apply),
+            arity: Arity::Exact(2),
+            doc: Some(APPLY_DOC),
+            is_const: true,
+            signature: None,
+        })
         .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE)
         .register_native_fn_definition(SECOND_DEFINITION)
         .register_native_fn_definition(THIRD_DEFINITION)
@@ -266,23 +257,21 @@ fn pair(list: &SteelVal) -> bool {
     }
 }
 
-pub(crate) const CONS_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(cons a d) -> list?",
-    params: &["a : any/c", "d : any/c"],
-    description: r#"Returns a newly allocated list whose first element is a and second element is d.
-Note: In steel, there are only proper lists. Pairs do not exist directly. "#,
-    examples: &[("> (cons 1 2)", "'(1 2)"), ("> (cons 1 '())", "'(1)")],
-};
-
-// Do away with improper lists?
-pub fn cons(args: &mut [SteelVal]) -> Result<SteelVal> {
-    if args.len() != 2 {
-        stop!(ArityMismatch => "cons takes only two arguments")
-    }
-    match (
-        std::mem::replace(&mut args[0], SteelVal::Void),
-        &mut args[1],
-    ) {
+/// Returns a newly allocated list whose first element is `a` and second element is `d`.
+///
+/// (cons a d) -> list?
+///
+/// * a : any/c
+/// * d : any/c
+///
+/// # Examples
+/// ```scheme
+/// > (cons 1 2) ;; => '(1 . 2)
+/// > (cons 1 '()) ;; => '(1)
+/// ```
+#[steel_derive::function(name = "cons", arity = "Exact(2)")]
+pub fn cons(arg: &mut SteelVal, arg2: &mut SteelVal) -> Result<SteelVal> {
+    match (std::mem::replace(arg, SteelVal::Void), arg2) {
         (left, SteelVal::ListV(right)) => {
             right.cons_mut(left);
 
@@ -292,8 +281,6 @@ pub fn cons(args: &mut [SteelVal]) -> Result<SteelVal> {
         // Silly, but this then gives us a special "pair" that is different
         // from a real bonafide list
         (left, right) => Ok(SteelVal::Pair(Gc::new(Pair::cons(left, right.clone())))),
-        // TODO: Replace with an immutable pair here!
-        // (left, right) => Ok(SteelVal::ListV(vec![left, right.clone()].into())),
     }
 }
 
@@ -376,42 +363,41 @@ fn length(list: &List<SteelVal>) -> usize {
     list.len()
 }
 
-pub(crate) const REVERSE_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(reverse l) -> list?",
-    params: &["l : list?"],
-    description: r#"Returns a list that has the same elements as lst, but in reverse order.
-This function takes time proportional to the length of lst."#,
-    examples: &[("> (reverse (list 1 2 3 4))", "=> '(4 3 2 1)")],
-};
-
-fn reverse(args: &mut [SteelVal]) -> Result<SteelVal> {
-    arity_check!(reverse, args, 1);
-
-    if let SteelVal::ListV(l) = std::mem::replace(&mut args[0], SteelVal::Void) {
+/// Returns a list that has the same elements as `lst`, but in reverse order.
+/// This function takes time proportional to the length of `lst`.
+///
+/// (reverse lst) -> list?
+///
+/// * l : list?
+///
+/// # Examples
+/// ```scheme
+/// > (reverse (list 1 2 3 4)) ;; '(4 3 2 1)
+/// ```
+#[steel_derive::function(name = "reverse", constant = true)]
+fn reverse(arg: &mut SteelVal) -> Result<SteelVal> {
+    if let SteelVal::ListV(l) = std::mem::replace(arg, SteelVal::Void) {
         Ok(SteelVal::ListV(l.reverse()))
     } else {
         stop!(TypeMismatch => "reverse expects a list")
     }
 }
 
-pub(crate) const LAST_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(last l) -> any/c",
-    params: &["l : list?"],
-    description: r#"Returns the last element in the list.
-Takes time proportional to the length of the list."#,
-    examples: &[("> (last (list 1 2 3 4))", "=> 4")],
-};
-
-pub fn last(args: &[SteelVal]) -> Result<SteelVal> {
-    arity_check!(last, args, 1);
-
-    if let SteelVal::ListV(l) = &args[0] {
-        l.last()
-            .cloned()
-            .ok_or_else(throw!(Generic => "last resulted in an error - empty list"))
-    } else {
-        stop!(TypeMismatch => "last expects a list")
-    }
+/// Returns the last element in the list. Takes time proportional to the length of the list.
+///
+/// (last l) -> any/c
+///
+/// * l : list?
+///
+/// # Examples
+/// ```scheme
+/// > (list (list 1 2 3 4)) ;; => 4
+/// ```
+#[steel_derive::function(name = "last", constant = true)]
+pub fn last(list: &List<SteelVal>) -> Result<SteelVal> {
+    list.last()
+        .cloned()
+        .ok_or_else(throw!(Generic => "last resulted in an error - empty list"))
 }
 
 /// Returns the first element of the list l.
@@ -457,25 +443,6 @@ pub(crate) fn car(list: &SteelVal) -> Result<SteelVal> {
     }
 }
 
-pub(crate) const CDR_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(cdr l) -> list?",
-    params: &["l : list?"],
-    description: r#"Returns the rest of the list. Will raise an error if the list is empty."#,
-    examples: &[
-        ("λ > (cdr (list 10 20 30))", "=> '(20 30)"),
-        ("λ > (cdr (list 10))", "=> '()"),
-        (
-            "λ > (cdr '())",
-            r#"error[E11]: Generic
-    ┌─ :1:2
-    │
-    1 │ (cdr '())
-    │  ^^^ cdr expects a non empty list
-"#,
-        ),
-    ],
-};
-
 // Optimistic check to see if the rest is null before making an allocation
 #[steel_derive::native(name = "cdr-null?", constant = true, arity = "Exact(1)")]
 fn cdr_is_null(args: &[SteelVal]) -> Result<SteelVal> {
@@ -494,6 +461,23 @@ fn cdr_is_null(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+/// Returns the rest of the list. Will raise an error if the list is empty.
+///
+/// (cdr l) -> list?
+///
+/// * l : list?
+///
+/// # Examples
+/// ```scheme
+/// > (cdr (list 10 20 30)) ;; => '(20 30)
+/// > (cdr (list 10)) ;; => '()
+/// > (cdr '())
+/// error[E11]: Generic
+///    ┌─ :1:2
+///    │
+///    1 │ (cdr '())
+///    │  ^^^ cdr expects a non empty list
+/// ```
 #[steel_derive::function(name = "cdr", constant = true)]
 pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
     match std::mem::replace(arg, SteelVal::Void) {
@@ -515,29 +499,26 @@ pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
     }
 }
 
-pub(crate) const REST_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(rest l) -> list?",
-    params: &["l : list?"],
-    description: r#"Returns the rest of the list. Will raise an error if the list is empty."#,
-    examples: &[
-        ("λ > (rest (list 10 20 30))", "=> '(20 30)"),
-        ("λ > (rest (list 10))", "=> '()"),
-        (
-            "λ > (rest '())",
-            r#"error[E11]: Generic
-    ┌─ :1:2
-    │
-    1 │ (rest '())
-    │  ^^^^ rest expects a non empty list
-"#,
-        ),
-    ],
-};
-
-fn rest(args: &mut [SteelVal]) -> Result<SteelVal> {
-    arity_check!(rest, args, 1);
-
-    if let SteelVal::ListV(l) = &mut args[0] {
+/// Returns the rest of the list. Will raise an error if the list is empty.
+///
+/// (rest l) -> list?
+///
+/// * l : list?
+///
+/// # Examples
+/// ```scheme
+/// > (rest (list 10 20 30)) ;; => '(20 30)
+/// > (rest (list 10)) ;; => '()
+/// > (rest (list 10))
+/// error[E11]: Generic
+///    ┌─ :1:2
+///    │
+///    1 │ (rest '())
+///    │  ^^^^ rest expects a non empty list
+/// ```
+#[steel_derive::function(name = "rest", constant = true, arity = "Exact(1)")]
+fn rest(arg: &mut SteelVal) -> Result<SteelVal> {
+    if let SteelVal::ListV(mut l) = std::mem::replace(arg, SteelVal::Void) {
         if l.is_empty() {
             stop!(Generic => "rest expects a non empty list");
         }
@@ -573,13 +554,18 @@ fn take(list: &List<SteelVal>, n: isize) -> Result<SteelVal> {
     }
 }
 
-pub(crate) const APPEND_DOC: DocTemplate<'static> = DocTemplate {
-    signature: "(append l r) -> list?",
-    params: &["l : list?", "r : list?"],
-    description: r#"Returns the rest of the list. Will raise an error if the list is empty."#,
-    examples: &[("λ > (append (list 1 2) (list 3 4))", "=> '(1 2 3 4)")],
-};
-
+/// Appends the given lists together. If provided with no lists, will return the empty list.
+///
+/// (append lst ...)
+///
+/// lst : list?
+///
+/// # Examples
+/// ```scheme
+/// > (append (list 1 2) (list 3 4)) ;; => '(1 2 3 4)
+/// > (append) ;; => '()
+/// ```
+#[steel_derive::native_mut(name = "append", constant = true, arity = "AtLeast(0)")]
 fn append(args: &mut [SteelVal]) -> Result<SteelVal> {
     if let Some((first, rest)) = args.split_first_mut() {
         let initial = if let SteelVal::ListV(ref mut l) = first {
@@ -602,20 +588,14 @@ fn append(args: &mut [SteelVal]) -> Result<SteelVal> {
     }
 }
 
-pub fn try_list_ref(args: &[SteelVal]) -> Result<SteelVal> {
-    arity_check!(try_list_ref, args, 2);
-
-    // todo!()
-    if let (SteelVal::ListV(lst), SteelVal::IntV(n)) = (&args[0], &args[1]) {
-        if *n < 0 {
-            stop!(Generic => "list-ref expects a positive integer")
-        } else if let Some(l) = lst.get(*n as usize) {
-            Ok(l.clone())
-        } else {
-            Ok(SteelVal::BoolV(false))
-        }
+#[steel_derive::function(name = "try-list-ref", constant = true)]
+pub fn try_list_ref(list: &List<SteelVal>, index: isize) -> Result<SteelVal> {
+    if index < 0 {
+        stop!(Generic => "list-ref expects a positive integer")
+    } else if let Some(l) = list.get(index as usize) {
+        Ok(l.clone())
     } else {
-        stop!(TypeMismatch => format!("try-list-ref expects a list and an integer, found {} and {}", &args[0], &args[1]))
+        Ok(SteelVal::BoolV(false))
     }
 }
 
@@ -693,7 +673,7 @@ mod list_operation_tests {
     #[test]
     fn cons_test_normal_input() {
         let mut args = [SteelVal::IntV(1), SteelVal::IntV(2)];
-        let res = cons(&mut args);
+        let res = steel_cons(&mut args);
 
         let expected = SteelVal::Pair(Gc::new(Pair::cons(SteelVal::IntV(1), SteelVal::IntV(2))));
 
@@ -703,14 +683,14 @@ mod list_operation_tests {
     #[test]
     fn cons_single_input() {
         let mut args = [SteelVal::IntV(1)];
-        let res = cons(&mut args);
+        let res = steel_cons(&mut args);
         let expected = ErrorKind::ArityMismatch;
         assert_eq!(res.unwrap_err().kind(), expected);
     }
 
     #[test]
     fn cons_no_input() {
-        let res = cons(&mut []);
+        let res = steel_cons(&mut []);
         let expected = ErrorKind::ArityMismatch;
         assert_eq!(res.unwrap_err().kind(), expected);
     }
@@ -718,7 +698,7 @@ mod list_operation_tests {
     #[test]
     fn cons_with_empty_list() {
         let mut args = [SteelVal::IntV(1), SteelVal::ListV(List::new())];
-        let res = cons(&mut args);
+        let res = steel_cons(&mut args);
 
         let expected = crate::list![1i32];
 
@@ -731,7 +711,7 @@ mod list_operation_tests {
             SteelVal::IntV(1),
             SteelVal::ListV(vec![SteelVal::IntV(2)].into()),
         ];
-        let res = cons(&mut args);
+        let res = steel_cons(&mut args);
         let expected = crate::list![1i32, 2i32];
         assert_eq!(res.unwrap(), expected);
     }

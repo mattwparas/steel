@@ -41,6 +41,9 @@ pub fn number_literal_to_steel(n: &NumberLiteral) -> Result<SteelVal> {
         RealLiteral::Rational(n, d) => match (n, d) {
             (IntLiteral::Small(n), IntLiteral::Small(d)) => {
                 match (i32::try_from(*n), i32::try_from(*d)) {
+                    (Ok(n), Ok(0)) => {
+                        stop!(BadSyntax => format!("division by zero in {:?}/0", n))
+                    }
                     (Ok(n), Ok(d)) => Rational32::new(n, d).into_steelval(),
                     _ => BigRational::new(BigInt::from(*n), BigInt::from(*d)).into_steelval(),
                 }
