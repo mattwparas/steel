@@ -129,6 +129,7 @@ test_harness_failure! {
     global_env,
     identifier_used_before_definition,
     local_define_does_not_escape,
+    local_define_does_not_escape_non_const,
     local_struct_inaccessible,
     require_only_in_missing_identifier,
 }
