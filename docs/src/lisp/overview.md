@@ -1,20 +1,19 @@
 # Lisp
 
+The foundational ideas of Lisp are straightforward and easily combined, resulting in a minimalistic
+syntax that may appear excessive at first glance. While the abundance of parentheses can seem
+off-putting and archaic, Lisp expressions are actually nested lists and atoms, making it a recursive
+data structure. This inherent structure enables easy manipulation, allowing for straightforward
+metaprogramming and direct AST manipulations with proper editor support.
 
-"Lisp is outdated, Lisp is slow, Lisp has too many parentheses" &mdash; what excuses do people come
-up with to once again resort to using clumsy mainstream scripting languages? While Lisp
-dates back to the 1960s, its foundational ideas are so simple and general that they transcend the
-concept of age, much like mathematics itself.
+Now, let's welcome an S-expression (or `sexp` for short):
 
-Parentheses? It might come as a surprise, but the number of parentheses in Lisp is comparable to
-the number of parentheses (as well as brackets and braces) in other languages that lack significant
-indentation. However, in Lisp, we gain a beautiful property: while editing and navigating code,
-a programmer can operate on a syntax tree rather than individual characters and words. In fact,
-in Lisp, every expression can be traversed with proper editor support &mdash; moving forward, backward,
-to the parent, and to nested expressions, opposed to characters, words or in the best case type
-definitions and functions in other languages. This level of structural clarity and manipulation is a
-testament to Lisp's elegant design and contributes to its expressiveness and flexibility.
+```lisp
+(+ 1 3 (- 7 4) 7)
+```
 
-And since we're in software engineering, let your curious mind enjoy something new and hopefully
-rewarding, or at least look at how many smileys you can put at the end of a function with all these
-closing parentheses!
+As mentioned earlier, its structure is recursive; this particular one is comprised of a top-level
+_expression_ and nested _atoms_, as well as one nested _expression_. Such a construction can be
+manipulated in various ways before being evaluated. Although the list of syntactic rules will
+be minimally supplemented later in this book, it already provides a stable foundation to fit the
+language in any domain area.

@@ -1,14 +1,5 @@
 # Evaluation
 
-Please welcome, an S-expression (or `sexp` for short):
-
-```lisp
-(+ 1 3 (- 7 4) 7)
-```
-
-Its structure is recursive; this particular one is made of a top-level _expression_ and nested
-_atoms_, as well as one nested _expression_.
-
 A key to understanding any Lisp is grasping the idea of how expressions should be evaluated.
 Roughly, the steps are:
 
