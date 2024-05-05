@@ -17,6 +17,12 @@ use std::io::Read;
 
 use std::time::Instant;
 
+use std::env;
+
+use std::fs::File;
+
+use dirs;
+
 use crate::highlight::RustylineHelper;
 
 fn display_help() {
@@ -47,6 +53,25 @@ fn display_startup() {
         .bright_yellow()
         .bold()
     );
+}
+
+fn get_repl_history_path() -> String {
+    let steel_home = env::var("STEEL_HOME");
+    let path = match steel_home {
+        Ok(val) => {
+            let mut parsed_path = PathBuf::from(&val);
+            parsed_path = parsed_path.canonicalize().unwrap_or(parsed_path);
+            parsed_path.push("history");
+            parsed_path.to_string_lossy().into_owned()
+        }
+        Err(_) => {
+            let mut default_path = dirs::home_dir().unwrap_or_default();
+            default_path.push(".steel/history");
+            default_path.to_string_lossy().into_owned()
+        }
+    };
+
+    path
 }
 
 fn finish_load_or_interrupt(vm: &mut Engine, exprs: String, path: PathBuf) {
@@ -112,6 +137,14 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
 
     let mut rl = Editor::<RustylineHelper>::new().expect("Unable to instantiate the repl!");
     rl.set_check_cursor_position(true);
+
+    // Load repl history
+    let history_path = get_repl_history_path();
+    if let Err(_) = rl.load_history(&history_path) {
+        if let Err(_) = File::create(&history_path) {
+            eprintln!("Unable to create repl history file {:?}", history_path)
+        }
+    };
 
     let current_dir = std::env::current_dir()?;
 
@@ -217,6 +250,9 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                 break;
             }
         }
+    }
+    if let Err(err) = rl.save_history(&history_path) {
+        eprintln!("Failed to save REPL history: {}", err);
     }
 
     Ok(())

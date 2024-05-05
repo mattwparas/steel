@@ -6,3 +6,4 @@ docs/theme
 .vscode/
 /result
 .direnv/
+.steel/
