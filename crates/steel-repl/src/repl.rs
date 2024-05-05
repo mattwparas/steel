@@ -19,6 +19,8 @@ use std::time::Instant;
 
 use std::env;
 
+use std::fs::File;
+
 use dirs;
 
 use crate::highlight::RustylineHelper;
@@ -138,9 +140,11 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
 
     // Load repl history
     let history_path = get_repl_history_path();
-    if let Err(err) = rl.load_history(&history_path) {
-        eprintln!("Failed to load REPL history: {}", err);
-    }
+    if let Err(_) = rl.load_history(&history_path) {
+        if let Err(_) = File::create(&history_path) {
+            eprintln!("Unable to create repl history file {:?}", history_path)
+        }
+    };
 
     let current_dir = std::env::current_dir()?;
 
