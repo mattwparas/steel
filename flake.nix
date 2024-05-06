@@ -57,5 +57,10 @@
             rust-analyzer
           ];
         };
+      apps.steel = {
+        type = "app";
+        program = "${steel}/bin/steel";
+      };
+      apps.default = apps.steel;
     });
 }
