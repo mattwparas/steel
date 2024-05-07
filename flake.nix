@@ -26,7 +26,13 @@
           pname = manifest.package.name;
           version = manifest.workspace.package.version;
           src = gitignoreSource ./.;
-          cargoLock.lockFile = ./Cargo.lock;
+          cargoLock = {
+            lockFile = ./Cargo.lock;
+            # Temporary fix until https://github.com/mattwparas/steel/issues/192 is fixed upstream
+            outputHashes = {
+              "lasso-0.7.2" = "sha256-ibpHfge3nEtwLNghKEQT7ZpTe5kgDf8hbBb9qYHyHcQ=";
+            };
+          };
           cargoBuildFlags = "-p cargo-steel-lib -p steel-interpreter";
           buildInputs = [openssl] ++ lib.optionals stdenv.isDarwin [darwin.apple_sdk.frameworks.Security];
           nativeBuildInputs = [
@@ -35,7 +41,7 @@
           # Test failing
           doCheck = false;
           postInstall = ''
-            substituteInPlace /build/source/cogs/installer/download.scm --replace-warn "cargo-steel-lib" "$out/bin/cargo-steel-lib"
+            substituteInPlace cogs/installer/download.scm --replace-warn "cargo-steel-lib" "$out/bin/cargo-steel-lib"
             mkdir $out/lib
             export STEEL_HOME="$out/lib"
             pushd cogs
@@ -51,10 +57,17 @@
       defaultPackage = packages.steel;
       devShell = with pkgs;
         mkShell {
-          buildInputs = [cargo openssl] ++ lib.optionals stdenv.isDarwin [darwin.apple_sdk.frameworks.Security];
+          shellHook = ''
+            export STEEL_HOME="${steel}/lib/"
+          '';
+          buildInputs = [cargo openssl libiconv] ++ lib.optionals stdenv.isDarwin [
+            darwin.apple_sdk.frameworks.CoreServices
+            darwin.apple_sdk.frameworks.SystemConfiguration
+          ];
           nativeBuildInputs = [
             pkg-config
             rust-analyzer
+            rustfmt
           ];
         };
       apps.steel = {
