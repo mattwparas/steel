@@ -386,12 +386,14 @@
 (check-equal? "string length correctly reported for standard string" 3 (string-length "abc"))
 
 (check-equal? "string indexing into first character" #\a (string-ref "abc" 0))
+(check-equal? "string indexing with multibyte characters" #\a (string-ref "λa" 1))
 
 (check-equal? "string indexing into last character" #\c (string-ref "abc" 2))
 
 (check-equal? "empty substring" "" (substring "abc" 0 0))
 (check-equal? "substring just the first character" "a" (substring "abc" 0 1))
 (check-equal? "substring a larger chunk" "bc" (substring "abc" 1 3))
+(check-equal? "substring with multibyte characters" "λμ" (substring "λλμν" 1 3))
 
 (check-equal? "Basic functionality of make-string" "aaa" (make-string 3 #\a))
 (check-equal? "make-string with no character" "\0\0\0" (make-string 3))

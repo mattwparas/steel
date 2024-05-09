@@ -221,16 +221,22 @@ pub fn string_ci_equals(left: &SteelString, right: &SteelString) -> bool {
 
 #[function(name = "string-ref", constant = true)]
 pub fn string_ref(value: &SteelString, index: usize) -> Result<SteelVal> {
-    if index >= value.len() {
-        stop!(Generic => "string-ref: index out of bounds: index: {}, string length: {}", index, value);
-    }
+    let res = if index < value.len() {
+        value.chars().nth(index)
+    } else {
+        None
+    };
 
-    Ok(SteelVal::CharV(value.as_str().chars().nth(index).unwrap()))
+    if let Some(ch) = res {
+        Ok(SteelVal::CharV(ch))
+    } else {
+        stop!(Generic => "string-ref: index out of bounds: index: {}, string length: {}", index, value.len());
+    }
 }
 
 #[function(name = "substring", constant = true)]
 pub fn substring(value: &SteelString, i: usize, j: usize) -> Result<SteelVal> {
-    if i >= value.len() {
+    if i > value.len() {
         stop!(Generic => "substring: index out of bounds: left bound: {}, string length: {}", i, value.len());
     }
 
@@ -238,7 +244,23 @@ pub fn substring(value: &SteelString, i: usize, j: usize) -> Result<SteelVal> {
         stop!(Generic => "substring: left bound must be less than or equal to the right bound: left: {}, right: {}", i, j);
     }
 
-    Ok(SteelVal::StringV(value[i..j].into()))
+    if value.is_empty() {
+        return Ok(SteelVal::StringV("".into()));
+    }
+
+    let mut chars = value.char_indices().map(|(offset, _)| offset);
+
+    let Some(start) = chars.nth(i) else {
+        stop!(Generic => "substring: index out of bounds: left bound: {}", i);
+    };
+
+    let end = if j == i {
+        start
+    } else {
+        chars.nth(j - i - 1).unwrap_or(value.len())
+    };
+
+    Ok(SteelVal::StringV(value[start..end].into()))
 }
 
 #[function(name = "make-string")]
