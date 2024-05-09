@@ -45,6 +45,8 @@
 (check-equal? "Parsing octal" #o0777 511)
 (check-equal? "Parsing binary" #b0110 6)
 
+(check-equal? "Empty anonymous function with variable arity" ((lambda x x)) '())
+
 (check-equal? "filter treats lists as true" (filter (lambda (n) (list 1 2)) (list 1 2)) '(1 2))
 
 (check-equal?
