@@ -30,16 +30,16 @@ pub fn bytevector_module() -> BuiltInModule {
     module
 }
 
-/// Returns a new mutable vector vectors with each byte as the given arguments.
+/// Returns a new mutable vector with each byte as the given arguments.
 /// Each argument must satisfy the `byte?` predicate, meaning it is an exact
 /// integer range from 0 - 255 (inclusive)
 ///
 /// (bytevector b ...)
 ///
-/// b : byte?
+/// * b : byte?
 ///
 ///
-/// # Example
+/// # Examples
 /// ```scheme
 /// (bytevector 65 112 112 108 101)
 /// ```
@@ -52,16 +52,16 @@ pub fn bytevector(args: &[SteelVal]) -> Result<SteelVal> {
         .map(SteelVal::ByteVector)
 }
 
-/// Returns a new mutable vector vectors with each byte as the given arguments.
+/// Returns a new mutable vector with each byte as the given arguments.
 /// Each argument must satisfy the `byte?` predicate, meaning it is an exact
 /// integer range from 0 - 255 (inclusive)
 ///
 /// (bytes b ...)
 ///
-/// b : byte?
+/// * b : byte?
 ///
 ///
-/// # Example
+/// # Examples
 /// ```scheme
 /// (bytes 65 112 112 108 101)
 /// ```
@@ -86,6 +86,22 @@ pub fn is_bytes(arg: &SteelVal) -> bool {
     matches!(arg, SteelVal::ByteVector(_))
 }
 
+/// Creates a copy of a bytevector.
+///
+/// (bytevector-copy vector [start end]) -> bytes?
+///
+/// * vector : bytes?
+/// * start: int? = 0
+/// * end: int? = (bytes-length vector)
+///
+/// # Examples
+///
+/// ```scheme
+/// (define vec (bytes 1 2 3 4 5))
+///
+/// (bytevector-copy vec) ;; => (bytes 1 2 3 4 5)
+/// (bytevector-copy vec 1 3) ;; => (bytes 2 3)
+/// ```
 #[steel_derive::function(name = "bytevector-copy")]
 pub fn bytevector_copy_new(
     bytevector: &SteelByteVector,
@@ -124,6 +140,17 @@ pub fn bytevector_copy_new(
     Ok(SteelVal::ByteVector(SteelByteVector::new(copy)))
 }
 
+/// Creates a bytevector given a length and a default value.
+///
+/// (make-bytes len default) -> bytes?
+///
+/// * len : int?
+/// * default : byte?
+///
+/// # Examples
+/// ```scheme
+/// (make-bytes 6 42) ;; => (bytes 42 42 42 42 42)
+/// ```
 #[function(name = "make-bytes")]
 pub fn make_bytes(k: usize, mut c: RestArgsIter<'_, isize>) -> Result<SteelVal> {
     let default = c.next();
@@ -148,8 +175,8 @@ pub fn make_bytes(k: usize, mut c: RestArgsIter<'_, isize>) -> Result<SteelVal> 
     Ok(SteelVal::ByteVector(SteelByteVector::new(vec![default; k])))
 }
 
-/// Returns #t if the given value is a byte, meaning an exact
-/// integer between 0 and 255 inclusive, #f otherwise.
+/// Returns `#t` if the given value is a byte, meaning an exact
+/// integer between 0 and 255 inclusive, `#f` otherwise.
 ///
 /// # Examples
 /// ```scheme
@@ -197,8 +224,8 @@ pub fn string_to_bytes(value: &SteelString) -> Result<SteelVal> {
 ///
 /// (bytes-ref vector index)
 ///
-/// vector : bytes?
-/// index: (and exact? int?)
+/// * vector : bytes?
+/// * index: (and exact? int?)
 ///
 /// # Examples
 /// ```scheme
@@ -221,9 +248,9 @@ pub fn bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
 ///
 /// (bytes-set! vector index byte)
 ///
-/// vector : bytes?
-/// index: (and exact? int?)
-/// byte: byte?
+/// * vector : bytes?
+/// * index: (and exact? int?)
+/// * byte: byte?
 ///
 /// # Examples
 /// ```scheme
@@ -279,7 +306,7 @@ pub fn list_to_bytes(value: Vec<u8>) -> Result<SteelVal> {
 ///
 /// # Examples
 /// ```scheme
-/// (bytes-append (bytes 0 1 2) (bytes 3 4 5)) ;; (bytes 0 1 2 3 4 5)
+/// (bytes-append (bytes 0 1 2) (bytes 3 4 5)) ;; => (bytes 0 1 2 3 4 5)
 /// ```
 #[function(name = "bytes-append")]
 pub fn bytes_append(value: &SteelByteVector, other: &SteelByteVector) -> Result<SteelVal> {
