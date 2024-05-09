@@ -391,6 +391,8 @@
 (check-equal? "string indexing into last character" #\c (string-ref "abc" 2))
 
 (check-equal? "empty substring" "" (substring "abc" 0 0))
+(check-equal? "empty substring at the end" "" (substring "abc" 3 3))
+(check-equal? "empty substring in the middle" "" (substring "abc" 1 1))
 (check-equal? "substring just the first character" "a" (substring "abc" 0 1))
 (check-equal? "substring a larger chunk" "bc" (substring "abc" 1 3))
 (check-equal? "substring with multibyte characters" "λμ" (substring "λλμν" 1 3))

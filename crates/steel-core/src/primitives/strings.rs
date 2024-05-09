@@ -236,6 +236,8 @@ pub fn string_ref(value: &SteelString, index: usize) -> Result<SteelVal> {
 
 #[function(name = "substring", constant = true)]
 pub fn substring(value: &SteelString, i: usize, j: usize) -> Result<SteelVal> {
+    use std::iter::once;
+
     if i > value.len() {
         stop!(Generic => "substring: index out of bounds: left bound: {}, string length: {}", i, value.len());
     }
@@ -248,16 +250,19 @@ pub fn substring(value: &SteelString, i: usize, j: usize) -> Result<SteelVal> {
         return Ok(SteelVal::StringV("".into()));
     }
 
-    let mut chars = value.char_indices().map(|(offset, _)| offset);
+    let mut char_offsets = value
+        .char_indices()
+        .map(|(offset, _)| offset)
+        .chain(once(value.len()));
 
-    let Some(start) = chars.nth(i) else {
+    let Some(start) = char_offsets.nth(i) else {
         stop!(Generic => "substring: index out of bounds: left bound: {}", i);
     };
 
-    let end = if j == i {
-        start
-    } else {
-        chars.nth(j - i - 1).unwrap_or(value.len())
+    let mut char_offsets = once(start).chain(char_offsets);
+
+    let Some(end) = char_offsets.nth(j - i) else {
+        stop!(Generic => "substring: index out of bounds: right bound: {}", j);
     };
 
     Ok(SteelVal::StringV(value[start..end].into()))
