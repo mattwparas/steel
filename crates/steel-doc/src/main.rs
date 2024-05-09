@@ -53,7 +53,8 @@ fn main() {
 
                 match value {
                     steel::steel_vm::builtin::Documentation::Markdown(m) => {
-                        writeln!(&mut module_file, "### **{}**", name).unwrap();
+                        let escaped = name.replace("*", "\\*");
+                        writeln!(&mut module_file, "### **{}**", escaped).unwrap();
 
                         format_markdown_doc(&mut module_file, m.0);
                     }
