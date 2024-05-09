@@ -619,14 +619,16 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                 return self.eval_kernel_function(ident.clone(), func, Vec::new(), &[]);
             } else {
                 if let ExprKind::LambdaFunction(f) = &func {
-                    if !f.args.is_empty() {
-                        stop!(ArityMismatch => format!("function expected {} arguments, found 0", f.args.len()))
-                    }
+                    if !f.rest {
+                        if !f.args.is_empty() {
+                            stop!(ArityMismatch => format!("function expected {} arguments, found 0", f.args.len()))
+                        }
 
-                    // If the body is constant we can safely remove the application
-                    // Otherwise we can't eliminate the additional scope depth
-                    if self.to_constant(&f.body).is_some() {
-                        return Ok(f.body.clone());
+                        // If the body is constant we can safely remove the application
+                        // Otherwise we can't eliminate the additional scope depth
+                        if self.to_constant(&f.body).is_some() {
+                            return Ok(f.body.clone());
+                        }
                     }
                 }
 
