@@ -1,6 +1,4 @@
 # steel/strings
-#### steel/strings
-
 Strings in Steel are immutable, fixed length arrays of characters. They are heap allocated, and
 are implemented under the hood as referenced counted Rust `Strings`. Rust `Strings` are stored
 as UTF-8 encoded bytes.
@@ -33,8 +31,45 @@ Converts an integer into a string.
 ```scheme
 > (int->string 10) ;; => "10"
 ```
+### **make-string**
+Creates a string of a given length, filled with an optional character
+(which defaults to `#\0`).
+
+(make-string len [char]) -> string?
+
+* len : int?
+* char : char? = #\0
 ### **number->string**
 Converts the given number to a string
+### **split-many**
+Splits a string given a separator pattern into a list of strings.
+
+(split-many str pat) -> (listof string?)
+
+* str : string?
+* pat : string?
+
+#### Examples
+```scheme
+(split-many "foo,bar,baz" ",") ;; => '("foo" "bar" "baz")
+(split-many "foo|bar|" "|") ;; => '("foo" "bar" "")
+(split-many "" "&") ;; => '("")
+```
+### **split-once**
+Splits a string given a separator at most once, yielding
+a list with at most 2 elements.
+
+(split-once str pat) -> string?
+
+* str : string?
+* pat : string?
+
+#### Examples
+```scheme
+(split-once "foo,bar,baz" ",") ;; => '("foo" "bar,baz")
+(split-once "foo|bar|" "|") ;; => '("foo" "bar|")
+(split-once "" "&") ;; => '("")
+```
 ### **split-whitespace**
 Returns a list of strings from the original string split on the whitespace
 
@@ -50,8 +85,8 @@ Checks if the input string starts with a prefix
 
 (starts-with? input pattern) -> bool?
 
-input : string?
-pattern: string?
+* input : string?
+* pattern: string?
 
 #### Examples
 
@@ -126,6 +161,19 @@ Concatenates all of the given strings into one
 > (string-append) ;; => ""
 > (string-append "foo" "bar") ;; => "foobar"
 ```
+### **string-ci<=?**
+Compares two strings lexicographically (as in "less-than-or-equal"),
+### **string-ci<?**
+Compares two strings lexicographically (as in "less-than"),
+in a case insensitive fashion.
+### **string-ci=?**
+Compares two strings for equality, in a case insensitive fashion.
+### **string-ci>=?**
+Compares two strings lexicographically (as in "greater-than-or-equal"),
+in a case insensitive fashion.
+### **string-ci>?**
+Compares two strings lexicographically (as in "greater-than"),
+in a case-insensitive fashion.
 ### **string-length**
 Get the length of the given string in UTF-8 bytes.
 
@@ -138,8 +186,52 @@ Get the length of the given string in UTF-8 bytes.
 > (string-length "✅") ;; => 3
 > (string-length "🤖") ;; => 4
 ```
+### **string-ref**
+Extracts the nth character out of a given string.
+
+(string-ref str n)
+
+* str : string?
+* n : int?
+### **string-replace**
+Replaces all occurrences of a pattern into the given string
+
+(string-replace str from to) -> string?
+
+* str : string?
+* from : string?
+* to : string?
+
+#### Examples
+```scheme
+(string-replace "hello world" "o" "@") ;; => "hell@ w@rld"
+```
+### **string<=?**
+Compares two strings lexicographically (as in "less-than-or-equal").
+### **string<?**
+Compares two strings lexicographically (as in "less-than").
+### **string=?**
+Compares two strings for equality.
+### **string>=?**
+Compares two strings lexicographically (as in "greater-than-or-equal").
+### **string>?**
+Compares two strings lexicographically (as in "greater-than").
+### **substring**
+Creates a substring slicing the characters between two indices.
+
+(substring str start end) -> string?
+
+* str: string?
+* start : int?
+* end : int?
+
+#### Examples
+```scheme
+(substring "hello" 1 4) ;; => "ell"
+(substring "hello" 10 15) ;; => error
+```
 ### **to-string**
-Concatenatives all of the inputs to their string representation, separated by spaces.
+Concatenates all of the inputs to their string representation, separated by spaces.
 
 (to-string xs ...)
 
@@ -209,19 +301,3 @@ of the string
 ### **char-digit?**
 ### **char-upcase**
 ### **char-whitespace?**
-### **make-string**
-### **split-many**
-### **split-once**
-### **string-ci<=?**
-### **string-ci<?**
-### **string-ci=?**
-### **string-ci>=?**
-### **string-ci>?**
-### **string-ref**
-### **string-replace**
-### **string<=?**
-### **string<?**
-### **string=?**
-### **string>=?**
-### **string>?**
-### **substring**

@@ -1,6 +1,7 @@
 # steel/meta
 ### **#%black-box**
 ### **#%box**
+### **#%build-dylib**
 ### **#%environment-length**
 ### **#%function-ptr-table**
 ### **#%function-ptr-table-add**
@@ -27,6 +28,7 @@
 ### **attach-contract-struct!**
 ### **block-on**
 ### **box**
+### **box-strong**
 ### **breakpoint!**
 ### **call-with-current-continuation**
 ### **call-with-exception-handler**
@@ -53,10 +55,12 @@
 ### **raise-error-with-span**
 ### **read!**
 ### **run!**
+### **set-box!**
 ### **set-env-var!**
 ### **set-strong-box!**
 ### **set-test-mode!**
 ### **struct->list**
+### **unbox**
 ### **unbox-strong**
 ### **value->iterator**
 ### **value->string**

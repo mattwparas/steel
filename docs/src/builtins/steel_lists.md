@@ -1,6 +1,4 @@
 # steel/lists
-#### steel/lists
-
 Lists in Steel have an interface that matches those of classic schemes or lisps.
 At face value, they appear to be implemented as cons cells - however, under the hood
 they are actually implemented as unrolled linked lists.
@@ -13,6 +11,33 @@ Indexing into a list also takes O(n/64) - which means you'll get constant time i
 ```scheme
 (list 10 20 30 40) ;; => '(10 20 30 40)
 ```
+### **append**
+Appends the given lists together. If provided with no lists, will return the empty list.
+
+(append lst ...)
+
+lst : list?
+
+#### Examples
+```scheme
+> (append (list 1 2) (list 3 4)) ;; => '(1 2 3 4)
+> (append) ;; => '()
+```
+### **apply**
+
+Applies the given `function` with arguments as the contents of the `list`.
+
+(apply function lst) -> any?
+
+* function : function?
+* list: list?
+
+#### Examples
+```scheme
+> (apply + (list 1 2 3 4)) ;; => 10
+> (apply list (list 1 2 3 4)) ;; => '(1 2 3 4)
+```
+    
 ### **car**
 Returns the first element of the list l.
 
@@ -25,6 +50,37 @@ Returns the first element of the list l.
 ```scheme
 > (car '(1 2)) ;; => 1
 > (car (cons 2 3)) ;; => 2
+```
+### **cdr**
+Returns the rest of the list. Will raise an error if the list is empty.
+
+(cdr l) -> list?
+
+* l : list?
+
+#### Examples
+```scheme
+> (cdr (list 10 20 30)) ;; => '(20 30)
+> (cdr (list 10)) ;; => '()
+> (cdr '())
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (cdr '())
+│  ^^^ cdr expects a non empty list
+```
+### **cons**
+Returns a newly allocated list whose first element is `a` and second element is `d`.
+
+(cons a d) -> list?
+
+* a : any/c
+* d : any/c
+
+#### Examples
+```scheme
+> (cons 1 2) ;; => '(1 . 2)
+> (cons 1 '()) ;; => '(1)
 ```
 ### **empty?**
 Checks if the list is empty
@@ -51,6 +107,17 @@ Returns the first element of the list l.
 ```scheme
 > (first '(1 2)) ;; => 1
 > (first (cons 2 3)) ;; => 2
+```
+### **last**
+Returns the last element in the list. Takes time proportional to the length of the list.
+
+(last l) -> any/c
+
+* l : list?
+
+#### Examples
+```scheme
+> (list (list 1 2 3 4)) ;; => 4
 ```
 ### **length**
 Returns the length of the list.
@@ -123,6 +190,36 @@ Returns a newly allocated list of the elements in the range (n, m]
 
 ```scheme
 > (range 0 10) ;; => '(0 1 2 3 4 5 6 7 8 9)
+```
+### **rest**
+Returns the rest of the list. Will raise an error if the list is empty.
+
+(rest l) -> list?
+
+* l : list?
+
+#### Examples
+```scheme
+> (rest (list 10 20 30)) ;; => '(20 30)
+> (rest (list 10)) ;; => '()
+> (rest (list 10))
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (rest '())
+│  ^^^^ rest expects a non empty list
+```
+### **reverse**
+Returns a list that has the same elements as `lst`, but in reverse order.
+This function takes time proportional to the length of `lst`.
+
+(reverse lst) -> list?
+
+* l : list?
+
+#### Examples
+```scheme
+> (reverse (list 1 2 3 4)) ;; '(4 3 2 1)
 ```
 ### **second**
 Get the second element of the list. Raises an error if the list does not have an element in the second position.
