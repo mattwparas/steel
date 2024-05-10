@@ -235,15 +235,27 @@ pub fn string_ref(value: &SteelString, index: usize) -> Result<SteelVal> {
 }
 
 #[function(name = "substring", constant = true)]
-pub fn substring(value: &SteelString, i: usize, j: usize) -> Result<SteelVal> {
+pub fn substring(
+    value: &SteelString,
+    i: usize,
+    mut rest: RestArgsIter<'_, isize>,
+) -> Result<SteelVal> {
     use std::iter::once;
 
     if i > value.len() {
         stop!(Generic => "substring: index out of bounds: left bound: {}, string length: {}", i, value.len());
     }
 
-    if i > j {
-        stop!(Generic => "substring: left bound must be less than or equal to the right bound: left: {}, right: {}", i, j);
+    let j = rest.next().transpose()?.map(|j| j as usize);
+
+    if rest.next().is_some() {
+        stop!(ArityMismatch => "substring expects 1 or 2 arguments");
+    }
+
+    if let Some(j) = j {
+        if i > j {
+            stop!(Generic => "substring: left bound must be less than or equal to the right bound: left: {}, right: {}", i, j);
+        }
     }
 
     if value.is_empty() {
@@ -257,6 +269,10 @@ pub fn substring(value: &SteelString, i: usize, j: usize) -> Result<SteelVal> {
 
     let Some(start) = char_offsets.nth(i) else {
         stop!(Generic => "substring: index out of bounds: left bound: {}", i);
+    };
+
+    let Some(j) = j else {
+        return Ok(SteelVal::StringV(value[start..].into()));
     };
 
     let mut char_offsets = once(start).chain(char_offsets);
