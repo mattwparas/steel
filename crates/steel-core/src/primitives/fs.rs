@@ -36,8 +36,6 @@ impl Custom for PathBuf {
     }
 }
 
-/// # steel/filesystem
-///
 /// Filesystem functions, mostly just thin wrappers around the `std::fs` functions in
 /// the Rust std library.
 #[steel_derive::define_module(name = "steel/filesystem")]
