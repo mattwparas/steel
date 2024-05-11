@@ -1,6 +1,4 @@
 # steel/syntax
-### **#%debug-syntax->exprkind**
-### **#%syntax/raw**
 ### **syntax->datum**
 ### **syntax-e**
 ### **syntax-loc**

@@ -13,7 +13,6 @@ Examples:
 (rational? 6/10)    ⇒ #t
 (rational? 6/3)     ⇒ #t
 ```
-### **#%private-struct?**
 ### **atom?**
 ### **bool?**
 ### **boolean?**

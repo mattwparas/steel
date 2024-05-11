@@ -62,8 +62,6 @@ Gets the port handle to stdin
 ```scheme
 > (stdin) ;; => #<port>
 ```
-### **#%default-input-port**
-### **#%default-output-port**
 ### **flush-output-port**
 ### **get-output-string**
 ### **open-output-string**

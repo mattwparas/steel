@@ -1085,30 +1085,6 @@ Returns `#t` if the real number is 0 or 0.0.
 (zero? 0.0) => #t
 (zero? 0.1) => #f
 ```
-### **#%black-box**
-### **#%box**
-### **#%build-dylib**
-### **#%debug-syntax->exprkind**
-### **#%default-input-port**
-### **#%default-output-port**
-### **#%environment-length**
-### **#%function-ptr-table**
-### **#%function-ptr-table-add**
-### **#%function-ptr-table-get**
-### **#%get-dylib**
-### **#%iterator-finished**
-### **#%native-fn-ptr-doc**
-### **#%private-cycle-collector**
-### **#%private-cycle-collector-get**
-### **#%private-cycle-collector-values**
-### **#%private-struct?**
-### **#%set-box!**
-### **#%stream-cdr**
-### **#%struct-property-ref**
-### **#%struct-update**
-### **#%syntax/raw**
-### **#%unbox**
-### **#%vtable-update-entry!**
 ### **%iterator?**
 ### **%keyword-hash**
 ### *****
