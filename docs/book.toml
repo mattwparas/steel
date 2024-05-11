@@ -4,3 +4,8 @@ language = "en"
 multilingual = false
 src = "src"
 title = "The Book of Steel"
+
+[preprocessor.pagetoc]
+[output.html]
+additional-css = ["theme/pagetoc.css"]
+additional-js  = ["theme/pagetoc.js"]
