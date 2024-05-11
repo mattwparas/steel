@@ -1454,7 +1454,9 @@ fn meta_module() -> BuiltInModule {
         .register_value("%iterator?", gen_pred!(BoxedIterator))
         .register_fn("env-var", get_environment_variable)
         .register_fn("maybe-get-env-var", maybe_get_environment_variable)
-        .register_fn("set-env-var!", |name, val| std::env::set_var::<String, String>(name, val))
+        .register_fn("set-env-var!", |name, val| {
+            std::env::set_var::<String, String>(name, val)
+        })
         .register_fn("arity?", arity)
         .register_fn("function-name", lookup_function_name)
         .register_fn("#%native-fn-ptr-doc", lookup_doc)
