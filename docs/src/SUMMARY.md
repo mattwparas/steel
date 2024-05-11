@@ -2,12 +2,12 @@
 
 [Introduction](introduction.md)
 
-- [Lisp](lisp/overview.md)
-    - [Evaluation](lisp/evaluation.md)
-    - [Literals](lisp/literals.md)
-    - [Function calls](lisp/fncalls.md)
-    - [Symbols](lisp/symbols.md)
-    - [Bindings and Scopes](lisp/bindings_scopes.md)
+- [Foundations](foundations/overview.md)
+    - [Evaluation](foundations/evaluation.md)
+    - [Literals](foundations/literals.md)
+    - [Function calls](foundations/fncalls.md)
+    - [Symbols](foundations/symbols.md)
+    - [Bindings and Scopes](foundations/bindings_scopes.md)
 
 - [Steel](about/about.md)
     - [Features](about/features.md)
