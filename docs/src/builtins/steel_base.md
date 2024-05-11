@@ -1,9 +1,36 @@
 # steel/base
 ### **abs**
 Returns the absolute value of the given input
+### **append**
+Appends the given lists together. If provided with no lists, will return the empty list.
+
+(append lst ...)
+
+lst : list?
+
+#### Examples
+```scheme
+> (append (list 1 2) (list 3 4)) ;; => '(1 2 3 4)
+> (append) ;; => '()
+```
+### **apply**
+
+Applies the given `function` with arguments as the contents of the `list`.
+
+(apply function lst) -> any?
+
+* function : function?
+* list: list?
+
+#### Examples
+```scheme
+> (apply + (list 1 2 3 4)) ;; => 10
+> (apply list (list 1 2 3 4)) ;; => '(1 2 3 4)
+```
+    
 ### **byte?**
-Returns #t if the given value is a byte, meaning an exact
-integer between 0 and 255 inclusive, #f otherwise.
+Returns `#t` if the given value is a byte, meaning an exact
+integer between 0 and 255 inclusive, `#f` otherwise.
 
 #### Examples
 ```scheme
@@ -14,16 +41,16 @@ integer between 0 and 255 inclusive, #f otherwise.
 (byte? -1) ;; => #f
 ```
 ### **bytes**
-Returns a new mutable vector vectors with each byte as the given arguments.
+Returns a new mutable vector with each byte as the given arguments.
 Each argument must satisfy the `byte?` predicate, meaning it is an exact
 integer range from 0 - 255 (inclusive)
 
 (bytes b ...)
 
-b : byte?
+* b : byte?
 
 
-#### Example
+#### Examples
 ```scheme
 (bytes 65 112 112 108 101)
 ```
@@ -39,7 +66,7 @@ Append two byte vectors into a new bytevector.
 
 #### Examples
 ```scheme
-(bytes-append (bytes 0 1 2) (bytes 3 4 5)) ;; (bytes 0 1 2 3 4 5)
+(bytes-append (bytes 0 1 2) (bytes 3 4 5)) ;; => (bytes 0 1 2 3 4 5)
 ```
 ### **bytes-length**
 Returns the length of the given byte vector
@@ -54,8 +81,8 @@ If the index is out of bounds, this will error.
 
 (bytes-ref vector index)
 
-vector : bytes?
-index: (and exact? int?)
+* vector : bytes?
+* index: (and exact? int?)
 
 #### Examples
 ```scheme
@@ -68,9 +95,9 @@ if the index is out of bounds.
 
 (bytes-set! vector index byte)
 
-vector : bytes?
-index: (and exact? int?)
-byte: byte?
+* vector : bytes?
+* index: (and exact? int?)
+* byte: byte?
 
 #### Examples
 ```scheme
@@ -87,19 +114,38 @@ Returns `#t` if this value is a bytevector
 (bytes? (list 10 20 30)) ;; => #f
 ```
 ### **bytevector**
-Returns a new mutable vector vectors with each byte as the given arguments.
+Returns a new mutable vector with each byte as the given arguments.
 Each argument must satisfy the `byte?` predicate, meaning it is an exact
 integer range from 0 - 255 (inclusive)
 
 (bytevector b ...)
 
-b : byte?
+* b : byte?
 
 
-#### Example
+#### Examples
 ```scheme
 (bytevector 65 112 112 108 101)
 ```
+### **bytevector-copy**
+Creates a copy of a bytevector.
+
+(bytevector-copy vector [start end]) -> bytes?
+
+* vector : bytes?
+* start: int? = 0
+* end: int? = (bytes-length vector)
+
+#### Examples
+
+```scheme
+(define vec (bytes 1 2 3 4 5))
+
+(bytevector-copy vec) ;; => (bytes 1 2 3 4 5)
+(bytevector-copy vec 1 3) ;; => (bytes 2 3)
+```
+### **canonicalize-path**
+Returns canonical path with all components normalized
 ### **car**
 Returns the first element of the list l.
 
@@ -113,17 +159,60 @@ Returns the first element of the list l.
 > (car '(1 2)) ;; => 1
 > (car (cons 2 3)) ;; => 2
 ```
+### **cdr**
+Returns the rest of the list. Will raise an error if the list is empty.
+
+(cdr l) -> list?
+
+* l : list?
+
+#### Examples
+```scheme
+> (cdr (list 10 20 30)) ;; => '(20 30)
+> (cdr (list 10)) ;; => '()
+> (cdr '())
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (cdr '())
+│  ^^^ cdr expects a non empty list
+```
 ### **char=?**
 Checks if two characters are equal
 
 Requires that the two inputs are both characters, and will otherwise
 raise an error.
+### **cons**
+Returns a newly allocated list whose first element is `a` and second element is `d`.
+
+(cons a d) -> list?
+
+* a : any/c
+* d : any/c
+
+#### Examples
+```scheme
+> (cons 1 2) ;; => '(1 . 2)
+> (cons 1 '()) ;; => '(1)
+```
 ### **copy-directory-recursively!**
 Recursively copies the directory from source to destination
 ### **create-directory!**
 Creates the directory
 ### **current-directory**
 Check the current working directory
+### **current-inexact-milliseconds**
+Returns the number of milliseconds since the Unix epoch as an inexact number.
+
+(current-inexact-milliseconds) -> inexact?
+### **current-milliseconds**
+Returns the number of milliseconds since the Unix epoch as an integer.
+
+(current-milliseconds) -> int?
+### **current-second**
+Returns the number of seconds since the Unix epoch as an integer.
+
+(current-second) -> int?
 ### **delete-directory!**
 Deletes the directory
 ### **empty?**
@@ -152,6 +241,14 @@ pattern: string?
 ```scheme
 > (ends-with? "foobar" "foo") ;; => #false
 > (ends-with? "foobar" "bar") ;; => #true
+```
+### **exact-integer-sqrt**
+Returns an integer that is closest (but not greater than) the square root of an integer and the
+remainder.
+
+```scheme
+(exact-integer-sqrt x) => '(root rem)
+(equal? x (+ (square root) rem)) => #t
 ```
 ### **exp**
 Returns Euler's number raised to the power of z.
@@ -375,6 +472,17 @@ Converts an integer into a string.
 Checks if a path is a directory
 ### **is-file?**
 Checks if a path is a file
+### **last**
+Returns the last element in the list. Takes time proportional to the length of the list.
+
+(last l) -> any/c
+
+* l : list?
+
+#### Examples
+```scheme
+> (list (list 1 2 3 4)) ;; => 4
+```
 ### **length**
 Returns the length of the list.
 
@@ -430,6 +538,55 @@ error[E11]: Generic
 │
 1 │ (list-ref (list 1 2 3 4) 10)
 │  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10
+```
+### **local-time/now!**
+Returns the local time in the format given by the input string (using `chrono::Local::format`).
+
+(local-time/now! fmt) -> string?
+
+* fmt : string?
+### **magnitude**
+Returns the magnitude of the number. For real numbers, this is equvalent to `(abs x)`. For
+complex numbers this returns its distance from `(0, 0)` in the complex plane.
+
+```scheme
+(magnitude -1/3) => 1/3
+(magnitude 3+4i) => 5
+```
+### **make-bytes**
+Creates a bytevector given a length and a default value.
+
+(make-bytes len default) -> bytes?
+
+* len : int?
+* default : byte?
+
+#### Examples
+```scheme
+(make-bytes 6 42) ;; => (bytes 42 42 42 42 42)
+```
+### **make-string**
+Creates a string of a given length, filled with an optional character
+(which defaults to `#\0`).
+
+(make-string len [char]) -> string?
+
+* len : int?
+* char : char? = #\0
+### **nan?**
+Returns `#t` if the real number is Nan.
+
+```scheme
+(nan? +nan.0) => #t
+(nan? 100000) => #f
+```
+### **negative?**
+Returns `#t` if the real number is negative.
+
+```scheme
+(negative?  0) => #f
+(negative?  1) => #f
+(negative? -1) => #t
 ```
 ### **number->string**
 Converts the given number to a string
@@ -487,6 +644,14 @@ is considered a pair.
 Gets the extension from a path
 ### **path-exists?**
 Checks if a path exists
+### **positive?**
+Returns `#t` if the real number is positive.
+
+```scheme
+(positive?  0) => #f
+(positive?  1) => #t
+(positive? -1) => #f
+```
 ### **range**
 Returns a newly allocated list of the elements in the range (n, m]
 
@@ -520,6 +685,36 @@ Takes a port and reads the entire content into a string
 (read-port-to-string port) -> string?
 
 * port : input-port?
+### **rest**
+Returns the rest of the list. Will raise an error if the list is empty.
+
+(rest l) -> list?
+
+* l : list?
+
+#### Examples
+```scheme
+> (rest (list 10 20 30)) ;; => '(20 30)
+> (rest (list 10)) ;; => '()
+> (rest (list 10))
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (rest '())
+│  ^^^^ rest expects a non empty list
+```
+### **reverse**
+Returns a list that has the same elements as `lst`, but in reverse order.
+This function takes time proportional to the length of `lst`.
+
+(reverse lst) -> list?
+
+* l : list?
+
+#### Examples
+```scheme
+> (reverse (list 1 2 3 4)) ;; '(4 3 2 1)
+```
 ### **second**
 Get the second element of the list. Raises an error if the list does not have an element in the second position.
 
@@ -537,6 +732,35 @@ error[E11]: Generic
 │
 1 │ (second '())
 │  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
+### **split-many**
+Splits a string given a separator pattern into a list of strings.
+
+(split-many str pat) -> (listof string?)
+
+* str : string?
+* pat : string?
+
+#### Examples
+```scheme
+(split-many "foo,bar,baz" ",") ;; => '("foo" "bar" "baz")
+(split-many "foo|bar|" "|") ;; => '("foo" "bar" "")
+(split-many "" "&") ;; => '("")
+```
+### **split-once**
+Splits a string given a separator at most once, yielding
+a list with at most 2 elements.
+
+(split-once str pat) -> string?
+
+* str : string?
+* pat : string?
+
+#### Examples
+```scheme
+(split-once "foo,bar,baz" ",") ;; => '("foo" "bar,baz")
+(split-once "foo|bar|" "|") ;; => '("foo" "bar|")
+(split-once "" "&") ;; => '("")
+```
 ### **split-whitespace**
 Returns a list of strings from the original string split on the whitespace
 
@@ -547,13 +771,26 @@ Returns a list of strings from the original string split on the whitespace
 ```scheme
 (split-whitespace "apples bananas fruits veggies") ;; '("apples" "bananas" "fruits" "veggies")
 ```
+### **sqrt**
+Takes a number and returns the square root. If the number is negative, then a complex number may
+be returned.
+
+```scheme
+(sqrt  -1)   => 0+1i
+(sqrt   4)   => 2
+(sqrt   2)   => 1.414..
+(sqrt 4/9)   => 2/3
+(sqrt -3-4i) => 1-2i
+```
+### **square**
+Squares a number. This is equivalent to `(* x x)`
 ### **starts-with?**
 Checks if the input string starts with a prefix
 
 (starts-with? input pattern) -> bool?
 
-input : string?
-pattern: string?
+* input : string?
+* pattern: string?
 
 #### Examples
 
@@ -590,6 +827,17 @@ Converts a string into an int. Raises an error if the string cannot be converted
 ```scheme
 > (string->int "100") ;; => 10
 > (string->int "not-an-int") ;; error
+```
+### **string->jsexpr**
+Deserializes a JSON string into a Steel value.
+
+(string->jsexpr json) -> any/c?
+
+* json : string?
+
+#### Examples
+```scheme
+(string->jsexpr "{\"foo\": [3]}") ;; => '#hash((foo . (3)))
 ```
 ### **string->list**
 Converts a string into a list of characters.
@@ -645,6 +893,19 @@ Concatenates all of the given strings into one
 > (string-append) ;; => ""
 > (string-append "foo" "bar") ;; => "foobar"
 ```
+### **string-ci<=?**
+Compares two strings lexicographically (as in "less-than-or-equal"),
+### **string-ci<?**
+Compares two strings lexicographically (as in "less-than"),
+in a case insensitive fashion.
+### **string-ci=?**
+Compares two strings for equality, in a case insensitive fashion.
+### **string-ci>=?**
+Compares two strings lexicographically (as in "greater-than-or-equal"),
+in a case insensitive fashion.
+### **string-ci>?**
+Compares two strings lexicographically (as in "greater-than"),
+in a case-insensitive fashion.
 ### **string-length**
 Get the length of the given string in UTF-8 bytes.
 
@@ -656,6 +917,50 @@ Get the length of the given string in UTF-8 bytes.
 > (string-length "apples") ;; => 6
 > (string-length "✅") ;; => 3
 > (string-length "🤖") ;; => 4
+```
+### **string-ref**
+Extracts the nth character out of a given string.
+
+(string-ref str n)
+
+* str : string?
+* n : int?
+### **string-replace**
+Replaces all occurrences of a pattern into the given string
+
+(string-replace str from to) -> string?
+
+* str : string?
+* from : string?
+* to : string?
+
+#### Examples
+```scheme
+(string-replace "hello world" "o" "@") ;; => "hell@ w@rld"
+```
+### **string<=?**
+Compares two strings lexicographically (as in "less-than-or-equal").
+### **string<?**
+Compares two strings lexicographically (as in "less-than").
+### **string=?**
+Compares two strings for equality.
+### **string>=?**
+Compares two strings lexicographically (as in "greater-than-or-equal").
+### **string>?**
+Compares two strings lexicographically (as in "greater-than").
+### **substring**
+Creates a substring slicing the characters between two indices.
+
+(substring str start end) -> string?
+
+* str: string?
+* start : int?
+* end : int?
+
+#### Examples
+```scheme
+(substring "hello" 1 4) ;; => "ell"
+(substring "hello" 10 15) ;; => error
 ```
 ### **take**
 Returns the first n elements of the list l as a new list.
@@ -688,8 +993,14 @@ error[E11]: Generic
 1 │ (third '())
 │  ^^^^^^ third: index out of bounds - list did not have an element in the second position: []
 ```
+### **time/sleep-ms**
+Sleeps the thread for a given number of milliseconds.
+
+(time/sleep-ms ms)
+
+* ms : int?
 ### **to-string**
-Concatenatives all of the inputs to their string representation, separated by spaces.
+Concatenates all of the inputs to their string representation, separated by spaces.
 
 (to-string xs ...)
 
@@ -755,29 +1066,25 @@ of the string
 ```scheme
 > (trim-start-matches "123foo1bar123123" "123") ;; => "foo1bar123123"
 ```
-### **#%black-box**
-### **#%box**
-### **#%debug-syntax->exprkind**
-### **#%default-input-port**
-### **#%default-output-port**
-### **#%environment-length**
-### **#%function-ptr-table**
-### **#%function-ptr-table-add**
-### **#%function-ptr-table-get**
-### **#%get-dylib**
-### **#%iterator-finished**
-### **#%native-fn-ptr-doc**
-### **#%private-cycle-collector**
-### **#%private-cycle-collector-get**
-### **#%private-cycle-collector-values**
-### **#%private-struct?**
-### **#%set-box!**
-### **#%stream-cdr**
-### **#%struct-property-ref**
-### **#%struct-update**
-### **#%syntax/raw**
-### **#%unbox**
-### **#%vtable-update-entry!**
+### **value->jsexpr-string**
+Serializes a Steel value into a string.
+
+(value->jsexpr-string any/c?) -> string?
+
+#### Examples
+```scheme
+(value->jsexpr-string `(,(hash "foo" #t))) ;; => "[{\"foo\":true}]"
+```
+### **void**
+The void value, returned by many forms with side effects, such as `define`.
+### **zero?**
+Returns `#t` if the real number is 0 or 0.0.
+
+```scheme
+(zero? 0  ) => #f
+(zero? 0.0) => #t
+(zero? 0.1) => #f
+```
 ### **%iterator?**
 ### **%keyword-hash**
 ### *****
@@ -816,8 +1123,8 @@ of the string
 ### **bool?**
 ### **boolean?**
 ### **box**
+### **box-strong**
 ### **breakpoint!**
-### **bytevector-copy**
 ### **call-with-current-continuation**
 ### **call-with-exception-handler**
 ### **call/cc**
@@ -839,10 +1146,7 @@ of the string
 ### **concat-symbols**
 ### **continuation?**
 ### **current-function-span**
-### **current-inexact-milliseconds**
-### **current-milliseconds**
 ### **current-os!**
-### **current-second**
 ### **denominator**
 ### **dropping**
 ### **duration->seconds**
@@ -917,11 +1221,8 @@ of the string
 ### **list-tail**
 ### **list?**
 ### **local-executor/block-on**
-### **local-time/now!**
 ### **log**
-### **make-bytes**
 ### **make-channels**
-### **make-string**
 ### **make-struct-type**
 ### **make-vector**
 ### **mapping**
@@ -931,7 +1232,10 @@ of the string
 ### **mut-vec-len**
 ### **mut-vector-ref**
 ### **mutable-vector**
+### **mutable-vector->clear**
 ### **mutable-vector->list**
+### **mutable-vector->string**
+### **mutable-vector-pop!**
 ### **mutable-vector?**
 ### **not**
 ### **null?**
@@ -958,6 +1262,7 @@ of the string
 ### **real?**
 ### **round**
 ### **run!**
+### **set-box!**
 ### **set-current-dir!**
 ### **set-env-var!**
 ### **set-piped-stdout!**
@@ -966,31 +1271,14 @@ of the string
 ### **set?**
 ### **spawn-process**
 ### **spawn-thread!**
-### **split-many**
-### **split-once**
-### **square**
 ### **stdout**
 ### **stdout-simple-displayln**
 ### **stream-car**
 ### **stream-cons**
 ### **stream-empty?**
-### **string->jsexpr**
-### **string-ci<=?**
-### **string-ci<?**
-### **string-ci=?**
-### **string-ci>=?**
-### **string-ci>?**
-### **string-ref**
-### **string-replace**
-### **string<=?**
-### **string<?**
-### **string=?**
-### **string>=?**
-### **string>?**
 ### **string?**
 ### **struct->list**
 ### **struct?**
-### **substring**
 ### **symbol->string**
 ### **symbol?**
 ### **syntax->datum**
@@ -1003,12 +1291,11 @@ of the string
 ### **thread-finished?**
 ### **thread-join!**
 ### **thread::current/id**
-### **time/sleep-ms**
 ### **transduce**
 ### **try-list-ref**
+### **unbox**
 ### **unbox-strong**
 ### **value->iterator**
-### **value->jsexpr-string**
 ### **value->string**
 ### **vec-append**
 ### **vec-rest**
@@ -1019,7 +1306,6 @@ of the string
 ### **vector-ref**
 ### **vector-set!**
 ### **vector?**
-### **void**
 ### **void?**
 ### **wait**
 ### **wait->stdout**

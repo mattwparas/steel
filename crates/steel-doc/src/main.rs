@@ -22,6 +22,10 @@ fn main() {
     let mut found_definitions: HashSet<String> = HashSet::new();
 
     for (module_name, module) in engine.builtin_modules().inner().iter() {
+        if module_name.starts_with("#%") {
+            continue;
+        }
+
         let module_name_without_slashes = module_name.replace("/", "_");
 
         let mut module_file =
@@ -39,7 +43,12 @@ fn main() {
 
         found_definitions.clear();
 
-        let mut exported_functions = module.names();
+        let mut exported_functions: Vec<_> = module
+            .names()
+            .into_iter()
+            .filter(|name| !name.starts_with("#%"))
+            .collect();
+
         exported_functions.sort();
 
         for name in &exported_functions {
@@ -53,7 +62,8 @@ fn main() {
 
                 match value {
                     steel::steel_vm::builtin::Documentation::Markdown(m) => {
-                        writeln!(&mut module_file, "### **{}**", name).unwrap();
+                        let escaped = name.replace("*", "\\*");
+                        writeln!(&mut module_file, "### **{}**", escaped).unwrap();
 
                         format_markdown_doc(&mut module_file, m.0);
                     }

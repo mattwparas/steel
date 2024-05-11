@@ -11,8 +11,6 @@ fn char_upcase(c: char) -> char {
     c.to_ascii_uppercase()
 }
 
-/// # steel/strings
-///
 /// Strings in Steel are immutable, fixed length arrays of characters. They are heap allocated, and
 /// are implemented under the hood as referenced counted Rust `Strings`. Rust `Strings` are stored
 /// as UTF-8 encoded bytes.
@@ -169,56 +167,76 @@ pub fn string_constructor(rest: RestArgsIter<'_, char>) -> Result<SteelVal> {
     rest.collect::<Result<String>>().map(|x| x.into())
 }
 
+/// Compares two strings lexicographically (as in "less-than-or-equal").
 #[function(name = "string<=?", constant = true)]
 pub fn string_less_than_equal_to(left: &SteelString, right: &SteelString) -> bool {
     left <= right
 }
 
+/// Compares two strings lexicographically (as in "less-than-or-equal"),
+// in a case insensitive fashion.
 #[function(name = "string-ci<=?", constant = true)]
 pub fn string_ci_less_than_equal_to(left: &SteelString, right: &SteelString) -> bool {
     left.to_lowercase() <= right.to_lowercase()
 }
 
+/// Compares two strings lexicographically (as in "less-than").
 #[function(name = "string<?", constant = true)]
 pub fn string_less_than(left: &SteelString, right: &SteelString) -> bool {
     left < right
 }
 
+/// Compares two strings lexicographically (as in "less-than"),
+/// in a case insensitive fashion.
 #[function(name = "string-ci<?", constant = true)]
 pub fn string_ci_less_than(left: &SteelString, right: &SteelString) -> bool {
     left.to_lowercase() < right.to_lowercase()
 }
 
+/// Compares two strings lexicographically (as in "greater-than-or-equal").
 #[function(name = "string>=?", constant = true)]
 pub fn string_greater_than_equal_to(left: &SteelString, right: &SteelString) -> bool {
     left >= right
 }
 
+/// Compares two strings lexicographically (as in "greater-than-or-equal"),
+/// in a case insensitive fashion.
 #[function(name = "string-ci>=?", constant = true)]
 pub fn string_ci_greater_than_equal_to(left: &SteelString, right: &SteelString) -> bool {
     left.to_lowercase() >= right.to_lowercase()
 }
 
+/// Compares two strings lexicographically (as in "greater-than").
 #[function(name = "string>?", constant = true)]
 pub fn string_greater_than(left: &SteelString, right: &SteelString) -> bool {
     left > right
 }
 
+/// Compares two strings lexicographically (as in "greater-than"),
+/// in a case-insensitive fashion.
 #[function(name = "string-ci>?", constant = true)]
 pub fn string_ci_greater_than(left: &SteelString, right: &SteelString) -> bool {
     left.to_lowercase() > right.to_lowercase()
 }
 
+/// Compares two strings for equality.
 #[function(name = "string=?", constant = true)]
 pub fn string_equals(left: &SteelString, right: &SteelString) -> bool {
     left == right
 }
 
+/// Compares two strings for equality, in a case insensitive fashion.
 #[function(name = "string-ci=?", constant = true)]
 pub fn string_ci_equals(left: &SteelString, right: &SteelString) -> bool {
     left.to_lowercase() == right.to_lowercase()
 }
 
+/// Extracts the nth character out of a given string.
+///
+/// (string-ref str n)
+///
+/// * str : string?
+/// * n : int?
 #[function(name = "string-ref", constant = true)]
 pub fn string_ref(value: &SteelString, index: usize) -> Result<SteelVal> {
     let res = if index < value.len() {
@@ -234,6 +252,19 @@ pub fn string_ref(value: &SteelString, index: usize) -> Result<SteelVal> {
     }
 }
 
+/// Creates a substring slicing the characters between two indices.
+///
+/// (substring str start end) -> string?
+///
+/// * str: string?
+/// * start : int?
+/// * end : int?
+///
+/// # Examples
+/// ```scheme
+/// (substring "hello" 1 4) ;; => "ell"
+/// (substring "hello" 10 15) ;; => error
+/// ```
 #[function(name = "substring", constant = true)]
 pub fn substring(
     value: &SteelString,
@@ -284,6 +315,13 @@ pub fn substring(
     Ok(SteelVal::StringV(value[start..end].into()))
 }
 
+/// Creates a string of a given length, filled with an optional character
+/// (which defaults to `#\0`).
+///
+/// (make-string len [char]) -> string?
+///
+/// * len : int?
+/// * char : char? = #\0
 #[function(name = "make-string")]
 pub fn make_string(k: usize, mut c: RestArgsIter<'_, char>) -> Result<SteelVal> {
     // If the char is there, we want to take it
@@ -298,6 +336,18 @@ pub fn make_string(k: usize, mut c: RestArgsIter<'_, char>) -> Result<SteelVal> 
     Ok((0..k).into_iter().map(|_| c).collect::<String>().into())
 }
 
+/// Replaces all occurrences of a pattern into the given string
+///
+/// (string-replace str from to) -> string?
+///
+/// * str : string?
+/// * from : string?
+/// * to : string?
+///
+/// # Examples
+/// ```scheme
+/// (string-replace "hello world" "o" "@") ;; => "hell@ w@rld"
+/// ```
 #[function(name = "string-replace")]
 pub fn replace(value: &SteelString, from: &SteelString, to: &SteelString) -> Result<SteelVal> {
     Ok(SteelVal::StringV(
@@ -305,7 +355,7 @@ pub fn replace(value: &SteelString, from: &SteelString, to: &SteelString) -> Res
     ))
 }
 
-/// Concatenatives all of the inputs to their string representation, separated by spaces.
+/// Concatenates all of the inputs to their string representation, separated by spaces.
 ///
 /// (to-string xs ...)
 ///
@@ -521,6 +571,20 @@ pub fn split_whitespace(value: &SteelString) -> SteelVal {
     split.into()
 }
 
+/// Splits a string given a separator at most once, yielding
+/// a list with at most 2 elements.
+///
+/// (split-once str pat) -> string?
+///
+/// * str : string?
+/// * pat : string?
+///
+/// # Examples
+/// ```scheme
+/// (split-once "foo,bar,baz" ",") ;; => '("foo" "bar,baz")
+/// (split-once "foo|bar|" "|") ;; => '("foo" "bar|")
+/// (split-once "" "&") ;; => '("")
+/// ```
 #[function(name = "split-once")]
 pub fn split_once(value: &SteelString, pat: &SteelString) -> SteelVal {
     let split: Option<List<SteelVal>> = value
@@ -529,6 +593,19 @@ pub fn split_once(value: &SteelString, pat: &SteelString) -> SteelVal {
     split.into()
 }
 
+/// Splits a string given a separator pattern into a list of strings.
+///
+/// (split-many str pat) -> (listof string?)
+///
+/// * str : string?
+/// * pat : string?
+///
+/// # Examples
+/// ```scheme
+/// (split-many "foo,bar,baz" ",") ;; => '("foo" "bar" "baz")
+/// (split-many "foo|bar|" "|") ;; => '("foo" "bar" "")
+/// (split-many "" "&") ;; => '("")
+/// ```
 #[function(name = "split-many")]
 pub fn split_many(value: &SteelString, pat: &SteelString) -> SteelVal {
     let split: List<SteelVal> = value
@@ -542,8 +619,8 @@ pub fn split_many(value: &SteelString, pat: &SteelString) -> SteelVal {
 ///
 /// (starts-with? input pattern) -> bool?
 ///
-///    input : string?
-///    pattern: string?
+/// * input : string?
+/// * pattern: string?
 ///
 /// # Examples
 ///

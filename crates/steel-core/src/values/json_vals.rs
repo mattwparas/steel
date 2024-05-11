@@ -1,43 +1,49 @@
+use crate::rvals::SteelString;
 use crate::values::lists::List;
 use crate::{
     gc::Gc,
     rerrs::SteelErr,
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
-    throw,
 };
 use im_rc::HashMap;
 use serde_json::{Map, Number, Value};
 use std::convert::{TryFrom, TryInto};
+use steel_derive::function;
 
-pub fn string_to_jsexpr() -> SteelVal {
-    SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-        if args.len() != 1 {
-            stop!(ArityMismatch => "string->jsexpr takes 1 argument");
-        } else {
-            let arg =
-                &args[0].string_or_else(throw!(TypeMismatch => "string->jsexpr takes a string"))?;
-            // let unescaped = unescape(arg);
-            // let res: std::result::Result<Value, _> = serde_json::from_str(unescaped.as_str());
-            let res: std::result::Result<Value, _> = serde_json::from_str(arg);
-            match res {
-                Ok(res) => res.try_into(),
-                Err(e) => stop!(Generic => format!("string->jsexpr failed: {e}")),
-            }
-        }
-    })
+/// Deserializes a JSON string into a Steel value.
+///
+/// (string->jsexpr json) -> any/c?
+///
+/// * json : string?
+///
+/// # Examples
+/// ```scheme
+/// (string->jsexpr "{\"foo\": [3]}") ;; => '#hash((foo . (3)))
+/// ```
+#[function(name = "string->jsexpr")]
+pub fn string_to_jsexpr(value: &SteelString) -> Result<SteelVal> {
+    let unescaped = unescape(&value);
+    let res: std::result::Result<Value, _> = serde_json::from_str(unescaped.as_str());
+
+    match res {
+        Ok(res) => res.try_into(),
+        Err(e) => stop!(Generic => format!("string->jsexpr failed: {e}")),
+    }
 }
 
-pub fn serialize_val_to_string() -> SteelVal {
-    SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-        if args.len() != 1 {
-            stop!(ArityMismatch => "serialize value takes one argument");
-        } else {
-            let arg = args[0].clone();
-            let serde_value: Value = arg.try_into()?;
-            let serialized_value = serde_value.to_string();
-            Ok(SteelVal::StringV(serialized_value.into()))
-        }
-    })
+/// Serializes a Steel value into a string.
+///
+/// (value->jsexpr-string any/c?) -> string?
+///
+/// # Examples
+/// ```scheme
+/// (value->jsexpr-string `(,(hash "foo" #t))) ;; => "[{\"foo\":true}]"
+/// ```
+#[function(name = "value->jsexpr-string")]
+pub fn serialize_val_to_string(value: SteelVal) -> Result<SteelVal> {
+    let serde_value: Value = value.try_into()?;
+    let serialized_value = serde_value.to_string();
+    Ok(SteelVal::StringV(serialized_value.into()))
 }
 
 // required to parse each string
@@ -187,18 +193,11 @@ mod json_tests {
     use crate::rvals::SteelVal::*;
     use im_rc::hashmap;
 
-    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<SteelVal> {
-        func.func_or_else(throw!(BadSyntax => "hash tests"))
-            .unwrap()(&args)
-    }
-
     #[test]
     fn test_string_to_jsexpr() {
         let json_expr = r#"{"a":"applesauce","b":"bananas"}"#;
-        let steelval = SteelVal::StringV(json_expr.into());
-        let args = vec![steelval];
 
-        let result = apply_function(string_to_jsexpr(), args);
+        let result = string_to_jsexpr(&json_expr.into());
 
         let expected = SteelVal::HashMapV(
             Gc::new(hashmap! {

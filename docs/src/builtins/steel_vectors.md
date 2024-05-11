@@ -3,7 +3,10 @@
 ### **mut-vec-len**
 ### **mut-vector-ref**
 ### **mutable-vector**
+### **mutable-vector->clear**
 ### **mutable-vector->list**
+### **mutable-vector->string**
+### **mutable-vector-pop!**
 ### **null?**
 ### **pop-front**
 ### **push**

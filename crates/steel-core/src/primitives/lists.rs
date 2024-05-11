@@ -47,8 +47,6 @@ impl From<Result<SteelVal>> for UnRecoverableResult {
     }
 }
 
-/// # steel/lists
-///     
 /// Lists in Steel have an interface that matches those of classic schemes or lisps.
 /// At face value, they appear to be implemented as cons cells - however, under the hood
 /// they are actually implemented as unrolled linked lists.

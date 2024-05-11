@@ -1,5 +1,5 @@
 use super::{
-    builtin::BuiltInModule,
+    builtin::{BuiltInModule, MarkdownDoc},
     cache::WeakMemoizationTable,
     engine::Engine,
     register_fn::RegisterFn,
@@ -1009,10 +1009,15 @@ fn sandboxed_io_module() -> BuiltInModule {
     // .register_value("read-to-string", IoFunctions::read_to_string());
     module
 }
+pub const VOID_DOC: MarkdownDoc =
+    MarkdownDoc("The void value, returned by many forms with side effects, such as `define`.");
 
+/// Miscellaneous constants
+#[steel_derive::define_module(name = "steel/constants")]
 fn constants_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/constants");
     module.register_value("void", SteelVal::Void);
+    module.register_doc("void", VOID_DOC);
     module
 }
 
@@ -1496,16 +1501,14 @@ fn meta_module() -> BuiltInModule {
     module
 }
 
+/// De/serialization from/to JSON.
+#[steel_derive::define_module(name = "steel/json")]
 fn json_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/json");
     module
-        .register_value(
-            "string->jsexpr",
-            crate::values::json_vals::string_to_jsexpr(),
-        )
-        .register_value(
-            "value->jsexpr-string",
-            crate::values::json_vals::serialize_val_to_string(),
+        .register_native_fn_definition(crate::values::json_vals::STRING_TO_JSEXPR_DEFINITION)
+        .register_native_fn_definition(
+            crate::values::json_vals::SERIALIZE_VAL_TO_STRING_DEFINITION,
         );
     module
 }
