@@ -88,7 +88,7 @@ pub fn closure_into_serializable(
             #[cfg(feature = "dynamic")]
             body_exp: c.body_exp.borrow().iter().cloned().collect(),
 
-            arity: c.arity,
+            arity: c.arity as _,
             is_multi_arity: c.is_multi_arity,
         };
 

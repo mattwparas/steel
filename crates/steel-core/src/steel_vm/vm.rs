@@ -2736,7 +2736,7 @@ impl<'a> VmCore<'a> {
                 arity.to_usize(),
                 is_multi_arity,
                 Vec::new(),
-                Vec::new(),
+                // Vec::new(),
                 // Rc::clone(&spans),
             ));
 
@@ -2802,7 +2802,7 @@ impl<'a> VmCore<'a> {
         // TODO: This shouldn't be the same size as the captures
         // let mut heap_vars = Vec::with_capacity(ndefs.to_usize());
 
-        let mut heap_vars = Vec::new();
+        // let mut heap_vars = Vec::new();
 
         // TODO clean this up a bit
         // hold the spot for where we need to jump aftwards
@@ -2900,7 +2900,7 @@ impl<'a> VmCore<'a> {
 
             let mut prototype = prototype.clone();
             prototype.set_captures(captures);
-            prototype.set_heap_allocated(heap_vars);
+            // prototype.set_heap_allocated(heap_vars);
             prototype
         } else {
             // log::trace!("Constructing closure for the first time");
@@ -2949,7 +2949,7 @@ impl<'a> VmCore<'a> {
                 arity.to_usize(),
                 is_multi_arity,
                 Vec::new(),
-                Vec::new(),
+                // Vec::new(),
             );
 
             self.thread
@@ -2964,7 +2964,7 @@ impl<'a> VmCore<'a> {
                 .insert(closure_id, spans);
 
             constructed_lambda.set_captures(captures);
-            constructed_lambda.set_heap_allocated(heap_vars);
+            // constructed_lambda.set_heap_allocated(heap_vars);
 
             constructed_lambda
         };
@@ -5251,6 +5251,10 @@ fn lte_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
 
 // OpCode::ALLOC
 fn alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    panic!("Deprecated now - this shouldn't be hit");
+
+    /*
+
     // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
     let offset = ctx.get_offset();
 
@@ -5273,11 +5277,16 @@ fn alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.ip += 1;
 
     Ok(())
+
+    */
 }
 
 // OpCode::READALLOC
 #[inline(always)]
 fn read_alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    panic!("Deprecated - this shouldn't be hit")
+
+    /*
     let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
 
     let value = ctx
@@ -5294,11 +5303,15 @@ fn read_alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.ip += 1;
 
     Ok(())
+    */
 }
 
 // OpCode::SETALLOC
 #[inline(always)]
 fn set_alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    panic!("Deprecated - this shouldn't be hit")
+
+    /*
     let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
     let value_to_assign = ctx.thread.stack.pop().unwrap();
 
@@ -5316,6 +5329,7 @@ fn set_alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.ip += 1;
 
     Ok(())
+    */
 }
 
 #[allow(unused)]
@@ -5349,6 +5363,9 @@ mod handlers {
     // OpCode::READALLOC
     #[inline(always)]
     fn read_alloc_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
+        panic!("Deprecated - this shouldn't be hit")
+
+        /*
         let value = ctx
             .thread
             .stack_frames
@@ -5363,6 +5380,7 @@ mod handlers {
         ctx.ip += 1;
 
         Ok(())
+        */
     }
 
     fn specialized_lte0(ctx: &mut VmCore<'_>) -> Result<()> {
@@ -5645,6 +5663,8 @@ mod handlers {
     // OpCode::SETALLOC
     #[inline(always)]
     fn set_alloc_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
+        panic!("Deprecated - this shouldn't be hit")
+        /*
         let value_to_assign = ctx.thread.stack.pop().unwrap();
 
         let old_value = ctx
@@ -5661,6 +5681,8 @@ mod handlers {
         ctx.ip += 1;
 
         Ok(())
+
+        */
     }
 
     // OpCode::NEWSCLOSURE
