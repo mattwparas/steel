@@ -4155,9 +4155,9 @@ impl<'a> SemanticAnalysis<'a> {
 
                                                     // dbg!(format!("REMOVING: {}", name));
 
-                                                    if name.resolve().ends_with("parser") {
-                                                        println!("Removing: {}", name);
-                                                    }
+                                                    // if name.resolve().ends_with("parser") {
+                                                    //     println!("Removing: {}", name);
+                                                    // }
 
                                                     offset += 1;
                                                     return false;
