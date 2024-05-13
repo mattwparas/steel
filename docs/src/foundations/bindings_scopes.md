@@ -58,8 +58,8 @@ If `define` seems reminiscent of global variables to you, you're not alone. Whil
 defining function bindings (more on that later) or constants, there must be a better way for local
 bindings.
 
-Steel has two ways to do it: one is a Lisp classic, `let` bindings, and another one is
-Steel-specific local scope `define`.
+Coming from Scheme, Steel has two ways to do it: one is a Lisp classic, `let` bindings, and the
+other is local scope `define`.
 
 #### `let`
 

@@ -1,6 +1,6 @@
 # Introduction
 
-Welcome to "The Book of Steel" &mdash; a guide for a dynamic and versatile programming language
+Welcome to "The Steel Book" &mdash; a guide for a dynamic and versatile programming language
 designed to harmonize with Rust, known as Steel. Born from the Lisp family and descended from
 Scheme, Steel offers a blend of dynamic expressiveness within Rust's strict environment, creating a
 powerful synergy.
