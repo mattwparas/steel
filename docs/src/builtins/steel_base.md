@@ -860,7 +860,13 @@ Creates a new lowercased version of the input string
 > (string->lower "sPonGeBoB tExT") ;; => "spongebob text"
 ```
 ### **string->number**
-Converts the given string to a number
+Converts the given string to a number, with an optional radix.
+On failure, it returns `f`
+
+(string->number digits [radix]) -> (or/c number? boolean?)
+
+* digits : string?
+* radix : number?
 ### **string->symbol**
 Converts a string into a symbol.
 
