@@ -4,28 +4,34 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable"; # We want to use packages from the binary cache
     flake-utils.url = "github:numtide/flake-utils";
-    gitignore = {
-      url = "github:hercules-ci/gitignore.nix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
   outputs = {
     self,
     nixpkgs,
     flake-utils,
-    gitignore,
   }:
     flake-utils.lib.eachDefaultSystem (system: let
-      inherit (gitignore.lib) gitignoreSource;
       pkgs = nixpkgs.legacyPackages.${system};
+      fs = pkgs.lib.fileset;
 
       manifest = pkgs.lib.importTOML ./Cargo.toml;
       steel = with pkgs;
         rustPlatform.buildRustPackage {
           pname = manifest.package.name;
           version = manifest.workspace.package.version;
-          src = gitignoreSource ./.;
+          src = fs.toSource {
+            root = ./.;
+            fileset = fs.intersection
+              (fs.gitTracked ./.)
+              (fs.fileFilter
+                (f: f.name == "Cargo.lock" ||
+                    f.hasExt "rkt" ||
+                    f.hasExt "rs" ||
+                    f.hasExt "scm" ||
+                    f.hasExt "toml")
+                ./.);
+          };
           cargoLock = {
             lockFile = ./Cargo.lock;
             # Temporary fix until https://github.com/mattwparas/steel/issues/192 is fixed upstream
