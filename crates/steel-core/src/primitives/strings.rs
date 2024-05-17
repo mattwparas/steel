@@ -122,7 +122,7 @@ fn string_to_number_impl(value: &str, radix: Option<u32>) -> Result<SteelVal> {
         Some("#x") | Some("#d") | Some("#o") | Some("#b")
     );
 
-    let implicit_radix = radix.filter(|_| explicit_radix);
+    let implicit_radix = radix.filter(|_| !explicit_radix);
 
     let number = expr.into_iter().next().unwrap();
 
@@ -170,6 +170,7 @@ pub fn string_to_number(
     } else {
         None
     };
+
     match string_to_number_impl(value.as_str(), radix) {
         Ok(v) => Ok(v),
         Err(_) => Ok(SteelVal::BoolV(false)),

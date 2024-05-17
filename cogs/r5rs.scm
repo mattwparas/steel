@@ -248,6 +248,11 @@
 
 (check-equal? "basic string->number" 100 (string->number "100"))
 (check-equal? "string->number with radix" 256 (string->number "100" 16))
+(check-equal? "string->number with radix in literal" 256 (string->number "#x100"))
+(check-equal? "string->number with radix in literal and explicit one" 256 (string->number "#x100" 8))
+(check-equal? "string->number with large number" 100000000000000 (string->number "100000000000000"))
+(check-equal? "string->number with large number and radix" 72057594037927936 (string->number "100000000000000" 16))
+(check-equal? "string->number with large number and radix literal" 4398046511104 (string->number "#o100000000000000"))
 (check-equal? "string->number with different base" 127 (string->number "177" 8))
 (check-equal? "string->number base 2" 5 (string->number "101" 2))
 (check-equal? "string->number with scientific notation" 100.0 (string->number "1e2"))
