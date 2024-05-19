@@ -113,7 +113,11 @@ fn rationalp(value: &SteelVal) -> bool {
 /// ```
 #[steel_derive::function(name = "int?", constant = true)]
 fn intp(value: &SteelVal) -> bool {
-    matches!(value, SteelVal::IntV(_) | SteelVal::BigNum(_))
+    match value {
+        SteelVal::IntV(_) | SteelVal::BigNum(_) => true,
+        SteelVal::NumV(n) if n.fract() == 0.0 => true,
+        _ => false,
+    }
 }
 
 /// Checks if the given value is an integer, an alias for `int?`
