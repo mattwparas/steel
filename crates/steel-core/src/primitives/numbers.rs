@@ -151,7 +151,7 @@ fn integerp(value: &SteelVal) -> bool {
 /// ```
 #[steel_derive::function(name = "exact-integer?", constant = true)]
 fn exact_integerp(value: &SteelVal) -> bool {
-    intp(value)
+    matches!(value, SteelVal::IntV(_) | SteelVal::BigNum(_))
 }
 
 /// Checks if the given value is a floating-point number

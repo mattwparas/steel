@@ -13,7 +13,6 @@
 (assert! (not (equal? 10 10.0)))
 (assert! (integer? 1))
 (assert! (exact-integer? 1))
-;; Consider returning #f according to r7rs spec.
 (assert! (integer? 1.0))
 (assert! (not (exact-integer? 1.0)))
 (assert! (not (integer? 1.2)))
