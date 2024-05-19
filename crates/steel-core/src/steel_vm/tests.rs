@@ -452,7 +452,7 @@ mod contract_tests {
         let script = r#"
         (define/contract (output)
             (->/c (->/c string? int?))
-            (lambda (x) 10.0))
+            (lambda (x) 10.1))
 
         (define/contract (accept)
             (->/c (->/c string? number?))
