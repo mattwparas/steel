@@ -1,6 +1,70 @@
 # steel/base
+### **\***
+Multiplies the given numbers.
+
+(* . nums) -> number?
+
+* nums : number? - The numbers to multiply. Can have any number of arguments including zero.
+
+#### Examples
+```scheme
+> (* 5 3) ;; => 15
+> (* 10 3 2) ;; => 60
+> (*) ;; => 1
+```
+### **+**
+Adds the given numbers.
+
+(+ . nums) -> number?
+
+* nums : number? - The numbers to add. Can have any number of arguments including zero.
+
+#### Examples
+```scheme
+> (+ 5 3) ;; => 8
+> (+ 10 3 2) ;; => 15
+> (+) ;; => 0
+```
+### **-**
+Subtracts the given numbers.
+
+(- . nums) -> number?
+
+* nums : number? - The numbers to subtract. Must have at least one number.
+
+#### Examples
+```scheme
+> (- 5 3) ;; => 2
+> (- 10 3 2) ;; => 5
+> (- -5) ;; => 5
+```
+### **/**
+Divides the given numbers.
+
+(/ . nums) -> number?
+
+* nums : number? - The numbers to divide. Must have at least one number.
+
+#### Examples
+```scheme
+> (/ 10 2) ;; => 5
+> (/ 10 2 2.0) ;; => 2.5
+> (/ 1 3.0) ;; => 0.3333333333333333
+> (/ 1 3) ;; => 1/3
+```
 ### **abs**
-Returns the absolute value of the given input
+Computes the absolute value of the given number.
+
+(abs number) -> number?
+
+* number : number? - The number to compute the absolute value of.
+
+#### Examples
+```scheme
+> (abs 42) ;; => 42
+> (abs -42) ;; => 42
+> (abs 0) ;; => 0
+```
 ### **append**
 Appends the given lists together. If provided with no lists, will return the empty list.
 
@@ -177,11 +241,37 @@ error[E11]: Generic
 1 │ (cdr '())
 │  ^^^ cdr expects a non empty list
 ```
+### **ceiling**
+Rounds the given number up to the nearest integer not less than it.
+
+(ceiling number) -> integer?
+
+* number : number? - The number to round up.
+
+#### Examples
+```scheme
+> (ceiling 42) ;; => 42
+> (ceiling 42.1) ;; => 43
+> (ceiling -42.1) ;; => -42
+```
 ### **char=?**
 Checks if two characters are equal
 
 Requires that the two inputs are both characters, and will otherwise
 raise an error.
+### **complex?**
+Checks if the given value is a complex number
+
+(complex? value) -> boolean?
+
+* value : any - The value to check
+
+#### Examples
+```scheme
+> (complex? 3+4i) ;; => #t
+> (complex? 42) ;; => #t
+> (complex? "hello") ;; => #f
+```
 ### **cons**
 Returns a newly allocated list whose first element is `a` and second element is `d`.
 
@@ -215,6 +305,19 @@ Returns the number of seconds since the Unix epoch as an integer.
 (current-second) -> int?
 ### **delete-directory!**
 Deletes the directory
+### **denominator**
+Retrieves the denominator of the given rational number.
+
+(denominator number) -> integer?
+
+* number : number? - The rational number to retrieve the denominator from.
+
+#### Examples
+```scheme
+> (denominator 1/2) ;; => 2
+> (denominator 3/4) ;; => 4
+> (denominator 4) ;; => 1
+```
 ### **empty?**
 Checks if the list is empty
 
@@ -242,18 +345,101 @@ pattern: string?
 > (ends-with? "foobar" "foo") ;; => #false
 > (ends-with? "foobar" "bar") ;; => #true
 ```
-### **exact-integer-sqrt**
-Returns an integer that is closest (but not greater than) the square root of an integer and the
-remainder.
+### **exact->inexact**
+Converts an exact number to an inexact number.
 
+(exact->inexact num) -> number?
+
+* num : number? - The number to convert from exact to inexact.
+
+#### Examples
 ```scheme
-(exact-integer-sqrt x) => '(root rem)
-(equal? x (+ (square root) rem)) => #t
+> (exact->inexact 10) ;; => 10
+> (exact->inexact 1/2) ;; => 0.5
+> (exact->inexact 1+2i) ;; => 1+2i
+```
+### **exact-integer-sqrt**
+Computes the integer square root of the given non-negative integer.
+
+(exact-integer-sqrt number) -> (integer? integer?)
+
+* number : (and/c integer? positive?) - The non-negative integer to compute the square root for.
+
+#### Examples
+```scheme
+> (exact-integer-sqrt 25) ;; => (5 0)
+> (exact-integer-sqrt 35) ;; => (5 10)
+```
+### **exact-integer?**
+Checks if the given value is an exact integer
+
+(exact-integer? value) -> boolean?
+
+* value : any - The value to check
+
+#### Examples
+```scheme
+> (exact-integer? 42) ;; => #t
+> (exact-integer? -42) ;; => #t
+> (exact-integer? 4.0) ;; => #f
+```
+### **exact?**
+Checks if the given value is exact.
+
+(exact? val) -> boolean?
+
+* val : any - The value to check for exactness.
+
+#### Examples
+```scheme
+> (exact? 42) ;; => #t
+> (exact? 3.14) ;; => #f
+> (exact? "hello") ;; => #f
 ```
 ### **exp**
-Returns Euler's number raised to the power of z.
+Returns Euler’s number raised to the power of z.
+
+(exp z) -> number?
+
+* z : number? - The number to raise e to the power of.
+
+#### Examples
+```scheme
+> (exp 0) ;; => 1
+> (exp 2) ;; => 7.38905609893065
+> (exp 1.5) ;; => 4.4816890703380645
+```
+### **expt**
+Raises the left operand to the power of the right operand.
+
+(expt base exponent) -> number?
+
+* base : number? - The base number.
+* exponent : number? - The exponent to raise the base to.
+
+#### Examples
+```scheme
+> (expt 2 3) ;; => 8
+> (expt 2.0 0.5) ;; => 1.4142135623730951
+> (expt 9 0.5) ;; => 3
+```
 ### **file-name**
 Gets the filename for a given path
+### **finite?**
+Returns `#t` if the given number is finite.
+
+(finite? number) -> boolean?
+
+* number : number? - The number to check for finiteness.
+
+#### Examples
+```scheme
+> (finite? 42) ;; => #t
+> (finite? 0.1) ;; => #t
+> (finite? +inf.0) ;; => #f
+> (finite? -inf.0) ;; => #f
+> (finite? +nan.0) ;; => #f
+```
 ### **first**
 Returns the first element of the list l.
 
@@ -266,6 +452,32 @@ Returns the first element of the list l.
 ```scheme
 > (first '(1 2)) ;; => 1
 > (first (cons 2 3)) ;; => 2
+```
+### **float?**
+Checks if the given value is a floating-point number
+
+(float? value) -> boolean?
+
+* value : any - The value to check
+
+#### Examples
+```scheme
+> (float? 42) ;; => #f
+> (float? 3.14) ;; => #t
+> (float? #t) ;; => #f
+```
+### **floor**
+Computes the largest integer less than or equal to the given number.
+
+(floor number) -> number?
+
+* number : number? - The number to compute the floor for.
+
+#### Examples
+```scheme
+> (floor 3.14) ;; => 3
+> (floor 4.99) ;; => 4
+> (floor -2.5) ;; => -3
 ```
 ### **hash**
 Creates an immutable hash table with each given `key` mapped to the following `val`.
@@ -447,6 +659,44 @@ map: hash?
 > (hash-keys->vector (hash 'a 10 'b 20)),
 => [10 10]",
 ```
+### **inexact->exact**
+Converts an inexact number to an exact number.
+
+(inexact->exact num) -> number?
+
+* num : number? - The number to convert from inexact to exact.
+
+#### Examples
+```scheme
+> (inexact->exact 10.0) ;; => 10
+> (inexact->exact 1.5) ;; => 3/2
+> (inexact->exact 1.5+2.5i) ;; => 3/2+5/2i
+```
+### **inexact?**
+Checks if the given value is inexact.
+
+(inexact? val) -> boolean?
+
+* val : any - The value to check for inexactness.
+
+#### Examples
+```scheme
+> (inexact? 42) ;; => #f
+> (inexact? 3.14) ;; => #t
+```
+### **infinite?**
+Returns `#t` if the given number is infinite.
+
+(infinite? number) -> boolean?
+
+* number : number? - The number to check for infiniteness.
+
+#### Examples
+```scheme
+> (infinite? 42) ;; => #f
+> (infinite? -nan.0) ;; => #f
+> (infinite? +inf.0) ;; => #t
+```
 ### **input-port?**
 Checks if a given value is an input port
 
@@ -467,6 +717,32 @@ Converts an integer into a string.
 
 ```scheme
 > (int->string 10) ;; => "10"
+```
+### **int?**
+Checks if the given value is an integer, an alias for `integer?`
+
+(int? value) -> boolean?
+
+* value : any - The value to check
+
+#### Examples
+```scheme
+> (int? 42) ;; => #t
+> (int? 3.14) ;; => #f
+> (int? "hello") ;; => #f
+```
+### **integer?**
+Checks if the given value is an integer, an alias for `int?`
+
+(integer? value) -> boolean?
+
+* value : any - The value to check
+
+#### Examples
+```scheme
+> (integer? 42) ;; => #t
+> (integer? 3.14) ;; => #f
+> (integer? "hello") ;; => #f
 ```
 ### **is-dir?**
 Checks if a path is a directory
@@ -545,13 +821,32 @@ Returns the local time in the format given by the input string (using `chrono::L
 (local-time/now! fmt) -> string?
 
 * fmt : string?
-### **magnitude**
-Returns the magnitude of the number. For real numbers, this is equvalent to `(abs x)`. For
-complex numbers this returns its distance from `(0, 0)` in the complex plane.
+### **log**
+Computes the natural logarithm of the given number.
 
+(log number [base]) -> number?
+
+* number : number? - The number to compute the logarithm for.
+* base : number? - The base of the logarithm. If not provided, defaults to Euler's number (e).
+
+#### Examples
 ```scheme
-(magnitude -1/3) => 1/3
-(magnitude 3+4i) => 5
+> (log 10) ;; => 2.302585092994046
+> (log 100 10) ;; => 2
+> (log 27 3) ;; => 3
+```
+### **magnitude**
+Computes the magnitude of the given number.
+
+(magnitude number) -> number?
+
+* number : number? - The number to compute the magnitude for.
+
+#### Examples
+```scheme
+> (magnitude 3+4i) ;; => 5
+> (magnitude 5) ;; => 5
+> (magnitude -5) ;; => 5
 ```
 ### **make-bytes**
 Creates a bytevector given a length and a default value.
@@ -576,20 +871,55 @@ Creates a string of a given length, filled with an optional character
 ### **nan?**
 Returns `#t` if the real number is Nan.
 
+(nan? value) -> boolean?
+
+* value : real? - The value to check
+
 ```scheme
 (nan? +nan.0) => #t
 (nan? 100000) => #f
 ```
 ### **negative?**
-Returns `#t` if the real number is negative.
+Checks if the given real number is negative.
 
+(negative? num) -> boolean?
+
+* num : real? - The real number to check for negativity.
+
+#### Examples
 ```scheme
-(negative?  0) => #f
-(negative?  1) => #f
-(negative? -1) => #t
+> (negative? 0) ;; => #f
+> (negative? 1) ;; => #f
+> (negative? -1) ;; => #t
 ```
 ### **number->string**
 Converts the given number to a string
+### **number?**
+Checks if the given value is a number
+
+(number? value) -> boolean?
+
+* value : any - The value to check
+
+#### Examples
+```scheme
+> (number? 42) ;; => #t
+> (number? "hello") ;; => #f
+> (number? 'symbol) ;; => #f
+```
+### **numerator**
+Retrieves the numerator of the given rational number.
+
+(numerator number) -> number?
+
+* number : number? - The rational number to retrieve the numerator from.
+
+#### Examples
+```scheme
+> (numerator 3/4) ;; => 3
+> (numerator 5/2) ;; => 5
+> (numerator -2) ;; => -2
+```
 ### **open-input-file**
 Takes a filename `path` referring to an existing file and returns an input port. Raises an error
 if the file does not exist
@@ -645,12 +975,31 @@ Gets the extension from a path
 ### **path-exists?**
 Checks if a path exists
 ### **positive?**
-Returns `#t` if the real number is positive.
+Checks if the given real number is positive.
 
+(positive? num) -> boolean?
+
+* num : real? - The real number to check for positivity.
+
+#### Examples
 ```scheme
-(positive?  0) => #f
-(positive?  1) => #t
-(positive? -1) => #f
+> (positive? 0) ;; => #f
+> (positive? 1) ;; => #t
+> (positive? -1) ;; => #f
+```
+### **quotient**
+Returns quotient of dividing numerator by denomintator.
+
+(quotient numerator denominator) -> integer?
+
+* numerator : integer? - The numerator.
+* denominator : integer? - The denominator.
+
+#### Examples
+```scheme
+> (quotient 11 2) ;; => 5
+> (quotient 10 2) ;; => 5
+> (quotient -10 2) ;; => -5
 ```
 ### **range**
 Returns a newly allocated list of the elements in the range (n, m]
@@ -666,16 +1015,18 @@ Returns a newly allocated list of the elements in the range (n, m]
 ### **rational?**
 Returns #t if obj is a rational number, #f otherwise.
 Rational numbers are numbers that can be expressed as the quotient of two numbers.
-For example, 3/4, -5/2, 0.25, and 0 are rational numbers, while
+For example, 3/4, -5/2, 0.25, and 0 are rational numbers.
 
 (rational? value) -> bool?
 
+* value : any - The value to check
+
 Examples:
 ```scheme
-(rational? (/ 0.0)) ⇒ #f
-(rational? 3.5)     ⇒ #t
-(rational? 6/10)    ⇒ #t
-(rational? 6/3)     ⇒ #t
+> (rational? (/ 0.0)) ;; => #f
+> (rational? 3.5) ;; => #t
+> (rational? 6/10) ;; => #t
+> (rational? +nan.0) ;; => #f
 ```
 ### **read-dir**
 Returns the contents of the directory as a list
@@ -685,6 +1036,19 @@ Takes a port and reads the entire content into a string
 (read-port-to-string port) -> string?
 
 * port : input-port?
+### **real?**
+Checks if the given value is a real number
+
+(real? value) -> boolean?
+
+* value : any - The value to check
+
+#### Examples
+```scheme
+> (real? 42) ;; => #t
+> (real? 3+4i) ;; => #f
+> (real? "hello") ;; => #f
+```
 ### **rest**
 Returns the rest of the list. Will raise an error if the list is empty.
 
@@ -714,6 +1078,19 @@ This function takes time proportional to the length of `lst`.
 #### Examples
 ```scheme
 > (reverse (list 1 2 3 4)) ;; '(4 3 2 1)
+```
+### **round**
+Rounds the given number to the nearest integer.
+
+(round number) -> number?
+
+* number : number? - The number to round.
+
+#### Examples
+```scheme
+> (round 3.14) ;; => 3
+> (round 4.6) ;; => 5
+> (round -2.5) ;; => -3
 ```
 ### **second**
 Get the second element of the list. Raises an error if the list does not have an element in the second position.
@@ -772,18 +1149,31 @@ Returns a list of strings from the original string split on the whitespace
 (split-whitespace "apples bananas fruits veggies") ;; '("apples" "bananas" "fruits" "veggies")
 ```
 ### **sqrt**
-Takes a number and returns the square root. If the number is negative, then a complex number may
-be returned.
+Computes the square root of the given number.
 
+(sqrt number) -> number?
+
+* number : number? - The number to compute the square root for.
+
+#### Examples
 ```scheme
-(sqrt  -1)   => 0+1i
-(sqrt   4)   => 2
-(sqrt   2)   => 1.414..
-(sqrt 4/9)   => 2/3
-(sqrt -3-4i) => 1-2i
+> (sqrt 4) ;; => 2
+> (sqrt 2) ;; => 1.4142135623730951
+> (sqrt -1) ;; => 0+1i
 ```
 ### **square**
-Squares a number. This is equivalent to `(* x x)`
+Computes the square of the given number.
+
+(square number) -> number?
+
+* number : number? - The number to square.
+
+#### Examples
+```scheme
+> (square 5) ;; => 25
+> (square -3) ;; => 9
+> (square 2.5) ;; => 6.25
+```
 ### **starts-with?**
 Checks if the input string starts with a prefix
 
@@ -1078,19 +1468,20 @@ Serializes a Steel value into a string.
 ### **void**
 The void value, returned by many forms with side effects, such as `define`.
 ### **zero?**
-Returns `#t` if the real number is 0 or 0.0.
+Checks if the given real number is zero.
 
+(zero? num) -> boolean?
+
+* num : real? - The number to check for zero.
+
+#### Examples
 ```scheme
-(zero? 0  ) => #f
-(zero? 0.0) => #t
-(zero? 0.1) => #f
+> (zero? 0) ;; => #t
+> (zero? 0.0) ;; => #t
+> (zero? 0.1) ;; => #f
 ```
 ### **%iterator?**
 ### **%keyword-hash**
-### *****
-### **+**
-### **-**
-### **/**
 ### **<**
 ### **<=**
 ### **=**
@@ -1129,7 +1520,6 @@ Returns `#t` if the real number is 0 or 0.0.
 ### **call-with-exception-handler**
 ### **call/cc**
 ### **cdr-null?**
-### **ceiling**
 ### **channel->recv**
 ### **channel->send**
 ### **channel->try-recv**
@@ -1141,13 +1531,11 @@ Returns `#t` if the real number is 0 or 0.0.
 ### **child-stdin**
 ### **child-stdout**
 ### **command**
-### **complex?**
 ### **compose**
 ### **concat-symbols**
 ### **continuation?**
 ### **current-function-span**
 ### **current-os!**
-### **denominator**
 ### **dropping**
 ### **duration->seconds**
 ### **duration->string**
@@ -1161,19 +1549,12 @@ Returns `#t` if the real number is 0 or 0.0.
 ### **error-with-span**
 ### **eval!**
 ### **even?**
-### **exact->inexact**
-### **exact-integer?**
-### **exact?**
 ### **expand!**
-### **expt**
 ### **extending**
 ### **f+**
 ### **filtering**
-### **finite?**
 ### **flat-mapping**
 ### **flattening**
-### **float?**
-### **floor**
 ### **flush-output-port**
 ### **function-name**
 ### **function?**
@@ -1191,14 +1572,9 @@ Returns `#t` if the real number is 0 or 0.0.
 ### **hashset-insert**
 ### **hashset-length**
 ### **hashset-subset?**
-### **inexact->exact**
-### **inexact?**
-### **infinite?**
 ### **inspect-bytecode**
 ### **instant/elapsed**
 ### **instant/now**
-### **int?**
-### **integer?**
 ### **interleaving**
 ### **into-count**
 ### **into-for-each**
@@ -1221,7 +1597,6 @@ Returns `#t` if the real number is 0 or 0.0.
 ### **list-tail**
 ### **list?**
 ### **local-executor/block-on**
-### **log**
 ### **make-channels**
 ### **make-struct-type**
 ### **make-vector**
@@ -1239,8 +1614,6 @@ Returns `#t` if the real number is 0 or 0.0.
 ### **mutable-vector?**
 ### **not**
 ### **null?**
-### **number?**
-### **numerator**
 ### **odd?**
 ### **open-output-string**
 ### **poll!**
@@ -1249,7 +1622,6 @@ Returns `#t` if the real number is 0 or 0.0.
 ### **push**
 ### **push-back**
 ### **push-front**
-### **quotient**
 ### **raise-error**
 ### **raise-error-with-span**
 ### **range-vec**
@@ -1259,8 +1631,6 @@ Returns `#t` if the real number is 0 or 0.0.
 ### **read!**
 ### **read-line-from-port**
 ### **read-to-string**
-### **real?**
-### **round**
 ### **run!**
 ### **set-box!**
 ### **set-current-dir!**
