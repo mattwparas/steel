@@ -146,7 +146,7 @@ fn string_to_number_impl(value: &str, radix: Option<u32>) -> Result<SteelVal> {
 }
 
 /// Converts the given string to a number, with an optional radix.
-/// On failure, it returns `f`
+/// On failure, it returns `#f`
 ///
 /// (string->number digits [radix]) -> (or/c number? boolean?)
 ///
