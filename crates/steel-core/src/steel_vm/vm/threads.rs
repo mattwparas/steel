@@ -380,6 +380,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             current_frame: StackFrame::main(),
             stack_frames: Vec::with_capacity(32),
             constant_map,
+            interrupted: Default::default(),
         };
 
         #[cfg(feature = "profiling")]

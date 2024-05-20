@@ -1,6 +1,8 @@
 extern crate rustyline;
 use colored::*;
 
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::{cell::RefCell, rc::Rc, sync::mpsc::channel};
 
 use rustyline::error::ReadlineError;
@@ -163,7 +165,10 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
         tx.lock().unwrap().send(()).unwrap();
     };
 
+    let interrupted = Arc::new(AtomicBool::new(false));
+
     vm.register_fn("quit", cancellation_function);
+    vm.with_interrupted(interrupted.clone());
 
     let engine = Rc::new(RefCell::new(vm));
     rl.set_helper(Some(RustylineHelper::new(
@@ -183,6 +188,19 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     //     }
     //     true
     // });
+
+    {
+        let interrupted = interrupted.clone();
+
+        ctrlc::set_handler(move || {
+            interrupted.store(true, std::sync::atomic::Ordering::Relaxed);
+        })
+        .unwrap();
+    }
+
+    let clear_interrupted = move || {
+        interrupted.store(false, std::sync::atomic::Ordering::Relaxed);
+    };
 
     while rx.try_recv().is_err() {
         let readline = rl.readline(&prompt);
@@ -231,6 +249,8 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                         let mut exprs = String::new();
                         file.read_to_string(&mut exprs)?;
 
+                        clear_interrupted();
+
                         finish_load_or_interrupt(
                             &mut engine.borrow_mut(),
                             exprs,
@@ -240,6 +260,8 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                     _ => {
                         // TODO also include this for loading files
                         let now = Instant::now();
+
+                        clear_interrupted();
 
                         finish_or_interrupt(&mut engine.borrow_mut(), line);
 

@@ -51,7 +51,7 @@ use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
     rc::Rc,
-    sync::Arc,
+    sync::{atomic::AtomicBool, Arc},
 };
 
 use fxhash::{FxBuildHasher, FxHashMap};
@@ -1198,6 +1198,10 @@ impl Engine {
     /// resolution search space.
     pub fn add_search_directory(&mut self, dir: PathBuf) {
         self.compiler.add_search_directory(dir)
+    }
+
+    pub fn with_interrupted(&mut self, interrupted: Arc<AtomicBool>) {
+        self.virtual_machine.with_interrupted(interrupted);
     }
 
     pub(crate) fn new_printer() -> Self {

@@ -16,3 +16,4 @@ colored = "2.0.0"
 steel-core = { workspace = true }
 steel-parser = { path = "../steel-parser", version = "0.6.0"}
 dirs = "5.0.1"
+ctrlc = "3.4.4"
