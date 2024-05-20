@@ -1,3 +1,4 @@
+use crate::gc::Gc;
 use crate::values::lists::List;
 
 use crate::rvals::{RestArgsIter, Result, SteelString, SteelVal};
@@ -5,6 +6,7 @@ use crate::steel_vm::builtin::BuiltInModule;
 use crate::steel_vm::register_fn::RegisterFn;
 use crate::stop;
 
+use num::{BigInt, Num};
 use steel_derive::{function, native};
 
 fn char_upcase(c: char) -> char {
@@ -112,31 +114,44 @@ fn string_to_number_impl(value: &str, radix: Option<u32>) -> Result<SteelVal> {
     let expr = crate::parser::parser::Parser::parse(value)?;
 
     if expr.len() != 1 {
-        // stop!(Generic => "")
         return Ok(SteelVal::BoolV(false));
     }
+
+    let explicit_radix = matches!(
+        value.get(0..2),
+        Some("#x") | Some("#d") | Some("#o") | Some("#b")
+    );
+
+    let implicit_radix = radix.filter(|_| !explicit_radix);
 
     let number = expr.into_iter().next().unwrap();
 
     let svalue = SteelVal::try_from(number)?;
 
-    match &svalue {
-        SteelVal::IntV(v) => {
-            if let Some(radix) = radix {
-                match isize::from_str_radix(value, radix) {
-                    Ok(parsed) => Ok(SteelVal::IntV(parsed)),
-                    Err(_) => Ok(SteelVal::BoolV(false)),
-                }
-            } else {
-                Ok(SteelVal::IntV(*v))
-            }
-        }
-        SteelVal::NumV(_) | SteelVal::BigNum(_) => Ok(svalue),
+    match (svalue, implicit_radix) {
+        (SteelVal::IntV(_), Some(radix)) => match isize::from_str_radix(value, radix) {
+            Ok(parsed) => Ok(SteelVal::IntV(parsed)),
+            Err(_) => Ok(SteelVal::BoolV(false)),
+        },
+        (val @ SteelVal::IntV(_), None) => Ok(val),
+        (SteelVal::BigNum(_), Some(radix)) => match BigInt::from_str_radix(value, radix) {
+            Ok(parsed) => Ok(SteelVal::BigNum(Gc::new(parsed))),
+            Err(_) => Ok(SteelVal::BoolV(false)),
+        },
+
+        (val @ SteelVal::BigNum(_), None) => Ok(val),
+        (svalue @ SteelVal::NumV(_), _) => Ok(svalue),
         _ => Ok(SteelVal::BoolV(false)),
     }
 }
 
-/// Converts the given string to a number
+/// Converts the given string to a number, with an optional radix.
+/// On failure, it returns `#f`
+///
+/// (string->number digits [radix]) -> (or/c number? boolean?)
+///
+/// * digits : string?
+/// * radix : number?
 #[function(name = "string->number", constant = true)]
 pub fn string_to_number(
     value: &SteelString,
@@ -155,6 +170,7 @@ pub fn string_to_number(
     } else {
         None
     };
+
     match string_to_number_impl(value.as_str(), radix) {
         Ok(v) => Ok(v),
         Err(_) => Ok(SteelVal::BoolV(false)),
