@@ -155,6 +155,24 @@ macro_rules! expr_list {
 }
 
 impl ExprKind {
+    pub fn span(&self) -> Option<Span> {
+        match self {
+            ExprKind::Atom(expr) => Some(expr.syn.span),
+            ExprKind::If(expr) => Some(expr.location.span),
+            ExprKind::Let(expr) => Some(expr.location.span),
+            ExprKind::Define(expr) => Some(expr.location.span),
+            ExprKind::LambdaFunction(expr) => Some(expr.location.span),
+            ExprKind::Begin(expr) => Some(expr.location.span),
+            ExprKind::Return(expr) => Some(expr.location.span),
+            ExprKind::Quote(expr) => Some(expr.location.span),
+            ExprKind::Macro(expr) => Some(expr.location.span),
+            ExprKind::SyntaxRules(expr) => Some(expr.location.span),
+            ExprKind::List(expr) => expr.location,
+            ExprKind::Set(expr) => Some(expr.location.span),
+            ExprKind::Require(expr) => Some(expr.location.span),
+        }
+    }
+
     pub fn to_string_literal(&self) -> Option<&String> {
         if let ExprKind::Atom(a) = self {
             if let TokenType::StringLiteral(s) = &a.syn.ty {
@@ -972,9 +990,13 @@ impl List {
         }
     }
 
-    pub fn with_span(mut self, location: Span) -> Self {
-        self.location = Some(location);
-        self
+    pub fn with_spans(args: Vec<ExprKind>, open: Span, close: Span) -> Self {
+        List {
+            args,
+            improper: false,
+            location: Some(Span::merge(open, close)),
+            syntax_object_id: SyntaxObjectId::fresh().0,
+        }
     }
 
     pub fn make_improper(mut self) -> Self {

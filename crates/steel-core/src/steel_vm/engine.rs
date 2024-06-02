@@ -1606,10 +1606,14 @@ impl Engine {
 
     /// Emit the unexpanded AST
     pub fn emit_ast_to_string(expr: &str) -> Result<String> {
+        let parsed = Self::emit_ast(expr)?;
+        Ok(parsed.into_iter().map(|x| x.to_pretty(60)).join("\n\n"))
+    }
+
+    pub fn emit_ast(expr: &str) -> Result<Vec<ExprKind>> {
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
             Parser::new(expr, None).collect();
-        let parsed = parsed?;
-        Ok(parsed.into_iter().map(|x| x.to_pretty(60)).join("\n\n"))
+        Ok(parsed?)
     }
 
     /// Emit the fully expanded AST as a pretty printed string

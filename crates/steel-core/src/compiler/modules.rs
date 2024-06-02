@@ -2376,7 +2376,7 @@ impl<'a> ModuleBuilder<'a> {
                         match *for_syntax {
                             x if x == *FOR_SYNTAX => {
                                 if l.args.len() != 2 {
-                                    stop!(ArityMismatch => "provide expects a single identifier in the (for-syntax <ident>)")
+                                    stop!(ArityMismatch => "provide expects a single identifier in the (for-syntax <ident>)"; opt l.location)
                                 }
 
                                 // Collect the for syntax expressions
@@ -2395,11 +2395,11 @@ impl<'a> ModuleBuilder<'a> {
                             }
                         }
                     } else {
-                        stop!(TypeMismatch => "provide expects either an identifier or a (for-syntax <ident>)")
+                        stop!(TypeMismatch => "provide expects either an identifier or a (for-syntax <ident>)"; opt l.location)
                     }
                 }
                 _ => {
-                    stop!(TypeMismatch => "provide expects either a (for-syntax <ident>) or an ident")
+                    stop!(TypeMismatch => "provide expects either a (for-syntax <ident>) or an ident"; opt expr.span())
                 }
             }
         }
@@ -2427,7 +2427,7 @@ impl<'a> ModuleBuilder<'a> {
                         if let Some(provide) = l.first_ident() {
                             if *provide == *PROVIDE {
                                 if l.len() == 1 {
-                                    stop!(Generic => "provide expects at least one identifier to provide");
+                                    stop!(Generic => "provide expects at least one identifier to provide"; opt l.location);
                                 }
 
                                 // Swap out the value inside the list
@@ -2583,7 +2583,7 @@ impl<'a> ModuleBuilder<'a> {
                 match l.first_ident() {
                     Some(x) if *x == *ONLY_IN => {
                         if l.args.len() < 2 {
-                            stop!(BadSyntax => "only-in expects a require-spec and optionally a list of ids to bind (maybe renamed)");
+                            stop!(BadSyntax => "only-in expects a require-spec and optionally a list of ids to bind (maybe renamed)"; opt l.location);
                         }
 
                         self.parse_require_object_inner(home, r, &l.args[1], require_object)?;
@@ -2623,10 +2623,12 @@ impl<'a> ModuleBuilder<'a> {
 
                     Some(x) if *x == *PREFIX_IN => {
                         if l.args.len() != 3 {
-                            stop!(BadSyntax => "prefix-in expects a prefix to prefix a given file or module"; r.location.span; r.location.source.clone());
+                            stop!(BadSyntax => "prefix-in expects a prefix to prefix a given file or module"; opt l.location);
                         }
 
-                        if let Some(prefix) = l.args[1].atom_identifier() {
+                        let prefix = &l.args[1];
+
+                        if let Some(prefix) = prefix.atom_identifier() {
                             match &mut require_object.prefix {
                                 Some(existing_prefix) => {
                                     // Append the new symbol to the existing prefix
@@ -2639,17 +2641,18 @@ impl<'a> ModuleBuilder<'a> {
 
                             self.parse_require_object_inner(home, r, &l.args[2], require_object)?;
                         } else {
-                            stop!(TypeMismatch => "prefix-in expects an identifier to use for the prefix");
+                            stop!(TypeMismatch => "prefix-in expects an identifier to use for the prefix"; opt prefix.span());
                         }
                     }
 
                     Some(x) if *x == *FOR_SYNTAX => {
                         // We're expecting something like (for-syntax "foo")
                         if l.args.len() != 2 {
-                            stop!(BadSyntax => "for-syntax expects one string literal referring to a file or module"; r.location.span; r.location.source.clone());
+                            stop!(BadSyntax => "for-syntax expects one string literal referring to a file or module"; opt l.location);
                         }
 
-                        if let Some(path) = l.args[1].string_literal() {
+                        let mod_name = &l.args[1];
+                        if let Some(path) = mod_name.string_literal() {
                             if let Some(lib) = BUILT_INS.iter().find(|x| x.0 == path) {
                                 // self.built_ins.push(PathBuf::from(lib.0));
 
@@ -2700,7 +2703,7 @@ impl<'a> ModuleBuilder<'a> {
                                             }
                                         }
 
-                                        stop!(Generic => format!("Module not found: {:?}", current); r.location.span)
+                                        stop!(Generic => format!("Module not found: {:?}", current); mod_name.span().unwrap())
                                     }
                                 }
 
@@ -2708,17 +2711,17 @@ impl<'a> ModuleBuilder<'a> {
                                 require_object.path = Some(PathOrBuiltIn::Path(current));
                             }
                         } else {
-                            stop!(BadSyntax => "for-syntax expects a string literal referring to a file or module"; r.location.span; r.location.source.clone());
+                            stop!(BadSyntax => "for-syntax expects a string literal referring to a file or module"; opt mod_name.span());
                         }
                     }
                     _ => {
-                        stop!(BadSyntax => "require accepts either a string literal or a for-syntax expression"; r.location.span; r.location.source.clone())
+                        stop!(BadSyntax => "require accepts either a string literal, a for-syntax expression or an only-in expression"; opt l.location)
                     }
                 }
             }
 
             _ => {
-                stop!(Generic => "require expected a string literal referring to a file/module"; r.location.span; r.location.source.clone())
+                stop!(Generic => "require object expected a string literal referring to a file/module"; opt atom.span())
             }
         }
 

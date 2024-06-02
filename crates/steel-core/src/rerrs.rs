@@ -396,6 +396,12 @@ macro_rules! stop {
     ($type:ident => $thing:expr; $span:expr) => {
         return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span))
     };
+    ($type:ident => $thing:expr; opt $span:expr) => {
+        match $span {
+            Some(span) => stop!($type => $thing; span),
+            None => stop!($type => $thing)
+        }
+    };
     ($type:ident => $thing:expr; $span:expr; $source:expr) => {
         return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span))
 

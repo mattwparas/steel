@@ -621,7 +621,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                 if let ExprKind::LambdaFunction(f) = &func {
                     if !f.rest {
                         if !f.args.is_empty() {
-                            stop!(ArityMismatch => format!("function expected {} arguments, found 0", f.args.len()))
+                            stop!(ArityMismatch => format!("function expected {} arguments, found 0", f.args.len()); f.location.span)
                         }
 
                         // If the body is constant we can safely remove the application
@@ -894,8 +894,8 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         Ok(ExprKind::Set(s))
     }
 
-    fn visit_require(&mut self, _s: crate::parser::ast::Require) -> Self::Output {
-        stop!(Generic => "unexpected require - require is only allowed at the top level");
+    fn visit_require(&mut self, s: crate::parser::ast::Require) -> Self::Output {
+        stop!(Generic => "unexpected require - require is only allowed at the top level"; s.location.span);
     }
 
     // TODO come back to this
