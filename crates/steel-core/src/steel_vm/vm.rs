@@ -285,7 +285,7 @@ pub struct SteelThread {
     pub(crate) current_frame: StackFrame,
     pub(crate) stack_frames: Vec<StackFrame>,
     pub(crate) constant_map: ConstantMap,
-    pub(crate) interrupted: Arc<AtomicBool>,
+    pub(crate) interrupted: Option<Arc<AtomicBool>>,
 }
 
 #[derive(Clone)]
@@ -355,7 +355,7 @@ impl SteelThread {
     }
 
     pub fn with_interrupted(&mut self, interrupted: Arc<AtomicBool>) -> &mut Self {
-        self.interrupted = interrupted;
+        self.interrupted = Some(interrupted);
         self
     }
 
@@ -1616,12 +1616,13 @@ impl<'a> VmCore<'a> {
 
         // while self.ip < self.instructions.len() {
         loop {
-            if self
-                .thread
-                .interrupted
-                .load(std::sync::atomic::Ordering::Relaxed)
+            #[cfg(feature = "interrupt")]
             {
-                stop!(Generic => "Interrupted by user"; self.current_span());
+                if let Some(interrupted) = self.thread.interrupted.as_ref() {
+                    if interrupted.load(std::sync::atomic::Ordering::Relaxed) {
+                        stop!(Generic => "Interrupted by user"; self.current_span());
+                    }
+                }
             }
 
             // Process the op code
