@@ -13,7 +13,7 @@ use crate::{
     interner::InternedString,
     lexer::{OwnedTokenStream, ToOwnedString, TokenStream},
     span::Span,
-    tokens::{Token, TokenType},
+    tokens::{Paren, Token, TokenType},
 };
 
 #[derive(
@@ -166,7 +166,7 @@ impl From<&Token<'_, InternedString>> for SyntaxObject {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ParseError {
-    Unexpected(TokenType<String>, Option<Rc<PathBuf>>),
+    Unexpected(TokenType<String>, Span, Option<Rc<PathBuf>>),
     UnexpectedEOF(Option<Rc<PathBuf>>),
     UnexpectedChar(char, Span, Option<Rc<PathBuf>>),
     IncompleteString(String, Span, Option<Rc<PathBuf>>),
@@ -177,7 +177,7 @@ pub enum ParseError {
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParseError::Unexpected(l, _) => write!(f, "Parse: Unexpected token: {:?}", l),
+            ParseError::Unexpected(l, _, _) => write!(f, "Parse: Unexpected token: {:?}", l),
             ParseError::UnexpectedEOF(_) => write!(f, "Parse: Unexpected EOF"),
             ParseError::UnexpectedChar(l, _, _) => {
                 write!(f, "Parse: Unexpected character: {:?}", l)
@@ -195,7 +195,7 @@ impl ParseError {
     pub fn span(&self) -> Option<Span> {
         match self {
             // ParseError::TokenError(_) => None,
-            ParseError::Unexpected(_, _) => None,
+            ParseError::Unexpected(_, s, _) => Some(*s),
             ParseError::UnexpectedEOF(_) => None,
             ParseError::UnexpectedChar(_, s, _) => Some(*s),
             ParseError::IncompleteString(_, s, _) => Some(*s),
@@ -207,7 +207,7 @@ impl ParseError {
     pub fn set_source(self, source: Option<Rc<PathBuf>>) -> Self {
         use ParseError::*;
         match self {
-            ParseError::Unexpected(l, _) => Unexpected(l, source),
+            ParseError::Unexpected(l, s, _) => Unexpected(l, s, source),
             ParseError::UnexpectedEOF(_) => UnexpectedEOF(source),
             ParseError::UnexpectedChar(l, s, _) => UnexpectedChar(l, s, source),
             ParseError::IncompleteString(l, s, _) => IncompleteString(l, s, source),
@@ -502,11 +502,12 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn read_from_tokens(&mut self, open: Span) -> Result<ExprKind> {
+    fn read_from_tokens(&mut self, (open, paren): (Span, Paren)) -> Result<ExprKind> {
         let mut stack: Vec<Frame> = Vec::new();
 
         let mut current_frame = Frame {
             open,
+            paren,
             exprs: vec![],
             dot: None,
         };
@@ -684,19 +685,28 @@ impl<'a> Parser<'a> {
                             // println!("Exiting Context: {:?}", self.context.pop());
                             current_frame.push(quote_inner?)?;
                         }
-                        TokenType::OpenParen => {
+                        TokenType::OpenParen(paren) => {
                             stack.push(current_frame);
 
                             current_frame = Frame {
                                 open: token.span,
                                 exprs: vec![],
                                 dot: None,
+                                paren,
                             };
                         }
-                        TokenType::CloseParen => {
+                        TokenType::CloseParen(paren) => {
                             let close = token.span;
                             // This is the match that we'll want to move inside the below stack.pop() match statement
                             // As we close the current context, we check what our current state is -
+
+                            if paren != current_frame.paren {
+                                return Err(ParseError::Unexpected(
+                                    TokenType::CloseParen(paren),
+                                    token.span,
+                                    self.source_name.clone(),
+                                ));
+                            }
 
                             if let Some(mut prev_frame) = stack.pop() {
                                 match prev_frame
@@ -1171,17 +1181,18 @@ impl<'a> Parser<'a> {
                         return Some(value);
                     }
 
-                    TokenType::OpenParen => {
-                        let value = self.read_from_tokens(res.span);
+                    TokenType::OpenParen(paren) => {
+                        let value = self.read_from_tokens((res.span, paren));
 
                         // self.quote_stack.clear();
                         // self.context.clear();
 
                         return Some(value);
                     }
-                    TokenType::CloseParen => {
+                    TokenType::CloseParen(paren) => {
                         return Some(Err(ParseError::Unexpected(
-                            TokenType::CloseParen,
+                            TokenType::CloseParen(paren),
+                            res.span,
                             self.source_name.clone(),
                         )))
                     }
@@ -1568,6 +1579,7 @@ pub fn lower_entire_ast(expr: &mut ExprKind) -> Result<()> {
 
 struct Frame {
     open: Span,
+    paren: Paren,
     exprs: Vec<ExprKind>,
     dot: Option<(usize, Span)>,
 }
@@ -1621,7 +1633,7 @@ mod parser_tests {
     // use super::TokenType::*;
     use super::*;
     use crate::parser::ast::{Begin, Define, If, LambdaFunction, Quote, Return};
-    use crate::tokens::RealLiteral;
+    use crate::tokens::{Paren, RealLiteral};
     use crate::visitors::Eraser;
     use crate::{parser::ast::ExprKind, tokens::IntLiteral};
 
@@ -1839,11 +1851,28 @@ mod parser_tests {
         assert_parse_err("(abc", ParseError::UnexpectedEOF(None));
         assert_parse_err("(ab 1 2", ParseError::UnexpectedEOF(None));
         assert_parse_err("((((ab 1 2) (", ParseError::UnexpectedEOF(None));
-        assert_parse_err("())", ParseError::Unexpected(TokenType::CloseParen, None));
+        assert!(matches!(
+            parse_err("())"),
+            ParseError::Unexpected(TokenType::CloseParen(Paren::Round), _, None),
+        ));
         assert_parse_err("() ((((", ParseError::UnexpectedEOF(None));
-        assert_parse_err("')", ParseError::Unexpected(TokenType::CloseParen, None));
-        assert_parse_err("(')", ParseError::Unexpected(TokenType::CloseParen, None));
+        assert!(matches!(
+            parse_err("')"),
+            ParseError::Unexpected(TokenType::CloseParen(Paren::Round), _, None),
+        ));
+        assert!(matches!(
+            parse_err("(')"),
+            ParseError::Unexpected(TokenType::CloseParen(Paren::Round), _, None),
+        ));
         assert_parse_err("('", ParseError::UnexpectedEOF(None));
+        assert!(matches!(
+            parse_err(r#""abc"#),
+            ParseError::IncompleteString(_, _, None),
+        ));
+        assert!(matches!(
+            parse_err("(]"),
+            ParseError::Unexpected(TokenType::CloseParen(Paren::Square), _, None)
+        ));
     }
 
     #[test]

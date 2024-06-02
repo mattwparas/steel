@@ -7,7 +7,6 @@ use std::{cell::RefCell, rc::Rc, sync::mpsc::channel};
 
 use rustyline::error::ReadlineError;
 
-use rustyline::validate::MatchingBracketValidator;
 use rustyline::{config::Configurer, Editor};
 
 use std::path::{Path, PathBuf};
@@ -171,10 +170,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     vm.with_interrupted(interrupted.clone());
 
     let engine = Rc::new(RefCell::new(vm));
-    rl.set_helper(Some(RustylineHelper::new(
-        MatchingBracketValidator::default(),
-        engine.clone(),
-    )));
+    rl.set_helper(Some(RustylineHelper::new(engine.clone())));
 
     // ctrlc::set_handler(move || tx.send(()).expect("Could not send signal on channel."))
     // .expect("Error setting Ctrl-C handler");

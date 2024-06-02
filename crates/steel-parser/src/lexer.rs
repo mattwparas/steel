@@ -1,5 +1,5 @@
 use super::parser::SourceId;
-use crate::tokens::{parse_unicode_str, NumberLiteral, RealLiteral};
+use crate::tokens::{parse_unicode_str, NumberLiteral, Paren, RealLiteral};
 use crate::tokens::{IntLiteral, Token, TokenType};
 use smallvec::SmallVec;
 use std::iter::Iterator;
@@ -437,13 +437,24 @@ impl<'a> Iterator for Lexer<'a> {
 
             Some('"') => Some(self.read_string()),
 
-            Some('(') | Some('[') | Some('{') => {
+            Some(&paren @ ('(' | '[' | '{')) => {
                 self.eat();
-                Some(Ok(TokenType::OpenParen))
+                let kind = match paren {
+                    '[' => Paren::Square,
+                    '{' => Paren::Curly,
+                    _ => Paren::Round,
+                };
+                Some(Ok(TokenType::OpenParen(kind)))
             }
-            Some(')') | Some(']') | Some('}') => {
+
+            Some(&paren @ (')' | ']' | '}')) => {
                 self.eat();
-                Some(Ok(TokenType::CloseParen))
+                let kind = match paren {
+                    ']' => Paren::Square,
+                    '}' => Paren::Curly,
+                    _ => Paren::Round,
+                };
+                Some(Ok(TokenType::CloseParen(kind)))
             }
 
             // Handle Quotes
@@ -686,7 +697,7 @@ mod lexer_tests {
         assert_eq!(
             s.next(),
             Some(Token {
-                ty: OpenParen,
+                ty: OpenParen(Paren::Round),
                 source: "(",
                 span: Span::new(0, 1, None)
             })
@@ -702,7 +713,7 @@ mod lexer_tests {
         assert_eq!(
             s.next(),
             Some(Token {
-                ty: CloseParen,
+                ty: CloseParen(Paren::Round),
                 source: ")",
                 span: Span::new(2, 3, None)
             })
@@ -930,7 +941,7 @@ mod lexer_tests {
                     span: Span::new(17, 20, None),
                 },
                 Token {
-                    ty: OpenParen,
+                    ty: OpenParen(Paren::Round),
                     source: "(",
                     span: Span::new(37, 38, None),
                 },
@@ -945,7 +956,7 @@ mod lexer_tests {
                     span: Span::new(42, 45, None),
                 },
                 Token {
-                    ty: CloseParen,
+                    ty: CloseParen(Paren::Round),
                     source: ")",
                     span: Span::new(45, 46, None),
                 },
@@ -1163,7 +1174,7 @@ mod lexer_tests {
 
         let expected: Vec<Token<&str>> = vec![
             Token {
-                ty: OpenParen,
+                ty: OpenParen(Paren::Round),
                 source: "(",
                 span: Span::new(0, 1, None),
             },
@@ -1173,7 +1184,7 @@ mod lexer_tests {
                 span: Span::new(1, 7, None),
             },
             Token {
-                ty: OpenParen,
+                ty: OpenParen(Paren::Round),
                 source: "(",
                 span: Span::new(8, 9, None),
             },
@@ -1193,12 +1204,12 @@ mod lexer_tests {
                 span: Span::new(20, 21, None),
             },
             Token {
-                ty: CloseParen,
+                ty: CloseParen(Paren::Round),
                 source: ")",
                 span: Span::new(21, 22, None),
             },
             Token {
-                ty: OpenParen,
+                ty: OpenParen(Paren::Round),
                 source: "(",
                 span: Span::new(23, 24, None),
             },
@@ -1218,12 +1229,12 @@ mod lexer_tests {
                 span: Span::new(28, 29, None),
             },
             Token {
-                ty: CloseParen,
+                ty: CloseParen(Paren::Round),
                 source: ")",
                 span: Span::new(29, 30, None),
             },
             Token {
-                ty: CloseParen,
+                ty: CloseParen(Paren::Round),
                 source: ")",
                 span: Span::new(30, 31, None),
             },
