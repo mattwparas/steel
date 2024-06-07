@@ -118,6 +118,7 @@ pub enum TokenType<S> {
     Keyword(S),
     Number(NumberLiteral),
     StringLiteral(String),
+    Dot,
     Error,
 }
 
@@ -320,6 +321,7 @@ impl<'a> TokenType<&'a str> {
             UnquoteSyntax => UnquoteSyntax,
             QuoteSyntax => QuoteSyntax,
             UnquoteSpliceSyntax => UnquoteSpliceSyntax,
+            Dot => Dot,
         }
     }
 
@@ -356,6 +358,7 @@ impl<'a> TokenType<&'a str> {
             UnquoteSyntax => UnquoteSyntax,
             QuoteSyntax => QuoteSyntax,
             UnquoteSpliceSyntax => UnquoteSpliceSyntax,
+            Dot => Dot,
         }
     }
 }
@@ -410,6 +413,7 @@ impl<T: Display> fmt::Display for TokenType<T> {
             Ellipses => write!(f, "..."),
             Set => write!(f, "set!"),
             Require => write!(f, "require"),
+            Dot => write!(f, "."),
         }
     }
 }

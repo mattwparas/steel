@@ -1527,10 +1527,12 @@ where
                 ))
             };
 
-            let lambda = ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
+            let rest = l.improper;
+            let lambda = ExprKind::LambdaFunction(Box::new(LambdaFunction::new_maybe_rest(
                 args,
                 body,
                 SyntaxObject::new(TokenType::Lambda, syn.span),
+                rest,
             )));
 
             Ok(ExprKind::Define(Box::new(Define::new(name, lambda, syn))))
@@ -2083,9 +2085,11 @@ pub fn parse_lambda(a: Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseErro
                 ))
             };
 
-            Ok(ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                args, body, syn,
-            ))))
+            let rest = l.improper;
+
+            Ok(ExprKind::LambdaFunction(Box::new(
+                LambdaFunction::new_maybe_rest(args, body, syn, rest),
+            )))
         }
         Some(ExprKind::Atom(a)) => {
             let body_exprs: Vec<_> = value_iter.collect();

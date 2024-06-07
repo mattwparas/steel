@@ -271,9 +271,9 @@ impl<'a> Lexer<'a> {
     fn read_word(&mut self) -> TokenType<&'a str> {
         while let Some(&c) = self.chars.peek() {
             match c {
-                '(' | '[' | ')' | ']' => break,
+                '(' | '[' | ')' | ']' | '{' | '}' => break,
                 c if c.is_whitespace() => break,
-                '\'' => {
+                '\'' | '"' | '`' | ';' | ',' => {
                     break;
                 }
                 // Could be a quote within a word, we should handle escaping it accordingly
@@ -290,6 +290,7 @@ impl<'a> Lexer<'a> {
         }
 
         match self.slice() {
+            "." => TokenType::Dot,
             "define" | "defn" | "#%define" => TokenType::Define,
             "let" => TokenType::Let,
             "%plain-let" => TokenType::TestLet,
@@ -308,6 +309,7 @@ impl<'a> Lexer<'a> {
             NEG_INFINITY => TokenType::Number(RealLiteral::Float(f64::NEG_INFINITY).into()),
             NAN => TokenType::Number(RealLiteral::Float(f64::NAN).into()),
             NEG_NAN => TokenType::Number(RealLiteral::Float(f64::NAN).into()),
+            "|.|" => TokenType::Identifier("."),
             identifier => {
                 if identifier.len() > 1 && identifier.starts_with('+') && self.queued.is_none() {
                     self.queued = Some(TokenType::Identifier(&identifier[1..]));

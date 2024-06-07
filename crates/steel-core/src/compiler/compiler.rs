@@ -4,7 +4,7 @@ use crate::{
         map::SymbolMap,
         passes::{
             analysis::SemanticAnalysis, begin::flatten_begins_and_expand_defines,
-            reader::MultipleArityFunctions, shadow::RenameShadowedVariables, VisitorMutRefUnit,
+            shadow::RenameShadowedVariables, VisitorMutRefUnit,
         },
     },
     core::{instructions::u24, labels::Expr},
@@ -759,8 +759,6 @@ impl Compiler {
             .rename_shadowed_variables(&mut expanded_statements);
 
         // let mut expanded_statements =
-        MultipleArityFunctions::expand_multiple_arity_functions(&mut expanded_statements);
-
         log::info!(target: "expansion-phase", "Aggressive constant evaluation with memoization");
 
         // Begin lowering anonymous function calls to lets
@@ -941,7 +939,6 @@ impl Compiler {
 
         // TODO - make sure I want to keep this
         // let mut expanded_statements =
-        MultipleArityFunctions::expand_multiple_arity_functions(&mut expanded_statements);
 
         log::info!(target: "expansion-phase", "Aggressive constant evaluation with memoization");
 

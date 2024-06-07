@@ -18,9 +18,9 @@
 (define-syntax def-method
   (syntax-rules ()
     [(def-method struct-name (define/method (a this b ...) body ...))
-     (define ((datum->syntax struct-name . a) this b ...)
+     (define ((datum->syntax struct-name |.| a) this b ...)
        (unless ((datum->syntax struct-name ?) this)
-         (error! (datum->syntax struct-name . a) "method takes a value of" struct-name "given" this))
+         (error! (datum->syntax struct-name |.| a) "method takes a value of" struct-name "given" this))
        body ...)]))
 
 ;; impl block asserts that each function contains the struct type given as the first argument

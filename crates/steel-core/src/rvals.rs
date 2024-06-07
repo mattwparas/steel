@@ -1716,6 +1716,7 @@ impl Hash for SteelVal {
             IterV(s) => s.hash(state),
             HashSetV(hs) => hs.hash(state),
             SyntaxObject(s) => s.raw.hash(state),
+            Pair(p) => (&**p).hash(state),
             _ => {
                 unimplemented!("Attempted to has unsupported value: {self:?}")
             }
