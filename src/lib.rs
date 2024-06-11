@@ -33,7 +33,13 @@ enum EmitAction {
     /// Output a debug display of the fully transformed bytecode
     Bytecode { default_file: Option<PathBuf> },
     /// Print a debug display of the fully expanded AST
-    Ast { default_file: Option<PathBuf> },
+    Ast {
+        default_file: Option<PathBuf>,
+        #[arg(long)]
+        expanded: Option<bool>,
+        #[arg(long)]
+        pretty: Option<bool>,
+    },
     /// Enter the repl with the given file loaded
     Interactive {
         default_file: Option<PathBuf>,
@@ -148,14 +154,27 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
 
         Args {
             default_file: None,
-            action: Some(EmitAction::Ast {
-                default_file: Some(path),
-            }),
+            action:
+                Some(EmitAction::Ast {
+                    default_file: Some(path),
+                    expanded,
+                    pretty,
+                }),
             ..
         } => {
             let contents = fs::read_to_string(path.clone())?;
 
-            let res = vm.emit_fully_expanded_ast_to_string(&contents, Some(path.clone()));
+            let expanded = expanded.unwrap_or(true);
+            let pretty = pretty.unwrap_or(true);
+
+            let res = match (expanded, pretty) {
+                (true, true) => vm.emit_fully_expanded_ast_to_string(&contents, Some(path.clone())),
+                (true, false) => vm
+                    .emit_fully_expanded_ast(&contents, Some(path.clone()))
+                    .map(|ast| format!("{:#?}", ast)),
+                (false, true) => Engine::emit_ast_to_string(&contents),
+                (false, false) => Engine::emit_ast(&contents).map(|ast| format!("{:#?}", ast)),
+            };
 
             match res {
                 Ok(ast) => println!("{ast}"),
