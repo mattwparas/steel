@@ -205,12 +205,9 @@ impl StackFrame {
             function,
             ip,
             instructions,
-            // span: None,
             handler: None,
 
             weak_continuation_mark: None,
-            // spans,
-            // span_id,
         }
     }
 
@@ -224,12 +221,6 @@ impl StackFrame {
         let function = Gc::new(ByteCodeLambda::main(Vec::new()));
         StackFrame::new(0, function, 0, Rc::from([]))
     }
-
-    // #[inline(always)]
-    // pub fn with_span(mut self, span: Span) -> Self {
-    //     self.span = Some(span);
-    //     self
-    // }
 
     #[inline(always)]
     pub fn set_function(&mut self, function: Gc<ByteCodeLambda>) {
@@ -248,14 +239,6 @@ impl StackFrame {
     pub fn set_continuation(&mut self, continuation: &Continuation) {
         self.weak_continuation_mark = Some(WeakContinuation::from_strong(&continuation));
     }
-
-    // pub fn set_span(&mut self, span: Span) {
-    //     self.span = Some(span);
-    // }
-
-    // pub fn attach_handler(&mut self, handler: SteelVal) {
-    //     self.handler = Some(handler);
-    // }
 
     pub fn with_handler(mut self, handler: SteelVal) -> Self {
         self.handler = Some(Rc::new(handler));
@@ -968,11 +951,11 @@ impl<'a> VmContext for VmCore<'a> {
 //     // println!("{:#?}", self.basic_block);
 
 //     if let Some(specialized) = self.specialized {
-//         specialized(context, self.entry_inst.payload_size as usize)?;
+//         specialized(context, self.entry_inst.payload_size.to_usize())?;
 //     } else {
 //         if let Some(header) = self.header_func {
 //             // println!("Calling special entry block");
-//             header(context, self.entry_inst.payload_size as usize)?;
+//             header(context, self.entry_inst.payload_size.to_usize())?;
 //         }
 
 //         for func in self.handlers.iter() {
@@ -987,7 +970,7 @@ impl<'a> VmContext for VmCore<'a> {
 //     fn construct_basic_block(head: DenseInstruction, basic_block: InstructionPattern) -> Self {
 //         // TODO: Drop the first
 //         let mut handlers = basic_block.block.iter().peekable();
-//         // .map(|x| OP_CODE_TABLE[x as usize]);
+//         // .map(|x| OP_CODE_TABLE[x.to_usize()]);
 //         // .collect();
 
 //         let mut header_func = None;
@@ -1010,7 +993,7 @@ impl<'a> VmContext for VmCore<'a> {
 //             println!("Found specialized function!");
 //         }
 
-//         let handlers = handlers.map(|x| OP_CODE_TABLE[x.0 as usize]).collect();
+//         let handlers = handlers.map(|x| OP_CODE_TABLE[x.0.to_usize()]).collect();
 
 //         Self {
 //             basic_block,
@@ -1234,24 +1217,18 @@ impl<'a> VmCore<'a> {
             {
                 // Close frame if the new continuation doesn't have it
                 if !marks_still_open.contains(&(cont_mark.as_ptr() as usize)) {
-                    // println!("Closing marks on stack frame, still open");
-
                     self.thread.stack.truncate(frame.sp);
                     self.ip = frame.ip;
                     self.sp = self.get_last_stack_frame_sp();
                     self.instructions = Rc::clone(&frame.instructions);
-
                     self.close_continuation_marks(&frame);
                     continue;
-                } else {
-                    // println!("Skipping closing frame: {:p}", cont_mark.inner);
                 }
             }
         }
 
         self.thread.stack = continuation.stack;
         self.instructions = continuation.instructions;
-        // self.spans = continuation.spans;
         self.ip = continuation.ip;
         self.sp = continuation.sp;
         self.pop_count = continuation.pop_count;
@@ -1273,14 +1250,6 @@ impl<'a> VmCore<'a> {
         let old_ip = self.ip;
         let old_instructions = std::mem::replace(&mut self.instructions, closure);
         let old_pop_count = self.pop_count;
-        // let old_spans = std::mem::replace(&mut self.spans, spans);
-
-        // dbg!(self.sp);
-
-        // dbg!(self.thread.stack_frames.last().map(|x| x.sp));
-        // let old_sp = self.sp;
-
-        // let old_stack_index = self.stack_index;
 
         self.ip = 0;
         // Force the execution to be done earlier
@@ -1297,11 +1266,6 @@ impl<'a> VmCore<'a> {
         self.pop_count = old_pop_count;
         // self.spans = old_spans;
         self.sp = self.thread.stack_frames.last().map(|x| x.sp).unwrap_or(0);
-
-        // dbg!(self.sp);
-        // dbg!(self.thread.stack_frames.last().map(|x| x.sp));
-
-        // self.stack_frames.pop();
 
         res
     }
@@ -1384,10 +1348,6 @@ impl<'a> VmCore<'a> {
                 let arg_vec: Vec<_> = args.into_iter().collect();
                 func.func()(&arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
             }
-            // SteelVal::ContractedFunction(cf) => {
-            //     let arg_vec: Vec<_> = args.into_iter().collect();
-            //     cf.apply(arg_vec, cur_inst_span, self)
-            // }
             SteelVal::MutFunc(func) => {
                 let mut arg_vec: Vec<_> = args.into_iter().collect();
                 func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
@@ -1514,14 +1474,6 @@ impl<'a> VmCore<'a> {
         self.call_with_instructions_and_reset_state(closure.body_exp())
     }
 
-    // pub fn get_slice_of_size_two(&mut self) -> &mut [SteelVal] {
-    //     if let &mut [.., last, two] = self.thread.stack.as_mut_slice() {
-    //         &mut [last, two]
-    //     } else {
-    //         unreachable!()
-    //     }
-    // }
-
     pub(crate) fn vm(&mut self) -> Result<SteelVal> {
         // if self.depth > 1024 {
         if self.depth > 1024 * 128 {
@@ -1531,20 +1483,15 @@ impl<'a> VmCore<'a> {
 
         macro_rules! inline_primitive {
             ($name:tt, $payload_size:expr) => {{
-                let last_index = self.thread.stack.len() - $payload_size as usize;
+                let last_index = self.thread.stack.len() - $payload_size.to_usize();
 
                 let result = match $name(&mut self.thread.stack[last_index..]) {
                     Ok(value) => value,
                     Err(e) => return Err(e.set_span_if_none(self.current_span())),
                 };
 
-                // This is the old way... lets see if the below way improves the speed
-                // self.thread.stack.truncate(last_index);
-                // self.thread.stack.push(result);
-
                 self.thread.stack.truncate(last_index + 1);
                 *self.thread.stack.last_mut().unwrap() = result;
-                // self.thread.stack.push(result);
 
                 self.ip += 2;
             }};
@@ -1559,10 +1506,10 @@ impl<'a> VmCore<'a> {
                 // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
                 let offset = self.get_offset();
                 let local_value =
-                    self.thread.stack[read_local.payload_size as usize + offset].clone();
+                    self.thread.stack[read_local.payload_size.to_usize() + offset].clone();
 
                 // get the const
-                let const_val = self.constants.get(push_const.payload_size as usize);
+                let const_val = self.constants.get(push_const.payload_size.to_usize());
 
                 let result = match $name(&[local_value, const_val]) {
                     Ok(value) => value,
@@ -1585,10 +1532,10 @@ impl<'a> VmCore<'a> {
                 // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
                 let offset = self.get_offset();
                 let local_value =
-                    self.thread.stack[read_local.payload_size as usize + offset].clone();
+                    self.thread.stack[read_local.payload_size.to_usize() + offset].clone();
 
                 // get the const value, if it can fit into the value...
-                let const_val = SteelVal::IntV(push_const.payload_size as isize);
+                let const_val = SteelVal::IntV(push_const.payload_size.to_usize() as isize);
 
                 // sub_handler_none_int
 
@@ -1677,7 +1624,7 @@ impl<'a> VmCore<'a> {
 
                 //     // TODO: Store in a different spot? So that we can avoid cloning on every iteration?
                 //     let super_instruction =
-                //         { self.thread.super_instructions[payload_size as usize].clone() };
+                //         { self.thread.super_instructions[payload_size.to_usize()].clone() };
 
                 //     super_instruction.call(self)?;
                 // }
@@ -1689,7 +1636,7 @@ impl<'a> VmCore<'a> {
                     let last = self.thread.stack.pop().unwrap();
                     self.thread
                         .stack
-                        .truncate(self.thread.stack.len() - payload_size as usize);
+                        .truncate(self.thread.stack.len() - payload_size.to_usize());
                     self.thread.stack.push(last);
                     self.ip += 1;
                 }
@@ -1722,7 +1669,7 @@ impl<'a> VmCore<'a> {
                     // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
                     let offset = self.get_offset();
                     let local_value =
-                        self.thread.stack[read_local.payload_size as usize + offset].clone();
+                        self.thread.stack[read_local.payload_size.to_usize() + offset].clone();
 
                     let result = match subtract_primitive(&[local_value, SteelVal::IntV(1)]) {
                         Ok(value) => value,
@@ -1755,7 +1702,7 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
-                    list_handler(self, payload_size as usize)?;
+                    list_handler(self, payload_size.to_usize())?;
                 }
 
                 DenseInstruction {
@@ -1836,10 +1783,10 @@ impl<'a> VmCore<'a> {
                     // get the local
                     // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
                     let offset = self.get_offset();
-                    let l = &self.thread.stack[read_local.payload_size as usize + offset];
+                    let l = &self.thread.stack[read_local.payload_size.to_usize() + offset];
 
                     // get the const value, if it can fit into the value...
-                    let r = push_const.payload_size as isize;
+                    let r = push_const.payload_size.to_usize() as isize;
 
                     // sub_handler_none_int
 
@@ -1872,10 +1819,10 @@ impl<'a> VmCore<'a> {
                     // get the local
                     // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
                     let offset = self.get_offset();
-                    let l = &self.thread.stack[read_local.payload_size as usize + offset];
+                    let l = &self.thread.stack[read_local.payload_size.to_usize() + offset];
 
                     // get the const value, if it can fit into the value...
-                    let r = push_const.payload_size as isize;
+                    let r = push_const.payload_size.to_usize() as isize;
 
                     // sub_handler_none_int
 
@@ -1904,10 +1851,10 @@ impl<'a> VmCore<'a> {
                     // get the local
                     // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
                     let offset = self.get_offset();
-                    let l = &self.thread.stack[read_local.payload_size as usize + offset];
+                    let l = &self.thread.stack[read_local.payload_size.to_usize() + offset];
 
                     // get the const value, if it can fit into the value...
-                    let r = push_const.payload_size as isize;
+                    let r = push_const.payload_size.to_usize() as isize;
 
                     // sub_handler_none_int
 
@@ -1933,7 +1880,7 @@ impl<'a> VmCore<'a> {
                     if result {
                         self.ip += 1;
                     } else {
-                        self.ip = self.instructions[self.ip].payload_size as usize;
+                        self.ip = self.instructions[self.ip].payload_size.to_usize();
                     }
                 }
 
@@ -1942,7 +1889,7 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
-                    add_handler_payload(self, payload_size as usize)?;
+                    add_handler_payload(self, payload_size.to_usize())?;
                     // inline_primitive!(add_primitive, payload_size)
                 }
                 DenseInstruction {
@@ -1968,7 +1915,7 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
-                    sub_handler_payload(self, payload_size as usize)?;
+                    sub_handler_payload(self, payload_size.to_usize())?;
                     // inline_primitive!(subtract_primitive, payload_size)
                 }
                 DenseInstruction {
@@ -2015,7 +1962,7 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
-                    lte_handler_payload(self, payload_size as usize)?;
+                    lte_handler_payload(self, payload_size.to_usize())?;
                     // inline_primitive!(lte_primitive, payload_size);
                 }
 
@@ -2030,13 +1977,13 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::SET,
                     payload_size,
                     ..
-                } => self.handle_set(payload_size as usize)?,
+                } => self.handle_set(payload_size.to_usize())?,
                 DenseInstruction {
                     op_code: OpCode::PUSHCONST,
                     payload_size,
                     ..
                 } => {
-                    let val = self.constants.get(payload_size as usize);
+                    let val = self.constants.get(payload_size.to_usize());
                     self.thread.stack.push(val);
                     self.ip += 1;
                 }
@@ -2044,12 +1991,12 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::PUSH,
                     payload_size,
                     ..
-                } => self.handle_push(payload_size as usize)?,
+                } => self.handle_push(payload_size.to_usize())?,
                 DenseInstruction {
                     op_code: OpCode::READLOCAL,
                     payload_size,
                     ..
-                } => self.handle_local(payload_size as usize)?,
+                } => self.handle_local(payload_size.to_usize())?,
                 DenseInstruction {
                     op_code: OpCode::READLOCAL0,
                     ..
@@ -2070,12 +2017,12 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::READCAPTURED,
                     payload_size,
                     ..
-                } => self.handle_read_captures(payload_size as usize)?,
+                } => self.handle_read_captures(payload_size.to_usize())?,
                 DenseInstruction {
                     op_code: OpCode::MOVEREADLOCAL,
                     payload_size,
                     ..
-                } => self.handle_move_local(payload_size as usize)?,
+                } => self.handle_move_local(payload_size.to_usize())?,
                 // TODO: Introduce macro for this
                 DenseInstruction {
                     op_code: OpCode::MOVEREADLOCAL0,
@@ -2123,7 +2070,7 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::SETLOCAL,
                     payload_size,
                     ..
-                } => self.handle_set_local(payload_size as usize),
+                } => self.handle_set_local(payload_size.to_usize()),
                 DenseInstruction {
                     op_code: OpCode::LOADINT0,
                     ..
@@ -2157,16 +2104,16 @@ impl<'a> VmCore<'a> {
                 //     let func = self
                 //         .thread
                 //         .global_env
-                //         .repl_lookup_idx(payload_size as usize);
+                //         .repl_lookup_idx(payload_size.to_usize());
 
                 //     // get the local
                 //     // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
                 //     let offset = self.get_offset();
                 //     let local_value =
-                //         self.thread.stack[read_local.payload_size as usize + offset].clone();
+                //         self.thread.stack[read_local.payload_size.to_usize() + offset].clone();
 
                 //     // get the const
-                //     let const_val = self.constants.get(push_const.payload_size as usize);
+                //     let const_val = self.constants.get(push_const.payload_size.to_usize());
 
                 //     self.handle_lazy_function_call(func, local_value, const_val)?;
                 // }
@@ -2178,8 +2125,8 @@ impl<'a> VmCore<'a> {
                     self.ip += 1;
                     let next_inst = self.instructions[self.ip];
                     self.handle_call_global(
-                        payload_size as usize,
-                        next_inst.payload_size as usize,
+                        payload_size.to_usize(),
+                        next_inst.payload_size.to_usize(),
                     )?;
                 }
                 DenseInstruction {
@@ -2189,8 +2136,8 @@ impl<'a> VmCore<'a> {
                 } => {
                     let next_inst = self.instructions[self.ip + 1];
                     self.handle_tail_call_global(
-                        payload_size as usize,
-                        next_inst.payload_size as usize,
+                        payload_size.to_usize(),
+                        next_inst.payload_size.to_usize(),
                     )?;
                 }
                 DenseInstruction {
@@ -2200,7 +2147,7 @@ impl<'a> VmCore<'a> {
                 } => {
                     // TODO: @Matt -> don't pop the function off of the stack, just read it from there directly.
                     let func = self.thread.stack.pop().unwrap();
-                    self.handle_function_call(func, payload_size as usize)?;
+                    self.handle_function_call(func, payload_size.to_usize())?;
                 }
                 // Tail call basically says "hey this function is exiting"
                 // In the closure case, transfer ownership of the stack to the called function
@@ -2210,7 +2157,7 @@ impl<'a> VmCore<'a> {
                     ..
                 } => {
                     let func = self.thread.stack.pop().unwrap();
-                    self.handle_tail_call(func, payload_size as usize)?
+                    self.handle_tail_call(func, payload_size.to_usize())?
                 }
                 DenseInstruction {
                     op_code: OpCode::IF,
@@ -2221,7 +2168,7 @@ impl<'a> VmCore<'a> {
                     if self.thread.stack.pop().unwrap().is_truthy() {
                         self.ip += 1;
                     } else {
-                        self.ip = payload_size as usize;
+                        self.ip = payload_size.to_usize();
                     }
                 }
                 DenseInstruction {
@@ -2229,9 +2176,9 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
-                    let current_arity = payload_size as usize;
+                    let current_arity = payload_size.to_usize();
                     // This is the number of (local) functions we need to pop to get back to the place we want to be at
-                    // let depth = self.instructions[self.ip + 1].payload_size as usize;
+                    // let depth = self.instructions[self.ip + 1].payload_size.to_usize();
 
                     // for _ in 0..depth {
                     //     self.thread.stack_frames.pop();
@@ -2293,7 +2240,7 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
-                    self.ip = payload_size as usize;
+                    self.ip = payload_size.to_usize();
                 }
                 DenseInstruction {
                     op_code: OpCode::BEGINSCOPE,
@@ -2324,17 +2271,17 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::BIND,
                     payload_size,
                     ..
-                } => self.handle_bind(payload_size as usize),
+                } => self.handle_bind(payload_size.to_usize()),
                 DenseInstruction {
                     op_code: OpCode::NEWSCLOSURE,
                     payload_size,
                     ..
-                } => self.handle_new_start_closure(payload_size as usize)?,
+                } => self.handle_new_start_closure(payload_size.to_usize())?,
                 DenseInstruction {
                     op_code: OpCode::PUREFUNC,
                     payload_size,
                     ..
-                } => self.handle_pure_function(payload_size as usize),
+                } => self.handle_pure_function(payload_size.to_usize()),
                 DenseInstruction {
                     op_code: OpCode::SDEF,
                     ..
@@ -2659,12 +2606,12 @@ impl<'a> VmCore<'a> {
 
         self.ip += 1;
 
-        let is_multi_arity = self.instructions[self.ip].payload_size == 1;
+        let is_multi_arity = self.instructions[self.ip].payload_size.to_u32() == 1;
 
         self.ip += 1;
 
         // Check whether this is a let or a rooted function
-        let closure_id = self.instructions[self.ip].payload_size as usize;
+        let closure_id = self.instructions[self.ip].payload_size.to_usize();
 
         // if is_multi_arity {
         //     println!("Found multi arity function");
@@ -2786,10 +2733,10 @@ impl<'a> VmCore<'a> {
             let constructed_lambda = Gc::new(ByteCodeLambda::new(
                 closure_id,
                 closure_body,
-                arity as usize,
+                arity.to_usize(),
                 is_multi_arity,
                 Vec::new(),
-                Vec::new(),
+                // Vec::new(),
                 // Rc::clone(&spans),
             ));
 
@@ -2827,12 +2774,12 @@ impl<'a> VmCore<'a> {
 
         self.ip += 1;
 
-        let is_multi_arity = self.instructions[self.ip].payload_size == 1;
+        let is_multi_arity = self.instructions[self.ip].payload_size.to_u32() == 1;
 
         self.ip += 1;
 
         // Get the ID of the function
-        let closure_id = self.instructions[self.ip].payload_size as usize;
+        let closure_id = self.instructions[self.ip].payload_size.to_usize();
 
         // if is_multi_arity {
         //     println!("Found multi arity function");
@@ -2846,16 +2793,16 @@ impl<'a> VmCore<'a> {
         // println!("Forward jump: {}", forward_jump);
 
         // Snag the number of upvalues here
-        let ndefs = self.instructions[self.ip].payload_size;
+        let ndefs = self.instructions[self.ip].payload_size.to_usize();
         self.ip += 1;
 
         // TODO preallocate size
-        let mut captures = Vec::with_capacity(ndefs as usize);
+        let mut captures = Vec::with_capacity(ndefs);
 
         // TODO: This shouldn't be the same size as the captures
-        // let mut heap_vars = Vec::with_capacity(ndefs as usize);
+        // let mut heap_vars = Vec::with_capacity(ndefs.to_usize());
 
-        let mut heap_vars = Vec::new();
+        // let mut heap_vars = Vec::new();
 
         // TODO clean this up a bit
         // hold the spot for where we need to jump aftwards
@@ -2881,7 +2828,7 @@ impl<'a> VmCore<'a> {
                 match (instr.op_code, instr.payload_size) {
                     (OpCode::COPYCAPTURESTACK, n) => {
                         let offset = stack_index;
-                        let value = self.thread.stack[n as usize + offset].clone();
+                        let value = self.thread.stack[n.to_usize() + offset].clone();
                         captures.push(value);
                     }
                     (OpCode::COPYCAPTURECLOSURE, n) => {
@@ -2890,9 +2837,9 @@ impl<'a> VmCore<'a> {
                             "Trying to capture from closure that doesn't exist",
                         );
 
-                        debug_assert!((n as usize) < guard.function.captures().len());
+                        debug_assert!((n.to_usize()) < guard.function.captures().len());
 
-                        let value = guard.function.captures()[n as usize].clone();
+                        let value = guard.function.captures()[n.to_usize()].clone();
 
                         captures.push(value);
                     }
@@ -2915,7 +2862,7 @@ impl<'a> VmCore<'a> {
                 match (instr.op_code, instr.payload_size) {
                     (OpCode::COPYCAPTURESTACK, n) => {
                         let offset = stack_index;
-                        let value = self.thread.stack[n as usize + offset].clone();
+                        let value = self.thread.stack[n.to_usize() + offset].clone();
                         captures.push(value);
                     }
                     // (OpCode::COPYCAPTURECLOSURE, n) => {
@@ -2924,9 +2871,9 @@ impl<'a> VmCore<'a> {
                     //         "Trying to capture from closure that doesn't exist",
                     //     );
 
-                    //     debug_assert!((n as usize) < guard.function.captures().len());
+                    //     debug_assert!((n.to_usize()) < guard.function.captures().len());
 
-                    //     let value = guard.function.captures()[n as usize].clone();
+                    //     let value = guard.function.captures()[n.to_usize()].clone();
 
                     //     captures.push(value);
                     // }
@@ -2953,7 +2900,7 @@ impl<'a> VmCore<'a> {
 
             let mut prototype = prototype.clone();
             prototype.set_captures(captures);
-            prototype.set_heap_allocated(heap_vars);
+            // prototype.set_heap_allocated(heap_vars);
             prototype
         } else {
             // log::trace!("Constructing closure for the first time");
@@ -2999,10 +2946,10 @@ impl<'a> VmCore<'a> {
             let mut constructed_lambda = ByteCodeLambda::new(
                 closure_id,
                 closure_body,
-                arity as usize,
+                arity.to_usize(),
                 is_multi_arity,
                 Vec::new(),
-                Vec::new(),
+                // Vec::new(),
             );
 
             self.thread
@@ -3017,7 +2964,7 @@ impl<'a> VmCore<'a> {
                 .insert(closure_id, spans);
 
             constructed_lambda.set_captures(captures);
-            constructed_lambda.set_heap_allocated(heap_vars);
+            // constructed_lambda.set_heap_allocated(heap_vars);
 
             constructed_lambda
         };
@@ -3642,12 +3589,6 @@ impl<'a> VmCore<'a> {
     ) -> Result<()> {
         self.cut_sequence();
 
-        // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-
-        // println!("Handling function call for multi arity function");
-
-        // Jit profiling
-
         #[cfg(feature = "jit")]
         {
             closure.increment_call_count();
@@ -3657,79 +3598,25 @@ impl<'a> VmCore<'a> {
 
         self.sp = self.thread.stack.len() - closure.arity();
 
-        // {
-        //     // Current frame already has the instructions
-        //     self.current_frame.ip += 1;
-        //     self.current_frame = self.stack.len() - closure.arity();
+        let mut instructions = closure.body_exp();
 
-        //     self.stack_frames.push(self.current_frame);
-
-        //     let instructions = closure.body_exp();
-
-        //     self.current_frame = StackFrame::new(self.sp, closure, 0, instructions)
-        // }
-
-        let instructions = closure.body_exp();
-        // let spans = closure.spans();
-
-        self.thread.stack_frames.push(
-            StackFrame::new(
-                self.sp,
-                closure,
-                self.ip + 1,
-                Rc::clone(&self.instructions),
-                // Rc::clone(&self.spans),
-            ), // .with_span(self.current_span()),
-        );
-
-        // self.current_arity = Some(closure.arity());
+        self.thread.stack_frames.push(StackFrame::new(
+            self.sp,
+            closure,
+            self.ip + 1,
+            // Rc::clone(&self.instructions),
+            std::mem::replace(&mut self.instructions, instructions),
+        ));
 
         self.check_stack_overflow()?;
 
-        // self.stack_index.push(self.stack.len() - closure.arity());
-
-        // TODO use new heap
-        // self.heap
-        //     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
-        // self.heap.collect_garbage();
-
-        // self.instruction_stack.push(InstructionPointer::new(
-        //     self.ip + 1,
-        //     Rc::clone(&self.instructions),
-        // ));
         self.pop_count += 1;
 
-        // Move args into the stack, push stack onto stacks
-        // let stack = std::mem::replace(&mut self.stack, args.into());
-        // self.stacks.push(stack);
-
-        self.instructions = instructions;
-        // self.spans = spans;
+        // self.instructions = instructions;
 
         self.ip = 0;
         Ok(())
     }
-
-    // #[cfg(feature = "jit")]
-    // // #[inline(always)]
-    // fn call_compiled_function(
-    //     &mut self,
-    //     function: &JitFunctionPointer,
-    //     payload_size: usize,
-    // ) -> Result<()> {
-    //     if function.arity() != payload_size {
-    //         stop!(ArityMismatch => format!("function expected {} arguments, found {}", function.arity(), payload_size); self.current_span());
-    //     }
-
-    //     let result = function.call_func(&mut self.thread.stack);
-
-    //     // println!("Calling function!");
-
-    //     self.thread.stack.push(result);
-    //     self.ip += 1;
-
-    //     Ok(())
-    // }
 
     // TODO improve this a bit
     #[inline(always)]
@@ -3743,10 +3630,8 @@ impl<'a> VmCore<'a> {
         self.sp = self.thread.stack.len() - closure.arity();
 
         let mut instructions = closure.body_exp();
-        // let mut spans = closure.spans();
 
         std::mem::swap(&mut instructions, &mut self.instructions);
-        // std::mem::swap(&mut spans, &mut self.spans);
 
         // Do this _after_ the multi arity business
         // TODO: can these rcs be avoided
@@ -3754,77 +3639,13 @@ impl<'a> VmCore<'a> {
             StackFrame::new(self.sp, closure, self.ip + 1, instructions), // .with_span(self.current_span()),
         );
 
-        // self.current_arity = Some(closure.arity());
-
         self.check_stack_overflow()?;
-
-        // closure arity here is the number of true arguments
-        // self.stack_index.push(self.stack.len() - closure.arity());
-
-        // TODO use new heap
-        // self.heap
-        //     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
-        // self.heap.collect_garbage();
 
         self.pop_count += 1;
 
-        // self.instructions = instructions;
-        // self.spans = spans;
         self.ip = 0;
         Ok(())
     }
-
-    // #[inline(always)]
-    // fn handle_function_call_closure_jit_without_profiling_ref(
-    //     &mut self,
-    //     mut closure: &Gc<ByteCodeLambda>,
-    //     payload_size: usize,
-    // ) -> Result<()> {
-    //     self.adjust_stack_for_multi_arity(closure, payload_size, &mut 0)?;
-
-    //     self.sp = self.thread.stack.len() - closure.arity();
-
-    //     let mut instructions = closure.body_exp();
-    //     // let mut spans = closure.spans();
-
-    //     std::mem::swap(&mut instructions, &mut self.instructions);
-    //     // std::mem::swap(&mut spans, &mut self.spans);
-
-    //     // Do this _after_ the multi arity business
-    //     // TODO: can these rcs be avoided
-    //     self.thread.stack_frames.push(
-    //         StackFrame::new_rooted(
-    //             self.sp,
-    //             // Almost assuredly UB - there really just needs to be a runtime reference
-    //             // on the value that gets passed around, or we just need to
-    //             #[cfg(feature = "unsafe-internals")]
-    //             crate::gc::unsafe_roots::MaybeRooted::from_root(closure),
-    //             #[cfg(not(feature = "unsafe-internals"))]
-    //             closure.clone(),
-    //             self.ip + 1,
-    //             instructions,
-    //         ), // .with_span(self.current_span()),
-    //     );
-
-    //     // self.current_arity = Some(closure.arity());
-
-    //     self.check_stack_overflow()?;
-
-    //     // closure arity here is the number of true arguments
-    //     // self.stack_index.push(self.stack.len() - closure.arity());
-
-    //     // TODO use new heap
-    //     // self.heap
-    //     //     .gather_mark_and_sweep_2(&self.global_env, &inner_env);
-    //     // self.heap.collect_garbage();
-
-    //     self.pop_count += 1;
-
-    //     // self.instructions = instructions;
-    //     // self.spans = spans;
-    //     self.ip = 0;
-    //     Ok(())
-    // }
 
     // TODO improve this a bit
     // #[inline(always)]
@@ -4069,23 +3890,9 @@ pub fn call_with_exception_handler(
                 .with_handler(handler),
             );
 
-            // ctx.stack_index.push(ctx.stack.len());
-
-            // Put the continuation as the argument
-            // Previously we put the continuation directly on the stack ourselves, but instead we now return as an argument
-            // ctx.stack.push(continuation);
-
-            // self.global_env = inner_env;
-            // ctx.instruction_stack.push(InstructionPointer::new(
-            //     ctx.ip + 1,
-            //     Rc::clone(&ctx.instructions),
-            // ));
             ctx.pop_count += 1;
 
             ctx.instructions = closure.body_exp();
-            // ctx.spans = closure.spans();
-            // ctx.function_stack
-            //     .push(CallContext::new(closure).with_span(ctx.current_span()));
 
             ctx.ip = 0;
         }
@@ -4118,11 +3925,7 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
         builtin_stop!(ArityMismatch => format!("call/cc expects one argument, found: {}", args.len()); ctx.current_span());
     }
 
-    // let function = ctx.stack.pop().unwrap();
-
     let function = args[0].clone();
-
-    // validate_closure_for_call_cc(&function, self.current_span())?;
 
     match &function {
         SteelVal::Closure(c) => {
@@ -4136,8 +3939,6 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
             builtin_stop!(Generic => format!("call/cc expects a function, found: {function}"); ctx.current_span())
         }
     }
-
-    // dbg!(&ctx.thread.stack_frames.last().map(|x| &x.continuation_mark));
 
     let continuation = ctx.construct_continuation_function();
 
@@ -4153,11 +3954,6 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
             }
 
             ctx.sp = ctx.thread.stack.len();
-
-            // ctx.thread
-            //     .stack_frames
-            //     .last_mut()
-            //     .map(|x| x.set_continuation(continuation.clone()));
 
             ctx.thread.stack_frames.push(
                 StackFrame::new(
@@ -4175,29 +3971,11 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
             ctx.instructions = closure.body_exp();
 
             ctx.ip = 0;
-
-            // let last = ctx.thread.stack_frames.last_mut().unwrap();
-
-            // let offset = last.sp;
-
-            // let back = ctx.thread.stack.len();
-            // let _ = ctx.thread.stack.drain(offset..back);
-            // ctx.instructions = closure.body_exp();
-
-            // last.set_function(closure);
-            // last.set_continuation(continuation.clone());
-
-            // ctx.ip = 0;
         }
         SteelVal::ContinuationFunction(cc) => {
-            // ctx.set_state_from_continuation(cc.unwrap());
-
-            // println!("Setting state from continuation...");
-
             Continuation::set_state_from_continuation(ctx, cc);
 
             ctx.ip += 1;
-            // ctx.stack.push(continuation);
         }
         SteelVal::FuncV(f) => return Some(f(&[SteelVal::ContinuationFunction(continuation)])),
 
@@ -4309,10 +4087,6 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
                         ctx.handle_function_call_closure(closure.clone(), l.len())
                     };
 
-                    // TODO: Fix this unwrap
-                    // let res = ctx.handle_function_call_closure(closure.clone(), l.len());
-                    // let res = ctx.new_handle_tail_call_closure(closure.clone(), l.len());
-
                     if res.is_err() {
                         // This is explicitly unreachable, since we're checking
                         // that this is an error variant
@@ -4322,14 +4096,11 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
                     None
                 }
                 SteelVal::ContinuationFunction(cc) => {
-                    // ctx.set_state_from_continuation(cc.unwrap());
-
                     Continuation::set_state_from_continuation(ctx, cc.clone());
 
                     ctx.ip += 1;
 
                     None
-                    // ctx.stack.push(continuation);
                 }
                 // TODO: Reuse the allocation for apply
                 SteelVal::FuncV(f) => {
@@ -4527,7 +4298,7 @@ impl OpCodeOccurenceProfiler {
 
                         let sequence = instructions[block_pattern.start..=index]
                             .iter()
-                            .map(|x| (x.op_code, x.payload_size as usize))
+                            .map(|x| (x.op_code, x.payload_size.to_usize()))
                             .filter(|x| !x.0.is_ephemeral_opcode() && x.0 != OpCode::POPPURE)
                             .collect();
 
@@ -4608,7 +4379,7 @@ impl OpCodeOccurenceProfiler {
 
                 let sequence = instructions[block_pattern.start..=index]
                     .iter()
-                    .map(|x| (x.op_code, x.payload_size as usize))
+                    .map(|x| (x.op_code, x.payload_size.to_usize()))
                     .filter(|x| !x.0.is_ephemeral_opcode() && x.0 != OpCode::POPPURE)
                     .collect();
 
@@ -4948,7 +4719,7 @@ impl OpCodeOccurenceProfiler {
 
 //             // fn func(ctx: &mut VmCore<'_>) -> Result<()> {
 //             //     $(
-//             //         OP_CODE_TABLE[$args as usize](ctx)?;
+//             //         OP_CODE_TABLE[$args.to_usize()](ctx)?;
 //             //     )*
 
 //             //     Ok(())
@@ -5123,7 +4894,7 @@ fn local_handler3(ctx: &mut VmCore<'_>) -> Result<()> {
 // OpCode::SETLOCAL
 fn set_local_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     let offset = ctx.instructions[ctx.ip].payload_size;
-    ctx.handle_set_local(offset as usize);
+    ctx.handle_set_local(offset.to_usize());
     Ok(())
 }
 
@@ -5140,7 +4911,7 @@ fn call_global_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.ip += 1;
     let next_inst = ctx.instructions[ctx.ip];
 
-    ctx.handle_call_global(payload_size as usize, next_inst.payload_size as usize)
+    ctx.handle_call_global(payload_size.to_usize(), next_inst.payload_size.to_usize())
 }
 
 // OpCode::CALLGLOBAL
@@ -5148,7 +4919,7 @@ fn call_global_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 fn call_global_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
     ctx.ip += 1;
     let next_inst = ctx.instructions[ctx.ip];
-    ctx.handle_call_global(payload, next_inst.payload_size as usize)
+    ctx.handle_call_global(payload, next_inst.payload_size.to_usize())
 }
 
 // TODO: Have a way to know the correct arity?
@@ -5163,9 +4934,12 @@ fn call_global_handler_no_stack(
     // TODO: Track the op codes of the surrounding values as well
     // let next_inst = ctx.instructions[ctx.ip];
 
-    // println!("Looking up a function at index: {}", payload_size as usize);
+    // println!("Looking up a function at index: {}", payload_size.to_usize());
 
-    let func = ctx.thread.global_env.repl_lookup_idx(payload_size as usize);
+    let func = ctx
+        .thread
+        .global_env
+        .repl_lookup_idx(payload_size.to_usize());
     ctx.handle_non_instr_global_function_call(func, args)
 }
 
@@ -5201,7 +4975,7 @@ fn handle_load_int2(ctx: &mut VmCore<'_>) -> Result<()> {
 // OpCode::MOVEREADLOCAL
 fn move_local_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     let index = ctx.instructions[ctx.ip].payload_size;
-    ctx.handle_move_local(index as usize)
+    ctx.handle_move_local(index.to_usize())
 }
 
 // OpCode::MOVEREADLOCAL
@@ -5232,7 +5006,7 @@ fn move_local_handler3(ctx: &mut VmCore<'_>) -> Result<()> {
 // OpCode::READCAPTURED
 fn read_captured_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
-    ctx.handle_read_captures(payload_size as usize)
+    ctx.handle_read_captures(payload_size.to_usize())
 }
 
 // OpCode::READCAPTURED
@@ -5248,7 +5022,7 @@ fn begin_scope_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 
 // OpCode::LETENDSCOPE
 fn let_end_scope_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    let beginning_scope = ctx.instructions[ctx.ip].payload_size as usize;
+    let beginning_scope = ctx.instructions[ctx.ip].payload_size.to_usize();
     let_end_scope_handler_with_payload(ctx, beginning_scope)
 }
 
@@ -5292,7 +5066,7 @@ fn let_end_scope_handler_with_payload(ctx: &mut VmCore<'_>, beginning_scope: usi
 
 // OpCode::PUREFUNC
 fn pure_function_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    let payload_size = ctx.instructions[ctx.ip].payload_size as usize;
+    let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
     ctx.handle_pure_function(payload_size);
     Ok(())
 }
@@ -5305,8 +5079,8 @@ fn pure_function_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize)
 
 macro_rules! handler_inline_primitive {
     ($ctx:expr, $name:tt) => {{
-        let payload_size = $ctx.instructions[$ctx.ip].payload_size as usize;
-        let last_index = $ctx.thread.stack.len() - payload_size as usize;
+        let payload_size = $ctx.instructions[$ctx.ip].payload_size.to_usize();
+        let last_index = $ctx.thread.stack.len() - payload_size;
 
         let result = match $name(&mut $ctx.thread.stack[last_index..]) {
             Ok(value) => value,
@@ -5326,7 +5100,7 @@ macro_rules! handler_inline_primitive {
 
 macro_rules! handler_inline_primitive_payload {
     ($ctx:expr, $name:tt, $payload_size: expr) => {{
-        let last_index = $ctx.thread.stack.len() - $payload_size as usize;
+        let last_index = $ctx.thread.stack.len() - $payload_size;
 
         let result = match $name(&mut $ctx.thread.stack[last_index..]) {
             Ok(value) => value,
@@ -5477,6 +5251,10 @@ fn lte_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
 
 // OpCode::ALLOC
 fn alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    panic!("Deprecated now - this shouldn't be hit");
+
+    /*
+
     // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
     let offset = ctx.get_offset();
 
@@ -5499,12 +5277,17 @@ fn alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.ip += 1;
 
     Ok(())
+
+    */
 }
 
 // OpCode::READALLOC
 #[inline(always)]
 fn read_alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    let payload_size = ctx.instructions[ctx.ip].payload_size as usize;
+    panic!("Deprecated - this shouldn't be hit")
+
+    /*
+    let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
 
     let value = ctx
         .thread
@@ -5520,12 +5303,16 @@ fn read_alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.ip += 1;
 
     Ok(())
+    */
 }
 
 // OpCode::SETALLOC
 #[inline(always)]
 fn set_alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    let payload_size = ctx.instructions[ctx.ip].payload_size as usize;
+    panic!("Deprecated - this shouldn't be hit")
+
+    /*
+    let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
     let value_to_assign = ctx.thread.stack.pop().unwrap();
 
     let old_value = ctx
@@ -5542,6 +5329,7 @@ fn set_alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.ip += 1;
 
     Ok(())
+    */
 }
 
 #[allow(unused)]
@@ -5575,6 +5363,9 @@ mod handlers {
     // OpCode::READALLOC
     #[inline(always)]
     fn read_alloc_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
+        panic!("Deprecated - this shouldn't be hit")
+
+        /*
         let value = ctx
             .thread
             .stack_frames
@@ -5589,6 +5380,7 @@ mod handlers {
         ctx.ip += 1;
 
         Ok(())
+        */
     }
 
     fn specialized_lte0(ctx: &mut VmCore<'_>) -> Result<()> {
@@ -5604,7 +5396,7 @@ mod handlers {
         if result {
             ctx.ip += 1;
         } else {
-            ctx.ip = payload_size as usize;
+            ctx.ip = payload_size.to_usize();
         }
 
         Ok(())
@@ -5737,7 +5529,7 @@ mod handlers {
     // OpCode::PUSH
     fn push_handler(ctx: &mut VmCore<'_>) -> Result<()> {
         let index = ctx.instructions[ctx.ip].payload_size;
-        ctx.handle_push(index as usize)
+        ctx.handle_push(index.to_usize())
     }
 
     // OpCode::PUSH
@@ -5749,7 +5541,7 @@ mod handlers {
     fn func_handler(ctx: &mut VmCore<'_>) -> Result<()> {
         let func = ctx.thread.stack.pop().unwrap();
         let payload_size = ctx.instructions[ctx.ip].payload_size;
-        ctx.handle_function_call(func, payload_size as usize)
+        ctx.handle_function_call(func, payload_size.to_usize())
     }
 
     // OpCode::FUNC
@@ -5761,7 +5553,7 @@ mod handlers {
     // OpCode::BIND
     fn bind_handler(ctx: &mut VmCore<'_>) -> Result<()> {
         let index = ctx.instructions[ctx.ip].payload_size;
-        ctx.handle_bind(index as usize);
+        ctx.handle_bind(index.to_usize());
         Ok(())
     }
 
@@ -5774,7 +5566,7 @@ mod handlers {
     // OpCode::PUSHCONST
     fn push_const_handler(ctx: &mut VmCore<'_>) -> Result<()> {
         let payload_size = ctx.instructions[ctx.ip].payload_size;
-        let val = ctx.constants.get(payload_size as usize);
+        let val = ctx.constants.get(payload_size.to_usize());
         ctx.thread.stack.push(val);
         ctx.ip += 1;
         Ok(())
@@ -5782,7 +5574,7 @@ mod handlers {
 
     pub fn push_const_handler_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
         let payload_size = ctx.instructions[ctx.ip].payload_size;
-        let val = ctx.constants.get(payload_size as usize);
+        let val = ctx.constants.get(payload_size.to_usize());
         ctx.ip += 1;
         Ok(val)
     }
@@ -5803,7 +5595,7 @@ mod handlers {
     // OpCode::SET
     fn set_handler(ctx: &mut VmCore<'_>) -> Result<()> {
         let index = ctx.instructions[ctx.ip].payload_size;
-        ctx.handle_set(index as usize)
+        ctx.handle_set(index.to_usize())
     }
 
     // OpCode::SET
@@ -5815,7 +5607,7 @@ mod handlers {
     #[inline(always)]
     fn local_handler(ctx: &mut VmCore<'_>) -> Result<()> {
         let index = ctx.instructions[ctx.ip].payload_size;
-        ctx.handle_local(index as usize)
+        ctx.handle_local(index.to_usize())
     }
 
     // OpCode::READLOCAL
@@ -5871,6 +5663,8 @@ mod handlers {
     // OpCode::SETALLOC
     #[inline(always)]
     fn set_alloc_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
+        panic!("Deprecated - this shouldn't be hit")
+        /*
         let value_to_assign = ctx.thread.stack.pop().unwrap();
 
         let old_value = ctx
@@ -5887,11 +5681,13 @@ mod handlers {
         ctx.ip += 1;
 
         Ok(())
+
+        */
     }
 
     // OpCode::NEWSCLOSURE
     fn new_sclosure_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        let payload_size = ctx.instructions[ctx.ip].payload_size as usize;
+        let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
 
         ctx.handle_new_start_closure(payload_size)
     }
@@ -5904,7 +5700,7 @@ mod handlers {
     #[inline(always)]
     fn jump_handler(ctx: &mut VmCore<'_>) -> Result<()> {
         let payload_size = ctx.instructions[ctx.ip].payload_size;
-        ctx.ip = payload_size as usize;
+        ctx.ip = payload_size.to_usize();
         Ok(())
     }
 
@@ -5915,7 +5711,7 @@ mod handlers {
         if ctx.thread.stack.pop().unwrap().is_truthy() {
             ctx.ip += 1;
         } else {
-            ctx.ip = payload_size as usize;
+            ctx.ip = payload_size.to_usize();
         }
         Ok(())
     }
@@ -5927,7 +5723,7 @@ mod handlers {
         if arg.is_truthy() {
             ctx.ip += 1;
         } else {
-            ctx.ip = payload_size as usize;
+            ctx.ip = payload_size.to_usize();
         }
     }
 
@@ -5938,7 +5734,7 @@ mod handlers {
         if condition {
             ctx.ip += 1;
         } else {
-            ctx.ip = payload_size as usize;
+            ctx.ip = payload_size.to_usize();
         }
     }
 
@@ -5947,14 +5743,14 @@ mod handlers {
         let payload_size = ctx.instructions[ctx.ip].payload_size;
         let next_inst = ctx.instructions[ctx.ip + 1];
 
-        ctx.handle_tail_call_global(payload_size as usize, next_inst.payload_size as usize)
+        ctx.handle_tail_call_global(payload_size.to_usize(), next_inst.payload_size.to_usize())
     }
 
     #[inline(always)]
     fn tail_call_handler(ctx: &mut VmCore<'_>) -> Result<()> {
         let payload_size = ctx.instructions[ctx.ip].payload_size;
         let func = ctx.thread.stack.pop().unwrap();
-        ctx.handle_tail_call(func, payload_size as usize)
+        ctx.handle_tail_call(func, payload_size.to_usize())
     }
 
     #[inline(always)]
@@ -5963,7 +5759,7 @@ mod handlers {
 
         let payload_size = ctx.instructions[ctx.ip].payload_size;
 
-        let current_arity = payload_size as usize;
+        let current_arity = payload_size.to_usize();
         let last_stack_frame = ctx.thread.stack_frames.last().unwrap();
 
         ctx.instructions = last_stack_frame.function.body_exp();

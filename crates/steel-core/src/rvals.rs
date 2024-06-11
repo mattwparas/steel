@@ -921,11 +921,19 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
         SerializableSteelVal::Custom(b) => SteelVal::Custom(Gc::new(RefCell::new(b))),
         SerializableSteelVal::CustomStruct(s) => {
             SteelVal::CustomStruct(Gc::new(UserDefinedStruct {
-                fields: s
-                    .fields
-                    .into_iter()
-                    .map(|x| from_serializable_value(ctx, x))
-                    .collect(),
+                fields: {
+                    let fields = s
+                        .fields
+                        .into_iter()
+                        .map(|x| from_serializable_value(ctx, x));
+
+                    let mut recycle: crate::values::recycler::Recycle<Vec<_>> =
+                        crate::values::recycler::Recycle::new();
+
+                    recycle.extend(fields);
+
+                    recycle
+                },
                 type_descriptor: s.type_descriptor,
             }))
         }

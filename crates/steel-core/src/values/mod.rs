@@ -6,11 +6,10 @@ pub(crate) mod json_vals;
 pub(crate) mod lazy_stream;
 pub(crate) mod lists;
 pub(crate) mod port;
+pub(crate) mod recycler;
 pub(crate) mod structs;
 pub(crate) mod transducers;
 
 pub use closed::RootToken;
 pub use closed::RootedSteelVal;
 pub use port::SteelPortRepr;
-
-// pub(crate) mod upvalue;

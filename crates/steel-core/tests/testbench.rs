@@ -86,6 +86,14 @@ fn module_test_chain() {
 }
 
 #[test]
+fn static_site_generator_modules() {
+    let mut vm = Engine::new();
+
+    vm.emit_raw_program_no_path(r#"(require "tests/modules/build.scm")"#)
+        .unwrap();
+}
+
+#[test]
 fn if_test() {
     let mut evaluator = Engine::new();
     evaluator.compile_and_run_raw_program(PRELUDE).unwrap();

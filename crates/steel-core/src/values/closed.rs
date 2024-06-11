@@ -230,7 +230,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
                 // If this instruction touches this global variable,
                 // then we want to mark it as possibly referenced here.
                 OpCode::CALLGLOBAL | OpCode::PUSH | OpCode::CALLGLOBALTAIL => {
-                    self.slots.remove(&(instruction.payload_size as usize));
+                    self.slots.remove(&(instruction.payload_size.to_usize()));
                 }
                 _ => {}
             }
@@ -792,9 +792,9 @@ impl Heap {
         context.visit();
 
         for function in function_stack {
-            for heap_ref in function.heap_allocated.borrow().iter() {
-                context.mark_heap_reference(&heap_ref.strong_ptr())
-            }
+            // for heap_ref in function.heap_allocated.borrow().iter() {
+            //     context.mark_heap_reference(&heap_ref.strong_ptr())
+            // }
 
             for value in function.captures() {
                 context.push_back(value.clone());
@@ -1021,9 +1021,9 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
 
     fn visit_char(&mut self, _c: char) -> Self::Output {}
     fn visit_closure(&mut self, closure: Gc<ByteCodeLambda>) -> Self::Output {
-        for heap_ref in closure.heap_allocated.borrow().iter() {
-            self.mark_heap_reference(&heap_ref.strong_ptr())
-        }
+        // for heap_ref in closure.heap_allocated.borrow().iter() {
+        //     self.mark_heap_reference(&heap_ref.strong_ptr())
+        // }
 
         for capture in closure.captures() {
             self.push_back(capture.clone());

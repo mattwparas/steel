@@ -10,14 +10,14 @@ use super::labels::Expr;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Instruction {
     pub op_code: OpCode,
-    pub payload_size: usize,
+    pub payload_size: u24,
     pub contents: Option<Expr>,
 }
 
 impl Instruction {
     pub fn new_from_parts(
         op_code: OpCode,
-        payload_size: usize,
+        payload_size: u24,
         contents: Option<Expr>,
     ) -> Instruction {
         Instruction {
@@ -27,18 +27,6 @@ impl Instruction {
         }
     }
 }
-
-// Want to turn a steel struct directly into this struct
-// If we values themselves can be mapped
-// impl TryFrom<SteelStruct> for Instruction {
-//     type Error = crate::SteelErr;
-
-//     fn try_from(value: SteelStruct) -> Result<Self, Self::Error> {
-//         if value.name == "Instruction" {
-
-//         }
-//     }
-// }
 
 pub fn densify(instructions: Vec<Instruction>) -> Vec<DenseInstruction> {
     instructions.into_iter().map(|x| x.into()).collect()
@@ -119,11 +107,67 @@ pub struct DenseInstruction {
     // Function IDs need to be interned _again_ before patched into the code?
     // Also: We should be able to get away with a u16 here. Just grab places where u16
     // won't fit and convert to something else.
-    pub payload_size: u32,
+    pub payload_size: u24,
+}
+
+use std::ops::Add;
+
+#[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize, Debug)]
+#[allow(non_camel_case_types)]
+#[repr(transparent)]
+pub struct u24([u8; 3]);
+impl Add for u24 {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        Self::from_u32(self.to_u32() + rhs.to_u32())
+    }
+}
+
+impl u24 {
+    #[inline(always)]
+    pub fn to_u32(self) -> u32 {
+        let u24([a, b, c]) = self;
+        u32::from_le_bytes([a, b, c, 0])
+    }
+
+    #[inline(always)]
+    pub fn from_u32(n: u32) -> Self {
+        let [a, b, c, d] = n.to_le_bytes();
+        debug_assert!(d == 0);
+        u24([a, b, c])
+    }
+
+    #[inline(always)]
+    pub fn from_usize(n: usize) -> Self {
+        let [a, b, c, d, ..] = n.to_le_bytes();
+        debug_assert!(d == 0);
+        u24([a, b, c])
+    }
+
+    #[inline(always)]
+    pub fn to_usize(self) -> usize {
+        let u24([a, b, c]) = self;
+        usize::from_le_bytes([a, b, c, 0, 0, 0, 0, 0])
+    }
+}
+
+impl std::fmt::Display for u24 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_u32())
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct DenseInstruction2 {
+    pub op_code: OpCode,
+    // Function IDs need to be interned _again_ before patched into the code?
+    // Also: We should be able to get away with a u16 here. Just grab places where u16
+    // won't fit and convert to something else.
+    pub payload_size: u24,
 }
 
 impl DenseInstruction {
-    pub fn new(op_code: OpCode, payload_size: u32) -> DenseInstruction {
+    pub fn new(op_code: OpCode, payload_size: u24) -> DenseInstruction {
         DenseInstruction {
             op_code,
             payload_size,
@@ -136,6 +180,6 @@ impl DenseInstruction {
 // generate an equivalent
 impl From<Instruction> for DenseInstruction {
     fn from(val: Instruction) -> DenseInstruction {
-        DenseInstruction::new(val.op_code, val.payload_size.try_into().unwrap())
+        DenseInstruction::new(val.op_code, val.payload_size)
     }
 }

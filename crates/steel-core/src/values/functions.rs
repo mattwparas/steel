@@ -105,15 +105,16 @@ pub struct ByteCodeLambda {
 
     // #[cfg(not(feature = "dynamic"))]
     // pub(crate) body_exp: Rc<[DenseInstruction]>,
-    pub(crate) arity: usize,
+    pub(crate) arity: u16,
 
     #[cfg(feature = "dynamic")]
     call_count: Cell<usize>,
 
     pub(crate) is_multi_arity: bool,
+
     pub(crate) captures: Vec<SteelVal>,
     // TODO: Delete this
-    pub(crate) heap_allocated: RefCell<Vec<HeapRef<SteelVal>>>,
+    // pub(crate) heap_allocated: RefCell<Vec<HeapRef<SteelVal>>>,
     // pub(crate) spans: Rc<[Span]>,
     #[cfg(feature = "dynamic")]
     pub(crate) blocks: RefCell<Vec<(BlockPattern, BlockMetadata)>>,
@@ -174,7 +175,7 @@ impl ByteCodeLambda {
         arity: usize,
         is_multi_arity: bool,
         captures: Vec<SteelVal>,
-        heap_allocated: Vec<HeapRef<SteelVal>>,
+        // heap_allocated: Vec<HeapRef<SteelVal>>,
     ) -> ByteCodeLambda {
         // debug_assert_eq!(body_exp.len(), spans.len());
 
@@ -186,7 +187,7 @@ impl ByteCodeLambda {
             #[cfg(not(feature = "dynamic"))]
             body_exp,
 
-            arity,
+            arity: arity as u16,
 
             #[cfg(feature = "dynamic")]
             call_count: Cell::new(0),
@@ -194,7 +195,7 @@ impl ByteCodeLambda {
             is_multi_arity,
             captures,
             // TODO: Allocated the necessary size right away <- we're going to index into it
-            heap_allocated: RefCell::new(heap_allocated),
+            // heap_allocated: RefCell::new(heap_allocated),
             // spans,
 
             // span_id,
@@ -216,7 +217,7 @@ impl ByteCodeLambda {
                 .into_iter()
                 .map(|x| from_serializable_value(heap, x))
                 .collect(),
-            Vec::new(),
+            // Vec::new(),
         )
     }
 
@@ -227,7 +228,7 @@ impl ByteCodeLambda {
             0,
             false,
             Vec::default(),
-            Vec::default(),
+            // Vec::default(),
             // Rc::from([]),
         )
     }
@@ -240,9 +241,9 @@ impl ByteCodeLambda {
         self.captures = captures;
     }
 
-    pub fn set_heap_allocated(&mut self, heap_allocated: Vec<HeapRef<SteelVal>>) {
-        self.heap_allocated = RefCell::new(heap_allocated);
-    }
+    // pub fn set_heap_allocated(&mut self, heap_allocated: Vec<HeapRef<SteelVal>>) {
+    //     self.heap_allocated = RefCell::new(heap_allocated);
+    // }
 
     pub fn body_exp(&self) -> Rc<[DenseInstruction]> {
         #[cfg(feature = "dynamic")]
@@ -289,12 +290,12 @@ impl ByteCodeLambda {
 
     #[inline(always)]
     pub fn arity(&self) -> usize {
-        self.arity
+        self.arity as usize
     }
 
-    pub fn heap_allocated(&self) -> &RefCell<Vec<HeapRef<SteelVal>>> {
-        &self.heap_allocated
-    }
+    // pub fn heap_allocated(&self) -> &RefCell<Vec<HeapRef<SteelVal>>> {
+    //     &self.heap_allocated
+    // }
 
     pub fn captures(&self) -> &[SteelVal] {
         &self.captures

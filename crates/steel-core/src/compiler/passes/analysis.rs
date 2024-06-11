@@ -981,7 +981,6 @@ impl<'a> AnalysisPass<'a> {
         lambda_function: &LambdaFunction,
         captured_vars: &[(InternedString, ScopeInfo)],
         depth: usize,
-        // arguments: &FxHashMap<InternedString, ScopeInfo>,
         arguments: &[(InternedString, ScopeInfo)],
     ) {
         for var in &lambda_function.args {
@@ -1043,14 +1042,26 @@ impl<'a> AnalysisPass<'a> {
 impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
     // TODO: define expressions are not handled by this for stack offset purposes
     fn visit_define(&mut self, define: &'a crate::parser::ast::Define) {
-        self.visit_define_without_body(define, IdentifierStatus::Local);
+        if matches!(&define.body, ExprKind::LambdaFunction(_)) {
+            self.visit_define_without_body(define, IdentifierStatus::Local);
 
-        let define_ctx = self.defining_context.take();
+            let define_ctx = self.defining_context.take();
 
-        // Mark defining context
-        self.defining_context = define.name_id();
-        self.visit_with_tail_call_eligibility(&define.body, false);
-        self.defining_context = define_ctx;
+            // Mark defining context
+            self.defining_context = define.name_id();
+            self.visit_with_tail_call_eligibility(&define.body, false);
+            self.defining_context = define_ctx;
+        } else {
+            // self.visit_define_without_body(define, IdentifierStatus::Local);
+
+            // let define_ctx = self.defining_context.take();
+
+            // Mark defining context
+            // self.defining_context = define.name_id();
+            self.visit_with_tail_call_eligibility(&define.body, false);
+            self.visit_define_without_body(define, IdentifierStatus::Local);
+            // self.defining_context = define_ctx;
+        }
     }
 
     // Quoted values are just constants - lets ignore them for now?
@@ -1700,6 +1711,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         if let Some(ident) = name {
             // Mark that we've seen this one
             self.vars_used.push(*ident);
+
+            // if ident.resolve().ends_with("website.scm__%#__parser") {
+            //     println!("Visiting {}", ident);
+            // }
 
             // Check if its a global var - otherwise, we want to check if its a free
             // identifier
@@ -4006,9 +4021,6 @@ impl<'a> SemanticAnalysis<'a> {
                                     {
                                         if *func == module_get_interned || *func == proto_hash_get {
                                             // If this is found inside of a macro, do not remove it
-
-                                            // println!("REMOVING: {}", define);
-
                                             found = true;
                                             break;
                                         }
@@ -4035,7 +4047,7 @@ impl<'a> SemanticAnalysis<'a> {
                                                 if *func == module_get_interned
                                                     || *func == proto_hash_get
                                                 {
-                                                    // println!("REMOVING: {}", define);
+                                                    // dbg!(format!("REMOVING: {}", define));
                                                     found = true;
                                                     break;
                                                 }
@@ -4099,7 +4111,7 @@ impl<'a> SemanticAnalysis<'a> {
                                                 return true;
                                             }
 
-                                            // println!("REMOVING: {}", name);
+                                            // dbg!(format!("REMOVING: {}", name));
 
                                             return false;
                                         }
@@ -4141,7 +4153,11 @@ impl<'a> SemanticAnalysis<'a> {
                                                         return true;
                                                     }
 
-                                                    // println!("REMOVING: {}", name);
+                                                    // dbg!(format!("REMOVING: {}", name));
+
+                                                    // if name.resolve().ends_with("parser") {
+                                                    //     println!("Removing: {}", name);
+                                                    // }
 
                                                     offset += 1;
                                                     return false;

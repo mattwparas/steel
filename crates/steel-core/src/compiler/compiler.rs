@@ -7,7 +7,7 @@ use crate::{
             reader::MultipleArityFunctions, shadow::RenameShadowedVariables, VisitorMutRefUnit,
         },
     },
-    core::labels::Expr,
+    core::{instructions::u24, labels::Expr},
     parser::{
         expand_visitor::{expand_kernel_in_env, expand_kernel_in_env_with_change},
         interner::InternedString,
@@ -100,7 +100,7 @@ impl DebruijnIndicesInterner {
                     // }
 
                     if let Some(x) = instructions.get_mut(i) {
-                        x.payload_size = idx;
+                        x.payload_size = u24::from_usize(idx);
                     }
                 }
                 (
@@ -123,7 +123,7 @@ impl DebruijnIndicesInterner {
                     // }
 
                     if let Some(x) = instructions.get_mut(i) {
-                        x.payload_size = idx;
+                        x.payload_size = u24::from_usize(idx);
                     }
                 }
                 _ => {}
@@ -215,7 +215,7 @@ impl DebruijnIndicesInterner {
 
                     // TODO commenting this for now
                     if let Some(x) = instructions.get_mut(i) {
-                        x.payload_size = idx;
+                        x.payload_size = u24::from_usize(idx);
                     }
                 }
                 Instruction {
@@ -251,7 +251,7 @@ impl DebruijnIndicesInterner {
 
                     // TODO commenting this for now
                     if let Some(x) = instructions.get_mut(i) {
-                        x.payload_size = idx;
+                        x.payload_size = u24::from_usize(idx);
                     }
                 }
                 _ => {}
@@ -878,14 +878,6 @@ impl Compiler {
 
         // let mut analysis = Analysis::from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
-
-        // let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
-
-        // println!("MARKER HERE--------------------------");
-
-        // expanded_statements.pretty_print();
-
-        // println!("END MARKER---------------------------");
 
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 

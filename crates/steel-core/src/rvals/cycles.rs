@@ -639,6 +639,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
 #[cfg(not(feature = "without-drop-protection"))]
 pub(crate) mod drop_impls {
 
+    use crate::values::recycler::Recycle;
+
     use super::*;
 
     thread_local! {
@@ -704,14 +706,16 @@ pub(crate) mod drop_impls {
                         //     drop_buffer.push_back(value);
                         // }
 
-                        drop_buffer.extend(Vec::from(std::mem::take(&mut self.fields)));
+                        drop_buffer.extend(
+                            self.fields.drain(..), // std::mem::replace(&mut self.fields, Recycle::noop()).into_iter(),
+                        );
 
                         IterativeDropHandler::bfs(&mut drop_buffer);
                     }
                 })
                 .is_err()
             {
-                let mut buffer = Vec::from(std::mem::take(&mut self.fields)).into();
+                let mut buffer = self.fields.drain(..).collect();
 
                 IterativeDropHandler::bfs(&mut buffer);
             }
@@ -870,7 +874,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
     fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) {
         if let Ok(mut inner) = steel_struct.try_unwrap() {
-            for value in Vec::from(std::mem::take(&mut inner.fields)) {
+            for value in inner.fields.drain(..) {
                 self.push_back(value);
             }
         }

@@ -11,7 +11,7 @@ use crate::{
         Captured, Free, Global, HeapAllocated, LetVar, Local, LocallyDefinedFunction,
     },
     core::{
-        instructions::Instruction,
+        instructions::{u24, Instruction},
         labels::{resolve_labels, LabeledInstruction},
         opcode::OpCode,
     },
@@ -325,14 +325,14 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // }
 
         if let Some(elem) = self.instructions.get_mut(false_start - 1) {
-            elem.payload_size = j3;
+            elem.payload_size = u24::from_usize(j3);
             // (*elem).payload_size = false_start;
         } else {
             stop!(Generic => "out of bounds jump");
         }
 
         if let Some(elem) = self.instructions.get_mut(if_idx) {
-            elem.payload_size = false_start;
+            elem.payload_size = u24::from_usize(false_start);
             // (*elem).payload_size = false_start;
         } else {
             stop!(Generic => "out of bounds jump");
@@ -581,7 +581,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         self.push(LabeledInstruction::builder(OpCode::ECLOSURE).payload(arity));
 
         if let Some(elem) = self.instructions.get_mut(idx) {
-            elem.payload_size = closure_body_size;
+            elem.payload_size = u24::from_usize(closure_body_size);
         } else {
             stop!(Generic => "out of bounds closure len");
         }
@@ -1011,7 +1011,7 @@ mod code_gen_tests {
         let mut found = code_gen
             .instructions
             .iter()
-            .map(|x| (x.op_code, x.payload_size))
+            .map(|x| (x.op_code, x.payload_size.to_usize()))
             .collect::<Vec<_>>();
 
         // Wipe out the syntax object id from the PASS

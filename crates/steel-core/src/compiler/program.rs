@@ -1,3 +1,4 @@
+use crate::core::instructions::u24;
 use crate::core::labels::Expr;
 use crate::parser::span_visitor::get_span;
 use crate::rvals::{Result, SteelComplex};
@@ -95,7 +96,7 @@ pub fn specialize_read_local(instructions: &mut [Instruction]) {
                 payload_size,
                 ..
             }) => {
-                let op_code = match payload_size {
+                let op_code = match payload_size.to_u32() {
                     0 => OpCode::MOVEREADLOCAL0,
                     1 => OpCode::MOVEREADLOCAL1,
                     2 => OpCode::MOVEREADLOCAL2,
@@ -113,7 +114,7 @@ pub fn specialize_read_local(instructions: &mut [Instruction]) {
                 payload_size,
                 ..
             }) => {
-                let op_code = match payload_size {
+                let op_code = match payload_size.to_u32() {
                     0 => OpCode::READLOCAL0,
                     1 => OpCode::READLOCAL1,
                     2 => OpCode::READLOCAL2,
@@ -187,7 +188,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                     ..
                 }),
             ) => {
-                let arity = *arity;
+                let arity = arity.to_usize();
                 let index = *index;
 
                 if let TokenType::Identifier(ident) = ident.ty {
@@ -195,7 +196,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                         _ if ident == *PRIM_CONS_SYMBOL && arity == 2 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::CONS;
-                                x.payload_size = 2;
+                                x.payload_size = u24::from_u32(2);
                                 continue;
                             }
                         }
@@ -279,7 +280,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                 if let Some(x) = instructions.get_mut(i + 1) {
                     // Leave this as the OpCode::FUNC;
                     // x.op_code = OpCode::Arity;
-                    x.payload_size = arity;
+                    x.payload_size = u24::from_usize(arity);
                 }
             }
             (
@@ -303,7 +304,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                         _ if ident == *PRIM_CONS_SYMBOL => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::CONS;
-                                x.payload_size = 2;
+                                x.payload_size = u24::from_u32(2);
                                 continue;
                             }
                         }
@@ -473,24 +474,26 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
             }),
         ) = (push, func)
         {
+            let payload_size = payload_size.to_u32();
+
             let replaced = match *ident {
-                x if x == *PRIM_PLUS && *payload_size == 2 => Some(OpCode::BINOPADD),
-                x if x == *PRIM_PLUS && *payload_size > 0 => Some(OpCode::ADD),
+                x if x == *PRIM_PLUS && payload_size == 2 => Some(OpCode::BINOPADD),
+                x if x == *PRIM_PLUS && payload_size > 0 => Some(OpCode::ADD),
                 // x if x == *PRIM_MINUS && *payload_size == 2 => Some(OpCode::BINOPSUB),
-                x if x == *PRIM_MINUS && *payload_size > 0 => Some(OpCode::SUB),
-                x if x == *PRIM_DIV && *payload_size > 0 => Some(OpCode::DIV),
-                x if x == *PRIM_STAR && *payload_size > 0 => Some(OpCode::MUL),
-                x if x == *PRIM_NUM_EQUAL && *payload_size == 2 => Some(OpCode::NUMEQUAL),
-                x if x == *PRIM_EQUAL && *payload_size > 0 => Some(OpCode::EQUAL),
-                x if x == *PRIM_LTE && *payload_size > 0 => Some(OpCode::LTE),
+                x if x == *PRIM_MINUS && payload_size > 0 => Some(OpCode::SUB),
+                x if x == *PRIM_DIV && payload_size > 0 => Some(OpCode::DIV),
+                x if x == *PRIM_STAR && payload_size > 0 => Some(OpCode::MUL),
+                x if x == *PRIM_NUM_EQUAL && payload_size == 2 => Some(OpCode::NUMEQUAL),
+                x if x == *PRIM_EQUAL && payload_size > 0 => Some(OpCode::EQUAL),
+                x if x == *PRIM_LTE && payload_size > 0 => Some(OpCode::LTE),
                 _ => None,
             };
 
             if let Some(new_op_code) = replaced {
-                let payload_size = *payload_size;
+                // let payload_size = *payload_size;
                 if let Some(x) = instructions.get_mut(i) {
                     x.op_code = new_op_code;
-                    x.payload_size = payload_size;
+                    x.payload_size = u24::from_u32(payload_size);
                 }
 
                 if let Some(x) = instructions.get_mut(i + 1) {
