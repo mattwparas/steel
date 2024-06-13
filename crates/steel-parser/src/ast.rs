@@ -977,6 +977,8 @@ pub struct List {
 impl PartialEq for List {
     fn eq(&self, other: &Self) -> bool {
         self.args == other.args
+            && self.improper == other.improper
+            && self.location == other.location
     }
 }
 

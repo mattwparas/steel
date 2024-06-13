@@ -1595,6 +1595,7 @@ mod parser_tests {
     use super::*;
     use crate::parser::ast::{Begin, Define, If, LambdaFunction, Quote, Return};
     use crate::tokens::RealLiteral;
+    use crate::visitors::Eraser;
     use crate::{parser::ast::ExprKind, tokens::IntLiteral};
 
     fn atom(ident: &str) -> ExprKind {
@@ -1625,9 +1626,19 @@ mod parser_tests {
         a.unwrap();
     }
 
+    fn parse_err(s: &str) -> ParseError {
+        let a: Result<Vec<_>> = Parser::new(s, None).collect();
+        a.unwrap_err()
+    }
+
     fn assert_parse(s: &str, result: &[ExprKind]) {
         let a: Result<Vec<ExprKind>> = Parser::new(s, None).collect();
-        let a = a.unwrap();
+        let mut a = a.unwrap();
+
+        let mut eraser = Eraser;
+
+        eraser.visit_many(&mut a);
+
         assert_eq!(a.as_slice(), result);
     }
 
@@ -2335,6 +2346,36 @@ mod parser_tests {
     }
 
     #[test]
+    fn test_lambda_function_with_rest() {
+        assert_parse(
+            "(lambda (x . y) 10)",
+            &[ExprKind::LambdaFunction(Box::new(
+                LambdaFunction::new_maybe_rest(
+                    vec![atom("x"), atom("y")],
+                    int(10),
+                    SyntaxObject::default(TokenType::Lambda),
+                    true,
+                ),
+            ))],
+        )
+    }
+
+    #[test]
+    fn test_lambda_function_with_rest_only() {
+        assert_parse(
+            "(lambda x 10)",
+            &[ExprKind::LambdaFunction(Box::new(
+                LambdaFunction::new_maybe_rest(
+                    vec![atom("x")],
+                    int(10),
+                    SyntaxObject::default(TokenType::Lambda),
+                    true,
+                ),
+            ))],
+        )
+    }
+
+    #[test]
     fn test_lambda_matches_let() {
         assert_parse(
             "((lambda (a) (+ a 20)) 10)",
@@ -2589,5 +2630,33 @@ mod parser_tests {
         let a = a.unwrap();
 
         println!("{:#?}", a);
+    }
+
+    #[test]
+    fn test_improper_list() {
+        assert_parse(
+            "(x . y)",
+            &[ExprKind::List(
+                List::new(vec![atom("x"), atom("y")]).make_improper(),
+            )],
+        )
+    }
+
+    #[test]
+    fn test_improper_list_failures() {
+        assert!(matches!(parse_err("(. a)"), ParseError::SyntaxError(..)));
+        assert!(matches!(parse_err("(a .)"), ParseError::SyntaxError(..)));
+        assert!(matches!(
+            parse_err("(a . b . )"),
+            ParseError::SyntaxError(..)
+        ));
+        assert!(matches!(
+            parse_err("(a . b . c)"),
+            ParseError::SyntaxError(..)
+        ));
+        assert!(matches!(
+            parse_err("(a . b c)"),
+            ParseError::SyntaxError(..)
+        ));
     }
 }
