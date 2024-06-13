@@ -270,7 +270,7 @@ impl UserDefinedStruct {
             Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
         };
 
-        SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+        SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
             Some(descriptor.name().resolve().to_string().into()),
             Some(len),
@@ -300,7 +300,7 @@ impl UserDefinedStruct {
             Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
         };
 
-        SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+        SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
             Some(name.resolve().to_string().into()),
             Some(len),
@@ -325,7 +325,7 @@ impl UserDefinedStruct {
             }))
         };
 
-        SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+        SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
             Some(descriptor.name().resolve().to_string().into()),
             Some(1),
@@ -368,7 +368,7 @@ impl UserDefinedStruct {
             }
         };
 
-        SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+        SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
             Some(descriptor.name().resolve().to_string().into()),
             Some(2),
@@ -406,7 +406,7 @@ impl UserDefinedStruct {
             }
         };
 
-        SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+        SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
             Some(descriptor.name().resolve().to_string().into()),
             Some(1),
@@ -786,7 +786,7 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
         module
             .register_value(
                 "Ok",
-                SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+                SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
                     Arc::new(UserDefinedStruct::constructor_thunk(
                         1,
                         OK_DESCRIPTOR.with(|x| *x),
@@ -814,9 +814,8 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
         module
             .register_value(
                 "Err",
-                SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+                SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
                     Arc::new(UserDefinedStruct::constructor_thunk(
-                        // Rc::clone(&name),
                         1,
                         ERR_DESCRIPTOR.with(|x| *x),
                     )),
@@ -859,7 +858,7 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
         module
             .register_value(
                 "Some",
-                SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+                SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
                     Arc::new(UserDefinedStruct::constructor_thunk(
                         // Rc::clone(&name),
                         1,
@@ -882,7 +881,7 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
         module
             .register_value(
                 "None",
-                SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+                SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
                     Arc::new(UserDefinedStruct::constructor_thunk(
                         0,
                         NONE_DESCRIPTOR.with(|x| *x),

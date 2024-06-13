@@ -2,6 +2,7 @@ use std::{borrow::Cow, cell::RefCell, rc::Rc, sync::Arc};
 
 use crate::{
     containers::RegisterValue,
+    gc::Gc,
     parser::{ast::ExprKind, interner::InternedString, parser::SyntaxObject, tokens::TokenType},
     rvals::{
         Custom, FromSteelVal, FunctionSignature, IntoSteelVal, MutFunctionSignature, Result,
@@ -289,7 +290,7 @@ impl BuiltInModuleRepr {
 
         self.register_value(
             predicate_name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(predicate_name),
                 Some(1),

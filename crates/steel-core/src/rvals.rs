@@ -1,7 +1,7 @@
 pub mod cycles;
 
 use crate::{
-    gc::{unsafe_erased_pointers::OpaqueReference, Gc},
+    gc::{unsafe_erased_pointers::OpaqueReference, Gc, GcMut},
     parser::{
         ast::{self, Atom, ExprKind},
         parser::SyntaxObject,
@@ -11,17 +11,15 @@ use crate::{
     primitives::numbers::realp,
     rerrs::{ErrorKind, SteelErr},
     steel_vm::vm::{threads::closure_into_serializable, BuiltInSignature, Continuation},
-    values::port::SteelPort,
     values::{
         closed::{Heap, HeapRef, MarkAndSweepContext},
-        functions::ByteCodeLambda,
+        functions::{BoxedDynFunction, ByteCodeLambda},
         lazy_stream::LazyStream,
-        port::SendablePort,
-        structs::SerializableUserDefinedStruct,
+        port::{SendablePort, SteelPort},
+        structs::{SerializableUserDefinedStruct, UserDefinedStruct},
         transducers::{Reducer, Transducer},
         SteelPortRepr,
     },
-    values::{functions::BoxedDynFunction, structs::UserDefinedStruct},
 };
 use std::vec::IntoIter;
 use std::{
@@ -242,8 +240,7 @@ impl<T: Custom + 'static> CustomType for T {
 
 impl<T: CustomType + 'static> IntoSteelVal for T {
     fn into_steelval(self) -> Result<SteelVal> {
-        // Ok(self.new_steel_val())
-        Ok(SteelVal::Custom(Gc::new(RefCell::new(Box::new(self)))))
+        Ok(SteelVal::Custom(Gc::new_mut(Box::new(self))))
     }
 }
 
@@ -915,10 +912,10 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                 .map(|x| from_serializable_value(ctx, x))
                 .collect(),
         ))),
-        SerializableSteelVal::BoxedDynFunction(f) => SteelVal::BoxedFunction(Rc::new(f)),
+        SerializableSteelVal::BoxedDynFunction(f) => SteelVal::BoxedFunction(Gc::new(f)),
         SerializableSteelVal::BuiltIn(f) => SteelVal::BuiltIn(f),
         SerializableSteelVal::SymbolV(s) => SteelVal::SymbolV(s.into()),
-        SerializableSteelVal::Custom(b) => SteelVal::Custom(Gc::new(RefCell::new(b))),
+        SerializableSteelVal::Custom(b) => SteelVal::Custom(Gc::new_mut(b)),
         SerializableSteelVal::CustomStruct(s) => {
             SteelVal::CustomStruct(Gc::new(UserDefinedStruct {
                 fields: {
@@ -1188,7 +1185,7 @@ pub enum SteelVal {
     /// Represents a symbol, internally represented as `String`s
     SymbolV(SteelString),
     /// Container for a type that implements the `Custom Type` trait. (trait object)
-    Custom(Gc<RefCell<Box<dyn CustomType>>>),
+    Custom(GcMut<Box<dyn CustomType>>),
     // Embedded HashMap
     HashMapV(SteelHashMap),
     // Embedded HashSet
@@ -1208,7 +1205,7 @@ pub enum SteelVal {
     // A stream of `SteelVal`.
     StreamV(Gc<LazyStream>),
     /// Custom closure
-    BoxedFunction(Rc<BoxedDynFunction>),
+    BoxedFunction(Gc<BoxedDynFunction>),
     // Continuation
     ContinuationFunction(Continuation),
     // Function Pointer
@@ -1226,16 +1223,16 @@ pub enum SteelVal {
     MutableVector(HeapRef<Vec<SteelVal>>),
     // This should delegate to the underlying iterator - can allow for faster raw iteration if possible
     // Should allow for polling just a raw "next" on underlying elements
-    BoxedIterator(Gc<RefCell<OpaqueIterator>>),
+    BoxedIterator(GcMut<OpaqueIterator>),
     // Contains a syntax object.
     SyntaxObject(Gc<Syntax>),
     // Mutable storage, with Gc backing
     // Boxed(HeapRef),
-    Boxed(Gc<RefCell<SteelVal>>),
+    Boxed(GcMut<SteelVal>),
     // Holds a SteelVal on the heap.
     HeapAllocated(HeapRef<SteelVal>),
     // TODO: This itself, needs to be boxed unfortunately.
-    Reference(Rc<OpaqueReference<'static>>),
+    Reference(Gc<OpaqueReference<'static>>),
     // Like IntV but supports larger values.
     BigNum(Gc<BigInt>),
     // Like Rational but supports larger numerators and denominators.
@@ -1248,14 +1245,13 @@ pub enum SteelVal {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct SteelByteVector {
-    // TODO: Consider using Box<[u8]>
-    pub(crate) vec: Gc<RefCell<Vec<u8>>>,
+    pub(crate) vec: GcMut<Vec<u8>>,
 }
 
 impl SteelByteVector {
     pub fn new(vec: Vec<u8>) -> Self {
         Self {
-            vec: Gc::new(RefCell::new(vec)),
+            vec: Gc::new_mut(vec),
         }
     }
 }
@@ -1327,7 +1323,7 @@ impl SteelVal {
             dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> + Send + Sync + 'static,
         >,
     ) -> SteelVal {
-        SteelVal::BoxedFunction(Rc::new(BoxedDynFunction {
+        SteelVal::BoxedFunction(Gc::new(BoxedDynFunction {
             function,
             name: None,
             arity: None,
@@ -1482,41 +1478,53 @@ impl SteelVal {
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub struct SteelString(Rc<String>);
+pub struct SteelString(Gc<String>);
 
 impl Deref for SteelString {
     type Target = Rc<String>;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.0 .0
     }
 }
 
 impl From<&str> for SteelString {
     fn from(val: &str) -> Self {
-        SteelString(Rc::new(val.to_string()))
+        SteelString(Gc::new(val.to_string()))
     }
 }
 
 impl From<&String> for SteelString {
     fn from(val: &String) -> Self {
-        SteelString(Rc::new(val.to_owned()))
+        SteelString(Gc::new(val.to_owned()))
     }
 }
 
 impl From<String> for SteelString {
     fn from(val: String) -> Self {
-        SteelString(Rc::new(val))
+        SteelString(Gc::new(val))
     }
 }
 
 impl From<Rc<String>> for SteelString {
     fn from(val: Rc<String>) -> Self {
+        SteelString(Gc(val))
+    }
+}
+
+impl From<Gc<String>> for SteelString {
+    fn from(val: Gc<String>) -> Self {
         SteelString(val)
     }
 }
 
 impl From<SteelString> for Rc<String> {
+    fn from(value: SteelString) -> Self {
+        value.0 .0
+    }
+}
+
+impl From<SteelString> for Gc<String> {
     fn from(value: SteelString) -> Self {
         value.0
     }
@@ -1578,10 +1586,10 @@ pub enum BuiltInDataStructureIterator {
 
 impl BuiltInDataStructureIterator {
     pub fn into_boxed_iterator(self, value: SteelVal) -> SteelVal {
-        SteelVal::BoxedIterator(Gc::new(RefCell::new(OpaqueIterator {
+        SteelVal::BoxedIterator(Gc::new_mut(OpaqueIterator {
             root: value,
             iterator: self,
-        })))
+        }))
     }
 }
 
@@ -1666,7 +1674,7 @@ impl SteelVal {
             (FutureFunc(l), FutureFunc(r)) => Rc::ptr_eq(l, r),
             (FutureV(l), FutureV(r)) => Gc::ptr_eq(l, r),
             (StreamV(l), StreamV(r)) => Gc::ptr_eq(l, r),
-            (BoxedFunction(l), BoxedFunction(r)) => Rc::ptr_eq(l, r),
+            (BoxedFunction(l), BoxedFunction(r)) => Gc::ptr_eq(l, r),
             (ContinuationFunction(l), ContinuationFunction(r)) => Continuation::ptr_eq(l, r),
             (ListV(l), ListV(r)) => {
                 l.ptr_eq(r) || l.storage_ptr_eq(r) || l.is_empty() && r.is_empty()

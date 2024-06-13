@@ -1091,7 +1091,7 @@ impl FFIValue {
     pub fn as_steelval(&self) -> Result<SteelVal> {
         match self {
             Self::BoxedFunction(b) => {
-                Ok(SteelVal::BoxedFunction(Rc::new(b.as_boxed_dyn_function())))
+                Ok(SteelVal::BoxedFunction(Gc::new(b.as_boxed_dyn_function())))
             }
             Self::BoolV(b) => Ok(SteelVal::BoolV(*b)),
             Self::NumV(n) => Ok(SteelVal::NumV(*n)),
@@ -1143,12 +1143,9 @@ impl IntoSteelVal for FFIValue {
     fn into_steelval(self) -> Result<SteelVal> {
         match self {
             Self::BoxedFunction(b) => {
-                Ok(SteelVal::BoxedFunction(Rc::new(RBox::into_inner(b).into())))
+                Ok(SteelVal::BoxedFunction(Gc::new(RBox::into_inner(b).into())))
             }
-            Self::Custom { custom } => {
-                Ok(SteelVal::Custom(Gc::new(RefCell::new(Box::new(custom)))))
-            }
-
+            Self::Custom { custom } => Ok(SteelVal::Custom(Gc::new_mut(Box::new(custom)))),
             Self::BoolV(b) => Ok(SteelVal::BoolV(b)),
             Self::NumV(n) => Ok(SteelVal::NumV(n)),
             Self::IntV(i) => Ok(SteelVal::IntV(i)),

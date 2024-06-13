@@ -69,7 +69,7 @@ impl LambdaMetadataTable {
                 self.fn_ptr_table.insert(b.id, doc);
             }
             SteelVal::BoxedFunction(b) => {
-                self.fn_ptr_table.insert(Rc::as_ptr(&b) as usize, doc);
+                self.fn_ptr_table.insert(Gc::as_ptr(&b) as usize, doc);
             }
             _ => {}
         }
@@ -79,7 +79,7 @@ impl LambdaMetadataTable {
         match function {
             SteelVal::Closure(b) => self.fn_ptr_table.get(&b.id).cloned(),
             SteelVal::BoxedFunction(b) => {
-                self.fn_ptr_table.get(&(Rc::as_ptr(&b) as usize)).cloned()
+                self.fn_ptr_table.get(&(Gc::as_ptr(&b) as usize)).cloned()
             }
             _ => None,
         }

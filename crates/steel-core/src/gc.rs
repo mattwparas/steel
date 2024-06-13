@@ -1,6 +1,8 @@
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal;
 use crate::stop;
+use shared::Shared;
+use std::cell::RefCell;
 use std::fmt::Pointer;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -10,9 +12,141 @@ use std::{ops::Deref, rc::Weak};
 pub static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static MAXIMUM_OBJECTS: usize = 50000;
 
-// TODO: Make these available to be
-// type Shared<T> = std::rc::Rc<T>;
-// type SharedMut<T> = std::rc::Rc<std::cell::RefCell<T>>;
+pub use shared::GcMut;
+
+pub mod shared {
+    use std::cell::{Ref, RefCell, RefMut};
+    use std::ops::{Deref, DerefMut};
+    use std::rc::Rc;
+    use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+
+    use super::Gc;
+
+    #[cfg(not(feature = "sync"))]
+    pub type Shared<T> = Rc<T>;
+
+    #[cfg(not(feature = "sync"))]
+    pub type SharedMut<T> = Rc<RefCell<T>>;
+
+    #[cfg(not(feature = "sync"))]
+    pub type GcMut<T> = Gc<RefCell<T>>;
+
+    #[cfg(feature = "sync")]
+    type Shared<T> = Arc<T>;
+
+    #[cfg(feature = "sync")]
+    type SharedMut<T> = Arc<RwLock<T>>;
+
+    #[cfg(feature = "sync")]
+    type GcMut<T> = Gc<RwLock<T>>;
+
+    pub trait ShareableMut<T>: Clone {
+        type ShareableRead<'a>: Deref<Target = T>
+        where
+            Self: 'a;
+        type ShareableWrite<'a>: DerefMut<Target = T>
+        where
+            Self: 'a;
+        /// Obtain a scoped guard for reading
+        fn read<'a>(&'a self) -> Self::ShareableRead<'a>;
+        /// Obtain a scoped guard for writing
+        fn write<'a>(&'a self) -> Self::ShareableWrite<'a>;
+    }
+
+    impl<T> ShareableMut<T> for Rc<RefCell<T>> {
+        type ShareableRead<'a> = Ref<'a, T> where T: 'a;
+        type ShareableWrite<'a> = RefMut<'a, T> where T: 'a;
+
+        fn read<'a>(&'a self) -> Self::ShareableRead<'a> {
+            Rc::deref(self).borrow()
+        }
+
+        fn write<'a>(&'a self) -> Self::ShareableWrite<'a> {
+            Rc::deref(self).borrow_mut()
+        }
+    }
+
+    impl<T> ShareableMut<T> for Gc<RefCell<T>> {
+        type ShareableRead<'a> = Ref<'a, T> where T: 'a;
+        type ShareableWrite<'a> = RefMut<'a, T> where T: 'a;
+
+        fn read<'a>(&'a self) -> Self::ShareableRead<'a> {
+            Gc::deref(self).borrow()
+        }
+
+        fn write<'a>(&'a self) -> Self::ShareableWrite<'a> {
+            Gc::deref(self).borrow_mut()
+        }
+    }
+
+    impl<T> ShareableMut<T> for Arc<RwLock<T>> {
+        type ShareableRead<'a> = RwLockReadGuard<'a, T> where T: 'a;
+        type ShareableWrite<'a> = RwLockWriteGuard<'a, T> where T: 'a;
+
+        fn read<'a>(&'a self) -> Self::ShareableRead<'a> {
+            Arc::deref(self)
+                .read()
+                .expect("Read lock should not be poisoned")
+        }
+
+        fn write<'a>(&'a self) -> Self::ShareableWrite<'a> {
+            Arc::deref(self)
+                .write()
+                .expect("Write lock should not be poisoned")
+        }
+    }
+
+    impl<T> ShareableMut<T> for Gc<RwLock<T>> {
+        type ShareableRead<'a> = RwLockReadGuard<'a, T> where T: 'a;
+        type ShareableWrite<'a> = RwLockWriteGuard<'a, T> where T: 'a;
+
+        fn read<'a>(&'a self) -> Self::ShareableRead<'a> {
+            Gc::deref(self)
+                .read()
+                .expect("Read lock should not be poisoned")
+        }
+
+        fn write<'a>(&'a self) -> Self::ShareableWrite<'a> {
+            Gc::deref(self)
+                .write()
+                .expect("Write lock should not be poisoned")
+        }
+    }
+
+    impl<T> ShareableMut<T> for Arc<Mutex<T>> {
+        type ShareableRead<'a> = MutexGuard<'a, T> where T: 'a;
+        type ShareableWrite<'a> = MutexGuard<'a, T> where T: 'a;
+
+        fn read<'a>(&'a self) -> Self::ShareableRead<'a> {
+            Arc::deref(self)
+                .lock()
+                .expect("Mutex should not be poisoned")
+        }
+
+        fn write<'a>(&'a self) -> Self::ShareableWrite<'a> {
+            Arc::deref(self)
+                .lock()
+                .expect("Mutex should not be poisoned")
+        }
+    }
+
+    impl<T> ShareableMut<T> for Gc<Mutex<T>> {
+        type ShareableRead<'a> = MutexGuard<'a, T> where T: 'a;
+        type ShareableWrite<'a> = MutexGuard<'a, T> where T: 'a;
+
+        fn read<'a>(&'a self) -> Self::ShareableRead<'a> {
+            Gc::deref(self)
+                .lock()
+                .expect("Mutex should not be poisoned")
+        }
+
+        fn write<'a>(&'a self) -> Self::ShareableWrite<'a> {
+            Gc::deref(self)
+                .lock()
+                .expect("Mutex should not be poisoned")
+        }
+    }
+}
 
 // TODO: Consider triomphe for a drop in replacement of Arc
 
@@ -27,7 +161,7 @@ pub enum MaybeWeak<T: Clone> {
 /// It does not expose the full functionality of the `Rc` type
 /// but it does allow for some
 #[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
-pub struct Gc<T: ?Sized>(pub(crate) Rc<T>);
+pub struct Gc<T: ?Sized>(pub(crate) Shared<T>);
 
 impl<T: ?Sized> Pointer for Gc<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -70,7 +204,17 @@ impl<T> Gc<T> {
     // in order to fully sandbox, I have to check the memory limit
     pub fn new(val: T) -> Gc<T> {
         // OBJECT_COUNT.fetch_add(1, Ordering::SeqCst);
-        Gc(Rc::new(val))
+        Gc(Shared::new(val))
+    }
+
+    pub fn new_mut(val: T) -> GcMut<T> {
+        #[cfg(not(feature = "sync"))]
+        {
+            Gc::new(RefCell::new(val))
+        }
+
+        #[cfg(feature = "sync")]
+        Gc::new(RwLock::new(val))
     }
 
     pub fn try_new(val: T) -> Result<Gc<T>, SteelErr> {
@@ -78,7 +222,7 @@ impl<T> Gc<T> {
         if mem > MAXIMUM_OBJECTS {
             stop!(Generic => "ran out of memory!")
         }
-        Ok(Gc(Rc::new(val)))
+        Ok(Gc(Shared::new(val)))
     }
 
     pub fn checked_allocate(allocations: usize) -> Result<(), SteelErr> {
@@ -89,45 +233,25 @@ impl<T> Gc<T> {
         Ok(())
     }
 
-    pub fn downgrade(this: &Self) -> Weak<T> {
-        Rc::downgrade(&this.0)
-    }
-
     pub fn get_mut(&mut self) -> Option<&mut T> {
-        Rc::get_mut(&mut self.0)
+        Shared::get_mut(&mut self.0)
     }
 
     pub fn ptr_eq(this: &Self, other: &Self) -> bool {
-        Rc::ptr_eq(&this.0, &other.0)
+        Shared::ptr_eq(&this.0, &other.0)
     }
 
     pub fn as_ptr(&self) -> *const T {
-        Rc::as_ptr(&self.0)
+        Shared::as_ptr(&self.0)
     }
 
     pub fn try_unwrap(self) -> Result<T, Gc<T>> {
-        Rc::try_unwrap(self.0).map_err(|x| Gc(x))
+        Shared::try_unwrap(self.0).map_err(|x| Gc(x))
     }
 
     pub fn strong_count(this: &Self) -> usize {
-        Rc::strong_count(&this.0)
+        Shared::strong_count(&this.0)
     }
-
-    // this does not match the original semantics of Rc::try_unwrap
-    // in order to match this, we would need some unsafe rust
-    // instead, I take a _slight_ performance hit in order to
-    // match the original functionality, and the specific use case
-    // for me, which is unwinding lists in the drop for SteelVal
-    // pub fn try_unwrap(this: Self) -> Result<T, SteelErr> {
-    //     let inner = Rc::clone(&this.0);
-    //     drop(this);
-    //     Rc::try_unwrap(inner)
-    //         .map_err(|_| SteelErr::new(ErrorKind::Generic, "value still has reference".to_string()))
-    //     // .map(|x| {
-    //     //     OBJECT_COUNT.fetch_sub(1, Ordering::SeqCst);
-    //     //     x
-    //     // })
-    // }
 
     pub fn check_memory() -> Result<usize, SteelErr> {
         let mem: usize = OBJECT_COUNT.fetch_add(0, Ordering::SeqCst);
@@ -150,16 +274,6 @@ impl<T> Deref for Gc<T> {
         self.0.deref()
     }
 }
-
-// impl<T> Drop for Gc<T> {
-//     fn drop(&mut self) {
-//         // println!("Strong count: {}", Rc::strong_count(&self.0));
-
-//         // if Rc::strong_count(&self.0) == 1 {
-//         //     OBJECT_COUNT.fetch_sub(1, Ordering::SeqCst);
-//         // }
-//     }
-// }
 
 impl<T> Clone for Gc<T> {
     #[inline(always)]
@@ -298,6 +412,8 @@ pub mod unsafe_erased_pointers {
     use crate::rvals::cycles::IterativeDropHandler;
     use crate::rvals::AsRefSteelValFromRef;
     use crate::{rerrs::ErrorKind, rvals::AsRefMutSteelValFromRef, SteelErr, SteelVal};
+
+    use super::Gc;
 
     // TODO: This needs to be exanded to n args, probably like 8 with a macro
     pub struct MutableReferenceArena<A, B> {
@@ -815,7 +931,7 @@ pub mod unsafe_erased_pointers {
                 x.weak_values
                     .borrow_mut()
                     .drain(..)
-                    .map(Rc::new)
+                    .map(Gc::new)
                     .map(SteelVal::Reference)
                     .collect()
             });

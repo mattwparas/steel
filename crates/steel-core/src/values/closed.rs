@@ -199,7 +199,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
     fn visit_bignum(&mut self, _: Gc<BigInt>) -> Self::Output {}
     fn visit_complex(&mut self, _: Gc<SteelComplex>) -> Self::Output {}
     fn visit_bool(&mut self, _boolean: bool) -> Self::Output {}
-    fn visit_boxed_function(&mut self, _function: Rc<BoxedDynFunction>) -> Self::Output {}
+    fn visit_boxed_function(&mut self, _function: Gc<BoxedDynFunction>) -> Self::Output {}
     // TODO: Revisit this when the boxed iterator is cleaned up
     fn visit_boxed_iterator(&mut self, iterator: Gc<RefCell<OpaqueIterator>>) -> Self::Output {
         self.push_back(iterator.borrow().root.clone());
@@ -348,7 +348,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
     }
 
     // TODO: Revisit this
-    fn visit_reference_value(&mut self, _reference: Rc<OpaqueReference<'static>>) -> Self::Output {}
+    fn visit_reference_value(&mut self, _reference: Gc<OpaqueReference<'static>>) -> Self::Output {}
 
     fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output {
         for field in steel_struct.fields.iter() {
@@ -1008,7 +1008,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     fn visit_bignum(&mut self, _: Gc<BigInt>) -> Self::Output {}
     fn visit_complex(&mut self, _: Gc<SteelComplex>) -> Self::Output {}
     fn visit_bool(&mut self, _boolean: bool) -> Self::Output {}
-    fn visit_boxed_function(&mut self, _function: Rc<BoxedDynFunction>) -> Self::Output {}
+    fn visit_boxed_function(&mut self, _function: Gc<BoxedDynFunction>) -> Self::Output {}
     // TODO: Revisit this when the boxed iterator is cleaned up
     fn visit_boxed_iterator(&mut self, iterator: Gc<RefCell<OpaqueIterator>>) -> Self::Output {
         self.push_back(iterator.borrow().root.clone());
@@ -1134,7 +1134,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     }
 
     // TODO: Revisit this
-    fn visit_reference_value(&mut self, _reference: Rc<OpaqueReference<'static>>) -> Self::Output {}
+    fn visit_reference_value(&mut self, _reference: Gc<OpaqueReference<'static>>) -> Self::Output {}
 
     fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output {
         for field in steel_struct.fields.iter() {
