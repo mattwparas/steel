@@ -1014,6 +1014,18 @@ impl List {
         self.args.split_first_mut().map(|x| x.1)
     }
 
+    pub fn args_proper(self, ty: TokenType<&str>) -> Result<Vec<ExprKind>, ParseError> {
+        if self.improper {
+            return Err(ParseError::SyntaxError(
+                format!("{} expression requires a proper list", ty),
+                self.location.unwrap_or_default(),
+                None,
+            ));
+        }
+
+        Ok(self.args)
+    }
+
     pub fn first_ident_mut(&mut self) -> Option<&mut InternedString> {
         if let Some(ExprKind::Atom(Atom {
             syn:

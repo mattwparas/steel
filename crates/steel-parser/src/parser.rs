@@ -481,10 +481,11 @@ impl<'a> Parser<'a> {
     fn maybe_lower_frame(&self, frame: Frame, close: Span) -> Result<ExprKind> {
         let improper = frame.improper()?;
         let result = self.maybe_lower(frame.exprs);
+        let loc = Span::merge(frame.open, close);
 
         match result {
             Ok(ExprKind::List(mut list)) => {
-                list.location = Some(Span::merge(frame.open, close));
+                list.location = Some(loc);
 
                 Ok(ExprKind::List(if improper {
                     list.make_improper()
@@ -492,6 +493,11 @@ impl<'a> Parser<'a> {
                     list
                 }))
             }
+            _ if improper => Err(ParseError::SyntaxError(
+                "Invalid improper list in special form".into(),
+                loc,
+                None,
+            )),
             _ => result,
         }
     }
@@ -517,7 +523,7 @@ impl<'a> Parser<'a> {
                         TokenType::Dot => {
                             if current_frame.dot.is_some() {
                                 return Err(ParseError::SyntaxError(
-                                    "improper lists cannot only have a single dot".into(),
+                                    "improper lists can only have a single dot".into(),
                                     token.span,
                                     None,
                                 ));
@@ -1374,36 +1380,51 @@ impl ASTLowerPass {
                             let value = std::mem::replace(value, List::new(vec![]));
 
                             *expr = match &a.syn.ty {
-                                TokenType::If => parse_if(value.args.into_iter(), a.syn),
+                                TokenType::If => {
+                                    parse_if(value.args_proper(TokenType::If)?.into_iter(), a.syn)
+                                }
                                 TokenType::Identifier(expr) if *expr == *IF => {
-                                    parse_if(value.args.into_iter(), a.syn)
+                                    parse_if(value.args_proper(TokenType::If)?.into_iter(), a.syn)
                                 }
 
-                                TokenType::Define => parse_define(value.args.into_iter(), a.syn),
-                                TokenType::Identifier(expr) if *expr == *DEFINE => {
-                                    parse_define(value.args.into_iter(), a.syn)
-                                }
+                                TokenType::Define => parse_define(
+                                    value.args_proper(TokenType::Define)?.into_iter(),
+                                    a.syn,
+                                ),
+                                TokenType::Identifier(expr) if *expr == *DEFINE => parse_define(
+                                    value.args_proper(TokenType::Define)?.into_iter(),
+                                    a.syn,
+                                ),
 
-                                TokenType::Let => parse_let(value.args.into_iter(), a.syn.clone()),
+                                TokenType::Let => parse_let(
+                                    value.args_proper(TokenType::Let)?.into_iter(),
+                                    a.syn.clone(),
+                                ),
                                 TokenType::Identifier(expr) if *expr == *LET => {
-                                    parse_let(value.args.into_iter(), a.syn)
+                                    parse_let(value.args_proper(TokenType::Let)?.into_iter(), a.syn)
                                 }
 
                                 // TODO: Deprecate
-                                TokenType::TestLet => parse_new_let(value.args.into_iter(), a.syn),
+                                TokenType::TestLet => parse_new_let(
+                                    value.args_proper(TokenType::TestLet)?.into_iter(),
+                                    a.syn,
+                                ),
                                 TokenType::Identifier(expr) if *expr == *PLAIN_LET => {
-                                    parse_new_let(value.args.into_iter(), a.syn)
+                                    parse_new_let(
+                                        value.args_proper(TokenType::TestLet)?.into_iter(),
+                                        a.syn,
+                                    )
                                 }
 
                                 TokenType::Quote => parse_single_argument(
-                                    value.args.into_iter(),
+                                    value.args_proper(TokenType::Quote)?.into_iter(),
                                     a.syn,
                                     "quote",
                                     |expr, syn| ast::Quote::new(expr, syn).into(),
                                 ),
                                 TokenType::Identifier(expr) if *expr == *QUOTE => {
                                     parse_single_argument(
-                                        value.args.into_iter(),
+                                        value.args_proper(TokenType::Quote)?.into_iter(),
                                         a.syn,
                                         "quote",
                                         |expr, syn| ast::Quote::new(expr, syn).into(),
@@ -1411,42 +1432,48 @@ impl ASTLowerPass {
                                 }
 
                                 TokenType::Return => parse_single_argument(
-                                    value.args.into_iter(),
+                                    value.args_proper(TokenType::Return)?.into_iter(),
                                     a.syn,
                                     "return!",
                                     |expr, syn| ast::Return::new(expr, syn).into(),
                                 ),
                                 TokenType::Identifier(expr) if *expr == *RETURN => {
                                     parse_single_argument(
-                                        value.args.into_iter(),
+                                        value.args_proper(TokenType::Return)?.into_iter(),
                                         a.syn,
                                         "return!",
                                         |expr, syn| ast::Return::new(expr, syn).into(),
                                     )
                                 }
 
-                                TokenType::Require => parse_require(&a, value.args),
+                                TokenType::Require => {
+                                    parse_require(&a, value.args_proper(TokenType::Require)?)
+                                }
                                 TokenType::Identifier(expr) if *expr == *REQUIRE => {
-                                    parse_require(&a, value.args)
+                                    parse_require(&a, value.args_proper(TokenType::Require)?)
                                 }
 
-                                TokenType::Set => parse_set(&a, value.args),
+                                TokenType::Set => parse_set(&a, value.args_proper(TokenType::Set)?),
                                 TokenType::Identifier(expr) if *expr == *SET => {
-                                    parse_set(&a, value.args)
+                                    parse_set(&a, value.args_proper(TokenType::Set)?)
                                 }
 
-                                TokenType::Begin => parse_begin(a, value.args),
+                                TokenType::Begin => {
+                                    parse_begin(a, value.args_proper(TokenType::Begin)?)
+                                }
                                 TokenType::Identifier(expr) if *expr == *BEGIN => {
-                                    parse_begin(a, value.args)
+                                    parse_begin(a, value.args_proper(TokenType::Begin)?)
                                 }
 
-                                TokenType::Lambda => parse_lambda(a, value.args),
+                                TokenType::Lambda => {
+                                    parse_lambda(a, value.args_proper(TokenType::Lambda)?)
+                                }
                                 TokenType::Identifier(expr)
                                     if *expr == *LAMBDA
                                         || *expr == *LAMBDA_FN
                                         || *expr == *LAMBDA_SYMBOL =>
                                 {
-                                    parse_lambda(a, value.args)
+                                    parse_lambda(a, value.args_proper(TokenType::Lambda)?)
                                 }
 
                                 _ => Ok(ExprKind::List(value)),
