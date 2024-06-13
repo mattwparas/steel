@@ -754,11 +754,11 @@ impl<'a> Parser<'a> {
                                                     | ParsingContext::QuasiquoteTick(_)
                                                     | ParsingContext::Quote(_)
                                                     | ParsingContext::QuoteTick(_),
-                                                ) => prev_frame.exprs.push(ExprKind::List(
+                                                ) => prev_frame.push(ExprKind::List(
                                                     current_frame.to_list(close)?,
-                                                )),
+                                                ))?,
                                                 _ => {
-                                                    prev_frame.exprs.push(
+                                                    prev_frame.push(
                                                         self.maybe_lower_frame(
                                                             current_frame,
                                                             close,
@@ -766,15 +766,15 @@ impl<'a> Parser<'a> {
                                                         .map_err(|x| {
                                                             x.set_source(self.source_name.clone())
                                                         })?,
-                                                    );
+                                                    )?;
                                                 }
                                             },
                                             _ => {
                                                 // println!("Converting to list");
                                                 // println!("Context here: {:?}", self.context);
-                                                prev_frame.exprs.push(ExprKind::List(
+                                                prev_frame.push(ExprKind::List(
                                                     current_frame.to_list(close)?,
-                                                ))
+                                                ))?
                                             }
                                         }
                                     }
@@ -790,12 +790,12 @@ impl<'a> Parser<'a> {
                                                     },
                                             })) => {
                                                 // println!("Converting to quote inside quote tick");
-                                                prev_frame.exprs.push(
+                                                prev_frame.push(
                                                     self.maybe_lower_frame(current_frame, close)
                                                         .map_err(|x| {
                                                             x.set_source(self.source_name.clone())
                                                         })?,
-                                                );
+                                                )?;
                                             }
                                             _ => {
                                                 // if let Some(ParsingContext::QuasiquoteTick(_)) =
@@ -805,9 +805,9 @@ impl<'a> Parser<'a> {
                                                 // }
 
                                                 // println!("Converting to list inside quote tick");
-                                                prev_frame.exprs.push(ExprKind::List(
+                                                prev_frame.push(ExprKind::List(
                                                     current_frame.to_list(close)?,
-                                                ))
+                                                ))?
                                             }
                                         }
                                     }
@@ -831,11 +831,11 @@ impl<'a> Parser<'a> {
                                         //     self.context.pop();
                                         // }
 
-                                        prev_frame.exprs.push(
+                                        prev_frame.push(
                                             self.maybe_lower_frame(current_frame, close).map_err(
                                                 |x| x.set_source(self.source_name.clone()),
                                             )?,
-                                        );
+                                        )?;
                                     }
 
                                     Some(ParsingContext::Unquote(last_quote_index))
@@ -856,18 +856,18 @@ impl<'a> Parser<'a> {
                                             self.context.pop();
                                         }
 
-                                        prev_frame.exprs.push(
+                                        prev_frame.push(
                                             self.maybe_lower_frame(current_frame, close).map_err(
                                                 |x| x.set_source(self.source_name.clone()),
                                             )?,
-                                        );
+                                        )?;
                                     }
 
                                     // Else case, just go ahead and assume it is a normal frame
-                                    _ => prev_frame.exprs.push(
+                                    _ => prev_frame.push(
                                         self.maybe_lower_frame(current_frame, close)
                                             .map_err(|x| x.set_source(self.source_name.clone()))?,
-                                    ),
+                                    )?,
                                 }
 
                                 // Reinitialize current frame here
@@ -2683,6 +2683,10 @@ mod parser_tests {
         ));
         assert!(matches!(
             parse_err("(a . b c)"),
+            ParseError::SyntaxError(..)
+        ));
+        assert!(matches!(
+            parse_err("(a . b (c))"),
             ParseError::SyntaxError(..)
         ));
     }
