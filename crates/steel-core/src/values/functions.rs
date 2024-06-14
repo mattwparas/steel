@@ -13,7 +13,7 @@ use fxhash::FxHashSet;
 
 use crate::{
     core::{instructions::DenseInstruction, opcode::OpCode},
-    gc::Gc,
+    gc::{Gc, Shared},
     parser::{parser::SyntaxObjectId, span::Span},
     rvals::{
         from_serializable_value, into_serializable_value, AsRefSteelVal, BoxedFunctionSignature,
@@ -98,10 +98,10 @@ pub struct ByteCodeLambda {
     pub(crate) id: usize,
     /// body of the function with identifiers yet to be bound
     #[cfg(feature = "dynamic")]
-    pub(crate) body_exp: RefCell<Rc<[DenseInstruction]>>,
+    pub(crate) body_exp: RefCell<Shared<[DenseInstruction]>>,
 
     #[cfg(not(feature = "dynamic"))]
-    pub(crate) body_exp: Rc<[DenseInstruction]>,
+    pub(crate) body_exp: Shared<[DenseInstruction]>,
 
     // #[cfg(not(feature = "dynamic"))]
     // pub(crate) body_exp: Rc<[DenseInstruction]>,
@@ -171,7 +171,7 @@ pub struct SerializedLambdaPrototype {
 impl ByteCodeLambda {
     pub fn new(
         id: usize,
-        body_exp: Rc<[DenseInstruction]>,
+        body_exp: Shared<[DenseInstruction]>,
         arity: usize,
         is_multi_arity: bool,
         captures: Vec<SteelVal>,
@@ -245,7 +245,7 @@ impl ByteCodeLambda {
     //     self.heap_allocated = RefCell::new(heap_allocated);
     // }
 
-    pub fn body_exp(&self) -> Rc<[DenseInstruction]> {
+    pub fn body_exp(&self) -> Shared<[DenseInstruction]> {
         #[cfg(feature = "dynamic")]
         return Rc::clone(&self.body_exp.borrow());
 
@@ -253,7 +253,7 @@ impl ByteCodeLambda {
         Rc::clone(&self.body_exp)
     }
 
-    pub fn body_mut_exp(&mut self) -> Rc<[DenseInstruction]> {
+    pub fn body_mut_exp(&mut self) -> Shared<[DenseInstruction]> {
         #[cfg(feature = "dynamic")]
         return Rc::clone(self.body_exp.get_mut());
 
@@ -274,7 +274,7 @@ impl ByteCodeLambda {
         &self,
         start: usize,
         super_instruction_id: usize,
-    ) -> (DenseInstruction, Rc<[DenseInstruction]>) {
+    ) -> (DenseInstruction, Shared<[DenseInstruction]>) {
         let mut guard = self.body_exp.borrow_mut();
         let mut old: Box<[_]> = guard.iter().copied().collect();
 

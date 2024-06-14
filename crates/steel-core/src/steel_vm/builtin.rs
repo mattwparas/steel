@@ -1,5 +1,6 @@
 use std::{borrow::Cow, cell::RefCell, rc::Rc, sync::Arc};
 
+use crate::values::HashMap;
 use crate::{
     containers::RegisterValue,
     gc::Gc,
@@ -11,7 +12,6 @@ use crate::{
     values::functions::BoxedDynFunction,
 };
 use fxhash::FxBuildHasher;
-use im_rc::HashMap;
 use once_cell::sync::Lazy;
 
 use super::vm::BuiltInSignature;
@@ -642,13 +642,13 @@ impl BuiltInModule {
 /// Documentation representation
 #[derive(Clone, Debug)]
 pub struct InternalDocumentation {
-    definitions: im_rc::HashMap<Cow<'static, str>, Documentation<'static>>,
+    definitions: HashMap<Cow<'static, str>, Documentation<'static>>,
 }
 
 impl InternalDocumentation {
     pub fn new() -> Self {
         Self {
-            definitions: im_rc::HashMap::new(),
+            definitions: HashMap::new(),
         }
     }
 
@@ -664,7 +664,7 @@ impl InternalDocumentation {
         self.definitions.get(definition)
     }
 
-    pub fn definitions(&self) -> &im_rc::HashMap<Cow<'static, str>, Documentation<'static>> {
+    pub fn definitions(&self) -> &HashMap<Cow<'static, str>, Documentation<'static>> {
         &self.definitions
     }
 }

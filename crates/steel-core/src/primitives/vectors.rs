@@ -6,7 +6,7 @@ use crate::steel_vm::vm::VmCore;
 use crate::stop;
 use crate::values::closed::HeapRef;
 use crate::values::lists::Pair;
-use im_rc::Vector;
+use crate::values::Vector;
 
 #[steel_derive::define_module(name = "steel/immutable-vectors")]
 pub fn immutable_vectors_module() -> BuiltInModule {
@@ -720,7 +720,12 @@ fn unwrap_single_list(exp: &SteelVal) -> Result<Vector<SteelVal>> {
 mod vector_prim_tests {
     use super::*;
     use crate::throw;
+
+    #[cfg(not(feature = "sync"))]
     use im_rc::vector;
+
+    #[cfg(feature = "sync")]
+    use im::vector;
 
     fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<SteelVal> {
         func.func_or_else(throw!(BadSyntax => "string tests"))

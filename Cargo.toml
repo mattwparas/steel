@@ -38,9 +38,12 @@ serde = { version = "1.0.152", features = ["derive"] }
 [workspace]
 members = [
     ".",
-    "crates/*",
+    "crates/*", 
     "libs/*",
 ]
+
+[features]
+sync = ["steel-core/sync"]
 
 [profile.release]
 debug = false

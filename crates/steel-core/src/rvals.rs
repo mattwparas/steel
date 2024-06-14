@@ -18,7 +18,7 @@ use crate::{
         port::{SendablePort, SteelPort},
         structs::{SerializableUserDefinedStruct, UserDefinedStruct},
         transducers::{Reducer, Transducer},
-        SteelPortRepr,
+        HashMapConsumingIter, HashSetConsumingIter, SteelPortRepr, VectorConsumingIter,
     },
 };
 use std::vec::IntoIter;
@@ -61,7 +61,7 @@ macro_rules! list {
 
 use SteelVal::*;
 
-use im_rc::{HashMap, Vector};
+use crate::values::{HashMap, HashSet, Vector};
 
 use futures_task::noop_waker_ref;
 use futures_util::future::Shared;
@@ -1090,18 +1090,18 @@ pub fn into_serializable_value(
 pub struct SteelMutableVector(pub(crate) Gc<RefCell<Vec<SteelVal>>>);
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct SteelVector(pub(crate) Gc<im_rc::Vector<SteelVal>>);
+pub struct SteelVector(pub(crate) Gc<Vector<SteelVal>>);
 
 impl Deref for SteelVector {
-    type Target = im_rc::Vector<SteelVal>;
+    type Target = Vector<SteelVal>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl From<Gc<im_rc::Vector<SteelVal>>> for SteelVector {
-    fn from(value: Gc<im_rc::Vector<SteelVal>>) -> Self {
+impl From<Gc<Vector<SteelVal>>> for SteelVector {
+    fn from(value: Gc<Vector<SteelVal>>) -> Self {
         SteelVector(value)
     }
 }
@@ -1124,18 +1124,18 @@ impl From<Gc<HashMap<SteelVal, SteelVal>>> for SteelHashMap {
 }
 
 #[derive(Clone, PartialEq)]
-pub struct SteelHashSet(pub(crate) Gc<im_rc::HashSet<SteelVal>>);
+pub struct SteelHashSet(pub(crate) Gc<HashSet<SteelVal>>);
 
 impl Deref for SteelHashSet {
-    type Target = im_rc::HashSet<SteelVal>;
+    type Target = HashSet<SteelVal>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl From<Gc<im_rc::HashSet<SteelVal>>> for SteelHashSet {
-    fn from(value: Gc<im_rc::HashSet<SteelVal>>) -> Self {
+impl From<Gc<HashSet<SteelVal>>> for SteelHashSet {
+    fn from(value: Gc<HashSet<SteelVal>>) -> Self {
         SteelHashSet(value)
     }
 }
@@ -1577,9 +1577,9 @@ impl Custom for OpaqueIterator {
 // a special enum variant.
 pub enum BuiltInDataStructureIterator {
     List(crate::values::lists::ConsumingIterator<SteelVal>),
-    Vector(im_rc::vector::ConsumingIter<SteelVal>),
-    Set(im_rc::hashset::ConsumingIter<SteelVal>),
-    Map(im_rc::hashmap::ConsumingIter<(SteelVal, SteelVal)>),
+    Vector(VectorConsumingIter<SteelVal>),
+    Set(HashSetConsumingIter<SteelVal>),
+    Map(HashMapConsumingIter<SteelVal, SteelVal>),
     String(Chunks),
     Opaque(Box<dyn Iterator<Item = SteelVal>>),
 }
@@ -2146,6 +2146,11 @@ impl fmt::Debug for SteelVal {
 mod or_else_tests {
 
     use super::*;
+
+    #[cfg(feature = "sync")]
+    use im::vector;
+
+    #[cfg(not(feature = "sync"))]
     use im_rc::vector;
 
     #[test]

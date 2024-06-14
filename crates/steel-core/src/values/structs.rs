@@ -1,7 +1,7 @@
 #![allow(unused)]
 #![allow(clippy::type_complexity)]
 
-use im_rc::HashMap;
+use crate::values::HashMap;
 use once_cell::sync::Lazy;
 
 use crate::compiler::map::SymbolMap;
@@ -47,7 +47,7 @@ enum StringOrMagicNumber {
 // #[derive(Debug)]
 pub struct VTableEntry {
     pub(crate) name: InternedString,
-    pub(crate) properties: Gc<im_rc::HashMap<SteelVal, SteelVal>>,
+    pub(crate) properties: Gc<HashMap<SteelVal, SteelVal>>,
     pub(crate) proc: Option<usize>,
     pub(crate) transparent: bool,
     pub(crate) mutable: bool,
@@ -77,7 +77,7 @@ impl VTableEntry {
 #[derive(Debug, Clone, Hash)]
 pub enum Properties {
     BuiltIn,
-    Local(Gc<im_rc::HashMap<SteelVal, SteelVal>>),
+    Local(Gc<HashMap<SteelVal, SteelVal>>),
 }
 
 impl Properties {
@@ -540,7 +540,7 @@ struct SteelTraitImplementation {}
 // name as a key, and use that to grab the properties. Under any circumstance that I am aware of,
 // the entry in the vtable should be alive for as long as the struct is legally allowed to be accessed.
 pub struct VTable {
-    map: fxhash::FxHashMap<InternedString, Gc<im_rc::HashMap<SteelVal, SteelVal>>>,
+    map: fxhash::FxHashMap<InternedString, Gc<HashMap<SteelVal, SteelVal>>>,
 
     traits: fxhash::FxHashMap<InternedString, fxhash::FxHashMap<InternedString, Vec<SteelVal>>>,
 
@@ -548,11 +548,11 @@ pub struct VTable {
 }
 
 impl VTable {
-    fn insert(name: InternedString, options: Gc<im_rc::HashMap<SteelVal, SteelVal>>) {
+    fn insert(name: InternedString, options: Gc<HashMap<SteelVal, SteelVal>>) {
         VTABLE.with(|x| x.borrow_mut().map.insert(name, options));
     }
 
-    fn get(name: &InternedString) -> Option<Gc<im_rc::HashMap<SteelVal, SteelVal>>> {
+    fn get(name: &InternedString) -> Option<Gc<HashMap<SteelVal, SteelVal>>> {
         VTABLE.with(|x| x.borrow().map.get(name).cloned())
     }
 
@@ -626,7 +626,7 @@ impl VTable {
     pub fn set_entry(
         descriptor: &StructTypeDescriptor,
         proc: Option<usize>,
-        properties: Gc<im_rc::HashMap<SteelVal, SteelVal>>,
+        properties: Gc<HashMap<SteelVal, SteelVal>>,
     ) {
         VTABLE.with(|x| {
             let mut guard = x.borrow_mut();
@@ -677,6 +677,12 @@ thread_local! {
 
         let mut map = fxhash::FxHashMap::default();
 
+        #[cfg(feature = "sync")]
+        let result_options = Gc::new(im::hashmap! {
+            SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
+        });
+
+        #[cfg(not(feature = "sync"))]
         let result_options = Gc::new(im_rc::hashmap! {
             SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
         });
@@ -694,11 +700,17 @@ thread_local! {
         }))
     };
 
-    pub static DEFAULT_PROPERTIES: Gc<im_rc::HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::HashMap::new());
-    pub static STANDARD_OPTIONS: Gc<im_rc::HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
+    pub static DEFAULT_PROPERTIES: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(HashMap::new());
+
+    #[cfg(feature = "sync")]
+    pub static STANDARD_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(im::hashmap! {
             SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
 
+    #[cfg(not(feature = "sync"))]
+    pub static STANDARD_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
+            SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
+    });
 
     pub static OK_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*OK_RESULT_LABEL, None);
     pub static ERR_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*ERR_RESULT_LABEL, None);
@@ -720,9 +732,17 @@ thread_local! {
         )))
     };
 
-    pub static OPTION_OPTIONS: Gc<im_rc::HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
+    #[cfg(not(feature = "sync"))]
+    pub static OPTION_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
         SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
+
+    #[cfg(feature = "sync")]
+    pub static OPTION_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(im::hashmap! {
+        SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
+    });
+
+
     pub static SOME_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
         Rc::new(Box::new(UserDefinedStruct::constructor_thunk(
             1,

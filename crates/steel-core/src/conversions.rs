@@ -11,6 +11,9 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
+use crate::values::HashMap as ImmutableHashMap;
+use crate::values::HashSet as ImmutableHashSet;
+
 #[cfg(feature = "anyhow")]
 mod anyhow_conversion {
     use crate::{rvals::IntoSteelVal, SteelVal};
@@ -34,7 +37,7 @@ impl IntoSteelVal for SteelVal {
 //     }
 // }
 
-impl FromSteelVal for Gc<im_rc::HashMap<SteelVal, SteelVal>> {
+impl FromSteelVal for Gc<ImmutableHashMap<SteelVal, SteelVal>> {
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::HashMapV(hm) = val {
             Ok(hm.0.clone())
@@ -225,7 +228,7 @@ impl FromSteelVal for Box<str> {
 // HashMap
 impl<K: IntoSteelVal, V: IntoSteelVal> IntoSteelVal for HashMap<K, V> {
     fn into_steelval(mut self) -> Result<SteelVal> {
-        let mut hm = im_rc::HashMap::new();
+        let mut hm = ImmutableHashMap::new();
         for (key, val) in self.drain() {
             hm.insert(key.into_steelval()?, val.into_steelval()?);
         }
@@ -291,7 +294,7 @@ impl<A: FromSteelVal, B: FromSteelVal> FromSteelVal for (A, B) {
 // HashSet
 impl<K: IntoSteelVal> IntoSteelVal for HashSet<K> {
     fn into_steelval(mut self) -> Result<SteelVal> {
-        let mut hs = im_rc::HashSet::new();
+        let mut hs = ImmutableHashSet::new();
         for value in self.drain() {
             hs.insert(value.into_steelval()?);
         }
@@ -334,7 +337,23 @@ mod conversion_tests {
 
     use super::*;
 
+    #[cfg(not(feature = "sync"))]
     use im_rc::vector;
+
+    #[cfg(not(feature = "sync"))]
+    use im_rc::hashmap;
+
+    #[cfg(not(feature = "sync"))]
+    use im_rc::hashset;
+
+    #[cfg(feature = "sync")]
+    use im::vector;
+
+    #[cfg(feature = "sync")]
+    use im::hashmap;
+
+    #[cfg(feature = "sync")]
+    use im::hashset;
 
     #[test]
     fn vec_into_list() {
@@ -381,7 +400,7 @@ mod conversion_tests {
         input.insert("foo2".to_string(), "bar2".to_string());
 
         let expected = SteelVal::HashMapV(
-            Gc::new(im_rc::hashmap! {
+            Gc::new(hashmap! {
                 SteelVal::StringV("foo".into()) => SteelVal::StringV("bar".into()),
                 SteelVal::StringV("foo2".into()) => SteelVal::StringV("bar2".into())
             })
@@ -394,7 +413,7 @@ mod conversion_tests {
     #[test]
     fn hashmap_from_steelval_hashmap() {
         let input = SteelVal::HashMapV(
-            Gc::new(im_rc::hashmap! {
+            Gc::new(hashmap! {
                 SteelVal::StringV("foo".into()) => SteelVal::StringV("bar".into()),
                 SteelVal::StringV("foo2".into()) => SteelVal::StringV("bar2".into())
             })
@@ -418,7 +437,7 @@ mod conversion_tests {
         input.insert("bar".to_string());
 
         let expected = SteelVal::HashSetV(
-            Gc::new(im_rc::hashset! {
+            Gc::new(hashset! {
                 SteelVal::StringV("foo".into()),
                 SteelVal::StringV("bar".into())
             })
@@ -431,7 +450,7 @@ mod conversion_tests {
     #[test]
     fn hashset_from_steelval_hashset() {
         let input = SteelVal::HashSetV(
-            Gc::new(im_rc::hashset! {
+            Gc::new(hashset! {
                 SteelVal::StringV("foo".into()),
                 SteelVal::StringV("bar".into())
             })

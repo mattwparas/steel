@@ -26,6 +26,7 @@ use abi_stable::{
 };
 use futures_util::FutureExt;
 
+use crate::values::HashMap;
 pub use async_ffi::{FfiFuture, FutureExt as FfiFutureExt};
 
 #[macro_export]
@@ -1117,7 +1118,7 @@ impl FFIValue {
 
                     Ok((k, v))
                 })
-                .collect::<Result<im_rc::HashMap<_, _>>>()
+                .collect::<Result<HashMap<_, _>>>()
                 .map(Gc::new)
                 .map(SteelHashMap::from)
                 .map(SteelVal::HashMapV),
@@ -1170,7 +1171,7 @@ impl IntoSteelVal for FFIValue {
 
                     Ok((k, v))
                 })
-                .collect::<Result<im_rc::HashMap<_, _>>>()
+                .collect::<Result<HashMap<_, _>>>()
                 .map(Gc::new)
                 .map(SteelHashMap::from)
                 .map(SteelVal::HashMapV),

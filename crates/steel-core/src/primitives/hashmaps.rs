@@ -1,11 +1,11 @@
 use crate::rvals::SteelHashMap;
 use crate::stop;
+use crate::values::HashMap;
 use crate::{core::utils::declare_const_ref_functions, gc::Gc};
 use crate::{
     rvals::{Result, SteelVal},
     steel_vm::builtin::BuiltInModule,
 };
-use im_rc::HashMap;
 
 use crate::primitives::VectorOperations;
 
@@ -395,7 +395,18 @@ pub fn hm_union(mut hml: &mut SteelVal, mut hmr: &mut SteelVal) -> Result<SteelV
 #[cfg(test)]
 mod hashmap_tests {
     use super::*;
+
+    #[cfg(not(feature = "sync"))]
     use im_rc::hashmap;
+
+    #[cfg(not(feature = "sync"))]
+    use im_rc::vector;
+
+    #[cfg(feature = "sync")]
+    use im::hashmap;
+
+    #[cfg(feature = "sync")]
+    use im::vector;
 
     use crate::rvals::{SteelString, SteelVal::*};
 
@@ -564,7 +575,7 @@ mod hashmap_tests {
             .into(),
         )];
         let res = steel_keys_to_vector(&args);
-        let expected = im_rc::vector![
+        let expected = vector![
             SteelVal::StringV("foo".into()),
             SteelVal::StringV("bar".into()),
             SteelVal::StringV("baz".into()),
@@ -620,7 +631,7 @@ mod hashmap_tests {
             .into(),
         )];
         let res = steel_values_to_vector(&args);
-        let expected = im_rc::vector![
+        let expected = vector![
             SteelVal::StringV("bar".into()),
             SteelVal::StringV("baz".into()),
             SteelVal::StringV("quux".into()),

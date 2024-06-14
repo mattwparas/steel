@@ -517,11 +517,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
 
     // If we have cycles here, it is game over - we probably don't want to be
     // able to render to these easily?
-    fn visit_custom_type(
-        &mut self,
-        _custom_type: Gc<RefCell<Box<dyn CustomType>>>,
-    ) -> Self::Output {
-    }
+    fn visit_custom_type(&mut self, _custom_type: GcMut<Box<dyn CustomType>>) -> Self::Output {}
 
     fn visit_hash_map(&mut self, hashmap: SteelHashMap) -> Self::Output {
         if !self.add(
@@ -592,7 +588,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
 
     fn visit_builtin_function(&mut self, _function: BuiltInSignature) -> Self::Output {}
 
-    fn visit_boxed_iterator(&mut self, _iterator: Gc<RefCell<OpaqueIterator>>) -> Self::Output {}
+    fn visit_boxed_iterator(&mut self, _iterator: GcMut<OpaqueIterator>) -> Self::Output {}
 
     fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) -> Self::Output {
         if !self.add(
@@ -607,7 +603,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
         }
     }
 
-    fn visit_boxed_value(&mut self, boxed_value: Gc<RefCell<SteelVal>>) -> Self::Output {
+    fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) -> Self::Output {
         if !self.add(
             boxed_value.as_ptr() as usize,
             &SteelVal::Boxed(boxed_value.clone()),
@@ -846,7 +842,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
         }
     }
 
-    fn visit_custom_type(&mut self, custom_type: Gc<RefCell<Box<dyn CustomType>>>) {
+    fn visit_custom_type(&mut self, custom_type: GcMut<Box<dyn CustomType>>) {
         if let Ok(inner) = custom_type.try_unwrap() {
             let mut inner = inner.into_inner();
 
@@ -925,7 +921,9 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
     // Walk the whole thing! This includes the stack and all the stack frames
     fn visit_continuation(&mut self, continuation: Continuation) {
-        if let Ok(inner) = Rc::try_unwrap(continuation.inner).map(RefCell::into_inner) {
+        if let Ok(inner) =
+            crate::gc::Shared::try_unwrap(continuation.inner).map(RefCell::into_inner)
+        {
             match inner {
                 ContinuationMark::Closed(mut inner) => {
                     for value in std::mem::take(&mut inner.stack) {
@@ -991,7 +989,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
     fn visit_mutable_vector(&mut self, _vector: HeapRef<Vec<SteelVal>>) {}
 
     // TODO: Once the root is added back to this, bring it back
-    fn visit_boxed_iterator(&mut self, iterator: Gc<RefCell<OpaqueIterator>>) {
+    fn visit_boxed_iterator(&mut self, iterator: GcMut<OpaqueIterator>) {
         if let Ok(inner) = iterator.try_unwrap() {
             self.push_back(inner.into_inner().root)
         }
@@ -1007,7 +1005,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
         }
     }
 
-    fn visit_boxed_value(&mut self, boxed_value: Gc<RefCell<SteelVal>>) {
+    fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) {
         if let Ok(inner) = boxed_value.try_unwrap() {
             self.push_back(inner.into_inner());
         }
@@ -1150,7 +1148,7 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_string(&mut self, string: SteelString) -> Self::Output;
     fn visit_function_pointer(&mut self, ptr: FunctionSignature) -> Self::Output;
     fn visit_symbol(&mut self, symbol: SteelString) -> Self::Output;
-    fn visit_custom_type(&mut self, custom_type: Gc<RefCell<Box<dyn CustomType>>>) -> Self::Output;
+    fn visit_custom_type(&mut self, custom_type: GcMut<Box<dyn CustomType>>) -> Self::Output;
     fn visit_hash_map(&mut self, hashmap: SteelHashMap) -> Self::Output;
     fn visit_hash_set(&mut self, hashset: SteelHashSet) -> Self::Output;
     fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output;
@@ -1166,9 +1164,9 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_mutable_function(&mut self, function: MutFunctionSignature) -> Self::Output;
     fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output;
     fn visit_builtin_function(&mut self, function: BuiltInSignature) -> Self::Output;
-    fn visit_boxed_iterator(&mut self, iterator: Gc<RefCell<OpaqueIterator>>) -> Self::Output;
+    fn visit_boxed_iterator(&mut self, iterator: GcMut<OpaqueIterator>) -> Self::Output;
     fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) -> Self::Output;
-    fn visit_boxed_value(&mut self, boxed_value: Gc<RefCell<SteelVal>>) -> Self::Output;
+    fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) -> Self::Output;
     fn visit_reference_value(&mut self, reference: Gc<OpaqueReference<'static>>) -> Self::Output;
     fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output;
     fn visit_pair(&mut self, pair: Gc<Pair>) -> Self::Output;
@@ -1246,10 +1244,7 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
     fn visit_string(&mut self, string: &'a SteelString) -> Self::Output;
     fn visit_function_pointer(&mut self, ptr: FunctionSignature) -> Self::Output;
     fn visit_symbol(&mut self, symbol: &'a SteelString) -> Self::Output;
-    fn visit_custom_type(
-        &mut self,
-        custom_type: &'a Gc<RefCell<Box<dyn CustomType>>>,
-    ) -> Self::Output;
+    fn visit_custom_type(&mut self, custom_type: &'a GcMut<Box<dyn CustomType>>) -> Self::Output;
     fn visit_hash_map(&mut self, hashmap: &'a SteelHashMap) -> Self::Output;
     fn visit_hash_set(&mut self, hashset: &'a SteelHashSet) -> Self::Output;
     fn visit_steel_struct(&mut self, steel_struct: &'a Gc<UserDefinedStruct>) -> Self::Output;
@@ -1265,9 +1260,9 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
     fn visit_mutable_function(&mut self, function: &'a MutFunctionSignature) -> Self::Output;
     fn visit_mutable_vector(&mut self, vector: &'a HeapRef<Vec<SteelVal>>) -> Self::Output;
     fn visit_builtin_function(&mut self, function: &'a BuiltInSignature) -> Self::Output;
-    fn visit_boxed_iterator(&mut self, iterator: &'a Gc<RefCell<OpaqueIterator>>) -> Self::Output;
+    fn visit_boxed_iterator(&mut self, iterator: &'a GcMut<OpaqueIterator>) -> Self::Output;
     fn visit_syntax_object(&mut self, syntax_object: &'a Gc<Syntax>) -> Self::Output;
-    fn visit_boxed_value(&mut self, boxed_value: &'a Gc<RefCell<SteelVal>>) -> Self::Output;
+    fn visit_boxed_value(&mut self, boxed_value: &'a GcMut<SteelVal>) -> Self::Output;
     fn visit_reference_value(
         &mut self,
         reference: &'a Gc<OpaqueReference<'static>>,
@@ -1793,7 +1788,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
     }
 
     // SHOULD SET MUTABLE HERE
-    fn visit_custom_type(&mut self, custom_type: Gc<RefCell<Box<dyn CustomType>>>) -> Self::Output {
+    fn visit_custom_type(&mut self, custom_type: GcMut<Box<dyn CustomType>>) -> Self::Output {
         custom_type.borrow().visit_children_for_equality(self);
     }
 
@@ -1864,7 +1859,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
         }
     }
 
-    fn visit_boxed_iterator(&mut self, _iterator: Gc<RefCell<OpaqueIterator>>) -> Self::Output {}
+    fn visit_boxed_iterator(&mut self, _iterator: GcMut<OpaqueIterator>) -> Self::Output {}
 
     fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) -> Self::Output {
         if let Some(raw) = syntax_object.raw.clone() {
@@ -1874,7 +1869,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
         self.push_back(syntax_object.syntax.clone());
     }
 
-    fn visit_boxed_value(&mut self, boxed_value: Gc<RefCell<SteelVal>>) -> Self::Output {
+    fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) -> Self::Output {
         self.push_back(boxed_value.borrow().clone());
     }
 

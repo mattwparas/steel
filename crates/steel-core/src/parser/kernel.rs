@@ -328,7 +328,7 @@ impl Kernel {
     // TODO: Have this report errors
     pub fn load_program_for_comptime(
         &mut self,
-        constants: im_rc::HashMap<InternedString, SteelVal, FxBuildHasher>,
+        constants: crate::values::HashMap<InternedString, SteelVal, FxBuildHasher>,
         exprs: &mut Vec<ExprKind>,
     ) -> Result<()> {
         let mut analysis = SemanticAnalysis::new(exprs);

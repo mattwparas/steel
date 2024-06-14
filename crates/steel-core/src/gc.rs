@@ -1,7 +1,6 @@
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal;
 use crate::stop;
-use shared::Shared;
 use std::cell::RefCell;
 use std::fmt::Pointer;
 use std::rc::Rc;
@@ -12,7 +11,7 @@ use std::{ops::Deref, rc::Weak};
 pub static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static MAXIMUM_OBJECTS: usize = 50000;
 
-pub use shared::GcMut;
+pub use shared::{GcMut, Shared, SharedMut};
 
 pub mod shared {
     use std::cell::{Ref, RefCell, RefMut};
@@ -32,13 +31,13 @@ pub mod shared {
     pub type GcMut<T> = Gc<RefCell<T>>;
 
     #[cfg(feature = "sync")]
-    type Shared<T> = Arc<T>;
+    pub type Shared<T> = Arc<T>;
 
     #[cfg(feature = "sync")]
-    type SharedMut<T> = Arc<RwLock<T>>;
+    pub type SharedMut<T> = Arc<RwLock<T>>;
 
     #[cfg(feature = "sync")]
-    type GcMut<T> = Gc<RwLock<T>>;
+    pub type GcMut<T> = Gc<RwLock<T>>;
 
     pub trait ShareableMut<T>: Clone {
         type ShareableRead<'a>: Deref<Target = T>
@@ -275,7 +274,7 @@ impl<T> Deref for Gc<T> {
     }
 }
 
-impl<T> Clone for Gc<T> {
+impl<T: ?Sized> Clone for Gc<T> {
     #[inline(always)]
     fn clone(&self) -> Self {
         Gc(Rc::clone(&self.0))

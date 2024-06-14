@@ -55,18 +55,10 @@ mod list_drop_handler {
 
     use crate::rvals::cycles::{drop_impls::DROP_BUFFER, IterativeDropHandler};
 
-    impl DropHandler<im_lists::list::GenericList<SteelVal, im_lists::shared::RcPointer, 4, 2, Self>>
+    impl DropHandler<im_lists::list::GenericList<SteelVal, PointerType, 4, 2, Self>>
         for ListDropHandler
     {
-        fn drop_handler(
-            obj: &mut im_lists::list::GenericList<
-                SteelVal,
-                im_lists::shared::RcPointer,
-                4,
-                2,
-                Self,
-            >,
-        ) {
+        fn drop_handler(obj: &mut im_lists::list::GenericList<SteelVal, PointerType, 4, 2, Self>) {
             if obj.strong_count() == 1 {
                 if obj.is_empty() {
                     return;
@@ -157,24 +149,25 @@ mod list_drop_handler {
                     IterativeDropHandler::bfs(&mut drop_buffer);
                 }
             }
-
-            // DEPTH.with(|x| x.set(x.get() - 1));
         }
     }
 }
 
-pub type SteelList<T> =
-    im_lists::list::GenericList<T, im_lists::shared::RcPointer, 4, 2, DefaultDropHandler>;
+#[cfg(not(feature = "sync"))]
+type PointerType = im_lists::shared::RcPointer;
 
-// TODO: Change this to just be something like `SteelList`
-pub type List<T> =
-    im_lists::list::GenericList<T, im_lists::shared::RcPointer, 4, 2, DropHandlerChoice>;
+#[cfg(feature = "sync")]
+type PointerType = im_lists::shared::ArcPointer;
+
+pub type SteelList<T> = im_lists::list::GenericList<T, PointerType, 4, 2, DefaultDropHandler>;
+
+pub type List<T> = im_lists::list::GenericList<T, PointerType, 4, 2, DropHandlerChoice>;
 
 pub type ConsumingIterator<T> =
-    im_lists::list::ConsumingIter<T, im_lists::shared::RcPointer, 4, 2, DropHandlerChoice>;
+    im_lists::list::ConsumingIter<T, PointerType, 4, 2, DropHandlerChoice>;
 
 impl<T: FromSteelVal + Clone, D: im_lists::handler::DropHandler<Self>> FromSteelVal
-    for im_lists::list::GenericList<T, im_lists::shared::RcPointer, 4, 2, D>
+    for im_lists::list::GenericList<T, PointerType, 4, 2, D>
 {
     fn from_steelval(val: &SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::ListV(l) = val {
@@ -186,7 +179,7 @@ impl<T: FromSteelVal + Clone, D: im_lists::handler::DropHandler<Self>> FromSteel
 }
 
 impl<T: IntoSteelVal + Clone, D: im_lists::handler::DropHandler<Self>> IntoSteelVal
-    for im_lists::list::GenericList<T, im_lists::shared::RcPointer, 4, 2, D>
+    for im_lists::list::GenericList<T, PointerType, 4, 2, D>
 {
     fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
         self.into_iter()

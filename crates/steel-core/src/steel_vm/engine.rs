@@ -57,8 +57,8 @@ use std::{
     sync::Arc,
 };
 
+use crate::values::HashMap as ImmutableHashMap;
 use fxhash::{FxBuildHasher, FxHashMap};
-use im_rc::HashMap as ImmutableHashMap;
 use lasso::ThreadedRodeo;
 use serde::{Deserialize, Serialize};
 use steel_gen::OpCode;

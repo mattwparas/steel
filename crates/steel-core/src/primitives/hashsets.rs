@@ -1,12 +1,12 @@
 use crate::rvals::SteelHashSet;
 use crate::stop;
 use crate::values::lists::List;
+use crate::values::HashSet;
 use crate::{
     core::utils::declare_const_ref_functions,
     rvals::{Result, SteelVal},
 };
 use crate::{gc::Gc, steel_vm::builtin::BuiltInModule};
-use im_rc::HashSet;
 
 use crate::primitives::VectorOperations;
 
@@ -177,7 +177,7 @@ pub fn list_to_hashset(args: &[SteelVal]) -> Result<SteelVal> {
     }
     if let SteelVal::ListV(l) = &args[0] {
         Ok(SteelVal::HashSetV(
-            Gc::new(l.iter().cloned().collect::<im_rc::HashSet<_>>()).into(),
+            Gc::new(l.iter().cloned().collect::<HashSet<_>>()).into(),
         ))
     } else {
         stop!(TypeMismatch => "list->hashset takes a hashset");
@@ -189,6 +189,12 @@ mod hashset_tests {
     use crate::rvals::SteelString;
 
     use super::*;
+
+    #[cfg(not(feature = "sync"))]
+    use im_rc::vector;
+
+    #[cfg(feature = "sync")]
+    use im::vector;
 
     #[test]
     fn hs_construct_normal() {
@@ -209,7 +215,7 @@ mod hashset_tests {
                 ]
                 .into_iter()
                 .map(Gc::new)
-                .collect::<im_rc::HashSet<_>>(),
+                .collect::<HashSet<_>>(),
             )
             .into(),
         );
@@ -239,7 +245,7 @@ mod hashset_tests {
                 ]
                 .into_iter()
                 .map(Gc::new)
-                .collect::<im_rc::HashSet<_>>(),
+                .collect::<HashSet<_>>(),
             )
             .into(),
         );
@@ -249,7 +255,7 @@ mod hashset_tests {
     #[test]
     fn hs_insert_from_empty() {
         let mut args = [
-            SteelVal::HashSetV(Gc::new(im_rc::HashSet::new()).into()),
+            SteelVal::HashSetV(Gc::new(HashSet::new()).into()),
             SteelVal::StringV("foo".into()),
         ];
         let res = steel_hs_insert(&mut args);
@@ -258,7 +264,7 @@ mod hashset_tests {
                 vec![SteelVal::StringV("foo".into())]
                     .into_iter()
                     .map(Gc::new)
-                    .collect::<im_rc::HashSet<_>>(),
+                    .collect::<HashSet<_>>(),
             )
             .into(),
         );
@@ -273,7 +279,7 @@ mod hashset_tests {
                     vec![SteelVal::StringV("foo".into())]
                         .into_iter()
                         .map(Gc::new)
-                        .collect::<im_rc::HashSet<_>>(),
+                        .collect::<HashSet<_>>(),
                 )
                 .into(),
             ),
@@ -292,7 +298,7 @@ mod hashset_tests {
                     vec![SteelVal::StringV("foo".into())]
                         .into_iter()
                         .map(Gc::new)
-                        .collect::<im_rc::HashSet<_>>(),
+                        .collect::<HashSet<_>>(),
                 )
                 .into(),
             ),
@@ -313,12 +319,12 @@ mod hashset_tests {
                     SteelVal::StringV("baz".into()),
                 ]
                 .into_iter()
-                .collect::<im_rc::HashSet<_>>(),
+                .collect::<HashSet<_>>(),
             )
             .into(),
         )];
         let res = keys_to_vector(&args);
-        let expected = im_rc::vector![
+        let expected = vector![
             SteelVal::StringV("foo".into()),
             SteelVal::StringV("bar".into()),
             SteelVal::StringV("baz".into()),

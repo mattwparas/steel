@@ -30,13 +30,13 @@ use crate::values::closed::HeapRef;
 use crate::values::lists::List;
 use crate::values::port::SteelPort;
 use crate::values::structs::UserDefinedStruct;
+use crate::values::Vector;
 use crate::{
     rerrs::{ErrorKind, SteelErr},
     rvals::SteelString,
 };
 pub use control::ControlOperations;
 pub use fs::fs_module;
-use im_rc::Vector;
 pub use io::IoFunctions;
 pub use lists::UnRecoverableResult;
 pub use meta_ops::MetaOperations;
@@ -594,7 +594,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelVector {
     }
 }
 
-impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashSet<SteelVal>> {
+impl<'a> PrimitiveAsRef<'a> for &'a Gc<crate::values::HashSet<SteelVal>> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::HashSetV(p) = val {
@@ -737,7 +737,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelString {
     }
 }
 
-impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashMap<SteelVal, SteelVal>> {
+impl<'a> PrimitiveAsRef<'a> for &'a Gc<crate::values::HashMap<SteelVal, SteelVal>> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::HashMapV(hm) = val {
@@ -757,7 +757,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a Gc<im_rc::HashMap<SteelVal, SteelVal>> {
     }
 }
 
-impl<'a> PrimitiveAsRefMut<'a> for &'a mut Gc<im_rc::HashMap<SteelVal, SteelVal>> {
+impl<'a> PrimitiveAsRefMut<'a> for &'a mut Gc<crate::values::HashMap<SteelVal, SteelVal>> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a mut SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::HashMapV(hm) = val {
