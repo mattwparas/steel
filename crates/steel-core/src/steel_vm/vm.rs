@@ -37,6 +37,8 @@ use crate::{
     values::functions::ByteCodeLambda,
 };
 use std::rc::Weak;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::{cell::RefCell, collections::HashMap, iter::Iterator, rc::Rc};
 
 use super::builtin::DocTemplate;
@@ -266,6 +268,7 @@ pub struct SteelThread {
     pub(crate) current_frame: StackFrame,
     pub(crate) stack_frames: Vec<StackFrame>,
     pub(crate) constant_map: ConstantMap,
+    pub(crate) interrupted: Option<Arc<AtomicBool>>,
 }
 
 #[derive(Clone)]
@@ -330,7 +333,13 @@ impl SteelThread {
             // we'll have each thread default to an empty constant map, and replace it with the map bundled
             // with the executables
             constant_map: DEFAULT_CONSTANT_MAP.with(|x| x.clone()),
+            interrupted: Default::default(),
         }
+    }
+
+    pub fn with_interrupted(&mut self, interrupted: Arc<AtomicBool>) -> &mut Self {
+        self.interrupted = Some(interrupted);
+        self
     }
 
     // If you want to explicitly turn off contracts, you can do so
@@ -1554,6 +1563,15 @@ impl<'a> VmCore<'a> {
 
         // while self.ip < self.instructions.len() {
         loop {
+            #[cfg(feature = "interrupt")]
+            {
+                if let Some(interrupted) = self.thread.interrupted.as_ref() {
+                    if interrupted.load(std::sync::atomic::Ordering::Relaxed) {
+                        stop!(Generic => "Interrupted by user"; self.current_span());
+                    }
+                }
+            }
+
             // Process the op code
             // TODO: Just build up a slice, don't directly store the full vec of op codes
 

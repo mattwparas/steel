@@ -1,6 +1,8 @@
 extern crate rustyline;
 use colored::*;
 
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::{cell::RefCell, rc::Rc, sync::mpsc::channel};
 
 use rustyline::error::ReadlineError;
@@ -97,30 +99,36 @@ fn finish_load_or_interrupt(vm: &mut Engine, exprs: String, path: PathBuf) {
     }
 }
 
-fn finish_or_interrupt(vm: &mut Engine, line: String, print_time: bool) {
-    let now = Instant::now();
+fn finish_or_interrupt(vm: &mut Engine, line: String) {
+    let values = match vm.compile_and_run_raw_program(line) {
+        Ok(values) => values,
+        Err(error) => {
+            vm.raise_error(error);
 
-    let res = vm.compile_and_run_raw_program(line);
+            return;
+        }
+    };
 
-    match res {
-        Ok(r) => r.into_iter().for_each(|x| match x {
+    let len = values.len();
+
+    for (i, value) in values.into_iter().enumerate() {
+        let last = i == len - 1;
+
+        if last {
+            vm.register_value("$1", value.clone());
+        }
+
+        match value {
             SteelVal::Void => {}
             SteelVal::StringV(s) => {
                 println!("{} {:?}", "=>".bright_blue().bold(), s);
             }
             _ => {
                 print!("{} ", "=>".bright_blue().bold());
-                vm.call_function_by_name_with_args("displayln", vec![x])
+                vm.call_function_by_name_with_args("displayln", vec![value])
                     .unwrap();
             }
-        }),
-        Err(e) => {
-            vm.raise_error(e);
         }
-    }
-
-    if print_time {
-        println!("Time taken: {:?}", now.elapsed());
     }
 }
 
@@ -157,7 +165,10 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
         tx.lock().unwrap().send(()).unwrap();
     };
 
+    let interrupted = Arc::new(AtomicBool::new(false));
+
     vm.register_fn("quit", cancellation_function);
+    vm.with_interrupted(interrupted.clone());
 
     let engine = Rc::new(RefCell::new(vm));
     rl.set_helper(Some(RustylineHelper::new(
@@ -177,6 +188,19 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     //     }
     //     true
     // });
+
+    {
+        let interrupted = interrupted.clone();
+
+        ctrlc::set_handler(move || {
+            interrupted.store(true, std::sync::atomic::Ordering::Relaxed);
+        })
+        .unwrap();
+    }
+
+    let clear_interrupted = move || {
+        interrupted.store(false, std::sync::atomic::Ordering::Relaxed);
+    };
 
     while rx.try_recv().is_err() {
         let readline = rl.readline(&prompt);
@@ -225,6 +249,8 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                         let mut exprs = String::new();
                         file.read_to_string(&mut exprs)?;
 
+                        clear_interrupted();
+
                         finish_load_or_interrupt(
                             &mut engine.borrow_mut(),
                             exprs,
@@ -233,13 +259,21 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                     }
                     _ => {
                         // TODO also include this for loading files
-                        finish_or_interrupt(&mut engine.borrow_mut(), line, print_time);
+                        let now = Instant::now();
+
+                        clear_interrupted();
+
+                        finish_or_interrupt(&mut engine.borrow_mut(), line);
+
+                        if print_time {
+                            println!("Time taken: {:?}", now.elapsed());
+                        }
                     }
                 }
             }
             Err(ReadlineError::Interrupted) => {
                 println!("CTRL-C");
-                break;
+                continue;
             }
             Err(ReadlineError::Eof) => {
                 println!("CTRL-D");
