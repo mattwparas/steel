@@ -80,6 +80,7 @@ jobs:
       - name: Build wasm32-unknown-unknown
         run: |
           cd crates/steel-core/
+          rustup target add wasm32-unknown-unknown
           cargo build --target wasm32-unknown-unknown
 
   rustfmt:
