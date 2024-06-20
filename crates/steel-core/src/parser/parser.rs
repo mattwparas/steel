@@ -221,6 +221,7 @@ impl TryFrom<SyntaxObject> for SteelVal {
             UnquoteSpliceSyntax => {
                 Err(SteelErr::new(ErrorKind::UnexpectedToken, "#,@".to_string()).with_span(span))
             }
+            Dot => Err(SteelErr::new(ErrorKind::UnexpectedToken, ".".to_string()).with_span(span)),
         }
     }
 }

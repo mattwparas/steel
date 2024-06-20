@@ -271,9 +271,9 @@ impl<'a> Lexer<'a> {
     fn read_word(&mut self) -> TokenType<&'a str> {
         while let Some(&c) = self.chars.peek() {
             match c {
-                '(' | '[' | ')' | ']' => break,
+                '(' | '[' | ')' | ']' | '{' | '}' => break,
                 c if c.is_whitespace() => break,
-                '\'' => {
+                '\'' | '"' | '`' | ';' | ',' => {
                     break;
                 }
                 // Could be a quote within a word, we should handle escaping it accordingly
@@ -290,6 +290,7 @@ impl<'a> Lexer<'a> {
         }
 
         match self.slice() {
+            "." => TokenType::Dot,
             "define" | "defn" | "#%define" => TokenType::Define,
             "let" => TokenType::Let,
             "%plain-let" => TokenType::TestLet,
@@ -308,6 +309,7 @@ impl<'a> Lexer<'a> {
             NEG_INFINITY => TokenType::Number(RealLiteral::Float(f64::NEG_INFINITY).into()),
             NAN => TokenType::Number(RealLiteral::Float(f64::NAN).into()),
             NEG_NAN => TokenType::Number(RealLiteral::Float(f64::NAN).into()),
+            "|.|" => TokenType::Identifier("."),
             identifier => {
                 if identifier.len() > 1 && identifier.starts_with('+') && self.queued.is_none() {
                     self.queued = Some(TokenType::Identifier(&identifier[1..]));
@@ -1260,5 +1262,35 @@ mod lexer_tests {
         }];
 
         assert_eq!(res, expected);
+    }
+
+    #[test]
+    fn identifier_test() {
+        let s = TokenStream::new("a b(c`d'e\"www\"f,g;", true, None);
+
+        let tokens: Vec<(TokenType<&str>, &str)> =
+            s.map(|token| (token.ty, token.source)).collect();
+
+        assert_eq!(tokens[0], (TokenType::Identifier("a"), "a"));
+        assert_eq!(tokens[1], (TokenType::Identifier("b"), "b"));
+        assert_eq!(tokens[3], (TokenType::Identifier("c"), "c"));
+        assert_eq!(tokens[5], (TokenType::Identifier("d"), "d"));
+        assert_eq!(tokens[7], (TokenType::Identifier("e"), "e"));
+        assert_eq!(tokens[9], (TokenType::Identifier("f"), "f"));
+        assert_eq!(tokens[11], (TokenType::Identifier("g"), "g"));
+    }
+
+    #[test]
+    fn escaped_identifier_test() {
+        let token = TokenStream::new("|.|", true, None).next().unwrap();
+
+        assert_eq!(
+            token,
+            Token {
+                ty: TokenType::Identifier("."),
+                source: "|.|",
+                span: Span::new(0, 3, None)
+            }
+        )
     }
 }

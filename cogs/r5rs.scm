@@ -288,7 +288,7 @@
 
 (check-equal? "empty list is not a boolean" #f (boolean? '()))
 
-; (check-equal #t (pair? '(a . b)))
+(check-equal? "pair?" #t (pair? '(a . b)))
 
 (check-equal? "lists are considered pairs" #t (pair? '(a b c)))
 
@@ -298,25 +298,25 @@
 
 (check-equal? "cons string onto list of symbols" '("a" b c) (cons "a" '(b c)))
 
-; (check-equal '(a . 3) (cons 'a 3))
+(check-equal? "cons" '(a . 3) (cons 'a 3))
 
-; (check-equal '((a b) . c) (cons '(a b) 'c))
+(check-equal? "cons of composites" '((a b) . c) (cons '(a b) 'c))
 
 (check-equal? "take the car of a list of symbols" 'a (car '(a b c)))
 
 (check-equal? "take the car, where the car is a list" '(a) (car '((a) b c d)))
 
-; (check-equal 1 (car '(1 . 2)))
+(check-equal? "car of non-list pair" 1 (car '(1 . 2)))
 
 (check-equal? "take the cdr of a list" '(b c d) (cdr '((a) b c d)))
 
-; (check-equal 2 (cdr '(1 . 2)))
+(check-equal? "take the cdr of a pair" 2 (cdr '(1 . 2)))
 
 (check-equal? "Check list predicate" #t (list? '(a b c)))
 
 (check-equal? "Empty list is a list" #t (list? '()))
 
-; (check-equal #f (list? '(a . b)))
+(check-equal? "Improper list" #f (list? '(a . b)))
 
 ; (check-equal #f
 ;       (let ([x (list 'a)])

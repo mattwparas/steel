@@ -638,9 +638,6 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
 
 #[cfg(not(feature = "without-drop-protection"))]
 pub(crate) mod drop_impls {
-
-    use crate::values::recycler::Recycle;
-
     use super::*;
 
     thread_local! {

@@ -3,13 +3,14 @@ use std::cell::Cell;
 use im_lists::handler::{DefaultDropHandler, DropHandler};
 
 use crate::{
+    gc::Gc,
     rvals::{FromSteelVal, IntoSteelVal},
     SteelVal,
 };
 
 // TODO:
 // Builtin immutable pairs
-#[derive(Clone)]
+#[derive(Clone, Hash)]
 pub struct Pair {
     pub(crate) car: SteelVal,
     pub(crate) cdr: SteelVal,
@@ -26,6 +27,12 @@ impl Pair {
 
     pub fn cdr(&self) -> SteelVal {
         self.cdr.clone()
+    }
+}
+
+impl From<Pair> for SteelVal {
+    fn from(pair: Pair) -> Self {
+        SteelVal::Pair(Gc::new(pair))
     }
 }
 

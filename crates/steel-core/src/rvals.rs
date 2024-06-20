@@ -836,6 +836,7 @@ pub enum SerializableSteelVal {
     MutFunc(MutFunctionSignature),
     HashMapV(Vec<(SerializableSteelVal, SerializableSteelVal)>),
     ListV(Vec<SerializableSteelVal>),
+    Pair(Box<(SerializableSteelVal, SerializableSteelVal)>),
     VectorV(Vec<SerializableSteelVal>),
     BoxedDynFunction(BoxedDynFunction),
     BuiltIn(BuiltInSignature),
@@ -980,6 +981,15 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                 SteelVal::HeapAllocated(allocation)
             }
         }
+        SerializableSteelVal::Pair(pair) => {
+            let (car, cdr) = *pair;
+
+            crate::values::lists::Pair::cons(
+                from_serializable_value(ctx, car),
+                from_serializable_value(ctx, cdr),
+            )
+            .into()
+        }
     }
 }
 
@@ -1009,6 +1019,10 @@ pub fn into_serializable_value(
                 .map(|x| into_serializable_value(x, serialized_heap, visited))
                 .collect::<Result<_>>()?,
         )),
+        SteelVal::Pair(pair) => Ok(SerializableSteelVal::Pair(Box::new((
+            into_serializable_value(pair.car.clone(), serialized_heap, visited)?,
+            into_serializable_value(pair.cdr.clone(), serialized_heap, visited)?,
+        )))),
         SteelVal::BoxedFunction(f) => Ok(SerializableSteelVal::BoxedDynFunction((*f).clone())),
         SteelVal::BuiltIn(f) => Ok(SerializableSteelVal::BuiltIn(f)),
         SteelVal::SymbolV(s) => Ok(SerializableSteelVal::SymbolV(s.to_string())),
@@ -1716,6 +1730,7 @@ impl Hash for SteelVal {
             IterV(s) => s.hash(state),
             HashSetV(hs) => hs.hash(state),
             SyntaxObject(s) => s.raw.hash(state),
+            Pair(p) => (&**p).hash(state),
             _ => {
                 unimplemented!("Attempted to has unsupported value: {self:?}")
             }

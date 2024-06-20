@@ -3,8 +3,6 @@ use quickscope::ScopeSet;
 use steel_parser::ast::{parse_lambda, Begin};
 use steel_parser::parser::SourceId;
 
-use crate::compiler::passes::reader::MultipleArityFunctions;
-use crate::compiler::passes::VisitorMutRefUnit;
 use crate::parser::ast::ExprKind;
 use crate::parser::parser::SyntaxObject;
 use crate::parser::span_visitor::get_span;
@@ -525,8 +523,6 @@ fn expand_keyword_arguments(lambda_function: &mut super::ast::LambdaFunction) ->
     //
     // If there are rest arguments though, we'll need to split the rest argument list into two - the first half will then get
     // applied to the hashmap list, while the rest of the arguments will get applied to the correct place.
-
-    MultipleArityFunctions::new().visit_lambda_function(lambda_function);
 
     // If this already has a rest arguments, we need to slice out the
     // remaining function values from the keywords, and then bind those to whatever variable in the original
