@@ -122,11 +122,12 @@ impl From<ParseError> for Repr {
     fn from(v: ParseError) -> Self {
         // unimplemented!()
         let (span, _source) = match &v {
-            ParseError::Unexpected(_, source) | ParseError::UnexpectedEOF(source) => (None, source),
-            ParseError::UnexpectedChar(_, s, source) => (Some(*s), source),
-            ParseError::IncompleteString(_, s, source) => (Some(*s), source),
-            ParseError::SyntaxError(_, s, source) => (Some(*s), source),
-            ParseError::ArityMismatch(_, s, source) => (Some(*s), source),
+            ParseError::UnexpectedEOF(source) => (None, source),
+            ParseError::Unexpected(_, s, source)
+            | ParseError::UnexpectedChar(_, s, source)
+            | ParseError::IncompleteString(_, s, source)
+            | ParseError::SyntaxError(_, s, source)
+            | ParseError::ArityMismatch(_, s, source) => (Some(*s), source),
         };
 
         Repr {

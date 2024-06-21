@@ -84,12 +84,37 @@ pub fn parse_unicode_str(slice: &str) -> Option<char> {
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum Paren {
+    Round,
+    Square,
+    Curly,
+}
+
+impl Paren {
+    pub fn open(&self) -> char {
+        match self {
+            Paren::Round => '(',
+            Paren::Square => '[',
+            Paren::Curly => '{',
+        }
+    }
+
+    pub fn close(&self) -> char {
+        match self {
+            Paren::Round => ')',
+            Paren::Square => ']',
+            Paren::Curly => '}',
+        }
+    }
+}
+
 // TODO the character parsing is not quite right
 // need to make sure that we can handle cases like "#\SPACE" or "#\a" but not "#\applesauce"
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TokenType<S> {
-    OpenParen,
-    CloseParen,
+    OpenParen(Paren),
+    CloseParen(Paren),
     QuoteTick,
     QuasiQuote,
     Unquote,
@@ -292,8 +317,8 @@ impl<'a> TokenType<&'a str> {
         match self {
             TokenType::Identifier(i) => TokenType::Identifier(i.into()),
             TokenType::Keyword(i) => TokenType::Keyword(i.into()),
-            OpenParen => OpenParen,
-            CloseParen => CloseParen,
+            OpenParen(p) => OpenParen(p),
+            CloseParen(p) => CloseParen(p),
             CharacterLiteral(x) => CharacterLiteral(x),
             BooleanLiteral(x) => BooleanLiteral(x),
             Number(x) => Number(x),
@@ -329,8 +354,8 @@ impl<'a> TokenType<&'a str> {
         match self {
             TokenType::Identifier(i) => TokenType::Identifier(func(i)),
             TokenType::Keyword(i) => TokenType::Keyword(func(i)),
-            OpenParen => OpenParen,
-            CloseParen => CloseParen,
+            OpenParen(p) => OpenParen(p),
+            CloseParen(p) => CloseParen(p),
             CharacterLiteral(x) => CharacterLiteral(x),
             BooleanLiteral(x) => BooleanLiteral(x),
             Number(x) => Number(x),
@@ -382,8 +407,8 @@ fn character_special_display(c: char, f: &mut fmt::Formatter) -> fmt::Result {
 impl<T: Display> fmt::Display for TokenType<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            OpenParen => write!(f, "("),
-            CloseParen => write!(f, "("),
+            OpenParen(p) => write!(f, "{}", p.open()),
+            CloseParen(p) => write!(f, "{}", p.close()),
             CharacterLiteral(x) => character_special_display(*x, f),
             BooleanLiteral(x) => write!(f, "#{x}"),
             Identifier(x) => write!(f, "{x}"),
