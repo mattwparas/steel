@@ -72,7 +72,7 @@ macro_rules! impl_recyclable {
 
         impl Recyclable for $t {
             fn put(mut self) {
-                $tl.with(|p| {
+                let _ = $tl.try_with(|p| {
                     let p = p.try_borrow_mut();
 
                     if let Ok(mut p) = p {
@@ -83,7 +83,7 @@ macro_rules! impl_recyclable {
                             p.push(self);
                         }
                     }
-                })
+                });
             }
 
             fn get() -> Self {
