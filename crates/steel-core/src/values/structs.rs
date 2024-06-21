@@ -488,30 +488,16 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
 
     // Convert the string into an Arc'd string - this now makes the generated functions
     // thread safe.
-    let name: InternedString = if let SteelVal::SymbolV(s) = &args[0] {
-        Ok::<_, SteelErr>(s)
-    } else {
+    let SteelVal::SymbolV(name) = &args[0] else {
         stop!(TypeMismatch => format!("make-struct-type expected a symbol for the name, found: {}", &args[0]));
-    }?.as_str().into();
+    };
 
-    let field_count = if let SteelVal::IntV(i) = &args[1] {
-        Ok::<_, SteelErr>(i)
-    } else {
+    let SteelVal::IntV(field_count) = &args[1] else {
         stop!(TypeMismatch => format!("make-struct-type expected an integer for the field count, found: {}", &args[0]));
-    }?;
+    };
 
-    // Make a slot in the VTable for this struct
-    let struct_type_descriptor = VTable::new_entry(name, None);
-
-    // Build out the constructor and the predicate
-    let struct_constructor =
-        UserDefinedStruct::constructor(name, *field_count as usize, struct_type_descriptor);
-    let struct_predicate = UserDefinedStruct::predicate(struct_type_descriptor);
-
-    let getter_prototype = UserDefinedStruct::getter_prototype(struct_type_descriptor);
-
-    // We do not have the properties yet. Should probably intern the
-    // let struct_type_id = new_type_id(name, address_or_name)
+    let (struct_type_descriptor, struct_constructor, struct_predicate, getter_prototype) =
+        make_struct_type_inner(name.as_str(), *field_count as usize);
 
     Ok(SteelVal::ListV(
         vec![
@@ -524,6 +510,38 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
         ]
         .into(),
     ))
+}
+
+pub fn make_struct_singleton(name: &str) -> (SteelVal, StructTypeDescriptor) {
+    let (descriptor, _, _, _) = make_struct_type_inner(name, 0);
+
+    let instance = UserDefinedStruct::new(descriptor, &[]);
+
+    (SteelVal::CustomStruct(Gc::new(instance)), descriptor)
+}
+
+fn make_struct_type_inner(
+    name: &str,
+    field_count: usize,
+) -> (StructTypeDescriptor, SteelVal, SteelVal, SteelVal) {
+    let name = InternedString::from(name);
+
+    // Make a slot in the VTable for this struct
+    let struct_type_descriptor = VTable::new_entry(name, None);
+
+    // Build out the constructor and the predicate
+    let struct_constructor =
+        UserDefinedStruct::constructor(name, field_count, struct_type_descriptor);
+    let struct_predicate = UserDefinedStruct::predicate(struct_type_descriptor);
+
+    let getter_prototype = UserDefinedStruct::getter_prototype(struct_type_descriptor);
+
+    (
+        struct_type_descriptor,
+        struct_constructor,
+        struct_predicate,
+        getter_prototype,
+    )
 }
 
 // Implement internal thing here?

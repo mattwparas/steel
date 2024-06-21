@@ -1,13 +1,17 @@
-use crate::rvals::{Result, SteelString, SteelVal};
+use crate::rvals::{RestArgsIter, Result, SteelByteVector, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::stop;
 use crate::values::port::new_rc_ref_cell;
 use crate::values::port::{SteelPort, SteelPortRepr};
+use crate::values::structs::{make_struct_singleton, StructTypeDescriptor};
 
+use once_cell::unsync::Lazy;
 use steel_derive::function;
 
 thread_local! {
-    pub static EOF_OBJECT: SteelString = "eof".into();
+    static EOF_OBJECT: Lazy<(SteelVal, StructTypeDescriptor)>= Lazy::new(|| {
+        make_struct_singleton("eof".into())
+    });
 }
 
 pub fn port_module() -> BuiltInModule {
@@ -29,9 +33,20 @@ pub fn port_module() -> BuiltInModule {
         .register_native_fn_definition(IS_INPUT_DEFINITION)
         .register_native_fn_definition(IS_OUTPUT_DEFINITION)
         .register_native_fn_definition(DEFAULT_INPUT_PORT_DEFINITION)
-        .register_native_fn_definition(DEFAULT_OUTPUT_PORT_DEFINITION);
+        .register_native_fn_definition(DEFAULT_OUTPUT_PORT_DEFINITION)
+        .register_native_fn_definition(CLOSE_OUTPUT_PORT_DEFINITION)
+        .register_native_fn_definition(DEFAULT_ERROR_PORT_DEFINITION)
+        .register_native_fn_definition(EOF_OBJECT_DEFINITION)
+        .register_native_fn_definition(OPEN_INPUT_STRING_DEFINITION)
+        .register_native_fn_definition(READ_BYTE_DEFINITION)
+        .register_native_fn_definition(READ_CHAR_DEFINITION)
+        .register_native_fn_definition(WRITE_BYTE_DEFINITION)
+        .register_native_fn_definition(WRITE_BYTES_DEFINITION)
+        .register_native_fn_definition(PEEK_BYTE_DEFINITION);
     module
 }
+
+// TODO: implement textual-port? and binary-port?
 
 /// Gets the port handle to stdin
 ///
@@ -89,9 +104,32 @@ pub fn open_output_file(path: &SteelString) -> Result<SteelVal> {
     SteelPort::new_textual_file_output(path).map(SteelVal::PortV)
 }
 
+/// Creates an output port that accumulates what is written into a string.
+/// This string can be recovered calling `get-output-string`.
+///
+/// (open-output-string) -> output-port?
+///
+/// # Examples
+/// ```scheme
+/// (define out (open-output-string))
+///
+///
+/// (write-char "α" out)
+/// (write-char "ω" out)
+///
+/// (get-output-string out) ;; => "αω"
+/// ```
 #[function(name = "open-output-string")]
 pub fn open_output_string() -> SteelVal {
-    SteelVal::PortV(SteelPort::new_output_port())
+    SteelVal::PortV(SteelPort::new_output_port_string())
+}
+
+/// Creates an input port from a string, that will return the string contents.
+///
+/// (open-input-port string?) -> input-port?
+#[function(name = "open-input-string")]
+pub fn open_input_string(s: &SteelString) -> SteelVal {
+    SteelVal::PortV(SteelPort::new_input_port_string(s.to_string()))
 }
 
 /// Takes a port and reads the entire content into a string
@@ -149,7 +187,7 @@ pub fn read_line_to_string(port: &SteelPort) -> Result<SteelVal> {
 
     if let Ok((size, result)) = res {
         if size == 0 {
-            Ok(SteelVal::SymbolV(EOF_OBJECT.with(|x| x.clone())))
+            Ok(eof())
         } else {
             Ok(SteelVal::StringV(result.into()))
         }
@@ -172,9 +210,10 @@ pub fn write_line(port: &SteelPort, line: &SteelVal) -> Result<SteelVal> {
 }
 
 #[function(name = "raw-write")]
-pub fn write(port: &SteelPort, line: &SteelVal) -> Result<SteelVal> {
+pub fn write(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
+    let port = output_args(rest)?;
     let line = line.to_string();
-    let res = port.write_string(line.as_str());
+    let res = port.write(line.as_str().as_bytes());
 
     if res.is_ok() {
         Ok(SteelVal::Void)
@@ -184,7 +223,8 @@ pub fn write(port: &SteelPort, line: &SteelVal) -> Result<SteelVal> {
 }
 
 #[function(name = "raw-write-char")]
-pub fn write_char(port: &SteelPort, character: char) -> Result<SteelVal> {
+pub fn write_char(character: char, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
+    let port = output_args(rest)?;
     let res = port.write_char(character);
 
     if res.is_ok() {
@@ -194,12 +234,15 @@ pub fn write_char(port: &SteelPort, character: char) -> Result<SteelVal> {
     }
 }
 
+// TODO: support start and end
 #[function(name = "raw-write-string")]
-pub fn write_string(port: &SteelPort, line: &SteelVal) -> Result<SteelVal> {
+pub fn write_string(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
+    let port = output_args(rest)?;
+
     let res = if let SteelVal::StringV(s) = line {
-        port.write_string(s.as_str())
+        port.write(s.as_str().as_bytes())
     } else {
-        port.write_string(line.to_string().as_str())
+        port.write(line.to_string().as_str().as_bytes())
     };
 
     if res.is_ok() {
@@ -209,6 +252,9 @@ pub fn write_string(port: &SteelPort, line: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Extracts the string contents from a port created with `open-output-string`.
+///
+/// (get-output-string port?) -> string?
 #[function(name = "get-output-string")]
 pub fn get_output_string(port: &SteelPort) -> Result<SteelVal> {
     port.get_output_string().map(SteelVal::from)
@@ -229,9 +275,123 @@ pub fn default_output_port() -> SteelVal {
     SteelVal::PortV(SteelPort::default_current_output_port())
 }
 
-// TODO: In order for this to work, ports have to get refactored - the mutability needs to be
-// on the outside, rather than the inside.
+#[function(name = "#%default-error-port")]
+pub fn default_error_port() -> SteelVal {
+    SteelVal::PortV(SteelPort::default_current_error_port())
+}
+
 #[function(name = "close-output-port")]
 pub fn close_output_port(port: &SteelPort) -> Result<SteelVal> {
     port.close_output_port().map(|_| SteelVal::Void)
+}
+
+/// Returns `#t` if the value is an EOF object.
+///
+/// (eof-object? any/c?) -> bool?
+#[function(name = "eof-object?")]
+pub fn eof_objectp(value: &SteelVal) -> bool {
+    let SteelVal::CustomStruct(struct_) = value else {
+        return false;
+    };
+
+    EOF_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
+}
+
+/// Returns an EOF object.
+///
+/// (eof-object) -> eof-object?
+#[function(name = "eof-object")]
+pub fn eof_object() -> SteelVal {
+    eof()
+}
+
+/// Reads a single byte from an input port.
+///
+/// (read-byte [port]) -> byte?
+///
+/// * port : input-port? = (current-input-port)
+#[function(name = "read-byte")]
+pub fn read_byte(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
+    let port = input_args(rest)?;
+
+    Ok(port
+        .read_byte()?
+        .map(|b| SteelVal::IntV(b.into()))
+        .unwrap_or_else(eof))
+}
+
+/// Writes a single byte to an output port.
+///
+/// (write-byte b [port])
+///
+/// * b : byte?
+/// * port : output-port? = (current-output-port)
+#[function(name = "write-byte")]
+pub fn write_byte(byte: u8, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
+    let port = output_args(rest)?;
+    port.write(&[byte])?;
+
+    Ok(SteelVal::Void)
+}
+
+/// Writes the contents of a bytevector into an output port.
+///
+/// (write-bytes buf [port])
+///
+/// * buf : bytes?
+/// * port : output-port? = (current-output-port)
+#[function(name = "write-bytes")]
+pub fn write_bytes(bytes: &SteelByteVector, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
+    let port = output_args(rest)?;
+    port.write(&*bytes.vec.borrow())?;
+
+    Ok(SteelVal::Void)
+}
+
+/// Peeks the next byte from an input port.
+///
+/// (peek-byte [port]) -> byte?
+///
+/// * port : input-port? = (current-input-port)
+#[function(name = "peek-byte")]
+pub fn peek_byte(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
+    let port = input_args(rest)?;
+
+    Ok(port
+        .peek_byte()?
+        .map(|b| SteelVal::IntV(b.into()))
+        .unwrap_or_else(eof))
+}
+
+/// Reads the next character from an input port.
+///
+/// (read-char [port]) -> char?
+///
+/// * port : input-port? = (current-input-port)
+#[function(name = "read-char")]
+pub fn read_char(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
+    let port = input_args(rest)?;
+    Ok(port.read_char()?.map(SteelVal::CharV).unwrap_or_else(eof))
+}
+
+fn input_args(args: RestArgsIter<&SteelPort>) -> Result<SteelPort> {
+    Ok(io_args(1, args)?.unwrap_or_else(SteelPort::default_current_input_port))
+}
+
+fn output_args(args: RestArgsIter<&SteelPort>) -> Result<SteelPort> {
+    Ok(io_args(2, args)?.unwrap_or_else(SteelPort::default_current_output_port))
+}
+
+fn io_args(max: usize, mut args: RestArgsIter<&SteelPort>) -> Result<Option<SteelPort>> {
+    let port = args.next().transpose()?.cloned();
+
+    if args.next().is_some() {
+        stop!(ArityMismatch => "expected at most {} arguments", max);
+    }
+
+    Ok(port)
+}
+
+pub fn eof() -> SteelVal {
+    EOF_OBJECT.with(|eof| eof.0.clone())
 }

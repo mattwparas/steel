@@ -70,6 +70,20 @@
               (parameterize ([location "on a bus"])
                 (would-you-could-you?)))
 
+;; Bytevectors
+
+;; TODO: use bytevector literals
+(check-equal? "utf8->string" "ABC" (utf8->string (bytes #x41 #x42 #x43)))
+(check-equal? "utf8->string, multi-byte char" "λ" (utf8->string (bytes #xCE #xBB)))
+(check-equal? "utf8->string with start" "ABC" (utf8->string (bytes 0 #x41 #x42 #x43) 1))
+(check-equal? "utf8->string with start and end" "ABC" (utf8->string (bytes 0 #x41  #x42 #x43 0) 1 4))
+(check-equal? "utf8->string with start and end, multi-byte char" "λ" (utf8->string (bytes 0 #xCE #xBB 0) 1 3))
+(check-equal? "string->bytes" (bytes #x41 #x42 #x43) (string->bytes "ABC"))
+(check-equal? "string->bytes with start" (bytes #x42 #x43) (string->bytes "ABC" 1))
+(check-equal? "string->bytes with start and end" (bytes #x42) (string->bytes "ABC" 1 2))
+(check-equal? "string->bytes with start and end, multi-byte" (bytes #xCE #xBB) (string->bytes "σλC" 1 2))
+(check-equal? "string->bytes, multi-byte char" (bytes #xCE #xBB) (string->bytes "λ"))
+
 (define r7rs-test-stats (get-test-stats))
 
 (displayln "Passed: " (hash-ref r7rs-test-stats 'success-count))

@@ -18,6 +18,7 @@ use crate::{
         hashsets::hashset_module,
         lists::{list_module, UnRecoverableResult},
         numbers, port_module,
+        ports::EOF_OBJECTP_DEFINITION,
         process::process_module,
         random::random_module,
         string_module,
@@ -741,6 +742,11 @@ fn structp(value: &SteelVal) -> bool {
     }
 }
 
+#[steel_derive::function(name = "port?", constant = true)]
+fn portp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::PortV(..))
+}
+
 #[steel_derive::function(name = "#%private-struct?", constant = true)]
 fn private_structp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::CustomStruct(_))
@@ -799,6 +805,8 @@ fn identity_module() -> BuiltInModule {
         .register_native_fn_definition(BOOLP_DEFINITION)
         .register_native_fn_definition(VOIDP_DEFINITION)
         .register_native_fn_definition(STRUCTP_DEFINITION)
+        .register_native_fn_definition(PORTP_DEFINITION)
+        .register_native_fn_definition(EOF_OBJECTP_DEFINITION)
         .register_native_fn_definition(PRIVATE_STRUCTP_DEFINITION)
         .register_value("mutable-vector?", gen_pred!(MutableVector))
         .register_value("char?", gen_pred!(CharV))
@@ -1290,9 +1298,7 @@ impl Reader {
                 Ok(SteelVal::Void)
             }
         } else {
-            Ok(SteelVal::SymbolV(
-                crate::primitives::ports::EOF_OBJECT.with(|x| x.clone()),
-            ))
+            Ok(crate::primitives::ports::eof())
         }
     }
 }
