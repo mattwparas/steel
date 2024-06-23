@@ -376,3 +376,14 @@ fn r7rs_benchmark_test_suite() {
         run(args).unwrap();
     }
 }
+
+#[test]
+fn syntax_test_suite() {
+    let args = Args {
+        action: None,
+        default_file: Some(PathBuf::from("cogs/syntax-tests.scm")),
+        arguments: vec![],
+    };
+
+    run(args).unwrap()
+}

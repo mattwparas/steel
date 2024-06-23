@@ -530,7 +530,7 @@ impl<'a> Parser<'a> {
                                 ));
                             } else if current_frame.exprs.is_empty() {
                                 return Err(ParseError::SyntaxError(
-                                    "Improper lists must have a car element before the dot".into(),
+                                    "improper lists must have a car element before the dot".into(),
                                     token.span,
                                     None,
                                 ));

@@ -399,6 +399,9 @@ macro_rules! stop {
     // ($type:ident) => {
     //     return Err(SteelErr::new(ErrorKind::$type, None));
     // };
+    ($type:ident => $fmt:expr, $($arg:tt),+ ; $span:expr) => {
+        return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, format!($fmt, $($arg),+)).with_span($span))
+    };
     ($type:ident => $fmt:expr, $($arg:tt)+) => {
         return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, format!($fmt, $($arg)+)))
     };
