@@ -190,6 +190,10 @@ impl<'a> VisitorMutRef for Expander<'a> {
                         if let ExprKind::LambdaFunction(mut lambda) =
                             parse_lambda(ident.clone(), std::mem::take(&mut l.args))?
                         {
+                            if l.improper {
+                                lambda.rest = true;
+                            }
+
                             self.visit_lambda_function(&mut lambda)?;
 
                             *expr = ExprKind::LambdaFunction(lambda);

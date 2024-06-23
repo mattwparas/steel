@@ -992,6 +992,15 @@ impl List {
         }
     }
 
+    pub fn new_maybe_improper(args: Vec<ExprKind>, improper: bool) -> Self {
+        List {
+            args,
+            syntax_object_id: SyntaxObjectId::fresh().0,
+            improper,
+            location: None,
+        }
+    }
+
     pub fn with_spans(args: Vec<ExprKind>, open: Span, close: Span) -> Self {
         List {
             args,
@@ -1004,6 +1013,10 @@ impl List {
     pub fn make_improper(mut self) -> Self {
         self.improper = true;
         self
+    }
+
+    pub fn set_improper(&mut self) {
+        self.improper = true;
     }
 
     pub fn is_empty(&self) -> bool {
