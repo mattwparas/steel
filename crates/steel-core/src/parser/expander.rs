@@ -352,6 +352,7 @@ impl MacroCase {
                         &expr[1..],
                         &mut bindings,
                         &mut binding_kind,
+                        expr.improper,
                     )?;
 
                     let mut body = self.body.clone();
@@ -884,6 +885,7 @@ pub fn collect_bindings(
     list: &[ExprKind],
     bindings: &mut FxHashMap<InternedString, ExprKind>,
     binding_kind: &mut FxHashMap<InternedString, BindingKind>,
+    improper: bool,
 ) -> Result<()> {
     let mut token_iter = list.iter();
 
@@ -919,7 +921,7 @@ pub fn collect_bindings(
             // bind the ellipses to the rest of the statement
             MacroPattern::Many(ident) => {
                 let rest: Vec<_> = token_iter.cloned().collect();
-                bindings.insert(*ident, List::new(rest).into());
+                bindings.insert(*ident, List::new_maybe_improper(rest, improper).into());
                 binding_kind.insert(*ident, BindingKind::Many);
                 break;
             }
@@ -929,7 +931,7 @@ pub fn collect_bindings(
                     .ok_or_else(throw!(ArityMismatch => "Macro expected a pattern"))?;
 
                 if let ExprKind::List(l) = child {
-                    collect_bindings(children, l, bindings, binding_kind)?;
+                    collect_bindings(children, l, bindings, binding_kind, l.improper)?;
                 } else if let ExprKind::Quote(q) = child {
                     if let &[MacroPattern::Quote(x)] = children.as_slice() {
                         bindings.insert(x, q.expr.clone());
@@ -941,8 +943,6 @@ pub fn collect_bindings(
                 }
             }
             MacroPattern::ManyNested(children) => {
-                // dbg!(children);
-
                 let exprs_to_destruct = token_iter.collect::<smallvec::SmallVec<[_; 8]>>();
 
                 for i in 0..children.len() {
@@ -956,7 +956,9 @@ pub fn collect_bindings(
 
                             if is_ellipses_pattern {
                                 // Bind the "rest" of the values into this
-                                values_to_bind.push(List::new(l[i..].to_vec()).into());
+                                values_to_bind.push(
+                                    List::new_maybe_improper(l[i..].to_vec(), l.improper).into(),
+                                );
                             } else {
                                 values_to_bind.push(l[i].clone());
                             }
@@ -995,6 +997,7 @@ pub fn collect_bindings(
                                     list_expr,
                                     &mut new_bindings,
                                     binding_kind,
+                                    list_expr.improper,
                                 )?;
 
                                 for (key, value) in new_bindings {
@@ -1238,7 +1241,14 @@ mod collect_bindings_tests {
             ])),
         ]);
 
-        collect_bindings(&pattern_args, &list_expr, &mut bindings, &mut binding_kind).unwrap();
+        collect_bindings(
+            &pattern_args,
+            &list_expr,
+            &mut bindings,
+            &mut binding_kind,
+            false,
+        )
+        .unwrap();
 
         let mut post_bindings = FxHashMap::default();
         post_bindings.insert(
@@ -1285,7 +1295,14 @@ mod collect_bindings_tests {
             ])),
         ]);
 
-        collect_bindings(&pattern_args, &list_expr, &mut bindings, &mut binding_kind).unwrap();
+        collect_bindings(
+            &pattern_args,
+            &list_expr,
+            &mut bindings,
+            &mut binding_kind,
+            false,
+        )
+        .unwrap();
 
         let mut post_bindings = FxHashMap::default();
         post_bindings.insert(
@@ -1329,7 +1346,14 @@ mod collect_bindings_tests {
             atom_identifier("y"),
         ]);
 
-        collect_bindings(&pattern_args, &list_expr, &mut bindings, &mut binding_kind).unwrap();
+        collect_bindings(
+            &pattern_args,
+            &list_expr,
+            &mut bindings,
+            &mut binding_kind,
+            false,
+        )
+        .unwrap();
         let mut post_bindings = FxHashMap::default();
 
         post_bindings.insert(
@@ -1379,7 +1403,14 @@ mod collect_bindings_tests {
 
         let mut post_bindings = FxHashMap::default();
 
-        collect_bindings(&pattern_args, &list_expr, &mut bindings, &mut binding_kind).unwrap();
+        collect_bindings(
+            &pattern_args,
+            &list_expr,
+            &mut bindings,
+            &mut binding_kind,
+            false,
+        )
+        .unwrap();
         post_bindings.insert("a".into(), atom_int(1));
         post_bindings.insert("b".into(), atom_identifier("apple"));
         post_bindings.insert(

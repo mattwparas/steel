@@ -144,10 +144,11 @@ impl<'a> ReplaceExpressions<'a> {
     //     ExprKind::Atom(expr)
     // }
 
-    fn expand_ellipses(&mut self, vec_exprs: &mut Vec<ExprKind>) -> Result<()> {
+    // Note: Returns a bool indicating if this should be made improper/rest or not
+    fn expand_ellipses(&mut self, vec_exprs: &mut Vec<ExprKind>) -> Result<bool> {
         if let Some(ellipses_pos) = vec_exprs.iter().position(check_ellipses) {
             if ellipses_pos == 0 {
-                return Ok(());
+                return Ok(false);
             }
 
             let variable_to_lookup = vec_exprs.get(ellipses_pos - 1).ok_or_else(
@@ -162,23 +163,29 @@ impl<'a> ReplaceExpressions<'a> {
                             ..
                         },
                 }) => {
+                    let improper;
+
                     // let rest = self.bindings.get(var).ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanding ellipses: {var}")))?;
 
                     let rest = if let Some(rest) = self.bindings.get(var) {
                         rest
                     } else {
-                        return Ok(());
+                        return Ok(false);
                     };
 
                     let list_of_exprs = if let ExprKind::List(list_of_exprs) = rest {
+                        improper = list_of_exprs.improper;
+
                         list_of_exprs
                     } else {
                         let res = if let Some(res) = self.fallback_bindings.get(var) {
                             res.list_or_else(
                         throw!(BadSyntax => "macro expansion failed, expected list of expressions, found: {}, within {}", rest, super::ast::List::new(vec_exprs.clone())))?
                         } else {
-                            return Ok(());
+                            return Ok(false);
                         };
+
+                        improper = res.improper;
 
                         //     let res = self.fallback_bindings.get(var).ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanding ellipses: {var}")))?.list_or_else(
                         //     throw!(BadSyntax => "macro expansion failed, expected list of expressions, found: {}, within {}", rest, super::ast::List::new(vec_exprs.clone()))
@@ -206,10 +213,12 @@ impl<'a> ReplaceExpressions<'a> {
 
                     // *vec_exprs = first_chunk;
 
-                    Ok(())
+                    Ok(improper)
                 }
 
-                ExprKind::List(_) => {
+                ExprKind::List(bound_list) => {
+                    let improper = bound_list.improper;
+
                     let visitor = EllipsesExpanderVisitor::find_expansion_width_and_collect_ellipses_expanders(self.bindings, self.binding_kind, variable_to_lookup);
 
                     if let Some(error) = visitor.error {
@@ -273,7 +282,7 @@ impl<'a> ReplaceExpressions<'a> {
 
                     // *vec_exprs = first_chunk;
 
-                    Ok(())
+                    Ok(improper)
 
                     // Ok(())
 
@@ -285,7 +294,7 @@ impl<'a> ReplaceExpressions<'a> {
                 }
             }
         } else {
-            Ok(())
+            Ok(false)
         }
     }
 
@@ -481,10 +490,14 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
                     // return self.visit(expanded);
                 }
 
-                self.expand_ellipses(&mut l.args)?;
+                let improper = self.expand_ellipses(&mut l.args)?;
 
                 for expr in l.args.iter_mut() {
                     self.visit(expr)?;
+                }
+
+                if improper {
+                    l.set_improper();
                 }
 
                 if let Some(expanded) = self.vec_syntax_span_object(&l.args)? {
@@ -523,13 +536,17 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
         &mut self,
         lambda_function: &mut super::ast::LambdaFunction,
     ) -> Self::Output {
-        self.expand_ellipses(&mut lambda_function.args)?;
+        let improper = self.expand_ellipses(&mut lambda_function.args)?;
 
         for arg in lambda_function.args.iter_mut() {
             self.visit(arg)?;
         }
 
         self.visit(&mut lambda_function.body)?;
+
+        if improper {
+            lambda_function.rest = true;
+        }
 
         // TODO: @Matt - 2/28/12 -> clean up this
         // This mangles the values
