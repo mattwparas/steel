@@ -1,9 +1,9 @@
 use steel_derive::function;
 
 use crate::{
+    gc::shared::ShareableMut,
     rerrs::ErrorKind,
-    rvals::FromSteelVal,
-    rvals::{RestArgsIter, Result, SteelByteVector, SteelString},
+    rvals::{FromSteelVal, RestArgsIter, Result, SteelByteVector, SteelString},
     steel_vm::builtin::BuiltInModule,
     stop, throw, SteelErr, SteelVal,
 };
@@ -107,7 +107,7 @@ pub fn bytevector_copy_new(
     bytevector: &SteelByteVector,
     mut rest: RestArgsIter<'_, isize>,
 ) -> Result<SteelVal> {
-    let guard = bytevector.vec.borrow();
+    let guard = bytevector.vec.read();
 
     let start = if let Some(start) = rest.next() {
         let start = start?;
@@ -203,7 +203,7 @@ pub fn is_byte(value: &SteelVal) -> bool {
 /// ```
 #[function(name = "bytes-length")]
 pub fn bytes_length(value: &SteelByteVector) -> usize {
-    value.vec.borrow().len()
+    value.vec.read().len()
 }
 
 /// Converts the given string to a bytevector
@@ -234,7 +234,7 @@ pub fn string_to_bytes(value: &SteelString) -> Result<SteelVal> {
 /// ```
 #[function(name = "bytes-ref")]
 pub fn bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
-    let guard = value.vec.borrow();
+    let guard = value.vec.read();
     guard
         .get(index)
         .ok_or_else(
@@ -260,7 +260,7 @@ pub fn bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
 /// ```
 #[function(name = "bytes-set!")]
 pub fn bytes_set(value: &mut SteelByteVector, index: usize, byte: u8) -> Result<SteelVal> {
-    let mut guard = value.vec.borrow_mut();
+    let mut guard = value.vec.write();
 
     if index > guard.len() {
         stop!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard);
@@ -282,7 +282,7 @@ pub fn bytes_to_list(value: &SteelByteVector) -> Result<SteelVal> {
     Ok(SteelVal::ListV(
         value
             .vec
-            .borrow()
+            .read()
             .iter()
             .map(|x| SteelVal::IntV(*x as isize))
             .collect(),
@@ -313,9 +313,9 @@ pub fn bytes_append(value: &SteelByteVector, other: &SteelByteVector) -> Result<
     Ok(SteelVal::ByteVector(SteelByteVector::new(
         value
             .vec
-            .borrow()
+            .read()
             .iter()
-            .chain(other.vec.borrow().iter())
+            .chain(other.vec.read().iter())
             .copied()
             .collect(),
     )))

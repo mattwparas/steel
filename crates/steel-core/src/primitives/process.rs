@@ -3,6 +3,7 @@ use std::io::{BufReader, BufWriter};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::rc::Rc;
 
+use crate::gc::Gc;
 use crate::values::port::{SteelPort, SteelPortRepr};
 use crate::values::structs::SteelResult;
 use crate::SteelVal;
@@ -70,9 +71,7 @@ impl ChildProcess {
             .and_then(|x| x.stdout.take())
             .and_then(|x| {
                 Some(SteelVal::PortV(SteelPort {
-                    port: Rc::new(RefCell::new(SteelPortRepr::ChildStdOutput(BufReader::new(
-                        x,
-                    )))),
+                    port: Gc::new_mut(SteelPortRepr::ChildStdOutput(BufReader::new(x))),
                 }))
             });
 
@@ -88,9 +87,7 @@ impl ChildProcess {
             .and_then(|x| x.stdin.take())
             .and_then(|x| {
                 Some(SteelVal::PortV(SteelPort {
-                    port: Rc::new(RefCell::new(SteelPortRepr::ChildStdInput(BufWriter::new(
-                        x,
-                    )))),
+                    port: Gc::new_mut(SteelPortRepr::ChildStdInput(BufWriter::new(x))),
                 }))
             });
 

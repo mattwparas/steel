@@ -1,6 +1,10 @@
 #![allow(unused)]
 
+use crate::gc::shared::MutContainer;
+use crate::gc::shared::ShareableMut;
 use crate::gc::shared::Shared;
+use crate::gc::shared::WeakShared;
+use crate::gc::shared::WeakSharedMut;
 use crate::gc::SharedMut;
 use crate::primitives::lists::car;
 use crate::primitives::lists::cdr;
@@ -356,7 +360,7 @@ impl SteelThread {
         let result = instructions
             .iter()
             .zip(spans.iter())
-            .map(|x| self.execute(Shared::clone(x.0), constant_map.clone(), Rc::clone(x.1)))
+            .map(|x| self.execute(Shared::clone(x.0), constant_map.clone(), Shared::clone(x.1)))
             .collect();
 
         self.constant_map = DEFAULT_CONSTANT_MAP.with(|x| x.clone());
@@ -403,7 +407,7 @@ impl SteelThread {
                 let mut vm_instance = VmCore::new_unchecked(
                     Shared::new([]),
                     constant_map,
-                    Rc::clone(&spans),
+                    Shared::clone(&spans),
                     self,
                     &spans,
                 );
@@ -450,8 +454,13 @@ impl SteelThread {
                 }
             }
             SteelVal::ContinuationFunction(c) => {
-                let mut vm_instance =
-                    VmCore::new_unchecked(Shared::new([]), constant_map, Rc::new([]), self, &[]);
+                let mut vm_instance = VmCore::new_unchecked(
+                    Shared::new([]),
+                    constant_map,
+                    Shared::new([]),
+                    self,
+                    &[],
+                );
 
                 vm_instance.call_cont_with_args(c, args)
             }
@@ -462,10 +471,7 @@ impl SteelThread {
                 let mut vm_instance = VmCore::new_unchecked(
                     Shared::new([]),
                     constant_map,
-                    // &mut self.function_stack,
-                    // &mut self.stack_index,
-                    // 0,
-                    Rc::clone(&spans),
+                    Shared::clone(&spans),
                     self,
                     &spans,
                 );
@@ -482,15 +488,20 @@ impl SteelThread {
         &mut self,
         instructions: Shared<[DenseInstruction]>,
         constant_map: ConstantMap,
-        spans: Rc<[Span]>,
+        spans: Shared<[Span]>,
     ) -> Result<SteelVal> {
         self.profiler.reset();
 
         #[cfg(feature = "profiling")]
         let execution_time = Instant::now();
 
-        let mut vm_instance =
-            VmCore::new(instructions, constant_map, Rc::clone(&spans), self, &spans)?;
+        let mut vm_instance = VmCore::new(
+            instructions,
+            constant_map,
+            Shared::clone(&spans),
+            self,
+            &spans,
+        )?;
 
         // This is our pseudo "dynamic unwind"
         // If we need to, we'll walk back on the stack and find any handlers to pop
@@ -687,9 +698,9 @@ impl Continuation {
         if let Some(cont_mark) = stack_frame
             .weak_continuation_mark
             .as_ref()
-            .and_then(|x| Weak::upgrade(&x.inner))
+            .and_then(|x| WeakShared::upgrade(&x.inner))
         {
-            cont_mark.borrow_mut().close(ctx);
+            cont_mark.write().close(ctx);
 
             return true;
         }
@@ -699,7 +710,7 @@ impl Continuation {
 
     pub fn set_state_from_continuation(ctx: &mut VmCore<'_>, this: Self) {
         // Check if this is an open
-        let maybe_open_mark = (*this.inner.borrow()).clone().into_open_mark();
+        let maybe_open_mark = (*this.inner.read()).clone().into_open_mark();
 
         if let Some(open) = maybe_open_mark {
             // println!("Setting state from open continuation");
@@ -718,7 +729,7 @@ impl Continuation {
                 if let Some(mark) = &stack_frame
                     .weak_continuation_mark
                     .as_ref()
-                    .and_then(|x| Weak::upgrade(&x.inner))
+                    .and_then(|x| WeakShared::upgrade(&x.inner))
                 {
                     if Shared::ptr_eq(&mark, &this.inner) {
                         if weak_count == 1 && strong_count > 1 {
@@ -727,7 +738,7 @@ impl Continuation {
                                 // set state from the continuation in both spots. There is a nefarious
                                 // bug here that I haven't yet resolved.
                                 let definitely_closed =
-                                    this.inner.borrow().clone().into_closed().unwrap();
+                                    this.inner.read().clone().into_closed().unwrap();
 
                                 ctx.set_state_from_continuation(definitely_closed);
 
@@ -787,7 +798,7 @@ impl Continuation {
                     ctx.set_state_from_continuation(cont.into_closed().unwrap());
                 }
                 Err(e) => {
-                    let definitely_closed = e.borrow().clone().into_closed().unwrap();
+                    let definitely_closed = e.read().clone().into_closed().unwrap();
 
                     ctx.set_state_from_continuation(definitely_closed);
                 }
@@ -800,15 +811,23 @@ impl Continuation {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct Continuation {
     // TODO: This _might_ need to be a weak reference. We'll see!
     pub(crate) inner: SharedMut<ContinuationMark>,
 }
 
+impl PartialEq for Continuation {
+    fn eq(&self, other: &Self) -> bool {
+        *(self.inner.read()) == *(other.inner.read())
+    }
+}
+
+impl Eq for Continuation {}
+
 #[derive(Clone, Debug)]
 struct WeakContinuation {
-    pub(crate) inner: Weak<RefCell<ContinuationMark>>,
+    pub(crate) inner: WeakSharedMut<ContinuationMark>,
 }
 
 impl WeakContinuation {
@@ -1018,8 +1037,7 @@ impl<'a> VmCore<'a> {
     fn new_unchecked(
         instructions: Shared<[DenseInstruction]>,
         constants: ConstantMap,
-        spans: Rc<[Span]>,
-        // span_id: usize,
+        spans: Shared<[Span]>,
         thread: &'a mut SteelThread,
         root_spans: &'a [Span],
     ) -> VmCore<'a> {
@@ -1029,8 +1047,6 @@ impl<'a> VmCore<'a> {
             ip: 0,
             sp: 0,
             pop_count: 1,
-            // spans,
-            // span_id,
             depth: 0,
             thread,
             root_spans,
@@ -1040,8 +1056,7 @@ impl<'a> VmCore<'a> {
     fn new(
         instructions: Shared<[DenseInstruction]>,
         constants: ConstantMap,
-        spans: Rc<[Span]>,
-        // span_id: usize,
+        spans: Shared<[Span]>,
         thread: &'a mut SteelThread,
         root_spans: &'a [Span],
     ) -> Result<VmCore<'a>> {
@@ -1060,8 +1075,6 @@ impl<'a> VmCore<'a> {
             ip: 0,
             sp: 0,
             pop_count: 1,
-            // spans,
-            // span_id,
             depth: 0,
             thread,
             root_spans,
@@ -1107,17 +1120,19 @@ impl<'a> VmCore<'a> {
     fn new_open_continuation_from_state(&self) -> Continuation {
         let offset = self.get_offset();
         Continuation {
-            inner: Shared::new(RefCell::new(ContinuationMark::Open(OpenContinuationMark {
-                current_frame: self.thread.stack_frames.last().unwrap().clone(),
-                stack_frame_offset: self.thread.stack.len(),
-                current_stack_values: self.thread.stack[offset..].to_vec(),
-                instructions: self.instructions.clone(),
-                ip: self.ip,
-                sp: self.sp,
-                pop_count: self.pop_count,
-                #[cfg(debug_assertions)]
-                closed_continuation: self.new_closed_continuation_from_state(),
-            }))),
+            inner: Shared::new(MutContainer::new(ContinuationMark::Open(
+                OpenContinuationMark {
+                    current_frame: self.thread.stack_frames.last().unwrap().clone(),
+                    stack_frame_offset: self.thread.stack.len(),
+                    current_stack_values: self.thread.stack[offset..].to_vec(),
+                    instructions: self.instructions.clone(),
+                    ip: self.ip,
+                    sp: self.sp,
+                    pop_count: self.pop_count,
+                    #[cfg(debug_assertions)]
+                    closed_continuation: self.new_closed_continuation_from_state(),
+                },
+            ))),
         }
     }
 
@@ -1197,10 +1212,9 @@ impl<'a> VmCore<'a> {
             if let Some(cont_mark) = frame
                 .weak_continuation_mark
                 .as_ref()
-                .and_then(|x| Weak::upgrade(&x.inner))
+                .and_then(|x| WeakShared::upgrade(&x.inner))
             {
-                marks_still_open.insert(cont_mark.as_ptr() as usize);
-                // println!("Found mark still open: {:p}", cont_mark.inner);
+                marks_still_open.insert(Shared::as_ptr(&cont_mark) as usize);
             }
         }
 
@@ -1208,10 +1222,10 @@ impl<'a> VmCore<'a> {
             if let Some(cont_mark) = frame
                 .weak_continuation_mark
                 .as_ref()
-                .and_then(|x| Weak::upgrade(&x.inner))
+                .and_then(|x| WeakShared::upgrade(&x.inner))
             {
                 // Close frame if the new continuation doesn't have it
-                if !marks_still_open.contains(&(cont_mark.as_ptr() as usize)) {
+                if !marks_still_open.contains(&(Shared::as_ptr(&cont_mark) as usize)) {
                     self.thread.stack.truncate(frame.sp);
                     self.ip = frame.ip;
                     self.sp = self.get_last_stack_frame_sp();
@@ -1449,7 +1463,7 @@ impl<'a> VmCore<'a> {
         arg: SteelVal,
     ) -> Result<SteelVal> {
         thread_local! {
-            static EMPTY_INSTRUCTIONS: Shared<[DenseInstruction]> = Rc::new([]);
+            static EMPTY_INSTRUCTIONS: Shared<[DenseInstruction]> = Shared::new([]);
         }
 
         let prev_length = self.thread.stack.len();

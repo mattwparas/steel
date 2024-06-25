@@ -6,7 +6,7 @@ use super::{
     vm::{get_test_mode, list_modules, set_test_mode, VmCore},
 };
 use crate::{
-    gc::Gc,
+    gc::{shared::ShareableMut, Gc, GcMut},
     parser::{
         ast::TryFromSteelValVisitorForExprKind, interner::InternedString, span::Span,
         tryfrom_visitor::TryFromExprKindForSteelVal,
@@ -1364,13 +1364,13 @@ fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
 }
 
 #[steel_derive::function(name = "unbox-strong")]
-pub fn unbox(value: &Gc<RefCell<SteelVal>>) -> SteelVal {
-    value.borrow().clone()
+pub fn unbox(value: &GcMut<SteelVal>) -> SteelVal {
+    value.read().clone()
 }
 
 #[steel_derive::function(name = "set-strong-box!")]
-pub fn set_box(value: &Gc<RefCell<SteelVal>>, update_to: SteelVal) {
-    *value.borrow_mut() = update_to;
+pub fn set_box(value: &GcMut<SteelVal>, update_to: SteelVal) {
+    *value.write() = update_to;
 }
 
 pub fn black_box(_: &[SteelVal]) -> Result<SteelVal> {

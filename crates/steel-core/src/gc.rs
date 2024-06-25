@@ -13,11 +13,27 @@ pub(crate) static MAXIMUM_OBJECTS: usize = 50000;
 
 pub use shared::{GcMut, Shared, SharedMut};
 
+#[cfg(feature = "sync")]
+use parking_lot::RwLock;
+
 pub mod shared {
-    use std::cell::{Ref, RefCell, RefMut};
+    use std::cell::{BorrowError, BorrowMutError, Ref, RefCell, RefMut};
     use std::ops::{Deref, DerefMut};
     use std::rc::Rc;
-    use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+
+    // TODO: Replace these with `parking_lot` primitives instead
+    use std::sync::{
+        Arc,
+        Mutex,
+        MutexGuard,
+        // RwLock, RwLockReadGuard, RwLockWriteGuard,
+        TryLockResult,
+    };
+
+    use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+
+    #[cfg(feature = "sync")]
+    use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard};
 
     use super::Gc;
 
@@ -26,6 +42,15 @@ pub mod shared {
 
     #[cfg(not(feature = "sync"))]
     pub type SharedMut<T> = Rc<RefCell<T>>;
+
+    #[cfg(not(feature = "sync"))]
+    pub type WeakSharedMut<T> = std::rc::Weak<RefCell<T>>;
+
+    #[cfg(not(feature = "sync"))]
+    pub type WeakShared<T> = std::rc::Weak<T>;
+
+    #[cfg(not(feature = "sync"))]
+    pub type MutContainer<T> = RefCell<T>;
 
     #[cfg(not(feature = "sync"))]
     pub type GcMut<T> = Gc<RefCell<T>>;
@@ -39,6 +64,51 @@ pub mod shared {
     #[cfg(feature = "sync")]
     pub type GcMut<T> = Gc<RwLock<T>>;
 
+    #[cfg(feature = "sync")]
+    pub type WeakSharedMut<T> = std::sync::Weak<RwLock<T>>;
+
+    #[cfg(feature = "sync")]
+    pub type WeakShared<T> = std::sync::Weak<T>;
+
+    #[cfg(feature = "sync")]
+    pub type MutContainer<T> = RwLock<T>;
+
+    pub trait MutableContainer<T> {
+        fn consume(self) -> T;
+    }
+
+    impl<T> MutableContainer<T> for RefCell<T> {
+        fn consume(self) -> T {
+            self.into_inner()
+        }
+    }
+
+    impl<T> MutableContainer<T> for RwLock<T> {
+        fn consume(self) -> T {
+            self.into_inner()
+        }
+    }
+
+    #[cfg(not(feature = "sync"))]
+    pub type ScopedReadContainer<'a, T> = Ref<'a, T>;
+    #[cfg(not(feature = "sync"))]
+    pub type ScopedWriteContainer<'a, T> = RefMut<'a, T>;
+
+    #[cfg(feature = "sync")]
+    pub type ScopedReadContainer<'a, T> = RwLockReadGuard<'a, T>;
+    #[cfg(feature = "sync")]
+    pub type ScopedWriteContainer<'a, T> = RwLockWriteGuard<'a, T>;
+
+    #[cfg(not(feature = "sync"))]
+    pub type MappedScopedReadContainer<'a, T> = Ref<'a, T>;
+    #[cfg(not(feature = "sync"))]
+    pub type MappedScopedWriteContainer<'a, T> = RefMut<'a, T>;
+
+    #[cfg(feature = "sync")]
+    pub type MappedScopedReadContainer<'a, T> = MappedRwLockReadGuard<'a, T>;
+    #[cfg(feature = "sync")]
+    pub type MappedScopedWriteContainer<'a, T> = MappedRwLockWriteGuard<'a, T>;
+
     pub trait ShareableMut<T>: Clone {
         type ShareableRead<'a>: Deref<Target = T>
         where
@@ -46,15 +116,31 @@ pub mod shared {
         type ShareableWrite<'a>: DerefMut<Target = T>
         where
             Self: 'a;
+
+        type TryReadResult<'a>
+        where
+            Self: 'a;
+        type TryWriteResult<'a>
+        where
+            Self: 'a;
+
         /// Obtain a scoped guard for reading
         fn read<'a>(&'a self) -> Self::ShareableRead<'a>;
         /// Obtain a scoped guard for writing
         fn write<'a>(&'a self) -> Self::ShareableWrite<'a>;
+
+        /// Fallibly obtain a scoped guard for reading
+        fn try_read<'a>(&'a self) -> Self::TryReadResult<'a>;
+
+        /// Fallibly obtain a scoped guard for writing
+        fn try_write<'a>(&'a self) -> Self::TryWriteResult<'a>;
     }
 
     impl<T> ShareableMut<T> for Rc<RefCell<T>> {
         type ShareableRead<'a> = Ref<'a, T> where T: 'a;
         type ShareableWrite<'a> = RefMut<'a, T> where T: 'a;
+        type TryReadResult<'a> = Result<Ref<'a, T>, BorrowError> where T: 'a;
+        type TryWriteResult<'a> = Result<RefMut<'a, T>, BorrowMutError> where T: 'a;
 
         fn read<'a>(&'a self) -> Self::ShareableRead<'a> {
             Rc::deref(self).borrow()
@@ -63,11 +149,21 @@ pub mod shared {
         fn write<'a>(&'a self) -> Self::ShareableWrite<'a> {
             Rc::deref(self).borrow_mut()
         }
+
+        fn try_write<'a>(&'a self) -> Self::TryWriteResult<'a> {
+            Rc::deref(self).try_borrow_mut()
+        }
+
+        fn try_read<'a>(&'a self) -> Self::TryReadResult<'a> {
+            Rc::deref(self).try_borrow()
+        }
     }
 
     impl<T> ShareableMut<T> for Gc<RefCell<T>> {
         type ShareableRead<'a> = Ref<'a, T> where T: 'a;
         type ShareableWrite<'a> = RefMut<'a, T> where T: 'a;
+        type TryReadResult<'a> = Result<Ref<'a, T>, BorrowError> where T: 'a;
+        type TryWriteResult<'a> = Result<RefMut<'a, T>, BorrowMutError> where T: 'a;
 
         fn read<'a>(&'a self) -> Self::ShareableRead<'a> {
             Gc::deref(self).borrow()
@@ -76,45 +172,97 @@ pub mod shared {
         fn write<'a>(&'a self) -> Self::ShareableWrite<'a> {
             Gc::deref(self).borrow_mut()
         }
+
+        fn try_write<'a>(&'a self) -> Self::TryWriteResult<'a> {
+            Gc::deref(self).try_borrow_mut()
+        }
+
+        fn try_read<'a>(&'a self) -> Self::TryReadResult<'a> {
+            Gc::deref(self).try_borrow()
+        }
     }
 
     impl<T> ShareableMut<T> for Arc<RwLock<T>> {
         type ShareableRead<'a> = RwLockReadGuard<'a, T> where T: 'a;
         type ShareableWrite<'a> = RwLockWriteGuard<'a, T> where T: 'a;
+        // type TryReadResult<'a>
+        // = TryLockResult<RwLockReadGuard<'a, T>> where T: 'a;
+        type TryReadResult<'a>
+        = Result<RwLockReadGuard<'a, T>, ()> where T: 'a;
+        // type TryWriteResult<'a>
+        // = TryLockResult<RwLockWriteGuard<'a, T>> where T: 'a;
+        type TryWriteResult<'a>
+        = Result<RwLockWriteGuard<'a, T>, ()> where T: 'a;
 
         fn read<'a>(&'a self) -> Self::ShareableRead<'a> {
-            Arc::deref(self)
-                .read()
-                .expect("Read lock should not be poisoned")
+            Arc::deref(self).read()
+            // .expect("Read lock should not be poisoned")
         }
 
         fn write<'a>(&'a self) -> Self::ShareableWrite<'a> {
-            Arc::deref(self)
-                .write()
-                .expect("Write lock should not be poisoned")
+            Arc::deref(self).write()
+            // .expect("Write lock should not be poisoned")
+        }
+
+        fn try_read<'a>(&'a self) -> Self::TryReadResult<'a> {
+            match Arc::deref(self).try_read() {
+                Some(v) => Ok(v),
+                None => Err(()),
+            }
+        }
+
+        fn try_write<'a>(&'a self) -> Self::TryWriteResult<'a> {
+            match Arc::deref(self).try_write() {
+                Some(v) => Ok(v),
+                None => Err(()),
+            }
         }
     }
 
     impl<T> ShareableMut<T> for Gc<RwLock<T>> {
         type ShareableRead<'a> = RwLockReadGuard<'a, T> where T: 'a;
         type ShareableWrite<'a> = RwLockWriteGuard<'a, T> where T: 'a;
+        // type TryReadResult<'a>
+        // = TryLockResult<RwLockReadGuard<'a, T>> where T: 'a;
+        // type TryWriteResult<'a>
+        // = TryLockResult<RwLockWriteGuard<'a, T>> where T: 'a;
+        type TryReadResult<'a>
+        = Result<RwLockReadGuard<'a, T>, ()> where T: 'a;
+        type TryWriteResult<'a>
+        = Result<RwLockWriteGuard<'a, T>, ()> where T: 'a;
 
         fn read<'a>(&'a self) -> Self::ShareableRead<'a> {
-            Gc::deref(self)
-                .read()
-                .expect("Read lock should not be poisoned")
+            Gc::deref(self).read()
+            // .expect("Read lock should not be poisoned")
         }
 
         fn write<'a>(&'a self) -> Self::ShareableWrite<'a> {
-            Gc::deref(self)
-                .write()
-                .expect("Write lock should not be poisoned")
+            Gc::deref(self).write()
+            // .expect("Write lock should not be poisoned")
+        }
+
+        fn try_read<'a>(&'a self) -> Self::TryReadResult<'a> {
+            match Gc::deref(self).try_read() {
+                Some(v) => Ok(v),
+                None => Err(()),
+            }
+        }
+
+        fn try_write<'a>(&'a self) -> Self::TryWriteResult<'a> {
+            match Gc::deref(self).try_write() {
+                Some(v) => Ok(v),
+                None => Err(()),
+            }
         }
     }
 
     impl<T> ShareableMut<T> for Arc<Mutex<T>> {
         type ShareableRead<'a> = MutexGuard<'a, T> where T: 'a;
         type ShareableWrite<'a> = MutexGuard<'a, T> where T: 'a;
+        type TryReadResult<'a>
+        = TryLockResult<MutexGuard<'a, T>> where T: 'a;
+        type TryWriteResult<'a>
+        = TryLockResult<MutexGuard<'a, T>> where T: 'a;
 
         fn read<'a>(&'a self) -> Self::ShareableRead<'a> {
             Arc::deref(self)
@@ -126,12 +274,24 @@ pub mod shared {
             Arc::deref(self)
                 .lock()
                 .expect("Mutex should not be poisoned")
+        }
+
+        fn try_read<'a>(&'a self) -> Self::TryReadResult<'a> {
+            Arc::deref(self).try_lock()
+        }
+
+        fn try_write<'a>(&'a self) -> Self::TryWriteResult<'a> {
+            Arc::deref(self).try_lock()
         }
     }
 
     impl<T> ShareableMut<T> for Gc<Mutex<T>> {
         type ShareableRead<'a> = MutexGuard<'a, T> where T: 'a;
         type ShareableWrite<'a> = MutexGuard<'a, T> where T: 'a;
+        type TryReadResult<'a>
+        = TryLockResult<MutexGuard<'a, T>> where T: 'a;
+        type TryWriteResult<'a>
+        = TryLockResult<MutexGuard<'a, T>> where T: 'a;
 
         fn read<'a>(&'a self) -> Self::ShareableRead<'a> {
             Gc::deref(self)
@@ -143,6 +303,14 @@ pub mod shared {
             Gc::deref(self)
                 .lock()
                 .expect("Mutex should not be poisoned")
+        }
+
+        fn try_read<'a>(&'a self) -> Self::TryReadResult<'a> {
+            Gc::deref(self).try_lock()
+        }
+
+        fn try_write<'a>(&'a self) -> Self::TryWriteResult<'a> {
+            Gc::deref(self).try_lock()
         }
     }
 }
@@ -195,7 +363,7 @@ impl<T: Clone> Gc<T> {
     }
 
     pub fn make_mut(&mut self) -> &mut T {
-        Rc::make_mut(&mut self.0)
+        Shared::make_mut(&mut self.0)
     }
 }
 
@@ -277,7 +445,7 @@ impl<T> Deref for Gc<T> {
 impl<T: ?Sized> Clone for Gc<T> {
     #[inline(always)]
     fn clone(&self) -> Self {
-        Gc(Rc::clone(&self.0))
+        Gc(Shared::clone(&self.0))
     }
 }
 

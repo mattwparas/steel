@@ -1,3 +1,4 @@
+use crate::gc::Gc;
 use crate::rvals::{Result, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::stop;
@@ -45,14 +46,14 @@ pub fn port_module() -> BuiltInModule {
 #[function(name = "stdin")]
 pub fn open_stdin() -> SteelVal {
     SteelVal::PortV(SteelPort {
-        port: new_rc_ref_cell(SteelPortRepr::StdInput(std::io::stdin())),
+        port: Gc::new_mut(SteelPortRepr::StdInput(std::io::stdin())),
     })
 }
 
 #[function(name = "stdout")]
 pub fn open_stdout() -> SteelVal {
     SteelVal::PortV(SteelPort {
-        port: new_rc_ref_cell(SteelPortRepr::StdOutput(std::io::stdout())),
+        port: Gc::new_mut(SteelPortRepr::StdOutput(std::io::stdout())),
     })
 }
 

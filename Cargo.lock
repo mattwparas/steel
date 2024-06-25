@@ -2901,6 +2901,7 @@ dependencies = [
  "log",
  "num",
  "once_cell",
+ "parking_lot",
  "pretty",
  "proptest",
  "quickscope",

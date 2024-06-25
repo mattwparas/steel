@@ -20,7 +20,7 @@ pub mod transducers;
 mod utils;
 pub mod vectors;
 
-use crate::gc::Gc;
+use crate::gc::{Gc, GcMut};
 use crate::rvals::{FromSteelVal, IntoSteelVal, SteelByteVector};
 use crate::rvals::{
     FunctionSignature, PrimitiveAsRef, PrimitiveAsRefMut, SteelHashMap, SteelHashSet, SteelVal,
@@ -454,7 +454,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a UserDefinedStruct {
     }
 }
 
-impl<'a> PrimitiveAsRef<'a> for &'a Gc<RefCell<SteelVal>> {
+impl<'a> PrimitiveAsRef<'a> for &'a GcMut<SteelVal> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::Boxed(c) = val {

@@ -45,7 +45,11 @@ impl MemoizationTable {
 }
 
 pub struct WeakMemoizationTable {
+    #[cfg(not(feature = "sync"))]
     table: WeakKeyHashMap<Weak<ByteCodeLambda>, HashMap<List<SteelVal>, SteelVal>>,
+
+    #[cfg(feature = "sync")]
+    table: WeakKeyHashMap<std::sync::Weak<ByteCodeLambda>, HashMap<List<SteelVal>, SteelVal>>,
 }
 
 impl WeakMemoizationTable {

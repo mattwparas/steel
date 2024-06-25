@@ -5,6 +5,7 @@
 use std::borrow::Cow;
 use std::{cell::RefCell, convert::TryFrom, io::Write, rc::Rc};
 
+use crate::gc::shared::ShareableMut;
 use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
 // use im_lists::list::List;
 use crate::values::lists::List;
@@ -201,12 +202,12 @@ fn drain_custom_output_port() -> String {
     CAPTURED_OUTPUT_PORT.with(|x| {
         // Flush the buffer
         {
-            x.borrow_mut()
+            x.write()
                 .flush()
                 .expect("Unable to flush the captured output port");
         }
 
-        std::str::from_utf8(&x.borrow_mut().get_mut().drain(0..).collect::<Vec<u8>>())
+        std::str::from_utf8(&x.write().get_mut().drain(0..).collect::<Vec<u8>>())
             .unwrap_or("Unable to capture std out")
             .to_string()
     })

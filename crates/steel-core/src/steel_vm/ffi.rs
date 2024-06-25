@@ -7,7 +7,10 @@ use std::{
 };
 
 use crate::{
-    gc::Gc,
+    gc::{
+        shared::{ScopedWriteContainer, ShareableMut},
+        Gc,
+    },
     rerrs::ErrorKind,
     rvals::{
         as_underlying_type_mut, Custom, CustomType, FutureResult, IntoSteelVal, Result,
@@ -869,7 +872,7 @@ pub struct CustomRef<'a> {
     pub custom: RMut<'a, OpaqueObject_TO<'static, RBox<()>>>,
     // TODO: Make this private
     #[sabi(unsafe_opaque_field)]
-    guard: RefMut<'a, Box<dyn CustomType>>,
+    guard: ScopedWriteContainer<'a, Box<dyn CustomType>>,
 }
 
 #[repr(C)]
@@ -877,7 +880,7 @@ pub struct CustomRef<'a> {
 pub struct VectorRef<'a> {
     pub vec: RSliceMut<'a, FFIValue>,
     #[sabi(unsafe_opaque_field)]
-    guard: RefMut<'a, Box<dyn CustomType>>,
+    guard: ScopedWriteContainer<'a, Box<dyn CustomType>>,
 }
 
 #[repr(C)]
@@ -885,7 +888,7 @@ pub struct VectorRef<'a> {
 pub struct StringMutRef<'a> {
     string: RMut<'a, RString>,
     #[sabi(unsafe_opaque_field)]
-    guard: RefMut<'a, Box<dyn CustomType>>,
+    guard: ScopedWriteContainer<'a, Box<dyn CustomType>>,
 }
 
 // TODO:
@@ -1262,7 +1265,8 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
         SteelVal::Void => Ok(FFIArg::Void),
         // We can really only look at values that were made from the FFI boundary.
         SteelVal::Custom(c) => {
-            let mut guard = if let Ok(guard) = RefCell::try_borrow_mut(c) {
+            // let mut guard = if let Ok(guard) = RefCell::try_borrow_mut(c) {
+            let mut guard = if let Ok(guard) = c.try_write() {
                 guard
             } else {
                 stop!(Generic => "value cannot be borrowed mutably twice over the ffi boundary: {:?}", value)

@@ -13,6 +13,9 @@ use std::sync::Mutex;
 // use utils::chars::Chars;
 // use utils::{new_rc_ref_cell, RcRefCell};
 
+use crate::gc::shared::ShareableMut;
+use crate::gc::Gc;
+use crate::gc::GcMut;
 use crate::rerrs;
 use crate::rvals::Result;
 use crate::SteelErr;
@@ -32,15 +35,13 @@ pub fn new_rc_ref_cell<T>(x: T) -> RcRefCell<T> {
 thread_local! {
     // TODO: This needs to be per engine, not global, and functions should accept the port they use
     // Probably by boxing up the port that gets used
-    pub static DEFAULT_OUTPUT_PORT: RcRefCell<SteelPort> = new_rc_ref_cell(SteelPort { port: new_rc_ref_cell(SteelPortRepr::StdOutput(io::stdout())) } );
-    pub static CAPTURED_OUTPUT_PORT: RcRefCell<BufWriter<Vec<u8>>> = new_rc_ref_cell(BufWriter::new(Vec::new()));
-
-    // pub static STANDARD_OUT: SteelPort = SteelPort::StringOutput(Rc::new(RefCell::new(BufWriter::new(Vec::new()))));
+    pub static DEFAULT_OUTPUT_PORT: GcMut<SteelPort> = Gc::new_mut(SteelPort { port: Gc::new_mut(SteelPortRepr::StdOutput(io::stdout())) } );
+    pub static CAPTURED_OUTPUT_PORT: GcMut<BufWriter<Vec<u8>>> = Gc::new_mut(BufWriter::new(Vec::new()));
 }
 
 #[derive(Debug, Clone)]
 pub struct SteelPort {
-    pub(crate) port: RcRefCell<SteelPortRepr>,
+    pub(crate) port: GcMut<SteelPortRepr>,
 }
 
 // #[derive(Debug)]
@@ -99,7 +100,7 @@ impl SendablePort {
     }
 
     pub fn from_port(value: SteelPort) -> Result<SendablePort> {
-        Self::from_port_repr(&value.port.borrow())
+        Self::from_port_repr(&value.port.read())
     }
 }
 
@@ -107,16 +108,16 @@ impl SteelPort {
     pub fn from_sendable_port(value: SendablePort) -> Self {
         match value {
             SendablePort::StdInput(s) => SteelPort {
-                port: new_rc_ref_cell(SteelPortRepr::StdInput(s)),
+                port: Gc::new_mut(SteelPortRepr::StdInput(s)),
             },
             SendablePort::StdOutput(s) => SteelPort {
-                port: new_rc_ref_cell(SteelPortRepr::StdOutput(s)),
+                port: Gc::new_mut(SteelPortRepr::StdOutput(s)),
             },
             SendablePort::Closed => SteelPort {
-                port: new_rc_ref_cell(SteelPortRepr::Closed),
+                port: Gc::new_mut(SteelPortRepr::Closed),
             },
             SendablePort::BoxDynWriter(w) => SteelPort {
-                port: new_rc_ref_cell(SteelPortRepr::DynWriter(w)),
+                port: Gc::new_mut(SteelPortRepr::DynWriter(w)),
             },
         }
     }
@@ -154,13 +155,7 @@ impl SteelPortRepr {
             SteelPortRepr::StdInput(br) => port_read_str_fn!(br, read_line),
 
             SteelPortRepr::ChildStdOutput(br) => {
-                // let buf_reader = BufReader::new(br.borrow_mut().as_mut());
-
                 port_read_str_fn!(br, read_line)
-
-                // todo!()
-
-                // buf_reader
             }
 
             // SteelPort::ChildStdOutput(br) => port_read_str_fn!(br, read_line),
@@ -339,7 +334,7 @@ impl SteelPort {
         let file = OpenOptions::new().read(true).open(path)?;
 
         Ok(SteelPort {
-            port: new_rc_ref_cell(SteelPortRepr::FileInput(
+            port: Gc::new_mut(SteelPortRepr::FileInput(
                 path.to_string(),
                 BufReader::new(file),
             )),
@@ -354,7 +349,7 @@ impl SteelPort {
             .open(path)?;
 
         Ok(SteelPort {
-            port: new_rc_ref_cell(SteelPortRepr::FileOutput(
+            port: Gc::new_mut(SteelPortRepr::FileOutput(
                 path.to_string(),
                 BufWriter::new(file),
             )),
@@ -363,7 +358,7 @@ impl SteelPort {
 
     pub fn new_input_port_string(string: String) -> SteelPort {
         SteelPort {
-            port: new_rc_ref_cell(SteelPortRepr::StringInput(BufReader::new(Cursor::new(
+            port: Gc::new_mut(SteelPortRepr::StringInput(BufReader::new(Cursor::new(
                 string.into_bytes(),
             )))),
         }
@@ -371,7 +366,7 @@ impl SteelPort {
 
     pub fn new_output_port() -> SteelPort {
         SteelPort {
-            port: new_rc_ref_cell(SteelPortRepr::StringOutput(BufWriter::new(Vec::new()))),
+            port: Gc::new_mut(SteelPortRepr::StringOutput(BufWriter::new(Vec::new()))),
         }
     }
 
@@ -379,55 +374,55 @@ impl SteelPort {
     // Read functions
     //
     pub fn read_line(&self) -> Result<(usize, String)> {
-        self.port.borrow_mut().read_line()
+        self.port.write().read_line()
     }
 
     // TODO: Implement the rest of the flush methods
     pub fn flush(&self) -> Result<()> {
-        self.port.borrow_mut().flush()
+        self.port.write().flush()
     }
 
     pub fn read_all_str(&self) -> Result<(usize, String)> {
-        self.port.borrow_mut().read_all_str()
+        self.port.write().read_all_str()
     }
 
     pub fn read_char(&self) -> Result<(usize, char)> {
-        self.port.borrow_mut().read_char()
+        self.port.write().read_char()
     }
 
     pub fn write_char(&self, c: char) -> Result<()> {
-        self.port.borrow_mut().write_char(c)
+        self.port.write().write_char(c)
     }
 
     //
     // Write functions
     //
     pub fn write_string(&self, string: &str) -> Result<()> {
-        self.port.borrow_mut().write_string(string)
+        self.port.write().write_string(string)
     }
 
     pub fn write_string_line(&self, string: &str) -> Result<()> {
-        self.port.borrow_mut().write_string_line(string)
+        self.port.write().write_string_line(string)
     }
 
     //
     // Checks
     //
     pub fn is_input(&self) -> bool {
-        self.port.borrow().is_input()
+        self.port.read().is_input()
     }
 
     pub fn is_output(&self) -> bool {
-        self.port.borrow().is_output()
+        self.port.read().is_output()
     }
 
     pub fn is_textual(&self) -> bool {
-        self.port.borrow().is_textual()
+        self.port.read().is_textual()
     }
 
     pub fn default_current_input_port() -> Self {
         SteelPort {
-            port: new_rc_ref_cell(SteelPortRepr::StdInput(io::stdin())),
+            port: Gc::new_mut(SteelPortRepr::StdInput(io::stdin())),
         }
     }
 
@@ -435,22 +430,22 @@ impl SteelPort {
         if cfg!(test) {
             // Write out to thread safe port
             SteelPort {
-                port: new_rc_ref_cell(SteelPortRepr::DynWriter(Arc::new(Mutex::new(
+                port: Gc::new_mut(SteelPortRepr::DynWriter(Arc::new(Mutex::new(
                     BufWriter::new(Vec::new()),
                 )))),
             }
         } else {
             SteelPort {
-                port: new_rc_ref_cell(SteelPortRepr::StdOutput(io::stdout())),
+                port: Gc::new_mut(SteelPortRepr::StdOutput(io::stdout())),
             }
         }
     }
 
     pub fn get_output_string(&self) -> Result<String> {
-        self.port.borrow_mut().get_output_string()
+        self.port.write().get_output_string()
     }
 
     pub fn close_output_port(&self) -> Result<()> {
-        self.port.borrow_mut().close_output_port()
+        self.port.write().close_output_port()
     }
 }

@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     compiler::map::SymbolMap,
-    gc::GcMut,
+    gc::{shared::ShareableMut, GcMut},
     rvals::{OpaqueIterator, SteelComplex, SteelVector},
     steel_vm::vm::{Continuation, ContinuationMark},
     values::lists::List,
@@ -203,10 +203,10 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
     fn visit_boxed_function(&mut self, _function: Gc<BoxedDynFunction>) -> Self::Output {}
     // TODO: Revisit this when the boxed iterator is cleaned up
     fn visit_boxed_iterator(&mut self, iterator: GcMut<OpaqueIterator>) -> Self::Output {
-        self.push_back(iterator.borrow().root.clone());
+        self.push_back(iterator.read().root.clone());
     }
     fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) -> Self::Output {
-        self.push_back(boxed_value.borrow().clone());
+        self.push_back(boxed_value.read().clone());
     }
 
     fn visit_builtin_function(&mut self, _function: BuiltInSignature) -> Self::Output {}
@@ -238,7 +238,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
         }
     }
     fn visit_continuation(&mut self, continuation: Continuation) -> Self::Output {
-        let continuation = (*continuation.inner.borrow()).clone();
+        let continuation = (*continuation.inner.read()).clone();
 
         match continuation {
             ContinuationMark::Closed(continuation) => {
@@ -278,7 +278,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
             queue: &mut self.queue,
         };
 
-        custom_type.borrow().visit_children(&mut queue);
+        custom_type.read().visit_children(&mut queue);
     }
 
     fn visit_float(&mut self, _float: f64) -> Self::Output {}
@@ -1011,11 +1011,11 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     fn visit_bool(&mut self, _boolean: bool) -> Self::Output {}
     fn visit_boxed_function(&mut self, _function: Gc<BoxedDynFunction>) -> Self::Output {}
     // TODO: Revisit this when the boxed iterator is cleaned up
-    fn visit_boxed_iterator(&mut self, iterator: Gc<RefCell<OpaqueIterator>>) -> Self::Output {
-        self.push_back(iterator.borrow().root.clone());
+    fn visit_boxed_iterator(&mut self, iterator: GcMut<OpaqueIterator>) -> Self::Output {
+        self.push_back(iterator.read().root.clone());
     }
-    fn visit_boxed_value(&mut self, boxed_value: Gc<RefCell<SteelVal>>) -> Self::Output {
-        self.push_back(boxed_value.borrow().clone());
+    fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) -> Self::Output {
+        self.push_back(boxed_value.read().clone());
     }
 
     fn visit_builtin_function(&mut self, _function: BuiltInSignature) -> Self::Output {}
@@ -1036,7 +1036,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     }
     fn visit_continuation(&mut self, continuation: Continuation) -> Self::Output {
         // TODO: Don't clone this here!
-        let continuation = (*continuation.inner.borrow()).clone();
+        let continuation = (*continuation.inner.read()).clone();
 
         match continuation {
             ContinuationMark::Closed(continuation) => {
@@ -1071,8 +1071,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
         }
     }
     // TODO: Come back to this
-    fn visit_custom_type(&mut self, custom_type: Gc<RefCell<Box<dyn CustomType>>>) -> Self::Output {
-        custom_type.borrow().visit_children(self);
+    fn visit_custom_type(&mut self, custom_type: GcMut<Box<dyn CustomType>>) -> Self::Output {
+        custom_type.read().visit_children(self);
     }
 
     fn visit_float(&mut self, _float: f64) -> Self::Output {}

@@ -1,5 +1,6 @@
 use crate::core::instructions::u24;
 use crate::core::labels::Expr;
+use crate::gc::Shared;
 use crate::parser::span_visitor::get_span;
 use crate::rvals::{Result, SteelComplex};
 use crate::{
@@ -1109,15 +1110,15 @@ impl RawProgramWithSymbols {
         }
 
         Ok(Executable {
-            name: Rc::new(name),
-            version: Rc::new(self.version),
+            name: Shared::new(name),
+            version: Shared::new(self.version),
             #[cfg(not(target_arch = "wasm32"))]
             time_stamp: Some(SystemTime::now()),
             #[cfg(target_arch = "wasm32")]
             time_stamp: None,
             instructions: instructions
                 .into_iter()
-                .map(|x| Rc::from(x.into_boxed_slice()))
+                .map(|x| Shared::from(x.into_boxed_slice()))
                 .collect(),
             constant_map: self.constant_map,
             spans,
@@ -1129,7 +1130,7 @@ impl RawProgramWithSymbols {
 // this is kinda nasty but it _should_ work
 fn extract_spans(
     instructions: Vec<Vec<Instruction>>,
-) -> (Vec<Rc<[Span]>>, Vec<Vec<DenseInstruction>>) {
+) -> (Vec<Shared<[Span]>>, Vec<Vec<DenseInstruction>>) {
     // let mut span_vec = Vec::with_capacity(instructions.iter().map(|x| x.len()).sum());
 
     // for instruction_set in &instructions {
@@ -1185,12 +1186,12 @@ fn extract_spans(
 #[allow(unused)]
 #[derive(Clone)]
 pub struct Executable {
-    pub(crate) name: Rc<String>,
-    pub(crate) version: Rc<String>,
+    pub(crate) name: Shared<String>,
+    pub(crate) version: Shared<String>,
     pub(crate) time_stamp: Option<SystemTime>, // TODO -> don't use system time, probably not as portable, prefer date time
-    pub(crate) instructions: Vec<Rc<[DenseInstruction]>>,
+    pub(crate) instructions: Vec<Shared<[DenseInstruction]>>,
     pub(crate) constant_map: ConstantMap,
-    pub(crate) spans: Vec<Rc<[Span]>>,
+    pub(crate) spans: Vec<Shared<[Span]>>,
 }
 
 impl Executable {

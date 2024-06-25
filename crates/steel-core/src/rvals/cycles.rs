@@ -1,3 +1,4 @@
+use crate::gc::shared::{MutableContainer, ShareableMut};
 use crate::steel_vm::{
     builtin::get_function_name, engine::Engine, vm::Continuation, vm::ContinuationMark,
 };
@@ -112,7 +113,7 @@ impl CycleDetector {
                     self.cycles.get(&ptr_addr).unwrap()
                 }
                 SteelVal::Custom(l) => {
-                    let ptr_addr = l.0.as_ptr() as usize;
+                    let ptr_addr = l.as_ptr() as usize;
 
                     self.cycles.get(&ptr_addr).unwrap()
                 }
@@ -169,7 +170,7 @@ impl CycleDetector {
             BigRational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
             Complex(x) => write!(f, "{}", x.as_ref()),
             StringV(s) => write!(f, "{s:?}"),
-            ByteVector(b) => write!(f, "{:?}", b.vec.borrow()),
+            ByteVector(b) => write!(f, "{:?}", b.vec.read()),
             CharV(c) => {
                 if c.is_ascii_control() {
                     write!(f, "{}", c)
@@ -209,11 +210,11 @@ impl CycleDetector {
                 FormatType::Normal => write!(
                     f,
                     "{}",
-                    x.try_borrow()
+                    x.try_read()
                         .map(|x| x.display())
                         .unwrap_or(Ok(format!("#<{:p}>", x)))?
                 ),
-                FormatType::TopLevel => write!(f, "#<{}>", x.borrow().display()?),
+                FormatType::TopLevel => write!(f, "#<{}>", x.read().display()?),
             },
             CustomStruct(s) => match format_type {
                 FormatType::Normal => {
@@ -307,7 +308,7 @@ impl CycleDetector {
                 }
             }
             BoxedIterator(_) => write!(f, "#<iterator>"),
-            Boxed(b) => write!(f, "'#&{}", b.borrow()),
+            Boxed(b) => write!(f, "'#&{}", b.read()),
             Reference(x) => write!(f, "{}", x.format()?),
             HeapAllocated(b) => {
                 let maybe_id = b.get().as_ptr_usize().and_then(|x| self.cycles.get(&x));
@@ -407,7 +408,7 @@ impl SteelCycleCollector {
                 self.cycles.get(&ptr_addr)
             }
             SteelVal::Custom(l) => {
-                let ptr_addr = l.0.as_ptr() as usize;
+                let ptr_addr = l.as_ptr() as usize;
 
                 self.cycles.get(&ptr_addr)
             }
@@ -608,7 +609,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
             boxed_value.as_ptr() as usize,
             &SteelVal::Boxed(boxed_value.clone()),
         ) {
-            self.push_back(boxed_value.borrow().clone());
+            self.push_back(boxed_value.read().clone());
         }
     }
 
@@ -844,7 +845,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
     fn visit_custom_type(&mut self, custom_type: GcMut<Box<dyn CustomType>>) {
         if let Ok(inner) = custom_type.try_unwrap() {
-            let mut inner = inner.into_inner();
+            let mut inner = inner.consume();
 
             // let this decide if we're doing anything with this custom type
             inner.drop_mut(self);
@@ -921,9 +922,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
     // Walk the whole thing! This includes the stack and all the stack frames
     fn visit_continuation(&mut self, continuation: Continuation) {
-        if let Ok(inner) =
-            crate::gc::Shared::try_unwrap(continuation.inner).map(RefCell::into_inner)
-        {
+        if let Ok(inner) = crate::gc::Shared::try_unwrap(continuation.inner).map(|x| x.consume()) {
             match inner {
                 ContinuationMark::Closed(mut inner) => {
                     for value in std::mem::take(&mut inner.stack) {
@@ -991,7 +990,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
     // TODO: Once the root is added back to this, bring it back
     fn visit_boxed_iterator(&mut self, iterator: GcMut<OpaqueIterator>) {
         if let Ok(inner) = iterator.try_unwrap() {
-            self.push_back(inner.into_inner().root)
+            self.push_back(inner.consume().root)
         }
     }
 
@@ -1007,7 +1006,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
     fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) {
         if let Ok(inner) = boxed_value.try_unwrap() {
-            self.push_back(inner.into_inner());
+            self.push_back(inner.consume());
         }
     }
 
@@ -1469,11 +1468,11 @@ impl<'a> RecursiveEqualityHandler<'a> {
                     continue;
                 }
                 (SteelVal::Custom(l), SteelVal::Custom(r)) => {
-                    if l.borrow().inner_type_id() != r.borrow().inner_type_id() {
+                    if l.read().inner_type_id() != r.read().inner_type_id() {
                         return false;
                     }
 
-                    if l.borrow().check_equality_hint(r.borrow().as_ref()) {
+                    if l.read().check_equality_hint(r.read().as_ref()) {
                         // Go down to the next level
                         self.left.visit_custom_type(l);
                         self.right.visit_custom_type(r);
@@ -1484,7 +1483,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
                 }
 
                 (SteelVal::Custom(l), other) => {
-                    if l.borrow().check_equality_hint_general(&other) {
+                    if l.read().check_equality_hint_general(&other) {
                         self.left.visit_custom_type(l);
 
                         match other {
@@ -1515,7 +1514,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
                 }
 
                 (other, SteelVal::Custom(r)) => {
-                    if r.borrow().check_equality_hint_general(&other) {
+                    if r.read().check_equality_hint_general(&other) {
                         match other {
                             Closure(x) => self.left.visit_closure(x),
                             VectorV(v) => self.left.visit_immutable_vector(v),
@@ -1789,7 +1788,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
 
     // SHOULD SET MUTABLE HERE
     fn visit_custom_type(&mut self, custom_type: GcMut<Box<dyn CustomType>>) -> Self::Output {
-        custom_type.borrow().visit_children_for_equality(self);
+        custom_type.read().visit_children_for_equality(self);
     }
 
     fn visit_hash_map(&mut self, _hashmap: SteelHashMap) -> Self::Output {
@@ -1870,7 +1869,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
     }
 
     fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) -> Self::Output {
-        self.push_back(boxed_value.borrow().clone());
+        self.push_back(boxed_value.read().clone());
     }
 
     fn visit_reference_value(&mut self, _reference: Gc<OpaqueReference<'static>>) -> Self::Output {}

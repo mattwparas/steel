@@ -1,7 +1,14 @@
 pub mod cycles;
 
 use crate::{
-    gc::{unsafe_erased_pointers::OpaqueReference, Gc, GcMut},
+    gc::{
+        shared::{
+            MappedScopedReadContainer, MappedScopedWriteContainer, ScopedReadContainer,
+            ScopedWriteContainer, ShareableMut,
+        },
+        unsafe_erased_pointers::OpaqueReference,
+        Gc, GcMut,
+    },
     parser::{
         ast::{self, Atom, ExprKind},
         parser::SyntaxObject,
@@ -254,7 +261,7 @@ impl<T: CustomType + Clone + Send + Sync + 'static> IntoSerializableSteelVal for
             // let left_type = v.borrow().as_any_ref();
             // TODO: @Matt - dylibs cause issues here, as the underlying type ids are different
             // across workspaces and builds
-            let left = v.borrow().as_any_ref().downcast_ref::<T>().cloned();
+            let left = v.read().as_any_ref().downcast_ref::<T>().cloned();
             let _lifted = left.ok_or_else(|| {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {:?}, did not match the given type: {}",
@@ -285,7 +292,7 @@ impl<T: CustomType + Clone + 'static> FromSteelVal for T {
             // let left_type = v.borrow().as_any_ref();
             // TODO: @Matt - dylibs cause issues here, as the underlying type ids are different
             // across workspaces and builds
-            let left = v.borrow().as_any_ref().downcast_ref::<T>().cloned();
+            let left = v.read().as_any_ref().downcast_ref::<T>().cloned();
             left.ok_or_else(|| {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {:?}, did not match the given type: {}",
@@ -390,23 +397,9 @@ mod private {
     impl<T: Any> Sealed for T {}
 }
 
-// pub trait DowncastSteelval: private::Sealed {
-//     type Output;
-//     fn downcast(&self) -> Result<&Self::Output>;
-// }
-
-// impl DowncastSteelval for SteelVal {
-//     type Output = Box<dyn CustomType>;
-
-//     fn downcast(&self) -> Result<&Self::Output> {
-//         todo!()
-//     }
-// }
-
 pub enum SRef<'b, T: ?Sized + 'b> {
     Temporary(&'b T),
-    Owned(Ref<'b, T>),
-    // ExistingBorrow(S),
+    Owned(MappedScopedReadContainer<'b, T>),
 }
 
 impl<'b, T: ?Sized + 'b> Deref for SRef<'b, T> {
@@ -417,7 +410,6 @@ impl<'b, T: ?Sized + 'b> Deref for SRef<'b, T> {
         match self {
             SRef::Temporary(inner) => inner,
             SRef::Owned(inner) => inner,
-            // SRef::ExistingBorrow(inner) =>
         }
     }
 }
@@ -450,7 +442,7 @@ pub trait AsRefSteelValFromUnsized<T>: Sized {
 }
 
 pub trait AsRefMutSteelVal: Sized {
-    fn as_mut_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<RefMut<'b, Self>>;
+    fn as_mut_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<MappedScopedWriteContainer<'b, Self>>;
 }
 
 pub trait AsRefMutSteelValFromRef: Sized {
@@ -460,18 +452,6 @@ pub trait AsRefMutSteelValFromRef: Sized {
 pub trait AsRefSteelValFromRef: Sized {
     fn as_ref_from_ref<'a>(val: &'a SteelVal) -> crate::rvals::Result<&'a Self>;
 }
-
-// impl AsRefSteelVal for List<SteelVal> {
-//     type Nursery = ();
-
-//     fn as_ref<'b, 'a: 'b>(val: &'a SteelVal, _nursery: &mut ()) -> Result<SRef<'b, Self>> {
-//         if let SteelVal::ListV(l) = val {
-//             Ok(SRef::Temporary(l))
-//         } else {
-//             stop!(TypeMismatch => "Value cannot be referenced as a list")
-//         }
-//     }
-// }
 
 impl AsRefSteelVal for UserDefinedStruct {
     type Nursery = ();
@@ -485,16 +465,6 @@ impl AsRefSteelVal for UserDefinedStruct {
     }
 }
 
-// impl AsRefSteelVal for FunctionSignature {
-//     fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
-//         if let SteelVal::FuncV(f) = val {
-//             Ok(SRef::Temporary(f))
-//         } else {
-//             stop!(TypeMismatch => "Value cannot be referenced as a primitive function!")
-//         }
-//     }
-// }
-
 impl<T: CustomType + 'static> AsRefSteelVal for T {
     type Nursery = ();
 
@@ -502,13 +472,11 @@ impl<T: CustomType + 'static> AsRefSteelVal for T {
         val: &'a SteelVal,
         _nursery: &mut Self::Nursery,
     ) -> Result<SRef<'b, Self>> {
-        // todo!()
-
         if let SteelVal::Custom(v) = val {
-            let res = Ref::map(v.borrow(), |x| x.as_any_ref());
+            let res = ScopedReadContainer::map(v.read(), |x| x.as_any_ref());
 
             if res.is::<T>() {
-                Ok(SRef::Owned(Ref::map(res, |x| {
+                Ok(SRef::Owned(MappedScopedReadContainer::map(res, |x| {
                     x.downcast_ref::<T>().unwrap()
                 })))
             } else {
@@ -533,14 +501,14 @@ impl<T: CustomType + 'static> AsRefSteelVal for T {
 }
 
 impl<T: CustomType + 'static> AsRefMutSteelVal for T {
-    fn as_mut_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<RefMut<'b, Self>> {
-        // todo!()
-
+    fn as_mut_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<MappedScopedWriteContainer<'b, Self>> {
         if let SteelVal::Custom(v) = val {
-            let res = RefMut::map(v.borrow_mut(), |x| x.as_any_ref_mut());
+            let res = ScopedWriteContainer::map(v.write(), |x| x.as_any_ref_mut());
 
             if res.is::<T>() {
-                Ok(RefMut::map(res, |x| x.downcast_mut::<T>().unwrap()))
+                Ok(MappedScopedWriteContainer::map(res, |x| {
+                    x.downcast_mut::<T>().unwrap()
+                }))
             } else {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
@@ -1023,7 +991,7 @@ pub fn into_serializable_value(
         )),
 
         SteelVal::Custom(c) => {
-            if let Some(output) = c.borrow_mut().as_serializable_steelval() {
+            if let Some(output) = c.write().as_serializable_steelval() {
                 Ok(output)
             } else {
                 stop!(Generic => "Custom type not allowed to be moved across threads!")
@@ -1243,7 +1211,7 @@ pub enum SteelVal {
     ByteVector(SteelByteVector),
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct SteelByteVector {
     pub(crate) vec: GcMut<Vec<u8>>,
 }
@@ -1255,6 +1223,14 @@ impl SteelByteVector {
         }
     }
 }
+
+impl PartialEq for SteelByteVector {
+    fn eq(&self, other: &Self) -> bool {
+        *(self.vec.read()) == *(other.vec.read())
+    }
+}
+
+impl Eq for SteelByteVector {}
 
 /// Contains a complex number.
 ///
@@ -1312,9 +1288,7 @@ impl fmt::Display for SteelComplex {
 impl SteelVal {
     pub fn new_dyn_writer_port(port: impl Write + Send + Sync + 'static) -> SteelVal {
         SteelVal::PortV(SteelPort {
-            port: Rc::new(RefCell::new(SteelPortRepr::DynWriter(Arc::new(
-                Mutex::new(port),
-            )))),
+            port: Gc::new_mut(SteelPortRepr::DynWriter(Arc::new(Mutex::new(port)))),
         })
     }
 
@@ -1481,7 +1455,7 @@ impl SteelVal {
 pub struct SteelString(Gc<String>);
 
 impl Deref for SteelString {
-    type Target = Rc<String>;
+    type Target = crate::gc::Shared<String>;
 
     fn deref(&self) -> &Self::Target {
         &self.0 .0
@@ -1506,8 +1480,8 @@ impl From<String> for SteelString {
     }
 }
 
-impl From<Rc<String>> for SteelString {
-    fn from(val: Rc<String>) -> Self {
+impl From<crate::gc::Shared<String>> for SteelString {
+    fn from(val: crate::gc::Shared<String>) -> Self {
         SteelString(Gc(val))
     }
 }
@@ -1518,7 +1492,7 @@ impl From<Gc<String>> for SteelString {
     }
 }
 
-impl From<SteelString> for Rc<String> {
+impl From<SteelString> for crate::gc::Shared<String> {
     fn from(value: SteelString) -> Self {
         value.0 .0
     }
@@ -1639,7 +1613,7 @@ thread_local! {
 
 pub fn iterator_next(args: &[SteelVal]) -> Result<SteelVal> {
     match &args[0] {
-        SteelVal::BoxedIterator(b) => match b.borrow_mut().iterator.next() {
+        SteelVal::BoxedIterator(b) => match b.write().iterator.next() {
             Some(v) => Ok(v),
             None => Ok(ITERATOR_FINISHED.with(|x| x.clone())),
         },
@@ -1649,7 +1623,7 @@ pub fn iterator_next(args: &[SteelVal]) -> Result<SteelVal> {
 
 impl SteelVal {
     pub fn boxed(value: SteelVal) -> SteelVal {
-        SteelVal::Boxed(Gc::new(RefCell::new(value)))
+        SteelVal::Boxed(Gc::new_mut(value))
     }
 
     pub(crate) fn ptr_eq(&self, other: &SteelVal) -> bool {
@@ -1660,13 +1634,13 @@ impl SteelVal {
             (BoolV(l), BoolV(r)) => l == r,
             (VectorV(l), VectorV(r)) => Gc::ptr_eq(&l.0, &r.0),
             (Void, Void) => true,
-            (StringV(l), StringV(r)) => Rc::ptr_eq(l, r),
+            (StringV(l), StringV(r)) => crate::gc::Shared::ptr_eq(l, r),
             (FuncV(l), FuncV(r)) => *l as usize == *r as usize,
-            (SymbolV(l), SymbolV(r)) => Rc::ptr_eq(l, r),
+            (SymbolV(l), SymbolV(r)) => crate::gc::Shared::ptr_eq(l, r),
             (SteelVal::Custom(l), SteelVal::Custom(r)) => Gc::ptr_eq(l, r),
             (HashMapV(l), HashMapV(r)) => Gc::ptr_eq(&l.0, &r.0),
             (HashSetV(l), HashSetV(r)) => Gc::ptr_eq(&l.0, &r.0),
-            (PortV(l), PortV(r)) => Rc::ptr_eq(&l.port, &r.port),
+            (PortV(l), PortV(r)) => Gc::ptr_eq(&l.port, &r.port),
             (Closure(l), Closure(r)) => Gc::ptr_eq(l, r),
             (IterV(l), IterV(r)) => Gc::ptr_eq(l, r),
             (ReducerV(l), ReducerV(r)) => Gc::ptr_eq(l, r),

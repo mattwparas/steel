@@ -247,18 +247,18 @@ impl ByteCodeLambda {
 
     pub fn body_exp(&self) -> Shared<[DenseInstruction]> {
         #[cfg(feature = "dynamic")]
-        return Rc::clone(&self.body_exp.borrow());
+        return Shared::clone(&self.body_exp.borrow());
 
         #[cfg(not(feature = "dynamic"))]
-        Rc::clone(&self.body_exp)
+        Shared::clone(&self.body_exp)
     }
 
     pub fn body_mut_exp(&mut self) -> Shared<[DenseInstruction]> {
         #[cfg(feature = "dynamic")]
-        return Rc::clone(self.body_exp.get_mut());
+        return Shared::clone(self.body_exp.get_mut());
 
         #[cfg(not(feature = "dynamic"))]
-        Rc::clone(&self.body_exp)
+        Shared::clone(&self.body_exp)
     }
 
     // pub fn spans(&self) -> Rc<[Span]> {
@@ -285,7 +285,7 @@ impl ByteCodeLambda {
         old[start].op_code = OpCode::DynSuperInstruction;
         old[start].payload_size = super_instruction_id as _;
         *guard = old.into();
-        (head_instruction, Rc::clone(&guard))
+        (head_instruction, Shared::clone(&guard))
     }
 
     #[inline(always)]
