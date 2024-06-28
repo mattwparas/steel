@@ -25,7 +25,7 @@ pub fn bytevector_module() -> BuiltInModule {
         .register_native_fn_definition(BYTES_TO_LIST_DEFINITION)
         .register_native_fn_definition(LIST_TO_BYTES_DEFINITION)
         .register_native_fn_definition(BYTES_APPEND_DEFINITION)
-        .register_native_fn_definition(UTF8_TO_STRING_DEFINITION);
+        .register_native_fn_definition(BYTES_TO_STRING_DEFINITION);
 
     module
 }
@@ -310,7 +310,7 @@ pub fn bytes_append(value: &SteelByteVector, other: &SteelByteVector) -> Result<
 
 /// Decodes a string from a bytevector containing valid UTF-8.
 ///
-/// (utf8->string buf [start] [end]) -> string?
+/// (bytes->string/utf8 buf [start] [end]) -> string?
 ///
 /// * buf : bytes?
 /// * start: int? = 0
@@ -318,10 +318,10 @@ pub fn bytes_append(value: &SteelByteVector, other: &SteelByteVector) -> Result<
 ///
 /// # Examples
 /// ```scheme
-/// (utf8->string (bytes #xe5 #x8d #x83 #xe8 #x91 #x89)) ;; => "千葉"
+/// (bytes->string/utf8 (bytes #xe5 #x8d #x83 #xe8 #x91 #x89)) ;; => "千葉"
 /// ```
-#[function(name = "utf8->string")]
-pub fn utf8_to_string(
+#[function(name = "bytes->string/utf8", alias = "utf8->string")]
+pub fn bytes_to_string(
     value: &SteelByteVector,
     mut rest: RestArgsIter<'_, isize>,
 ) -> Result<SteelVal> {

@@ -287,7 +287,7 @@ pub fn close_output_port(port: &SteelPort) -> Result<SteelVal> {
 
 /// Returns `#t` if the value is an EOF object.
 ///
-/// (eof-object? any/c?) -> bool?
+/// (eof-object? any/c) -> bool?
 #[function(name = "eof-object?")]
 pub fn eof_objectp(value: &SteelVal) -> bool {
     let SteelVal::CustomStruct(struct_) = value else {

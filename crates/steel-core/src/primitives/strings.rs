@@ -3,15 +3,10 @@ use crate::values::lists::List;
 
 use crate::rvals::{RestArgsIter, Result, SteelByteVector, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
-use crate::steel_vm::register_fn::RegisterFn;
 use crate::stop;
 
 use num::{BigInt, Num};
 use steel_derive::{function, native};
-
-fn char_upcase(c: char) -> char {
-    c.to_ascii_uppercase()
-}
 
 /// Strings in Steel are immutable, fixed length arrays of characters. They are heap allocated, and
 /// are implemented under the hood as referenced counted Rust `Strings`. Rust `Strings` are stored
@@ -56,10 +51,11 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(STRING_TO_NUMBER_DEFINITION)
         .register_native_fn_definition(NUMBER_TO_STRING_DEFINITION)
         .register_native_fn_definition(REPLACE_DEFINITION)
-        .register_fn("char-upcase", char_upcase)
-        .register_fn("char-whitespace?", char::is_whitespace)
-        .register_fn("char-digit?", |c: char| char::is_digit(c, 10))
-        .register_fn("char->number", |c: char| char::to_digit(c, 10))
+        .register_native_fn_definition(CHAR_UPCASE_DEFINITION)
+        .register_native_fn_definition(CHAR_DOWNCASE_DEFINITION)
+        .register_native_fn_definition(CHAR_IS_DIGIT_DEFINITION)
+        .register_native_fn_definition(CHAR_IS_WHITESPACE_DEFINITION)
+        .register_native_fn_definition(CHAR_TO_NUMBER_DEFINITION)
         .register_native_fn_definition(CHAR_EQUALS_DEFINITION)
         .register_native_fn_definition(CHAR_GREATER_THAN_DEFINITION)
         .register_native_fn_definition(CHAR_GREATER_THAN_EQUAL_TO_DEFINITION)
@@ -127,7 +123,7 @@ fn number_to_string_impl(value: &SteelVal, radix: Option<u32>) -> Result<SteelVa
     }
 }
 
-/// Converts the given number to a string
+/// Converts the given number to a string.
 #[function(name = "number->string", constant = true)]
 pub fn number_to_string(value: &SteelVal, mut rest: RestArgsIter<'_, isize>) -> Result<SteelVal> {
     let radix = rest.next();
@@ -220,73 +216,93 @@ pub fn string_constructor(rest: RestArgsIter<'_, char>) -> Result<SteelVal> {
     rest.collect::<Result<String>>().map(|x| x.into())
 }
 
-/// Compares strings lexicographically (as in "less-than-or-equal").
-#[function(name = "string<=?", constant = true)]
-pub fn string_less_than_equal_to(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
-    monotonic!(rest, |s1: &_, s2: &_| s1 <= s2)
-}
-
 // TODO: avoid allocation in `-ci` variants
 
-/// Compares strings lexicographically (as in "less-than-or-equal"),
-// in a case insensitive fashion.
-#[function(name = "string-ci<=?", constant = true)]
-pub fn string_ci_less_than_equal_to(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
-    monotonic!(
-        rest.map(|val| val.map(|s| s.as_str().to_lowercase())),
-        |s1: &_, s2: &_| s1 <= s2
-    )
+macro_rules! impl_str_comparison {
+    (-ci, $name:ident, $ext_name:literal, $mode:literal, $op:expr) => {
+        #[doc = concat!("Compares strings lexicographically (as in\"", $mode, "\"),")]
+        #[doc = "in a case insensitive fashion."]
+        #[doc = ""]
+        #[doc = concat!("(", $ext_name, " s1 s2 ... ) -> bool?")]
+        #[doc = "* s1 : string?"]
+        #[doc = "* s2 : string?"]
+        #[function(name = $ext_name, constant = true)]
+        pub fn $name(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
+            monotonic!(rest.map(|val| val.map(|s| s.as_str().to_lowercase())), $op)
+        }
+    };
+    ($name:ident, $ext_name:literal, $mode:literal, $op:expr) => {
+        #[doc = concat!("Compares strings lexicographically (as in\"", $mode, "\").")]
+        #[doc = ""]
+        #[doc = concat!("(", $ext_name, " s1 s2 ... ) -> bool?")]
+        #[doc = "* s1 : string?"]
+        #[doc = "* s2 : string?"]
+        #[function(name = $ext_name, constant = true)]
+        pub fn $name(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
+            monotonic!(rest, $op)
+        }
+    };
 }
 
-/// Compares strings lexicographically (as in "less-than").
-#[function(name = "string<?", constant = true)]
-pub fn string_less_than(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
-    monotonic!(rest, |s1: &_, s2: &_| s1 < s2)
-}
-
-/// Compares strings lexicographically (as in "less-than"),
-/// in a case insensitive fashion.
-#[function(name = "string-ci<?", constant = true)]
-pub fn string_ci_less_than(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
-    monotonic!(
-        rest.map(|val| val.map(|s| s.as_str().to_lowercase())),
-        |s1: &_, s2: &_| s1 < s2
-    )
-}
-
-/// Compares strings lexicographically (as in "greater-than-or-equal").
-#[function(name = "string>=?", constant = true)]
-pub fn string_greater_than_equal_to(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
-    monotonic!(rest, |s1: &_, s2: &_| s1 >= s2)
-}
-
-/// Compares strings lexicographically (as in "greater-than-or-equal"),
-/// in a case insensitive fashion.
-#[function(name = "string-ci>=?", constant = true)]
-pub fn string_ci_greater_than_equal_to(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
-    monotonic!(
-        rest.map(|val| val.map(|s| s.as_str().to_lowercase())),
-        |s1: &_, s2: &_| s1 >= s2
-    )
-}
-
-/// Compares strings lexicographically (as in "greater-than").
-#[function(name = "string>?", constant = true)]
-pub fn string_greater_than(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
-    monotonic!(rest, |s1: &_, s2: &_| s1 > s2)
-}
-
-/// Compares strings lexicographically (as in "greater-than"),
-/// in a case-insensitive fashion.
-#[function(name = "string-ci>?", constant = true)]
-pub fn string_ci_greater_than(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
-    monotonic!(
-        rest.map(|val| val.map(|s| s.as_str().to_lowercase())),
-        |s1: &_, s2: &_| s1 > s2
-    )
-}
+impl_str_comparison!(
+    string_less_than,
+    "string<?",
+    "less-than",
+    |s1: &_, s2: &_| s1 < s2
+);
+impl_str_comparison!(
+    string_less_than_equal_to,
+    "string<=?",
+    "less-than-equal-to",
+    |s1: &_, s2: &_| s1 <= s2
+);
+impl_str_comparison!(
+    string_greater_than,
+    "string>?",
+    "greater-than",
+    |s1: &_, s2: &_| s1 > s2
+);
+impl_str_comparison!(
+    string_greater_than_equal_to,
+    "string>=?",
+    "greater-than-or-equal",
+    |s1: &_, s2: &_| s1 >= s2
+);
+impl_str_comparison!(
+    -ci,
+    string_ci_less_than,
+    "string-ci<?",
+    "less-than",
+    |s1: &_, s2: &_| s1 < s2
+);
+impl_str_comparison!(
+    -ci,
+    string_ci_less_than_equal_to,
+    "string-ci<=?",
+    "less-than-or-equal",
+    |s1: &_, s2: &_| s1 <= s2
+);
+impl_str_comparison!(
+    -ci,
+    string_ci_greater_than,
+    "string-ci>?",
+    "greater-than",
+    |s1: &_, s2: &_| s1 > s2
+);
+impl_str_comparison!(
+    -ci,
+    string_ci_greater_than_equal_to,
+    "string-ci>=?",
+    "greater-than-or-equal",
+    |s1: &_, s2: &_| s1 >= s2
+);
 
 /// Compares strings for equality.
+///
+/// (string=? string1 string2 ...) -> bool?
+///
+/// * string1 : string?
+/// * string2 : string?
 #[function(name = "string=?", constant = true)]
 pub fn string_equals(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
     monotonic!(rest, |s1: &_, s2: &_| s1 == s2)
@@ -735,29 +751,44 @@ pub fn string_append(mut rest: RestArgsIter<'_, &SteelString>) -> Result<SteelVa
         .map(|x| SteelVal::StringV(x.into()))
 }
 
-/// Compares characters according to their codepoints, in a "greater-than" fashion.
-#[function(name = "char>?")]
-pub fn char_greater_than(rest: RestArgsIter<'_, char>) -> Result<SteelVal> {
-    monotonic!(rest, |ch1: &_, ch2: &_| { ch1 > ch2 })
+macro_rules! impl_char_comparison {
+    ($name:ident, $ext_name:literal, $mode:literal, $op:expr) => {
+        #[doc = concat!("Compares characters according to their codepoints, in a \"", $mode, "\" fashion.")]
+        #[doc = ""]
+        #[doc = concat!("(", $ext_name, " char1 char2 ... ) -> bool?")]
+        #[doc = "* char1 : char?"]
+        #[doc = "* char2 : char?"]
+        #[function(name = $ext_name, constant = true)]
+        pub fn $name(rest: RestArgsIter<&char>) -> Result<SteelVal> {
+            monotonic!(rest, $op)
+        }
+    };
 }
 
-/// Compares characters according to their codepoints, in a "greater-than-or-equal" fashion.
-#[function(name = "char>=?")]
-pub fn char_greater_than_equal_to(rest: RestArgsIter<'_, char>) -> Result<SteelVal> {
-    monotonic!(rest, |ch1: &_, ch2: &_| { ch1 >= ch2 })
-}
-
-/// Compares characters according to their codepoints, in a "less-than" fashion.
-#[function(name = "char<?")]
-pub fn char_less_than(rest: RestArgsIter<'_, char>) -> Result<SteelVal> {
-    monotonic!(rest, |ch1: &_, ch2: &_| { ch1 < ch2 })
-}
-
-/// Compares characters according to their codepoints, in a "less-than-or-equal" fashion.
-#[function(name = "char<=?")]
-pub fn char_less_than_equal_to(rest: RestArgsIter<'_, char>) -> Result<SteelVal> {
-    monotonic!(rest, |ch1: &_, ch2: &_| { ch1 <= ch2 })
-}
+impl_char_comparison!(
+    char_less_than,
+    "char<?",
+    "less-than",
+    |ch1: &_, ch2: &_| ch1 < ch2
+);
+impl_char_comparison!(
+    char_less_than_equal_to,
+    "char<=?",
+    "less-than-or-equal",
+    |ch1: &_, ch2: &_| ch1 <= ch2
+);
+impl_char_comparison!(
+    char_greater_than,
+    "char>?",
+    "greater-than",
+    |ch1: &_, ch2: &_| ch1 > ch2
+);
+impl_char_comparison!(
+    char_greater_than_equal_to,
+    "char>=?",
+    "greater-than-or-equal",
+    |ch1: &_, ch2: &_| ch1 >= ch2
+);
 
 /// Returns the Unicode codepoint of a given character.
 ///
@@ -787,7 +818,7 @@ pub fn integer_to_char(int: u32) -> Result<SteelVal> {
 /// ```scheme
 /// (string->bytes "Apple") ;; => (bytes 65 112 112 108 101)
 /// ```
-#[function(name = "string->bytes")]
+#[function(name = "string->bytes", alias = "string->utf8")]
 pub fn string_to_bytes(value: &SteelString, mut rest: RestArgsIter<isize>) -> Result<SteelVal> {
     let start = rest.next().transpose()?;
     let end = rest.next().transpose()?;
@@ -820,7 +851,7 @@ pub fn string_to_vector(value: &SteelString, mut rest: RestArgsIter<isize>) -> R
         stop!(ArityMismatch => "string->vector expects up to 3 parameters");
     }
 
-    let range = bounds(value.as_str(), start, end, "string->utf8")?;
+    let range = bounds(value.as_str(), start, end, "string->vector")?;
 
     let chars: im_rc::Vector<_> = value[range].chars().map(SteelVal::CharV).collect();
 
@@ -879,6 +910,39 @@ fn bounds(
     };
 
     Ok(start..end)
+}
+
+/// Returns the upper case version of a character, if defined by Unicode,
+/// or the same character otherwise.
+#[function(name = "char-upcase")]
+fn char_upcase(c: char) -> char {
+    c.to_uppercase().next().unwrap()
+}
+
+/// Returns the lower case version of a character, if defined by Unicode,
+/// or the same character otherwise.
+#[function(name = "char-downcase")]
+fn char_downcase(c: char) -> char {
+    c.to_lowercase().next().unwrap()
+}
+
+/// Returns `#t` if the character is a whitespace character.
+#[function(name = "char-whitespace?")]
+fn char_is_whitespace(c: char) -> bool {
+    c.is_whitespace()
+}
+
+/// Returns `#t` if the character is a decimal digit.
+#[function(name = "char-digit?")]
+fn char_is_digit(c: char) -> bool {
+    c.is_digit(10)
+}
+
+/// Attemps to convert the character into a decimal digit,
+/// and returns `#f` on failure.
+#[function(name = "char->number")]
+fn char_to_number(c: char) -> Option<u32> {
+    c.to_digit(10)
 }
 
 #[cfg(test)]

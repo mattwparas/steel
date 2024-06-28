@@ -78,11 +78,11 @@
 (check-equal? "utf8->string with start" "ABC" (utf8->string (bytes 0 #x41 #x42 #x43) 1))
 (check-equal? "utf8->string with start and end" "ABC" (utf8->string (bytes 0 #x41  #x42 #x43 0) 1 4))
 (check-equal? "utf8->string with start and end, multi-byte char" "λ" (utf8->string (bytes 0 #xCE #xBB 0) 1 3))
-(check-equal? "string->bytes" (bytes #x41 #x42 #x43) (string->bytes "ABC"))
-(check-equal? "string->bytes with start" (bytes #x42 #x43) (string->bytes "ABC" 1))
-(check-equal? "string->bytes with start and end" (bytes #x42) (string->bytes "ABC" 1 2))
-(check-equal? "string->bytes with start and end, multi-byte" (bytes #xCE #xBB) (string->bytes "σλC" 1 2))
-(check-equal? "string->bytes, multi-byte char" (bytes #xCE #xBB) (string->bytes "λ"))
+(check-equal? "string->utf8" (bytes #x41 #x42 #x43) (string->utf8 "ABC"))
+(check-equal? "string->utf8 with start" (bytes #x42 #x43) (string->utf8 "ABC" 1))
+(check-equal? "string->utf8 with start and end" (bytes #x42) (string->utf8 "ABC" 1 2))
+(check-equal? "string->utf8 with start and end, multi-byte" (bytes #xCE #xBB) (string->utf8 "σλC" 1 2))
+(check-equal? "string->utf8, multi-byte char" (bytes #xCE #xBB) (string->utf8 "λ"))
 
 (define r7rs-test-stats (get-test-stats))
 
