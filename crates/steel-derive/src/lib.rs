@@ -128,7 +128,7 @@ pub fn define_module(
 
                 let mut module = #function_name();
 
-                module.register_doc(#value, crate::steel_vm::builtin::MarkdownDoc(#doc_comments));
+                module.register_doc(#value, crate::steel_vm::builtin::MarkdownDoc(#doc_comments.into()));
 
                 module
             }
@@ -184,9 +184,10 @@ pub fn native(
         quote! {
             pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
                 name: #value,
+                aliases: &[],
                 func: crate::steel_vm::builtin::BuiltInFunctionType::Reference(#function_name),
                 arity: crate::steel_vm::builtin::Arity::#arity_number,
-                doc: Some(crate::steel_vm::builtin::MarkdownDoc(#doc)),
+                doc: Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)),
                 is_const: #is_const,
                 signature: None,
             };
@@ -195,6 +196,7 @@ pub fn native(
         quote! {
             pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
                 name: #value,
+                aliases: &[],
                 func: crate::steel_vm::builtin::BuiltInFunctionType::Reference(#function_name),
                 arity: crate::steel_vm::builtin::Arity::#arity_number,
                 doc: None,
@@ -261,9 +263,10 @@ pub fn native_mut(
         quote! {
             pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
                 name: #value,
+                aliases: &[],
                 func: crate::steel_vm::builtin::BuiltInFunctionType::Mutable(#function_name),
                 arity: crate::steel_vm::builtin::Arity::#arity_number,
-                doc: Some(crate::steel_vm::builtin::MarkdownDoc(#doc)),
+                doc: Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)),
                 is_const: #is_const,
                 signature: None,
             };
@@ -272,6 +275,7 @@ pub fn native_mut(
         quote! {
             pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
                 name: #value,
+                aliases: &[],
                 func: crate::steel_vm::builtin::BuiltInFunctionType::Mutable(#function_name),
                 arity: crate::steel_vm::builtin::Arity::#arity_number,
                 doc: None,
@@ -474,13 +478,19 @@ pub fn function(
         }
     };
 
+    let aliases = match keyword_map.get("alias") {
+        Some(alias) => quote! { &[ #alias ] },
+        None => quote! { &[] },
+    };
+
     let definition_struct = if let Some(doc) = maybe_doc_comments {
         quote! {
             pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
                 name: #value,
+                aliases: #aliases,
                 func: #function_type,
                 arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
-                doc: Some(crate::steel_vm::builtin::MarkdownDoc(#doc)),
+                doc: Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)),
                 is_const: #is_const,
                 signature: None,
             };
@@ -489,6 +499,7 @@ pub fn function(
         quote! {
             pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
                 name: #value,
+                aliases: #aliases,
                 func: #function_type,
                 arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
                 doc: None,

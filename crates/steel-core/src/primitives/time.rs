@@ -9,7 +9,7 @@ use steel_derive::function;
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::steel_vm::register_fn::RegisterFn;
 
-pub(crate) const TIME_MODULE_DOC: MarkdownDoc<'static> = MarkdownDoc(
+pub(crate) const TIME_MODULE_DOC: MarkdownDoc<'static> = MarkdownDoc::from_str(
     r#"
 Contains direct wrappers around the Rust `std::time::Instant` and `std::time::Duration` modules. 
 For example, to measure the time something takes:

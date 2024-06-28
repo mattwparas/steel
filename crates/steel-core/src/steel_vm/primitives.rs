@@ -1017,8 +1017,9 @@ fn sandboxed_io_module() -> BuiltInModule {
     // .register_value("read-to-string", IoFunctions::read_to_string());
     module
 }
-pub const VOID_DOC: MarkdownDoc =
-    MarkdownDoc("The void value, returned by many forms with side effects, such as `define`.");
+pub const VOID_DOC: MarkdownDoc = MarkdownDoc::from_str(
+    "The void value, returned by many forms with side effects, such as `define`.",
+);
 
 /// Miscellaneous constants
 #[steel_derive::define_module(name = "steel/constants")]
