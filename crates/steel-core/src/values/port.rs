@@ -14,9 +14,7 @@ use std::sync::Mutex;
 // use utils::chars::Chars;
 // use utils::{new_rc_ref_cell, RcRefCell};
 
-use crate::rerrs;
 use crate::rvals::Result;
-use crate::SteelErr;
 
 // use crate::rvals::{new_rc_ref_cell, RcRefSteelVal};
 
@@ -160,6 +158,7 @@ impl SteelPortRepr {
         match self {
             SteelPortRepr::FileInput(_, br) => port_read_str_fn!(br, read_line),
             SteelPortRepr::StdInput(br) => port_read_str_fn!(br, read_line),
+            SteelPortRepr::StringInput(s) => port_read_str_fn!(s, read_line),
 
             SteelPortRepr::ChildStdOutput(br) => {
                 // let buf_reader = BufReader::new(br.borrow_mut().as_mut());

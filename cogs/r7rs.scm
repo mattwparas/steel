@@ -84,6 +84,16 @@
 (check-equal? "string->utf8 with start and end, multi-byte" (bytes #xCE #xBB) (string->utf8 "σλC" 1 2))
 (check-equal? "string->utf8, multi-byte char" (bytes #xCE #xBB) (string->utf8 "λ"))
 
+(check-equal? "char->integer, special escape, null" 0 (char->integer (read (open-input-string "#\\null"))))
+(check-equal? "char->integer, special escape, alarm" 7 (char->integer (read (open-input-string "#\\alarm"))))
+(check-equal? "char->integer, special escape, backspace" 8 (char->integer (read (open-input-string "#\\backspace"))))
+(check-equal? "char->integer, special escape, tab" 9 (char->integer (read (open-input-string "#\\tab"))))
+(check-equal? "char->integer, special escape, newline" 10 (char->integer (read (open-input-string "#\\newline"))))
+(check-equal? "char->integer, special escape, return" 13 (char->integer (read (open-input-string "#\\return"))))
+(check-equal? "char->integer, special escape, delete" #x7F (char->integer (read (open-input-string "#\\delete"))))
+(check-equal? "char->integer, special escape, escape" #x1B (char->integer (read (open-input-string "#\\escape"))))
+(check-equal? "char->integer, multi-byte" #x03BB (char->integer (read (open-input-string "#\\λ"))))
+
 (define r7rs-test-stats (get-test-stats))
 
 (displayln "Passed: " (hash-ref r7rs-test-stats 'success-count))
