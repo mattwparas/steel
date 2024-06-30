@@ -22,6 +22,7 @@ pub fn port_module() -> BuiltInModule {
         .register_native_fn_definition(OPEN_INPUT_FILE_DEFINITION)
         .register_native_fn_definition(OPEN_OUTPUT_FILE_DEFINITION)
         .register_native_fn_definition(OPEN_OUTPUT_STRING_DEFINITION)
+        .register_native_fn_definition(OPEN_OUTPUT_BYTEVECTOR_DEFINITION)
         .register_native_fn_definition(WRITE_LINE_DEFINITION)
         .register_native_fn_definition(WRITE_STRING_DEFINITION)
         .register_native_fn_definition(WRITE_DEFINITION)
@@ -30,6 +31,7 @@ pub fn port_module() -> BuiltInModule {
         .register_native_fn_definition(READ_PORT_TO_STRING_DEFINITION)
         .register_native_fn_definition(READ_LINE_TO_STRING_DEFINITION)
         .register_native_fn_definition(GET_OUTPUT_STRING_DEFINITION)
+        .register_native_fn_definition(GET_OUTPUT_BYTEVECTOR_DEFINITION)
         .register_native_fn_definition(IS_INPUT_DEFINITION)
         .register_native_fn_definition(IS_OUTPUT_DEFINITION)
         .register_native_fn_definition(DEFAULT_INPUT_PORT_DEFINITION)
@@ -38,6 +40,7 @@ pub fn port_module() -> BuiltInModule {
         .register_native_fn_definition(DEFAULT_ERROR_PORT_DEFINITION)
         .register_native_fn_definition(EOF_OBJECT_DEFINITION)
         .register_native_fn_definition(OPEN_INPUT_STRING_DEFINITION)
+        .register_native_fn_definition(OPEN_INPUT_BYTEVECTOR_DEFINITION)
         .register_native_fn_definition(READ_BYTE_DEFINITION)
         .register_native_fn_definition(READ_CHAR_DEFINITION)
         .register_native_fn_definition(WRITE_BYTE_DEFINITION)
@@ -124,14 +127,42 @@ pub fn open_output_string() -> SteelVal {
     SteelVal::PortV(SteelPort::new_output_port_string())
 }
 
+/// Creates an output port that accumulates what is written into a bytevector.
+/// These bytes can be recovered calling `get-output-bytevector`.
+///
+/// (open-output-bytevector) -> output-port?
+///
+/// # Examples
+/// ```scheme
+/// (define out (open-output-bytevector))
+///
+///
+/// (write-byte 30 out)
+/// (write-byte 250 out)
+///
+/// (get-output-bytevector out) ;; => (bytes 30 250)
+/// ```
+#[function(name = "open-output-bytevector")]
+pub fn open_output_bytevector() -> SteelVal {
+    SteelVal::PortV(SteelPort::new_output_port_string())
+}
+
 /// Creates an input port from a string, that will return the string contents.
 ///
-/// (open-input-port string?) -> input-port?
+/// (open-input-string string?) -> input-port?
 #[function(name = "open-input-string")]
 pub fn open_input_string(s: &SteelString) -> SteelVal {
     SteelVal::PortV(SteelPort::new_input_port_string(s.to_string()))
 }
 
+/// Creates an input port from a bytevector, that will return the bytevector contents.
+///
+/// (open-input-bytevector bytes?) -> input-port?
+#[function(name = "open-input-bytevector")]
+pub fn open_input_bytevector(bytes: &SteelByteVector) -> SteelVal {
+    let vec: &Vec<u8> = &*bytes.vec.borrow();
+    SteelVal::PortV(SteelPort::new_input_port_bytevector(vec.clone()))
+}
 /// Takes a port and reads the entire content into a string
 ///
 /// (read-port-to-string port) -> string?
@@ -257,7 +288,27 @@ pub fn write_string(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<S
 /// (get-output-string port?) -> string?
 #[function(name = "get-output-string")]
 pub fn get_output_string(port: &SteelPort) -> Result<SteelVal> {
-    port.get_output_string().map(SteelVal::from)
+    let Some(bytes) = port.get_output()? else {
+        stop!(TypeMismatch => "get-output-string expects an output port created with open-output-string");
+    };
+
+    let Ok(s) = String::from_utf8(bytes) else {
+        stop!(Generic => "Port contents are not valid UTF-8");
+    };
+
+    Ok(s.into())
+}
+
+/// Extracts the contents from a port created with `open-output-bytevector`.
+///
+/// (get-output-bytevector port?) -> bytes?
+#[function(name = "get-output-bytevector")]
+pub fn get_output_bytevector(port: &SteelPort) -> Result<SteelVal> {
+    let Some(bytes) = port.get_output()? else {
+        stop!(TypeMismatch => "get-output-bytevector expects an output port created with open-output-bytevector");
+    };
+
+    Ok(SteelVal::ByteVector(SteelByteVector::new(bytes)))
 }
 
 #[function(name = "flush-output-port")]

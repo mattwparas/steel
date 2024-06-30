@@ -332,21 +332,21 @@ impl SteelPortRepr {
             self,
             SteelPortRepr::FileOutput(_, _)
                 | SteelPortRepr::StdOutput(_)
+                | SteelPortRepr::StdError(_)
                 | SteelPortRepr::DynWriter(_)
                 | SteelPortRepr::ChildStdInput(_)
                 | SteelPortRepr::StringOutput(_)
         )
     }
 
-    pub fn get_output_string(&mut self) -> Result<String> {
-        let buf: &mut Vec<u8> = if let SteelPortRepr::StringOutput(s) = self {
+    pub fn get_output(&self) -> Result<Option<Vec<u8>>> {
+        let buf: &Vec<u8> = if let SteelPortRepr::StringOutput(s) = self {
             s
         } else {
-            stop!(TypeMismatch => "get-output-string expects an output port, found: {:?}", self);
+            return Ok(None);
         };
 
-        String::from_utf8(buf.clone())
-            .map_err(|err| SteelErr::new(rerrs::ErrorKind::Generic, err.to_string()))
+        Ok(Some(buf.clone()))
     }
 
     pub fn close_output_port(&mut self) -> Result<()> {
@@ -415,6 +415,12 @@ impl SteelPort {
     pub fn new_input_port_string(string: String) -> SteelPort {
         SteelPort {
             port: new_rc_ref_cell(SteelPortRepr::StringInput(Cursor::new(string.into_bytes()))),
+        }
+    }
+
+    pub fn new_input_port_bytevector(vec: Vec<u8>) -> SteelPort {
+        SteelPort {
+            port: new_rc_ref_cell(SteelPortRepr::StringInput(Cursor::new(vec))),
         }
     }
 
@@ -516,8 +522,8 @@ impl SteelPort {
         }
     }
 
-    pub fn get_output_string(&self) -> Result<String> {
-        self.port.borrow_mut().get_output_string()
+    pub fn get_output(&self) -> Result<Option<Vec<u8>>> {
+        self.port.borrow().get_output()
     }
 
     pub fn close_output_port(&self) -> Result<()> {
