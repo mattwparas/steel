@@ -57,22 +57,22 @@
 (define current-error-port (make-parameter (#%default-error-port)))
 
 (define (simple-display x)
-  (raw-write-string x (current-output-port)))
+  (#%raw-write-string x (current-output-port)))
 
-(define write-string raw-write-string)
+(define write-string #%raw-write-string)
 
 (define newline
   (case-lambda
-    [() (raw-write-char #\newline (current-output-port))]
-    [(port) (raw-write-char #\newline port)]))
+    [() (#%raw-write-char #\newline (current-output-port))]
+    [(port) (#%raw-write-char #\newline port)]))
 
 (define (simple-displayln x)
   (simple-display x)
   (newline))
 
-(define write-char raw-write-char)
+(define write-char #%raw-write-char)
 
-(define write raw-write)
+(define write #%raw-write)
 
 ;;;;;;;;;;;;;;;;;;;;; Port functions ;;;;;;;;;;;;;;;;;;;;;
 

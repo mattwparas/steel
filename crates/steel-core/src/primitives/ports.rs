@@ -209,7 +209,7 @@ pub fn write_line(port: &SteelPort, line: &SteelVal) -> Result<SteelVal> {
     }
 }
 
-#[function(name = "raw-write")]
+#[function(name = "#%raw-write")]
 pub fn write(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
     let port = output_args(rest)?;
     let line = line.to_string();
@@ -222,7 +222,7 @@ pub fn write(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal
     }
 }
 
-#[function(name = "raw-write-char")]
+#[function(name = "#%raw-write-char")]
 pub fn write_char(character: char, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
     let port = output_args(rest)?;
     let res = port.write_char(character);
@@ -235,7 +235,7 @@ pub fn write_char(character: char, rest: RestArgsIter<&SteelPort>) -> Result<Ste
 }
 
 // TODO: support start and end
-#[function(name = "raw-write-string")]
+#[function(name = "#%raw-write-string")]
 pub fn write_string(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
     let port = output_args(rest)?;
 
