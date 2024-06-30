@@ -11,6 +11,7 @@ use crate::rvals::number_equality;
 use crate::steel_vm::primitives::steel_not;
 use crate::steel_vm::primitives::steel_set_box_mutable;
 use crate::steel_vm::primitives::steel_unbox_mutable;
+use crate::values::capabilities::CapabilityManager;
 use crate::values::closed::Heap;
 use crate::values::functions::SerializedLambda;
 use crate::values::structs::UserDefinedStruct;
@@ -269,6 +270,8 @@ pub struct SteelThread {
     pub(crate) stack_frames: Vec<StackFrame>,
     pub(crate) constant_map: ConstantMap,
     pub(crate) interrupted: Option<Arc<AtomicBool>>,
+    // Maybe this is... just a reference to a global one?
+    pub(crate) capabilities: CapabilityManager,
 }
 
 #[derive(Clone)]
@@ -334,6 +337,7 @@ impl SteelThread {
             // with the executables
             constant_map: DEFAULT_CONSTANT_MAP.with(|x| x.clone()),
             interrupted: Default::default(),
+            capabilities: CapabilityManager::fetch_installed(),
         }
     }
 
@@ -591,6 +595,7 @@ impl SteelThread {
                 }
 
                 self.stack.clear();
+                self.capabilities.clear();
 
                 return Err(e);
             } else {
@@ -600,6 +605,7 @@ impl SteelThread {
 
                 // Clean up
                 self.stack.clear();
+                self.capabilities.clear();
 
                 return result;
             }
@@ -746,8 +752,6 @@ impl Continuation {
                                 ctx.set_state_from_continuation(definitely_closed);
 
                                 return;
-
-                                // println!("CLOSING MARKS WHEN SETTING STATE FROM CONTINUATION: pop count: {}", ctx.pop_count);
                             }
                         }
 
@@ -842,6 +846,8 @@ pub struct ClosedContinuation {
     ip: usize,
     sp: usize,
     pop_count: usize,
+
+    capabilities: CapabilityManager,
 
     #[cfg(debug_assertions)]
     closed_continuation: Option<Box<ClosedContinuation>>,
@@ -1145,6 +1151,7 @@ impl<'a> VmCore<'a> {
             ip: self.ip,
             sp: self.sp,
             pop_count: self.pop_count,
+            capabilities: self.thread.capabilities.clone(),
             #[cfg(debug_assertions)]
             closed_continuation: None,
         }
@@ -1167,6 +1174,7 @@ impl<'a> VmCore<'a> {
             ip: self.ip,
             sp: self.sp,
             pop_count: self.pop_count,
+            capabilities: self.thread.capabilities.clone(),
             #[cfg(debug_assertions)]
             closed_continuation: None,
         }
@@ -1243,6 +1251,7 @@ impl<'a> VmCore<'a> {
         self.pop_count = continuation.pop_count;
         self.thread.stack_frames = continuation.stack_frames;
         self.thread.current_frame = continuation.current_frame;
+        self.thread.capabilities = continuation.capabilities;
     }
 
     // #[inline(always)]

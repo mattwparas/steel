@@ -3,7 +3,10 @@
          call/cc
          call-with-current-continuation
          make-parameter
-         continuation?)
+         continuation?
+
+         (for-syntax with-capability)
+         #%wrap-with-capability)
 
 ;;;;;; Parameters ;;;;;
 
@@ -165,3 +168,21 @@
       (set! winders (cdr winders))
       (out)
       ans*)))
+
+;; Use this during macro expansion to make sure that things
+;; get wrapped in the proper capabilities
+(define-syntax with-capability
+  (syntax-rules ()
+    [(_ capability-expr guarded-expr)
+     (let ([evaluated-capability capability-expr])
+       (dynamic-wind (lambda () (#%push-capability evaluated-capability))
+                     (lambda () guarded-expr)
+                     (lambda () (#%pop-capability))))]))
+
+;; Wrap the function with a given capability.
+;; At the moment, this does not attempt to specialize the arity, however
+;; we definitely should because otherwise this becomes rather slow
+(define (#%wrap-with-capability capability maybe-function)
+  (if (function? maybe-function)
+      (lambda args (with-capability capability (apply maybe-function args)))
+      maybe-function))

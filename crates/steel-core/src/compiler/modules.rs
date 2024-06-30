@@ -46,7 +46,7 @@ use super::{
         begin::FlattenBegin,
         mangle::{collect_globals, NameMangler},
     },
-    program::{FOR_SYNTAX, ONLY_IN, PREFIX_IN, REQUIRE_IDENT_SPEC},
+    program::{CAPABILITIES_IN, FOR_SYNTAX, ONLY_IN, PREFIX_IN, REQUIRE_IDENT_SPEC},
 };
 
 macro_rules! time {
@@ -319,78 +319,6 @@ impl ModuleManager {
                         ExprKind::List(l) => {
                             if let Some(qualifier) = l.first_ident() {
                                 match *qualifier {
-                                    // x if x == *CONTRACT_OUT => {
-                                    //     // Directly expand into define/contract, but with the value just being the hash get below
-
-                                    //     // (bind/c contract name 'name)
-
-                                    //     let name = l.args.get(1).unwrap();
-
-                                    //     if !explicit_requires.is_empty()
-                                    //         && !name
-                                    //             .atom_identifier()
-                                    //             .map(|x| explicit_requires.contains_key(x))
-                                    //             .unwrap_or_default()
-                                    //     {
-                                    //         continue;
-                                    //     }
-
-                                    //     // TODO: This should surface an error - cannot use contract
-                                    //     // out on a macro
-                                    //     if module
-                                    //         .macro_map
-                                    //         .contains_key(name.atom_identifier().unwrap())
-                                    //     {
-                                    //         continue;
-                                    //     }
-
-                                    //     // TODO: THe contract has to get mangled with the prefix as well?
-                                    //     let _contract = l.args.get(2).unwrap();
-
-                                    //     let hash_get = expr_list![
-                                    //         ExprKind::atom(*PROTO_HASH_GET),
-                                    //         ExprKind::atom(
-                                    //             "__module-".to_string() + &other_module_prefix
-                                    //         ),
-                                    //         ExprKind::Quote(Box::new(Quote::new(
-                                    //             name.clone(),
-                                    //             SyntaxObject::default(TokenType::Quote)
-                                    //         ))),
-                                    //     ];
-
-                                    //     let mut owned_name = name.clone();
-
-                                    //     // If we have the alias listed, we should use it
-                                    //     if !explicit_requires.is_empty() {
-                                    //         if let Some(alias) = explicit_requires
-                                    //             .get(name.atom_identifier().unwrap())
-                                    //             .copied()
-                                    //             .flatten()
-                                    //         {
-                                    //             *owned_name.atom_identifier_mut().unwrap() =
-                                    //                 alias.clone();
-                                    //         }
-                                    //     }
-
-                                    //     if let Some(prefix) = &require_object.prefix {
-                                    //         if let Some(existing) = owned_name.atom_identifier_mut()
-                                    //         {
-                                    //             let mut prefixed_identifier = prefix.clone();
-                                    //             prefixed_identifier.push_str(existing.resolve());
-
-                                    //             // Update the existing identifier to point to a new one with the prefix applied
-                                    //             *existing = prefixed_identifier.into();
-                                    //         }
-                                    //     }
-
-                                    //     let define = ExprKind::Define(Box::new(Define::new(
-                                    //         owned_name,
-                                    //         hash_get,
-                                    //         SyntaxObject::default(TokenType::Define),
-                                    //     )));
-
-                                    //     require_defines.push(define);
-                                    // }
                                     x if x == *REQUIRE_IDENT_SPEC => {
                                         // Directly expand into define/contract, but with the value just being the hash get below
 
@@ -1270,6 +1198,8 @@ impl CompiledModule {
                             // have to mangle this differently
                             globals.insert(*provide_ident);
 
+                            // TODO: This is where we'll have to insert the wrapper call
+                            // to figure out how to expand to the proper capability function.
                             let define = ExprKind::Define(Box::new(Define::new(
                                 ExprKind::atom(prefix.clone() + provide_ident.resolve()),
                                 expr_list![
@@ -1343,40 +1273,14 @@ impl CompiledModule {
 
                                 provide.1 = provide_expr;
 
+                                println!("{} - {}", provide.0, provide.1);
+
                                 continue;
 
                                 // name_unmangler.unmangle_expr(provide);
                             }
-                            // x if *x == *CONTRACT_OUT => {
-                            //     // Update the item to point to just the name
-                            //     //
-                            //     // *provide = l.get(1).unwrap().clone();
-                            //     // {
-                            //     //     println!("---------");
-                            //     //     println!("Provide expr: {}", l.to_string());
-                            //     // }
-
-                            //     provide.0 = l.get(1).unwrap().clone();
-
-                            //     let mut provide_expr = expr_list![
-                            //         ExprKind::ident("bind/c"),
-                            //         l.get(2).unwrap().clone(),
-                            //         l.get(1).unwrap().clone(),
-                            //         ExprKind::Quote(Box::new(Quote::new(
-                            //             l.get(1).unwrap().clone(),
-                            //             SyntaxObject::default(TokenType::Quote)
-                            //         ))),
-                            //     ];
-
-                            //     expand(&mut provide_expr, global_macro_map)?;
-
-                            //     provide.1 = provide_expr;
-
-                            //     name_unmangler.unmangle_expr(&mut provide.1);
-                            //     // continue;
-                            // }
                             _ => {
-                                stop!(TypeMismatch => "bar provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
+                                stop!(TypeMismatch => "provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
                             }
                         }
                     } else {
@@ -1595,6 +1499,9 @@ pub struct RequireObject {
     for_syntax: bool,
     idents_to_import: Vec<MaybeRenamed>,
     prefix: Option<String>,
+    // Capabilities to apply post macro expansion, assuming it is
+    // a function
+    with_capabilities: ExprKind,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -1619,6 +1526,9 @@ struct RequireObjectBuilder {
     idents_to_import: Vec<MaybeRenamed>,
     // Built up prefix
     prefix: Option<String>,
+    // Capabilities to apply post macro expansion, assuming it is
+    // a function
+    with_capabilities: ExprKind,
 }
 
 impl RequireObjectBuilder {
@@ -1632,6 +1542,7 @@ impl RequireObjectBuilder {
             for_syntax: self.for_syntax,
             idents_to_import: self.idents_to_import,
             prefix: self.prefix,
+            with_capabilities: self.with_capabilities,
         })
     }
 }
@@ -2619,6 +2530,18 @@ impl<'a> ModuleBuilder<'a> {
                                 }
                             }
                         }
+                    }
+
+                    Some(x) if *x == *CAPABILITIES_IN => {
+                        if l.args.len() != 3 {
+                            stop!(BadSyntax => "capabilities-in expects a capability expression to apply to a given file or module"; opt l.location);
+                        }
+
+                        let expression = l.args[1].clone();
+
+                        require_object.with_capabilities = expression;
+
+                        self.parse_require_object_inner(home, r, &l.args[2], require_object)?;
                     }
 
                     Some(x) if *x == *PREFIX_IN => {

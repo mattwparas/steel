@@ -403,6 +403,7 @@ define_symbols! {
     FOR_SYNTAX => "for-syntax",
     PREFIX_IN => "prefix-in",
     ONLY_IN => "only-in",
+    CAPABILITIES_IN => "capabilities-in",
     DATUM_SYNTAX => "datum->syntax",
     SYNTAX_SPAN => "#%syntax-span",
     IF => "if",
