@@ -12,6 +12,10 @@ Checks if the given value is a complex number
 > (complex? 42) ;; => #t
 > (complex? "hello") ;; => #f
 ```
+### **eof-object?**
+Returns `#t` if the value is an EOF object.
+
+(eof-object? any/c) -> bool?
 ### **exact-integer?**
 Checks if the given value is an exact integer
 
@@ -117,6 +121,7 @@ Checks if the given value is a real number
 ### **list?**
 ### **mutable-vector?**
 ### **not**
+### **port?**
 ### **procedure?**
 ### **set?**
 ### **string?**

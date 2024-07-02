@@ -168,8 +168,6 @@ error[E11]: Generic
 ```
 ### **pair?**
 Checks if the given value can be treated as a pair.
-Note - there are no improper lists in steel, so any list with at least one element
-is considered a pair.
 
 (pair? any/c) -> bool?
 

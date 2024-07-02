@@ -3,6 +3,7 @@ use std::fs::OpenOptions;
 use std::io;
 use std::io::prelude::*;
 use std::io::Cursor;
+use std::io::Stderr;
 use std::io::{BufReader, BufWriter, Stdin, Stdout};
 use std::process::ChildStdin;
 use std::process::ChildStdout;
@@ -13,9 +14,7 @@ use std::sync::Mutex;
 // use utils::chars::Chars;
 // use utils::{new_rc_ref_cell, RcRefCell};
 
-use crate::rerrs;
 use crate::rvals::Result;
-use crate::SteelErr;
 
 // use crate::rvals::{new_rc_ref_cell, RcRefSteelVal};
 
@@ -49,10 +48,11 @@ pub enum SteelPortRepr {
     FileOutput(String, BufWriter<File>),
     StdInput(Stdin),
     StdOutput(Stdout),
+    StdError(Stderr),
     ChildStdOutput(BufReader<ChildStdout>),
     ChildStdInput(BufWriter<ChildStdin>),
-    StringInput(BufReader<Cursor<Vec<u8>>>),
-    StringOutput(BufWriter<Vec<u8>>),
+    StringInput(Cursor<Vec<u8>>),
+    StringOutput(Vec<u8>),
     DynWriter(Arc<Mutex<dyn Write + Send + Sync>>),
     // DynReader(Box<dyn Read>),
     Closed,
@@ -69,6 +69,7 @@ impl std::fmt::Debug for SteelPortRepr {
             }
             SteelPortRepr::StdInput(s) => f.debug_tuple("StdInput").field(s).finish(),
             SteelPortRepr::StdOutput(s) => f.debug_tuple("StdOutput").field(s).finish(),
+            SteelPortRepr::StdError(s) => f.debug_tuple("StdError").field(s).finish(),
             SteelPortRepr::ChildStdOutput(s) => f.debug_tuple("ChildStdOutput").field(s).finish(),
             SteelPortRepr::ChildStdInput(s) => f.debug_tuple("ChildStdInput").field(s).finish(),
             SteelPortRepr::StringInput(s) => f.debug_tuple("StringInput").field(s).finish(),
@@ -82,6 +83,7 @@ impl std::fmt::Debug for SteelPortRepr {
 pub enum SendablePort {
     StdInput(Stdin),
     StdOutput(Stdout),
+    StdError(Stderr),
     BoxDynWriter(Arc<Mutex<dyn Write + Send + Sync>>),
     Closed,
 }
@@ -91,6 +93,7 @@ impl SendablePort {
         match value {
             SteelPortRepr::StdInput(_) => Ok(SendablePort::StdInput(io::stdin())),
             SteelPortRepr::StdOutput(_) => Ok(SendablePort::StdOutput(io::stdout())),
+            SteelPortRepr::StdError(_) => Ok(SendablePort::StdError(io::stderr())),
             SteelPortRepr::Closed => Ok(SendablePort::Closed),
             _ => {
                 stop!(Generic => "Unable to send port across threads: {:?}", value)
@@ -111,6 +114,9 @@ impl SteelPort {
             },
             SendablePort::StdOutput(s) => SteelPort {
                 port: new_rc_ref_cell(SteelPortRepr::StdOutput(s)),
+            },
+            SendablePort::StdError(s) => SteelPort {
+                port: new_rc_ref_cell(SteelPortRepr::StdError(s)),
             },
             SendablePort::Closed => SteelPort {
                 port: new_rc_ref_cell(SteelPortRepr::Closed),
@@ -152,6 +158,7 @@ impl SteelPortRepr {
         match self {
             SteelPortRepr::FileInput(_, br) => port_read_str_fn!(br, read_line),
             SteelPortRepr::StdInput(br) => port_read_str_fn!(br, read_line),
+            SteelPortRepr::StringInput(s) => port_read_str_fn!(s, read_line),
 
             SteelPortRepr::ChildStdOutput(br) => {
                 // let buf_reader = BufReader::new(br.borrow_mut().as_mut());
@@ -189,96 +196,122 @@ impl SteelPortRepr {
         }
     }
 
-    pub fn read_char(&mut self) -> Result<(usize, char)> {
-        // FIXME: this only reads 1 u8 and casts it to char
-        macro_rules! port_read_chr(
-            ($br: ident) => {{
-                let mut chr = [0; 1];
-                $br.read_exact(&mut chr)?;
-                Ok((1, chr[0] as char))
-            }};
-        );
+    pub fn read_char(&mut self) -> Result<Option<char>> {
+        let mut buf = [0; 4];
 
-        match self {
-            SteelPortRepr::FileInput(_, br) => port_read_chr!(br),
-            SteelPortRepr::StdInput(br) => port_read_chr!(br),
-            _x => stop!(Generic => "read-char"),
+        for i in 0..4 {
+            let result = self.read_byte()?;
+
+            let b = match result {
+                Some(b) => b,
+                None => {
+                    if i == 0 {
+                        return Ok(None);
+                    } else {
+                        stop!(ConversionError => "unable to decode character, found {:?}", &buf[0..=i]);
+                    }
+                }
+            };
+
+            buf[i] = b;
+
+            match std::str::from_utf8(&buf[0..=i]) {
+                Ok(s) => return Ok(s.chars().next()),
+                Err(err) if err.error_len().is_some() => {
+                    stop!(ConversionError => "unable to decode character, found {:?}", &buf[0..=i]);
+                }
+                _ => {}
+            }
+        }
+
+        stop!(ConversionError => "unable to decode character, found {:?}", buf);
+    }
+
+    pub fn read_byte(&mut self) -> Result<Option<u8>> {
+        let mut byte = [0];
+
+        let result = match self {
+            SteelPortRepr::FileInput(_, reader) => reader.read_exact(&mut byte),
+            SteelPortRepr::StdInput(stdin) => stdin.read_exact(&mut byte),
+            SteelPortRepr::ChildStdOutput(output) => output.read_exact(&mut byte),
+            SteelPortRepr::StringInput(reader) => reader.read_exact(&mut byte),
+            SteelPortRepr::FileOutput(_, _)
+            | SteelPortRepr::StdOutput(_)
+            | SteelPortRepr::StdError(_)
+            | SteelPortRepr::ChildStdInput(_)
+            | SteelPortRepr::StringOutput(_)
+            | SteelPortRepr::DynWriter(_) => stop!(ContractViolation => "expected input-port?"),
+            SteelPortRepr::Closed => return Ok(None),
+        };
+
+        if let Err(err) = result {
+            if err.kind() == io::ErrorKind::UnexpectedEof {
+                return Ok(None);
+            }
+
+            return Err(err.into());
+        }
+
+        Ok(Some(byte[0]))
+    }
+
+    pub fn peek_byte(&mut self) -> Result<Option<u8>> {
+        let mut buf = [0];
+
+        let result = self.peek(&mut buf)?;
+
+        if result == 0 {
+            Ok(None)
+        } else {
+            Ok(Some(buf[0]))
         }
     }
 
-    pub fn write_char(&mut self, c: char) -> Result<()> {
-        macro_rules! write_string(
-            ($br: ident) => {{
-                write!($br, "{}", c)?;
-                $br.flush()?;
-            }};
-        );
+    // This would not work for `peek_char`, since a `BufRead` will not work for this purpose.
+    // We need a way to force-fill the internal buffer up to 4 bytes. `fill_buf()` only tries to
+    // fill _if_ the internal buffer is empty, and without any guarantees of returned size.
+    fn peek(&mut self, buf: &mut [u8]) -> Result<usize> {
+        let copy = |src: &[u8]| {
+            let len = src.len().min(buf.len());
 
-        match self {
-            SteelPortRepr::FileOutput(_, br) => write_string!(br),
-            SteelPortRepr::StringOutput(br) => write_string!(br),
-            SteelPortRepr::StdOutput(out) => {
-                let mut br = out.lock();
-                write!(br, "{}", c)?;
-                br.flush()?;
-            }
-            SteelPortRepr::DynWriter(o) => {
-                let mut br = o.lock().unwrap();
-                write!(br, "{}", c)?;
-                br.flush()?;
-            }
-            _x => stop!(Generic => "write-car"),
+            buf.copy_from_slice(&src[0..len]);
+
+            len
         };
 
-        Ok(())
+        let result = match self {
+            SteelPortRepr::FileInput(_, reader) => reader.fill_buf().map(copy),
+            SteelPortRepr::StdInput(stdin) => {
+                let mut lock = stdin.lock();
+                lock.fill_buf().map(copy)
+            }
+            SteelPortRepr::ChildStdOutput(output) => output.fill_buf().map(copy),
+            SteelPortRepr::StringInput(reader) => reader.fill_buf().map(copy),
+            SteelPortRepr::FileOutput(_, _)
+            | SteelPortRepr::StdOutput(_)
+            | SteelPortRepr::StdError(_)
+            | SteelPortRepr::ChildStdInput(_)
+            | SteelPortRepr::StringOutput(_)
+            | SteelPortRepr::DynWriter(_) => stop!(ContractViolation => "expected input-port?"),
+            SteelPortRepr::Closed => return Ok(0),
+        }?;
+
+        Ok(result)
     }
 
-    pub fn write_string(&mut self, string: &str) -> Result<()> {
-        macro_rules! write_string(
-            ($br: ident) => {{
-                write!($br, "{}", string)?;
-                $br.flush()?;
-            }};
-        );
+    pub fn write_char(&mut self, c: char) -> Result<()> {
+        let mut buf = [0; 4];
 
-        match self {
-            SteelPortRepr::FileOutput(_, br) => write_string!(br),
-            SteelPortRepr::StdOutput(out) => {
-                let mut br = out.lock();
-                write!(br, "{}", string)?;
-                br.flush()?;
-            }
-            SteelPortRepr::DynWriter(o) => {
-                let mut br = o.lock().unwrap();
-                write!(br, "{}", string)?;
-                br.flush()?;
-            }
-            SteelPortRepr::StringOutput(br) => write_string!(br),
-            _x => stop!(Generic => "write-string"),
-        };
+        let s = c.encode_utf8(&mut buf);
+
+        let _ = self.write(s.as_bytes())?;
 
         Ok(())
     }
 
     pub fn write_string_line(&mut self, string: &str) -> Result<()> {
-        macro_rules! write_string(
-            ($br: ident) => {{
-                write!($br, "{}\n", string)?;
-                $br.flush()?;
-            }};
-        );
-
-        match self {
-            SteelPortRepr::FileOutput(_, br) => write_string!(br),
-            SteelPortRepr::StdOutput(br) => write_string!(br),
-            SteelPortRepr::ChildStdInput(br) => write_string!(br),
-            SteelPortRepr::StringOutput(br) => write_string!(br),
-            SteelPortRepr::DynWriter(br) => {
-                let mut br = br.lock().unwrap();
-                write_string!(br)
-            }
-            _x => stop!(Generic => "write-string"),
-        };
+        let _ = self.write(string.as_bytes())?;
+        let _ = self.write(b"\n")?;
 
         Ok(())
     }
@@ -286,7 +319,10 @@ impl SteelPortRepr {
     pub fn is_input(&self) -> bool {
         matches!(
             self,
-            SteelPortRepr::FileInput(_, _) | SteelPortRepr::StdInput(_)
+            SteelPortRepr::FileInput(_, _)
+                | SteelPortRepr::StdInput(_)
+                | SteelPortRepr::ChildStdOutput(_)
+                | SteelPortRepr::StringInput(_)
         )
     }
 
@@ -295,42 +331,56 @@ impl SteelPortRepr {
             self,
             SteelPortRepr::FileOutput(_, _)
                 | SteelPortRepr::StdOutput(_)
+                | SteelPortRepr::StdError(_)
                 | SteelPortRepr::DynWriter(_)
+                | SteelPortRepr::ChildStdInput(_)
+                | SteelPortRepr::StringOutput(_)
         )
     }
 
-    pub fn is_textual(&self) -> bool {
-        matches!(
-            self,
-            SteelPortRepr::FileInput(_, _)
-                | SteelPortRepr::FileOutput(_, _)
-                | SteelPortRepr::StdOutput(_)
-                | SteelPortRepr::StdInput(_)
-        )
-    }
-
-    pub fn get_output_string(&mut self) -> Result<String> {
-        if let SteelPortRepr::StringOutput(s) = self {
-            // Ensure that this is flushed
-            s.flush()?;
-
-            String::from_utf8(s.get_ref().to_vec())
-                .map_err(|err| SteelErr::new(rerrs::ErrorKind::Generic, err.to_string()))
+    pub fn get_output(&self) -> Result<Option<Vec<u8>>> {
+        let buf: &Vec<u8> = if let SteelPortRepr::StringOutput(s) = self {
+            s
         } else {
-            stop!(TypeMismatch => "get-output-string expects an output port, found: {:?}", self);
-        }
+            return Ok(None);
+        };
+
+        Ok(Some(buf.clone()))
     }
 
     pub fn close_output_port(&mut self) -> Result<()> {
-        match self {
-            SteelPortRepr::FileOutput(_, _) | SteelPortRepr::StdOutput(_) => {
-                *self = SteelPortRepr::Closed;
-                Ok(())
-            }
-            _ => {
-                stop!(TypeMismatch => "close-output-port expects an output port, found: {:?}", self)
-            }
+        if self.is_output() {
+            *self = SteelPortRepr::Closed;
+            Ok(())
+        } else {
+            stop!(TypeMismatch => "close-output-port expects an output port, found: {:?}", self)
         }
+    }
+
+    pub fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        macro_rules! write_and_flush(
+            ($br: expr) => {{
+                let result = $br.write(buf)?;
+                $br.flush()?;
+                result
+            }};
+        );
+
+        let result = match self {
+            SteelPortRepr::FileOutput(_, writer) => write_and_flush![writer],
+            SteelPortRepr::StdOutput(writer) => write_and_flush![writer],
+            SteelPortRepr::StdError(writer) => write_and_flush![writer],
+            SteelPortRepr::ChildStdInput(writer) => write_and_flush![writer],
+            SteelPortRepr::StringOutput(writer) => write_and_flush![writer],
+            SteelPortRepr::DynWriter(writer) => write_and_flush![writer.lock().unwrap()],
+            SteelPortRepr::FileInput(_, _)
+            | SteelPortRepr::StdInput(_)
+            | SteelPortRepr::ChildStdOutput(_)
+            | SteelPortRepr::StringInput(_) => stop!(ContractViolation => "expected output-port?"),
+            SteelPortRepr::Closed => stop!(Io => "port is closed"),
+        };
+
+        Ok(result)
     }
 }
 
@@ -363,15 +413,19 @@ impl SteelPort {
 
     pub fn new_input_port_string(string: String) -> SteelPort {
         SteelPort {
-            port: new_rc_ref_cell(SteelPortRepr::StringInput(BufReader::new(Cursor::new(
-                string.into_bytes(),
-            )))),
+            port: new_rc_ref_cell(SteelPortRepr::StringInput(Cursor::new(string.into_bytes()))),
         }
     }
 
-    pub fn new_output_port() -> SteelPort {
+    pub fn new_input_port_bytevector(vec: Vec<u8>) -> SteelPort {
         SteelPort {
-            port: new_rc_ref_cell(SteelPortRepr::StringOutput(BufWriter::new(Vec::new()))),
+            port: new_rc_ref_cell(SteelPortRepr::StringInput(Cursor::new(vec))),
+        }
+    }
+
+    pub fn new_output_port_string() -> SteelPort {
+        SteelPort {
+            port: new_rc_ref_cell(SteelPortRepr::StringOutput(Vec::new())),
         }
     }
 
@@ -391,19 +445,29 @@ impl SteelPort {
         self.port.borrow_mut().read_all_str()
     }
 
-    pub fn read_char(&self) -> Result<(usize, char)> {
+    pub fn read_char(&self) -> Result<Option<char>> {
         self.port.borrow_mut().read_char()
     }
 
-    pub fn write_char(&self, c: char) -> Result<()> {
-        self.port.borrow_mut().write_char(c)
+    pub fn read_byte(&self) -> Result<Option<u8>> {
+        self.port.borrow_mut().read_byte()
+    }
+
+    pub fn peek_byte(&self) -> Result<Option<u8>> {
+        self.port.borrow_mut().peek_byte()
     }
 
     //
     // Write functions
     //
-    pub fn write_string(&self, string: &str) -> Result<()> {
-        self.port.borrow_mut().write_string(string)
+    pub fn write_char(&self, c: char) -> Result<()> {
+        self.port.borrow_mut().write_char(c)
+    }
+
+    pub fn write(&self, buf: &[u8]) -> Result<()> {
+        let _ = self.port.borrow_mut().write(buf)?;
+
+        Ok(())
     }
 
     pub fn write_string_line(&self, string: &str) -> Result<()> {
@@ -419,10 +483,6 @@ impl SteelPort {
 
     pub fn is_output(&self) -> bool {
         self.port.borrow().is_output()
-    }
-
-    pub fn is_textual(&self) -> bool {
-        self.port.borrow().is_textual()
     }
 
     pub fn default_current_input_port() -> Self {
@@ -446,8 +506,23 @@ impl SteelPort {
         }
     }
 
-    pub fn get_output_string(&self) -> Result<String> {
-        self.port.borrow_mut().get_output_string()
+    pub fn default_current_error_port() -> Self {
+        if cfg!(test) {
+            // Write out to thread safe port
+            SteelPort {
+                port: new_rc_ref_cell(SteelPortRepr::DynWriter(Arc::new(Mutex::new(
+                    BufWriter::new(Vec::new()),
+                )))),
+            }
+        } else {
+            SteelPort {
+                port: new_rc_ref_cell(SteelPortRepr::StdError(io::stderr())),
+            }
+        }
+    }
+
+    pub fn get_output(&self) -> Result<Option<Vec<u8>>> {
+        self.port.borrow().get_output()
     }
 
     pub fn close_output_port(&self) -> Result<()> {

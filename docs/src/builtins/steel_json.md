@@ -3,7 +3,7 @@ De/serialization from/to JSON.
 ### **string->jsexpr**
 Deserializes a JSON string into a Steel value.
 
-(string->jsexpr json) -> any/c?
+(string->jsexpr json) -> any/c
 
 * json : string?
 
@@ -14,7 +14,7 @@ Deserializes a JSON string into a Steel value.
 ### **value->jsexpr-string**
 Serializes a Steel value into a string.
 
-(value->jsexpr-string any/c?) -> string?
+(value->jsexpr-string any/c) -> string?
 
 #### Examples
 ```scheme

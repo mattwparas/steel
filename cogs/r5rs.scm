@@ -437,6 +437,21 @@
 (check-equal? "case-insensitive string >=, true" #t (string-ci>=? "aa" "A"))
 (check-equal? "case-insensitive string >=, same string" #t (string-ci>=? "a" "A"))
 
+(check-equal? "char=?, true" #t (char=? #\a #\a #\a))
+(check-equal? "char=?, false" #f (char=? #\a #\A))
+(check-equal? "char<?, true" #t (char<? #\a #\b #\c))
+(check-equal? "char<?, false, strict" #f (char<? #\a #\a))
+(check-equal? "char<?, false" #f (char<? #\b #\a))
+(check-equal? "char>?, false" #f (char>? #\a #\b))
+(check-equal? "char>?, false, strict" #f (char>? #\a #\a))
+(check-equal? "char>?, true" #t (char>? #\c #\b #\a))
+(check-equal? "char<=?, true" #t (char<=? #\a #\b #\b))
+(check-equal? "char<=?, true, non-strict" #t (char<=? #\a #\a))
+(check-equal? "char<=?, false" #f (char<=? #\b #\a))
+(check-equal? "char>=?, false" #f (char>=? #\a #\b))
+(check-equal? "char>=?, true, non-strict" #t (char>=? #\a #\a))
+(check-equal? "char>=?, true" #t (char>=? #\b #\b #\a))
+
 (check-equal? "make-string creates single character string 'a' correctly"
               #t
               (string=? "a" (make-string 1 #\a)))

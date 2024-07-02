@@ -70,6 +70,30 @@
               (parameterize ([location "on a bus"])
                 (would-you-could-you?)))
 
+;; Bytevectors
+
+;; TODO: use bytevector literals
+(check-equal? "utf8->string" "ABC" (utf8->string (bytes #x41 #x42 #x43)))
+(check-equal? "utf8->string, multi-byte char" "λ" (utf8->string (bytes #xCE #xBB)))
+(check-equal? "utf8->string with start" "ABC" (utf8->string (bytes 0 #x41 #x42 #x43) 1))
+(check-equal? "utf8->string with start and end" "ABC" (utf8->string (bytes 0 #x41  #x42 #x43 0) 1 4))
+(check-equal? "utf8->string with start and end, multi-byte char" "λ" (utf8->string (bytes 0 #xCE #xBB 0) 1 3))
+(check-equal? "string->utf8" (bytes #x41 #x42 #x43) (string->utf8 "ABC"))
+(check-equal? "string->utf8 with start" (bytes #x42 #x43) (string->utf8 "ABC" 1))
+(check-equal? "string->utf8 with start and end" (bytes #x42) (string->utf8 "ABC" 1 2))
+(check-equal? "string->utf8 with start and end, multi-byte" (bytes #xCE #xBB) (string->utf8 "σλC" 1 2))
+(check-equal? "string->utf8, multi-byte char" (bytes #xCE #xBB) (string->utf8 "λ"))
+
+(check-equal? "char->integer, special escape, null" 0 (char->integer (read (open-input-string "#\\null"))))
+(check-equal? "char->integer, special escape, alarm" 7 (char->integer (read (open-input-string "#\\alarm"))))
+(check-equal? "char->integer, special escape, backspace" 8 (char->integer (read (open-input-string "#\\backspace"))))
+(check-equal? "char->integer, special escape, tab" 9 (char->integer (read (open-input-string "#\\tab"))))
+(check-equal? "char->integer, special escape, newline" 10 (char->integer (read (open-input-string "#\\newline"))))
+(check-equal? "char->integer, special escape, return" 13 (char->integer (read (open-input-string "#\\return"))))
+(check-equal? "char->integer, special escape, delete" #x7F (char->integer (read (open-input-string "#\\delete"))))
+(check-equal? "char->integer, special escape, escape" #x1B (char->integer (read (open-input-string "#\\escape"))))
+(check-equal? "char->integer, multi-byte" #x03BB (char->integer (read (open-input-string "#\\λ"))))
+
 (define r7rs-test-stats (get-test-stats))
 
 (displayln "Passed: " (hash-ref r7rs-test-stats 'success-count))

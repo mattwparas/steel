@@ -4005,7 +4005,7 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
     Some(Ok(SteelVal::ContinuationFunction(continuation)))
 }
 
-pub(crate) const APPLY_DOC: MarkdownDoc<'static> = MarkdownDoc(
+pub(crate) const APPLY_DOC: MarkdownDoc<'static> = MarkdownDoc::from_str(
     r#"
 Applies the given `function` with arguments as the contents of the `list`.
 

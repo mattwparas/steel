@@ -32,6 +32,19 @@ Converts the bytevector to the equivalent list representation.
 ```scheme
 (bytes->list (bytes 0 1 2 3 4 5)) ;; => '(0 1 2 3 4 5)
 ```
+### **bytes->string/utf8**
+Decodes a string from a bytevector containing valid UTF-8.
+
+(bytes->string/utf8 buf [start] [end]) -> string?
+
+* buf : bytes?
+* start: int? = 0
+* end: int? = (bytes-length buf)
+
+#### Examples
+```scheme
+(bytes->string/utf8 (bytes #xe5 #x8d #x83 #xe8 #x91 #x89)) ;; => "千葉"
+```
 ### **bytes-append**
 Append two byte vectors into a new bytevector.
 
@@ -136,10 +149,5 @@ Creates a bytevector given a length and a default value.
 ```scheme
 (make-bytes 6 42) ;; => (bytes 42 42 42 42 42)
 ```
-### **string->bytes**
-Converts the given string to a bytevector
-
-#### Examples
-```scheme
-(string->bytes "Apple") ;; => (bytes 65 112 112 108 101)
-```
+### **utf8->string**
+Alias of `bytes->string/utf8`.

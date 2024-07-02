@@ -83,6 +83,7 @@ pub fn list_module() -> BuiltInModule {
         .register_native_fn_definition(PAIR_DEFINITION)
         .register_native_fn_definition(NativeFunctionDefinition {
             name: "apply",
+            aliases: &[],
             func: BuiltInFunctionType::Context(apply),
             arity: Arity::Exact(2),
             doc: Some(APPLY_DOC),

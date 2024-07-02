@@ -12,7 +12,7 @@ use steel_derive::function;
 
 /// Deserializes a JSON string into a Steel value.
 ///
-/// (string->jsexpr json) -> any/c?
+/// (string->jsexpr json) -> any/c
 ///
 /// * json : string?
 ///
@@ -33,7 +33,7 @@ pub fn string_to_jsexpr(value: &SteelString) -> Result<SteelVal> {
 
 /// Serializes a Steel value into a string.
 ///
-/// (value->jsexpr-string any/c?) -> string?
+/// (value->jsexpr-string any/c) -> string?
 ///
 /// # Examples
 /// ```scheme

@@ -1,17 +1,12 @@
 use crate::gc::Gc;
 use crate::values::lists::List;
 
-use crate::rvals::{RestArgsIter, Result, SteelString, SteelVal};
+use crate::rvals::{RestArgsIter, Result, SteelByteVector, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
-use crate::steel_vm::register_fn::RegisterFn;
 use crate::stop;
 
 use num::{BigInt, Num};
 use steel_derive::{function, native};
-
-fn char_upcase(c: char) -> char {
-    c.to_ascii_uppercase()
-}
 
 /// Strings in Steel are immutable, fixed length arrays of characters. They are heap allocated, and
 /// are implemented under the hood as referenced counted Rust `Strings`. Rust `Strings` are stored
@@ -56,21 +51,59 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(STRING_TO_NUMBER_DEFINITION)
         .register_native_fn_definition(NUMBER_TO_STRING_DEFINITION)
         .register_native_fn_definition(REPLACE_DEFINITION)
-        .register_fn("char-upcase", char_upcase)
-        .register_fn("char-whitespace?", char::is_whitespace)
-        .register_fn("char-digit?", |c: char| char::is_digit(c, 10))
-        .register_fn("char->number", |c: char| char::to_digit(c, 10))
-        .register_native_fn_definition(CHAR_EQUALS_DEFINITION);
+        .register_native_fn_definition(CHAR_UPCASE_DEFINITION)
+        .register_native_fn_definition(CHAR_DOWNCASE_DEFINITION)
+        .register_native_fn_definition(CHAR_IS_DIGIT_DEFINITION)
+        .register_native_fn_definition(CHAR_IS_WHITESPACE_DEFINITION)
+        .register_native_fn_definition(CHAR_TO_NUMBER_DEFINITION)
+        .register_native_fn_definition(CHAR_EQUALS_DEFINITION)
+        .register_native_fn_definition(CHAR_GREATER_THAN_DEFINITION)
+        .register_native_fn_definition(CHAR_GREATER_THAN_EQUAL_TO_DEFINITION)
+        .register_native_fn_definition(CHAR_LESS_THAN_DEFINITION)
+        .register_native_fn_definition(CHAR_LESS_THAN_EQUAL_TO_DEFINITION)
+        .register_native_fn_definition(CHAR_TO_INTEGER_DEFINITION)
+        .register_native_fn_definition(INTEGER_TO_CHAR_DEFINITION)
+        .register_native_fn_definition(STRING_TO_BYTES_DEFINITION)
+        .register_native_fn_definition(STRING_TO_VECTOR_DEFINITION);
+
     module
 }
 
-/// Checks if two characters are equal
+macro_rules! monotonic {
+    ($iter:expr, $compare:expr) => {{
+        let mut iter = $iter;
+
+        let Some(mut last)= iter.next().transpose()? else {
+            stop!(ArityMismatch => "expected at least one argument");
+        };
+
+        let comparator = $compare;
+
+        for maybe_item in iter {
+            let item = maybe_item?;
+
+            if comparator(&last, &item) {
+                last = item;
+            } else {
+                return Ok(SteelVal::BoolV(false));
+            }
+        }
+
+        Ok(SteelVal::BoolV(true))
+    }};
+}
+
+/// Checks if all characters are equal.
 ///
-/// Requires that the two inputs are both characters, and will otherwise
-/// raise an error.
+/// Requires that all inputs are characters, and will otherwise raise an error.
+///
+/// (char=? char1 char2 ...) -> bool?
+///
+/// * char1 : char?
+/// * char2 : char?
 #[function(name = "char=?", constant = true)]
-pub fn char_equals(left: char, right: char) -> bool {
-    left == right
+pub fn char_equals(rest: RestArgsIter<char>) -> Result<SteelVal> {
+    monotonic!(rest, |ch1: &_, ch2: &_| ch1 == ch2)
 }
 
 fn number_to_string_impl(value: &SteelVal, radix: Option<u32>) -> Result<SteelVal> {
@@ -90,7 +123,7 @@ fn number_to_string_impl(value: &SteelVal, radix: Option<u32>) -> Result<SteelVa
     }
 }
 
-/// Converts the given number to a string
+/// Converts the given number to a string.
 #[function(name = "number->string", constant = true)]
 pub fn number_to_string(value: &SteelVal, mut rest: RestArgsIter<'_, isize>) -> Result<SteelVal> {
     let radix = rest.next();
@@ -183,73 +216,110 @@ pub fn string_constructor(rest: RestArgsIter<'_, char>) -> Result<SteelVal> {
     rest.collect::<Result<String>>().map(|x| x.into())
 }
 
-/// Compares two strings lexicographically (as in "less-than-or-equal").
-#[function(name = "string<=?", constant = true)]
-pub fn string_less_than_equal_to(left: &SteelString, right: &SteelString) -> bool {
-    left <= right
+// TODO: avoid allocation in `-ci` variants
+
+macro_rules! impl_str_comparison {
+    (-ci, $name:ident, $ext_name:literal, $mode:literal, $op:expr) => {
+        #[doc = concat!("Compares strings lexicographically (as in\"", $mode, "\"),")]
+        #[doc = "in a case insensitive fashion."]
+        #[doc = ""]
+        #[doc = concat!("(", $ext_name, " s1 s2 ... ) -> bool?")]
+        #[doc = "* s1 : string?"]
+        #[doc = "* s2 : string?"]
+        #[function(name = $ext_name, constant = true)]
+        pub fn $name(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
+            monotonic!(rest.map(|val| val.map(|s| s.as_str().to_lowercase())), $op)
+        }
+    };
+    ($name:ident, $ext_name:literal, $mode:literal, $op:expr) => {
+        #[doc = concat!("Compares strings lexicographically (as in\"", $mode, "\").")]
+        #[doc = ""]
+        #[doc = concat!("(", $ext_name, " s1 s2 ... ) -> bool?")]
+        #[doc = "* s1 : string?"]
+        #[doc = "* s2 : string?"]
+        #[function(name = $ext_name, constant = true)]
+        pub fn $name(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
+            monotonic!(rest, $op)
+        }
+    };
 }
 
-/// Compares two strings lexicographically (as in "less-than-or-equal"),
-// in a case insensitive fashion.
-#[function(name = "string-ci<=?", constant = true)]
-pub fn string_ci_less_than_equal_to(left: &SteelString, right: &SteelString) -> bool {
-    left.to_lowercase() <= right.to_lowercase()
-}
+impl_str_comparison!(
+    string_less_than,
+    "string<?",
+    "less-than",
+    |s1: &_, s2: &_| s1 < s2
+);
+impl_str_comparison!(
+    string_less_than_equal_to,
+    "string<=?",
+    "less-than-equal-to",
+    |s1: &_, s2: &_| s1 <= s2
+);
+impl_str_comparison!(
+    string_greater_than,
+    "string>?",
+    "greater-than",
+    |s1: &_, s2: &_| s1 > s2
+);
+impl_str_comparison!(
+    string_greater_than_equal_to,
+    "string>=?",
+    "greater-than-or-equal",
+    |s1: &_, s2: &_| s1 >= s2
+);
+impl_str_comparison!(
+    -ci,
+    string_ci_less_than,
+    "string-ci<?",
+    "less-than",
+    |s1: &_, s2: &_| s1 < s2
+);
+impl_str_comparison!(
+    -ci,
+    string_ci_less_than_equal_to,
+    "string-ci<=?",
+    "less-than-or-equal",
+    |s1: &_, s2: &_| s1 <= s2
+);
+impl_str_comparison!(
+    -ci,
+    string_ci_greater_than,
+    "string-ci>?",
+    "greater-than",
+    |s1: &_, s2: &_| s1 > s2
+);
+impl_str_comparison!(
+    -ci,
+    string_ci_greater_than_equal_to,
+    "string-ci>=?",
+    "greater-than-or-equal",
+    |s1: &_, s2: &_| s1 >= s2
+);
 
-/// Compares two strings lexicographically (as in "less-than").
-#[function(name = "string<?", constant = true)]
-pub fn string_less_than(left: &SteelString, right: &SteelString) -> bool {
-    left < right
-}
-
-/// Compares two strings lexicographically (as in "less-than"),
-/// in a case insensitive fashion.
-#[function(name = "string-ci<?", constant = true)]
-pub fn string_ci_less_than(left: &SteelString, right: &SteelString) -> bool {
-    left.to_lowercase() < right.to_lowercase()
-}
-
-/// Compares two strings lexicographically (as in "greater-than-or-equal").
-#[function(name = "string>=?", constant = true)]
-pub fn string_greater_than_equal_to(left: &SteelString, right: &SteelString) -> bool {
-    left >= right
-}
-
-/// Compares two strings lexicographically (as in "greater-than-or-equal"),
-/// in a case insensitive fashion.
-#[function(name = "string-ci>=?", constant = true)]
-pub fn string_ci_greater_than_equal_to(left: &SteelString, right: &SteelString) -> bool {
-    left.to_lowercase() >= right.to_lowercase()
-}
-
-/// Compares two strings lexicographically (as in "greater-than").
-#[function(name = "string>?", constant = true)]
-pub fn string_greater_than(left: &SteelString, right: &SteelString) -> bool {
-    left > right
-}
-
-/// Compares two strings lexicographically (as in "greater-than"),
-/// in a case-insensitive fashion.
-#[function(name = "string-ci>?", constant = true)]
-pub fn string_ci_greater_than(left: &SteelString, right: &SteelString) -> bool {
-    left.to_lowercase() > right.to_lowercase()
-}
-
-/// Compares two strings for equality.
+/// Compares strings for equality.
+///
+/// (string=? string1 string2 ...) -> bool?
+///
+/// * string1 : string?
+/// * string2 : string?
 #[function(name = "string=?", constant = true)]
-pub fn string_equals(left: &SteelString, right: &SteelString) -> bool {
-    left == right
+pub fn string_equals(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
+    monotonic!(rest, |s1: &_, s2: &_| s1 == s2)
 }
 
-/// Compares two strings for equality, in a case insensitive fashion.
+/// Compares strings for equality, in a case insensitive fashion.
 #[function(name = "string-ci=?", constant = true)]
-pub fn string_ci_equals(left: &SteelString, right: &SteelString) -> bool {
-    left.to_lowercase() == right.to_lowercase()
+pub fn string_ci_equals(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
+    monotonic!(
+        rest.map(|val| val.map(|s| s.as_str().to_lowercase())),
+        |s1: &_, s2: &_| s1 == s2
+    )
 }
 
 /// Extracts the nth character out of a given string.
 ///
-/// (string-ref str n)
+/// (string-ref str n) -> char?
 ///
 /// * str : string?
 /// * n : int?
@@ -287,48 +357,15 @@ pub fn substring(
     i: usize,
     mut rest: RestArgsIter<'_, isize>,
 ) -> Result<SteelVal> {
-    use std::iter::once;
-
-    if i > value.len() {
-        stop!(Generic => "substring: index out of bounds: left bound: {}, string length: {}", i, value.len());
-    }
-
-    let j = rest.next().transpose()?.map(|j| j as usize);
+    let j = rest.next().transpose()?;
 
     if rest.next().is_some() {
         stop!(ArityMismatch => "substring expects 1 or 2 arguments");
     }
 
-    if let Some(j) = j {
-        if i > j {
-            stop!(Generic => "substring: left bound must be less than or equal to the right bound: left: {}, right: {}", i, j);
-        }
-    }
+    let range = bounds(value.as_str(), Some(i as isize), j, "substring")?;
 
-    if value.is_empty() {
-        return Ok(SteelVal::StringV("".into()));
-    }
-
-    let mut char_offsets = value
-        .char_indices()
-        .map(|(offset, _)| offset)
-        .chain(once(value.len()));
-
-    let Some(start) = char_offsets.nth(i) else {
-        stop!(Generic => "substring: index out of bounds: left bound: {}", i);
-    };
-
-    let Some(j) = j else {
-        return Ok(SteelVal::StringV(value[start..].into()));
-    };
-
-    let mut char_offsets = once(start).chain(char_offsets);
-
-    let Some(end) = char_offsets.nth(j - i) else {
-        stop!(Generic => "substring: index out of bounds: right bound: {}", j);
-    };
-
-    Ok(SteelVal::StringV(value[start..end].into()))
+    Ok(SteelVal::StringV(value[range].into()))
 }
 
 /// Creates a string of a given length, filled with an optional character
@@ -451,7 +488,11 @@ pub fn string_to_int(value: &SteelString) -> Result<SteelVal> {
 
 /// Converts a string into a list of characters.
 ///
-/// (string->list string?) -> (listof char?)
+/// (string->list s [start] [end]) -> (listof char?)
+///
+/// * s : string?
+/// * start : int? = 0
+/// * end : int?
 ///
 /// # Examples
 ///
@@ -459,12 +500,21 @@ pub fn string_to_int(value: &SteelString) -> Result<SteelVal> {
 /// > (string->list "hello") ;; => '(#\h #\e #\l #\l #\o)
 /// ```
 #[function(name = "string->list")]
-pub fn string_to_list(value: &SteelString) -> SteelVal {
-    value
+pub fn string_to_list(value: &SteelString, mut rest: RestArgsIter<isize>) -> Result<SteelVal> {
+    let i = rest.next().transpose()?;
+    let j = rest.next().transpose()?;
+
+    if rest.next().is_some() {
+        stop!(ArityMismatch => "string->list expects up to 3 arguments");
+    }
+
+    let range = bounds(value.as_str(), i, j, "string->list")?;
+
+    Ok(value[range]
         .chars()
         .map(SteelVal::CharV)
         .collect::<List<_>>()
-        .into()
+        .into())
 }
 
 /// Creates a new uppercased version of the input string
@@ -701,6 +751,200 @@ pub fn string_append(mut rest: RestArgsIter<'_, &SteelString>) -> Result<SteelVa
         .map(|x| SteelVal::StringV(x.into()))
 }
 
+macro_rules! impl_char_comparison {
+    ($name:ident, $ext_name:literal, $mode:literal, $op:expr) => {
+        #[doc = concat!("Compares characters according to their codepoints, in a \"", $mode, "\" fashion.")]
+        #[doc = ""]
+        #[doc = concat!("(", $ext_name, " char1 char2 ... ) -> bool?")]
+        #[doc = "* char1 : char?"]
+        #[doc = "* char2 : char?"]
+        #[function(name = $ext_name, constant = true)]
+        pub fn $name(rest: RestArgsIter<&char>) -> Result<SteelVal> {
+            monotonic!(rest, $op)
+        }
+    };
+}
+
+impl_char_comparison!(
+    char_less_than,
+    "char<?",
+    "less-than",
+    |ch1: &_, ch2: &_| ch1 < ch2
+);
+impl_char_comparison!(
+    char_less_than_equal_to,
+    "char<=?",
+    "less-than-or-equal",
+    |ch1: &_, ch2: &_| ch1 <= ch2
+);
+impl_char_comparison!(
+    char_greater_than,
+    "char>?",
+    "greater-than",
+    |ch1: &_, ch2: &_| ch1 > ch2
+);
+impl_char_comparison!(
+    char_greater_than_equal_to,
+    "char>=?",
+    "greater-than-or-equal",
+    |ch1: &_, ch2: &_| ch1 >= ch2
+);
+
+/// Returns the Unicode codepoint of a given character.
+///
+/// (char->integer char?) -> integer?
+#[function(name = "char->integer")]
+pub fn char_to_integer(ch: char) -> u32 {
+    ch as u32
+}
+
+/// Returns the character corresponding to a given Unicode codepoint.
+///
+/// (integer->char integer?) -> char?
+#[function(name = "integer->char")]
+pub fn integer_to_char(int: u32) -> Result<SteelVal> {
+    let Some(ch) = char::from_u32(int) else {
+        stop!(ConversionError => "integer {} is out of range for a character", int);
+    };
+
+    Ok(ch.into())
+}
+
+/// Encodes a string as UTF-8 into a bytevector.
+///
+/// (string->bytes string?) -> bytes?
+///
+/// # Examples
+/// ```scheme
+/// (string->bytes "Apple") ;; => (bytes 65 112 112 108 101)
+/// ```
+#[function(name = "string->bytes", alias = "string->utf8")]
+pub fn string_to_bytes(value: &SteelString, mut rest: RestArgsIter<isize>) -> Result<SteelVal> {
+    let start = rest.next().transpose()?;
+    let end = rest.next().transpose()?;
+
+    if rest.next().is_some() {
+        stop!(ArityMismatch => "string->bytes expects up to 3 parameters");
+    }
+
+    let range = bounds(value.as_str(), start, end, "string->bytes")?;
+
+    let bytes = value.as_bytes()[range].to_owned();
+
+    Ok(SteelVal::ByteVector(SteelByteVector::new(bytes)))
+}
+
+/// Returns a vector containing the characters of a given string
+///
+/// (string->vector string?) -> vector?
+///
+/// # Examples
+/// ```scheme
+/// (string->vector "hello") ;; => '#(#\h #\e #\l #\l #\o)
+/// ```
+#[function(name = "string->vector")]
+pub fn string_to_vector(value: &SteelString, mut rest: RestArgsIter<isize>) -> Result<SteelVal> {
+    let start = rest.next().transpose()?;
+    let end = rest.next().transpose()?;
+
+    if rest.next().is_some() {
+        stop!(ArityMismatch => "string->vector expects up to 3 parameters");
+    }
+
+    let range = bounds(value.as_str(), start, end, "string->vector")?;
+
+    let chars: im_rc::Vector<_> = value[range].chars().map(SteelVal::CharV).collect();
+
+    Ok(SteelVal::VectorV(Gc::new(chars).into()))
+}
+
+fn bounds(
+    s: &str,
+    i: Option<isize>,
+    j: Option<isize>,
+    name: &str,
+) -> Result<std::ops::Range<usize>> {
+    use std::iter::once;
+
+    let i = i.unwrap_or(0);
+
+    if i < 0 {
+        stop!(ContractViolation => "{}: bounds must be non-negative: left: {}", name, i);
+    }
+
+    let i = i as usize;
+
+    if i > s.len() {
+        stop!(Generic => "{}: index out of bounds: left bound: {}, string length: {}", name, i, s.len());
+    }
+
+    if let Some(j) = j {
+        if j < 0 {
+            stop!(ContractViolation => "{}: bounds must be non-negative: right: {}", name, j);
+        }
+
+        if i > (j as usize) {
+            stop!(Generic => "{}: left bound must be less than or equal to the right bound: left: {}, right: {}", name, i, j);
+        }
+    }
+
+    let j = j.map(|j| j as usize);
+
+    let mut char_offsets = s
+        .char_indices()
+        .map(|(offset, _)| offset)
+        .chain(once(s.len()));
+
+    let Some(start) = char_offsets.nth(i) else {
+        stop!(Generic => "{}: index out of bounds: left bound: {}", name, i);
+    };
+
+    let Some(j) = j else {
+        return Ok(start..s.len());
+    };
+
+    let mut char_offsets = once(start).chain(char_offsets);
+
+    let Some(end) = char_offsets.nth(j - i) else {
+        stop!(Generic => "{}: index out of bounds: right bound: {}", name, j);
+    };
+
+    Ok(start..end)
+}
+
+/// Returns the upper case version of a character, if defined by Unicode,
+/// or the same character otherwise.
+#[function(name = "char-upcase")]
+fn char_upcase(c: char) -> char {
+    c.to_uppercase().next().unwrap()
+}
+
+/// Returns the lower case version of a character, if defined by Unicode,
+/// or the same character otherwise.
+#[function(name = "char-downcase")]
+fn char_downcase(c: char) -> char {
+    c.to_lowercase().next().unwrap()
+}
+
+/// Returns `#t` if the character is a whitespace character.
+#[function(name = "char-whitespace?")]
+fn char_is_whitespace(c: char) -> bool {
+    c.is_whitespace()
+}
+
+/// Returns `#t` if the character is a decimal digit.
+#[function(name = "char-digit?")]
+fn char_is_digit(c: char) -> bool {
+    c.is_digit(10)
+}
+
+/// Attemps to convert the character into a decimal digit,
+/// and returns `#f` on failure.
+#[function(name = "char->number")]
+fn char_to_number(c: char) -> Option<u32> {
+    c.to_digit(10)
+}
+
 #[cfg(test)]
 mod string_operation_tests {
     use super::*;
@@ -758,7 +1002,6 @@ mod string_operation_tests {
         ("trim", trim_arity_too_many, steel_trim),
         ("trim-start", trim_start_arity_too_many, steel_trim_start),
         ("trim-end", trim_end_arity_too_many, steel_trim_end),
-        ("string->list", string_to_list_arity_too_many, steel_string_to_list),
         ("split-whitespace", split_whitespace_arity_too_many, steel_split_whitespace),
     }
 
@@ -779,6 +1022,8 @@ mod string_operation_tests {
         ("trim-start", trim_start_arity_takes_string, steel_trim_start),
         ("trim-end", trim_end_arity_takes_string, steel_trim_end),
         ("string->list", string_to_list_takes_string, steel_string_to_list),
+        ("string->bytes", string_to_bytes_takes_string, steel_string_to_bytes),
+        ("string->vector", string_to_vector_takes_string, steel_string_to_vector),
         ("split-whitespace", split_whitespace_arity_takes_string, steel_split_whitespace)
     }
 
