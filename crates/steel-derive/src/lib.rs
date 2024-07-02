@@ -58,7 +58,7 @@ fn parse_key_value_pairs(args: &Punctuated<Meta, Token![,]>) -> HashMap<String, 
                     Expr::Group(ExprGroup { expr, .. }) => {
                         value = &**expr;
                     }
-                    _ => {}
+                    _ => break,
                 }
             }
         }
