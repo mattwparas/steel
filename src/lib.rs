@@ -90,9 +90,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
 
             if let Err(e) = res {
                 e.emit_result(path.to_str().unwrap(), &contents);
-                // process::exit(1);
-
-                return Err(Box::new(e));
+                process::exit(1);
             }
 
             Ok(())

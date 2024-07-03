@@ -44,7 +44,7 @@ use crate::{
     values::{
         closed::HeapRef,
         functions::{attach_contract_struct, get_contract, LambdaMetadataTable},
-        lists::List,
+        lists::{List, SteelList},
         structs::{
             build_type_id_module, make_struct_type, struct_update_primitive, SteelResult,
             UserDefinedStruct,
@@ -1501,7 +1501,8 @@ fn meta_module() -> BuiltInModule {
         .register_fn("#%build-dylib", || {
             #[cfg(feature = "dylib-build")]
             cargo_steel_lib::run().ok()
-        });
+        })
+        .register_native_fn_definition(COMMAND_LINE_DEFINITION);
 
     #[cfg(not(feature = "dylibs"))]
     module.register_native_fn_definition(super::engine::LOAD_MODULE_NOOP_DEFINITION);
@@ -1511,6 +1512,13 @@ fn meta_module() -> BuiltInModule {
     module.register_native_fn_definition(crate::steel_vm::dylib::LOAD_MODULE_DEFINITION);
 
     module
+}
+
+/// Returns the command line passed to this process,
+/// including the command name as first argument.
+#[steel_derive::function(name = "command-line")]
+fn command_line() -> SteelList<String> {
+    std::env::args().collect()
 }
 
 /// De/serialization from/to JSON.

@@ -40,6 +40,7 @@
 
 (define-syntax check-equal?
   (syntax-rules ()
+    [(check-equal? 'skip rest ...) (mark-skipped)]
     [(check-equal? name input expected)
      (with-handler (lambda (err)
                      (mark-failed name)
