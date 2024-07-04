@@ -1466,13 +1466,23 @@ impl CompiledModule {
                         builtin_definitions.push(std::mem::take(expr));
                         false
                     } else {
-                        true
+                        if let ExprKind::LambdaFunction(_) = d.body {
+                            true
+                        } else {
+                            maybe_wrap_with_capabilities(&mut d.body);
+                            true
+                        }
                     }
                 }
                 ExprKind::Begin(b) => {
                     for expr in b.exprs.iter_mut() {
-                        if let ExprKind::Define(_) = expr {
-                            continue;
+                        if let ExprKind::Define(d) = expr {
+                            if let ExprKind::LambdaFunction(_) = d.body {
+                                continue;
+                            } else {
+                                maybe_wrap_with_capabilities(&mut d.body);
+                                continue;
+                            }
                         }
 
                         maybe_wrap_with_capabilities(expr);
