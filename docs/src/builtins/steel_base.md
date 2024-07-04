@@ -416,6 +416,10 @@ Returns an EOF object.
 Returns `#t` if the value is an EOF object.
 
 (eof-object? any/c) -> bool?
+### **error-object-message**
+Returns the message of an error object.
+
+(error-object-message error?) -> string?
 ### **exact->inexact**
 Converts an exact number to an inexact number.
 
@@ -1783,6 +1787,7 @@ Checks if the given real number is zero.
 ### **eq?**
 ### **equal?**
 ### **eqv?**
+### **error-object?**
 ### **error-with-span**
 ### **eval!**
 ### **even?**

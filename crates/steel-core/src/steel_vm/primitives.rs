@@ -1081,6 +1081,8 @@ fn sandboxed_meta_module() -> BuiltInModule {
 }
 
 /// Returns the message of an error object.
+///
+/// (error-object-message error?) -> string?
 #[steel_derive::function(name = "error-object-message")]
 fn error_object_message(val: &SteelVal) -> Result<SteelVal> {
     let SteelVal::Custom(custom) = val else {
