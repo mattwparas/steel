@@ -1,5 +1,6 @@
 use crate::rvals::{Custom, Result, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
+use crate::values::capabilities::{FileSystemAccessKind, FileSystemAccessRequest};
 use crate::{steelerr, stop, throw};
 use dirs;
 use std::env::current_dir;
@@ -59,6 +60,13 @@ pub fn fs_module() -> BuiltInModule {
 /// Deletes the directory
 #[steel_derive::function(name = "delete-directory!")]
 pub fn delete_directory(directory: &SteelString) -> Result<SteelVal> {
+    // Check that we have access to this directory at all
+    FileSystemAccessRequest {
+        kind: FileSystemAccessKind::Write,
+        resource: directory.as_str(),
+    }
+    .check()?;
+
     std::fs::remove_dir_all(directory.as_str())?;
     Ok(SteelVal::Void)
 }
@@ -66,6 +74,13 @@ pub fn delete_directory(directory: &SteelString) -> Result<SteelVal> {
 /// Creates the directory
 #[steel_derive::function(name = "create-directory!")]
 pub fn create_directory(directory: &SteelString) -> Result<SteelVal> {
+    // Check that we have access to this directory at all
+    FileSystemAccessRequest {
+        kind: FileSystemAccessKind::Write,
+        resource: directory.as_str(),
+    }
+    .check()?;
+
     std::fs::create_dir_all(directory.as_str())?;
 
     Ok(SteelVal::Void)
@@ -77,6 +92,20 @@ pub fn copy_directory_recursively(
     source: &SteelString,
     destination: &SteelString,
 ) -> Result<SteelVal> {
+    // Check that we have access to read this directory at all
+    FileSystemAccessRequest {
+        kind: FileSystemAccessKind::Read,
+        resource: source.as_str(),
+    }
+    .check()?;
+
+    // Check that we have access to this directory at all
+    FileSystemAccessRequest {
+        kind: FileSystemAccessKind::Write,
+        resource: destination.as_str(),
+    }
+    .check()?;
+
     copy_recursively(source.as_str(), destination.as_str())?;
 
     Ok(SteelVal::Void)
@@ -85,18 +114,39 @@ pub fn copy_directory_recursively(
 /// Checks if a path exists
 #[steel_derive::function(name = "path-exists?")]
 pub fn path_exists(path: &SteelString) -> Result<SteelVal> {
+    // Check that we have access to read this path at all
+    FileSystemAccessRequest {
+        kind: FileSystemAccessKind::Read,
+        resource: path.as_str(),
+    }
+    .check()?;
+
     Ok(SteelVal::BoolV(Path::new(path.as_ref()).exists()))
 }
 
 /// Checks if a path is a file
 #[steel_derive::function(name = "is-file?")]
 pub fn is_file(path: &SteelString) -> Result<SteelVal> {
+    // Check that we have access to read this path at all
+    FileSystemAccessRequest {
+        kind: FileSystemAccessKind::Read,
+        resource: path.as_str(),
+    }
+    .check()?;
+
     Ok(SteelVal::BoolV(Path::new(path.as_ref()).is_file()))
 }
 
 /// Checks if a path is a directory
 #[steel_derive::function(name = "is-dir?")]
 pub fn is_dir(path: &SteelString) -> Result<SteelVal> {
+    // Check that we have access to read this path at all
+    FileSystemAccessRequest {
+        kind: FileSystemAccessKind::Read,
+        resource: path.as_str(),
+    }
+    .check()?;
+
     Ok(SteelVal::BoolV(Path::new(path.as_ref()).is_dir()))
 }
 
@@ -125,6 +175,13 @@ pub fn file_name(path: &SteelString) -> Result<SteelVal> {
 /// Returns canonical path with all components normalized
 #[steel_derive::function(name = "canonicalize-path")]
 pub fn canonicalize_path(path: &SteelString) -> Result<SteelVal> {
+    // Check that we have access to read this path at all
+    FileSystemAccessRequest {
+        kind: FileSystemAccessKind::Read,
+        resource: path.as_str(),
+    }
+    .check()?;
+
     let path = path.as_str();
     let canonicalized = if path.len() > 0 && path.starts_with('~') {
         if path.len() > 1 && !path.starts_with("~/") {
@@ -151,6 +208,13 @@ pub fn canonicalize_path(path: &SteelString) -> Result<SteelVal> {
 /// Returns the contents of the directory as a list
 #[steel_derive::function(name = "read-dir")]
 pub fn read_dir(path: &SteelString) -> Result<SteelVal> {
+    // Check that we have access to read this path at all
+    FileSystemAccessRequest {
+        kind: FileSystemAccessKind::Read,
+        resource: path.as_str(),
+    }
+    .check()?;
+
     let p = Path::new(path.as_ref());
     if p.is_dir() {
         let iter = p.read_dir();

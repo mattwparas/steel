@@ -381,6 +381,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             stack_frames: Vec::with_capacity(32),
             constant_map,
             interrupted: Default::default(),
+            capabilities: CapabilityManager::fetch_installed(),
         };
 
         #[cfg(feature = "profiling")]

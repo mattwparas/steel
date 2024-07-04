@@ -42,6 +42,7 @@ use crate::{
         vm::threads::threading_module,
     },
     values::{
+        capabilities::capabilities_module,
         closed::HeapRef,
         functions::{attach_contract_struct, get_contract, LambdaMetadataTable},
         lists::List,
@@ -317,6 +318,8 @@ thread_local! {
     pub static TYPE_ID_MODULE: BuiltInModule = build_type_id_module();
     pub static OPTION_MODULE: BuiltInModule = build_option_structs();
 
+    pub static CAPABILITIES_MODULE: BuiltInModule = capabilities_module();
+
     #[cfg(feature = "dylibs")]
     pub static FFI_MODULE: BuiltInModule = ffi_module();
 
@@ -341,7 +344,6 @@ pub fn prelude() -> BuiltInModule {
         .with_module(STRING_MODULE.with(|x| x.clone()))
         .with_module(VECTOR_MODULE.with(|x| x.clone()))
         .with_module(STREAM_MODULE.with(|x| x.clone()))
-        // .with_module(CONTRACT_MODULE.with(|x| x.clone()))
         .with_module(IDENTITY_MODULE.with(|x| x.clone()))
         .with_module(NUMBER_MODULE.with(|x| x.clone()))
         .with_module(EQUALITY_MODULE.with(|x| x.clone()))
@@ -362,6 +364,7 @@ pub fn prelude() -> BuiltInModule {
         .with_module(TIME_MODULE.with(|x| x.clone()))
         .with_module(THREADING_MODULE.with(|x| x.clone()))
         .with_module(BYTEVECTOR_MODULE.with(|x| x.clone()))
+        .with_module(CAPABILITIES_MODULE.with(|x| x.clone()))
 }
 
 pub fn register_builtin_modules_without_io(engine: &mut Engine) {
@@ -384,7 +387,6 @@ pub fn register_builtin_modules_without_io(engine: &mut Engine) {
         .register_module(STRING_MODULE.with(|x| x.clone()))
         .register_module(VECTOR_MODULE.with(|x| x.clone()))
         .register_module(STREAM_MODULE.with(|x| x.clone()))
-        // .register_module(CONTRACT_MODULE.with(|x| x.clone()))
         .register_module(IDENTITY_MODULE.with(|x| x.clone()))
         .register_module(NUMBER_MODULE.with(|x| x.clone()))
         .register_module(EQUALITY_MODULE.with(|x| x.clone()))
@@ -392,12 +394,11 @@ pub fn register_builtin_modules_without_io(engine: &mut Engine) {
         .register_module(TRANSDUCER_MODULE.with(|x| x.clone()))
         .register_module(SYMBOL_MODULE.with(|x| x.clone()))
         .register_module(SANDBOXED_IO_MODULE.with(|x| x.clone()))
-        // .register_module(FS_MODULE.with(|x| x.clone()))
-        // .register_module(PORT_MODULE.with(|x| x.clone()))
         .register_module(SANDBOXED_META_MODULE.with(|x| x.clone()))
         .register_module(JSON_MODULE.with(|x| x.clone()))
         .register_module(CONSTANTS_MODULE.with(|x| x.clone()))
         .register_module(SYNTAX_MODULE.with(|x| x.clone()))
+        .register_module(CAPABILITIES_MODULE.with(|x| x.clone()))
         .register_module(PRELUDE_MODULE.with(|x| x.clone()));
 }
 
@@ -478,7 +479,8 @@ pub fn register_builtin_modules(engine: &mut Engine) {
         .register_module(TIME_MODULE.with(|x| x.clone()))
         .register_module(RANDOM_MODULE.with(|x| x.clone()))
         .register_module(THREADING_MODULE.with(|x| x.clone()))
-        .register_module(BYTEVECTOR_MODULE.with(|x| x.clone()));
+        .register_module(BYTEVECTOR_MODULE.with(|x| x.clone()))
+        .register_module(CAPABILITIES_MODULE.with(|x| x.clone()));
 
     #[cfg(feature = "dylibs")]
     engine.register_module(FFI_MODULE.with(|x| x.clone()));
@@ -573,6 +575,7 @@ pub static ALL_MODULES: &str = r#"
     (require-builtin steel/core/types)
     (require-builtin steel/threads)
     (require-builtin steel/bytevectors)
+    (require-builtin steel/capabilities)
 
     (require-builtin steel/hash as #%prim.)
     (require-builtin steel/sets as #%prim.)
@@ -599,6 +602,7 @@ pub static ALL_MODULES: &str = r#"
     (require-builtin steel/core/types as #%prim.)
     (require-builtin steel/threads as #%prim.)
     (require-builtin steel/bytevectors as #%prim.)
+    (require-builtin steel/capabilities as #%prim.)
 "#;
 
 pub static ALL_MODULES_RESERVED: &str = r#"
@@ -627,6 +631,7 @@ pub static ALL_MODULES_RESERVED: &str = r#"
     (require-builtin steel/core/types as #%prim.)
     (require-builtin steel/threads as #%prim.)
     (require-builtin steel/bytevectors as #%prim.)
+    (require-builtin steel/capabilities as #%prim.)
 "#;
 
 pub static SANDBOXED_MODULES: &str = r#"
@@ -647,6 +652,7 @@ pub static SANDBOXED_MODULES: &str = r#"
     (require-builtin steel/json)
     (require-builtin steel/constants)
     (require-builtin steel/syntax)
+    (require-builtin steel/capabilities)
 "#;
 
 // TODO: Clean this up a lot
