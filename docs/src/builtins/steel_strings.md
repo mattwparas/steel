@@ -270,6 +270,29 @@ in a case insensitive fashion.
 (string-ci>? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+### **string-contains?**
+Searches a string to check if it contains the second argument.
+
+(string-contains? string? string?) -> bool?
+
+#### Examples
+```scheme
+(string-contains? "hello" "lo") ;;=> #t
+(string-contains? "hello" "world") ;;=> #f
+```
+### **string-join**
+Joins the given list of strings, with an optional separator.
+
+(string-join strings [sep]) -> string?
+
+* strings : (listof string?)
+* sep : string? = ""
+
+#### Examples
+```scheme
+(string-join '("a" "b" "c")) ;; => "abc"
+(string-join '("one" "two" "three") ", ") ;; => "one, two, three"
+```
 ### **string-length**
 Get the length of the given string in UTF-8 bytes.
 

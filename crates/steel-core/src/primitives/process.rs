@@ -21,6 +21,7 @@ pub fn process_module() -> BuiltInModule {
         .register_fn("wait->stdout", ChildProcess::wait_with_stdout)
         .register_fn("which", binary_exists_on_path)
         .register_fn("child-stdout", ChildProcess::stdout)
+        .register_fn("child-stderr", ChildProcess::stderr)
         .register_fn("child-stdin", ChildProcess::stdin);
 
     module
@@ -77,8 +78,22 @@ impl ChildProcess {
             });
 
         stdout
+    }
 
-        //     todo!()
+    pub fn stderr(&mut self) -> Option<SteelVal> {
+        let stdout = self
+            .child
+            .as_mut()
+            .and_then(|x| x.stderr.take())
+            .and_then(|x| {
+                Some(SteelVal::PortV(SteelPort {
+                    port: Rc::new(RefCell::new(SteelPortRepr::ChildStdError(BufReader::new(
+                        x,
+                    )))),
+                }))
+            });
+
+        stdout
     }
 
     pub fn stdin(&mut self) -> Option<SteelVal> {
@@ -98,16 +113,21 @@ impl ChildProcess {
 
         //     todo!()
     }
-    fn wait_impl(&mut self) -> Result<ProcessExitStatus, SteelErr> {
-        self.child
+    fn wait_impl(&mut self) -> Result<SteelVal, SteelErr> {
+        let exit_status = self
+            .child
             .take()
             .ok_or_else(crate::throw!(Generic => "Child already awaited!"))?
             .wait()
-            .map(ProcessExitStatus::new)
-            .map_err(|x| x.into())
+            .map_err(SteelErr::from)?;
+
+        match exit_status.code() {
+            Some(code) => Ok(code.into()),
+            None => Ok(false.into()),
+        }
     }
 
-    pub fn wait(&mut self) -> SteelResult<ProcessExitStatus, SteelErr> {
+    pub fn wait(&mut self) -> SteelResult<SteelVal, SteelErr> {
         self.wait_impl().into()
     }
 
@@ -158,4 +178,3 @@ impl CommandBuilder {
 
 impl Custom for CommandBuilder {}
 impl Custom for ChildProcess {}
-impl Custom for ProcessExitStatus {}

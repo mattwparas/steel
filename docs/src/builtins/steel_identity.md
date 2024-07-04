@@ -115,6 +115,7 @@ Checks if the given value is a real number
 ### **boolean?**
 ### **char?**
 ### **continuation?**
+### **error-object?**
 ### **function?**
 ### **future?**
 ### **hash?**

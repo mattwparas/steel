@@ -52,7 +52,8 @@ pub fn fs_module() -> BuiltInModule {
         .register_native_fn_definition(FILE_NAME_DEFINITION)
         .register_native_fn_definition(CANONICALIZE_PATH_DEFINITION)
         .register_native_fn_definition(CURRENT_DIRECTORY_DEFINITION)
-        .register_native_fn_definition(GET_EXTENSION_DEFINITION);
+        .register_native_fn_definition(GET_EXTENSION_DEFINITION)
+        .register_native_fn_definition(DELETE_FILE_DEFINITION);
     module
 }
 
@@ -175,4 +176,11 @@ pub fn read_dir(path: &SteelString) -> Result<SteelVal> {
 pub fn current_directory() -> Result<SteelVal> {
     let path = current_dir()?;
     Ok(SteelVal::StringV(path.to_str().unwrap_or("").into()))
+}
+
+/// Deletes the file
+#[steel_derive::function(name = "delete-file!")]
+pub fn delete_file(file: &SteelString) -> Result<SteelVal> {
+    std::fs::remove_file(file.as_str())?;
+    Ok(SteelVal::Void)
 }

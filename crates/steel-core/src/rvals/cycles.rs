@@ -178,7 +178,11 @@ impl CycleDetector {
                 }
             }
             Pair(p) => {
-                write!(f, "({} . {})", p.car(), p.cdr())
+                write!(f, "(")?;
+                self.format_with_cycles(&p.car, f, FormatType::Normal)?;
+                write!(f, " . ")?;
+                self.format_with_cycles(&p.cdr, f, FormatType::Normal)?;
+                write!(f, ")")
             }
             FuncV(func) => {
                 if let Some(name) = get_function_name(*func) {

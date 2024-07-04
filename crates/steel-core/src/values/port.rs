@@ -5,6 +5,7 @@ use std::io::prelude::*;
 use std::io::Cursor;
 use std::io::Stderr;
 use std::io::{BufReader, BufWriter, Stdin, Stdout};
+use std::process::ChildStderr;
 use std::process::ChildStdin;
 use std::process::ChildStdout;
 use std::sync::Arc;
@@ -50,6 +51,7 @@ pub enum SteelPortRepr {
     StdOutput(Stdout),
     StdError(Stderr),
     ChildStdOutput(BufReader<ChildStdout>),
+    ChildStdError(BufReader<ChildStderr>),
     ChildStdInput(BufWriter<ChildStdin>),
     StringInput(Cursor<Vec<u8>>),
     StringOutput(Vec<u8>),
@@ -71,6 +73,7 @@ impl std::fmt::Debug for SteelPortRepr {
             SteelPortRepr::StdOutput(s) => f.debug_tuple("StdOutput").field(s).finish(),
             SteelPortRepr::StdError(s) => f.debug_tuple("StdError").field(s).finish(),
             SteelPortRepr::ChildStdOutput(s) => f.debug_tuple("ChildStdOutput").field(s).finish(),
+            SteelPortRepr::ChildStdError(s) => f.debug_tuple("ChildStdError").field(s).finish(),
             SteelPortRepr::ChildStdInput(s) => f.debug_tuple("ChildStdInput").field(s).finish(),
             SteelPortRepr::StringInput(s) => f.debug_tuple("StringInput").field(s).finish(),
             SteelPortRepr::StringOutput(s) => f.debug_tuple("StringOutput").field(s).finish(),
@@ -192,6 +195,8 @@ impl SteelPortRepr {
         match self {
             SteelPortRepr::FileInput(_, br) => port_read_str_fn!(br, read_to_string),
             SteelPortRepr::StdInput(br) => port_read_str_fn!(br, read_to_string),
+            SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br, read_to_string),
+            SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br, read_to_string),
             _x => stop!(Generic => "read-all-str"),
         }
     }
@@ -234,6 +239,7 @@ impl SteelPortRepr {
             SteelPortRepr::FileInput(_, reader) => reader.read_exact(&mut byte),
             SteelPortRepr::StdInput(stdin) => stdin.read_exact(&mut byte),
             SteelPortRepr::ChildStdOutput(output) => output.read_exact(&mut byte),
+            SteelPortRepr::ChildStdError(output) => output.read_exact(&mut byte),
             SteelPortRepr::StringInput(reader) => reader.read_exact(&mut byte),
             SteelPortRepr::FileOutput(_, _)
             | SteelPortRepr::StdOutput(_)
@@ -286,6 +292,7 @@ impl SteelPortRepr {
                 lock.fill_buf().map(copy)
             }
             SteelPortRepr::ChildStdOutput(output) => output.fill_buf().map(copy),
+            SteelPortRepr::ChildStdError(output) => output.fill_buf().map(copy),
             SteelPortRepr::StringInput(reader) => reader.fill_buf().map(copy),
             SteelPortRepr::FileOutput(_, _)
             | SteelPortRepr::StdOutput(_)
@@ -322,6 +329,7 @@ impl SteelPortRepr {
             SteelPortRepr::FileInput(_, _)
                 | SteelPortRepr::StdInput(_)
                 | SteelPortRepr::ChildStdOutput(_)
+                | SteelPortRepr::ChildStdError(_)
                 | SteelPortRepr::StringInput(_)
         )
     }
@@ -376,6 +384,7 @@ impl SteelPortRepr {
             SteelPortRepr::FileInput(_, _)
             | SteelPortRepr::StdInput(_)
             | SteelPortRepr::ChildStdOutput(_)
+            | SteelPortRepr::ChildStdError(_)
             | SteelPortRepr::StringInput(_) => stop!(ContractViolation => "expected output-port?"),
             SteelPortRepr::Closed => stop!(Io => "port is closed"),
         };

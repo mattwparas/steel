@@ -1,5 +1,6 @@
 use crate::steel_vm::vm::DehydratedCallContext;
 use crate::{parser::parser::ParseError, rvals::Custom, steel_vm::vm::DehydratedStackTrace};
+use std::io::IsTerminal;
 use std::{convert::Infallible, fmt::Formatter};
 // use thiserror::Error;
 
@@ -240,7 +241,13 @@ impl SteelErr {
     pub fn emit_result(&self, file_name: &str, file_content: &str) {
         // let opts = Opts::();
         // let config = codespan_reporting::term::Config::default();
-        let writer = StandardStream::stderr(ColorChoice::Always);
+        let color = if std::io::stderr().is_terminal() {
+            ColorChoice::Auto
+        } else {
+            ColorChoice::Never
+        };
+
+        let writer = StandardStream::stderr(color);
         let config = codespan_reporting::term::Config::default();
 
         let file = SimpleFile::new(file_name, file_content);
@@ -277,6 +284,10 @@ impl SteelErr {
                 self.repr.span.unwrap_or(Span::new(0, 0, None)),
             )
             .with_message(&self.repr.message)])
+    }
+
+    pub(crate) fn message(&self) -> &str {
+        &self.repr.message
     }
 }
 

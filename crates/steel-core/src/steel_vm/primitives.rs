@@ -44,7 +44,7 @@ use crate::{
     values::{
         closed::HeapRef,
         functions::{attach_contract_struct, get_contract, LambdaMetadataTable},
-        lists::List,
+        lists::{List, SteelList},
         structs::{
             build_type_id_module, make_struct_type, struct_update_primitive, SteelResult,
             UserDefinedStruct,
@@ -752,6 +752,16 @@ fn private_structp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::CustomStruct(_))
 }
 
+#[steel_derive::function(name = "error-object?", constant = true)]
+fn error_objectp(value: &SteelVal) -> bool {
+    let SteelVal::Custom(val) = value else {
+        return false;
+    };
+
+    let cell: &RefCell<_> = &*val;
+    as_underlying_type::<SteelErr>(cell.borrow().as_ref()).is_some()
+}
+
 #[steel_derive::function(name = "function?", constant = true)]
 fn functionp(value: &SteelVal) -> bool {
     matches!(
@@ -808,6 +818,7 @@ fn identity_module() -> BuiltInModule {
         .register_native_fn_definition(PORTP_DEFINITION)
         .register_native_fn_definition(EOF_OBJECTP_DEFINITION)
         .register_native_fn_definition(PRIVATE_STRUCTP_DEFINITION)
+        .register_native_fn_definition(ERROR_OBJECTP_DEFINITION)
         .register_value("mutable-vector?", gen_pred!(MutableVector))
         .register_value("char?", gen_pred!(CharV))
         .register_value("future?", gen_pred!(FutureV))
@@ -1067,6 +1078,24 @@ fn sandboxed_meta_module() -> BuiltInModule {
     // .register_fn("get-value", super::meta::EngineWrapper::get_value)
     // .register_fn("env-var", get_environment_variable);
     module
+}
+
+/// Returns the message of an error object.
+///
+/// (error-object-message error?) -> string?
+#[steel_derive::function(name = "error-object-message")]
+fn error_object_message(val: &SteelVal) -> Result<SteelVal> {
+    let SteelVal::Custom(custom) = val else {
+        stop!(TypeMismatch => "error-object-message: expected an error object");
+    };
+
+    let custom_ref = custom.borrow();
+
+    let Some(error) = as_underlying_type::<SteelErr>(custom_ref.as_ref()) else {
+        stop!(TypeMismatch => "error-object-message: expected an error object");
+    };
+
+    Ok(error.message().to_string().into())
 }
 
 fn lookup_function_name(value: SteelVal) -> Option<SteelVal> {
@@ -1501,7 +1530,9 @@ fn meta_module() -> BuiltInModule {
         .register_fn("#%build-dylib", || {
             #[cfg(feature = "dylib-build")]
             cargo_steel_lib::run().ok()
-        });
+        })
+        .register_native_fn_definition(COMMAND_LINE_DEFINITION)
+        .register_native_fn_definition(ERROR_OBJECT_MESSAGE_DEFINITION);
 
     #[cfg(not(feature = "dylibs"))]
     module.register_native_fn_definition(super::engine::LOAD_MODULE_NOOP_DEFINITION);
@@ -1511,6 +1542,13 @@ fn meta_module() -> BuiltInModule {
     module.register_native_fn_definition(crate::steel_vm::dylib::LOAD_MODULE_DEFINITION);
 
     module
+}
+
+/// Returns the command line passed to this process,
+/// including the command name as first argument.
+#[steel_derive::function(name = "command-line")]
+fn command_line() -> SteelList<String> {
+    std::env::args().collect()
 }
 
 /// De/serialization from/to JSON.

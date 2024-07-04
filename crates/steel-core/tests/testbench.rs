@@ -97,8 +97,8 @@ fn static_site_generator_modules() {
 fn if_test() {
     let mut evaluator = Engine::new();
     evaluator.compile_and_run_raw_program(PRELUDE).unwrap();
-    test_line("(if #t 'a 2)", &["'a"], &mut evaluator);
-    test_line("(if 'a 'b 1)", &["'b"], &mut evaluator);
+    test_line("(if #t 'a 2)", &["a"], &mut evaluator);
+    test_line("(if 'a 'b 1)", &["b"], &mut evaluator);
     test_line(
         "(if (= 1 (begin (display 10) 1)) a 2)",
         &["Error: FreeIdentifier: a"],
@@ -326,7 +326,7 @@ fn thread_first_test() {
             (append (list 5 6))
             (map (lambda (x) (* 5 x)))
             (append (list 1 2 3 4)))",
-        &["'(1 2 3 4 25 30 10 20 30 40)"],
+        &["(1 2 3 4 25 30 10 20 30 40)"],
         e,
     );
 }
@@ -340,7 +340,7 @@ fn thread_last_test() {
         "(-> (list 1 2 3 4)
             (drop 2)
             (append (list 5 6)))",
-        &["'(3 4 5 6)"],
+        &["(3 4 5 6)"],
         e,
     );
 }
@@ -350,7 +350,7 @@ fn first_apply_test() {
     let mut evaluator = Engine::new();
     // evaluator.compile_and_run_raw_program(PRELUDE).unwrap();
     let e = &mut evaluator;
-    test_line("((f> append (list 3 4)) (list 1 2))", &["'(1 2 3 4)"], e);
+    test_line("((f> append (list 3 4)) (list 1 2))", &["(1 2 3 4)"], e);
 }
 
 #[test]
@@ -358,7 +358,7 @@ fn last_apply_test() {
     let mut evaluator = Engine::new();
     evaluator.compile_and_run_raw_program(PRELUDE).unwrap();
     let e = &mut evaluator;
-    test_line("((l> append (list 3 4)) (list 1 2))", &["'(3 4 1 2)"], e);
+    test_line("((l> append (list 3 4)) (list 1 2))", &["(3 4 1 2)"], e);
 }
 
 #[test]
@@ -377,7 +377,7 @@ fn map_test() {
     let e = &mut evaluator;
     test_line(
         "(map (lambda (x) (* 2 x)) (list 1 2 3 4))",
-        &["'(2 4 6 8)"],
+        &["(2 4 6 8)"],
         e,
     );
 }
@@ -387,5 +387,5 @@ fn filter_test() {
     let mut evaluator = Engine::new();
     evaluator.compile_and_run_raw_program(PRELUDE).unwrap();
     let e = &mut evaluator;
-    test_line("(filter even? (list 1 2 3 4 5))", &["'(2 4)"], e);
+    test_line("(filter even? (list 1 2 3 4 5))", &["(2 4)"], e);
 }

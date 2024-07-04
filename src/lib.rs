@@ -90,7 +90,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
 
             if let Err(e) = res {
                 vm.raise_error(e.clone());
-                return Err(Box::new(e));
+                process::exit(1);
             }
 
             Ok(())

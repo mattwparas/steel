@@ -317,6 +317,9 @@ Compares characters according to their codepoints, in a "greater-than" fashion.
 (char>? char1 char2 ... ) -> bool?
 * char1 : char?
 * char2 : char?
+### **command-line**
+Returns the command line passed to this process,
+including the command name as first argument.
 ### **complex?**
 Checks if the given value is a complex number
 
@@ -363,6 +366,8 @@ Returns the number of seconds since the Unix epoch as an integer.
 (current-second) -> int?
 ### **delete-directory!**
 Deletes the directory
+### **delete-file!**
+Deletes the file
 ### **denominator**
 Retrieves the denominator of the given rational number.
 
@@ -411,6 +416,10 @@ Returns an EOF object.
 Returns `#t` if the value is an EOF object.
 
 (eof-object? any/c) -> bool?
+### **error-object-message**
+Returns the message of an error object.
+
+(error-object-message error?) -> string?
 ### **exact->inexact**
 Converts an exact number to an inexact number.
 
@@ -1470,6 +1479,29 @@ in a case insensitive fashion.
 (string-ci>? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+### **string-contains?**
+Searches a string to check if it contains the second argument.
+
+(string-contains? string? string?) -> bool?
+
+#### Examples
+```scheme
+(string-contains? "hello" "lo") ;;=> #t
+(string-contains? "hello" "world") ;;=> #f
+```
+### **string-join**
+Joins the given list of strings, with an optional separator.
+
+(string-join strings [sep]) -> string?
+
+* strings : (listof string?)
+* sep : string? = ""
+
+#### Examples
+```scheme
+(string-join '("a" "b" "c")) ;; => "abc"
+(string-join '("one" "two" "three") ", ") ;; => "one, two, three"
+```
 ### **string-length**
 Get the length of the given string in UTF-8 bytes.
 
@@ -1735,6 +1767,7 @@ Checks if the given real number is zero.
 ### **channel->send**
 ### **channel->try-recv**
 ### **char?**
+### **child-stderr**
 ### **child-stdin**
 ### **child-stdout**
 ### **close-output-port**
@@ -1754,6 +1787,7 @@ Checks if the given real number is zero.
 ### **eq?**
 ### **equal?**
 ### **eqv?**
+### **error-object?**
 ### **error-with-span**
 ### **eval!**
 ### **even?**

@@ -2124,8 +2124,7 @@ impl fmt::Display for SteelVal {
         // at the top level, print a ' if we are
         // trying to print a symbol or list
         match self {
-            SymbolV(_) | ListV(_) => write!(f, "'")?,
-            VectorV(_) => write!(f, "'#")?,
+            VectorV(_) => write!(f, "#")?,
             _ => (),
         };
 

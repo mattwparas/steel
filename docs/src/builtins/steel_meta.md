@@ -1,4 +1,11 @@
 # steel/meta
+### **command-line**
+Returns the command line passed to this process,
+including the command name as first argument.
+### **error-object-message**
+Returns the message of an error object.
+
+(error-object-message error?) -> string?
 ### **%iterator?**
 ### **Engine::add-module**
 ### **Engine::clone**

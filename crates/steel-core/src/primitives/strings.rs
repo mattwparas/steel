@@ -1,5 +1,5 @@
 use crate::gc::Gc;
-use crate::values::lists::List;
+use crate::values::lists::{List, SteelList};
 
 use crate::rvals::{RestArgsIter, Result, SteelByteVector, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
@@ -64,7 +64,9 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(CHAR_TO_INTEGER_DEFINITION)
         .register_native_fn_definition(INTEGER_TO_CHAR_DEFINITION)
         .register_native_fn_definition(STRING_TO_BYTES_DEFINITION)
-        .register_native_fn_definition(STRING_TO_VECTOR_DEFINITION);
+        .register_native_fn_definition(STRING_TO_VECTOR_DEFINITION)
+        .register_native_fn_definition(STRING_JOIN_DEFINITION)
+        .register_native_fn_definition(STRING_CONTAINS_DEFINITION);
 
     module
 }
@@ -943,6 +945,64 @@ fn char_is_digit(c: char) -> bool {
 #[function(name = "char->number")]
 fn char_to_number(c: char) -> Option<u32> {
     c.to_digit(10)
+}
+
+/// Joins the given list of strings, with an optional separator.
+///
+/// (string-join strings [sep]) -> string?
+///
+/// * strings : (listof string?)
+/// * sep : string? = ""
+///
+/// # Examples
+/// ```scheme
+/// (string-join '("a" "b" "c")) ;; => "abc"
+/// (string-join '("one" "two" "three") ", ") ;; => "one, two, three"
+/// ```
+#[function(name = "string-join")]
+fn string_join(
+    strings: SteelList<SteelVal>,
+    mut rest: RestArgsIter<'_, &SteelString>,
+) -> Result<SteelVal> {
+    let mut joined = String::new();
+
+    let len = strings.len();
+
+    let sep = rest.next().transpose()?;
+
+    if rest.next().is_some() {
+        todo!()
+    }
+
+    for (i, val) in strings.into_iter().enumerate() {
+        let SteelVal::StringV(s) = val else {
+            stop!(TypeMismatch => "string-join: expected a list of strings");
+        };
+
+        joined += s.as_str();
+
+        if i + 1 < len {
+            if let Some(sep) = sep.as_ref() {
+                joined += sep.as_str();
+            }
+        }
+    }
+
+    Ok(joined.into())
+}
+
+/// Searches a string to check if it contains the second argument.
+///
+/// (string-contains? string? string?) -> bool?
+///
+/// # Examples
+/// ```scheme
+/// (string-contains? "hello" "lo") ;;=> #t
+/// (string-contains? "hello" "world") ;;=> #f
+/// ```
+#[function(name = "string-contains?")]
+fn string_contains(s: &SteelString, contained: &SteelString) -> bool {
+    s.as_str().contains(contained.as_str())
 }
 
 #[cfg(test)]
