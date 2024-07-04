@@ -21,7 +21,7 @@ use crate::{parser::expand_visitor::Expander, rvals::Result};
 use fxhash::{FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
 // use smallvec::SmallVec;
-use steel_parser::{ast::PROTO_HASH_GET, expr_list};
+use steel_parser::{ast::PROTO_HASH_GET, expr_list, span::Span};
 
 use std::{
     borrow::Cow,
@@ -1595,6 +1595,7 @@ pub struct RequireObject {
     for_syntax: bool,
     idents_to_import: Vec<MaybeRenamed>,
     prefix: Option<String>,
+    span: Span,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -1619,6 +1620,7 @@ struct RequireObjectBuilder {
     idents_to_import: Vec<MaybeRenamed>,
     // Built up prefix
     prefix: Option<String>,
+    span: Span,
 }
 
 impl RequireObjectBuilder {
@@ -1632,6 +1634,7 @@ impl RequireObjectBuilder {
             for_syntax: self.for_syntax,
             idents_to_import: self.idents_to_import,
             prefix: self.prefix,
+            span: self.span,
         })
     }
 }
@@ -1837,17 +1840,26 @@ impl<'a> ModuleBuilder<'a> {
 
             // At this point, requires should be fully qualified (absolute) paths
 
-            for module in self
+            for (module, require_statement_span) in self
                 .require_objects
                 .iter()
                 .filter(|x| matches!(x.path, PathOrBuiltIn::Path(_)))
-                .map(|x| x.path.get_path())
+                .map(|x| (x.path.get_path(), x.span))
             {
                 if cfg!(target_arch = "wasm32") {
                     stop!(Generic => "requiring modules is not supported for wasm");
                 }
 
-                let last_modified = std::fs::metadata(module.as_ref())?.modified()?;
+                let last_modified = std::fs::metadata(module.as_ref())
+                    .map_err(|err| {
+                        let mut err = crate::SteelErr::from(err);
+                        err.prepend_message(&format!(
+                            "Attempting to load module from: {:?} ",
+                            module
+                        ));
+                        err.set_span(require_statement_span)
+                    })?
+                    .modified()?;
 
                 // Check if we should compile based on the last time modified
                 // If we're unable to get information, we want to compile
@@ -2477,6 +2489,10 @@ impl<'a> ModuleBuilder<'a> {
         atom: &ExprKind,
     ) -> Result<RequireObject> {
         let mut object = RequireObjectBuilder::default();
+
+        // Set the span so we can pass through an error if the
+        // module is not found
+        object.span = r.location.span;
 
         self.parse_require_object_inner(home, r, atom, &mut object)
             .and_then(|_| object.build())
