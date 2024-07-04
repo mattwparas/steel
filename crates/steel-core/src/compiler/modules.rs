@@ -133,6 +133,8 @@ pub(crate) struct ModuleManager {
     file_metadata: FxHashMap<PathBuf, SystemTime>,
     visited: FxHashSet<PathBuf>,
     custom_builtins: HashMap<String, String>,
+    // Where we are in the tree traversal
+    compilation_stack: Vec<CapabilitySpec>,
 }
 
 impl ModuleManager {
@@ -145,6 +147,7 @@ impl ModuleManager {
             file_metadata,
             visited: FxHashSet::default(),
             custom_builtins: HashMap::new(),
+            compilation_stack: Vec::new(),
         }
     }
 
@@ -194,6 +197,7 @@ impl ModuleManager {
             global_macro_map,
             &self.custom_builtins,
             &[],
+            &mut self.compilation_stack,
         )?;
 
         module_builder.compile()?;
@@ -218,6 +222,7 @@ impl ModuleManager {
     ) -> Result<Vec<ExprKind>> {
         // Wipe the visited set on entry
         self.visited.clear();
+        self.compilation_stack.clear();
 
         // TODO
         // This is also explicitly wrong -> we should separate the global macro map from the macros found locally in this module
@@ -238,6 +243,7 @@ impl ModuleManager {
             global_macro_map,
             &self.custom_builtins,
             search_dirs,
+            &mut self.compilation_stack,
         )?;
 
         let mut module_statements = module_builder.compile()?;
@@ -342,7 +348,7 @@ impl ModuleManager {
                                             continue;
                                         }
 
-                                        let hash_get = expr_list![
+                                        let mut hash_get = expr_list![
                                             ExprKind::atom(*PROTO_HASH_GET),
                                             ExprKind::atom(
                                                 "__module-".to_string() + &other_module_prefix
@@ -378,6 +384,17 @@ impl ModuleManager {
                                             }
                                         }
 
+                                        // Just replace with the function call?
+
+                                        if let Some(capability) = &require_object.with_capabilities
+                                        {
+                                            hash_get = ExprKind::List(List::new(vec![
+                                                ExprKind::atom("#%wrap-with-capability"),
+                                                capability.clone(),
+                                                hash_get,
+                                            ]));
+                                        }
+
                                         let define = ExprKind::Define(Box::new(Define::new(
                                             owned_name,
                                             hash_get,
@@ -411,7 +428,7 @@ impl ModuleManager {
                                 continue;
                             }
 
-                            let hash_get = expr_list![
+                            let mut hash_get = expr_list![
                                 ExprKind::atom(*PROTO_HASH_GET),
                                 ExprKind::atom("__module-".to_string() + &other_module_prefix),
                                 ExprKind::Quote(Box::new(Quote::new(
@@ -444,6 +461,14 @@ impl ModuleManager {
                                     // Update the existing identifier to point to a new one with the prefix applied
                                     *existing = prefixed_identifier.into();
                                 }
+                            }
+
+                            if let Some(capability) = &require_object.with_capabilities {
+                                hash_get = ExprKind::List(List::new(vec![
+                                    ExprKind::atom("#%wrap-with-capability"),
+                                    capability.clone(),
+                                    hash_get,
+                                ]));
                             }
 
                             let define = ExprKind::Define(Box::new(Define::new(
@@ -952,6 +977,7 @@ impl CompiledModule {
         &self,
         modules: &FxHashMap<PathBuf, CompiledModule>,
         global_macro_map: &FxHashMap<InternedString, SteelMacro>,
+        compilation_stack: &[CapabilitySpec],
     ) -> Result<ExprKind> {
         let mut globals = collect_globals(&self.ast);
 
@@ -1262,10 +1288,6 @@ impl CompiledModule {
                     if let Some(qualifier) = l.first_ident() {
                         match qualifier {
                             x if *x == *REQUIRE_IDENT_SPEC => {
-                                // *provide = expand(l.get(2).unwrap().clone(), global_macro_map)?;
-
-                                // *provide = expand(l.)
-
                                 provide.0 = l.get(1).unwrap().clone();
 
                                 let mut provide_expr = l.get(2).unwrap().clone();
@@ -1273,11 +1295,7 @@ impl CompiledModule {
 
                                 provide.1 = provide_expr;
 
-                                println!("{} - {}", provide.0, provide.1);
-
                                 continue;
-
-                                // name_unmangler.unmangle_expr(provide);
                             }
                             _ => {
                                 stop!(TypeMismatch => "provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
@@ -1385,17 +1403,103 @@ impl CompiledModule {
 
         let mut builtin_definitions = Vec::new();
 
+        struct Accumulator<'a> {
+            prev: &'a PathBuf,
+            capabilities: Vec<&'a ExprKind>,
+        }
+
+        let result = compilation_stack
+            .iter()
+            .try_rfold(
+                Accumulator {
+                    prev: &self.name,
+                    capabilities: Vec::new(),
+                },
+                |mut acc, spec| {
+                    if let Some(capability_expr) = spec.capabilities.get(acc.prev) {
+                        acc.capabilities.push(capability_expr);
+
+                        Ok(Accumulator {
+                            prev: &spec.caller,
+                            capabilities: acc.capabilities,
+                        })
+                    } else {
+                        Err(())
+                    }
+                },
+            )
+            .map(|x| x.capabilities)
+            .unwrap_or_default();
+
+        // The capabilities to apply to myself, alongside any upstream capabilities?
+        // let capabilities_to_apply: Vec<_> = compilation_stack
+        //     .iter()
+        //     .filter_map(|x| x.capabilities.get(&self.name))
+        //     .collect();
+
+        let maybe_wrap_with_capabilities = |expr: &mut ExprKind| {
+            if result.is_empty() {
+                return;
+            }
+
+            let matching_span = expr.span();
+
+            let mut expressions: Vec<ExprKind> = result.iter().map(|x| (*x).clone()).collect();
+
+            expressions.insert(0, std::mem::take(expr));
+
+            let mut caller = ExprKind::ident("#%with-capabilities");
+
+            if let Some(matching_span) = matching_span {
+                caller.atom_syntax_object_mut().unwrap().span = matching_span;
+            }
+
+            expressions.insert(0, caller);
+
+            *expr = ExprKind::List(List::new(expressions));
+        };
+
         exprs.retain_mut(|expr| {
-            if let ExprKind::Define(d) = expr {
-                if is_a_builtin_definition(d) {
-                    builtin_definitions.push(std::mem::take(expr));
-                    false
-                } else {
+            match expr {
+                ExprKind::Define(d) => {
+                    if is_a_builtin_definition(d) {
+                        builtin_definitions.push(std::mem::take(expr));
+                        false
+                    } else {
+                        true
+                    }
+                }
+                ExprKind::Begin(b) => {
+                    for expr in b.exprs.iter_mut() {
+                        if let ExprKind::Define(_) = expr {
+                            continue;
+                        }
+
+                        maybe_wrap_with_capabilities(expr);
+                    }
+
                     true
                 }
-            } else {
-                true
+                _ => {
+                    maybe_wrap_with_capabilities(expr);
+
+                    true
+                }
             }
+
+            // if let ExprKind::Define(d) = expr {
+            //     if is_a_builtin_definition(d) {
+            //         builtin_definitions.push(std::mem::take(expr));
+            //         false
+            //     } else {
+            //         true
+            //     }
+            // } else {
+            //     // This is a top level expression, or at least it seems like it
+            //     // so we should _probably_ do something about it?
+            //     maybe_wrap_with_capabilities(expr);
+            //     true
+            // }
         });
 
         builtin_definitions.append(&mut provide_definitions);
@@ -1501,7 +1605,7 @@ pub struct RequireObject {
     prefix: Option<String>,
     // Capabilities to apply post macro expansion, assuming it is
     // a function
-    with_capabilities: ExprKind,
+    with_capabilities: Option<ExprKind>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -1528,7 +1632,7 @@ struct RequireObjectBuilder {
     prefix: Option<String>,
     // Capabilities to apply post macro expansion, assuming it is
     // a function
-    with_capabilities: ExprKind,
+    with_capabilities: Option<ExprKind>,
 }
 
 impl RequireObjectBuilder {
@@ -1547,6 +1651,10 @@ impl RequireObjectBuilder {
     }
 }
 
+// TODO: Refactor more or less this whole thing. It is some of the ugliest
+// code, and needs to be pared down in order for this whole operation to
+// be scalable. Realisticallly we shouldn't pass these individual references, they
+// should just be references to the struct that owns them.
 struct ModuleBuilder<'a> {
     name: PathBuf,
     main: bool,
@@ -1554,7 +1662,6 @@ struct ModuleBuilder<'a> {
     macro_map: FxHashMap<InternedString, SteelMacro>,
     // TODO: Change the requires / requires_for_syntax to just be a require enum?
     require_objects: Vec<RequireObject>,
-
     provides: Vec<ExprKind>,
     provides_for_syntax: Vec<ExprKind>,
     compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
@@ -1566,6 +1673,17 @@ struct ModuleBuilder<'a> {
     global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
     custom_builtins: &'a HashMap<String, String>,
     search_dirs: &'a [PathBuf],
+    // This really should just be a capability wrapper
+    compilation_stack: &'a mut Vec<CapabilitySpec>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct CapabilitySpec {
+    // The calling module
+    caller: PathBuf,
+
+    // What capabilities did this module apply to the caller?
+    capabilities: HashMap<PathBuf, ExprKind>,
 }
 
 impl<'a> ModuleBuilder<'a> {
@@ -1583,6 +1701,7 @@ impl<'a> ModuleBuilder<'a> {
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
         search_dirs: &'a [PathBuf],
+        compilation_stack: &'a mut Vec<CapabilitySpec>,
     ) -> Result<Self> {
         // TODO don't immediately canonicalize the path unless we _know_ its coming from a path
         // change the path to not always be required
@@ -1615,6 +1734,7 @@ impl<'a> ModuleBuilder<'a> {
             global_macro_map,
             custom_builtins,
             search_dirs,
+            compilation_stack,
         })
     }
 
@@ -1663,6 +1783,23 @@ impl<'a> ModuleBuilder<'a> {
         }
 
         self.visited.insert(self.name.clone());
+
+        // We're now entering this module
+        self.compilation_stack.push({
+            CapabilitySpec {
+                caller: self.name.clone(),
+                // Include a mapping of applied capabilities, if there are any.
+                capabilities: self
+                    .require_objects
+                    .iter()
+                    .filter_map(|x| {
+                        x.with_capabilities
+                            .clone()
+                            .map(|c| (x.path.get_path().into_owned(), c))
+                    })
+                    .collect(),
+            }
+        });
 
         if self.main {
             let exprs = std::mem::take(&mut self.source_ast);
@@ -1730,6 +1867,7 @@ impl<'a> ModuleBuilder<'a> {
                     self.builtin_modules.clone(),
                     self.global_macro_map,
                     self.custom_builtins,
+                    self.compilation_stack,
                 )?;
 
                 // Walk the tree and compile any dependencies
@@ -1794,6 +1932,7 @@ impl<'a> ModuleBuilder<'a> {
                     self.global_macro_map,
                     self.custom_builtins,
                     self.search_dirs,
+                    self.compilation_stack,
                 )?;
 
                 // Walk the tree and compile any dependencies
@@ -1840,6 +1979,8 @@ impl<'a> ModuleBuilder<'a> {
         }
 
         // new_exprs.pretty_print();
+
+        self.compilation_stack.pop();
 
         Ok(new_exprs)
     }
@@ -2202,7 +2343,11 @@ impl<'a> ModuleBuilder<'a> {
         //     self.name
         // );
 
-        let result = module.to_top_level_module(self.compiled_modules, self.global_macro_map)?;
+        let result = module.to_top_level_module(
+            self.compiled_modules,
+            self.global_macro_map,
+            self.compilation_stack,
+        )?;
 
         // println!("{}", result.to_pretty(60));
 
@@ -2539,7 +2684,7 @@ impl<'a> ModuleBuilder<'a> {
 
                         let expression = l.args[1].clone();
 
-                        require_object.with_capabilities = expression;
+                        require_object.with_capabilities = Some(expression);
 
                         self.parse_require_object_inner(home, r, &l.args[2], require_object)?;
                     }
@@ -2709,6 +2854,7 @@ impl<'a> ModuleBuilder<'a> {
         builtin_modules: ModuleContainer,
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
+        compilation_stack: &'a mut Vec<CapabilitySpec>,
     ) -> Result<Self> {
         ModuleBuilder::raw(
             name,
@@ -2721,6 +2867,7 @@ impl<'a> ModuleBuilder<'a> {
             global_macro_map,
             custom_builtins,
             &[],
+            compilation_stack,
         )
         .parse_builtin(input)
     }
@@ -2736,6 +2883,7 @@ impl<'a> ModuleBuilder<'a> {
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
         search_dirs: &'a [PathBuf],
+        compilation_stack: &'a mut Vec<CapabilitySpec>,
     ) -> Result<Self> {
         ModuleBuilder::raw(
             name,
@@ -2748,6 +2896,7 @@ impl<'a> ModuleBuilder<'a> {
             global_macro_map,
             custom_builtins,
             search_dirs,
+            compilation_stack,
         )
         .parse_from_path()
     }
@@ -2763,6 +2912,7 @@ impl<'a> ModuleBuilder<'a> {
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
         search_dirs: &'a [PathBuf],
+        compilation_stack: &'a mut Vec<CapabilitySpec>,
     ) -> Self {
         ModuleBuilder {
             name,
@@ -2783,6 +2933,7 @@ impl<'a> ModuleBuilder<'a> {
             global_macro_map,
             custom_builtins,
             search_dirs,
+            compilation_stack,
         }
     }
 

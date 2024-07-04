@@ -5,8 +5,9 @@ use std::{
 };
 
 use crate::{
-    rvals::{Custom, Result},
+    rvals::{as_underlying_type, Custom, Result},
     steel_vm::{builtin::BuiltInModule, register_fn::RegisterFn},
+    SteelVal,
 };
 
 thread_local! {
@@ -20,6 +21,8 @@ pub fn capabilities_module() -> BuiltInModule {
     module
         .register_fn("#%pop-capability", pop_capability)
         .register_fn("#%push-capability", push_capability)
+        .register_native_fn_definition(PUSH_CAPABILITIES_DEFINITION)
+        .register_fn("#%pop-n-capabilities", pop_n_capabilities)
         .register_fn("file-system-access", Capability::new_file_system)
         .register_fn("fs/write", || FileSystemAccessKind::Write)
         .register_fn("fs/read", || FileSystemAccessKind::Read);
@@ -62,6 +65,19 @@ pub fn take_current_capability() -> CapabilityManager {
     })
 }
 
+#[steel_derive::native(name = "#%push-capabilities", constant = true, arity = "AtLeast(0)")]
+pub fn push_capabilities(args: &[SteelVal]) -> Result<SteelVal> {
+    for arg in args {
+        if let SteelVal::Custom(c) = arg {
+            if let Some(underlying) = as_underlying_type::<Capability>(c.borrow().as_ref()) {
+                push_capability(underlying)
+            }
+        }
+    }
+
+    Ok(SteelVal::Void)
+}
+
 pub fn push_capability(capability: &Capability) {
     CURRENT_CAPABILITIES.with(|x| {
         x.borrow_mut()
@@ -73,6 +89,12 @@ pub fn push_capability(capability: &Capability) {
 
 pub fn pop_capability() {
     CURRENT_CAPABILITIES.with(|x| x.borrow_mut().capabilities.borrow_mut().pop());
+}
+
+pub fn pop_n_capabilities(n: usize) {
+    for _ in 0..n {
+        pop_capability()
+    }
 }
 
 pub struct FileSystemAccessRequest<'a> {

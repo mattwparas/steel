@@ -174,10 +174,18 @@
 (define-syntax with-capability
   (syntax-rules ()
     [(_ capability-expr guarded-expr)
-     (let ([evaluated-capability capability-expr])
-       (dynamic-wind (lambda () (#%push-capability evaluated-capability))
+     ; (let ([evaluated-capability capability-expr])
+     (dynamic-wind (lambda () (#%push-capability capability-expr))
+                   (lambda () guarded-expr)
+                   (lambda () (#%pop-capability)))]))
+
+(define-syntax #%with-capabilities
+  (syntax-rules ()
+    [(_ guarded-expr capabilities ...)
+     (let ([evaluated-capabilities (list capabilities ...)])
+       (dynamic-wind (lambda () (apply #%push-capabilities evaluated-capabilities))
                      (lambda () guarded-expr)
-                     (lambda () (#%pop-capability))))]))
+                     (lambda () (#%pop-n-capabilities (length evaluated-capabilities)))))]))
 
 ;; Wrap the function with a given capability.
 ;; At the moment, this does not attempt to specialize the arity, however

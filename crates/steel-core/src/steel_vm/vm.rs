@@ -127,17 +127,7 @@ impl DehydratedStackTrace {
     }
 }
 
-// // Eventually expand this to other kinds of continuations
-// #[derive(Debug, Clone, Copy)]
-// pub enum ContinuationMark {
-//     Default,
-//     Transducer,
-// }
-
-// This should be the go to thing for handling basically everything we need
-// Then - do I want to always reference the last one, or just refer to the current one?
-// TODO: We'll need to add these functions to the GC as well
-
+// TODO: Shrink the size of this as much as possible
 #[derive(Debug, Clone)]
 pub struct StackFrame {
     sp: usize,

@@ -258,6 +258,13 @@ impl ExprKind {
         }
     }
 
+    pub fn atom_syntax_object_mut(&mut self) -> Option<&mut SyntaxObject> {
+        match self {
+            Self::Atom(Atom { syn }) => Some(syn),
+            _ => None,
+        }
+    }
+
     pub fn define_syntax_ident(&self) -> bool {
         match self {
             Self::Atom(Atom {

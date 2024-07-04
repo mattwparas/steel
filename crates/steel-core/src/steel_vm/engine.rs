@@ -2109,6 +2109,8 @@ fn raise_error(sources: &Sources, error: SteelErr) {
 
             let file_name = sources.get_path(&source_id);
 
+            println!("Fetching: {:?}", file_name);
+
             if let Some(file_content) = sources.get(source_id) {
                 // Build stack trace if we have it:
                 if let Some(trace) = error.stack_trace() {
