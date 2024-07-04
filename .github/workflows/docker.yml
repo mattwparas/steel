@@ -1,0 +1,25 @@
+name: Docker CI
+
+on:
+  push:
+    # runs on every commit
+    branches: ["master"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build the docker image
+        run: docker build -t steelscheme/steel:latest .
+
+      - name: Authenticate to the Docker Hub
+        run: docker login -u steelscheme -p ${{ secrets.DOCKER_HUB_PWD }}
+
+      - name: Push the docker image
+        run: docker push steelscheme/steel:latest
