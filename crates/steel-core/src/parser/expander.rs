@@ -18,7 +18,6 @@ use std::{
 };
 
 use fxhash::FxHashMap;
-use log::error;
 use serde::{Deserialize, Serialize};
 use smallvec::{smallvec, SmallVec};
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
@@ -234,7 +233,6 @@ impl SteelMacro {
                 }
             }
         }
-        error!("Macro expansion unable to match case with: {}", expr);
 
         if let Some(ExprKind::Atom(a)) = expr.first() {
             stop!(BadSyntax => format!("macro expansion unable to match case: {expr}"); a.syn.span);

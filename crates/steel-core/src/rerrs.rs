@@ -285,6 +285,10 @@ impl SteelErr {
             )
             .with_message(&self.repr.message)])
     }
+
+    pub(crate) fn message(&self) -> &str {
+        &self.repr.message
+    }
 }
 
 pub fn report_warning(

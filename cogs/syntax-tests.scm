@@ -1,34 +1,16 @@
-(require-builtin "steel/process")
-(require-builtin "steel/transducers")
+(require-builtin steel/process)
+(require-builtin steel/transducers)
+(require-builtin steel/meta)
 
 (require "tests/unit-test.scm"
          (for-syntax "tests/unit-test.scm"))
 
-(define (eval-in-child datums)
-  (define out-path "_syntax_tmp_.scm")
-  (define out (open-output-file out-path))
-
-  (transduce datums (into-for-each (lambda (datum)
-                                           (write datum out)
-                                           (newline out))))
-  (define interpreter (car (command-line)))
-  (define cmd (command interpreter (list out-path)))
-  (set-piped-stdout! cmd)
-  (define child (Ok->value (spawn-process cmd)))
-  (define child-errors (child-stderr child))
-  (define exit-result (wait child))
-  (define stderr (read-port-to-string child-errors))
-  (delete-file! out-path)
-
-  (cons (Ok->value exit-result) stderr))
-
 (define (check-syntax-error? name input expected . rest)
   (define (impl name input expected)
-      (define output (eval-in-child input))
-      (define exit-code-assert (if (> (car output) 0) #t `(exit= ,(car output))))
-      (define message-assert (if (string-contains? (cdr output) expected) #t `(message= ,(cdr output))))
-      (check-equal? (string-join `(,name ", compilation fails")) exit-code-assert #t)
-      (check-equal? (string-join `(,name ", message")) message-assert #t))
+      (define error-message
+        (~> (run! (Engine::new) input) Err->value error-object-message))
+      (define message-assert (or (string-contains? error-message expected) `(message= ,error-message expected= ,expected)))
+      (check-equal? (string-join `(,name " [compilation fails]"))  message-assert #t))
   (if (eq? name 'skip)
       (skip-compile #f)
       (impl name input expected)))
