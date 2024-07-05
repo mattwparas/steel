@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::io::{BufReader, BufWriter};
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::rc::Rc;
 
 use crate::values::port::{SteelPort, SteelPortRepr};
@@ -37,11 +37,6 @@ struct ChildProcess {
     child: Option<Child>,
 }
 
-#[derive(Debug)]
-struct ProcessExitStatus {
-    _exit_status: ExitStatus,
-}
-
 fn binary_exists_on_path(binary: String) -> Option<String> {
     #[cfg(not(target_arch = "wasm32"))]
     match which::which(binary) {
@@ -51,12 +46,6 @@ fn binary_exists_on_path(binary: String) -> Option<String> {
 
     #[cfg(target_arch = "wasm32")]
     None
-}
-
-impl ProcessExitStatus {
-    pub fn new(_exit_status: ExitStatus) -> Self {
-        Self { _exit_status }
-    }
 }
 
 impl ChildProcess {

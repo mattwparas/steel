@@ -31,8 +31,6 @@ macro_rules! arity_check_generator {
 
 arity_check_generator!(0, 1, 2, 3, 4, 5, 6, 7, 8);
 
-use std::{cell::RefCell, rc::Rc};
-
 pub(crate) use arity_check;
 
 // Declares a const for a function that takes an immutable slice to the arguments
@@ -65,25 +63,25 @@ macro_rules! declare_const_mut_ref_functions {
 
 pub(crate) use declare_const_mut_ref_functions;
 
-pub(crate) trait Boxed {
-    fn boxed(self) -> Box<Self>;
-    fn refcounted(self) -> Rc<Self>;
-    fn rc_refcell(self) -> Rc<RefCell<Self>>;
-}
+// pub(crate) trait Boxed {
+//     fn boxed(self) -> Box<Self>;
+//     fn refcounted(self) -> Rc<Self>;
+//     fn rc_refcell(self) -> Rc<RefCell<Self>>;
+// }
 
-impl<T> Boxed for T {
-    #[inline(always)]
-    fn boxed(self) -> Box<T> {
-        Box::new(self)
-    }
+// impl<T> Boxed for T {
+//     #[inline(always)]
+//     fn boxed(self) -> Box<T> {
+//         Box::new(self)
+//     }
 
-    #[inline(always)]
-    fn refcounted(self) -> Rc<T> {
-        Rc::new(self)
-    }
+//     #[inline(always)]
+//     fn refcounted(self) -> Rc<T> {
+//         Rc::new(self)
+//     }
 
-    #[inline(always)]
-    fn rc_refcell(self) -> Rc<RefCell<T>> {
-        Rc::new(RefCell::new(self))
-    }
-}
+//     #[inline(always)]
+//     fn rc_refcell(self) -> Rc<RefCell<T>> {
+//         Rc::new(RefCell::new(self))
+//     }
+// }

@@ -11,12 +11,9 @@ use crate::rvals::{
     from_serializable_value, into_serializable_value, Custom, HeapSerializer, SerializableSteelVal,
     SerializedHeapRef, SteelHashMap,
 };
+use crate::rvals::{FromSteelVal, IntoSteelVal};
 use crate::steel_vm::register_fn::RegisterFn;
 use crate::throw;
-use crate::{
-    core::utils::Boxed,
-    rvals::{FromSteelVal, IntoSteelVal},
-};
 use crate::{
     gc::Gc,
     rvals::{AsRefSteelVal, SRef, SteelString},
