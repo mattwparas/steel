@@ -50,9 +50,6 @@ rand = "0.8.5"
 num = "0.4.0"
 radix_fmt = "1.0.0"
 
-# For determining the location of the steel home directory
-home = "0.5.9"
-
 # For structs
 smallvec = { version = "1.10.0" }
 
@@ -76,6 +73,7 @@ getrandom = { version = "*", features = ["js"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 which = { version = "4.4.0" }
+home = "0.5.9"
 
 [dev-dependencies]
 proptest = "1.1.0"
