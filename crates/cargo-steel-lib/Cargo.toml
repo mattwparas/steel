@@ -7,3 +7,6 @@ edition = "2021"
 
 [dependencies]
 cargo_metadata = "0.15.3"
+
+# Keeps the MSRV at v1.70.0
+cargo-platform = "=0.1.7"

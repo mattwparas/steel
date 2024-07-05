@@ -45,23 +45,25 @@ async fn main() {
     let home_directory =
         std::env::var("STEEL_LSP_HOME").expect("Have you set your STEEL_LSP_HOME path?");
 
-    ENGINE.with_borrow_mut(|x| {
-        x.register_module_resolver(
+    ENGINE.with(|x| {
+        x.borrow_mut().register_module_resolver(
             ExternalModuleResolver::new(&mut resolver_engine, PathBuf::from(home_directory))
                 .unwrap(),
         )
     });
 
-    ENGINE.with_borrow_mut(|x| {
+    ENGINE.with(|x| {
+        let mut guard = x.borrow_mut();
+
         for dir in additional_search_paths.iter() {
-            x.add_search_directory(PathBuf::from(dir.to_string()));
+            guard.add_search_directory(PathBuf::from(dir.to_string()));
         }
     });
 
     let defined_globals = DashSet::new();
 
-    ENGINE.with_borrow(|engine| {
-        for global in engine.globals() {
+    ENGINE.with(|engine| {
+        for global in engine.borrow().globals() {
             let resolved = global.resolve();
             if !resolved.starts_with("#")
                 && !resolved.starts_with("%")
