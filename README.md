@@ -57,7 +57,7 @@ This will install:
 
 ### Packages
 
-If you would like to customize the location of installed packages, please set the `STEEL_HOME` environment variable. This will be the location that packages get installed to. Steel currently assumes the default of `$HOME/.steel` if the environment variable is not already set.
+If you would like to customize the location of installed packages, please set the `STEEL_HOME` environment variable. Steel currently assumes the default of `$HOME/.steel` if the environment variable is not already set.
 
 ## About
 
