@@ -73,6 +73,7 @@ getrandom = { version = "*", features = ["js"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 which = { version = "4.4.0" }
+home = "0.5.9"
 
 [dev-dependencies]
 proptest = "1.1.0"

@@ -16,7 +16,10 @@ use abi_stable::{
 };
 use once_cell::sync::Lazy;
 
-use crate::rvals::{IntoSteelVal, SteelString, SteelVal};
+use crate::{
+    compiler::modules::steel_home,
+    rvals::{IntoSteelVal, SteelString, SteelVal},
+};
 
 use super::{builtin::BuiltInModule, ffi::FFIModule};
 
@@ -84,7 +87,7 @@ impl DylibContainers {
                 return Some(module);
             }
 
-            let home = std::env::var("STEEL_HOME").ok();
+            let home = steel_home();
 
             if let Some(home) = home {
                 // let guard = LOADED_DYLIBS.lock().unwrap();

@@ -26,10 +26,10 @@
   (if (ends-with? path "/") (string-append path dir) (string-append path "/" dir)))
 
 ;; Should make this lazy?
-(define *STEEL_HOME* (~> "STEEL_HOME" (env-var) (append-with-separator "cogs")))
-(define *NATIVE-SOURCES-DIR* (~> "STEEL_HOME" (env-var) (append-with-separator "sources")))
-(define *COG-SOURCES* (~> "STEEL_HOME" (env-var) (append-with-separator "cog-sources")))
-(define *DYLIB-DIR* (~> "STEEL_HOME" (env-var) (append-with-separator "native")))
+(define *STEEL_HOME* (~> (steel-home-location) (append-with-separator "cogs")))
+(define *NATIVE-SOURCES-DIR* (~> (steel-home-location) (append-with-separator "sources")))
+(define *COG-SOURCES* (~> (steel-home-location) (append-with-separator "cog-sources")))
+(define *DYLIB-DIR* (~> (steel-home-location) (append-with-separator "native")))
 
 (define (for-each func lst)
   (if (null? lst)
