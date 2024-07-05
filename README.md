@@ -39,9 +39,25 @@ This will launch a REPL instance that looks something like this:
   <img src="images/repl.gif" width="100%">
 </p>
 
+
+### Full install
+
+If you'd like to install everything, just run the following command:
+
+```bash
+cargo xtask install
+```
+
+This will install:
+
+* The steel interpreter, `steel`
+* The dylib installer, `cargo-steel-lib` (also available via the interpreter)
+* The steel language server
+* The standard library, found under the `cogs` directory
+
 ### Packages
 
-If you would like to install and use packages, please set the `STEEL_HOME` environment variable. This will be the location that packages get installed to. Steel currently does not assume any default.
+If you would like to customize the location of installed packages, please set the `STEEL_HOME` environment variable. This will be the location that packages get installed to. Steel currently assumes the default of `$HOME/.steel` if the environment variable is not already set.
 
 ## About
 
