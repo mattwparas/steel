@@ -2117,7 +2117,7 @@ pub fn query_top_level_define<A: AsRef<str>>(
     None
 }
 
-struct FindCallSiteById<'a, F> {
+pub struct FindCallSiteById<'a, F> {
     id: SyntaxObjectId,
     analysis: &'a Analysis,
     func: F,
