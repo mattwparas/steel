@@ -118,10 +118,34 @@ create_prelude!(
 );
 
 #[cfg(not(target_arch = "wasm32"))]
-pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| std::env::var("STEEL_HOME").ok());
+pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
+    std::env::var("STEEL_HOME").ok().or_else(|| {
+        let home = home::home_dir();
+
+        home.map(|mut x: PathBuf| {
+            x.push(".steel");
+
+            // Just go ahead and initialize the directory, even though
+            // this is probably not the best place to do this. This almost
+            // assuredly could be lifted out of this check since failing here
+            // could cause some annoyance.
+            if !x.exists() {
+                if let Err(_) = std::fs::create_dir(&x) {
+                    eprintln!("Unable to create steel home directory {:?}", x)
+                }
+            }
+
+            x.into_os_string().into_string().unwrap()
+        })
+    })
+});
 
 #[cfg(target_arch = "wasm32")]
 pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| None);
+
+pub fn steel_home() -> Option<String> {
+    STEEL_HOME.clone()
+}
 
 /// Manages the modules
 /// keeps some visited state on the manager for traversal

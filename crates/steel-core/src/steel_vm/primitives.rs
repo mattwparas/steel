@@ -6,6 +6,7 @@ use super::{
     vm::{get_test_mode, list_modules, set_test_mode, VmCore},
 };
 use crate::{
+    compiler::modules::steel_home,
     gc::Gc,
     parser::{
         ast::TryFromSteelValVisitorForExprKind, interner::InternedString, span::Span,
@@ -1532,7 +1533,8 @@ fn meta_module() -> BuiltInModule {
             cargo_steel_lib::run().ok()
         })
         .register_native_fn_definition(COMMAND_LINE_DEFINITION)
-        .register_native_fn_definition(ERROR_OBJECT_MESSAGE_DEFINITION);
+        .register_native_fn_definition(ERROR_OBJECT_MESSAGE_DEFINITION)
+        .register_fn("steel-home-location", steel_home);
 
     #[cfg(not(feature = "dylibs"))]
     module.register_native_fn_definition(super::engine::LOAD_MODULE_NOOP_DEFINITION);

@@ -1,5 +1,6 @@
 extern crate rustyline;
 use colored::*;
+use steel::compiler::modules::steel_home;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -57,15 +58,15 @@ fn display_startup() {
 }
 
 fn get_repl_history_path() -> String {
-    let steel_home = env::var("STEEL_HOME");
+    let steel_home = steel_home();
     let path = match steel_home {
-        Ok(val) => {
+        Some(val) => {
             let mut parsed_path = PathBuf::from(&val);
             parsed_path = parsed_path.canonicalize().unwrap_or(parsed_path);
             parsed_path.push("history");
             parsed_path.to_string_lossy().into_owned()
         }
-        Err(_) => {
+        None => {
             let mut default_path = dirs::home_dir().unwrap_or_default();
             default_path.push(".steel/history");
             default_path.to_string_lossy().into_owned()
