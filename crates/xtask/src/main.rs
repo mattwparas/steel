@@ -100,31 +100,7 @@ fn install_everything() -> Result<(), Box<dyn Error>> {
 
     println!("Successfully installed `cargo-steel-lib`");
 
-    println!("--- Installing all dylibs ---");
-
-    let dylibs = &[
-        "steel-sys-info",
-        "steel-websockets",
-        "steel-webrequests",
-        "steel-webserver",
-    ];
-
-    workspace_dir.pop();
-    workspace_dir.pop();
-    workspace_dir.push("libs");
-
-    // Could build in parallel, but we can do sequentially for now
-    for dylib in dylibs {
-        workspace_dir.push(dylib);
-
-        std::process::Command::new("cargo")
-            .arg("steel-lib")
-            .current_dir(&workspace_dir)
-            .spawn()?
-            .wait()?;
-
-        workspace_dir.pop();
-    }
+    install_cogs()?;
 
     println!("Finished.");
 

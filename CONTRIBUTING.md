@@ -9,15 +9,16 @@ chain](https://www.rust-lang.org/tools/install).
 ```bash
 git clone https://github.com/mattwparas/steel.git &&
 cd steel &&
-mkdir -p .steel/cogs &&
-export STEEL_HOME="$(pwd)/.steel" &&
-cargo build &&
-cargo install --path crates/cargo-steel-lib &&
-pushd cogs &&
-cargo run -- install.scm &&
-popd &&
+cargo xtask install &&
 cargo test --all
 ```
+
+This will install:
+
+* The steel interpreter, `steel`
+* The dylib installer, `cargo-steel-lib` (also available via the interpreter)
+* The steel language server
+* The standard library, found under the `cogs` directory
 
 ## Commit message style
 
