@@ -876,7 +876,7 @@ thread_local! {
 }
 
 // At one time, call the lints, collecting the diagnostics each time.
-struct UserDefinedLintEngine {
+pub struct UserDefinedLintEngine {
     engine: Engine,
     lints: Arc<RwLock<HashSet<String>>>,
 }
@@ -920,7 +920,7 @@ impl UserDefinedLintEngine {
 }
 
 #[derive(Clone)]
-struct SteelDiagnostic {
+pub struct SteelDiagnostic {
     span: Span,
     message: SteelString,
 }
