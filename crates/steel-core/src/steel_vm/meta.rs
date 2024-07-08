@@ -223,41 +223,9 @@ pub fn value_to_string(value: SteelVal) -> String {
 ///     <captured std out as a string>
 ///     <error as a string if any>)
 pub fn eval(program: String) -> List<SteelVal> {
-    // if arguments.len() != 1 {
-    //     stop!(ArityMismatch => "eval! expects a list of quoted expressions as its sole argument")
-    // }
-
-    // assert!(arguments.len() == 1);
-
-    let mut engine = Engine::new_sandboxed();
-
-    // let existing_output_port = DEFAULT_OUTPUT_PORT.with(|x| x.clone());
-
-    // Override the default output port to capture things getting written to standard out
-    // DEFAULT_OUTPUT_PORT.with(|x| {
-    //     *x.borrow_mut() = SteelPort {
-    //         port: Rc::new(RefCell::new(SteelPortRepr::StringOutput(
-    //             CAPTURED_OUTPUT_PORT.with(|x| (*x.borrow()).clone()),
-    //         ))),
-    //     }
-    // });
-
-    // let value = arguments[0]
-    //     .string_or_else(throw!(TypeMismatch =>  "eval! expected a list in the first position"))?;
-    // Here we might need to trim the start of the string representation
-    // In order to be actually parsable - might be worth doing ExprKind::try_from
-    // instead of writing to a string and reparsing directly...
+    let mut engine = Engine::new();
 
     let res = engine.compile_and_run_raw_program(Cow::from(program.clone()));
-
-    // Set it back to be the usual output port, which in this case is usually just standard out
-    // This way after the evaluation is done, the output port is back to being
-    // This is not great, TODO: @Matt 5/28/2022 take a look at this later
-    // In the event we're stacking up multiple built up output buffers, this could do a whole
-    // lot of cloning. In the common case, its just cloning the handle to std out which seems
-    // fine
-    // DEFAULT_OUTPUT_PORT.with(|x| *x.borrow_mut() = existing_output_port.borrow().clone());
-    // DEFAULT_OUTPUT_PORT.with(|x| *x.borrow_mut() = SteelPort::default_current_output_port());
 
     match res {
         Ok(v) => vec![
@@ -275,23 +243,6 @@ pub fn eval(program: String) -> List<SteelVal> {
                 SteelVal::StringV(report.into()),
             ]
             .into()
-
-            // Err(e)
         }
     }
-
-    // todo!()
-    // .collect::<Result<Vec<Vec<SteelVal>>>>();
-
-    // let values = arguments[0]
-    //     .list_or_else(throw!(TypeMismatch =>  "eval! expected a list in the first position"))?
-    //     .iter()
-    //     .map(|x| x.to_string())
-    //     // Here we might need to trim the start of the string representation
-    //     // In order to be actually parsable - might be worth doing ExprKind::try_from
-    //     // instead of writing to a string and reparsing directly...
-    //     .map(|x| engine.compile_and_run_raw_program(x.trim_start_matches('\'')))
-    //     .collect::<Result<Vec<Vec<SteelVal>>>>();
-
-    // Ok(values?.into_iter().flatten().collect::<List<_>>().into())
 }
