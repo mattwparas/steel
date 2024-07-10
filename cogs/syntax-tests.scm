@@ -64,6 +64,20 @@
                     [(ellipsis-name ...) 1])))
   "cannot bind pattern to ellipsis")
 
+(check-syntax-error? "ellipsis in dummy macro name"
+  '(
+    (define-syntax ellipsis-alt-name
+      (syntax-rules ()
+                    [(potato ...) 1])))
+  "macro name cannot be followed by ellipsis")
+
+(check-syntax-error? "ellipsis in macro wildcard"
+  '(
+    (define-syntax ellipsis-name-wildcard
+      (syntax-rules ()
+                    [(_ ...) 1])))
+  "macro name cannot be followed by ellipsis")
+
 (define-syntax alt-name
   (syntax-rules ()
                 [(potato a) a]))
@@ -76,6 +90,15 @@
       (syntax-rules ()
                     [(potato a) a]))
     (potato 1))
+  "Cannot reference an identifier before its definition: potato")
+
+(check-syntax-error? "macro name in pattern does not capture"
+  '(
+    (define-syntax alt-name2
+      (syntax-rules ()
+                    [(potato a) a]
+                    [(potato a b) (potato b)]))
+    (potato 1 2))
   "Cannot reference an identifier before its definition: potato")
 
 (check-syntax-error? 'skip "no-spread"

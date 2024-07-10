@@ -279,10 +279,14 @@ impl MacroCase {
 
         let mut bindings = FxHashSet::default();
 
-        let mut args = if let ExprKind::List(l) = pattern {
-            MacroPattern::parse_from_list(l, name, special_forms, &mut bindings)?
+        let (mut args, macro_keyword) = if let ExprKind::List(l) = pattern {
+            MacroPattern::parse_from_list(l, name, special_forms, &mut bindings, true)?
         } else {
             stop!(Generic => "unable to parse macro");
+        };
+
+        if let Some(macro_keyword) = macro_keyword {
+            bindings.remove(&macro_keyword);
         };
 
         let args_str: Vec<_> = bindings.iter().collect();
@@ -471,7 +475,8 @@ impl MacroPattern {
         macro_name: &InternedString,
         special_forms: &[InternedString],
         bindings: &mut FxHashSet<InternedString>,
-    ) -> Result<Vec<Self>> {
+        top_level: bool,
+    ) -> Result<(Vec<MacroPattern>, Option<InternedString>)> {
         let mut pattern_vec: Vec<MacroPattern> = Vec::new();
         let len = list.args.len();
         let mut exprs_iter = list.args.into_iter().enumerate().peekable();
@@ -500,6 +505,8 @@ impl MacroPattern {
             }
         }
 
+        let mut macro_keyword = None;
+
         while let Some((i, expr)) = exprs_iter.next() {
             match expr {
                 ExprKind::Atom(Atom {
@@ -527,10 +534,18 @@ impl MacroPattern {
 
                                     exprs_iter.next();
 
+                                    if i == 0 && top_level {
+                                        stop!(BadSyntax => "macro name cannot be followed by ellipsis"; span);
+                                    }
+
                                     add_binding!(t, span);
                                     pattern_vec.push(MacroPattern::Many(t));
                                 }
                                 _ => {
+                                    if i == 0 && top_level {
+                                        macro_keyword = Some(t);
+                                    }
+
                                     add_binding!(t, span);
                                     pattern_vec.push(MacroPattern::Single(t));
                                 }
@@ -631,12 +646,11 @@ impl MacroPattern {
                         stop!(BadSyntax => "syntax-rules requires identifiers in the pattern"; span);
                     }
                 },
-                ExprKind::List(l) => pattern_vec.push(MacroPattern::Nested(Self::parse_from_list(
-                    l,
-                    macro_name,
-                    special_forms,
-                    bindings,
-                )?)),
+                ExprKind::List(l) => {
+                    let (patterns, _) =
+                        Self::parse_from_list(l, macro_name, special_forms, bindings, false)?;
+                    pattern_vec.push(MacroPattern::Nested(patterns))
+                }
                 ExprKind::Quote(q) => pattern_vec.push(MacroPattern::QuotedExpr(q)),
                 _ => {
                     // TODO: Add pattern matching on other kinds of forms here - probably just a special IR
@@ -645,7 +659,8 @@ impl MacroPattern {
                 }
             }
         }
-        Ok(pattern_vec)
+
+        Ok((pattern_vec, macro_keyword))
     }
 }
 
