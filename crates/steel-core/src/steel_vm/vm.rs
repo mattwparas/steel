@@ -11,6 +11,7 @@ use crate::rvals::number_equality;
 use crate::steel_vm::primitives::steel_not;
 use crate::steel_vm::primitives::steel_set_box_mutable;
 use crate::steel_vm::primitives::steel_unbox_mutable;
+use crate::values::capabilities::install_capability;
 use crate::values::capabilities::CapabilityManager;
 use crate::values::closed::Heap;
 use crate::values::functions::SerializedLambda;
@@ -1242,6 +1243,9 @@ impl<'a> VmCore<'a> {
         self.thread.stack_frames = continuation.stack_frames;
         self.thread.current_frame = continuation.current_frame;
         self.thread.capabilities = continuation.capabilities;
+
+        // Set up the capabilities
+        install_capability(&self.thread.capabilities);
     }
 
     // #[inline(always)]
