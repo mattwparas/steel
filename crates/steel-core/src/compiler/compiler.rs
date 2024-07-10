@@ -994,9 +994,6 @@ impl Compiler {
         // Make sure to apply the peephole optimizations
         raw_program.apply_optimizations();
 
-        // Lets see everything that gets run!
-        // raw_program.debug_print();
-
         Ok(raw_program)
     }
 

@@ -99,6 +99,7 @@ without-drop-protection = []
 stacker = ["dep:stacker"]
 dylib-build = ["dep:cargo-steel-lib"]
 interrupt = []
+rooted-instructions = []
 
 
 [[bench]]
