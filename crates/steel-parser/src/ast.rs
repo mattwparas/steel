@@ -1182,11 +1182,19 @@ impl List {
             None
         }
     }
+
+    pub fn split_improper(&self) -> Option<(&[ExprKind], &ExprKind)> {
+        if self.improper {
+            self.args.split_last().map(|(last, rest)| (rest, last))
+        } else {
+            None
+        }
+    }
 }
 
 impl ToDoc for List {
     fn to_doc(&self) -> RcDoc<()> {
-        if let Some(func) = self.first_func() {
+        if let Some(func) = self.first_func().filter(|_| !self.improper) {
             let mut args_iter = self.args.iter();
             args_iter.next();
 
@@ -1215,12 +1223,20 @@ impl ToDoc for List {
                 .append(RcDoc::text(")"))
                 .nest(2)
         } else {
+            let args = if let Some((car, cdr)) = self.split_improper() {
+                let iter = car
+                    .iter()
+                    .map(ToDoc::to_doc)
+                    .chain(std::iter::once(RcDoc::text(".")))
+                    .chain(std::iter::once(cdr.to_doc()));
+
+                RcDoc::intersperse(iter, RcDoc::line())
+            } else {
+                RcDoc::intersperse(self.args.iter().map(ToDoc::to_doc), RcDoc::line())
+            };
+
             RcDoc::text("(")
-                .append(
-                    RcDoc::intersperse(self.args.iter().map(|x| x.to_doc()), RcDoc::line())
-                        .nest(1)
-                        .group(),
-                )
+                .append(args.nest(1).group())
                 .append(RcDoc::text(")"))
                 .nest(2)
                 .group()
@@ -1230,7 +1246,17 @@ impl ToDoc for List {
 
 impl fmt::Display for List {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "({})", self.args.iter().join(" "))
+        let Some((car, cdr)) = self.split_improper() else {
+            return write!(f, "({})", self.args.iter().join(" "));
+        };
+
+        write!(f, "(")?;
+
+        for arg in car {
+            write!(f, "{} ", arg)?;
+        }
+
+        write!(f, ". {})", cdr)
     }
 }
 
