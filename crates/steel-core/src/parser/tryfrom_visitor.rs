@@ -6,7 +6,7 @@ use crate::values::lists::List;
 use crate::{parser::ast::ExprKind, rvals::Syntax};
 
 use crate::rerrs::SteelErr;
-use crate::rvals::{Result, SteelVal};
+use crate::rvals::{Result, SteelByteVector, SteelVal};
 
 use super::visitors::VisitorMut;
 use super::{ast::Atom, span::Span, visitors::ConsumingVisitor};
@@ -222,6 +222,35 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
             ]
             .into(),
         ))
+    }
+
+    fn visit_vector(&mut self, v: super::ast::Vector) -> Self::Output {
+        if v.bytes {
+            let bytes: Vec<_> = v
+                .args
+                .into_iter()
+                .flat_map(|exp| {
+                    let byte = match exp {
+                        ExprKind::Atom(atom) => atom.byte(),
+                        _ => None,
+                    };
+
+                    debug_assert!(byte.is_some());
+
+                    byte
+                })
+                .collect();
+
+            Ok(SteelVal::ByteVector(SteelByteVector::new(bytes)))
+        } else {
+            let args: im_rc::Vector<_> = v
+                .args
+                .into_iter()
+                .map(|exp| self.visit(exp))
+                .collect::<Result<_>>()?;
+
+            Ok(SteelVal::VectorV(Gc::new(args).into()))
+        }
     }
 }
 
@@ -509,6 +538,38 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
 
         Ok(Syntax::proto(raw, SteelVal::ListV(expr.into_iter().collect()), span).into())
     }
+
+    fn visit_vector(&mut self, v: &steel_parser::ast::Vector) -> Self::Output {
+        let raw =
+            TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::Vector(v.clone()))?;
+
+        if v.bytes {
+            let span = v.span;
+            let vector =
+                TryFromExprKindForSteelVal::try_from_expr_kind(ExprKind::Vector(v.clone()))?;
+
+            return Ok(Syntax::proto(raw, vector, span).into());
+        }
+
+        let items: Result<im_rc::Vector<_>> = v.args.iter().map(|x| self.visit(&x)).collect();
+
+        let items = items?;
+
+        let span_vec = items
+            .iter()
+            .map(|x| {
+                if let SteelVal::SyntaxObject(s) = x {
+                    s.syntax_loc()
+                } else {
+                    unreachable!()
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let span = Span::coalesce_span(&span_vec);
+
+        Ok(Syntax::proto(raw, items.into(), span).into())
+    }
 }
 
 impl ConsumingVisitor for SyntaxObjectFromExprKind {
@@ -704,6 +765,37 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
 
     fn visit_let(&mut self, _l: Box<super::ast::Let>) -> Self::Output {
         todo!()
+    }
+
+    fn visit_vector(&mut self, v: steel_parser::ast::Vector) -> Self::Output {
+        let raw =
+            TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::Vector(v.clone()))?;
+
+        if v.bytes {
+            let span = v.span;
+            let vector = TryFromExprKindForSteelVal::try_from_expr_kind(ExprKind::Vector(v))?;
+
+            return Ok(Syntax::proto(raw, vector, span).into());
+        }
+
+        let items: Result<im_rc::Vector<_>> = v.args.into_iter().map(|x| self.visit(x)).collect();
+
+        let items = items?;
+
+        let span_vec = items
+            .iter()
+            .map(|x| {
+                if let SteelVal::SyntaxObject(s) = x {
+                    s.syntax_loc()
+                } else {
+                    unreachable!()
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let span = Span::coalesce_span(&span_vec);
+
+        Ok(Syntax::proto(raw, items.into(), span).into())
     }
 }
 

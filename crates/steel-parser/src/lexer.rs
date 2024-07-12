@@ -1,5 +1,5 @@
 use super::parser::SourceId;
-use crate::tokens::{parse_unicode_str, NumberLiteral, Paren, RealLiteral};
+use crate::tokens::{parse_unicode_str, NumberLiteral, Paren, ParenMod, RealLiteral};
 use crate::tokens::{IntLiteral, Token, TokenType};
 use smallvec::SmallVec;
 use std::iter::Iterator;
@@ -234,6 +234,16 @@ impl<'a> Lexer<'a> {
                 }
             }
 
+            "#" if self.chars.peek() == Some(&'(') => {
+                self.eat();
+                Ok(TokenType::OpenParen(Paren::Round, Some(ParenMod::Vector)))
+            }
+
+            "#u8" if self.chars.peek() == Some(&'(') => {
+                self.eat();
+                Ok(TokenType::OpenParen(Paren::Round, Some(ParenMod::Bytes)))
+            }
+
             _ => Ok(self.read_word()),
         }
     }
@@ -454,7 +464,7 @@ impl<'a> Iterator for Lexer<'a> {
                     '{' => Paren::Curly,
                     _ => Paren::Round,
                 };
-                Some(Ok(TokenType::OpenParen(kind)))
+                Some(Ok(TokenType::OpenParen(kind, None)))
             }
 
             Some(&paren @ (')' | ']' | '}')) => {
@@ -707,7 +717,7 @@ mod lexer_tests {
         assert_eq!(
             s.next(),
             Some(Token {
-                ty: OpenParen(Paren::Round),
+                ty: OpenParen(Paren::Round, None),
                 source: "(",
                 span: Span::new(0, 1, SourceId::none())
             })
@@ -955,7 +965,7 @@ mod lexer_tests {
                     span: Span::new(17, 20, SourceId::none()),
                 },
                 Token {
-                    ty: OpenParen(Paren::Round),
+                    ty: OpenParen(Paren::Round, None),
                     source: "(",
                     span: Span::new(37, 38, SourceId::none()),
                 },
@@ -1194,7 +1204,7 @@ mod lexer_tests {
 
         let expected: Vec<Token<&str>> = vec![
             Token {
-                ty: OpenParen(Paren::Round),
+                ty: OpenParen(Paren::Round, None),
                 source: "(",
                 span: Span::new(0, 1, SourceId::none()),
             },
@@ -1204,7 +1214,7 @@ mod lexer_tests {
                 span: Span::new(1, 7, SourceId::none()),
             },
             Token {
-                ty: OpenParen(Paren::Round),
+                ty: OpenParen(Paren::Round, None),
                 source: "(",
                 span: Span::new(8, 9, SourceId::none()),
             },
@@ -1229,7 +1239,7 @@ mod lexer_tests {
                 span: Span::new(21, 22, SourceId::none()),
             },
             Token {
-                ty: OpenParen(Paren::Round),
+                ty: OpenParen(Paren::Round, None),
                 source: "(",
                 span: Span::new(23, 24, SourceId::none()),
             },
@@ -1309,6 +1319,45 @@ mod lexer_tests {
         assert_eq!(tokens[7], (TokenType::Identifier("e"), "e"));
         assert_eq!(tokens[9], (TokenType::Identifier("f"), "f"));
         assert_eq!(tokens[11], (TokenType::Identifier("g"), "g"));
+    }
+
+    #[test]
+    fn vector_test() {
+        let s = TokenStream::new("a b #(c d)", true, None);
+
+        let tokens: Vec<(TokenType<&str>, &str)> =
+            s.map(|token| (token.ty, token.source)).collect();
+
+        assert_eq!(tokens[0], (TokenType::Identifier("a"), "a"));
+        assert_eq!(tokens[1], (TokenType::Identifier("b"), "b"));
+        assert_eq!(
+            tokens[2],
+            (
+                TokenType::OpenParen(Paren::Round, Some(ParenMod::Vector)),
+                "#("
+            )
+        );
+        assert_eq!(tokens[3], (TokenType::Identifier("c"), "c"));
+        assert_eq!(tokens[4], (TokenType::Identifier("d"), "d"));
+    }
+
+    #[test]
+    fn bytevector_test() {
+        let s = TokenStream::new("a b #u8(1 2)", true, None);
+
+        let tokens: Vec<(TokenType<&str>, &str)> =
+            s.map(|token| (token.ty, token.source)).collect();
+
+        assert_eq!(tokens[0], (TokenType::Identifier("a"), "a"));
+        assert_eq!(tokens[1], (TokenType::Identifier("b"), "b"));
+        assert_eq!(
+            tokens[2],
+            (
+                TokenType::OpenParen(Paren::Round, Some(ParenMod::Bytes)),
+                "#u8("
+            )
+        );
+        assert_eq!(tokens[5], (TokenType::CloseParen(Paren::Round), ")"));
     }
 
     #[test]

@@ -73,16 +73,16 @@
 ;; Bytevectors
 
 ;; TODO: use bytevector literals
-(check-equal? "utf8->string" "ABC" (utf8->string (bytes #x41 #x42 #x43)))
-(check-equal? "utf8->string, multi-byte char" "λ" (utf8->string (bytes #xCE #xBB)))
-(check-equal? "utf8->string with start" "ABC" (utf8->string (bytes 0 #x41 #x42 #x43) 1))
-(check-equal? "utf8->string with start and end" "ABC" (utf8->string (bytes 0 #x41  #x42 #x43 0) 1 4))
-(check-equal? "utf8->string with start and end, multi-byte char" "λ" (utf8->string (bytes 0 #xCE #xBB 0) 1 3))
-(check-equal? "string->utf8" (bytes #x41 #x42 #x43) (string->utf8 "ABC"))
-(check-equal? "string->utf8 with start" (bytes #x42 #x43) (string->utf8 "ABC" 1))
-(check-equal? "string->utf8 with start and end" (bytes #x42) (string->utf8 "ABC" 1 2))
-(check-equal? "string->utf8 with start and end, multi-byte" (bytes #xCE #xBB) (string->utf8 "σλC" 1 2))
-(check-equal? "string->utf8, multi-byte char" (bytes #xCE #xBB) (string->utf8 "λ"))
+(check-equal? "utf8->string" "ABC" (utf8->string #u8(#x41 #x42 #x43)))
+(check-equal? "utf8->string, multi-byte char" "λ" (utf8->string #u8(#xCE #xBB)))
+(check-equal? "utf8->string with start" "ABC" (utf8->string #u8(0 #x41 #x42 #x43) 1))
+(check-equal? "utf8->string with start and end" "ABC" (utf8->string #u8(0 #x41  #x42 #x43 0) 1 4))
+(check-equal? "utf8->string with start and end, multi-byte char" "λ" (utf8->string #u8(0 #xCE #xBB 0) 1 3))
+(check-equal? "string->utf8" #u8(#x41 #x42 #x43) (string->utf8 "ABC"))
+(check-equal? "string->utf8 with start" #u8(#x42 #x43) (string->utf8 "ABC" 1))
+(check-equal? "string->utf8 with start and end" #u8(#x42) (string->utf8 "ABC" 1 2))
+(check-equal? "string->utf8 with start and end, multi-byte" #u8(#xCE #xBB) (string->utf8 "σλC" 1 2))
+(check-equal? "string->utf8, multi-byte char" #u8(#xCE #xBB) (string->utf8 "λ"))
 
 (check-equal? "char->integer, special escape, null" 0 (char->integer (read (open-input-string "#\\null"))))
 (check-equal? "char->integer, special escape, alarm" 7 (char->integer (read (open-input-string "#\\alarm"))))

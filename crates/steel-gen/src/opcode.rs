@@ -116,6 +116,7 @@ declare_opcodes! {
         BINOPSUB;
         LTEIMMEDIATEIF;
         NOT;
+        VEC;
         Apply
     }
 

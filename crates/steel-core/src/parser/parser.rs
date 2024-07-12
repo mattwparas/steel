@@ -161,8 +161,8 @@ impl TryFrom<SyntaxObject> for SteelVal {
     fn try_from(e: SyntaxObject) -> std::result::Result<Self, Self::Error> {
         let span = e.span;
         match e.ty {
-            OpenParen(p) => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, p.open().to_string()).with_span(span))
+            OpenParen(..) => {
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, format!("{}", e.ty)).with_span(span))
             }
             CloseParen(p) => Err(
                 SteelErr::new(ErrorKind::UnexpectedToken, p.close().to_string()).with_span(span),

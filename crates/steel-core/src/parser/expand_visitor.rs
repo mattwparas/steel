@@ -266,6 +266,7 @@ impl<'a> VisitorMutRef for Expander<'a> {
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 
@@ -353,6 +354,14 @@ impl<'a> VisitorMutRef for Expander<'a> {
     }
 
     fn visit_list(&mut self, _l: &mut List) -> Self::Output {
+        Ok(())
+    }
+
+    fn visit_vector(&mut self, v: &mut super::ast::Vector) -> Self::Output {
+        for arg in &mut v.args {
+            self.visit(arg)?;
+        }
+
         Ok(())
     }
 }
@@ -970,9 +979,18 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Vector(v) => self.visit_vector(v),
         };
 
         res
+    }
+
+    fn visit_vector(&mut self, v: &mut super::ast::Vector) -> Self::Output {
+        for arg in &mut v.args {
+            self.visit(arg)?;
+        }
+
+        Ok(())
     }
 }
 

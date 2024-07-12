@@ -1551,6 +1551,7 @@ fn non_list_match(patterns: &[MacroPattern]) -> Option<&MacroPattern> {
 
 #[cfg(test)]
 mod macro_case_expand_test {
+    use steel_parser::ast::LambdaFunction;
     use steel_parser::parser::SourceId;
 
     use super::MacroCase;

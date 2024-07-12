@@ -2337,6 +2337,42 @@ impl<'a> VmCore<'a> {
                     self.ip += 1;
                 }
 
+                DenseInstruction {
+                    op_code: OpCode::VEC,
+                    payload_size,
+                } => {
+                    let payload = payload_size.to_usize();
+                    let len = payload / 2;
+                    let bytes = payload % 2 != 0;
+
+                    let args = self.thread.stack.split_off(self.thread.stack.len() - len);
+
+                    let val = if bytes {
+                        let buffer: Vec<_> = args
+                            .into_iter()
+                            .flat_map(|val| {
+                                let int = val.int_or_else(|| "unexpected non integer");
+
+                                debug_assert!(int.is_ok());
+
+                                int.ok()
+                            })
+                            .flat_map(|int| {
+                                let byte = u8::try_from(int);
+
+                                debug_assert!(byte.is_ok());
+                                byte.ok()
+                            })
+                            .collect();
+
+                        SteelVal::ByteVector(crate::rvals::SteelByteVector::new(buffer))
+                    } else {
+                        SteelVal::VectorV(crate::rvals::SteelVector(Gc::new(args.into())))
+                    };
+
+                    self.thread.stack.push(val);
+                    self.ip += 1;
+                }
                 // match_dynamic_super_instructions!()
                 _ => {
                     #[cfg(feature = "dynamic")]

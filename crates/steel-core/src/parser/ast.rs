@@ -14,7 +14,7 @@ use crate::{
 
 pub use steel_parser::ast::{
     AstTools, Atom, Begin, Define, ExprKind, If, IteratorExtensions, LambdaFunction, Let, List,
-    Macro, PatternPair, Quote, Require, Return, Set, SyntaxRules, STANDARD_MODULE_GET,
+    Macro, PatternPair, Quote, Require, Return, Set, SyntaxRules, Vector, STANDARD_MODULE_GET,
     UNREADABLE_MODULE_GET,
 };
 

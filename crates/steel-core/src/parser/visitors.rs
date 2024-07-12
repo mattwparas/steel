@@ -6,6 +6,7 @@ use crate::parser::ast::{
     SyntaxRules,
 };
 
+use steel_parser::ast::Vector;
 pub use steel_parser::visitors::{
     ConsumingVisitor, ConsumingVisitorRef, Visitor, VisitorMut, VisitorMutRef,
 };
@@ -29,6 +30,7 @@ pub trait VisitorMutResult {
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 
@@ -45,4 +47,5 @@ pub trait VisitorMutResult {
     fn visit_set(&mut self, s: &Set) -> Result<Self::Output>;
     fn visit_require(&mut self, s: &Require) -> Result<Self::Output>;
     fn visit_let(&mut self, l: &Let) -> Result<Self::Output>;
+    fn visit_vector(&mut self, v: &Vector) -> Result<Self::Output>;
 }

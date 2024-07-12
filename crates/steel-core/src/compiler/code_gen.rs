@@ -907,6 +907,17 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         Ok(())
     }
+
+    fn visit_vector(&mut self, v: &crate::parser::ast::Vector) -> Self::Output {
+        for arg in &v.args {
+            self.visit(arg)?;
+        }
+
+        let payload_size = 2 * v.args.len() + usize::from(v.bytes);
+        self.push(LabeledInstruction::builder(OpCode::VEC).payload(payload_size));
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

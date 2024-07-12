@@ -169,7 +169,22 @@ impl CycleDetector {
             BigRational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
             Complex(x) => write!(f, "{}", x.as_ref()),
             StringV(s) => write!(f, "{s:?}"),
-            ByteVector(b) => write!(f, "{:?}", b.vec.borrow()),
+            ByteVector(b) => {
+                write!(f, "#u8(")?;
+
+                let bytes = b.vec.borrow();
+                let mut iter = bytes.iter();
+
+                if let Some(last) = iter.next_back() {
+                    for byte in iter {
+                        write!(f, "#x{byte:02X} ")?;
+                    }
+
+                    write!(f, "#x{last:02X}")?;
+                }
+
+                write!(f, ")")
+            }
             CharV(c) => {
                 if c.is_ascii_control() {
                     write!(f, "{}", c)
@@ -195,10 +210,8 @@ impl CycleDetector {
             SymbolV(s) => write!(f, "{s}"),
             VectorV(lst) => {
                 let mut iter = lst.iter();
-                match format_type {
-                    FormatType::Normal => write!(f, "(")?,
-                    FormatType::TopLevel => write!(f, "'#(")?,
-                };
+                write!(f, "#(")?;
+
                 if let Some(last) = iter.next_back() {
                     for item in iter {
                         self.format_with_cycles(item, f, FormatType::Normal)?;

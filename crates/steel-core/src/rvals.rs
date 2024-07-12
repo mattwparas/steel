@@ -1277,6 +1277,12 @@ impl SteelByteVector {
     }
 }
 
+impl Hash for SteelByteVector {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.vec.borrow().hash(state);
+    }
+}
+
 /// Contains a complex number.
 ///
 /// TODO: Optimize the contents of complex value. Holding `SteelVal` makes it easier to use existing
@@ -1711,32 +1717,22 @@ impl Hash for SteelVal {
             CharV(c) => c.hash(state),
             ListV(l) => l.hash(state),
             CustomStruct(s) => s.hash(state),
-            // Pair(cell) => {
-            //     cell.hash(state);
-            // }
             VectorV(v) => v.hash(state),
             v @ Void => v.hash(state),
             StringV(s) => s.hash(state),
             FuncV(s) => (*s as *const FunctionSignature).hash(state),
-            // LambdaV(_) => unimplemented!(),
-            // MacroV(_) => unimplemented!(),
             SymbolV(sym) => {
                 "symbol".hash(state);
                 sym.hash(state);
-                // format!("symbol: {}")
             }
-            Custom(_) => unimplemented!(),
-            // StructClosureV(_) => unimplemented!(),
-            PortV(_) => unimplemented!(),
             Closure(b) => b.hash(state),
             HashMapV(hm) => hm.hash(state),
             IterV(s) => s.hash(state),
             HashSetV(hs) => hs.hash(state),
             SyntaxObject(s) => s.raw.hash(state),
             Pair(p) => (&**p).hash(state),
-            _ => {
-                unimplemented!("Attempted to has unsupported value: {self:?}")
-            }
+            ByteVector(v) => (&*v).hash(state),
+            _ => unimplemented!("Attempted to hash unsupported value: {self:?}"),
         }
     }
 }
@@ -2247,15 +2243,7 @@ impl PartialOrd for SteelVal {
 
 impl fmt::Display for SteelVal {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // at the top level, print a ' if we are
-        // trying to print a symbol or list
-        match self {
-            VectorV(_) => write!(f, "#")?,
-            _ => (),
-        };
-
         CycleDetector::detect_and_display_cycles(self, f)
-        // display_helper(self, f)
     }
 }
 
@@ -2264,8 +2252,7 @@ impl fmt::Debug for SteelVal {
         // at the top level, print a ' if we are
         // trying to print a symbol or list
         match self {
-            SymbolV(_) | ListV(_) => write!(f, "'")?,
-            VectorV(_) => write!(f, "'#")?,
+            SymbolV(_) | ListV(_) | VectorV(_) => write!(f, "'")?,
             _ => (),
         };
         // display_helper(self, f)
