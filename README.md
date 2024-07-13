@@ -1,4 +1,5 @@
 # Steel
+
 <div align="center">
     <img width="150px" src="images/styled.png">
 </div>
@@ -7,15 +8,14 @@
 
 An embeddable and extensible scheme dialect built in Rust.
 
-![Actions Status](https://github.com/mattwparas/steel/workflows/Build/badge.svg) 
+![Actions Status](https://github.com/mattwparas/steel/workflows/Build/badge.svg)
+![Actions Status](https://github.com/mattwparas/steel/workflows/Docker%20CI/badge.svg)
 [![Coverage Status](https://coveralls.io/repos/github/mattwparas/steel/badge.svg?branch=master)](https://coveralls.io/github/mattwparas/steel?branch=master)
 [![Discord Chat](https://img.shields.io/discord/1152443024715034675.svg?logo=discord&label=discord)](https://discord.gg/WwFRXdN6HU)
-
 
 <a href="https://mattwparas.github.io/steel-playground/dev">
     <b>Try it on the Playground</b>
 </a>
-
 
 </div>
 
@@ -48,16 +48,16 @@ If you would like to install and use packages, please set the `STEEL_HOME` envir
 
 ## Features
 
-* Limited `syntax-rules` style macros are supported
-* Easy integration with Rust functions and structs
-* Easily call a script from rust or via a separate file
-* Efficient - common functions and data structures are optimized for performance (`map`, `filter`, etc)
-* Higher order Contracts
-* Built in immutable data structures include:
-  * lists
-  * vectors
-  * hashmaps
-  * hashsets
+- Limited `syntax-rules` style macros are supported
+- Easy integration with Rust functions and structs
+- Easily call a script from rust or via a separate file
+- Efficient - common functions and data structures are optimized for performance (`map`, `filter`, etc)
+- Higher order Contracts
+- Built in immutable data structures include:
+  - lists
+  - vectors
+  - hashmaps
+  - hashsets
 
 ## Contracts
 
@@ -158,13 +158,13 @@ Inspired by clojure's transducers, `Steel` has a similar object that is somewher
 (filtering even?) ;; => <#iterator>
 (taking 15) ;; => <#iterator>
 
-(compose 
+(compose
     (mapping add1)
     (filtering odd?)
     (taking 15)) ;; => <#iterator>
 ```
 
-Each of these expressions emit an `<#iterator>` object, which means they're compatible with  `transduce`. `transduce` takes a transducer (i.e. `<#iterator>`) and a collection that can be iterated (`list`, `vector`, `stream`, `hashset`, `hashmap`, `string`, `struct`) and applies the transducer.
+Each of these expressions emit an `<#iterator>` object, which means they're compatible with `transduce`. `transduce` takes a transducer (i.e. `<#iterator>`) and a collection that can be iterated (`list`, `vector`, `stream`, `hashset`, `hashmap`, `string`, `struct`) and applies the transducer.
 
 ```scheme
 ;; Accepts lists
@@ -190,8 +190,8 @@ Transduce accepts a reducer function as well. Above we used `into-list` and `int
 Compose just combines the iterator functions and lets us avoid intermediate allocation. The composition works left to right - it chains each value through the functions and then accumulates into the output type. See the following:
 
 ```scheme
-(define xf 
-    (compose 
+(define xf
+    (compose
         (mapping add1)
         (filtering odd?)
         (taking 5)))
@@ -229,12 +229,12 @@ In order to support a growing codebase, Steel has module support for projects sp
 
 
 ;; provide.scm
-(provide 
+(provide
     (contract/out even->odd (->/c even? odd?))
     no-contract
     flat-value)
 
-(define (even->odd x) 
+(define (even->odd x)
     (+ x 1))
 
 (define (accept-number x) (+ x 10))
@@ -249,9 +249,10 @@ In order to support a growing codebase, Steel has module support for projects sp
 Here we can see if we were to run `main` that it would include the contents of `provide`, and only provided values would be accessible from `main`. The contract is attached at the contract boundary, so inside the `provide` module, you can violate the contract, but outside the module the contract will be applied.
 
 A few notes on modules:
-* Cyclical dependencies are not allowed
-* Modules will be only compiled once and used across multiple files. If `A` requires `B` and `C`, and `B` requires `C`, `C` will be compiled once and shared between `A` and `B`. 
-* Modules will be recompiled when changed, and any dependent files will also be recompiled as necessary
+
+- Cyclical dependencies are not allowed
+- Modules will be only compiled once and used across multiple files. If `A` requires `B` and `C`, and `B` requires `C`, `C` will be compiled once and shared between `A` and `B`.
+- Modules will be recompiled when changed, and any dependent files will also be recompiled as necessary
 
 ## Performance
 
@@ -428,15 +429,14 @@ pub fn main() {
 
 See the examples folder for more examples on embedding values and interacting with the outside world.
 
-
 ## License
 
 Licensed under either of
 
- * Apache License, Version 2.0
-   ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
- * MIT license
-   ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+- Apache License, Version 2.0
+  ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+- MIT license
+  ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
 
 at your option.
 
