@@ -41,6 +41,8 @@
 
 (define __module__ 'r5rs-test-suite)
 
+(check-equal? "<= with rational numbers" (let* ([z (/ 3 2)]) (if (<= z 0) z (+ z 1))) (/ 5 2))
+
 (check-equal? "Parsing hex" #x0f 15)
 (check-equal? "Parsing octal" #o0777 511)
 (check-equal? "Parsing binary" #b0110 6)
@@ -251,8 +253,12 @@
 (check-equal? "string->number with radix in literal" 256 (string->number "#x100"))
 (check-equal? "string->number with radix in literal and explicit one" 256 (string->number "#x100" 8))
 (check-equal? "string->number with large number" 100000000000000 (string->number "100000000000000"))
-(check-equal? "string->number with large number and radix" 72057594037927936 (string->number "100000000000000" 16))
-(check-equal? "string->number with large number and radix literal" 4398046511104 (string->number "#o100000000000000"))
+(check-equal? "string->number with large number and radix"
+              72057594037927936
+              (string->number "100000000000000" 16))
+(check-equal? "string->number with large number and radix literal"
+              4398046511104
+              (string->number "#o100000000000000"))
 (check-equal? "string->number with different base" 127 (string->number "177" 8))
 (check-equal? "string->number base 2" 5 (string->number "101" 2))
 (check-equal? "string->number with scientific notation" 100.0 (string->number "1e2"))

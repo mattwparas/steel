@@ -1813,8 +1813,14 @@ impl<'a> VmCore<'a> {
                     // let result = sub_handler_none_int(self, local_value, const_val)?;
 
                     let result = match l {
-                        SteelVal::IntV(l) => SteelVal::IntV(l - r),
-                        SteelVal::NumV(l) => SteelVal::NumV(l - r as f64),
+                        SteelVal::IntV(_)
+                        | SteelVal::NumV(_)
+                        | SteelVal::Rational(_)
+                        | SteelVal::BigNum(_)
+                        | SteelVal::BigRational(_) => {
+                            subtract_primitive(&[l.clone(), SteelVal::IntV(r)])
+                                .map_err(|x| x.set_span_if_none(self.current_span()))?
+                        }
                         _ => {
                             cold();
                             stop!(TypeMismatch => "sub expected a number, found: {}", l)
@@ -1848,9 +1854,14 @@ impl<'a> VmCore<'a> {
                     // let result = lte_handler_none_int(self, local_value, const_val)?;
 
                     let result = match l {
-                        SteelVal::IntV(l) => *l <= r,
-                        SteelVal::NumV(l) => *l <= r as f64,
-                        _ => stop!(TypeMismatch => "lte expected an number, found: {}", r),
+                        SteelVal::IntV(_)
+                        | SteelVal::NumV(_)
+                        | SteelVal::Rational(_)
+                        | SteelVal::BigNum(_)
+                        | SteelVal::BigRational(_) => l.clone() <= SteelVal::IntV(r),
+                        _ => {
+                            stop!(TypeMismatch => format!("lte expected an number, found: {}", l); self.current_span())
+                        }
                     };
 
                     self.thread.stack.push(SteelVal::BoolV(result));
@@ -1880,17 +1891,15 @@ impl<'a> VmCore<'a> {
                     // let result = lte_handler_none_int(self, local_value, const_val)?;
 
                     let result = match l {
-                        SteelVal::IntV(l) => *l <= r,
-                        SteelVal::NumV(l) => *l <= r as f64,
-                        _ => stop!(TypeMismatch => "lte expected an number, found: {}", r),
+                        SteelVal::IntV(_)
+                        | SteelVal::NumV(_)
+                        | SteelVal::Rational(_)
+                        | SteelVal::BigNum(_)
+                        | SteelVal::BigRational(_) => l.clone() <= SteelVal::IntV(r),
+                        _ => {
+                            stop!(TypeMismatch => format!("lte expected an number, found: {}", l); self.current_span())
+                        }
                     };
-
-                    // let result = match $name(&[local_value, const_val]) {
-                    //     Ok(value) => value,
-                    //     Err(e) => return Err(e.set_span_if_none(self.current_span())),
-                    // };
-
-                    // let result
 
                     self.ip += 2;
 
