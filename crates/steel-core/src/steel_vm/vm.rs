@@ -1850,7 +1850,7 @@ impl<'a> VmCore<'a> {
                     let result = match l {
                         SteelVal::IntV(l) => *l <= r,
                         SteelVal::NumV(l) => *l <= r as f64,
-                        _ => stop!(TypeMismatch => "lte expected an number, found: {}", r),
+                        _ => stop!(TypeMismatch => "lte expected an number, found: {}", l),
                     };
 
                     self.thread.stack.push(SteelVal::BoolV(result));
@@ -1882,7 +1882,7 @@ impl<'a> VmCore<'a> {
                     let result = match l {
                         SteelVal::IntV(l) => *l <= r,
                         SteelVal::NumV(l) => *l <= r as f64,
-                        _ => stop!(TypeMismatch => "lte expected an number, found: {}", r),
+                        _ => stop!(TypeMismatch => "lte expected an number, found: {}", l),
                     };
 
                     // let result = match $name(&[local_value, const_val]) {
@@ -5931,7 +5931,7 @@ mod handlers {
         match l {
             SteelVal::IntV(l) => Ok(l <= r),
             SteelVal::NumV(l) => Ok(l <= r as f64),
-            _ => stop!(TypeMismatch => "lte expected an number, found: {}", r),
+            _ => stop!(TypeMismatch => "lte expected an number, found: {}", l),
         }
     }
 
