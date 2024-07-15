@@ -48,6 +48,7 @@ pub struct ReplaceExpressions<'a> {
     bindings: &'a mut FxHashMap<InternedString, ExprKind>,
     fallback_bindings: &'a mut FxHashMap<InternedString, ExprKind>,
     binding_kind: &'a mut FxHashMap<InternedString, BindingKind>,
+    wildcard: InternedString,
 }
 
 fn check_ellipses(expr: &ExprKind) -> bool {
@@ -128,6 +129,7 @@ impl<'a> ReplaceExpressions<'a> {
             bindings,
             binding_kind,
             fallback_bindings,
+            wildcard: InternedString::from_static("_"),
         }
     }
 
@@ -466,8 +468,10 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => {
                 if let TokenType::Identifier(s) = &a.syn.ty {
-                    if let Some(body) = self.bindings.get(s) {
-                        *expr = body.clone();
+                    if *s != self.wildcard {
+                        if let Some(body) = self.bindings.get(s) {
+                            *expr = body.clone();
+                        }
                     }
                 }
 

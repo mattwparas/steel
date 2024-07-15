@@ -160,6 +160,6 @@ impl SymbolMap {
         self.map
             .get(ident)
             .copied()
-            .ok_or_else(throw!(FreeIdentifier => ident.resolve()))
+            .ok_or_else(throw!(FreeIdentifier => "Cannot reference an identifier before its definition: {}", ident.resolve()))
     }
 }
