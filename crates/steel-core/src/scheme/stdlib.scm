@@ -837,6 +837,17 @@
          body ...)
        (#%function-ptr-table-add #%function-ptr-table name (datum->syntax name __doc__)))]
 
+    [(_ documentation
+        (define (name args ... . rest)
+          body ...))
+
+     (begin
+       (define (datum->syntax name __doc__)
+         documentation)
+       (define (name args ... . rest)
+         body ...)
+       (#%function-ptr-table-add #%function-ptr-table name (datum->syntax name __doc__)))]
+
     [(_ documentation (define name body))
 
      (begin

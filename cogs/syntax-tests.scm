@@ -183,6 +183,88 @@
               ;; equivalent to (let [(x 1)] x)
               (let . ([(x . (1 . ())) . ()] . (x . ()))) 1)
 
+(check-syntax-error? "improper list pattern, constant mismatch"
+ '(
+   (define-syntax const-tail
+     (syntax-rules ()
+                   [(_ (a . #t)) a]))
+   (const-tail (x . 1)))
+ "unable to match case")
+
+(check-syntax-error? "improper list does not match proper list patterns"
+ '(
+   (define-syntax const-tail
+     (syntax-rules ()
+                   [(_ (a #t)) a]))
+   (const-tail (x . #t)))
+ "unable to match case")
+
+(check-syntax-error? "improper list pattern, tail pattern does not match"
+ '(
+   (define-syntax const-tail
+     (syntax-rules ()
+                   [(_ (a . (b))) b]))
+   (const-tail (x)))
+ "unable to match case")
+
+(check-syntax-error? "improper list pattern, ellipsis make pattern greedy"
+ '(
+   (define-syntax const-tail
+     (syntax-rules ()
+                   [(_ (a (b) ... c . rest)) a]))
+   (const-tail (a? c? d?)))
+ "unable to match case")
+
+(define-syntax improper-tail
+  (syntax-rules ()
+                [(_ a . b) (quote b)]))
+
+(check-equal? "improper list pattern, tail arguments, 0 args" (improper-tail x) '())
+(check-equal? "improper list pattern, tail arguments, 1 args" (improper-tail x y) '(y))
+(check-equal? "improper list pattern, tail arguments, 2 args" (improper-tail x y z) '(y z))
+(check-equal? "improper list pattern, tail arguments, improper list in cdr" (improper-tail x y . z) '(y . z))
+(check-equal? "improper list pattern, tail arguments, constant in cdr" (improper-tail x . "y") "y")
+
+(define-syntax improper-tail-nested
+  (syntax-rules ()
+                [(_ (a . b)) (quote b)]))
+
+(check-equal? "improper list pattern, nested, tail arguments, 0 args" (improper-tail-nested (x)) '())
+(check-equal? "improper list pattern, nested, tail arguments, 1 args" (improper-tail-nested (x y)) '(y))
+(check-equal? "improper list pattern, nested, tail arguments, 2 args" (improper-tail-nested (x y z)) '(y z))
+(check-equal? "improper list pattern, nested, tail arguments, constant in cdr" (improper-tail-nested (x . "y")) "y")
+
+(define-syntax improper-tail-collapsed
+  (syntax-rules ()
+                [(_ a . (b)) (quote b)]))
+
+(check-equal? "improper list pattern, collapsed" (improper-tail-collapsed x y) 'y)
+
+(define-syntax non-list-as-list
+  (syntax-rules () [
+                  (_ (a ... . b)) b]))
+
+(check-equal? "improper list pattern, collapses to non-list" (non-list-as-list "hello") "hello")
+
+(define-syntax non-list-as-list-nested
+  (syntax-rules () [
+                  (_ ((a) ... . b)) b]))
+
+(check-equal? "improper list pattern, nested, collapses to non-list" (non-list-as-list-nested "hello") "hello")
+
+(define-syntax non-list-as-list-multiple
+  (syntax-rules () [
+                  (_ ((a) ... . b) ... ) (quote (b ...))]))
+
+(skip-compile (check-equal? "improper list pattern, nested, collapses to non-list" (non-list-as-list-multiple  "hello" "world") '("hello" "world")))
+
+(skip-compile (define-syntax many-literals
+  (syntax-rules () [
+                  (_ #t ...) 1])))
+
+
+
+
 ;; -------------- Report ------------------
 
 (define stats (get-test-stats))

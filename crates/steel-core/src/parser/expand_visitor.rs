@@ -226,8 +226,13 @@ impl<'a> VisitorMutRef for Expander<'a> {
                                 {
                                     let span = *sp;
 
-                                    let mut expanded =
-                                        m.expand(List::new(std::mem::take(&mut l.args)), span)?;
+                                    let mut expanded = m.expand(
+                                        List::new_maybe_improper(
+                                            std::mem::take(&mut l.args),
+                                            l.improper,
+                                        ),
+                                        span,
+                                    )?;
                                     self.changed = true;
 
                                     self.depth += 1;
