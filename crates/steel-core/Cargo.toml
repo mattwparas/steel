@@ -31,10 +31,6 @@ im-lists = "0.8.1"
 strsim = "0.11.0"
 quickscope = "0.2.0"
 
-# Until this issue gets resolved https://github.com/mattwparas/steel/issues/192
-# lasso = { version = "0.7.2", features = ["multi-threaded", "serialize"] }
-# lasso = { git = "https://github.com/lcnr/lasso/", branch = "patch-1", features = ["multi-threaded", "serialize"] }
-# lasso2 = { version = "0.8.2", features = ["multi-threaded", "serialize"] }
 lasso = { git = "https://github.com/kixiron/lasso/", features = ["multi-threaded", "serialize"] }
 
 once_cell = "1.18.0"
