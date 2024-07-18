@@ -1030,10 +1030,6 @@ impl List {
         self
     }
 
-    pub fn set_improper(&mut self) {
-        self.improper = true;
-    }
-
     pub fn is_empty(&self) -> bool {
         self.args.is_empty()
     }

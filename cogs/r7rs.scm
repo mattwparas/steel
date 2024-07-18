@@ -94,6 +94,43 @@
 (check-equal? "char->integer, special escape, escape" #x1B (char->integer (read (open-input-string "#\\escape"))))
 (check-equal? "char->integer, multi-byte" #x03BB (char->integer (read (open-input-string "#\\λ"))))
 
+(define any-arity
+  (case-lambda
+    (() 'zero)
+    ((x) x)
+    ((x y) (cons x y))
+    ((x y z) (list x y z))
+    (args (cons 'many args))))
+
+(check-equal? "case-lambda, any arity, 0 args" (any-arity) 'zero)
+(check-equal? "case-lambda, any arity, 1 args" (any-arity 1) 1)
+(check-equal? "case-lambda, any arity, 2 args" (any-arity 1 2) '(1 . 2))
+(check-equal? "case-lambda, any arity, 3 args" (any-arity 1 2 3) '(1 2 3))
+(check-equal? "case-lambda, any arity, 4 args" (any-arity 1 2 3 4) '(many 1 2 3 4))
+
+(define rest-arity
+  (case-lambda
+    (() '(zero))
+    ((x) (list 'one x))
+    ((x y) (list 'two x y))
+    ((x y . z) (list 'more x y z))))
+
+(check-equal? "case-lambda, rest arity, 0 args" (rest-arity) '(zero))
+(check-equal? "case-lambda, rest arity, 1 args" (rest-arity 1) '(one 1))
+(check-equal? "case-lambda, rest arity, 2 args" (rest-arity 1 2) '(two 1 2))
+(check-equal? "case-lambda, rest arity, 3 args" (rest-arity 1 2 3) '(more 1 2 (3)))
+
+(define dead-clause
+  (case-lambda
+    ((x . y) 'many)
+    (() 'none)
+    (foo 'unreachable)))
+
+(check-equal? "case-lambda, dead clause, 0 args" (dead-clause) 'none)
+(check-equal? "case-lambda, dead clause, 1 args" (dead-clause 1) 'many)
+(check-equal? "case-lambda, dead clause, 2 args" (dead-clause 1 2) 'many)
+(check-equal? "case-lambda, dead clause, 3 args" (dead-clause 1 2 3) 'many)
+
 (define r7rs-test-stats (get-test-stats))
 
 (displayln "Passed: " (hash-ref r7rs-test-stats 'success-count))
