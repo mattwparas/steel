@@ -150,7 +150,7 @@ fn tokentype_strategy() -> impl Strategy<Value = TokenType<InternedString>> {
     use TokenType::*;
     prop_oneof![
         any::<char>().prop_map(CharacterLiteral),
-        string_strategy().prop_map(StringLiteral),
+        string_strategy().prop_map(|x| StringLiteral(Box::new(x))),
         ident_strategy().prop_map(Identifier),
         any::<isize>().prop_map(|x| IntLiteral::Small(x).into()),
         any::<bool>().prop_map(BooleanLiteral),
