@@ -1104,7 +1104,7 @@ impl<'a> VmCore<'a> {
         SteelVal::MutableVector(allocated_var)
     }
 
-    pub(crate) fn gc_collect(&mut self) {
+    pub(crate) fn gc_collect(&mut self) -> usize {
         self.thread.heap.collect(
             None,
             None,
@@ -1112,7 +1112,7 @@ impl<'a> VmCore<'a> {
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
             self.thread.global_env.roots(),
             true,
-        );
+        )
     }
 
     fn weak_collection(&mut self) {

@@ -698,7 +698,7 @@ impl Heap {
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: impl Iterator<Item = &'a SteelVal>,
         force_full: bool,
-    ) {
+    ) -> usize {
         let memory_size = self.memory.len() + self.vector_cells_allocated();
 
         if memory_size > self.threshold || force_full {
@@ -733,11 +733,14 @@ impl Heap {
 
             let post_small_collection_size = self.memory.len() + self.vector_cells_allocated();
 
+            let mut amount = 0;
+
             // Mark + Sweep!
             if post_small_collection_size as f64 > (0.25 * original_length as f64) || force_full {
                 log::debug!(target: "gc", "---- Post small collection, running mark and sweep - heap size filled: {:?} ----", post_small_collection_size as f64 / original_length as f64);
 
-                self.mark_and_sweep(root_value, root_vector, roots, live_functions, globals);
+                amount =
+                    self.mark_and_sweep(root_value, root_vector, roots, live_functions, globals);
             } else {
                 log::debug!(target: "gc", "---- Skipping mark and sweep - heap size filled: {:?} ----", post_small_collection_size as f64 / original_length as f64);
             }
@@ -757,7 +760,11 @@ impl Heap {
                 self.memory.shrink_to(GC_THRESHOLD * GC_GROW_FACTOR);
                 self.vectors.shrink_to(GC_THRESHOLD * GC_GROW_FACTOR);
             }
+
+            return amount;
         }
+
+        0
     }
 
     fn mark_and_sweep<'a>(
@@ -767,7 +774,7 @@ impl Heap {
         roots: impl Iterator<Item = &'a SteelVal>,
         function_stack: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: impl Iterator<Item = &'a SteelVal>,
-    ) {
+    ) -> usize {
         log::debug!(target: "gc", "Marking the heap");
 
         #[cfg(feature = "profiling")]
@@ -821,13 +828,13 @@ impl Heap {
 
         context.visit();
 
-        println!("Found objects: {}", context.object_count);
-
         #[cfg(feature = "profiling")]
         log::debug!(target: "gc", "Mark: Time taken: {:?}", now.elapsed());
 
         #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
+
+        let object_count = context.object_count;
 
         log::debug!(target: "gc", "--- Sweeping ---");
         let prior_len = self.memory.len() + self.vector_cells_allocated();
@@ -851,6 +858,8 @@ impl Heap {
 
         #[cfg(feature = "profiling")]
         log::debug!(target: "gc", "Sweep: Time taken: {:?}", now.elapsed());
+
+        object_count.saturating_sub(amount_freed)
     }
 }
 

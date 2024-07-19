@@ -1391,9 +1391,9 @@ fn gc_collection(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>
         ));
     }
 
-    ctx.gc_collect();
+    let count = ctx.gc_collect();
 
-    Some(Ok(SteelVal::Void))
+    Some(Ok(SteelVal::IntV(count as _)))
 }
 
 fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
