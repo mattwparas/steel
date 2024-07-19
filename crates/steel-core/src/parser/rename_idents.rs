@@ -121,6 +121,8 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
             if self.is_gensym(&s) {
                 a.syn.ty = TokenType::Identifier(("##".to_string() + s.resolve()).into());
             }
+
+            // println!("Found unresolved identifier in macro body: {}", s.resolve());
         }
     }
 

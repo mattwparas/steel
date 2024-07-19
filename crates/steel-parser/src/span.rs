@@ -2,10 +2,6 @@ use core::ops::Range;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-// use crate::{list, rvals::FromSteelVal, rvals::IntoSteelVal};
-
-// use crate::rvals::SteelVal;
-
 use super::parser::SourceId;
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
@@ -13,7 +9,7 @@ use super::parser::SourceId;
 pub struct Span {
     pub start: usize,
     pub end: usize,
-    pub source_id: Option<SourceId>,
+    pub source_id: SourceId,
 }
 
 // impl IntoSteelVal for Span {
@@ -48,7 +44,7 @@ pub struct Span {
 
 impl Span {
     #[inline]
-    pub const fn new(start: usize, end: usize, source_id: Option<SourceId>) -> Self {
+    pub const fn new(start: usize, end: usize, source_id: SourceId) -> Self {
         Self {
             start,
             end,
@@ -57,7 +53,7 @@ impl Span {
     }
 
     #[inline]
-    pub const fn double(span: usize, source_id: Option<SourceId>) -> Self {
+    pub const fn double(span: usize, source_id: SourceId) -> Self {
         Self {
             start: span,
             end: span,
@@ -81,7 +77,7 @@ impl Span {
     }
 
     #[inline]
-    pub const fn source_id(&self) -> Option<SourceId> {
+    pub const fn source_id(&self) -> SourceId {
         self.source_id
     }
 
@@ -110,7 +106,7 @@ impl Span {
             }
             span
         } else {
-            Span::new(0, 0, None)
+            Span::new(0, 0, SourceId::none())
         }
     }
 }

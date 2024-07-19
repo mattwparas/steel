@@ -55,7 +55,7 @@ fn try_eval_atom(t: &SyntaxObject) -> Option<SteelVal> {
     match &t.ty {
         TokenType::BooleanLiteral(b) => Some((*b).into()),
         TokenType::Number(n) => number_literal_to_steel(n).ok(),
-        TokenType::StringLiteral(s) => Some(SteelVal::StringV(s.into())),
+        TokenType::StringLiteral(s) => Some(SteelVal::StringV(s.to_string().into())),
         TokenType::CharacterLiteral(c) => Some(SteelVal::CharV(*c)),
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
         TokenType::Keyword(k) => Some(SteelVal::SymbolV(k.clone().into())),
@@ -69,7 +69,7 @@ fn try_eval_atom_with_context(t: &SyntaxObject) -> Result<SteelVal> {
     match &t.ty {
         TokenType::BooleanLiteral(b) => Ok((*b).into()),
         TokenType::Number(n) => number_literal_to_steel(n).map_err(|e| e.with_span(t.span)),
-        TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.into())),
+        TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.to_string().into())),
         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
         TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
         _what => {
@@ -168,15 +168,17 @@ impl<'a> CodeGenerator<'a> {
             return None;
         }
 
-        let value = if let Some(TokenType::Number(NumberLiteral::Real(RealLiteral::Int(
-            IntLiteral::Small(l),
-        )))) = l.args[2].atom_syntax_object().map(|x| &x.ty)
-        {
-            *l
-        } else {
-            return None;
-            // stop!()
-        };
+        let value =
+            if let Some(TokenType::Number(n)) = l.args[2].atom_syntax_object().map(|x| &x.ty) {
+                if let NumberLiteral::Real(RealLiteral::Int(IntLiteral::Small(l))) = n.as_ref() {
+                    *l
+                } else {
+                    return None;
+                }
+            } else {
+                return None;
+                // stop!()
+            };
 
         if value < 0 {
             return None;

@@ -53,7 +53,7 @@ pub(crate) fn thread_join(handle: &mut ThreadHandle) -> Result<()> {
 }
 
 thread_local! {
-    static CACHED_CLOSURES: RefCell<FxHashMap<usize, SerializedLambdaPrototype>> = RefCell::new(FxHashMap::default());
+    static CACHED_CLOSURES: RefCell<FxHashMap<u32, SerializedLambdaPrototype>> = RefCell::new(FxHashMap::default());
 }
 
 pub fn closure_into_serializable(
@@ -121,10 +121,10 @@ struct MovableThread {
 }
 
 struct MovableFunctionInterner {
-    closure_interner: fxhash::FxHashMap<usize, SerializedLambda>,
-    pure_function_interner: fxhash::FxHashMap<usize, SerializedLambda>,
-    spans: fxhash::FxHashMap<usize, Vec<Span>>,
-    instructions: fxhash::FxHashMap<usize, Vec<DenseInstruction>>,
+    closure_interner: fxhash::FxHashMap<u32, SerializedLambda>,
+    pure_function_interner: fxhash::FxHashMap<u32, SerializedLambda>,
+    spans: fxhash::FxHashMap<u32, Vec<Span>>,
+    instructions: fxhash::FxHashMap<u32, Vec<DenseInstruction>>,
 }
 
 /// This will naively deep clone the environment, by attempting to translate every value into a `SerializableSteelVal`

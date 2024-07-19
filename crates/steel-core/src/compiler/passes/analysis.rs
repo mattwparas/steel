@@ -186,11 +186,9 @@ impl SemanticInformation {
 pub struct FunctionInformation {
     // Just a mapping of the vars to their scope info - holds which vars are being
     // captured by this function
-    // captured_vars: FxHashMap<InternedString, ScopeInfo>,
-    captured_vars: SmallVec<[(InternedString, ScopeInfo); 8]>,
+    captured_vars: SmallVec<[(InternedString, ScopeInfo); 4]>,
 
-    // arguments: FxHashMap<InternedString, ScopeInfo>,
-    arguments: SmallVec<[(InternedString, ScopeInfo); 8]>,
+    arguments: SmallVec<[(InternedString, ScopeInfo); 4]>,
 
     // Keeps a mapping of vars to their scope info, if the variable was mutated
     // if this variable was mutated and inevitably captured, we want to know
@@ -207,9 +205,8 @@ pub struct FunctionInformation {
 
 impl FunctionInformation {
     pub fn new(
-        mut captured_vars: SmallVec<[(InternedString, ScopeInfo); 8]>,
-        // arguments: FxHashMap<InternedString, ScopeInfo>,
-        arguments: SmallVec<[(InternedString, ScopeInfo); 8]>,
+        mut captured_vars: SmallVec<[(InternedString, ScopeInfo); 4]>,
+        arguments: SmallVec<[(InternedString, ScopeInfo); 4]>,
     ) -> Self {
         captured_vars.sort_by_key(|x| x.1.id);
 
@@ -265,14 +262,14 @@ impl CallSiteInformation {
 #[derive(Debug, Clone)]
 pub struct LetInformation {
     pub stack_offset: usize,
-    pub function_context: Option<usize>,
+    pub function_context: Option<u32>,
     pub arguments: FxHashMap<InternedString, ScopeInfo>,
 }
 
 impl LetInformation {
     pub fn new(
         stack_offset: usize,
-        function_context: Option<usize>,
+        function_context: Option<u32>,
         arguments: FxHashMap<InternedString, ScopeInfo>,
     ) -> Self {
         Self {
@@ -296,9 +293,9 @@ pub enum SemanticInformationType {
 pub struct Analysis {
     // TODO: make these be specific IDs for semantic id, function id, and call info id
     pub(crate) info: FxHashMap<SyntaxObjectId, SemanticInformation>,
-    pub(crate) function_info: FxHashMap<usize, FunctionInformation>,
-    pub(crate) call_info: FxHashMap<usize, CallSiteInformation>,
-    pub(crate) let_info: FxHashMap<usize, LetInformation>,
+    pub(crate) function_info: FxHashMap<u32, FunctionInformation>,
+    pub(crate) call_info: FxHashMap<u32, CallSiteInformation>,
+    pub(crate) let_info: FxHashMap<u32, LetInformation>,
     pub(crate) scope: ScopeMap<InternedString, ScopeInfo, FxBuildHasher>,
 }
 
@@ -306,11 +303,18 @@ impl Analysis {
     pub fn pre_allocated() -> Self {
         Analysis {
             info: HashMap::with_capacity_and_hasher(3584, FxBuildHasher::default()),
-            function_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
-            call_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
-            let_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
+            function_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
+            call_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
+            let_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
             scope: ScopeMap::default(),
         }
+    }
+
+    pub fn shrink_capacity(&mut self) {
+        self.info.shrink_to(128);
+        self.function_info.shrink_to(16);
+        self.call_info.shrink_to(128);
+        self.let_info.shrink_to(128);
     }
 
     // Reuse the analysis allocation through the process!
@@ -343,9 +347,9 @@ impl Analysis {
 
         let mut analysis = Analysis {
             info: HashMap::with_capacity_and_hasher(3584, FxBuildHasher::default()),
-            function_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
-            call_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
-            let_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
+            function_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
+            call_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
+            let_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
             scope: ScopeMap::default(),
         };
 
@@ -719,7 +723,7 @@ struct AnalysisPass<'a> {
     // TODO: This should give us the depth (how many things we need to roll back)
     defining_context_depth: usize,
     stack_offset: usize,
-    function_context: Option<usize>,
+    function_context: Option<u32>,
     contains_lambda_func: bool,
 
     // TODO: Have these all re-use some memory
@@ -777,7 +781,7 @@ impl<'a> AnalysisPass<'a> {
     fn get_captured_vars(
         &self,
         let_level_bindings: &[&InternedString],
-    ) -> SmallVec<[(InternedString, ScopeInfo); 8]> {
+    ) -> SmallVec<[(InternedString, ScopeInfo); 4]> {
         self.info
             .scope
             .iter()
@@ -947,7 +951,7 @@ impl<'a> AnalysisPass<'a> {
     }
 
     // fn pop_top_layer(&mut self) -> FxHashMap<InternedString, ScopeInfo> {
-    fn pop_top_layer(&mut self) -> SmallVec<[(InternedString, ScopeInfo); 8]> {
+    fn pop_top_layer(&mut self) -> SmallVec<[(InternedString, ScopeInfo); 4]> {
         let arguments = self
             .info
             .scope
@@ -2559,7 +2563,7 @@ impl<'a> VisitorMutRefUnit for RemovedUnusedImports<'a> {
                             Some(ExprKind::List(l)) => l.is_a_builtin_expr(),
                             Some(ExprKind::Quote(_)) => true,
                             Some(ExprKind::Atom(a)) => match &a.syn.ty {
-                                TokenType::Number(n) => match n {
+                                TokenType::Number(n) => match n.as_ref() {
                                     NumberLiteral::Real(r) => match r {
                                         RealLiteral::Int(IntLiteral::Small(_))
                                         | RealLiteral::Float(_) => true,
@@ -2655,7 +2659,7 @@ impl<'a> VisitorMutUnitRef<'a> for FindContextsWithOffset<'a> {
         if span.range().contains(&self.offset) {
             // TODO: Don't clone this
             if let Some(info) = self.analysis.get_function_info(lambda_function) {
-                if lambda_function.location.span.source_id == Some(self.source_id) {
+                if lambda_function.location.span.source_id == self.source_id {
                     self.contexts
                         .push(SemanticInformationType::Function(info.clone()));
                 }
@@ -2675,7 +2679,7 @@ impl<'a> VisitorMutUnitRef<'a> for FindContextsWithOffset<'a> {
 
         if span.range().contains(&self.offset) {
             if let Some(info) = self.analysis.let_info.get(&l.syntax_object_id) {
-                if l.location.span.source_id() == Some(self.source_id) {
+                if l.location.span.source_id() == self.source_id {
                     self.contexts
                         .push(SemanticInformationType::Let(info.clone()));
                 }
@@ -4541,9 +4545,10 @@ impl<'a> SemanticAnalysis<'a> {
         offset: usize,
         source_id: SourceId,
     ) -> Option<(&SyntaxObjectId, &SemanticInformation)> {
-        self.analysis.info.iter().find(|(_, x)| {
-            x.span.range().contains(&offset) && x.span.source_id() == Some(source_id)
-        })
+        self.analysis
+            .info
+            .iter()
+            .find(|(_, x)| x.span.range().contains(&offset) && x.span.source_id() == source_id)
     }
 
     // Find semantic context where this offset exist.

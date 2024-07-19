@@ -20,13 +20,23 @@ use crate::{
     Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
 )]
 #[repr(C)]
-pub struct SourceId(pub usize);
+pub struct SourceId(pub u32);
+
+impl SourceId {
+    pub const fn none() -> Self {
+        Self(0)
+    }
+
+    pub fn is_present(&self) -> bool {
+        self.0 != 0
+    }
+}
 
 // TODO: Fix the visibility here
 pub static SYNTAX_OBJECT_ID: AtomicUsize = AtomicUsize::new(0);
 
 thread_local! {
-    pub static TL_SYNTAX_OBJECT_ID: Cell<usize> = Cell::new(0);
+    pub static TL_SYNTAX_OBJECT_ID: Cell<u32> = Cell::new(0);
 }
 
 // pub static SYNTAX_OBJECT_ID:
@@ -38,7 +48,7 @@ thread_local! {
 #[derive(
     Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
 )]
-pub struct SyntaxObjectId(pub usize);
+pub struct SyntaxObjectId(pub u32);
 
 impl SyntaxObjectId {
     #[inline]
@@ -52,7 +62,7 @@ impl SyntaxObjectId {
     }
 }
 
-impl From<SyntaxObjectId> for usize {
+impl From<SyntaxObjectId> for u32 {
     fn from(value: SyntaxObjectId) -> Self {
         value.0
     }
@@ -82,6 +92,12 @@ pub struct FunctionId(usize);
 #[derive(Serialize, Deserialize)]
 pub struct RawSyntaxObject<T> {
     pub ty: T,
+    pub span: Span,
+    pub syntax_object_id: SyntaxObjectId,
+}
+
+pub struct TestRawSyntaxObject {
+    pub ty: TokenType<InternedString>,
     pub span: Span,
     pub syntax_object_id: SyntaxObjectId,
 }
@@ -135,7 +151,7 @@ impl SyntaxObject {
     pub fn default(ty: TokenType<InternedString>) -> Self {
         SyntaxObject {
             ty,
-            span: Span::new(0, 0, None),
+            span: Span::new(0, 0, SourceId::none()),
             // source: None,
             syntax_object_id: SyntaxObjectId::fresh(),
         }
@@ -261,11 +277,13 @@ enum ParsingContext {
 
 impl<'a> Parser<'a> {
     pub fn parse(expr: &str) -> Result<Vec<ExprKind>> {
-        Parser::new(expr, None).collect()
+        Parser::new(expr, SourceId::none()).collect()
     }
 
     pub fn parse_without_lowering(expr: &str) -> Result<Vec<ExprKind>> {
-        Parser::new(expr, None).without_lowering().collect()
+        Parser::new(expr, SourceId::none())
+            .without_lowering()
+            .collect()
     }
 
     pub fn offset(&self) -> usize {
@@ -300,7 +318,7 @@ fn strip_shebang_line(input: &str) -> &str {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(input: &'a str, source_id: Option<SourceId>) -> Self {
+    pub fn new(input: &'a str, source_id: SourceId) -> Self {
         let input = strip_shebang_line(input);
 
         Parser {
@@ -322,7 +340,7 @@ impl<'a> Parser<'a> {
         self
     }
 
-    pub fn new_flat(input: &'a str, source_id: Option<SourceId>) -> Self {
+    pub fn new_flat(input: &'a str, source_id: SourceId) -> Self {
         let input = strip_shebang_line(input);
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
@@ -338,11 +356,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn new_from_source(
-        input: &'a str,
-        source_name: PathBuf,
-        source_id: Option<SourceId>,
-    ) -> Self {
+    pub fn new_from_source(input: &'a str, source_name: PathBuf, source_id: SourceId) -> Self {
         let input = strip_shebang_line(input);
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
@@ -359,7 +373,7 @@ impl<'a> Parser<'a> {
     }
 
     // Attach comments!
-    pub fn doc_comment_parser(input: &'a str, source_id: Option<SourceId>) -> Self {
+    pub fn doc_comment_parser(input: &'a str, source_id: SourceId) -> Self {
         let input = strip_shebang_line(input);
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
@@ -485,7 +499,7 @@ impl<'a> Parser<'a> {
 
         match result {
             Ok(ExprKind::List(mut list)) => {
-                list.location = Some(loc);
+                list.location = loc;
 
                 Ok(ExprKind::List(if improper {
                     list.make_improper()
@@ -1328,7 +1342,7 @@ pub fn lower_macro_and_require_definitions(expr: ExprKind) -> Result<ExprKind> {
             ));
         }
 
-        return Ok(ExprKind::Require(ast::Require::new(raw, syn)));
+        return Ok(ExprKind::Require(Box::new(ast::Require::new(raw, syn))));
     }
 
     Ok(expr)
@@ -1661,17 +1675,17 @@ mod parser_tests {
     }
 
     fn parses(s: &str) {
-        let a: Result<Vec<_>> = Parser::new(s, None).collect();
+        let a: Result<Vec<_>> = Parser::new(s, SourceId::none()).collect();
         a.unwrap();
     }
 
     fn parse_err(s: &str) -> ParseError {
-        let a: Result<Vec<_>> = Parser::new(s, None).collect();
+        let a: Result<Vec<_>> = Parser::new(s, SourceId::none()).collect();
         a.unwrap_err()
     }
 
     fn assert_parse(s: &str, result: &[ExprKind]) {
-        let a: Result<Vec<ExprKind>> = Parser::new(s, None).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(s, SourceId::none()).collect();
         let mut a = a.unwrap();
 
         let mut eraser = Eraser;
@@ -1682,12 +1696,12 @@ mod parser_tests {
     }
 
     fn assert_parse_err(s: &str, err: ParseError) {
-        let a: Result<Vec<ExprKind>> = Parser::new(s, None).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(s, SourceId::none()).collect();
         assert_eq!(a, Err(err));
     }
 
     fn assert_parse_is_err(s: &str) {
-        let a: Result<Vec<ExprKind>> = Parser::new(s, None).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(s, SourceId::none()).collect();
         assert!(a.is_err());
     }
 
@@ -1695,7 +1709,7 @@ mod parser_tests {
     fn check_resulting_parsing() {
         let expr = r#"`(a `(b ,(+ 1 2) ,(foo ,(+ 1 3) d) e) f)"#;
 
-        let a: Result<Vec<ExprKind>> = Parser::new(expr, None).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(expr, SourceId::none()).collect();
         let a = a.unwrap();
 
         println!("{}", a[0]);
@@ -1705,7 +1719,7 @@ mod parser_tests {
     fn check_double_unquote_parsing() {
         let expr = r#"(let ([name1 'x] [name2 'y]) `(a `(b ,,name1 ,',name2 d) e))"#;
 
-        let a: Result<Vec<ExprKind>> = Parser::new(expr, None).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(expr, SourceId::none()).collect();
         let a = a.unwrap();
 
         println!("{}", a[0]);
@@ -1741,7 +1755,7 @@ mod parser_tests {
         (define foo 12345)
         "#;
 
-        let parser = Parser::doc_comment_parser(expr, None);
+        let parser = Parser::doc_comment_parser(expr, SourceId::none());
 
         let result: Result<Vec<_>> = parser.collect();
 
@@ -2314,14 +2328,14 @@ mod parser_tests {
                 atom("foo"),
                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
                     vec![atom("x"), atom("y"), atom("z")],
-                    ExprKind::Begin(Begin::new(
+                    ExprKind::Begin(Box::new(Begin::new(
                         vec![
                             ExprKind::List(List::new(vec![atom("+"), atom("x"), int(10)])),
                             ExprKind::List(List::new(vec![atom("+"), atom("y"), int(20)])),
                             ExprKind::List(List::new(vec![atom("+"), atom("z"), int(30)])),
                         ],
                         SyntaxObject::default(TokenType::Begin),
-                    )),
+                    ))),
                     SyntaxObject::default(TokenType::Lambda),
                 ))),
                 SyntaxObject::default(TokenType::Define),
@@ -2337,7 +2351,7 @@ mod parser_tests {
                 atom("test"),
                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
                     vec![],
-                    ExprKind::Begin(Begin::new(
+                    ExprKind::Begin(Box::new(Begin::new(
                         vec![
                             ExprKind::Define(Box::new(Define::new(
                                 atom("foo"),
@@ -2359,7 +2373,7 @@ mod parser_tests {
                             ))),
                         ],
                         SyntaxObject::default(TokenType::Begin),
-                    )),
+                    ))),
                     SyntaxObject::default(TokenType::Lambda),
                 ))),
                 SyntaxObject::default(TokenType::Define),
@@ -2382,10 +2396,10 @@ mod parser_tests {
     fn test_begin() {
         assert_parse(
             "(begin 1 2 3)",
-            &[ExprKind::Begin(Begin::new(
+            &[ExprKind::Begin(Box::new(Begin::new(
                 vec![int(1), int(2), int(3)],
                 SyntaxObject::default(TokenType::Begin),
-            ))],
+            )))],
         )
     }
 
@@ -2629,7 +2643,7 @@ mod parser_tests {
     #[test]
     fn test_parse_without_lowering_ast() {
         let a: Result<Vec<ExprKind>> =
-            Parser::new_flat("(define (quote a) 10) (require foo bar)", None)
+            Parser::new_flat("(define (quote a) 10) (require foo bar)", SourceId::none())
                 .map(|x| x.and_then(lower_macro_and_require_definitions))
                 .collect();
 
@@ -2672,7 +2686,7 @@ mod parser_tests {
 
 
                 "#,
-            None,
+            SourceId::none(),
         )
         .map(|x| x.and_then(lower_macro_and_require_definitions))
         .map(|x| {

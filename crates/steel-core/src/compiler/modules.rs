@@ -21,7 +21,7 @@ use crate::{parser::expand_visitor::Expander, rvals::Result};
 use fxhash::{FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
 // use smallvec::SmallVec;
-use steel_parser::{ast::PROTO_HASH_GET, expr_list, span::Span};
+use steel_parser::{ast::PROTO_HASH_GET, expr_list, parser::SourceId, span::Span};
 
 use std::{
     borrow::Cow,
@@ -1560,10 +1560,10 @@ impl CompiledModule {
         // .replace_non_shadowed_globals_with_builtins()
         // .remove_unused_globals_with_prefix("mangler");
 
-        Ok(ExprKind::Begin(Begin::new(
+        Ok(ExprKind::Begin(Box::new(Begin::new(
             exprs,
             SyntaxObject::default(TokenType::Begin),
-        )))
+        ))))
     }
 
     // Turn the module into the AST node that represents the macro module in the stdlib
@@ -2360,10 +2360,10 @@ impl<'a> ModuleBuilder<'a> {
             if let ExprKind::Macro(_) = expr {
                 // Replace with dummy begin value so we don't have to copy
                 // everything other for every macro definition
-                let mut taken_expr = ExprKind::Begin(Begin::new(
+                let mut taken_expr = ExprKind::Begin(Box::new(Begin::new(
                     Vec::new(),
                     SyntaxObject::default(TokenType::Begin),
-                ));
+                )));
 
                 std::mem::swap(expr, &mut taken_expr);
 
@@ -2412,7 +2412,7 @@ impl<'a> ModuleBuilder<'a> {
                         match *for_syntax {
                             x if x == *FOR_SYNTAX => {
                                 if l.args.len() != 2 {
-                                    stop!(ArityMismatch => "provide expects a single identifier in the (for-syntax <ident>)"; opt l.location)
+                                    stop!(ArityMismatch => "provide expects a single identifier in the (for-syntax <ident>)"; l.location)
                                 }
 
                                 // Collect the for syntax expressions
@@ -2431,7 +2431,7 @@ impl<'a> ModuleBuilder<'a> {
                             }
                         }
                     } else {
-                        stop!(TypeMismatch => "provide expects either an identifier or a (for-syntax <ident>)"; opt l.location)
+                        stop!(TypeMismatch => "provide expects either an identifier or a (for-syntax <ident>)"; l.location)
                     }
                 }
                 _ => {
@@ -2463,7 +2463,7 @@ impl<'a> ModuleBuilder<'a> {
                         if let Some(provide) = l.first_ident() {
                             if *provide == *PROVIDE {
                                 if l.len() == 1 {
-                                    stop!(Generic => "provide expects at least one identifier to provide"; opt l.location);
+                                    stop!(Generic => "provide expects at least one identifier to provide"; l.location);
                                 }
 
                                 // Swap out the value inside the list
@@ -2553,8 +2553,9 @@ impl<'a> ModuleBuilder<'a> {
                     // continue;
                 }
 
-                if self.custom_builtins.contains_key(s) {
-                    require_object.path = Some(PathOrBuiltIn::BuiltIn(s.clone().into()));
+                if self.custom_builtins.contains_key(s.as_str()) {
+                    require_object.path =
+                        Some(PathOrBuiltIn::BuiltIn(s.clone().to_string().into()));
 
                     return Ok(());
                 }
@@ -2567,13 +2568,13 @@ impl<'a> ModuleBuilder<'a> {
                 if current.is_file() {
                     current.pop();
                 }
-                current.push(s);
+                current.push(s.as_str());
 
                 // // If the path exists on its own, we can continue
                 // // But theres the case where we're searching for a module on the STEEL_HOME
                 if !current.exists() {
                     if let Some(mut home) = home.clone() {
-                        home.push(s);
+                        home.push(s.as_str());
                         current = home;
 
                         log::info!("Searching STEEL_HOME for {:?}", current);
@@ -2581,7 +2582,7 @@ impl<'a> ModuleBuilder<'a> {
                         if !current.exists() {
                             for dir in self.search_dirs {
                                 let mut dir = dir.clone();
-                                dir.push(s);
+                                dir.push(s.as_str());
 
                                 if dir.exists() {
                                     current = dir;
@@ -2598,7 +2599,7 @@ impl<'a> ModuleBuilder<'a> {
 
                         for dir in self.search_dirs {
                             let mut dir = dir.clone();
-                            dir.push(s);
+                            dir.push(s.as_str());
 
                             if dir.exists() {
                                 current = dir;
@@ -2623,7 +2624,7 @@ impl<'a> ModuleBuilder<'a> {
                 match l.first_ident() {
                     Some(x) if *x == *ONLY_IN => {
                         if l.args.len() < 2 {
-                            stop!(BadSyntax => "only-in expects a require-spec and optionally a list of ids to bind (maybe renamed)"; opt l.location);
+                            stop!(BadSyntax => "only-in expects a require-spec and optionally a list of ids to bind (maybe renamed)"; l.location);
                         }
 
                         self.parse_require_object_inner(home, r, &l.args[1], require_object)?;
@@ -2663,7 +2664,7 @@ impl<'a> ModuleBuilder<'a> {
 
                     Some(x) if *x == *PREFIX_IN => {
                         if l.args.len() != 3 {
-                            stop!(BadSyntax => "prefix-in expects a prefix to prefix a given file or module"; opt l.location);
+                            stop!(BadSyntax => "prefix-in expects a prefix to prefix a given file or module"; l.location);
                         }
 
                         let prefix = &l.args[1];
@@ -2688,7 +2689,7 @@ impl<'a> ModuleBuilder<'a> {
                     Some(x) if *x == *FOR_SYNTAX => {
                         // We're expecting something like (for-syntax "foo")
                         if l.args.len() != 2 {
-                            stop!(BadSyntax => "for-syntax expects one string literal referring to a file or module"; opt l.location);
+                            stop!(BadSyntax => "for-syntax expects one string literal referring to a file or module"; l.location);
                         }
 
                         let mod_name = &l.args[1];
@@ -2755,7 +2756,7 @@ impl<'a> ModuleBuilder<'a> {
                         }
                     }
                     _ => {
-                        stop!(BadSyntax => "require accepts either a string literal, a for-syntax expression or an only-in expression"; opt l.location)
+                        stop!(BadSyntax => "require accepts either a string literal, a for-syntax expression or an only-in expression"; l.location)
                     }
                 }
             }
@@ -2911,7 +2912,7 @@ impl<'a> ModuleBuilder<'a> {
             .sources
             .add_source(input.clone(), Some(self.name.clone()));
 
-        let parsed = Parser::new_from_source(&input, self.name.clone(), Some(id))
+        let parsed = Parser::new_from_source(&input, self.name.clone(), id)
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
             .collect::<std::result::Result<Vec<_>, ParseError>>()?;
@@ -2943,7 +2944,7 @@ impl<'a> ModuleBuilder<'a> {
         // TODO: Don't do this - get the source from the cache?
         // let mut exprs = PRELUDE_STRING.to_string();
 
-        let mut expressions = Parser::new(&PRELUDE_STRING, None)
+        let mut expressions = Parser::new(&PRELUDE_STRING, SourceId::none())
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
             .collect::<std::result::Result<Vec<_>, ParseError>>()?;
@@ -2965,7 +2966,7 @@ impl<'a> ModuleBuilder<'a> {
 
             let exprs = guard.get(id).unwrap();
 
-            let mut parsed = Parser::new_from_source(&exprs, self.name.clone(), Some(id))
+            let mut parsed = Parser::new_from_source(&exprs, self.name.clone(), id)
                 .without_lowering()
                 .map(|x| x.and_then(lower_macro_and_require_definitions))
                 .collect::<std::result::Result<Vec<_>, ParseError>>()?;

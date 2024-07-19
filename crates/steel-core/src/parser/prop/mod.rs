@@ -6,6 +6,7 @@ use crate::parser::span::Span;
 // use super::
 use proptest::prelude::*;
 use std::convert::TryFrom;
+use steel_parser::parser::SourceId;
 use steel_parser::tokens::{IntLiteral, RealLiteral};
 
 use crate::parser::ast::{Atom, Begin, Define, If, List, Quote};
@@ -82,10 +83,10 @@ fn begin_vec_strategy(
     inner: impl Strategy<Value = ExprKind> + Clone,
 ) -> impl Strategy<Value = ExprKind> {
     prop::collection::vec(inner, 0..10).prop_map(|x| {
-        ExprKind::Begin(Begin::new(
+        ExprKind::Begin(Box::new(Begin::new(
             x,
-            SyntaxObject::new(TokenType::Begin, Span::new(0, 0, None)),
-        ))
+            SyntaxObject::new(TokenType::Begin, Span::new(0, 0, SourceId::none())),
+        )))
     })
 }
 
@@ -185,6 +186,6 @@ prop_compose! {
     fn syntax_object_strategy()(
         token_type in tokentype_strategy()
     ) -> SyntaxObject {
-        SyntaxObject::new(token_type, Span::new(0, 0, None))
+        SyntaxObject::new(token_type, Span::new(0, 0, SourceId::none()))
     }
 }

@@ -850,7 +850,7 @@ impl Engine {
             let id = vm.sources.add_source(source.to_string(), None);
 
             // Could fail here
-            let parsed: Vec<ExprKind> = Parser::new(source, Some(id))
+            let parsed: Vec<ExprKind> = Parser::new(source, id)
                 .collect::<std::result::Result<_, _>>()
                 .unwrap();
 
@@ -1409,7 +1409,7 @@ impl Engine {
             match &t.ty {
                 TokenType::BooleanLiteral(b) => Ok((*b).into()),
                 TokenType::Number(n) => number_literal_to_steel(n),
-                TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.into())),
+                TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.to_string().into())),
                 TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
                 // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
                 TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
@@ -1618,7 +1618,7 @@ impl Engine {
 
     pub fn emit_ast(expr: &str) -> Result<Vec<ExprKind>> {
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-            Parser::new(expr, None).collect();
+            Parser::new(expr, SourceId::none()).collect();
         Ok(parsed?)
     }
 
@@ -2104,7 +2104,9 @@ impl Engine {
 
 fn raise_error(sources: &Sources, error: SteelErr) {
     if let Some(span) = error.span() {
-        if let Some(source_id) = span.source_id() {
+        let source_id = span.source_id();
+
+        if source_id.is_present() {
             let sources = sources.sources.lock().unwrap();
 
             let file_name = sources.get_path(&source_id);
@@ -2117,7 +2119,8 @@ fn raise_error(sources: &Sources, error: SteelErr) {
                     for dehydrated_context in trace.trace().iter().take(20) {
                         // Report a call stack with whatever we actually have,
                         if let Some(span) = dehydrated_context.span() {
-                            if let Some(id) = span.source_id() {
+                            let id = span.source_id();
+                            if id.is_present() {
                                 if let Some(source) = sources.get(id) {
                                     let trace_line_file_name = sources.get_path(&id);
 
@@ -2147,7 +2150,8 @@ fn raise_error(sources: &Sources, error: SteelErr) {
 // If we are to construct an error object, emit that
 pub(crate) fn raise_error_to_string(sources: &Sources, error: SteelErr) -> Option<String> {
     if let Some(span) = error.span() {
-        if let Some(source_id) = span.source_id() {
+        let source_id = span.source_id();
+        if source_id.is_present() {
             let sources = sources.sources.lock().unwrap();
 
             let file_name = sources.get_path(&source_id);
@@ -2167,7 +2171,9 @@ pub(crate) fn raise_error_to_string(sources: &Sources, error: SteelErr) -> Optio
                                 continue;
                             }
 
-                            if let Some(id) = span.source_id() {
+                            let id = span.source_id();
+
+                            if id.is_present() {
                                 if let Some(source) = sources.get(id) {
                                     let trace_line_file_name = sources.get_path(&id);
 

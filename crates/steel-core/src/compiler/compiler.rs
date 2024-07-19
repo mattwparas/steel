@@ -30,6 +30,7 @@ use std::{
 // TODO: Replace the usages of hashmap with this directly
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
+use steel_parser::ast::AstTools;
 
 use crate::rvals::{Result, SteelVal};
 
@@ -462,8 +463,8 @@ impl Compiler {
         // Could fail here
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> = path
             .as_ref()
-            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.clone(), Some(id)))
-            .unwrap_or_else(|| Parser::new(expr_str.as_ref(), Some(id)))
+            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.clone(), id))
+            .unwrap_or_else(|| Parser::new(expr_str.as_ref(), id))
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
             .collect();
@@ -490,11 +491,10 @@ impl Compiler {
         let id = sources.add_source(expr_str.to_string(), path.clone());
 
         // Could fail here
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-            Parser::new(expr_str, Some(id))
-                .without_lowering()
-                .map(|x| x.and_then(lower_macro_and_require_definitions))
-                .collect();
+        let parsed: std::result::Result<Vec<ExprKind>, ParseError> = Parser::new(expr_str, id)
+            .without_lowering()
+            .map(|x| x.and_then(lower_macro_and_require_definitions))
+            .collect();
 
         let parsed = parsed?;
 
@@ -512,11 +512,10 @@ impl Compiler {
         let id = sources.add_source(expr_str.to_string(), path.clone());
 
         // Could fail here
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-            Parser::new(expr_str, Some(id))
-                .without_lowering()
-                .map(|x| x.and_then(lower_macro_and_require_definitions))
-                .collect();
+        let parsed: std::result::Result<Vec<ExprKind>, ParseError> = Parser::new(expr_str, id)
+            .without_lowering()
+            .map(|x| x.and_then(lower_macro_and_require_definitions))
+            .collect();
 
         let parsed = parsed?;
 
@@ -692,6 +691,8 @@ impl Compiler {
         let mut expanded_statements =
             self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
 
+        // expanded_statements.pretty_print();
+
         self.shadowed_variable_renamer
             .rename_shadowed_variables(&mut expanded_statements);
 
@@ -785,8 +786,14 @@ impl Compiler {
         #[cfg(feature = "profiling")]
         let now = Instant::now();
 
+        // println!("Before expanding macros");
+        // exprs.pretty_print();
+
         let mut expanded_statements =
             self.expand_expressions(exprs, path, sources, builtin_modules.clone())?;
+
+        // println!("After expanding macros");
+        // expanded_statements.pretty_print();
 
         #[cfg(feature = "profiling")]
         log::debug!(target: "pipeline_time", "Phase 1 module expansion time: {:?}", now.elapsed());
@@ -855,6 +862,8 @@ impl Compiler {
         log::debug!(target: "pipeline_time", "Top level macro expansion time: {:?}", now.elapsed());
 
         log::debug!(target: "expansion-phase", "Beginning constant folding");
+
+        // expanded_statements.pretty_print();
 
         let mut expanded_statements =
             self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
@@ -955,6 +964,10 @@ impl Compiler {
         log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());
 
         self.analysis = semantic.into_analysis();
+
+        // We don't want to leave this allocate memory just hanging around, but leave enough for
+        // interactive usages
+        self.analysis.shrink_capacity();
 
         Ok(expanded_statements)
 

@@ -297,8 +297,8 @@ struct SpanId(usize);
 
 #[derive(Default, Clone)]
 pub struct FunctionInterner {
-    closure_interner: fxhash::FxHashMap<usize, ByteCodeLambda>,
-    pub(crate) pure_function_interner: fxhash::FxHashMap<usize, Gc<ByteCodeLambda>>,
+    closure_interner: fxhash::FxHashMap<u32, ByteCodeLambda>,
+    pub(crate) pure_function_interner: fxhash::FxHashMap<u32, Gc<ByteCodeLambda>>,
     // Functions will store a reference to a slot here, rather than any other way
     // getting the span can be super late bound then, and we don't need to worry about
     // cache misses nearly as much
@@ -309,10 +309,10 @@ pub struct FunctionInterner {
     // actually any references to this still in existence. Functions should probably hold a direct
     // reference to the existing thread in which it was created, and if passed in externally by
     // another run time, we can nuke it?
-    spans: fxhash::FxHashMap<usize, Rc<[Span]>>,
+    spans: fxhash::FxHashMap<u32, Rc<[Span]>>,
     // Keep these around - each thread keeps track of the instructions on the bytecode object, but we shouldn't
     // need to dereference that until later? When we actually move to that
-    instructions: fxhash::FxHashMap<usize, Rc<[DenseInstruction]>>,
+    instructions: fxhash::FxHashMap<u32, Rc<[DenseInstruction]>>,
 }
 
 impl SteelThread {
@@ -1104,13 +1104,14 @@ impl<'a> VmCore<'a> {
         SteelVal::MutableVector(allocated_var)
     }
 
-    fn gc_collect(&mut self) {
+    pub(crate) fn gc_collect(&mut self) {
         self.thread.heap.collect(
             None,
             None,
             self.thread.stack.iter(),
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
             self.thread.global_env.roots(),
+            true,
         );
     }
 
@@ -2638,7 +2639,7 @@ impl<'a> VmCore<'a> {
         self.ip += 1;
 
         // Check whether this is a let or a rooted function
-        let closure_id = self.instructions[self.ip].payload_size.to_usize();
+        let closure_id = self.instructions[self.ip].payload_size.to_u32();
 
         // if is_multi_arity {
         //     println!("Found multi arity function");
@@ -2806,7 +2807,7 @@ impl<'a> VmCore<'a> {
         self.ip += 1;
 
         // Get the ID of the function
-        let closure_id = self.instructions[self.ip].payload_size.to_usize();
+        let closure_id = self.instructions[self.ip].payload_size.to_u32();
 
         // if is_multi_arity {
         //     println!("Found multi arity function");

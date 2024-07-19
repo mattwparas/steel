@@ -77,7 +77,7 @@ pub trait Folder {
     }
 
     #[inline]
-    fn visit_begin(&mut self, mut begin: Begin) -> ExprKind {
+    fn visit_begin(&mut self, mut begin: Box<Begin>) -> ExprKind {
         begin.exprs = begin.exprs.into_iter().map(|e| self.visit(e)).collect();
         ExprKind::Begin(begin)
     }
@@ -123,7 +123,7 @@ pub trait Folder {
     }
 
     #[inline]
-    fn visit_require(&mut self, s: Require) -> ExprKind {
+    fn visit_require(&mut self, s: Box<Require>) -> ExprKind {
         ExprKind::Require(s)
     }
 }

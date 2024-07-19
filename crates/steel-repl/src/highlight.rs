@@ -1,5 +1,6 @@
 extern crate rustyline;
 use colored::*;
+use steel_parser::parser::SourceId;
 
 use std::{cell::RefCell, rc::Rc};
 
@@ -41,7 +42,7 @@ impl Validator for RustylineHelper {
     fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
         use steel_parser::tokens::TokenType;
 
-        let token_stream = TokenStream::new(ctx.input(), true, None);
+        let token_stream = TokenStream::new(ctx.input(), true, SourceId::none());
 
         let mut balance = 0;
 
@@ -93,7 +94,7 @@ impl Highlighter for RustylineHelper {
 
         let mut line_to_highlight = line.to_owned();
 
-        let mut token_stream = TokenStream::new(line, true, None).peekable();
+        let mut token_stream = TokenStream::new(line, true, SourceId::none()).peekable();
 
         let mut ranges_to_replace: Vec<(std::ops::Range<usize>, String)> = Vec::new();
 

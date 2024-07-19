@@ -29,7 +29,7 @@ impl IntoSteelVal for SourceId {
 impl FromSteelVal for SourceId {
     fn from_steelval(val: &SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::IntV(v) = val {
-            Ok(SourceId(*v as usize))
+            Ok(SourceId(*v as _))
         } else {
             stop!(TypeMismatch => "Unable to convert steelval: {} into source id", val)
         }
@@ -45,11 +45,20 @@ pub(crate) struct InterierSources {
 
 impl InterierSources {
     pub fn new() -> Self {
-        InterierSources {
+        let mut sources = InterierSources {
             paths: HashMap::new(),
             reverse: HashMap::new(),
             sources: Vec::new(),
-        }
+        };
+
+        // Here be dragons!
+        // In order to reduce the span size, we allocate
+        // a dummy source at the beginning. This means
+        // we don't need to use an Option<u32>, but rather
+        // just a plain old u32 for the source id.
+        sources.add_source("", None);
+
+        sources
     }
 
     pub fn size_in_bytes(&self) -> usize {
@@ -70,7 +79,7 @@ impl InterierSources {
         // We're overwriting the existing source
         if let Some(path) = &path {
             if let Some(id) = self.reverse.get(path) {
-                self.sources[id.0] = source.into();
+                self.sources[id.0 as usize] = source.into();
                 return *id;
             }
         }
@@ -78,7 +87,7 @@ impl InterierSources {
         let index = self.sources.len();
         self.sources.push(source.into());
 
-        let id = SourceId(index);
+        let id = SourceId(index as _);
 
         if let Some(path) = path {
             self.paths.insert(id, path.clone());
@@ -89,7 +98,7 @@ impl InterierSources {
     }
 
     pub fn get(&self, source_id: SourceId) -> Option<&Cow<'static, str>> {
-        self.sources.get(source_id.0)
+        self.sources.get(source_id.0 as usize)
     }
 
     pub fn get_path(&self, source_id: &SourceId) -> Option<PathBuf> {
@@ -168,7 +177,7 @@ impl TryFrom<SyntaxObject> for SteelVal {
             CharacterLiteral(x) => Ok(CharV(x)),
             BooleanLiteral(x) => Ok(BoolV(x)),
             Identifier(x) => Ok(SymbolV(x.into())),
-            Number(x) => match x {
+            Number(x) => match *x {
                 NumberLiteral::Real(r) => real_literal_to_steelval(r),
                 NumberLiteral::Complex(re, im) => SteelComplex {
                     re: real_literal_to_steelval(re)?,
@@ -176,7 +185,7 @@ impl TryFrom<SyntaxObject> for SteelVal {
                 }
                 .into_steelval(),
             },
-            StringLiteral(x) => Ok(StringV(x.into())),
+            StringLiteral(x) => Ok(StringV((*x).into())),
             Keyword(x) => Ok(SymbolV(x.into())),
             QuoteTick => {
                 Err(SteelErr::new(ErrorKind::UnexpectedToken, "'".to_string()).with_span(span))

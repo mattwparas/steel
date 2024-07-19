@@ -8,6 +8,7 @@ use codespan_reporting::diagnostic::{Diagnostic, Label};
 use codespan_reporting::files::SimpleFile;
 use codespan_reporting::term;
 use codespan_reporting::term::termcolor::{ColorChoice, NoColor, StandardStream};
+use steel_parser::parser::SourceId;
 
 use crate::parser::span::Span;
 
@@ -281,7 +282,7 @@ impl SteelErr {
             .with_message(self.repr.kind.to_string())
             .with_labels(vec![Label::primary(
                 (),
-                self.repr.span.unwrap_or(Span::new(0, 0, None)),
+                self.repr.span.unwrap_or(Span::new(0, 0, SourceId::none())),
             )
             .with_message(&self.repr.message)])
     }

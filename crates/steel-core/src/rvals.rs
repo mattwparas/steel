@@ -590,7 +590,7 @@ impl ast::TryFromSteelValVisitorForExprKind {
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                TokenType::StringLiteral(x.to_string()),
+                TokenType::StringLiteral(Box::new(x.to_string())),
                 span,
             )))),
             SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
@@ -718,7 +718,7 @@ impl Syntax {
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                TokenType::StringLiteral(x.to_string()),
+                TokenType::StringLiteral(Box::new(x.to_string())),
             )))),
             // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
             // MacroV(_) => Err("Can't convert from Macro to expression!"),
@@ -764,7 +764,7 @@ impl Syntax {
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                TokenType::StringLiteral(x.to_string()),
+                TokenType::StringLiteral(Box::new(x.to_string())),
                 span,
             )))),
             // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
@@ -861,7 +861,7 @@ pub struct HeapSerializer<'a> {
     pub values_to_fill_in: &'a mut std::collections::HashMap<usize, HeapRef<SteelVal>>,
 
     // Cache the functions that get built
-    pub built_functions: &'a mut std::collections::HashMap<usize, Gc<ByteCodeLambda>>,
+    pub built_functions: &'a mut std::collections::HashMap<u32, Gc<ByteCodeLambda>>,
 }
 
 // Once crossed over the line, convert BACK into a SteelVal

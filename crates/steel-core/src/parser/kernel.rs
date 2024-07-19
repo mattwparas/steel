@@ -382,10 +382,10 @@ impl Kernel {
                             .cloned()
                             .collect();
 
-                        return Some(ExprKind::Begin(crate::parser::ast::Begin::new(
+                        return Some(ExprKind::Begin(Box::new(crate::parser::ast::Begin::new(
                             begin,
                             b.location.clone(),
-                        )));
+                        ))));
                     }
 
                     _ => {}

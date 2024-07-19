@@ -141,8 +141,8 @@ pub enum TokenType<S> {
     BooleanLiteral(bool),
     Identifier(S),
     Keyword(S),
-    Number(NumberLiteral),
-    StringLiteral(String),
+    Number(Box<NumberLiteral>),
+    StringLiteral(Box<String>),
     Dot,
     Error,
 }
@@ -170,7 +170,7 @@ impl Display for NumberLiteral {
 
 impl<S> From<NumberLiteral> for TokenType<S> {
     fn from(n: NumberLiteral) -> Self {
-        TokenType::Number(n)
+        TokenType::Number(Box::new(n))
     }
 }
 
@@ -455,7 +455,7 @@ impl<'a, T> Token<'a, T> {
         ty: TokenType<T>,
         source: &'a str,
         range: ops::Range<usize>,
-        source_id: Option<SourceId>,
+        source_id: SourceId,
     ) -> Self {
         Self {
             ty,

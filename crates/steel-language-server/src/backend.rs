@@ -411,7 +411,7 @@ impl LanguageServer for Backend {
                 log::debug!("Found new definition: {:?}", maybe_definition);
             }
 
-            let location = source_id_to_uri(resulting_span.source_id()?)?;
+            let location = source_id_to_uri(resulting_span.source_id())?;
 
             log::debug!("Location: {:?}", location);
             log::debug!("Rope length: {:?}", rope.len_chars());
@@ -421,7 +421,7 @@ impl LanguageServer for Backend {
                 log::debug!("Jumping to definition that is not yet in the document map!");
 
                 let expression =
-                    ENGINE.with(|x| x.borrow().get_source(&resulting_span.source_id().unwrap()))?;
+                    ENGINE.with(|x| x.borrow().get_source(&resulting_span.source_id()))?;
 
                 rope = self
                     .document_map

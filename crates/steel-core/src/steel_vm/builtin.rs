@@ -422,10 +422,10 @@ impl BuiltInModuleRepr {
             ))),
         ])));
 
-        let res = ExprKind::Begin(crate::parser::ast::Begin::new(
+        let res = ExprKind::Begin(Box::new(crate::parser::ast::Begin::new(
             defines,
             SyntaxObject::default(TokenType::Begin),
-        ));
+        )));
 
         // Cache the generated expression
         if prefix.is_none() && self.generated_expression.borrow().is_none() {

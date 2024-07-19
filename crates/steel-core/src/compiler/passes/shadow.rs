@@ -59,13 +59,21 @@ impl RenameShadowedVariables {
 
 impl VisitorMutRefUnit for RenameShadowedVariables {
     fn visit_lambda_function(&mut self, lambda_function: &mut crate::parser::ast::LambdaFunction) {
+        let depth = self.scope.depth();
+
         self.scope.push_layer();
         self.shadows.push_layer();
 
         // TODO: Insert the code here to mark these variables as in scope
 
         for variable in lambda_function.arguments_mut() {
-            if self.scope.contains(variable) {
+            // if depth == 1 {
+            //     println!("Would be defining: {}", variable.resolve());
+            // }
+
+            if self.scope.contains(variable)
+            // || depth == 1
+            {
                 let modifier = self.scope.depth();
                 self.shadows.define(*variable, modifier);
 
@@ -80,8 +88,6 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
                     self.str_modifiers.insert(modifier, modifier.to_string());
                     mut_var.push_str(self.str_modifiers.get(&modifier).unwrap());
                 }
-
-                // println!("Mangling variable: {}", mut_var);
 
                 *variable = mut_var.into();
 
@@ -126,18 +132,20 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
     }
 
     fn visit_let(&mut self, l: &mut crate::parser::ast::Let) {
+        let depth = self.scope.depth();
+
         l.bindings.iter_mut().for_each(|x| self.visit(&mut x.1));
         self.scope.push_layer();
         self.shadows.push_layer();
-
-        // l.bindings.iter_mut().for_each(|x| self.visit(&mut x.1));
 
         for variable in l
             .bindings
             .iter_mut()
             .filter_map(|x| x.0.atom_identifier_mut())
         {
-            if self.scope.contains(variable) {
+            if self.scope.contains(variable)
+            // || depth == 1
+            {
                 let modifier = self.scope.depth();
                 self.shadows.define(*variable, modifier);
 
