@@ -68,6 +68,8 @@ anyhow = { version = "1", optional = true }
 
 stacker = { version = "0.1.15", optional = true }
 
+bigdecimal = "0.4.5"
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "*", features = ["js"] }
 

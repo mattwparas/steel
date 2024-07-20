@@ -60,7 +60,9 @@ use crate::{
     rvals::{Result, SteelVal},
     SteelErr,
 };
+use bigdecimal::BigDecimal;
 use fxhash::{FxHashMap, FxHashSet};
+use num::{bigint::ToBigInt, BigRational, FromPrimitive};
 use once_cell::sync::Lazy;
 use std::{cell::RefCell, cmp::Ordering};
 
@@ -949,13 +951,248 @@ fn equality_module() -> BuiltInModule {
     module
 }
 
+/// Real numbers ordering module.
+#[steel_derive::define_module(name = "steel/ord")]
 fn ord_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/ord");
+
+    fn steel_ord(left: &SteelVal, right: &SteelVal) -> Result<Option<Ordering>> {
+        Ok(match (left, right) {
+            (SteelVal::IntV(x), SteelVal::IntV(y)) => x.partial_cmp(y),
+            (SteelVal::BigNum(x), SteelVal::BigNum(y)) => x.partial_cmp(y),
+            (SteelVal::Rational(x), SteelVal::Rational(y)) => x.partial_cmp(y),
+            (SteelVal::BigRational(x), SteelVal::BigRational(y)) => x.partial_cmp(y),
+            (SteelVal::NumV(x), SteelVal::NumV(y)) => x.partial_cmp(y),
+
+            (SteelVal::IntV(x), SteelVal::BigNum(y)) => x
+                .to_bigint()
+                .expect("integers are representable by bigint")
+                .partial_cmp(y),
+            (SteelVal::IntV(x), SteelVal::Rational(y)) => {
+                #[cfg(target_pointer_width = "32")]
+                {
+                    let x_rational = Rational32::new_raw(x, 1);
+                    x_rational.partial_cmp(y)
+                }
+                #[cfg(target_pointer_width = "64")]
+                {
+                    let x_rational = num::Rational64::new_raw(*x as i64, 1);
+                    x_rational.partial_cmp(&num::Rational64::new_raw(
+                        *y.numer() as i64,
+                        *y.denom() as i64,
+                    ))
+                }
+            }
+            (SteelVal::IntV(x), SteelVal::BigRational(y)) => {
+                let x_rational = BigRational::from_integer(
+                    x.to_bigint().expect("integers are representable by bigint"),
+                );
+                x_rational.partial_cmp(y)
+            }
+            (SteelVal::IntV(x), SteelVal::NumV(y)) => (*x as f64).partial_cmp(y),
+
+            (SteelVal::BigNum(x), SteelVal::IntV(y)) => x
+                .as_ref()
+                .partial_cmp(&y.to_bigint().expect("integers are representable by bigint")),
+            (SteelVal::BigNum(x), SteelVal::Rational(y)) => {
+                let x_big_rational = BigRational::from_integer(x.unwrap());
+                let y_big_rational = BigRational::new_raw(
+                    y.numer()
+                        .to_bigint()
+                        .expect("integers are representable by bigint"),
+                    y.denom()
+                        .to_bigint()
+                        .expect("integers are representable by bigint"),
+                );
+                x_big_rational.partial_cmp(&y_big_rational)
+            }
+            (SteelVal::BigNum(x), SteelVal::BigRational(y)) => {
+                let x_big_rational = BigRational::from_integer(x.unwrap());
+                x_big_rational.partial_cmp(&y)
+            }
+            (SteelVal::BigNum(x), SteelVal::NumV(y)) => {
+                let x_decimal = BigDecimal::new(x.unwrap(), 0);
+                let y_decimal_opt = BigDecimal::from_f64(*y);
+                y_decimal_opt.and_then(|y_decimal| x_decimal.partial_cmp(&y_decimal))
+            }
+
+            (SteelVal::Rational(x), SteelVal::IntV(y)) => {
+                #[cfg(target_pointer_width = "32")]
+                {
+                    let y_rational = Rational32::new_raw(y, 1);
+                    x.partial_cmp(y_rational)
+                }
+                #[cfg(target_pointer_width = "64")]
+                {
+                    let y_rational = num::Rational64::new_raw(*y as i64, 1);
+                    num::Rational64::new_raw(*x.numer() as i64, *x.denom() as i64)
+                        .partial_cmp(&y_rational)
+                }
+            }
+            (SteelVal::Rational(x), SteelVal::BigNum(y)) => {
+                let x_big_rational = BigRational::new_raw(
+                    x.numer()
+                        .to_bigint()
+                        .expect("integers are representable by bigint"),
+                    x.denom()
+                        .to_bigint()
+                        .expect("integers are representable by bigint"),
+                );
+                let y_big_rational = BigRational::from_integer(y.unwrap());
+                x_big_rational.partial_cmp(&y_big_rational)
+            }
+            (SteelVal::Rational(x), SteelVal::BigRational(y)) => {
+                let x_big_rational = BigRational::new_raw(
+                    x.numer()
+                        .to_bigint()
+                        .expect("integers are representable by bigint"),
+                    x.denom()
+                        .to_bigint()
+                        .expect("integers are representable by bigint"),
+                );
+                x_big_rational.partial_cmp(&y)
+            }
+            (SteelVal::Rational(x), SteelVal::NumV(y)) => {
+                (*x.numer() as f64 / *x.denom() as f64).partial_cmp(y)
+            }
+
+            (SteelVal::BigRational(x), SteelVal::IntV(y)) => {
+                let y_rational = BigRational::from_integer(
+                    y.to_bigint().expect("integers are representable by bigint"),
+                );
+                x.as_ref().partial_cmp(&y_rational)
+            }
+            (SteelVal::BigRational(x), SteelVal::BigNum(y)) => {
+                let y_big_rational = BigRational::from_integer(y.unwrap());
+                x.as_ref().partial_cmp(&y_big_rational)
+            }
+            (SteelVal::BigRational(x), SteelVal::Rational(y)) => {
+                let y_big_rational = BigRational::new_raw(
+                    y.numer()
+                        .to_bigint()
+                        .expect("integers are representable by bigint"),
+                    y.denom()
+                        .to_bigint()
+                        .expect("integers are representable by bigint"),
+                );
+                x.as_ref().partial_cmp(&y_big_rational)
+            }
+            (SteelVal::BigRational(x), SteelVal::NumV(y)) => {
+                let x_decimal =
+                    BigDecimal::new(x.numer().clone(), 0) / BigDecimal::new(x.denom().clone(), 0);
+                let y_decimal_opt = BigDecimal::from_f64(*y);
+                y_decimal_opt.and_then(|y_decimal| x_decimal.partial_cmp(&y_decimal))
+            }
+
+            (SteelVal::NumV(x), SteelVal::IntV(y)) => x.partial_cmp(&(*y as f64)),
+            (SteelVal::NumV(x), SteelVal::BigNum(y)) => {
+                let x_decimal_opt = BigDecimal::from_f64(*x);
+                let y_decimal = BigDecimal::new(y.unwrap(), 0);
+                x_decimal_opt.and_then(|x_decimal| x_decimal.partial_cmp(&y_decimal))
+            }
+            (SteelVal::NumV(x), SteelVal::Rational(y)) => {
+                x.partial_cmp(&(*y.numer() as f64 / *y.denom() as f64))
+            }
+            (SteelVal::NumV(x), SteelVal::BigRational(y)) => {
+                let x_decimal_opt = BigDecimal::from_f64(*x);
+                let y_decimal =
+                    BigDecimal::new(y.numer().clone(), 0) / BigDecimal::new(y.denom().clone(), 0);
+                x_decimal_opt.and_then(|x_decimal| x_decimal.partial_cmp(&y_decimal))
+            }
+
+            _ => stop!(TypeMismatch => "real number arguments expected"),
+        })
+    }
+
+    /// Compares two real numbers to check if the first is greater than the second.
+    ///
+    /// (> left right) -> bool?
+    ///
+    /// * left : real? - The first real number to compare.
+    /// * right : real? - The second real number to compare.
+    ///
+    /// # Examples
+    /// ```scheme
+    /// > (> 3 2) ;; => #t
+    /// > (> 1 1) ;; => #f
+    /// > (> 3/2 1.5) ;; => #f
+    /// > (> 3/2 1.4) ;; => #t
+    /// ```
+    #[steel_derive::function(name = ">")]
+    fn greater_than(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
+        matches!(steel_ord(left, right)?, Some(Ordering::Greater)).into_steelval()
+    }
+
+    /// Compares two real numbers to check if the first is greater than or equal to the second.
+    ///
+    /// (>= left right) -> bool?
+    ///
+    /// * left : real? - The first real number to compare.
+    /// * right : real? - The second real number to compare.
+    ///
+    /// # Examples
+    /// ```scheme
+    /// > (>= 3 2) ;; => #t
+    /// > (>= 2 3) ;; => #f
+    /// > (>= 3/2 1.5) ;; => #t
+    /// > (>= 3/2 1.4) ;; => #t
+    /// ```
+    #[steel_derive::function(name = ">=")]
+    fn greater_than_equal(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
+        matches!(
+            steel_ord(left, right)?,
+            Some(Ordering::Greater) | Some(Ordering::Equal)
+        )
+        .into_steelval()
+    }
+
+    /// Compares two real numbers to check if the first is less than the second.
+    ///
+    /// (< left right) -> bool?
+    ///
+    /// * left : real? - The first real number to compare.
+    /// * right : real? - The second real number to compare.
+    ///
+    /// # Examples
+    /// ```scheme
+    /// > (< 3 2) ;; => #f
+    /// > (< 2 3) ;; => #t
+    /// > (< 3/2 1.5) ;; => #f
+    /// > (< 2.5 3/2) ;; => #t
+    /// ```
+    #[steel_derive::function(name = "<")]
+    fn less_than(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
+        matches!(steel_ord(left, right)?, Some(Ordering::Less)).into_steelval()
+    }
+
+    /// Compares two real numbers to check if the first is less than or equal to the second.
+    ///
+    /// (<= left right) -> bool?
+    ///
+    /// * left : real? - The first real number to compare.
+    /// * right : real? - The second real number to compare.
+    ///
+    /// # Examples
+    /// ```scheme
+    /// > (<= 3 2) ;; => #f
+    /// > (<= 2 3) ;; => #t
+    /// > (<= 3/2 1.5) ;; => #t
+    /// > (<= 2.5 3/2) ;; => #f
+    /// ```
+    #[steel_derive::function(name = "<=")]
+    fn less_than_equal(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
+        matches!(
+            steel_ord(left, right)?,
+            Some(Ordering::Less) | Some(Ordering::Equal)
+        )
+        .into_steelval()
+    }
+
     module
-        .register_value(">", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a > b)))
-        .register_value(">=", SteelVal::FuncV(gte_primitive))
-        .register_value("<", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a < b)))
-        .register_value("<=", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a <= b)));
+        .register_native_fn_definition(GREATER_THAN_DEFINITION)
+        .register_native_fn_definition(GREATER_THAN_EQUAL_DEFINITION)
+        .register_native_fn_definition(LESS_THAN_DEFINITION)
+        .register_native_fn_definition(LESS_THAN_EQUAL_DEFINITION);
     module
 }
 
