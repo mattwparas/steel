@@ -1114,17 +1114,19 @@ fn collect_bindings(
             }
 
             MacroPattern::Rest(pat) => {
+                // let next_expr = expr_iter.next();
+
                 let list = match expr_iter.next() {
-                    Some((i, expr)) if improper && i + 1 == list.len() => &[expr.clone()],
+                    Some((i, expr)) if improper && i + 1 == list.len() => [expr.clone()],
                     Some((i, _)) => {
                         let list = List::new_maybe_improper(list[i..].to_vec(), improper);
 
-                        &[ExprKind::List(list)]
+                        [ExprKind::List(list)]
                     }
-                    None => &[ExprKind::List(List::new(vec![]))],
+                    None => [ExprKind::List(List::new(vec![]))],
                 };
 
-                collect_bindings(&[(**pat).clone()], list, bindings, binding_kind, false)?;
+                collect_bindings(&[(**pat).clone()], &list, bindings, binding_kind, false)?;
             }
 
             // Matching on literals
