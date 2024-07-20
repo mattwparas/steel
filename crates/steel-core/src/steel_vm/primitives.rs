@@ -971,7 +971,7 @@ fn ord_module() -> BuiltInModule {
             (SteelVal::IntV(x), SteelVal::Rational(y)) => {
                 #[cfg(target_pointer_width = "32")]
                 {
-                    let x_rational = Rational32::new_raw(x, 1);
+                    let x_rational = num::Rational32::new_raw(*x as i32, 1);
                     x_rational.partial_cmp(y)
                 }
                 #[cfg(target_pointer_width = "64")]
@@ -1019,8 +1019,8 @@ fn ord_module() -> BuiltInModule {
             (SteelVal::Rational(x), SteelVal::IntV(y)) => {
                 #[cfg(target_pointer_width = "32")]
                 {
-                    let y_rational = Rational32::new_raw(y, 1);
-                    x.partial_cmp(y_rational)
+                    let y_rational = num::Rational32::new_raw(*y as i32, 1);
+                    x.partial_cmp(&y_rational)
                 }
                 #[cfg(target_pointer_width = "64")]
                 {
