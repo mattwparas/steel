@@ -107,7 +107,10 @@ impl Kernel {
         );
 
         // Run the script for building the core interface for structs
-        engine.compile_and_run_raw_program(KERNEL).unwrap();
+        if let Err(err) = engine.compile_and_run_raw_program(KERNEL) {
+            engine.raise_error(err);
+            panic!("Kernel failed to load: This shouldn't happen!");
+        }
 
         // let mut macros = HashSet::new();
         // macros.insert("%better-lambda%".to_string());

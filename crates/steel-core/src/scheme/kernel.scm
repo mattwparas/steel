@@ -17,7 +17,8 @@
     [(#%syntax-transformer-module name (provide ids ...) funcs ...)
      (define (datum->syntax name)
        (let ()
-         funcs ...
+         (begin
+           funcs ...)
          (#%syntax-transformer-module provide ids ...)))]
 
     ;; Normal case

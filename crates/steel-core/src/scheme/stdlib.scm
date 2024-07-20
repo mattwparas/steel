@@ -649,12 +649,15 @@
     [(with-handler handler expr)
      (reset (call-with-exception-handler (lambda (err)
                                            (handler err)
-                                           (shift k (k void)))
+                                           ; (shift k (k void))
+
+                                           (shift *meta-continuation* (*meta-continuation* void)))
                                          (lambda () expr)))]
     [(with-handler handler expr ...)
      (reset (call-with-exception-handler (lambda (err)
                                            (handler err)
-                                           (shift k (k void)))
+                                           ; (shift k (k void))
+                                           (shift *meta-continuation* (*meta-continuation* void)))
                                          (lambda ()
                                            expr ...)))]))
 

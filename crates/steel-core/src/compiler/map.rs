@@ -114,6 +114,10 @@ impl SymbolMap {
         }
     }
 
+    pub fn contains(&mut self, ident: InternedString) -> bool {
+        self.map.contains_key(&ident)
+    }
+
     pub fn add(&mut self, ident: &InternedString) -> usize {
         // Check the free list for the next value. If the free list has an open slot
         // then we should take that. Otherwise, just insert it at the end.

@@ -7,8 +7,8 @@ use crate::{
         self, parse_begin, parse_define, parse_if, parse_lambda, parse_let, parse_new_let,
         parse_require, parse_set, parse_single_argument, Atom, ExprKind, List, Macro, PatternPair,
         SyntaxRules, BEGIN, DEFINE, IF, LAMBDA, LAMBDA_FN, LAMBDA_SYMBOL, LET, PLAIN_LET,
-        QUASIQUOTE, QUOTE, RAW_UNQUOTE, RAW_UNQUOTE_SPLICING, REQUIRE, RETURN, SET, UNQUOTE,
-        UNQUOTE_SPLICING,
+        QUASIQUOTE, QUOTE, RAW_UNQUOTE, RAW_UNQUOTE_SPLICING, REQUIRE, RETURN, SET,
+        THE_EMPTY_STRING, UNQUOTE, UNQUOTE_SPLICING,
     },
     interner::InternedString,
     lexer::{OwnedTokenStream, ToOwnedString, TokenStream},
@@ -38,12 +38,6 @@ pub static SYNTAX_OBJECT_ID: AtomicUsize = AtomicUsize::new(0);
 thread_local! {
     pub static TL_SYNTAX_OBJECT_ID: Cell<u32> = Cell::new(0);
 }
-
-// pub static SYNTAX_OBJECT_ID:
-
-// thread_local {
-
-// }
 
 #[derive(
     Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
@@ -94,12 +88,42 @@ pub struct RawSyntaxObject<T> {
     pub ty: T,
     pub span: Span,
     pub syntax_object_id: SyntaxObjectId,
-}
-
-pub struct TestRawSyntaxObject {
-    pub ty: TokenType<InternedString>,
-    pub span: Span,
-    pub syntax_object_id: SyntaxObjectId,
+    // TODO: @Matt
+    // This is a hack. More or less, we need a way to mark that
+    // this particular syntax object is "unresolved" - and thus
+    // should mangle its usage. This can also be done by using
+    // the syntax object ID separately, but there is enough
+    // space on the object itself that keeping it alongside the
+    // object seemed to make sense. What we're going to do is mark
+    // any unresolved references to variables found in macro expansion.
+    // So, for example, consider the following:
+    //
+    // (define bound-x (vector 10 20 30 40))
+    //
+    // (define-syntax lexical-capture
+    //   (syntax-rules ()
+    //     [(_) (list bound-x)]))
+    //
+    // (let ([bound-x 'inner]) (lexical-capture))
+    //
+    // The define syntax is expanded without the context of knowing
+    // the globals, and as a result isn't aware that bound-x should
+    // refer to the local. However, we can expand and see that both
+    // `list` and `bound-x` don't refer to anything in the patterns,
+    // and so as a result, should be marked as "unresolved". Since
+    // they are unresolved, we can conclude that either they're
+    // global variables, or a free identifier.
+    //
+    // Then, when handling shadowed local variables, when we come across
+    // a local variable that we'd like to mangle, if its unresolved, we
+    // just leave it alone, and otherwise we should treat all locals as
+    // variables to be mangled.
+    //
+    // Then, once we're done with all macro expansion, all variables themselves
+    // should be "resolved" since either they refer to an individual variable,
+    // or nothing at all.
+    pub unresolved: bool,
+    pub introduced_via_macro: bool,
 }
 
 impl<T: Clone> Clone for RawSyntaxObject<T> {
@@ -108,6 +132,8 @@ impl<T: Clone> Clone for RawSyntaxObject<T> {
             ty: self.ty.clone(),
             span: self.span,
             syntax_object_id: SyntaxObjectId::fresh(),
+            unresolved: self.unresolved,
+            introduced_via_macro: self.introduced_via_macro,
         }
     }
 }
@@ -145,6 +171,8 @@ impl SyntaxObject {
             span,
             // source: None,
             syntax_object_id: SyntaxObjectId::fresh(),
+            unresolved: false,
+            introduced_via_macro: false,
         }
     }
 
@@ -154,6 +182,8 @@ impl SyntaxObject {
             span: Span::new(0, 0, SourceId::none()),
             // source: None,
             syntax_object_id: SyntaxObjectId::fresh(),
+            unresolved: false,
+            introduced_via_macro: false,
         }
     }
 
@@ -168,8 +198,9 @@ impl SyntaxObject {
         SyntaxObject {
             ty: val.ty.clone(),
             span: val.span,
-            // source: source.as_ref().map(Rc::clone),
             syntax_object_id: SyntaxObjectId::fresh(),
+            unresolved: false,
+            introduced_via_macro: false,
         }
     }
 }

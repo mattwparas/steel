@@ -147,6 +147,16 @@ pub enum TokenType<S> {
     Error,
 }
 
+impl<T> TokenType<T> {
+    pub fn identifier_mut(&mut self) -> Option<&mut T> {
+        if let Self::Identifier(i) = self {
+            Some(i)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum NumberLiteral {
     Real(RealLiteral),

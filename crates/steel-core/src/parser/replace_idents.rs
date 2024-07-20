@@ -467,7 +467,14 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
                 if let TokenType::Identifier(s) = &a.syn.ty {
                     if *s != self.wildcard {
                         if let Some(body) = self.bindings.get(s) {
+                            let introduced_via_macro = a.syn.introduced_via_macro;
+
                             *expr = body.clone();
+
+                            if let ExprKind::Atom(a) = expr {
+                                a.syn.introduced_via_macro = introduced_via_macro;
+                                a.syn.unresolved = false;
+                            }
                         }
                     }
                 }

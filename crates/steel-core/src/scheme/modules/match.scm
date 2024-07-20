@@ -27,6 +27,8 @@
 
   (define (gensym-ident identifier)
     (concat-symbols (gensym) 'match identifier))
+  (define (quoted? x)
+    (and (list? x) (not (null? x)) (equal? (car x) 'quote)))
 
   (define (compile-cons-to-list pattern depth)
     (cond
@@ -93,8 +95,8 @@
   (define (ignore? x)
     (equal? x '_))
 
-  (define (quoted? x)
-    (and (list? x) (not (null? x)) (equal? (car x) 'quote)))
+  ; (define (quoted? x)
+  ; (and (list? x) (not (null? x)) (equal? (car x) 'quote)))
 
   (define (many? x)
     (and

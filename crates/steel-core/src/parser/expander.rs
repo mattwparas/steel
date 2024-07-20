@@ -285,18 +285,18 @@ impl MacroCase {
             bindings.remove(&macro_keyword);
         };
 
-        let args_str: Vec<_> = bindings.iter().collect();
+        let args_str: Vec<_> = bindings.iter().copied().collect();
+
+        // dbg!(args_str.iter().map(|x| x.resolve()).collect::<Vec<_>>());
+
         // let syntaxes: Vec<&str> = args
         //     .iter()
         //     .map(|x| x.deconstruct_syntax())
         //     .flatten()
         //     .collect();
 
-        // println!("Args pre mangle: {:?}", &args_str);
-
+        // TODO: @Matt - if the
         RenameIdentifiersVisitor::new(&args_str, special_forms).rename_identifiers(&mut body);
-
-        // let args = args.into_iter().map(|x| x.mangle(special_forms)).collect();
 
         args.iter_mut().for_each(|x| x.mangle(special_forms));
 

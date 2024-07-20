@@ -58,6 +58,7 @@ define_symbols! {
     UNSYNTAX_SPLICING => "unsyntax-splicing",
     RAW_UNSYNTAX_SPLICING => "#%unsyntax-splicing",
     SYNTAX_QUOTE => "syntax",
+    THE_EMPTY_STRING => "",
 }
 
 pub trait AstTools {
@@ -252,6 +253,13 @@ impl ExprKind {
     }
 
     pub fn atom_syntax_object(&self) -> Option<&SyntaxObject> {
+        match self {
+            Self::Atom(Atom { syn }) => Some(syn),
+            _ => None,
+        }
+    }
+
+    pub fn atom_syntax_object_mut(&mut self) -> Option<&mut SyntaxObject> {
         match self {
             Self::Atom(Atom { syn }) => Some(syn),
             _ => None,
@@ -843,6 +851,12 @@ impl LambdaFunction {
 
     pub fn arguments_mut(&mut self) -> impl Iterator<Item = &mut InternedString> {
         self.args.iter_mut().filter_map(|x| x.atom_identifier_mut())
+    }
+
+    pub fn syntax_objects_arguments_mut(&mut self) -> impl Iterator<Item = &mut SyntaxObject> {
+        self.args
+            .iter_mut()
+            .filter_map(|x| x.atom_syntax_object_mut())
     }
 }
 

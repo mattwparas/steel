@@ -403,8 +403,10 @@ impl Engine {
         let core_libraries = [crate::stdlib::PRELUDE];
 
         for core in core_libraries.into_iter() {
-            vm.compile_and_run_raw_program(core)
-                .expect("Loading the standard library failed");
+            if let Err(e) = vm.compile_and_run_raw_program(core) {
+                vm.raise_error(e);
+                panic!("Loading the standard library failed");
+            }
         }
 
         // Initialize the global macro environment with the default one. This way

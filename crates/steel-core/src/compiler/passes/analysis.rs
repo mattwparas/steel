@@ -633,22 +633,22 @@ pub struct ScopeInfo {
     pub last_used: Option<SyntaxObjectId>,
     /// Represents the position on the stack that this variable
     /// should live at during the execution of the program
-    pub stack_offset: Option<usize>,
+    pub stack_offset: Option<u16>,
     /// Does this variable escape its scope? As in, does the value outlive the scope
     /// that it was defined in
     pub escapes: bool,
     /// If this is a captured var, the capture index
-    pub capture_offset: Option<usize>,
+    pub capture_offset: Option<u16>,
     /// Was this var captured from the stack or from an enclosing function
     pub captured_from_enclosing: bool,
     /// Was this var mutated?
     pub mutated: bool,
     /// Heap offset
-    pub heap_offset: Option<usize>,
-    pub read_capture_offset: Option<usize>,
-    pub read_heap_offset: Option<usize>,
-    pub parent_heap_offset: Option<usize>,
-    pub local_heap_offset: Option<usize>,
+    pub heap_offset: Option<u16>,
+    pub read_capture_offset: Option<u16>,
+    pub read_heap_offset: Option<u16>,
+    pub parent_heap_offset: Option<u16>,
+    pub local_heap_offset: Option<u16>,
 }
 
 impl ScopeInfo {
@@ -677,7 +677,7 @@ impl ScopeInfo {
             captured: false,
             usage_count: 0,
             last_used: None,
-            stack_offset: Some(offset),
+            stack_offset: Some(offset as _),
             escapes: false,
             capture_offset: None,
             captured_from_enclosing: false,
@@ -700,14 +700,14 @@ impl ScopeInfo {
             captured: true,
             usage_count: 0,
             last_used: None,
-            stack_offset: Some(stack_offset),
+            stack_offset: Some(stack_offset as _),
             escapes: false,
             capture_offset: None,
             captured_from_enclosing: false,
             mutated: true,
-            heap_offset: Some(heap_offset),
+            heap_offset: Some(heap_offset as _),
             read_capture_offset: None,
-            read_heap_offset: Some(heap_offset),
+            read_heap_offset: Some(heap_offset as _),
             parent_heap_offset: None,
             local_heap_offset: None,
         }
@@ -1356,6 +1356,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             // dbg!(name.resolve());
             // dbg!(self.scope.keys().map(|x| x.resolve()).collect::<Vec<_>>());
 
+            // println!("Removing: {}", name.resolve());
+
             let scoped_info = self.info.scope.remove(name).unwrap();
 
             if let Some(id) = &scoped_info.last_used {
@@ -1434,8 +1436,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         // notion that this is a fresh variable
                         // if let Some(analysis) = self.captures.contains_key_at_top(key) {
                         if self.captures.depth_of(key).unwrap() > 1 {
-                            value.capture_offset = Some(index);
-                            value.read_capture_offset = Some(index);
+                            value.capture_offset = Some(index as _);
+                            value.read_capture_offset = Some(index as _);
                             let mut value = value.clone();
                             value.captured_from_enclosing = false;
 
@@ -1446,15 +1448,15 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                         value.capture_offset = captured_var.read_capture_offset;
 
-                        value.read_capture_offset = Some(index);
+                        value.read_capture_offset = Some(index as _);
 
                         let mut value = value.clone();
                         value.captured_from_enclosing = true;
 
                         self.captures.define(key.clone(), value)
                     } else {
-                        value.capture_offset = Some(index);
-                        value.read_capture_offset = Some(index);
+                        value.capture_offset = Some(index as _);
+                        value.read_capture_offset = Some(index as _);
                         let mut value = value.clone();
                         value.captured_from_enclosing = false;
 
@@ -1478,10 +1480,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     if self.captures.contains_key(key) {
                         if self.captures.depth_of(key).unwrap() > 1 {
                             value.heap_offset = value.stack_offset;
-                            value.read_heap_offset = Some(index);
+                            value.read_heap_offset = Some(index as _);
 
                             value.parent_heap_offset = value.stack_offset;
-                            value.local_heap_offset = Some(index);
+                            value.local_heap_offset = Some(index as _);
 
                             let mut value = value.clone();
                             value.captured_from_enclosing = false;
@@ -1498,12 +1500,12 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         // value.read_heap_offset =
                         //     self.captures.get(key).and_then(|x| x.read_heap_offset);
 
-                        value.read_heap_offset = Some(index);
+                        value.read_heap_offset = Some(index as _);
 
                         value.parent_heap_offset =
                             self.captures.get(key).and_then(|x| x.local_heap_offset);
 
-                        value.local_heap_offset = Some(index);
+                        value.local_heap_offset = Some(index as _);
 
                         let mut value = value.clone();
                         value.captured_from_enclosing = true;
@@ -1511,10 +1513,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         self.captures.define(key.clone(), value);
                     } else {
                         value.heap_offset = value.stack_offset;
-                        value.read_heap_offset = Some(index);
+                        value.read_heap_offset = Some(index as _);
 
                         value.parent_heap_offset = value.stack_offset;
-                        value.local_heap_offset = Some(index);
+                        value.local_heap_offset = Some(index as _);
 
                         let mut value = value.clone();
                         value.captured_from_enclosing = false;
@@ -1799,7 +1801,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         .refers_to(mut_ref_id);
 
                 if let Some(stack_offset) = mut_ref_stack_offset {
-                    semantic_info = semantic_info.with_offset(stack_offset);
+                    semantic_info = semantic_info.with_offset(stack_offset as _);
                 }
                 // else {
                 // log::debug!("Stack offset missing from local define")
@@ -1807,8 +1809,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                 if mut_ref_captured && mut_ref_mutated {
                     semantic_info.kind = IdentifierStatus::HeapAllocated;
-                    semantic_info.heap_offset = mut_ref_heap_offset;
-                    semantic_info.read_heap_offset = mut_ref_read_heap_offset;
+                    semantic_info.heap_offset = mut_ref_heap_offset.map(|x| x as _);
+                    semantic_info.read_heap_offset = mut_ref_read_heap_offset.map(|x| x as _);
                 }
 
                 self.info.insert(&a.syn, semantic_info);
@@ -1875,21 +1877,21 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // If we're getting captured and mutated, then we should be fine to do these checks
                 // exclusively
                 if let Some(capture_offset) = captured.read_capture_offset {
-                    semantic_info = semantic_info.with_read_capture_offset(capture_offset);
+                    semantic_info = semantic_info.with_read_capture_offset(capture_offset as _);
                     semantic_info =
-                        semantic_info.with_capture_index(captured.capture_offset.unwrap());
+                        semantic_info.with_capture_index(captured.capture_offset.unwrap() as _);
                 }
 
                 if let Some(heap_offset) = captured.read_heap_offset {
                     // semantic_info = semantic_info.with_heap_offset(heap_offset);
-                    semantic_info = semantic_info.with_read_heap_offset(heap_offset);
+                    semantic_info = semantic_info.with_read_heap_offset(heap_offset as _);
                 } else {
                     // log::debug!("Stack offset missing from local define")
                 }
 
                 if let Some(heap_offset) = captured.heap_offset {
                     // semantic_info = semantic_info.with_heap_offset(heap_offset);
-                    semantic_info = semantic_info.with_heap_offset(heap_offset);
+                    semantic_info = semantic_info.with_heap_offset(heap_offset as _);
                 } else {
                     // log::debug!("Stack offset missing from local define")
                 }
@@ -1951,7 +1953,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // );
 
                 if let Some(stack_offset) = is_captured_stack_offset {
-                    semantic_info = semantic_info.with_offset(stack_offset);
+                    semantic_info = semantic_info.with_offset(stack_offset as _);
                 } else {
                     // log::debug!("Stack offset missing from local define")
                 }

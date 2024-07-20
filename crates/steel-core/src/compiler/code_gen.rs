@@ -514,21 +514,21 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                     if var.mutated {
                         self.push(
                             LabeledInstruction::builder(OpCode::COPYHEAPCAPTURECLOSURE)
-                                .payload(var.parent_heap_offset.unwrap())
+                                .payload(var.parent_heap_offset.unwrap() as _)
                                 .contents(SyntaxObject::default(TokenType::Identifier(*key))),
                         );
                     } else {
                         // In this case we're gonna patch in the variable from the current captured scope
                         self.push(
                             LabeledInstruction::builder(OpCode::COPYCAPTURECLOSURE)
-                                .payload(var.capture_offset.unwrap())
+                                .payload(var.capture_offset.unwrap() as _)
                                 .contents(SyntaxObject::default(TokenType::Identifier(*key))),
                         );
                     }
                 } else if var.mutated {
                     self.push(
                         LabeledInstruction::builder(OpCode::FIRSTCOPYHEAPCAPTURECLOSURE)
-                            .payload(var.heap_offset.unwrap())
+                            .payload(var.heap_offset.unwrap() as _)
                             .contents(SyntaxObject::default(TokenType::Identifier(*key))),
                     );
                 } else {
@@ -536,7 +536,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                     // directly from the stack
                     self.push(
                         LabeledInstruction::builder(OpCode::COPYCAPTURESTACK)
-                            .payload(var.stack_offset.ok_or_else(crate::throw!(Generic => format!("Error compiling this function - are you missing an expression after a local define?"); lambda_function.location.span))?)
+                            .payload(var.stack_offset.ok_or_else(crate::throw!(Generic => format!("Error compiling this function - are you missing an expression after a local define?"); lambda_function.location.span))? as _)
                             .contents(SyntaxObject::default(TokenType::Identifier(*key))),
                     );
                 }
@@ -569,7 +569,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             for (key, var) in captured_mutable_arguments {
                 self.push(
                     LabeledInstruction::builder(OpCode::ALLOC)
-                        .payload(var.stack_offset.unwrap())
+                        .payload(var.stack_offset.unwrap() as _)
                         .contents(SyntaxObject::default(TokenType::Identifier(*key))),
                 );
             }
@@ -881,7 +881,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             // println!("{:#?}", var);
 
             self.push(
-                LabeledInstruction::builder(OpCode::ALLOC).payload(var.stack_offset.unwrap()),
+                LabeledInstruction::builder(OpCode::ALLOC).payload(var.stack_offset.unwrap() as _),
             );
         }
 

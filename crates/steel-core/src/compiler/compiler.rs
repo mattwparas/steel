@@ -694,7 +694,7 @@ impl Compiler {
         // expanded_statements.pretty_print();
 
         self.shadowed_variable_renamer
-            .rename_shadowed_variables(&mut expanded_statements);
+            .rename_shadowed_variables(&mut expanded_statements, true);
 
         let mut analysis = std::mem::take(&mut self.analysis);
         analysis.fresh_from_exprs(&expanded_statements);
@@ -730,7 +730,7 @@ impl Compiler {
         // RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
 
         self.shadowed_variable_renamer
-            .rename_shadowed_variables(&mut expanded_statements);
+            .rename_shadowed_variables(&mut expanded_statements, false);
 
         analysis.fresh_from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
@@ -757,7 +757,7 @@ impl Compiler {
         // RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
 
         self.shadowed_variable_renamer
-            .rename_shadowed_variables(&mut expanded_statements);
+            .rename_shadowed_variables(&mut expanded_statements, false);
 
         // let mut expanded_statements =
         log::info!(target: "expansion-phase", "Aggressive constant evaluation with memoization");
@@ -868,17 +868,25 @@ impl Compiler {
         let mut expanded_statements =
             self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
 
+        let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
+
         #[cfg(feature = "profiling")]
         let now = Instant::now();
 
-        // RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
+        // println!("--- Before renaming: ----");
+        // expanded_statements.pretty_print();
 
+        // TODO: Probably lift this above the const evaluation anyway
         self.shadowed_variable_renamer
-            .rename_shadowed_variables(&mut expanded_statements);
+            .rename_shadowed_variables(&mut expanded_statements, true);
+
+        // println!("--- After renaming: ----");
+        // expanded_statements.pretty_print();
+
+        // let mut expanded_statements =
+        //     self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
 
         let mut analysis = std::mem::take(&mut self.analysis);
-
-        // let mut analysis = Analysis::from_exprs(&expanded_statements);
 
         // Pre populate the analysis here
         analysis.fresh_from_exprs(&expanded_statements);
@@ -912,7 +920,7 @@ impl Compiler {
         let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
 
         self.shadowed_variable_renamer
-            .rename_shadowed_variables(&mut expanded_statements);
+            .rename_shadowed_variables(&mut expanded_statements, false);
 
         // After define expansion, we'll want this
         // RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
@@ -944,7 +952,7 @@ impl Compiler {
         // Rename them again
         // RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
         self.shadowed_variable_renamer
-            .rename_shadowed_variables(&mut expanded_statements);
+            .rename_shadowed_variables(&mut expanded_statements, false);
 
         // TODO - make sure I want to keep this
         // let mut expanded_statements =
@@ -992,6 +1000,8 @@ impl Compiler {
         let expanded_statements =
             self.lower_expressions_impl(exprs, constants, builtin_modules, path, sources)?;
 
+        // println!("--- Final AST ---");
+        // println!("");
         // expanded_statements.pretty_print();
 
         log::debug!(target: "expansion-phase", "Generating instructions");
