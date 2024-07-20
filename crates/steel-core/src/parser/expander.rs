@@ -1114,8 +1114,6 @@ fn collect_bindings(
             }
 
             MacroPattern::Rest(pat) => {
-                // let next_expr = expr_iter.next();
-
                 let list = match expr_iter.next() {
                     Some((i, expr)) if improper && i + 1 == list.len() => [expr.clone()],
                     Some((i, _)) => {
