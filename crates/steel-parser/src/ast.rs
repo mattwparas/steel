@@ -58,7 +58,6 @@ define_symbols! {
     UNSYNTAX_SPLICING => "unsyntax-splicing",
     RAW_UNSYNTAX_SPLICING => "#%unsyntax-splicing",
     SYNTAX_QUOTE => "syntax",
-    THE_EMPTY_STRING => "",
 }
 
 pub trait AstTools {

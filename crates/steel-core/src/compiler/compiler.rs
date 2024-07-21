@@ -30,7 +30,6 @@ use std::{
 // TODO: Replace the usages of hashmap with this directly
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
-use steel_parser::ast::AstTools;
 
 use crate::rvals::{Result, SteelVal};
 
@@ -57,8 +56,6 @@ use im_rc::HashMap as ImmutableHashMap;
 
 #[cfg(feature = "profiling")]
 use std::time::Instant;
-
-// use itertools::Itertools;
 
 #[derive(Default)]
 pub struct DebruijnIndicesInterner {
@@ -865,7 +862,7 @@ impl Compiler {
 
         // expanded_statements.pretty_print();
 
-        let mut expanded_statements =
+        let expanded_statements =
             self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
 
         let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;

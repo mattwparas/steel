@@ -63,7 +63,7 @@ use crate::{
 use fxhash::{FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
 use std::{cell::RefCell, cmp::Ordering};
-use steel_parser::parser::SourceId;
+use steel_parser::{interner::interned_current_memory_usage, parser::SourceId};
 
 #[cfg(feature = "dylibs")]
 use crate::steel_vm::ffi::ffi_module;
@@ -1530,7 +1530,7 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(UNBOX_DEFINITION)
         .register_native_fn_definition(SET_BOX_DEFINITION)
         .register_value("#%box", SteelVal::BuiltIn(make_mutable_box))
-        .register_value("gc-collect", SteelVal::BuiltIn(gc_collection))
+        .register_value("#%gc-collect", SteelVal::BuiltIn(gc_collection))
         .register_value("box", SteelVal::BuiltIn(make_mutable_box))
         .register_native_fn_definition(SET_BOX_MUTABLE_DEFINITION)
         .register_native_fn_definition(UNBOX_MUTABLE_DEFINITION)
@@ -1548,7 +1548,8 @@ fn meta_module() -> BuiltInModule {
         })
         .register_native_fn_definition(COMMAND_LINE_DEFINITION)
         .register_native_fn_definition(ERROR_OBJECT_MESSAGE_DEFINITION)
-        .register_fn("steel-home-location", steel_home);
+        .register_fn("steel-home-location", steel_home)
+        .register_fn("%#interner-memory-usage", interned_current_memory_usage);
 
     #[cfg(not(feature = "dylibs"))]
     module.register_native_fn_definition(super::engine::LOAD_MODULE_NOOP_DEFINITION);

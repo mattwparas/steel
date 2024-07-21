@@ -1,7 +1,6 @@
 extern crate rustyline;
 use colored::*;
 use steel::compiler::modules::steel_home;
-use steel_parser::interner::interned_current_memory_usage;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -220,9 +219,6 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                     ":pwd" => println!("{current_dir:#?}"),
                     // ":env" => vm.print_bindings(),
                     ":?" | ":help" => display_help(),
-                    ":interner" => {
-                        println!("{}", interned_current_memory_usage())
-                    }
                     line if line.contains(":load") => {
                         let line = line.trim_start_matches(":load").trim();
                         if line.is_empty() {

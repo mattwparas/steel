@@ -1,6 +1,5 @@
 use fxhash::{FxBuildHasher, FxHashMap};
 use quickscope::{ScopeMap, ScopeSet};
-use steel_parser::tokens::TokenType;
 
 use crate::parser::{
     ast::{Atom, ExprKind},
@@ -178,12 +177,8 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
     }
 
     fn visit_lambda_function(&mut self, lambda_function: &mut crate::parser::ast::LambdaFunction) {
-        let depth = self.scope.depth();
-
         self.scope.push_layer();
         self.shadows.push_layer();
-
-        // TODO: Insert the code here to mark these variables as in scope
 
         // for variable in lambda_function.arguments_mut() {
         for syn in lambda_function.syntax_objects_arguments_mut() {
@@ -309,8 +304,6 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
     // }
 
     fn visit_let(&mut self, l: &mut crate::parser::ast::Let) {
-        let depth = self.scope.depth();
-
         l.bindings.iter_mut().for_each(|x| self.visit(&mut x.1));
         self.scope.push_layer();
         self.shadows.push_layer();

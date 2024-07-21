@@ -390,7 +390,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
 
     // TODO: This needs to be fixed!
     fn visit_let(&mut self, l: &mut super::ast::Let) -> Self::Output {
-        for (a, expr) in &mut l.bindings {
+        for (_, expr) in &mut l.bindings {
             // println!("Visiting arg: {}", a);
             self.visit(expr);
         }
