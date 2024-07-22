@@ -63,15 +63,15 @@ pub struct SemanticInformation {
     pub aliases_to: Option<SyntaxObjectId>,
     pub builtin: bool,
     pub last_usage: bool,
-    pub stack_offset: Option<usize>,
+    pub stack_offset: Option<u32>,
     pub escapes: bool,
     // TODO: Move a bunch of these individual things into their own structs
     // something like Option<CaptureInformation>
-    pub capture_index: Option<usize>,
-    pub read_capture_offset: Option<usize>,
+    pub capture_index: Option<u32>,
+    pub read_capture_offset: Option<u32>,
     pub captured_from_enclosing: bool,
-    pub heap_offset: Option<usize>,
-    pub read_heap_offset: Option<usize>,
+    pub heap_offset: Option<u32>,
+    pub read_heap_offset: Option<u32>,
     pub is_shadowed: bool,
     pub is_required_identifier: bool,
 }
@@ -142,7 +142,7 @@ impl SemanticInformation {
 
     #[inline(always)]
     pub fn with_offset(mut self, offset: usize) -> Self {
-        self.stack_offset = Some(offset);
+        self.stack_offset = Some(offset as _);
         self
     }
 
@@ -153,25 +153,25 @@ impl SemanticInformation {
 
     #[inline(always)]
     pub fn with_capture_index(mut self, offset: usize) -> Self {
-        self.capture_index = Some(offset);
+        self.capture_index = Some(offset as _);
         self
     }
 
     #[inline(always)]
     pub fn with_read_capture_offset(mut self, offset: usize) -> Self {
-        self.read_capture_offset = Some(offset);
+        self.read_capture_offset = Some(offset as _);
         self
     }
 
     #[inline(always)]
     pub fn with_heap_offset(mut self, offset: usize) -> Self {
-        self.heap_offset = Some(offset);
+        self.heap_offset = Some(offset as _);
         self
     }
 
     #[inline(always)]
     pub fn with_read_heap_offset(mut self, offset: usize) -> Self {
-        self.read_heap_offset = Some(offset);
+        self.read_heap_offset = Some(offset as _);
         self
     }
 
@@ -186,11 +186,9 @@ impl SemanticInformation {
 pub struct FunctionInformation {
     // Just a mapping of the vars to their scope info - holds which vars are being
     // captured by this function
-    // captured_vars: FxHashMap<InternedString, ScopeInfo>,
-    captured_vars: SmallVec<[(InternedString, ScopeInfo); 8]>,
+    captured_vars: SmallVec<[(InternedString, ScopeInfo); 4]>,
 
-    // arguments: FxHashMap<InternedString, ScopeInfo>,
-    arguments: SmallVec<[(InternedString, ScopeInfo); 8]>,
+    arguments: SmallVec<[(InternedString, ScopeInfo); 4]>,
 
     // Keeps a mapping of vars to their scope info, if the variable was mutated
     // if this variable was mutated and inevitably captured, we want to know
@@ -207,9 +205,8 @@ pub struct FunctionInformation {
 
 impl FunctionInformation {
     pub fn new(
-        mut captured_vars: SmallVec<[(InternedString, ScopeInfo); 8]>,
-        // arguments: FxHashMap<InternedString, ScopeInfo>,
-        arguments: SmallVec<[(InternedString, ScopeInfo); 8]>,
+        mut captured_vars: SmallVec<[(InternedString, ScopeInfo); 4]>,
+        arguments: SmallVec<[(InternedString, ScopeInfo); 4]>,
     ) -> Self {
         captured_vars.sort_by_key(|x| x.1.id);
 
@@ -265,14 +262,14 @@ impl CallSiteInformation {
 #[derive(Debug, Clone)]
 pub struct LetInformation {
     pub stack_offset: usize,
-    pub function_context: Option<usize>,
+    pub function_context: Option<u32>,
     pub arguments: FxHashMap<InternedString, ScopeInfo>,
 }
 
 impl LetInformation {
     pub fn new(
         stack_offset: usize,
-        function_context: Option<usize>,
+        function_context: Option<u32>,
         arguments: FxHashMap<InternedString, ScopeInfo>,
     ) -> Self {
         Self {
@@ -296,9 +293,9 @@ pub enum SemanticInformationType {
 pub struct Analysis {
     // TODO: make these be specific IDs for semantic id, function id, and call info id
     pub(crate) info: FxHashMap<SyntaxObjectId, SemanticInformation>,
-    pub(crate) function_info: FxHashMap<usize, FunctionInformation>,
-    pub(crate) call_info: FxHashMap<usize, CallSiteInformation>,
-    pub(crate) let_info: FxHashMap<usize, LetInformation>,
+    pub(crate) function_info: FxHashMap<u32, FunctionInformation>,
+    pub(crate) call_info: FxHashMap<u32, CallSiteInformation>,
+    pub(crate) let_info: FxHashMap<u32, LetInformation>,
     pub(crate) scope: ScopeMap<InternedString, ScopeInfo, FxBuildHasher>,
 }
 
@@ -306,11 +303,18 @@ impl Analysis {
     pub fn pre_allocated() -> Self {
         Analysis {
             info: HashMap::with_capacity_and_hasher(3584, FxBuildHasher::default()),
-            function_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
-            call_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
-            let_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
+            function_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
+            call_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
+            let_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
             scope: ScopeMap::default(),
         }
+    }
+
+    pub fn shrink_capacity(&mut self) {
+        self.info.shrink_to(128);
+        self.function_info.shrink_to(16);
+        self.call_info.shrink_to(128);
+        self.let_info.shrink_to(128);
     }
 
     // Reuse the analysis allocation through the process!
@@ -343,9 +347,9 @@ impl Analysis {
 
         let mut analysis = Analysis {
             info: HashMap::with_capacity_and_hasher(3584, FxBuildHasher::default()),
-            function_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
-            call_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
-            let_info: HashMap::with_capacity_and_hasher(1792, FxBuildHasher::default()),
+            function_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
+            call_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
+            let_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
             scope: ScopeMap::default(),
         };
 
@@ -629,22 +633,22 @@ pub struct ScopeInfo {
     pub last_used: Option<SyntaxObjectId>,
     /// Represents the position on the stack that this variable
     /// should live at during the execution of the program
-    pub stack_offset: Option<usize>,
+    pub stack_offset: Option<u16>,
     /// Does this variable escape its scope? As in, does the value outlive the scope
     /// that it was defined in
     pub escapes: bool,
     /// If this is a captured var, the capture index
-    pub capture_offset: Option<usize>,
+    pub capture_offset: Option<u16>,
     /// Was this var captured from the stack or from an enclosing function
     pub captured_from_enclosing: bool,
     /// Was this var mutated?
     pub mutated: bool,
     /// Heap offset
-    pub heap_offset: Option<usize>,
-    pub read_capture_offset: Option<usize>,
-    pub read_heap_offset: Option<usize>,
-    pub parent_heap_offset: Option<usize>,
-    pub local_heap_offset: Option<usize>,
+    pub heap_offset: Option<u16>,
+    pub read_capture_offset: Option<u16>,
+    pub read_heap_offset: Option<u16>,
+    pub parent_heap_offset: Option<u16>,
+    pub local_heap_offset: Option<u16>,
 }
 
 impl ScopeInfo {
@@ -673,7 +677,7 @@ impl ScopeInfo {
             captured: false,
             usage_count: 0,
             last_used: None,
-            stack_offset: Some(offset),
+            stack_offset: Some(offset as _),
             escapes: false,
             capture_offset: None,
             captured_from_enclosing: false,
@@ -696,14 +700,14 @@ impl ScopeInfo {
             captured: true,
             usage_count: 0,
             last_used: None,
-            stack_offset: Some(stack_offset),
+            stack_offset: Some(stack_offset as _),
             escapes: false,
             capture_offset: None,
             captured_from_enclosing: false,
             mutated: true,
-            heap_offset: Some(heap_offset),
+            heap_offset: Some(heap_offset as _),
             read_capture_offset: None,
-            read_heap_offset: Some(heap_offset),
+            read_heap_offset: Some(heap_offset as _),
             parent_heap_offset: None,
             local_heap_offset: None,
         }
@@ -719,7 +723,7 @@ struct AnalysisPass<'a> {
     // TODO: This should give us the depth (how many things we need to roll back)
     defining_context_depth: usize,
     stack_offset: usize,
-    function_context: Option<usize>,
+    function_context: Option<u32>,
     contains_lambda_func: bool,
 
     // TODO: Have these all re-use some memory
@@ -777,7 +781,7 @@ impl<'a> AnalysisPass<'a> {
     fn get_captured_vars(
         &self,
         let_level_bindings: &[&InternedString],
-    ) -> SmallVec<[(InternedString, ScopeInfo); 8]> {
+    ) -> SmallVec<[(InternedString, ScopeInfo); 4]> {
         self.info
             .scope
             .iter()
@@ -947,7 +951,7 @@ impl<'a> AnalysisPass<'a> {
     }
 
     // fn pop_top_layer(&mut self) -> FxHashMap<InternedString, ScopeInfo> {
-    fn pop_top_layer(&mut self) -> SmallVec<[(InternedString, ScopeInfo); 8]> {
+    fn pop_top_layer(&mut self) -> SmallVec<[(InternedString, ScopeInfo); 4]> {
         let arguments = self
             .info
             .scope
@@ -1352,6 +1356,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             // dbg!(name.resolve());
             // dbg!(self.scope.keys().map(|x| x.resolve()).collect::<Vec<_>>());
 
+            // println!("Removing: {}", name.resolve());
+
             let scoped_info = self.info.scope.remove(name).unwrap();
 
             if let Some(id) = &scoped_info.last_used {
@@ -1430,8 +1436,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         // notion that this is a fresh variable
                         // if let Some(analysis) = self.captures.contains_key_at_top(key) {
                         if self.captures.depth_of(key).unwrap() > 1 {
-                            value.capture_offset = Some(index);
-                            value.read_capture_offset = Some(index);
+                            value.capture_offset = Some(index as _);
+                            value.read_capture_offset = Some(index as _);
                             let mut value = value.clone();
                             value.captured_from_enclosing = false;
 
@@ -1442,15 +1448,15 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                         value.capture_offset = captured_var.read_capture_offset;
 
-                        value.read_capture_offset = Some(index);
+                        value.read_capture_offset = Some(index as _);
 
                         let mut value = value.clone();
                         value.captured_from_enclosing = true;
 
                         self.captures.define(key.clone(), value)
                     } else {
-                        value.capture_offset = Some(index);
-                        value.read_capture_offset = Some(index);
+                        value.capture_offset = Some(index as _);
+                        value.read_capture_offset = Some(index as _);
                         let mut value = value.clone();
                         value.captured_from_enclosing = false;
 
@@ -1474,10 +1480,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     if self.captures.contains_key(key) {
                         if self.captures.depth_of(key).unwrap() > 1 {
                             value.heap_offset = value.stack_offset;
-                            value.read_heap_offset = Some(index);
+                            value.read_heap_offset = Some(index as _);
 
                             value.parent_heap_offset = value.stack_offset;
-                            value.local_heap_offset = Some(index);
+                            value.local_heap_offset = Some(index as _);
 
                             let mut value = value.clone();
                             value.captured_from_enclosing = false;
@@ -1494,12 +1500,12 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         // value.read_heap_offset =
                         //     self.captures.get(key).and_then(|x| x.read_heap_offset);
 
-                        value.read_heap_offset = Some(index);
+                        value.read_heap_offset = Some(index as _);
 
                         value.parent_heap_offset =
                             self.captures.get(key).and_then(|x| x.local_heap_offset);
 
-                        value.local_heap_offset = Some(index);
+                        value.local_heap_offset = Some(index as _);
 
                         let mut value = value.clone();
                         value.captured_from_enclosing = true;
@@ -1507,10 +1513,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         self.captures.define(key.clone(), value);
                     } else {
                         value.heap_offset = value.stack_offset;
-                        value.read_heap_offset = Some(index);
+                        value.read_heap_offset = Some(index as _);
 
                         value.parent_heap_offset = value.stack_offset;
-                        value.local_heap_offset = Some(index);
+                        value.local_heap_offset = Some(index as _);
 
                         let mut value = value.clone();
                         value.captured_from_enclosing = false;
@@ -1795,7 +1801,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         .refers_to(mut_ref_id);
 
                 if let Some(stack_offset) = mut_ref_stack_offset {
-                    semantic_info = semantic_info.with_offset(stack_offset);
+                    semantic_info = semantic_info.with_offset(stack_offset as _);
                 }
                 // else {
                 // log::debug!("Stack offset missing from local define")
@@ -1803,8 +1809,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                 if mut_ref_captured && mut_ref_mutated {
                     semantic_info.kind = IdentifierStatus::HeapAllocated;
-                    semantic_info.heap_offset = mut_ref_heap_offset;
-                    semantic_info.read_heap_offset = mut_ref_read_heap_offset;
+                    semantic_info.heap_offset = mut_ref_heap_offset.map(|x| x as _);
+                    semantic_info.read_heap_offset = mut_ref_read_heap_offset.map(|x| x as _);
                 }
 
                 self.info.insert(&a.syn, semantic_info);
@@ -1871,21 +1877,21 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // If we're getting captured and mutated, then we should be fine to do these checks
                 // exclusively
                 if let Some(capture_offset) = captured.read_capture_offset {
-                    semantic_info = semantic_info.with_read_capture_offset(capture_offset);
+                    semantic_info = semantic_info.with_read_capture_offset(capture_offset as _);
                     semantic_info =
-                        semantic_info.with_capture_index(captured.capture_offset.unwrap());
+                        semantic_info.with_capture_index(captured.capture_offset.unwrap() as _);
                 }
 
                 if let Some(heap_offset) = captured.read_heap_offset {
                     // semantic_info = semantic_info.with_heap_offset(heap_offset);
-                    semantic_info = semantic_info.with_read_heap_offset(heap_offset);
+                    semantic_info = semantic_info.with_read_heap_offset(heap_offset as _);
                 } else {
                     // log::debug!("Stack offset missing from local define")
                 }
 
                 if let Some(heap_offset) = captured.heap_offset {
                     // semantic_info = semantic_info.with_heap_offset(heap_offset);
-                    semantic_info = semantic_info.with_heap_offset(heap_offset);
+                    semantic_info = semantic_info.with_heap_offset(heap_offset as _);
                 } else {
                     // log::debug!("Stack offset missing from local define")
                 }
@@ -1947,7 +1953,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // );
 
                 if let Some(stack_offset) = is_captured_stack_offset {
-                    semantic_info = semantic_info.with_offset(stack_offset);
+                    semantic_info = semantic_info.with_offset(stack_offset as _);
                 } else {
                     // log::debug!("Stack offset missing from local define")
                 }
@@ -2559,7 +2565,7 @@ impl<'a> VisitorMutRefUnit for RemovedUnusedImports<'a> {
                             Some(ExprKind::List(l)) => l.is_a_builtin_expr(),
                             Some(ExprKind::Quote(_)) => true,
                             Some(ExprKind::Atom(a)) => match &a.syn.ty {
-                                TokenType::Number(n) => match n {
+                                TokenType::Number(n) => match n.as_ref() {
                                     NumberLiteral::Real(r) => match r {
                                         RealLiteral::Int(IntLiteral::Small(_))
                                         | RealLiteral::Float(_) => true,

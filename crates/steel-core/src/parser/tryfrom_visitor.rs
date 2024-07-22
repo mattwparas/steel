@@ -71,7 +71,7 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
         Ok(SteelVal::ListV(expr.into_iter().collect()))
     }
 
-    fn visit_begin(&mut self, begin: super::ast::Begin) -> Self::Output {
+    fn visit_begin(&mut self, begin: Box<super::ast::Begin>) -> Self::Output {
         let mut exprs = vec![SteelVal::try_from(begin.location)?];
         for expr in begin.exprs {
             exprs.push(self.visit(expr)?);
@@ -186,7 +186,7 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
         Ok(SteelVal::ListV(expr.into_iter().collect()))
     }
 
-    fn visit_require(&mut self, r: super::ast::Require) -> Self::Output {
+    fn visit_require(&mut self, r: Box<super::ast::Require>) -> Self::Output {
         // Just convert it into a list
 
         // r.modules
@@ -342,8 +342,9 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
     }
 
     fn visit_begin(&mut self, begin: &steel_parser::ast::Begin) -> Self::Output {
-        let raw: SteelVal =
-            TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::Begin(begin.clone()))?;
+        let raw: SteelVal = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(
+            ExprKind::Begin(Box::new(begin.clone())),
+        )?;
 
         let span = begin.location.span;
         let mut exprs = vec![convert_location(&begin.location)?];
@@ -569,7 +570,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
         Ok(Syntax::proto(raw, SteelVal::ListV(expr.into_iter().collect()), span).into())
     }
 
-    fn visit_begin(&mut self, begin: super::ast::Begin) -> Self::Output {
+    fn visit_begin(&mut self, begin: Box<super::ast::Begin>) -> Self::Output {
         let raw: SteelVal =
             TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::Begin(begin.clone()))?;
 
@@ -697,7 +698,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
         Ok(Syntax::proto(raw, SteelVal::ListV(expr.into_iter().collect()), span).into())
     }
 
-    fn visit_require(&mut self, _s: super::ast::Require) -> Self::Output {
+    fn visit_require(&mut self, _s: Box<super::ast::Require>) -> Self::Output {
         stop!(Generic => "internal compiler error - could not translate require to steel value")
     }
 

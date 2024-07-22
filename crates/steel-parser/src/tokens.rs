@@ -141,10 +141,20 @@ pub enum TokenType<S> {
     BooleanLiteral(bool),
     Identifier(S),
     Keyword(S),
-    Number(NumberLiteral),
-    StringLiteral(String),
+    Number(Box<NumberLiteral>),
+    StringLiteral(Box<String>),
     Dot,
     Error,
+}
+
+impl<T> TokenType<T> {
+    pub fn identifier_mut(&mut self) -> Option<&mut T> {
+        if let Self::Identifier(i) = self {
+            Some(i)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -170,7 +180,7 @@ impl Display for NumberLiteral {
 
 impl<S> From<NumberLiteral> for TokenType<S> {
     fn from(n: NumberLiteral) -> Self {
-        TokenType::Number(n)
+        TokenType::Number(Box::new(n))
     }
 }
 

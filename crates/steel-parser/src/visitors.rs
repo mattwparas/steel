@@ -80,7 +80,7 @@ mod eraser {
         }
 
         fn visit_list(&mut self, list: &mut List) {
-            list.location = None;
+            list.location = Span::default();
 
             list.args.iter_mut().for_each(|expr| self.visit(expr));
         }
@@ -216,7 +216,7 @@ pub trait ConsumingVisitor {
     fn visit_if(&mut self, f: Box<If>) -> Self::Output;
     fn visit_define(&mut self, define: Box<Define>) -> Self::Output;
     fn visit_lambda_function(&mut self, lambda_function: Box<LambdaFunction>) -> Self::Output;
-    fn visit_begin(&mut self, begin: Begin) -> Self::Output;
+    fn visit_begin(&mut self, begin: Box<Begin>) -> Self::Output;
     fn visit_return(&mut self, r: Box<Return>) -> Self::Output;
     fn visit_quote(&mut self, quote: Box<Quote>) -> Self::Output;
     fn visit_macro(&mut self, m: Box<Macro>) -> Self::Output;
@@ -224,7 +224,7 @@ pub trait ConsumingVisitor {
     fn visit_list(&mut self, l: List) -> Self::Output;
     fn visit_syntax_rules(&mut self, l: Box<SyntaxRules>) -> Self::Output;
     fn visit_set(&mut self, s: Box<Set>) -> Self::Output;
-    fn visit_require(&mut self, s: Require) -> Self::Output;
+    fn visit_require(&mut self, s: Box<Require>) -> Self::Output;
     fn visit_let(&mut self, l: Box<Let>) -> Self::Output;
 }
 
@@ -251,7 +251,7 @@ pub trait ConsumingVisitorRef {
     fn visit_if(&self, f: Box<If>) -> Self::Output;
     fn visit_define(&self, define: Box<Define>) -> Self::Output;
     fn visit_lambda_function(&self, lambda_function: Box<LambdaFunction>) -> Self::Output;
-    fn visit_begin(&self, begin: Begin) -> Self::Output;
+    fn visit_begin(&self, begin: Box<Begin>) -> Self::Output;
     fn visit_return(&self, r: Box<Return>) -> Self::Output;
     fn visit_quote(&self, quote: Box<Quote>) -> Self::Output;
     fn visit_macro(&self, m: Box<Macro>) -> Self::Output;
@@ -259,7 +259,7 @@ pub trait ConsumingVisitorRef {
     fn visit_list(&self, l: List) -> Self::Output;
     fn visit_syntax_rules(&self, l: Box<SyntaxRules>) -> Self::Output;
     fn visit_set(&self, s: Box<Set>) -> Self::Output;
-    fn visit_require(&self, s: Require) -> Self::Output;
+    fn visit_require(&self, s: Box<Require>) -> Self::Output;
     fn visit_let(&self, l: Box<Let>) -> Self::Output;
 }
 

@@ -285,18 +285,18 @@ impl MacroCase {
             bindings.remove(&macro_keyword);
         };
 
-        let args_str: Vec<_> = bindings.iter().collect();
+        let args_str: Vec<_> = bindings.iter().copied().collect();
+
+        // dbg!(args_str.iter().map(|x| x.resolve()).collect::<Vec<_>>());
+
         // let syntaxes: Vec<&str> = args
         //     .iter()
         //     .map(|x| x.deconstruct_syntax())
         //     .flatten()
         //     .collect();
 
-        // println!("Args pre mangle: {:?}", &args_str);
-
+        // TODO: @Matt - if the
         RenameIdentifiersVisitor::new(&args_str, special_forms).rename_identifiers(&mut body);
-
-        // let args = args.into_iter().map(|x| x.mangle(special_forms)).collect();
 
         args.iter_mut().for_each(|x| x.mangle(special_forms));
 
@@ -557,7 +557,7 @@ impl MacroPattern {
                     TokenType::BooleanLiteral(b) => {
                         pattern_vec.push(MacroPattern::BooleanLiteral(b));
                     }
-                    TokenType::Number(n) => match n {
+                    TokenType::Number(n) => match *n {
                         NumberLiteral::Real(re) => match re {
                             RealLiteral::Int(IntLiteral::Small(i)) => {
                                 pattern_vec.push(MacroPattern::IntLiteral(i))
@@ -580,7 +580,7 @@ impl MacroPattern {
                         pattern_vec.push(MacroPattern::CharacterLiteral(c));
                     }
                     TokenType::StringLiteral(s) => {
-                        pattern_vec.push(MacroPattern::StringLiteral(s));
+                        pattern_vec.push(MacroPattern::StringLiteral(*s));
                     }
                     TokenType::Keyword(k) => {
                         pattern_vec.push(MacroPattern::Keyword(k));
@@ -822,29 +822,57 @@ fn match_single_pattern(pattern: &MacroPattern, expr: &ExprKind) -> bool {
             }) if s == b => true,
             _ => return false,
         },
+        // MacroPattern::IntLiteral(i) => match expr {
+        //     ExprKind::Atom(Atom {
+        //         syn:
+        //             SyntaxObject {
+        //                 ty:
+        //                     TokenType::Number(NumberLiteral::Real(RealLiteral::Int(IntLiteral::Small(
+        //                         s,
+        //                     )))),
+        //                 ..
+        //             },
+        //     }) if s == i => true,
+        //     _ => return false,
+        // },
         MacroPattern::IntLiteral(i) => match expr {
             ExprKind::Atom(Atom {
                 syn:
                     SyntaxObject {
-                        ty:
-                            TokenType::Number(NumberLiteral::Real(RealLiteral::Int(IntLiteral::Small(
-                                s,
-                            )))),
+                        ty: TokenType::Number(n),
                         ..
                     },
-            }) if s == i => true,
+            }) => match n.as_ref() {
+                NumberLiteral::Real(RealLiteral::Int(IntLiteral::Small(s))) if s == i => true,
+                _ => return false,
+            },
             _ => return false,
         },
+
+        // MacroPattern::FloatLiteral(f) => match expr {
+        //     ExprKind::Atom(Atom {
+        //         syn:
+        //             SyntaxObject {
+        //                 ty: TokenType::Number(NumberLiteral::Real(RealLiteral::Float(s))),
+        //                 ..
+        //             },
+        //     }) if s == f => true,
+        //     _ => return false,
+        // },
         MacroPattern::FloatLiteral(f) => match expr {
             ExprKind::Atom(Atom {
                 syn:
                     SyntaxObject {
-                        ty: TokenType::Number(NumberLiteral::Real(RealLiteral::Float(s))),
+                        ty: TokenType::Number(n),
                         ..
                     },
-            }) if s == f => true,
+            }) => match n.as_ref() {
+                NumberLiteral::Real(RealLiteral::Float(s)) if s == f => true,
+                _ => return false,
+            },
             _ => return false,
         },
+
         MacroPattern::CharacterLiteral(c) => match expr {
             ExprKind::Atom(Atom {
                 syn:
@@ -862,7 +890,7 @@ fn match_single_pattern(pattern: &MacroPattern, expr: &ExprKind) -> bool {
                         ty: TokenType::StringLiteral(b),
                         ..
                     },
-            }) if s == b => true,
+            }) if s.as_str() == b.as_str() => true,
             _ => return false,
         },
         MacroPattern::QuotedExpr(q) => {
@@ -1523,6 +1551,8 @@ fn non_list_match(patterns: &[MacroPattern]) -> Option<&MacroPattern> {
 
 #[cfg(test)]
 mod macro_case_expand_test {
+    use steel_parser::parser::SourceId;
+
     use super::MacroCase;
 
     use super::*;
@@ -1582,7 +1612,9 @@ mod macro_case_expand_test {
         ])
         .into();
 
-        let output = case.expand(input, Span::new(0, 0, None)).unwrap();
+        let output = case
+            .expand(input, Span::new(0, 0, SourceId::none()))
+            .unwrap();
 
         assert_eq!(output, expected);
     }

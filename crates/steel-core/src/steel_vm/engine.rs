@@ -403,8 +403,10 @@ impl Engine {
         let core_libraries = [crate::stdlib::PRELUDE];
 
         for core in core_libraries.into_iter() {
-            vm.compile_and_run_raw_program(core)
-                .expect("Loading the standard library failed");
+            if let Err(e) = vm.compile_and_run_raw_program(core) {
+                vm.raise_error(e);
+                panic!("Loading the standard library failed");
+            }
         }
 
         // Initialize the global macro environment with the default one. This way
@@ -1409,7 +1411,7 @@ impl Engine {
             match &t.ty {
                 TokenType::BooleanLiteral(b) => Ok((*b).into()),
                 TokenType::Number(n) => number_literal_to_steel(n),
-                TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.into())),
+                TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.to_string().into())),
                 TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
                 // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
                 TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
@@ -1618,7 +1620,7 @@ impl Engine {
 
     pub fn emit_ast(expr: &str) -> Result<Vec<ExprKind>> {
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-            Parser::new(expr, None).collect();
+            Parser::new(expr, SourceId::none()).collect();
         Ok(parsed?)
     }
 
@@ -2104,7 +2106,9 @@ impl Engine {
 
 fn raise_error(sources: &Sources, error: SteelErr) {
     if let Some(span) = error.span() {
-        if let Some(source_id) = span.source_id() {
+        let source_id = span.source_id();
+
+        if let Some(source_id) = source_id {
             let sources = sources.sources.lock().unwrap();
 
             let file_name = sources.get_path(&source_id);
@@ -2117,7 +2121,8 @@ fn raise_error(sources: &Sources, error: SteelErr) {
                     for dehydrated_context in trace.trace().iter().take(20) {
                         // Report a call stack with whatever we actually have,
                         if let Some(span) = dehydrated_context.span() {
-                            if let Some(id) = span.source_id() {
+                            let id = span.source_id();
+                            if let Some(id) = id {
                                 if let Some(source) = sources.get(id) {
                                     let trace_line_file_name = sources.get_path(&id);
 
@@ -2147,7 +2152,8 @@ fn raise_error(sources: &Sources, error: SteelErr) {
 // If we are to construct an error object, emit that
 pub(crate) fn raise_error_to_string(sources: &Sources, error: SteelErr) -> Option<String> {
     if let Some(span) = error.span() {
-        if let Some(source_id) = span.source_id() {
+        let source_id = span.source_id();
+        if let Some(source_id) = source_id {
             let sources = sources.sources.lock().unwrap();
 
             let file_name = sources.get_path(&source_id);
@@ -2167,7 +2173,9 @@ pub(crate) fn raise_error_to_string(sources: &Sources, error: SteelErr) -> Optio
                                 continue;
                             }
 
-                            if let Some(id) = span.source_id() {
+                            let id = span.source_id();
+
+                            if let Some(id) = id {
                                 if let Some(source) = sources.get(id) {
                                     let trace_line_file_name = sources.get_path(&id);
 

@@ -43,10 +43,10 @@ pub fn extract_macro_defs(
         if let ExprKind::Macro(_) = expr {
             // Replace with dummy begin value so we don't have to copy
             // everything other for every macro definition
-            let mut taken_expr = ExprKind::Begin(Begin::new(
+            let mut taken_expr = ExprKind::Begin(Box::new(Begin::new(
                 Vec::new(),
                 SyntaxObject::default(TokenType::Begin),
-            ));
+            )));
 
             std::mem::swap(expr, &mut taken_expr);
 
@@ -84,7 +84,7 @@ pub fn expand(expr: &mut ExprKind, map: &FxHashMap<InternedString, SteelMacro>) 
         map,
         changed: false,
         in_scope_values: ScopeSet::default(),
-        source_id: None,
+        source_id: SourceId::none(),
     };
     expander.visit(expr)
 }
@@ -92,14 +92,14 @@ pub fn expand(expr: &mut ExprKind, map: &FxHashMap<InternedString, SteelMacro>) 
 pub fn expand_with_source_id(
     expr: &mut ExprKind,
     map: &FxHashMap<InternedString, SteelMacro>,
-    source_id: SourceId,
+    source_id: Option<SourceId>,
 ) -> Result<()> {
     let mut expander = Expander {
         depth: 0,
         map,
         changed: false,
         in_scope_values: ScopeSet::default(),
-        source_id: Some(source_id),
+        source_id,
     };
 
     expander.visit(expr)
@@ -120,7 +120,7 @@ impl<'a> Expander<'a> {
             map,
             changed: false,
             in_scope_values: ScopeSet::default(),
-            source_id: None,
+            source_id: SourceId::none(),
             depth: 0,
         }
     }
@@ -214,15 +214,11 @@ impl<'a> VisitorMutRef for Expander<'a> {
                             },
                     })) => {
                         if let Some(m) = self.map.get(s) {
-                            // println!("Macro: {} - source id: {:?}", s, sp.source_id());
-                            // println!("Source id: {:?}", self.source_id);
-
                             // If this macro has been overwritten by any local value, respect
                             // the local binding and do not expand the macro
                             if !self.in_scope_values.contains(s) {
                                 if self.source_id.is_none()
-                                    || self.source_id.is_some()
-                                        && self.source_id == m.location.source_id()
+                                    || self.source_id == m.location.source_id()
                                 {
                                     let span = *sp;
 

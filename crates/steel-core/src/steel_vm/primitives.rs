@@ -63,6 +63,7 @@ use crate::{
 use fxhash::{FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
 use std::{cell::RefCell, cmp::Ordering};
+use steel_parser::{interner::interned_current_memory_usage, parser::SourceId};
 
 #[cfg(feature = "dylibs")]
 use crate::steel_vm::ffi::ffi_module;
@@ -1297,7 +1298,7 @@ impl Reader {
         if let Some(buffer) = self.buffer.get(self.offset..) {
             // println!("Reading range: {}", buffer);
 
-            let mut parser = crate::parser::parser::Parser::new_flat(buffer, None);
+            let mut parser = crate::parser::parser::Parser::new_flat(buffer, SourceId::none());
 
             if let Some(raw) = parser.next() {
                 // self.offset += parser.offset();
@@ -1381,6 +1382,18 @@ pub fn plain_unbox_mutable(value: &HeapRef<SteelVal>) -> SteelVal {
 #[steel_derive::function(name = "set-box!")]
 pub fn plain_set_box_mutable(value: &HeapRef<SteelVal>, update: SteelVal) -> SteelVal {
     value.set_and_return(update)
+}
+
+fn gc_collection(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    if args.len() != 0 {
+        return Some(Err(
+            throw!(ArityMismatch => "gc-collect expects 0 arguments, found: {}", args.len())(),
+        ));
+    }
+
+    let count = ctx.gc_collect();
+
+    Some(Ok(SteelVal::IntV(count as _)))
 }
 
 fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
@@ -1517,6 +1530,7 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(UNBOX_DEFINITION)
         .register_native_fn_definition(SET_BOX_DEFINITION)
         .register_value("#%box", SteelVal::BuiltIn(make_mutable_box))
+        .register_value("#%gc-collect", SteelVal::BuiltIn(gc_collection))
         .register_value("box", SteelVal::BuiltIn(make_mutable_box))
         .register_native_fn_definition(SET_BOX_MUTABLE_DEFINITION)
         .register_native_fn_definition(UNBOX_MUTABLE_DEFINITION)
@@ -1534,7 +1548,8 @@ fn meta_module() -> BuiltInModule {
         })
         .register_native_fn_definition(COMMAND_LINE_DEFINITION)
         .register_native_fn_definition(ERROR_OBJECT_MESSAGE_DEFINITION)
-        .register_fn("steel-home-location", steel_home);
+        .register_fn("steel-home-location", steel_home)
+        .register_fn("%#interner-memory-usage", interned_current_memory_usage);
 
     #[cfg(not(feature = "dylibs"))]
     module.register_native_fn_definition(super::engine::LOAD_MODULE_NOOP_DEFINITION);

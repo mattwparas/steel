@@ -411,7 +411,7 @@ impl LanguageServer for Backend {
                 log::debug!("Found new definition: {:?}", maybe_definition);
             }
 
-            let location = source_id_to_uri(resulting_span.source_id()?)?;
+            let location = source_id_to_uri(resulting_span.source_id().unwrap())?;
 
             log::debug!("Location: {:?}", location);
             log::debug!("Rope length: {:?}", rope.len_chars());

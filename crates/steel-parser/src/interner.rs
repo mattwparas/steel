@@ -117,6 +117,10 @@ use lasso::ThreadedRodeo;
 
 static INTERNER: OnceCell<Arc<ThreadedRodeo<Spur, fxhash::FxBuildHasher>>> = OnceCell::new();
 
+pub fn interned_current_memory_usage() -> usize {
+    INTERNER.get().unwrap().current_memory_usage()
+}
+
 pub fn take_interner() -> Arc<ThreadedRodeo<Spur, fxhash::FxBuildHasher>> {
     Arc::clone(INTERNER.get().unwrap())
 }

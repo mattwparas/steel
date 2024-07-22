@@ -433,11 +433,10 @@ impl<'a> ReplaceExpressions<'a> {
                 let start = ExprKind::integer_literal(span.start as isize, span);
                 let end = ExprKind::integer_literal(span.end as isize, span);
 
-                let source_id = if let Some(source) = span.source_id() {
-                    ExprKind::integer_literal(source.0 as isize, span)
-                } else {
-                    ExprKind::bool_lit(false)
-                };
+                let source_id = ExprKind::integer_literal(
+                    span.source_id().map(|x| x.0).unwrap() as isize,
+                    span,
+                );
 
                 Ok(Some(ExprKind::Quote(Box::new(super::ast::Quote::new(
                     ExprKind::List(super::ast::List::new(vec![start, end, source_id])),
@@ -471,7 +470,14 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
                 if let TokenType::Identifier(s) = &a.syn.ty {
                     if *s != self.wildcard {
                         if let Some(body) = self.bindings.get(s) {
+                            let introduced_via_macro = a.syn.introduced_via_macro;
+
                             *expr = body.clone();
+
+                            if let ExprKind::Atom(a) = expr {
+                                a.syn.introduced_via_macro = introduced_via_macro;
+                                a.syn.unresolved = false;
+                            }
                         }
                     }
                 }
