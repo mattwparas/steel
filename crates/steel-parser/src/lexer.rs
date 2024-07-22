@@ -347,11 +347,11 @@ impl<'a> Lexer<'a> {
 pub struct TokenStream<'a> {
     lexer: Lexer<'a>,
     skip_comments: bool,
-    source_id: SourceId,
+    source_id: Option<SourceId>,
 }
 
 impl<'a> TokenStream<'a> {
-    pub fn new(input: &'a str, skip_comments: bool, source_id: SourceId) -> Self {
+    pub fn new(input: &'a str, skip_comments: bool, source_id: Option<SourceId>) -> Self {
         Self {
             lexer: Lexer::new(input),
             skip_comments,

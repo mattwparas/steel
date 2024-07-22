@@ -460,8 +460,8 @@ impl Compiler {
         // Could fail here
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> = path
             .as_ref()
-            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.clone(), id))
-            .unwrap_or_else(|| Parser::new(expr_str.as_ref(), id))
+            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.clone(), Some(id)))
+            .unwrap_or_else(|| Parser::new(expr_str.as_ref(), Some(id)))
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
             .collect();
@@ -488,10 +488,11 @@ impl Compiler {
         let id = sources.add_source(expr_str.to_string(), path.clone());
 
         // Could fail here
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> = Parser::new(expr_str, id)
-            .without_lowering()
-            .map(|x| x.and_then(lower_macro_and_require_definitions))
-            .collect();
+        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+            Parser::new(expr_str, Some(id))
+                .without_lowering()
+                .map(|x| x.and_then(lower_macro_and_require_definitions))
+                .collect();
 
         let parsed = parsed?;
 
@@ -509,10 +510,11 @@ impl Compiler {
         let id = sources.add_source(expr_str.to_string(), path.clone());
 
         // Could fail here
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> = Parser::new(expr_str, id)
-            .without_lowering()
-            .map(|x| x.and_then(lower_macro_and_require_definitions))
-            .collect();
+        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+            Parser::new(expr_str, Some(id))
+                .without_lowering()
+                .map(|x| x.and_then(lower_macro_and_require_definitions))
+                .collect();
 
         let parsed = parsed?;
 
@@ -648,7 +650,9 @@ impl Compiler {
                     // println!("Expanding macros from: {:?}", module);
 
                     crate::parser::expand_visitor::expand_with_source_id(
-                        expr, macro_env, source_id,
+                        expr,
+                        macro_env,
+                        Some(source_id),
                     )?
 
                     // crate::parser::expand_visitor::expand(expr, macro_env)?
@@ -820,7 +824,9 @@ impl Compiler {
                     let source_id = sources.get_source_id(module).unwrap();
 
                     crate::parser::expand_visitor::expand_with_source_id(
-                        expr, macro_env, source_id,
+                        expr,
+                        macro_env,
+                        Some(source_id),
                     )?;
                 }
             }

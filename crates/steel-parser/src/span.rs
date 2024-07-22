@@ -9,42 +9,12 @@ use super::parser::SourceId;
 pub struct Span {
     pub start: usize,
     pub end: usize,
-    pub source_id: SourceId,
+    pub source_id: Option<SourceId>,
 }
-
-// impl IntoSteelVal for Span {
-//     fn into_steelval(self) -> crate::rvals::Result<crate::SteelVal> {
-//         Ok(list![self.start, self.end, self.source_id])
-//     }
-// }
-
-// impl FromSteelVal for Span {
-//     fn from_steelval(val: &crate::SteelVal) -> crate::rvals::Result<Self> {
-//         if let SteelVal::ListV(l) = val {
-//             if l.len() != 3 {
-//                 stop!(ConversionError => "cannot convert to a span object: {}", val);
-//             }
-
-//             Ok(Span {
-//                 start: usize::from_steelval(l.get(0).unwrap())?,
-//                 end: usize::from_steelval(l.get(1).unwrap())?,
-//                 source_id: l
-//                     .get(2)
-//                     .map(Option::<usize>::from_steelval)
-//                     .map(|x| x.transpose())
-//                     .flatten()
-//                     .transpose()?
-//                     .map(SourceId),
-//             })
-//         } else {
-//             stop!(ConversionError => "cannot convert to a span object: {}", val)
-//         }
-//     }
-// }
 
 impl Span {
     #[inline]
-    pub const fn new(start: usize, end: usize, source_id: SourceId) -> Self {
+    pub const fn new(start: usize, end: usize, source_id: Option<SourceId>) -> Self {
         Self {
             start,
             end,
@@ -53,7 +23,7 @@ impl Span {
     }
 
     #[inline]
-    pub const fn double(span: usize, source_id: SourceId) -> Self {
+    pub const fn double(span: usize, source_id: Option<SourceId>) -> Self {
         Self {
             start: span,
             end: span,
@@ -77,7 +47,7 @@ impl Span {
     }
 
     #[inline]
-    pub const fn source_id(&self) -> SourceId {
+    pub const fn source_id(&self) -> Option<SourceId> {
         self.source_id
     }
 
@@ -106,7 +76,7 @@ impl Span {
             }
             span
         } else {
-            Span::new(0, 0, SourceId::none())
+            Span::new(0, 0, None)
         }
     }
 }

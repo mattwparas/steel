@@ -92,7 +92,7 @@ pub fn expand(expr: &mut ExprKind, map: &FxHashMap<InternedString, SteelMacro>) 
 pub fn expand_with_source_id(
     expr: &mut ExprKind,
     map: &FxHashMap<InternedString, SteelMacro>,
-    source_id: SourceId,
+    source_id: Option<SourceId>,
 ) -> Result<()> {
     let mut expander = Expander {
         depth: 0,
@@ -110,7 +110,7 @@ pub struct Expander<'a> {
     pub(crate) changed: bool,
     // We're going to actually check if the macro is in scope
     in_scope_values: ScopeSet<InternedString, FxBuildHasher>,
-    source_id: SourceId,
+    source_id: Option<SourceId>,
     depth: usize,
 }
 
@@ -217,7 +217,7 @@ impl<'a> VisitorMutRef for Expander<'a> {
                             // If this macro has been overwritten by any local value, respect
                             // the local binding and do not expand the macro
                             if !self.in_scope_values.contains(s) {
-                                if !self.source_id.is_present()
+                                if self.source_id.is_none()
                                     || self.source_id == m.location.source_id()
                                 {
                                     let span = *sp;

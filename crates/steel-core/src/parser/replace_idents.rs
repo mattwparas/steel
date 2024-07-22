@@ -433,7 +433,10 @@ impl<'a> ReplaceExpressions<'a> {
                 let start = ExprKind::integer_literal(span.start as isize, span);
                 let end = ExprKind::integer_literal(span.end as isize, span);
 
-                let source_id = ExprKind::integer_literal(span.source_id().0 as isize, span);
+                let source_id = ExprKind::integer_literal(
+                    span.source_id().map(|x| x.0).unwrap() as isize,
+                    span,
+                );
 
                 Ok(Some(ExprKind::Quote(Box::new(super::ast::Quote::new(
                     ExprKind::List(super::ast::List::new(vec![start, end, source_id])),

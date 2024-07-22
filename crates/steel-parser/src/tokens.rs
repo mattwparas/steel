@@ -465,7 +465,7 @@ impl<'a, T> Token<'a, T> {
         ty: TokenType<T>,
         source: &'a str,
         range: ops::Range<usize>,
-        source_id: SourceId,
+        source_id: Option<SourceId>,
     ) -> Self {
         Self {
             ty,

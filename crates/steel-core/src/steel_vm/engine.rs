@@ -852,7 +852,7 @@ impl Engine {
             let id = vm.sources.add_source(source.to_string(), None);
 
             // Could fail here
-            let parsed: Vec<ExprKind> = Parser::new(source, id)
+            let parsed: Vec<ExprKind> = Parser::new(source, Some(id))
                 .collect::<std::result::Result<_, _>>()
                 .unwrap();
 
@@ -2108,7 +2108,7 @@ fn raise_error(sources: &Sources, error: SteelErr) {
     if let Some(span) = error.span() {
         let source_id = span.source_id();
 
-        if source_id.is_present() {
+        if let Some(source_id) = source_id {
             let sources = sources.sources.lock().unwrap();
 
             let file_name = sources.get_path(&source_id);
@@ -2122,7 +2122,7 @@ fn raise_error(sources: &Sources, error: SteelErr) {
                         // Report a call stack with whatever we actually have,
                         if let Some(span) = dehydrated_context.span() {
                             let id = span.source_id();
-                            if id.is_present() {
+                            if let Some(id) = id {
                                 if let Some(source) = sources.get(id) {
                                     let trace_line_file_name = sources.get_path(&id);
 
@@ -2153,7 +2153,7 @@ fn raise_error(sources: &Sources, error: SteelErr) {
 pub(crate) fn raise_error_to_string(sources: &Sources, error: SteelErr) -> Option<String> {
     if let Some(span) = error.span() {
         let source_id = span.source_id();
-        if source_id.is_present() {
+        if let Some(source_id) = source_id {
             let sources = sources.sources.lock().unwrap();
 
             let file_name = sources.get_path(&source_id);
@@ -2175,7 +2175,7 @@ pub(crate) fn raise_error_to_string(sources: &Sources, error: SteelErr) -> Optio
 
                             let id = span.source_id();
 
-                            if id.is_present() {
+                            if let Some(id) = id {
                                 if let Some(source) = sources.get(id) {
                                     let trace_line_file_name = sources.get_path(&id);
 

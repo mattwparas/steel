@@ -2661,7 +2661,7 @@ impl<'a> VisitorMutUnitRef<'a> for FindContextsWithOffset<'a> {
         if span.range().contains(&self.offset) {
             // TODO: Don't clone this
             if let Some(info) = self.analysis.get_function_info(lambda_function) {
-                if lambda_function.location.span.source_id == self.source_id {
+                if lambda_function.location.span.source_id == Some(self.source_id) {
                     self.contexts
                         .push(SemanticInformationType::Function(info.clone()));
                 }
@@ -2681,7 +2681,7 @@ impl<'a> VisitorMutUnitRef<'a> for FindContextsWithOffset<'a> {
 
         if span.range().contains(&self.offset) {
             if let Some(info) = self.analysis.let_info.get(&l.syntax_object_id) {
-                if l.location.span.source_id() == self.source_id {
+                if l.location.span.source_id() == Some(self.source_id) {
                     self.contexts
                         .push(SemanticInformationType::Let(info.clone()));
                 }
@@ -4547,10 +4547,9 @@ impl<'a> SemanticAnalysis<'a> {
         offset: usize,
         source_id: SourceId,
     ) -> Option<(&SyntaxObjectId, &SemanticInformation)> {
-        self.analysis
-            .info
-            .iter()
-            .find(|(_, x)| x.span.range().contains(&offset) && x.span.source_id() == source_id)
+        self.analysis.info.iter().find(|(_, x)| {
+            x.span.range().contains(&offset) && x.span.source_id() == Some(source_id)
+        })
     }
 
     // Find semantic context where this offset exist.

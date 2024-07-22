@@ -2912,7 +2912,7 @@ impl<'a> ModuleBuilder<'a> {
             .sources
             .add_source(input.clone(), Some(self.name.clone()));
 
-        let parsed = Parser::new_from_source(&input, self.name.clone(), id)
+        let parsed = Parser::new_from_source(&input, self.name.clone(), Some(id))
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
             .collect::<std::result::Result<Vec<_>, ParseError>>()?;
@@ -2966,7 +2966,7 @@ impl<'a> ModuleBuilder<'a> {
 
             let exprs = guard.get(id).unwrap();
 
-            let mut parsed = Parser::new_from_source(&exprs, self.name.clone(), id)
+            let mut parsed = Parser::new_from_source(&exprs, self.name.clone(), Some(id))
                 .without_lowering()
                 .map(|x| x.and_then(lower_macro_and_require_definitions))
                 .collect::<std::result::Result<Vec<_>, ParseError>>()?;

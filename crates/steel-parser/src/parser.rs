@@ -23,12 +23,8 @@ use crate::{
 pub struct SourceId(pub u32);
 
 impl SourceId {
-    pub const fn none() -> Self {
-        Self(0)
-    }
-
-    pub fn is_present(&self) -> bool {
-        self.0 != 0
+    pub const fn none() -> Option<Self> {
+        None
     }
 }
 
@@ -349,7 +345,7 @@ fn strip_shebang_line(input: &str) -> &str {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(input: &'a str, source_id: SourceId) -> Self {
+    pub fn new(input: &'a str, source_id: Option<SourceId>) -> Self {
         let input = strip_shebang_line(input);
 
         Parser {
@@ -371,7 +367,7 @@ impl<'a> Parser<'a> {
         self
     }
 
-    pub fn new_flat(input: &'a str, source_id: SourceId) -> Self {
+    pub fn new_flat(input: &'a str, source_id: Option<SourceId>) -> Self {
         let input = strip_shebang_line(input);
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
@@ -387,7 +383,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn new_from_source(input: &'a str, source_name: PathBuf, source_id: SourceId) -> Self {
+    pub fn new_from_source(
+        input: &'a str,
+        source_name: PathBuf,
+        source_id: Option<SourceId>,
+    ) -> Self {
         let input = strip_shebang_line(input);
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
@@ -404,7 +404,7 @@ impl<'a> Parser<'a> {
     }
 
     // Attach comments!
-    pub fn doc_comment_parser(input: &'a str, source_id: SourceId) -> Self {
+    pub fn doc_comment_parser(input: &'a str, source_id: Option<SourceId>) -> Self {
         let input = strip_shebang_line(input);
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
