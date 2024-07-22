@@ -50,7 +50,7 @@ impl DiagnosticGenerator for FreeIdentifiersAndUnusedIdentifiers {
             .into_iter()
             .map(|(ident, info)| (ident, info.span))
             .flat_map(|(ident, span)| {
-                if Some(span.source_id()) != context.source_id {
+                if span.source_id() != context.source_id {
                     return None;
                 }
 
@@ -80,7 +80,7 @@ impl DiagnosticGenerator for FreeIdentifiersAndUnusedIdentifiers {
                     .find_unused_arguments()
                     .into_iter()
                     .flat_map(|(ident, span)| {
-                        if Some(span.source_id()) != context.source_id {
+                        if span.source_id() != context.source_id {
                             return None;
                         }
 
