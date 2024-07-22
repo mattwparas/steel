@@ -203,7 +203,7 @@ impl<'a> CodeGenerator<'a> {
 
         let offset = analysis.stack_offset?;
 
-        self.push(LabeledInstruction::builder(op).payload(offset));
+        self.push(LabeledInstruction::builder(op).payload(offset as _));
 
         // let idx = self.constant_map.add_or_get(value);
 
@@ -245,7 +245,7 @@ impl<'a> CodeGenerator<'a> {
 
         let offset = analysis.stack_offset?;
 
-        self.push(LabeledInstruction::builder(op).payload(offset));
+        self.push(LabeledInstruction::builder(op).payload(offset as _));
 
         // if let Some(analysis) =
         // {
@@ -679,7 +679,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
             self.push(
                 LabeledInstruction::builder(op_code)
-                    .payload(payload)
+                    .payload(payload as _)
                     .contents(a.syn.clone()),
             );
 
@@ -809,7 +809,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
             self.push(
                 LabeledInstruction::builder(op_code)
-                    .payload(payload)
+                    .payload(payload as _)
                     .contents(a.clone()),
             );
 

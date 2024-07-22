@@ -63,15 +63,15 @@ pub struct SemanticInformation {
     pub aliases_to: Option<SyntaxObjectId>,
     pub builtin: bool,
     pub last_usage: bool,
-    pub stack_offset: Option<usize>,
+    pub stack_offset: Option<u32>,
     pub escapes: bool,
     // TODO: Move a bunch of these individual things into their own structs
     // something like Option<CaptureInformation>
-    pub capture_index: Option<usize>,
-    pub read_capture_offset: Option<usize>,
+    pub capture_index: Option<u32>,
+    pub read_capture_offset: Option<u32>,
     pub captured_from_enclosing: bool,
-    pub heap_offset: Option<usize>,
-    pub read_heap_offset: Option<usize>,
+    pub heap_offset: Option<u32>,
+    pub read_heap_offset: Option<u32>,
     pub is_shadowed: bool,
     pub is_required_identifier: bool,
 }
@@ -142,7 +142,7 @@ impl SemanticInformation {
 
     #[inline(always)]
     pub fn with_offset(mut self, offset: usize) -> Self {
-        self.stack_offset = Some(offset);
+        self.stack_offset = Some(offset as _);
         self
     }
 
@@ -153,25 +153,25 @@ impl SemanticInformation {
 
     #[inline(always)]
     pub fn with_capture_index(mut self, offset: usize) -> Self {
-        self.capture_index = Some(offset);
+        self.capture_index = Some(offset as _);
         self
     }
 
     #[inline(always)]
     pub fn with_read_capture_offset(mut self, offset: usize) -> Self {
-        self.read_capture_offset = Some(offset);
+        self.read_capture_offset = Some(offset as _);
         self
     }
 
     #[inline(always)]
     pub fn with_heap_offset(mut self, offset: usize) -> Self {
-        self.heap_offset = Some(offset);
+        self.heap_offset = Some(offset as _);
         self
     }
 
     #[inline(always)]
     pub fn with_read_heap_offset(mut self, offset: usize) -> Self {
-        self.read_heap_offset = Some(offset);
+        self.read_heap_offset = Some(offset as _);
         self
     }
 
