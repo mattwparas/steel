@@ -51,13 +51,6 @@ impl InterierSources {
             sources: Vec::new(),
         };
 
-        // Here be dragons!
-        // In order to reduce the span size, we allocate
-        // a dummy source at the beginning. This means
-        // we don't need to use an Option<u32>, but rather
-        // just a plain old u32 for the source id.
-        sources.add_source("", None);
-
         sources
     }
 
