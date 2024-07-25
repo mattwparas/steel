@@ -43,7 +43,7 @@
      (list (trie char (create-children (rest char-list) empty next-prefix) #f next-prefix))]
     [(char<? char (trie-char (first lst))) ;; place where it is, pop off front and go
      (cons (trie char (create-children (rest char-list) empty next-prefix) #f next-prefix) lst)]
-    [(equal? char (trie-char (first lst))) ;; equal, step down
+    [(char=? char (trie-char (first lst))) ;; equal, step down
      (cons (trie char
                  (create-children (rest char-list) (trie-children (first lst)) next-prefix)
                  (trie-end-word? (first lst))
