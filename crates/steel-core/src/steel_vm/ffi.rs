@@ -11,7 +11,7 @@ use crate::{
     rerrs::ErrorKind,
     rvals::{
         as_underlying_type_mut, Custom, CustomType, FutureResult, IntoSteelVal, Result,
-        SteelHashMap, SteelVal,
+        SteelByteVector, SteelHashMap, SteelVal,
     },
     values::functions::{BoxedDynFunction, StaticOrRcStr},
     SteelErr,
@@ -1006,6 +1006,7 @@ pub enum FFIValue {
         #[sabi(unsafe_opaque_field)]
         fut: FfiFuture<RResult<FFIValue, RBoxError>>,
     },
+    ByteVector(RVec<u8>),
 }
 
 impl FFIValue {
@@ -1063,6 +1064,7 @@ impl std::fmt::Debug for FFIValue {
             FFIValue::Vector(v) => write!(f, "{:?}", v),
             FFIValue::HashMap(h) => write!(f, "{:?}", h),
             FFIValue::Future { .. } => write!(f, "#<future>"),
+            FFIValue::ByteVector(b) => write!(f, "{:?}", b),
         }
     }
 }
@@ -1188,6 +1190,8 @@ impl IntoSteelVal for FFIValue {
                     .await
                 }),
             )))),
+
+            Self::ByteVector(b) => Ok(SteelVal::ByteVector(SteelByteVector::new(b.into()))),
         }
     }
 }
