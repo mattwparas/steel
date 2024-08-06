@@ -447,6 +447,21 @@
        (module gen-defines mod
          rest ...))]))
 
+(define-syntax do
+  (syntax-rules ()
+    [(do ((var init step ...) ...) (test expr ...) command ...)
+     (letrec* ([loop
+                (lambda (var ...)
+                  (if test
+                      (begin
+                        expr ...)
+                      (begin
+                        command ...
+                        (loop (do "step" var step ...) ...))))])
+              (loop init ...))]
+    [(do "step" x) x]
+    [(do "step" x y) y]))
+
 ;; TODO: Replace some of these with just list ref to abuse the underlying implementation
 (define caar (lambda (pair) (car (car pair))))
 (define cadr (lambda (pair) (car (cdr pair))))
