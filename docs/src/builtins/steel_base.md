@@ -52,6 +52,66 @@ Divides the given numbers.
 > (/ 1 3.0) ;; => 0.3333333333333333
 > (/ 1 3) ;; => 1/3
 ```
+### **<**
+Compares two real numbers to check if the first is less than the second.
+
+(< left right) -> bool?
+
+* left : real? - The first real number to compare.
+* right : real? - The second real number to compare.
+
+#### Examples
+```scheme
+> (< 3 2) ;; => #f
+> (< 2 3) ;; => #t
+> (< 3/2 1.5) ;; => #f
+> (< 2.5 3/2) ;; => #t
+```
+### **<=**
+Compares two real numbers to check if the first is less than or equal to the second.
+
+(<= left right) -> bool?
+
+* left : real? - The first real number to compare.
+* right : real? - The second real number to compare.
+
+#### Examples
+```scheme
+> (<= 3 2) ;; => #f
+> (<= 2 3) ;; => #t
+> (<= 3/2 1.5) ;; => #t
+> (<= 2.5 3/2) ;; => #f
+```
+### **>**
+Compares two real numbers to check if the first is greater than the second.
+
+(> left right) -> bool?
+
+* left : real? - The first real number to compare.
+* right : real? - The second real number to compare.
+
+#### Examples
+```scheme
+> (> 3 2) ;; => #t
+> (> 1 1) ;; => #f
+> (> 3/2 1.5) ;; => #f
+> (> 3/2 1.4) ;; => #t
+```
+### **>=**
+Compares two real numbers to check if the first is greater than or equal to the second.
+
+(>= left right) -> bool?
+
+* left : real? - The first real number to compare.
+* right : real? - The second real number to compare.
+
+#### Examples
+```scheme
+> (>= 3 2) ;; => #t
+> (>= 2 3) ;; => #f
+> (>= 3/2 1.5) ;; => #t
+> (>= 3/2 1.4) ;; => #t
+```
 ### **abs**
 Computes the absolute value of the given number.
 
@@ -1725,11 +1785,7 @@ Checks if the given real number is zero.
 ```
 ### **%iterator?**
 ### **%keyword-hash**
-### **<**
-### **<=**
 ### **=**
-### **>**
-### **>=**
 ### **Engine::add-module**
 ### **Engine::clone**
 ### **Engine::modules->list**
@@ -1881,6 +1937,7 @@ Checks if the given real number is zero.
 ### **spawn-thread!**
 ### **stdout**
 ### **stdout-simple-displayln**
+### **steel-home-location**
 ### **stream-car**
 ### **stream-cons**
 ### **stream-empty?**

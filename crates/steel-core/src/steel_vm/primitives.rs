@@ -18,7 +18,8 @@ use crate::{
         hashmaps::{hashmap_module, HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,
         lists::{list_module, UnRecoverableResult},
-        numbers, port_module,
+        numbers::{self, realp},
+        port_module,
         ports::EOF_OBJECTP_DEFINITION,
         process::process_module,
         random::random_module,
@@ -60,7 +61,9 @@ use crate::{
     rvals::{Result, SteelVal},
     SteelErr,
 };
+use bigdecimal::BigDecimal;
 use fxhash::{FxHashMap, FxHashSet};
+use num::{bigint::ToBigInt, BigRational, FromPrimitive};
 use once_cell::sync::Lazy;
 use std::{cell::RefCell, cmp::Ordering};
 use steel_parser::{interner::interned_current_memory_usage, parser::SourceId};
@@ -950,13 +953,116 @@ fn equality_module() -> BuiltInModule {
     module
 }
 
+/// Real numbers ordering module.
+#[steel_derive::define_module(name = "steel/ord")]
 fn ord_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/ord");
+
+    /// Compares two real numbers to check if the first is greater than the second.
+    ///
+    /// (> left right) -> bool?
+    ///
+    /// * left : real? - The first real number to compare.
+    /// * right : real? - The second real number to compare.
+    ///
+    /// # Examples
+    /// ```scheme
+    /// > (> 3 2) ;; => #t
+    /// > (> 1 1) ;; => #f
+    /// > (> 3/2 1.5) ;; => #f
+    /// > (> 3/2 1.4) ;; => #t
+    /// ```
+    #[steel_derive::function(name = ">")]
+    fn greater_than(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
+        if !(realp(left) && realp(right)) {
+            stop!(TypeMismatch => "expected real numbers");
+        } else {
+            matches!(left.partial_cmp(right), Some(Ordering::Greater)).into_steelval()
+        }
+    }
+
+    /// Compares two real numbers to check if the first is greater than or equal to the second.
+    ///
+    /// (>= left right) -> bool?
+    ///
+    /// * left : real? - The first real number to compare.
+    /// * right : real? - The second real number to compare.
+    ///
+    /// # Examples
+    /// ```scheme
+    /// > (>= 3 2) ;; => #t
+    /// > (>= 2 3) ;; => #f
+    /// > (>= 3/2 1.5) ;; => #t
+    /// > (>= 3/2 1.4) ;; => #t
+    /// ```
+    #[steel_derive::function(name = ">=")]
+    fn greater_than_equal(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
+        if !(realp(left) && realp(right)) {
+            stop!(TypeMismatch => "expected real numbers");
+        } else {
+            matches!(
+                left.partial_cmp(right),
+                Some(Ordering::Greater) | Some(Ordering::Equal)
+            )
+            .into_steelval()
+        }
+    }
+
+    /// Compares two real numbers to check if the first is less than the second.
+    ///
+    /// (< left right) -> bool?
+    ///
+    /// * left : real? - The first real number to compare.
+    /// * right : real? - The second real number to compare.
+    ///
+    /// # Examples
+    /// ```scheme
+    /// > (< 3 2) ;; => #f
+    /// > (< 2 3) ;; => #t
+    /// > (< 3/2 1.5) ;; => #f
+    /// > (< 2.5 3/2) ;; => #t
+    /// ```
+    #[steel_derive::function(name = "<")]
+    fn less_than(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
+        if !(realp(left) && realp(right)) {
+            stop!(TypeMismatch => "expected real numbers");
+        } else {
+            matches!(left.partial_cmp(right), Some(Ordering::Less)).into_steelval()
+        }
+    }
+
+    /// Compares two real numbers to check if the first is less than or equal to the second.
+    ///
+    /// (<= left right) -> bool?
+    ///
+    /// * left : real? - The first real number to compare.
+    /// * right : real? - The second real number to compare.
+    ///
+    /// # Examples
+    /// ```scheme
+    /// > (<= 3 2) ;; => #f
+    /// > (<= 2 3) ;; => #t
+    /// > (<= 3/2 1.5) ;; => #t
+    /// > (<= 2.5 3/2) ;; => #f
+    /// ```
+    #[steel_derive::function(name = "<=")]
+    fn less_than_equal(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
+        if !(realp(left) && realp(right)) {
+            stop!(TypeMismatch => "expected real numbers");
+        } else {
+            matches!(
+                left.partial_cmp(right),
+                Some(Ordering::Less) | Some(Ordering::Equal)
+            )
+            .into_steelval()
+        }
+    }
+
     module
-        .register_value(">", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a > b)))
-        .register_value(">=", SteelVal::FuncV(gte_primitive))
-        .register_value("<", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a < b)))
-        .register_value("<=", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a <= b)));
+        .register_native_fn_definition(GREATER_THAN_DEFINITION)
+        .register_native_fn_definition(GREATER_THAN_EQUAL_DEFINITION)
+        .register_native_fn_definition(LESS_THAN_DEFINITION)
+        .register_native_fn_definition(LESS_THAN_EQUAL_DEFINITION);
     module
 }
 
