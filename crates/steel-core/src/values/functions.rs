@@ -5,6 +5,7 @@ use std::{
     collections::HashMap,
     convert::TryFrom,
     hash::Hasher,
+    ops::Deref,
     rc::Rc,
     sync::Arc,
 };
@@ -165,6 +166,47 @@ pub struct SerializedLambdaPrototype {
     // pub captures: Vec<SerializableSteelVal>,
 }
 
+// #[cfg(feature = "rooted-instructions")]
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct RootedInstructions {
+    #[cfg(feature = "rooted-instructions")]
+    inner: *const [DenseInstruction],
+    #[cfg(not(feature = "rooted-instructions"))]
+    inner: Rc<[DenseInstruction]>,
+}
+
+impl RootedInstructions {
+    pub fn new(instructions: Rc<[DenseInstruction]>) -> Self {
+        Self {
+            #[cfg(feature = "rooted-instructions")]
+            inner: Rc::as_ptr(&instructions),
+            #[cfg(not(feature = "rooted-instructions"))]
+            inner: instructions,
+        }
+    }
+}
+
+impl std::fmt::Debug for RootedInstructions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.inner)
+    }
+}
+
+impl Deref for RootedInstructions {
+    type Target = [DenseInstruction];
+
+    fn deref(&self) -> &Self::Target {
+        #[cfg(feature = "rooted-instructions")]
+        unsafe {
+            &(*self.inner)
+        }
+
+        #[cfg(not(feature = "rooted-instructions"))]
+        &self.inner
+    }
+}
+
 // TODO
 // is_let can probably be localized to a specific kind of function
 // is_multi_arity can also be localized to a specific kind of function
@@ -245,12 +287,28 @@ impl ByteCodeLambda {
     //     self.heap_allocated = RefCell::new(heap_allocated);
     // }
 
-    pub fn body_exp(&self) -> Rc<[DenseInstruction]> {
-        #[cfg(feature = "dynamic")]
-        return Rc::clone(&self.body_exp.borrow());
+    pub fn body_exp(&self) -> RootedInstructions {
+        // #[cfg(feature = "dynamic")]
+        // return Rc::clone(&self.body_exp.borrow());
 
-        #[cfg(not(feature = "dynamic"))]
-        Rc::clone(&self.body_exp)
+        // #[cfg(not(feature = "dynamic"))]
+        // Rc::clone(&self.body_exp)
+
+        #[cfg(not(feature = "rooted-instructions"))]
+        return RootedInstructions {
+            inner: Rc::clone(&self.body_exp),
+        };
+
+        #[cfg(feature = "rooted-instructions")]
+        return RootedInstructions {
+            inner: Rc::as_ptr(&self.body_exp),
+        };
+    }
+
+    // Give me just the instruction set, that way we don't need
+    // to do a lot of extra cloning just to snag the instructions
+    pub unsafe fn raw_body(&self) -> *const [DenseInstruction] {
+        return Rc::as_ptr(&self.body_exp);
     }
 
     pub fn body_mut_exp(&mut self) -> Rc<[DenseInstruction]> {

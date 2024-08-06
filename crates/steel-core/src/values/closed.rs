@@ -254,8 +254,10 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
                         self.push_back(value.clone());
                     }
 
-                    if let Some(handler) = &frame.handler {
-                        self.push_back((*handler.as_ref()).clone());
+                    if let Some(handler) =
+                        frame.attachments.as_ref().and_then(|x| x.handler.clone())
+                    {
+                        self.push_back(handler);
                     }
                 }
             }
@@ -1075,8 +1077,10 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
                         self.push_back(value.clone());
                     }
 
-                    if let Some(handler) = &frame.handler {
-                        self.push_back((*handler.as_ref()).clone());
+                    if let Some(handler) =
+                        frame.attachments.as_ref().and_then(|x| x.handler.clone())
+                    {
+                        self.push_back(handler);
                     }
                 }
             }
