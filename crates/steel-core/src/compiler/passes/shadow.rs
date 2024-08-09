@@ -211,7 +211,7 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
                     self.str_modifiers.insert(modifier, modifier.to_string());
                     mut_var.push_str(self.str_modifiers.get(&modifier).unwrap());
                 }
-                // println!("Renaming: {} -> {}", variable.resolve(), mut_var);
+                println!("Renaming: {} -> {}", variable.resolve(), mut_var);
 
                 *variable = mut_var.into();
 
@@ -273,8 +273,8 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
                 // that was also introduced via macro, then we want to resolve
                 // this variable to point to that one as well.
                 if unresolved && !self.reverse_map.contains_key(ident) {
-                    // println!("Skipping mangling: {}", a);
-                    // println!("Introduced via macro: {}", a.syn.introduced_via_macro);
+                    println!("Skipping mangling: {}", a);
+                    println!("Introduced via macro: {}", a.syn.introduced_via_macro);
                     return;
                 }
 

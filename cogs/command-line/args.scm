@@ -13,9 +13,9 @@
 ; (define test-args '("foo" "bar" "--optional-arg" "bananas"))
 
 ;; Setup the argument parser spec
-(struct ArgumentParserSpec (subcommands positional-args required-args optional-args))
+(struct ArgumentParserSpec (docs subcommands positional-args required-args optional-args))
 
-(struct ArgumentParsingResult (positional-args required-args optional-args) #:transparent)
+(struct ArgumentParsingResult (spec positional-args required-args optional-args) #:transparent)
 
 ;; Build up the args by crunching through, eagerly assigning
 ;; to the respective fields. If there is no match for a subcommand, then we
@@ -26,10 +26,11 @@
     [(empty? arg-list)
      ;; Check that the positionl args have been fulfilled
      (when (not (= (length (ArgumentParserSpec-positional-args spec)) (length positional-args)))
+       (displayln "getting here")
        (error "Missing positional arguments: "
               (drop (ArgumentParserSpec-positional-args spec) (length positional-args))))
 
-     (ArgumentParsingResult positional-args required-args optional-args)]
+     (ArgumentParsingResult spec positional-args required-args optional-args)]
 
     [else
      (define next (car arg-list))
@@ -108,10 +109,20 @@
     (~> (transduce optional-args (mapping (lambda (p) (car p))) (into-hashmap))
         (hash-insert "help" #f)))
 
-  (define local-spec (ArgumentParserSpec '() positional-args required-args optional-args))
+  (define local-spec
+    (ArgumentParserSpec (hash-union required-args optional-args)
+                        '()
+                        positional-args
+                        required-args
+                        optional-args))
 
   (case-lambda
-    [() (parse local-spec (drop (command-line) 2) '() required-args optional-args)]
+    [()
+     (when (< (length (command-line)) 2)
+       (error
+        "There aren't enough command line args to parse - was this called from an interactive session?"))
+
+     (parse local-spec (drop (command-line) 2) '() required-args optional-args)]
     [(command-line-args) (parse local-spec command-line-args '() required-args optional-args)]))
 
 ;; Setup some kind of macro system to declare the interface, and in theory
@@ -127,3 +138,6 @@
   (make-command-line-arg-parser #:positional (list '("path" "The input path to read")
                                                    '("output" "The output path to read"))
                                 #:required '((("required-arg-1" #f) "Setting up the values"))))
+
+(define (render-help spec)
+  (error "TODO"))

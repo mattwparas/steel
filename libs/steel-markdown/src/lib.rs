@@ -42,6 +42,7 @@ struct SyntaxHighlighter {
 
 impl Custom for SyntaxHighlighter {}
 
+#[derive(Debug)]
 struct SyntectError(syntect::Error);
 impl Custom for SyntectError {}
 

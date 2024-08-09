@@ -147,13 +147,12 @@ macro_rules! conversion_error {
     };
 }
 
-impl<T: IntoFFIVal, E: IntoFFIVal> IntoFFIVal for std::result::Result<T, E> {
+impl<T: IntoFFIVal, E: IntoFFIVal + std::fmt::Debug> IntoFFIVal for std::result::Result<T, E> {
     fn into_ffi_val(self) -> RResult<FFIValue, RBoxError> {
         match self {
             Ok(v) => v.into_ffi_val(),
             Err(e) => {
-                let error: Box<dyn std::error::Error + Send + Sync> =
-                    format!("{:?}", ffi_try!(e.into_ffi_val())).into();
+                let error: Box<dyn std::error::Error + Send + Sync> = format!("{:?}", e).into();
 
                 RResult::RErr(RBoxError::from_box(error))
             }
@@ -1054,7 +1053,7 @@ impl std::fmt::Debug for FFIValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             FFIValue::BoxedFunction(func) => write!(f, "{:?}", func),
-            FFIValue::Custom { .. } => write!(f, "#<OpaqueFFIValue>"),
+            FFIValue::Custom { custom } => write!(f, "{:?}", custom.display()?),
             FFIValue::BoolV(b) => write!(f, "{:?}", b),
             FFIValue::NumV(n) => write!(f, "{:?}", n),
             FFIValue::IntV(i) => write!(f, "{:?}", i),
