@@ -30,7 +30,6 @@ use std::{
 // TODO: Replace the usages of hashmap with this directly
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
-use steel_parser::ast::AstTools;
 
 use crate::rvals::{Result, SteelVal};
 
