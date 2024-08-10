@@ -1053,7 +1053,7 @@ impl std::fmt::Debug for FFIValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             FFIValue::BoxedFunction(func) => write!(f, "{:?}", func),
-            FFIValue::Custom { custom } => write!(f, "{:?}", custom.display()?),
+            FFIValue::Custom { custom } => write!(f, "#<OpaqueFFIValue>"),
             FFIValue::BoolV(b) => write!(f, "{:?}", b),
             FFIValue::NumV(n) => write!(f, "{:?}", n),
             FFIValue::IntV(i) => write!(f, "{:?}", i),
