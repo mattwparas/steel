@@ -26,7 +26,6 @@ impl<'a> RenameIdentifiersVisitor<'a> {
     }
 
     pub fn add(&mut self, ident: InternedString) {
-        println!("Adding identifier: {}", ident.resolve());
         self.introduced_identifiers.insert(ident);
     }
 

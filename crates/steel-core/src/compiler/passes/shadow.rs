@@ -211,7 +211,7 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
                     self.str_modifiers.insert(modifier, modifier.to_string());
                     mut_var.push_str(self.str_modifiers.get(&modifier).unwrap());
                 }
-                println!("Renaming: {} -> {}", variable.resolve(), mut_var);
+                // println!("Renaming: {} -> {}", variable.resolve(), mut_var);
 
                 *variable = mut_var.into();
 

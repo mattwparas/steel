@@ -258,6 +258,18 @@
                 (syntax-rules ()
                   [(_ #t ...) 1])))
 
+(define-syntax t
+  (syntax-rules ()
+    [(t a)
+     (begin
+       (define/contract (_t b)
+         (->/c number? number?)
+         (add1 b))
+
+       (_t a))]))
+
+(check-equal? "macro expansion correctly works within another syntax rules" (t 10) 11)
+
 ;; -------------- Report ------------------
 
 (define stats (get-test-stats))
