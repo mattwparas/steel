@@ -273,8 +273,8 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
                 // that was also introduced via macro, then we want to resolve
                 // this variable to point to that one as well.
                 if unresolved && !self.reverse_map.contains_key(ident) {
-                    println!("Skipping mangling: {}", a);
-                    println!("Introduced via macro: {}", a.syn.introduced_via_macro);
+                    // println!("Skipping mangling: {}", a);
+                    // println!("Introduced via macro: {}", a.syn.introduced_via_macro);
                     return;
                 }
 
