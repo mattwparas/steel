@@ -2,16 +2,6 @@
          make-command-line-arg-parser
          get-option)
 
-;; Bring in the options library
-; (require "steel/option")
-
-;; Options - these become things like:
-;; --help
-;; --foo bar
-;; etc.
-
-; (define test-args '("foo" "bar" "--optional-arg" "bananas"))
-
 ;; Setup the argument parser spec
 (struct ArgumentParserSpec (docs subcommands positional-args required-args optional-args))
 
@@ -67,7 +57,30 @@
 
         (define arg-name (trim-start-matches next "-"))
 
-        (error "todo!")]
+        ;; TODO: Share the same logic with the above stuff
+        (cond
+          [(hash-contains? (ArgumentParserSpec-required-args spec) arg-name)
+           ;; Rework this so the list goes later?
+           (parse spec
+                  (cddr arg-list)
+                  positional-args
+                  (hash-insert required-args arg-name (cadr arg-list))
+                  optional-args)]
+
+          ;; Optional arguments are those where the presence of the flag
+          ;; just dictates that the flag is enabled, not that we need to
+          ;; eagerly parse the next argument.
+          [(hash-contains? (ArgumentParserSpec-optional-args spec) arg-name)
+
+           ;; The existence of the flag means its enabled. But, on the off chance
+           ;; that the flag value exists, take it.
+           (parse spec
+                  (cdr arg-list)
+                  positional-args
+                  required-args
+                  (hash-insert optional-args arg-name #t))]
+
+          [else (error "Unrecognized command line argument: " arg-name)])]
 
        [else
         ;; We've already collected all of the arguments we're expecting, so we
@@ -81,11 +94,6 @@
                (cons (car arg-list) positional-args)
                required-args
                optional-args)])]))
-
-;; Declarative API?
-(define-syntax command-line-args
-  (syntax-rules ()
-    [(_) (error "TODO")]))
 
 ;; Create a command line parser, given a spec
 (define (make-command-line-arg-parser
@@ -125,19 +133,14 @@
      (parse local-spec (drop (command-line) 2) '() required-args optional-args)]
     [(command-line-args) (parse local-spec command-line-args '() required-args optional-args)]))
 
-;; Setup some kind of macro system to declare the interface, and in theory
-;; it should resolve to the right things.
-
 ;; Check the value, otherwise
 (define (get-option spec option)
   (define required (ArgumentParsingResult-required-args spec))
   (define optional (ArgumentParsingResult-optional-args spec))
   (if (hash-contains? required option) (hash-ref required option) (hash-ref optional option)))
 
-(define my-options
-  (make-command-line-arg-parser #:positional (list '("path" "The input path to read")
-                                                   '("output" "The output path to read"))
-                                #:required '((("required-arg-1" #f) "Setting up the values"))))
-
-(define (render-help spec)
-  (error "TODO"))
+;; Example
+; (define my-options
+;   (make-command-line-arg-parser #:positional (list '("path" "The input path to read")
+;                                                    '("output" "The output path to read"))
+;                                 #:required '((("required-arg-1" #f) "Setting up the values"))))
