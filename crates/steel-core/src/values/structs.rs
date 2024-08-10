@@ -236,8 +236,8 @@ impl UserDefinedStruct {
                 let error_message = format!(
                     "{} expected {} arguments, found {}",
                     descriptor.name(),
+                    len,
                     args.len(),
-                    len
                 );
                 stop!(ArityMismatch => error_message);
             }

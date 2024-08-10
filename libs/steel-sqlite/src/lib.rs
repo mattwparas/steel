@@ -130,6 +130,7 @@ impl Drop for SqliteTransaction {
     }
 }
 
+#[derive(Debug)]
 enum SqliteError {
     TransactionAlreadyCompleted,
     Generic(rusqlite::Error),

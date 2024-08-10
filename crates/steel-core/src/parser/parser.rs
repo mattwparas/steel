@@ -45,7 +45,7 @@ pub(crate) struct InterierSources {
 
 impl InterierSources {
     pub fn new() -> Self {
-        let mut sources = InterierSources {
+        let sources = InterierSources {
             paths: HashMap::new(),
             reverse: HashMap::new(),
             sources: Vec::new(),

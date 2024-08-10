@@ -14,7 +14,7 @@ use clap::Parser;
 
 /// Steel Interpreter
 #[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
+#[clap(author, version, about, long_about = None, trailing_var_arg = true)]
 pub struct Args {
     /// What action to perform on this file, the absence of a subcommand indicates that the given file (if any)
     /// will be run as the entrypoint

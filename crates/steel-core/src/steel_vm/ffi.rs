@@ -147,13 +147,12 @@ macro_rules! conversion_error {
     };
 }
 
-impl<T: IntoFFIVal, E: IntoFFIVal> IntoFFIVal for std::result::Result<T, E> {
+impl<T: IntoFFIVal, E: IntoFFIVal + std::fmt::Debug> IntoFFIVal for std::result::Result<T, E> {
     fn into_ffi_val(self) -> RResult<FFIValue, RBoxError> {
         match self {
             Ok(v) => v.into_ffi_val(),
             Err(e) => {
-                let error: Box<dyn std::error::Error + Send + Sync> =
-                    format!("{:?}", ffi_try!(e.into_ffi_val())).into();
+                let error: Box<dyn std::error::Error + Send + Sync> = format!("{:?}", e).into();
 
                 RResult::RErr(RBoxError::from_box(error))
             }

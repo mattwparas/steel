@@ -71,6 +71,7 @@ impl WebSocketMessage {
 struct WebSocketResponse(Response);
 impl Custom for WebSocketResponse {}
 
+#[derive(Debug)]
 struct WebSocketError(tungstenite::Error);
 
 impl Custom for WebSocketError {

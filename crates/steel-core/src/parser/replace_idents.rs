@@ -163,6 +163,7 @@ impl<'a> ReplaceExpressions<'a> {
                     syn:
                         SyntaxObject {
                             ty: TokenType::Identifier(var),
+                            introduced_via_macro,
                             ..
                         },
                 }) => {
@@ -197,8 +198,14 @@ impl<'a> ReplaceExpressions<'a> {
                         res
                     };
 
-                    // Split off into small vec?
-                    // let back_chunk = vec_exprs.split_off(ellipses_pos - 1);
+                    let mut list_of_exprs = list_of_exprs.to_vec();
+
+                    for expr in list_of_exprs.iter_mut() {
+                        if let ExprKind::Atom(a) = expr {
+                            a.syn.introduced_via_macro = *introduced_via_macro;
+                            a.syn.unresolved = false;
+                        }
+                    }
 
                     let back_chunk = vec_exprs
                         .drain(ellipses_pos - 1..)
@@ -206,15 +213,9 @@ impl<'a> ReplaceExpressions<'a> {
 
                     vec_exprs.reserve(list_of_exprs.len() + back_chunk[2..].len());
 
-                    vec_exprs.extend_from_slice(list_of_exprs);
+                    vec_exprs.append(&mut list_of_exprs);
 
                     vec_exprs.extend_from_slice(&back_chunk[2..]);
-
-                    // let mut first_chunk = vec_exprs[0..ellipses_pos - 1].to_vec();
-                    // first_chunk.extend_from_slice(list_of_exprs);
-                    // first_chunk.extend_from_slice(&vec_exprs[(ellipses_pos + 1)..]);
-
-                    // *vec_exprs = first_chunk;
 
                     Ok(improper)
                 }
@@ -239,7 +240,6 @@ impl<'a> ReplaceExpressions<'a> {
                     std::mem::swap(self.fallback_bindings, &mut original_bindings);
 
                     let mut expanded_expressions = SmallVec::<[ExprKind; 6]>::with_capacity(width);
-                    // let mut expanded_expressions = Vec::with_capacity(width);
 
                     for i in 0..width {
                         let mut template = variable_to_lookup.clone();
@@ -272,24 +272,13 @@ impl<'a> ReplaceExpressions<'a> {
                         .drain(ellipses_pos - 1..)
                         .collect::<SmallVec<[_; 8]>>();
 
-                    // let back_chunk = vec_exprs.split_off(ellipses_pos - 1);
-
+                    // TODO: We might need to mimic the above, where we
+                    // set if the resulting expression was introduced via macro.
                     vec_exprs.reserve(expanded_expressions.len() + back_chunk[2..].len());
-
                     vec_exprs.extend(expanded_expressions);
                     vec_exprs.extend_from_slice(&back_chunk[2..]);
 
-                    // let mut first_chunk = vec_exprs[0..ellipses_pos - 1].to_vec();
-                    // first_chunk.extend_from_slice(&expanded_expressions);
-                    // first_chunk.extend_from_slice(&vec_exprs[(ellipses_pos + 1)..]);
-
-                    // *vec_exprs = first_chunk;
-
                     Ok(improper)
-
-                    // Ok(())
-
-                    // Ok(first_chunk)
                 }
 
                 _ => {
