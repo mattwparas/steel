@@ -1,62 +1,70 @@
 # steel/ord
 Real numbers ordering module.
 ### **<**
-Compares two real numbers to check if the first is less than the second.
+Compares real numbers to check if any number is less than the subsequent.
 
-(< left right) -> bool?
+(< x . rest) -> bool?
 
-* left : real? - The first real number to compare.
-* right : real? - The second real number to compare.
+* x : real? - The first real number to compare.
+* rest : real? - The rest of the numbers to compare.
 
 #### Examples
 ```scheme
+> (< 1) ;; => #t
 > (< 3 2) ;; => #f
 > (< 2 3) ;; => #t
 > (< 3/2 1.5) ;; => #f
 > (< 2.5 3/2) ;; => #t
+> (< 2 5/2 3) ;; #t
 ```
 ### **<=**
-Compares two real numbers to check if the first is less than or equal to the second.
+Compares real numbers to check if any number is less than or equal than the subsequent.
 
-(<= left right) -> bool?
+(<= x . rest) -> bool?
 
-* left : real? - The first real number to compare.
-* right : real? - The second real number to compare.
+* x : real? - The first real number to compare.
+* rest : real? - The rest of the numbers to compare.
 
 #### Examples
 ```scheme
+> (<= 1) ;; => #t
 > (<= 3 2) ;; => #f
 > (<= 2 3) ;; => #t
 > (<= 3/2 1.5) ;; => #t
 > (<= 2.5 3/2) ;; => #f
+> (<= 2 6/2 3) ;; #t
 ```
 ### **>**
-Compares two real numbers to check if the first is greater than the second.
+Compares real numbers to check if any number is greater than the subsequent.
 
-(> left right) -> bool?
+(> x . rest) -> bool?
 
-* left : real? - The first real number to compare.
-* right : real? - The second real number to compare.
+* x : real? - The first real number to compare.
+* rest : real? - The rest of the numbers to compare.
 
 #### Examples
 ```scheme
+> (> 1) ;; => #t
 > (> 3 2) ;; => #t
 > (> 1 1) ;; => #f
 > (> 3/2 1.5) ;; => #f
 > (> 3/2 1.4) ;; => #t
+> (> 3 4/2 1) ;; #t
 ```
 ### **>=**
-Compares two real numbers to check if the first is greater than or equal to the second.
+Compares real numbers to check if any number is greater than or equal than the subsequent.
 
-(>= left right) -> bool?
+(>= x . rest) -> bool?
 
-* left : real? - The first real number to compare.
-* right : real? - The second real number to compare.
+* x : real? - The first real number to compare.
+* rest : real? - The rest of the numbers to compare.
 
 #### Examples
 ```scheme
+> (>= 1) ;; => #t
 > (>= 3 2) ;; => #t
 > (>= 2 3) ;; => #f
 > (>= 3/2 1.5) ;; => #t
 > (>= 3/2 1.4) ;; => #t
+> (>= 2 4/2 1) ;; #t
 ```
