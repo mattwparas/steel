@@ -1,3 +1,4 @@
+use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;
 use crate::rvals::{IntoSteelVal, Result, SteelVal};
 use crate::rvals::{SteelVal::*, SteelVector};
@@ -83,7 +84,7 @@ fn vector_push(vector: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
         },
 
         SteelVal::MutableVector(m) => {
-            m.strong_ptr().borrow_mut().value.push(value);
+            m.strong_ptr().write().value.push(value);
             Ok(SteelVal::Void)
         }
 
@@ -266,7 +267,7 @@ fn immutable_vector_drop(vector: &mut SteelVal, count: usize) -> Result<SteelVal
 #[steel_derive::function(name = "mutable-vector->clear")]
 fn mutable_vector_clear(vec: &HeapRef<Vec<SteelVal>>) {
     // Snag the interior value
-    vec.strong_ptr().borrow_mut().value.clear()
+    vec.strong_ptr().write().value.clear()
 }
 
 #[steel_derive::function(name = "mutable-vector->string")]
@@ -274,7 +275,7 @@ fn mutable_vector_to_list(vec: &HeapRef<Vec<SteelVal>>) -> Result<SteelVal> {
     let guard = vec.strong_ptr();
     let mut buf = String::new();
 
-    for maybe_char in guard.borrow().value.iter() {
+    for maybe_char in guard.read().value.iter() {
         if let SteelVal::CharV(c) = maybe_char {
             buf.push(*c);
         } else {
@@ -287,7 +288,7 @@ fn mutable_vector_to_list(vec: &HeapRef<Vec<SteelVal>>) -> Result<SteelVal> {
 
 #[steel_derive::function(name = "mutable-vector-pop!")]
 fn mutable_vector_pop(vec: &HeapRef<Vec<SteelVal>>) -> Result<SteelVal> {
-    let last = vec.strong_ptr().borrow_mut().value.pop();
+    let last = vec.strong_ptr().write().value.pop();
 
     last.into_steelval()
 }
@@ -343,7 +344,7 @@ impl VectorOperations {
 
             if let SteelVal::MutableVector(v) = vec {
                 let ptr = v.strong_ptr();
-                let guard = &mut ptr.borrow_mut().value;
+                let guard = &mut ptr.write().value;
 
                 // let new = std::mem::replace(guard, Vec::new());
 
@@ -408,7 +409,7 @@ impl VectorOperations {
 
                     let ptr = v.strong_ptr();
 
-                    let guard = &mut ptr.borrow_mut().value;
+                    let guard = &mut ptr.write().value;
 
                     if i as usize > guard.len() {
                         stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
@@ -446,7 +447,7 @@ impl VectorOperations {
 
                     let ptr = v.strong_ptr();
 
-                    let guard = &mut ptr.borrow_mut().value;
+                    let guard = &mut ptr.write().value;
 
                     if i as usize >= guard.len() {
                         stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
@@ -481,7 +482,7 @@ impl VectorOperations {
                 // }
 
                 // TODO: disallow cyclical references on construction
-                v.strong_ptr().borrow_mut().value.push(args[1].clone());
+                v.strong_ptr().write().value.push(args[1].clone());
                 Ok(SteelVal::Void)
             } else {
                 stop!(TypeMismatch => "vector-push! expects a vector, found: {:?}", vec);
@@ -501,9 +502,9 @@ impl VectorOperations {
             if let SteelVal::MutableVector(left) = vec {
                 if let SteelVal::MutableVector(right) = other_vec {
                     left.strong_ptr()
-                        .borrow_mut()
+                        .write()
                         .value
-                        .append(&mut right.strong_ptr().borrow_mut().value);
+                        .append(&mut right.strong_ptr().write().value);
                     Ok(SteelVal::Void)
                 } else {
                     stop!(TypeMismatch => "vetor-append! expects a vector in the second position, found: {:?}", other_vec);

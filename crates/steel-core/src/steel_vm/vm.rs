@@ -14,6 +14,7 @@ use crate::primitives::lists::new as new_list;
 use crate::primitives::lists::steel_cons;
 use crate::primitives::numbers::add_two;
 use crate::rvals::number_equality;
+use crate::rvals::BoxedAsyncFunctionSignature;
 use crate::steel_vm::primitives::steel_not;
 use crate::steel_vm::primitives::steel_set_box_mutable;
 use crate::steel_vm::primitives::steel_unbox_mutable;
@@ -140,7 +141,7 @@ impl DehydratedStackTrace {
 pub struct StackFrame {
     sp: usize,
     // This _has_ to be a function
-    pub(crate) handler: Option<Rc<SteelVal>>,
+    pub(crate) handler: Option<Shared<SteelVal>>,
     // This should get added to the GC as well
     #[cfg(not(feature = "unsafe-internals"))]
     pub(crate) function: Gc<ByteCodeLambda>,
@@ -240,7 +241,7 @@ impl StackFrame {
     }
 
     pub fn with_handler(mut self, handler: SteelVal) -> Self {
-        self.handler = Some(Rc::new(handler));
+        self.handler = Some(Shared::new(handler));
         self
     }
 }
@@ -3369,7 +3370,8 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     fn call_future_func(
         &mut self,
-        f: Box<Rc<dyn Fn(&[SteelVal]) -> Result<FutureResult>>>,
+        // f: Shared<Box<dyn Fn(&[SteelVal]) -> Result<FutureResult>>>,
+        f: BoxedAsyncFunctionSignature,
         payload_size: usize,
     ) -> Result<()> {
         let last_index = self.thread.stack.len() - payload_size;

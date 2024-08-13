@@ -1012,6 +1012,15 @@ pub enum FFIValue {
     },
 }
 
+// TODO: @Matt - Do some testing to make sure this isn't insanely bad
+#[cfg(feature = "sync")]
+unsafe impl Sync for FFIValue {}
+
+struct SyncFfiFuture(FfiFuture<RResult<FFIValue, RBoxError>>);
+
+#[cfg(feature = "sync")]
+unsafe impl Sync for SyncFfiFuture {}
+
 impl FFIValue {
     pub fn try_clone(&self) -> Option<FFIValue> {
         match self {
@@ -1182,11 +1191,15 @@ impl IntoSteelVal for FFIValue {
             // Attempt to move this across the FFI Boundary... We'll see how successful it is.
             FFIValue::Future { fut } => Ok(SteelVal::FutureV(Gc::new(FutureResult::new(
                 Box::pin(async {
-                    fut.map(|x| match x {
-                        RResult::ROk(v) => v.into_steelval(),
-                        RResult::RErr(e) => Err(SteelErr::new(ErrorKind::Generic, e.to_string())),
-                    })
-                    .await
+                    SyncFfiFuture(fut)
+                        .0
+                        .map(|x| match x {
+                            RResult::ROk(v) => v.into_steelval(),
+                            RResult::RErr(e) => {
+                                Err(SteelErr::new(ErrorKind::Generic, e.to_string()))
+                            }
+                        })
+                        .await
                 }),
             )))),
         }

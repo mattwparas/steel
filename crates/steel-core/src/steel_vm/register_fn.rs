@@ -7,20 +7,23 @@ use super::{
     engine::Engine,
 };
 use crate::{
-    gc::unsafe_erased_pointers::{
-        BorrowedObject, OpaqueReferenceNursery, ReadOnlyBorrowedObject, ReadOnlyTemporary,
-        Temporary,
+    gc::unsafe_erased_pointers::{ReadOnlyTemporaryObject, TemporaryObject},
+    steel_vm::builtin::BuiltInModule,
+};
+use crate::{gc::Gc, values::lists::List};
+use crate::{
+    gc::{
+        unsafe_erased_pointers::{
+            BorrowedObject, OpaqueReferenceNursery, ReadOnlyBorrowedObject, ReadOnlyTemporary,
+            Temporary,
+        },
+        Shared,
     },
     rvals::{
         AsRefMutSteelValFromRef, AsRefSteelVal, AsRefSteelValFromUnsized, AsSlice, FromSteelVal,
         IntoSteelVal, Result, SteelVal,
     },
 };
-use crate::{
-    gc::unsafe_erased_pointers::{ReadOnlyTemporaryObject, TemporaryObject},
-    steel_vm::builtin::BuiltInModule,
-};
-use crate::{gc::Gc, values::lists::List};
 use crate::{rvals::AsRefSteelValFromRef, stop};
 use crate::{
     rvals::{AsRefMutSteelVal, FutureResult},
@@ -47,6 +50,7 @@ pub trait RegisterFnBorrowed<FN, ARGS, RET> {
 }
 
 pub trait SendSyncStatic: Send + Sync + 'static {}
+
 impl<T: Send + Sync + 'static> SendSyncStatic for T {}
 
 // Exists only to provides some bounds for the impl_register_fn implementation
@@ -74,7 +78,7 @@ impl<'a> std::ops::Deref for RestArgs<'a> {
 }
 
 impl<
-        FUT: Future<Output = RET> + 'static,
+        FUT: Future<Output = RET> + SendSyncStatic,
         RET: IntoSteelVal + 'static,
         FN: Fn() -> FUT + SendSyncStatic,
     > RegisterFn<FN, AsyncWrapper<()>, RET> for Engine
@@ -90,7 +94,7 @@ impl<
             Ok(FutureResult::new(Box::pin(res.map(|x| x.into_steelval()))))
         };
 
-        self.register_value(name, SteelVal::FutureFunc(Box::new(Rc::new(f))))
+        self.register_value(name, SteelVal::FutureFunc(Shared::new(Box::new(f))))
     }
 }
 
@@ -1477,7 +1481,7 @@ impl<
 // }
 
 impl<
-        FUT: Future<Output = RET> + 'static,
+        FUT: Future<Output = RET> + SendSyncStatic,
         RET: IntoSteelVal + 'static,
         FN: Fn() -> FUT + SendSyncStatic,
     > RegisterFn<FN, AsyncWrapper<()>, RET> for BuiltInModule
@@ -1493,7 +1497,7 @@ impl<
             Ok(FutureResult::new(Box::pin(res.map(|x| x.into_steelval()))))
         };
 
-        self.register_value(name, SteelVal::FutureFunc(Box::new(Rc::new(f))))
+        self.register_value(name, SteelVal::FutureFunc(Shared::new(Box::new(f))))
     }
 }
 
@@ -1895,7 +1899,7 @@ macro_rules! impl_register_fn {
         // Async functions
 
         impl<
-            FUT: Future<Output = RET> + 'static,
+            FUT: Future<Output = RET> + SendSyncStatic,
             $($param: FromSteelVal,)*
             FN: Fn($($param),*) -> FUT + SendSyncStatic,
             RET: IntoSteelVal
@@ -1911,12 +1915,12 @@ macro_rules! impl_register_fn {
                     Ok(FutureResult::new(Box::pin(res.map(|x| x.into_steelval()))))
                 };
 
-                self.register_value(name, SteelVal::FutureFunc(Box::new(Rc::new(f))))
+                self.register_value(name, SteelVal::FutureFunc(Shared::new(Box::new(f))))
             }
         }
 
         impl<
-            FUT: Future<Output = RET> + 'static,
+            FUT: Future<Output = RET> + SendSyncStatic,
             $($param: FromSteelVal,)*
             FN: Fn($($param),*) -> FUT + SendSyncStatic,
             RET: IntoSteelVal
@@ -1932,7 +1936,7 @@ macro_rules! impl_register_fn {
                     Ok(FutureResult::new(Box::pin(res.map(|x| x.into_steelval()))))
                 };
 
-                self.register_value(name, SteelVal::FutureFunc(Box::new(Rc::new(f))))
+                self.register_value(name, SteelVal::FutureFunc(Shared::new(Box::new(f))))
             }
         }
     };

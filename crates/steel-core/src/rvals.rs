@@ -31,7 +31,7 @@ use crate::{
 use std::vec::IntoIter;
 use std::{
     any::{Any, TypeId},
-    cell::{Ref, RefCell, RefMut},
+    cell::RefCell,
     cmp::Ordering,
     convert::TryInto,
     fmt,
@@ -88,11 +88,23 @@ pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
 pub type Result<T> = result::Result<T, SteelErr>;
 pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
 pub type MutFunctionSignature = fn(&mut [SteelVal]) -> Result<SteelVal>;
-pub type BoxedFunctionSignature = Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>>;
-pub type BoxedAsyncFunctionSignature = Box<Rc<dyn Fn(&[SteelVal]) -> Result<FutureResult>>>;
+
+#[cfg(not(feature = "sync"))]
+pub type BoxedAsyncFunctionSignature =
+    crate::gc::Shared<Box<dyn Fn(&[SteelVal]) -> Result<FutureResult>>>;
+
+#[cfg(feature = "sync")]
+pub type BoxedAsyncFunctionSignature =
+    crate::gc::Shared<Box<dyn Fn(&[SteelVal]) -> Result<FutureResult> + Send + Sync + 'static>>;
+
 pub type AsyncSignature = fn(&[SteelVal]) -> FutureResult;
 
+#[cfg(not(feature = "sync"))]
 pub type BoxedFutureResult = Pin<Box<dyn Future<Output = Result<SteelVal>>>>;
+
+#[cfg(feature = "sync")]
+pub type BoxedFutureResult =
+    Pin<Box<dyn Future<Output = Result<SteelVal>> + Send + Sync + 'static>>;
 
 #[derive(Clone)]
 pub struct FutureResult(Shared<BoxedFutureResult>);
@@ -168,40 +180,69 @@ pub trait Custom: private::Sealed {
     }
 }
 
-pub trait CustomType {
-    // fn box_clone(&self) -> Box<dyn CustomType>;
-    // fn as_any(&self) -> Box<dyn Any>;
+#[cfg(not(feature = "sync"))]
+trait MaybeSendSyncStatic: 'static {}
+
+#[cfg(not(feature = "sync"))]
+impl<T: 'static> MaybeSendSyncStatic for T {}
+
+#[cfg(feature = "sync")]
+pub trait MaybeSendSyncStatic: Send + Sync + 'static {}
+
+#[cfg(feature = "sync")]
+impl<T: Send + Sync + 'static> MaybeSendSyncStatic for T {}
+
+#[cfg(feature = "sync")]
+pub trait CustomType: MaybeSendSyncStatic {
     fn as_any_ref(&self) -> &dyn Any;
     fn as_any_ref_mut(&mut self) -> &mut dyn Any;
     fn name(&self) -> &str {
         std::any::type_name::<Self>()
     }
     fn inner_type_id(&self) -> TypeId;
-    // fn new_steel_val(&self) -> SteelVal;
     fn display(&self) -> std::result::Result<String, std::fmt::Error> {
         Ok(format!("#<{}>", self.name().to_string()))
     }
-
     fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         None
     }
-
-    // Implement visit for anything that holds steel values
     fn drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
-
     fn visit_children(&self, _context: &mut MarkAndSweepContext) {}
     fn visit_children_for_equality(&self, _visitor: &mut cycles::EqualityVisitor) {}
-
     fn check_equality_hint(&self, _other: &dyn CustomType) -> bool {
         true
     }
-
     fn check_equality_hint_general(&self, _other: &SteelVal) -> bool {
         false
     }
 }
 
-impl<T: Custom + 'static> CustomType for T {
+#[cfg(not(feature = "sync"))]
+pub trait CustomType {
+    fn as_any_ref(&self) -> &dyn Any;
+    fn as_any_ref_mut(&mut self) -> &mut dyn Any;
+    fn name(&self) -> &str {
+        std::any::type_name::<Self>()
+    }
+    fn inner_type_id(&self) -> TypeId;
+    fn display(&self) -> std::result::Result<String, std::fmt::Error> {
+        Ok(format!("#<{}>", self.name().to_string()))
+    }
+    fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
+        None
+    }
+    fn drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
+    fn visit_children(&self, _context: &mut MarkAndSweepContext) {}
+    fn visit_children_for_equality(&self, _visitor: &mut cycles::EqualityVisitor) {}
+    fn check_equality_hint(&self, _other: &dyn CustomType) -> bool {
+        true
+    }
+    fn check_equality_hint_general(&self, _other: &SteelVal) -> bool {
+        false
+    }
+}
+
+impl<T: Custom + MaybeSendSyncStatic> CustomType for T {
     fn as_any_ref(&self) -> &dyn Any {
         self as &dyn Any
     }
@@ -465,7 +506,7 @@ impl AsRefSteelVal for UserDefinedStruct {
     }
 }
 
-impl<T: CustomType + 'static> AsRefSteelVal for T {
+impl<T: CustomType + MaybeSendSyncStatic> AsRefSteelVal for T {
     type Nursery = ();
 
     fn as_ref<'b, 'a: 'b>(
@@ -500,7 +541,7 @@ impl<T: CustomType + 'static> AsRefSteelVal for T {
     }
 }
 
-impl<T: CustomType + 'static> AsRefMutSteelVal for T {
+impl<T: CustomType + MaybeSendSyncStatic> AsRefMutSteelVal for T {
     fn as_mut_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<MappedScopedWriteContainer<'b, Self>> {
         if let SteelVal::Custom(v) = val {
             let res = ScopedWriteContainer::map(v.write(), |x| x.as_any_ref_mut());
@@ -1123,9 +1164,6 @@ pub enum TypeKind {
     List(Box<TypeKind>),
 }
 
-// TODO: Make this repr(transparent)
-// to work correctly with FFI
-
 /// A value as represented in the runtime.
 #[derive(Clone)]
 pub enum SteelVal {
@@ -1209,6 +1247,15 @@ pub enum SteelVal {
     Complex(Gc<SteelComplex>),
     // Byte vectors
     ByteVector(SteelByteVector),
+}
+
+#[cfg(feature = "sync")]
+fn check_send_sync() {
+    let value = SteelVal::IntV(10);
+
+    let handle = std::thread::spawn(move || value);
+
+    handle.join();
 }
 
 #[derive(Clone)]
@@ -1555,7 +1602,10 @@ pub enum BuiltInDataStructureIterator {
     Set(HashSetConsumingIter<SteelVal>),
     Map(HashMapConsumingIter<SteelVal, SteelVal>),
     String(Chunks),
+    #[cfg(not(feature = "sync"))]
     Opaque(Box<dyn Iterator<Item = SteelVal>>),
+    #[cfg(feature = "sync")]
+    Opaque(Box<dyn Iterator<Item = SteelVal> + Send + Sync + 'static>),
 }
 
 impl BuiltInDataStructureIterator {
@@ -1568,7 +1618,13 @@ impl BuiltInDataStructureIterator {
 }
 
 impl BuiltInDataStructureIterator {
-    pub fn from_iterator<T: IntoSteelVal, S: IntoIterator<Item = T> + 'static>(value: S) -> Self {
+    pub fn from_iterator<
+        T: IntoSteelVal + MaybeSendSyncStatic,
+        I: Iterator<Item = T> + MaybeSendSyncStatic,
+        S: IntoIterator<Item = T, IntoIter = I> + MaybeSendSyncStatic,
+    >(
+        value: S,
+    ) -> Self {
         Self::Opaque(Box::new(
             value
                 .into_iter()
@@ -1645,7 +1701,7 @@ impl SteelVal {
             (IterV(l), IterV(r)) => Gc::ptr_eq(l, r),
             (ReducerV(l), ReducerV(r)) => Gc::ptr_eq(l, r),
             #[allow(clippy::vtable_address_comparisons)]
-            (FutureFunc(l), FutureFunc(r)) => Rc::ptr_eq(l, r),
+            (FutureFunc(l), FutureFunc(r)) => crate::gc::Shared::ptr_eq(l, r),
             (FutureV(l), FutureV(r)) => Gc::ptr_eq(l, r),
             (StreamV(l), StreamV(r)) => Gc::ptr_eq(l, r),
             (BoxedFunction(l), BoxedFunction(r)) => Gc::ptr_eq(l, r),

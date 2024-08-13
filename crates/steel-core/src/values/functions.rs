@@ -13,12 +13,11 @@ use fxhash::FxHashSet;
 
 use crate::{
     core::{instructions::DenseInstruction, opcode::OpCode},
-    gc::{Gc, Shared},
+    gc::{shared::MutContainer, shared::ShareableMut, Gc, Shared},
     parser::{parser::SyntaxObjectId, span::Span},
     rvals::{
-        from_serializable_value, into_serializable_value, AsRefSteelVal, BoxedFunctionSignature,
-        Custom, FunctionSignature, HeapSerializer, IntoSteelVal, MutFunctionSignature,
-        SerializableSteelVal, SteelString,
+        from_serializable_value, into_serializable_value, AsRefSteelVal, Custom, FunctionSignature,
+        HeapSerializer, IntoSteelVal, MutFunctionSignature, SerializableSteelVal, SteelString,
     },
     steel_vm::{
         register_fn::SendSyncStatic,
@@ -120,7 +119,7 @@ pub struct ByteCodeLambda {
     pub(crate) blocks: RefCell<Vec<(BlockPattern, BlockMetadata)>>,
 
     // This is a little suspicious, but it should give us the necessary information to attach a struct of metadata
-    contract: RefCell<Option<Gc<UserDefinedStruct>>>,
+    contract: MutContainer<Option<Gc<UserDefinedStruct>>>,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -322,16 +321,37 @@ impl ByteCodeLambda {
     // }
 
     pub fn attach_contract_information(&self, steel_struct: Gc<UserDefinedStruct>) {
-        let mut guard = self.contract.borrow_mut();
+        #[cfg(feature = "sync")]
+        {
+            let mut guard = self.contract.write();
 
-        *guard = Some(steel_struct);
+            *guard = Some(steel_struct);
+        }
+
+        #[cfg(not(feature = "sync"))]
+        {
+            let mut guard = self.contract.borrow_mut();
+
+            *guard = Some(steel_struct);
+        }
     }
 
     pub fn get_contract_information(&self) -> Option<SteelVal> {
-        self.contract
-            .borrow()
-            .as_ref()
-            .map(|x| SteelVal::CustomStruct(x.clone()))
+        #[cfg(feature = "sync")]
+        {
+            self.contract
+                .read()
+                .as_ref()
+                .map(|x| SteelVal::CustomStruct(x.clone()))
+        }
+
+        #[cfg(not(feature = "sync"))]
+        {
+            self.contract
+                .borrow()
+                .as_ref()
+                .map(|x| SteelVal::CustomStruct(x.clone()))
+        }
     }
 
     // pub fn mark_hot(&self) {

@@ -6,7 +6,10 @@ use std::{
 
 use crate::{
     compiler::map::SymbolMap,
-    gc::{shared::ShareableMut, GcMut},
+    gc::{
+        shared::{MutContainer, ShareableMut, WeakShared},
+        GcMut, Shared, SharedMut,
+    },
     rvals::{OpaqueIterator, SteelComplex, SteelVector},
     steel_vm::vm::{Continuation, ContinuationMark},
     values::lists::List,
@@ -95,8 +98,8 @@ impl GlobalSlotRecycler {
         self.visit();
 
         // put them back as unreachable
-        heap.memory.iter().for_each(|x| x.borrow_mut().reset());
-        heap.vectors.iter().for_each(|x| x.borrow_mut().reset());
+        heap.memory.iter().for_each(|x| x.write().reset());
+        heap.vectors.iter().for_each(|x| x.write().reset());
 
         // Anything that is still remaining will require
         // getting added to the free list that is left.
@@ -480,8 +483,8 @@ impl SteelVal {
     }
 }
 
-type HeapValue = Rc<RefCell<HeapAllocated<SteelVal>>>;
-type HeapVector = Rc<RefCell<HeapAllocated<Vec<SteelVal>>>>;
+type HeapValue = SharedMut<HeapAllocated<SteelVal>>;
+type HeapVector = SharedMut<HeapAllocated<Vec<SteelVal>>>;
 
 // Maybe uninitialized
 
@@ -510,8 +513,8 @@ impl FreeList {
         // Drain, moving values around...
         // is that expensive?
 
-        let pointer = Rc::new(RefCell::new(HeapAllocated::new(value)));
-        let weak_ptr = Rc::downgrade(&pointer);
+        let pointer = Shared::new(MutContainer::new(HeapAllocated::new(value)));
+        let weak_ptr = Shared::downgrade(&pointer);
 
         self.elements[self.cursor] = Some(pointer);
         self.alloc_count += 1;
@@ -552,11 +555,11 @@ impl FreeList {
     }
 
     fn weak_collection(&mut self) -> usize {
-        self.collect_on_condition(|inner| Rc::weak_count(inner) == 0)
+        self.collect_on_condition(|inner| Shared::weak_count(inner) == 0)
     }
 
     fn strong_collection(&mut self) -> usize {
-        self.collect_on_condition(|inner| !inner.borrow().is_reachable())
+        self.collect_on_condition(|inner| !inner.read().is_reachable())
     }
 }
 
@@ -634,8 +637,8 @@ impl Heap {
     ) -> HeapRef<SteelVal> {
         self.collect(Some(value.clone()), None, roots, live_functions, globals);
 
-        let pointer = Rc::new(RefCell::new(HeapAllocated::new(value)));
-        let weak_ptr = Rc::downgrade(&pointer);
+        let pointer = Shared::new(MutContainer::new(HeapAllocated::new(value)));
+        let weak_ptr = Shared::downgrade(&pointer);
 
         self.memory.push(pointer);
 
@@ -643,8 +646,8 @@ impl Heap {
     }
 
     pub fn allocate_without_collection<'a>(&mut self, value: SteelVal) -> HeapRef<SteelVal> {
-        let pointer = Rc::new(RefCell::new(HeapAllocated::new(value)));
-        let weak_ptr = Rc::downgrade(&pointer);
+        let pointer = Shared::new(MutContainer::new(HeapAllocated::new(value)));
+        let weak_ptr = Shared::downgrade(&pointer);
 
         self.memory.push(pointer);
 
@@ -661,8 +664,8 @@ impl Heap {
     ) -> HeapRef<Vec<SteelVal>> {
         self.collect(None, Some(&values), roots, live_functions, globals);
 
-        let pointer = Rc::new(RefCell::new(HeapAllocated::new(values)));
-        let weak_ptr = Rc::downgrade(&pointer);
+        let pointer = Shared::new(MutContainer::new(HeapAllocated::new(values)));
+        let weak_ptr = Shared::downgrade(&pointer);
 
         self.vectors.push(pointer);
 
@@ -675,8 +678,8 @@ impl Heap {
     }
 
     pub fn weak_collection(&mut self) {
-        self.memory.retain(|x| Rc::weak_count(x) > 0);
-        self.vectors.retain(|x| Rc::weak_count(x) > 0);
+        self.memory.retain(|x| Shared::weak_count(x) > 0);
+        self.vectors.retain(|x| Shared::weak_count(x) > 0);
     }
 
     // TODO: Call this in more areas in the VM to attempt to free memory more carefully
@@ -711,8 +714,8 @@ impl Heap {
                 log::debug!(target: "gc", "Small collection");
                 let prior_len = self.memory.len() + self.vector_cells_allocated();
                 log::debug!(target: "gc", "Previous length: {:?}", prior_len);
-                self.memory.retain(|x| Rc::weak_count(x) > 0);
-                self.vectors.retain(|x| Rc::weak_count(x) > 0);
+                self.memory.retain(|x| Shared::weak_count(x) > 0);
+                self.vectors.retain(|x| Shared::weak_count(x) > 0);
                 let after = self.memory.len() + self.vector_cells_allocated();
                 log::debug!(target: "gc", "Objects freed: {:?}", prior_len - after);
                 log::debug!(target: "gc", "Small collection time: {:?}", now.elapsed());
@@ -823,8 +826,8 @@ impl Heap {
         let prior_len = self.memory.len() + self.vector_cells_allocated();
 
         // sweep
-        self.memory.retain(|x| x.borrow().is_reachable());
-        self.vectors.retain(|x| x.borrow().is_reachable());
+        self.memory.retain(|x| x.read().is_reachable());
+        self.vectors.retain(|x| x.read().is_reachable());
 
         let after_len = self.memory.len();
 
@@ -834,8 +837,8 @@ impl Heap {
         log::debug!(target: "gc", "Objects alive: {:?}", after_len);
 
         // put them back as unreachable
-        self.memory.iter().for_each(|x| x.borrow_mut().reset());
-        self.vectors.iter().for_each(|x| x.borrow_mut().reset());
+        self.memory.iter().for_each(|x| x.write().reset());
+        self.vectors.iter().for_each(|x| x.write().reset());
 
         ROOTS.with(|x| x.borrow_mut().increment_generation());
 
@@ -850,12 +853,12 @@ impl HeapAble for Vec<SteelVal> {}
 
 #[derive(Clone, Debug)]
 pub struct HeapRef<T: HeapAble> {
-    inner: Weak<RefCell<HeapAllocated<T>>>,
+    inner: WeakShared<MutContainer<HeapAllocated<T>>>,
 }
 
 impl<T: HeapAble> HeapRef<T> {
     pub fn get(&self) -> T {
-        self.inner.upgrade().unwrap().borrow().value.clone()
+        self.inner.upgrade().unwrap().read().value.clone()
     }
 
     pub fn as_ptr_usize(&self) -> usize {
@@ -865,34 +868,34 @@ impl<T: HeapAble> HeapRef<T> {
     pub fn set(&mut self, value: T) -> T {
         let inner = self.inner.upgrade().unwrap();
 
-        let ret = { inner.borrow().value.clone() };
+        let ret = { inner.read().value.clone() };
 
-        inner.borrow_mut().value = value;
+        inner.write().value = value;
         ret
     }
 
     pub fn set_and_return(&self, value: T) -> T {
         let inner = self.inner.upgrade().unwrap();
 
-        let mut guard = inner.borrow_mut();
+        let mut guard = inner.write();
         std::mem::replace(&mut guard.value, value)
     }
 
     pub(crate) fn set_interior_mut(&self, value: T) -> T {
         let inner = self.inner.upgrade().unwrap();
 
-        let ret = { inner.borrow().value.clone() };
+        let ret = { inner.read().value.clone() };
 
-        inner.borrow_mut().value = value;
+        inner.write().value = value;
         ret
     }
 
-    pub(crate) fn strong_ptr(&self) -> Rc<RefCell<HeapAllocated<T>>> {
+    pub(crate) fn strong_ptr(&self) -> SharedMut<HeapAllocated<T>> {
         self.inner.upgrade().unwrap()
     }
 
     pub(crate) fn ptr_eq(&self, other: &Self) -> bool {
-        Weak::ptr_eq(&self.inner, &other.inner)
+        WeakShared::ptr_eq(&self.inner, &other.inner)
     }
 }
 
@@ -941,32 +944,32 @@ pub struct MarkAndSweepContext<'a> {
 }
 
 impl<'a> MarkAndSweepContext<'a> {
-    pub(crate) fn mark_heap_reference(&mut self, heap_ref: &Rc<RefCell<HeapAllocated<SteelVal>>>) {
-        if heap_ref.borrow().is_reachable() {
+    pub(crate) fn mark_heap_reference(&mut self, heap_ref: &SharedMut<HeapAllocated<SteelVal>>) {
+        if heap_ref.read().is_reachable() {
             return;
         }
 
         {
-            heap_ref.borrow_mut().mark_reachable();
+            heap_ref.write().mark_reachable();
         }
 
-        self.push_back(heap_ref.borrow().value.clone());
+        self.push_back(heap_ref.read().value.clone());
     }
 
     // Visit the heap vector, mark it as visited!
     pub(crate) fn mark_heap_vector(
         &mut self,
-        heap_vector: &Rc<RefCell<HeapAllocated<Vec<SteelVal>>>>,
+        heap_vector: &SharedMut<HeapAllocated<Vec<SteelVal>>>,
     ) {
-        if heap_vector.borrow().is_reachable() {
+        if heap_vector.read().is_reachable() {
             return;
         }
 
         {
-            heap_vector.borrow_mut().mark_reachable();
+            heap_vector.write().mark_reachable();
         }
 
-        for value in heap_vector.borrow().value.iter() {
+        for value in heap_vector.read().value.iter() {
             self.push_back(value.clone());
         }
     }
