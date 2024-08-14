@@ -114,7 +114,6 @@ create_prelude!(
     "#%private/steel/match",
     for_syntax "#%private/steel/control",
     for_syntax "#%private/steel/contract"
-    // for_syntax "#%private/steel/match"
 );
 
 #[cfg(not(target_arch = "wasm32"))]

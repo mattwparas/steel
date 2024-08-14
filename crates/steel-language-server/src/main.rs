@@ -6,7 +6,7 @@ use steel::{
     parser::interner::InternedString,
     steel_vm::{engine::Engine, register_fn::RegisterFn},
 };
-use steel_language_server::backend::{Backend, ExternalModuleResolver, ENGINE};
+use steel_language_server::backend::{lsp_home, Backend, ExternalModuleResolver, ENGINE};
 
 use tower_lsp::{LspService, Server};
 
@@ -42,8 +42,7 @@ async fn main() {
         cloned_additional_search_paths.insert(path);
     });
 
-    let home_directory =
-        std::env::var("STEEL_LSP_HOME").expect("Have you set your STEEL_LSP_HOME path?");
+    let home_directory = lsp_home();
 
     ENGINE.with(|x| {
         x.borrow_mut().register_module_resolver(

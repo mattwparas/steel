@@ -14,9 +14,12 @@ use ropey::Rope;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use steel::{
-    compiler::passes::analysis::{
-        query_top_level_define, query_top_level_define_on_condition, RequiredIdentifierInformation,
-        SemanticAnalysis,
+    compiler::{
+        modules::steel_home,
+        passes::analysis::{
+            query_top_level_define, query_top_level_define_on_condition,
+            RequiredIdentifierInformation, SemanticAnalysis,
+        },
     },
     parser::{
         ast::ExprKind, expander::SteelMacro, interner::InternedString, parser::SourceId,
@@ -35,6 +38,22 @@ use tower_lsp::lsp_types::SemanticTokenType;
 use crate::diagnostics::{
     DiagnosticContext, DiagnosticGenerator, FreeIdentifiersAndUnusedIdentifiers, StaticArityChecker,
 };
+
+pub fn lsp_home() -> PathBuf {
+    if let Ok(home) = std::env::var("STEEL_LSP_HOME") {
+        return PathBuf::from(home);
+    }
+
+    let mut home_directory =
+        PathBuf::from(steel_home().expect("Unable to find steel home location"));
+    home_directory.push("lsp");
+
+    if !home_directory.exists() {
+        std::fs::create_dir_all(&home_directory).expect("Unable to create the lsp home directory");
+    }
+
+    home_directory
+}
 
 pub const LEGEND_TYPE: &[SemanticTokenType] = &[
     SemanticTokenType::FUNCTION,
@@ -941,10 +960,7 @@ fn configure_lints() -> std::result::Result<UserDefinedLintEngine, Box<dyn Error
         engine_lints.write().unwrap().insert(name);
     });
 
-    let mut directory = PathBuf::from(
-        std::env::var("STEEL_LSP_HOME").expect("Have you set your STEEL_LSP_HOME path?"),
-    );
-
+    let mut directory = lsp_home();
     directory.push("lints");
 
     engine.register_module(diagnostics);
