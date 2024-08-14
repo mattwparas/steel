@@ -1,5 +1,9 @@
-use std::{borrow::Cow, cell::RefCell, rc::Rc, sync::Arc};
+use std::{borrow::Cow, cell::RefCell, sync::Arc};
 
+use crate::gc::shared::{
+    MappedScopedReadContainer, MutContainer, ScopedReadContainer, ShareableMut,
+};
+use crate::gc::{Shared, SharedMut};
 use crate::values::HashMap;
 use crate::{
     containers::RegisterValue,
@@ -39,19 +43,19 @@ use super::vm::BuiltInSignature;
 /// structs. This should be more properly documented.
 #[derive(Clone, Debug)]
 pub struct BuiltInModule {
-    module: Rc<RefCell<BuiltInModuleRepr>>,
+    module: SharedMut<BuiltInModuleRepr>,
 }
 
 #[derive(Clone, Debug)]
 struct BuiltInModuleRepr {
-    pub(crate) name: Rc<str>,
+    pub(crate) name: Shared<str>,
     values: HashMap<Arc<str>, SteelVal, FxBuildHasher>,
     docs: Box<InternalDocumentation>,
     // Add the metadata separate from the pointer, keeps the pointer slim
     fn_ptr_table: HashMap<BuiltInFunctionTypePointer, FunctionSignatureMetadata>,
     // We don't need to generate this every time, just need to
     // clone it?
-    generated_expression: RefCell<Option<ExprKind>>,
+    generated_expression: SharedMut<Option<ExprKind>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -111,7 +115,7 @@ impl Custom for BuiltInModule {}
 
 impl RegisterValue for BuiltInModule {
     fn register_value_inner(&mut self, name: &str, value: SteelVal) -> &mut Self {
-        self.module.borrow_mut().values.insert(name.into(), value);
+        self.module.write().values.insert(name.into(), value);
         self
     }
 }
@@ -167,13 +171,13 @@ pub struct NativeFunctionDefinition {
 }
 
 impl BuiltInModuleRepr {
-    pub fn new<T: Into<Rc<str>>>(name: T) -> Self {
+    pub fn new<T: Into<Shared<str>>>(name: T) -> Self {
         Self {
             name: name.into(),
             values: HashMap::default(),
             docs: Box::new(InternalDocumentation::new()),
             fn_ptr_table: HashMap::new(),
-            generated_expression: RefCell::new(None),
+            generated_expression: Shared::new(MutContainer::new(None)),
         }
     }
 
@@ -267,11 +271,11 @@ impl BuiltInModuleRepr {
     }
 
     pub fn with_module(&mut self, module: BuiltInModule) {
-        self.values = std::mem::take(&mut self.values).union(module.module.borrow().values.clone());
+        self.values = std::mem::take(&mut self.values).union(module.module.read().values.clone());
 
         self.docs
             .definitions
-            .extend(module.module.borrow().docs.definitions.clone());
+            .extend(module.module.read().docs.definitions.clone());
     }
 
     pub fn register_type<T: FromSteelVal + IntoSteelVal>(
@@ -378,8 +382,8 @@ impl BuiltInModuleRepr {
         // log::debug!(target: "engine-creation", "{:p}, Creating module: {} - Prefix: {:?} - cached: {}", self, self.name, prefix, self.generated_expression.borrow().is_some());
 
         // No need to generate this module multiple times -
-        if prefix.is_none() && self.generated_expression.borrow().is_some() {
-            return self.generated_expression.borrow().as_ref().unwrap().clone();
+        if prefix.is_none() && self.generated_expression.read().is_some() {
+            return self.generated_expression.read().as_ref().unwrap().clone();
         }
 
         let module_name = self.unreadable_name();
@@ -428,8 +432,8 @@ impl BuiltInModuleRepr {
         ));
 
         // Cache the generated expression
-        if prefix.is_none() && self.generated_expression.borrow().is_none() {
-            *self.generated_expression.borrow_mut() = Some(res.clone());
+        if prefix.is_none() && self.generated_expression.read().is_none() {
+            *self.generated_expression.write() = Some(res.clone());
         }
 
         // log::debug!(target: "engine-creation", "Generating expression for: {} took: {:?}", self.name, now.elapsed());
@@ -439,22 +443,26 @@ impl BuiltInModuleRepr {
 }
 
 impl BuiltInModule {
-    pub fn new<T: Into<Rc<str>>>(name: T) -> Self {
+    pub fn new<T: Into<Shared<str>>>(name: T) -> Self {
         Self {
-            module: Rc::new(RefCell::new(BuiltInModuleRepr::new(name))),
+            module: Shared::new(MutContainer::new(BuiltInModuleRepr::new(name))),
         }
     }
 
     pub fn names(&self) -> Vec<String> {
-        self.module.borrow().names()
+        self.module.read().names()
     }
 
-    pub fn name(&self) -> Rc<str> {
-        Rc::clone(&self.module.borrow().name)
+    pub fn name(&self) -> Shared<str> {
+        Shared::clone(&self.module.read().name)
     }
 
-    pub fn documentation(&self) -> std::cell::Ref<'_, InternalDocumentation> {
-        std::cell::Ref::map(self.module.borrow(), |x| x.docs.as_ref())
+    // pub fn documentation(&self) -> std::cell::Ref<'_, InternalDocumentation> {
+    //     std::cell::Ref::map(self.module.read(), |x| x.docs.as_ref())
+    // }
+
+    pub fn documentation(&self) -> MappedScopedReadContainer<'_, InternalDocumentation> {
+        ScopedReadContainer::map(self.module.read(), |x| x.docs.as_ref())
     }
 
     // pub fn set_name(&mut self, name: String) {
@@ -515,7 +523,7 @@ impl BuiltInModule {
 
     pub fn contains(&self, ident: &str) -> bool {
         // self.values.contains_key(ident)
-        self.module.borrow().contains(ident)
+        self.module.read().contains(ident)
     }
 
     pub(crate) fn add_to_fn_ptr_table(
@@ -523,35 +531,25 @@ impl BuiltInModule {
         value: BuiltInFunctionType,
         data: FunctionSignatureMetadata,
     ) -> &mut Self {
-        self.module.borrow_mut().add_to_fn_ptr_table(value, data);
+        self.module.write().add_to_fn_ptr_table(value, data);
 
         self
     }
 
     pub fn search(&self, value: SteelVal) -> Option<FunctionSignatureMetadata> {
-        self.module.borrow().search(value)
+        self.module.read().search(value)
     }
 
     pub fn search_by_name(&self, name: &str) -> Option<FunctionSignatureMetadata> {
-        self.module.borrow().search_by_name(name)
+        self.module.read().search_by_name(name)
     }
 
     pub fn bound_identifiers(&self) -> crate::values::lists::List<SteelVal> {
-        // self.values
-        //     .keys()
-        //     .map(|x| SteelVal::StringV(x.to_string().into()))
-        //     .collect()
-
-        self.module.borrow().bound_identifiers()
+        self.module.read().bound_identifiers()
     }
 
     pub fn with_module(self, module: BuiltInModule) -> Self {
-        // self.values.extend(module.values.into_iter());
-
-        // self.docs.definitions.extend(module.docs.definitions);
-        // self
-
-        self.module.borrow_mut().with_module(module);
+        self.module.write().with_module(module);
         self
     }
 
@@ -559,7 +557,7 @@ impl BuiltInModule {
         &mut self,
         predicate_name: &'static str,
     ) -> &mut Self {
-        self.module.borrow_mut().register_type::<T>(predicate_name);
+        self.module.write().register_type::<T>(predicate_name);
         self
     }
 
@@ -568,31 +566,22 @@ impl BuiltInModule {
         definition: impl Into<Cow<'static, str>>,
         description: impl Into<Documentation<'static>>,
     ) -> &mut Self {
-        // self.docs.register_doc(definition, description.into());
-        // self
-
-        self.module
-            .borrow_mut()
-            .register_doc(definition, description);
+        self.module.write().register_doc(definition, description);
         self
     }
 
     // pub fn docs(&self) ->
 
     pub fn get_doc(&self, definition: String) {
-        // if let Some(value) = self.docs.get(&definition) {
-        //     println!("{value}")
-        // }
-
-        self.module.borrow().get_doc(definition);
+        self.module.read().get_doc(definition);
     }
 
     pub fn get_documentation(&self, definition: &str) -> Option<String> {
-        self.module.borrow().get_documentation(definition)
+        self.module.read().get_documentation(definition)
     }
 
     pub(crate) fn unreadable_name(&self) -> String {
-        "%-builtin-module-".to_string() + &self.module.borrow().name
+        "%-builtin-module-".to_string() + &self.module.read().name
     }
 
     /// Add a value to the module namespace. This value can be any legal SteelVal, or if you're explicitly attempting
@@ -608,7 +597,7 @@ impl BuiltInModule {
         doc: DocTemplate<'static>,
     ) -> &mut Self {
         self.module
-            .borrow_mut()
+            .write()
             .register_value_with_doc(name, value, doc);
 
         self
@@ -616,7 +605,7 @@ impl BuiltInModule {
 
     // This _will_ panic given an incorrect value. This will be tied together by macros only allowing legal entries
     pub fn get(&self, name: String) -> SteelVal {
-        self.module.borrow().get(name)
+        self.module.read().get(name)
     }
 
     /// This does the boot strapping for bundling modules
@@ -635,7 +624,7 @@ impl BuiltInModule {
     /// Scripts can choose to include these modules directly, or opt to not, and are not as risk of clobbering their
     /// global namespace.
     pub fn to_syntax(&self, prefix: Option<&str>) -> ExprKind {
-        self.module.borrow().to_syntax(prefix)
+        self.module.read().to_syntax(prefix)
     }
 }
 

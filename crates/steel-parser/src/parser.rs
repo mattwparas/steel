@@ -29,12 +29,6 @@ thread_local! {
     pub static TL_SYNTAX_OBJECT_ID: Cell<usize> = Cell::new(0);
 }
 
-// pub static SYNTAX_OBJECT_ID:
-
-// thread_local {
-
-// }
-
 #[derive(
     Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
 )]
@@ -44,6 +38,7 @@ impl SyntaxObjectId {
     #[inline]
     pub fn fresh() -> Self {
         // SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed))
+        // TODO: Revisit why we're using this here
         SyntaxObjectId(TL_SYNTAX_OBJECT_ID.with(|x| {
             let value = x.get();
             x.set(value + 1);

@@ -6,11 +6,14 @@ use super::{
     builtin::{Arity, FunctionSignatureMetadata},
     engine::Engine,
 };
+use crate::{gc::Gc, rvals::MaybeSendSyncStatic, values::lists::List};
 use crate::{
-    gc::unsafe_erased_pointers::{ReadOnlyTemporaryObject, TemporaryObject},
+    gc::{
+        shared::MutContainer,
+        unsafe_erased_pointers::{ReadOnlyTemporaryObject, TemporaryObject},
+    },
     steel_vm::builtin::BuiltInModule,
 };
-use crate::{gc::Gc, values::lists::List};
 use crate::{
     gc::{
         unsafe_erased_pointers::{
@@ -657,9 +660,9 @@ impl<
         // RET: IntoSteelVal,
         'a,
         SELF: AsRefMutSteelValFromRef + 'a,
-        SELFSTAT: AsRefMutSteelValFromRef + 'static,
+        SELFSTAT: AsRefMutSteelValFromRef + 'static + MaybeSendSyncStatic,
         RET: AsRefMutSteelValFromRef + 'a,
-        STATICRET: AsRefMutSteelValFromRef + 'static,
+        STATICRET: AsRefMutSteelValFromRef + 'static + MaybeSendSyncStatic,
         // INNER: FromSteelVal + Clone + AsRefSteelValFromUnsized<INNER>,
         // F: FromSteelVal,
         FN: (Fn(&'a mut SELF) -> &'a mut RET) + SendSyncStatic,
@@ -686,8 +689,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Rc::new(RefCell::new(erased));
-            let weak_ptr = Rc::downgrade(&wrapped);
+            let wrapped = Shared::new(MutContainer::new(erased));
+            let weak_ptr = Shared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::TemporaryObject { ptr: wrapped };
@@ -744,9 +747,9 @@ impl<
         // RET: IntoSteelVal,
         'a,
         SELF: AsRefMutSteelValFromRef + 'a,
-        SELFSTAT: AsRefMutSteelValFromRef + 'static,
+        SELFSTAT: AsRefMutSteelValFromRef + 'static + MaybeSendSyncStatic,
         RET: AsRefSteelValFromRef + 'a,
-        STATICRET: AsRefSteelValFromRef + 'static,
+        STATICRET: AsRefSteelValFromRef + 'static + MaybeSendSyncStatic,
         FN: (Fn(&'a mut SELF) -> &'a RET) + SendSyncStatic,
     > RegisterFn<FN, MarkerWrapper8<(SELF, RET, STATICRET, SELFSTAT)>, STATICRET> for Engine
 {
@@ -767,8 +770,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Rc::new(RefCell::new(erased));
-            let weak_ptr = Rc::downgrade(&wrapped);
+            let wrapped = Shared::new(MutContainer::new(erased));
+            let weak_ptr = Shared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
@@ -818,9 +821,9 @@ impl<
         // RET: IntoSteelVal,
         'a,
         SELF: AsRefMutSteelValFromRef + 'a,
-        SELFSTAT: AsRefMutSteelValFromRef + 'static,
+        SELFSTAT: AsRefMutSteelValFromRef + 'static + MaybeSendSyncStatic,
         RET: AsRefSteelValFromRef + 'a,
-        STATICRET: AsRefSteelValFromRef + 'static,
+        STATICRET: AsRefSteelValFromRef + 'static + MaybeSendSyncStatic,
         ARG: FromSteelVal,
         FN: (Fn(&'a mut SELF, ARG) -> &'a RET) + SendSyncStatic,
     > RegisterFn<FN, MarkerWrapper8<(SELF, ARG, RET, STATICRET, SELFSTAT)>, STATICRET> for Engine
@@ -843,8 +846,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Rc::new(RefCell::new(erased));
-            let weak_ptr = Rc::downgrade(&wrapped);
+            let wrapped = Shared::new(MutContainer::new(erased));
+            let weak_ptr = Shared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
@@ -893,9 +896,9 @@ impl<
 impl<
         'a,
         SELF: AsRefSteelValFromRef + 'a,
-        SELFSTAT: AsRefSteelValFromRef + 'static,
+        SELFSTAT: AsRefSteelValFromRef + 'static + MaybeSendSyncStatic,
         RET: AsRefSteelValFromRef + 'a,
-        RETSTAT: AsRefSteelValFromRef + 'static,
+        RETSTAT: AsRefSteelValFromRef + 'static + MaybeSendSyncStatic,
         ARG: FromSteelVal,
         FN: (Fn(&'a SELF, ARG) -> RET) + SendSyncStatic,
     > RegisterFnBorrowed<FN, MarkerWrapper9<(SELF, ARG, SELFSTAT, RET, RETSTAT)>, RET>
@@ -923,8 +926,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Rc::new(erased);
-            let weak_ptr = Rc::downgrade(&wrapped);
+            let wrapped = Shared::new(erased);
+            let weak_ptr = Shared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::Temporary { ptr: wrapped };
@@ -962,9 +965,9 @@ impl<
 impl<
         'a,
         SELF: AsRefSteelValFromRef + 'a,
-        SELFSTAT: AsRefSteelValFromRef + 'static,
+        SELFSTAT: AsRefSteelValFromRef + 'static + MaybeSendSyncStatic,
         RET: AsRefSteelValFromRef + 'a,
-        RETSTAT: AsRefSteelValFromRef + 'static,
+        RETSTAT: AsRefSteelValFromRef + 'static + MaybeSendSyncStatic,
         FN: (Fn(&'a SELF) -> RET) + SendSyncStatic,
     > RegisterFnBorrowed<FN, MarkerWrapper9<(SELF, SELFSTAT, RET, RETSTAT)>, RET>
     for BuiltInModule
@@ -990,8 +993,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Rc::new(erased);
-            let weak_ptr = Rc::downgrade(&wrapped);
+            let wrapped = Shared::new(erased);
+            let weak_ptr = Shared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::Temporary { ptr: wrapped };
@@ -1176,9 +1179,9 @@ impl<
         // RET: IntoSteelVal,
         'a,
         SELF: AsRefMutSteelValFromRef + 'a,
-        SELFSTAT: AsRefMutSteelValFromRef + 'static,
+        SELFSTAT: AsRefMutSteelValFromRef + 'static + MaybeSendSyncStatic,
         RET: AsRefMutSteelValFromRef + 'a,
-        STATICRET: AsRefMutSteelValFromRef + 'static,
+        STATICRET: AsRefMutSteelValFromRef + 'static + MaybeSendSyncStatic,
         // INNER: FromSteelVal + Clone + AsRefSteelValFromUnsized<INNER>,
         // F: FromSteelVal,
         FN: (Fn(&'a mut SELF) -> &'a mut RET) + SendSyncStatic,
@@ -1206,8 +1209,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Rc::new(RefCell::new(erased));
-            let weak_ptr = Rc::downgrade(&wrapped);
+            let wrapped = Shared::new(MutContainer::new(erased));
+            let weak_ptr = Shared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::TemporaryObject { ptr: wrapped };
@@ -1263,9 +1266,9 @@ impl<
         // RET: IntoSteelVal,
         'a,
         SELF: AsRefMutSteelValFromRef + 'a,
-        SELFSTAT: AsRefMutSteelValFromRef + 'static,
+        SELFSTAT: AsRefMutSteelValFromRef + 'static + MaybeSendSyncStatic,
         RET: AsRefSteelValFromRef + 'a,
-        STATICRET: AsRefSteelValFromRef + 'static,
+        STATICRET: AsRefSteelValFromRef + 'static + MaybeSendSyncStatic,
         FN: (Fn(&'a mut SELF) -> &'a RET) + SendSyncStatic,
     > RegisterFn<FN, MarkerWrapper8<(SELF, RET, STATICRET, SELFSTAT)>, STATICRET>
     for BuiltInModule
@@ -1287,8 +1290,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Rc::new(RefCell::new(erased));
-            let weak_ptr = Rc::downgrade(&wrapped);
+            let wrapped = Shared::new(MutContainer::new(erased));
+            let weak_ptr = Shared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
@@ -1341,9 +1344,9 @@ impl<
         // RET: IntoSteelVal,
         'a,
         SELF: AsRefMutSteelValFromRef + 'a,
-        SELFSTAT: AsRefMutSteelValFromRef + 'static,
+        SELFSTAT: AsRefMutSteelValFromRef + 'static + MaybeSendSyncStatic,
         RET: AsRefSteelValFromRef + 'a,
-        STATICRET: AsRefSteelValFromRef + 'static,
+        STATICRET: AsRefSteelValFromRef + 'static + MaybeSendSyncStatic,
         ARG: FromSteelVal,
         FN: (Fn(&'a mut SELF, ARG) -> &'a RET) + SendSyncStatic,
     > RegisterFn<FN, MarkerWrapper8<(SELF, ARG, RET, STATICRET, SELFSTAT)>, STATICRET>
@@ -1367,8 +1370,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Rc::new(RefCell::new(erased));
-            let weak_ptr = Rc::downgrade(&wrapped);
+            let wrapped = Shared::new(MutContainer::new(erased));
+            let weak_ptr = Shared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };

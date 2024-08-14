@@ -580,7 +580,7 @@ pub mod unsafe_erased_pointers {
     use crate::rvals::{AsRefSteelValFromRef, MaybeSendSyncStatic};
     use crate::{rerrs::ErrorKind, rvals::AsRefMutSteelValFromRef, SteelErr, SteelVal};
 
-    use super::shared::{MutContainer, WeakShared, WeakSharedMut};
+    use super::shared::{MutContainer, ShareableMut as _, WeakShared, WeakSharedMut};
     use super::{Gc, Shared};
 
     // TODO: This needs to be exanded to n args, probably like 8 with a macro

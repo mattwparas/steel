@@ -103,15 +103,17 @@ pub type AsyncSignature = fn(&[SteelVal]) -> FutureResult;
 pub type BoxedFutureResult = Pin<Box<dyn Future<Output = Result<SteelVal>>>>;
 
 #[cfg(feature = "sync")]
-pub type BoxedFutureResult =
-    Pin<Box<dyn Future<Output = Result<SteelVal>> + Send + Sync + 'static>>;
+pub type BoxedFutureResult = Pin<Box<dyn Future<Output = Result<SteelVal>> + Send + 'static>>;
+
+// TODO: Why can't I put sync here?
+// #[cfg(feature = "sync")]
+// pub type BoxedFutureResult = Pin<Box<dyn Future<Output = Result<SteelVal>> + Send + 'static>>;
 
 #[derive(Clone)]
 pub struct FutureResult(Shared<BoxedFutureResult>);
 
 impl FutureResult {
     pub fn new(fut: BoxedFutureResult) -> Self {
-        // FutureResult()
         FutureResult(fut.shared())
     }
 
@@ -181,7 +183,7 @@ pub trait Custom: private::Sealed {
 }
 
 #[cfg(not(feature = "sync"))]
-trait MaybeSendSyncStatic: 'static {}
+pub trait MaybeSendSyncStatic: 'static {}
 
 #[cfg(not(feature = "sync"))]
 impl<T: 'static> MaybeSendSyncStatic for T {}

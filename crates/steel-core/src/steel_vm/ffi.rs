@@ -1,8 +1,7 @@
 use std::{
     borrow::Cow,
-    cell::{RefCell, RefMut},
+    cell::RefCell,
     marker::PhantomData,
-    rc::Rc,
     sync::{Arc, Mutex},
 };
 
@@ -101,6 +100,10 @@ impl<T: Custom> OpaqueObject for T {}
 pub struct OpaqueFFIValueReturn {
     pub inner: OpaqueObject_TO<'static, RBox<()>>,
 }
+
+// TODO: Come back to this
+unsafe impl Sync for OpaqueFFIValueReturn {}
+unsafe impl Send for OpaqueFFIValueReturn {}
 
 impl Custom for OpaqueFFIValueReturn {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
@@ -850,6 +853,9 @@ struct FFIVector {
     vec: RVec<FFIValue>,
 }
 
+// unsafe impl Sync for FFIVector {}
+unsafe impl Send for FFIVector {}
+
 impl Custom for FFIVector {}
 
 pub fn as_underlying_ffi_type<'a, T: 'static>(
@@ -875,6 +881,9 @@ pub struct CustomRef<'a> {
     guard: ScopedWriteContainer<'a, Box<dyn CustomType>>,
 }
 
+unsafe impl<'a> Sync for CustomRef<'a> {}
+unsafe impl<'a> Send for CustomRef<'a> {}
+
 #[repr(C)]
 #[derive(StableAbi)]
 pub struct VectorRef<'a> {
@@ -883,6 +892,8 @@ pub struct VectorRef<'a> {
     guard: ScopedWriteContainer<'a, Box<dyn CustomType>>,
 }
 
+unsafe impl<'a> Sync for VectorRef<'a> {}
+
 #[repr(C)]
 #[derive(StableAbi)]
 pub struct StringMutRef<'a> {
@@ -890,6 +901,8 @@ pub struct StringMutRef<'a> {
     #[sabi(unsafe_opaque_field)]
     guard: ScopedWriteContainer<'a, Box<dyn CustomType>>,
 }
+
+unsafe impl<'a> Sync for StringMutRef<'a> {}
 
 // TODO:
 // Values that are safe to cross the FFI Boundary as arguments from
@@ -1018,7 +1031,6 @@ unsafe impl Sync for FFIValue {}
 
 struct SyncFfiFuture(FfiFuture<RResult<FFIValue, RBoxError>>);
 
-#[cfg(feature = "sync")]
 unsafe impl Sync for SyncFfiFuture {}
 
 impl FFIValue {
@@ -1189,19 +1201,22 @@ impl IntoSteelVal for FFIValue {
                 .map(SteelVal::HashMapV),
 
             // Attempt to move this across the FFI Boundary... We'll see how successful it is.
-            FFIValue::Future { fut } => Ok(SteelVal::FutureV(Gc::new(FutureResult::new(
-                Box::pin(async {
-                    SyncFfiFuture(fut)
-                        .0
-                        .map(|x| match x {
-                            RResult::ROk(v) => v.into_steelval(),
-                            RResult::RErr(e) => {
-                                Err(SteelErr::new(ErrorKind::Generic, e.to_string()))
-                            }
-                        })
-                        .await
-                }),
-            )))),
+            FFIValue::Future { fut } => {
+                let fut = SyncFfiFuture(fut);
+
+                Ok(SteelVal::FutureV(Gc::new(FutureResult::new(Box::pin(
+                    async {
+                        fut.0
+                            .map(|x| match x {
+                                RResult::ROk(v) => v.into_steelval(),
+                                RResult::RErr(e) => {
+                                    Err(SteelErr::new(ErrorKind::Generic, e.to_string()))
+                                }
+                            })
+                            .await
+                    },
+                )))))
+            }
         }
     }
 }
@@ -1219,6 +1234,8 @@ pub struct FFIBoxedDynFunction {
         RResult<FFIValue, RBoxError>,
     >,
 }
+
+unsafe impl Sync for FFIBoxedDynFunction {}
 
 impl Clone for FFIBoxedDynFunction {
     fn clone(&self) -> Self {

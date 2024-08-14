@@ -5,7 +5,6 @@ use std::{
     collections::HashMap,
     convert::TryFrom,
     hash::Hasher,
-    rc::Rc,
     sync::Arc,
 };
 
@@ -13,7 +12,10 @@ use fxhash::FxHashSet;
 
 use crate::{
     core::{instructions::DenseInstruction, opcode::OpCode},
-    gc::{shared::MutContainer, shared::ShareableMut, Gc, Shared},
+    gc::{
+        shared::{MutContainer, ShareableMut},
+        Gc, Shared, SharedMut,
+    },
     parser::{parser::SyntaxObjectId, span::Span},
     rvals::{
         from_serializable_value, into_serializable_value, AsRefSteelVal, Custom, FunctionSignature,
@@ -102,8 +104,6 @@ pub struct ByteCodeLambda {
     #[cfg(not(feature = "dynamic"))]
     pub(crate) body_exp: Shared<[DenseInstruction]>,
 
-    // #[cfg(not(feature = "dynamic"))]
-    // pub(crate) body_exp: Rc<[DenseInstruction]>,
     pub(crate) arity: u16,
 
     #[cfg(feature = "dynamic")]
@@ -112,13 +112,14 @@ pub struct ByteCodeLambda {
     pub(crate) is_multi_arity: bool,
 
     pub(crate) captures: Vec<SteelVal>,
-    // TODO: Delete this
-    // pub(crate) heap_allocated: RefCell<Vec<HeapRef<SteelVal>>>,
-    // pub(crate) spans: Rc<[Span]>,
     #[cfg(feature = "dynamic")]
     pub(crate) blocks: RefCell<Vec<(BlockPattern, BlockMetadata)>>,
 
     // This is a little suspicious, but it should give us the necessary information to attach a struct of metadata
+    #[cfg(feature = "sync")]
+    contract: SharedMut<Option<Gc<UserDefinedStruct>>>,
+
+    #[cfg(not(feature = "sync"))]
     contract: MutContainer<Option<Gc<UserDefinedStruct>>>,
 }
 
@@ -193,12 +194,12 @@ impl ByteCodeLambda {
 
             is_multi_arity,
             captures,
-            // TODO: Allocated the necessary size right away <- we're going to index into it
-            // heap_allocated: RefCell::new(heap_allocated),
-            // spans,
 
-            // span_id,
-            contract: RefCell::new(None),
+            #[cfg(feature = "sync")]
+            contract: SharedMut::new(MutContainer::new(None)),
+
+            #[cfg(not(feature = "sync"))]
+            contract: MutContainer::new(None),
 
             #[cfg(feature = "dynamic")]
             blocks: RefCell::new(Vec::new()),
