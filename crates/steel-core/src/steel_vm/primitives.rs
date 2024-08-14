@@ -981,7 +981,7 @@ fn ord_module() -> BuiltInModule {
                 }
                 true.into_steelval()
             }
-            _ => panic!("Supposed to be called by ordering functions which ensure arity"),
+            _ => stop!(ArityMismatch => "expected at least one argument"),
         }
     }
 
