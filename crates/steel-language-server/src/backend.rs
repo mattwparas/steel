@@ -48,6 +48,10 @@ pub fn lsp_home() -> PathBuf {
         PathBuf::from(steel_home().expect("Unable to find steel home location"));
     home_directory.push("lsp");
 
+    if !home_directory.exists() {
+        std::fs::create_dir_all(&home_directory).expect("Unable to create the lsp home directory");
+    }
+
     home_directory
 }
 
