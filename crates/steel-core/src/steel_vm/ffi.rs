@@ -12,8 +12,8 @@ use crate::{
     },
     rerrs::ErrorKind,
     rvals::{
-        as_underlying_type_mut, Custom, CustomType, FutureResult, IntoSteelVal, Result,
-        SteelHashMap, SteelVal,
+        as_underlying_type_mut, Custom, CustomType, FutureResult, IntoSteelVal,
+        MaybeSendSyncStatic, Result, SteelHashMap, SteelVal,
     },
     values::functions::{BoxedDynFunction, StaticOrRcStr},
     SteelErr,
@@ -78,20 +78,15 @@ impl<'a, In: StableAbi + 'a, Out: StableAbi, F: Fn(In) -> Out + Send + Sync> RFn
     }
 }
 
+#[cfg(feature = "sync")]
 #[abi_stable::sabi_trait]
+pub trait OpaqueObject: Send + Sync {}
+
+#[cfg(not(feature = "sync"))]
 pub trait OpaqueObject {}
 
 // Blanket implement this for all things that implement Custom!
-impl<T: Custom> OpaqueObject for T {}
-
-// #[repr(C)]
-// #[derive(Clone)]
-// pub struct OpaqueFFIValue {
-//     // pub name: RString,
-//     // TODO: If instead we actually just have a separate FFI safe implementation
-//     // of this, it should actually be just fine.
-//     pub inner: Gc<RefCell<Box<dyn CustomType>>>,
-// }
+impl<T: Custom + MaybeSendSyncStatic> OpaqueObject for T {}
 
 // TODO: Swap this implementation with the above.
 #[repr(C)]
@@ -100,10 +95,6 @@ impl<T: Custom> OpaqueObject for T {}
 pub struct OpaqueFFIValueReturn {
     pub inner: OpaqueObject_TO<'static, RBox<()>>,
 }
-
-// TODO: Come back to this
-unsafe impl Sync for OpaqueFFIValueReturn {}
-unsafe impl Send for OpaqueFFIValueReturn {}
 
 impl Custom for OpaqueFFIValueReturn {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
@@ -217,7 +208,9 @@ impl<T: Into<FFIValue>> IntoFFIVal for T {
 
 impl From<FfiFuture<RResult<FFIValue, RBoxError>>> for FFIValue {
     fn from(value: FfiFuture<RResult<FFIValue, RBoxError>>) -> Self {
-        FFIValue::Future { fut: value }
+        FFIValue::Future {
+            fut: SyncFfiFuture { fut: value },
+        }
     }
 }
 
@@ -444,7 +437,7 @@ impl<'a> FromFFIArg<'a> for FFIArg<'a> {
 // }
 
 // Convert this directly to the type we want on the way out
-impl<T: OpaqueObject + 'static> From<T> for FFIValue {
+impl<T: OpaqueObject + MaybeSendSyncStatic> From<T> for FFIValue {
     fn from(value: T) -> Self {
         FFIValue::Custom {
             custom: OpaqueFFIValueReturn {
@@ -853,9 +846,6 @@ struct FFIVector {
     vec: RVec<FFIValue>,
 }
 
-// unsafe impl Sync for FFIVector {}
-unsafe impl Send for FFIVector {}
-
 impl Custom for FFIVector {}
 
 pub fn as_underlying_ffi_type<'a, T: 'static>(
@@ -881,9 +871,6 @@ pub struct CustomRef<'a> {
     guard: ScopedWriteContainer<'a, Box<dyn CustomType>>,
 }
 
-unsafe impl<'a> Sync for CustomRef<'a> {}
-unsafe impl<'a> Send for CustomRef<'a> {}
-
 #[repr(C)]
 #[derive(StableAbi)]
 pub struct VectorRef<'a> {
@@ -892,8 +879,6 @@ pub struct VectorRef<'a> {
     guard: ScopedWriteContainer<'a, Box<dyn CustomType>>,
 }
 
-unsafe impl<'a> Sync for VectorRef<'a> {}
-
 #[repr(C)]
 #[derive(StableAbi)]
 pub struct StringMutRef<'a> {
@@ -901,8 +886,6 @@ pub struct StringMutRef<'a> {
     #[sabi(unsafe_opaque_field)]
     guard: ScopedWriteContainer<'a, Box<dyn CustomType>>,
 }
-
-unsafe impl<'a> Sync for StringMutRef<'a> {}
 
 // TODO:
 // Values that are safe to cross the FFI Boundary as arguments from
@@ -1011,26 +994,22 @@ pub enum FFIValue {
         #[sabi(unsafe_opaque_field)]
         c: char,
     },
-    // TODO: This is super dangerous, BUT it could work... restricting CustomType to have
-    // the StableAbi is a bit of a deal breaker in terms of its application. With certain restrictions on the
-    // generation of dylibs, this might be totally fine.
     Custom {
         custom: OpaqueFFIValueReturn,
     },
-
     HashMap(RHashMap<FFIValue, FFIValue>),
     Future {
-        #[sabi(unsafe_opaque_field)]
-        fut: FfiFuture<RResult<FFIValue, RBoxError>>,
+        fut: SyncFfiFuture,
     },
 }
 
-// TODO: @Matt - Do some testing to make sure this isn't insanely bad
-#[cfg(feature = "sync")]
-unsafe impl Sync for FFIValue {}
+#[repr(C)]
+#[derive(StableAbi)]
+pub struct SyncFfiFuture {
+    fut: FfiFuture<RResult<FFIValue, RBoxError>>,
+}
 
-struct SyncFfiFuture(FfiFuture<RResult<FFIValue, RBoxError>>);
-
+// TODO: This is the only real concern that we probably are going to have here
 unsafe impl Sync for SyncFfiFuture {}
 
 impl FFIValue {
@@ -1045,9 +1024,6 @@ impl FFIValue {
             _ => None,
         }
     }
-
-    // Just overwrite the string
-    // pub fn string_mut(&mut self) -> Option<&mut RString> {}
 }
 
 impl std::hash::Hash for FFIValue {
@@ -1201,22 +1177,18 @@ impl IntoSteelVal for FFIValue {
                 .map(SteelVal::HashMapV),
 
             // Attempt to move this across the FFI Boundary... We'll see how successful it is.
-            FFIValue::Future { fut } => {
-                let fut = SyncFfiFuture(fut);
-
-                Ok(SteelVal::FutureV(Gc::new(FutureResult::new(Box::pin(
-                    async {
-                        fut.0
-                            .map(|x| match x {
-                                RResult::ROk(v) => v.into_steelval(),
-                                RResult::RErr(e) => {
-                                    Err(SteelErr::new(ErrorKind::Generic, e.to_string()))
-                                }
-                            })
-                            .await
-                    },
-                )))))
-            }
+            FFIValue::Future { fut } => Ok(SteelVal::FutureV(Gc::new(FutureResult::new(
+                Box::pin(async {
+                    fut.fut
+                        .map(|x| match x {
+                            RResult::ROk(v) => v.into_steelval(),
+                            RResult::RErr(e) => {
+                                Err(SteelErr::new(ErrorKind::Generic, e.to_string()))
+                            }
+                        })
+                        .await
+                }),
+            )))),
         }
     }
 }
@@ -1234,8 +1206,6 @@ pub struct FFIBoxedDynFunction {
         RResult<FFIValue, RBoxError>,
     >,
 }
-
-unsafe impl Sync for FFIBoxedDynFunction {}
 
 impl Clone for FFIBoxedDynFunction {
     fn clone(&self) -> Self {

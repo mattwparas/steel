@@ -659,8 +659,6 @@ impl ast::TryFromSteelValVisitorForExprKind {
     }
 }
 
-// TODO: Replace this with RawSyntaxObject<SteelVal>
-
 #[derive(Debug, Clone)]
 pub struct Syntax {
     pub(crate) raw: Option<SteelVal>,
@@ -670,8 +668,6 @@ pub struct Syntax {
 
 impl Syntax {
     pub fn new(syntax: SteelVal, span: Span) -> Syntax {
-        // dbg!(&syntax);
-
         Self {
             raw: None,
             syntax,
