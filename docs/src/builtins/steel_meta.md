@@ -49,6 +49,7 @@ Returns the message of an error object.
 ### **set-env-var!**
 ### **set-strong-box!**
 ### **set-test-mode!**
+### **steel-home-location**
 ### **struct->list**
 ### **unbox**
 ### **unbox-strong**
