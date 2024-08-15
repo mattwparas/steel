@@ -24,15 +24,15 @@ pub(crate) const RNG_GEN_USIZE: DocTemplate<'static> = DocTemplate {
 pub fn random_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/random");
 
-    module
-        .register_fn("thread-rng!", thread_rng)
-        .register_doc("thread-rng!", THREAD_RNG_DOC)
-        .register_fn("rng->gen-usize", ThreadRng::gen::<usize>)
-        .register_doc("rng->gen-usize", RNG_GEN_USIZE)
-        .register_fn(
-            "rng->gen-range",
-            |rng: &mut ThreadRng, x: isize, y: isize| ThreadRng::gen_range(rng, x..y),
-        );
+    // module
+    // .register_fn("thread-rng!", thread_rng)
+    // .register_doc("thread-rng!", THREAD_RNG_DOC)
+    // .register_fn("rng->gen-usize", ThreadRng::gen::<usize>)
+    // .register_doc("rng->gen-usize", RNG_GEN_USIZE)
+    // .register_fn(
+    //     "rng->gen-range",
+    //     |rng: &mut ThreadRng, x: isize, y: isize| ThreadRng::gen_range(rng, x..y),
+    // );
 
     module
 }

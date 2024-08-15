@@ -418,6 +418,9 @@ struct SReceiver {
     receiver: Option<std::sync::mpsc::Receiver<SerializableSteelVal>>,
 }
 
+// TODO: @Matt - Revisit this!
+unsafe impl Sync for SReceiver {}
+
 impl Custom for SReceiver {
     fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         let inner = self.receiver.take();

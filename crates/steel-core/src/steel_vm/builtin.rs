@@ -161,6 +161,9 @@ pub enum BuiltInFunctionTypePointer {
     Context(*const BuiltInSignature),
 }
 
+unsafe impl Send for BuiltInFunctionTypePointer {}
+unsafe impl Sync for BuiltInFunctionTypePointer {}
+
 pub struct NativeFunctionDefinition {
     pub name: &'static str,
     pub func: BuiltInFunctionType,

@@ -29,7 +29,7 @@ use crate::{
             BorrowedObject, CustomReference, OpaqueReferenceNursery, ReadOnlyBorrowedObject,
             ReferenceMarker,
         },
-        Gc,
+        Gc, Shared,
     },
     parser::{
         ast::ExprKind,
@@ -84,15 +84,15 @@ pub trait ModuleResolver {
 
 #[derive(Clone, Default)]
 pub struct ModuleContainer {
-    modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
+    modules: ImmutableHashMap<Shared<str>, BuiltInModule>,
     // For modules that don't exist in memory. This could be useful for a world
     // in which a builtin module exists BUT we'd like to resolve the module for
     // inference purposes.
-    unresolved_modules: Option<Rc<dyn ModuleResolver>>,
+    unresolved_modules: Option<Shared<dyn ModuleResolver>>,
 }
 
 impl ModuleContainer {
-    pub fn insert(&mut self, key: Rc<str>, value: BuiltInModule) {
+    pub fn insert(&mut self, key: Shared<str>, value: BuiltInModule) {
         self.modules.insert(key, value);
     }
 
@@ -128,16 +128,16 @@ impl ModuleContainer {
         })
     }
 
-    pub fn inner(&self) -> &ImmutableHashMap<Rc<str>, BuiltInModule> {
+    pub fn inner(&self) -> &ImmutableHashMap<Shared<str>, BuiltInModule> {
         &self.modules
     }
 
-    pub(crate) fn inner_mut(&mut self) -> &mut ImmutableHashMap<Rc<str>, BuiltInModule> {
+    pub(crate) fn inner_mut(&mut self) -> &mut ImmutableHashMap<Shared<str>, BuiltInModule> {
         &mut self.modules
     }
 
     pub fn with_resolver<T: ModuleResolver + 'static>(&mut self, resolver: T) {
-        self.unresolved_modules = Some(Rc::new(resolver));
+        self.unresolved_modules = Some(Shared::new(resolver));
     }
 }
 

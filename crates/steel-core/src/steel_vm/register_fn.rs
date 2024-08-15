@@ -1485,7 +1485,7 @@ impl<
 
 impl<
         FUT: Future<Output = RET> + SendSyncStatic,
-        RET: IntoSteelVal + 'static,
+        RET: IntoSteelVal + 'static + MaybeSendSyncStatic,
         FN: Fn() -> FUT + SendSyncStatic,
     > RegisterFn<FN, AsyncWrapper<()>, RET> for BuiltInModule
 {
