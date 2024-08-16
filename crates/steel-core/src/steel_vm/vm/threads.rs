@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use fxhash::FxHashMap;
+use parking_lot::RwLock;
 
 use crate::{
     rvals::{Custom, HeapSerializer, SerializableSteelVal, SerializedHeapRef},
@@ -206,6 +207,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             ctx.thread
                 .global_env
                 .bindings_vec
+                .read()
                 .iter()
                 .cloned()
                 .map(|x| into_serializable_value(x, &mut initial_map, &mut visited))
@@ -300,6 +302,21 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             )
         );
 
+        #[cfg(feature = "sync")]
+        let global_env = time!(
+            "Global env creation",
+            Env {
+                bindings_vec: Arc::new(RwLock::new(
+                    thread
+                        .global_env
+                        .into_iter()
+                        .map(|x| from_serializable_value(&mut serializer, x))
+                        .collect()
+                )),
+            }
+        );
+
+        #[cfg(not(feature = "sync"))]
         let global_env = time!(
             "Global env creation",
             Env {

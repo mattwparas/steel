@@ -1934,13 +1934,10 @@ impl PartialEq for SteelVal {
                                             queue: &mut right_queue,
                                         },
                                         visited: &mut visited_set,
-                                        // found_mutable_object: false,
                                     };
 
                                     let res = equality_handler
                                         .compare_equality(left.clone(), right.clone());
-
-                                    // EQ_DEPTH.with(|x| x.set(0));
 
                                     reset_eq_depth();
 
@@ -1957,11 +1954,7 @@ impl PartialEq for SteelVal {
 
                                     let mut visited_set = fxhash::FxHashSet::default();
 
-                                    // EQ_DEPTH.with(|x| x.set(x.get() + 1));
-
                                     increment_eq_depth();
-
-                                    // println!("{}", EQ_DEPTH.with(|x| x.get()));
 
                                     let mut equality_handler = RecursiveEqualityHandler {
                                         left: EqualityVisitor {
@@ -1971,13 +1964,10 @@ impl PartialEq for SteelVal {
                                             queue: &mut right_queue,
                                         },
                                         visited: &mut visited_set,
-                                        // found_mutable_object: false,
                                     };
 
                                     let res = equality_handler
                                         .compare_equality(left.clone(), right.clone());
-
-                                    // EQ_DEPTH.with(|x| x.set(x.get() - 1));
 
                                     decrement_eq_depth();
 

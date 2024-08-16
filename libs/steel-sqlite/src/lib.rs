@@ -10,82 +10,84 @@ use rusqlite::{
     Connection, Statement, ToSql, Transaction,
 };
 use steel::{
+    gc::Shared,
     rvals::Custom,
     steel_vm::ffi::{is_opaque_type, FFIArg, FFIModule, FFIValue, RegisterFFIFn},
 };
 
+// Just... use arc mutex then?
 struct SqliteConnection {
-    connection: Rc<Connection>,
-}
-
-struct TestSqliteConnection {
-    connection: Arc<Mutex<Connection>>,
-}
-
-// Share this with multiple threads?
-fn test_spawn() {
-    let connection = TestSqliteConnection {
-        connection: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
-    };
-
-    std::thread::spawn(move || connection);
+    connection: Shared<Mutex<Connection>>,
 }
 
 impl SqliteConnection {
     fn open_in_memory() -> Result<Self, SqliteError> {
         Ok(Self {
-            connection: Rc::new(Connection::open_in_memory()?),
+            connection: Shared::new(Mutex::new(Connection::open_in_memory()?)),
         })
     }
 
     fn open(string: String) -> Result<Self, SqliteError> {
         Ok(Self {
-            connection: Rc::new(Connection::open(string)?),
+            connection: Shared::new(Mutex::new(Connection::open(string)?)),
         })
     }
 
     fn begin_transaction(&self) -> Result<SqliteTransaction, SqliteError> {
         Ok(SqliteTransaction {
-            _connection: Rc::clone(&self.connection),
-            token: Rc::new(()),
-            transaction: Some(unsafe {
+            _connection: Shared::clone(&self.connection),
+            token: Shared::new(()),
+            transaction: Some(Mutex::new(unsafe {
                 std::mem::transmute::<Transaction<'_>, Transaction<'static>>(
-                    self.connection.unchecked_transaction()?,
+                    self.connection.lock().unwrap().unchecked_transaction()?,
                 )
-            }),
+            })),
         })
     }
 }
 
+unsafe impl Send for SqliteTransaction {}
+unsafe impl Sync for SqliteTransaction {}
+
 struct SqlitePreparedStatement {
-    _connection: Rc<Connection>,
-    _sql: Rc<String>,
-    prepared_statement: Option<Statement<'static>>,
+    _connection: Shared<Mutex<Connection>>,
+    _sql: Shared<String>,
+    prepared_statement: Option<Mutex<Statement<'static>>>,
 }
+
+// TODO: See if this is really necessary
+unsafe impl Send for SqlitePreparedStatement {}
+unsafe impl Sync for SqlitePreparedStatement {}
 
 impl Drop for SqlitePreparedStatement {
     fn drop(&mut self) {
         // Manual drop since we've erased the lifetimes
-        if Rc::strong_count(&self._connection) == 1 {
-            self.prepared_statement.take().unwrap().finalize().ok();
+        if Shared::strong_count(&self._connection) == 1 {
+            self.prepared_statement
+                .take()
+                .unwrap()
+                .into_inner()
+                .unwrap()
+                .finalize()
+                .ok();
         }
     }
 }
 
 struct SqliteTransaction {
-    _connection: Rc<Connection>,
-    token: Rc<()>,
-    transaction: Option<Transaction<'static>>,
+    _connection: Shared<Mutex<Connection>>,
+    token: Shared<()>,
+    transaction: Option<Mutex<Transaction<'static>>>,
 }
 
 impl Custom for SqliteTransaction {}
 
 impl SqliteTransaction {
     fn try_finish(&mut self) -> Result<(), SqliteError> {
-        if Rc::strong_count(&self.token) == 1 {
+        if Shared::strong_count(&self.token) == 1 {
             if let Some(transaction) = self.transaction.take() {
                 // Finish the transaction, hiding what the errors are
-                return Ok(transaction.finish()?);
+                return Ok(transaction.into_inner().unwrap().finish()?);
             }
         }
 
@@ -93,13 +95,13 @@ impl SqliteTransaction {
     }
 
     fn finish(&mut self) -> Result<(), SqliteError> {
-        if Rc::strong_count(&self.token) == 1 {
+        if Shared::strong_count(&self.token) == 1 {
             let transaction = self
                 .transaction
                 .take()
                 .ok_or_else(|| SqliteError::TransactionAlreadyCompleted)?;
             // Finish the transaction, hiding what the errors are
-            return Ok(transaction.finish()?);
+            return Ok(transaction.into_inner().unwrap().finish()?);
         }
 
         Ok(())
@@ -111,12 +113,12 @@ impl SqliteTransaction {
             .take()
             .ok_or_else(|| SqliteError::TransactionAlreadyCompleted)?;
 
-        Ok(transaction.commit()?)
+        Ok(transaction.into_inner().unwrap().commit()?)
     }
 
     fn try_commit(&mut self) -> Result<(), SqliteError> {
         if let Some(transaction) = self.transaction.take() {
-            return Ok(transaction.commit()?);
+            return Ok(transaction.into_inner().unwrap().commit()?);
         }
 
         Ok(())
@@ -128,16 +130,16 @@ impl SqliteTransaction {
             .take()
             .ok_or_else(|| SqliteError::TransactionAlreadyCompleted)?;
 
-        Ok(transaction.rollback()?)
+        Ok(transaction.into_inner().unwrap().rollback()?)
     }
 }
 
 impl Drop for SqliteTransaction {
     fn drop(&mut self) {
-        if Rc::strong_count(&self.token) == 1 {
+        if Shared::strong_count(&self.token) == 1 {
             if let Some(inner) = self.transaction.take() {
                 // Finish the transaction, hiding what the errors are
-                inner.finish().ok();
+                inner.into_inner().unwrap().finish().ok();
             }
         }
     }
@@ -162,12 +164,20 @@ impl SqlitePreparedStatement {
         let mut count = 0;
 
         if params.is_empty() {
-            count += self.prepared_statement.as_mut().unwrap().execute([])?;
+            count += self
+                .prepared_statement
+                .as_mut()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .execute([])?;
         } else {
             for group in params {
                 count += self
                     .prepared_statement
                     .as_mut()
+                    .unwrap()
+                    .lock()
                     .unwrap()
                     .execute(params_from_iter(group.into_iter().map(FFIWrapper)))?;
             }
@@ -180,11 +190,9 @@ impl SqlitePreparedStatement {
     // a better interaction at the FFI boundary that doesn't require copying
     // the vector repeatedly
     fn query(&mut self, params: Vec<FFIArg>) -> Result<FFIValue, SqliteError> {
-        let mut rows = self
-            .prepared_statement
-            .as_mut()
-            .unwrap()
-            .query(params_from_iter(params.into_iter().map(FFIWrapper)))?;
+        let mut guard = self.prepared_statement.as_mut().unwrap().lock().unwrap();
+
+        let mut rows = guard.query(params_from_iter(params.into_iter().map(FFIWrapper)))?;
 
         let mut results = RVec::new();
 
@@ -222,16 +230,18 @@ impl Custom for SqlitePreparedStatement {}
 
 impl SqliteConnection {
     fn prepare(&self, sql: String) -> Result<SqlitePreparedStatement, SqliteError> {
-        let sql = Rc::new(sql);
+        let sql = Shared::new(sql);
 
-        let statement = self.connection.prepare(&sql)?;
+        let guard = self.connection.lock().unwrap();
+
+        let statement = guard.prepare(&sql)?;
 
         Ok(SqlitePreparedStatement {
-            _connection: Rc::clone(&self.connection),
+            _connection: Shared::clone(&self.connection),
             _sql: sql,
-            prepared_statement: Some(unsafe {
+            prepared_statement: Some(Mutex::new(unsafe {
                 std::mem::transmute::<Statement<'_>, Statement<'static>>(statement)
-            }),
+            })),
         })
     }
 }

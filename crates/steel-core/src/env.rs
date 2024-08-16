@@ -1,11 +1,27 @@
-use crate::rvals::{Result, SteelVal};
+use std::sync::Arc;
+
+use parking_lot::RwLock;
+
+use crate::{
+    gc::shared::ScopedReadContainer,
+    rvals::{Result, SteelVal},
+};
 
 #[allow(unused)]
 #[derive(Debug, Clone)]
 pub struct Env {
+    #[cfg(not(feature = "sync"))]
     pub(crate) bindings_vec: Vec<SteelVal>,
+
+    // Globals from one thread, need to be able to refer to
+    // globals from another thread. So in order to do so,
+    // there needs to be a lock on all globals since that way
+    // things are relatively consistent.
+    #[cfg(feature = "sync")]
+    pub(crate) bindings_vec: Arc<RwLock<Vec<SteelVal>>>,
 }
 
+#[cfg(not(feature = "sync"))]
 impl Env {
     pub fn extract(&self, idx: usize) -> Option<SteelVal> {
         self.bindings_vec.get(idx).cloned()
@@ -21,10 +37,6 @@ impl Env {
             bindings_vec: Vec::with_capacity(1024),
         }
     }
-
-    // pub fn len(&self) -> usize {
-    //     self.bindings_vec.len()
-    // }
 
     #[cfg(feature = "dynamic")]
     pub(crate) fn _print_diagnostics(&self) {
@@ -84,5 +96,88 @@ impl Env {
 
     pub fn roots(&self) -> impl Iterator<Item = &SteelVal> {
         self.bindings_vec.iter()
+    }
+}
+
+#[cfg(feature = "sync")]
+impl Env {
+    pub fn extract(&self, idx: usize) -> Option<SteelVal> {
+        self.bindings_vec.read().get(idx).cloned()
+    }
+
+    pub fn len(&self) -> usize {
+        self.bindings_vec.read().len()
+    }
+
+    /// top level global env has no parent
+    pub fn root() -> Self {
+        Env {
+            bindings_vec: Arc::new(RwLock::new(Vec::with_capacity(1024))),
+        }
+    }
+
+    #[cfg(feature = "dynamic")]
+    pub(crate) fn _print_diagnostics(&self) {
+        for (idx, value) in self.bindings_vec.iter().enumerate() {
+            if let SteelVal::Closure(b) = value {
+                let count = b.call_count();
+                if count > 0 {
+                    println!("Function: {} - Count: {}", idx, b.call_count());
+                }
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn repl_lookup_idx(&self, idx: usize) -> SteelVal {
+        self.bindings_vec.read()[idx].clone()
+    }
+
+    // /// Get the value located at that index
+    // pub fn _repl_get_idx(&self, idx: usize) -> &SteelVal {
+    //     &self.bindings_vec.read()[idx]
+    // }
+
+    #[inline]
+    pub fn repl_define_idx(&mut self, idx: usize, val: SteelVal) {
+        let mut guard = self.bindings_vec.write();
+
+        if idx < guard.len() {
+            guard[idx] = val;
+        } else {
+            if idx > guard.len() {
+                // TODO: This seems suspect. Try to understand
+                // what is happening here. This would be that values
+                // are getting interned to be at a global offset in the
+                // wrong order, which seems to be fine in general,
+                // assuming that the values then get actually updated
+                // to the correct values.
+                for _ in 0..(idx - guard.len()) {
+                    guard.push(SteelVal::Void);
+                }
+            }
+
+            guard.push(val);
+            assert_eq!(guard.len() - 1, idx);
+        }
+    }
+
+    pub fn repl_set_idx(&mut self, idx: usize, val: SteelVal) -> Result<SteelVal> {
+        let mut guard = self.bindings_vec.write();
+        let output = guard[idx].clone();
+        guard[idx] = val;
+        Ok(output)
+    }
+
+    #[inline]
+    pub fn add_root_value(&mut self, idx: usize, val: SteelVal) {
+        // self.bindings_map.insert(idx, val);
+        self.repl_define_idx(idx, val);
+    }
+
+    // TODO: This needs to be fixed!
+    pub fn roots(&self) -> impl Iterator<Item = &SteelVal> {
+        // ScopedReadContainer::map(self.bindings_vec.read(), |x| x.iter())
+        Vec::new().into_iter()
     }
 }

@@ -1206,7 +1206,7 @@ pub enum SteelVal {
     /// Represents a symbol, internally represented as `String`s
     SymbolV(SteelString),
     /// Container for a type that implements the `Custom Type` trait. (trait object)
-    Custom(GcMut<Box<dyn CustomType>>),
+    Custom(GcMut<Box<dyn CustomType>>), // TODO: @Matt - consider using just a mutex here, to relax some of the bounds?
     // Embedded HashMap
     HashMapV(SteelHashMap),
     // Embedded HashSet

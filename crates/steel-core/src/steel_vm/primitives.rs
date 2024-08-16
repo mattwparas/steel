@@ -287,6 +287,46 @@ pub const CONSTANTS: &[&str] = &[
     "not",
 ];
 
+#[macro_export]
+macro_rules! define_modules {
+    ($($name:tt => $func:expr,) * ) => {
+        $(
+            pub static $name: once_cell::sync::Lazy<BuiltInModule> = once_cell::sync::Lazy::new($func);
+        )*
+    };
+}
+
+define_modules! {
+    STEEL_MAP_MODULE => hashmap_module,
+    STEEL_SET_MODULE => hashset_module,
+    STEEL_LIST_MODULE => list_module,
+    STEEL_STRING_MODULE => string_module,
+    STEEL_VECTOR_MODULE => vector_module,
+    STEEL_IMMUTABLE_VECTOR_MODULE => immutable_vectors_module,
+    STEEL_BYTEVECTOR_MODULE => bytevector_module,
+    STEEL_STREAM_MODULE => stream_module,
+    STEEL_IDENTITY_MODULE => identity_module,
+    STEEL_NUMBER_MODULE => number_module,
+    STEEL_EQUALITY_MODULE => equality_module,
+    STEEL_ORD_MODULE => ord_module,
+    STEEL_TRANSDUCER_MODULE => transducer_module,
+    STEEL_SYMBOL_MODULE => symbol_module,
+    STEEL_IO_MODULE => io_module,
+    STEEL_FS_MODULE => fs_module,
+    STEEL_PORT_MODULE => port_module,
+    STEEL_META_MODULE => meta_module,
+    STEEL_JSON_MODULE => json_module,
+    STEEL_CONSTANTS_MODULE => constants_module,
+    STEEL_SYNTAX_MODULE => syntax_module,
+    STEEL_SANDBOXED_META_MODULE => sandboxed_meta_module,
+    STEEL_SANDBOXED_IO_MODULE => sandboxed_io_module,
+    STEEL_PROCESS_MODULE => process_module,
+    STEEL_RANDOM_MODULE => random_module,
+    STEEL_RESULT_MODULE => build_result_structs,
+    STEEL_TYPE_ID_MODULE => build_type_id_module,
+    STEEL_OPTION_MODULE => build_option_structs,
+}
+
 thread_local! {
     pub static MAP_MODULE: BuiltInModule = hashmap_module();
     pub static SET_MODULE: BuiltInModule = hashset_module();
@@ -333,7 +373,6 @@ thread_local! {
 
     pub static MUTABLE_VECTOR_MODULE: BuiltInModule = mutable_vector_module();
     pub static PRIVATE_READER_MODULE: BuiltInModule = reader_module();
-
 }
 
 pub fn prelude() -> BuiltInModule {
@@ -387,7 +426,6 @@ pub fn register_builtin_modules_without_io(engine: &mut Engine) {
         .register_module(STRING_MODULE.with(|x| x.clone()))
         .register_module(VECTOR_MODULE.with(|x| x.clone()))
         .register_module(STREAM_MODULE.with(|x| x.clone()))
-        // .register_module(CONTRACT_MODULE.with(|x| x.clone()))
         .register_module(IDENTITY_MODULE.with(|x| x.clone()))
         .register_module(NUMBER_MODULE.with(|x| x.clone()))
         .register_module(EQUALITY_MODULE.with(|x| x.clone()))
@@ -395,8 +433,6 @@ pub fn register_builtin_modules_without_io(engine: &mut Engine) {
         .register_module(TRANSDUCER_MODULE.with(|x| x.clone()))
         .register_module(SYMBOL_MODULE.with(|x| x.clone()))
         .register_module(SANDBOXED_IO_MODULE.with(|x| x.clone()))
-        // .register_module(FS_MODULE.with(|x| x.clone()))
-        // .register_module(PORT_MODULE.with(|x| x.clone()))
         .register_module(SANDBOXED_META_MODULE.with(|x| x.clone()))
         .register_module(JSON_MODULE.with(|x| x.clone()))
         .register_module(CONSTANTS_MODULE.with(|x| x.clone()))
@@ -459,7 +495,6 @@ pub fn register_builtin_modules(engine: &mut Engine) {
         .register_module(STRING_MODULE.with(|x| x.clone()))
         .register_module(VECTOR_MODULE.with(|x| x.clone()))
         .register_module(STREAM_MODULE.with(|x| x.clone()))
-        // .register_module(CONTRACT_MODULE.with(|x| x.clone()))
         .register_module(IDENTITY_MODULE.with(|x| x.clone()))
         .register_module(NUMBER_MODULE.with(|x| x.clone()))
         .register_module(EQUALITY_MODULE.with(|x| x.clone()))

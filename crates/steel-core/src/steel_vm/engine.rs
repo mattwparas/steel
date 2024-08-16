@@ -1549,6 +1549,7 @@ impl Engine {
         self.virtual_machine
             .global_env
             .bindings_vec
+            .write()
             .truncate(checkpoint.globals_offset);
 
         Ok(())
@@ -1562,7 +1563,7 @@ impl Engine {
         // for shadowed rooted values
         if self.compiler.symbol_map.free_list.should_collect() {
             GlobalSlotRecycler::free_shadowed_rooted_values(
-                &mut self.virtual_machine.global_env.bindings_vec,
+                &mut self.virtual_machine.global_env.bindings_vec.write(),
                 &mut self.compiler.symbol_map,
                 &mut self.virtual_machine.heap,
             );

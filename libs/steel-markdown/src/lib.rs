@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use abi_stable::std_types::RBoxError;
 use steel::{
+    gc::Shared,
     rvals::{Custom, SerializableSteelVal},
     steel_vm::ffi::{FFIModule, FFIValue, IntoFFIVal, RegisterFFIFn},
 };
@@ -75,12 +76,12 @@ impl SyntaxHighlighter {
 
 pub struct MarkdownEvent {
     event: Event<'static>,
-    source: Rc<str>,
+    source: Shared<str>,
 }
 
 pub struct MarkdownTag {
     tag: Tag<'static>,
-    source: Rc<str>,
+    source: Shared<str>,
 }
 
 impl Custom for MarkdownTag {}
@@ -194,7 +195,7 @@ impl MarkdownEvent {
 }
 
 struct MarkdownCodeBlockKind {
-    _source: Rc<str>,
+    _source: Shared<str>,
     kind: CodeBlockKind<'static>,
 }
 
@@ -317,13 +318,13 @@ impl MarkdownTag {
 }
 
 struct MarkdownParser {
-    source: Rc<str>,
+    source: Shared<str>,
     parser: Parser<'static, 'static>,
 }
 
 impl MarkdownParser {
     fn new(source: String) -> Self {
-        let source: Rc<str> = Rc::from(source);
+        let source: Shared<str> = Shared::from(source);
 
         Self {
             source: source.clone(),
@@ -355,7 +356,7 @@ impl MarkdownParser {
 impl Custom for MarkdownParser {}
 
 pub fn parse(input: String) -> Vec<FFIValue> {
-    let input = Rc::from(input);
+    let input = Shared::from(input);
 
     Parser::new(&input)
         .map(|x| {
