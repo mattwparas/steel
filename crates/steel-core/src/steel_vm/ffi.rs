@@ -1006,10 +1006,12 @@ pub enum FFIValue {
 #[repr(C)]
 #[derive(StableAbi)]
 pub struct SyncFfiFuture {
+    // TODO: @Matt - Just wrap this in a mutex, then we should be
+    // good to go on this!
     fut: FfiFuture<RResult<FFIValue, RBoxError>>,
 }
 
-// TODO: This is the only real concern that we probably are going to have here
+// TODO: Don't let this slip through the cracks
 unsafe impl Sync for SyncFfiFuture {}
 
 impl FFIValue {

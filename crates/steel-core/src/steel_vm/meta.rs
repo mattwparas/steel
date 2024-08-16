@@ -26,10 +26,6 @@ use crate::stop;
 #[derive(Clone)]
 pub(crate) struct EngineWrapper(Engine);
 
-// TODO: Fix this!
-unsafe impl Send for EngineWrapper {}
-unsafe impl Sync for EngineWrapper {}
-
 impl EngineWrapper {
     pub(crate) fn new() -> Self {
         EngineWrapper(Engine::new())

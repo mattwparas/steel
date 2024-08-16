@@ -410,6 +410,7 @@ const GC_THRESHOLD: usize = 256 * 1000;
 const GC_GROW_FACTOR: usize = 2;
 const RESET_LIMIT: usize = 5;
 
+// TODO: Do these roots needs to be truly global?
 thread_local! {
     static ROOTS: RefCell<Roots> = RefCell::new(Roots::default());
 }
@@ -570,9 +571,10 @@ enum CurrentSpace {
     To,
 }
 
-/// The heap for steel currently uses an allocation scheme based on weak references to reference counted pointers.
-/// Allocation is just a `Vec<Rc<RefCell<T>>>`, where allocating simply pushes and allocates a value at the end.
-/// When we do a collection, we attempt to do a small collection by just dropping any values with no weak counts
+/// The heap for steel currently uses an allocation scheme based on weak references
+/// to reference counted pointers. Allocation is just a `Vec<Rc<RefCell<T>>>`, where
+/// allocating simply pushes and allocates a value at the end. When we do a collection,
+/// we attempt to do a small collection by just dropping any values with no weak counts
 /// pointing to it.
 #[derive(Clone)]
 pub struct Heap {

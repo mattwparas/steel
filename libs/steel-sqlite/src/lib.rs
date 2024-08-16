@@ -1,4 +1,7 @@
-use std::rc::Rc;
+use std::{
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 use abi_stable::std_types::{RString, RVec};
 use rusqlite::{
@@ -8,14 +11,24 @@ use rusqlite::{
 };
 use steel::{
     rvals::Custom,
-    steel_vm::ffi::{
-        as_underlying_ffi_type, is_opaque_type, CustomRef, FFIArg, FFIModule, FFIValue,
-        RegisterFFIFn,
-    },
+    steel_vm::ffi::{is_opaque_type, FFIArg, FFIModule, FFIValue, RegisterFFIFn},
 };
 
 struct SqliteConnection {
     connection: Rc<Connection>,
+}
+
+struct TestSqliteConnection {
+    connection: Arc<Mutex<Connection>>,
+}
+
+// Share this with multiple threads?
+fn test_spawn() {
+    let connection = TestSqliteConnection {
+        connection: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
+    };
+
+    std::thread::spawn(move || connection);
 }
 
 impl SqliteConnection {

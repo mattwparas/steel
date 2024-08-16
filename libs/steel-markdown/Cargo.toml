@@ -18,7 +18,7 @@ steel-core = { path = "../../crates/steel-core", version = "0.6.0", features = [
 # When developing
 # steel-core = { version = "0.6.0", features = ["dylibs"] }
 
-pulldown-cmark = "0.9.3"
+pulldown-cmark = "*"
 abi_stable = "0.11.1"
 # For doing syntax highlighting!
-syntect = "5.1.0"
+syntect = "5.2.0"

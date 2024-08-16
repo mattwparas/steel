@@ -41,7 +41,7 @@ use crate::{
     rerrs::{back_trace, back_trace_to_string},
     rvals::{
         cycles::{install_printer, print_in_engine, PRINT_IN_ENGINE_DEFINITION},
-        FromSteelVal, IntoSteelVal, Result, SteelVal,
+        FromSteelVal, IntoSteelVal, MaybeSendSyncStatic, Result, SteelVal,
     },
     steel_vm::register_fn::RegisterFn,
     stop, throw,
@@ -78,7 +78,13 @@ thread_local! {
 //     KERNEL_BIN_FILE.with(|x| x.set(Some(bin)));
 // }
 
+#[cfg(not(feature = "sync"))]
 pub trait ModuleResolver {
+    fn resolve(&self, name: &str) -> Option<BuiltInModule>;
+}
+
+#[cfg(feature = "sync")]
+pub trait ModuleResolver: MaybeSendSyncStatic {
     fn resolve(&self, name: &str) -> Option<BuiltInModule>;
 }
 

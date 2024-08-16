@@ -306,7 +306,7 @@ pub struct FunctionInterner {
     // actually any references to this still in existence. Functions should probably hold a direct
     // reference to the existing thread in which it was created, and if passed in externally by
     // another run time, we can nuke it?
-    spans: fxhash::FxHashMap<usize, Rc<[Span]>>,
+    spans: fxhash::FxHashMap<usize, Shared<[Span]>>,
     // Keep these around - each thread keeps track of the instructions on the bytecode object, but we shouldn't
     // need to dereference that until later? When we actually move to that
     instructions: fxhash::FxHashMap<usize, Shared<[DenseInstruction]>>,
@@ -2733,7 +2733,7 @@ impl<'a> VmCore<'a> {
                 if let Some(span_range) = self.root_spans.get(self.ip..forward_jump_index) {
                     span_range.into_iter().cloned().collect::<Vec<_>>().into()
                 } else {
-                    Rc::from(Vec::new())
+                    Shared::from(Vec::new())
                 }
             };
 

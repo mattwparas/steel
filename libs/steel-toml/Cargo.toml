@@ -11,5 +11,5 @@ crate-type = ["cdylib"]
 
 [dependencies]
 steel-core = { workspace = true }
-toml = "0.8.9"
+toml = "*"
 abi_stable = "0.11.1"
