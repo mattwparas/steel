@@ -2,13 +2,10 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 
-use crate::{
-    gc::shared::ScopedReadContainer,
-    rvals::{Result, SteelVal},
-};
+use crate::rvals::{Result, SteelVal};
 
 #[allow(unused)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Env {
     #[cfg(not(feature = "sync"))]
     pub(crate) bindings_vec: Vec<SteelVal>,
@@ -19,6 +16,26 @@ pub struct Env {
     // things are relatively consistent.
     #[cfg(feature = "sync")]
     pub(crate) bindings_vec: Arc<RwLock<Vec<SteelVal>>>,
+}
+
+#[cfg(feature = "sync")]
+impl Clone for Env {
+    fn clone(&self) -> Self {
+        Self {
+            bindings_vec: Arc::new(RwLock::new(
+                self.bindings_vec.read().iter().map(|x| x.clone()).collect(),
+            )),
+        }
+    }
+}
+
+#[cfg(not(feature = "sync"))]
+impl Clone for Env {
+    fn clone(&self) -> Self {
+        Self {
+            bindings_vec: self.bindings_vec.clone(),
+        }
+    }
 }
 
 #[cfg(not(feature = "sync"))]
