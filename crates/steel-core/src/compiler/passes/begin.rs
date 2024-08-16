@@ -304,7 +304,7 @@ impl Folder for ConvertDefinesToLets {
 
     // TODO
     #[inline]
-    fn visit_begin(&mut self, mut begin: Begin) -> ExprKind {
+    fn visit_begin(&mut self, mut begin: Box<Begin>) -> ExprKind {
         if self.depth > 0 {
             match convert_exprs_to_let(begin) {
                 ExprKind::Begin(mut b) => {
@@ -426,7 +426,7 @@ fn apply_ident(func: ExprKind) -> ExprKind {
     ExprKind::List(List::new(vec![func]))
 }
 
-fn convert_exprs_to_let(begin: Begin) -> ExprKind {
+fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
     // let defines = collect_defines_from_current_scope(&exprs);
 
     let expression_types = ExpressionType::generate_expression_types(&begin.exprs);
@@ -472,10 +472,10 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
 
                         ExprKind::List(List::new(vec![constructed_function, d.body]))
                     }
-                    other => ExprKind::Begin(Begin::new(
+                    other => ExprKind::Begin(Box::new(Begin::new(
                         vec![other, accum],
                         SyntaxObject::default(TokenType::Begin),
-                    )),
+                    ))),
                 }
             })
             .expect("Empty expression");
@@ -656,10 +656,10 @@ fn convert_exprs_to_let(begin: Begin) -> ExprKind {
 
     let inner_lambda = LambdaFunction::new(
         bound_names,
-        ExprKind::Begin(Begin::new(
+        ExprKind::Begin(Box::new(Begin::new(
             set_expressions,
             SyntaxObject::default(TokenType::Begin),
-        )),
+        ))),
         SyntaxObject::default(TokenType::Lambda),
     );
 
@@ -758,30 +758,30 @@ mod flatten_begin_test {
 
     #[test]
     fn basic_flatten_one_level() {
-        let mut expr = ExprKind::Begin(Begin::new(
+        let mut expr = ExprKind::Begin(Box::new(Begin::new(
             vec![
-                ExprKind::Begin(Begin::new(
+                ExprKind::Begin(Box::new(Begin::new(
                     vec![ExprKind::List(List::new(vec![
                         atom("+"),
                         atom("x"),
                         int(10),
                     ]))],
                     SyntaxObject::default(TokenType::Begin),
-                )),
+                ))),
                 ExprKind::List(List::new(vec![atom("+"), atom("y"), int(20)])),
                 ExprKind::List(List::new(vec![atom("+"), atom("z"), int(30)])),
             ],
             SyntaxObject::default(TokenType::Begin),
-        ));
+        )));
 
-        let expected = ExprKind::Begin(Begin::new(
+        let expected = ExprKind::Begin(Box::new(Begin::new(
             vec![
                 ExprKind::List(List::new(vec![atom("+"), atom("x"), int(10)])),
                 ExprKind::List(List::new(vec![atom("+"), atom("y"), int(20)])),
                 ExprKind::List(List::new(vec![atom("+"), atom("z"), int(30)])),
             ],
             SyntaxObject::default(TokenType::Begin),
-        ));
+        )));
 
         FlattenBegin::flatten(&mut expr);
 
@@ -790,44 +790,44 @@ mod flatten_begin_test {
 
     #[test]
     fn basic_flatten_multiple_levels() {
-        let mut expr = ExprKind::Begin(Begin::new(
+        let mut expr = ExprKind::Begin(Box::new(Begin::new(
             vec![
-                ExprKind::Begin(Begin::new(
+                ExprKind::Begin(Box::new(Begin::new(
                     vec![ExprKind::List(List::new(vec![
                         atom("+"),
                         atom("x"),
                         int(10),
                     ]))],
                     SyntaxObject::default(TokenType::Begin),
-                )),
-                ExprKind::Begin(Begin::new(
+                ))),
+                ExprKind::Begin(Box::new(Begin::new(
                     vec![ExprKind::List(List::new(vec![
                         atom("+"),
                         atom("y"),
                         int(20),
                     ]))],
                     SyntaxObject::default(TokenType::Begin),
-                )),
-                ExprKind::Begin(Begin::new(
+                ))),
+                ExprKind::Begin(Box::new(Begin::new(
                     vec![ExprKind::List(List::new(vec![
                         atom("+"),
                         atom("z"),
                         int(30),
                     ]))],
                     SyntaxObject::default(TokenType::Begin),
-                )),
+                ))),
             ],
             SyntaxObject::default(TokenType::Begin),
-        ));
+        )));
 
-        let expected = ExprKind::Begin(Begin::new(
+        let expected = ExprKind::Begin(Box::new(Begin::new(
             vec![
                 ExprKind::List(List::new(vec![atom("+"), atom("x"), int(10)])),
                 ExprKind::List(List::new(vec![atom("+"), atom("y"), int(20)])),
                 ExprKind::List(List::new(vec![atom("+"), atom("z"), int(30)])),
             ],
             SyntaxObject::default(TokenType::Begin),
-        ));
+        )));
 
         FlattenBegin::flatten(&mut expr);
 

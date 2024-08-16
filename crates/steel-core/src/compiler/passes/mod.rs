@@ -2,7 +2,6 @@ pub mod analysis;
 pub mod begin;
 pub mod manager;
 pub mod mangle;
-pub mod reader;
 pub mod shadow;
 
 use std::ops::ControlFlow;
@@ -78,7 +77,7 @@ pub trait Folder {
     }
 
     #[inline]
-    fn visit_begin(&mut self, mut begin: Begin) -> ExprKind {
+    fn visit_begin(&mut self, mut begin: Box<Begin>) -> ExprKind {
         begin.exprs = begin.exprs.into_iter().map(|e| self.visit(e)).collect();
         ExprKind::Begin(begin)
     }
@@ -124,7 +123,7 @@ pub trait Folder {
     }
 
     #[inline]
-    fn visit_require(&mut self, s: Require) -> ExprKind {
+    fn visit_require(&mut self, s: Box<Require>) -> ExprKind {
         ExprKind::Require(s)
     }
 }

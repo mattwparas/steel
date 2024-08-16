@@ -1,14 +1,11 @@
-use std::cell::RefCell;
-use std::io::{BufReader, BufWriter};
-use std::process::{Child, Command, ExitStatus, Stdio};
-use std::rc::Rc;
-
 use crate::gc::Gc;
 use crate::values::port::{SteelPort, SteelPortRepr};
 use crate::values::structs::SteelResult;
 use crate::SteelVal;
 use crate::{rvals::Custom, steel_vm::builtin::BuiltInModule};
 use crate::{steel_vm::register_fn::RegisterFn, SteelErr};
+use std::io::{BufReader, BufWriter};
+use std::process::{Child, Command, Stdio};
 
 pub fn process_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/process".to_string());
@@ -22,6 +19,7 @@ pub fn process_module() -> BuiltInModule {
         .register_fn("wait->stdout", ChildProcess::wait_with_stdout)
         .register_fn("which", binary_exists_on_path)
         .register_fn("child-stdout", ChildProcess::stdout)
+        .register_fn("child-stderr", ChildProcess::stderr)
         .register_fn("child-stdin", ChildProcess::stdin);
 
     module
@@ -37,11 +35,6 @@ struct ChildProcess {
     child: Option<Child>,
 }
 
-#[derive(Debug)]
-struct ProcessExitStatus {
-    _exit_status: ExitStatus,
-}
-
 fn binary_exists_on_path(binary: String) -> Option<String> {
     #[cfg(not(target_arch = "wasm32"))]
     match which::which(binary) {
@@ -51,12 +44,6 @@ fn binary_exists_on_path(binary: String) -> Option<String> {
 
     #[cfg(target_arch = "wasm32")]
     None
-}
-
-impl ProcessExitStatus {
-    pub fn new(_exit_status: ExitStatus) -> Self {
-        Self { _exit_status }
-    }
 }
 
 impl ChildProcess {
@@ -76,8 +63,20 @@ impl ChildProcess {
             });
 
         stdout
+    }
 
-        //     todo!()
+    pub fn stderr(&mut self) -> Option<SteelVal> {
+        let stdout = self
+            .child
+            .as_mut()
+            .and_then(|x| x.stderr.take())
+            .and_then(|x| {
+                Some(SteelVal::PortV(SteelPort {
+                    port: Gc::new_mut(SteelPortRepr::ChildStdError(BufReader::new(x))),
+                }))
+            });
+
+        stdout
     }
 
     pub fn stdin(&mut self) -> Option<SteelVal> {
@@ -95,16 +94,21 @@ impl ChildProcess {
 
         //     todo!()
     }
-    fn wait_impl(&mut self) -> Result<ProcessExitStatus, SteelErr> {
-        self.child
+    fn wait_impl(&mut self) -> Result<SteelVal, SteelErr> {
+        let exit_status = self
+            .child
             .take()
             .ok_or_else(crate::throw!(Generic => "Child already awaited!"))?
             .wait()
-            .map(ProcessExitStatus::new)
-            .map_err(|x| x.into())
+            .map_err(SteelErr::from)?;
+
+        match exit_status.code() {
+            Some(code) => Ok(code.into()),
+            None => Ok(false.into()),
+        }
     }
 
-    pub fn wait(&mut self) -> SteelResult<ProcessExitStatus, SteelErr> {
+    pub fn wait(&mut self) -> SteelResult<SteelVal, SteelErr> {
         self.wait_impl().into()
     }
 
@@ -155,4 +159,3 @@ impl CommandBuilder {
 
 impl Custom for CommandBuilder {}
 impl Custom for ChildProcess {}
-impl Custom for ProcessExitStatus {}

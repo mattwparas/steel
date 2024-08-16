@@ -1,12 +1,11 @@
 extern crate rustyline;
 use colored::*;
+use steel_parser::parser::SourceId;
 
 use std::{cell::RefCell, rc::Rc};
 
 use rustyline::highlight::Highlighter;
-use rustyline::validate::{
-    MatchingBracketValidator, ValidationContext, ValidationResult, Validator,
-};
+use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 
 use rustyline::{hint::Hinter, Context};
 use rustyline_derive::Helper;
@@ -26,16 +25,13 @@ impl Completer for RustylineHelper {
 
 #[derive(Helper)]
 pub struct RustylineHelper {
-    // highlighter: MatchingBracketHighlighter,
-    validator: MatchingBracketValidator,
     engine: Rc<RefCell<Engine>>,
     bracket: std::cell::Cell<Option<(u8, usize)>>, // keywords: HashSet<&'static str>,
 }
 
 impl RustylineHelper {
-    pub fn new(validator: MatchingBracketValidator, engine: Rc<RefCell<Engine>>) -> Self {
+    pub fn new(engine: Rc<RefCell<Engine>>) -> Self {
         Self {
-            validator,
             engine,
             bracket: std::cell::Cell::new(None),
         }
@@ -44,11 +40,36 @@ impl RustylineHelper {
 
 impl Validator for RustylineHelper {
     fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
-        self.validator.validate(ctx)
-    }
+        use steel_parser::tokens::TokenType;
 
-    fn validate_while_typing(&self) -> bool {
-        self.validator.validate_while_typing()
+        let token_stream = TokenStream::new(ctx.input(), true, SourceId::none());
+
+        let mut balance = 0;
+
+        let mut unfinished_string = false;
+
+        for token in token_stream {
+            unfinished_string = match token.ty {
+                TokenType::Error => token.source.starts_with("\""),
+                _ => false,
+            };
+
+            match token.ty {
+                TokenType::OpenParen(_) => {
+                    balance += 1;
+                }
+                TokenType::CloseParen(_) => {
+                    balance -= 1;
+                }
+                _ => {}
+            }
+        }
+
+        if balance > 0 || unfinished_string {
+            Ok(ValidationResult::Incomplete)
+        } else {
+            Ok(ValidationResult::Valid(None))
+        }
     }
 }
 
@@ -60,10 +81,8 @@ impl Hinter for RustylineHelper {
 }
 
 impl Highlighter for RustylineHelper {
-    fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
+    fn highlight<'l>(&self, line: &'l str, pos: usize) -> Cow<'l, str> {
         use steel_parser::tokens::TokenType;
-
-        use Cow::*;
 
         // let line
 
@@ -75,11 +94,16 @@ impl Highlighter for RustylineHelper {
 
         let mut line_to_highlight = line.to_owned();
 
-        let token_stream = TokenStream::new(line, true, None);
+        let mut token_stream = TokenStream::new(line, true, SourceId::none()).peekable();
 
         let mut ranges_to_replace: Vec<(std::ops::Range<usize>, String)> = Vec::new();
 
-        for token in token_stream {
+        let mut stack = vec![];
+        let mut cursor = None;
+
+        let mut paren_to_highlight = None;
+
+        while let Some(token) = token_stream.next() {
             // todo!()
 
             // if token.span().end() > pos {
@@ -87,15 +111,49 @@ impl Highlighter for RustylineHelper {
             // }
 
             match token.typ() {
-                // steel::parser::tokens::TokenType::OpenParen => todo!(),
-                // steel::parser::tokens::TokenType::CloseParen => todo!(),
+                TokenType::OpenParen(paren) if paren_to_highlight.is_none() => {
+                    if token.span.start == pos || (token.span.start == pos + 1 && cursor.is_none())
+                    {
+                        cursor = Some((*paren, token.span));
+                    }
+
+                    stack.push((*paren, token.span));
+                }
+
+                TokenType::CloseParen(paren) if paren_to_highlight.is_none() => {
+                    let mut matches = token.span.start == pos;
+
+                    if token.span.end == pos {
+                        matches = match token_stream.peek() {
+                            Some(steel_parser::tokens::Token {
+                                ty: TokenType::OpenParen(_) | TokenType::CloseParen(_),
+                                span,
+                                ..
+                            }) => span.start > pos,
+
+                            _ => true,
+                        }
+                    }
+
+                    if matches {
+                        cursor = Some((*paren, token.span));
+                    }
+
+                    match (stack.pop(), cursor) {
+                        (Some((open, span)), Some((_, cursor_span))) if open == *paren => {
+                            if cursor_span == span {
+                                paren_to_highlight = Some(token.span.start);
+                            } else if cursor_span == token.span {
+                                paren_to_highlight = Some(span.start);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 // steel::parser::tokens::TokenType::QuoteTick => todo!(),
                 // steel::parser::tokens::TokenType::QuasiQuote => todo!(),
                 // steel::parser::tokens::TokenType::Unquote => todo!(),
                 // steel::parser::tokens::TokenType::UnquoteSplice => todo!(),
-                // steel::parser::tokens::TokenType::If => todo!(),
-                // steel::parser::tokens::TokenType::Define => todo!(),
-                // steel::parser::tokens::TokenType::Let => todo!(),
                 // steel::parser::tokens::TokenType::TestLet => todo!(),
                 // steel::parser::tokens::TokenType::Return => todo!(),
                 // steel::parser::tokens::TokenType::Begin => todo!(),
@@ -171,7 +229,7 @@ impl Highlighter for RustylineHelper {
             let new_length = line_to_highlight.as_bytes().len();
 
             // TODO just store the updated location back in
-            if let Some((_bracket, pos)) = self.bracket.get() {
+            if let Some(pos) = paren_to_highlight {
                 if start <= pos {
                     offset += new_length - old_length;
                 }
@@ -187,21 +245,18 @@ impl Highlighter for RustylineHelper {
         // if line.len() <= 1 {
         //     return Borrowed(line);
         // }
-        // highlight matching brace/bracket/parenthesis if it exists
-        if let Some((bracket, mut pos)) = self.bracket.get() {
-            if pos > 1 {
-                // println!("position!: {}", pos);
-                pos += offset;
-            }
 
-            // This seems its finding the matching bracket within the escaped sequences - this will need
-            // to _not_ check escaped
-            if let Some((matching, idx)) = find_matching_bracket(&line_to_highlight, pos, bracket) {
-                // let mut copy = line.to_owned();
-                line_to_highlight
-                    .replace_range(idx..=idx, &format!("\x1b[1;34m{}\x1b[0m", matching as char));
-                return Owned(line_to_highlight);
-            }
+        // highlight matching brace/bracket/parenthesis if it exists
+        if let Some(pos) = paren_to_highlight {
+            let idx = if pos == 0 { 0 } else { pos + offset };
+
+            line_to_highlight.replace_range(
+                idx..=idx,
+                &format!(
+                    "\x1b[1;34m{}\x1b[0m",
+                    line_to_highlight.as_bytes()[idx] as char
+                ),
+            );
         }
 
         Cow::Owned(line_to_highlight)
@@ -276,105 +331,51 @@ impl Highlighter for RustylineHelper {
 //     // }
 // }
 
-fn find_matching_bracket(line: &str, pos: usize, bracket: u8) -> Option<(u8, usize)> {
-    let matching = matching_bracket(bracket);
-    let mut idx;
-    let mut unmatched = 1;
-    if is_open_bracket(bracket) {
-        // forward search
-        idx = pos + 1;
-        let bytes = &line.as_bytes()[idx..];
-        for b in bytes {
-            if *b == matching {
-                unmatched -= 1;
-                if unmatched == 0 {
-                    debug_assert_eq!(matching, line.as_bytes()[idx]);
-                    return Some((matching, idx));
-                }
-            } else if *b == bracket {
-                unmatched += 1;
-            }
-            idx += 1;
-        }
-        debug_assert_eq!(idx, line.len());
-    } else {
-        // backward search
-        idx = pos;
-        let bytes = &line.as_bytes()[..idx];
-        for b in bytes.iter().rev() {
-            if *b == matching {
-                // if idx > 3 {
-                //     println!("{:?}", &line.as_bytes().get(idx));
-                //     println!("{:?}", b"\x1b");
-                // }
-
-                unmatched -= 1;
-                if unmatched == 0 {
-                    debug_assert_eq!(matching, line.as_bytes()[idx - 1]);
-                    return Some((matching, idx - 1));
-                }
-            } else if *b == bracket {
-                unmatched += 1;
-            }
-            idx -= 1;
-        }
-        debug_assert_eq!(idx, 0);
-    }
-    None
-}
-
 // check under or before the cursor
 fn check_bracket(line: &str, pos: usize) -> Option<(u8, usize)> {
     if line.is_empty() {
         return None;
     }
-    let mut pos = pos;
-    if pos >= line.len() {
-        pos = line.len() - 1; // before cursor
-        let b = line.as_bytes()[pos]; // previous byte
-        if is_close_bracket(b) {
-            Some((b, pos))
+
+    let bytes = line.as_bytes();
+
+    let on_bracket = |pos: usize| {
+        let b = bytes.get(pos).copied()?;
+        let open = is_open_bracket(b);
+        let close = is_close_bracket(b);
+
+        if (open && (pos + 1 < bytes.len())) || (close && pos > 0) {
+            Some((b, open))
         } else {
             None
         }
-    } else {
-        let mut under_cursor = true;
-        loop {
-            let b = line.as_bytes()[pos];
-            if is_close_bracket(b) {
-                return if pos == 0 { None } else { Some((b, pos)) };
-            } else if is_open_bracket(b) {
-                return if pos + 1 == line.len() {
-                    None
-                } else {
-                    Some((b, pos))
-                };
-            } else if under_cursor && pos > 0 {
-                under_cursor = false;
-                pos -= 1; // or before cursor
-            } else {
-                return None;
+    };
+
+    if let Some((current, _)) = on_bracket(pos) {
+        return Some((current, pos));
+    }
+
+    if pos > 0 {
+        if let Some((current, open)) = on_bracket(pos - 1) {
+            if !open {
+                return Some((current, pos - 1));
             }
         }
     }
+
+    if let Some((current, open)) = on_bracket(pos + 1) {
+        if open {
+            return Some((current, pos + 1));
+        }
+    }
+
+    None
 }
 
-const fn matching_bracket(bracket: u8) -> u8 {
-    match bracket {
-        b'{' => b'}',
-        b'}' => b'{',
-        // b'[' => b']',
-        // b']' => b'[',
-        b'(' => b')',
-        b')' => b'(',
-        b => b,
-    }
-}
 fn is_open_bracket(bracket: u8) -> bool {
-    // matches!(bracket, b'{' | b'[' | b'(')
-    matches!(bracket, b'{' | b'(')
+    matches!(bracket, b'{' | b'[' | b'(')
 }
+
 fn is_close_bracket(bracket: u8) -> bool {
-    // matches!(bracket, b'}' | b']' | b')')
-    matches!(bracket, b'}' | b')')
+    matches!(bracket, b'}' | b']' | b')')
 }

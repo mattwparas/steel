@@ -20,12 +20,12 @@ pub fn bytevector_module() -> BuiltInModule {
         .register_native_fn_definition(MAKE_BYTES_DEFINITION)
         .register_native_fn_definition(IS_BYTE_DEFINITION)
         .register_native_fn_definition(BYTES_LENGTH_DEFINITION)
-        .register_native_fn_definition(STRING_TO_BYTES_DEFINITION)
         .register_native_fn_definition(BYTES_REF_DEFINITION)
         .register_native_fn_definition(BYTES_SET_DEFINITION)
         .register_native_fn_definition(BYTES_TO_LIST_DEFINITION)
         .register_native_fn_definition(LIST_TO_BYTES_DEFINITION)
-        .register_native_fn_definition(BYTES_APPEND_DEFINITION);
+        .register_native_fn_definition(BYTES_APPEND_DEFINITION)
+        .register_native_fn_definition(BYTES_TO_STRING_DEFINITION);
 
     module
 }
@@ -206,19 +206,6 @@ pub fn bytes_length(value: &SteelByteVector) -> usize {
     value.vec.read().len()
 }
 
-/// Converts the given string to a bytevector
-///
-/// # Examples
-/// ```scheme
-/// (string->bytes "Apple") ;; => (bytes 65 112 112 108 101)
-/// ```
-#[function(name = "string->bytes")]
-pub fn string_to_bytes(value: &SteelString) -> Result<SteelVal> {
-    Ok(SteelVal::ByteVector(SteelByteVector::new(
-        value.as_str().as_bytes().to_vec(),
-    )))
-}
-
 /// Fetches the byte at the given index within the bytevector.
 /// If the index is out of bounds, this will error.
 ///
@@ -319,4 +306,52 @@ pub fn bytes_append(value: &SteelByteVector, other: &SteelByteVector) -> Result<
             .copied()
             .collect(),
     )))
+}
+
+/// Decodes a string from a bytevector containing valid UTF-8.
+///
+/// (bytes->string/utf8 buf [start] [end]) -> string?
+///
+/// * buf : bytes?
+/// * start: int? = 0
+/// * end: int? = (bytes-length buf)
+///
+/// # Examples
+/// ```scheme
+/// (bytes->string/utf8 (bytes #xe5 #x8d #x83 #xe8 #x91 #x89)) ;; => "千葉"
+/// ```
+#[function(name = "bytes->string/utf8", alias = "utf8->string")]
+pub fn bytes_to_string(
+    value: &SteelByteVector,
+    mut rest: RestArgsIter<'_, isize>,
+) -> Result<SteelVal> {
+    let borrowed = (&*value.vec).read();
+
+    let start = rest.next().transpose()?.unwrap_or(0);
+    let end = rest.next().transpose()?.unwrap_or(borrowed.len() as isize);
+
+    if rest.next().is_some() {
+        stop!(ArityMismatch => "expected at most 3 arguments");
+    }
+
+    if start < 0 {
+        stop!(ContractViolation => "start should be a positive number, got {}", start);
+    }
+
+    if end < 0 {
+        stop!(ContractViolation => "end should be a positive number, got {}", end);
+    }
+
+    if end < start {
+        stop!(ContractViolation => "start should be smaller than end, got {} and {}", start, end);
+    }
+
+    let start = start as usize;
+    let end = end as usize;
+
+    let Ok(s) = std::str::from_utf8(&(&*borrowed)[start..end]) else {
+        stop!(ConversionError => "bytevector contains malformed UTF-8")
+    };
+
+    Ok(s.to_string().into())
 }

@@ -83,6 +83,7 @@ pub fn list_module() -> BuiltInModule {
         .register_native_fn_definition(PAIR_DEFINITION)
         .register_native_fn_definition(NativeFunctionDefinition {
             name: "apply",
+            aliases: &[],
             func: BuiltInFunctionType::Context(apply),
             arity: Arity::Exact(2),
             doc: Some(APPLY_DOC),
@@ -234,8 +235,6 @@ pub fn is_empty(list: &SteelVal) -> bool {
 }
 
 /// Checks if the given value can be treated as a pair.
-/// Note - there are no improper lists in steel, so any list with at least one element
-/// is considered a pair.
 ///
 /// (pair? any/c) -> bool?
 ///
@@ -249,7 +248,7 @@ pub fn is_empty(list: &SteelVal) -> bool {
 #[steel_derive::function(name = "pair?")]
 fn pair(list: &SteelVal) -> bool {
     match list {
-        SteelVal::ListV(l) => l.iter().next().is_some(),
+        SteelVal::ListV(l) => !l.is_empty(),
         SteelVal::Pair(_) => true,
         _ => false,
     }

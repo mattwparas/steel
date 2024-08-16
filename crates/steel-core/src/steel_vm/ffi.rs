@@ -13,7 +13,7 @@ use crate::{
     rerrs::ErrorKind,
     rvals::{
         as_underlying_type_mut, Custom, CustomType, FutureResult, IntoSteelVal,
-        MaybeSendSyncStatic, Result, SteelHashMap, SteelVal,
+        MaybeSendSyncStatic, Result, SteelHashMap, SteelVal, SteelByteVector,
     },
     values::functions::{BoxedDynFunction, StaticOrRcStr},
     SteelErr,
@@ -145,13 +145,12 @@ macro_rules! conversion_error {
     };
 }
 
-impl<T: IntoFFIVal, E: IntoFFIVal> IntoFFIVal for std::result::Result<T, E> {
+impl<T: IntoFFIVal, E: IntoFFIVal + std::fmt::Debug> IntoFFIVal for std::result::Result<T, E> {
     fn into_ffi_val(self) -> RResult<FFIValue, RBoxError> {
         match self {
             Ok(v) => v.into_ffi_val(),
             Err(e) => {
-                let error: Box<dyn std::error::Error + Send + Sync> =
-                    format!("{:?}", ffi_try!(e.into_ffi_val())).into();
+                let error: Box<dyn std::error::Error + Send + Sync> = format!("{:?}", e).into();
 
                 RResult::RErr(RBoxError::from_box(error))
             }
@@ -1001,6 +1000,7 @@ pub enum FFIValue {
     Future {
         fut: SyncFfiFuture,
     },
+    ByteVector(RVec<u8>),
 }
 
 #[repr(C)]
@@ -1066,6 +1066,7 @@ impl std::fmt::Debug for FFIValue {
             FFIValue::Vector(v) => write!(f, "{:?}", v),
             FFIValue::HashMap(h) => write!(f, "{:?}", h),
             FFIValue::Future { .. } => write!(f, "#<future>"),
+            FFIValue::ByteVector(b) => write!(f, "{:?}", b),
         }
     }
 }
@@ -1191,6 +1192,8 @@ impl IntoSteelVal for FFIValue {
                         .await
                 }),
             )))),
+
+            Self::ByteVector(b) => Ok(SteelVal::ByteVector(SteelByteVector::new(b.into()))),
         }
     }
 }

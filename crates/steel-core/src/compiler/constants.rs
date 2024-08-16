@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 // TODO add the serializing and deserializing for constants
 use serde::{Deserialize, Serialize};
-use steel_parser::parser::lower_entire_ast;
+use steel_parser::parser::{lower_entire_ast, SourceId};
 
 // Shared constant map - for repeated in memory execution of a program, this is going to share the same
 // underlying representation.
@@ -117,7 +117,7 @@ impl ConstantMap {
             .map(|x| {
                 // Parse the input
                 let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
-                    Parser::new_flat(&x, None).collect();
+                    Parser::new_flat(&x, SourceId::none()).collect();
                 let mut parsed = parsed?;
 
                 lower_entire_ast(&mut parsed[0])?;

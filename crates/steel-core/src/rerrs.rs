@@ -1,5 +1,6 @@
 use crate::steel_vm::vm::DehydratedCallContext;
 use crate::{parser::parser::ParseError, rvals::Custom, steel_vm::vm::DehydratedStackTrace};
+use std::io::IsTerminal;
 use std::{convert::Infallible, fmt::Formatter};
 // use thiserror::Error;
 
@@ -7,6 +8,7 @@ use codespan_reporting::diagnostic::{Diagnostic, Label};
 use codespan_reporting::files::SimpleFile;
 use codespan_reporting::term;
 use codespan_reporting::term::termcolor::{ColorChoice, NoColor, StandardStream};
+use steel_parser::parser::SourceId;
 
 use crate::parser::span::Span;
 
@@ -122,11 +124,12 @@ impl From<ParseError> for Repr {
     fn from(v: ParseError) -> Self {
         // unimplemented!()
         let (span, _source) = match &v {
-            ParseError::Unexpected(_, source) | ParseError::UnexpectedEOF(source) => (None, source),
-            ParseError::UnexpectedChar(_, s, source) => (Some(*s), source),
-            ParseError::IncompleteString(_, s, source) => (Some(*s), source),
-            ParseError::SyntaxError(_, s, source) => (Some(*s), source),
-            ParseError::ArityMismatch(_, s, source) => (Some(*s), source),
+            ParseError::UnexpectedEOF(source) => (None, source),
+            ParseError::Unexpected(_, s, source)
+            | ParseError::UnexpectedChar(_, s, source)
+            | ParseError::IncompleteString(_, s, source)
+            | ParseError::SyntaxError(_, s, source)
+            | ParseError::ArityMismatch(_, s, source) => (Some(*s), source),
         };
 
         Repr {
@@ -239,7 +242,13 @@ impl SteelErr {
     pub fn emit_result(&self, file_name: &str, file_content: &str) {
         // let opts = Opts::();
         // let config = codespan_reporting::term::Config::default();
-        let writer = StandardStream::stderr(ColorChoice::Always);
+        let color = if std::io::stderr().is_terminal() {
+            ColorChoice::Auto
+        } else {
+            ColorChoice::Never
+        };
+
+        let writer = StandardStream::stderr(color);
         let config = codespan_reporting::term::Config::default();
 
         let file = SimpleFile::new(file_name, file_content);
@@ -273,9 +282,13 @@ impl SteelErr {
             .with_message(self.repr.kind.to_string())
             .with_labels(vec![Label::primary(
                 (),
-                self.repr.span.unwrap_or(Span::new(0, 0, None)),
+                self.repr.span.unwrap_or(Span::new(0, 0, SourceId::none())),
             )
             .with_message(&self.repr.message)])
+    }
+
+    pub(crate) fn message(&self) -> &str {
+        &self.repr.message
     }
 }
 
@@ -387,6 +400,9 @@ macro_rules! stop {
     // ($type:ident) => {
     //     return Err(SteelErr::new(ErrorKind::$type, None));
     // };
+    ($type:ident => $fmt:expr, $($arg:tt),+ ; $span:expr) => {
+        return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, format!($fmt, $($arg),+)).with_span($span))
+    };
     ($type:ident => $fmt:expr, $($arg:tt)+) => {
         return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, format!($fmt, $($arg)+)))
     };

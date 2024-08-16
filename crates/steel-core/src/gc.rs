@@ -336,10 +336,6 @@ impl<T: ?Sized> Pointer for Gc<T> {
     }
 }
 
-/// Newtype around the `Weak` type.
-/// Enables the detection of reference cycles in mutable memory locations
-pub struct WeakGc<T>(Weak<T>);
-
 impl fmt::Display for Gc<SteelVal> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)

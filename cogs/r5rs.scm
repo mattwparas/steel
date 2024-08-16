@@ -41,6 +41,8 @@
 
 (define __module__ 'r5rs-test-suite)
 
+(check-equal? "<= with rational numbers" (let* ([z (/ 3 2)]) (if (<= z 0) z (+ z 1))) (/ 5 2))
+
 (check-equal? "Parsing hex" #x0f 15)
 (check-equal? "Parsing octal" #o0777 511)
 (check-equal? "Parsing binary" #b0110 6)
@@ -251,8 +253,12 @@
 (check-equal? "string->number with radix in literal" 256 (string->number "#x100"))
 (check-equal? "string->number with radix in literal and explicit one" 256 (string->number "#x100" 8))
 (check-equal? "string->number with large number" 100000000000000 (string->number "100000000000000"))
-(check-equal? "string->number with large number and radix" 72057594037927936 (string->number "100000000000000" 16))
-(check-equal? "string->number with large number and radix literal" 4398046511104 (string->number "#o100000000000000"))
+(check-equal? "string->number with large number and radix"
+              72057594037927936
+              (string->number "100000000000000" 16))
+(check-equal? "string->number with large number and radix literal"
+              4398046511104
+              (string->number "#o100000000000000"))
 (check-equal? "string->number with different base" 127 (string->number "177" 8))
 (check-equal? "string->number base 2" 5 (string->number "101" 2))
 (check-equal? "string->number with scientific notation" 100.0 (string->number "1e2"))
@@ -288,7 +294,7 @@
 
 (check-equal? "empty list is not a boolean" #f (boolean? '()))
 
-; (check-equal #t (pair? '(a . b)))
+(check-equal? "pair?" #t (pair? '(a . b)))
 
 (check-equal? "lists are considered pairs" #t (pair? '(a b c)))
 
@@ -298,25 +304,25 @@
 
 (check-equal? "cons string onto list of symbols" '("a" b c) (cons "a" '(b c)))
 
-; (check-equal '(a . 3) (cons 'a 3))
+(check-equal? "cons" '(a . 3) (cons 'a 3))
 
-; (check-equal '((a b) . c) (cons '(a b) 'c))
+(check-equal? "cons of composites" '((a b) . c) (cons '(a b) 'c))
 
 (check-equal? "take the car of a list of symbols" 'a (car '(a b c)))
 
 (check-equal? "take the car, where the car is a list" '(a) (car '((a) b c d)))
 
-; (check-equal 1 (car '(1 . 2)))
+(check-equal? "car of non-list pair" 1 (car '(1 . 2)))
 
 (check-equal? "take the cdr of a list" '(b c d) (cdr '((a) b c d)))
 
-; (check-equal 2 (cdr '(1 . 2)))
+(check-equal? "take the cdr of a pair" 2 (cdr '(1 . 2)))
 
 (check-equal? "Check list predicate" #t (list? '(a b c)))
 
 (check-equal? "Empty list is a list" #t (list? '()))
 
-; (check-equal #f (list? '(a . b)))
+(check-equal? "Improper list" #f (list? '(a . b)))
 
 ; (check-equal #f
 ;       (let ([x (list 'a)])
@@ -436,6 +442,21 @@
 (check-equal? "case-insensitive string>, same strings" #f (string-ci>? "A" "a"))
 (check-equal? "case-insensitive string >=, true" #t (string-ci>=? "aa" "A"))
 (check-equal? "case-insensitive string >=, same string" #t (string-ci>=? "a" "A"))
+
+(check-equal? "char=?, true" #t (char=? #\a #\a #\a))
+(check-equal? "char=?, false" #f (char=? #\a #\A))
+(check-equal? "char<?, true" #t (char<? #\a #\b #\c))
+(check-equal? "char<?, false, strict" #f (char<? #\a #\a))
+(check-equal? "char<?, false" #f (char<? #\b #\a))
+(check-equal? "char>?, false" #f (char>? #\a #\b))
+(check-equal? "char>?, false, strict" #f (char>? #\a #\a))
+(check-equal? "char>?, true" #t (char>? #\c #\b #\a))
+(check-equal? "char<=?, true" #t (char<=? #\a #\b #\b))
+(check-equal? "char<=?, true, non-strict" #t (char<=? #\a #\a))
+(check-equal? "char<=?, false" #f (char<=? #\b #\a))
+(check-equal? "char>=?, false" #f (char>=? #\a #\b))
+(check-equal? "char>=?, true, non-strict" #t (char>=? #\a #\a))
+(check-equal? "char>=?, true" #t (char>=? #\b #\b #\a))
 
 (check-equal? "make-string creates single character string 'a' correctly"
               #t

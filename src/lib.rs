@@ -14,7 +14,7 @@ use clap::Parser;
 
 /// Steel Interpreter
 #[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
+#[clap(author, version, about, long_about = None, trailing_var_arg = true)]
 pub struct Args {
     /// What action to perform on this file, the absence of a subcommand indicates that the given file (if any)
     /// will be run as the entrypoint
@@ -89,10 +89,8 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             let res = vm.compile_and_run_raw_program_with_path(contents.clone(), path.clone());
 
             if let Err(e) = res {
-                e.emit_result(path.to_str().unwrap(), &contents);
-                // process::exit(1);
-
-                return Err(Box::new(e));
+                vm.raise_error(e.clone());
+                process::exit(1);
             }
 
             Ok(())
@@ -112,7 +110,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
                 );
                 let test_script = include_str!("../cogs/test-runner.scm");
                 if let Err(e) = vm.run(test_script) {
-                    e.emit_result(path, &test_script);
+                    vm.raise_error(e.clone());
                     return Err(Box::new(e));
                 }
             }
@@ -146,7 +144,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
                     vm.debug_print_build(path.to_str().unwrap().to_string(), program)
                         .unwrap();
                 }
-                Err(e) => e.emit_result(path.to_str().unwrap(), &contents),
+                Err(e) => vm.raise_error(e),
             }
 
             Ok(())
@@ -178,7 +176,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
 
             match res {
                 Ok(ast) => println!("{ast}"),
-                Err(e) => e.emit_result(path.to_str().unwrap(), &contents),
+                Err(e) => vm.raise_error(e),
             }
 
             Ok(())
@@ -208,7 +206,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             let res = vm.compile_and_run_raw_program_with_path(contents.clone(), path.clone());
 
             if let Err(e) = res {
-                e.emit_result(path.to_str().unwrap(), &contents);
+                vm.raise_error(e);
             }
 
             run_repl(vm)?;
@@ -377,4 +375,15 @@ fn r7rs_benchmark_test_suite() {
 
         run(args).unwrap();
     }
+}
+
+#[test]
+fn syntax_test_suite() {
+    let args = Args {
+        action: None,
+        default_file: Some(PathBuf::from("cogs/syntax-tests.scm")),
+        arguments: vec![],
+    };
+
+    run(args).unwrap()
 }

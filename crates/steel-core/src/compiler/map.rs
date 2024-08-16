@@ -114,6 +114,10 @@ impl SymbolMap {
         }
     }
 
+    pub fn contains(&mut self, ident: InternedString) -> bool {
+        self.map.contains_key(&ident)
+    }
+
     pub fn add(&mut self, ident: &InternedString) -> usize {
         // Check the free list for the next value. If the free list has an open slot
         // then we should take that. Otherwise, just insert it at the end.
@@ -160,6 +164,6 @@ impl SymbolMap {
         self.map
             .get(ident)
             .copied()
-            .ok_or_else(throw!(FreeIdentifier => ident.resolve()))
+            .ok_or_else(throw!(FreeIdentifier => "Cannot reference an identifier before its definition: {}", ident.resolve()))
     }
 }

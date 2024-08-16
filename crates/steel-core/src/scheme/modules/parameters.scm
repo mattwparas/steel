@@ -44,33 +44,35 @@
 
 (provide current-input-port
          current-output-port
+         current-error-port
          simple-display
          simple-displayln
          newline
          write-char
-         write)
+         write
+         write-string)
 
 (define current-input-port (make-parameter (#%default-input-port)))
 (define current-output-port (make-parameter (#%default-output-port)))
+(define current-error-port (make-parameter (#%default-error-port)))
 
 (define (simple-display x)
-  (raw-write-string (current-output-port) x))
+  (#%raw-write-string x (current-output-port)))
+
+(define write-string #%raw-write-string)
 
 (define newline
   (case-lambda
-    [() (raw-write-char (current-output-port) #\newline)]
-    [(port) (raw-write-char port #\newline)]))
+    [() (#%raw-write-char #\newline (current-output-port))]
+    [(port) (#%raw-write-char #\newline port)]))
 
 (define (simple-displayln x)
   (simple-display x)
   (newline))
 
-;; TODO: Swap argument order of primitive
-(define (write-char char port)
-  (raw-write-char port char))
+(define write-char #%raw-write-char)
 
-(define (write obj port)
-  (raw-write port obj))
+(define write #%raw-write)
 
 ;;;;;;;;;;;;;;;;;;;;; Port functions ;;;;;;;;;;;;;;;;;;;;;
 

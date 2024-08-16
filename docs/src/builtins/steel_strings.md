@@ -2,11 +2,56 @@
 Strings in Steel are immutable, fixed length arrays of characters. They are heap allocated, and
 are implemented under the hood as referenced counted Rust `Strings`. Rust `Strings` are stored
 as UTF-8 encoded bytes.
-### **char=?**
-Checks if two characters are equal
+### **char->integer**
+Returns the Unicode codepoint of a given character.
 
-Requires that the two inputs are both characters, and will otherwise
-raise an error.
+(char->integer char?) -> integer?
+### **char->number**
+Attemps to convert the character into a decimal digit,
+and returns `#f` on failure.
+### **char-digit?**
+Returns `#t` if the character is a decimal digit.
+### **char-downcase**
+Returns the lower case version of a character, if defined by Unicode,
+or the same character otherwise.
+### **char-upcase**
+Returns the upper case version of a character, if defined by Unicode,
+or the same character otherwise.
+### **char-whitespace?**
+Returns `#t` if the character is a whitespace character.
+### **char<=?**
+Compares characters according to their codepoints, in a "less-than-or-equal" fashion.
+
+(char<=? char1 char2 ... ) -> bool?
+* char1 : char?
+* char2 : char?
+### **char<?**
+Compares characters according to their codepoints, in a "less-than" fashion.
+
+(char<? char1 char2 ... ) -> bool?
+* char1 : char?
+* char2 : char?
+### **char=?**
+Checks if all characters are equal.
+
+Requires that all inputs are characters, and will otherwise raise an error.
+
+(char=? char1 char2 ...) -> bool?
+
+* char1 : char?
+* char2 : char?
+### **char>=?**
+Compares characters according to their codepoints, in a "greater-than-or-equal" fashion.
+
+(char>=? char1 char2 ... ) -> bool?
+* char1 : char?
+* char2 : char?
+### **char>?**
+Compares characters according to their codepoints, in a "greater-than" fashion.
+
+(char>? char1 char2 ... ) -> bool?
+* char1 : char?
+* char2 : char?
 ### **ends-with?**
 Checks if the input string ends with a given suffix
 
@@ -31,6 +76,10 @@ Converts an integer into a string.
 ```scheme
 > (int->string 10) ;; => "10"
 ```
+### **integer->char**
+Returns the character corresponding to a given Unicode codepoint.
+
+(integer->char integer?) -> char?
 ### **make-string**
 Creates a string of a given length, filled with an optional character
 (which defaults to `#\0`).
@@ -40,7 +89,7 @@ Creates a string of a given length, filled with an optional character
 * len : int?
 * char : char? = #\0
 ### **number->string**
-Converts the given number to a string
+Converts the given number to a string.
 ### **split-many**
 Splits a string given a separator pattern into a list of strings.
 
@@ -96,6 +145,15 @@ Checks if the input string starts with a prefix
 ```
 ### **string**
 Constructs a string from the given characters
+### **string->bytes**
+Encodes a string as UTF-8 into a bytevector.
+
+(string->bytes string?) -> bytes?
+
+#### Examples
+```scheme
+(string->bytes "Apple") ;; => (bytes 65 112 112 108 101)
+```
 ### **string->int**
 Converts a string into an int. Raises an error if the string cannot be converted to an integer.
 
@@ -110,7 +168,11 @@ Converts a string into an int. Raises an error if the string cannot be converted
 ### **string->list**
 Converts a string into a list of characters.
 
-(string->list string?) -> (listof char?)
+(string->list s [start] [end]) -> (listof char?)
+
+* s : string?
+* start : int? = 0
+* end : int?
 
 #### Examples
 
@@ -129,7 +191,7 @@ Creates a new lowercased version of the input string
 ```
 ### **string->number**
 Converts the given string to a number, with an optional radix.
-On failure, it returns `f`
+On failure, it returns `#f`
 
 (string->number digits [radix]) -> (or/c number? boolean?)
 
@@ -155,6 +217,17 @@ Creates a new uppercased version of the input string
 ```scheme
 > (string->upper "lower") ;; => "LOWER"
 ```
+### **string->utf8**
+Alias of `string->bytes`.
+### **string->vector**
+Returns a vector containing the characters of a given string
+
+(string->vector string?) -> vector?
+
+#### Examples
+```scheme
+(string->vector "hello") ;; => '#(#\h #\e #\l #\l #\o)
+```
 ### **string-append**
 Concatenates all of the given strings into one
 
@@ -168,18 +241,58 @@ Concatenates all of the given strings into one
 > (string-append "foo" "bar") ;; => "foobar"
 ```
 ### **string-ci<=?**
-Compares two strings lexicographically (as in "less-than-or-equal"),
+Compares strings lexicographically (as in"less-than-or-equal"),
+in a case insensitive fashion.
+
+(string-ci<=? s1 s2 ... ) -> bool?
+* s1 : string?
+* s2 : string?
 ### **string-ci<?**
-Compares two strings lexicographically (as in "less-than"),
+Compares strings lexicographically (as in"less-than"),
 in a case insensitive fashion.
+
+(string-ci<? s1 s2 ... ) -> bool?
+* s1 : string?
+* s2 : string?
 ### **string-ci=?**
-Compares two strings for equality, in a case insensitive fashion.
+Compares strings for equality, in a case insensitive fashion.
 ### **string-ci>=?**
-Compares two strings lexicographically (as in "greater-than-or-equal"),
+Compares strings lexicographically (as in"greater-than-or-equal"),
 in a case insensitive fashion.
+
+(string-ci>=? s1 s2 ... ) -> bool?
+* s1 : string?
+* s2 : string?
 ### **string-ci>?**
-Compares two strings lexicographically (as in "greater-than"),
-in a case-insensitive fashion.
+Compares strings lexicographically (as in"greater-than"),
+in a case insensitive fashion.
+
+(string-ci>? s1 s2 ... ) -> bool?
+* s1 : string?
+* s2 : string?
+### **string-contains?**
+Searches a string to check if it contains the second argument.
+
+(string-contains? string? string?) -> bool?
+
+#### Examples
+```scheme
+(string-contains? "hello" "lo") ;;=> #t
+(string-contains? "hello" "world") ;;=> #f
+```
+### **string-join**
+Joins the given list of strings, with an optional separator.
+
+(string-join strings [sep]) -> string?
+
+* strings : (listof string?)
+* sep : string? = ""
+
+#### Examples
+```scheme
+(string-join '("a" "b" "c")) ;; => "abc"
+(string-join '("one" "two" "three") ", ") ;; => "one, two, three"
+```
 ### **string-length**
 Get the length of the given string in UTF-8 bytes.
 
@@ -195,7 +308,7 @@ Get the length of the given string in UTF-8 bytes.
 ### **string-ref**
 Extracts the nth character out of a given string.
 
-(string-ref str n)
+(string-ref str n) -> char?
 
 * str : string?
 * n : int?
@@ -213,15 +326,36 @@ Replaces all occurrences of a pattern into the given string
 (string-replace "hello world" "o" "@") ;; => "hell@ w@rld"
 ```
 ### **string<=?**
-Compares two strings lexicographically (as in "less-than-or-equal").
+Compares strings lexicographically (as in"less-than-equal-to").
+
+(string<=? s1 s2 ... ) -> bool?
+* s1 : string?
+* s2 : string?
 ### **string<?**
-Compares two strings lexicographically (as in "less-than").
+Compares strings lexicographically (as in"less-than").
+
+(string<? s1 s2 ... ) -> bool?
+* s1 : string?
+* s2 : string?
 ### **string=?**
-Compares two strings for equality.
+Compares strings for equality.
+
+(string=? string1 string2 ...) -> bool?
+
+* string1 : string?
+* string2 : string?
 ### **string>=?**
-Compares two strings lexicographically (as in "greater-than-or-equal").
+Compares strings lexicographically (as in"greater-than-or-equal").
+
+(string>=? s1 s2 ... ) -> bool?
+* s1 : string?
+* s2 : string?
 ### **string>?**
-Compares two strings lexicographically (as in "greater-than").
+Compares strings lexicographically (as in"greater-than").
+
+(string>? s1 s2 ... ) -> bool?
+* s1 : string?
+* s2 : string?
 ### **substring**
 Creates a substring slicing the characters between two indices.
 
@@ -303,7 +437,3 @@ of the string
 ```scheme
 > (trim-start-matches "123foo1bar123123" "123") ;; => "foo1bar123123"
 ```
-### **char->number**
-### **char-digit?**
-### **char-upcase**
-### **char-whitespace?**

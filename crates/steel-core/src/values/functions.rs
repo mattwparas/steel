@@ -67,7 +67,7 @@ impl LambdaMetadataTable {
     pub fn add(&mut self, function: SteelVal, doc: SteelString) {
         match function {
             SteelVal::Closure(b) => {
-                self.fn_ptr_table.insert(b.id, doc);
+                self.fn_ptr_table.insert(b.id as _, doc);
             }
             SteelVal::BoxedFunction(b) => {
                 self.fn_ptr_table.insert(Gc::as_ptr(&b) as usize, doc);
@@ -78,7 +78,7 @@ impl LambdaMetadataTable {
 
     pub fn get(&self, function: SteelVal) -> Option<SteelString> {
         match function {
-            SteelVal::Closure(b) => self.fn_ptr_table.get(&b.id).cloned(),
+            SteelVal::Closure(b) => self.fn_ptr_table.get(&(b.id as _)).cloned(),
             SteelVal::BoxedFunction(b) => {
                 self.fn_ptr_table.get(&(Gc::as_ptr(&b) as usize)).cloned()
             }
@@ -96,7 +96,7 @@ impl LambdaMetadataTable {
 
 #[derive(Clone, Debug)]
 pub struct ByteCodeLambda {
-    pub(crate) id: usize,
+    pub(crate) id: u32,
     /// body of the function with identifiers yet to be bound
     #[cfg(feature = "dynamic")]
     pub(crate) body_exp: RefCell<Shared<[DenseInstruction]>>,
@@ -145,7 +145,7 @@ impl std::hash::Hash for ByteCodeLambda {
 // Can this be moved across threads? What does it cost to execute a closure in another thread?
 // Engine instances be deep cloned?
 pub struct SerializedLambda {
-    pub id: usize,
+    pub id: u32,
     pub body_exp: Vec<DenseInstruction>,
     pub arity: usize,
     pub is_multi_arity: bool,
@@ -156,7 +156,7 @@ pub struct SerializedLambda {
 
 #[derive(Clone)]
 pub struct SerializedLambdaPrototype {
-    pub id: usize,
+    pub id: u32,
     pub body_exp: Vec<DenseInstruction>,
     pub arity: usize,
     pub is_multi_arity: bool,
@@ -170,7 +170,7 @@ pub struct SerializedLambdaPrototype {
 // is_multi_arity can also be localized to a specific kind of function
 impl ByteCodeLambda {
     pub fn new(
-        id: usize,
+        id: u32,
         body_exp: Shared<[DenseInstruction]>,
         arity: usize,
         is_multi_arity: bool,

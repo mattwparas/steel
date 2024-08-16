@@ -66,6 +66,7 @@ macro_rules! list {
     }};
 }
 
+use bigdecimal::BigDecimal;
 use SteelVal::*;
 
 use crate::values::{HashMap, HashSet, Vector};
@@ -75,7 +76,9 @@ use futures_util::future::Shared;
 use futures_util::FutureExt;
 
 use crate::values::lists::List;
-use num::{BigInt, BigRational, Rational32, Signed, ToPrimitive, Zero};
+use num::{
+    bigint::ToBigInt, BigInt, BigRational, FromPrimitive, Rational32, Signed, ToPrimitive, Zero,
+};
 use steel_parser::tokens::{IntLiteral, RealLiteral};
 
 use self::cycles::{CycleDetector, IterativeDropHandler};
@@ -598,7 +601,7 @@ impl ast::TryFromSteelValVisitorForExprKind {
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                TokenType::StringLiteral(x.to_string()),
+                TokenType::StringLiteral(Box::new(x.to_string())),
                 span,
             )))),
             SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
@@ -722,7 +725,7 @@ impl Syntax {
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                TokenType::StringLiteral(x.to_string()),
+                TokenType::StringLiteral(Box::new(x.to_string())),
             )))),
             // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
             // MacroV(_) => Err("Can't convert from Macro to expression!"),
@@ -768,7 +771,7 @@ impl Syntax {
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                TokenType::StringLiteral(x.to_string()),
+                TokenType::StringLiteral(Box::new(x.to_string())),
                 span,
             )))),
             // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
@@ -840,6 +843,7 @@ pub enum SerializableSteelVal {
     MutFunc(MutFunctionSignature),
     HashMapV(Vec<(SerializableSteelVal, SerializableSteelVal)>),
     ListV(Vec<SerializableSteelVal>),
+    Pair(Box<(SerializableSteelVal, SerializableSteelVal)>),
     VectorV(Vec<SerializableSteelVal>),
     BoxedDynFunction(BoxedDynFunction),
     BuiltIn(BuiltInSignature),
@@ -864,7 +868,7 @@ pub struct HeapSerializer<'a> {
     pub values_to_fill_in: &'a mut std::collections::HashMap<usize, HeapRef<SteelVal>>,
 
     // Cache the functions that get built
-    pub built_functions: &'a mut std::collections::HashMap<usize, Gc<ByteCodeLambda>>,
+    pub built_functions: &'a mut std::collections::HashMap<u32, Gc<ByteCodeLambda>>,
 }
 
 // Once crossed over the line, convert BACK into a SteelVal
@@ -984,6 +988,15 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                 SteelVal::HeapAllocated(allocation)
             }
         }
+        SerializableSteelVal::Pair(pair) => {
+            let (car, cdr) = *pair;
+
+            crate::values::lists::Pair::cons(
+                from_serializable_value(ctx, car),
+                from_serializable_value(ctx, cdr),
+            )
+            .into()
+        }
     }
 }
 
@@ -1013,6 +1026,10 @@ pub fn into_serializable_value(
                 .map(|x| into_serializable_value(x, serialized_heap, visited))
                 .collect::<Result<_>>()?,
         )),
+        SteelVal::Pair(pair) => Ok(SerializableSteelVal::Pair(Box::new((
+            into_serializable_value(pair.car.clone(), serialized_heap, visited)?,
+            into_serializable_value(pair.cdr.clone(), serialized_heap, visited)?,
+        )))),
         SteelVal::BoxedFunction(f) => Ok(SerializableSteelVal::BoxedDynFunction((*f).clone())),
         SteelVal::BuiltIn(f) => Ok(SerializableSteelVal::BuiltIn(f)),
         SteelVal::SymbolV(s) => Ok(SerializableSteelVal::SymbolV(s.to_string())),
@@ -1752,6 +1769,7 @@ impl Hash for SteelVal {
             IterV(s) => s.hash(state),
             HashSetV(hs) => hs.hash(state),
             SyntaxObject(s) => s.raw.hash(state),
+            Pair(p) => (&**p).hash(state),
             _ => {
                 unimplemented!("Attempted to has unsupported value: {self:?}")
             }
@@ -2100,33 +2118,156 @@ impl PartialOrd for SteelVal {
         // TODO: Attempt to avoid converting to f64 for cases below as it may lead to precision loss
         // at tiny and large values.
         match (self, other) {
-            (IntV(l), IntV(r)) => l.partial_cmp(r),
-            (IntV(l), NumV(r)) => partial_cmp_f64(l, r),
-            (IntV(l), Rational(r)) => partial_cmp_f64(l, r),
-            (IntV(l), BigRational(r)) => partial_cmp_f64(l, r.as_ref()),
-            (IntV(l), BigNum(r)) => BigInt::from(*l).partial_cmp(r),
-            (NumV(l), IntV(r)) => partial_cmp_f64(l, r),
-            (NumV(l), NumV(r)) => l.partial_cmp(r),
-            (NumV(l), Rational(r)) => partial_cmp_f64(l, r),
-            (NumV(l), BigRational(r)) => partial_cmp_f64(l, r.as_ref()),
-            (NumV(l), BigNum(r)) => partial_cmp_f64(l, r.as_ref()),
-            (Rational(l), Rational(r)) => l.partial_cmp(&r),
-            (Rational(l), IntV(r)) => partial_cmp_f64(l, r),
-            (Rational(l), NumV(r)) => l.to_f64()?.partial_cmp(&r),
-            (Rational(l), BigRational(r)) => partial_cmp_f64(l, r.as_ref()),
-            (Rational(l), BigNum(r)) => l.to_f64()?.partial_cmp(&r.to_f64()?),
-            (BigNum(l), IntV(r)) => l.as_ref().partial_cmp(&BigInt::from(*r)),
-            (BigNum(l), NumV(r)) => l.to_f64()?.partial_cmp(r),
-            (BigNum(l), BigNum(r)) => l.as_ref().partial_cmp(r.as_ref()),
-            (BigNum(l), Rational(r)) => partial_cmp_f64(l.as_ref(), r),
-            (BigNum(l), BigRational(r)) => partial_cmp_f64(l.as_ref(), r.as_ref()),
-            (BigRational(l), BigRational(r)) => l.as_ref().partial_cmp(r.as_ref()),
-            (BigRational(l), IntV(r)) => partial_cmp_f64(l.as_ref(), r),
-            (BigRational(l), NumV(r)) => partial_cmp_f64(l.as_ref(), r),
-            (BigRational(l), Rational(r)) => partial_cmp_f64(l.as_ref(), r),
-            (BigRational(l), BigNum(r)) => partial_cmp_f64(l.as_ref(), r.as_ref()),
+            // Comparison of matching `SteelVal` variants:
+            (IntV(x), IntV(y)) => x.partial_cmp(y),
+            (BigNum(x), BigNum(y)) => x.partial_cmp(y),
+            (Rational(x), Rational(y)) => x.partial_cmp(y),
+            (BigRational(x), BigRational(y)) => x.partial_cmp(y),
+            (NumV(x), NumV(y)) => x.partial_cmp(y),
             (StringV(s), StringV(o)) => s.partial_cmp(o),
             (CharV(l), CharV(r)) => l.partial_cmp(r),
+
+            // Comparison of `IntV`, means promoting to the rhs type
+            (IntV(x), BigNum(y)) => x
+                .to_bigint()
+                .expect("integers are representable by bigint")
+                .partial_cmp(y),
+            (IntV(x), Rational(y)) => {
+                // Since we have platform-dependent type for rational conditional compilation is required to find
+                // the common ground
+                #[cfg(target_pointer_width = "32")]
+                {
+                    let x_rational = num::Rational32::new_raw(*x as i32, 1);
+                    x_rational.partial_cmp(y)
+                }
+                #[cfg(target_pointer_width = "64")]
+                {
+                    let x_rational = num::Rational64::new_raw(*x as i64, 1);
+                    x_rational.partial_cmp(&num::Rational64::new_raw(
+                        *y.numer() as i64,
+                        *y.denom() as i64,
+                    ))
+                }
+            }
+            (IntV(x), BigRational(y)) => {
+                let x_rational = BigRational::from_integer(
+                    x.to_bigint().expect("integers are representable by bigint"),
+                );
+                x_rational.partial_cmp(y)
+            }
+            (IntV(x), NumV(y)) => (*x as f64).partial_cmp(y),
+
+            // BigNum comparisons means promoting to BigInt for integers, BigRational for ratios,
+            // or Decimal otherwise
+            (BigNum(x), IntV(y)) => x
+                .as_ref()
+                .partial_cmp(&y.to_bigint().expect("integers are representable by bigint")),
+            (BigNum(x), Rational(y)) => {
+                let x_big_rational = BigRational::from_integer(x.unwrap());
+                let y_big_rational = BigRational::new_raw(
+                    y.numer()
+                        .to_bigint()
+                        .expect("integers are representable by bigint"),
+                    y.denom()
+                        .to_bigint()
+                        .expect("integers are representable by bigint"),
+                );
+                x_big_rational.partial_cmp(&y_big_rational)
+            }
+            (BigNum(x), BigRational(y)) => {
+                let x_big_rational = BigRational::from_integer(x.unwrap());
+                x_big_rational.partial_cmp(&y)
+            }
+            (BigNum(x), NumV(y)) => {
+                let x_decimal = BigDecimal::new(x.unwrap(), 0);
+                let y_decimal_opt = BigDecimal::from_f64(*y);
+                y_decimal_opt.and_then(|y_decimal| x_decimal.partial_cmp(&y_decimal))
+            }
+
+            // Rationals require rationals, regular or bigger versions; for float it will be divided to float as well
+            (Rational(x), IntV(y)) => {
+                // Same as before, but opposite direction
+                #[cfg(target_pointer_width = "32")]
+                {
+                    let y_rational = num::Rational32::new_raw(*y as i32, 1);
+                    x.partial_cmp(&y_rational)
+                }
+                #[cfg(target_pointer_width = "64")]
+                {
+                    let y_rational = num::Rational64::new_raw(*y as i64, 1);
+                    num::Rational64::new_raw(*x.numer() as i64, *x.denom() as i64)
+                        .partial_cmp(&y_rational)
+                }
+            }
+            (Rational(x), BigNum(y)) => {
+                let x_big_rational = BigRational::new_raw(
+                    x.numer()
+                        .to_bigint()
+                        .expect("integers are representable by bigint"),
+                    x.denom()
+                        .to_bigint()
+                        .expect("integers are representable by bigint"),
+                );
+                let y_big_rational = BigRational::from_integer(y.unwrap());
+                x_big_rational.partial_cmp(&y_big_rational)
+            }
+            (Rational(x), BigRational(y)) => {
+                let x_big_rational = BigRational::new_raw(
+                    x.numer()
+                        .to_bigint()
+                        .expect("integers are representable by bigint"),
+                    x.denom()
+                        .to_bigint()
+                        .expect("integers are representable by bigint"),
+                );
+                x_big_rational.partial_cmp(&y)
+            }
+            (Rational(x), NumV(y)) => (*x.numer() as f64 / *x.denom() as f64).partial_cmp(y),
+
+            // The most capacious set, but need to cover float case with BigDecimal anyways
+            (BigRational(x), IntV(y)) => {
+                let y_rational = BigRational::from_integer(
+                    y.to_bigint().expect("integers are representable by bigint"),
+                );
+                x.as_ref().partial_cmp(&y_rational)
+            }
+            (BigRational(x), BigNum(y)) => {
+                let y_big_rational = BigRational::from_integer(y.unwrap());
+                x.as_ref().partial_cmp(&y_big_rational)
+            }
+            (BigRational(x), Rational(y)) => {
+                let y_big_rational = BigRational::new_raw(
+                    y.numer()
+                        .to_bigint()
+                        .expect("integers are representable by bigint"),
+                    y.denom()
+                        .to_bigint()
+                        .expect("integers are representable by bigint"),
+                );
+                x.as_ref().partial_cmp(&y_big_rational)
+            }
+            (BigRational(x), NumV(y)) => {
+                let x_decimal =
+                    BigDecimal::new(x.numer().clone(), 0) / BigDecimal::new(x.denom().clone(), 0);
+                let y_decimal_opt = BigDecimal::from_f64(*y);
+                y_decimal_opt.and_then(|y_decimal| x_decimal.partial_cmp(&y_decimal))
+            }
+
+            // The opposite of all float cases above
+            (NumV(x), IntV(y)) => x.partial_cmp(&(*y as f64)),
+            (NumV(x), BigNum(y)) => {
+                let x_decimal_opt = BigDecimal::from_f64(*x);
+                let y_decimal = BigDecimal::new(y.unwrap(), 0);
+                x_decimal_opt.and_then(|x_decimal| x_decimal.partial_cmp(&y_decimal))
+            }
+            (NumV(x), Rational(y)) => x.partial_cmp(&(*y.numer() as f64 / *y.denom() as f64)),
+            (NumV(x), BigRational(y)) => {
+                let x_decimal_opt = BigDecimal::from_f64(*x);
+                let y_decimal =
+                    BigDecimal::new(y.numer().clone(), 0) / BigDecimal::new(y.denom().clone(), 0);
+                x_decimal_opt.and_then(|x_decimal| x_decimal.partial_cmp(&y_decimal))
+            }
+
             (l, r) => {
                 // All real numbers (not complex) should have order defined.
                 debug_assert!(
@@ -2145,8 +2286,7 @@ impl fmt::Display for SteelVal {
         // at the top level, print a ' if we are
         // trying to print a symbol or list
         match self {
-            SymbolV(_) | ListV(_) => write!(f, "'")?,
-            VectorV(_) => write!(f, "'#")?,
+            VectorV(_) => write!(f, "#")?,
             _ => (),
         };
 

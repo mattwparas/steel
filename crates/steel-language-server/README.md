@@ -22,7 +22,41 @@ command = "steel-language-server"
 args = []
 ```
 
-VSCode, neovim, and emacs installation instructions coming soon.
+Configuration in neovim can be done by adding the following to your configuration
+
+```lua
+configs.steel = {
+    default_config = {
+        cmd = { "steel-language-server" },
+        filetypes = { "scheme" },
+        root_dir = function(_)
+            -- We can run on single file, so root dir doesn't really matter.
+            require("lspconfig.util").root_pattern "*"
+        end,
+        single_file_support = true,
+        docs = {
+            description = [[
+Steel language server.
+
+Install from: https://github.com/mattwparas/steel/tree/master/crates/steel-language-server
+
+Check the repo for more configuration.
+]],
+            default_config = {}
+        }
+    }
+}
+```
+
+Now you can call
+
+```lua
+require'lspconfig'.steel.setup {
+  -- Your usual configuration (handlers, capabilities, etc.) goes here.
+}
+```
+
+VSCode, and emacs installation instructions coming soon.
 
 ## Configuration
 

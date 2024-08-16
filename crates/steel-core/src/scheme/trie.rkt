@@ -25,9 +25,9 @@
   (define next-prefix (push-back prefix-chars char))
   (cond [(empty? lst) ;; children are empty, return list of empty children
          (list (trie char empty #t next-prefix))]
-        [(< char (trie-char (first lst))) ;; less than, put it to the left
+        [(char<? char (trie-char (first lst))) ;; less than, put it to the left
          (cons (trie char empty #t next-prefix) lst)]
-        [(= char (trie-char (first lst))) ;; equal, step down a level
+        [(char=? char (trie-char (first lst))) ;; equal, step down a level
          (cons (trie char (trie-children (first lst)) #t next-prefix) (rest lst))]
         [else ;; move to the right
          (cons (first lst)
@@ -41,10 +41,10 @@
   (cond [(empty? lst) ;; no children, pop off front and step down
          (list (trie char (create-children
                            (rest char-list) empty next-prefix) #f next-prefix))]
-        [(< char (trie-char (first lst))) ;; place where it is, pop off front and go
+        [(char<? char (trie-char (first lst))) ;; place where it is, pop off front and go
          (cons (trie char (create-children
                            (rest char-list) empty next-prefix) #f next-prefix) lst)]
-        [(= char (trie-char (first lst))) ;; equal, step down
+        [(char=? char (trie-char (first lst))) ;; equal, step down
          (cons (trie char (create-children (rest char-list) (trie-children (first lst)) next-prefix)
                      (trie-end-word? (first lst))
                      (trie-word-up-to (first lst)))
@@ -64,7 +64,7 @@
 
 ; contract: trie? trie? -> boolean?
 (define (trie<? trie-node1 trie-node2)
-  (< (trie-char trie-node1) (trie-char trie-node2)))
+  (char<? (trie-char trie-node1) (trie-char trie-node2)))
 
 
 ;; contract: trie? (listof string?) -> trie?

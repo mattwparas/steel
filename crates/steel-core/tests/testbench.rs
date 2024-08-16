@@ -97,16 +97,16 @@ fn static_site_generator_modules() {
 fn if_test() {
     let mut evaluator = Engine::new();
     evaluator.compile_and_run_raw_program(PRELUDE).unwrap();
-    test_line("(if #t 'a 2)", &["'a"], &mut evaluator);
-    test_line("(if 'a 'b 1)", &["'b"], &mut evaluator);
+    test_line("(if #t 'a 2)", &["a"], &mut evaluator);
+    test_line("(if 'a 'b 1)", &["b"], &mut evaluator);
     test_line(
         "(if (= 1 (begin (display 10) 1)) a 2)",
-        &["Error: FreeIdentifier: a"],
+        &["Error: FreeIdentifier: Cannot reference an identifier before its definition: a"],
         &mut evaluator,
     );
     test_line(
         "(if (= 1 (begin (display 10) 1)) a 2)",
-        &["Error: FreeIdentifier: a"],
+        &["Error: FreeIdentifier: Cannot reference an identifier before its definition: a"],
         &mut evaluator,
     );
     test_line(
@@ -126,7 +126,11 @@ fn define_test() {
     let mut evaluator = Engine::new();
     evaluator.compile_and_run_raw_program(PRELUDE).unwrap();
     let e = &mut evaluator;
-    test_line("a", &["Error: FreeIdentifier: a"], e);
+    test_line(
+        "a",
+        &["Error: FreeIdentifier: Cannot reference an identifier before its definition: a"],
+        e,
+    );
     test_line(
         "(define a (lambda (x) (+ x 1)) wat)",
         &["Error: Parse: Parse: Syntax Error: Define expected only one expression after the identifier"],
@@ -144,7 +148,11 @@ fn define_test() {
     test_line("(b 10 20 30)", &["60"], e);
     test_line("(define b 10)", &["#<void>"], e);
     test_line("b", &["10"], e);
-    test_line("a1", &["Error: FreeIdentifier: a1"], e);
+    test_line(
+        "a1",
+        &["Error: FreeIdentifier: Cannot reference an identifier before its definition: a1"],
+        e,
+    );
 }
 
 #[test]
@@ -177,7 +185,11 @@ fn set_test() {
     let mut evaluator = Engine::new();
     evaluator.compile_and_run_raw_program(PRELUDE).unwrap();
     let e = &mut evaluator;
-    test_line("(set! x 10)", &["Error: FreeIdentifier: x"], e);
+    test_line(
+        "(set! x 10)",
+        &["Error: FreeIdentifier: Cannot reference an identifier before its definition: x"],
+        e,
+    );
     test_line(
         "(set! x)",
         &["Error: Parse: Parse: Arity mismatch: set! expects an identifier and an expression"],
@@ -238,15 +250,19 @@ fn and_test() {
     let e = &mut evaluator;
     test_line("(and #t #f)", &["#false"], e);
     test_line("(and #t #t)", &["#true"], e);
-    test_line("(and a #t)", &["Error: FreeIdentifier: a"], e);
+    test_line(
+        "(and a #t)",
+        &["Error: FreeIdentifier: Cannot reference an identifier before its definition: a"],
+        e,
+    );
     test_line(
         "(and (begin (display 10) #t) a)",
-        &["Error: FreeIdentifier: a"],
+        &["Error: FreeIdentifier: Cannot reference an identifier before its definition: a"],
         e,
     );
     test_line(
         "(and (= 1 (begin (display 10) 1)) (= 1 (begin (display 10) 2)) who are you)",
-        &["Error: FreeIdentifier: who"],
+        &["Error: FreeIdentifier: Cannot reference an identifier before its definition: who"],
         e,
     );
     test_line("(and (= 1 1) (= (+ 1 1) 2) (< 3 4))", &["#true"], e);
@@ -262,17 +278,17 @@ fn or_test() {
     test_line("(or #f #t)", &["#true"], e);
     test_line(
         "(or (= 1 (begin (display 10) 1)) a)",
-        &["Error: FreeIdentifier: a"],
+        &["Error: FreeIdentifier: Cannot reference an identifier before its definition: a"],
         e,
     );
     test_line(
         "(or (= 1 (begin (display 10) 1)) a)",
-        &["Error: FreeIdentifier: a"],
+        &["Error: FreeIdentifier: Cannot reference an identifier before its definition: a"],
         e,
     );
     // test_line(
     //     "(or (= 1 (begin (display 10) 1)) whatever you want idk)",
-    //     &["Error: FreeIdentifier: whatever"],
+    //     &["Error: FreeIdentifier: Cannot reference an identifier before its definition: whatever"],
     //     e,
     // );
     test_line("(or (> 3 4) (> 4 5) (> 5 6) (= 1 1))", &["#true"], e);
@@ -326,7 +342,7 @@ fn thread_first_test() {
             (append (list 5 6))
             (map (lambda (x) (* 5 x)))
             (append (list 1 2 3 4)))",
-        &["'(1 2 3 4 25 30 10 20 30 40)"],
+        &["(1 2 3 4 25 30 10 20 30 40)"],
         e,
     );
 }
@@ -340,7 +356,7 @@ fn thread_last_test() {
         "(-> (list 1 2 3 4)
             (drop 2)
             (append (list 5 6)))",
-        &["'(3 4 5 6)"],
+        &["(3 4 5 6)"],
         e,
     );
 }
@@ -350,7 +366,7 @@ fn first_apply_test() {
     let mut evaluator = Engine::new();
     // evaluator.compile_and_run_raw_program(PRELUDE).unwrap();
     let e = &mut evaluator;
-    test_line("((f> append (list 3 4)) (list 1 2))", &["'(1 2 3 4)"], e);
+    test_line("((f> append (list 3 4)) (list 1 2))", &["(1 2 3 4)"], e);
 }
 
 #[test]
@@ -358,7 +374,7 @@ fn last_apply_test() {
     let mut evaluator = Engine::new();
     evaluator.compile_and_run_raw_program(PRELUDE).unwrap();
     let e = &mut evaluator;
-    test_line("((l> append (list 3 4)) (list 1 2))", &["'(3 4 1 2)"], e);
+    test_line("((l> append (list 3 4)) (list 1 2))", &["(3 4 1 2)"], e);
 }
 
 #[test]
@@ -377,7 +393,7 @@ fn map_test() {
     let e = &mut evaluator;
     test_line(
         "(map (lambda (x) (* 2 x)) (list 1 2 3 4))",
-        &["'(2 4 6 8)"],
+        &["(2 4 6 8)"],
         e,
     );
 }
@@ -387,5 +403,5 @@ fn filter_test() {
     let mut evaluator = Engine::new();
     evaluator.compile_and_run_raw_program(PRELUDE).unwrap();
     let e = &mut evaluator;
-    test_line("(filter even? (list 1 2 3 4 5))", &["'(2 4)"], e);
+    test_line("(filter even? (list 1 2 3 4 5))", &["(2 4)"], e);
 }

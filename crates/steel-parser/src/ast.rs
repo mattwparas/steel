@@ -113,14 +113,14 @@ pub enum ExprKind {
     Let(Box<Let>),
     Define(Box<Define>),
     LambdaFunction(Box<LambdaFunction>),
-    Begin(Begin),
+    Begin(Box<Begin>),
     Return(Box<Return>),
     Quote(Box<Quote>),
     Macro(Box<Macro>),
     SyntaxRules(Box<SyntaxRules>),
     List(List),
     Set(Box<Set>),
-    Require(Require),
+    Require(Box<Require>),
 }
 
 impl Default for ExprKind {
@@ -167,7 +167,7 @@ impl ExprKind {
             ExprKind::Quote(expr) => Some(expr.location.span),
             ExprKind::Macro(expr) => Some(expr.location.span),
             ExprKind::SyntaxRules(expr) => Some(expr.location.span),
-            ExprKind::List(expr) => expr.location,
+            ExprKind::List(expr) => Some(expr.location),
             ExprKind::Set(expr) => Some(expr.location.span),
             ExprKind::Require(expr) => Some(expr.location.span),
         }
@@ -225,7 +225,7 @@ impl ExprKind {
 
     pub fn string_lit(input: String) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::StringLiteral(
-            input,
+            Box::new(input),
         ))))
     }
 
@@ -252,6 +252,13 @@ impl ExprKind {
     }
 
     pub fn atom_syntax_object(&self) -> Option<&SyntaxObject> {
+        match self {
+            Self::Atom(Atom { syn }) => Some(syn),
+            _ => None,
+        }
+    }
+
+    pub fn atom_syntax_object_mut(&mut self) -> Option<&mut SyntaxObject> {
         match self {
             Self::Atom(Atom { syn }) => Some(syn),
             _ => None,
@@ -505,7 +512,7 @@ pub struct Let {
     pub bindings: Vec<(ExprKind, ExprKind)>,
     pub body_expr: ExprKind,
     pub location: SyntaxObject,
-    pub syntax_object_id: usize,
+    pub syntax_object_id: u32,
 }
 
 impl Let {
@@ -738,7 +745,7 @@ pub struct LambdaFunction {
     pub body: ExprKind,
     pub location: SyntaxObject,
     pub rest: bool,
-    pub syntax_object_id: usize,
+    pub syntax_object_id: u32,
 }
 
 impl Clone for LambdaFunction {
@@ -844,6 +851,12 @@ impl LambdaFunction {
     pub fn arguments_mut(&mut self) -> impl Iterator<Item = &mut InternedString> {
         self.args.iter_mut().filter_map(|x| x.atom_identifier_mut())
     }
+
+    pub fn syntax_objects_arguments_mut(&mut self) -> impl Iterator<Item = &mut SyntaxObject> {
+        self.args
+            .iter_mut()
+            .filter_map(|x| x.atom_syntax_object_mut())
+    }
 }
 
 impl From<LambdaFunction> for ExprKind {
@@ -888,7 +901,7 @@ impl Begin {
 
 impl From<Begin> for ExprKind {
     fn from(val: Begin) -> Self {
-        ExprKind::Begin(val)
+        ExprKind::Begin(Box::new(val))
     }
 }
 
@@ -960,23 +973,25 @@ impl fmt::Display for Require {
 
 impl From<Require> for ExprKind {
     fn from(val: Require) -> Self {
-        ExprKind::Require(val)
+        ExprKind::Require(Box::new(val))
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct List {
     pub args: Vec<ExprKind>,
-    pub syntax_object_id: usize,
+    pub syntax_object_id: u32,
     pub improper: bool,
     // TODO: Attach the span from the parser - just the offset
     // of the open and close parens
-    pub location: Option<Span>,
+    pub location: Span,
 }
 
 impl PartialEq for List {
     fn eq(&self, other: &Self) -> bool {
         self.args == other.args
+            && self.improper == other.improper
+            && self.location == other.location
     }
 }
 
@@ -984,9 +999,18 @@ impl List {
     pub fn new(args: Vec<ExprKind>) -> Self {
         List {
             args,
-            syntax_object_id: SyntaxObjectId::fresh().0,
+            syntax_object_id: SyntaxObjectId::fresh().0 as _,
             improper: false,
-            location: None,
+            location: Span::default(),
+        }
+    }
+
+    pub fn new_maybe_improper(args: Vec<ExprKind>, improper: bool) -> Self {
+        List {
+            args,
+            syntax_object_id: SyntaxObjectId::fresh().0 as _,
+            improper,
+            location: Span::default(),
         }
     }
 
@@ -994,13 +1018,28 @@ impl List {
         List {
             args,
             improper: false,
-            location: Some(Span::merge(open, close)),
-            syntax_object_id: SyntaxObjectId::fresh().0,
+            location: Span::merge(open, close),
+            syntax_object_id: SyntaxObjectId::fresh().0 as _,
         }
     }
 
     pub fn make_improper(mut self) -> Self {
-        self.improper = true;
+        let Some(last) = self.args.pop() else {
+            debug_assert!(false);
+
+            self.improper = true;
+            return self;
+        };
+
+        let ExprKind::List(l) = last else {
+            self.args.push(last);
+
+            self.improper = true;
+            return self;
+        };
+
+        self.args.extend(l.args);
+        self.improper = l.improper;
         self
     }
 
@@ -1010,6 +1049,18 @@ impl List {
 
     pub fn rest_mut(&mut self) -> Option<&mut [ExprKind]> {
         self.args.split_first_mut().map(|x| x.1)
+    }
+
+    pub fn args_proper(self, ty: TokenType<&str>) -> Result<Vec<ExprKind>, ParseError> {
+        if self.improper {
+            return Err(ParseError::SyntaxError(
+                format!("{} expression requires a proper list", ty),
+                self.location,
+                None,
+            ));
+        }
+
+        Ok(self.args)
     }
 
     pub fn first_ident_mut(&mut self) -> Option<&mut InternedString> {
@@ -1140,11 +1191,19 @@ impl List {
             None
         }
     }
+
+    pub fn split_improper(&self) -> Option<(&[ExprKind], &ExprKind)> {
+        if self.improper {
+            self.args.split_last().map(|(last, rest)| (rest, last))
+        } else {
+            None
+        }
+    }
 }
 
 impl ToDoc for List {
     fn to_doc(&self) -> RcDoc<()> {
-        if let Some(func) = self.first_func() {
+        if let Some(func) = self.first_func().filter(|_| !self.improper) {
             let mut args_iter = self.args.iter();
             args_iter.next();
 
@@ -1173,12 +1232,20 @@ impl ToDoc for List {
                 .append(RcDoc::text(")"))
                 .nest(2)
         } else {
+            let args = if let Some((car, cdr)) = self.split_improper() {
+                let iter = car
+                    .iter()
+                    .map(ToDoc::to_doc)
+                    .chain(std::iter::once(RcDoc::text(".")))
+                    .chain(std::iter::once(cdr.to_doc()));
+
+                RcDoc::intersperse(iter, RcDoc::line())
+            } else {
+                RcDoc::intersperse(self.args.iter().map(ToDoc::to_doc), RcDoc::line())
+            };
+
             RcDoc::text("(")
-                .append(
-                    RcDoc::intersperse(self.args.iter().map(|x| x.to_doc()), RcDoc::line())
-                        .nest(1)
-                        .group(),
-                )
+                .append(args.nest(1).group())
                 .append(RcDoc::text(")"))
                 .nest(2)
                 .group()
@@ -1188,7 +1255,17 @@ impl ToDoc for List {
 
 impl fmt::Display for List {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "({})", self.args.iter().join(" "))
+        let Some((car, cdr)) = self.split_improper() else {
+            return write!(f, "({})", self.args.iter().join(" "));
+        };
+
+        write!(f, "(")?;
+
+        for arg in car {
+            write!(f, "{} ", arg)?;
+        }
+
+        write!(f, ". {})", cdr)
     }
 }
 
@@ -1521,16 +1598,18 @@ where
             let body = if body_exprs.len() == 1 {
                 body_exprs[0].clone()
             } else {
-                ExprKind::Begin(Begin::new(
+                ExprKind::Begin(Box::new(Begin::new(
                     body_exprs,
                     SyntaxObject::default(TokenType::Begin),
-                ))
+                )))
             };
 
-            let lambda = ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
+            let rest = l.improper;
+            let lambda = ExprKind::LambdaFunction(Box::new(LambdaFunction::new_maybe_rest(
                 args,
                 body,
                 SyntaxObject::new(TokenType::Lambda, syn.span),
+                rest,
             )));
 
             Ok(ExprKind::Define(Box::new(Define::new(name, lambda, syn))))
@@ -1606,10 +1685,10 @@ where
     let body = if body_exprs.len() == 1 {
         body_exprs[0].clone()
     } else {
-        ExprKind::Begin(Begin::new(
+        ExprKind::Begin(Box::new(Begin::new(
             body_exprs,
             SyntaxObject::default(TokenType::Begin),
-        ))
+        )))
     };
 
     let mut pairs = Vec::with_capacity(let_pairs.len());
@@ -1682,10 +1761,10 @@ where
     let body = if body_exprs.len() == 1 {
         body_exprs[0].clone()
     } else {
-        ExprKind::Begin(Begin::new(
+        ExprKind::Begin(Box::new(Begin::new(
             body_exprs,
             SyntaxObject::default(TokenType::Begin),
-        ))
+        )))
     };
 
     let mut arguments = Vec::with_capacity(pairs.len());
@@ -1731,7 +1810,7 @@ where
         List::new(application).into()
     };
 
-    let begin = ExprKind::Begin(Begin::new(vec![define, application], syn.clone()));
+    let begin = ExprKind::Begin(Box::new(Begin::new(vec![define, application], syn.clone())));
 
     // Wrap the whole thing inside of an empty function application, to create a new scope
 
@@ -1782,10 +1861,10 @@ where
     let body = if body_exprs.len() == 1 {
         body_exprs[0].clone()
     } else {
-        ExprKind::Begin(Begin::new(
+        ExprKind::Begin(Box::new(Begin::new(
             body_exprs,
             SyntaxObject::default(TokenType::Begin),
-        ))
+        )))
     };
 
     let mut arguments = Vec::with_capacity(let_pairs.len());
@@ -2077,15 +2156,17 @@ pub fn parse_lambda(a: Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseErro
             let body = if body_exprs.len() == 1 {
                 body_exprs.into_iter().next().unwrap()
             } else {
-                ExprKind::Begin(Begin::new(
+                ExprKind::Begin(Box::new(Begin::new(
                     body_exprs,
                     SyntaxObject::default(TokenType::Begin),
-                ))
+                )))
             };
 
-            Ok(ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                args, body, syn,
-            ))))
+            let rest = l.improper;
+
+            Ok(ExprKind::LambdaFunction(Box::new(
+                LambdaFunction::new_maybe_rest(args, body, syn, rest),
+            )))
         }
         Some(ExprKind::Atom(a)) => {
             let body_exprs: Vec<_> = value_iter.collect();
@@ -2093,10 +2174,10 @@ pub fn parse_lambda(a: Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseErro
             let body = if body_exprs.len() == 1 {
                 body_exprs.into_iter().next().unwrap()
             } else {
-                ExprKind::Begin(Begin::new(
+                ExprKind::Begin(Box::new(Begin::new(
                     body_exprs,
                     SyntaxObject::default(TokenType::Begin),
-                ))
+                )))
             };
 
             // (lambda x ...) => x is a rest arg, becomes a list at run time
@@ -2165,24 +2246,27 @@ pub(crate) fn parse_require(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, 
             // }
         })
         .collect::<Result<Vec<_>, ParseError>>()?;
-    Ok(ExprKind::Require(Require::new(expressions, syn)))
+    Ok(ExprKind::Require(Box::new(Require::new(expressions, syn))))
 }
 
 pub(crate) fn parse_begin(a: Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
     let syn = a.syn;
     let mut value_iter = value.into_iter();
     value_iter.next();
-    Ok(ExprKind::Begin(Begin::new(value_iter.collect(), syn)))
+    Ok(ExprKind::Begin(Box::new(Begin::new(
+        value_iter.collect(),
+        syn,
+    ))))
 }
 
 #[cfg(test)]
 mod display_tests {
 
     use super::*;
-    use crate::parser::{Parser, Result};
+    use crate::parser::{Parser, Result, SourceId};
 
     fn parse(expr: &str) -> ExprKind {
-        let a: Result<Vec<ExprKind>> = Parser::new(expr, None).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(expr, SourceId::none()).collect();
 
         a.unwrap()[0].clone()
     }
@@ -2343,10 +2427,10 @@ mod display_tests {
 #[cfg(test)]
 mod pretty_print_tests {
     use super::*;
-    use crate::parser::{Parser, Result};
+    use crate::parser::{Parser, Result, SourceId};
 
     fn parse(expr: &str) -> ExprKind {
-        let a: Result<Vec<ExprKind>> = Parser::new(expr, None).collect();
+        let a: Result<Vec<ExprKind>> = Parser::new(expr, SourceId::none()).collect();
 
         a.unwrap()[0].clone()
     }

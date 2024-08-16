@@ -52,6 +52,74 @@ Divides the given numbers.
 > (/ 1 3.0) ;; => 0.3333333333333333
 > (/ 1 3) ;; => 1/3
 ```
+### **<**
+Compares real numbers to check if any number is less than the subsequent.
+
+(< x . rest) -> bool?
+
+* x : real? - The first real number to compare.
+* rest : real? - The rest of the numbers to compare.
+
+#### Examples
+```scheme
+> (< 1) ;; => #t
+> (< 3 2) ;; => #f
+> (< 2 3) ;; => #t
+> (< 3/2 1.5) ;; => #f
+> (< 2.5 3/2) ;; => #t
+> (< 2 5/2 3) ;; #t
+```
+### **<=**
+Compares real numbers to check if any number is less than or equal than the subsequent.
+
+(<= x . rest) -> bool?
+
+* x : real? - The first real number to compare.
+* rest : real? - The rest of the numbers to compare.
+
+#### Examples
+```scheme
+> (<= 1) ;; => #t
+> (<= 3 2) ;; => #f
+> (<= 2 3) ;; => #t
+> (<= 3/2 1.5) ;; => #t
+> (<= 2.5 3/2) ;; => #f
+> (<= 2 6/2 3) ;; #t
+```
+### **>**
+Compares real numbers to check if any number is greater than the subsequent.
+
+(> x . rest) -> bool?
+
+* x : real? - The first real number to compare.
+* rest : real? - The rest of the numbers to compare.
+
+#### Examples
+```scheme
+> (> 1) ;; => #t
+> (> 3 2) ;; => #t
+> (> 1 1) ;; => #f
+> (> 3/2 1.5) ;; => #f
+> (> 3/2 1.4) ;; => #t
+> (> 3 4/2 1) ;; #t
+```
+### **>=**
+Compares real numbers to check if any number is greater than or equal than the subsequent.
+
+(>= x . rest) -> bool?
+
+* x : real? - The first real number to compare.
+* rest : real? - The rest of the numbers to compare.
+
+#### Examples
+```scheme
+> (>= 1) ;; => #t
+> (>= 3 2) ;; => #t
+> (>= 2 3) ;; => #f
+> (>= 3/2 1.5) ;; => #t
+> (>= 3/2 1.4) ;; => #t
+> (>= 2 4/2 1) ;; #t
+```
 ### **abs**
 Computes the absolute value of the given number.
 
@@ -124,6 +192,19 @@ Converts the bytevector to the equivalent list representation.
 #### Examples
 ```scheme
 (bytes->list (bytes 0 1 2 3 4 5)) ;; => '(0 1 2 3 4 5)
+```
+### **bytes->string/utf8**
+Decodes a string from a bytevector containing valid UTF-8.
+
+(bytes->string/utf8 buf [start] [end]) -> string?
+
+* buf : bytes?
+* start: int? = 0
+* end: int? = (bytes-length buf)
+
+#### Examples
+```scheme
+(bytes->string/utf8 (bytes #xe5 #x8d #x83 #xe8 #x91 #x89)) ;; => "千葉"
 ```
 ### **bytes-append**
 Append two byte vectors into a new bytevector.
@@ -254,11 +335,59 @@ Rounds the given number up to the nearest integer not less than it.
 > (ceiling 42.1) ;; => 43
 > (ceiling -42.1) ;; => -42
 ```
-### **char=?**
-Checks if two characters are equal
+### **char->integer**
+Returns the Unicode codepoint of a given character.
 
-Requires that the two inputs are both characters, and will otherwise
-raise an error.
+(char->integer char?) -> integer?
+### **char->number**
+Attemps to convert the character into a decimal digit,
+and returns `#f` on failure.
+### **char-digit?**
+Returns `#t` if the character is a decimal digit.
+### **char-downcase**
+Returns the lower case version of a character, if defined by Unicode,
+or the same character otherwise.
+### **char-upcase**
+Returns the upper case version of a character, if defined by Unicode,
+or the same character otherwise.
+### **char-whitespace?**
+Returns `#t` if the character is a whitespace character.
+### **char<=?**
+Compares characters according to their codepoints, in a "less-than-or-equal" fashion.
+
+(char<=? char1 char2 ... ) -> bool?
+* char1 : char?
+* char2 : char?
+### **char<?**
+Compares characters according to their codepoints, in a "less-than" fashion.
+
+(char<? char1 char2 ... ) -> bool?
+* char1 : char?
+* char2 : char?
+### **char=?**
+Checks if all characters are equal.
+
+Requires that all inputs are characters, and will otherwise raise an error.
+
+(char=? char1 char2 ...) -> bool?
+
+* char1 : char?
+* char2 : char?
+### **char>=?**
+Compares characters according to their codepoints, in a "greater-than-or-equal" fashion.
+
+(char>=? char1 char2 ... ) -> bool?
+* char1 : char?
+* char2 : char?
+### **char>?**
+Compares characters according to their codepoints, in a "greater-than" fashion.
+
+(char>? char1 char2 ... ) -> bool?
+* char1 : char?
+* char2 : char?
+### **command-line**
+Returns the command line passed to this process,
+including the command name as first argument.
 ### **complex?**
 Checks if the given value is a complex number
 
@@ -305,6 +434,8 @@ Returns the number of seconds since the Unix epoch as an integer.
 (current-second) -> int?
 ### **delete-directory!**
 Deletes the directory
+### **delete-file!**
+Deletes the file
 ### **denominator**
 Retrieves the denominator of the given rational number.
 
@@ -345,6 +476,18 @@ pattern: string?
 > (ends-with? "foobar" "foo") ;; => #false
 > (ends-with? "foobar" "bar") ;; => #true
 ```
+### **eof-object**
+Returns an EOF object.
+
+(eof-object) -> eof-object?
+### **eof-object?**
+Returns `#t` if the value is an EOF object.
+
+(eof-object? any/c) -> bool?
+### **error-object-message**
+Returns the message of an error object.
+
+(error-object-message error?) -> string?
 ### **exact->inexact**
 Converts an exact number to an inexact number.
 
@@ -479,6 +622,14 @@ Computes the largest integer less than or equal to the given number.
 > (floor 4.99) ;; => 4
 > (floor -2.5) ;; => -3
 ```
+### **get-output-bytevector**
+Extracts the contents from a port created with `open-output-bytevector`.
+
+(get-output-bytevector port?) -> bytes?
+### **get-output-string**
+Extracts the string contents from a port created with `open-output-string`.
+
+(get-output-string port?) -> string?
 ### **hash**
 Creates an immutable hash table with each given `key` mapped to the following `val`.
 Each key must have a val, so the total number of arguments must be even.
@@ -731,6 +882,10 @@ Checks if the given value is an integer, an alias for `integer?`
 > (int? 3.14) ;; => #f
 > (int? "hello") ;; => #f
 ```
+### **integer->char**
+Returns the character corresponding to a given Unicode codepoint.
+
+(integer->char integer?) -> char?
 ### **integer?**
 Checks if the given value is an integer, an alias for `int?`
 
@@ -893,7 +1048,7 @@ Checks if the given real number is negative.
 > (negative? -1) ;; => #t
 ```
 ### **number->string**
-Converts the given number to a string
+Converts the given number to a string.
 ### **number?**
 Checks if the given value is a number
 
@@ -920,6 +1075,10 @@ Retrieves the numerator of the given rational number.
 > (numerator 5/2) ;; => 5
 > (numerator -2) ;; => -2
 ```
+### **open-input-bytevector**
+Creates an input port from a bytevector, that will return the bytevector contents.
+
+(open-input-bytevector bytes?) -> input-port?
 ### **open-input-file**
 Takes a filename `path` referring to an existing file and returns an input port. Raises an error
 if the file does not exist
@@ -936,6 +1095,26 @@ error[E08]: Io
 1 │ (open-input-file "foo-bar.txt")
 │  ^^^^^^^^^^^^^^^ No such file or directory (os error 2)
 ```
+### **open-input-string**
+Creates an input port from a string, that will return the string contents.
+
+(open-input-string string?) -> input-port?
+### **open-output-bytevector**
+Creates an output port that accumulates what is written into a bytevector.
+These bytes can be recovered calling `get-output-bytevector`.
+
+(open-output-bytevector) -> output-port?
+
+#### Examples
+```scheme
+(define out (open-output-bytevector))
+
+
+(write-byte 30 out)
+(write-byte 250 out)
+
+(get-output-bytevector out) ;; => (bytes 30 250)
+```
 ### **open-output-file**
 Takes a filename `path` referring to a file to be created and returns an output port.
 
@@ -944,6 +1123,22 @@ Takes a filename `path` referring to a file to be created and returns an output 
 #### Examples
 ```scheme
 > (open-output-file "foo-bar.txt") ;; => #<port>
+```
+### **open-output-string**
+Creates an output port that accumulates what is written into a string.
+This string can be recovered calling `get-output-string`.
+
+(open-output-string) -> output-port?
+
+#### Examples
+```scheme
+(define out (open-output-string))
+
+
+(write-char "α" out)
+(write-char "ω" out)
+
+(get-output-string out) ;; => "αω"
 ```
 ### **output-port?**
 Checks if a given value is an output port
@@ -958,8 +1153,6 @@ Checks if a given value is an output port
 ```
 ### **pair?**
 Checks if the given value can be treated as a pair.
-Note - there are no improper lists in steel, so any list with at least one element
-is considered a pair.
 
 (pair? any/c) -> bool?
 
@@ -974,6 +1167,12 @@ is considered a pair.
 Gets the extension from a path
 ### **path-exists?**
 Checks if a path exists
+### **peek-byte**
+Peeks the next byte from an input port.
+
+(peek-byte [port]) -> byte?
+
+* port : input-port? = (current-input-port)
 ### **positive?**
 Checks if the given real number is positive.
 
@@ -1028,6 +1227,18 @@ Examples:
 > (rational? 6/10) ;; => #t
 > (rational? +nan.0) ;; => #f
 ```
+### **read-byte**
+Reads a single byte from an input port.
+
+(read-byte [port]) -> byte?
+
+* port : input-port? = (current-input-port)
+### **read-char**
+Reads the next character from an input port.
+
+(read-char [port]) -> char?
+
+* port : input-port? = (current-input-port)
 ### **read-dir**
 Returns the contents of the directory as a list
 ### **read-port-to-string**
@@ -1201,7 +1412,9 @@ Gets the port handle to stdin
 ### **string**
 Constructs a string from the given characters
 ### **string->bytes**
-Converts the given string to a bytevector
+Encodes a string as UTF-8 into a bytevector.
+
+(string->bytes string?) -> bytes?
 
 #### Examples
 ```scheme
@@ -1221,7 +1434,7 @@ Converts a string into an int. Raises an error if the string cannot be converted
 ### **string->jsexpr**
 Deserializes a JSON string into a Steel value.
 
-(string->jsexpr json) -> any/c?
+(string->jsexpr json) -> any/c
 
 * json : string?
 
@@ -1232,7 +1445,11 @@ Deserializes a JSON string into a Steel value.
 ### **string->list**
 Converts a string into a list of characters.
 
-(string->list string?) -> (listof char?)
+(string->list s [start] [end]) -> (listof char?)
+
+* s : string?
+* start : int? = 0
+* end : int?
 
 #### Examples
 
@@ -1251,7 +1468,7 @@ Creates a new lowercased version of the input string
 ```
 ### **string->number**
 Converts the given string to a number, with an optional radix.
-On failure, it returns `f`
+On failure, it returns `#f`
 
 (string->number digits [radix]) -> (or/c number? boolean?)
 
@@ -1277,6 +1494,17 @@ Creates a new uppercased version of the input string
 ```scheme
 > (string->upper "lower") ;; => "LOWER"
 ```
+### **string->utf8**
+Alias of `string->bytes`.
+### **string->vector**
+Returns a vector containing the characters of a given string
+
+(string->vector string?) -> vector?
+
+#### Examples
+```scheme
+(string->vector "hello") ;; => '#(#\h #\e #\l #\l #\o)
+```
 ### **string-append**
 Concatenates all of the given strings into one
 
@@ -1290,18 +1518,58 @@ Concatenates all of the given strings into one
 > (string-append "foo" "bar") ;; => "foobar"
 ```
 ### **string-ci<=?**
-Compares two strings lexicographically (as in "less-than-or-equal"),
+Compares strings lexicographically (as in"less-than-or-equal"),
+in a case insensitive fashion.
+
+(string-ci<=? s1 s2 ... ) -> bool?
+* s1 : string?
+* s2 : string?
 ### **string-ci<?**
-Compares two strings lexicographically (as in "less-than"),
+Compares strings lexicographically (as in"less-than"),
 in a case insensitive fashion.
+
+(string-ci<? s1 s2 ... ) -> bool?
+* s1 : string?
+* s2 : string?
 ### **string-ci=?**
-Compares two strings for equality, in a case insensitive fashion.
+Compares strings for equality, in a case insensitive fashion.
 ### **string-ci>=?**
-Compares two strings lexicographically (as in "greater-than-or-equal"),
+Compares strings lexicographically (as in"greater-than-or-equal"),
 in a case insensitive fashion.
+
+(string-ci>=? s1 s2 ... ) -> bool?
+* s1 : string?
+* s2 : string?
 ### **string-ci>?**
-Compares two strings lexicographically (as in "greater-than"),
-in a case-insensitive fashion.
+Compares strings lexicographically (as in"greater-than"),
+in a case insensitive fashion.
+
+(string-ci>? s1 s2 ... ) -> bool?
+* s1 : string?
+* s2 : string?
+### **string-contains?**
+Searches a string to check if it contains the second argument.
+
+(string-contains? string? string?) -> bool?
+
+#### Examples
+```scheme
+(string-contains? "hello" "lo") ;;=> #t
+(string-contains? "hello" "world") ;;=> #f
+```
+### **string-join**
+Joins the given list of strings, with an optional separator.
+
+(string-join strings [sep]) -> string?
+
+* strings : (listof string?)
+* sep : string? = ""
+
+#### Examples
+```scheme
+(string-join '("a" "b" "c")) ;; => "abc"
+(string-join '("one" "two" "three") ", ") ;; => "one, two, three"
+```
 ### **string-length**
 Get the length of the given string in UTF-8 bytes.
 
@@ -1317,7 +1585,7 @@ Get the length of the given string in UTF-8 bytes.
 ### **string-ref**
 Extracts the nth character out of a given string.
 
-(string-ref str n)
+(string-ref str n) -> char?
 
 * str : string?
 * n : int?
@@ -1335,15 +1603,36 @@ Replaces all occurrences of a pattern into the given string
 (string-replace "hello world" "o" "@") ;; => "hell@ w@rld"
 ```
 ### **string<=?**
-Compares two strings lexicographically (as in "less-than-or-equal").
+Compares strings lexicographically (as in"less-than-equal-to").
+
+(string<=? s1 s2 ... ) -> bool?
+* s1 : string?
+* s2 : string?
 ### **string<?**
-Compares two strings lexicographically (as in "less-than").
+Compares strings lexicographically (as in"less-than").
+
+(string<? s1 s2 ... ) -> bool?
+* s1 : string?
+* s2 : string?
 ### **string=?**
-Compares two strings for equality.
+Compares strings for equality.
+
+(string=? string1 string2 ...) -> bool?
+
+* string1 : string?
+* string2 : string?
 ### **string>=?**
-Compares two strings lexicographically (as in "greater-than-or-equal").
+Compares strings lexicographically (as in"greater-than-or-equal").
+
+(string>=? s1 s2 ... ) -> bool?
+* s1 : string?
+* s2 : string?
 ### **string>?**
-Compares two strings lexicographically (as in "greater-than").
+Compares strings lexicographically (as in"greater-than").
+
+(string>? s1 s2 ... ) -> bool?
+* s1 : string?
+* s2 : string?
 ### **substring**
 Creates a substring slicing the characters between two indices.
 
@@ -1462,10 +1751,12 @@ of the string
 ```scheme
 > (trim-start-matches "123foo1bar123123" "123") ;; => "foo1bar123123"
 ```
+### **utf8->string**
+Alias of `bytes->string/utf8`.
 ### **value->jsexpr-string**
 Serializes a Steel value into a string.
 
-(value->jsexpr-string any/c?) -> string?
+(value->jsexpr-string any/c) -> string?
 
 #### Examples
 ```scheme
@@ -1473,6 +1764,20 @@ Serializes a Steel value into a string.
 ```
 ### **void**
 The void value, returned by many forms with side effects, such as `define`.
+### **write-byte**
+Writes a single byte to an output port.
+
+(write-byte b [port])
+
+* b : byte?
+* port : output-port? = (current-output-port)
+### **write-bytes**
+Writes the contents of a bytevector into an output port.
+
+(write-bytes buf [port])
+
+* buf : bytes?
+* port : output-port? = (current-output-port)
 ### **zero?**
 Checks if the given real number is zero.
 
@@ -1488,11 +1793,7 @@ Checks if the given real number is zero.
 ```
 ### **%iterator?**
 ### **%keyword-hash**
-### **<**
-### **<=**
 ### **=**
-### **>**
-### **>=**
 ### **Engine::add-module**
 ### **Engine::clone**
 ### **Engine::modules->list**
@@ -1529,13 +1830,11 @@ Checks if the given real number is zero.
 ### **channel->recv**
 ### **channel->send**
 ### **channel->try-recv**
-### **char->number**
-### **char-digit?**
-### **char-upcase**
-### **char-whitespace?**
 ### **char?**
+### **child-stderr**
 ### **child-stdin**
 ### **child-stdout**
+### **close-output-port**
 ### **command**
 ### **compose**
 ### **concat-symbols**
@@ -1552,6 +1851,7 @@ Checks if the given real number is zero.
 ### **eq?**
 ### **equal?**
 ### **eqv?**
+### **error-object?**
 ### **error-with-span**
 ### **eval!**
 ### **even?**
@@ -1566,7 +1866,6 @@ Checks if the given real number is zero.
 ### **function?**
 ### **future?**
 ### **get-contract-struct**
-### **get-output-string**
 ### **get-test-mode**
 ### **hash-get**
 ### **hash?**
@@ -1621,9 +1920,9 @@ Checks if the given real number is zero.
 ### **not**
 ### **null?**
 ### **odd?**
-### **open-output-string**
 ### **poll!**
 ### **pop-front**
+### **port?**
 ### **procedure?**
 ### **push**
 ### **push-back**
@@ -1631,9 +1930,6 @@ Checks if the given real number is zero.
 ### **raise-error**
 ### **raise-error-with-span**
 ### **range-vec**
-### **raw-write**
-### **raw-write-char**
-### **raw-write-string**
 ### **read!**
 ### **read-line-from-port**
 ### **read-to-string**
@@ -1649,6 +1945,7 @@ Checks if the given real number is zero.
 ### **spawn-thread!**
 ### **stdout**
 ### **stdout-simple-displayln**
+### **steel-home-location**
 ### **stream-car**
 ### **stream-cons**
 ### **stream-empty?**

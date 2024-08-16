@@ -1,5 +1,3 @@
-use crate::compiler::passes::reader::MultipleArityFunctions;
-use crate::compiler::passes::VisitorMutRefUnit;
 use crate::compiler::program::number_literal_to_steel;
 use crate::rvals::{Result, SteelVal};
 use crate::{
@@ -32,6 +30,7 @@ use std::{
 use crate::values::HashMap;
 use fxhash::{FxBuildHasher, FxHashSet};
 
+use steel_parser::span::Span;
 use steel_parser::tokens::{IntLiteral, RealLiteral};
 
 use super::cache::MemoizationTable;
@@ -243,7 +242,7 @@ fn steelval_to_atom(value: &SteelVal) -> Option<TokenType<InternedString>> {
         SteelVal::NumV(n) => Some(RealLiteral::Float(*n).into()),
         SteelVal::CharV(c) => Some(TokenType::CharacterLiteral(*c)),
         SteelVal::IntV(i) => Some(IntLiteral::Small(*i).into()),
-        SteelVal::StringV(s) => Some(TokenType::StringLiteral(s.to_string())),
+        SteelVal::StringV(s) => Some(TokenType::StringLiteral(Box::new(s.to_string()))),
         _ => None,
     }
 }
@@ -294,7 +293,7 @@ impl<'a> ConstantEvaluator<'a> {
             }
             // todo!() figure out if it is ok to expand scope of eval_atom.
             TokenType::Number(n) => number_literal_to_steel(n).ok(),
-            TokenType::StringLiteral(s) => Some(SteelVal::StringV(s.clone().into())),
+            TokenType::StringLiteral(s) => Some(SteelVal::StringV((*s.clone()).into())),
             TokenType::CharacterLiteral(c) => Some(SteelVal::CharV(*c)),
             _ => None,
         }
@@ -533,7 +532,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
     }
 
     // TODO remove constants from the begins
-    fn visit_begin(&mut self, mut begin: crate::parser::ast::Begin) -> Self::Output {
+    fn visit_begin(&mut self, mut begin: Box<crate::parser::ast::Begin>) -> Self::Output {
         for expr in begin.exprs.iter_mut() {
             *expr = self.visit(std::mem::take(expr))?;
         }
@@ -594,7 +593,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
     // Check if its a function application, and go for it
     fn visit_list(&mut self, l: crate::parser::ast::List) -> Self::Output {
         if l.args.is_empty() {
-            stop!(BadSyntax => "empty function application"; get_span(&ExprKind::List(l)));
+            stop!(BadSyntax => "empty function application"; if l.location == Span::default() { get_span(&ExprKind::List(l)) } else { l.location });
         }
 
         if l.args.len() == 1 {
@@ -682,13 +681,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             } // ExprKind::
         }
 
-        if let ExprKind::LambdaFunction(mut l) = func_expr {
-            // It is possible at this point, that multi arity functions have not yet been expanded.
-            // We need to check if thats the case here
-            if !l.rest {
-                MultipleArityFunctions::new().visit_lambda_function(&mut l);
-            }
-
+        if let ExprKind::LambdaFunction(l) = func_expr {
             if l.args.len() != args.len() && !l.rest {
                 println!("{}", l);
 
@@ -844,10 +837,10 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                 } else {
                     non_constant_arguments.push(output);
                     // TODO come up witih a better location
-                    return Ok(ExprKind::Begin(Begin::new(
+                    return Ok(ExprKind::Begin(Box::new(Begin::new(
                         non_constant_arguments,
                         l.location,
-                    )));
+                    ))));
                 }
             }
 
@@ -893,7 +886,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         Ok(ExprKind::Set(s))
     }
 
-    fn visit_require(&mut self, s: crate::parser::ast::Require) -> Self::Output {
+    fn visit_require(&mut self, s: Box<crate::parser::ast::Require>) -> Self::Output {
         stop!(Generic => "unexpected require - require is only allowed at the top level"; s.location.span);
     }
 

@@ -166,6 +166,7 @@ unsafe impl Sync for BuiltInFunctionTypePointer {}
 
 pub struct NativeFunctionDefinition {
     pub name: &'static str,
+    pub aliases: &'static [&'static str],
     pub func: BuiltInFunctionType,
     pub arity: Arity,
     pub doc: Option<MarkdownDoc<'static>>,
@@ -429,10 +430,10 @@ impl BuiltInModuleRepr {
             ))),
         ])));
 
-        let res = ExprKind::Begin(crate::parser::ast::Begin::new(
+        let res = ExprKind::Begin(Box::new(crate::parser::ast::Begin::new(
             defines,
             SyntaxObject::default(TokenType::Begin),
-        ));
+        )));
 
         // Cache the generated expression
         if prefix.is_none() && self.generated_expression.read().is_none() {
@@ -502,18 +503,25 @@ impl BuiltInModule {
 
         if let Some(doc) = definition.doc {
             self.register_doc(definition.name, doc);
+
+            for alias in definition.aliases {
+                self.register_doc(
+                    *alias,
+                    MarkdownDoc(format!("Alias of `{}`.", definition.name).into()),
+                );
+            }
         }
 
-        match definition.func {
-            BuiltInFunctionType::Reference(value) => {
-                self.register_value(definition.name, SteelVal::FuncV(value));
-            }
-            BuiltInFunctionType::Mutable(value) => {
-                self.register_value(definition.name, SteelVal::MutFunc(value));
-            }
-            BuiltInFunctionType::Context(value) => {
-                self.register_value(definition.name, SteelVal::BuiltIn(value));
-            }
+        let steel_val = match definition.func {
+            BuiltInFunctionType::Reference(value) => SteelVal::FuncV(value),
+            BuiltInFunctionType::Mutable(value) => SteelVal::MutFunc(value),
+            BuiltInFunctionType::Context(value) => SteelVal::BuiltIn(value),
+        };
+
+        let names = std::iter::once(definition.name).chain(definition.aliases.into_iter().cloned());
+
+        for name in names {
+            self.register_value(name, steel_val.clone());
         }
 
         self
@@ -706,12 +714,18 @@ pub struct ValueDoc<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct MarkdownDoc<'a>(pub &'a str);
+pub struct MarkdownDoc<'a>(pub Cow<'a, str>);
+
+impl<'a> MarkdownDoc<'a> {
+    pub const fn from_str(s: &'a str) -> Self {
+        Self(Cow::Borrowed(s))
+    }
+}
 
 impl<'a> std::fmt::Display for MarkdownDoc<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         #[cfg(feature = "markdown")]
-        return write!(f, "{}", termimad::text(self.0));
+        return write!(f, "{}", termimad::text(&self.0));
 
         #[cfg(not(feature = "markdown"))]
         return write!(f, "{}", self.0);

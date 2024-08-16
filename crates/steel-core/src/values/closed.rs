@@ -279,6 +279,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
     fn visit_custom_type(&mut self, custom_type: GcMut<Box<dyn CustomType>>) -> Self::Output {
         let mut queue = MarkAndSweepContext {
             queue: &mut self.queue,
+            object_count: 0,
         };
 
         custom_type.read().visit_children(&mut queue);
@@ -308,6 +309,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
     fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output {
         let mut queue = MarkAndSweepContext {
             queue: &mut self.queue,
+            object_count: 0,
         };
 
         queue.mark_heap_reference(&heap_ref.strong_ptr());
@@ -333,6 +335,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
     fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output {
         let mut queue = MarkAndSweepContext {
             queue: &mut self.queue,
+            object_count: 0,
         };
 
         queue.mark_heap_vector(&vector.strong_ptr())
@@ -637,7 +640,14 @@ impl Heap {
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: impl Iterator<Item = &'a SteelVal>,
     ) -> HeapRef<SteelVal> {
-        self.collect(Some(value.clone()), None, roots, live_functions, globals);
+        self.collect(
+            Some(value.clone()),
+            None,
+            roots,
+            live_functions,
+            globals,
+            false,
+        );
 
         let pointer = Shared::new(MutContainer::new(HeapAllocated::new(value)));
         let weak_ptr = Shared::downgrade(&pointer);
@@ -664,7 +674,7 @@ impl Heap {
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: impl Iterator<Item = &'a SteelVal>,
     ) -> HeapRef<Vec<SteelVal>> {
-        self.collect(None, Some(&values), roots, live_functions, globals);
+        self.collect(None, Some(&values), roots, live_functions, globals, false);
 
         let pointer = Shared::new(MutContainer::new(HeapAllocated::new(values)));
         let weak_ptr = Shared::downgrade(&pointer);
@@ -693,10 +703,11 @@ impl Heap {
         roots: impl Iterator<Item = &'a SteelVal>,
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: impl Iterator<Item = &'a SteelVal>,
-    ) {
+        force_full: bool,
+    ) -> usize {
         let memory_size = self.memory.len() + self.vector_cells_allocated();
 
-        if memory_size > self.threshold {
+        if memory_size > self.threshold || force_full {
             log::debug!(target: "gc", "Freeing memory");
 
             let original_length = memory_size;
@@ -728,17 +739,17 @@ impl Heap {
 
             let post_small_collection_size = self.memory.len() + self.vector_cells_allocated();
 
+            let mut amount = 0;
+
             // Mark + Sweep!
-            if post_small_collection_size as f64 > (0.25 * original_length as f64) {
+            if post_small_collection_size as f64 > (0.25 * original_length as f64) || force_full {
                 log::debug!(target: "gc", "---- Post small collection, running mark and sweep - heap size filled: {:?} ----", post_small_collection_size as f64 / original_length as f64);
 
-                // TODO fix the garbage collector
-                self.mark_and_sweep(root_value, root_vector, roots, live_functions, globals);
+                amount =
+                    self.mark_and_sweep(root_value, root_vector, roots, live_functions, globals);
             } else {
                 log::debug!(target: "gc", "---- Skipping mark and sweep - heap size filled: {:?} ----", post_small_collection_size as f64 / original_length as f64);
             }
-
-            // self.mark_and_sweep(roots, live_functions, globals);
 
             self.threshold = (self.threshold + self.memory.len() + self.vector_cells_allocated())
                 * GC_GROW_FACTOR;
@@ -755,7 +766,11 @@ impl Heap {
                 self.memory.shrink_to(GC_THRESHOLD * GC_GROW_FACTOR);
                 self.vectors.shrink_to(GC_THRESHOLD * GC_GROW_FACTOR);
             }
+
+            return amount;
         }
+
+        0
     }
 
     fn mark_and_sweep<'a>(
@@ -765,7 +780,7 @@ impl Heap {
         roots: impl Iterator<Item = &'a SteelVal>,
         function_stack: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: impl Iterator<Item = &'a SteelVal>,
-    ) {
+    ) -> usize {
         log::debug!(target: "gc", "Marking the heap");
 
         #[cfg(feature = "profiling")]
@@ -773,6 +788,7 @@ impl Heap {
 
         let mut context = MarkAndSweepContext {
             queue: &mut self.mark_and_sweep_queue,
+            object_count: 0,
         };
 
         if let Some(root_value) = root_value {
@@ -824,6 +840,8 @@ impl Heap {
         #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
 
+        let object_count = context.object_count;
+
         log::debug!(target: "gc", "--- Sweeping ---");
         let prior_len = self.memory.len() + self.vector_cells_allocated();
 
@@ -846,6 +864,8 @@ impl Heap {
 
         #[cfg(feature = "profiling")]
         log::debug!(target: "gc", "Sweep: Time taken: {:?}", now.elapsed());
+
+        object_count.saturating_sub(amount_freed)
     }
 }
 
@@ -943,6 +963,7 @@ impl<T: Clone + std::fmt::Debug + PartialEq + Eq> HeapAllocated<T> {
 
 pub struct MarkAndSweepContext<'a> {
     queue: &'a mut Vec<SteelVal>,
+    object_count: usize,
 }
 
 impl<'a> MarkAndSweepContext<'a> {
@@ -987,6 +1008,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     }
 
     fn push_back(&mut self, value: SteelVal) {
+        self.object_count += 1;
+
         // TODO: Determine if all numbers should push back.
         match &value {
             SteelVal::BoolV(_)

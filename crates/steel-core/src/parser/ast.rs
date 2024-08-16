@@ -85,7 +85,7 @@ impl TryFromSteelValVisitorForExprKind {
             }
             Void => stop!(Generic => "Can't convert from Void to expression!"),
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                StringLiteral(x.to_string()),
+                StringLiteral(Box::new(x.to_string())),
             )))),
             FuncV(_) => stop!(Generic => "Can't convert from Function to expression!"),
             // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
@@ -238,7 +238,7 @@ impl TryFrom<&SteelVal> for ExprKind {
                 }
                 Void => Err("Can't convert from Void to expression!"),
                 StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    StringLiteral(x.to_string()),
+                    StringLiteral(Box::new(x.to_string())),
                 )))),
                 FuncV(_) => Err("Can't convert from Function to expression!"),
                 // LambdaV(_) => Err("Can't convert from Lambda to expression!"),

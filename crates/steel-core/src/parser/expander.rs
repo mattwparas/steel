@@ -17,10 +17,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use fxhash::FxHashMap;
-use log::error;
+use fxhash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
-use smallvec::{smallvec, SmallVec};
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
 
 use super::{ast::Quote, interner::InternedString, parser::Parser};
@@ -226,15 +224,10 @@ impl SteelMacro {
     // I think it should also not be greedy, and should report if there are ambiguous matchings
     fn match_case(&self, expr: &List) -> Result<&MacroCase> {
         for case in &self.cases {
-            if (case.has_ellipses() && expr.len() >= (case.arity() - 1))
-                || case.arity() == expr.len()
-            {
-                if case.recursive_match(expr) {
-                    return Ok(case);
-                }
+            if case.recursive_match(expr) {
+                return Ok(case);
             }
         }
-        error!("Macro expansion unable to match case with: {}", expr);
 
         if let Some(ExprKind::Atom(a)) = expr.first() {
             stop!(BadSyntax => format!("macro expansion unable to match case: {expr}"); a.syn.span);
@@ -280,16 +273,21 @@ impl MacroCase {
     ) -> Result<Self> {
         let PatternPair { pattern, mut body } = pattern_pair;
 
-        let mut args = if let ExprKind::List(l) = pattern {
-            MacroPattern::parse_from_list(l, name, special_forms)?
+        let mut bindings = FxHashSet::default();
+
+        let (mut args, macro_keyword) = if let ExprKind::List(l) = pattern {
+            MacroPattern::parse_from_list(l, name, special_forms, &mut bindings, true)?
         } else {
             stop!(Generic => "unable to parse macro");
         };
 
-        let args_str: Vec<&InternedString> = args
-            .iter()
-            .flat_map(|x| x.deconstruct_without_syntax())
-            .collect();
+        if let Some(macro_keyword) = macro_keyword {
+            bindings.remove(&macro_keyword);
+        };
+
+        let args_str: Vec<_> = bindings.iter().copied().collect();
+
+        // dbg!(args_str.iter().map(|x| x.resolve()).collect::<Vec<_>>());
 
         // let syntaxes: Vec<&str> = args
         //     .iter()
@@ -297,11 +295,8 @@ impl MacroCase {
         //     .flatten()
         //     .collect();
 
-        // println!("Args pre mangle: {:?}", &args_str);
-
+        // TODO: @Matt - if the
         RenameIdentifiersVisitor::new(&args_str, special_forms).rename_identifiers(&mut body);
-
-        // let args = args.into_iter().map(|x| x.mangle(special_forms)).collect();
 
         args.iter_mut().for_each(|x| x.mangle(special_forms));
 
@@ -311,22 +306,8 @@ impl MacroCase {
         Ok(MacroCase { args, body })
     }
 
-    fn has_ellipses(&self) -> bool {
-        self.args
-            .iter()
-            .any(|x| matches!(x, MacroPattern::Many(_) | MacroPattern::ManyNested(_)))
-    }
-
-    fn arity(&self) -> usize {
-        self.args
-            .iter()
-            .map(|x| if let MacroPattern::Many(_) = x { 1 } else { 1 })
-            .sum()
-    }
-
     fn recursive_match(&self, list: &List) -> bool {
-        // Don't match on the first argument
-        match_vec_pattern(&self.args[1..], &list.args[1..])
+        match_list_pattern(&self.args[1..], &list.args[1..], list.improper)
     }
 
     fn expand(&self, expr: List, span: Span) -> Result<ExprKind> {
@@ -352,6 +333,7 @@ impl MacroCase {
                         &expr[1..],
                         &mut bindings,
                         &mut binding_kind,
+                        expr.improper,
                     )?;
 
                     let mut body = self.body.clone();
@@ -392,6 +374,7 @@ impl MacroCase {
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub enum MacroPattern {
+    Rest(Box<MacroPattern>),
     Single(InternedString),
     Syntax(InternedString),
     Many(InternedString),
@@ -429,18 +412,23 @@ impl std::fmt::Debug for MacroPattern {
             MacroPattern::Quote(i) => f.debug_tuple("Quote").field(&i.resolve()).finish(),
             MacroPattern::ManyNested(n) => f.debug_tuple("ManyNested").field(n).finish(),
             MacroPattern::Keyword(k) => f.debug_tuple("Keyword").field(k).finish(),
+            MacroPattern::Rest(r) => f.debug_tuple("Rest").field(r).finish(),
         }
     }
 }
 
 impl MacroPattern {
+    pub fn is_many(&self) -> bool {
+        matches!(self, MacroPattern::Many(_) | MacroPattern::ManyNested(_))
+    }
+
     fn mangle(&mut self, special_forms: &[InternedString]) {
         use MacroPattern::*;
         match self {
             Single(s) => {
-                if special_forms.contains(s) {
-                    // Single(*s)
-                } else {
+                let special = special_forms.contains(s) || *s == InternedString::from_static("_");
+
+                if !special {
                     *self = Single(("##".to_string() + s.resolve()).into())
                 }
             }
@@ -467,6 +455,9 @@ impl MacroPattern {
             Nested(v) => {
                 v.iter_mut().for_each(|x| x.mangle(special_forms));
             }
+            Rest(v) => {
+                v.mangle(special_forms);
+            }
             _ => {}
         }
     }
@@ -475,12 +466,41 @@ impl MacroPattern {
         list: List,
         macro_name: &InternedString,
         special_forms: &[InternedString],
-    ) -> Result<Vec<Self>> {
+        bindings: &mut FxHashSet<InternedString>,
+        top_level: bool,
+    ) -> Result<(Vec<MacroPattern>, Option<InternedString>)> {
         let mut pattern_vec: Vec<MacroPattern> = Vec::new();
-        let mut peek_token_iter = list.args.into_iter().peekable();
+        let len = list.args.len();
+        let mut exprs_iter = list.args.into_iter().enumerate().peekable();
+        let mut ellipsis = false;
 
-        while let Some(token) = peek_token_iter.next() {
-            match token {
+        let wildcard = InternedString::from_static("_");
+
+        macro_rules! add_binding {
+            ($key:expr, $span:expr) => {
+                if $key != wildcard && !bindings.insert($key) {
+                    let var = $key.resolve();
+                    stop!(BadSyntax => "repeated pattern variable {}", var ; $span);
+                }
+            };
+        }
+
+        macro_rules! check_ellipsis {
+            ($improper:expr, $span:expr) => {
+                if ellipsis {
+                    stop!(BadSyntax => "pattern with more than one ellipsis"; $span);
+                } else if $improper {
+                    stop!(BadSyntax => "ellipsis cannot appear as list tail"; $span);
+                }
+
+                ellipsis = true;
+            }
+        }
+
+        let mut macro_keyword = None;
+
+        while let Some((i, expr)) = exprs_iter.next() {
+            match expr {
                 ExprKind::Atom(Atom {
                     syn: SyntaxObject { ty: s, span, .. },
                 }) => match s {
@@ -488,19 +508,38 @@ impl MacroPattern {
                         if t == *macro_name || special_forms.contains(&t) {
                             pattern_vec.push(MacroPattern::Syntax(t.clone()))
                         } else {
-                            match peek_token_iter.peek() {
+                            let peek = exprs_iter.peek().map(|(_, expr)| expr);
+
+                            match peek {
                                 Some(ExprKind::Atom(Atom {
                                     syn:
                                         SyntaxObject {
                                             ty: TokenType::Ellipses,
+                                            span,
                                             ..
                                         },
                                 })) => {
-                                    peek_token_iter.next();
-                                    pattern_vec.push(MacroPattern::Many(t.clone()));
+                                    let span = *span;
+
+                                    let last_proper = list.improper && i + 2 == len;
+                                    check_ellipsis!(last_proper, span);
+
+                                    exprs_iter.next();
+
+                                    if i == 0 && top_level {
+                                        stop!(BadSyntax => "macro name cannot be followed by ellipsis"; span);
+                                    }
+
+                                    add_binding!(t, span);
+                                    pattern_vec.push(MacroPattern::Many(t));
                                 }
                                 _ => {
-                                    pattern_vec.push(MacroPattern::Single(t.clone()));
+                                    if i == 0 && top_level {
+                                        macro_keyword = Some(t);
+                                    }
+
+                                    add_binding!(t, span);
+                                    pattern_vec.push(MacroPattern::Single(t));
                                 }
                             }
                         }
@@ -518,7 +557,7 @@ impl MacroPattern {
                     TokenType::BooleanLiteral(b) => {
                         pattern_vec.push(MacroPattern::BooleanLiteral(b));
                     }
-                    TokenType::Number(n) => match n {
+                    TokenType::Number(n) => match *n {
                         NumberLiteral::Real(re) => match re {
                             RealLiteral::Int(IntLiteral::Small(i)) => {
                                 pattern_vec.push(MacroPattern::IntLiteral(i))
@@ -541,7 +580,7 @@ impl MacroPattern {
                         pattern_vec.push(MacroPattern::CharacterLiteral(c));
                     }
                     TokenType::StringLiteral(s) => {
-                        pattern_vec.push(MacroPattern::StringLiteral(s));
+                        pattern_vec.push(MacroPattern::StringLiteral(*s));
                     }
                     TokenType::Keyword(k) => {
                         pattern_vec.push(MacroPattern::Keyword(k));
@@ -566,7 +605,7 @@ impl MacroPattern {
                         //     }
                         // }
 
-                        let next = peek_token_iter.next();
+                        let next = exprs_iter.next().map(|(_, expr)| expr);
 
                         match next {
                             Some(ExprKind::Atom(Atom {
@@ -587,291 +626,332 @@ impl MacroPattern {
                     }
                     TokenType::Ellipses => {
                         if let Some(MacroPattern::Nested(inner)) = pattern_vec.pop() {
+                            let improper = list.improper && i + 1 == len;
+                            check_ellipsis!(improper, span);
+
                             pattern_vec.push(MacroPattern::ManyNested(inner));
                         } else {
-                            stop!(BadSyntax => "cannot bind pattern to ellipses"; span)
+                            stop!(BadSyntax => "cannot bind pattern to ellipsis"; span)
                         }
                     }
                     _ => {
                         stop!(BadSyntax => "syntax-rules requires identifiers in the pattern"; span);
                     }
                 },
-                ExprKind::List(l) => pattern_vec.push(MacroPattern::Nested(Self::parse_from_list(
-                    l,
-                    macro_name,
-                    special_forms,
-                )?)),
+                ExprKind::List(l) => {
+                    let (patterns, _) =
+                        Self::parse_from_list(l, macro_name, special_forms, bindings, false)?;
+                    pattern_vec.push(MacroPattern::Nested(patterns))
+                }
                 ExprKind::Quote(q) => pattern_vec.push(MacroPattern::QuotedExpr(q)),
                 _ => {
                     // TODO: Add pattern matching on other kinds of forms here - probably just a special IR
                     // for the pattern to match against here
-                    stop!(BadSyntax => format!("illegal special form found in macro pattern: {}", token));
+                    stop!(BadSyntax => format!("illegal special form found in macro pattern: {}", expr));
                 }
             }
         }
-        Ok(pattern_vec)
+
+        if list.improper {
+            let rest = pattern_vec.pop().map(|pat| MacroPattern::Rest(pat.into()));
+            pattern_vec.extend(rest.into_iter());
+        }
+
+        Ok((pattern_vec, macro_keyword))
     }
 }
 
-impl MacroPattern {
-    // TODO make this not so trash
-    // pub fn deconstruct(&self) -> Vec<&InternedString> {
-    //     match self {
-    //         Self::Syntax(s) => vec![s],
-    //         Self::Single(s) => vec![s],
-    //         Self::Many(s) => vec![s],
-    //         Self::ManyNested(v) => v.iter().flat_map(|x| x.deconstruct()).collect(),
-    //         Self::Nested(v) => v.iter().flat_map(|x| x.deconstruct()).collect(),
-    //         _ => vec![],
-    //     }
-    // }
+fn match_list_pattern(patterns: &[MacroPattern], list: &[ExprKind], improper: bool) -> bool {
+    let (proper_patterns, rest_pattern) = match patterns.split_last() {
+        Some((MacroPattern::Rest(pat), rest)) => (rest, Some(&**pat)),
+        _ => (patterns, None),
+    };
 
-    // TODO: Don't do this?
-    pub fn deconstruct_without_syntax(&self) -> SmallVec<[&InternedString; 8]> {
-        match self {
-            Self::Single(s) => smallvec![s],
-            Self::Many(s) => smallvec![s],
-            Self::Nested(v) => v
-                .iter()
-                .flat_map(|x| x.deconstruct_without_syntax())
-                .collect(),
-            Self::ManyNested(v) => v
-                .iter()
-                .flat_map(|x| x.deconstruct_without_syntax())
-                .collect(),
-            _ => smallvec![],
-        }
-    }
+    let proper_list = if improper {
+        &list[..(list.len() - 1)]
+    } else {
+        list
+    };
 
-    pub fn is_many(&self) -> bool {
-        matches!(self, MacroPattern::Many(_) | MacroPattern::ManyNested(_))
-    }
-}
+    let has_ellipsis = patterns.iter().any(|pat| pat.is_many());
+    let multi_arity = has_ellipsis || rest_pattern.is_some();
 
-pub fn match_vec_pattern(args: &[MacroPattern], list: &[ExprKind]) -> bool {
-    let mut token_iter = list.iter();
+    let len_matches = if multi_arity {
+        proper_list.len() + 1 >= proper_patterns.len()
+    } else {
+        proper_list.len() == proper_patterns.len()
+    };
 
-    for pat in args {
-        if let Some(val) = token_iter.next() {
-            // dbg!(&pat);
-            // println!("{}", val);
-
-            match pat {
-                MacroPattern::Single(_) | MacroPattern::Many(_) => continue,
-                // TODO: @Matt - if the atom is bound locally, then do not match on this
-                MacroPattern::Syntax(v) => match val {
-                    ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::Identifier(s),
-                                ..
-                            },
-                    }) if s == v => continue,
-                    ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::Define,
-                                ..
-                            },
-                    }) if *v == *DEFINE => continue,
-                    ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::Begin,
-                                ..
-                            },
-                    }) if *v == *BEGIN => continue,
-                    ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::If, ..
-                            },
-                    }) if *v == *IF => continue,
-                    ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::Ellipses,
-                                ..
-                            },
-                    }) => continue,
-                    _ => return false,
-                },
-                MacroPattern::Keyword(k) => match val {
-                    ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::Keyword(s),
-                                ..
-                            },
-                    }) if s == k => continue,
-                    _ => return false,
-                },
-                MacroPattern::BooleanLiteral(b) => match val {
-                    ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::BooleanLiteral(s),
-                                ..
-                            },
-                    }) if s == b => continue,
-                    _ => return false,
-                },
-                MacroPattern::IntLiteral(i) => match val {
-                    ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty:
-                                    TokenType::Number(NumberLiteral::Real(RealLiteral::Int(
-                                        IntLiteral::Small(s),
-                                    ))),
-                                ..
-                            },
-                    }) if s == i => continue,
-                    _ => return false,
-                },
-                MacroPattern::FloatLiteral(f) => match val {
-                    ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::Number(NumberLiteral::Real(RealLiteral::Float(s))),
-                                ..
-                            },
-                    }) if s == f => continue,
-                    _ => return false,
-                },
-                MacroPattern::CharacterLiteral(c) => match val {
-                    ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::CharacterLiteral(s),
-                                ..
-                            },
-                    }) if s == c => continue,
-                    _ => return false,
-                },
-                MacroPattern::StringLiteral(s) => match val {
-                    ExprKind::Atom(Atom {
-                        syn:
-                            SyntaxObject {
-                                ty: TokenType::StringLiteral(b),
-                                ..
-                            },
-                    }) if s == b => continue,
-                    _ => return false,
-                },
-                MacroPattern::QuotedExpr(q) => {
-                    // println!("MATCHING QUOTED EXPR: {}", q);
-                    match val {
-                        ExprKind::Quote(boxed_q) if q == boxed_q => continue,
-                        _ => {
-                            return false;
-                        }
-                    }
-                }
-                // TODO: Come back here and do constants
-                MacroPattern::Quote(_q) => {
-                    // println!("MATCHING QUOTE {} with val: {}", q, val);
-                    match val {
-                        ExprKind::Quote(_) => return true,
-
-                        // ExprKind::Atom(Atom {
-                        //     syn:
-                        //         SyntaxObject {
-                        //             ty: TokenType::Quote | TokenType::QuoteTick,
-                        //             ..
-                        //         },
-                        // }) => {
-                        //     println!("MATCHING ON QUOTE");
-                        //     continue;
-                        // }
-
-                        // ExprKind::Atom(Atom {
-                        //     syn:
-                        //         SyntaxObject {
-                        //             ty: TokenType::Identifier(s),
-                        //             ..
-                        //         },
-                        // }) if s.resolve() == "QUOTE" => {
-                        //     println!("MATCHING ON QUOTE");
-                        //     continue;
-                        // }
-                        // ExprKind::Quote()
-                        _ => return false,
-                    }
-                }
-                // Now that we have ManyNested - need to figure out
-                // the recursive step better here
-                MacroPattern::Nested(vec) => {
-                    if let ExprKind::List(l) = val {
-                        // TODO more elegant let* case
-                        if vec.is_empty() && !l.is_empty() {
-                            return false;
-                        }
-
-                        // This solves the destructuring test case
-                        if vec.len() < l.len() && !vec.iter().any(|x| x.is_many()) {
-                            // log::debug!("Matching failed - ellipses doesn't match up");
-                            return false;
-                        }
-
-                        // Make the recursive call on the next layer
-                        if match_vec_pattern(vec, l) {
-                            continue;
-                        } else {
-                            // log::debug!("Matching failed due to child not matching");
-                            return false;
-                        }
-                    } else if let ExprKind::Quote(_) = val {
-                        // TODO: Come back here
-                        return matches!(vec.as_slice(), &[MacroPattern::Quote(_)]);
-                        // return true;
-                    } else {
-                        // log::debug!("Matching failed - atom does not match list");
-                        return false;
-                    }
-                }
-                MacroPattern::ManyNested(vec) => {
-                    if let ExprKind::List(l) = val {
-                        if !match_vec_pattern(vec, l) {
-                            return false;
-                        }
-                    } else {
-                        return false;
-                    }
-
-                    for maybe_next in token_iter {
-                        if let ExprKind::List(l) = maybe_next {
-                            if match_vec_pattern(vec, l) {
-                                continue;
-                            }
-                        } else {
-                            return false;
-                        }
-                    }
-
-                    return true;
-                }
-            }
-        } else {
-            // In the case where we have no more patterns, we should be able to contninue matching
-            if pat.is_many() {
-                continue;
-            } else {
-                // log::debug!(
-                //     "Matching failed due to insufficient tokens - next pat: {:?}",
-                //     pat
-                // );
-                return false;
-            }
-        }
-    }
-
-    if token_iter.next().is_some() && !matches!(args.last(), Some(MacroPattern::Many(_))) {
-        // log::debug!("Matching failed due to leftover tokens");
+    if !len_matches {
         return false;
     }
 
+    let unmatched_tail = if has_ellipsis {
+        &list[proper_list.len()..]
+    } else {
+        &list[proper_patterns.len()..]
+    };
+
+    let tail_to_match = match rest_pattern {
+        None if unmatched_tail.is_empty() => None,
+        None => return false,
+        Some(pat) => Some((pat, unmatched_tail)),
+    };
+
+    let mut exprs_iter = proper_list.iter().enumerate();
+
+    let expected_many_captures = proper_list.len() + 1 - proper_patterns.len();
+
+    for pat in proper_patterns {
+        match &pat {
+            MacroPattern::Many(_) if has_ellipsis => {
+                for _ in 0..expected_many_captures {
+                    let item = exprs_iter.next();
+                    debug_assert!(item.is_some());
+                }
+                continue;
+            }
+            MacroPattern::ManyNested(subpatterns) if has_ellipsis => {
+                for _ in 0..expected_many_captures {
+                    let Some((_, ExprKind::List(l))) = exprs_iter.next() else {
+                        return false;
+                    };
+
+                    if !match_list_pattern(subpatterns, &l.args, l.improper) {
+                        return false;
+                    }
+                }
+
+                continue;
+            }
+            _ => {}
+        }
+
+        let Some((_, expr)) = exprs_iter.next() else {
+            return false;
+        };
+
+        if !match_single_pattern(pat, expr) {
+            return false;
+        }
+    }
+
+    if let Some((pat, exprs)) = tail_to_match {
+        let tail_matches = if improper && exprs.len() == 1 {
+            match_single_pattern(pat, &exprs[0])
+        } else {
+            match_rest_pattern(pat, exprs, improper)
+        };
+
+        if !tail_matches {
+            return false;
+        }
+    }
+
     true
+}
+
+fn match_rest_pattern(pattern: &MacroPattern, exprs: &[ExprKind], improper: bool) -> bool {
+    match pattern {
+        MacroPattern::Single(_) => true,
+        MacroPattern::Nested(patterns) => match_list_pattern(patterns, exprs, improper),
+        _ => false,
+    }
+}
+
+fn match_single_pattern(pattern: &MacroPattern, expr: &ExprKind) -> bool {
+    match pattern {
+        MacroPattern::Many(_) => unreachable!(),
+        MacroPattern::ManyNested(_) => unreachable!(),
+        MacroPattern::Rest(_) => unreachable!(),
+        MacroPattern::Single(_) => true,
+        // TODO: @Matt - if the atom is bound locally, then do not match on this
+        MacroPattern::Syntax(v) => match expr {
+            ExprKind::Atom(Atom {
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::Identifier(s),
+                        ..
+                    },
+            }) if s == v => true,
+            ExprKind::Atom(Atom {
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::Define,
+                        ..
+                    },
+            }) if *v == *DEFINE => true,
+            ExprKind::Atom(Atom {
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::Begin,
+                        ..
+                    },
+            }) if *v == *BEGIN => true,
+            ExprKind::Atom(Atom {
+                syn: SyntaxObject {
+                    ty: TokenType::If, ..
+                },
+            }) if *v == *IF => true,
+            ExprKind::Atom(Atom {
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::Ellipses,
+                        ..
+                    },
+            }) => true,
+            _ => return false,
+        },
+        MacroPattern::Keyword(k) => match expr {
+            ExprKind::Atom(Atom {
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::Keyword(s),
+                        ..
+                    },
+            }) if s == k => true,
+            _ => return false,
+        },
+        MacroPattern::BooleanLiteral(b) => match expr {
+            ExprKind::Atom(Atom {
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::BooleanLiteral(s),
+                        ..
+                    },
+            }) if s == b => true,
+            _ => return false,
+        },
+        // MacroPattern::IntLiteral(i) => match expr {
+        //     ExprKind::Atom(Atom {
+        //         syn:
+        //             SyntaxObject {
+        //                 ty:
+        //                     TokenType::Number(NumberLiteral::Real(RealLiteral::Int(IntLiteral::Small(
+        //                         s,
+        //                     )))),
+        //                 ..
+        //             },
+        //     }) if s == i => true,
+        //     _ => return false,
+        // },
+        MacroPattern::IntLiteral(i) => match expr {
+            ExprKind::Atom(Atom {
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::Number(n),
+                        ..
+                    },
+            }) => match n.as_ref() {
+                NumberLiteral::Real(RealLiteral::Int(IntLiteral::Small(s))) if s == i => true,
+                _ => return false,
+            },
+            _ => return false,
+        },
+
+        // MacroPattern::FloatLiteral(f) => match expr {
+        //     ExprKind::Atom(Atom {
+        //         syn:
+        //             SyntaxObject {
+        //                 ty: TokenType::Number(NumberLiteral::Real(RealLiteral::Float(s))),
+        //                 ..
+        //             },
+        //     }) if s == f => true,
+        //     _ => return false,
+        // },
+        MacroPattern::FloatLiteral(f) => match expr {
+            ExprKind::Atom(Atom {
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::Number(n),
+                        ..
+                    },
+            }) => match n.as_ref() {
+                NumberLiteral::Real(RealLiteral::Float(s)) if s == f => true,
+                _ => return false,
+            },
+            _ => return false,
+        },
+
+        MacroPattern::CharacterLiteral(c) => match expr {
+            ExprKind::Atom(Atom {
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::CharacterLiteral(s),
+                        ..
+                    },
+            }) if s == c => true,
+            _ => return false,
+        },
+        MacroPattern::StringLiteral(s) => match expr {
+            ExprKind::Atom(Atom {
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::StringLiteral(b),
+                        ..
+                    },
+            }) if s.as_str() == b.as_str() => true,
+            _ => return false,
+        },
+        MacroPattern::QuotedExpr(q) => {
+            // println!("MATCHING QUOTED EXPR: {}", q);
+            match expr {
+                ExprKind::Quote(boxed_q) if q == boxed_q => true,
+                _ => {
+                    return false;
+                }
+            }
+        }
+        // TODO: Come back here and do constants
+        MacroPattern::Quote(_q) => {
+            // println!("MATCHING QUOTE {} with val: {}", q, val);
+            match expr {
+                ExprKind::Quote(_) => return true,
+
+                // ExprKind::Atom(Atom {
+                //     syn:
+                //         SyntaxObject {
+                //             ty: TokenType::Quote | TokenType::QuoteTick,
+                //             ..
+                //         },
+                // }) => {
+                //     println!("MATCHING ON QUOTE");
+                //     true;
+                // }
+
+                // ExprKind::Atom(Atom {
+                //     syn:
+                //         SyntaxObject {
+                //             ty: TokenType::Identifier(s),
+                //             ..
+                //         },
+                // }) if s.resolve() == "QUOTE" => {
+                //     println!("MATCHING ON QUOTE");
+                //     true;
+                // }
+                // ExprKind::Quote()
+                _ => return false,
+            }
+        }
+
+        // Now that we have ManyNested - need to figure out
+        // the recursive step better here
+        MacroPattern::Nested(vec) => {
+            if let ExprKind::List(l) = expr {
+                // Make the recursive call on the next layer
+                match_list_pattern(vec, l, l.improper)
+            } else if let ExprKind::Quote(_) = expr {
+                // TODO: Come back here
+                matches!(vec.as_slice(), &[MacroPattern::Quote(_)])
+            } else {
+                if let Some(pat) = non_list_match(vec) {
+                    match_single_pattern(pat, expr)
+                } else {
+                    false
+                }
+            }
+        }
+    }
 }
 
 pub enum BindingKind {
@@ -879,19 +959,22 @@ pub enum BindingKind {
     Single,
 }
 
-pub fn collect_bindings(
-    args: &[MacroPattern],
+fn collect_bindings(
+    patterns: &[MacroPattern],
     list: &[ExprKind],
     bindings: &mut FxHashMap<InternedString, ExprKind>,
     binding_kind: &mut FxHashMap<InternedString, BindingKind>,
+    improper: bool,
 ) -> Result<()> {
-    let mut token_iter = list.iter();
+    let mut expr_iter = list.iter().enumerate();
 
-    for arg in args {
-        match arg {
+    let expected_many_captures = list.len() + 1 - patterns.len();
+
+    for pattern in patterns {
+        match pattern {
             // bind the expression to a single variable
             MacroPattern::Single(s) => {
-                if let Some(e) = token_iter.next() {
+                if let Some((_, e)) = expr_iter.next() {
                     bindings.insert(*s, e.clone());
                 } else {
                     stop!(ArityMismatch => "macro invocation expected a value, found none");
@@ -901,7 +984,7 @@ pub fn collect_bindings(
             MacroPattern::Syntax(s) => {
                 let error_func = throw!(BadSyntax => format!("macro expand expected keyword {s} - within {:?}", list));
 
-                let e = token_iter.next().ok_or_else(error_func)?;
+                let (_, e) = expr_iter.next().ok_or_else(error_func)?;
 
                 if let ExprKind::Atom(Atom {
                     syn:
@@ -918,18 +1001,22 @@ pub fn collect_bindings(
             }
             // bind the ellipses to the rest of the statement
             MacroPattern::Many(ident) => {
-                let rest: Vec<_> = token_iter.cloned().collect();
-                bindings.insert(*ident, List::new(rest).into());
+                let mut captured = vec![];
+
+                for _ in 0..expected_many_captures {
+                    captured.extend(expr_iter.next().map(|(_, exp)| exp).cloned().into_iter());
+                }
+
+                bindings.insert(*ident, List::new(captured).into());
                 binding_kind.insert(*ident, BindingKind::Many);
-                break;
             }
             MacroPattern::Nested(children) => {
-                let child = token_iter
+                let (_, child) = expr_iter
                     .next()
                     .ok_or_else(throw!(ArityMismatch => "Macro expected a pattern"))?;
 
                 if let ExprKind::List(l) = child {
-                    collect_bindings(children, l, bindings, binding_kind)?;
+                    collect_bindings(children, l, bindings, binding_kind, l.improper)?;
                 } else if let ExprKind::Quote(q) = child {
                     if let &[MacroPattern::Quote(x)] = children.as_slice() {
                         bindings.insert(x, q.expr.clone());
@@ -937,13 +1024,29 @@ pub fn collect_bindings(
                         stop!(BadSyntax => "macro expected a list of values, not including keywords, found: {}", child)
                     }
                 } else {
-                    stop!(BadSyntax => "macro expected a list of values, not including keywords, found: {}", child)
+                    if let Some(pat) = non_list_match(&children) {
+                        collect_bindings(
+                            &[pat.clone()],
+                            &[child.clone()],
+                            bindings,
+                            binding_kind,
+                            false,
+                        )?;
+                    } else {
+                        stop!(BadSyntax => "macro expected a list of values, not including keywords, found: {}", child)
+                    }
                 }
             }
             MacroPattern::ManyNested(children) => {
-                // dbg!(children);
+                let exprs_to_destruct = {
+                    let mut exprs = smallvec::SmallVec::<[_; 8]>::new();
 
-                let exprs_to_destruct = token_iter.collect::<smallvec::SmallVec<[_; 8]>>();
+                    for _ in 0..expected_many_captures {
+                        exprs.extend(expr_iter.next().map(|(_, exp)| exp).cloned().into_iter());
+                    }
+
+                    exprs
+                };
 
                 for i in 0..children.len() {
                     let mut values_to_bind = Vec::new();
@@ -995,6 +1098,7 @@ pub fn collect_bindings(
                                     list_expr,
                                     &mut new_bindings,
                                     binding_kind,
+                                    list_expr.improper,
                                 )?;
 
                                 for (key, value) in new_bindings {
@@ -1026,7 +1130,7 @@ pub fn collect_bindings(
             }
 
             MacroPattern::Quote(s) => {
-                if let Some(e) = token_iter.next() {
+                if let Some((_, e)) = expr_iter.next() {
                     if let ExprKind::Quote(inner) = e {
                         bindings.insert(*s, inner.expr.clone());
                     } else {
@@ -1037,9 +1141,23 @@ pub fn collect_bindings(
                 }
             }
 
+            MacroPattern::Rest(pat) => {
+                let list = match expr_iter.next() {
+                    Some((i, expr)) if improper && i + 1 == list.len() => [expr.clone()],
+                    Some((i, _)) => {
+                        let list = List::new_maybe_improper(list[i..].to_vec(), improper);
+
+                        [ExprKind::List(list)]
+                    }
+                    None => [ExprKind::List(List::new(vec![]))],
+                };
+
+                collect_bindings(&[(**pat).clone()], &list, bindings, binding_kind, false)?;
+            }
+
             // Matching on literals
             _ => {
-                token_iter.next();
+                expr_iter.next();
             }
         }
     }
@@ -1048,7 +1166,7 @@ pub fn collect_bindings(
 }
 
 #[cfg(test)]
-mod match_vec_pattern_tests {
+mod match_list_pattern_tests {
     use super::*;
 
     fn atom_identifier(s: &str) -> ExprKind {
@@ -1084,7 +1202,7 @@ mod match_vec_pattern_tests {
             ])),
         ]);
 
-        assert!(match_vec_pattern(&pattern_args, &list_expr));
+        assert!(match_list_pattern(&pattern_args, &list_expr, false));
     }
 
     #[test]
@@ -1107,7 +1225,7 @@ mod match_vec_pattern_tests {
                 atom_identifier("y"),
             ])),
         ]);
-        assert!(match_vec_pattern(&pattern_args, &list_expr));
+        assert!(match_list_pattern(&pattern_args, &list_expr, false));
     }
 
     #[test]
@@ -1128,7 +1246,7 @@ mod match_vec_pattern_tests {
             atom_identifier("x"),
             atom_identifier("y"),
         ]);
-        assert!(match_vec_pattern(&pattern_args, &list_expr));
+        assert!(match_list_pattern(&pattern_args, &list_expr, false));
     }
 
     #[test]
@@ -1151,7 +1269,7 @@ mod match_vec_pattern_tests {
                 atom_identifier("is-good"),
             ])),
         ]);
-        assert!(match_vec_pattern(&pattern_args, &list_expr));
+        assert!(match_list_pattern(&pattern_args, &list_expr, false));
     }
 
     #[test]
@@ -1169,7 +1287,7 @@ mod match_vec_pattern_tests {
             atom_int(3),
         ]);
 
-        assert!(!match_vec_pattern(&pattern_args, &list_expr));
+        assert!(!match_list_pattern(&pattern_args, &list_expr, false));
     }
 
     #[test]
@@ -1194,7 +1312,7 @@ mod match_vec_pattern_tests {
             ])),
         ]);
 
-        assert!(!match_vec_pattern(&pattern_args, &list_expr));
+        assert!(!match_list_pattern(&pattern_args, &list_expr, false));
     }
 }
 
@@ -1238,7 +1356,14 @@ mod collect_bindings_tests {
             ])),
         ]);
 
-        collect_bindings(&pattern_args, &list_expr, &mut bindings, &mut binding_kind).unwrap();
+        collect_bindings(
+            &pattern_args,
+            &list_expr,
+            &mut bindings,
+            &mut binding_kind,
+            false,
+        )
+        .unwrap();
 
         let mut post_bindings = FxHashMap::default();
         post_bindings.insert(
@@ -1285,7 +1410,14 @@ mod collect_bindings_tests {
             ])),
         ]);
 
-        collect_bindings(&pattern_args, &list_expr, &mut bindings, &mut binding_kind).unwrap();
+        collect_bindings(
+            &pattern_args,
+            &list_expr,
+            &mut bindings,
+            &mut binding_kind,
+            false,
+        )
+        .unwrap();
 
         let mut post_bindings = FxHashMap::default();
         post_bindings.insert(
@@ -1329,7 +1461,14 @@ mod collect_bindings_tests {
             atom_identifier("y"),
         ]);
 
-        collect_bindings(&pattern_args, &list_expr, &mut bindings, &mut binding_kind).unwrap();
+        collect_bindings(
+            &pattern_args,
+            &list_expr,
+            &mut bindings,
+            &mut binding_kind,
+            false,
+        )
+        .unwrap();
         let mut post_bindings = FxHashMap::default();
 
         post_bindings.insert(
@@ -1379,7 +1518,14 @@ mod collect_bindings_tests {
 
         let mut post_bindings = FxHashMap::default();
 
-        collect_bindings(&pattern_args, &list_expr, &mut bindings, &mut binding_kind).unwrap();
+        collect_bindings(
+            &pattern_args,
+            &list_expr,
+            &mut bindings,
+            &mut binding_kind,
+            false,
+        )
+        .unwrap();
         post_bindings.insert("a".into(), atom_int(1));
         post_bindings.insert("b".into(), atom_identifier("apple"));
         post_bindings.insert(
@@ -1394,8 +1540,19 @@ mod collect_bindings_tests {
     }
 }
 
+fn non_list_match(patterns: &[MacroPattern]) -> Option<&MacroPattern> {
+    let rest = patterns.last().and_then(|pat| match pat {
+        MacroPattern::Rest(pat) => Some(&**pat),
+        _ => None,
+    });
+
+    rest.filter(|_| patterns.len() == 2 && patterns[0].is_many())
+}
+
 #[cfg(test)]
 mod macro_case_expand_test {
+    use steel_parser::parser::SourceId;
+
     use super::MacroCase;
 
     use super::*;
@@ -1455,7 +1612,9 @@ mod macro_case_expand_test {
         ])
         .into();
 
-        let output = case.expand(input, Span::new(0, 0, None)).unwrap();
+        let output = case
+            .expand(input, Span::new(0, 0, SourceId::none()))
+            .unwrap();
 
         assert_eq!(output, expected);
     }

@@ -64,6 +64,24 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path-to-lcov: ./lcov.info
+  
+  wasm-build:
+    name: Wasm32 build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+      - name: Build wasm32-unknown-unknown
+        run: |
+          cd crates/steel-core/
+          rustup target add wasm32-unknown-unknown
+          cargo build --target wasm32-unknown-unknown
 
   rustfmt:
     name: Rustfmt

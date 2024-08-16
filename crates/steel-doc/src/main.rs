@@ -37,7 +37,7 @@ fn main() {
 
         if let Some(module_doc) = module.documentation().get(&module_name) {
             if let steel::steel_vm::builtin::Documentation::Markdown(m) = module_doc {
-                format_markdown_doc(&mut module_file, m.0);
+                format_markdown_doc(&mut module_file, &m.0);
             }
         }
 
@@ -65,7 +65,7 @@ fn main() {
                         let escaped = name.replace("*", "\\*");
                         writeln!(&mut module_file, "### **{}**", escaped).unwrap();
 
-                        format_markdown_doc(&mut module_file, m.0);
+                        format_markdown_doc(&mut module_file, &m.0);
                     }
                     _ => {}
                 }

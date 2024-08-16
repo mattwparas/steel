@@ -44,6 +44,8 @@ use crate::{
     values::functions::ByteCodeLambda,
 };
 use std::rc::Weak;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::{cell::RefCell, collections::HashMap, iter::Iterator, rc::Rc};
 
 use super::builtin::DocTemplate;
@@ -266,6 +268,7 @@ pub struct SteelThread {
     pub(crate) current_frame: StackFrame,
     pub(crate) stack_frames: Vec<StackFrame>,
     pub(crate) constant_map: ConstantMap,
+    pub(crate) interrupted: Option<Arc<AtomicBool>>,
 }
 
 #[derive(Clone)]
@@ -294,8 +297,8 @@ struct SpanId(usize);
 
 #[derive(Default, Clone)]
 pub struct FunctionInterner {
-    closure_interner: fxhash::FxHashMap<usize, ByteCodeLambda>,
-    pub(crate) pure_function_interner: fxhash::FxHashMap<usize, Gc<ByteCodeLambda>>,
+    closure_interner: fxhash::FxHashMap<u32, ByteCodeLambda>,
+    pub(crate) pure_function_interner: fxhash::FxHashMap<u32, Gc<ByteCodeLambda>>,
     // Functions will store a reference to a slot here, rather than any other way
     // getting the span can be super late bound then, and we don't need to worry about
     // cache misses nearly as much
@@ -306,10 +309,10 @@ pub struct FunctionInterner {
     // actually any references to this still in existence. Functions should probably hold a direct
     // reference to the existing thread in which it was created, and if passed in externally by
     // another run time, we can nuke it?
-    spans: fxhash::FxHashMap<usize, Shared<[Span]>>,
+    spans: fxhash::FxHashMap<u32, Shared<[Span]>>,
     // Keep these around - each thread keeps track of the instructions on the bytecode object, but we shouldn't
     // need to dereference that until later? When we actually move to that
-    instructions: fxhash::FxHashMap<usize, Shared<[DenseInstruction]>>,
+    instructions: fxhash::FxHashMap<u32, Shared<[DenseInstruction]>>,
 }
 
 impl SteelThread {
@@ -330,7 +333,13 @@ impl SteelThread {
             // we'll have each thread default to an empty constant map, and replace it with the map bundled
             // with the executables
             constant_map: DEFAULT_CONSTANT_MAP.with(|x| x.clone()),
+            interrupted: Default::default(),
         }
+    }
+
+    pub fn with_interrupted(&mut self, interrupted: Arc<AtomicBool>) -> &mut Self {
+        self.interrupted = Some(interrupted);
+        self
     }
 
     // If you want to explicitly turn off contracts, you can do so
@@ -1104,14 +1113,15 @@ impl<'a> VmCore<'a> {
         SteelVal::MutableVector(allocated_var)
     }
 
-    fn gc_collect(&mut self) {
+    pub(crate) fn gc_collect(&mut self) -> usize {
         self.thread.heap.collect(
             None,
             None,
             self.thread.stack.iter(),
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
             self.thread.global_env.roots(),
-        );
+            true,
+        )
     }
 
     fn weak_collection(&mut self) {
@@ -1564,6 +1574,15 @@ impl<'a> VmCore<'a> {
 
         // while self.ip < self.instructions.len() {
         loop {
+            #[cfg(feature = "interrupt")]
+            {
+                if let Some(interrupted) = self.thread.interrupted.as_ref() {
+                    if interrupted.load(std::sync::atomic::Ordering::Relaxed) {
+                        stop!(Generic => "Interrupted by user"; self.current_span());
+                    }
+                }
+            }
+
             // Process the op code
             // TODO: Just build up a slice, don't directly store the full vec of op codes
 
@@ -1805,8 +1824,14 @@ impl<'a> VmCore<'a> {
                     // let result = sub_handler_none_int(self, local_value, const_val)?;
 
                     let result = match l {
-                        SteelVal::IntV(l) => SteelVal::IntV(l - r),
-                        SteelVal::NumV(l) => SteelVal::NumV(l - r as f64),
+                        SteelVal::IntV(_)
+                        | SteelVal::NumV(_)
+                        | SteelVal::Rational(_)
+                        | SteelVal::BigNum(_)
+                        | SteelVal::BigRational(_) => {
+                            subtract_primitive(&[l.clone(), SteelVal::IntV(r)])
+                                .map_err(|x| x.set_span_if_none(self.current_span()))?
+                        }
                         _ => {
                             cold();
                             stop!(TypeMismatch => "sub expected a number, found: {}", l)
@@ -1840,9 +1865,14 @@ impl<'a> VmCore<'a> {
                     // let result = lte_handler_none_int(self, local_value, const_val)?;
 
                     let result = match l {
-                        SteelVal::IntV(l) => *l <= r,
-                        SteelVal::NumV(l) => *l <= r as f64,
-                        _ => stop!(TypeMismatch => "lte expected an number, found: {}", r),
+                        SteelVal::IntV(_)
+                        | SteelVal::NumV(_)
+                        | SteelVal::Rational(_)
+                        | SteelVal::BigNum(_)
+                        | SteelVal::BigRational(_) => l.clone() <= SteelVal::IntV(r),
+                        _ => {
+                            stop!(TypeMismatch => format!("lte expected an number, found: {}", l); self.current_span())
+                        }
                     };
 
                     self.thread.stack.push(SteelVal::BoolV(result));
@@ -1872,17 +1902,15 @@ impl<'a> VmCore<'a> {
                     // let result = lte_handler_none_int(self, local_value, const_val)?;
 
                     let result = match l {
-                        SteelVal::IntV(l) => *l <= r,
-                        SteelVal::NumV(l) => *l <= r as f64,
-                        _ => stop!(TypeMismatch => "lte expected an number, found: {}", r),
+                        SteelVal::IntV(_)
+                        | SteelVal::NumV(_)
+                        | SteelVal::Rational(_)
+                        | SteelVal::BigNum(_)
+                        | SteelVal::BigRational(_) => l.clone() <= SteelVal::IntV(r),
+                        _ => {
+                            stop!(TypeMismatch => format!("lte expected an number, found: {}", l); self.current_span())
+                        }
                     };
-
-                    // let result = match $name(&[local_value, const_val]) {
-                    //     Ok(value) => value,
-                    //     Err(e) => return Err(e.set_span_if_none(self.current_span())),
-                    // };
-
-                    // let result
 
                     self.ip += 2;
 
@@ -2621,7 +2649,7 @@ impl<'a> VmCore<'a> {
         self.ip += 1;
 
         // Check whether this is a let or a rooted function
-        let closure_id = self.instructions[self.ip].payload_size.to_usize();
+        let closure_id = self.instructions[self.ip].payload_size.to_u32();
 
         // if is_multi_arity {
         //     println!("Found multi arity function");
@@ -2789,7 +2817,7 @@ impl<'a> VmCore<'a> {
         self.ip += 1;
 
         // Get the ID of the function
-        let closure_id = self.instructions[self.ip].payload_size.to_usize();
+        let closure_id = self.instructions[self.ip].payload_size.to_u32();
 
         // if is_multi_arity {
         //     println!("Found multi arity function");
@@ -3998,7 +4026,7 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
     Some(Ok(SteelVal::ContinuationFunction(continuation)))
 }
 
-pub(crate) const APPLY_DOC: MarkdownDoc<'static> = MarkdownDoc(
+pub(crate) const APPLY_DOC: MarkdownDoc<'static> = MarkdownDoc::from_str(
     r#"
 Applies the given `function` with arguments as the contents of the `list`.
 

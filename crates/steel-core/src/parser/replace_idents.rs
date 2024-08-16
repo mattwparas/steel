@@ -1,5 +1,6 @@
 use fxhash::FxHashMap;
 use smallvec::SmallVec;
+use steel_parser::ast::List;
 
 use crate::compiler::passes::{VisitorMutControlFlow, VisitorMutRefUnit};
 use crate::compiler::program::SYNTAX_SPAN;
@@ -48,6 +49,7 @@ pub struct ReplaceExpressions<'a> {
     bindings: &'a mut FxHashMap<InternedString, ExprKind>,
     fallback_bindings: &'a mut FxHashMap<InternedString, ExprKind>,
     binding_kind: &'a mut FxHashMap<InternedString, BindingKind>,
+    wildcard: InternedString,
 }
 
 fn check_ellipses(expr: &ExprKind) -> bool {
@@ -128,6 +130,7 @@ impl<'a> ReplaceExpressions<'a> {
             bindings,
             binding_kind,
             fallback_bindings,
+            wildcard: InternedString::from_static("_"),
         }
     }
 
@@ -144,10 +147,11 @@ impl<'a> ReplaceExpressions<'a> {
     //     ExprKind::Atom(expr)
     // }
 
-    fn expand_ellipses(&mut self, vec_exprs: &mut Vec<ExprKind>) -> Result<()> {
+    // Note: Returns a bool indicating if this should be made improper/rest or not
+    fn expand_ellipses(&mut self, vec_exprs: &mut Vec<ExprKind>) -> Result<bool> {
         if let Some(ellipses_pos) = vec_exprs.iter().position(check_ellipses) {
             if ellipses_pos == 0 {
-                return Ok(());
+                return Ok(false);
             }
 
             let variable_to_lookup = vec_exprs.get(ellipses_pos - 1).ok_or_else(
@@ -159,26 +163,33 @@ impl<'a> ReplaceExpressions<'a> {
                     syn:
                         SyntaxObject {
                             ty: TokenType::Identifier(var),
+                            introduced_via_macro,
                             ..
                         },
                 }) => {
+                    let improper;
+
                     // let rest = self.bindings.get(var).ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanding ellipses: {var}")))?;
 
                     let rest = if let Some(rest) = self.bindings.get(var) {
                         rest
                     } else {
-                        return Ok(());
+                        return Ok(false);
                     };
 
                     let list_of_exprs = if let ExprKind::List(list_of_exprs) = rest {
+                        improper = list_of_exprs.improper;
+
                         list_of_exprs
                     } else {
                         let res = if let Some(res) = self.fallback_bindings.get(var) {
                             res.list_or_else(
                         throw!(BadSyntax => "macro expansion failed, expected list of expressions, found: {}, within {}", rest, super::ast::List::new(vec_exprs.clone())))?
                         } else {
-                            return Ok(());
+                            return Ok(false);
                         };
+
+                        improper = res.improper;
 
                         //     let res = self.fallback_bindings.get(var).ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanding ellipses: {var}")))?.list_or_else(
                         //     throw!(BadSyntax => "macro expansion failed, expected list of expressions, found: {}, within {}", rest, super::ast::List::new(vec_exprs.clone()))
@@ -187,8 +198,14 @@ impl<'a> ReplaceExpressions<'a> {
                         res
                     };
 
-                    // Split off into small vec?
-                    // let back_chunk = vec_exprs.split_off(ellipses_pos - 1);
+                    let mut list_of_exprs = list_of_exprs.to_vec();
+
+                    for expr in list_of_exprs.iter_mut() {
+                        if let ExprKind::Atom(a) = expr {
+                            a.syn.introduced_via_macro = *introduced_via_macro;
+                            a.syn.unresolved = false;
+                        }
+                    }
 
                     let back_chunk = vec_exprs
                         .drain(ellipses_pos - 1..)
@@ -196,20 +213,16 @@ impl<'a> ReplaceExpressions<'a> {
 
                     vec_exprs.reserve(list_of_exprs.len() + back_chunk[2..].len());
 
-                    vec_exprs.extend_from_slice(list_of_exprs);
+                    vec_exprs.append(&mut list_of_exprs);
 
                     vec_exprs.extend_from_slice(&back_chunk[2..]);
 
-                    // let mut first_chunk = vec_exprs[0..ellipses_pos - 1].to_vec();
-                    // first_chunk.extend_from_slice(list_of_exprs);
-                    // first_chunk.extend_from_slice(&vec_exprs[(ellipses_pos + 1)..]);
-
-                    // *vec_exprs = first_chunk;
-
-                    Ok(())
+                    Ok(improper)
                 }
 
-                ExprKind::List(_) => {
+                ExprKind::List(bound_list) => {
+                    let improper = bound_list.improper;
+
                     let visitor = EllipsesExpanderVisitor::find_expansion_width_and_collect_ellipses_expanders(self.bindings, self.binding_kind, variable_to_lookup);
 
                     if let Some(error) = visitor.error {
@@ -227,7 +240,6 @@ impl<'a> ReplaceExpressions<'a> {
                     std::mem::swap(self.fallback_bindings, &mut original_bindings);
 
                     let mut expanded_expressions = SmallVec::<[ExprKind; 6]>::with_capacity(width);
-                    // let mut expanded_expressions = Vec::with_capacity(width);
 
                     for i in 0..width {
                         let mut template = variable_to_lookup.clone();
@@ -260,24 +272,13 @@ impl<'a> ReplaceExpressions<'a> {
                         .drain(ellipses_pos - 1..)
                         .collect::<SmallVec<[_; 8]>>();
 
-                    // let back_chunk = vec_exprs.split_off(ellipses_pos - 1);
-
+                    // TODO: We might need to mimic the above, where we
+                    // set if the resulting expression was introduced via macro.
                     vec_exprs.reserve(expanded_expressions.len() + back_chunk[2..].len());
-
                     vec_exprs.extend(expanded_expressions);
                     vec_exprs.extend_from_slice(&back_chunk[2..]);
 
-                    // let mut first_chunk = vec_exprs[0..ellipses_pos - 1].to_vec();
-                    // first_chunk.extend_from_slice(&expanded_expressions);
-                    // first_chunk.extend_from_slice(&vec_exprs[(ellipses_pos + 1)..]);
-
-                    // *vec_exprs = first_chunk;
-
-                    Ok(())
-
-                    // Ok(())
-
-                    // Ok(first_chunk)
+                    Ok(improper)
                 }
 
                 _ => {
@@ -285,7 +286,7 @@ impl<'a> ReplaceExpressions<'a> {
                 }
             }
         } else {
-            Ok(())
+            Ok(false)
         }
     }
 
@@ -421,11 +422,10 @@ impl<'a> ReplaceExpressions<'a> {
                 let start = ExprKind::integer_literal(span.start as isize, span);
                 let end = ExprKind::integer_literal(span.end as isize, span);
 
-                let source_id = if let Some(source) = span.source_id() {
-                    ExprKind::integer_literal(source.0 as isize, span)
-                } else {
-                    ExprKind::bool_lit(false)
-                };
+                let source_id = ExprKind::integer_literal(
+                    span.source_id().map(|x| x.0).unwrap() as isize,
+                    span,
+                );
 
                 Ok(Some(ExprKind::Quote(Box::new(super::ast::Quote::new(
                     ExprKind::List(super::ast::List::new(vec![start, end, source_id])),
@@ -457,8 +457,17 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => {
                 if let TokenType::Identifier(s) = &a.syn.ty {
-                    if let Some(body) = self.bindings.get(s) {
-                        *expr = body.clone();
+                    if *s != self.wildcard {
+                        if let Some(body) = self.bindings.get(s) {
+                            let introduced_via_macro = a.syn.introduced_via_macro;
+
+                            *expr = body.clone();
+
+                            if let ExprKind::Atom(a) = expr {
+                                a.syn.introduced_via_macro = introduced_via_macro;
+                                a.syn.unresolved = false;
+                            }
+                        }
                     }
                 }
 
@@ -485,6 +494,10 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
 
                 for expr in l.args.iter_mut() {
                     self.visit(expr)?;
+                }
+
+                if l.improper {
+                    *l = std::mem::replace(l, List::new(vec![])).make_improper();
                 }
 
                 if let Some(expanded) = self.vec_syntax_span_object(&l.args)? {
@@ -523,13 +536,17 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
         &mut self,
         lambda_function: &mut super::ast::LambdaFunction,
     ) -> Self::Output {
-        self.expand_ellipses(&mut lambda_function.args)?;
+        let improper = self.expand_ellipses(&mut lambda_function.args)?;
 
         for arg in lambda_function.args.iter_mut() {
             self.visit(arg)?;
         }
 
         self.visit(&mut lambda_function.body)?;
+
+        if improper {
+            lambda_function.rest = true;
+        }
 
         // TODO: @Matt - 2/28/12 -> clean up this
         // This mangles the values

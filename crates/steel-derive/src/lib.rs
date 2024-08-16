@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{
-    punctuated::Punctuated, Data, DeriveInput, Expr, ExprLit, FnArg, Ident, ItemFn, Lit, Meta,
-    ReturnType, Signature, Type, TypeReference,
+    punctuated::Punctuated, spanned::Spanned, Data, DeriveInput, Expr, ExprGroup, ExprLit, FnArg,
+    Ident, ItemFn, Lit, LitStr, Meta, ReturnType, Signature, Type, TypeReference,
 };
 
 #[proc_macro_derive(Steel)]
@@ -39,18 +39,27 @@ fn parse_key_value_pairs(args: &Punctuated<Meta, Token![,]>) -> HashMap<String, 
         if let Meta::NameValue(n) = nested_meta {
             let key = n.path.get_ident().unwrap().to_string();
 
-            match &n.value {
-                Expr::Lit(ExprLit {
-                    lit: Lit::Str(s), ..
-                }) => {
-                    map.insert(key, s.value());
+            let mut value = &n.value;
+
+            loop {
+                match value {
+                    Expr::Lit(ExprLit {
+                        lit: Lit::Str(s), ..
+                    }) => {
+                        map.insert(key, s.value());
+                        break;
+                    }
+                    Expr::Lit(ExprLit {
+                        lit: Lit::Bool(b), ..
+                    }) => {
+                        map.insert(key, b.value().to_string());
+                        break;
+                    }
+                    Expr::Group(ExprGroup { expr, .. }) => {
+                        value = &**expr;
+                    }
+                    _ => break,
                 }
-                Expr::Lit(ExprLit {
-                    lit: Lit::Bool(b), ..
-                }) => {
-                    map.insert(key, b.value().to_string());
-                }
-                _ => {}
             }
         }
     }
@@ -58,7 +67,9 @@ fn parse_key_value_pairs(args: &Punctuated<Meta, Token![,]>) -> HashMap<String, 
     map
 }
 
-fn parse_doc_comment(input: ItemFn) -> Option<String> {
+fn parse_doc_comment(input: ItemFn) -> Option<proc_macro2::TokenStream> {
+    let span = input.span();
+
     let maybe_str_literals = input
         .attrs
         .into_iter()
@@ -71,35 +82,60 @@ fn parse_doc_comment(input: ItemFn) -> Option<String> {
         .map(|expr| match expr {
             Expr::Lit(ExprLit {
                 lit: Lit::Str(s), ..
-            }) => Ok(s.value()),
+            }) => Ok(s),
             e => Err(e),
         })
-        .collect::<Result<Vec<_>, _>>();
+        .collect::<Vec<_>>();
 
-    let literals = match maybe_str_literals {
-        Ok(lits) => lits,
-        Err(_) => {
-            return None;
-            // Error::new(expr.span(), "Doc comment is not a string literal")
-            //     .into_compile_error()
-            //     .into()
-        }
-    };
-
-    if literals.is_empty() {
+    if maybe_str_literals.is_empty() {
         return None;
-        // Error::new(ident.span(), "No doc comment found on this type")
-        //     .into_compile_error()
-        //     .into();
     }
 
-    let trimmed: Vec<_> = literals
+    if let Some(literals) = maybe_str_literals
         .iter()
-        .flat_map(|lit| lit.split('\n').collect::<Vec<_>>())
-        .map(|line| line.trim().to_string())
-        .collect();
+        .map(|item| item.as_ref().ok())
+        .collect::<Option<Vec<_>>>()
+    {
+        let trimmed: Vec<_> = literals
+            .iter()
+            .flat_map(|lit| {
+                lit.value()
+                    .split('\n')
+                    .map(|s| s.to_string())
+                    .collect::<Vec<_>>()
+            })
+            .map(|line| line.trim().to_string())
+            .collect();
 
-    Some(trimmed.join("\n"))
+        let doc = trimmed.join("\n");
+
+        return Some(quote! { #doc });
+    }
+
+    let mut args = vec![];
+
+    for (i, item) in maybe_str_literals.into_iter().enumerate() {
+        if i > 0 {
+            args.push(Expr::Lit(ExprLit {
+                attrs: vec![],
+                lit: Lit::Str(LitStr::new("\n", span)),
+            }));
+        }
+
+        let expr = match item {
+            Ok(lit) => Expr::Lit(ExprLit {
+                attrs: vec![],
+                lit: Lit::Str(lit),
+            }),
+            Err(expr) => expr,
+        };
+
+        args.push(expr);
+    }
+
+    return Some(quote! {
+        concat![#(#args),*]
+    });
 }
 
 #[proc_macro_attribute]
@@ -128,7 +164,7 @@ pub fn define_module(
 
                 let mut module = #function_name();
 
-                module.register_doc(#value, crate::steel_vm::builtin::MarkdownDoc(#doc_comments));
+                module.register_doc(#value, crate::steel_vm::builtin::MarkdownDoc(#doc_comments.into()));
 
                 module
             }
@@ -184,9 +220,10 @@ pub fn native(
         quote! {
             pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
                 name: #value,
+                aliases: &[],
                 func: crate::steel_vm::builtin::BuiltInFunctionType::Reference(#function_name),
                 arity: crate::steel_vm::builtin::Arity::#arity_number,
-                doc: Some(crate::steel_vm::builtin::MarkdownDoc(#doc)),
+                doc: Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)),
                 is_const: #is_const,
                 signature: None,
             };
@@ -195,6 +232,7 @@ pub fn native(
         quote! {
             pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
                 name: #value,
+                aliases: &[],
                 func: crate::steel_vm::builtin::BuiltInFunctionType::Reference(#function_name),
                 arity: crate::steel_vm::builtin::Arity::#arity_number,
                 doc: None,
@@ -261,9 +299,10 @@ pub fn native_mut(
         quote! {
             pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
                 name: #value,
+                aliases: &[],
                 func: crate::steel_vm::builtin::BuiltInFunctionType::Mutable(#function_name),
                 arity: crate::steel_vm::builtin::Arity::#arity_number,
-                doc: Some(crate::steel_vm::builtin::MarkdownDoc(#doc)),
+                doc: Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)),
                 is_const: #is_const,
                 signature: None,
             };
@@ -272,6 +311,7 @@ pub fn native_mut(
         quote! {
             pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
                 name: #value,
+                aliases: &[],
                 func: crate::steel_vm::builtin::BuiltInFunctionType::Mutable(#function_name),
                 arity: crate::steel_vm::builtin::Arity::#arity_number,
                 doc: None,
@@ -474,13 +514,19 @@ pub fn function(
         }
     };
 
+    let aliases = match keyword_map.get("alias") {
+        Some(alias) => quote! { &[ #alias ] },
+        None => quote! { &[] },
+    };
+
     let definition_struct = if let Some(doc) = maybe_doc_comments {
         quote! {
             pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
                 name: #value,
+                aliases: #aliases,
                 func: #function_type,
                 arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
-                doc: Some(crate::steel_vm::builtin::MarkdownDoc(#doc)),
+                doc: Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)),
                 is_const: #is_const,
                 signature: None,
             };
@@ -489,6 +535,7 @@ pub fn function(
         quote! {
             pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
                 name: #value,
+                aliases: #aliases,
                 func: #function_type,
                 arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
                 doc: None,

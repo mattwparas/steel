@@ -143,6 +143,7 @@ impl Drop for SqliteTransaction {
     }
 }
 
+#[derive(Debug)]
 enum SqliteError {
     TransactionAlreadyCompleted,
     Generic(rusqlite::Error),
@@ -191,8 +192,6 @@ impl SqlitePreparedStatement {
 
         while let Some(row) = rows.next()? {
             if let Some(width) = width {
-                // TODO: Save the row length for the next iteration, so that we can pre allocate
-                // the row width
                 let mut computed_row: RVec<FFIValue> = RVec::with_capacity(width);
 
                 for i in 0..width {
@@ -201,9 +200,6 @@ impl SqlitePreparedStatement {
 
                 results.push(FFIValue::Vector(computed_row));
             } else {
-                // TODO: Save the row length for the next iteration, so that we can pre allocate
-                // the row width
-                // let mut computed_row: Vec<SteelVal> = Vec::new();
                 let mut i = 0;
                 let mut computed_row: RVec<FFIValue> = RVec::new();
 
@@ -264,6 +260,9 @@ impl<'a> ToSql for FFIWrapper<'a> {
             FFIArg::IntV(i) => Ok(ToSqlOutput::Owned(Value::Integer(*i as i64))),
             FFIArg::Void => Ok(ToSqlOutput::Owned(Value::Null)),
             FFIArg::StringV(s) => Ok(ToSqlOutput::Owned(Value::Text(s.to_string()))),
+            FFIArg::StringRef(s) => Ok(ToSqlOutput::Borrowed(rusqlite::types::ValueRef::Text(
+                s.as_bytes(),
+            ))),
             // FFIValue::Vector(_) => todo!(),
             // FFIValue::CharV { c } => todo!(),
             // FFIValue::Custom { custom } => todo!(),

@@ -14,9 +14,12 @@ use ropey::Rope;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use steel::{
-    compiler::passes::analysis::{
-        query_top_level_define, query_top_level_define_on_condition, RequiredIdentifierInformation,
-        SemanticAnalysis,
+    compiler::{
+        modules::steel_home,
+        passes::analysis::{
+            query_top_level_define, query_top_level_define_on_condition,
+            RequiredIdentifierInformation, SemanticAnalysis,
+        },
     },
     parser::{
         ast::ExprKind, expander::SteelMacro, interner::InternedString, parser::SourceId,
@@ -35,6 +38,22 @@ use tower_lsp::lsp_types::SemanticTokenType;
 use crate::diagnostics::{
     DiagnosticContext, DiagnosticGenerator, FreeIdentifiersAndUnusedIdentifiers, StaticArityChecker,
 };
+
+pub fn lsp_home() -> PathBuf {
+    if let Ok(home) = std::env::var("STEEL_LSP_HOME") {
+        return PathBuf::from(home);
+    }
+
+    let mut home_directory =
+        PathBuf::from(steel_home().expect("Unable to find steel home location"));
+    home_directory.push("lsp");
+
+    if !home_directory.exists() {
+        std::fs::create_dir_all(&home_directory).expect("Unable to create the lsp home directory");
+    }
+
+    home_directory
+}
 
 pub const LEGEND_TYPE: &[SemanticTokenType] = &[
     SemanticTokenType::FUNCTION,
@@ -204,7 +223,7 @@ impl LanguageServer for Backend {
                 let name = syntax_object_id_to_interned_string.get(syntax_object_id)?;
 
                 let doc =
-                    ENGINE.with_borrow(|x| x.builtin_modules().get_doc((*name)?.resolve()))?;
+                    ENGINE.with(|x| x.borrow().builtin_modules().get_doc((*name)?.resolve()))?;
 
                 return Some(Hover {
                     contents: HoverContents::Scalar(MarkedString::String(doc)),
@@ -263,8 +282,10 @@ impl LanguageServer for Backend {
                             .trim_end_matches(interned.resolve())
                             .trim_end_matches("__%#__");
 
-                        return ENGINE.with_borrow(|engine| {
-                            let module = engine
+                        return ENGINE.with(|engine| {
+                            let guard = engine.borrow();
+
+                            let module = guard
                                 .modules()
                                 .get(&PathBuf::from(module_path_to_check))
                                 .unwrap();
@@ -369,24 +390,22 @@ impl LanguageServer for Backend {
                             .trim_end_matches(interned.resolve())
                             .trim_end_matches("__%#__");
 
-                        resulting_span = ENGINE.with_borrow(|engine| {
+                        resulting_span = ENGINE.with(|engine| {
+                            let guard = engine.borrow();
+
                             log::debug!(
                                 "Compiled modules: {:?}",
-                                engine.modules().keys().collect::<Vec<_>>()
+                                guard.modules().keys().collect::<Vec<_>>()
                             );
 
                             log::debug!("Searching for: {} in {}", name, module_path_to_check);
 
-                            let module = engine
+                            let module = guard
                                 .modules()
                                 .get(&PathBuf::from(module_path_to_check))
                                 .unwrap();
 
                             let module_ast = module.get_ast();
-
-                            // for expr in ast {
-                            //     log::debug!("{}", expr);
-                            // }
 
                             let top_level_define =
                                 query_top_level_define(module_ast, interned.resolve()).or_else(
@@ -411,7 +430,7 @@ impl LanguageServer for Backend {
                 log::debug!("Found new definition: {:?}", maybe_definition);
             }
 
-            let location = source_id_to_uri(resulting_span.source_id()?)?;
+            let location = source_id_to_uri(resulting_span.source_id().unwrap())?;
 
             log::debug!("Location: {:?}", location);
             log::debug!("Rope length: {:?}", rope.len_chars());
@@ -421,7 +440,7 @@ impl LanguageServer for Backend {
                 log::debug!("Jumping to definition that is not yet in the document map!");
 
                 let expression =
-                    ENGINE.with_borrow(|x| x.get_source(&resulting_span.source_id().unwrap()))?;
+                    ENGINE.with(|x| x.borrow().get_source(&resulting_span.source_id().unwrap()))?;
 
                 rope = self
                     .document_map
@@ -561,8 +580,9 @@ impl LanguageServer for Backend {
             }));
 
             // TODO: Build completions from macros that have been introduced into this scope
-            completions.extend(ENGINE.with_borrow(|engine| {
+            completions.extend(ENGINE.with(|engine| {
                 engine
+                    .borrow()
                     .in_scope_macros()
                     .keys()
                     .filter_map(|x| {
@@ -692,20 +712,22 @@ impl Backend {
         let expression = params.text;
 
         let diagnostics = {
-            let program = ENGINE.with_borrow_mut(|x| {
+            let program = ENGINE.with(|x| {
+                let mut guard = x.borrow_mut();
+
                 // TODO: Reuse this!a
                 let macro_env_before: HashSet<InternedString> =
-                    x.in_scope_macros().keys().copied().collect();
+                    guard.in_scope_macros().keys().copied().collect();
 
                 // TODO: Add span to the macro definition!
                 let mut introduced_macros: HashMap<InternedString, SteelMacro> = HashMap::new();
 
-                let expressions = x.emit_expanded_ast_without_optimizations(
+                let expressions = guard.emit_expanded_ast_without_optimizations(
                     &expression,
                     params.uri.to_file_path().ok(),
                 );
 
-                x.in_scope_macros_mut().retain(|key, value| {
+                guard.in_scope_macros_mut().retain(|key, value| {
                     if macro_env_before.contains(key) {
                         return true;
                     } else {
@@ -757,9 +779,9 @@ impl Backend {
 
             let analysis = SemanticAnalysis::new(&mut ast);
 
-            let diagnostics = ENGINE.with_borrow(|engine| {
+            let diagnostics = ENGINE.with(|engine| {
                 let mut context = DiagnosticContext {
-                    engine: &engine,
+                    engine: &engine.borrow(),
                     analysis: &analysis,
                     uri: &params.uri,
                     source_id: id,
@@ -779,7 +801,7 @@ impl Backend {
 
                 // TODO: Enable this once the syntax object let conversion is implemented
                 let mut user_defined_lints =
-                    LINT_ENGINE.with_borrow_mut(|x| x.diagnostics(&rope, &analysis.exprs));
+                    LINT_ENGINE.with(|x| x.borrow_mut().diagnostics(&rope, &analysis.exprs));
 
                 log::debug!("Lints found: {:#?}", user_defined_lints);
 
@@ -805,12 +827,12 @@ impl Backend {
 }
 
 fn uri_to_source_id(uri: &Url) -> Option<steel::parser::parser::SourceId> {
-    let id = ENGINE.with_borrow(|x| x.get_source_id(&uri.to_file_path().unwrap()));
+    let id = ENGINE.with(|x| x.borrow().get_source_id(&uri.to_file_path().unwrap()));
     id
 }
 
 fn source_id_to_uri(source_id: SourceId) -> Option<Url> {
-    let path = ENGINE.with_borrow(|x| x.get_path_for_source_id(&source_id))?;
+    let path = ENGINE.with(|x| x.borrow().get_path_for_source_id(&source_id))?;
 
     Some(Url::from_file_path(path).unwrap())
 }
@@ -873,7 +895,7 @@ thread_local! {
 }
 
 // At one time, call the lints, collecting the diagnostics each time.
-struct UserDefinedLintEngine {
+pub struct UserDefinedLintEngine {
     engine: Engine,
     lints: Arc<RwLock<HashSet<String>>>,
 }
@@ -899,8 +921,9 @@ impl UserDefinedLintEngine {
             }
         }
 
-        DIAGNOSTICS.with_borrow_mut(|x| {
-            x.drain(..)
+        DIAGNOSTICS.with(|x| {
+            x.borrow_mut()
+                .drain(..)
                 .filter_map(|d| {
                     let start_position = offset_to_position(d.span.start, &rope)?;
                     let end_position = offset_to_position(d.span.end, &rope)?;
@@ -916,7 +939,7 @@ impl UserDefinedLintEngine {
 }
 
 #[derive(Clone)]
-struct SteelDiagnostic {
+pub struct SteelDiagnostic {
     span: Span,
     message: SteelString,
 }
@@ -929,7 +952,7 @@ fn configure_lints() -> std::result::Result<UserDefinedLintEngine, Box<dyn Error
 
     diagnostics.register_fn("suggest", move |span: Span, message: SteelString| {
         log::debug!("Adding suggestion at: {:?} - {:?}", span, message);
-        DIAGNOSTICS.with_borrow_mut(|x| x.push(SteelDiagnostic { span, message }));
+        DIAGNOSTICS.with(|x| x.borrow_mut().push(SteelDiagnostic { span, message }));
     });
 
     let engine_lints = lints.clone();
@@ -937,10 +960,7 @@ fn configure_lints() -> std::result::Result<UserDefinedLintEngine, Box<dyn Error
         engine_lints.write().unwrap().insert(name);
     });
 
-    let mut directory = PathBuf::from(
-        std::env::var("STEEL_LSP_HOME").expect("Have you set your STEEL_LSP_HOME path?"),
-    );
-
+    let mut directory = lsp_home();
     directory.push("lints");
 
     engine.register_module(diagnostics);

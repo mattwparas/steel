@@ -49,6 +49,7 @@ struct BlockingResponse(Response);
 #[derive(Clone)]
 struct Client(ureq::Agent);
 
+#[derive(Debug)]
 enum BlockingError {
     Ureq(ureq::Error),
     ResponseAlreadyUsed,

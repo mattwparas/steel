@@ -6,7 +6,8 @@ use super::{
     vm::{get_test_mode, list_modules, set_test_mode, VmCore},
 };
 use crate::{
-    gc::{shared::ShareableMut, Gc, GcMut},
+    compiler::modules::steel_home,
+    gc::{shared::ShareableMut, GcMut},
     parser::{
         ast::TryFromSteelValVisitorForExprKind, interner::InternedString, span::Span,
         tryfrom_visitor::TryFromExprKindForSteelVal,
@@ -17,7 +18,9 @@ use crate::{
         hashmaps::{hashmap_module, HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,
         lists::{list_module, UnRecoverableResult},
-        numbers, port_module,
+        numbers::{self, realp},
+        port_module,
+        ports::EOF_OBJECTP_DEFINITION,
         process::process_module,
         random::random_module,
         string_module,
@@ -43,7 +46,7 @@ use crate::{
     values::{
         closed::HeapRef,
         functions::{attach_contract_struct, get_contract, LambdaMetadataTable},
-        lists::List,
+        lists::{List, SteelList},
         structs::{
             build_type_id_module, make_struct_type, struct_update_primitive, SteelResult,
             UserDefinedStruct,
@@ -60,7 +63,8 @@ use crate::{
 };
 use fxhash::{FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
-use std::{cell::RefCell, cmp::Ordering};
+use std::cmp::Ordering;
+use steel_parser::{interner::interned_current_memory_usage, parser::SourceId};
 
 #[cfg(feature = "dylibs")]
 use crate::steel_vm::ffi::ffi_module;
@@ -741,9 +745,24 @@ fn structp(value: &SteelVal) -> bool {
     }
 }
 
+#[steel_derive::function(name = "port?", constant = true)]
+fn portp(value: &SteelVal) -> bool {
+    matches!(value, SteelVal::PortV(..))
+}
+
 #[steel_derive::function(name = "#%private-struct?", constant = true)]
 fn private_structp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::CustomStruct(_))
+}
+
+#[steel_derive::function(name = "error-object?", constant = true)]
+fn error_objectp(value: &SteelVal) -> bool {
+    let SteelVal::Custom(val) = value else {
+        return false;
+    };
+
+    // let cell: &RefCell<_> = &*val;
+    as_underlying_type::<SteelErr>(val.read().as_ref()).is_some()
 }
 
 #[steel_derive::function(name = "function?", constant = true)]
@@ -799,7 +818,10 @@ fn identity_module() -> BuiltInModule {
         .register_native_fn_definition(BOOLP_DEFINITION)
         .register_native_fn_definition(VOIDP_DEFINITION)
         .register_native_fn_definition(STRUCTP_DEFINITION)
+        .register_native_fn_definition(PORTP_DEFINITION)
+        .register_native_fn_definition(EOF_OBJECTP_DEFINITION)
         .register_native_fn_definition(PRIVATE_STRUCTP_DEFINITION)
+        .register_native_fn_definition(ERROR_OBJECTP_DEFINITION)
         .register_value("mutable-vector?", gen_pred!(MutableVector))
         .register_value("char?", gen_pred!(CharV))
         .register_value("future?", gen_pred!(FutureV))
@@ -929,13 +951,134 @@ fn equality_module() -> BuiltInModule {
     module
 }
 
+/// Real numbers ordering module.
+#[steel_derive::define_module(name = "steel/ord")]
 fn ord_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/ord");
+
+    fn ensure_real(x: &SteelVal) -> Result<&SteelVal> {
+        realp(x).then(|| x).ok_or_else(|| {
+            SteelErr::new(ErrorKind::TypeMismatch, "expected real numbers".to_owned())
+        })
+    }
+
+    fn ord_internal(
+        args: &[SteelVal],
+        ordering_f: impl Fn(Option<Ordering>) -> bool,
+    ) -> Result<SteelVal> {
+        match args {
+            [x] => {
+                ensure_real(x)?;
+                true.into_steelval()
+            }
+            [x, rest @ ..] => {
+                let mut left = ensure_real(x)?;
+                for r in rest {
+                    let right = ensure_real(r)?;
+                    if !ordering_f(left.partial_cmp(right)) {
+                        return false.into_steelval();
+                    }
+                    left = right;
+                }
+                true.into_steelval()
+            }
+            _ => stop!(ArityMismatch => "expected at least one argument"),
+        }
+    }
+
+    /// Compares real numbers to check if any number is greater than the subsequent.
+    ///
+    /// (> x . rest) -> bool?
+    ///
+    /// * x : real? - The first real number to compare.
+    /// * rest : real? - The rest of the numbers to compare.
+    ///
+    /// # Examples
+    /// ```scheme
+    /// > (> 1) ;; => #t
+    /// > (> 3 2) ;; => #t
+    /// > (> 1 1) ;; => #f
+    /// > (> 3/2 1.5) ;; => #f
+    /// > (> 3/2 1.4) ;; => #t
+    /// > (> 3 4/2 1) ;; #t
+    /// ```
+    #[steel_derive::native(name = ">", arity = "AtLeast(1)")]
+    fn greater_than(args: &[SteelVal]) -> Result<SteelVal> {
+        ord_internal(args, |o| matches!(o, Some(Ordering::Greater)))
+    }
+
+    /// Compares real numbers to check if any number is greater than or equal than the subsequent.
+    ///
+    /// (>= x . rest) -> bool?
+    ///
+    /// * x : real? - The first real number to compare.
+    /// * rest : real? - The rest of the numbers to compare.
+    ///
+    /// # Examples
+    /// ```scheme
+    /// > (>= 1) ;; => #t
+    /// > (>= 3 2) ;; => #t
+    /// > (>= 2 3) ;; => #f
+    /// > (>= 3/2 1.5) ;; => #t
+    /// > (>= 3/2 1.4) ;; => #t
+    /// > (>= 2 4/2 1) ;; #t
+    /// ```
+    #[steel_derive::native(name = ">=", arity = "AtLeast(1)")]
+    fn greater_than_equal(args: &[SteelVal]) -> Result<SteelVal> {
+        ord_internal(args, |o| {
+            matches!(o, Some(Ordering::Greater | Ordering::Equal))
+        })
+    }
+
+    /// Compares real numbers to check if any number is less than the subsequent.
+    ///
+    /// (< x . rest) -> bool?
+    ///
+    /// * x : real? - The first real number to compare.
+    /// * rest : real? - The rest of the numbers to compare.
+    ///
+    /// # Examples
+    /// ```scheme
+    /// > (< 1) ;; => #t
+    /// > (< 3 2) ;; => #f
+    /// > (< 2 3) ;; => #t
+    /// > (< 3/2 1.5) ;; => #f
+    /// > (< 2.5 3/2) ;; => #t
+    /// > (< 2 5/2 3) ;; #t
+    /// ```
+    #[steel_derive::native(name = "<", arity = "AtLeast(1)")]
+    fn less_than(args: &[SteelVal]) -> Result<SteelVal> {
+        ord_internal(args, |o| matches!(o, Some(Ordering::Less)))
+    }
+
+    /// Compares real numbers to check if any number is less than or equal than the subsequent.
+    ///
+    /// (<= x . rest) -> bool?
+    ///
+    /// * x : real? - The first real number to compare.
+    /// * rest : real? - The rest of the numbers to compare.
+    ///
+    /// # Examples
+    /// ```scheme
+    /// > (<= 1) ;; => #t
+    /// > (<= 3 2) ;; => #f
+    /// > (<= 2 3) ;; => #t
+    /// > (<= 3/2 1.5) ;; => #t
+    /// > (<= 2.5 3/2) ;; => #f
+    /// > (<= 2 6/2 3) ;; #t
+    /// ```
+    #[steel_derive::native(name = "<=", arity = "AtLeast(1)")]
+    fn less_than_equal(args: &[SteelVal]) -> Result<SteelVal> {
+        ord_internal(args, |o| {
+            matches!(o, Some(Ordering::Less | Ordering::Equal))
+        })
+    }
+
     module
-        .register_value(">", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a > b)))
-        .register_value(">=", SteelVal::FuncV(gte_primitive))
-        .register_value("<", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a < b)))
-        .register_value("<=", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a <= b)));
+        .register_native_fn_definition(GREATER_THAN_DEFINITION)
+        .register_native_fn_definition(GREATER_THAN_EQUAL_DEFINITION)
+        .register_native_fn_definition(LESS_THAN_DEFINITION)
+        .register_native_fn_definition(LESS_THAN_EQUAL_DEFINITION);
     module
 }
 
@@ -1009,8 +1152,9 @@ fn sandboxed_io_module() -> BuiltInModule {
     // .register_value("read-to-string", IoFunctions::read_to_string());
     module
 }
-pub const VOID_DOC: MarkdownDoc =
-    MarkdownDoc("The void value, returned by many forms with side effects, such as `define`.");
+pub const VOID_DOC: MarkdownDoc = MarkdownDoc::from_str(
+    "The void value, returned by many forms with side effects, such as `define`.",
+);
 
 /// Miscellaneous constants
 #[steel_derive::define_module(name = "steel/constants")]
@@ -1058,6 +1202,24 @@ fn sandboxed_meta_module() -> BuiltInModule {
     // .register_fn("get-value", super::meta::EngineWrapper::get_value)
     // .register_fn("env-var", get_environment_variable);
     module
+}
+
+/// Returns the message of an error object.
+///
+/// (error-object-message error?) -> string?
+#[steel_derive::function(name = "error-object-message")]
+fn error_object_message(val: &SteelVal) -> Result<SteelVal> {
+    let SteelVal::Custom(custom) = val else {
+        stop!(TypeMismatch => "error-object-message: expected an error object");
+    };
+
+    let value = custom.read();
+
+    let Some(error) = as_underlying_type::<SteelErr>(value.as_ref()) else {
+        stop!(TypeMismatch => "error-object-message: expected an error object");
+    };
+
+    Ok(error.message().to_string().into())
 }
 
 fn lookup_function_name(value: SteelVal) -> Option<SteelVal> {
@@ -1258,7 +1420,7 @@ impl Reader {
         if let Some(buffer) = self.buffer.get(self.offset..) {
             // println!("Reading range: {}", buffer);
 
-            let mut parser = crate::parser::parser::Parser::new_flat(buffer, None);
+            let mut parser = crate::parser::parser::Parser::new_flat(buffer, SourceId::none());
 
             if let Some(raw) = parser.next() {
                 // self.offset += parser.offset();
@@ -1290,9 +1452,7 @@ impl Reader {
                 Ok(SteelVal::Void)
             }
         } else {
-            Ok(SteelVal::SymbolV(
-                crate::primitives::ports::EOF_OBJECT.with(|x| x.clone()),
-            ))
+            Ok(crate::primitives::ports::eof())
         }
     }
 }
@@ -1344,6 +1504,18 @@ pub fn plain_unbox_mutable(value: &HeapRef<SteelVal>) -> SteelVal {
 #[steel_derive::function(name = "set-box!")]
 pub fn plain_set_box_mutable(value: &HeapRef<SteelVal>, update: SteelVal) -> SteelVal {
     value.set_and_return(update)
+}
+
+fn gc_collection(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    if args.len() != 0 {
+        return Some(Err(
+            throw!(ArityMismatch => "gc-collect expects 0 arguments, found: {}", args.len())(),
+        ));
+    }
+
+    let count = ctx.gc_collect();
+
+    Some(Ok(SteelVal::IntV(count as _)))
 }
 
 fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
@@ -1464,7 +1636,8 @@ fn meta_module() -> BuiltInModule {
         .register_value("%iterator?", gen_pred!(BoxedIterator))
         .register_fn("env-var", get_environment_variable)
         .register_fn("maybe-get-env-var", maybe_get_environment_variable)
-        .register_fn("set-env-var!", |name, val| {
+        // TODO: Maybe just remove this, or provide a steel wrapper in place of this
+        .register_fn("set-env-var!", |name, val| unsafe {
             std::env::set_var::<String, String>(name, val)
         })
         .register_fn("arity?", arity)
@@ -1480,6 +1653,7 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(UNBOX_DEFINITION)
         .register_native_fn_definition(SET_BOX_DEFINITION)
         .register_value("#%box", SteelVal::BuiltIn(make_mutable_box))
+        .register_value("#%gc-collect", SteelVal::BuiltIn(gc_collection))
         .register_value("box", SteelVal::BuiltIn(make_mutable_box))
         .register_native_fn_definition(SET_BOX_MUTABLE_DEFINITION)
         .register_native_fn_definition(UNBOX_MUTABLE_DEFINITION)
@@ -1494,7 +1668,11 @@ fn meta_module() -> BuiltInModule {
         .register_fn("#%build-dylib", || {
             #[cfg(feature = "dylib-build")]
             cargo_steel_lib::run().ok()
-        });
+        })
+        .register_native_fn_definition(COMMAND_LINE_DEFINITION)
+        .register_native_fn_definition(ERROR_OBJECT_MESSAGE_DEFINITION)
+        .register_fn("steel-home-location", steel_home)
+        .register_fn("%#interner-memory-usage", interned_current_memory_usage);
 
     #[cfg(not(feature = "dylibs"))]
     module.register_native_fn_definition(super::engine::LOAD_MODULE_NOOP_DEFINITION);
@@ -1504,6 +1682,13 @@ fn meta_module() -> BuiltInModule {
     module.register_native_fn_definition(crate::steel_vm::dylib::LOAD_MODULE_DEFINITION);
 
     module
+}
+
+/// Returns the command line passed to this process,
+/// including the command name as first argument.
+#[steel_derive::function(name = "command-line")]
+fn command_line() -> SteelList<String> {
+    std::env::args().collect()
 }
 
 /// De/serialization from/to JSON.

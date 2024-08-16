@@ -15,10 +15,10 @@ RUN mkdir -p /lib/steel/
 
 ENV STEEL_HOME="/lib/steel"
 
-RUN cargo build
+RUN cargo build --release
 RUN cargo install --path crates/cargo-steel-lib
 
-RUN cargo run -- cogs/install.scm
+RUN cd cogs && cargo run -- install.scm
 
 FROM rust:slim
 

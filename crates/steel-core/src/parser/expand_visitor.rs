@@ -3,8 +3,6 @@ use quickscope::ScopeSet;
 use steel_parser::ast::{parse_lambda, Begin};
 use steel_parser::parser::SourceId;
 
-use crate::compiler::passes::reader::MultipleArityFunctions;
-use crate::compiler::passes::VisitorMutRefUnit;
 use crate::parser::ast::ExprKind;
 use crate::parser::parser::SyntaxObject;
 use crate::parser::span_visitor::get_span;
@@ -45,10 +43,10 @@ pub fn extract_macro_defs(
         if let ExprKind::Macro(_) = expr {
             // Replace with dummy begin value so we don't have to copy
             // everything other for every macro definition
-            let mut taken_expr = ExprKind::Begin(Begin::new(
+            let mut taken_expr = ExprKind::Begin(Box::new(Begin::new(
                 Vec::new(),
                 SyntaxObject::default(TokenType::Begin),
-            ));
+            )));
 
             std::mem::swap(expr, &mut taken_expr);
 
@@ -86,7 +84,7 @@ pub fn expand(expr: &mut ExprKind, map: &FxHashMap<InternedString, SteelMacro>) 
         map,
         changed: false,
         in_scope_values: ScopeSet::default(),
-        source_id: None,
+        source_id: SourceId::none(),
     };
     expander.visit(expr)
 }
@@ -94,14 +92,14 @@ pub fn expand(expr: &mut ExprKind, map: &FxHashMap<InternedString, SteelMacro>) 
 pub fn expand_with_source_id(
     expr: &mut ExprKind,
     map: &FxHashMap<InternedString, SteelMacro>,
-    source_id: SourceId,
+    source_id: Option<SourceId>,
 ) -> Result<()> {
     let mut expander = Expander {
         depth: 0,
         map,
         changed: false,
         in_scope_values: ScopeSet::default(),
-        source_id: Some(source_id),
+        source_id,
     };
 
     expander.visit(expr)
@@ -122,7 +120,7 @@ impl<'a> Expander<'a> {
             map,
             changed: false,
             in_scope_values: ScopeSet::default(),
-            source_id: None,
+            source_id: SourceId::none(),
             depth: 0,
         }
     }
@@ -192,6 +190,10 @@ impl<'a> VisitorMutRef for Expander<'a> {
                         if let ExprKind::LambdaFunction(mut lambda) =
                             parse_lambda(ident.clone(), std::mem::take(&mut l.args))?
                         {
+                            if l.improper {
+                                lambda.rest = true;
+                            }
+
                             self.visit_lambda_function(&mut lambda)?;
 
                             *expr = ExprKind::LambdaFunction(lambda);
@@ -212,20 +214,21 @@ impl<'a> VisitorMutRef for Expander<'a> {
                             },
                     })) => {
                         if let Some(m) = self.map.get(s) {
-                            // println!("Macro: {} - source id: {:?}", s, sp.source_id());
-                            // println!("Source id: {:?}", self.source_id);
-
                             // If this macro has been overwritten by any local value, respect
                             // the local binding and do not expand the macro
                             if !self.in_scope_values.contains(s) {
                                 if self.source_id.is_none()
-                                    || self.source_id.is_some()
-                                        && self.source_id == m.location.source_id()
+                                    || self.source_id == m.location.source_id()
                                 {
                                     let span = *sp;
 
-                                    let mut expanded =
-                                        m.expand(List::new(std::mem::take(&mut l.args)), span)?;
+                                    let mut expanded = m.expand(
+                                        List::new_maybe_improper(
+                                            std::mem::take(&mut l.args),
+                                            l.improper,
+                                        ),
+                                        span,
+                                    )?;
                                     self.changed = true;
 
                                     self.depth += 1;
@@ -525,8 +528,6 @@ fn expand_keyword_arguments(lambda_function: &mut super::ast::LambdaFunction) ->
     //
     // If there are rest arguments though, we'll need to split the rest argument list into two - the first half will then get
     // applied to the hashmap list, while the rest of the arguments will get applied to the correct place.
-
-    MultipleArityFunctions::new().visit_lambda_function(lambda_function);
 
     // If this already has a rest arguments, we need to slice out the
     // remaining function values from the keywords, and then bind those to whatever variable in the original

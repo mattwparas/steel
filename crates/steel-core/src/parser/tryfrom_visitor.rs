@@ -71,7 +71,7 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
         Ok(SteelVal::ListV(expr.into_iter().collect()))
     }
 
-    fn visit_begin(&mut self, begin: super::ast::Begin) -> Self::Output {
+    fn visit_begin(&mut self, begin: Box<super::ast::Begin>) -> Self::Output {
         let mut exprs = vec![SteelVal::try_from(begin.location)?];
         for expr in begin.exprs {
             exprs.push(self.visit(expr)?);
@@ -125,10 +125,29 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
     }
 
     fn visit_list(&mut self, l: super::ast::List) -> Self::Output {
-        let items: std::result::Result<List<_>, SteelErr> =
+        if !l.improper {
+            let items: std::result::Result<List<_>, SteelErr> =
+                l.args.into_iter().map(|x| self.visit(x)).collect();
+
+            return Ok(items?.into());
+        }
+
+        debug_assert!(l.args.len() >= 2);
+
+        if l.args.len() < 2 {
+            stop!(Generic => "internal compiler error - unexpected malformed improper list");
+        };
+
+        let items: std::result::Result<Vec<_>, SteelErr> =
             l.args.into_iter().map(|x| self.visit(x)).collect();
 
-        Ok(items?.into())
+        let pair = items?
+            .into_iter()
+            .rev()
+            .reduce(|cdr, car| crate::values::lists::Pair::cons(car, cdr).into())
+            .unwrap();
+
+        Ok(pair)
     }
 
     fn visit_syntax_rules(&mut self, s: Box<super::ast::SyntaxRules>) -> Self::Output {
@@ -167,7 +186,7 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
         Ok(SteelVal::ListV(expr.into_iter().collect()))
     }
 
-    fn visit_require(&mut self, r: super::ast::Require) -> Self::Output {
+    fn visit_require(&mut self, r: Box<super::ast::Require>) -> Self::Output {
         // Just convert it into a list
 
         // r.modules
@@ -323,8 +342,9 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
     }
 
     fn visit_begin(&mut self, begin: &steel_parser::ast::Begin) -> Self::Output {
-        let raw: SteelVal =
-            TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::Begin(begin.clone()))?;
+        let raw: SteelVal = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(
+            ExprKind::Begin(Box::new(begin.clone())),
+        )?;
 
         let span = begin.location.span;
         let mut exprs = vec![convert_location(&begin.location)?];
@@ -550,7 +570,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
         Ok(Syntax::proto(raw, SteelVal::ListV(expr.into_iter().collect()), span).into())
     }
 
-    fn visit_begin(&mut self, begin: super::ast::Begin) -> Self::Output {
+    fn visit_begin(&mut self, begin: Box<super::ast::Begin>) -> Self::Output {
         let raw: SteelVal =
             TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::Begin(begin.clone()))?;
 
@@ -678,7 +698,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
         Ok(Syntax::proto(raw, SteelVal::ListV(expr.into_iter().collect()), span).into())
     }
 
-    fn visit_require(&mut self, _s: super::ast::Require) -> Self::Output {
+    fn visit_require(&mut self, _s: Box<super::ast::Require>) -> Self::Output {
         stop!(Generic => "internal compiler error - could not translate require to steel value")
     }
 

@@ -179,7 +179,11 @@ impl CycleDetector {
                 }
             }
             Pair(p) => {
-                write!(f, "({} . {})", p.car(), p.cdr())
+                write!(f, "(")?;
+                self.format_with_cycles(&p.car, f, FormatType::Normal)?;
+                write!(f, " . ")?;
+                self.format_with_cycles(&p.cdr, f, FormatType::Normal)?;
+                write!(f, ")")
             }
             FuncV(func) => {
                 if let Some(name) = get_function_name(*func) {
@@ -635,9 +639,6 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
 
 #[cfg(not(feature = "without-drop-protection"))]
 pub(crate) mod drop_impls {
-
-    use crate::values::recycler::Recycle;
-
     use super::*;
 
     thread_local! {

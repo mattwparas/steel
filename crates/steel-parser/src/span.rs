@@ -2,10 +2,6 @@ use core::ops::Range;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-// use crate::{list, rvals::FromSteelVal, rvals::IntoSteelVal};
-
-// use crate::rvals::SteelVal;
-
 use super::parser::SourceId;
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
@@ -15,36 +11,6 @@ pub struct Span {
     pub end: usize,
     pub source_id: Option<SourceId>,
 }
-
-// impl IntoSteelVal for Span {
-//     fn into_steelval(self) -> crate::rvals::Result<crate::SteelVal> {
-//         Ok(list![self.start, self.end, self.source_id])
-//     }
-// }
-
-// impl FromSteelVal for Span {
-//     fn from_steelval(val: &crate::SteelVal) -> crate::rvals::Result<Self> {
-//         if let SteelVal::ListV(l) = val {
-//             if l.len() != 3 {
-//                 stop!(ConversionError => "cannot convert to a span object: {}", val);
-//             }
-
-//             Ok(Span {
-//                 start: usize::from_steelval(l.get(0).unwrap())?,
-//                 end: usize::from_steelval(l.get(1).unwrap())?,
-//                 source_id: l
-//                     .get(2)
-//                     .map(Option::<usize>::from_steelval)
-//                     .map(|x| x.transpose())
-//                     .flatten()
-//                     .transpose()?
-//                     .map(SourceId),
-//             })
-//         } else {
-//             stop!(ConversionError => "cannot convert to a span object: {}", val)
-//         }
-//     }
-// }
 
 impl Span {
     #[inline]
