@@ -13,7 +13,7 @@ use crate::{
     rerrs::ErrorKind,
     rvals::{
         as_underlying_type_mut, Custom, CustomType, FutureResult, IntoSteelVal,
-        MaybeSendSyncStatic, Result, SteelHashMap, SteelVal, SteelByteVector,
+        MaybeSendSyncStatic, Result, SteelByteVector, SteelHashMap, SteelVal,
     },
     values::functions::{BoxedDynFunction, StaticOrRcStr},
     SteelErr,
@@ -83,6 +83,7 @@ impl<'a, In: StableAbi + 'a, Out: StableAbi, F: Fn(In) -> Out + Send + Sync> RFn
 pub trait OpaqueObject: Send + Sync {}
 
 #[cfg(not(feature = "sync"))]
+#[abi_stable::sabi_trait]
 pub trait OpaqueObject {}
 
 // Blanket implement this for all things that implement Custom!

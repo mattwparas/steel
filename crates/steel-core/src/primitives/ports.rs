@@ -1,8 +1,8 @@
+use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;
 use crate::rvals::{RestArgsIter, Result, SteelByteVector, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::stop;
-use crate::values::port::new_rc_ref_cell;
 use crate::values::port::{SteelPort, SteelPortRepr};
 use crate::values::structs::{make_struct_singleton, StructTypeDescriptor};
 

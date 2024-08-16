@@ -3,7 +3,7 @@ use steel_derive::function;
 use crate::{
     gc::shared::ShareableMut,
     rerrs::ErrorKind,
-    rvals::{FromSteelVal, RestArgsIter, Result, SteelByteVector, SteelString},
+    rvals::{FromSteelVal, RestArgsIter, Result, SteelByteVector},
     steel_vm::builtin::BuiltInModule,
     stop, throw, SteelErr, SteelVal,
 };
@@ -325,7 +325,7 @@ pub fn bytes_to_string(
     value: &SteelByteVector,
     mut rest: RestArgsIter<'_, isize>,
 ) -> Result<SteelVal> {
-    let borrowed = (&*value.vec).read();
+    let borrowed = value.vec.read();
 
     let start = rest.next().transpose()?.unwrap_or(0);
     let end = rest.next().transpose()?.unwrap_or(borrowed.len() as isize);
