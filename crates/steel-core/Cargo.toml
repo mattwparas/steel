@@ -73,6 +73,9 @@ parking_lot = { version = "0.12" }
 
 bigdecimal = "0.4.5"
 
+# Also for sync stuff
+crossbeam = "0.8.4"
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "*", features = ["js"] }
 

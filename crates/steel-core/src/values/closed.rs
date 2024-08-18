@@ -2,6 +2,7 @@ use std::{
     cell::RefCell,
     collections::HashSet,
     rc::{Rc, Weak},
+    sync::Mutex,
 };
 
 use crate::{
@@ -15,6 +16,7 @@ use crate::{
     values::lists::List,
 };
 use num::{BigInt, BigRational, Rational32};
+use once_cell::sync::Lazy;
 use steel_gen::OpCode;
 
 use crate::{
@@ -414,9 +416,13 @@ const GC_GROW_FACTOR: usize = 2;
 const RESET_LIMIT: usize = 5;
 
 // TODO: Do these roots needs to be truly global?
+// Replace this with a lazy static
 thread_local! {
     static ROOTS: RefCell<Roots> = RefCell::new(Roots::default());
 }
+
+// stash roots in the global area
+static GLOBAL_ROOTS: Lazy<Mutex<Roots>> = Lazy::new(|| Mutex::new(Roots::default()));
 
 #[derive(Default)]
 pub struct Roots {

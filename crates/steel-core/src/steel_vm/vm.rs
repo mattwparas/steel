@@ -43,9 +43,13 @@ use crate::{
     stop,
     values::functions::ByteCodeLambda,
 };
+use std::cell::UnsafeCell;
 use std::rc::Weak;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::thread::JoinHandle;
+use std::thread::ThreadId;
 use std::{cell::RefCell, collections::HashMap, iter::Iterator, rc::Rc};
 
 use super::builtin::DocTemplate;
@@ -62,7 +66,7 @@ use std::time::Instant;
 use crate::rvals::{from_serializable_value, into_serializable_value, IntoSteelVal};
 
 pub(crate) mod threads;
-pub(crate) use threads::{spawn_thread, thread_join};
+pub(crate) use threads::{spawn_native_thread, spawn_thread, thread_join};
 
 #[inline]
 #[cold]
@@ -269,6 +273,9 @@ pub struct SteelThread {
     pub(crate) stack_frames: Vec<StackFrame>,
     pub(crate) constant_map: ConstantMap,
     pub(crate) interrupted: Option<Arc<AtomicBool>>,
+    // Temporary safepoint handler
+    pub(crate) at_safepoint: Arc<AtomicBool>,
+    pub(crate) synchronizer: Synchronizer,
 }
 
 #[derive(Clone)]
@@ -295,6 +302,7 @@ impl RunTimeOptions {
 #[derive(PartialEq)]
 struct SpanId(usize);
 
+// TODO: This object probably needs to be shared as well
 #[derive(Default, Clone)]
 pub struct FunctionInterner {
     closure_interner: fxhash::FxHashMap<u32, ByteCodeLambda>,
@@ -313,6 +321,137 @@ pub struct FunctionInterner {
     // Keep these around - each thread keeps track of the instructions on the bytecode object, but we shouldn't
     // need to dereference that until later? When we actually move to that
     instructions: fxhash::FxHashMap<u32, Shared<[DenseInstruction]>>,
+}
+
+#[derive(Clone)]
+pub(crate) struct Synchronizer {
+    // All of the threads that have been created
+    // from the root of the runtime. Since we're now operating
+    // in a world in which these kinds of threads might basically
+    // share memory space, we probably need to handle this
+    threads: Arc<Mutex<Vec<JoinHandle<()>>>>,
+    // The signal to actually tell all the threads to stop
+    paused: Arc<AtomicBool>,
+
+    // Once we've paused, we need to let the synchronizer know that we've sent
+    // all of our work in. It is possible that we're in a situation
+    // where a child thread is in a long running native function. For that,
+    // I haven't yet figured out the best strategy yet. Under those circumstances,
+    // we probably just need to simply park the thread, and only run weak
+    // collections, knowing that those will be sound. If we're unable to synchronize
+    // around long running native functions, then perhaps we're just stuck?
+    acknowledgements_sender: crossbeam::channel::Sender<ThreadId>,
+
+    // Listen to make sure that the acknowledgements line up with the actual threads.
+    // We'll then know which threads are just stuck in native functions.
+    acknowledgements_reciever: crossbeam::channel::Receiver<ThreadId>,
+
+    // Channels to then, either, send their roots along, or
+    // to receive them. This avoid us having to lock to read all
+    // of the stack each time.
+    roots_sender: crossbeam::channel::Sender<SteelVal>,
+    // When we're the one pausing other threads for GC, then
+    // we'll listen on here to get all of the threads roots.
+    roots_receiver: crossbeam::channel::Receiver<SteelVal>,
+
+    // Have we reached a safepoint? If we have, we should be safe
+    // to inspect the stack of the running thread.
+    at_safepoint: Arc<AtomicBool>,
+    // If we've hit a safe point, it is safe to inspect the stack state.
+    // For this, we then just have to visit each of these, and make sure that
+    // we're at a safepoint, before we then enumerate the stack states. This should
+    // ensure that we're explicitly not in a position where we accidentally are
+    // modifying the stacks while we're using it
+    // This means we _definitely_ need to store this within unsafe cell!
+    // steel_threads: HashMap<ThreadId, UnsafeCell<SteelThread>>,
+}
+
+impl Synchronizer {
+    pub fn new() -> Self {
+        let (acknowledgements_sender, acknowledgements_reciever) = crossbeam::channel::unbounded();
+        let (roots_sender, roots_receiver) = crossbeam::channel::unbounded();
+
+        Self {
+            threads: Arc::new(Mutex::new(Vec::new())),
+            paused: Arc::new(AtomicBool::new(false)),
+            acknowledgements_sender,
+            acknowledgements_reciever,
+            roots_sender,
+            roots_receiver,
+            at_safepoint: Arc::new(AtomicBool::new(false)),
+            // steel_threads: HashMap::new(),
+        }
+    }
+
+    pub fn enumerate_stacks(&mut self) {
+        // for value in self.steel_threads.values() {
+        //     // SAFETY:
+        //     // Assuming we've reached a safe point, then we
+        //     // can assume that the stack will not be modified.
+        //     unsafe {
+        //         let stack = &(*(value.get())).stack;
+        //     }
+
+        //     todo!()
+        // }
+    }
+
+    /// Stops all threads within the context of this virtual machine, and
+    /// waits for all of those threads to stop before continuing on.
+    pub fn stop_threads(&mut self) {
+        // Stop other threads, wait until we've gathered acknowledgements
+        self.paused.store(true, std::sync::atomic::Ordering::SeqCst);
+
+        // We drain from the receiver until these are all acknowledged
+        // Alternatively, we could just wait until we have all of the
+        // acknowledgements by count. We also could set up individual
+        // receivers per thread, but this seems fine. At least this way
+        // we have the opportunity to see which threads aren't stopping
+        // because of long running native functions.
+        let mut threads = self
+            .threads
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|x| x.thread().id())
+            .collect::<fxhash::FxHashSet<_>>();
+
+        // Blocking until all of the threads have acknowledged the request to stop
+        while !threads.is_empty() {
+            while let Ok(value) = self.acknowledgements_reciever.try_recv() {
+                threads.remove(&value);
+            }
+        }
+
+        // Now, at this point, our roots queue should be filled up,
+        // and we can read from it accordingly in the next iteration
+    }
+
+    pub fn resume_threads(&mut self) {
+        self.paused
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+
+        self.threads
+            .lock()
+            .unwrap()
+            .iter()
+            .for_each(|x| x.thread().unpark());
+    }
+
+    pub fn maybe_safepoint(&self) {
+        // Check if we need to be paused
+        if self.paused.load(std::sync::atomic::Ordering::Relaxed) {
+            // Send everything on the stack to the parent thread to snag. If we've already
+            // collected it from a thread that was blocked via safepoint, we'll want to
+            // not send the roots along the receiver.
+
+            // While we're paused, keep parking. Parking is fine and more efficient
+            // than spinning until the thread is available.
+            while self.paused.load(std::sync::atomic::Ordering::Relaxed) {
+                std::thread::park();
+            }
+        }
+    }
 }
 
 impl SteelThread {
@@ -334,7 +473,22 @@ impl SteelThread {
             // with the executables
             constant_map: DEFAULT_CONSTANT_MAP.with(|x| x.clone()),
             interrupted: Default::default(),
+            // Just checking what the performance hit of this will be
+            at_safepoint: Arc::new(AtomicBool::new(false)),
+            synchronizer: Synchronizer::new(),
         }
+    }
+
+    // TODO: Make this use the synchronizer
+    pub fn enter_safepoint(&mut self) {
+        self.at_safepoint
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    // TODO: Make this use the synchronizer
+    pub fn exit_safepoint(&mut self) {
+        self.at_safepoint
+            .store(false, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn with_interrupted(&mut self, interrupted: Arc<AtomicBool>) -> &mut Self {
@@ -1570,9 +1724,6 @@ impl<'a> VmCore<'a> {
             }};
         }
 
-        // let mut frame = self.stack_frames.last().unwrap();
-
-        // while self.ip < self.instructions.len() {
         loop {
             #[cfg(feature = "interrupt")]
             {
@@ -1582,6 +1733,8 @@ impl<'a> VmCore<'a> {
                     }
                 }
             }
+
+            self.thread.synchronizer.maybe_safepoint();
 
             // Process the op code
             // TODO: Just build up a slice, don't directly store the full vec of op codes
@@ -3257,16 +3410,12 @@ impl<'a> VmCore<'a> {
         f: fn(&mut [SteelVal]) -> Result<SteelVal>,
         payload_size: usize,
     ) -> Result<()> {
-        // println!("Stack: {:?}", self.stack);
-
         let last_index = self.thread.stack.len() - payload_size;
 
+        // These kinds of functions aren't valid for a safepoint.
         let result = f(&mut self.thread.stack[last_index..])
             .map_err(|x| x.set_span_if_none(self.current_span()))?;
 
-        // TODO -> this can actually just be something like:
-        // self.stack.truncate(self.stack.len() - payload_size + 1)
-        // self.stack[self.stack.len() - 1] = result
         self.thread.stack.truncate(last_index);
         self.thread.stack.push(result);
 
@@ -3293,10 +3442,19 @@ impl<'a> VmCore<'a> {
         f: fn(&[SteelVal]) -> Result<SteelVal>,
         payload_size: usize,
     ) -> Result<()> {
+        // Register safepoint
+        self.thread.enter_safepoint();
+
         let last_index = self.thread.stack.len() - payload_size;
 
         let result = match f(&self.thread.stack[last_index..]) {
-            Ok(value) => value,
+            Ok(value) => {
+                // Entering a native context means we're no longer within
+                // a safepoint context, so we can
+                self.thread.exit_safepoint();
+
+                value
+            }
             Err(e) => return Err(e.set_span_if_none(self.current_span())),
         };
 

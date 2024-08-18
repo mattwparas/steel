@@ -3,6 +3,7 @@
 
 use crate::values::HashMap;
 use once_cell::sync::Lazy;
+use parking_lot::RwLock;
 
 use crate::compiler::map::SymbolMap;
 use crate::parser::interner::InternedString;
@@ -98,13 +99,25 @@ impl Custom for StructTypeDescriptor {
 }
 
 impl StructTypeDescriptor {
+    #[cfg(not(feature = "sync"))]
     fn name(&self) -> InternedString {
         VTABLE.with(|x| x.borrow().entries[self.0].name)
     }
 
+    #[cfg(feature = "sync")]
+    fn name(&self) -> InternedString {
+        STATIC_VTABLE.read().entries[self.0].name
+    }
+
     // TODO: Use inline reference to avoid reference count when getting the fields
+    #[cfg(not(feature = "sync"))]
     fn fields(&self) -> SteelVal {
         FIELDS_KEY.with(|key| VTABLE.with(|x| x.borrow().entries[self.0].properties[&key].clone()))
+    }
+
+    #[cfg(feature = "sync")]
+    fn fields(&self) -> SteelVal {
+        STATIC_VTABLE.read().entries[self.0].properties[&STATIC_FIELDS_KEY].clone()
     }
 }
 
@@ -173,6 +186,7 @@ impl UserDefinedStruct {
         }
     }
 
+    #[cfg(not(feature = "sync"))]
     pub(crate) fn get(&self, val: &SteelVal) -> Option<SteelVal> {
         VTABLE.with(|x| {
             x.borrow().entries[self.type_descriptor.0]
@@ -180,6 +194,14 @@ impl UserDefinedStruct {
                 .get(val)
                 .cloned()
         })
+    }
+
+    #[cfg(feature = "sync")]
+    pub(crate) fn get(&self, val: &SteelVal) -> Option<SteelVal> {
+        STATIC_VTABLE.read().entries[self.type_descriptor.0]
+            .properties
+            .get(val)
+            .cloned()
     }
 
     #[inline(always)]
@@ -204,6 +226,7 @@ impl UserDefinedStruct {
         self.type_descriptor.name() == *ERR_RESULT_LABEL
     }
 
+    #[cfg(not(feature = "sync"))]
     pub(crate) fn maybe_proc(&self) -> Option<&SteelVal> {
         VTABLE.with(|x| {
             x.borrow().entries[self.type_descriptor.0]
@@ -211,6 +234,14 @@ impl UserDefinedStruct {
                 .as_ref()
                 .map(|s| &self.fields[*s])
         })
+    }
+
+    #[cfg(feature = "sync")]
+    pub(crate) fn maybe_proc(&self) -> Option<&SteelVal> {
+        STATIC_VTABLE.read().entries[self.type_descriptor.0]
+            .proc
+            .as_ref()
+            .map(|s| &self.fields[*s])
     }
 
     fn new_with_options(
@@ -626,6 +657,7 @@ impl VTable {
     }
 
     // Returns a type descriptor, in this case it is just a usize
+    #[cfg(not(feature = "sync"))]
     pub fn new_entry(name: InternedString, proc: Option<usize>) -> StructTypeDescriptor {
         VTABLE.with(|x| {
             let mut guard = x.borrow_mut();
@@ -637,7 +669,16 @@ impl VTable {
         })
     }
 
+    #[cfg(feature = "sync")]
+    pub fn new_entry(name: InternedString, proc: Option<usize>) -> StructTypeDescriptor {
+        let mut guard = STATIC_VTABLE.write();
+        let length = guard.entries.len();
+        guard.entries.push(VTableEntry::new(name, proc));
+        StructTypeDescriptor(length)
+    }
+
     // Updates the entry with the now available property information
+    #[cfg(not(feature = "sync"))]
     pub fn set_entry(
         descriptor: &StructTypeDescriptor,
         proc: Option<usize>,
@@ -666,6 +707,33 @@ impl VTable {
         })
     }
 
+    #[cfg(feature = "sync")]
+    pub fn set_entry(
+        descriptor: &StructTypeDescriptor,
+        proc: Option<usize>,
+        properties: Gc<HashMap<SteelVal, SteelVal>>,
+    ) {
+        let mut guard = STATIC_VTABLE.write();
+
+        let index = descriptor.0;
+
+        let value = &mut guard.entries[index];
+
+        value.proc = proc;
+
+        // TODO: Lift these strings to the thread local
+        value.transparent = properties
+            .get(&STATIC_TRANSPARENT_KEY)
+            .and_then(|x| x.as_bool())
+            .unwrap_or_default();
+        value.mutable = properties
+            .get(&STATIC_MUTABLE_KEY)
+            .and_then(|x| x.as_bool())
+            .unwrap_or_default();
+
+        value.properties = properties;
+    }
+
     // fn define_trait()
 }
 
@@ -677,6 +745,34 @@ pub static TYPE_ID: Lazy<InternedString> = Lazy::new(|| "TypeId".into());
 
 pub static STRUCT_DEFINITIONS: Lazy<Arc<std::sync::RwLock<SymbolMap>>> =
     Lazy::new(|| Arc::new(std::sync::RwLock::new(SymbolMap::default())));
+
+pub static STATIC_VTABLE: Lazy<RwLock<VTable>> = Lazy::new(|| {
+    let mut map = fxhash::FxHashMap::default();
+
+    #[cfg(feature = "sync")]
+    let result_options = Gc::new(im::hashmap! {
+        SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
+    });
+
+    map.insert("Ok".into(), result_options.clone());
+    map.insert("Err".into(), result_options.clone());
+    map.insert("Some".into(), result_options.clone());
+    map.insert("None".into(), result_options.clone());
+    map.insert("TypeId".into(), result_options.clone());
+
+    RwLock::new(VTable {
+        map,
+        traits: fxhash::FxHashMap::default(),
+        entries: Vec::new(),
+    })
+});
+
+pub static STATIC_TRANSPARENT_KEY: Lazy<SteelVal> =
+    Lazy::new(|| SteelVal::SymbolV("#:transparent".into()));
+pub static STATIC_MUTABLE_KEY: Lazy<SteelVal> =
+    Lazy::new(|| SteelVal::SymbolV("#:transparent".into()));
+pub static STATIC_FIELDS_KEY: Lazy<SteelVal> =
+    Lazy::new(|| SteelVal::SymbolV("#:transparent".into()));
 
 // TODO: Just make these Arc'd and lazy static instead of thread local.
 thread_local! {

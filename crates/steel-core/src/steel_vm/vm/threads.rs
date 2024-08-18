@@ -398,6 +398,8 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             stack_frames: Vec::with_capacity(32),
             constant_map,
             interrupted: Default::default(),
+            at_safepoint: Arc::new(AtomicBool::new(false)),
+            synchronizer: Synchronizer::new(),
         };
 
         #[cfg(feature = "profiling")]
@@ -418,6 +420,21 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
         handle: Some(handle),
     }
     .into_steelval();
+}
+
+// See... if this works...?
+pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    let mut thread = ctx.thread.clone();
+    let func = args[0].clone();
+
+    std::thread::spawn(move || {
+        thread
+            .call_function(thread.constant_map.clone(), func, Vec::new())
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    });
+
+    Some(Ok(SteelVal::Void))
 }
 
 // Use internal spawn_thread function
@@ -463,6 +480,10 @@ pub fn threading_module() -> BuiltInModule {
         .register_value(
             "spawn-thread!",
             SteelVal::BuiltIn(crate::steel_vm::vm::spawn_thread),
+        )
+        .register_value(
+            "spawn-native-thread",
+            SteelVal::BuiltIn(crate::steel_vm::vm::spawn_native_thread),
         )
         .register_fn("thread-join!", crate::steel_vm::vm::thread_join)
         .register_fn("thread-finished?", ThreadHandle::is_finished)

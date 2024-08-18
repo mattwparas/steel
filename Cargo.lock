@@ -2929,6 +2929,7 @@ dependencies = [
  "cranelift-jit",
  "cranelift-module",
  "criterion",
+ "crossbeam",
  "dirs",
  "env_logger",
  "futures-executor",
