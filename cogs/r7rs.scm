@@ -72,7 +72,6 @@
 
 ;; Bytevectors
 
-;; TODO: use bytevector literals
 (check-equal? "utf8->string" "ABC" (utf8->string #u8(#x41 #x42 #x43)))
 (check-equal? "utf8->string, multi-byte char" "λ" (utf8->string #u8(#xCE #xBB)))
 (check-equal? "utf8->string with start" "ABC" (utf8->string #u8(0 #x41 #x42 #x43) 1))
