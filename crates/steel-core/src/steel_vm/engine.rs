@@ -1215,6 +1215,10 @@ impl Engine {
         self.virtual_machine.with_interrupted(interrupted);
     }
 
+    pub fn get_safepoint(&self) -> Arc<AtomicBool> {
+        self.virtual_machine.synchronizer.paused.clone()
+    }
+
     pub(crate) fn new_printer() -> Self {
         let mut engine = fresh_kernel_image();
 

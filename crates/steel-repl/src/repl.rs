@@ -169,34 +169,25 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
 
     vm.register_fn("quit", cancellation_function);
     vm.with_interrupted(interrupted.clone());
+    let safepoint = vm.get_safepoint();
 
     let engine = Rc::new(RefCell::new(vm));
     rl.set_helper(Some(RustylineHelper::new(engine.clone())));
 
-    // ctrlc::set_handler(move || tx.send(()).expect("Could not send signal on channel."))
-    // .expect("Error setting Ctrl-C handler");
-
-    // vm.on_progress(move |x| {
-    //     if x % 1000 == 0 {
-    //         match rx.try_recv() {
-    //             Ok(_) => return false,
-    //             _ => {}
-    //         }
-    //     }
-    //     true
-    // });
-
     {
         let interrupted = interrupted.clone();
+        let safepoint = safepoint.clone();
 
         ctrlc::set_handler(move || {
             interrupted.store(true, std::sync::atomic::Ordering::Relaxed);
+            safepoint.store(true, std::sync::atomic::Ordering::Relaxed);
         })
         .unwrap();
     }
 
     let clear_interrupted = move || {
         interrupted.store(false, std::sync::atomic::Ordering::Relaxed);
+        safepoint.store(false, std::sync::atomic::Ordering::Relaxed);
     };
 
     while rx.try_recv().is_err() {
@@ -207,7 +198,6 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                 rl.add_history_entry(line.as_str());
                 match line.as_str() {
                     ":quit" => return Ok(()),
-                    // ":reset" => interpreter.reset(),
                     ":time" => {
                         print_time = !print_time;
                         println!(
@@ -217,7 +207,6 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                         );
                     }
                     ":pwd" => println!("{current_dir:#?}"),
-                    // ":env" => vm.print_bindings(),
                     ":?" | ":help" => display_help(),
                     line if line.contains(":load") => {
                         let line = line.trim_start_matches(":load").trim();

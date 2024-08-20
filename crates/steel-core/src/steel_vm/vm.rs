@@ -331,7 +331,7 @@ pub(crate) struct Synchronizer {
     // share memory space, we probably need to handle this
     threads: Arc<Mutex<Vec<JoinHandle<()>>>>,
     // The signal to actually tell all the threads to stop
-    paused: Arc<AtomicBool>,
+    pub(crate) paused: Arc<AtomicBool>,
 
     // Once we've paused, we need to let the synchronizer know that we've sent
     // all of our work in. It is possible that we're in a situation
@@ -436,21 +436,6 @@ impl Synchronizer {
             .unwrap()
             .iter()
             .for_each(|x| x.thread().unpark());
-    }
-
-    pub fn maybe_safepoint(&self) {
-        // Check if we need to be paused
-        if self.paused.load(std::sync::atomic::Ordering::Relaxed) {
-            // Send everything on the stack to the parent thread to snag. If we've already
-            // collected it from a thread that was blocked via safepoint, we'll want to
-            // not send the roots along the receiver.
-
-            // While we're paused, keep parking. Parking is fine and more efficient
-            // than spinning until the thread is available.
-            while self.paused.load(std::sync::atomic::Ordering::Relaxed) {
-                std::thread::park();
-            }
-        }
     }
 }
 
@@ -1245,6 +1230,49 @@ impl<'a> VmCore<'a> {
         })
     }
 
+    #[inline(always)]
+    pub fn safepoint_or_interrupt(&self) -> Result<()> {
+        // Check if we need to be paused
+        if self
+            .thread
+            .synchronizer
+            .paused
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            #[cfg(feature = "interrupt")]
+            {
+                if let Some(interrupted) = self.thread.interrupted.as_ref() {
+                    if interrupted.load(std::sync::atomic::Ordering::Relaxed) {
+                        println!("Interrupting");
+
+                        stop!(Generic => format!("Thread: {:?} - Interrupted by user", std::thread::current().id()); self.current_span());
+                    }
+                }
+            }
+
+            // Send everything on the stack to the parent thread to snag. If we've already
+            // collected it from a thread that was blocked via safepoint, we'll want to
+            // not send the roots along the receiver.
+
+            // TODO: At this point we have to send the values to the thread if it
+            // wasn't already interrupted at a safepoint
+
+            // While we're paused, keep parking. Parking is fine and more efficient
+            // than spinning until the thread is available.
+            while self
+                .thread
+                .synchronizer
+                .paused
+                .load(std::sync::atomic::Ordering::Relaxed)
+            {
+                println!("Parking thread");
+                std::thread::park();
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn make_box(&mut self, value: SteelVal) -> SteelVal {
         let allocated_var = self.thread.heap.allocate(
             value,
@@ -1725,16 +1753,7 @@ impl<'a> VmCore<'a> {
         }
 
         loop {
-            #[cfg(feature = "interrupt")]
-            {
-                if let Some(interrupted) = self.thread.interrupted.as_ref() {
-                    if interrupted.load(std::sync::atomic::Ordering::Relaxed) {
-                        stop!(Generic => "Interrupted by user"; self.current_span());
-                    }
-                }
-            }
-
-            self.thread.synchronizer.maybe_safepoint();
+            self.safepoint_or_interrupt()?;
 
             // Process the op code
             // TODO: Just build up a slice, don't directly store the full vec of op codes
@@ -3450,7 +3469,8 @@ impl<'a> VmCore<'a> {
         let result = match f(&self.thread.stack[last_index..]) {
             Ok(value) => {
                 // Entering a native context means we're no longer within
-                // a safepoint context, so we can
+                // a safepoint context, so we can mark this as a place
+                // that is basically a safe point.
                 self.thread.exit_safepoint();
 
                 value
