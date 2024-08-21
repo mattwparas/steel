@@ -1633,8 +1633,6 @@ impl<'a> VmCore<'a> {
 
             let instr = self.instructions[self.ip];
 
-            // dbg!(&instr);
-
             match instr {
                 // DenseInstruction {
                 //     op_code: OpCode::DynSuperInstruction,
