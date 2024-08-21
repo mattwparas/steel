@@ -186,6 +186,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     //     true
     // });
 
+    #[cfg(feature = "interrupt")]
     {
         let interrupted = interrupted.clone();
 
@@ -196,6 +197,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     }
 
     let clear_interrupted = move || {
+        #[cfg(feature = "interrupt")]
         interrupted.store(false, std::sync::atomic::Ordering::Relaxed);
     };
 
