@@ -29,6 +29,7 @@ macro_rules! time {
 pub struct ThreadHandle {
     // If this can hold a native steelerr object that would be nice
     handle: Option<std::thread::JoinHandle<std::result::Result<(), String>>>,
+    thread_state_manager: ThreadStateController,
 }
 
 impl ThreadHandle {
@@ -51,6 +52,21 @@ pub(crate) fn thread_join(handle: &mut ThreadHandle) -> Result<()> {
     } else {
         stop!(ContractViolation => "thread handle has already been joined!");
     }
+}
+
+pub(crate) fn thread_suspend(handle: &mut ThreadHandle) {
+    handle.thread_state_manager.suspend();
+}
+
+pub(crate) fn thread_resume(handle: &mut ThreadHandle) {
+    handle.thread_state_manager.resume();
+    if let Some(handle) = handle.handle.as_mut() {
+        handle.thread().unpark();
+    }
+}
+
+pub(crate) fn thread_interrupt(handle: &mut ThreadHandle) {
+    handle.thread_state_manager.interrupt();
 }
 
 thread_local! {
@@ -163,6 +179,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
 
             return ThreadHandle {
                 handle: Some(handle),
+                thread_state_manager: ThreadStateController::default(),
             }
             .into_steelval();
 
@@ -176,6 +193,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
 
             return ThreadHandle {
                 handle: Some(handle),
+                thread_state_manager: ThreadStateController::default(),
             }
             .into_steelval();
         }
@@ -391,14 +409,12 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             stack: Vec::with_capacity(64),
             profiler: OpCodeOccurenceProfiler::new(),
             function_interner,
-            // _super_instructions: Vec::new(),
             heap,
             runtime_options: thread.runtime_options,
             current_frame: StackFrame::main(),
             stack_frames: Vec::with_capacity(32),
             constant_map,
             interrupted: Default::default(),
-            at_safepoint: Arc::new(AtomicBool::new(false)),
             synchronizer: Synchronizer::new(),
         };
 
@@ -418,6 +434,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
 
     return ThreadHandle {
         handle: Some(handle),
+        thread_state_manager: ThreadStateController::default(),
     }
     .into_steelval();
 }
@@ -425,16 +442,27 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
 // See... if this works...?
 pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let mut thread = ctx.thread.clone();
+    let interrupt = Arc::new(AtomicBool::new(false));
+    // Let this thread have its own interrupt handler
+    let controller = ThreadStateController::default();
+    thread.synchronizer.state = controller.clone();
+
     let func = args[0].clone();
 
-    std::thread::spawn(move || {
+    let handle = std::thread::spawn(move || {
         thread
             .call_function(thread.constant_map.clone(), func, Vec::new())
             .map(|_| ())
             .map_err(|e| e.to_string())
     });
 
-    Some(Ok(SteelVal::Void))
+    Some(
+        ThreadHandle {
+            handle: Some(handle),
+            thread_state_manager: controller,
+        }
+        .into_steelval(),
+    )
 }
 
 // Use internal spawn_thread function
@@ -486,6 +514,9 @@ pub fn threading_module() -> BuiltInModule {
             SteelVal::BuiltIn(crate::steel_vm::vm::spawn_native_thread),
         )
         .register_fn("thread-join!", crate::steel_vm::vm::thread_join)
+        .register_fn("thread-interrupt", thread_interrupt)
+        .register_fn("thread-suspend", thread_suspend)
+        .register_fn("thread-resume", thread_resume)
         .register_fn("thread-finished?", ThreadHandle::is_finished)
         .register_fn("make-channels", || {
             let (left, right) = std::sync::mpsc::channel::<SerializableSteelVal>();

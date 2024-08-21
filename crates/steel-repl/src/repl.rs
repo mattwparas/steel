@@ -2,8 +2,6 @@ extern crate rustyline;
 use colored::*;
 use steel::compiler::modules::steel_home;
 
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 use std::{cell::RefCell, rc::Rc, sync::mpsc::channel};
 
 use rustyline::error::ReadlineError;
@@ -165,29 +163,23 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
         tx.lock().unwrap().send(()).unwrap();
     };
 
-    let interrupted = Arc::new(AtomicBool::new(false));
-
     vm.register_fn("quit", cancellation_function);
-    vm.with_interrupted(interrupted.clone());
-    let safepoint = vm.get_safepoint();
+    let safepoint = vm.get_thread_state_controller();
 
     let engine = Rc::new(RefCell::new(vm));
     rl.set_helper(Some(RustylineHelper::new(engine.clone())));
 
     {
-        let interrupted = interrupted.clone();
         let safepoint = safepoint.clone();
 
         ctrlc::set_handler(move || {
-            interrupted.store(true, std::sync::atomic::Ordering::Relaxed);
-            safepoint.store(true, std::sync::atomic::Ordering::Relaxed);
+            safepoint.interrupt();
         })
         .unwrap();
     }
 
     let clear_interrupted = move || {
-        interrupted.store(false, std::sync::atomic::Ordering::Relaxed);
-        safepoint.store(false, std::sync::atomic::Ordering::Relaxed);
+        safepoint.resume();
     };
 
     while rx.try_recv().is_err() {

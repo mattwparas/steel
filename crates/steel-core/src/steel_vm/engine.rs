@@ -3,7 +3,7 @@
 use super::{
     builtin::{BuiltInModule, FunctionSignatureMetadata},
     primitives::{register_builtin_modules, register_builtin_modules_without_io, CONSTANTS},
-    vm::SteelThread,
+    vm::{SteelThread, ThreadStateController},
 };
 
 #[cfg(feature = "dylibs")]
@@ -1215,8 +1215,8 @@ impl Engine {
         self.virtual_machine.with_interrupted(interrupted);
     }
 
-    pub fn get_safepoint(&self) -> Arc<AtomicBool> {
-        self.virtual_machine.synchronizer.paused.clone()
+    pub fn get_thread_state_controller(&self) -> ThreadStateController {
+        self.virtual_machine.synchronizer.state.clone()
     }
 
     pub(crate) fn new_printer() -> Self {

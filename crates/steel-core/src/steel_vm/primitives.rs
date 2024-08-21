@@ -1562,9 +1562,9 @@ fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
 
     let allocated_var = ctx.thread.heap.allocate(
         args[0].clone(), // TODO: Could actually move off of the stack entirely
-        ctx.thread.stack.iter(),
+        &ctx.thread.stack,
         ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
-        ctx.thread.global_env.roots(),
+        ctx.thread.global_env.roots().as_slice(),
     );
 
     Some(Ok(SteelVal::HeapAllocated(allocated_var)))

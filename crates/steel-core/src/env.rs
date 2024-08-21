@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use parking_lot::RwLock;
+use parking_lot::{RwLock, RwLockReadGuard};
 
 use crate::rvals::{Result, SteelVal};
 
@@ -193,8 +193,13 @@ impl Env {
     }
 
     // TODO: This needs to be fixed!
-    pub fn roots(&self) -> impl Iterator<Item = &SteelVal> {
-        // ScopedReadContainer::map(self.bindings_vec.read(), |x| x.iter())
-        Vec::new().into_iter()
+    #[cfg(feature = "sync")]
+    pub fn roots(&self) -> RwLockReadGuard<'_, Vec<SteelVal>> {
+        self.bindings_vec.read()
+    }
+
+    #[cfg(not(feature = "sync"))]
+    pub fn roots(&self) -> &Vec<SteelVal> {
+        &self.bindings_vec
     }
 }

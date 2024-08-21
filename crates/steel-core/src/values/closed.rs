@@ -642,9 +642,10 @@ impl Heap {
     pub fn allocate<'a>(
         &mut self,
         value: SteelVal,
-        roots: impl Iterator<Item = &'a SteelVal>,
+        // roots: impl Iterator<Item = &'a SteelVal>,
+        roots: &'a [SteelVal],
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
-        globals: impl Iterator<Item = &'a SteelVal>,
+        globals: &'a [SteelVal],
     ) -> HeapRef<SteelVal> {
         self.collect(
             Some(value.clone()),
@@ -676,9 +677,10 @@ impl Heap {
     pub fn allocate_vector<'a>(
         &mut self,
         values: Vec<SteelVal>,
-        roots: impl Iterator<Item = &'a SteelVal>,
+        // roots: impl Iterator<Item = &'a SteelVal>,
+        roots: &'a [SteelVal],
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
-        globals: impl Iterator<Item = &'a SteelVal>,
+        globals: &'a [SteelVal],
     ) -> HeapRef<Vec<SteelVal>> {
         self.collect(None, Some(&values), roots, live_functions, globals, false);
 
@@ -706,9 +708,10 @@ impl Heap {
         &mut self,
         root_value: Option<SteelVal>,
         root_vector: Option<&Vec<SteelVal>>,
-        roots: impl Iterator<Item = &'a SteelVal>,
+        // roots: impl Iterator<Item = &'a SteelVal>,
+        roots: &'a [SteelVal],
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
-        globals: impl Iterator<Item = &'a SteelVal>,
+        globals: &'a [SteelVal],
         force_full: bool,
     ) -> usize {
         let memory_size = self.memory.len() + self.vector_cells_allocated();
@@ -783,9 +786,10 @@ impl Heap {
         &mut self,
         root_value: Option<SteelVal>,
         root_vector: Option<&Vec<SteelVal>>,
-        roots: impl Iterator<Item = &'a SteelVal>,
+        // roots: impl Iterator<Item = &'a SteelVal>,
+        roots: &'a [SteelVal],
         function_stack: impl Iterator<Item = &'a ByteCodeLambda>,
-        globals: impl Iterator<Item = &'a SteelVal>,
+        globals: &'a [SteelVal],
     ) -> usize {
         log::debug!(target: "gc", "Marking the heap");
 

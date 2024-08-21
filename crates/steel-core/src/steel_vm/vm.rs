@@ -57,6 +57,7 @@ use super::builtin::MarkdownDoc;
 
 use crate::values::lists::List;
 
+use crossbeam::atomic::AtomicCell;
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
 use smallvec::SmallVec;
@@ -256,25 +257,59 @@ thread_local! {
     pub(crate) static DEFAULT_CONSTANT_MAP: ConstantMap = ConstantMap::new();
 }
 
-// Drain and move across the thread boundary, OR, enforce the restriction that only pure functions
-// can move into a new thread... that might be the easiest way?
+// Incredibly unsafe, however I think it is what we're gonna
+// need in order to do this safepoint business.
+//
+// Once we're within a safe point, the thread _could_ be running
+// a native function. This is more or less the only time in which
+// we can take a peek at the contents of the thread.
+//
+// Note: we won't mutate, however it is almost assuredly, not safe.
+pub struct SafepointablePointer<T> {
+    within_safepoint: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
+    value: Arc<UnsafeCell<T>>,
+}
+
+impl<T> SafepointablePointer<T> {
+    pub unsafe fn get_mut(&self) -> &mut T {
+        &mut *self.value.get()
+    }
+
+    pub unsafe fn get_safepoint_safe(&self) -> Option<&T> {
+        if self
+            .within_safepoint
+            .load(std::sync::atomic::Ordering::Relaxed)
+            && self.paused.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            Some(&*self.value.get())
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Copy, Clone, Default)]
+pub enum ThreadState {
+    #[default]
+    Running,
+    Interrupted,
+    Suspended,
+    PausedAtSafepoint,
+}
+
 #[derive(Clone)]
 pub struct SteelThread {
     pub(crate) global_env: Env,
     pub(crate) stack: Vec<SteelVal>,
     profiler: OpCodeOccurenceProfiler,
     pub(crate) function_interner: FunctionInterner,
-    // _super_instructions: Vec<Rc<DynamicBlock>>,
     pub(crate) heap: Heap,
-    // If contracts are set to off - contract construction results in a no-op,
-    // so we don't need generics on the thread
     pub(crate) runtime_options: RunTimeOptions,
     pub(crate) current_frame: StackFrame,
     pub(crate) stack_frames: Vec<StackFrame>,
     pub(crate) constant_map: ConstantMap,
     pub(crate) interrupted: Option<Arc<AtomicBool>>,
-    // Temporary safepoint handler
-    pub(crate) at_safepoint: Arc<AtomicBool>,
     pub(crate) synchronizer: Synchronizer,
 }
 
@@ -323,6 +358,38 @@ pub struct FunctionInterner {
     instructions: fxhash::FxHashMap<u32, Shared<[DenseInstruction]>>,
 }
 
+#[derive(Clone, Default)]
+pub struct ThreadStateController {
+    paused: Arc<AtomicBool>,
+    state: Arc<AtomicCell<ThreadState>>,
+}
+
+impl ThreadStateController {
+    pub fn suspend(&self) {
+        self.paused
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        self.state.store(ThreadState::Suspended)
+    }
+
+    pub fn pause_for_safepoint(&self) {
+        self.paused
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        self.state.store(ThreadState::PausedAtSafepoint)
+    }
+
+    pub fn resume(&self) {
+        self.paused
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        self.state.store(ThreadState::Running)
+    }
+
+    pub fn interrupt(&self) {
+        self.paused
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        self.state.store(ThreadState::Interrupted)
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct Synchronizer {
     // All of the threads that have been created
@@ -331,7 +398,7 @@ pub(crate) struct Synchronizer {
     // share memory space, we probably need to handle this
     threads: Arc<Mutex<Vec<JoinHandle<()>>>>,
     // The signal to actually tell all the threads to stop
-    pub(crate) paused: Arc<AtomicBool>,
+    pub(crate) state: ThreadStateController,
 
     // Once we've paused, we need to let the synchronizer know that we've sent
     // all of our work in. It is possible that we're in a situation
@@ -354,17 +421,14 @@ pub(crate) struct Synchronizer {
     // we'll listen on here to get all of the threads roots.
     roots_receiver: crossbeam::channel::Receiver<SteelVal>,
 
-    // Have we reached a safepoint? If we have, we should be safe
-    // to inspect the stack of the running thread.
-    at_safepoint: Arc<AtomicBool>,
-    // If we've hit a safe point, it is safe to inspect the stack state.
-    // For this, we then just have to visit each of these, and make sure that
-    // we're at a safepoint, before we then enumerate the stack states. This should
-    // ensure that we're explicitly not in a position where we accidentally are
-    // modifying the stacks while we're using it
-    // This means we _definitely_ need to store this within unsafe cell!
-    // steel_threads: HashMap<ThreadId, UnsafeCell<SteelThread>>,
+    // If we're at a safe point, then this will include a _live_ pointer
+    // to the context. Once we exit the safe point, we're done.
+    ctx: Arc<AtomicCell<Option<*const SteelThread>>>,
 }
+
+// TODO: Until I figure out how to note have this be the case
+unsafe impl Sync for Synchronizer {}
+unsafe impl Send for Synchronizer {}
 
 impl Synchronizer {
     pub fn new() -> Self {
@@ -373,13 +437,15 @@ impl Synchronizer {
 
         Self {
             threads: Arc::new(Mutex::new(Vec::new())),
-            paused: Arc::new(AtomicBool::new(false)),
+            state: ThreadStateController {
+                paused: Arc::new(AtomicBool::new(false)),
+                state: Arc::new(AtomicCell::new(ThreadState::Running)),
+            },
             acknowledgements_sender,
             acknowledgements_reciever,
             roots_sender,
             roots_receiver,
-            at_safepoint: Arc::new(AtomicBool::new(false)),
-            // steel_threads: HashMap::new(),
+            ctx: Arc::new(AtomicCell::new(None)),
         }
     }
 
@@ -400,7 +466,7 @@ impl Synchronizer {
     /// waits for all of those threads to stop before continuing on.
     pub fn stop_threads(&mut self) {
         // Stop other threads, wait until we've gathered acknowledgements
-        self.paused.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.state.pause_for_safepoint();
 
         // We drain from the receiver until these are all acknowledged
         // Alternatively, we could just wait until we have all of the
@@ -428,8 +494,9 @@ impl Synchronizer {
     }
 
     pub fn resume_threads(&mut self) {
-        self.paused
-            .store(false, std::sync::atomic::Ordering::SeqCst);
+        // self.paused
+        //     .store(false, std::sync::atomic::Ordering::SeqCst);
+        self.state.resume();
 
         self.threads
             .lock()
@@ -458,22 +525,29 @@ impl SteelThread {
             // with the executables
             constant_map: DEFAULT_CONSTANT_MAP.with(|x| x.clone()),
             interrupted: Default::default(),
-            // Just checking what the performance hit of this will be
-            at_safepoint: Arc::new(AtomicBool::new(false)),
             synchronizer: Synchronizer::new(),
         }
     }
 
     // TODO: Make this use the synchronizer
-    pub fn enter_safepoint(&mut self) {
-        self.at_safepoint
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-    }
+    #[inline(always)]
+    pub fn enter_safepoint(
+        &mut self,
+        mut finish: impl FnMut(&SteelThread) -> Result<SteelVal>,
+    ) -> Result<SteelVal> {
+        // During the duration of this call, we're going to be
+        // within a safepoint.
+        if cfg!(feature = "sync") {
+            self.synchronizer.ctx.store(Some(self as _));
+        }
 
-    // TODO: Make this use the synchronizer
-    pub fn exit_safepoint(&mut self) {
-        self.at_safepoint
-            .store(false, std::sync::atomic::Ordering::Relaxed);
+        let res = finish(self);
+
+        if cfg!(feature = "sync") {
+            self.synchronizer.ctx.store(None);
+        }
+
+        res
     }
 
     pub fn with_interrupted(&mut self, interrupted: Arc<AtomicBool>) -> &mut Self {
@@ -1230,43 +1304,43 @@ impl<'a> VmCore<'a> {
         })
     }
 
+    fn park_thread_while_paused(&self) {
+        while self
+            .thread
+            .synchronizer
+            .state
+            .paused
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            std::thread::park();
+        }
+    }
+
     #[inline(always)]
     pub fn safepoint_or_interrupt(&self) -> Result<()> {
         // Check if we need to be paused
         if self
             .thread
             .synchronizer
+            .state
             .paused
             .load(std::sync::atomic::Ordering::Relaxed)
         {
-            #[cfg(feature = "interrupt")]
-            {
-                if let Some(interrupted) = self.thread.interrupted.as_ref() {
-                    if interrupted.load(std::sync::atomic::Ordering::Relaxed) {
-                        println!("Interrupting");
-
-                        stop!(Generic => format!("Thread: {:?} - Interrupted by user", std::thread::current().id()); self.current_span());
-                    }
+            match self.thread.synchronizer.state.state.load() {
+                ThreadState::Interrupted => {
+                    stop!(Generic => format!("Thread: {:?} - Interrupted by user", std::thread::current().id()); self.current_span());
                 }
-            }
-
-            // Send everything on the stack to the parent thread to snag. If we've already
-            // collected it from a thread that was blocked via safepoint, we'll want to
-            // not send the roots along the receiver.
-
-            // TODO: At this point we have to send the values to the thread if it
-            // wasn't already interrupted at a safepoint
-
-            // While we're paused, keep parking. Parking is fine and more efficient
-            // than spinning until the thread is available.
-            while self
-                .thread
-                .synchronizer
-                .paused
-                .load(std::sync::atomic::Ordering::Relaxed)
-            {
-                println!("Parking thread");
-                std::thread::park();
+                ThreadState::Suspended => {
+                    println!("Suspending thread");
+                    self.park_thread_while_paused();
+                }
+                ThreadState::PausedAtSafepoint => {
+                    // TODO:
+                    // Insert the code to do the stack things here
+                    println!("Suspending thread at safepoint");
+                    self.park_thread_while_paused();
+                }
+                ThreadState::Running => {}
             }
         }
 
@@ -1276,9 +1350,9 @@ impl<'a> VmCore<'a> {
     pub fn make_box(&mut self, value: SteelVal) -> SteelVal {
         let allocated_var = self.thread.heap.allocate(
             value,
-            self.thread.stack.iter(),
+            &self.thread.stack,
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
-            self.thread.global_env.roots(),
+            self.thread.global_env.roots().as_slice(),
         );
 
         SteelVal::HeapAllocated(allocated_var)
@@ -1287,9 +1361,9 @@ impl<'a> VmCore<'a> {
     pub fn make_mutable_vector(&mut self, values: Vec<SteelVal>) -> SteelVal {
         let allocated_var = self.thread.heap.allocate_vector(
             values,
-            self.thread.stack.iter(),
+            &self.thread.stack,
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
-            self.thread.global_env.roots(),
+            self.thread.global_env.roots().as_slice(),
         );
 
         SteelVal::MutableVector(allocated_var)
@@ -1299,9 +1373,9 @@ impl<'a> VmCore<'a> {
         self.thread.heap.collect(
             None,
             None,
-            self.thread.stack.iter(),
+            &self.thread.stack,
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
-            self.thread.global_env.roots(),
+            self.thread.global_env.roots().as_slice(),
             true,
         )
     }
@@ -3372,11 +3446,11 @@ impl<'a> VmCore<'a> {
         func: &dyn Fn(&[SteelVal]) -> Result<SteelVal>,
         payload_size: usize,
     ) -> Result<()> {
-        // println!("{:?}, {:?}", self.thread.stack, payload_size);
-
         let last_index = self.thread.stack.len() - payload_size;
 
-        let result = func(&self.thread.stack[last_index..])
+        let result = self
+            .thread
+            .enter_safepoint(|ctx| func(&ctx.stack[last_index..]))
             .map_err(|x| x.set_span_if_none(self.current_span()))?;
 
         self.thread.stack.truncate(last_index);
@@ -3461,22 +3535,13 @@ impl<'a> VmCore<'a> {
         f: fn(&[SteelVal]) -> Result<SteelVal>,
         payload_size: usize,
     ) -> Result<()> {
-        // Register safepoint
-        self.thread.enter_safepoint();
-
         let last_index = self.thread.stack.len() - payload_size;
 
-        let result = match f(&self.thread.stack[last_index..]) {
-            Ok(value) => {
-                // Entering a native context means we're no longer within
-                // a safepoint context, so we can mark this as a place
-                // that is basically a safe point.
-                self.thread.exit_safepoint();
-
-                value
-            }
-            Err(e) => return Err(e.set_span_if_none(self.current_span())),
-        };
+        // Register safepoint
+        let result = self
+            .thread
+            .enter_safepoint(move |ctx: &SteelThread| f(&ctx.stack[last_index..]))
+            .map_err(|e| e.set_span_if_none(self.current_span()))?;
 
         // This is the old way... lets see if the below way improves the speed
         self.thread.stack.truncate(last_index);
@@ -3485,62 +3550,6 @@ impl<'a> VmCore<'a> {
         self.ip += 1;
         Ok(())
     }
-
-    // #[inline(always)]
-    // fn call_contracted_function(
-    //     &mut self,
-    //     cf: &ContractedFunction,
-    //     payload_size: usize,
-    // ) -> Result<()> {
-    //     if let Some(arity) = cf.arity() {
-    //         if arity != payload_size {
-    //             stop!(ArityMismatch => format!("function expected {arity} arguments, found {payload_size}"); self.current_span());
-    //         }
-    //     }
-
-    //     // if A::enforce_contracts() {
-    //     let args = self
-    //         .thread
-    //         .stack
-    //         .split_off(self.thread.stack.len() - payload_size);
-
-    //     let result = cf.apply(args, &self.current_span(), self)?;
-
-    //     self.thread.stack.push(result);
-    //     self.ip += 1;
-    //     Ok(())
-    //     // } else {
-    //     //     self.handle_function_call(cf.function.clone(), payload_size)
-    //     // }
-    // }
-
-    // // #[inline(always)]
-    // fn call_contracted_function_tail_call(
-    //     &mut self,
-    //     cf: &ContractedFunction,
-    //     payload_size: usize,
-    // ) -> Result<()> {
-    //     if let Some(arity) = cf.arity() {
-    //         if arity != payload_size {
-    //             stop!(ArityMismatch => format!("function expected {arity} arguments, found {payload_size}"); self.current_span());
-    //         }
-    //     }
-
-    //     // if A::enforce_contracts() {
-    //     let args = self
-    //         .thread
-    //         .stack
-    //         .split_off(self.thread.stack.len() - payload_size);
-
-    //     let result = cf.apply(args, &self.current_span(), self)?;
-
-    //     self.thread.stack.push(result);
-    //     self.ip += 1;
-    //     Ok(())
-    //     // } else {
-    //     // self.handle_tail_call(cf.function.clone(), payload_size)
-    //     // }
-    // }
 
     fn call_future_func_on_stack(
         &mut self,
@@ -4242,6 +4251,7 @@ pub(crate) fn list_modules(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Resul
         .thread
         .global_env
         .roots()
+        .iter()
         .filter(|x| BuiltInModule::as_ref(x, &mut nursery).is_ok())
         .cloned()
         .collect();
@@ -5392,9 +5402,9 @@ fn new_box_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 
     let allocated_var = ctx.thread.heap.allocate(
         last,
-        ctx.thread.stack.iter(),
+        &ctx.thread.stack,
         ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
-        ctx.thread.global_env.roots(),
+        ctx.thread.global_env.roots().as_slice(),
     );
 
     let result = SteelVal::HeapAllocated(allocated_var);
