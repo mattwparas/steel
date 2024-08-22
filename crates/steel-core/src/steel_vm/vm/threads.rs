@@ -28,8 +28,8 @@ macro_rules! time {
 
 pub struct ThreadHandle {
     // If this can hold a native steelerr object that would be nice
-    handle: Option<std::thread::JoinHandle<std::result::Result<(), String>>>,
-    thread_state_manager: ThreadStateController,
+    pub(crate) handle: Option<std::thread::JoinHandle<std::result::Result<(), String>>>,
+    pub(crate) thread_state_manager: ThreadStateController,
 }
 
 impl ThreadHandle {
@@ -42,6 +42,8 @@ impl ThreadHandle {
 }
 
 impl crate::rvals::Custom for ThreadHandle {}
+
+// pub struct Mutex
 
 pub(crate) fn thread_join(handle: &mut ThreadHandle) -> Result<()> {
     if let Some(handle) = handle.handle.take() {
@@ -286,7 +288,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
     // TODO: Spawn a bunch of threads at the start to handle requests. That way we don't need to do this
     // the whole time they're in there.
     let handle = std::thread::spawn(move || {
-        let mut heap = time!("Heap Creation", Heap::new());
+        let mut heap = time!("Heap Creation", Arc::new(Mutex::new(Heap::new())));
 
         // Move across threads?
         let mut mapping = initial_map
@@ -297,8 +299,10 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
         let mut patcher = HashMap::new();
         let mut built_functions = HashMap::new();
 
+        let mut heap_guard = heap.lock().unwrap();
+
         let mut serializer = HeapSerializer {
-            heap: &mut heap,
+            heap: &mut heap_guard,
             fake_heap: &mut mapping,
             values_to_fill_in: &mut patcher,
             built_functions: &mut built_functions,
@@ -401,6 +405,8 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             }
         });
 
+        drop(heap_guard);
+
         // New thread! It will result in a run time error if the function references globals that cannot be shared
         // between threads. This is a bit of an unfortunate occurrence - we probably _should_ just have the engine share
         // as much as possible between threads.
@@ -446,6 +452,10 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     // Let this thread have its own interrupt handler
     let controller = ThreadStateController::default();
     thread.synchronizer.state = controller.clone();
+    // This thread needs its own context
+    thread.synchronizer.ctx = Arc::new(AtomicCell::new(None));
+
+    let weak_ctx = Arc::downgrade(&thread.synchronizer.ctx);
 
     let func = args[0].clone();
 
@@ -456,13 +466,25 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
             .map_err(|e| e.to_string())
     });
 
-    Some(
-        ThreadHandle {
-            handle: Some(handle),
-            thread_state_manager: controller,
-        }
-        .into_steelval(),
-    )
+    let value = ThreadHandle {
+        handle: Some(handle),
+        thread_state_manager: controller,
+    }
+    .into_steelval()
+    .unwrap();
+
+    // Store for the shared runtime
+    ctx.thread
+        .synchronizer
+        .threads
+        .lock()
+        .unwrap()
+        .push(ThreadContext {
+            ctx: weak_ctx,
+            handle: value.clone(),
+        });
+
+    Some(Ok(value))
 }
 
 // Use internal spawn_thread function

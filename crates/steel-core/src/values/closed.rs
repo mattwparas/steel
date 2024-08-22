@@ -1,9 +1,4 @@
-use std::{
-    cell::RefCell,
-    collections::HashSet,
-    rc::{Rc, Weak},
-    sync::Mutex,
-};
+use std::{cell::RefCell, collections::HashSet, sync::Mutex};
 
 use crate::{
     compiler::map::SymbolMap,
@@ -12,7 +7,7 @@ use crate::{
         GcMut, Shared, SharedMut,
     },
     rvals::{OpaqueIterator, SteelComplex, SteelVector},
-    steel_vm::vm::{Continuation, ContinuationMark},
+    steel_vm::vm::{Continuation, ContinuationMark, Synchronizer},
     values::lists::List,
 };
 use num::{BigInt, BigRational, Rational32};
@@ -438,8 +433,14 @@ pub struct RootToken {
 }
 
 impl Drop for RootToken {
+    #[cfg(not(feature = "sync"))]
     fn drop(&mut self) {
         ROOTS.with(|x| x.borrow_mut().free(self))
+    }
+
+    #[cfg(feature = "sync")]
+    fn drop(&mut self) {
+        GLOBAL_ROOTS.lock().unwrap().free(self)
     }
 }
 
@@ -478,7 +479,11 @@ impl Roots {
 
 impl SteelVal {
     pub fn mark_rooted(&self) -> RootToken {
-        ROOTS.with(|x| x.borrow_mut().root(self.clone()))
+        if cfg!(feature = "sync") {
+            GLOBAL_ROOTS.lock().unwrap().root(self.clone())
+        } else {
+            ROOTS.with(|x| x.borrow_mut().root(self.clone()))
+        }
     }
 
     // If we're storing in an external struct that could escape
@@ -595,7 +600,6 @@ pub struct Heap {
     vectors: Vec<HeapVector>,
     count: usize,
     threshold: usize,
-    // mark_and_sweep_queue: VecDeque<SteelVal>,
     mark_and_sweep_queue: Vec<SteelVal>,
     maybe_memory_size: usize,
 }
@@ -642,10 +646,10 @@ impl Heap {
     pub fn allocate<'a>(
         &mut self,
         value: SteelVal,
-        // roots: impl Iterator<Item = &'a SteelVal>,
         roots: &'a [SteelVal],
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &'a [SteelVal],
+        synchronizer: &'a mut Synchronizer,
     ) -> HeapRef<SteelVal> {
         self.collect(
             Some(value.clone()),
@@ -653,6 +657,7 @@ impl Heap {
             roots,
             live_functions,
             globals,
+            synchronizer,
             false,
         );
 
@@ -677,12 +682,20 @@ impl Heap {
     pub fn allocate_vector<'a>(
         &mut self,
         values: Vec<SteelVal>,
-        // roots: impl Iterator<Item = &'a SteelVal>,
         roots: &'a [SteelVal],
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &'a [SteelVal],
+        synchronizer: &'a mut Synchronizer,
     ) -> HeapRef<Vec<SteelVal>> {
-        self.collect(None, Some(&values), roots, live_functions, globals, false);
+        self.collect(
+            None,
+            Some(&values),
+            roots,
+            live_functions,
+            globals,
+            synchronizer,
+            false,
+        );
 
         let pointer = Shared::new(MutContainer::new(HeapAllocated::new(values)));
         let weak_ptr = Shared::downgrade(&pointer);
@@ -712,6 +725,7 @@ impl Heap {
         roots: &'a [SteelVal],
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &'a [SteelVal],
+        synchronizer: &'a mut Synchronizer,
         force_full: bool,
     ) -> usize {
         let memory_size = self.memory.len() + self.vector_cells_allocated();
@@ -754,8 +768,14 @@ impl Heap {
             if post_small_collection_size as f64 > (0.25 * original_length as f64) || force_full {
                 log::debug!(target: "gc", "---- Post small collection, running mark and sweep - heap size filled: {:?} ----", post_small_collection_size as f64 / original_length as f64);
 
-                amount =
-                    self.mark_and_sweep(root_value, root_vector, roots, live_functions, globals);
+                amount = self.mark_and_sweep(
+                    root_value,
+                    root_vector,
+                    roots,
+                    live_functions,
+                    globals,
+                    synchronizer,
+                );
             } else {
                 log::debug!(target: "gc", "---- Skipping mark and sweep - heap size filled: {:?} ----", post_small_collection_size as f64 / original_length as f64);
             }
@@ -786,10 +806,10 @@ impl Heap {
         &mut self,
         root_value: Option<SteelVal>,
         root_vector: Option<&Vec<SteelVal>>,
-        // roots: impl Iterator<Item = &'a SteelVal>,
         roots: &'a [SteelVal],
         function_stack: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &'a [SteelVal],
+        synchronizer: &'a mut Synchronizer,
     ) -> usize {
         log::debug!(target: "gc", "Marking the heap");
 
@@ -800,6 +820,12 @@ impl Heap {
             queue: &mut self.mark_and_sweep_queue,
             object_count: 0,
         };
+
+        // Pause all threads
+        synchronizer.stop_threads();
+        unsafe {
+            synchronizer.enumerate_stacks(&mut context);
+        }
 
         if let Some(root_value) = root_value {
             context.push_back(root_value);
@@ -835,12 +861,21 @@ impl Heap {
 
         context.visit();
 
-        ROOTS.with(|x| {
-            x.borrow()
+        if cfg!(feature = "sync") {
+            GLOBAL_ROOTS
+                .lock()
+                .unwrap()
                 .roots
                 .values()
                 .for_each(|value| context.push_back(value.clone()))
-        });
+        } else {
+            ROOTS.with(|x| {
+                x.borrow()
+                    .roots
+                    .values()
+                    .for_each(|value| context.push_back(value.clone()))
+            });
+        }
 
         context.visit();
 
@@ -870,10 +905,16 @@ impl Heap {
         self.memory.iter().for_each(|x| x.write().reset());
         self.vectors.iter().for_each(|x| x.write().reset());
 
-        ROOTS.with(|x| x.borrow_mut().increment_generation());
+        if cfg!(feature = "sync") {
+            GLOBAL_ROOTS.lock().unwrap().increment_generation();
+        } else {
+            ROOTS.with(|x| x.borrow_mut().increment_generation());
+        }
 
         #[cfg(feature = "profiling")]
         log::debug!(target: "gc", "Sweep: Time taken: {:?}", now.elapsed());
+
+        synchronizer.resume_threads();
 
         object_count.saturating_sub(amount_freed)
     }

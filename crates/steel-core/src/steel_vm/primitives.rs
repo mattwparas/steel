@@ -325,6 +325,10 @@ define_modules! {
     STEEL_RESULT_MODULE => build_result_structs,
     STEEL_TYPE_ID_MODULE => build_type_id_module,
     STEEL_OPTION_MODULE => build_option_structs,
+    STEEL_THREADING_MDOULE => threading_module,
+    STEEL_TIME_MODULE => time_module,
+    STEEL_FFI_MODULE => ffi_module,
+    STEEL_PRIVATE_READER_MODULE => reader_module,
 }
 
 thread_local! {
@@ -1560,11 +1564,12 @@ fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
         ));
     }
 
-    let allocated_var = ctx.thread.heap.allocate(
+    let allocated_var = ctx.thread.heap.lock().unwrap().allocate(
         args[0].clone(), // TODO: Could actually move off of the stack entirely
         &ctx.thread.stack,
         ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
         ctx.thread.global_env.roots().as_slice(),
+        &mut ctx.thread.synchronizer,
     );
 
     Some(Ok(SteelVal::HeapAllocated(allocated_var)))
