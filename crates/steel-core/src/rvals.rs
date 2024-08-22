@@ -362,7 +362,13 @@ impl<'a, T> Iterator for RestArgsIter<'a, T> {
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next()
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
 }
+
+impl<'a, T> ExactSizeIterator for RestArgsIter<'a, T> {}
 
 pub struct RestArgs<T: FromSteelVal>(pub Vec<T>);
 

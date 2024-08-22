@@ -20,13 +20,17 @@ use crate::{
         parser::SyntaxObject,
         span_visitor::get_span,
         tokens::TokenType,
+        tryfrom_visitor::TryFromExprKindForSteelVal,
         visitors::VisitorMut,
     },
     stop, SteelVal,
 };
 use smallvec::SmallVec;
 use std::sync::atomic::AtomicUsize;
-use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
+use steel_parser::{
+    ast::Quote,
+    tokens::{IntLiteral, NumberLiteral, RealLiteral},
+};
 
 use crate::rvals::Result;
 
@@ -910,7 +914,14 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
     fn visit_vector(&mut self, v: &crate::parser::ast::Vector) -> Self::Output {
         for arg in &v.args {
-            self.visit(arg)?;
+            if v.bytes {
+                self.visit(arg)?;
+            } else {
+                let converted = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(arg.clone())?;
+
+                let idx = self.constant_map.add_or_get(converted);
+                self.push(LabeledInstruction::builder(OpCode::PUSHCONST).payload(idx));
+            }
         }
 
         let payload_size = 2 * v.args.len() + usize::from(v.bytes);

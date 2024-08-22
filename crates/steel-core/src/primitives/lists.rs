@@ -95,7 +95,8 @@ pub fn list_module() -> BuiltInModule {
         .register_native_fn_definition(THIRD_DEFINITION)
         .register_native_fn_definition(TAKE_DEFINITION)
         .register_native_fn_definition(LIST_TAIL_DEFINITION)
-        .register_native_fn_definition(CDR_IS_NULL_DEFINITION);
+        .register_native_fn_definition(CDR_IS_NULL_DEFINITION)
+        .register_native_fn_definition(LIST_TO_VECTOR_DEFINITION);
 
     module
 }
@@ -637,6 +638,13 @@ fn list_to_string(list: &List<SteelVal>) -> Result<SteelVal> {
         .collect::<Result<String>>()
         .map(|x| x.into())
         .map(SteelVal::StringV)
+}
+
+#[steel_derive::function(name = "list->vector")]
+fn list_to_vector(list: &List<SteelVal>) -> SteelVal {
+    let args: im_rc::Vector<_> = list.iter().cloned().collect();
+
+    SteelVal::VectorV(Gc::new(args).into())
 }
 
 // TODO this could be broken using &mut
