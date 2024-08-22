@@ -847,6 +847,7 @@ pub enum SerializableSteelVal {
     ListV(Vec<SerializableSteelVal>),
     Pair(Box<(SerializableSteelVal, SerializableSteelVal)>),
     VectorV(Vec<SerializableSteelVal>),
+    ByteVectorV(Vec<u8>),
     BoxedDynFunction(BoxedDynFunction),
     BuiltIn(BuiltInSignature),
     SymbolV(String),
@@ -999,6 +1000,9 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
             )
             .into()
         }
+        SerializableSteelVal::ByteVectorV(bytes) => {
+            SteelVal::ByteVector(SteelByteVector::new(bytes))
+        }
     }
 }
 
@@ -1107,6 +1111,18 @@ pub fn into_serializable_value(
                 }
             }
         }
+
+        SteelVal::VectorV(vector) => Ok(SerializableSteelVal::VectorV(
+            vector
+                .iter()
+                .cloned()
+                .map(|val| into_serializable_value(val, serialized_heap, visited))
+                .collect::<Result<_>>()?,
+        )),
+
+        SteelVal::ByteVector(bytes) => Ok(SerializableSteelVal::ByteVectorV(
+            (&*bytes.vec).borrow().clone(),
+        )),
 
         illegal => stop!(Generic => "Type not allowed to be moved across threads!: {}", illegal),
     }
