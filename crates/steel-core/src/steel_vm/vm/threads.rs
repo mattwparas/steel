@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use fxhash::FxHashMap;
-use parking_lot::RwLock;
+use parking_lot::{lock_api::RawMutex, RwLock};
 
 use crate::{
     rvals::{Custom, HeapSerializer, SerializableSteelVal, SerializedHeapRef},
@@ -43,7 +43,36 @@ impl ThreadHandle {
 
 impl crate::rvals::Custom for ThreadHandle {}
 
-// pub struct Mutex
+pub struct SteelMutex {
+    mutex: Arc<parking_lot::Mutex<()>>,
+    guard: AtomicCell<Option<parking_lot::ArcMutexGuard<parking_lot::RawMutex, ()>>>,
+}
+
+impl crate::rvals::Custom for SteelMutex {}
+
+impl SteelMutex {
+    pub fn new() -> Self {
+        Self {
+            mutex: Arc::new(parking_lot::Mutex::new(())),
+            guard: AtomicCell::new(None),
+        }
+    }
+
+    // Attempt to lock it before killing the other one
+    pub fn lock(&self) {
+        println!("Acquiring the lock: {:?}", std::thread::current().id());
+        // Acquire the lock first
+        let guard = self.mutex.lock_arc();
+
+        println!("Successfully acquired the lock");
+        self.guard.store(Some(guard));
+    }
+
+    pub fn unlock(&self) {
+        println!("Unlocking");
+        self.guard.store(None);
+    }
+}
 
 pub(crate) fn thread_join(handle: &mut ThreadHandle) -> Result<()> {
     if let Some(handle) = handle.handle.take() {
@@ -445,6 +474,56 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
     .into_steelval();
 }
 
+pub struct SteelReceiver {
+    receiver: crossbeam::channel::Receiver<SteelVal>,
+}
+
+pub struct SteelSender {
+    sender: crossbeam::channel::Sender<SteelVal>,
+}
+
+pub struct Channels {
+    sender: SteelVal,
+    receiver: SteelVal,
+}
+
+impl Custom for SteelReceiver {}
+impl Custom for SteelSender {}
+impl Custom for Channels {}
+
+impl Channels {
+    pub fn new() -> Self {
+        let (sender, receiver) = crossbeam::channel::unbounded();
+
+        Self {
+            sender: SteelSender { sender }.into_steelval().unwrap(),
+            receiver: SteelReceiver { receiver }.into_steelval().unwrap(),
+        }
+    }
+
+    pub fn sender(&self) -> SteelVal {
+        self.sender.clone()
+    }
+
+    pub fn receiver(&self) -> SteelVal {
+        self.receiver.clone()
+    }
+}
+
+impl SteelSender {
+    pub fn send(&self, value: SteelVal) {
+        // TODO: Plumb through the error here
+        self.sender.send(value).unwrap()
+    }
+}
+
+impl SteelReceiver {
+    pub fn recv(&self) -> SteelVal {
+        // TODO: Plumb through the error here
+        self.receiver.recv().unwrap()
+    }
+}
+
 // See... if this works...?
 pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let mut thread = ctx.thread.clone();
@@ -459,11 +538,23 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
 
     let func = args[0].clone();
 
+    // let mut func = match func.closure_or_else(
+    //     throw!(TypeMismatch => "spawn-native-thread expects a function with no args"),
+    // ) {
+    //     Ok(v) => v,
+    //     Err(e) => return Some(Err(e)),
+    // };
+
     let handle = std::thread::spawn(move || {
+        // TODO: We have to use the `execute` function in vm.rs - this sets up
+        // the proper dynamic wind stuff that is built in. Otherwise, it seems
+        // like we're not getting it installed correctly, and things are dying
         thread
             .call_function(thread.constant_map.clone(), func, Vec::new())
             .map(|_| ())
             .map_err(|e| e.to_string())
+
+        // thread.execute(func, , )
     });
 
     let value = ThreadHandle {
@@ -540,6 +631,14 @@ pub fn threading_module() -> BuiltInModule {
         .register_fn("thread-suspend", thread_suspend)
         .register_fn("thread-resume", thread_resume)
         .register_fn("thread-finished?", ThreadHandle::is_finished)
+        .register_fn("mutex", SteelMutex::new)
+        .register_fn("lock-acquire!", SteelMutex::lock)
+        .register_fn("lock-release!", SteelMutex::unlock)
+        .register_fn("channels/new", Channels::new)
+        .register_fn("channels-sender", Channels::sender)
+        .register_fn("channels-receiver", Channels::receiver)
+        .register_fn("channel/send", SteelSender::send)
+        .register_fn("channel/recv", SteelReceiver::recv)
         .register_fn("make-channels", || {
             let (left, right) = std::sync::mpsc::channel::<SerializableSteelVal>();
 

@@ -34,7 +34,11 @@ thread_local! {
 }
 
 pub(crate) fn fresh_kernel_image() -> Engine {
-    KERNEL_IMAGE.with(|x| x.clone())
+    // Just deep clone the env coming out
+    let mut engine = KERNEL_IMAGE.with(|x| x.clone());
+    // Deep clone the engine coming out
+    engine.virtual_machine.global_env = engine.virtual_machine.global_env.deep_clone();
+    engine
 }
 
 type TransformerMap = FxHashMap<String, FxHashSet<InternedString>>;

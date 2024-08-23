@@ -745,20 +745,13 @@ impl SteelThread {
         // This is our pseudo "dynamic unwind"
         // If we need to, we'll walk back on the stack and find any handlers to pop
         'outer: loop {
-            // TODO: @Matt -> move the profiler out into the vm core type parameter and an argument
-            // that way theres 0 cost to including a profiler vs not including a profiler
-
             let result = vm_instance
                 .vm()
                 .map_err(|error| error.with_stack_trace(vm_instance.snapshot_stack_trace()));
 
-            // (let () (call-with-exception-handler (lambda (x) (displayln x)) (lambda () (+ 10 20 (error "oops!")))) (displayln "hi"))
-
             if let Err(e) = result {
                 while let Some(mut last) = vm_instance.thread.stack_frames.pop() {
                     // Unwind the stack, close continuation marks here!
-                    // vm_instance.close_continuation_marks(&last);
-
                     // For whatever reason - if we're at the top, we shouldn't go down below 0
                     if vm_instance.pop_count == 0 {
                         return Err(e);
@@ -779,7 +772,6 @@ impl SteelThread {
                     if let Some(handler) = last.handler {
                         // Drop the stack BACK to where it was on this level
                         vm_instance.thread.stack.truncate(last.sp);
-
                         vm_instance.thread.stack.push(e.into_steelval()?);
 
                         // If we're at the top level, we need to handle this _slightly_ differently
@@ -801,7 +793,6 @@ impl SteelThread {
 
                                 vm_instance.sp = last.sp;
                                 vm_instance.instructions = closure.body_exp();
-                                // vm_instance.spans = closure.spans();
 
                                 last.handler = None;
 
@@ -841,15 +832,6 @@ impl SteelThread {
             }
         }
     }
-
-    // pub fn snapshot_stack_trace(&self) -> DehydratedStackTrace {
-    //     DehydratedStackTrace::new(
-    //         self.stack_frames
-    //             .iter()
-    //             .map(|x| DehydratedCallContext::new(x.span))
-    //             .collect(),
-    //     )
-    // }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1543,7 +1525,6 @@ impl<'a> VmCore<'a> {
     fn call_with_instructions_and_reset_state(
         &mut self,
         closure: Shared<[DenseInstruction]>,
-        // spans: Rc<[Span]>,
     ) -> Result<SteelVal> {
         let old_ip = self.ip;
         let old_instructions = std::mem::replace(&mut self.instructions, closure);
@@ -1555,7 +1536,97 @@ impl<'a> VmCore<'a> {
 
         self.depth += 1;
 
-        let res = self.vm();
+        let mut res = Ok(SteelVal::Void);
+
+        'outer: loop {
+            let result = self
+                .vm()
+                .map_err(|error| error.with_stack_trace(self.snapshot_stack_trace()));
+
+            if let Err(e) = result {
+                while let Some(mut last) = self.thread.stack_frames.pop() {
+                    // Unwind the stack, close continuation marks here!
+                    // For whatever reason - if we're at the top, we shouldn't go down below 0
+                    if self.pop_count == 0 {
+                        return Err(e);
+                    }
+
+                    // Drop the pop count along with everything else we're doing
+                    self.pop_count -= 1;
+
+                    if last.weak_continuation_mark.is_some() {
+                        self.thread.stack.truncate(last.sp);
+                        self.ip = last.ip;
+                        self.sp = self.get_last_stack_frame_sp();
+                        self.instructions = Shared::clone(&last.instructions);
+
+                        self.close_continuation_marks(&last);
+                    }
+
+                    if let Some(handler) = last.handler {
+                        // Drop the stack BACK to where it was on this level
+                        self.thread.stack.truncate(last.sp);
+
+                        self.thread.stack.push(e.into_steelval()?);
+
+                        // If we're at the top level, we need to handle this _slightly_ differently
+                        // if vm_instance.stack_frames.is_empty() {
+                        // Somehow update the main instruction group to _just_ be the new group
+                        match handler.as_ref() {
+                            SteelVal::Closure(closure) => {
+                                if self.thread.stack_frames.is_empty() {
+                                    self.sp = last.sp;
+
+                                    // Push on a dummy stack frame if we're at the top
+                                    self.thread.stack_frames.push(StackFrame::new(
+                                        last.sp,
+                                        Gc::clone(&closure),
+                                        0,
+                                        Shared::from([]),
+                                    ));
+                                }
+
+                                self.sp = last.sp;
+                                self.instructions = closure.body_exp();
+
+                                last.handler = None;
+
+                                #[cfg(not(feature = "unsafe-internals"))]
+                                {
+                                    last.function = closure.clone();
+                                }
+
+                                self.ip = 0;
+
+                                // Put this back as the last stack frame
+                                self.thread.stack_frames.push(last);
+
+                                self.pop_count += 1;
+                            }
+                            _ => {
+                                stop!(TypeMismatch => "expected a function for the exception handler, found: {}", handler)
+                            }
+                        }
+
+                        continue 'outer;
+                    }
+                }
+
+                // self.thread.stack.clear();
+
+                res = Err(e);
+                break;
+            } else {
+                for frame in &self.thread.stack_frames {
+                    Continuation::close_marks(&self, &frame);
+                }
+
+                // self.thread.stack.clear();
+
+                res = result;
+                break;
+            }
+        }
 
         self.depth -= 1;
 

@@ -721,7 +721,6 @@ impl Heap {
         &mut self,
         root_value: Option<SteelVal>,
         root_vector: Option<&Vec<SteelVal>>,
-        // roots: impl Iterator<Item = &'a SteelVal>,
         roots: &'a [SteelVal],
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &'a [SteelVal],

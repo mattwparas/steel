@@ -22,9 +22,7 @@ pub struct Env {
 impl Clone for Env {
     fn clone(&self) -> Self {
         Self {
-            bindings_vec: Arc::new(RwLock::new(
-                self.bindings_vec.read().iter().map(|x| x.clone()).collect(),
-            )),
+            bindings_vec: self.bindings_vec.clone(),
         }
     }
 }
@@ -130,6 +128,14 @@ impl Env {
     pub fn root() -> Self {
         Env {
             bindings_vec: Arc::new(RwLock::new(Vec::with_capacity(1024))),
+        }
+    }
+
+    pub fn deep_clone(&self) -> Self {
+        Self {
+            bindings_vec: Arc::new(RwLock::new(
+                self.bindings_vec.read().iter().map(|x| x.clone()).collect(),
+            )),
         }
     }
 

@@ -162,7 +162,7 @@ pub struct GlobalCheckpoint {
 
 #[derive(Clone)]
 pub struct Engine {
-    virtual_machine: SteelThread,
+    pub(crate) virtual_machine: SteelThread,
     compiler: Compiler,
     constants: Option<ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>>,
     modules: ModuleContainer,

@@ -29,7 +29,8 @@
      (begin
        body ...)]
 
-    [(parameterize ([var val] rest ...)
+    [(parameterize ([var val]
+                    rest ...)
        body ...)
 
      (let ([old-value (var)])
@@ -99,7 +100,8 @@
 
 (define common-tail
   (lambda (x y)
-    (let ([lx (length x)] [ly (length y)])
+    (let ([lx (length x)]
+          [ly (length y)])
       (let loop ([x (if (> lx ly) (list-tail x (- lx ly)) x)]
                  [y (if (> ly lx) (list-tail y (- ly lx)) y)])
 
