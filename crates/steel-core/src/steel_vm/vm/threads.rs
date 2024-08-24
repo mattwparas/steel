@@ -60,16 +60,12 @@ impl SteelMutex {
 
     // Attempt to lock it before killing the other one
     pub fn lock(&self) {
-        println!("Acquiring the lock: {:?}", std::thread::current().id());
         // Acquire the lock first
         let guard = self.mutex.lock_arc();
-
-        println!("Successfully acquired the lock");
         self.guard.store(Some(guard));
     }
 
     pub fn unlock(&self) {
-        println!("Unlocking");
         self.guard.store(None);
     }
 }
