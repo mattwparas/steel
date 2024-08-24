@@ -2333,6 +2333,7 @@ where
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 }
@@ -2377,6 +2378,7 @@ where
                     }
                 }
             }
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 }
@@ -2434,6 +2436,7 @@ where
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 }
@@ -2873,6 +2876,7 @@ impl<'a> VisitorMutRefUnit for LiftPureFunctionsToGlobalScope<'a> {
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 }
@@ -2953,6 +2957,7 @@ impl<'a> VisitorMutRefUnit for ElideSingleArgumentLambdaApplications<'a> {
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 }
@@ -3020,6 +3025,7 @@ impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
             }
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 

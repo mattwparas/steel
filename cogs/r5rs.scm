@@ -35,6 +35,8 @@
 (require "tests/unit-test.scm"
          (for-syntax "tests/unit-test.scm"))
 
+(require-builtin "steel/immutable-vectors")
+
 (set-test-mode!)
 
 (provide __module__)
@@ -614,6 +616,92 @@
 ;    (foo 1 2 3 4 5)))
 
 ; )
+
+
+;; vectors
+
+
+(define vector->list immutable-vector->list)
+(define vector->string immutable-vector->string)
+(define vector-copy immutable-vector-copy)
+(define vector-append immutable-vector-append)
+
+(check-equal? "empty vector" #t (vector? #()))
+(check-equal? "vector predicate" #t (vector? #(1 2 3)))
+(check-equal? "vector predicated, quoted" #t (vector? '#(1 2 3)))
+
+(let [(make-vector make-immutable-vector)]
+  (check-equal? "vector length, empty" 0 (vector-length (make-vector 0)))
+  (check-equal? "vector length" 1000 (vector-length (make-vector 1000))))
+
+(check-equal? "self-quoting vectors" #(0 (2 2 2 2) "Anna") '#(0 (2 2 2 2) "Anna"))
+
+(check-equal? "vector constructor" #(a b c) (vector 'a 'b 'c))
+
+(check-equal? "vector ref" 8 (vector-ref '#(1 1 2 3 5 8 13 21) 5))
+(skip-compile (check-equal? "TODO" 13 (vector-ref '#(1 1 2 3 5 8 13 21)
+            (let ((i (round (* 2 (acos -1)))))
+              (if (inexact? i)
+                  (exact i)
+                  i)))))
+
+(skip-compile (check-equal? "TODO" #(0 ("Sue" "Sue") "Anna") (let ((vec (vector 0 '(2 2 2 2) "Anna")))
+  (vector-set! vec 1 '("Sue" "Sue"))
+  vec)))
+
+(check-equal? "vector->list" '(dah dah didah) (vector->list '#(dah dah didah)))
+(check-equal? "vector->list with start" '(dah didah) (vector->list '#(dah dah didah) 1))
+(check-equal? "vector->list with start and end" '(dah) (vector->list '#(dah dah didah) 1 2))
+(check-equal? "list->vector" #(dididit dah) (list->vector '(dididit dah)))
+
+(check-equal? "string->vector, empty" #() (string->vector ""))
+(check-equal? "string->vector" #(#\A #\B #\C) (string->vector "ABC"))
+(check-equal? "string->vector with start" #(#\B #\C) (string->vector "ABC" 1))
+(check-equal? "string->vector with start and end" #(#\B) (string->vector "ABC" 1 2))
+
+(check-equal? "vector->string, empty" "" (vector->string #()))
+(check-equal? "vector->string" "123" (vector->string #(#\1 #\2 #\3)))
+(check-equal? "vector->string with start" "23" (vector->string #(#\1 #\2 #\3) 1))
+(check-equal? "vector->string with start and end" "2" (vector->string #(#\1 #\2 #\3) 1 2))
+
+(check-equal? "vector-copy, empty" #() (vector-copy #()))
+(check-equal? "vector-copy" #(a b c) (vector-copy #(a b c)))
+(check-equal? "vector-copy with start" #(b c) (vector-copy #(a b c) 1))
+(check-equal? "vector-copy with start and end" #(b) (vector-copy #(a b c) 1 2))
+
+(check-equal? "vector-append, empty" #() (vector-append))
+(check-equal? "vector-append, empty list" #() (vector-append #()))
+(check-equal? "vector-append, empty lists" #() (vector-append #() #()))
+(check-equal? "vector-append, emtpy plus non-empty" #(a b c) (vector-append #() #(a b c)))
+(check-equal? "vector-append, non-empty plust empty" #(a b c) (vector-append #(a b c) #()))
+(check-equal? "vector-append" #(a b c d e) (vector-append #(a b c) #(d e)))
+(check-equal? "vector-append, multiple args" #(a b c d e f) (vector-append #(a b c) #(d e) #(f)))
+
+(skip-compile (check-equal? "TODO" #(1 2 smash smash 5)
+    (let ((vec (vector 1 2 3 4 5))) (vector-fill! vec 'smash 2 4) vec)))
+(skip-compile (check-equal? "TODO" #(x x x x x)
+    (let ((vec (vector 1 2 3 4 5))) (vector-fill! vec 'x) vec)))
+(skip-compile (check-equal? "TODO" #(1 2 x x x)
+    (let ((vec (vector 1 2 3 4 5))) (vector-fill! vec 'x 2) vec)))
+(skip-compile (check-equal? "TODO" #(1 2 x 4 5)
+    (let ((vec (vector 1 2 3 4 5))) (vector-fill! vec 'x 2 3) vec)))
+
+(skip-compile (check-equal? "TODO" #(1 a b 4 5)
+    (let ((vec (vector 1 2 3 4 5))) (vector-copy! vec 1 #(a b c d e) 0 2) vec)))
+(skip-compile (check-equal? "TODO" #(a b c d e)
+    (let ((vec (vector 1 2 3 4 5))) (vector-copy! vec 0 #(a b c d e)) vec)))
+(skip-compile (check-equal? "TODO" #(c d e 4 5)
+    (let ((vec (vector 1 2 3 4 5))) (vector-copy! vec 0 #(a b c d e) 2) vec)))
+(skip-compile (check-equal? "TODO" #(1 2 a b c)
+    (let ((vec (vector 1 2 3 4 5))) (vector-copy! vec 2 #(a b c d e) 0 3) vec)))
+(skip-compile (check-equal? "TODO" #(1 2 c 4 5)
+    (let ((vec (vector 1 2 3 4 5))) (vector-copy! vec 2 #(a b c d e) 2 3) vec)))
+
+; ;; same source and dest
+(skip-compile (check-equal? "TODO" #(1 1 2 4 5)
+    (let ((vec (vector 1 2 3 4 5))) (vector-copy! vec 1 vec 0 2) vec)))
+(skip-compile (check-equal? "TODO" #(1 2 3 1 2)
+    (let ((vec (vector 1 2 3 4 5))) (vector-copy! vec 3 vec 0 2) vec)))
 
 ;; -------------- Report ------------------
 

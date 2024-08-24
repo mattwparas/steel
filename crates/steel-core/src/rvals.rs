@@ -362,7 +362,13 @@ impl<'a, T> Iterator for RestArgsIter<'a, T> {
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next()
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
 }
+
+impl<'a, T> ExactSizeIterator for RestArgsIter<'a, T> {}
 
 pub struct RestArgs<T: FromSteelVal>(pub Vec<T>);
 
@@ -841,6 +847,7 @@ pub enum SerializableSteelVal {
     ListV(Vec<SerializableSteelVal>),
     Pair(Box<(SerializableSteelVal, SerializableSteelVal)>),
     VectorV(Vec<SerializableSteelVal>),
+    ByteVectorV(Vec<u8>),
     BoxedDynFunction(BoxedDynFunction),
     BuiltIn(BuiltInSignature),
     SymbolV(String),
@@ -993,6 +1000,9 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
             )
             .into()
         }
+        SerializableSteelVal::ByteVectorV(bytes) => {
+            SteelVal::ByteVector(SteelByteVector::new(bytes))
+        }
     }
 }
 
@@ -1101,6 +1111,18 @@ pub fn into_serializable_value(
                 }
             }
         }
+
+        SteelVal::VectorV(vector) => Ok(SerializableSteelVal::VectorV(
+            vector
+                .iter()
+                .cloned()
+                .map(|val| into_serializable_value(val, serialized_heap, visited))
+                .collect::<Result<_>>()?,
+        )),
+
+        SteelVal::ByteVector(bytes) => Ok(SerializableSteelVal::ByteVectorV(
+            (&*bytes.vec).borrow().clone(),
+        )),
 
         illegal => stop!(Generic => "Type not allowed to be moved across threads!: {}", illegal),
     }
@@ -1274,6 +1296,12 @@ impl SteelByteVector {
         Self {
             vec: Gc::new(RefCell::new(vec)),
         }
+    }
+}
+
+impl Hash for SteelByteVector {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.vec.borrow().hash(state);
     }
 }
 
@@ -1711,32 +1739,22 @@ impl Hash for SteelVal {
             CharV(c) => c.hash(state),
             ListV(l) => l.hash(state),
             CustomStruct(s) => s.hash(state),
-            // Pair(cell) => {
-            //     cell.hash(state);
-            // }
             VectorV(v) => v.hash(state),
             v @ Void => v.hash(state),
             StringV(s) => s.hash(state),
             FuncV(s) => (*s as *const FunctionSignature).hash(state),
-            // LambdaV(_) => unimplemented!(),
-            // MacroV(_) => unimplemented!(),
             SymbolV(sym) => {
                 "symbol".hash(state);
                 sym.hash(state);
-                // format!("symbol: {}")
             }
-            Custom(_) => unimplemented!(),
-            // StructClosureV(_) => unimplemented!(),
-            PortV(_) => unimplemented!(),
             Closure(b) => b.hash(state),
             HashMapV(hm) => hm.hash(state),
             IterV(s) => s.hash(state),
             HashSetV(hs) => hs.hash(state),
             SyntaxObject(s) => s.raw.hash(state),
             Pair(p) => (&**p).hash(state),
-            _ => {
-                unimplemented!("Attempted to has unsupported value: {self:?}")
-            }
+            ByteVector(v) => (&*v).hash(state),
+            _ => unimplemented!("Attempted to hash unsupported value: {self:?}"),
         }
     }
 }
@@ -2247,15 +2265,7 @@ impl PartialOrd for SteelVal {
 
 impl fmt::Display for SteelVal {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // at the top level, print a ' if we are
-        // trying to print a symbol or list
-        match self {
-            VectorV(_) => write!(f, "#")?,
-            _ => (),
-        };
-
         CycleDetector::detect_and_display_cycles(self, f)
-        // display_helper(self, f)
     }
 }
 
@@ -2264,8 +2274,7 @@ impl fmt::Debug for SteelVal {
         // at the top level, print a ' if we are
         // trying to print a symbol or list
         match self {
-            SymbolV(_) | ListV(_) => write!(f, "'")?,
-            VectorV(_) => write!(f, "'#")?,
+            SymbolV(_) | ListV(_) | VectorV(_) => write!(f, "'")?,
             _ => (),
         };
         // display_helper(self, f)

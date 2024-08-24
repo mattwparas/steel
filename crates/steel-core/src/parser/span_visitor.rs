@@ -68,6 +68,15 @@ impl Visitor for CoalescingSpanVisitor {
         Span::coalesce_span(&span_vec)
     }
 
+    fn visit_vector(&self, l: &super::ast::Vector) -> Self::Output {
+        let span_vec = l
+            .args
+            .iter()
+            .map(|x| self.visit(x))
+            .collect::<SmallVec<[_; 16]>>();
+        Span::coalesce_span(&span_vec)
+    }
+
     fn visit_syntax_rules(&self, _l: &super::ast::SyntaxRules) -> Self::Output {
         panic!("Unexpected syntax rules found in span visitor");
     }

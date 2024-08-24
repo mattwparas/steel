@@ -55,7 +55,7 @@ impl Validator for RustylineHelper {
             };
 
             match token.ty {
-                TokenType::OpenParen(_) => {
+                TokenType::OpenParen(..) => {
                     balance += 1;
                 }
                 TokenType::CloseParen(_) => {
@@ -111,25 +111,38 @@ impl Highlighter for RustylineHelper {
             // }
 
             match token.typ() {
-                TokenType::OpenParen(paren) if paren_to_highlight.is_none() => {
-                    if token.span.start == pos || (token.span.start == pos + 1 && cursor.is_none())
-                    {
-                        cursor = Some((*paren, token.span));
+                TokenType::OpenParen(paren, paren_mod) if paren_to_highlight.is_none() => {
+                    let open_span = TokenType::open_span(token.span, *paren_mod);
+
+                    if open_span.start == pos || (open_span.start == pos + 1 && cursor.is_none()) {
+                        cursor = Some((*paren, open_span));
                     }
 
-                    stack.push((*paren, token.span));
+                    stack.push((*paren, open_span));
                 }
 
                 TokenType::CloseParen(paren) if paren_to_highlight.is_none() => {
                     let mut matches = token.span.start == pos;
 
                     if token.span.end == pos {
-                        matches = match token_stream.peek() {
+                        let next_span = match token_stream.peek() {
                             Some(steel_parser::tokens::Token {
-                                ty: TokenType::OpenParen(_) | TokenType::CloseParen(_),
+                                ty: TokenType::CloseParen(_),
                                 span,
                                 ..
-                            }) => span.start > pos,
+                            }) => Some(*span),
+
+                            Some(steel_parser::tokens::Token {
+                                ty: TokenType::OpenParen(_, paren_mod),
+                                span,
+                                ..
+                            }) => Some(TokenType::open_span(*span, *paren_mod)),
+
+                            _ => None,
+                        };
+
+                        matches = match next_span {
+                            Some(span) => span.start > pos,
 
                             _ => true,
                         }
