@@ -447,6 +447,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             constant_map,
             interrupted: Default::default(),
             synchronizer: Synchronizer::new(),
+            thread_local_storage: Vec::new(),
         };
 
         #[cfg(feature = "profiling")]
@@ -522,6 +523,7 @@ impl SteelReceiver {
 
 // See... if this works...?
 pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    let thread_time = std::time::Instant::now();
     let mut thread = ctx.thread.clone();
     let interrupt = Arc::new(AtomicBool::new(false));
     // Let this thread have its own interrupt handler
@@ -534,12 +536,29 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
 
     let func = args[0].clone();
 
-    // let mut func = match func.closure_or_else(
-    //     throw!(TypeMismatch => "spawn-native-thread expects a function with no args"),
-    // ) {
-    //     Ok(v) => v,
-    //     Err(e) => return Some(Err(e)),
-    // };
+    // Try closing open continuations?
+    // TODO: See if we can close them here?
+
+    // Anything open, should be closed. And we'll be okay... I think.
+    // This could be an unreasonably negative performance hit, however in
+    // spirit I'd imagine its for the best in order to make sure that open
+    // continuations are legal to be called across other threads.
+
+    let now = std::time::Instant::now();
+    for frame in &ctx.thread.stack_frames {
+        ctx.close_continuation_marks(frame);
+    }
+    log::debug!(target: "threads", "Time to close continuations: {:?}", now.elapsed());
+
+    // Meta continuations should actually be captured?
+    ctx.close_continuation_marks(&ctx.thread.current_frame);
+
+    // thread.stack = Vec::new();
+    // thread.stack_frames = Vec::new();
+
+    // The whole stack above and below... should be able to be dropped
+    // from this context? - basically, unwind the stack since we're no
+    // longer going to be in this context.
 
     let handle = std::thread::spawn(move || {
         // TODO: We have to use the `execute` function in vm.rs - this sets up
@@ -570,6 +589,8 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
             ctx: weak_ctx,
             handle: value.clone(),
         });
+
+    log::debug!(target: "threads", "Time to spawn thread: {:?}", thread_time.elapsed());
 
     Some(Ok(value))
 }
@@ -723,6 +744,9 @@ pub fn threading_module() -> BuiltInModule {
                 }
             },
         )
-        .register_fn("thread::current/id", || std::thread::current().id());
+        .register_fn("thread::current/id", || std::thread::current().id())
+        .register_fn("thread/available-parallelism", || {
+            std::thread::available_parallelism().map(|x| x.get()).ok()
+        });
     module
 }

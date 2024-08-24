@@ -316,6 +316,8 @@ pub struct SteelThread {
     pub(crate) constant_map: ConstantMap,
     pub(crate) interrupted: Option<Arc<AtomicBool>>,
     pub(crate) synchronizer: Synchronizer,
+    // This will be static, for the thread.
+    pub(crate) thread_local_storage: Vec<SteelVal>,
 }
 
 #[derive(Clone)]
@@ -533,6 +535,7 @@ impl SteelThread {
             constant_map: DEFAULT_CONSTANT_MAP.with(|x| x.clone()),
             interrupted: Default::default(),
             synchronizer: Synchronizer::new(),
+            thread_local_storage: Vec::new(),
         }
     }
 
@@ -934,15 +937,8 @@ impl Continuation {
         let maybe_open_mark = (*this.inner.read()).clone().into_open_mark();
 
         if let Some(open) = maybe_open_mark {
-            // println!("Setting state from open continuation");
-
             let strong_count = Shared::strong_count(&this.inner);
             let weak_count = Shared::weak_count(&this.inner);
-
-            // println!(
-            //     "Strong count: {} - Weak count: {}",
-            //     strong_count, weak_count
-            // );
 
             while let Some(stack_frame) = ctx.thread.stack_frames.pop() {
                 ctx.pop_count -= 1;
@@ -3527,6 +3523,7 @@ impl<'a> VmCore<'a> {
             _ => {
                 // println!("{:?}", self.stack);
                 // println!("{:?}", self.stack_index);
+                println!("Bad tail call");
                 crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
                 stop!(BadSyntax => format!("TailCall - Application not a procedure or function type not supported: {stack_func}"); self.current_span());
             }
@@ -4353,6 +4350,44 @@ pub(crate) fn list_modules(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Resul
 
 pub(crate) fn environment_offset(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(Ok(ctx.thread.global_env.len().into_steelval().unwrap()))
+}
+
+pub struct ThreadLocalStorage(usize);
+impl crate::rvals::Custom for ThreadLocalStorage {}
+
+pub(crate) fn make_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    let index = ctx.thread.thread_local_storage.len();
+    ctx.thread.thread_local_storage.push(args[0].clone());
+    Some(ThreadLocalStorage(index).into_steelval())
+}
+
+pub(crate) fn get_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    if let SteelVal::Custom(c) = &args[0] {
+        if let Some(tls_index) = as_underlying_type::<ThreadLocalStorage>(c.read().as_ref()) {
+            ctx.thread
+                .thread_local_storage
+                .get(tls_index.0)
+                .map(|x| Ok(x.clone()))
+        } else {
+            todo!()
+        }
+    } else {
+        todo!()
+    }
+}
+
+pub(crate) fn set_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    if let SteelVal::Custom(c) = &args[0] {
+        if let Some(tls_index) = as_underlying_type::<ThreadLocalStorage>(c.read().as_ref()) {
+            ctx.thread.thread_local_storage[tls_index.0] = args[1].clone();
+
+            Some(Ok(SteelVal::Void))
+        } else {
+            todo!()
+        }
+    } else {
+        todo!()
+    }
 }
 
 // TODO: This apply does not respect tail position

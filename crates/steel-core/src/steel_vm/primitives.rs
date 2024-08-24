@@ -1654,6 +1654,9 @@ fn meta_module() -> BuiltInModule {
             "call-with-current-continuation",
             SteelVal::BuiltIn(super::vm::call_cc),
         )
+        .register_value("make-tls", SteelVal::BuiltIn(super::vm::make_tls))
+        .register_value("get-tls", SteelVal::BuiltIn(super::vm::get_tls))
+        .register_value("set-tls!", SteelVal::BuiltIn(super::vm::set_tls))
         .register_fn("eval!", super::meta::eval)
         .register_fn("value->string", super::meta::value_to_string)
         // TODO: @Matt -> implement the traits for modules as well
