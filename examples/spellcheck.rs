@@ -11,7 +11,8 @@ use std::cell::RefCell;
 use std::cmp::{max, min};
 use std::collections::HashMap;
 use std::process;
-use std::rc::Rc;
+
+use steel::gc::{ShareableMut, Shared, SharedMut};
 use steel::steel_vm::register_fn::RegisterFn;
 
 use env_logger::Builder;
@@ -73,13 +74,11 @@ pub fn configure_engine() -> Engine {
 }
 
 #[derive(Clone, Debug, Steel)]
-pub struct Levenshtein(Rc<RefCell<EditDistance>>);
+pub struct Levenshtein(SharedMut<EditDistance>);
 
 impl Levenshtein {
     pub fn edit_distance(self, one: String, two: String) -> usize {
-        self.0
-            .borrow_mut()
-            .get_edit_distance(one.as_str(), two.as_str())
+        self.0.write().get_edit_distance(one.as_str(), two.as_str())
     }
 }
 

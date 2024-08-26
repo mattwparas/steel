@@ -14,14 +14,14 @@ use steel_derive::Steel; // 1.3.1
 // We expose an Rc<RefCell<T>> (or, in a multi thread environment an Arc<Mutex<T>>) and expose
 // functions to interact with it
 #[derive(Clone, Debug, Steel, PartialEq)]
-pub struct RcRefCellWrapper(Rc<RefCell<usize>>);
+pub struct RcRefCellWrapper(usize);
 
 pub fn new_rc_ref_cell(val: usize) -> RcRefCellWrapper {
     RcRefCellWrapper(Rc::new(RefCell::new(val)))
 }
 
-pub fn rc_refcell_increment(value: RcRefCellWrapper) {
-    *value.0.borrow_mut() += 1;
+pub fn rc_refcell_increment(value: &mut RcRefCellWrapper) {
+    *value.0 += 1;
 }
 
 #[derive(Clone, Debug, Steel)]
