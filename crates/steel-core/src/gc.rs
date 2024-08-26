@@ -11,7 +11,7 @@ use std::{ops::Deref, rc::Weak};
 pub static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static MAXIMUM_OBJECTS: usize = 50000;
 
-pub use shared::{GcMut, Shared, SharedMut};
+pub use shared::{GcMut, MutContainer, ShareableMut, Shared, SharedMut};
 
 #[cfg(feature = "sync")]
 use parking_lot::RwLock;

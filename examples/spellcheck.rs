@@ -12,7 +12,7 @@ use std::cmp::{max, min};
 use std::collections::HashMap;
 use std::process;
 
-use steel::gc::{ShareableMut, Shared, SharedMut};
+use steel::gc::{MutContainer, ShareableMut, Shared, SharedMut};
 use steel::steel_vm::register_fn::RegisterFn;
 
 use env_logger::Builder;
@@ -83,7 +83,7 @@ impl Levenshtein {
 }
 
 pub fn new_levenshtein() -> Levenshtein {
-    Levenshtein(Rc::new(RefCell::new(EditDistance::new(15))))
+    Levenshtein(Shared::new(MutContainer::new(EditDistance::new(15))))
 }
 
 /// Represents edit distance with a preallocated array for distances

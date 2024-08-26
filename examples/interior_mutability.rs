@@ -17,11 +17,11 @@ use steel_derive::Steel; // 1.3.1
 pub struct RcRefCellWrapper(usize);
 
 pub fn new_rc_ref_cell(val: usize) -> RcRefCellWrapper {
-    RcRefCellWrapper(Rc::new(RefCell::new(val)))
+    RcRefCellWrapper(val)
 }
 
 pub fn rc_refcell_increment(value: &mut RcRefCellWrapper) {
-    *value.0 += 1;
+    value.0 += 1;
 }
 
 #[derive(Clone, Debug, Steel)]
