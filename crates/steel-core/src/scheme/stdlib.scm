@@ -682,7 +682,8 @@
 
                                            ; (shift *meta-continuation* (*meta-continuation* void)))
                                            (shift *meta-continuation*
-                                                  ((get-tls *meta-continuation*) void)))
+                                                  ; ((get-tls *meta-continuation*) void)))
+                                                  (*meta-continuation* void)))
                                          (lambda () expr)))]
     [(with-handler handler expr ...)
      (reset (call-with-exception-handler (lambda (err)
@@ -690,7 +691,8 @@
                                            ; (shift k (k void))
                                            ; (shift *meta-continuation* (*meta-continuation* void)))
                                            (shift *meta-continuation*
-                                                  ((get-tls *meta-continuation*) void)))
+                                                  ; ((get-tls *meta-continuation*) void)))
+                                                  (*meta-continuation* void)))
                                          (lambda ()
                                            expr ...)))]))
 

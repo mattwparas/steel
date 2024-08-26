@@ -711,7 +711,7 @@ pub(crate) fn get_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<Stee
             todo!()
         }
     } else {
-        todo!()
+        builtin_stop!(Generic => "get-tls expects a thread local storage handler, found: {:?}", &args[0])
     }
 }
 

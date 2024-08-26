@@ -13,6 +13,7 @@
  (append (vector 10) (vector 20))
  (assert!
   #t)) ;; TODO have to use non const values here, or don't evaluate constant folding inside of a with-handler?
+
 (with-handler (lambda (err) void)
               (first (hash)) ;; TODO have to use non const values here
               (assert! #t))
