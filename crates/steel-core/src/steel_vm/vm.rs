@@ -4276,8 +4276,7 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
                     Gc::clone(&closure),
                     ctx.ip + 1,
                     Shared::clone(&ctx.instructions),
-                    // Rc::clone(&ctx.spans),
-                ) // .with_span(ctx.current_span()),
+                )
                 .with_continuation_mark(continuation.clone()),
             );
 
@@ -4301,23 +4300,6 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
 
     Some(Ok(SteelVal::ContinuationFunction(continuation)))
 }
-
-pub(crate) const APPLY_DOC: MarkdownDoc<'static> = MarkdownDoc::from_str(
-    r#"
-Applies the given `function` with arguments as the contents of the `list`.
-
-(apply function lst) -> any?
-
-* function : function?
-* list: list?
-
-# Examples
-```scheme
-> (apply + (list 1 2 3 4)) ;; => 10
-> (apply list (list 1 2 3 4)) ;; => '(1 2 3 4)
-```
-    "#,
-);
 
 pub(crate) fn get_test_mode(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(Ok(ctx.thread.runtime_options.test.into()))
@@ -4352,49 +4334,25 @@ pub(crate) fn environment_offset(ctx: &mut VmCore, args: &[SteelVal]) -> Option<
     Some(Ok(ctx.thread.global_env.len().into_steelval().unwrap()))
 }
 
-pub struct ThreadLocalStorage(usize);
-impl crate::rvals::Custom for ThreadLocalStorage {}
-
-pub(crate) fn make_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
-    let index = ctx.thread.thread_local_storage.len();
-    ctx.thread.thread_local_storage.push(args[0].clone());
-    Some(ThreadLocalStorage(index).into_steelval())
-}
-
-pub(crate) fn get_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
-    if let SteelVal::Custom(c) = &args[0] {
-        if let Some(tls_index) = as_underlying_type::<ThreadLocalStorage>(c.read().as_ref()) {
-            ctx.thread
-                .thread_local_storage
-                .get(tls_index.0)
-                .map(|x| Ok(x.clone()))
-        } else {
-            todo!()
-        }
-    } else {
-        todo!()
-    }
-}
-
-pub(crate) fn set_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
-    if let SteelVal::Custom(c) = &args[0] {
-        if let Some(tls_index) = as_underlying_type::<ThreadLocalStorage>(c.read().as_ref()) {
-            ctx.thread.thread_local_storage[tls_index.0] = args[1].clone();
-
-            Some(Ok(SteelVal::Void))
-        } else {
-            todo!()
-        }
-    } else {
-        todo!()
-    }
-}
-
 // TODO: This apply does not respect tail position
 // Something like this: (define (loop) (apply loop '()))
 // _should_ result in an infinite loop. In the current form, this is a Rust stack overflow.
 // Similarly, care should be taken to check out transduce, because nested calls to that will
 // result in a stack overflow with sufficient depth on the recursive calls
+
+/// Applies the given `function` with arguments as the contents of the `list`.
+///
+/// (apply function lst) -> any?
+///
+/// * function : function?
+/// * list: list?
+///
+/// # Examples
+/// ```scheme
+/// > (apply + (list 1 2 3 4)) ;; => 10
+/// > (apply list (list 1 2 3 4)) ;; => '(1 2 3 4)
+///```
+#[steel_derive::context(name = "apply", arity = "Exact(2)")]
 pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     // arity_check!(apply, args, 2);
 

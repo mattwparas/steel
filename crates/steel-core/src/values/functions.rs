@@ -44,11 +44,6 @@ use super::{
 //     Builtin(BuiltInSignature),
 // }
 
-// TODO: replace body exp below with this
-// struct Blagh {
-//     body: Rc<RefCell<[DenseInstruction]>>,
-// }
-
 // Keep track of this metadata table for getting the docs associated
 // with a given function?
 pub struct LambdaMetadataTable {

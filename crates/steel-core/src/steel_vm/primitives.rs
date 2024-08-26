@@ -26,8 +26,10 @@ use crate::{
         string_module,
         time::time_module,
         vectors::{
-            immutable_vectors_module, MUTABLE_VECTOR_CLEAR_DEFINITION,
-            MUTABLE_VECTOR_POP_DEFINITION, MUTABLE_VECTOR_TO_LIST_DEFINITION,
+            immutable_vectors_module, IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION,
+            MAKE_VECTOR_DEFINITION, MUTABLE_VECTOR_CLEAR_DEFINITION, MUTABLE_VECTOR_POP_DEFINITION,
+            MUTABLE_VECTOR_TO_LIST_DEFINITION, MUT_VEC_CONSTRUCT_DEFINITION,
+            MUT_VEC_LENGTH_DEFINITION, MUT_VEC_SET_DEFINITION, VEC_LENGTH_DEFINITION,
         },
         ControlOperations, IoFunctions, MetaOperations, NumOperations, StreamOperations,
         SymbolOperations, VectorOperations,
@@ -36,8 +38,8 @@ use crate::{
     rvals::{
         as_underlying_type,
         cycles::{BreadthFirstSearchSteelValVisitor, SteelCycleCollector},
-        FromSteelVal, FunctionSignature, MutFunctionSignature, SteelString, ITERATOR_FINISHED,
-        NUMBER_EQUALITY_DEFINITION,
+        CustomType, FromSteelVal, FunctionSignature, MutFunctionSignature, SteelString,
+        ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
     },
     steel_vm::{
         builtin::{get_function_metadata, get_function_name, Arity},
@@ -325,10 +327,12 @@ define_modules! {
     STEEL_RESULT_MODULE => build_result_structs,
     STEEL_TYPE_ID_MODULE => build_type_id_module,
     STEEL_OPTION_MODULE => build_option_structs,
-    STEEL_THREADING_MDOULE => threading_module,
+    STEEL_THREADING_MODULE => threading_module,
     STEEL_TIME_MODULE => time_module,
     STEEL_FFI_MODULE => ffi_module,
+    STEEL_MUTABLE_VECTOR_MODULE => mutable_vector_module,
     STEEL_PRIVATE_READER_MODULE => reader_module,
+    STEEL_PRELUDE_MODULE => prelude,
 }
 
 thread_local! {
@@ -380,34 +384,63 @@ thread_local! {
 }
 
 pub fn prelude() -> BuiltInModule {
-    BuiltInModule::new("steel/base")
-        .with_module(MAP_MODULE.with(|x| x.clone()))
-        .with_module(SET_MODULE.with(|x| x.clone()))
-        .with_module(LIST_MODULE.with(|x| x.clone()))
-        .with_module(STRING_MODULE.with(|x| x.clone()))
-        .with_module(VECTOR_MODULE.with(|x| x.clone()))
-        .with_module(STREAM_MODULE.with(|x| x.clone()))
-        // .with_module(CONTRACT_MODULE.with(|x| x.clone()))
-        .with_module(IDENTITY_MODULE.with(|x| x.clone()))
-        .with_module(NUMBER_MODULE.with(|x| x.clone()))
-        .with_module(EQUALITY_MODULE.with(|x| x.clone()))
-        .with_module(ORD_MODULE.with(|x| x.clone()))
-        .with_module(TRANSDUCER_MODULE.with(|x| x.clone()))
-        .with_module(SYMBOL_MODULE.with(|x| x.clone()))
-        .with_module(IO_MODULE.with(|x| x.clone()))
-        .with_module(FS_MODULE.with(|x| x.clone()))
-        .with_module(PORT_MODULE.with(|x| x.clone()))
-        .with_module(META_MODULE.with(|x| x.clone()))
-        .with_module(JSON_MODULE.with(|x| x.clone()))
-        .with_module(CONSTANTS_MODULE.with(|x| x.clone()))
-        .with_module(SYNTAX_MODULE.with(|x| x.clone()))
-        .with_module(PROCESS_MODULE.with(|x| x.clone()))
-        .with_module(RESULT_MODULE.with(|x| x.clone()))
-        .with_module(OPTION_MODULE.with(|x| x.clone()))
-        .with_module(TYPE_ID_MODULE.with(|x| x.clone()))
-        .with_module(TIME_MODULE.with(|x| x.clone()))
-        .with_module(THREADING_MODULE.with(|x| x.clone()))
-        .with_module(BYTEVECTOR_MODULE.with(|x| x.clone()))
+    if cfg!(feature = "sync") {
+        BuiltInModule::new("steel/base")
+            .with_module(STEEL_MAP_MODULE.clone())
+            .with_module(STEEL_SET_MODULE.clone())
+            .with_module(STEEL_LIST_MODULE.clone())
+            .with_module(STEEL_STRING_MODULE.clone())
+            .with_module(STEEL_VECTOR_MODULE.clone())
+            .with_module(STEEL_STREAM_MODULE.clone())
+            .with_module(STEEL_IDENTITY_MODULE.clone())
+            .with_module(STEEL_NUMBER_MODULE.clone())
+            .with_module(STEEL_EQUALITY_MODULE.clone())
+            .with_module(STEEL_ORD_MODULE.clone())
+            .with_module(STEEL_TRANSDUCER_MODULE.clone())
+            .with_module(STEEL_SYMBOL_MODULE.clone())
+            .with_module(STEEL_IO_MODULE.clone())
+            .with_module(STEEL_FS_MODULE.clone())
+            .with_module(STEEL_PORT_MODULE.clone())
+            .with_module(STEEL_META_MODULE.clone())
+            .with_module(STEEL_JSON_MODULE.clone())
+            .with_module(STEEL_CONSTANTS_MODULE.clone())
+            .with_module(STEEL_SYNTAX_MODULE.clone())
+            .with_module(STEEL_PROCESS_MODULE.clone())
+            .with_module(STEEL_RESULT_MODULE.clone())
+            .with_module(STEEL_OPTION_MODULE.clone())
+            .with_module(STEEL_TYPE_ID_MODULE.clone())
+            .with_module(STEEL_TIME_MODULE.clone())
+            .with_module(STEEL_THREADING_MODULE.clone())
+            .with_module(STEEL_BYTEVECTOR_MODULE.clone())
+    } else {
+        BuiltInModule::new("steel/base")
+            .with_module(MAP_MODULE.with(|x| x.clone()))
+            .with_module(SET_MODULE.with(|x| x.clone()))
+            .with_module(LIST_MODULE.with(|x| x.clone()))
+            .with_module(STRING_MODULE.with(|x| x.clone()))
+            .with_module(VECTOR_MODULE.with(|x| x.clone()))
+            .with_module(STREAM_MODULE.with(|x| x.clone()))
+            .with_module(IDENTITY_MODULE.with(|x| x.clone()))
+            .with_module(NUMBER_MODULE.with(|x| x.clone()))
+            .with_module(EQUALITY_MODULE.with(|x| x.clone()))
+            .with_module(ORD_MODULE.with(|x| x.clone()))
+            .with_module(TRANSDUCER_MODULE.with(|x| x.clone()))
+            .with_module(SYMBOL_MODULE.with(|x| x.clone()))
+            .with_module(IO_MODULE.with(|x| x.clone()))
+            .with_module(FS_MODULE.with(|x| x.clone()))
+            .with_module(PORT_MODULE.with(|x| x.clone()))
+            .with_module(META_MODULE.with(|x| x.clone()))
+            .with_module(JSON_MODULE.with(|x| x.clone()))
+            .with_module(CONSTANTS_MODULE.with(|x| x.clone()))
+            .with_module(SYNTAX_MODULE.with(|x| x.clone()))
+            .with_module(PROCESS_MODULE.with(|x| x.clone()))
+            .with_module(RESULT_MODULE.with(|x| x.clone()))
+            .with_module(OPTION_MODULE.with(|x| x.clone()))
+            .with_module(TYPE_ID_MODULE.with(|x| x.clone()))
+            .with_module(TIME_MODULE.with(|x| x.clone()))
+            .with_module(THREADING_MODULE.with(|x| x.clone()))
+            .with_module(BYTEVECTOR_MODULE.with(|x| x.clone()))
+    }
 }
 
 pub fn register_builtin_modules_without_io(engine: &mut Engine) {
@@ -470,7 +503,6 @@ pub fn register_builtin_modules(engine: &mut Engine) {
     );
 
     engine.register_fn("%doc?", BuiltInModule::get_doc);
-    // engine.register_fn("%module-docs", BuiltInModule::docs);
     engine.register_value("%list-modules!", SteelVal::BuiltIn(list_modules));
     engine.register_fn("%module/lookup-function", BuiltInModule::search);
     engine.register_fn("%string->render-markdown", render_as_md);
@@ -492,44 +524,84 @@ pub fn register_builtin_modules(engine: &mut Engine) {
     engine.register_fn("%memo-table-ref", WeakMemoizationTable::get);
     engine.register_fn("%memo-table-set!", WeakMemoizationTable::insert);
 
-    engine
-        .register_module(MAP_MODULE.with(|x| x.clone()))
-        .register_module(SET_MODULE.with(|x| x.clone()))
-        .register_module(LIST_MODULE.with(|x| x.clone()))
-        .register_module(STRING_MODULE.with(|x| x.clone()))
-        .register_module(VECTOR_MODULE.with(|x| x.clone()))
-        .register_module(STREAM_MODULE.with(|x| x.clone()))
-        .register_module(IDENTITY_MODULE.with(|x| x.clone()))
-        .register_module(NUMBER_MODULE.with(|x| x.clone()))
-        .register_module(EQUALITY_MODULE.with(|x| x.clone()))
-        .register_module(ORD_MODULE.with(|x| x.clone()))
-        .register_module(TRANSDUCER_MODULE.with(|x| x.clone()))
-        .register_module(SYMBOL_MODULE.with(|x| x.clone()))
-        .register_module(IO_MODULE.with(|x| x.clone()))
-        .register_module(FS_MODULE.with(|x| x.clone()))
-        .register_module(PORT_MODULE.with(|x| x.clone()))
-        .register_module(META_MODULE.with(|x| x.clone()))
-        .register_module(JSON_MODULE.with(|x| x.clone()))
-        .register_module(CONSTANTS_MODULE.with(|x| x.clone()))
-        .register_module(SYNTAX_MODULE.with(|x| x.clone()))
-        .register_module(PROCESS_MODULE.with(|x| x.clone()))
-        .register_module(RESULT_MODULE.with(|x| x.clone()))
-        .register_module(OPTION_MODULE.with(|x| x.clone()))
-        .register_module(TYPE_ID_MODULE.with(|x| x.clone()))
-        .register_module(PRELUDE_MODULE.with(|x| x.clone()))
-        .register_module(TIME_MODULE.with(|x| x.clone()))
-        .register_module(RANDOM_MODULE.with(|x| x.clone()))
-        .register_module(THREADING_MODULE.with(|x| x.clone()))
-        .register_module(BYTEVECTOR_MODULE.with(|x| x.clone()));
+    if cfg!(feature = "sync") {
+        engine
+            .register_module(STEEL_MAP_MODULE.clone())
+            .register_module(STEEL_SET_MODULE.clone())
+            .register_module(STEEL_LIST_MODULE.clone())
+            .register_module(STEEL_STRING_MODULE.clone())
+            .register_module(STEEL_VECTOR_MODULE.clone())
+            .register_module(STEEL_STREAM_MODULE.clone())
+            .register_module(STEEL_IDENTITY_MODULE.clone())
+            .register_module(STEEL_NUMBER_MODULE.clone())
+            .register_module(STEEL_EQUALITY_MODULE.clone())
+            .register_module(STEEL_ORD_MODULE.clone())
+            .register_module(STEEL_TRANSDUCER_MODULE.clone())
+            .register_module(STEEL_SYMBOL_MODULE.clone())
+            .register_module(STEEL_IO_MODULE.clone())
+            .register_module(STEEL_FS_MODULE.clone())
+            .register_module(STEEL_PORT_MODULE.clone())
+            .register_module(STEEL_META_MODULE.clone())
+            .register_module(STEEL_JSON_MODULE.clone())
+            .register_module(STEEL_CONSTANTS_MODULE.clone())
+            .register_module(STEEL_SYNTAX_MODULE.clone())
+            .register_module(STEEL_PROCESS_MODULE.clone())
+            .register_module(STEEL_RESULT_MODULE.clone())
+            .register_module(STEEL_OPTION_MODULE.clone())
+            .register_module(STEEL_TYPE_ID_MODULE.clone())
+            .register_module(STEEL_PRELUDE_MODULE.clone())
+            .register_module(STEEL_TIME_MODULE.clone())
+            .register_module(STEEL_RANDOM_MODULE.clone())
+            .register_module(STEEL_THREADING_MODULE.clone())
+            .register_module(STEEL_BYTEVECTOR_MODULE.clone());
 
-    #[cfg(feature = "dylibs")]
-    engine.register_module(FFI_MODULE.with(|x| x.clone()));
+        #[cfg(feature = "dylibs")]
+        engine.register_module(STEEL_FFI_MODULE.clone());
 
-    // Private module
-    engine.register_module(MUTABLE_VECTOR_MODULE.with(|x| x.clone()));
-    engine.register_module(PRIVATE_READER_MODULE.with(|x| x.clone()));
+        // Private module
+        engine.register_module(STEEL_MUTABLE_VECTOR_MODULE.clone());
+        engine.register_module(STEEL_PRIVATE_READER_MODULE.clone());
+        engine.register_module(STEEL_IMMUTABLE_VECTOR_MODULE.clone());
+    } else {
+        engine
+            .register_module(MAP_MODULE.with(|x| x.clone()))
+            .register_module(SET_MODULE.with(|x| x.clone()))
+            .register_module(LIST_MODULE.with(|x| x.clone()))
+            .register_module(STRING_MODULE.with(|x| x.clone()))
+            .register_module(VECTOR_MODULE.with(|x| x.clone()))
+            .register_module(STREAM_MODULE.with(|x| x.clone()))
+            .register_module(IDENTITY_MODULE.with(|x| x.clone()))
+            .register_module(NUMBER_MODULE.with(|x| x.clone()))
+            .register_module(EQUALITY_MODULE.with(|x| x.clone()))
+            .register_module(ORD_MODULE.with(|x| x.clone()))
+            .register_module(TRANSDUCER_MODULE.with(|x| x.clone()))
+            .register_module(SYMBOL_MODULE.with(|x| x.clone()))
+            .register_module(IO_MODULE.with(|x| x.clone()))
+            .register_module(FS_MODULE.with(|x| x.clone()))
+            .register_module(PORT_MODULE.with(|x| x.clone()))
+            .register_module(META_MODULE.with(|x| x.clone()))
+            .register_module(JSON_MODULE.with(|x| x.clone()))
+            .register_module(CONSTANTS_MODULE.with(|x| x.clone()))
+            .register_module(SYNTAX_MODULE.with(|x| x.clone()))
+            .register_module(PROCESS_MODULE.with(|x| x.clone()))
+            .register_module(RESULT_MODULE.with(|x| x.clone()))
+            .register_module(OPTION_MODULE.with(|x| x.clone()))
+            .register_module(TYPE_ID_MODULE.with(|x| x.clone()))
+            .register_module(PRELUDE_MODULE.with(|x| x.clone()))
+            .register_module(TIME_MODULE.with(|x| x.clone()))
+            .register_module(RANDOM_MODULE.with(|x| x.clone()))
+            .register_module(THREADING_MODULE.with(|x| x.clone()))
+            .register_module(BYTEVECTOR_MODULE.with(|x| x.clone()));
 
-    engine.register_module(IMMUTABLE_VECTOR_MODULE.with(|x| x.clone()));
+        #[cfg(feature = "dylibs")]
+        engine.register_module(FFI_MODULE.with(|x| x.clone()));
+
+        // Private module
+        engine.register_module(MUTABLE_VECTOR_MODULE.with(|x| x.clone()));
+        engine.register_module(PRIVATE_READER_MODULE.with(|x| x.clone()));
+
+        engine.register_module(IMMUTABLE_VECTOR_MODULE.with(|x| x.clone()));
+    }
 }
 
 pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::new(|| {
@@ -695,17 +767,17 @@ pub static SANDBOXED_MODULES: &str = r#"
 fn vector_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/vectors");
     module
-        .register_value("mutable-vector", VectorOperations::mut_vec_construct())
-        .register_value("make-vector", VectorOperations::make_vector())
-        .register_value("mutable-vector->list", VectorOperations::mut_vec_to_list())
+        .register_native_fn_definition(MUT_VEC_CONSTRUCT_DEFINITION)
+        .register_native_fn_definition(MAKE_VECTOR_DEFINITION)
+        .register_native_fn_definition(MUTABLE_VECTOR_TO_LIST_DEFINITION)
         .register_value("vector-push!", VectorOperations::mut_vec_push())
-        .register_value("mut-vec-len", VectorOperations::mut_vec_length())
-        .register_value("vector-length", VectorOperations::vec_length())
+        .register_native_fn_definition(MUT_VEC_LENGTH_DEFINITION)
+        .register_native_fn_definition(VEC_LENGTH_DEFINITION)
         .register_value("vector-append!", VectorOperations::mut_vec_append())
         .register_value("mut-vector-ref", VectorOperations::mut_vec_get())
-        .register_value("vector-set!", VectorOperations::mut_vec_set())
+        .register_native_fn_definition(MUT_VEC_SET_DEFINITION)
         // Immutable vector operations
-        .register_value("vector", VectorOperations::vec_construct())
+        .register_native_fn_definition(IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION)
         .register_value("push-front", VectorOperations::vec_cons())
         .register_value("pop-front", VectorOperations::vec_car())
         .register_value("vec-rest", VectorOperations::vec_cdr())
@@ -1265,6 +1337,14 @@ fn lookup_function_name(value: SteelVal) -> Option<SteelVal> {
     match value {
         SteelVal::BoxedFunction(f) => f.name().map(|x| x.into_steelval().unwrap()),
         SteelVal::FuncV(f) => get_function_name(f).map(|x| x.name.into_steelval().unwrap()),
+        SteelVal::BuiltIn(f) => {
+            get_function_metadata(super::builtin::BuiltInFunctionTypePointer::Context(f as _))
+                .map(|x| x.name().into_steelval().unwrap())
+        }
+        SteelVal::MutFunc(f) => {
+            get_function_metadata(super::builtin::BuiltInFunctionTypePointer::Mutable(f as _))
+                .map(|x| x.name().into_steelval().unwrap())
+        }
         _ => None,
     }
 }
@@ -1291,6 +1371,17 @@ fn lookup_doc(value: SteelVal) -> bool {
                 crate::steel_vm::builtin::BuiltInFunctionTypePointer::Mutable(
                     f as *const MutFunctionSignature,
                 ),
+            );
+            if let Some(data) = metadata.and_then(|x| x.doc) {
+                println!("{}", data);
+                true
+            } else {
+                false
+            }
+        }
+        SteelVal::BuiltIn(f) => {
+            let metadata = get_function_metadata(
+                crate::steel_vm::builtin::BuiltInFunctionTypePointer::Context(f as *const _),
             );
             if let Some(data) = metadata.and_then(|x| x.doc) {
                 println!("{}", data);
@@ -1654,9 +1745,9 @@ fn meta_module() -> BuiltInModule {
             "call-with-current-continuation",
             SteelVal::BuiltIn(super::vm::call_cc),
         )
-        .register_value("make-tls", SteelVal::BuiltIn(super::vm::make_tls))
-        .register_value("get-tls", SteelVal::BuiltIn(super::vm::get_tls))
-        .register_value("set-tls!", SteelVal::BuiltIn(super::vm::set_tls))
+        // .register_value("make-tls", SteelVal::BuiltIn(super::vm::make_tls))
+        // .register_value("get-tls", SteelVal::BuiltIn(super::vm::get_tls))
+        // .register_value("set-tls!", SteelVal::BuiltIn(super::vm::set_tls))
         .register_fn("eval!", super::meta::eval)
         .register_fn("value->string", super::meta::value_to_string)
         // TODO: @Matt -> implement the traits for modules as well

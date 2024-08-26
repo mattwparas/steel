@@ -1,8 +1,8 @@
 use crate::{
     gc::Gc,
     steel_vm::{
-        builtin::{Arity, BuiltInFunctionType, BuiltInModule, NativeFunctionDefinition},
-        vm::{apply, VmContext, APPLY_DOC},
+        builtin::BuiltInModule,
+        vm::{VmContext, APPLY_DEFINITION},
     },
     values::lists::Pair,
 };
@@ -81,15 +81,7 @@ pub fn list_module() -> BuiltInModule {
         .register_value("list->string", crate::primitives::lists::LIST_TO_STRING)
         .register_value("push-back", crate::primitives::lists::PUSH_BACK)
         .register_native_fn_definition(PAIR_DEFINITION)
-        .register_native_fn_definition(NativeFunctionDefinition {
-            name: "apply",
-            aliases: &[],
-            func: BuiltInFunctionType::Context(apply),
-            arity: Arity::Exact(2),
-            doc: Some(APPLY_DOC),
-            is_const: true,
-            signature: None,
-        })
+        .register_native_fn_definition(APPLY_DEFINITION)
         .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE)
         .register_native_fn_definition(SECOND_DEFINITION)
         .register_native_fn_definition(THIRD_DEFINITION)

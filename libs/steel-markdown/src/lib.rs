@@ -7,7 +7,7 @@ use steel::{
     steel_vm::ffi::{FFIModule, FFIValue, IntoFFIVal, RegisterFFIFn},
 };
 
-use pulldown_cmark::{CodeBlockKind, CowStr, Event, Options, Parser, Tag};
+use pulldown_cmark::{CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd};
 
 use syntect::highlighting::{Color, ThemeSet};
 use syntect::{html::highlighted_html_for_string, parsing::SyntaxSet};
@@ -84,7 +84,13 @@ pub struct MarkdownTag {
     source: Shared<str>,
 }
 
+pub struct MarkdownEndTag {
+    tag: TagEnd,
+    source: Shared<str>,
+}
+
 impl Custom for MarkdownTag {}
+impl Custom for MarkdownEndTag {}
 impl Custom for MarkdownEvent {}
 
 impl MarkdownEvent {
@@ -181,7 +187,7 @@ impl MarkdownEvent {
     fn as_end_tag(&self) -> Option<FFIValue> {
         if let Event::End(tag) = self.event.clone() {
             Some(
-                MarkdownTag {
+                MarkdownEndTag {
                     tag,
                     source: self.source.clone(),
                 }
@@ -225,11 +231,11 @@ impl MarkdownTag {
     }
 
     fn is_heading(&self) -> bool {
-        matches!(self.tag, Tag::Heading(..))
+        matches!(self.tag, Tag::Heading { .. })
     }
 
     fn is_block_quote(&self) -> bool {
-        matches!(self.tag, Tag::BlockQuote)
+        matches!(self.tag, Tag::BlockQuote(..))
     }
 
     fn is_code_block(&self) -> bool {
@@ -237,11 +243,14 @@ impl MarkdownTag {
     }
 
     fn as_heading(&self) -> Option<FFIValue> {
-        if let Tag::Heading(level, fragment_id, classes) = &self.tag {
+        if let Tag::Heading {
+            level, id, classes, ..
+        } = &self.tag
+        {
             Some(
                 vec![
                     (*level as isize).into_ffi_val().unwrap(),
-                    fragment_id.map(|x| x.to_string()).into_ffi_val().unwrap(),
+                    id.as_ref().map(|x| x.to_string()).into_ffi_val().unwrap(),
                     classes
                         .iter()
                         .map(|x| x.to_string())
@@ -309,17 +318,17 @@ impl MarkdownTag {
     }
 
     fn is_link(&self) -> bool {
-        matches!(self.tag, Tag::Link(..))
+        matches!(self.tag, Tag::Link { .. })
     }
 
     fn is_image(&self) -> bool {
-        matches!(self.tag, Tag::Image(..))
+        matches!(self.tag, Tag::Image { .. })
     }
 }
 
 struct MarkdownParser {
     source: Shared<str>,
-    parser: Parser<'static, 'static>,
+    parser: Parser<'static>,
 }
 
 impl MarkdownParser {
@@ -333,7 +342,7 @@ impl MarkdownParser {
             // the source location that we're referencing around for
             // the same lifetime as this object.
             parser: unsafe {
-                std::mem::transmute::<Parser<'_, '_>, Parser<'static, 'static>>(Parser::new_ext(
+                std::mem::transmute::<Parser<'_>, Parser<'static>>(Parser::new_ext(
                     &source,
                     Options::all(),
                 ))

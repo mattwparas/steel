@@ -4,7 +4,10 @@ use fxhash::FxHashMap;
 use parking_lot::{lock_api::RawMutex, RwLock};
 
 use crate::{
-    rvals::{Custom, HeapSerializer, SerializableSteelVal, SerializedHeapRef},
+    rvals::{
+        AsRefMutSteelVal, AsRefSteelVal as _, Custom, HeapSerializer, SerializableSteelVal,
+        SerializedHeapRef,
+    },
     steel_vm::{builtin::BuiltInModule, register_fn::RegisterFn},
     values::{functions::SerializedLambdaPrototype, structs::VTable},
 };
@@ -32,13 +35,15 @@ pub struct ThreadHandle {
     pub(crate) thread_state_manager: ThreadStateController,
 }
 
-impl ThreadHandle {
-    pub fn is_finished(&self) -> bool {
-        self.handle
-            .as_ref()
-            .map(|x| x.is_finished())
-            .unwrap_or(true)
-    }
+/// Check if the given thread is finished running.
+#[steel_derive::function(name = "thread-finished?")]
+pub fn thread_finished(handle: &SteelVal) -> Result<SteelVal> {
+    Ok(ThreadHandle::as_ref(handle, &mut ())?
+        .handle
+        .as_ref()
+        .map(|x| x.is_finished())
+        .unwrap_or(true))
+    .map(SteelVal::BoolV)
 }
 
 impl crate::rvals::Custom for ThreadHandle {}
@@ -70,7 +75,35 @@ impl SteelMutex {
     }
 }
 
-pub(crate) fn thread_join(handle: &mut ThreadHandle) -> Result<()> {
+/// Construct a new mutex
+#[steel_derive::function(name = "mutex")]
+pub fn new_mutex() -> Result<SteelVal> {
+    SteelMutex::new().into_steelval()
+}
+
+/// Lock the given mutex
+#[steel_derive::function(name = "lock-acquire!")]
+pub fn mutex_lock(mutex: &SteelVal) -> Result<SteelVal> {
+    SteelMutex::as_ref(mutex, &mut ())?.lock();
+    Ok(SteelVal::Void)
+}
+
+/// Unlock the given mutex
+#[steel_derive::function(name = "lock-release!")]
+pub fn mutex_unlock(mutex: &SteelVal) -> Result<SteelVal> {
+    SteelMutex::as_ref(mutex, &mut ())?.unlock();
+    Ok(SteelVal::Void)
+}
+
+/// Block until this thread finishes.
+#[steel_derive::function(name = "thread-join!")]
+pub fn thread_join(handle: &SteelVal) -> Result<SteelVal> {
+    ThreadHandle::as_mut_ref(handle)
+        .and_then(|mut x| thread_join_impl(&mut x))
+        .map(|_| SteelVal::Void)
+}
+
+pub(crate) fn thread_join_impl(handle: &mut ThreadHandle) -> Result<()> {
     if let Some(handle) = handle.handle.take() {
         handle
             .join()
@@ -81,19 +114,38 @@ pub(crate) fn thread_join(handle: &mut ThreadHandle) -> Result<()> {
     }
 }
 
-pub(crate) fn thread_suspend(handle: &mut ThreadHandle) {
-    handle.thread_state_manager.suspend();
+/// Suspend the thread. Note, this will _not_ interrupt any native code that is
+/// potentially running in the thread, and will attempt to block at the next
+/// bytecode instruction that is running.
+#[steel_derive::function(name = "thread-suspend")]
+pub(crate) fn thread_suspend(handle: &SteelVal) -> Result<SteelVal> {
+    ThreadHandle::as_mut_ref(handle)?
+        .thread_state_manager
+        .suspend();
+
+    Ok(SteelVal::Void)
 }
 
-pub(crate) fn thread_resume(handle: &mut ThreadHandle) {
+/// Resume a suspended thread. This does nothing if the thread is already joined.
+#[steel_derive::function(name = "thread-resume")]
+pub(crate) fn thread_resume(handle: &SteelVal) -> Result<SteelVal> {
+    let mut handle = ThreadHandle::as_mut_ref(handle)?;
     handle.thread_state_manager.resume();
     if let Some(handle) = handle.handle.as_mut() {
         handle.thread().unpark();
     }
+    Ok(SteelVal::Void)
 }
 
-pub(crate) fn thread_interrupt(handle: &mut ThreadHandle) {
-    handle.thread_state_manager.interrupt();
+/// Interrupts the thread. Note, this will _not_ interrupt any native code
+/// that is potentially running in the thread, and will attempt to block
+/// at the next bytecode instruction that is running.
+#[steel_derive::function(name = "thread-interrupt")]
+pub(crate) fn thread_interrupt(handle: &SteelVal) -> Result<SteelVal> {
+    ThreadHandle::as_mut_ref(handle)?
+        .thread_state_manager
+        .interrupt();
+    Ok(SteelVal::Void)
 }
 
 thread_local! {
@@ -522,6 +574,8 @@ impl SteelReceiver {
 }
 
 // See... if this works...?
+
+#[steel_derive::context(name = "spawn-native-thread", arity = "Exact(2)")]
 pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let thread_time = std::time::Instant::now();
     let mut thread = ctx.thread.clone();
@@ -630,6 +684,54 @@ impl Custom for std::thread::ThreadId {
     }
 }
 
+pub struct ThreadLocalStorage(usize);
+impl crate::rvals::Custom for ThreadLocalStorage {}
+
+/// Creates a thread local storage slot. These slots are static, and will _not_ be reclaimed.
+///
+/// When spawning a new thread, the value inside will be shared into that slot, however
+/// future updates to the slot will be local to that thread.
+#[steel_derive::context(name = "make-tls", arity = "Exact(0)")]
+pub(crate) fn make_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    let index = ctx.thread.thread_local_storage.len();
+    ctx.thread.thread_local_storage.push(args[0].clone());
+    Some(ThreadLocalStorage(index).into_steelval())
+}
+
+/// Get the value out of the thread local storage slot.
+#[steel_derive::context(name = "get-tls", arity = "Exact(1)")]
+pub(crate) fn get_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    if let SteelVal::Custom(c) = &args[0] {
+        if let Some(tls_index) = as_underlying_type::<ThreadLocalStorage>(c.read().as_ref()) {
+            ctx.thread
+                .thread_local_storage
+                .get(tls_index.0)
+                .map(|x| Ok(x.clone()))
+        } else {
+            todo!()
+        }
+    } else {
+        todo!()
+    }
+}
+
+/// Set the value in the the thread local storage. Only this thread will see the updates associated
+/// with this TLS.
+#[steel_derive::context(name = "set-tls!", arity = "Exact(2)")]
+pub(crate) fn set_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    if let SteelVal::Custom(c) = &args[0] {
+        if let Some(tls_index) = as_underlying_type::<ThreadLocalStorage>(c.read().as_ref()) {
+            ctx.thread.thread_local_storage[tls_index.0] = args[1].clone();
+
+            Some(Ok(SteelVal::Void))
+        } else {
+            todo!()
+        }
+    } else {
+        todo!()
+    }
+}
+
 // TODO: Document these
 pub fn threading_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/threads");
@@ -639,18 +741,18 @@ pub fn threading_module() -> BuiltInModule {
             "spawn-thread!",
             SteelVal::BuiltIn(crate::steel_vm::vm::spawn_thread),
         )
-        .register_value(
-            "spawn-native-thread",
-            SteelVal::BuiltIn(crate::steel_vm::vm::spawn_native_thread),
-        )
-        .register_fn("thread-join!", crate::steel_vm::vm::thread_join)
-        .register_fn("thread-interrupt", thread_interrupt)
-        .register_fn("thread-suspend", thread_suspend)
-        .register_fn("thread-resume", thread_resume)
-        .register_fn("thread-finished?", ThreadHandle::is_finished)
-        .register_fn("mutex", SteelMutex::new)
-        .register_fn("lock-acquire!", SteelMutex::lock)
-        .register_fn("lock-release!", SteelMutex::unlock)
+        .register_native_fn_definition(SPAWN_NATIVE_THREAD_DEFINITION)
+        .register_native_fn_definition(THREAD_JOIN_DEFINITION)
+        .register_native_fn_definition(THREAD_INTERRUPT_DEFINITION)
+        .register_native_fn_definition(THREAD_SUSPEND_DEFINITION)
+        .register_native_fn_definition(THREAD_RESUME_DEFINITION)
+        .register_native_fn_definition(THREAD_FINISHED_DEFINITION)
+        .register_native_fn_definition(NEW_MUTEX_DEFINITION)
+        .register_native_fn_definition(MUTEX_LOCK_DEFINITION)
+        .register_native_fn_definition(MUTEX_UNLOCK_DEFINITION)
+        .register_native_fn_definition(MAKE_TLS_DEFINITION)
+        .register_native_fn_definition(SET_TLS_DEFINITION)
+        .register_native_fn_definition(GET_TLS_DEFINITION)
         .register_fn("channels/new", Channels::new)
         .register_fn("channels-sender", Channels::sender)
         .register_fn("channels-receiver", Channels::receiver)
