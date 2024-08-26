@@ -28,8 +28,9 @@ use crate::{
         vectors::{
             immutable_vectors_module, IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION,
             MAKE_VECTOR_DEFINITION, MUTABLE_VECTOR_CLEAR_DEFINITION, MUTABLE_VECTOR_POP_DEFINITION,
-            MUTABLE_VECTOR_TO_LIST_DEFINITION, MUT_VEC_CONSTRUCT_DEFINITION,
-            MUT_VEC_LENGTH_DEFINITION, MUT_VEC_SET_DEFINITION, VEC_LENGTH_DEFINITION,
+            MUTABLE_VECTOR_TO_STRING_DEFINITION, MUT_VEC_CONSTRUCT_DEFINITION,
+            MUT_VEC_LENGTH_DEFINITION, MUT_VEC_SET_DEFINITION, MUT_VEC_TO_LIST_DEFINITION,
+            VEC_LENGTH_DEFINITION,
         },
         ControlOperations, IoFunctions, MetaOperations, NumOperations, StreamOperations,
         SymbolOperations, VectorOperations,
@@ -769,7 +770,7 @@ fn vector_module() -> BuiltInModule {
     module
         .register_native_fn_definition(MUT_VEC_CONSTRUCT_DEFINITION)
         .register_native_fn_definition(MAKE_VECTOR_DEFINITION)
-        .register_native_fn_definition(MUTABLE_VECTOR_TO_LIST_DEFINITION)
+        .register_native_fn_definition(MUT_VEC_TO_LIST_DEFINITION)
         .register_value("vector-push!", VectorOperations::mut_vec_push())
         .register_native_fn_definition(MUT_VEC_LENGTH_DEFINITION)
         .register_native_fn_definition(VEC_LENGTH_DEFINITION)
@@ -787,7 +788,7 @@ fn vector_module() -> BuiltInModule {
         .register_value("vec-append", VectorOperations::vec_append())
         .register_value("vector-ref", VectorOperations::vec_ref())
         .register_native_fn_definition(MUTABLE_VECTOR_CLEAR_DEFINITION)
-        .register_native_fn_definition(MUTABLE_VECTOR_TO_LIST_DEFINITION)
+        .register_native_fn_definition(MUTABLE_VECTOR_TO_STRING_DEFINITION)
         .register_native_fn_definition(MUTABLE_VECTOR_POP_DEFINITION);
     module
 }

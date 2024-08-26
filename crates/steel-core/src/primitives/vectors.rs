@@ -358,7 +358,7 @@ fn mutable_vector_clear(vec: &HeapRef<Vec<SteelVal>>) {
 }
 
 #[steel_derive::function(name = "mutable-vector->string")]
-fn mutable_vector_to_list(vec: &HeapRef<Vec<SteelVal>>) -> Result<SteelVal> {
+fn mutable_vector_to_string(vec: &HeapRef<Vec<SteelVal>>) -> Result<SteelVal> {
     let guard = vec.strong_ptr();
     let mut buf = String::new();
 
