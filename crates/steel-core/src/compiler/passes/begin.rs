@@ -1,5 +1,5 @@
 use steel_parser::{
-    ast::{Define, If, Let, Macro, Quote, Require, Return, SyntaxRules},
+    ast::{Define, If, Let, Macro, Quote, Require, Return, SyntaxRules, Vector},
     tokens::IntLiteral,
 };
 
@@ -92,6 +92,7 @@ impl VisitorMutRef for CheckDefinesAreInLegalPositions {
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 
@@ -139,6 +140,19 @@ impl VisitorMutRef for CheckDefinesAreInLegalPositions {
 
     #[inline]
     fn visit_require(&mut self, _s: &mut Require) -> Self::Output {
+        Ok(())
+    }
+
+    #[inline]
+    fn visit_vector(&mut self, v: &mut Vector) -> Self::Output {
+        if v.bytes {
+            return Ok(());
+        }
+
+        for arg in &mut v.args {
+            self.visit(arg)?;
+        }
+
         Ok(())
     }
 }
@@ -195,6 +209,7 @@ impl VisitorMutRefUnit for FlattenBegin {
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 }

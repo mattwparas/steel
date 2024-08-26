@@ -91,6 +91,27 @@ pub enum Paren {
     Curly,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ParenMod {
+    Vector,
+    Bytes,
+}
+
+impl ParenMod {
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            ParenMod::Vector => "#",
+            ParenMod::Bytes => "#u8",
+        }
+    }
+}
+
+impl Display for ParenMod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.as_str().fmt(f)
+    }
+}
+
 impl Paren {
     pub fn open(&self) -> char {
         match self {
@@ -113,7 +134,7 @@ impl Paren {
 // need to make sure that we can handle cases like "#\SPACE" or "#\a" but not "#\applesauce"
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TokenType<S> {
-    OpenParen(Paren),
+    OpenParen(Paren, Option<ParenMod>),
     CloseParen(Paren),
     QuoteTick,
     QuasiQuote,
@@ -323,11 +344,23 @@ impl From<BigInt> for IntLiteral {
 }
 
 impl<'a> TokenType<&'a str> {
+    pub fn open_span(mut span: Span, paren_mod: Option<ParenMod>) -> Span {
+        let offset = match paren_mod {
+            Some(ParenMod::Vector) => 1,
+            Some(ParenMod::Bytes) => 3,
+            None => 0,
+        };
+
+        span.start += offset;
+
+        span
+    }
+
     pub fn to_owned<T: From<&'a str>>(self) -> TokenType<T> {
         match self {
             TokenType::Identifier(i) => TokenType::Identifier(i.into()),
             TokenType::Keyword(i) => TokenType::Keyword(i.into()),
-            OpenParen(p) => OpenParen(p),
+            OpenParen(p, m) => OpenParen(p, m),
             CloseParen(p) => CloseParen(p),
             CharacterLiteral(x) => CharacterLiteral(x),
             BooleanLiteral(x) => BooleanLiteral(x),
@@ -364,7 +397,7 @@ impl<'a> TokenType<&'a str> {
         match self {
             TokenType::Identifier(i) => TokenType::Identifier(func(i)),
             TokenType::Keyword(i) => TokenType::Keyword(func(i)),
-            OpenParen(p) => OpenParen(p),
+            OpenParen(p, m) => OpenParen(p, m),
             CloseParen(p) => CloseParen(p),
             CharacterLiteral(x) => CharacterLiteral(x),
             BooleanLiteral(x) => BooleanLiteral(x),
@@ -417,7 +450,13 @@ fn character_special_display(c: char, f: &mut fmt::Formatter) -> fmt::Result {
 impl<T: Display> fmt::Display for TokenType<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            OpenParen(p) => write!(f, "{}", p.open()),
+            OpenParen(p, m) => {
+                if let Some(m) = m {
+                    m.fmt(f)?;
+                }
+
+                write!(f, "{}", p.open())
+            }
             CloseParen(p) => write!(f, "{}", p.close()),
             CharacterLiteral(x) => character_special_display(*x, f),
             BooleanLiteral(x) => write!(f, "#{x}"),

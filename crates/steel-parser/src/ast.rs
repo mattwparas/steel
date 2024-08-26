@@ -1,6 +1,6 @@
 use crate::{
     parser::{ParseError, SyntaxObject},
-    tokens::TokenType::{self},
+    tokens::{NumberLiteral, ParenMod, RealLiteral, TokenType},
 };
 
 use std::{convert::TryFrom, fmt::Write};
@@ -121,6 +121,7 @@ pub enum ExprKind {
     List(List),
     Set(Box<Set>),
     Require(Box<Require>),
+    Vector(Vector),
 }
 
 impl Default for ExprKind {
@@ -137,6 +138,7 @@ fn check_size() {
     println!("List: {}", std::mem::size_of::<List>());
     println!("Atom: {}", std::mem::size_of::<Atom>());
     println!("Require: {}", std::mem::size_of::<Require>());
+    println!("Vector: {}", std::mem::size_of::<Vector>());
 }
 
 #[macro_export]
@@ -170,6 +172,7 @@ impl ExprKind {
             ExprKind::List(expr) => Some(expr.location),
             ExprKind::Set(expr) => Some(expr.location.span),
             ExprKind::Require(expr) => Some(expr.location.span),
+            ExprKind::Vector(vec) => Some(vec.span),
         }
     }
 
@@ -430,6 +433,7 @@ impl ToDoc for ExprKind {
             ExprKind::List(l) => l.to_doc(),
             ExprKind::Set(s) => s.to_doc(),
             ExprKind::Require(r) => r.to_doc(),
+            ExprKind::Vector(v) => v.to_doc(),
         }
     }
 }
@@ -458,6 +462,7 @@ impl fmt::Display for ExprKind {
             ExprKind::List(l) => write!(f, "{l}"),
             ExprKind::Set(s) => write!(f, "{s}"),
             ExprKind::Require(r) => write!(f, "{r}"),
+            ExprKind::Vector(v) => write!(f, "{v}"),
         }
     }
 }
@@ -485,6 +490,21 @@ impl Atom {
             Some(ident)
         } else {
             None
+        }
+    }
+
+    pub fn byte(&self) -> Option<u8> {
+        // TODO: accept more literals e.g. `3+0i`, `3/3`, etc.
+        let TokenType::Number(number) = &self.syn.ty else {
+            return None;
+        };
+
+        match &**number {
+            NumberLiteral::Real(RealLiteral::Int(int)) => match int {
+                IntLiteral::Small(int) => u8::try_from(*int).ok(),
+                IntLiteral::Big(bigint) => u8::try_from(&**bigint).ok(),
+            },
+            _ => None,
         }
     }
 }
@@ -974,6 +994,60 @@ impl fmt::Display for Require {
 impl From<Require> for ExprKind {
     fn from(val: Require) -> Self {
         ExprKind::Require(Box::new(val))
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Vector {
+    pub args: Vec<ExprKind>,
+    pub bytes: bool,
+    pub span: Span,
+}
+
+impl Vector {
+    fn prefix(&self) -> ParenMod {
+        if self.bytes {
+            ParenMod::Bytes
+        } else {
+            ParenMod::Vector
+        }
+    }
+}
+
+impl fmt::Display for Vector {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}(", self.prefix())?;
+
+        if let Some((first, rest)) = self.args.split_first() {
+            write!(f, "{first}")?;
+
+            for arg in rest {
+                write!(f, " {arg}")?;
+            }
+        }
+
+        write!(f, ")")
+    }
+}
+
+impl ToDoc for Vector {
+    fn to_doc(&self) -> RcDoc<()> {
+        RcDoc::text(self.prefix().as_str())
+            .append("(")
+            .append(
+                RcDoc::intersperse(self.args.iter().map(ToDoc::to_doc), RcDoc::line())
+                    .nest(1)
+                    .group(),
+            )
+            .append(RcDoc::text(")"))
+            .nest(2)
+            .group()
+    }
+}
+
+impl From<Vector> for ExprKind {
+    fn from(value: Vector) -> Self {
+        ExprKind::Vector(value)
     }
 }
 

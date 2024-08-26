@@ -289,23 +289,24 @@ pub fn list_to_bytes(value: Vec<u8>) -> Result<SteelVal> {
     Ok(SteelVal::ByteVector(SteelByteVector::new(value)))
 }
 
-/// Append two byte vectors into a new bytevector.
+/// Append multiple byte vectors into a new bytevector.
 ///
 /// # Examples
 /// ```scheme
-/// (bytes-append (bytes 0 1 2) (bytes 3 4 5)) ;; => (bytes 0 1 2 3 4 5)
+/// (bytes-append #u8(0 1 2) #u8(3 4 5)) ;; => #u8(#x00 #x01 #x02 #x03 #x04 #x05)
+///
+/// (bytes-append #u8(0) #u8(1) #u8() #u8(2)) ;; => #u8(#x00 #x01 #x02)
 /// ```
 #[function(name = "bytes-append")]
-pub fn bytes_append(value: &SteelByteVector, other: &SteelByteVector) -> Result<SteelVal> {
-    Ok(SteelVal::ByteVector(SteelByteVector::new(
-        value
-            .vec
-            .read()
-            .iter()
-            .chain(other.vec.read().iter())
-            .copied()
-            .collect(),
-    )))
+pub fn bytes_append(mut rest: RestArgsIter<'_, &SteelByteVector>) -> Result<SteelVal> {
+    let mut vector = vec![];
+
+    while let Some(bytes) = rest.next().transpose()? {
+        let borrow = (&*bytes.vec).read();
+        vector.extend(&*borrow);
+    }
+
+    Ok(SteelVal::ByteVector(SteelByteVector::new(vector)))
 }
 
 /// Decodes a string from a bytevector containing valid UTF-8.

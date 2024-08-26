@@ -169,6 +169,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     let engine = Rc::new(RefCell::new(vm));
     rl.set_helper(Some(RustylineHelper::new(engine.clone())));
 
+    #[cfg(feature = "interrupt")]
     {
         let safepoint = safepoint.clone();
 

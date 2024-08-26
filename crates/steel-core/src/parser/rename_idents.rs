@@ -397,6 +397,16 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
 
         self.visit(&mut l.body_expr);
     }
+
+    fn visit_vector(&mut self, v: &mut super::ast::Vector) -> Self::Output {
+        if v.bytes {
+            return;
+        }
+
+        for arg in &mut v.args {
+            self.visit(arg);
+        }
+    }
 }
 
 #[cfg(test)]

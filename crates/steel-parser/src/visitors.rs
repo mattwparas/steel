@@ -118,6 +118,14 @@ mod eraser {
 
             self.visit(&mut let_.body_expr);
         }
+
+        fn visit_vector(&mut self, v: &mut Vector) -> Self::Output {
+            v.span = Span::default();
+
+            for arg in &mut v.args {
+                self.visit(arg);
+            }
+        }
     }
 }
 
@@ -139,6 +147,7 @@ pub trait VisitorMut {
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 
@@ -155,6 +164,7 @@ pub trait VisitorMut {
     fn visit_set(&mut self, s: &Set) -> Self::Output;
     fn visit_require(&mut self, s: &Require) -> Self::Output;
     fn visit_let(&mut self, l: &Let) -> Self::Output;
+    fn visit_vector(&mut self, v: &Vector) -> Self::Output;
 }
 
 pub trait Visitor {
@@ -175,6 +185,7 @@ pub trait Visitor {
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 
@@ -191,6 +202,7 @@ pub trait Visitor {
     fn visit_set(&self, s: &Set) -> Self::Output;
     fn visit_require(&self, s: &Require) -> Self::Output;
     fn visit_let(&self, l: &Let) -> Self::Output;
+    fn visit_vector(&self, v: &Vector) -> Self::Output;
 }
 
 pub trait ConsumingVisitor {
@@ -210,6 +222,7 @@ pub trait ConsumingVisitor {
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 
@@ -226,6 +239,7 @@ pub trait ConsumingVisitor {
     fn visit_set(&mut self, s: Box<Set>) -> Self::Output;
     fn visit_require(&mut self, s: Box<Require>) -> Self::Output;
     fn visit_let(&mut self, l: Box<Let>) -> Self::Output;
+    fn visit_vector(&mut self, v: Vector) -> Self::Output;
 }
 
 pub trait ConsumingVisitorRef {
@@ -245,6 +259,7 @@ pub trait ConsumingVisitorRef {
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 
@@ -261,6 +276,7 @@ pub trait ConsumingVisitorRef {
     fn visit_set(&self, s: Box<Set>) -> Self::Output;
     fn visit_require(&self, s: Box<Require>) -> Self::Output;
     fn visit_let(&self, l: Box<Let>) -> Self::Output;
+    fn visit_vector(&self, v: Vector) -> Self::Output;
 }
 
 pub trait VisitorMutRef {
@@ -281,6 +297,7 @@ pub trait VisitorMutRef {
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 
@@ -297,4 +314,5 @@ pub trait VisitorMutRef {
     fn visit_set(&mut self, s: &mut Set) -> Self::Output;
     fn visit_require(&mut self, s: &mut Require) -> Self::Output;
     fn visit_let(&mut self, l: &mut Let) -> Self::Output;
+    fn visit_vector(&mut self, v: &mut Vector) -> Self::Output;
 }

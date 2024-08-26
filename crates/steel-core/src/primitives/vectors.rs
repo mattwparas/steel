@@ -1,13 +1,13 @@
 use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;
-use crate::rvals::{IntoSteelVal, Result, SteelVal};
+use crate::rvals::{IntoSteelVal, RestArgsIter, Result, SteelVal};
 use crate::rvals::{SteelVal::*, SteelVector};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::steel_vm::vm::VmCore;
-use crate::stop;
 use crate::values::closed::HeapRef;
 use crate::values::lists::Pair;
 use crate::values::Vector;
+use crate::{stop, throw};
 
 #[steel_derive::define_module(name = "steel/immutable-vectors")]
 pub fn immutable_vectors_module() -> BuiltInModule {
@@ -20,7 +20,12 @@ pub fn immutable_vectors_module() -> BuiltInModule {
         .register_native_fn_definition(IMMUTABLE_VECTOR_SET_DEFINITION)
         .register_native_fn_definition(IMMUTABLE_VECTOR_DROP_DEFINITION)
         .register_native_fn_definition(IMMUTABLE_VECTOR_TAKE_DEFINITION)
-        .register_native_fn_definition(IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION);
+        .register_native_fn_definition(IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION)
+        .register_native_fn_definition(IMMUTABLE_VECTOR_TO_LIST_DEFINITION)
+        .register_native_fn_definition(IMMUTABLE_VECTOR_TO_STRING_DEFINITION)
+        .register_native_fn_definition(IMMUTABLE_VECTOR_COPY_DEFINITION)
+        .register_native_fn_definition(IMMUTABLE_VECTOR_APPEND_DEFINITION)
+        .register_native_fn_definition(MAKE_IMMUTABLE_VECTOR_DEFINITION);
 
     module
 }
@@ -44,6 +49,87 @@ fn immutable_vector_rest(vector: &mut SteelVal) -> Result<SteelVal> {
             stop!(TypeMismatch => "immutable-vector-rest expected either a mutable or immutable vector, found: {:?}", vector);
         }
     }
+}
+
+#[steel_derive::function(name = "immutable-vector->list")]
+fn immutable_vector_to_list(
+    vector: &SteelVector,
+    rest: RestArgsIter<'_, isize>,
+) -> Result<SteelVal> {
+    let (start, end) = bounds(rest, "immutable-vector->list", 3, vector)?;
+
+    let items = vector.iter().skip(start).take(end - start).cloned();
+
+    Ok(SteelVal::ListV(items.collect()))
+}
+
+#[steel_derive::function(name = "immutable-vector->string")]
+fn immutable_vector_to_string(
+    vector: &SteelVector,
+    rest: RestArgsIter<'_, isize>,
+) -> Result<SteelVal> {
+    let (start, end) = bounds(rest, "immutable-vector->string", 3, vector)?;
+
+    vector.iter()
+        .skip(start)
+        .take(end - start)
+        .map(|x| {
+            x.char_or_else(throw!(TypeMismatch => "immutable-vector->string expected a succession of characters"))
+        })
+        .collect::<Result<String>>()
+        .map(|x| x.into())
+        .map(SteelVal::StringV)
+}
+
+#[steel_derive::function(name = "immutable-vector-copy")]
+fn immutable_vector_copy(vector: &SteelVector, rest: RestArgsIter<'_, isize>) -> Result<SteelVal> {
+    let (start, end) = bounds(rest, "immutable-vector-copy", 3, vector)?;
+
+    let copy: Vector<_> = vector
+        .iter()
+        .skip(start)
+        .cloned()
+        .take(end - start)
+        .collect();
+
+    Ok(SteelVal::VectorV(Gc::new(copy).into()))
+}
+
+#[steel_derive::function(name = "immutable-vector-append")]
+fn immutable_vector_append(mut rest: RestArgsIter<'_, &SteelVector>) -> Result<SteelVal> {
+    let mut vector = Vector::new();
+
+    while let Some(vec) = rest.next().transpose()? {
+        vector.extend(vec.iter().cloned());
+    }
+
+    Ok(SteelVal::VectorV(Gc::new(vector).into()))
+}
+
+#[steel_derive::function(name = "make-immutable-vector")]
+fn make_immutable_vector(mut rest: RestArgsIter<'_, &SteelVal>) -> Result<SteelVal> {
+    if rest.len() > 2 {
+        stop!(ArityMismatch => "make-immutable-vector expects at most 2 arguments");
+    }
+
+    let len = match rest.next().transpose()? {
+        None => 0,
+        Some(SteelVal::IntV(int)) => *int,
+        _ => stop!(ContractViolation => "length should be an integer"),
+    };
+
+    if len < 0 {
+        stop!(ContractViolation => "length should be non-negative");
+    }
+
+    let fill = rest.next().transpose()?.unwrap_or(&SteelVal::Void);
+
+    let vector: Vector<_> = std::iter::repeat(())
+        .map(|_| fill.clone())
+        .take(len as usize)
+        .collect();
+
+    Ok(SteelVal::VectorV(Gc::new(vector).into()))
 }
 
 /// Pushes a value to the back of the vector, returning a new vector.
@@ -436,7 +522,7 @@ impl VectorOperations {
                         .append(&mut right.strong_ptr().write().value);
                     Ok(SteelVal::Void)
                 } else {
-                    stop!(TypeMismatch => "vetor-append! expects a vector in the second position, found: {:?}", other_vec);
+                    stop!(TypeMismatch => "vector-append! expects a vector in the second position, found: {:?}", other_vec);
                 }
             } else {
                 stop!(TypeMismatch => "vector-append! expects a vector in the first position, found: {:?}", vec);
@@ -644,6 +730,37 @@ fn unwrap_single_list(exp: &SteelVal) -> Result<Vector<SteelVal>> {
         SteelVal::VectorV(lst) => Ok(lst.0.unwrap()),
         _ => stop!(TypeMismatch => "expected a list"),
     }
+}
+
+fn bounds(
+    mut rest: RestArgsIter<'_, isize>,
+    name: &str,
+    args: usize,
+    vector: &Vector<SteelVal>,
+) -> Result<(usize, usize)> {
+    if rest.len() > 2 {
+        stop!(ArityMismatch => "{} expects at most {} arguments", name, args);
+    }
+
+    let start = rest.next().transpose()?.unwrap_or(0);
+    let end = rest.next().transpose()?.unwrap_or(vector.len() as isize);
+
+    if start < 0 || end < 0 {
+        stop!(ContractViolation => "start and end must be non-negative");
+    }
+
+    let start = start as usize;
+    let end = end as usize;
+
+    if end > vector.len() {
+        stop!(ContractViolation => "end bound is out of range");
+    }
+
+    if start > end {
+        stop!(ContractViolation => "start bound cannot be greater than end bound");
+    }
+
+    Ok((start, end))
 }
 
 #[cfg(test)]

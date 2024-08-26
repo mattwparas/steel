@@ -510,6 +510,7 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 
@@ -669,6 +670,18 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
         // l.body_expr = self.visit(l.body_expr)?;
 
         self.visit(&mut l.body_expr)?;
+
+        Ok(())
+    }
+
+    fn visit_vector(&mut self, v: &mut super::ast::Vector) -> Self::Output {
+        if v.bytes {
+            return Ok(());
+        }
+
+        for arg in &mut v.args {
+            self.visit(arg)?;
+        }
 
         Ok(())
     }

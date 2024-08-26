@@ -6,6 +6,8 @@ pub mod shadow;
 
 use std::ops::ControlFlow;
 
+use steel_parser::ast::Vector;
+
 use crate::parser::ast::ExprKind;
 // use crate::parser::ast::*;
 
@@ -39,6 +41,7 @@ pub trait Folder {
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 
@@ -126,6 +129,15 @@ pub trait Folder {
     fn visit_require(&mut self, s: Box<Require>) -> ExprKind {
         ExprKind::Require(s)
     }
+
+    #[inline]
+    fn visit_vector(&mut self, mut v: Vector) -> ExprKind {
+        let args: Vec<_> = v.args.into_iter().map(|exp| self.visit(exp)).collect();
+
+        v.args = args;
+
+        ExprKind::Vector(v)
+    }
 }
 
 pub trait VisitorMutUnit {
@@ -144,6 +156,7 @@ pub trait VisitorMutUnit {
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 
@@ -211,6 +224,13 @@ pub trait VisitorMutUnit {
 
     #[inline]
     fn visit_require(&mut self, _s: &Require) {}
+
+    #[inline]
+    fn visit_vector(&mut self, v: &Vector) {
+        for arg in &v.args {
+            self.visit(arg);
+        }
+    }
 }
 
 pub trait VisitorMutControlFlow {
@@ -229,6 +249,7 @@ pub trait VisitorMutControlFlow {
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 
@@ -325,6 +346,14 @@ pub trait VisitorMutControlFlow {
     fn visit_require(&mut self, _s: &Require) -> ControlFlow<()> {
         ControlFlow::Continue(())
     }
+
+    fn visit_vector(&mut self, v: &Vector) -> ControlFlow<()> {
+        for arg in &v.args {
+            self.visit(arg)?;
+        }
+
+        ControlFlow::Continue(())
+    }
 }
 
 pub trait VisitorMutUnitRef<'a> {
@@ -343,6 +372,7 @@ pub trait VisitorMutUnitRef<'a> {
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 
@@ -417,6 +447,13 @@ pub trait VisitorMutUnitRef<'a> {
 
     #[inline]
     fn visit_require(&mut self, _s: &'a Require) {}
+
+    #[inline]
+    fn visit_vector(&mut self, v: &'a Vector) {
+        for arg in &v.args {
+            self.visit(arg);
+        }
+    }
 }
 
 pub trait VisitorMutRefUnit {
@@ -435,6 +472,7 @@ pub trait VisitorMutRefUnit {
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 
@@ -506,4 +544,10 @@ pub trait VisitorMutRefUnit {
 
     #[inline]
     fn visit_require(&mut self, _s: &mut Require) {}
+
+    fn visit_vector(&mut self, v: &mut Vector) {
+        for arg in &mut v.args {
+            self.visit(arg);
+        }
+    }
 }
