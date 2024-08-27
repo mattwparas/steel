@@ -1055,18 +1055,33 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
     // Build module
     let mut module = BuiltInModule::new("steel/core/option".to_string());
 
-    VTable::set_entry(
-        &SOME_DESCRIPTOR.with(|x| *x),
-        None,
-        STANDARD_OPTIONS.with(|x| x.clone()),
-    );
+    if cfg!(feature = "sync") {
+        VTable::set_entry(
+            &STATIC_SOME_DESCRIPTOR,
+            None,
+            STANDARD_OPTIONS.with(|x| x.clone()),
+        );
 
-    VTable::set_entry(
-        &NONE_DESCRIPTOR.with(|x| *x),
-        None,
-        STANDARD_OPTIONS.with(|x| x.clone()),
-    );
+        VTable::set_entry(
+            &STATIC_NONE_DESCRIPTOR,
+            None,
+            STANDARD_OPTIONS.with(|x| x.clone()),
+        );
+    } else {
+        VTable::set_entry(
+            &SOME_DESCRIPTOR.with(|x| *x),
+            None,
+            STANDARD_OPTIONS.with(|x| x.clone()),
+        );
 
+        VTable::set_entry(
+            &NONE_DESCRIPTOR.with(|x| *x),
+            None,
+            STANDARD_OPTIONS.with(|x| x.clone()),
+        );
+    }
+
+    #[cfg(not(feature = "sync"))]
     {
         // let name = SOME_OPTION_LABEL.with(|x| Rc::clone(x));
         let name = *SOME_OPTION_LABEL;
@@ -1093,6 +1108,34 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
             .register_value("Some->value", getter);
     }
 
+    #[cfg(feature = "sync")]
+    {
+        // let name = SOME_OPTION_LABEL.with(|x| Rc::clone(x));
+        let name = *SOME_OPTION_LABEL;
+        let type_descriptor = *STATIC_SOME_DESCRIPTOR;
+
+        // Build the getter for the first index
+        let getter = UserDefinedStruct::getter_prototype_index(type_descriptor, 0);
+        let predicate = UserDefinedStruct::predicate(type_descriptor);
+
+        module
+            .register_value(
+                "Some",
+                SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
+                    Arc::new(UserDefinedStruct::constructor_thunk(
+                        // Rc::clone(&name),
+                        1,
+                        *STATIC_SOME_DESCRIPTOR,
+                    )),
+                    Some(name.resolve().to_string().into()),
+                    Some(1),
+                ))),
+            )
+            .register_value("Some?", predicate)
+            .register_value("Some->value", getter);
+    }
+
+    #[cfg(not(feature = "sync"))]
     {
         // let name = NONE_LABEL.with(|x| Rc::clone(x));
         let name = *NONE_OPTION_LABEL;
@@ -1106,6 +1149,28 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
                     Arc::new(UserDefinedStruct::constructor_thunk(
                         0,
                         NONE_DESCRIPTOR.with(|x| *x),
+                    )),
+                    Some(name.resolve().to_string().into()),
+                    Some(0),
+                ))),
+            )
+            .register_value("None?", predicate);
+    }
+
+    #[cfg(feature = "sync")]
+    {
+        // let name = NONE_LABEL.with(|x| Rc::clone(x));
+        let name = *NONE_OPTION_LABEL;
+        let type_descriptor = *STATIC_NONE_DESCRIPTOR;
+        let predicate = UserDefinedStruct::predicate(type_descriptor);
+
+        module
+            .register_value(
+                "None",
+                SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
+                    Arc::new(UserDefinedStruct::constructor_thunk(
+                        0,
+                        *STATIC_NONE_DESCRIPTOR,
                     )),
                     Some(name.resolve().to_string().into()),
                     Some(0),

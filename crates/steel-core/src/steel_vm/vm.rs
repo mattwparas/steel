@@ -1613,9 +1613,10 @@ impl<'a> VmCore<'a> {
                 res = Err(e);
                 break;
             } else {
-                for frame in &self.thread.stack_frames {
-                    Continuation::close_marks(&self, &frame);
-                }
+                // TODO: Do we need to close frames here?
+                // for frame in &self.thread.stack_frames {
+                //     Continuation::close_marks(&self, &frame);
+                // }
 
                 // self.thread.stack.clear();
 
