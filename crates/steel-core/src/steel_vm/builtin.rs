@@ -17,6 +17,7 @@ use crate::{
 };
 use fxhash::FxBuildHasher;
 use once_cell::sync::Lazy;
+use parking_lot::RwLock;
 
 use super::vm::BuiltInSignature;
 
@@ -41,18 +42,18 @@ use super::vm::BuiltInSignature;
 ///
 /// TODO: @Matt - We run the risk of running into memory leaks here when exposing external mutable
 /// structs. This should be more properly documented.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct BuiltInModule {
     module: SharedMut<BuiltInModuleRepr>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct BuiltInModuleRepr {
     pub(crate) name: Shared<str>,
     values: HashMap<Arc<str>, SteelVal, FxBuildHasher>,
     docs: Box<InternalDocumentation>,
     // Add the metadata separate from the pointer, keeps the pointer slim
-    fn_ptr_table: HashMap<BuiltInFunctionTypePointer, FunctionSignatureMetadata>,
+    fn_ptr_table: HashMap<BuiltInFunctionType, FunctionSignatureMetadata>,
     // We don't need to generate this every time, just need to
     // clone it?
     generated_expression: SharedMut<Option<ExprKind>>,
@@ -128,41 +129,42 @@ pub static VOID_MODULE: Lazy<InternedString> =
 
 // Global function table
 thread_local! {
-    pub static FUNCTION_TABLE: RefCell<HashMap<BuiltInFunctionTypePointer, FunctionSignatureMetadata>> = RefCell::new(HashMap::new());
+    pub static FUNCTION_TABLE: RefCell<HashMap<BuiltInFunctionType, FunctionSignatureMetadata>> = RefCell::new(HashMap::new());
 }
+
+pub static STATIC_FUNCTION_TABLE: Lazy<
+    RwLock<HashMap<BuiltInFunctionType, FunctionSignatureMetadata>>,
+> = Lazy::new(|| RwLock::new(HashMap::new()));
 
 pub fn get_function_name(function: FunctionSignature) -> Option<FunctionSignatureMetadata> {
-    FUNCTION_TABLE.with(|x| {
-        x.borrow()
-            .get(&BuiltInFunctionTypePointer::Reference(
-                function as *const FunctionSignature,
-            ))
+    if cfg!(feature = "sync") {
+        STATIC_FUNCTION_TABLE
+            .read()
+            .get(&BuiltInFunctionType::Reference(function))
             .cloned()
-    })
+    } else {
+        FUNCTION_TABLE.with(|x| {
+            x.borrow()
+                .get(&BuiltInFunctionType::Reference(function))
+                .cloned()
+        })
+    }
 }
 
-pub fn get_function_metadata(
-    function: BuiltInFunctionTypePointer,
-) -> Option<FunctionSignatureMetadata> {
-    FUNCTION_TABLE.with(|x| x.borrow().get(&function).cloned())
+pub fn get_function_metadata(function: BuiltInFunctionType) -> Option<FunctionSignatureMetadata> {
+    if cfg!(feature = "sync") {
+        STATIC_FUNCTION_TABLE.read().get(&function).cloned()
+    } else {
+        FUNCTION_TABLE.with(|x| x.borrow().get(&function).cloned())
+    }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq)]
 pub enum BuiltInFunctionType {
     Reference(FunctionSignature),
     Mutable(MutFunctionSignature),
     Context(BuiltInSignature),
 }
-
-#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
-pub enum BuiltInFunctionTypePointer {
-    Reference(*const FunctionSignature),
-    Mutable(*const MutFunctionSignature),
-    Context(*const BuiltInSignature),
-}
-
-unsafe impl Send for BuiltInFunctionTypePointer {}
-unsafe impl Sync for BuiltInFunctionTypePointer {}
 
 pub struct NativeFunctionDefinition {
     pub name: &'static str,
@@ -196,45 +198,56 @@ impl BuiltInModuleRepr {
     ) -> &mut Self {
         match value {
             BuiltInFunctionType::Reference(value) => {
-                // Store this in a globally accessible place for printing
-                FUNCTION_TABLE.with(|table| {
-                    table.borrow_mut().insert(
-                        BuiltInFunctionTypePointer::Reference(value as *const FunctionSignature),
-                        data.clone(),
-                    )
-                });
+                if cfg!(feature = "sync") {
+                    STATIC_FUNCTION_TABLE
+                        .write()
+                        .insert(BuiltInFunctionType::Reference(value), data.clone());
+                } else {
+                    // Store this in a globally accessible place for printing
+                    FUNCTION_TABLE.with(|table| {
+                        table
+                            .borrow_mut()
+                            .insert(BuiltInFunctionType::Reference(value), data.clone())
+                    });
+                }
 
                 // Probably don't need to store it in both places?
-                self.fn_ptr_table.insert(
-                    BuiltInFunctionTypePointer::Reference(value as *const FunctionSignature),
-                    data,
-                );
+                self.fn_ptr_table
+                    .insert(BuiltInFunctionType::Reference(value), data);
             }
 
             BuiltInFunctionType::Mutable(value) => {
-                FUNCTION_TABLE.with(|table| {
-                    table.borrow_mut().insert(
-                        BuiltInFunctionTypePointer::Mutable(value as *const MutFunctionSignature),
-                        data.clone(),
-                    )
-                });
+                if cfg!(feature = "sync") {
+                    STATIC_FUNCTION_TABLE
+                        .write()
+                        .insert(BuiltInFunctionType::Mutable(value), data.clone());
+                } else {
+                    FUNCTION_TABLE.with(|table| {
+                        table
+                            .borrow_mut()
+                            .insert(BuiltInFunctionType::Mutable(value), data.clone())
+                    });
+                }
 
-                self.fn_ptr_table.insert(
-                    BuiltInFunctionTypePointer::Mutable(value as *const MutFunctionSignature),
-                    data,
-                );
+                self.fn_ptr_table
+                    .insert(BuiltInFunctionType::Mutable(value), data);
             }
 
             BuiltInFunctionType::Context(value) => {
-                FUNCTION_TABLE.with(|table| {
-                    table.borrow_mut().insert(
-                        BuiltInFunctionTypePointer::Context(value as *const _),
-                        data.clone(),
-                    )
-                });
+                if cfg!(feature = "sync") {
+                    STATIC_FUNCTION_TABLE
+                        .write()
+                        .insert(BuiltInFunctionType::Context(value), data.clone());
+                } else {
+                    FUNCTION_TABLE.with(|table| {
+                        table
+                            .borrow_mut()
+                            .insert(BuiltInFunctionType::Context(value), data.clone())
+                    });
+                }
 
                 self.fn_ptr_table
-                    .insert(BuiltInFunctionTypePointer::Context(value as *const _), data);
+                    .insert(BuiltInFunctionType::Context(value), data);
             }
         }
 
@@ -249,15 +262,11 @@ impl BuiltInModuleRepr {
         match value {
             SteelVal::FuncV(f) => self
                 .fn_ptr_table
-                .get(&BuiltInFunctionTypePointer::Reference(
-                    f as *const FunctionSignature,
-                ))
+                .get(&BuiltInFunctionType::Reference(f))
                 .cloned(),
             SteelVal::MutFunc(f) => self
                 .fn_ptr_table
-                .get(&BuiltInFunctionTypePointer::Mutable(
-                    f as *const MutFunctionSignature,
-                ))
+                .get(&BuiltInFunctionType::Mutable(f))
                 .cloned(),
             _ => None,
         }

@@ -2760,8 +2760,8 @@ impl<'a> ModuleBuilder<'a> {
                 }
             }
 
-            _ => {
-                stop!(Generic => "require object expected a string literal referring to a file/module"; opt atom.span())
+            unknown => {
+                stop!(Generic => format!("require object expected a string literal referring to a file/module, found: {}", unknown); opt atom.span())
             }
         }
 

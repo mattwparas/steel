@@ -1344,10 +1344,6 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
     }
 }
 
-thread_local! {
-    static FFI_ARGUMENT_VEC: RefCell<RVec<FFIArg<'static>>> = RefCell::new(RVec::new());
-}
-
 impl FFIBoxedDynFunction {
     fn as_boxed_dyn_function(&self) -> BoxedDynFunction {
         let name = self.name.to_string();

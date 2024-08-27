@@ -322,10 +322,8 @@ macro_rules! time {
 }
 
 thread_local! {
+    // TODO: Replace this with a once cell?
     pub(crate) static DEFAULT_PRELUDE_MACROS: RefCell<FxHashMap<InternedString, SteelMacro>> = RefCell::new(HashMap::default());
-
-    pub(crate) static DEFAULT_DOC_MACROS: RefCell<HashMap<InternedString, SteelMacro>> = RefCell::new(
-        HashMap::new());
 }
 
 impl Engine {

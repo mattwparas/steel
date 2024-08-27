@@ -1596,13 +1596,13 @@ impl From<SteelString> for Gc<String> {
 
 impl std::fmt::Display for SteelString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.0.as_str())
     }
 }
 
 impl std::fmt::Debug for SteelString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.0)
+        write!(f, "{:?}", self.0.as_str())
     }
 }
 

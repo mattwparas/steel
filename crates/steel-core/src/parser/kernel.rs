@@ -4,6 +4,7 @@ use std::{
 };
 
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
+use once_cell::sync::Lazy;
 use steel_parser::tokens::TokenType;
 
 use crate::{
@@ -33,12 +34,17 @@ thread_local! {
     pub(crate) static KERNEL_IMAGE: Engine = Engine::new_bootstrap_kernel();
 }
 
+pub static STATIC_KERNEL_IMAGE: Lazy<Engine> = Lazy::new(Engine::new_bootstrap_kernel);
+
 pub(crate) fn fresh_kernel_image() -> Engine {
     // Just deep clone the env coming out
-    let mut engine = KERNEL_IMAGE.with(|x| x.clone());
-    // Deep clone the engine coming out
-    engine.virtual_machine.global_env = engine.virtual_machine.global_env.deep_clone();
-    engine
+    if cfg!(feature = "sync") {
+        let mut engine = STATIC_KERNEL_IMAGE.clone();
+        engine.virtual_machine.global_env = engine.virtual_machine.global_env.deep_clone();
+        engine
+    } else {
+        KERNEL_IMAGE.with(|x| x.clone())
+    }
 }
 
 type TransformerMap = FxHashMap<String, FxHashSet<InternedString>>;

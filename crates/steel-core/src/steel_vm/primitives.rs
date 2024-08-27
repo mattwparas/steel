@@ -1339,11 +1339,11 @@ fn lookup_function_name(value: SteelVal) -> Option<SteelVal> {
         SteelVal::BoxedFunction(f) => f.name().map(|x| x.into_steelval().unwrap()),
         SteelVal::FuncV(f) => get_function_name(f).map(|x| x.name.into_steelval().unwrap()),
         SteelVal::BuiltIn(f) => {
-            get_function_metadata(super::builtin::BuiltInFunctionTypePointer::Context(f as _))
+            get_function_metadata(super::builtin::BuiltInFunctionType::Context(f as _))
                 .map(|x| x.name().into_steelval().unwrap())
         }
         SteelVal::MutFunc(f) => {
-            get_function_metadata(super::builtin::BuiltInFunctionTypePointer::Mutable(f as _))
+            get_function_metadata(super::builtin::BuiltInFunctionType::Mutable(f as _))
                 .map(|x| x.name().into_steelval().unwrap())
         }
         _ => None,
@@ -1354,11 +1354,8 @@ fn lookup_doc(value: SteelVal) -> bool {
     match value {
         // SteelVal::BoxedFunction(f) => ,
         SteelVal::FuncV(f) => {
-            let metadata = get_function_metadata(
-                crate::steel_vm::builtin::BuiltInFunctionTypePointer::Reference(
-                    f as *const FunctionSignature,
-                ),
-            );
+            let metadata =
+                get_function_metadata(crate::steel_vm::builtin::BuiltInFunctionType::Reference(f));
 
             if let Some(data) = metadata.and_then(|x| x.doc) {
                 println!("{}", data);
@@ -1368,11 +1365,8 @@ fn lookup_doc(value: SteelVal) -> bool {
             }
         }
         SteelVal::MutFunc(f) => {
-            let metadata = get_function_metadata(
-                crate::steel_vm::builtin::BuiltInFunctionTypePointer::Mutable(
-                    f as *const MutFunctionSignature,
-                ),
-            );
+            let metadata =
+                get_function_metadata(crate::steel_vm::builtin::BuiltInFunctionType::Mutable(f));
             if let Some(data) = metadata.and_then(|x| x.doc) {
                 println!("{}", data);
                 true
@@ -1381,9 +1375,8 @@ fn lookup_doc(value: SteelVal) -> bool {
             }
         }
         SteelVal::BuiltIn(f) => {
-            let metadata = get_function_metadata(
-                crate::steel_vm::builtin::BuiltInFunctionTypePointer::Context(f as *const _),
-            );
+            let metadata =
+                get_function_metadata(crate::steel_vm::builtin::BuiltInFunctionType::Context(f));
             if let Some(data) = metadata.and_then(|x| x.doc) {
                 println!("{}", data);
                 true
