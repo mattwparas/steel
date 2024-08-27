@@ -31,6 +31,9 @@ thread_local! {
     static BUILT_DYLIBS: Rc<RefCell<HashMap<String, BuiltInModule>>> = Rc::new(RefCell::new(HashMap::new()));
 }
 
+static STATIC_BUILT_DYLIBS: Lazy<Mutex<HashMap<String, BuiltInModule>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
 #[repr(C)]
 #[derive(StableAbi)]
 #[sabi(kind(Prefix(prefix_ref = GenerateModule_Ref)))]
@@ -83,8 +86,21 @@ impl DylibContainers {
 
         #[cfg(feature = "dylibs")]
         {
-            if let Some(module) = BUILT_DYLIBS.with(|x| x.borrow().get(target.as_str()).cloned()) {
-                return Some(module);
+            if cfg!(feature = "sync") {
+                if let Some(module) = STATIC_BUILT_DYLIBS
+                    .lock()
+                    .unwrap()
+                    .get(target.as_str())
+                    .cloned()
+                {
+                    return Some(module);
+                }
+            } else {
+                if let Some(module) =
+                    BUILT_DYLIBS.with(|x| x.borrow().get(target.as_str()).cloned())
+                {
+                    return Some(module);
+                }
             }
 
             let home = steel_home();
@@ -138,10 +154,17 @@ impl DylibContainers {
                                 .expect("dylib failed to load!")
                                 .build();
 
-                        BUILT_DYLIBS.with(|x| {
-                            x.borrow_mut()
-                                .insert(target.to_string(), external_module.clone())
-                        });
+                        if cfg!(feature = "sync") {
+                            STATIC_BUILT_DYLIBS
+                                .lock()
+                                .unwrap()
+                                .insert(target.to_string(), external_module.clone());
+                        } else {
+                            BUILT_DYLIBS.with(|x| {
+                                x.borrow_mut()
+                                    .insert(target.to_string(), external_module.clone())
+                            });
+                        }
 
                         log::info!(target: "dylibs", "Registering dylib: {} - {}", path_name, target);
 
