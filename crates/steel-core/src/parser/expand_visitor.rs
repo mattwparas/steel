@@ -213,6 +213,13 @@ impl<'a> VisitorMutRef for Expander<'a> {
                                 ..
                             },
                     })) => {
+                        // if s.resolve().ends_with("skip-compile") {
+                        //     println!("visiting {}", s.resolve());
+                        // for key in self.map.keys() {
+                        // println!("{}", key.resolve());
+                        // }
+                        // }
+
                         if let Some(m) = self.map.get(s) {
                             // If this macro has been overwritten by any local value, respect
                             // the local binding and do not expand the macro

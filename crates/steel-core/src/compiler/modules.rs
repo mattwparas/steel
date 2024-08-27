@@ -1398,8 +1398,8 @@ impl CompiledModule {
                             //     name_unmangler.unmangle_expr(&mut provide.1);
                             //     // continue;
                             // }
-                            _ => {
-                                stop!(TypeMismatch => "bar provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
+                            unknown => {
+                                stop!(TypeMismatch => "bar provide expects either an identifier, (for-syntax <ident>), or (contract/out ...), found: {}", unknown)
                             }
                         }
                     } else {

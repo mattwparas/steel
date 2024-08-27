@@ -206,12 +206,24 @@ impl UserDefinedStruct {
 
     #[inline(always)]
     fn new_ok<T: IntoSteelVal>(value: T) -> Result<SteelVal> {
-        OK_CONSTRUCTOR.with(|x| x(&[value.into_steelval()?]))
+        if cfg!(feature = "sync") {
+            UserDefinedStruct::constructor_thunk(1, *STATIC_OK_DESCRIPTOR)(
+                &[value.into_steelval()?],
+            )
+        } else {
+            OK_CONSTRUCTOR.with(|x| x(&[value.into_steelval()?]))
+        }
     }
 
     #[inline(always)]
     fn new_err<T: IntoSteelVal>(value: T) -> Result<SteelVal> {
-        ERR_CONSTRUCTOR.with(|x| x(&[value.into_steelval()?]))
+        if cfg!(feature = "sync") {
+            UserDefinedStruct::constructor_thunk(1, *STATIC_ERR_DESCRIPTOR)(&[
+                value.into_steelval()?
+            ])
+        } else {
+            ERR_CONSTRUCTOR.with(|x| x(&[value.into_steelval()?]))
+        }
     }
 
     // TODO: This doesn't particularly play nice with dynamic libraries. Should probably just assign some IDs
@@ -774,6 +786,15 @@ pub static STATIC_MUTABLE_KEY: Lazy<SteelVal> =
 pub static STATIC_FIELDS_KEY: Lazy<SteelVal> =
     Lazy::new(|| SteelVal::SymbolV("#:transparent".into()));
 
+pub static STATIC_OK_DESCRIPTOR: Lazy<StructTypeDescriptor> =
+    Lazy::new(|| VTable::new_entry(*OK_RESULT_LABEL, None));
+pub static STATIC_ERR_DESCRIPTOR: Lazy<StructTypeDescriptor> =
+    Lazy::new(|| VTable::new_entry(*ERR_RESULT_LABEL, None));
+pub static STATIC_SOME_DESCRIPTOR: Lazy<StructTypeDescriptor> =
+    Lazy::new(|| VTable::new_entry(*SOME_OPTION_LABEL, None));
+pub static STATIC_NONE_DESCRIPTOR: Lazy<StructTypeDescriptor> =
+    Lazy::new(|| VTable::new_entry(*NONE_OPTION_LABEL, None));
+
 // TODO: Just make these Arc'd and lazy static instead of thread local.
 thread_local! {
 
@@ -893,6 +914,7 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
     // Build module
     let mut module = BuiltInModule::new("steel/core/result".to_string());
 
+    #[cfg(not(feature = "sync"))]
     {
         let name = *OK_RESULT_LABEL;
 
@@ -930,6 +952,45 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
             .register_value("Ok->value", getter);
     }
 
+    #[cfg(feature = "sync")]
+    {
+        let name = *OK_RESULT_LABEL;
+
+        let type_descriptor = *STATIC_OK_DESCRIPTOR;
+
+        // Build the getter for the first index
+        let getter = UserDefinedStruct::getter_prototype_index(type_descriptor, 0);
+        let predicate = UserDefinedStruct::predicate(type_descriptor);
+
+        VTable::set_entry(
+            &STATIC_OK_DESCRIPTOR,
+            None,
+            STANDARD_OPTIONS.with(|x| x.clone()),
+        );
+
+        VTable::set_entry(
+            &STATIC_ERR_DESCRIPTOR,
+            None,
+            STANDARD_OPTIONS.with(|x| x.clone()),
+        );
+
+        module
+            .register_value(
+                "Ok",
+                SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
+                    Arc::new(UserDefinedStruct::constructor_thunk(
+                        1,
+                        *STATIC_OK_DESCRIPTOR,
+                    )),
+                    Some(name.resolve().to_string().into()),
+                    Some(1),
+                ))),
+            )
+            .register_value("Ok?", predicate)
+            .register_value("Ok->value", getter);
+    }
+
+    #[cfg(not(feature = "sync"))]
     {
         // let name = ERR_RESULT_LABEL.with(|x| Rc::clone(x));
         let name = *ERR_RESULT_LABEL;
@@ -949,6 +1010,35 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
                     Arc::new(UserDefinedStruct::constructor_thunk(
                         1,
                         ERR_DESCRIPTOR.with(|x| *x),
+                    )),
+                    Some(name.resolve().to_string().into()),
+                    Some(1),
+                ))),
+            )
+            .register_value("Err?", predicate)
+            .register_value("Err->value", getter);
+    }
+
+    #[cfg(feature = "sync")]
+    {
+        // let name = ERR_RESULT_LABEL.with(|x| Rc::clone(x));
+        let name = *ERR_RESULT_LABEL;
+
+        let type_descriptor = *STATIC_ERR_DESCRIPTOR;
+
+        // let constructor = UserDefinedStruct::constructor(Rc::clone(&name), 1);
+        let predicate = UserDefinedStruct::predicate(type_descriptor);
+
+        // Build the getter for the first index
+        let getter = UserDefinedStruct::getter_prototype_index(type_descriptor, 0);
+
+        module
+            .register_value(
+                "Err",
+                SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
+                    Arc::new(UserDefinedStruct::constructor_thunk(
+                        1,
+                        *STATIC_ERR_DESCRIPTOR,
                     )),
                     Some(name.resolve().to_string().into()),
                     Some(1),
