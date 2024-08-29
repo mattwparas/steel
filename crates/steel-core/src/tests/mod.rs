@@ -33,6 +33,23 @@ macro_rules! test_harness_success {
     };
 }
 
+macro_rules! test_harness_success_sync {
+    ($($file_name:ident),* $(,)?) => {
+        #[cfg(feature = "sync")]
+        #[cfg(test)]
+        mod integration_success_sync {
+            use super::*;
+            $(
+                #[test]
+                fn $file_name() {
+                    let script = include_str!(concat!("success/", stringify!($file_name), ".scm"));
+                    assert_script(script);
+                }
+            )*
+        }
+    };
+}
+
 macro_rules! test_harness_failure {
     ($($file_name:ident),* $(,)?) => {
         #[cfg(test)]
@@ -47,6 +64,10 @@ macro_rules! test_harness_failure {
             )*
         }
     };
+}
+
+test_harness_success_sync! {
+    native_threads
 }
 
 test_harness_success! {

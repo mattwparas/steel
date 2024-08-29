@@ -1654,6 +1654,7 @@ fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
         &ctx.thread.stack,
         ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
         ctx.thread.global_env.roots().as_slice(),
+        &ctx.thread.thread_local_storage,
         &mut ctx.thread.synchronizer,
     );
 

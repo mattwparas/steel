@@ -6,14 +6,18 @@ use crate::stop;
 use crate::values::port::{SteelPort, SteelPortRepr};
 use crate::values::structs::{make_struct_singleton, StructTypeDescriptor};
 
-use once_cell::unsync::Lazy;
 use steel_derive::function;
 
+#[cfg(not(feature = "sync"))]
 thread_local! {
-    static EOF_OBJECT: Lazy<(SteelVal, StructTypeDescriptor)>= Lazy::new(|| {
+    static EOF_OBJECT: once_cell::unsync::Lazy<(SteelVal, StructTypeDescriptor)>= once_cell::unsync::Lazy::new(|| {
         make_struct_singleton("eof".into())
     });
 }
+
+#[cfg(feature = "sync")]
+pub static EOF_OBJECT: once_cell::sync::Lazy<(SteelVal, StructTypeDescriptor)> =
+    once_cell::sync::Lazy::new(|| make_struct_singleton("eof".into()));
 
 pub fn port_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/ports");
@@ -346,7 +350,15 @@ pub fn eof_objectp(value: &SteelVal) -> bool {
         return false;
     };
 
-    EOF_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
+    #[cfg(feature = "sync")]
+    {
+        struct_.type_descriptor == EOF_OBJECT.1
+    }
+
+    #[cfg(not(feature = "sync"))]
+    {
+        EOF_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
+    }
 }
 
 /// Returns an EOF object.
@@ -445,5 +457,13 @@ fn io_args(max: usize, mut args: RestArgsIter<&SteelPort>) -> Result<Option<Stee
 }
 
 pub fn eof() -> SteelVal {
-    EOF_OBJECT.with(|eof| eof.0.clone())
+    #[cfg(feature = "sync")]
+    {
+        EOF_OBJECT.0.clone()
+    }
+
+    #[cfg(not(feature = "sync"))]
+    {
+        EOF_OBJECT.with(|eof| eof.0.clone())
+    }
 }

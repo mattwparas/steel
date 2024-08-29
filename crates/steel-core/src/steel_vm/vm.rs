@@ -1350,6 +1350,7 @@ impl<'a> VmCore<'a> {
             &self.thread.stack,
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
             self.thread.global_env.roots().as_slice(),
+            &self.thread.thread_local_storage,
             &mut self.thread.synchronizer,
         );
 
@@ -1362,6 +1363,7 @@ impl<'a> VmCore<'a> {
             &self.thread.stack,
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
             self.thread.global_env.roots().as_slice(),
+            &self.thread.thread_local_storage,
             &mut self.thread.synchronizer,
         );
 
@@ -1375,6 +1377,7 @@ impl<'a> VmCore<'a> {
             &self.thread.stack,
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
             self.thread.global_env.roots().as_slice(),
+            &self.thread.thread_local_storage,
             &mut self.thread.synchronizer,
             true,
         )
@@ -5527,6 +5530,7 @@ fn new_box_handler(ctx: &mut VmCore<'_>) -> Result<()> {
         &ctx.thread.stack,
         ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
         ctx.thread.global_env.roots().as_slice(),
+        &ctx.thread.thread_local_storage,
         &mut ctx.thread.synchronizer,
     );
 

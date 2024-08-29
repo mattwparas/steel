@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use fxhash::FxHashMap;
 use parking_lot::{lock_api::RawMutex, RwLock};
+use steel_derive::function;
 
 use crate::{
     rvals::{
@@ -559,17 +560,147 @@ impl Channels {
     }
 }
 
-impl SteelSender {
-    pub fn send(&self, value: SteelVal) {
-        // TODO: Plumb through the error here
-        self.sender.send(value).unwrap()
+#[steel_derive::function(name = "channels/new")]
+pub fn new_channels() -> Channels {
+    Channels::new()
+}
+
+#[steel_derive::function(name = "channels-sender")]
+pub fn channels_sender(value: &SteelVal) -> Result<SteelVal> {
+    Channels::as_ref(value, &mut ()).map(|x| x.sender())
+}
+
+#[steel_derive::function(name = "channels-receiver")]
+pub fn channels_receiver(value: &SteelVal) -> Result<SteelVal> {
+    Channels::as_ref(value, &mut ()).map(|x| x.receiver())
+}
+
+#[steel_derive::function(name = "channel/send")]
+pub fn channel_send(sender: &SteelVal, value: SteelVal) -> Result<SteelVal> {
+    SteelSender::as_ref(sender, &mut ())?
+        .sender
+        .send(value)
+        .map_err(|e| {
+            throw!(Generic => "channel disconnected - 
+            unable to send value across channel: {:?}", e.0)()
+        })
+        .map(|_| SteelVal::Void)
+}
+
+#[steel_derive::function(name = "channel/recv")]
+pub fn channel_recv(receiver: &SteelVal) -> Result<SteelVal> {
+    SteelReceiver::as_ref(receiver, &mut ())?
+        .receiver
+        .recv()
+        .map_err(|e| {
+            throw!(Generic => "Unable to receive on the channel. 
+                The channel is empty and disconnected")()
+        })
+}
+
+// Need singletons to use for "empty"
+
+#[steel_derive::function(name = "channel/try-recv")]
+pub fn channel_try_recv(receiver: &SteelVal) -> Result<SteelVal> {
+    let value = SteelReceiver::as_ref(receiver, &mut ())?
+        .receiver
+        .try_recv();
+
+    match value {
+        Ok(v) => Ok(v),
+        Err(crossbeam::channel::TryRecvError::Empty) => Ok(empty_channel()),
+        Err(crossbeam::channel::TryRecvError::Disconnected) => Ok(disconnected_channel()),
     }
 }
 
-impl SteelReceiver {
-    pub fn recv(&self) -> SteelVal {
-        // TODO: Plumb through the error here
-        self.receiver.recv().unwrap()
+#[cfg(not(feature = "sync"))]
+thread_local! {
+    static EMPTY_CHANNEL_OBJECT: once_cell::unsync::Lazy<(SteelVal, crate::values::structs::StructTypeDescriptor)>= once_cell::unsync::Lazy::new(|| {
+        make_struct_singleton("#%empty-channel".into())
+    });
+
+    static DISCONNECTED_CHANNEL_OBJECT: once_cell::unsync::Lazy<(SteelVal, crate::values::structs::StructTypeDescriptor)>= once_cell::unsync::Lazy::new(|| {
+        make_struct_singleton("#%disconnected-channel".into())
+    });
+}
+
+#[cfg(feature = "sync")]
+pub static EMPTY_CHANNEL_OBJECT: once_cell::sync::Lazy<(
+    SteelVal,
+    crate::values::structs::StructTypeDescriptor,
+)> = once_cell::sync::Lazy::new(|| {
+    crate::values::structs::make_struct_singleton("#%empty-channel".into())
+});
+
+#[cfg(feature = "sync")]
+pub static DISCONNECTED_CHANNEL_OBJECT: once_cell::sync::Lazy<(
+    SteelVal,
+    crate::values::structs::StructTypeDescriptor,
+)> = once_cell::sync::Lazy::new(|| {
+    crate::values::structs::make_struct_singleton("#%empty-channel".into())
+});
+
+/// Returns `#t` if the value is an empty-channel object.
+///
+/// (empty-channel-object? any/c) -> bool?
+#[function(name = "empty-channel-object?")]
+pub fn empty_channel_objectp(value: &SteelVal) -> bool {
+    let SteelVal::CustomStruct(struct_) = value else {
+        return false;
+    };
+
+    #[cfg(feature = "sync")]
+    {
+        struct_.type_descriptor == EMPTY_CHANNEL_OBJECT.1
+    }
+
+    #[cfg(not(feature = "sync"))]
+    {
+        EMPTY_CHANNEL_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
+    }
+}
+
+pub fn empty_channel() -> SteelVal {
+    #[cfg(feature = "sync")]
+    {
+        EMPTY_CHANNEL_OBJECT.0.clone()
+    }
+
+    #[cfg(not(feature = "sync"))]
+    {
+        EMPTY_CHANNEL_OBJECT.with(|eof| eof.0.clone())
+    }
+}
+
+/// Returns `#t` if the value is an disconnected-channel object.
+///
+/// (eof-object? any/c) -> bool?
+#[function(name = "disconnected-channel-object?")]
+pub fn disconnected_channel_objectp(value: &SteelVal) -> bool {
+    let SteelVal::CustomStruct(struct_) = value else {
+        return false;
+    };
+
+    #[cfg(feature = "sync")]
+    {
+        struct_.type_descriptor == DISCONNECTED_CHANNEL_OBJECT.1
+    }
+
+    #[cfg(not(feature = "sync"))]
+    {
+        DISCONNECTED_CHANNEL_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
+    }
+}
+
+pub fn disconnected_channel() -> SteelVal {
+    #[cfg(feature = "sync")]
+    {
+        DISCONNECTED_CHANNEL_OBJECT.0.clone()
+    }
+
+    #[cfg(not(feature = "sync"))]
+    {
+        DISCONNECTED_CHANNEL_OBJECT.with(|eof| eof.0.clone())
     }
 }
 
@@ -753,11 +884,14 @@ pub fn threading_module() -> BuiltInModule {
         .register_native_fn_definition(MAKE_TLS_DEFINITION)
         .register_native_fn_definition(SET_TLS_DEFINITION)
         .register_native_fn_definition(GET_TLS_DEFINITION)
-        .register_fn("channels/new", Channels::new)
-        .register_fn("channels-sender", Channels::sender)
-        .register_fn("channels-receiver", Channels::receiver)
-        .register_fn("channel/send", SteelSender::send)
-        .register_fn("channel/recv", SteelReceiver::recv)
+        .register_native_fn_definition(NEW_CHANNELS_DEFINITION)
+        .register_native_fn_definition(CHANNELS_SENDER_DEFINITION)
+        .register_native_fn_definition(CHANNELS_RECEIVER_DEFINITION)
+        .register_native_fn_definition(CHANNEL_SEND_DEFINITION)
+        .register_native_fn_definition(CHANNEL_RECV_DEFINITION)
+        .register_native_fn_definition(CHANNEL_TRY_RECV_DEFINITION)
+        .register_native_fn_definition(EMPTY_CHANNEL_OBJECTP_DEFINITION)
+        .register_native_fn_definition(DISCONNECTED_CHANNEL_OBJECTP_DEFINITION)
         .register_fn("make-channels", || {
             let (left, right) = std::sync::mpsc::channel::<SerializableSteelVal>();
 

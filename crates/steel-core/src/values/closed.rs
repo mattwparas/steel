@@ -649,6 +649,7 @@ impl Heap {
         roots: &'a [SteelVal],
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &'a [SteelVal],
+        tls: &'a [SteelVal],
         synchronizer: &'a mut Synchronizer,
     ) -> HeapRef<SteelVal> {
         self.collect(
@@ -657,6 +658,7 @@ impl Heap {
             roots,
             live_functions,
             globals,
+            tls,
             synchronizer,
             false,
         );
@@ -685,6 +687,7 @@ impl Heap {
         roots: &'a [SteelVal],
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &'a [SteelVal],
+        tls: &'a [SteelVal],
         synchronizer: &'a mut Synchronizer,
     ) -> HeapRef<Vec<SteelVal>> {
         self.collect(
@@ -693,6 +696,7 @@ impl Heap {
             roots,
             live_functions,
             globals,
+            tls,
             synchronizer,
             false,
         );
@@ -724,6 +728,7 @@ impl Heap {
         roots: &'a [SteelVal],
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &'a [SteelVal],
+        tls: &'a [SteelVal],
         synchronizer: &'a mut Synchronizer,
         force_full: bool,
     ) -> usize {
@@ -773,6 +778,7 @@ impl Heap {
                     roots,
                     live_functions,
                     globals,
+                    tls,
                     synchronizer,
                 );
             } else {
@@ -808,6 +814,7 @@ impl Heap {
         roots: &'a [SteelVal],
         function_stack: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &'a [SteelVal],
+        tls: &'a [SteelVal],
         synchronizer: &'a mut Synchronizer,
     ) -> usize {
         log::debug!(target: "gc", "Marking the heap");
@@ -834,6 +841,10 @@ impl Heap {
             for value in root_vector {
                 context.push_back(value.clone());
             }
+        }
+
+        for root in tls {
+            context.push_back(root.clone());
         }
 
         for root in roots {

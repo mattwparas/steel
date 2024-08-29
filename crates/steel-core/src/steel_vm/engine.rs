@@ -54,7 +54,7 @@ use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
     rc::Rc,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{atomic::AtomicBool, Arc, Mutex},
 };
 
 use crate::values::HashMap as ImmutableHashMap;
@@ -353,6 +353,19 @@ thread_local! {
 }
 
 impl Engine {
+    pub(crate) fn deep_clone(&self) -> Self {
+        let mut engine = self.clone();
+        engine.virtual_machine.global_env = engine.virtual_machine.global_env.deep_clone();
+        engine.compiler.constant_map = engine.compiler.constant_map.deep_clone();
+
+        let heap_copy = Arc::new(Mutex::new(
+            engine.virtual_machine.heap.lock().unwrap().clone(),
+        ));
+
+        engine.virtual_machine.heap = heap_copy;
+        engine
+    }
+
     /// Function to access a kernel level execution environment
     /// Has access to primitives and syntax rules, but will not defer to a child
     /// kernel in the compiler

@@ -39,14 +39,7 @@ pub static STATIC_KERNEL_IMAGE: Lazy<Engine> = Lazy::new(Engine::new_bootstrap_k
 pub(crate) fn fresh_kernel_image() -> Engine {
     // Just deep clone the env coming out
     if cfg!(feature = "sync") {
-        let mut engine = STATIC_KERNEL_IMAGE.clone();
-        // let mut engine = KERNEL_IMAGE.with(|x| x.clone());
-
-        // TODO: Do we want every compiler environment to share a constant map? Probably not
-        engine.virtual_machine.global_env = engine.virtual_machine.global_env.deep_clone();
-        engine.compiler.constant_map = engine.compiler.constant_map.deep_clone();
-
-        engine
+        STATIC_KERNEL_IMAGE.clone().deep_clone()
     } else {
         KERNEL_IMAGE.with(|x| x.clone())
     }

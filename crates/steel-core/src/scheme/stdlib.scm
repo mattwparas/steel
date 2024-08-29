@@ -499,11 +499,7 @@
 ; (define compose (lambda (f g) (lambda (arg) (f (g arg)))))
 
 (define (foldl func accum lst)
-  (if (null? lst)
-      accum
-      (foldl func
-             (func (car lst) accum) ; here's the change
-             (cdr lst))))
+  (if (null? lst) accum (foldl func (func (car lst) accum) (cdr lst))))
 
 (define (map func lst . lsts)
 
