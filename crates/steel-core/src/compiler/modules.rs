@@ -12,7 +12,7 @@ use crate::{
         tokens::TokenType,
     },
     steel_vm::{
-        engine::{ModuleContainer, DEFAULT_PRELUDE_MACROS},
+        engine::{default_prelude_macros, ModuleContainer},
         transducers::interleave,
     },
 };
@@ -1717,7 +1717,7 @@ impl<'a> ModuleBuilder<'a> {
             name,
             main: true,
             source_ast,
-            macro_map: DEFAULT_PRELUDE_MACROS.with(|x| x.borrow().clone()),
+            macro_map: default_prelude_macros(),
             require_objects: Vec::new(),
             provides: Vec::new(),
             provides_for_syntax: Vec::new(),
@@ -2886,7 +2886,7 @@ impl<'a> ModuleBuilder<'a> {
             main: false,
             source_ast: Vec::new(),
             // TODO: This used to be empty
-            macro_map: DEFAULT_PRELUDE_MACROS.with(|x| x.borrow().clone()),
+            macro_map: default_prelude_macros(),
             // macro_map: global_macro_map.clone(),
             require_objects: Vec::new(),
             provides: Vec::new(),

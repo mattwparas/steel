@@ -860,6 +860,7 @@ pub enum SerializableSteelVal {
     // Attempt to reuse the storage if possible
     HeapAllocated(usize),
     Port(SendablePort),
+    Rational(Rational32),
 }
 
 pub enum SerializedHeapRef {
@@ -904,6 +905,7 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
         SerializableSteelVal::IntV(i) => SteelVal::IntV(i),
         SerializableSteelVal::CharV(c) => SteelVal::CharV(c),
         SerializableSteelVal::Void => SteelVal::Void,
+        SerializableSteelVal::Rational(r) => SteelVal::Rational(r),
         SerializableSteelVal::StringV(s) => SteelVal::StringV(s.into()),
         SerializableSteelVal::FuncV(f) => SteelVal::FuncV(f),
         SerializableSteelVal::MutFunc(f) => SteelVal::MutFunc(f),
@@ -1127,6 +1129,8 @@ pub fn into_serializable_value(
         SteelVal::ByteVector(bytes) => Ok(SerializableSteelVal::ByteVectorV(
             (&*bytes.vec).read().clone(),
         )),
+
+        SteelVal::Rational(r) => Ok(SerializableSteelVal::Rational(r)),
 
         illegal => stop!(Generic => "Type not allowed to be moved across threads!: {}", illegal),
     }

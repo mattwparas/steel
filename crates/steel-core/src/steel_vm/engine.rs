@@ -60,6 +60,7 @@ use std::{
 use crate::values::HashMap as ImmutableHashMap;
 use fxhash::{FxBuildHasher, FxHashMap};
 use lasso::ThreadedRodeo;
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use steel_gen::OpCode;
 use steel_parser::{
@@ -163,7 +164,7 @@ pub struct GlobalCheckpoint {
 #[derive(Clone)]
 pub struct Engine {
     pub(crate) virtual_machine: SteelThread,
-    compiler: Compiler,
+    pub(crate) compiler: Compiler,
     constants: Option<ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>>,
     modules: ModuleContainer,
     sources: Sources,
@@ -321,6 +322,31 @@ macro_rules! time {
     }};
 }
 
+static STATIC_DEFAULT_PRELUDE_MACROS: OnceCell<FxHashMap<InternedString, SteelMacro>> =
+    OnceCell::new();
+
+pub(crate) fn set_default_prelude_macros(prelude_macros: FxHashMap<InternedString, SteelMacro>) {
+    if cfg!(feature = "sync") {
+        STATIC_DEFAULT_PRELUDE_MACROS.set(prelude_macros).unwrap();
+    } else {
+        DEFAULT_PRELUDE_MACROS.with(|x| {
+            let mut guard = x.borrow_mut();
+            *guard = prelude_macros;
+        })
+    }
+}
+
+pub(crate) fn default_prelude_macros() -> FxHashMap<InternedString, SteelMacro> {
+    if cfg!(feature = "sync") {
+        STATIC_DEFAULT_PRELUDE_MACROS
+            .get()
+            .cloned()
+            .unwrap_or_default()
+    } else {
+        DEFAULT_PRELUDE_MACROS.with(|x| x.borrow().clone())
+    }
+}
+
 thread_local! {
     // TODO: Replace this with a once cell?
     pub(crate) static DEFAULT_PRELUDE_MACROS: RefCell<FxHashMap<InternedString, SteelMacro>> = RefCell::new(HashMap::default());
@@ -419,11 +445,8 @@ impl Engine {
         // Initialize the global macro environment with the default one. This way
         // values won't leak when top level macros are defined - and modules can clone from
         // this to begin seeding their environment.
-        DEFAULT_PRELUDE_MACROS.with(|x| {
-            let mut guard = x.borrow_mut();
 
-            *guard = vm.in_scope_macros().clone();
-        });
+        set_default_prelude_macros(vm.in_scope_macros().clone());
 
         // #[cfg(feature = "profiling")]
         log::debug!(target: "kernel", "Loaded prelude in the kernel!: {:?}", now.elapsed());

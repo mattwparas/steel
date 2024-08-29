@@ -48,6 +48,21 @@ impl ConstantMap {
         }
     }
 
+    pub fn deep_clone(&self) -> ConstantMap {
+        Self {
+            map: Shared::new(MutContainer::new(
+                self.map
+                    .read()
+                    .iter()
+                    .map(|x| (x.0.clone(), x.1.clone()))
+                    .collect(),
+            )),
+            values: Shared::new(MutContainer::new(
+                self.values.read().iter().cloned().collect(),
+            )),
+        }
+    }
+
     pub(crate) fn into_serializable_map(self) -> SerializableConstantMap {
         SerializableConstantMap(self.to_bytes().unwrap())
     }
