@@ -300,6 +300,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
         // Void in this case, is a poisoned value. We need to trace the closure
         // (and all of its references) - to find any / all globals that _could_ be
         // referenced.
+        #[cfg(feature = "sync")]
         global_env: time!(
             "Global env serialization",
             ctx.thread
@@ -312,6 +313,20 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
                 .map(|x| x.unwrap_or(SerializableSteelVal::Void))
                 .collect()
         ),
+
+        #[cfg(not(feature = "sync"))]
+        global_env: time!(
+            "Global env serialization",
+            ctx.thread
+                .global_env
+                .bindings_vec
+                .iter()
+                .cloned()
+                .map(|x| into_serializable_value(x, &mut initial_map, &mut visited))
+                .map(|x| x.unwrap_or(SerializableSteelVal::Void))
+                .collect()
+        ),
+
         // Populate with the values after moving into the thread, spawn accordingly
         // TODO: Move this out of here
         function_interner: time!(
@@ -616,11 +631,11 @@ pub fn channel_try_recv(receiver: &SteelVal) -> Result<SteelVal> {
 #[cfg(not(feature = "sync"))]
 thread_local! {
     static EMPTY_CHANNEL_OBJECT: once_cell::unsync::Lazy<(SteelVal, crate::values::structs::StructTypeDescriptor)>= once_cell::unsync::Lazy::new(|| {
-        make_struct_singleton("#%empty-channel".into())
+        crate::values::structs::make_struct_singleton("#%empty-channel".into())
     });
 
     static DISCONNECTED_CHANNEL_OBJECT: once_cell::unsync::Lazy<(SteelVal, crate::values::structs::StructTypeDescriptor)>= once_cell::unsync::Lazy::new(|| {
-        make_struct_singleton("#%disconnected-channel".into())
+        crate::values::structs::make_struct_singleton("#%disconnected-channel".into())
     });
 }
 
@@ -706,6 +721,7 @@ pub fn disconnected_channel() -> SteelVal {
 
 // See... if this works...?
 
+#[cfg(feature = "sync")]
 #[steel_derive::context(name = "spawn-native-thread", arity = "Exact(2)")]
 pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let thread_time = std::time::Instant::now();
@@ -867,12 +883,16 @@ pub(crate) fn set_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<Stee
 pub fn threading_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/threads");
 
+    #[cfg(feature = "sync")]
+    {
+        module.register_native_fn_definition(SPAWN_NATIVE_THREAD_DEFINITION);
+    }
+
     module
         .register_value(
             "spawn-thread!",
             SteelVal::BuiltIn(crate::steel_vm::vm::spawn_thread),
         )
-        .register_native_fn_definition(SPAWN_NATIVE_THREAD_DEFINITION)
         .register_native_fn_definition(THREAD_JOIN_DEFINITION)
         .register_native_fn_definition(THREAD_INTERRUPT_DEFINITION)
         .register_native_fn_definition(THREAD_SUSPEND_DEFINITION)

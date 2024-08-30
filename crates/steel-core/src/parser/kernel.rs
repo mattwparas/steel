@@ -34,13 +34,19 @@ thread_local! {
     pub(crate) static KERNEL_IMAGE: Engine = Engine::new_bootstrap_kernel();
 }
 
+#[cfg(feature = "sync")]
 pub static STATIC_KERNEL_IMAGE: Lazy<Engine> = Lazy::new(Engine::new_bootstrap_kernel);
 
 pub(crate) fn fresh_kernel_image() -> Engine {
     // Just deep clone the env coming out
-    if cfg!(feature = "sync") {
+
+    #[cfg(feature = "sync")]
+    {
         STATIC_KERNEL_IMAGE.clone().deep_clone()
-    } else {
+    }
+
+    #[cfg(not(feature = "sync"))]
+    {
         KERNEL_IMAGE.with(|x| x.clone())
     }
 }

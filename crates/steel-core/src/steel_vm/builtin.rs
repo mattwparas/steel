@@ -132,17 +132,21 @@ thread_local! {
     pub static FUNCTION_TABLE: RefCell<HashMap<BuiltInFunctionType, FunctionSignatureMetadata>> = RefCell::new(HashMap::new());
 }
 
+#[cfg(feature = "sync")]
 pub static STATIC_FUNCTION_TABLE: Lazy<
     RwLock<HashMap<BuiltInFunctionType, FunctionSignatureMetadata>>,
 > = Lazy::new(|| RwLock::new(HashMap::new()));
 
 pub fn get_function_name(function: FunctionSignature) -> Option<FunctionSignatureMetadata> {
-    if cfg!(feature = "sync") {
+    #[cfg(feature = "sync")]
+    {
         STATIC_FUNCTION_TABLE
             .read()
             .get(&BuiltInFunctionType::Reference(function))
             .cloned()
-    } else {
+    }
+    #[cfg(not(feature = "sync"))]
+    {
         FUNCTION_TABLE.with(|x| {
             x.borrow()
                 .get(&BuiltInFunctionType::Reference(function))
@@ -152,9 +156,13 @@ pub fn get_function_name(function: FunctionSignature) -> Option<FunctionSignatur
 }
 
 pub fn get_function_metadata(function: BuiltInFunctionType) -> Option<FunctionSignatureMetadata> {
-    if cfg!(feature = "sync") {
+    #[cfg(feature = "sync")]
+    {
         STATIC_FUNCTION_TABLE.read().get(&function).cloned()
-    } else {
+    }
+
+    #[cfg(not(feature = "sync"))]
+    {
         FUNCTION_TABLE.with(|x| x.borrow().get(&function).cloned())
     }
 }
@@ -198,11 +206,14 @@ impl BuiltInModuleRepr {
     ) -> &mut Self {
         match value {
             BuiltInFunctionType::Reference(value) => {
-                if cfg!(feature = "sync") {
+                #[cfg(feature = "sync")]
+                {
                     STATIC_FUNCTION_TABLE
                         .write()
                         .insert(BuiltInFunctionType::Reference(value), data.clone());
-                } else {
+                }
+                #[cfg(not(feature = "sync"))]
+                {
                     // Store this in a globally accessible place for printing
                     FUNCTION_TABLE.with(|table| {
                         table
@@ -217,11 +228,14 @@ impl BuiltInModuleRepr {
             }
 
             BuiltInFunctionType::Mutable(value) => {
-                if cfg!(feature = "sync") {
+                #[cfg(feature = "sync")]
+                {
                     STATIC_FUNCTION_TABLE
                         .write()
                         .insert(BuiltInFunctionType::Mutable(value), data.clone());
-                } else {
+                }
+                #[cfg(not(feature = "sync"))]
+                {
                     FUNCTION_TABLE.with(|table| {
                         table
                             .borrow_mut()
@@ -234,11 +248,14 @@ impl BuiltInModuleRepr {
             }
 
             BuiltInFunctionType::Context(value) => {
-                if cfg!(feature = "sync") {
+                #[cfg(feature = "sync")]
+                {
                     STATIC_FUNCTION_TABLE
                         .write()
                         .insert(BuiltInFunctionType::Context(value), data.clone());
-                } else {
+                }
+                #[cfg(not(feature = "sync"))]
+                {
                     FUNCTION_TABLE.with(|table| {
                         table
                             .borrow_mut()

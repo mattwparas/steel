@@ -1126,9 +1126,9 @@ pub fn into_serializable_value(
                 .collect::<Result<_>>()?,
         )),
 
-        SteelVal::ByteVector(bytes) => Ok(SerializableSteelVal::ByteVectorV(
-            (&*bytes.vec).read().clone(),
-        )),
+        SteelVal::ByteVector(bytes) => {
+            Ok(SerializableSteelVal::ByteVectorV(bytes.vec.read().clone()))
+        }
 
         SteelVal::Rational(r) => Ok(SerializableSteelVal::Rational(r)),
 

@@ -417,6 +417,7 @@ thread_local! {
 }
 
 // stash roots in the global area
+#[cfg(feature = "sync")]
 static GLOBAL_ROOTS: Lazy<Mutex<Roots>> = Lazy::new(|| Mutex::new(Roots::default()));
 
 #[derive(Default)]
@@ -479,9 +480,13 @@ impl Roots {
 
 impl SteelVal {
     pub fn mark_rooted(&self) -> RootToken {
-        if cfg!(feature = "sync") {
+        #[cfg(feature = "sync")]
+        {
             GLOBAL_ROOTS.lock().unwrap().root(self.clone())
-        } else {
+        }
+
+        #[cfg(not(feature = "sync"))]
+        {
             ROOTS.with(|x| x.borrow_mut().root(self.clone()))
         }
     }
@@ -871,14 +876,18 @@ impl Heap {
 
         context.visit();
 
-        if cfg!(feature = "sync") {
+        #[cfg(feature = "sync")]
+        {
             GLOBAL_ROOTS
                 .lock()
                 .unwrap()
                 .roots
                 .values()
                 .for_each(|value| context.push_back(value.clone()))
-        } else {
+        }
+
+        #[cfg(not(feature = "sync"))]
+        {
             ROOTS.with(|x| {
                 x.borrow()
                     .roots
@@ -915,9 +924,13 @@ impl Heap {
         self.memory.iter().for_each(|x| x.write().reset());
         self.vectors.iter().for_each(|x| x.write().reset());
 
-        if cfg!(feature = "sync") {
+        #[cfg(feature = "sync")]
+        {
             GLOBAL_ROOTS.lock().unwrap().increment_generation();
-        } else {
+        }
+
+        #[cfg(not(feature = "sync"))]
+        {
             ROOTS.with(|x| x.borrow_mut().increment_generation());
         }
 

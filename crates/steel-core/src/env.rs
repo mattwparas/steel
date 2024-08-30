@@ -109,8 +109,8 @@ impl Env {
         self.repl_define_idx(idx, val);
     }
 
-    pub fn roots(&self) -> impl Iterator<Item = &SteelVal> {
-        self.bindings_vec.iter()
+    pub fn roots(&self) -> &Vec<SteelVal> {
+        &self.bindings_vec
     }
 }
 

@@ -299,6 +299,7 @@ macro_rules! define_modules {
     };
 }
 
+#[cfg(feature = "sync")]
 define_modules! {
     STEEL_MAP_MODULE => hashmap_module,
     STEEL_SET_MODULE => hashset_module,
@@ -385,7 +386,8 @@ thread_local! {
 }
 
 pub fn prelude() -> BuiltInModule {
-    if cfg!(feature = "sync") {
+    #[cfg(feature = "sync")]
+    {
         BuiltInModule::new("steel/base")
             .with_module(STEEL_MAP_MODULE.clone())
             .with_module(STEEL_SET_MODULE.clone())
@@ -413,7 +415,10 @@ pub fn prelude() -> BuiltInModule {
             .with_module(STEEL_TIME_MODULE.clone())
             .with_module(STEEL_THREADING_MODULE.clone())
             .with_module(STEEL_BYTEVECTOR_MODULE.clone())
-    } else {
+    }
+
+    #[cfg(not(feature = "sync"))]
+    {
         BuiltInModule::new("steel/base")
             .with_module(MAP_MODULE.with(|x| x.clone()))
             .with_module(SET_MODULE.with(|x| x.clone()))
@@ -525,7 +530,8 @@ pub fn register_builtin_modules(engine: &mut Engine) {
     engine.register_fn("%memo-table-ref", WeakMemoizationTable::get);
     engine.register_fn("%memo-table-set!", WeakMemoizationTable::insert);
 
-    if cfg!(feature = "sync") {
+    #[cfg(feature = "sync")]
+    {
         engine
             .register_module(STEEL_MAP_MODULE.clone())
             .register_module(STEEL_SET_MODULE.clone())
@@ -563,7 +569,10 @@ pub fn register_builtin_modules(engine: &mut Engine) {
         engine.register_module(STEEL_MUTABLE_VECTOR_MODULE.clone());
         engine.register_module(STEEL_PRIVATE_READER_MODULE.clone());
         engine.register_module(STEEL_IMMUTABLE_VECTOR_MODULE.clone());
-    } else {
+    }
+
+    #[cfg(not(feature = "sync"))]
+    {
         engine
             .register_module(MAP_MODULE.with(|x| x.clone()))
             .register_module(SET_MODULE.with(|x| x.clone()))

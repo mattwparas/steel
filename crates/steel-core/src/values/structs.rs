@@ -758,6 +758,7 @@ pub static TYPE_ID: Lazy<InternedString> = Lazy::new(|| "TypeId".into());
 pub static STRUCT_DEFINITIONS: Lazy<Arc<std::sync::RwLock<SymbolMap>>> =
     Lazy::new(|| Arc::new(std::sync::RwLock::new(SymbolMap::default())));
 
+#[cfg(feature = "sync")]
 pub static STATIC_VTABLE: Lazy<RwLock<VTable>> = Lazy::new(|| {
     let mut map = fxhash::FxHashMap::default();
 
@@ -779,10 +780,13 @@ pub static STATIC_VTABLE: Lazy<RwLock<VTable>> = Lazy::new(|| {
     })
 });
 
+#[cfg(feature = "sync")]
 pub static STATIC_TRANSPARENT_KEY: Lazy<SteelVal> =
     Lazy::new(|| SteelVal::SymbolV("#:transparent".into()));
+#[cfg(feature = "sync")]
 pub static STATIC_MUTABLE_KEY: Lazy<SteelVal> =
     Lazy::new(|| SteelVal::SymbolV("#:transparent".into()));
+#[cfg(feature = "sync")]
 pub static STATIC_FIELDS_KEY: Lazy<SteelVal> =
     Lazy::new(|| SteelVal::SymbolV("#:transparent".into()));
 

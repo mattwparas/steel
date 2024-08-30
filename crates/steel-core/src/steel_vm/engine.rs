@@ -368,6 +368,7 @@ thread_local! {
 }
 
 impl Engine {
+    #[cfg(feature = "sync")]
     pub(crate) fn deep_clone(&self) -> Self {
         let mut engine = self.clone();
         engine.virtual_machine.global_env = engine.virtual_machine.global_env.deep_clone();
@@ -1606,11 +1607,23 @@ impl Engine {
         self.compiler
             .symbol_map
             .roll_back(checkpoint.symbol_map_offset);
-        self.virtual_machine
-            .global_env
-            .bindings_vec
-            .write()
-            .truncate(checkpoint.globals_offset);
+
+        #[cfg(feature = "sync")]
+        {
+            self.virtual_machine
+                .global_env
+                .bindings_vec
+                .write()
+                .truncate(checkpoint.globals_offset);
+        }
+
+        #[cfg(not(feature = "sync"))]
+        {
+            self.virtual_machine
+                .global_env
+                .bindings_vec
+                .truncate(checkpoint.globals_offset);
+        }
 
         Ok(())
     }
@@ -1622,11 +1635,23 @@ impl Engine {
         // Unfortunately, we have to invoke a whole GC algorithm here
         // for shadowed rooted values
         if self.compiler.symbol_map.free_list.should_collect() {
-            GlobalSlotRecycler::free_shadowed_rooted_values(
-                &mut self.virtual_machine.global_env.bindings_vec.write(),
-                &mut self.compiler.symbol_map,
-                &mut self.virtual_machine.heap.lock().unwrap(),
-            );
+            #[cfg(feature = "sync")]
+            {
+                GlobalSlotRecycler::free_shadowed_rooted_values(
+                    &mut self.virtual_machine.global_env.bindings_vec.write(),
+                    &mut self.compiler.symbol_map,
+                    &mut self.virtual_machine.heap.lock().unwrap(),
+                );
+            }
+
+            #[cfg(not(feature = "sync"))]
+            {
+                GlobalSlotRecycler::free_shadowed_rooted_values(
+                    &mut self.virtual_machine.global_env.bindings_vec,
+                    &mut self.compiler.symbol_map,
+                    &mut self.virtual_machine.heap.lock().unwrap(),
+                );
+            }
 
             // Drop the pure functions which have been lifted.
             self.virtual_machine

@@ -31,6 +31,7 @@ thread_local! {
     static BUILT_DYLIBS: Rc<RefCell<HashMap<String, BuiltInModule>>> = Rc::new(RefCell::new(HashMap::new()));
 }
 
+#[cfg(feature = "sync")]
 static STATIC_BUILT_DYLIBS: Lazy<Mutex<HashMap<String, BuiltInModule>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
@@ -86,7 +87,8 @@ impl DylibContainers {
 
         #[cfg(feature = "dylibs")]
         {
-            if cfg!(feature = "sync") {
+            #[cfg(feature = "sync")]
+            {
                 if let Some(module) = STATIC_BUILT_DYLIBS
                     .lock()
                     .unwrap()
@@ -95,7 +97,10 @@ impl DylibContainers {
                 {
                     return Some(module);
                 }
-            } else {
+            }
+
+            #[cfg(not(feature = "sync"))]
+            {
                 if let Some(module) =
                     BUILT_DYLIBS.with(|x| x.borrow().get(target.as_str()).cloned())
                 {
@@ -154,12 +159,16 @@ impl DylibContainers {
                                 .expect("dylib failed to load!")
                                 .build();
 
-                        if cfg!(feature = "sync") {
+                        #[cfg(feature = "sync")]
+                        {
                             STATIC_BUILT_DYLIBS
                                 .lock()
                                 .unwrap()
                                 .insert(target.to_string(), external_module.clone());
-                        } else {
+                        }
+
+                        #[cfg(not(feature = "sync"))]
+                        {
                             BUILT_DYLIBS.with(|x| {
                                 x.borrow_mut()
                                     .insert(target.to_string(), external_module.clone())

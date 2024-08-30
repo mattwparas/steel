@@ -72,7 +72,7 @@ use threads::ThreadHandle;
 use crate::rvals::{from_serializable_value, into_serializable_value, IntoSteelVal};
 
 pub(crate) mod threads;
-pub(crate) use threads::{spawn_native_thread, spawn_thread, thread_join};
+pub(crate) use threads::{spawn_thread, thread_join};
 
 #[inline]
 #[cold]

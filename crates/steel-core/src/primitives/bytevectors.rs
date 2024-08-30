@@ -302,7 +302,7 @@ pub fn bytes_append(mut rest: RestArgsIter<'_, &SteelByteVector>) -> Result<Stee
     let mut vector = vec![];
 
     while let Some(bytes) = rest.next().transpose()? {
-        let borrow = (&*bytes.vec).read();
+        let borrow = bytes.vec.read();
         vector.extend(&*borrow);
     }
 
