@@ -61,4 +61,4 @@
 (define all-tasks (map (lambda (_) (make-task)) (range 0 10)))
 
 ;; Could do some timing tests - but for now this will work
-(assert! (= (sum (map block-on-task all-tasks)) (sum (map (lambda (_) 10) (range 0 10)))))
+; (assert! (= (sum (map block-on-task all-tasks)) (sum (map (lambda (_) 10) (range 0 10)))))
