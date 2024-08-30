@@ -54,7 +54,10 @@ use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
     rc::Rc,
-    sync::{atomic::AtomicBool, Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
 };
 
 use crate::values::HashMap as ImmutableHashMap;
@@ -161,6 +164,17 @@ pub struct GlobalCheckpoint {
     globals_offset: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct EngineId(usize);
+
+impl EngineId {
+    pub fn new() -> Self {
+        static ENGINE_ID: AtomicUsize = AtomicUsize::new(0);
+        let id = ENGINE_ID.fetch_add(1, Ordering::Relaxed);
+        Self(id)
+    }
+}
+
 #[derive(Clone)]
 pub struct Engine {
     pub(crate) virtual_machine: SteelThread,
@@ -170,6 +184,7 @@ pub struct Engine {
     sources: Sources,
     #[cfg(feature = "dylibs")]
     dylibs: DylibContainers,
+    pub(crate) id: EngineId,
 }
 
 impl Default for Engine {
@@ -384,6 +399,7 @@ impl Engine {
             sources: Sources::new(),
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
+            id: EngineId::new(),
         };
 
         time!(
@@ -538,6 +554,7 @@ impl Engine {
             sources: Sources::new(),
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
+            id: EngineId::new(),
         };
 
         if let Some(programs) = Engine::load_from_bootstrap(&mut vm) {
@@ -648,6 +665,7 @@ impl Engine {
             sources: Sources::new(),
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
+            id: EngineId::new(),
         };
 
         register_builtin_modules(&mut vm);
@@ -699,6 +717,7 @@ impl Engine {
             sources: Sources::new(),
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
+            id: EngineId::new(),
         };
 
         register_builtin_modules(&mut vm);
@@ -806,6 +825,7 @@ impl Engine {
             sources: Sources::new(),
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
+            id: EngineId::new(),
         };
 
         // Register the modules
@@ -880,6 +900,7 @@ impl Engine {
             sources: Sources::new(),
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
+            id: EngineId::new(),
         };
 
         register_builtin_modules(&mut vm);
@@ -938,6 +959,7 @@ impl Engine {
             sources: Sources::new(),
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
+            id: EngineId::new(),
         }
     }
 

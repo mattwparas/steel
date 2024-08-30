@@ -42,8 +42,14 @@
      (parameterize ([current-output-port port])
        (display-impl obj))]))
 
-;; TODO: Nuke the displayln multiple arguments. I think displayln should
-;; just take one argument for now
+;;@doc
+;; Displays the given argument(s), with a space between them, finishing with a new line.
+;;
+;; # Example
+;; ```scheme
+;; (displayln "Hello world!") ;; Prints "Hello world!"
+;; (displayln "foo" "bar") ;; Prints "foo bar"
+;; ```
 (define (displayln . objs)
 
   (cond

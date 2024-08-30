@@ -572,6 +572,10 @@ pub mod unsafe_erased_pointers {
     use std::rc::{Rc, Weak};
     use std::{any::Any, cell::RefCell, marker::PhantomData};
 
+    use crate::steel_vm::engine::EngineId;
+    use once_cell::sync::Lazy;
+    use std::collections::HashMap;
+
     use crate::rvals::cycles::IterativeDropHandler;
     use crate::rvals::{AsRefSteelValFromRef, MaybeSendSyncStatic};
     use crate::{rerrs::ErrorKind, rvals::AsRefMutSteelValFromRef, SteelErr, SteelVal};
@@ -1035,13 +1039,42 @@ pub mod unsafe_erased_pointers {
 
     // TODO: Use this to chain multiple references together. The engine should be able to accept something
     // `with_reference` and then have the value be scoped to that lifetime.
+
+    // #[cfg(not(feature = "sync"))]
     #[derive(Clone, Default)]
     pub(crate) struct OpaqueReferenceNursery {
         // memory: Rc<RefCell<Vec<OpaqueReference<'static>>>>,
-        memory: Rc<RefCell<Vec<Box<dyn Opaque>>>>,
-        weak_values: Rc<RefCell<Vec<OpaqueReference<'static>>>>,
+        memory: Shared<MutContainer<Vec<Box<dyn Opaque>>>>,
+        weak_values: Shared<MutContainer<Vec<OpaqueReference<'static>>>>,
     }
 
+    // #[cfg(feature = "sync")]
+    // #[derive(Clone, Default)]
+    // pub(crate) struct OpaqueReferenceNursery {
+    //     // memory: Rc<RefCell<Vec<OpaqueReference<'static>>>>,
+    //     memory: Shared<MutContainer<Vec<Box<dyn Opaque>>>>,
+    //     weak_values: Shared<MutContainer<Vec<OpaqueReference<'static>>>>,
+    // }
+
+    // #[cfg(feature = "sync")]
+    // unsafe impl Sync for OpaqueReferenceNursery {}
+    // #[cfg(feature = "sync")]
+    // unsafe impl Send for OpaqueReferenceNursery {}
+
+    // #[cfg(feature = "sync")]
+    // static STATIC_NURSERY: Lazy<std::sync::Mutex<HashMap<EngineId, OpaqueReferenceNursery>>> =
+    //     Lazy::new(|| std::sync::Mutex::new(HashMap::new()));
+
+    // #[cfg(feature = "sync")]
+    // static NURSERY: Lazy<OpaqueReferenceNursery> = Lazy::new(|| OpaqueReferenceNursery::new());
+
+    // TODO: This needs to be like, engine-id -> nursery?
+
+    // #[cfg(not(feature = "sync"))]
+
+    // TODO: Think about if this makes sense, of it we need to move to something that isn't
+    // thread local. I _think_ this makes complete sense, given that the main thread of execution
+    // is not going to be moved across threads. Nothing ever references this?
     thread_local! {
         static NURSERY: OpaqueReferenceNursery = OpaqueReferenceNursery::new();
     }
@@ -1051,8 +1084,12 @@ pub mod unsafe_erased_pointers {
 
         fn new() -> Self {
             Self {
-                memory: Rc::new(RefCell::new(Vec::with_capacity(Self::DEFAULT_CAPACITY))),
-                weak_values: Rc::new(RefCell::new(Vec::with_capacity(Self::DEFAULT_CAPACITY))),
+                memory: Shared::new(MutContainer::new(Vec::with_capacity(
+                    Self::DEFAULT_CAPACITY,
+                ))),
+                weak_values: Shared::new(MutContainer::new(Vec::with_capacity(
+                    Self::DEFAULT_CAPACITY,
+                ))),
             }
         }
 
@@ -1077,12 +1114,29 @@ pub mod unsafe_erased_pointers {
 
             let borrowed = BorrowedObject::new(weak_ptr);
 
-            NURSERY.with(|x| x.memory.borrow_mut().push(Box::new(wrapped)));
-            NURSERY.with(|x| {
-                x.weak_values
-                    .borrow_mut()
-                    .push(borrowed.into_opaque_reference())
-            });
+            // #[cfg(not(feature = "sync"))]
+            // {
+            NURSERY.with(|x| x.memory.write().push(Box::new(wrapped)));
+            NURSERY.with(|x| x.weak_values.write().push(borrowed.into_opaque_reference()));
+            // }
+
+            // #[cfg(feature = "sync")]
+            // {
+            //     if let Some(nursery) = STATIC_NURSERY.lock().unwrap().get(&id) {
+            //         nursery.memory.write().push(Box::new(wrapped));
+            //         nursery
+            //             .weak_values
+            //             .write()
+            //             .push(borrowed.into_opaque_reference());
+            //     } else {
+            //         let mut nursery = OpaqueReferenceNursery::new();
+            //         nursery.memory.write().push(Box::new(wrapped));
+            //         nursery
+            //             .weak_values
+            //             .write()
+            //             .push(borrowed.into_opaque_reference());
+            //     }
+            // }
         }
 
         pub(crate) fn allocate_ro_object<'a, T: 'a, EXT: 'static>(obj: &T) {
@@ -1097,30 +1151,47 @@ pub mod unsafe_erased_pointers {
 
             let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, Rc::new(Cell::new(0)));
 
-            NURSERY.with(|x| x.memory.borrow_mut().push(Box::new(wrapped)));
+            // #[cfg(feature = "sync")]
+            // {
+            //     if let Some(nursery) = STATIC_NURSERY.lock().unwrap().get(&id) {
+            //         nursery.memory.write().push(Box::new(wrapped));
+            //         nursery
+            //             .weak_values
+            //             .write()
+            //             .push(borrowed.into_opaque_reference());
+            //     } else {
+            //         let mut nursery = OpaqueReferenceNursery::new();
+            //         nursery.memory.write().push(Box::new(wrapped));
+            //         nursery
+            //             .weak_values
+            //             .write()
+            //             .push(borrowed.into_opaque_reference());
+            //     }
+            // }
+
+            // #[cfg(not(feature = "sync"))]
+            // {
+            NURSERY.with(|x| x.memory.write().push(Box::new(wrapped)));
 
             // TODO: Consider doing the transmute in the into_opaque_reference function,
             // to extend the lifetime, but nowhere else. Could save passing in the double types.
-            NURSERY.with(|x| {
-                x.weak_values
-                    .borrow_mut()
-                    .push(borrowed.into_opaque_reference())
-            });
+            NURSERY.with(|x| x.weak_values.write().push(borrowed.into_opaque_reference()));
+            // }
         }
 
         pub(crate) fn allocate(obj: OpaqueReference<'static>) {
-            NURSERY.with(|x| x.weak_values.borrow_mut().push(obj));
+            NURSERY.with(|x| x.weak_values.write().push(obj));
         }
 
         pub(crate) fn free_all() {
-            NURSERY.with(|x| x.memory.borrow_mut().clear());
-            NURSERY.with(|x| x.weak_values.borrow_mut().clear());
+            NURSERY.with(|x| x.memory.write().clear());
+            NURSERY.with(|x| x.weak_values.write().clear());
         }
 
         pub(crate) fn drain_weak_references_to_steelvals() -> Vec<SteelVal> {
             let res = NURSERY.with(|x| {
                 x.weak_values
-                    .borrow_mut()
+                    .write()
                     .drain(..)
                     .map(Gc::new)
                     .map(SteelVal::Reference)
