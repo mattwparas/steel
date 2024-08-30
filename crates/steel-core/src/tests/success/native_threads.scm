@@ -50,7 +50,7 @@
 
 ;; Create work for the thread-pool
 
-(define tp (make-thread-pool 100))
+(define tp (make-thread-pool 10))
 
 (define (make-task)
   (submit-task tp

@@ -96,6 +96,7 @@ steel-gen = { path = "../steel-gen", version = "0.2.0" }
 default = ["modules"]
 modules = []
 jit = ["dep:cranelift", "dep:cranelift-module", "dep:cranelift-jit"]
+sandbox = []
 dynamic = []
 profiling = []
 unsafe-internals = []
