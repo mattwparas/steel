@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io;
@@ -28,11 +29,6 @@ use std::rc::Rc;
 
 // pub<T> type RcRefCell: Rc<RcRefCell<T>>;
 
-pub type RcRefCell<T> = Rc<RefCell<T>>;
-pub fn new_rc_ref_cell<T>(x: T) -> RcRefCell<T> {
-    Rc::new(RefCell::new(x))
-}
-
 thread_local! {
     // TODO: This needs to be per engine, not global, and functions should accept the port they use
     // Probably by boxing up the port that gets used
@@ -44,6 +40,20 @@ thread_local! {
 pub struct SteelPort {
     pub(crate) port: GcMut<SteelPortRepr>,
 }
+
+// pub trait PortLike {
+//     fn as_any_ref(&self) -> &dyn Any;
+//     fn into_port(self) -> SteelVal;
+// }
+
+// impl<T: Write + Send + Sync + 'static> PortLike for T {
+//     fn as_any_ref(&self) -> &dyn Any {
+//         self as &dyn Any
+//     }
+
+//     //
+//     fn into_port(self) -> SteelVal {}
+// }
 
 // #[derive(Debug)]
 pub enum SteelPortRepr {
@@ -57,6 +67,10 @@ pub enum SteelPortRepr {
     ChildStdInput(BufWriter<ChildStdin>),
     StringInput(Cursor<Vec<u8>>),
     StringOutput(Vec<u8>),
+
+    // TODO: This does not need to be Arc<Mutex<dyn ...>> - it can
+    // get away with just Box<dyn ...> - and also it should be dyn Portlike
+    // with blanket trait impls to do the thing otherwise.
     DynWriter(Arc<Mutex<dyn Write + Send + Sync>>),
     // DynReader(Box<dyn Read>),
     Closed,

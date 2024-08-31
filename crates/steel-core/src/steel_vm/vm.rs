@@ -4355,15 +4355,13 @@ pub(crate) fn list_modules(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Resul
     use crate::rvals::AsRefSteelVal;
     use crate::steel_vm::builtin::BuiltInModule;
 
-    let mut nursery = ();
-
     // Find all of the modules that are
     let modules = ctx
         .thread
         .global_env
         .roots()
         .iter()
-        .filter(|x| BuiltInModule::as_ref(x, &mut nursery).is_ok())
+        .filter(|x| BuiltInModule::as_ref(x).is_ok())
         .cloned()
         .collect();
 

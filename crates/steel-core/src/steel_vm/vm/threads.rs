@@ -39,7 +39,7 @@ pub struct ThreadHandle {
 /// Check if the given thread is finished running.
 #[steel_derive::function(name = "thread-finished?")]
 pub fn thread_finished(handle: &SteelVal) -> Result<SteelVal> {
-    Ok(ThreadHandle::as_ref(handle, &mut ())?
+    Ok(ThreadHandle::as_ref(handle)?
         .handle
         .as_ref()
         .map(|x| x.is_finished())
@@ -85,14 +85,14 @@ pub fn new_mutex() -> Result<SteelVal> {
 /// Lock the given mutex
 #[steel_derive::function(name = "lock-acquire!")]
 pub fn mutex_lock(mutex: &SteelVal) -> Result<SteelVal> {
-    SteelMutex::as_ref(mutex, &mut ())?.lock();
+    SteelMutex::as_ref(mutex)?.lock();
     Ok(SteelVal::Void)
 }
 
 /// Unlock the given mutex
 #[steel_derive::function(name = "lock-release!")]
 pub fn mutex_unlock(mutex: &SteelVal) -> Result<SteelVal> {
-    SteelMutex::as_ref(mutex, &mut ())?.unlock();
+    SteelMutex::as_ref(mutex)?.unlock();
     Ok(SteelVal::Void)
 }
 
@@ -575,6 +575,27 @@ impl Channels {
     }
 }
 
+/// Blocks until one of the channels passed in is ready to receive.
+/// Returns the index of the channel arguments passed in which is ready.
+///
+/// Using this directly is not recommended.
+#[steel_derive::native(name = "receivers-select", arity = "AtLeast(0)")]
+pub fn select(values: &[SteelVal]) -> Result<SteelVal> {
+    let mut selector = crossbeam::channel::Select::new();
+
+    let mut borrows = values
+        .iter()
+        .map(|x| SteelReceiver::as_ref(x))
+        .collect::<Result<smallvec::SmallVec<[_; 8]>>>()?;
+
+    for channel in &borrows {
+        selector.recv(&channel.receiver);
+    }
+
+    // Grab the index of the one that is ready first
+    selector.ready().into_steelval()
+}
+
 #[steel_derive::function(name = "channels/new")]
 pub fn new_channels() -> Channels {
     Channels::new()
@@ -582,17 +603,17 @@ pub fn new_channels() -> Channels {
 
 #[steel_derive::function(name = "channels-sender")]
 pub fn channels_sender(value: &SteelVal) -> Result<SteelVal> {
-    Channels::as_ref(value, &mut ()).map(|x| x.sender())
+    Channels::as_ref(value).map(|x| x.sender())
 }
 
 #[steel_derive::function(name = "channels-receiver")]
 pub fn channels_receiver(value: &SteelVal) -> Result<SteelVal> {
-    Channels::as_ref(value, &mut ()).map(|x| x.receiver())
+    Channels::as_ref(value).map(|x| x.receiver())
 }
 
 #[steel_derive::function(name = "channel/send")]
 pub fn channel_send(sender: &SteelVal, value: SteelVal) -> Result<SteelVal> {
-    SteelSender::as_ref(sender, &mut ())?
+    SteelSender::as_ref(sender)?
         .sender
         .send(value)
         .map_err(|e| {
@@ -604,7 +625,7 @@ pub fn channel_send(sender: &SteelVal, value: SteelVal) -> Result<SteelVal> {
 
 #[steel_derive::function(name = "channel/recv")]
 pub fn channel_recv(receiver: &SteelVal) -> Result<SteelVal> {
-    SteelReceiver::as_ref(receiver, &mut ())?
+    SteelReceiver::as_ref(receiver)?
         .receiver
         .recv()
         .map_err(|e| {
@@ -617,9 +638,7 @@ pub fn channel_recv(receiver: &SteelVal) -> Result<SteelVal> {
 
 #[steel_derive::function(name = "channel/try-recv")]
 pub fn channel_try_recv(receiver: &SteelVal) -> Result<SteelVal> {
-    let value = SteelReceiver::as_ref(receiver, &mut ())?
-        .receiver
-        .try_recv();
+    let value = SteelReceiver::as_ref(receiver)?.receiver.try_recv();
 
     match value {
         Ok(v) => Ok(v),
@@ -910,6 +929,7 @@ pub fn threading_module() -> BuiltInModule {
         .register_native_fn_definition(CHANNEL_SEND_DEFINITION)
         .register_native_fn_definition(CHANNEL_RECV_DEFINITION)
         .register_native_fn_definition(CHANNEL_TRY_RECV_DEFINITION)
+        .register_native_fn_definition(SELECT_DEFINITION)
         .register_native_fn_definition(EMPTY_CHANNEL_OBJECTP_DEFINITION)
         .register_native_fn_definition(DISCONNECTED_CHANNEL_OBJECTP_DEFINITION)
         .register_fn("make-channels", || {

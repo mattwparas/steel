@@ -470,10 +470,7 @@ impl<'b, T: ?Sized + 'b> Deref for SRef<'b, T> {
 pub trait AsRefSteelVal: Sized {
     type Nursery: Default;
 
-    fn as_ref<'b, 'a: 'b>(
-        val: &'a SteelVal,
-        _nursery: &'a mut Self::Nursery,
-    ) -> Result<SRef<'b, Self>>;
+    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>>;
 }
 
 pub trait AsSlice<T> {
@@ -508,7 +505,7 @@ pub trait AsRefSteelValFromRef: Sized {
 impl AsRefSteelVal for UserDefinedStruct {
     type Nursery = ();
 
-    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal, _nursery: &mut ()) -> Result<SRef<'b, Self>> {
+    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
         if let SteelVal::CustomStruct(l) = val {
             Ok(SRef::Temporary(l))
         } else {
@@ -520,10 +517,7 @@ impl AsRefSteelVal for UserDefinedStruct {
 impl<T: CustomType + MaybeSendSyncStatic> AsRefSteelVal for T {
     type Nursery = ();
 
-    fn as_ref<'b, 'a: 'b>(
-        val: &'a SteelVal,
-        _nursery: &mut Self::Nursery,
-    ) -> Result<SRef<'b, Self>> {
+    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
         if let SteelVal::Custom(v) = val {
             let res = ScopedReadContainer::map(v.read(), |x| x.as_any_ref());
 
@@ -810,10 +804,7 @@ impl IntoSteelVal for Syntax {
 impl AsRefSteelVal for Syntax {
     type Nursery = ();
 
-    fn as_ref<'b, 'a: 'b>(
-        val: &'a SteelVal,
-        _nursery: &'a mut Self::Nursery,
-    ) -> Result<SRef<'b, Self>> {
+    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
         if let SteelVal::SyntaxObject(s) = val {
             Ok(SRef::Temporary(s))
         } else {

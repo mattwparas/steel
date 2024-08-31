@@ -166,9 +166,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
             }
 
-            let mut nursery = <SELF::Nursery>::default();
-
-            let input = <SELF>::as_ref(&args[0], &mut nursery)?;
+            let input = <SELF>::as_ref(&args[0])?;
 
             let res = func(&input);
 
@@ -401,7 +399,7 @@ impl<
             let mut nursery = <AREA as AsRefSteelVal>::Nursery::default();
 
             let mut input = <SELF>::as_mut_ref(&args[0])?;
-            let mut area = <AREA>::as_ref(&args[1], &mut nursery)?;
+            let mut area = <AREA>::as_ref(&args[1])?;
             let mut ctx = <CTX>::as_mut_ref_from_ref(&args[2])?;
 
             let res = func(&mut input, &area, &mut ctx);
@@ -436,7 +434,7 @@ impl<
 
             let mut nursery = <SELF as AsRefSteelVal>::Nursery::default();
 
-            let mut input = <SELF>::as_ref(&args[0], &mut nursery)?;
+            let mut input = <SELF>::as_ref(&args[0])?;
             let mut area = <AREA>::from_steelval(&args[1])?;
             let mut ctx = <CTX>::as_ref_from_ref(&args[2])?;
 
@@ -1046,7 +1044,7 @@ impl<
             let mut nursery = <AREA as AsRefSteelVal>::Nursery::default();
 
             let mut input = <SELF>::as_mut_ref(&args[0])?;
-            let mut area = <AREA>::as_ref(&args[1], &mut nursery)?;
+            let mut area = <AREA>::as_ref(&args[1])?;
             let mut ctx = <CTX>::as_mut_ref_from_ref(&args[2])?;
 
             let res = func(&mut input, &area, &mut ctx);
@@ -1081,7 +1079,7 @@ impl<
 
             let mut nursery = <SELF as AsRefSteelVal>::Nursery::default();
 
-            let mut input = <SELF>::as_ref(&args[0], &mut nursery)?;
+            let mut input = <SELF>::as_ref(&args[0])?;
             let mut area = <AREA>::from_steelval(&args[1])?;
             let mut ctx = <CTX>::as_ref_from_ref(&args[2])?;
 
@@ -1540,7 +1538,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
 
             let mut nursery = <SELF::Nursery>::default();
 
-            let input = <SELF>::as_ref(&args[0], &mut nursery)?;
+            let input = <SELF>::as_ref(&args[0])?;
 
             let res = func(&input);
 
@@ -1568,7 +1566,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
 
             let mut nursery = <SELF::Nursery>::default();
 
-            let input = <SELF>::as_ref(&args[0], &mut nursery)?;
+            let input = <SELF>::as_ref(&args[0])?;
 
             let res = func(&input);
 
@@ -1772,11 +1770,11 @@ impl<
 
             let mut nursery = <A::Nursery>::default();
 
-            let one = A::as_ref(&args[0], &mut nursery)?;
+            let one = A::as_ref(&args[0])?;
 
             let mut nursery = <B::Nursery>::default();
 
-            let two = B::as_ref(&args[1], &mut nursery)?;
+            let two = B::as_ref(&args[1])?;
 
             let res = func(&one, &two);
 
@@ -1809,7 +1807,7 @@ impl<
 
             let mut nursery = <B::Nursery>::default();
 
-            let input = B::as_ref(&args[1], &mut nursery)?;
+            let input = B::as_ref(&args[1])?;
 
             let res = func(
                 A::from_steelval(&args[0]).map_err(|mut err| {
@@ -1962,7 +1960,7 @@ macro_rules! impl_register_fn_self {
 
                     let mut nursery = <SELF::Nursery>::default();
 
-                    let input = <SELF>::as_ref(&args[0], &mut nursery)?;
+                    let input = <SELF>::as_ref(&args[0])?;
 
                     let res = func(&input, $(<$param>::from_steelval(&args[$idx]).map_err(|mut err| {
                                     err.prepend_message(":");
