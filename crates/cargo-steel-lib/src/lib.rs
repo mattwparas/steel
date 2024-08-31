@@ -13,8 +13,33 @@ TODO:
 - Specify target architecture
 */
 
+pub fn steel_home() -> Option<PathBuf> {
+    std::env::var("STEEL_HOME")
+        .ok()
+        .map(PathBuf::from)
+        .or_else(|| {
+            let home = home::home_dir();
+
+            home.map(|mut x: PathBuf| {
+                x.push(".steel");
+
+                // Just go ahead and initialize the directory, even though
+                // this is probably not the best place to do this. This almost
+                // assuredly could be lifted out of this check since failing here
+                // could cause some annoyance.
+                if !x.exists() {
+                    if let Err(_) = std::fs::create_dir(&x) {
+                        eprintln!("Unable to create steel home directory {:?}", x)
+                    }
+                }
+
+                x
+            })
+        })
+}
+
 pub fn run() -> Result<(), Box<dyn Error>> {
-    let mut steel_home = PathBuf::from(std::env::var("STEEL_HOME")?);
+    let mut steel_home = steel_home().expect("Unable to find STEEL_HOME");
 
     steel_home.push("native");
 

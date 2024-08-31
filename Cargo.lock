@@ -388,6 +388,7 @@ version = "0.1.0"
 dependencies = [
  "cargo-platform",
  "cargo_metadata",
+ "home",
 ]
 
 [[package]]
