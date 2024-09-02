@@ -29,7 +29,6 @@ jobs:
 
   optimize:
     name: PGO Build
-    shell: bash
     strategy:
       matrix:
         os: [ 
@@ -40,6 +39,9 @@ jobs:
     # needs: check_changes
     # if: ${{needs.check_changes.outputs.should_run != 'false'}}
     runs-on: ${{ matrix.os.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
