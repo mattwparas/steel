@@ -146,7 +146,6 @@ lst : list?
 > (append) ;; => '()
 ```
 ### **apply**
-
 Applies the given `function` with arguments as the contents of the `list`.
 
 (apply function lst) -> any?
@@ -159,7 +158,6 @@ Applies the given `function` with arguments as the contents of the `list`.
 > (apply + (list 1 2 3 4)) ;; => 10
 > (apply list (list 1 2 3 4)) ;; => '(1 2 3 4)
 ```
-    
 ### **byte?**
 Returns `#t` if the given value is a byte, meaning an exact
 integer between 0 and 255 inclusive, `#f` otherwise.
@@ -207,11 +205,13 @@ Decodes a string from a bytevector containing valid UTF-8.
 (bytes->string/utf8 (bytes #xe5 #x8d #x83 #xe8 #x91 #x89)) ;; => "千葉"
 ```
 ### **bytes-append**
-Append two byte vectors into a new bytevector.
+Append multiple byte vectors into a new bytevector.
 
 #### Examples
 ```scheme
-(bytes-append (bytes 0 1 2) (bytes 3 4 5)) ;; => (bytes 0 1 2 3 4 5)
+(bytes-append #u8(0 1 2) #u8(3 4 5)) ;; => #u8(#x00 #x01 #x02 #x03 #x04 #x05)
+
+(bytes-append #u8(0) #u8(1) #u8() #u8(2)) ;; => #u8(#x00 #x01 #x02)
 ```
 ### **bytes-length**
 Returns the length of the given byte vector
@@ -449,6 +449,20 @@ Retrieves the denominator of the given rational number.
 > (denominator 3/4) ;; => 4
 > (denominator 4) ;; => 1
 ```
+### **disconnected-channel-object?**
+Returns `#t` if the value is an disconnected-channel object.
+
+(eof-object? any/c) -> bool?
+### **duration->string**
+Returns a string representation of a duration
+
+(duration->string dur)
+
+* dur : duration?
+### **empty-channel-object?**
+Returns `#t` if the value is an empty-channel object.
+
+(empty-channel-object? any/c) -> bool?
 ### **empty?**
 Checks if the list is empty
 
@@ -630,6 +644,8 @@ Extracts the contents from a port created with `open-output-bytevector`.
 Extracts the string contents from a port created with `open-output-string`.
 
 (get-output-string port?) -> string?
+### **get-tls**
+Get the value out of the thread local storage slot.
 ### **hash**
 Creates an immutable hash table with each given `key` mapped to the following `val`.
 Each key must have a val, so the total number of arguments must be even.
@@ -976,6 +992,10 @@ Returns the local time in the format given by the input string (using `chrono::L
 (local-time/now! fmt) -> string?
 
 * fmt : string?
+### **lock-acquire!**
+Lock the given mutex
+### **lock-release!**
+Unlock the given mutex
 ### **log**
 Computes the natural logarithm of the given number.
 
@@ -1023,6 +1043,13 @@ Creates a string of a given length, filled with an optional character
 
 * len : int?
 * char : char? = #\0
+### **make-tls**
+Creates a thread local storage slot. These slots are static, and will _not_ be reclaimed.
+
+When spawning a new thread, the value inside will be shared into that slot, however
+future updates to the slot will be local to that thread.
+### **mutex**
+Construct a new mutex
 ### **nan?**
 Returns `#t` if the real number is Nan.
 
@@ -1260,6 +1287,11 @@ Checks if the given value is a real number
 > (real? 3+4i) ;; => #f
 > (real? "hello") ;; => #f
 ```
+### **receivers-select**
+Blocks until one of the channels passed in is ready to receive.
+Returns the index of the channel arguments passed in which is ready.
+
+Using this directly is not recommended.
 ### **rest**
 Returns the rest of the list. Will raise an error if the list is empty.
 
@@ -1320,6 +1352,9 @@ error[E11]: Generic
 │
 1 │ (second '())
 │  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
+### **set-tls!**
+Set the value in the the thread local storage. Only this thread will see the updates associated
+with this TLS.
 ### **split-many**
 Splits a string given a separator pattern into a list of strings.
 
@@ -1678,6 +1713,20 @@ error[E11]: Generic
 1 │ (third '())
 │  ^^^^^^ third: index out of bounds - list did not have an element in the second position: []
 ```
+### **thread-finished?**
+Check if the given thread is finished running.
+### **thread-interrupt**
+Interrupts the thread. Note, this will _not_ interrupt any native code
+that is potentially running in the thread, and will attempt to block
+at the next bytecode instruction that is running.
+### **thread-join!**
+Block until this thread finishes.
+### **thread-resume**
+Resume a suspended thread. This does nothing if the thread is already joined.
+### **thread-suspend**
+Suspend the thread. Note, this will _not_ interrupt any native code that is
+potentially running in the thread, and will attempt to block at the next
+bytecode instruction that is running.
 ### **time/sleep-ms**
 Sleeps the thread for a given number of milliseconds.
 
@@ -1791,6 +1840,7 @@ Checks if the given real number is zero.
 > (zero? 0.0) ;; => #t
 > (zero? 0.1) ;; => #f
 ```
+### **%#interner-memory-usage**
 ### **%iterator?**
 ### **%keyword-hash**
 ### **=**
@@ -1830,6 +1880,12 @@ Checks if the given real number is zero.
 ### **channel->recv**
 ### **channel->send**
 ### **channel->try-recv**
+### **channel/recv**
+### **channel/send**
+### **channel/try-recv**
+### **channels-receiver**
+### **channels-sender**
+### **channels/new**
 ### **char?**
 ### **child-stderr**
 ### **child-stdin**
@@ -1843,7 +1899,6 @@ Checks if the given real number is zero.
 ### **current-os!**
 ### **dropping**
 ### **duration->seconds**
-### **duration->string**
 ### **duration-since**
 ### **empty-stream**
 ### **enumerating**
@@ -1899,6 +1954,7 @@ Checks if the given real number is zero.
 ### **join!**
 ### **list->hashset**
 ### **list->string**
+### **list->vector**
 ### **list-tail**
 ### **list?**
 ### **local-executor/block-on**
@@ -1941,6 +1997,7 @@ Checks if the given real number is zero.
 ### **set-strong-box!**
 ### **set-test-mode!**
 ### **set?**
+### **spawn-native-thread**
 ### **spawn-process**
 ### **spawn-thread!**
 ### **stdout**
@@ -1961,8 +2018,7 @@ Checks if the given real number is zero.
 ### **syntax/loc**
 ### **syntax?**
 ### **taking**
-### **thread-finished?**
-### **thread-join!**
+### **thread/available-parallelism**
 ### **thread::current/id**
 ### **transduce**
 ### **try-list-ref**
