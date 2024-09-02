@@ -23,7 +23,7 @@ jobs:
           override: true
 
       - name: Remove sync feature from build
-        run: sed 's/steel-core = { path = "./crates/steel-core", version = "0.6.0", features = ["dylibs", "markdown", "stacker", "dylib-build", "sync"] }/steel-core = { path = "./crates/steel-core", version = "0.6.0", features = ["dylibs", "markdown", "stacker", "dylib-build"] }/' Cargo.toml
+        run: sed 's/"dylib-build", "sync"/"dylib-build"/' Cargo.toml
 
       - name: Set the STEEL_HOME environment variable
         run: echo STEEL_HOME=${PWD}/.steel >> $GITHUB_ENV 
