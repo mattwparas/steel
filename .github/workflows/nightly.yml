@@ -28,10 +28,14 @@ jobs:
   #       run: test -z $(git rev-list --after="24 hours" ${{github.sha}}) && echo "::set-output name=should_run::false"
 
   optimize:
-    name: Test Suite (sync)
+    
+    name: PGO Build
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     # needs: check_changes
     # if: ${{needs.check_changes.outputs.should_run != 'false'}}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
