@@ -67,7 +67,7 @@ jobs:
 
 
   sync-build:
-    name: Test Suite
+    name: Test Suite (sync)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
