@@ -19,12 +19,15 @@ path = "src/main.rs"
 
 [workspace.dependencies]
 # This has to line up with the workspace version above
-steel-core = { path = "./crates/steel-core", version = "0.6.0", features = ["dylibs", "markdown", "stacker", "dylib-build"] }
+steel-core = { path = "./crates/steel-core", version = "0.6.0", features = ["dylibs", "markdown", "stacker", "dylib-build", "sync"] }
 
-[features]
-default = ["interrupt", "sync"]
-interrupt = ["steel-core/interrupt", "steel-repl/interrupt"]
-sync = ["steel-core/sync"]
+# [features]
+# Note: It does not appear that this will get propagated to any crate that depends on
+# the workspace feature. This is unfortunate, since we'd like everything to actually
+# use the workspace dependency. For now, if you want to test with sync, you should
+# just add the sync flag directly.
+# default = ["sync"]
+# sync = ["steel-core/sync"]
 
 [dependencies]
 once_cell = "1.17.0"

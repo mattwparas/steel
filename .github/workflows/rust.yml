@@ -22,6 +22,9 @@ jobs:
           profile: minimal
           override: true
 
+      - name: Remove sync feature from build
+        run: sed 's/steel-core = { path = "./crates/steel-core", version = "0.6.0", features = ["dylibs", "markdown", "stacker", "dylib-build", "sync"] }/steel-core = { path = "./crates/steel-core", version = "0.6.0", features = ["dylibs", "markdown", "stacker", "dylib-build"] }/' Cargo.toml
+
       - name: Set the STEEL_HOME environment variable
         run: echo STEEL_HOME=${PWD}/.steel >> $GITHUB_ENV 
 
@@ -102,14 +105,14 @@ jobs:
           echo $STEEL_HOME
           mkdir -p .steel/cogs
           cd cogs/
-          cargo run --features steel-core/sync -- install.scm
+          cargo run -- install.scm
 
       - uses: actions-rs/cargo@v1
         env:
           STEEL_HOME: ${{ env.STEEL_HOME }}
         with:
           command: test
-          args: --all --features steel-core/sync
+          args: --all steel-core/sync
 
   
   wasm-build:
