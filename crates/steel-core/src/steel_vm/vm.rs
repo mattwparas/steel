@@ -483,8 +483,6 @@ impl Synchronizer {
     /// Stops all threads within the context of this virtual machine, and
     /// waits for all of those threads to stop before continuing on.
     pub fn stop_threads(&mut self) {
-        println!("Pausing threads");
-
         self.state.pause_for_safepoint();
 
         // Stop other threads, wait until we've gathered acknowledgements
@@ -498,7 +496,6 @@ impl Synchronizer {
     }
 
     pub fn resume_threads(&mut self) {
-        println!("Resuming threads");
         self.state.resume();
 
         // Go through, and resume all of the threads

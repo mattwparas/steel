@@ -28,13 +28,15 @@ jobs:
   #       run: test -z $(git rev-list --after="24 hours" ${{github.sha}}) && echo "::set-output name=should_run::false"
 
   optimize:
-    
     name: PGO Build
+    shell: bash
     strategy:
       matrix:
-        os: [ { os: ubuntu-latest, arch: x86_64-unknown-linux-gnu }, 
-              { os: macos-latest, arch: aarch64-apple-darwin } ]
-               # windows-latest]
+        os: [ 
+              { os: ubuntu-latest, arch: x86_64-unknown-linux-gnu }, 
+              { os: macos-latest, arch: aarch64-apple-darwin },
+              { os: windows-latest, arch: x86_64-pc-windows-msvc }
+            ]
     # needs: check_changes
     # if: ${{needs.check_changes.outputs.should_run != 'false'}}
     runs-on: ${{ matrix.os.os }}
