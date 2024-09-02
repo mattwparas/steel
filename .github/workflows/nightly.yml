@@ -32,10 +32,12 @@ jobs:
     name: PGO Build
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ { os: ubuntu-latest, arch: x86_64-unknown-linux-gnu }, 
+              { os: macos-latest, arch: aarch64-apple-darwin } ]
+               # windows-latest]
     # needs: check_changes
     # if: ${{needs.check_changes.outputs.should_run != 'false'}}
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os.os }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
@@ -80,11 +82,11 @@ jobs:
         env:
           STEEL_HOME: ${{ env.STEEL_HOME }}
         run: |
-          ./target/x86_64-unknown-linux-gnu/release/steel r7rs-benchmarks/scheme.scm
-          ./target/x86_64-unknown-linux-gnu/release/steel r7rs-benchmarks/simplex.scm
-          ./target/x86_64-unknown-linux-gnu/release/steel r7rs-benchmarks/array1.scm
-          ./target/x86_64-unknown-linux-gnu/release/steel r7rs-benchmarks/triangl.scm
-          ./target/x86_64-unknown-linux-gnu/release/steel benchmarks/fib/fib.scm
+          ./target/${{ matrix.os.arch }}/release/steel r7rs-benchmarks/scheme.scm
+          ./target/${{ matrix.os.arch }}/release/steel r7rs-benchmarks/simplex.scm
+          ./target/${{ matrix.os.arch }}/release/steel r7rs-benchmarks/array1.scm
+          ./target/${{ matrix.os.arch }}/release/steel r7rs-benchmarks/triangl.scm
+          ./target/${{ matrix.os.arch }}/release/steel benchmarks/fib/fib.scm
 
       - name: Build optimized binary
         run: cargo pgo optimize
@@ -92,10 +94,11 @@ jobs:
       - name: Archive pgo optimized binary
         uses: actions/upload-artifact@v4
         with:
-          name: pgo-nightly-build
-          path: target/x86_64-unknown-linux-gnu/release/steel
+          name: pgo-nightly-build-${{ matrix.os.arch }}
+          path: target/${{ matrix.os.arch }}/release/steel
           retention-days: 30
         
       # Now do something with the PGO optimized binary at `./target/x86_64-unknown-linux-gnu/release/foo` :)
 
 
+      
