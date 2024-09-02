@@ -96,12 +96,21 @@ jobs:
         run: cargo pgo optimize
 
       - name: Archive pgo optimized binary
+        if: ${{ runner.os != 'windows' }}
         uses: actions/upload-artifact@v4
         with:
           name: pgo-nightly-build-${{ matrix.os.arch }}
           path: ${{ github.workspace }}/target/${{ matrix.os.arch }}/release/steel
           retention-days: 30
-        
+
+      - name: Archive pgo optimized binary
+        if: ${{ runner.os == 'windows' }}
+        uses: actions/upload-artifact@v2
+        with:
+          name: pgo-nightly-build-${{ matrix.os.arch }}
+          path: ${{ github.workspace }}\target\${{ matrix.os.arch }}\release\steel
+          retention-days: 30
+
       # Now do something with the PGO optimized binary at `./target/x86_64-unknown-linux-gnu/release/foo` :)
 
 
