@@ -34,10 +34,6 @@
           };
           cargoLock = {
             lockFile = ./Cargo.lock;
-            # Temporary fix until https://github.com/mattwparas/steel/issues/192 is fixed upstream
-            outputHashes = {
-              "lasso-0.7.2" = "sha256-ccqcDvWZD5hp4iZ420jgNJtR+MaVlqHFtXU2GWkbyfg=";
-            };
           };
           cargoBuildFlags = "-p cargo-steel-lib -p steel-interpreter";
           buildInputs = [openssl] ++ lib.optionals stdenv.isDarwin [darwin.apple_sdk.frameworks.Security];
