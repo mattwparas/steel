@@ -81,7 +81,7 @@ jobs:
           override: true
 
       - name: Set the STEEL_HOME environment variable
-        run: echo STEEL_HOME=${PWD}/.steel >> $GITHUB_ENV 
+        run: echo STEEL_HOME=${PWD}/.steel-sync >> $GITHUB_ENV 
 
       - uses: Swatinem/rust-cache@v2
         with:
