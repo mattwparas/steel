@@ -1,7 +1,4 @@
-use std::{
-    rc::Rc,
-    sync::{Arc, Mutex},
-};
+use std::sync::Mutex;
 
 use abi_stable::std_types::{RString, RVec};
 use rusqlite::{

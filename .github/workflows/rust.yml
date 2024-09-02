@@ -102,14 +102,14 @@ jobs:
           echo $STEEL_HOME
           mkdir -p .steel/cogs
           cd cogs/
-          cargo run -- install.scm
+          cargo run --features steel-core/sync -- install.scm
 
       - uses: actions-rs/cargo@v1
         env:
           STEEL_HOME: ${{ env.STEEL_HOME }}
         with:
           command: test
-          args: --all
+          args: --all --features steel-core/sync
 
   
   wasm-build:
