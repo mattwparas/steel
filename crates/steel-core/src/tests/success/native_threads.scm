@@ -65,4 +65,6 @@
 (displayln results)
 
 ;; Could do some timing tests - but for now this will work
-(assert! (= (sum results) 100))
+; (assert! (= (sum results) 100))
+
+(error (sum results))
