@@ -1,0 +1,89 @@
+name: Nightly build
+
+# on:
+#   workflow_dispatch: {}
+#   schedule:
+#     - cron: '0 0 * * *'
+    
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  # check_changes:
+  #   runs-on: ubuntu-latest
+  #   name: Check latest commit
+  #   outputs:
+  #     should_run: ${{steps.should_run.outputs.should_run}}
+  #   steps:
+  #     - uses: actions/checkout@v2
+  #     - name: print latest_commit
+  #       run: echo ${{github.sha}}
+  #     - id: should_run
+  #       continue-on-error: true
+  #       name: check latest commit is less than a day
+  #       if: ${{ github.event_name == 'schedule' }}
+  #       run: test -z $(git rev-list --after="24 hours" ${{github.sha}}) && echo "::set-output name=should_run::false"
+
+  optimize:
+    name: Test Suite (sync)
+    # needs: check_changes
+    # if: ${{needs.check_changes.outputs.should_run != 'false'}}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          components: llvm-tools-preview
+
+      - name: Set the STEEL_HOME environment variable
+        run: echo STEEL_HOME=${PWD}/.steel-sync >> $GITHUB_ENV 
+        
+      - name: Install cargo-pgo
+        run: cargo install cargo-pgo
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "build"
+
+      - name: Build instrumented binary
+        # Use `cargo pgo build -- --bin foo` if you have multiple binaries
+        run: cargo pgo build
+        
+      - name: install steel dylib installer
+        env:
+          STEEL_HOME: ${{ env.STEEL_HOME }}
+        run: mkdir -p $STEEL_HOME/native && cd crates/cargo-steel-lib && cargo install --path .
+
+      - name: Install cogs
+        env:
+          STEEL_HOME: ${{ env.STEEL_HOME }}
+        run: |
+          echo $STEEL_HOME
+          mkdir -p .steel/cogs
+          cd cogs/
+          cargo run -- install.scm
+
+      - name: Gather PGO profiles
+        env:
+          STEEL_HOME: ${{ env.STEEL_HOME }}
+        run: |
+          ./target/x86_64-unknown-linux-gnu/release/steel r7rs-benchmarks/scheme.scm
+          ./target/x86_64-unknown-linux-gnu/release/steel r7rs-benchmarks/simplex.scm
+          ./target/x86_64-unknown-linux-gnu/release/steel r7rs-benchmarks/array1.scm
+          ./target/x86_64-unknown-linux-gnu/release/steel r7rs-benchmarks/triangl.scm
+          ./target/x86_64-unknown-linux-gnu/release/steel benchmarks/fib/fib.scm
+
+      - name: Build optimized binary
+        run: cargo pgo optimize
+      # Now do something with the PGO optimized binary at `./target/x86_64-unknown-linux-gnu/release/foo` :)
+
+
