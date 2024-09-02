@@ -6,6 +6,7 @@ use std::io::prelude::*;
 use std::io::Cursor;
 use std::io::Stderr;
 use std::io::{BufReader, BufWriter, Stdin, Stdout};
+use std::net::TcpStream;
 use std::process::ChildStderr;
 use std::process::ChildStdin;
 use std::process::ChildStdout;
@@ -72,6 +73,8 @@ pub enum SteelPortRepr {
     // get away with just Box<dyn ...> - and also it should be dyn Portlike
     // with blanket trait impls to do the thing otherwise.
     DynWriter(Arc<Mutex<dyn Write + Send + Sync>>),
+    DynReader(BufReader<Box<dyn Read + Send + Sync>>),
+    TcpStream(TcpStream),
     // DynReader(Box<dyn Read>),
     Closed,
 }
@@ -94,6 +97,11 @@ impl std::fmt::Debug for SteelPortRepr {
             SteelPortRepr::StringInput(s) => f.debug_tuple("StringInput").field(s).finish(),
             SteelPortRepr::StringOutput(s) => f.debug_tuple("StringOutput").field(s).finish(),
             SteelPortRepr::DynWriter(_) => f.debug_tuple("DynWriter").field(&"#<opaque>").finish(),
+            SteelPortRepr::DynReader(_) => f
+                .debug_tuple("DynReader")
+                .field(&"#<opaque-reader>")
+                .finish(),
+            SteelPortRepr::TcpStream(_) => f.debug_tuple("TcpStream").finish(),
             SteelPortRepr::Closed => f.debug_tuple("Closed").finish(),
         }
     }
@@ -147,22 +155,6 @@ impl SteelPort {
     }
 }
 
-// TODO: Probably replace this with dynamic dispatch over writers?
-// #[derive(Debug, Clone)]
-// pub enum SteelPort {
-//     FileInput(String, RcRefCell<BufReader<File>>),
-//     FileOutput(String, RcRefCell<BufWriter<File>>),
-//     StdInput(RcRefCell<Stdin>),
-//     StdOutput(RcRefCell<Stdout>),
-//     ChildStdOutput(RcRefCell<BufReader<ChildStdout>>),
-//     ChildStdInput(RcRefCell<BufWriter<ChildStdin>>),
-//     // StringInput(RcRefCell<BufReader<&[u8]>>),
-//     StringOutput(RcRefCell<BufWriter<Vec<u8>>>),
-//     // DynWriter(Rc<RefCell<Box<dyn Write>>>),
-//     // DynReader(Rc<RefCell<Box<dyn Read>>>),
-//     Closed,
-// }
-
 #[macro_export]
 macro_rules! port_read_str_fn(
     ($br: ident, $fn: ident) => {{
@@ -182,6 +174,8 @@ impl SteelPortRepr {
             SteelPortRepr::ChildStdOutput(br) => {
                 port_read_str_fn!(br, read_line)
             }
+
+            SteelPortRepr::DynReader(br) => port_read_str_fn!(br, read_line),
 
             // SteelPort::ChildStdOutput(br) => port_read_str_fn!(br, read_line),
             // FIXME: fix this and the functions below
@@ -251,6 +245,8 @@ impl SteelPortRepr {
             SteelPortRepr::ChildStdOutput(output) => output.read_exact(&mut byte),
             SteelPortRepr::ChildStdError(output) => output.read_exact(&mut byte),
             SteelPortRepr::StringInput(reader) => reader.read_exact(&mut byte),
+            SteelPortRepr::DynReader(reader) => reader.read_exact(&mut byte),
+            SteelPortRepr::TcpStream(t) => t.read(&mut byte).map(|_| ()),
             SteelPortRepr::FileOutput(_, _)
             | SteelPortRepr::StdOutput(_)
             | SteelPortRepr::StdError(_)
@@ -304,6 +300,8 @@ impl SteelPortRepr {
             SteelPortRepr::ChildStdOutput(output) => output.fill_buf().map(copy),
             SteelPortRepr::ChildStdError(output) => output.fill_buf().map(copy),
             SteelPortRepr::StringInput(reader) => reader.fill_buf().map(copy),
+            SteelPortRepr::DynReader(reader) => reader.fill_buf().map(copy),
+            SteelPortRepr::TcpStream(tcp) => tcp.peek(buf),
             SteelPortRepr::FileOutput(_, _)
             | SteelPortRepr::StdOutput(_)
             | SteelPortRepr::StdError(_)
@@ -391,8 +389,11 @@ impl SteelPortRepr {
             SteelPortRepr::ChildStdInput(writer) => write_and_flush![writer],
             SteelPortRepr::StringOutput(writer) => write_and_flush![writer],
             SteelPortRepr::DynWriter(writer) => write_and_flush![writer.lock().unwrap()],
+            // TODO: Should tcp streams be both input and output ports?
+            SteelPortRepr::TcpStream(tcp) => tcp.write(buf)?,
             SteelPortRepr::FileInput(_, _)
             | SteelPortRepr::StdInput(_)
+            | SteelPortRepr::DynReader(_)
             | SteelPortRepr::ChildStdOutput(_)
             | SteelPortRepr::ChildStdError(_)
             | SteelPortRepr::StringInput(_) => stop!(ContractViolation => "expected output-port?"),

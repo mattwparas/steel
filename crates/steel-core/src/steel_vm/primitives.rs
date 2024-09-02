@@ -24,6 +24,7 @@ use crate::{
         process::process_module,
         random::random_module,
         string_module,
+        tcp::tcp_module,
         time::time_module,
         vectors::{
             immutable_vectors_module, IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION,
@@ -334,6 +335,7 @@ define_modules! {
     STEEL_FFI_MODULE => ffi_module,
     STEEL_MUTABLE_VECTOR_MODULE => mutable_vector_module,
     STEEL_PRIVATE_READER_MODULE => reader_module,
+    STEEL_TCP_MODULE => tcp_module,
     STEEL_PRELUDE_MODULE => prelude,
 }
 
@@ -369,6 +371,7 @@ thread_local! {
     pub static RESULT_MODULE: BuiltInModule = build_result_structs();
     pub static TYPE_ID_MODULE: BuiltInModule = build_type_id_module();
     pub static OPTION_MODULE: BuiltInModule = build_option_structs();
+    pub static TCP_MODULE: BuiltInModule = tcp_module();
 
     #[cfg(feature = "dylibs")]
     pub static FFI_MODULE: BuiltInModule = ffi_module();
@@ -560,7 +563,8 @@ pub fn register_builtin_modules(engine: &mut Engine) {
             .register_module(STEEL_TIME_MODULE.clone())
             .register_module(STEEL_RANDOM_MODULE.clone())
             .register_module(STEEL_THREADING_MODULE.clone())
-            .register_module(STEEL_BYTEVECTOR_MODULE.clone());
+            .register_module(STEEL_BYTEVECTOR_MODULE.clone())
+            .register_module(STEEL_TCP_MODULE.clone());
 
         #[cfg(feature = "dylibs")]
         engine.register_module(STEEL_FFI_MODULE.clone());
@@ -601,7 +605,8 @@ pub fn register_builtin_modules(engine: &mut Engine) {
             .register_module(TIME_MODULE.with(|x| x.clone()))
             .register_module(RANDOM_MODULE.with(|x| x.clone()))
             .register_module(THREADING_MODULE.with(|x| x.clone()))
-            .register_module(BYTEVECTOR_MODULE.with(|x| x.clone()));
+            .register_module(BYTEVECTOR_MODULE.with(|x| x.clone()))
+            .register_module(TCP_MODULE.with(|x| x.clone()));
 
         #[cfg(feature = "dylibs")]
         engine.register_module(FFI_MODULE.with(|x| x.clone()));
