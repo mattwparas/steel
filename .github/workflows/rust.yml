@@ -44,7 +44,7 @@ jobs:
           echo $STEEL_HOME
           mkdir -p .steel/cogs
           cd cogs/
-          cargo run -- install.scm
+          cargo run --no-default-features -- install.scm
 
       - uses: actions-rs/cargo@v1
         env:
@@ -57,7 +57,7 @@ jobs:
         run: cargo install cargo-tarpaulin
 
       - name: run code coverage
-        run: cargo tarpaulin --all -o "lcov" --engine llvm
+        run: cargo tarpaulin --all --no-default-features -o "lcov" --engine llvm
 
       - name: Coveralls GitHub Action
         uses: coverallsapp/github-action@v1.1.2
