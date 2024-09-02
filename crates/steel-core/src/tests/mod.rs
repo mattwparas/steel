@@ -9,7 +9,7 @@ fn generate_asserting_machine() -> Engine {
 
 pub(crate) fn assert_script<T: AsRef<str> + Into<Cow<'static, str>>>(script: T) {
     let mut vm = generate_asserting_machine();
-    vm.compile_and_run_raw_program(script).unwrap()
+    vm.compile_and_run_raw_program(script).unwrap();
 }
 
 pub(crate) fn assert_script_error<T: AsRef<str> + Into<Cow<'static, str>>>(script: T) {
