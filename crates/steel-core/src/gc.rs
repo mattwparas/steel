@@ -1,12 +1,14 @@
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal;
 use crate::stop;
+
+#[cfg(not(feature = "sync"))]
 use std::cell::RefCell;
+
 use std::fmt::Pointer;
-use std::rc::Rc;
+use std::ops::Deref;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{ffi::OsStr, fmt};
-use std::{ops::Deref, rc::Weak};
 
 pub static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static MAXIMUM_OBJECTS: usize = 50000;

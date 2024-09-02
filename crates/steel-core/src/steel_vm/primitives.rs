@@ -40,8 +40,7 @@ use crate::{
     rvals::{
         as_underlying_type,
         cycles::{BreadthFirstSearchSteelValVisitor, SteelCycleCollector},
-        CustomType, FromSteelVal, FunctionSignature, MutFunctionSignature, SteelString,
-        ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
+        CustomType, FromSteelVal, SteelString, ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
     },
     steel_vm::{
         builtin::{get_function_metadata, get_function_name, Arity},

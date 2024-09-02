@@ -4,6 +4,8 @@ use std::{
 };
 
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
+
+#[cfg(feature = "sync")]
 use once_cell::sync::Lazy;
 use steel_parser::tokens::TokenType;
 

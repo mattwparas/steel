@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io;
@@ -13,22 +12,12 @@ use std::process::ChildStdout;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-// use serr::{SErr, SResult};
-// use utils::chars::Chars;
-// use utils::{new_rc_ref_cell, RcRefCell};
-
 use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;
 use crate::gc::GcMut;
-use crate::rerrs;
 use crate::rvals::Result;
 
 // use crate::rvals::{new_rc_ref_cell, RcRefSteelVal};
-
-use std::cell::RefCell;
-use std::rc::Rc;
-
-// pub<T> type RcRefCell: Rc<RcRefCell<T>>;
 
 thread_local! {
     // TODO: This needs to be per engine, not global, and functions should accept the port they use

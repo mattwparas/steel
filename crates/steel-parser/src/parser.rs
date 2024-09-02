@@ -1,5 +1,4 @@
 use std::{
-    cell::Cell,
     path::PathBuf,
     rc::Rc,
     result,

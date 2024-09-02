@@ -1,6 +1,5 @@
 use std::{
     borrow::Cow,
-    cell::RefCell,
     marker::PhantomData,
     sync::{Arc, Mutex},
 };

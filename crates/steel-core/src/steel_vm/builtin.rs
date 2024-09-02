@@ -17,6 +17,8 @@ use crate::{
 };
 use fxhash::FxBuildHasher;
 use once_cell::sync::Lazy;
+
+#[cfg(feature = "sync")]
 use parking_lot::RwLock;
 
 use super::vm::BuiltInSignature;

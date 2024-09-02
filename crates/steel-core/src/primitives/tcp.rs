@@ -1,7 +1,5 @@
-use std::io::{BufReader, Write};
+use std::io::BufReader;
 use std::net::{TcpListener, TcpStream};
-use std::ops::Deref;
-use std::sync::{Arc, Mutex};
 
 use steel_derive::function;
 

@@ -1282,12 +1282,13 @@ pub enum SteelVal {
 }
 
 #[cfg(feature = "sync")]
+#[test]
 fn check_send_sync() {
     let value = SteelVal::IntV(10);
 
     let handle = std::thread::spawn(move || value);
 
-    handle.join();
+    handle.join().unwrap();
 }
 
 #[derive(Clone)]
@@ -2122,11 +2123,6 @@ pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     Ok(BoolV(result))
 }
 
-fn partial_cmp_f64(l: &impl ToPrimitive, r: &impl ToPrimitive) -> Option<Ordering> {
-    l.to_f64()?.partial_cmp(&r.to_f64()?)
-}
-
-// TODO add tests
 impl PartialOrd for SteelVal {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         // TODO: Attempt to avoid converting to f64 for cases below as it may lead to precision loss

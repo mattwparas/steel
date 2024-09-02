@@ -21,7 +21,7 @@ use crate::{
 
 use num::{BigInt, BigRational, Rational32};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, convert::TryInto, rc::Rc, time::SystemTime};
+use std::{collections::HashMap, convert::TryInto, time::SystemTime};
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
 
 #[cfg(feature = "profiling")]

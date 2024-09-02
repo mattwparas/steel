@@ -1,4 +1,7 @@
-use std::{cell::RefCell, collections::HashSet, sync::Mutex};
+use std::{cell::RefCell, collections::HashSet};
+
+#[cfg(feature = "sync")]
+use std::sync::Mutex;
 
 use crate::{
     compiler::map::SymbolMap,
@@ -11,7 +14,10 @@ use crate::{
     values::lists::List,
 };
 use num::{BigInt, BigRational, Rational32};
+
+#[cfg(feature = "sync")]
 use once_cell::sync::Lazy;
+
 use steel_gen::OpCode;
 
 use crate::{

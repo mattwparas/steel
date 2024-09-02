@@ -1,6 +1,7 @@
-use std::sync::Arc;
-
+#[cfg(feature = "sync")]
 use parking_lot::{RwLock, RwLockReadGuard};
+#[cfg(feature = "sync")]
+use std::sync::Arc;
 
 use crate::rvals::{Result, SteelVal};
 

@@ -22,7 +22,7 @@ mod utils;
 pub mod vectors;
 
 use crate::gc::{Gc, GcMut};
-use crate::rvals::{CustomType, FromSteelVal, IntoSteelVal, SteelByteVector};
+use crate::rvals::{FromSteelVal, IntoSteelVal, SteelByteVector};
 use crate::rvals::{
     FunctionSignature, PrimitiveAsRef, PrimitiveAsRefMut, SteelHashMap, SteelHashSet, SteelVal,
     SteelVector,
@@ -46,7 +46,6 @@ pub use numbers::{
     add_primitive, divide_primitive, multiply_primitive, subtract_primitive, NumOperations,
 };
 pub use ports::port_module;
-use std::cell::RefCell;
 use std::convert::TryFrom;
 use std::result;
 pub use streams::StreamOperations;

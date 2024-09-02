@@ -27,10 +27,7 @@ use crate::{
 };
 use smallvec::SmallVec;
 use std::sync::atomic::AtomicUsize;
-use steel_parser::{
-    ast::Quote,
-    tokens::{IntLiteral, NumberLiteral, RealLiteral},
-};
+use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
 
 use crate::rvals::Result;
 
