@@ -84,6 +84,14 @@ jobs:
 
       - name: Build optimized binary
         run: cargo pgo optimize
+
+      - name: Archive pgo optimized binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: pgo-nightly-build
+          path: target/x86_64-unknown-linux-gnu/release/steel
+          retention-days: 30
+        
       # Now do something with the PGO optimized binary at `./target/x86_64-unknown-linux-gnu/release/foo` :)
 
 
