@@ -3,7 +3,7 @@ use std::{
     hash::BuildHasherDefault,
 };
 
-use im_rc::HashMap as ImmutableHashMap;
+use crate::values::HashMap as ImmutableHashMap;
 use quickscope::ScopeMap;
 use smallvec::SmallVec;
 use steel_parser::{
@@ -5829,7 +5829,7 @@ mod analysis_pass_tests {
         {
             let mut analysis = SemanticAnalysis::new(&mut exprs);
 
-            let mut constants = im_rc::HashMap::default();
+            let mut constants = ImmutableHashMap::default();
             constants.insert("+".into(), SteelVal::Void);
             constants.insert("<=".into(), SteelVal::Void);
             constants.insert("-".into(), SteelVal::Void);

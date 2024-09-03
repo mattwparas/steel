@@ -11,7 +11,8 @@ crate-type = ["cdylib"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-steel-core = { path = "../../crates/steel-core", version = "0.6.0", features = ["dylibs"] }
+# steel-core = { path = "../../crates/steel-core", version = "0.6.0", features = ["dylibs"] }
+steel-core = { workspace = true }
 abi_stable = "0.11.1"
 isahc = { version = "1.7.2", features = ["json", "text-decoding"] }
 http = "0.2.12"

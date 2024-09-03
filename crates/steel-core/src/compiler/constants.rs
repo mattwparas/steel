@@ -1,3 +1,5 @@
+use crate::gc::shared::{MutContainer, ShareableMut};
+use crate::gc::{Shared, SharedMut};
 use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
 use crate::rvals::{into_serializable_value, Result, SerializableSteelVal, SteelVal};
 
@@ -7,7 +9,6 @@ use crate::parser::{
 };
 
 use std::collections::HashMap;
-use std::{cell::RefCell, rc::Rc};
 
 // TODO add the serializing and deserializing for constants
 use serde::{Deserialize, Serialize};
@@ -15,19 +16,15 @@ use steel_parser::parser::{lower_entire_ast, SourceId};
 
 // Shared constant map - for repeated in memory execution of a program, this is going to share the same
 // underlying representation.
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct ConstantMap {
-    map: Rc<RefCell<HashMap<SteelVal, usize>>>,
-    values: Rc<RefCell<Vec<SteelVal>>>,
+    map: SharedMut<HashMap<SteelVal, usize>>,
+    values: SharedMut<Vec<SteelVal>>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct SerializableConstantMap(Vec<u8>);
 
-// #[derive(Debug, PartialEq, Clone, Deserialize, Serialize)]
-// struct ConstantExprMap {
-//     map: Vec<Expr>,
-// }
 impl Default for ConstantMap {
     fn default() -> Self {
         Self::new()
@@ -37,8 +34,8 @@ impl Default for ConstantMap {
 impl Clone for ConstantMap {
     fn clone(&self) -> Self {
         Self {
-            values: Rc::clone(&self.values),
-            map: Rc::clone(&self.map),
+            values: Shared::clone(&self.values),
+            map: Shared::clone(&self.map),
         }
     }
 }
@@ -46,8 +43,23 @@ impl Clone for ConstantMap {
 impl ConstantMap {
     pub fn new() -> ConstantMap {
         ConstantMap {
-            values: Rc::new(RefCell::new(Vec::new())),
-            map: Rc::new(RefCell::new(HashMap::new())),
+            values: Shared::new(MutContainer::new(Vec::new())),
+            map: Shared::new(MutContainer::new(HashMap::new())),
+        }
+    }
+
+    pub fn deep_clone(&self) -> ConstantMap {
+        Self {
+            map: Shared::new(MutContainer::new(
+                self.map
+                    .read()
+                    .iter()
+                    .map(|x| (x.0.clone(), x.1.clone()))
+                    .collect(),
+            )),
+            values: Shared::new(MutContainer::new(
+                self.values.read().iter().cloned().collect(),
+            )),
         }
     }
 
@@ -61,7 +73,7 @@ impl ConstantMap {
         visited: &mut std::collections::HashSet<usize>,
     ) -> Vec<SerializableSteelVal> {
         self.values
-            .borrow()
+            .read()
             .iter()
             .cloned()
             .map(|x| into_serializable_value(x, serializer, visited))
@@ -69,30 +81,22 @@ impl ConstantMap {
             .unwrap()
     }
 
-    // There might be a better way of doing this - but provide this as an option
-    // in the event we want a deep clone of the constant map
-    // pub fn deep_clone(&self) -> ConstantMap {
-    //     ConstantMap(Rc::new(RefCell::new(
-    //         self.0.borrow().iter().cloned().collect(),
-    //     )))
-    // }
-
     pub fn from_vec(vec: Vec<SteelVal>) -> ConstantMap {
         ConstantMap {
-            map: Rc::new(RefCell::new(
+            map: Shared::new(MutContainer::new(
                 vec.clone()
                     .into_iter()
                     .enumerate()
                     .map(|x| (x.1, x.0))
                     .collect(),
             )),
-            values: Rc::new(RefCell::new(vec)),
+            values: Shared::new(MutContainer::new(vec)),
         }
     }
 
     fn to_constant_expr_map(&self) -> Vec<String> {
         self.values
-            .borrow()
+            .read()
             .iter()
             .map(|x| match x {
                 SteelVal::StringV(s) => {
@@ -151,10 +155,10 @@ impl ConstantMap {
 impl ConstantMap {
     pub fn add(&mut self, val: SteelVal) -> usize {
         let idx = self.len();
-        self.values.borrow_mut().push(val.clone());
+        self.values.write().push(val.clone());
 
         // TODO: Consider just storing the hash code, not the actual value.
-        self.map.borrow_mut().insert(val, idx);
+        self.map.write().insert(val, idx);
 
         idx
     }
@@ -162,11 +166,11 @@ impl ConstantMap {
     // Fallible
     #[inline(always)]
     pub fn get(&self, idx: usize) -> SteelVal {
-        self.values.borrow()[idx].clone()
+        self.values.read()[idx].clone()
     }
 
     pub fn try_get(&self, idx: usize) -> Option<SteelVal> {
-        self.values.borrow().get(idx).cloned()
+        self.values.read().get(idx).cloned()
     }
 
     // Replace with existing constants if they already exist
@@ -194,7 +198,7 @@ impl ConstantMap {
             };
         }
 
-        let idx = self.map.borrow_mut().get(&val).copied();
+        let idx = self.map.write().get(&val).copied();
 
         if let Some(idx) = idx {
             idx
@@ -204,20 +208,20 @@ impl ConstantMap {
     }
 
     pub fn len(&self) -> usize {
-        self.values.borrow().len()
+        self.values.read().len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.values.borrow().is_empty()
+        self.values.read().is_empty()
     }
 
     pub fn roll_back(&mut self, idx: usize) {
-        self.values.borrow_mut().truncate(idx);
+        self.values.write().truncate(idx);
     }
 
     #[cfg(test)]
     pub fn clear(&mut self) {
-        self.values.borrow_mut().clear()
+        self.values.write().clear()
     }
 }
 

@@ -3,7 +3,7 @@ use crate::values::lists::{List, SteelList};
 
 use crate::rvals::{RestArgsIter, Result, SteelByteVector, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
-use crate::stop;
+use crate::{stop, Vector};
 
 use num::{BigInt, Num};
 use steel_derive::{function, native};
@@ -855,7 +855,7 @@ pub fn string_to_vector(value: &SteelString, mut rest: RestArgsIter<isize>) -> R
 
     let range = bounds(value.as_str(), start, end, "string->vector")?;
 
-    let chars: im_rc::Vector<_> = value[range].chars().map(SteelVal::CharV).collect();
+    let chars: Vector<_> = value[range].chars().map(SteelVal::CharV).collect();
 
     Ok(SteelVal::VectorV(Gc::new(chars).into()))
 }

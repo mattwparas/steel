@@ -1,17 +1,18 @@
 use std::{
     borrow::Cow,
-    cell::{RefCell, RefMut},
     marker::PhantomData,
-    rc::Rc,
     sync::{Arc, Mutex},
 };
 
 use crate::{
-    gc::Gc,
+    gc::{
+        shared::{ScopedWriteContainer, ShareableMut},
+        Gc,
+    },
     rerrs::ErrorKind,
     rvals::{
-        as_underlying_type_mut, Custom, CustomType, FutureResult, IntoSteelVal, Result,
-        SteelByteVector, SteelHashMap, SteelVal,
+        as_underlying_type_mut, Custom, CustomType, FutureResult, IntoSteelVal,
+        MaybeSendSyncStatic, Result, SteelByteVector, SteelHashMap, SteelVal,
     },
     values::functions::{BoxedDynFunction, StaticOrRcStr},
     SteelErr,
@@ -26,6 +27,7 @@ use abi_stable::{
 };
 use futures_util::FutureExt;
 
+use crate::values::HashMap;
 pub use async_ffi::{FfiFuture, FutureExt as FfiFutureExt};
 
 #[macro_export]
@@ -75,20 +77,16 @@ impl<'a, In: StableAbi + 'a, Out: StableAbi, F: Fn(In) -> Out + Send + Sync> RFn
     }
 }
 
+#[cfg(feature = "sync")]
+#[abi_stable::sabi_trait]
+pub trait OpaqueObject: Send + Sync {}
+
+#[cfg(not(feature = "sync"))]
 #[abi_stable::sabi_trait]
 pub trait OpaqueObject {}
 
 // Blanket implement this for all things that implement Custom!
-impl<T: Custom> OpaqueObject for T {}
-
-// #[repr(C)]
-// #[derive(Clone)]
-// pub struct OpaqueFFIValue {
-//     // pub name: RString,
-//     // TODO: If instead we actually just have a separate FFI safe implementation
-//     // of this, it should actually be just fine.
-//     pub inner: Gc<RefCell<Box<dyn CustomType>>>,
-// }
+impl<T: Custom + MaybeSendSyncStatic> OpaqueObject for T {}
 
 // TODO: Swap this implementation with the above.
 #[repr(C)]
@@ -209,7 +207,9 @@ impl<T: Into<FFIValue>> IntoFFIVal for T {
 
 impl From<FfiFuture<RResult<FFIValue, RBoxError>>> for FFIValue {
     fn from(value: FfiFuture<RResult<FFIValue, RBoxError>>) -> Self {
-        FFIValue::Future { fut: value }
+        FFIValue::Future {
+            fut: SyncFfiFuture { fut: value },
+        }
     }
 }
 
@@ -436,7 +436,7 @@ impl<'a> FromFFIArg<'a> for FFIArg<'a> {
 // }
 
 // Convert this directly to the type we want on the way out
-impl<T: OpaqueObject + 'static> From<T> for FFIValue {
+impl<T: OpaqueObject + MaybeSendSyncStatic> From<T> for FFIValue {
     fn from(value: T) -> Self {
         FFIValue::Custom {
             custom: OpaqueFFIValueReturn {
@@ -867,7 +867,7 @@ pub struct CustomRef<'a> {
     pub custom: RMut<'a, OpaqueObject_TO<'static, RBox<()>>>,
     // TODO: Make this private
     #[sabi(unsafe_opaque_field)]
-    guard: RefMut<'a, Box<dyn CustomType>>,
+    guard: ScopedWriteContainer<'a, Box<dyn CustomType>>,
 }
 
 #[repr(C)]
@@ -875,7 +875,7 @@ pub struct CustomRef<'a> {
 pub struct VectorRef<'a> {
     pub vec: RSliceMut<'a, FFIValue>,
     #[sabi(unsafe_opaque_field)]
-    guard: RefMut<'a, Box<dyn CustomType>>,
+    guard: ScopedWriteContainer<'a, Box<dyn CustomType>>,
 }
 
 #[repr(C)]
@@ -883,7 +883,7 @@ pub struct VectorRef<'a> {
 pub struct StringMutRef<'a> {
     string: RMut<'a, RString>,
     #[sabi(unsafe_opaque_field)]
-    guard: RefMut<'a, Box<dyn CustomType>>,
+    guard: ScopedWriteContainer<'a, Box<dyn CustomType>>,
 }
 
 // TODO:
@@ -993,20 +993,26 @@ pub enum FFIValue {
         #[sabi(unsafe_opaque_field)]
         c: char,
     },
-    // TODO: This is super dangerous, BUT it could work... restricting CustomType to have
-    // the StableAbi is a bit of a deal breaker in terms of its application. With certain restrictions on the
-    // generation of dylibs, this might be totally fine.
     Custom {
         custom: OpaqueFFIValueReturn,
     },
-
     HashMap(RHashMap<FFIValue, FFIValue>),
     Future {
-        #[sabi(unsafe_opaque_field)]
-        fut: FfiFuture<RResult<FFIValue, RBoxError>>,
+        fut: SyncFfiFuture,
     },
     ByteVector(RVec<u8>),
 }
+
+#[repr(C)]
+#[derive(StableAbi)]
+pub struct SyncFfiFuture {
+    // TODO: @Matt - Just wrap this in a mutex, then we should be
+    // good to go on this!
+    fut: FfiFuture<RResult<FFIValue, RBoxError>>,
+}
+
+// TODO: Don't let this slip through the cracks
+unsafe impl Sync for SyncFfiFuture {}
 
 impl FFIValue {
     pub fn try_clone(&self) -> Option<FFIValue> {
@@ -1020,9 +1026,6 @@ impl FFIValue {
             _ => None,
         }
     }
-
-    // Just overwrite the string
-    // pub fn string_mut(&mut self) -> Option<&mut RString> {}
 }
 
 impl std::hash::Hash for FFIValue {
@@ -1092,7 +1095,7 @@ impl FFIValue {
     pub fn as_steelval(&self) -> Result<SteelVal> {
         match self {
             Self::BoxedFunction(b) => {
-                Ok(SteelVal::BoxedFunction(Rc::new(b.as_boxed_dyn_function())))
+                Ok(SteelVal::BoxedFunction(Gc::new(b.as_boxed_dyn_function())))
             }
             Self::BoolV(b) => Ok(SteelVal::BoolV(*b)),
             Self::NumV(n) => Ok(SteelVal::NumV(*n)),
@@ -1118,7 +1121,7 @@ impl FFIValue {
 
                     Ok((k, v))
                 })
-                .collect::<Result<im_rc::HashMap<_, _>>>()
+                .collect::<Result<HashMap<_, _>>>()
                 .map(Gc::new)
                 .map(SteelHashMap::from)
                 .map(SteelVal::HashMapV),
@@ -1144,12 +1147,9 @@ impl IntoSteelVal for FFIValue {
     fn into_steelval(self) -> Result<SteelVal> {
         match self {
             Self::BoxedFunction(b) => {
-                Ok(SteelVal::BoxedFunction(Rc::new(RBox::into_inner(b).into())))
+                Ok(SteelVal::BoxedFunction(Gc::new(RBox::into_inner(b).into())))
             }
-            Self::Custom { custom } => {
-                Ok(SteelVal::Custom(Gc::new(RefCell::new(Box::new(custom)))))
-            }
-
+            Self::Custom { custom } => Ok(SteelVal::Custom(Gc::new_mut(Box::new(custom)))),
             Self::BoolV(b) => Ok(SteelVal::BoolV(b)),
             Self::NumV(n) => Ok(SteelVal::NumV(n)),
             Self::IntV(i) => Ok(SteelVal::IntV(i)),
@@ -1174,7 +1174,7 @@ impl IntoSteelVal for FFIValue {
 
                     Ok((k, v))
                 })
-                .collect::<Result<im_rc::HashMap<_, _>>>()
+                .collect::<Result<HashMap<_, _>>>()
                 .map(Gc::new)
                 .map(SteelHashMap::from)
                 .map(SteelVal::HashMapV),
@@ -1182,11 +1182,14 @@ impl IntoSteelVal for FFIValue {
             // Attempt to move this across the FFI Boundary... We'll see how successful it is.
             FFIValue::Future { fut } => Ok(SteelVal::FutureV(Gc::new(FutureResult::new(
                 Box::pin(async {
-                    fut.map(|x| match x {
-                        RResult::ROk(v) => v.into_steelval(),
-                        RResult::RErr(e) => Err(SteelErr::new(ErrorKind::Generic, e.to_string())),
-                    })
-                    .await
+                    fut.fut
+                        .map(|x| match x {
+                            RResult::ROk(v) => v.into_steelval(),
+                            RResult::RErr(e) => {
+                                Err(SteelErr::new(ErrorKind::Generic, e.to_string()))
+                            }
+                        })
+                        .await
                 }),
             )))),
 
@@ -1267,7 +1270,8 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
         SteelVal::Void => Ok(FFIArg::Void),
         // We can really only look at values that were made from the FFI boundary.
         SteelVal::Custom(c) => {
-            let mut guard = if let Ok(guard) = RefCell::try_borrow_mut(c) {
+            // let mut guard = if let Ok(guard) = RefCell::try_borrow_mut(c) {
+            let mut guard = if let Ok(guard) = c.try_write() {
                 guard
             } else {
                 stop!(Generic => "value cannot be borrowed mutably twice over the ffi boundary: {:?}", value)
@@ -1337,10 +1341,6 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
             stop!(TypeMismatch => "Cannot proceed with the conversion from steelval to FFI Value. This will only succeed for a subset of values deemed as FFI-safe-enough: {:?}", value)
         }
     }
-}
-
-thread_local! {
-    static FFI_ARGUMENT_VEC: RefCell<RVec<FFIArg<'static>>> = RefCell::new(RVec::new());
 }
 
 impl FFIBoxedDynFunction {

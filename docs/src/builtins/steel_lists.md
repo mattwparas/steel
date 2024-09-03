@@ -24,7 +24,6 @@ lst : list?
 > (append) ;; => '()
 ```
 ### **apply**
-
 Applies the given `function` with arguments as the contents of the `list`.
 
 (apply function lst) -> any?
@@ -37,7 +36,6 @@ Applies the given `function` with arguments as the contents of the `list`.
 > (apply + (list 1 2 3 4)) ;; => 10
 > (apply list (list 1 2 3 4)) ;; => '(1 2 3 4)
 ```
-    
 ### **car**
 Returns the first element of the list l.
 
@@ -269,6 +267,7 @@ error[E11]: Generic
 ```
 ### **cdr-null?**
 ### **list->string**
+### **list->vector**
 ### **list-tail**
 ### **push-back**
 ### **transduce**

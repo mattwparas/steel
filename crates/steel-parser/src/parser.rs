@@ -1,4 +1,9 @@
-use std::{cell::Cell, path::PathBuf, rc::Rc, result, sync::atomic::AtomicUsize};
+use std::{
+    path::PathBuf,
+    rc::Rc,
+    result,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -31,9 +36,9 @@ impl SourceId {
 // TODO: Fix the visibility here
 pub static SYNTAX_OBJECT_ID: AtomicUsize = AtomicUsize::new(0);
 
-thread_local! {
-    pub static TL_SYNTAX_OBJECT_ID: Cell<u32> = Cell::new(0);
-}
+// thread_local! {
+//     pub static TL_SYNTAX_OBJECT_ID: Cell<u32> = Cell::new(0);
+// }
 
 #[derive(
     Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
@@ -43,12 +48,13 @@ pub struct SyntaxObjectId(pub u32);
 impl SyntaxObjectId {
     #[inline]
     pub fn fresh() -> Self {
-        // SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed))
-        SyntaxObjectId(TL_SYNTAX_OBJECT_ID.with(|x| {
-            let value = x.get();
-            x.set(value + 1);
-            value
-        }))
+        SyntaxObjectId(SYNTAX_OBJECT_ID.fetch_add(1, Ordering::Relaxed) as _)
+        // TODO: Revisit why we're using this here
+        // SyntaxObjectId(TL_SYNTAX_OBJECT_ID.with(|x| {
+        //     let value = x.get();
+        //     x.set(value + 1);
+        //     value
+        // }))
     }
 }
 

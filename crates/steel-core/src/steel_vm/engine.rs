@@ -3,7 +3,7 @@
 use super::{
     builtin::{BuiltInModule, FunctionSignatureMetadata},
     primitives::{register_builtin_modules, register_builtin_modules_without_io, CONSTANTS},
-    vm::SteelThread,
+    vm::{SteelThread, ThreadStateController},
 };
 
 #[cfg(feature = "dylibs")]
@@ -24,9 +24,12 @@ use crate::{
     },
     containers::RegisterValue,
     core::{instructions::Instruction, labels::Expr},
-    gc::unsafe_erased_pointers::{
-        BorrowedObject, CustomReference, OpaqueReferenceNursery, ReadOnlyBorrowedObject,
-        ReferenceMarker,
+    gc::{
+        unsafe_erased_pointers::{
+            BorrowedObject, CustomReference, OpaqueReferenceNursery, ReadOnlyBorrowedObject,
+            ReferenceMarker,
+        },
+        Gc, Shared,
     },
     parser::{
         ast::ExprKind,
@@ -38,7 +41,7 @@ use crate::{
     rerrs::{back_trace, back_trace_to_string},
     rvals::{
         cycles::{install_printer, print_in_engine, PRINT_IN_ENGINE_DEFINITION},
-        FromSteelVal, IntoSteelVal, Result, SteelVal,
+        FromSteelVal, IntoSteelVal, MaybeSendSyncStatic, Result, SteelVal,
     },
     steel_vm::register_fn::RegisterFn,
     stop, throw,
@@ -51,12 +54,16 @@ use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
     rc::Rc,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
 };
 
+use crate::values::HashMap as ImmutableHashMap;
 use fxhash::{FxBuildHasher, FxHashMap};
-use im_rc::HashMap as ImmutableHashMap;
 use lasso::ThreadedRodeo;
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use steel_gen::OpCode;
 use steel_parser::{
@@ -75,21 +82,27 @@ thread_local! {
 //     KERNEL_BIN_FILE.with(|x| x.set(Some(bin)));
 // }
 
+#[cfg(not(feature = "sync"))]
 pub trait ModuleResolver {
+    fn resolve(&self, name: &str) -> Option<BuiltInModule>;
+}
+
+#[cfg(feature = "sync")]
+pub trait ModuleResolver: MaybeSendSyncStatic {
     fn resolve(&self, name: &str) -> Option<BuiltInModule>;
 }
 
 #[derive(Clone, Default)]
 pub struct ModuleContainer {
-    modules: ImmutableHashMap<Rc<str>, BuiltInModule>,
+    modules: ImmutableHashMap<Shared<str>, BuiltInModule>,
     // For modules that don't exist in memory. This could be useful for a world
     // in which a builtin module exists BUT we'd like to resolve the module for
     // inference purposes.
-    unresolved_modules: Option<Rc<dyn ModuleResolver>>,
+    unresolved_modules: Option<Shared<dyn ModuleResolver>>,
 }
 
 impl ModuleContainer {
-    pub fn insert(&mut self, key: Rc<str>, value: BuiltInModule) {
+    pub fn insert(&mut self, key: Shared<str>, value: BuiltInModule) {
         self.modules.insert(key, value);
     }
 
@@ -125,16 +138,16 @@ impl ModuleContainer {
         })
     }
 
-    pub fn inner(&self) -> &ImmutableHashMap<Rc<str>, BuiltInModule> {
+    pub fn inner(&self) -> &ImmutableHashMap<Shared<str>, BuiltInModule> {
         &self.modules
     }
 
-    pub(crate) fn inner_mut(&mut self) -> &mut ImmutableHashMap<Rc<str>, BuiltInModule> {
+    pub(crate) fn inner_mut(&mut self) -> &mut ImmutableHashMap<Shared<str>, BuiltInModule> {
         &mut self.modules
     }
 
     pub fn with_resolver<T: ModuleResolver + 'static>(&mut self, resolver: T) {
-        self.unresolved_modules = Some(Rc::new(resolver));
+        self.unresolved_modules = Some(Shared::new(resolver));
     }
 }
 
@@ -151,15 +164,27 @@ pub struct GlobalCheckpoint {
     globals_offset: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct EngineId(usize);
+
+impl EngineId {
+    pub fn new() -> Self {
+        static ENGINE_ID: AtomicUsize = AtomicUsize::new(0);
+        let id = ENGINE_ID.fetch_add(1, Ordering::Relaxed);
+        Self(id)
+    }
+}
+
 #[derive(Clone)]
 pub struct Engine {
-    virtual_machine: SteelThread,
-    compiler: Compiler,
+    pub(crate) virtual_machine: SteelThread,
+    pub(crate) compiler: Compiler,
     constants: Option<ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>>,
     modules: ModuleContainer,
     sources: Sources,
     #[cfg(feature = "dylibs")]
     dylibs: DylibContainers,
+    pub(crate) id: EngineId,
 }
 
 impl Default for Engine {
@@ -312,14 +337,51 @@ macro_rules! time {
     }};
 }
 
-thread_local! {
-    pub(crate) static DEFAULT_PRELUDE_MACROS: RefCell<FxHashMap<InternedString, SteelMacro>> = RefCell::new(HashMap::default());
+static STATIC_DEFAULT_PRELUDE_MACROS: OnceCell<FxHashMap<InternedString, SteelMacro>> =
+    OnceCell::new();
 
-    pub(crate) static DEFAULT_DOC_MACROS: RefCell<HashMap<InternedString, SteelMacro>> = RefCell::new(
-        HashMap::new());
+pub(crate) fn set_default_prelude_macros(prelude_macros: FxHashMap<InternedString, SteelMacro>) {
+    if cfg!(feature = "sync") {
+        STATIC_DEFAULT_PRELUDE_MACROS.set(prelude_macros).unwrap();
+    } else {
+        DEFAULT_PRELUDE_MACROS.with(|x| {
+            let mut guard = x.borrow_mut();
+            *guard = prelude_macros;
+        })
+    }
+}
+
+pub(crate) fn default_prelude_macros() -> FxHashMap<InternedString, SteelMacro> {
+    if cfg!(feature = "sync") {
+        STATIC_DEFAULT_PRELUDE_MACROS
+            .get()
+            .cloned()
+            .unwrap_or_default()
+    } else {
+        DEFAULT_PRELUDE_MACROS.with(|x| x.borrow().clone())
+    }
+}
+
+thread_local! {
+    // TODO: Replace this with a once cell?
+    pub(crate) static DEFAULT_PRELUDE_MACROS: RefCell<FxHashMap<InternedString, SteelMacro>> = RefCell::new(HashMap::default());
 }
 
 impl Engine {
+    #[cfg(feature = "sync")]
+    pub(crate) fn deep_clone(&self) -> Self {
+        let mut engine = self.clone();
+        engine.virtual_machine.global_env = engine.virtual_machine.global_env.deep_clone();
+        engine.compiler.constant_map = engine.compiler.constant_map.deep_clone();
+
+        let heap_copy = Arc::new(Mutex::new(
+            engine.virtual_machine.heap.lock().unwrap().clone(),
+        ));
+
+        engine.virtual_machine.heap = heap_copy;
+        engine
+    }
+
     /// Function to access a kernel level execution environment
     /// Has access to primitives and syntax rules, but will not defer to a child
     /// kernel in the compiler
@@ -327,7 +389,7 @@ impl Engine {
         log::debug!(target:"kernel", "Instantiating a new kernel");
         #[cfg(feature = "profiling")]
         let mut total_time = std::time::Instant::now();
-        #[cfg(feature = "profiling")]
+        // #[cfg(feature = "profiling")]
         let mut now = std::time::Instant::now();
 
         let mut vm = Engine {
@@ -338,6 +400,7 @@ impl Engine {
             sources: Sources::new(),
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
+            id: EngineId::new(),
         };
 
         time!(
@@ -412,13 +475,10 @@ impl Engine {
         // Initialize the global macro environment with the default one. This way
         // values won't leak when top level macros are defined - and modules can clone from
         // this to begin seeding their environment.
-        DEFAULT_PRELUDE_MACROS.with(|x| {
-            let mut guard = x.borrow_mut();
 
-            *guard = vm.in_scope_macros().clone();
-        });
+        set_default_prelude_macros(vm.in_scope_macros().clone());
 
-        #[cfg(feature = "profiling")]
+        // #[cfg(feature = "profiling")]
         log::debug!(target: "kernel", "Loaded prelude in the kernel!: {:?}", now.elapsed());
 
         #[cfg(feature = "profiling")]
@@ -495,6 +555,7 @@ impl Engine {
             sources: Sources::new(),
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
+            id: EngineId::new(),
         };
 
         if let Some(programs) = Engine::load_from_bootstrap(&mut vm) {
@@ -605,6 +666,7 @@ impl Engine {
             sources: Sources::new(),
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
+            id: EngineId::new(),
         };
 
         register_builtin_modules(&mut vm);
@@ -656,6 +718,7 @@ impl Engine {
             sources: Sources::new(),
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
+            id: EngineId::new(),
         };
 
         register_builtin_modules(&mut vm);
@@ -763,6 +826,7 @@ impl Engine {
             sources: Sources::new(),
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
+            id: EngineId::new(),
         };
 
         // Register the modules
@@ -837,6 +901,7 @@ impl Engine {
             sources: Sources::new(),
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
+            id: EngineId::new(),
         };
 
         register_builtin_modules(&mut vm);
@@ -895,6 +960,7 @@ impl Engine {
             sources: Sources::new(),
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
+            id: EngineId::new(),
         }
     }
 
@@ -1204,6 +1270,10 @@ impl Engine {
 
     pub fn with_interrupted(&mut self, interrupted: Arc<AtomicBool>) {
         self.virtual_machine.with_interrupted(interrupted);
+    }
+
+    pub fn get_thread_state_controller(&self) -> ThreadStateController {
+        self.virtual_machine.synchronizer.state.clone()
     }
 
     pub(crate) fn new_printer() -> Self {
@@ -1537,10 +1607,23 @@ impl Engine {
         self.compiler
             .symbol_map
             .roll_back(checkpoint.symbol_map_offset);
-        self.virtual_machine
-            .global_env
-            .bindings_vec
-            .truncate(checkpoint.globals_offset);
+
+        #[cfg(feature = "sync")]
+        {
+            self.virtual_machine
+                .global_env
+                .bindings_vec
+                .write()
+                .truncate(checkpoint.globals_offset);
+        }
+
+        #[cfg(not(feature = "sync"))]
+        {
+            self.virtual_machine
+                .global_env
+                .bindings_vec
+                .truncate(checkpoint.globals_offset);
+        }
 
         Ok(())
     }
@@ -1552,11 +1635,23 @@ impl Engine {
         // Unfortunately, we have to invoke a whole GC algorithm here
         // for shadowed rooted values
         if self.compiler.symbol_map.free_list.should_collect() {
-            GlobalSlotRecycler::free_shadowed_rooted_values(
-                &mut self.virtual_machine.global_env.bindings_vec,
-                &mut self.compiler.symbol_map,
-                &mut self.virtual_machine.heap,
-            );
+            #[cfg(feature = "sync")]
+            {
+                GlobalSlotRecycler::free_shadowed_rooted_values(
+                    &mut self.virtual_machine.global_env.bindings_vec.write(),
+                    &mut self.compiler.symbol_map,
+                    &mut self.virtual_machine.heap.lock().unwrap(),
+                );
+            }
+
+            #[cfg(not(feature = "sync"))]
+            {
+                GlobalSlotRecycler::free_shadowed_rooted_values(
+                    &mut self.virtual_machine.global_env.bindings_vec,
+                    &mut self.compiler.symbol_map,
+                    &mut self.virtual_machine.heap.lock().unwrap(),
+                );
+            }
 
             // Drop the pure functions which have been lifted.
             self.virtual_machine
@@ -1758,49 +1853,13 @@ impl Engine {
 
         self.register_value(
             predicate_name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(predicate_name),
                 Some(1),
             ))),
         )
     }
-
-    // /// Registers a callback function. If registered, this callback will be called on every instruction
-    // /// Allows for the introspection of the currently running process. The callback here takes as an argument the current instruction number.
-    // ///
-    // /// # Examples
-    // ///
-    // /// ```
-    // /// # extern crate steel;
-    // /// # use steel::steel_vm::engine::Engine;
-    // /// let mut vm = Engine::new();
-    // /// vm.on_progress(|count| {
-    // ///     // parameter is 'usize' - number of instructions performed up to this point
-    // ///     if count % 1000 == 0 {
-    // ///         // print out a progress log every 1000 operations
-    // ///         println!("Number of instructions up to this point: {}", count);
-    // ///         // Returning false here would quit the evaluation of the function
-    // ///         return true;
-    // ///     }
-    // ///     true
-    // /// });
-    // /// // This should end with "Number of instructions up to this point: 12000"
-    // /// vm.run(
-    // ///     r#"
-    // ///     (define (loop x)
-    // ///         (if (equal? x 1000)
-    // ///             x
-    // ///             (loop (+ x 1))))
-    // ///     (loop 0)
-    // /// "#,
-    // /// )
-    // /// .unwrap();
-    // /// ```
-    // pub fn on_progress<FN: Fn(usize) -> bool + 'static>(&mut self, _callback: FN) -> &mut Self {
-    //     // self.virtual_machine.on_progress(callback);
-    //     self
-    // }
 
     /// Extracts a value with the given identifier `name` from the internal environment.
     /// If a script calculated some series of bound values, then it can be extracted this way.

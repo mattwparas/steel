@@ -89,68 +89,6 @@ impl IoFunctions {
         })
     }
 
-    #[cfg(feature = "colors")]
-    pub fn display_color() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() == 2 {
-                let print_val = &args[0];
-                let color = &args[1];
-
-                match (&print_val, &color) {
-                    (SteelVal::StringV(s), SteelVal::SymbolV(c)) => match c.as_str() {
-                        "green" | "Green" => print!("{}", s.to_string().bright_green()),
-                        "blue" | "Blue" => print!("{}", s.to_string().bright_blue()),
-                        "red" | "Red" => print!("{}", s.to_string().red()),
-                        _ => print!("{s}"),
-                    },
-                    (_, SteelVal::StringV(c)) | (_, SteelVal::SymbolV(c)) => match c.as_str() {
-                        "green" | "Green" => print!("{}", print_val.to_string().bright_green()),
-                        "blue" | "Blue" => print!("{}", print_val.to_string().bright_blue()),
-                        "red" | "Red" => print!("{}", print_val.to_string().red()),
-                        _ => print!("{print_val}"),
-                    },
-                    (_, _) => {
-                        stop!(TypeMismatch => "display-color expected a symbol as the second argument")
-                    }
-                }
-                Ok(SteelVal::Void)
-            } else {
-                stop!(ArityMismatch => "display-color takes two arguments");
-            }
-        })
-    }
-
-    #[cfg(not(feature = "colors"))]
-    pub fn display_color() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() == 2 {
-                let print_val = &args[0];
-                let color = &args[1];
-
-                match (&print_val, &color) {
-                    (SteelVal::StringV(s), SteelVal::SymbolV(c)) => match c.as_str() {
-                        "green" | "Green" => print!("{}", s),
-                        "blue" | "Blue" => print!("{}", s),
-                        "red" | "Red" => print!("{}", s),
-                        _ => print!("{s}"),
-                    },
-                    (_, SteelVal::StringV(c)) | (_, SteelVal::SymbolV(c)) => match c.as_str() {
-                        "green" | "Green" => print!("{}", print_val),
-                        "blue" | "Blue" => print!("{}", print_val),
-                        "red" | "Red" => print!("{}", print_val),
-                        _ => print!("{print_val}"),
-                    },
-                    (_, _) => {
-                        stop!(TypeMismatch => "display-color expected a symbol as the second argument")
-                    }
-                }
-                Ok(SteelVal::Void)
-            } else {
-                stop!(ArityMismatch => "display-color takes two arguments");
-            }
-        })
-    }
-
     pub fn newline() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.is_empty() {

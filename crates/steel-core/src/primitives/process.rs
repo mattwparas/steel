@@ -1,13 +1,11 @@
-use std::cell::RefCell;
-use std::io::{BufReader, BufWriter};
-use std::process::{Child, Command, Stdio};
-use std::rc::Rc;
-
+use crate::gc::Gc;
 use crate::values::port::{SteelPort, SteelPortRepr};
 use crate::values::structs::SteelResult;
 use crate::SteelVal;
 use crate::{rvals::Custom, steel_vm::builtin::BuiltInModule};
 use crate::{steel_vm::register_fn::RegisterFn, SteelErr};
+use std::io::{BufReader, BufWriter};
+use std::process::{Child, Command, Stdio};
 
 pub fn process_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/process".to_string());
@@ -60,9 +58,7 @@ impl ChildProcess {
             .and_then(|x| x.stdout.take())
             .and_then(|x| {
                 Some(SteelVal::PortV(SteelPort {
-                    port: Rc::new(RefCell::new(SteelPortRepr::ChildStdOutput(BufReader::new(
-                        x,
-                    )))),
+                    port: Gc::new_mut(SteelPortRepr::ChildStdOutput(BufReader::new(x))),
                 }))
             });
 
@@ -76,9 +72,7 @@ impl ChildProcess {
             .and_then(|x| x.stderr.take())
             .and_then(|x| {
                 Some(SteelVal::PortV(SteelPort {
-                    port: Rc::new(RefCell::new(SteelPortRepr::ChildStdError(BufReader::new(
-                        x,
-                    )))),
+                    port: Gc::new_mut(SteelPortRepr::ChildStdError(BufReader::new(x))),
                 }))
             });
 
@@ -92,9 +86,7 @@ impl ChildProcess {
             .and_then(|x| x.stdin.take())
             .and_then(|x| {
                 Some(SteelVal::PortV(SteelPort {
-                    port: Rc::new(RefCell::new(SteelPortRepr::ChildStdInput(BufWriter::new(
-                        x,
-                    )))),
+                    port: Gc::new_mut(SteelPortRepr::ChildStdInput(BufWriter::new(x))),
                 }))
             });
 

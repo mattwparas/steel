@@ -31,7 +31,7 @@ im-lists = "0.8.1"
 strsim = "0.11.0"
 quickscope = "0.2.0"
 
-lasso = { git = "https://github.com/kixiron/lasso/", features = ["multi-threaded", "serialize"] }
+lasso = { version = "0.7.3", features = ["multi-threaded", "ahash", "serialize"] }
 
 once_cell = "1.18.0"
 fxhash = "0.2.1"
@@ -49,7 +49,7 @@ num = "0.4.0"
 radix_fmt = "1.0.0"
 
 # For structs
-smallvec = { version = "1.10.0" }
+smallvec = { version = "1.13.0" }
 
 # Pretty printing documentation
 termimad = { version = "0.21.0", optional = true }
@@ -66,7 +66,15 @@ anyhow = { version = "1", optional = true }
 
 stacker = { version = "0.1.15", optional = true }
 
+# Sync feature
+im = { version = "15.1.0", optional = true }
+
+parking_lot = { version = "0.12", features = ["arc_lock", "send_guard"] }
+
 bigdecimal = "0.4.5"
+
+# Also for sync stuff
+crossbeam = "0.8.4"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "*", features = ["js"] }
@@ -88,6 +96,7 @@ steel-gen = { path = "../steel-gen", version = "0.2.0" }
 default = ["modules"]
 modules = []
 jit = ["dep:cranelift", "dep:cranelift-module", "dep:cranelift-jit"]
+sandbox = []
 dynamic = []
 profiling = []
 unsafe-internals = []
@@ -98,6 +107,7 @@ smallvec = []
 without-drop-protection = []
 stacker = ["dep:stacker"]
 dylib-build = ["dep:cargo-steel-lib"]
+sync = ["dep:im"]
 interrupt = []
 
 

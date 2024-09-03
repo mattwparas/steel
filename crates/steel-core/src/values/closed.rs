@@ -1,16 +1,23 @@
-use std::{
-    cell::RefCell,
-    collections::HashSet,
-    rc::{Rc, Weak},
-};
+use std::{cell::RefCell, collections::HashSet};
+
+#[cfg(feature = "sync")]
+use std::sync::Mutex;
 
 use crate::{
     compiler::map::SymbolMap,
+    gc::{
+        shared::{MutContainer, ShareableMut, WeakShared},
+        GcMut, Shared, SharedMut,
+    },
     rvals::{OpaqueIterator, SteelComplex, SteelVector},
-    steel_vm::vm::{Continuation, ContinuationMark},
+    steel_vm::vm::{Continuation, ContinuationMark, Synchronizer},
     values::lists::List,
 };
 use num::{BigInt, BigRational, Rational32};
+
+#[cfg(feature = "sync")]
+use once_cell::sync::Lazy;
+
 use steel_gen::OpCode;
 
 use crate::{
@@ -94,8 +101,8 @@ impl GlobalSlotRecycler {
         self.visit();
 
         // put them back as unreachable
-        heap.memory.iter().for_each(|x| x.borrow_mut().reset());
-        heap.vectors.iter().for_each(|x| x.borrow_mut().reset());
+        heap.memory.iter().for_each(|x| x.write().reset());
+        heap.vectors.iter().for_each(|x| x.write().reset());
 
         // Anything that is still remaining will require
         // getting added to the free list that is left.
@@ -199,13 +206,13 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
     fn visit_bignum(&mut self, _: Gc<BigInt>) -> Self::Output {}
     fn visit_complex(&mut self, _: Gc<SteelComplex>) -> Self::Output {}
     fn visit_bool(&mut self, _boolean: bool) -> Self::Output {}
-    fn visit_boxed_function(&mut self, _function: Rc<BoxedDynFunction>) -> Self::Output {}
+    fn visit_boxed_function(&mut self, _function: Gc<BoxedDynFunction>) -> Self::Output {}
     // TODO: Revisit this when the boxed iterator is cleaned up
-    fn visit_boxed_iterator(&mut self, iterator: Gc<RefCell<OpaqueIterator>>) -> Self::Output {
-        self.push_back(iterator.borrow().root.clone());
+    fn visit_boxed_iterator(&mut self, iterator: GcMut<OpaqueIterator>) -> Self::Output {
+        self.push_back(iterator.read().root.clone());
     }
-    fn visit_boxed_value(&mut self, boxed_value: Gc<RefCell<SteelVal>>) -> Self::Output {
-        self.push_back(boxed_value.borrow().clone());
+    fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) -> Self::Output {
+        self.push_back(boxed_value.read().clone());
     }
 
     fn visit_builtin_function(&mut self, _function: BuiltInSignature) -> Self::Output {}
@@ -237,7 +244,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
         }
     }
     fn visit_continuation(&mut self, continuation: Continuation) -> Self::Output {
-        let continuation = (*continuation.inner.borrow()).clone();
+        let continuation = (*continuation.inner.read()).clone();
 
         match continuation {
             ContinuationMark::Closed(continuation) => {
@@ -272,13 +279,13 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
         }
     }
     // TODO: Come back to this
-    fn visit_custom_type(&mut self, custom_type: Gc<RefCell<Box<dyn CustomType>>>) -> Self::Output {
+    fn visit_custom_type(&mut self, custom_type: GcMut<Box<dyn CustomType>>) -> Self::Output {
         let mut queue = MarkAndSweepContext {
             queue: &mut self.queue,
             object_count: 0,
         };
 
-        custom_type.borrow().visit_children(&mut queue);
+        custom_type.read().visit_children(&mut queue);
     }
 
     fn visit_float(&mut self, _float: f64) -> Self::Output {}
@@ -351,7 +358,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
     }
 
     // TODO: Revisit this
-    fn visit_reference_value(&mut self, _reference: Rc<OpaqueReference<'static>>) -> Self::Output {}
+    fn visit_reference_value(&mut self, _reference: Gc<OpaqueReference<'static>>) -> Self::Output {}
 
     fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output {
         for field in steel_struct.fields.iter() {
@@ -409,9 +416,15 @@ const GC_THRESHOLD: usize = 256 * 1000;
 const GC_GROW_FACTOR: usize = 2;
 const RESET_LIMIT: usize = 5;
 
+// TODO: Do these roots needs to be truly global?
+// Replace this with a lazy static
 thread_local! {
     static ROOTS: RefCell<Roots> = RefCell::new(Roots::default());
 }
+
+// stash roots in the global area
+#[cfg(feature = "sync")]
+static GLOBAL_ROOTS: Lazy<Mutex<Roots>> = Lazy::new(|| Mutex::new(Roots::default()));
 
 #[derive(Default)]
 pub struct Roots {
@@ -427,8 +440,14 @@ pub struct RootToken {
 }
 
 impl Drop for RootToken {
+    #[cfg(not(feature = "sync"))]
     fn drop(&mut self) {
         ROOTS.with(|x| x.borrow_mut().free(self))
+    }
+
+    #[cfg(feature = "sync")]
+    fn drop(&mut self) {
+        GLOBAL_ROOTS.lock().unwrap().free(self)
     }
 }
 
@@ -467,7 +486,15 @@ impl Roots {
 
 impl SteelVal {
     pub fn mark_rooted(&self) -> RootToken {
-        ROOTS.with(|x| x.borrow_mut().root(self.clone()))
+        #[cfg(feature = "sync")]
+        {
+            GLOBAL_ROOTS.lock().unwrap().root(self.clone())
+        }
+
+        #[cfg(not(feature = "sync"))]
+        {
+            ROOTS.with(|x| x.borrow_mut().root(self.clone()))
+        }
     }
 
     // If we're storing in an external struct that could escape
@@ -482,8 +509,8 @@ impl SteelVal {
     }
 }
 
-type HeapValue = Rc<RefCell<HeapAllocated<SteelVal>>>;
-type HeapVector = Rc<RefCell<HeapAllocated<Vec<SteelVal>>>>;
+type HeapValue = SharedMut<HeapAllocated<SteelVal>>;
+type HeapVector = SharedMut<HeapAllocated<Vec<SteelVal>>>;
 
 // Maybe uninitialized
 
@@ -512,8 +539,8 @@ impl FreeList {
         // Drain, moving values around...
         // is that expensive?
 
-        let pointer = Rc::new(RefCell::new(HeapAllocated::new(value)));
-        let weak_ptr = Rc::downgrade(&pointer);
+        let pointer = Shared::new(MutContainer::new(HeapAllocated::new(value)));
+        let weak_ptr = Shared::downgrade(&pointer);
 
         self.elements[self.cursor] = Some(pointer);
         self.alloc_count += 1;
@@ -554,11 +581,11 @@ impl FreeList {
     }
 
     fn weak_collection(&mut self) -> usize {
-        self.collect_on_condition(|inner| Rc::weak_count(inner) == 0)
+        self.collect_on_condition(|inner| Shared::weak_count(inner) == 0)
     }
 
     fn strong_collection(&mut self) -> usize {
-        self.collect_on_condition(|inner| !inner.borrow().is_reachable())
+        self.collect_on_condition(|inner| !inner.read().is_reachable())
     }
 }
 
@@ -569,9 +596,10 @@ enum CurrentSpace {
     To,
 }
 
-/// The heap for steel currently uses an allocation scheme based on weak references to reference counted pointers.
-/// Allocation is just a `Vec<Rc<RefCell<T>>>`, where allocating simply pushes and allocates a value at the end.
-/// When we do a collection, we attempt to do a small collection by just dropping any values with no weak counts
+/// The heap for steel currently uses an allocation scheme based on weak references
+/// to reference counted pointers. Allocation is just a `Vec<Rc<RefCell<T>>>`, where
+/// allocating simply pushes and allocates a value at the end. When we do a collection,
+/// we attempt to do a small collection by just dropping any values with no weak counts
 /// pointing to it.
 #[derive(Clone)]
 pub struct Heap {
@@ -583,7 +611,6 @@ pub struct Heap {
     vectors: Vec<HeapVector>,
     count: usize,
     threshold: usize,
-    // mark_and_sweep_queue: VecDeque<SteelVal>,
     mark_and_sweep_queue: Vec<SteelVal>,
     maybe_memory_size: usize,
 }
@@ -630,9 +657,11 @@ impl Heap {
     pub fn allocate<'a>(
         &mut self,
         value: SteelVal,
-        roots: impl Iterator<Item = &'a SteelVal>,
+        roots: &'a [SteelVal],
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
-        globals: impl Iterator<Item = &'a SteelVal>,
+        globals: &'a [SteelVal],
+        tls: &'a [SteelVal],
+        synchronizer: &'a mut Synchronizer,
     ) -> HeapRef<SteelVal> {
         self.collect(
             Some(value.clone()),
@@ -640,11 +669,13 @@ impl Heap {
             roots,
             live_functions,
             globals,
+            tls,
+            synchronizer,
             false,
         );
 
-        let pointer = Rc::new(RefCell::new(HeapAllocated::new(value)));
-        let weak_ptr = Rc::downgrade(&pointer);
+        let pointer = Shared::new(MutContainer::new(HeapAllocated::new(value)));
+        let weak_ptr = Shared::downgrade(&pointer);
 
         self.memory.push(pointer);
 
@@ -652,8 +683,8 @@ impl Heap {
     }
 
     pub fn allocate_without_collection<'a>(&mut self, value: SteelVal) -> HeapRef<SteelVal> {
-        let pointer = Rc::new(RefCell::new(HeapAllocated::new(value)));
-        let weak_ptr = Rc::downgrade(&pointer);
+        let pointer = Shared::new(MutContainer::new(HeapAllocated::new(value)));
+        let weak_ptr = Shared::downgrade(&pointer);
 
         self.memory.push(pointer);
 
@@ -664,14 +695,25 @@ impl Heap {
     pub fn allocate_vector<'a>(
         &mut self,
         values: Vec<SteelVal>,
-        roots: impl Iterator<Item = &'a SteelVal>,
+        roots: &'a [SteelVal],
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
-        globals: impl Iterator<Item = &'a SteelVal>,
+        globals: &'a [SteelVal],
+        tls: &'a [SteelVal],
+        synchronizer: &'a mut Synchronizer,
     ) -> HeapRef<Vec<SteelVal>> {
-        self.collect(None, Some(&values), roots, live_functions, globals, false);
+        self.collect(
+            None,
+            Some(&values),
+            roots,
+            live_functions,
+            globals,
+            tls,
+            synchronizer,
+            false,
+        );
 
-        let pointer = Rc::new(RefCell::new(HeapAllocated::new(values)));
-        let weak_ptr = Rc::downgrade(&pointer);
+        let pointer = Shared::new(MutContainer::new(HeapAllocated::new(values)));
+        let weak_ptr = Shared::downgrade(&pointer);
 
         self.vectors.push(pointer);
 
@@ -684,8 +726,8 @@ impl Heap {
     }
 
     pub fn weak_collection(&mut self) {
-        self.memory.retain(|x| Rc::weak_count(x) > 0);
-        self.vectors.retain(|x| Rc::weak_count(x) > 0);
+        self.memory.retain(|x| Shared::weak_count(x) > 0);
+        self.vectors.retain(|x| Shared::weak_count(x) > 0);
     }
 
     // TODO: Call this in more areas in the VM to attempt to free memory more carefully
@@ -694,9 +736,11 @@ impl Heap {
         &mut self,
         root_value: Option<SteelVal>,
         root_vector: Option<&Vec<SteelVal>>,
-        roots: impl Iterator<Item = &'a SteelVal>,
+        roots: &'a [SteelVal],
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
-        globals: impl Iterator<Item = &'a SteelVal>,
+        globals: &'a [SteelVal],
+        tls: &'a [SteelVal],
+        synchronizer: &'a mut Synchronizer,
         force_full: bool,
     ) -> usize {
         let memory_size = self.memory.len() + self.vector_cells_allocated();
@@ -721,8 +765,8 @@ impl Heap {
                 log::debug!(target: "gc", "Small collection");
                 let prior_len = self.memory.len() + self.vector_cells_allocated();
                 log::debug!(target: "gc", "Previous length: {:?}", prior_len);
-                self.memory.retain(|x| Rc::weak_count(x) > 0);
-                self.vectors.retain(|x| Rc::weak_count(x) > 0);
+                self.memory.retain(|x| Shared::weak_count(x) > 0);
+                self.vectors.retain(|x| Shared::weak_count(x) > 0);
                 let after = self.memory.len() + self.vector_cells_allocated();
                 log::debug!(target: "gc", "Objects freed: {:?}", prior_len - after);
                 log::debug!(target: "gc", "Small collection time: {:?}", now.elapsed());
@@ -739,8 +783,15 @@ impl Heap {
             if post_small_collection_size as f64 > (0.25 * original_length as f64) || force_full {
                 log::debug!(target: "gc", "---- Post small collection, running mark and sweep - heap size filled: {:?} ----", post_small_collection_size as f64 / original_length as f64);
 
-                amount =
-                    self.mark_and_sweep(root_value, root_vector, roots, live_functions, globals);
+                amount = self.mark_and_sweep(
+                    root_value,
+                    root_vector,
+                    roots,
+                    live_functions,
+                    globals,
+                    tls,
+                    synchronizer,
+                );
             } else {
                 log::debug!(target: "gc", "---- Skipping mark and sweep - heap size filled: {:?} ----", post_small_collection_size as f64 / original_length as f64);
             }
@@ -771,9 +822,11 @@ impl Heap {
         &mut self,
         root_value: Option<SteelVal>,
         root_vector: Option<&Vec<SteelVal>>,
-        roots: impl Iterator<Item = &'a SteelVal>,
+        roots: &'a [SteelVal],
         function_stack: impl Iterator<Item = &'a ByteCodeLambda>,
-        globals: impl Iterator<Item = &'a SteelVal>,
+        globals: &'a [SteelVal],
+        tls: &'a [SteelVal],
+        synchronizer: &'a mut Synchronizer,
     ) -> usize {
         log::debug!(target: "gc", "Marking the heap");
 
@@ -785,6 +838,12 @@ impl Heap {
             object_count: 0,
         };
 
+        // Pause all threads
+        synchronizer.stop_threads();
+        unsafe {
+            synchronizer.enumerate_stacks(&mut context);
+        }
+
         if let Some(root_value) = root_value {
             context.push_back(root_value);
         }
@@ -793,6 +852,10 @@ impl Heap {
             for value in root_vector {
                 context.push_back(value.clone());
             }
+        }
+
+        for root in tls {
+            context.push_back(root.clone());
         }
 
         for root in roots {
@@ -819,12 +882,25 @@ impl Heap {
 
         context.visit();
 
-        ROOTS.with(|x| {
-            x.borrow()
+        #[cfg(feature = "sync")]
+        {
+            GLOBAL_ROOTS
+                .lock()
+                .unwrap()
                 .roots
                 .values()
                 .for_each(|value| context.push_back(value.clone()))
-        });
+        }
+
+        #[cfg(not(feature = "sync"))]
+        {
+            ROOTS.with(|x| {
+                x.borrow()
+                    .roots
+                    .values()
+                    .for_each(|value| context.push_back(value.clone()))
+            });
+        }
 
         context.visit();
 
@@ -840,8 +916,8 @@ impl Heap {
         let prior_len = self.memory.len() + self.vector_cells_allocated();
 
         // sweep
-        self.memory.retain(|x| x.borrow().is_reachable());
-        self.vectors.retain(|x| x.borrow().is_reachable());
+        self.memory.retain(|x| x.read().is_reachable());
+        self.vectors.retain(|x| x.read().is_reachable());
 
         let after_len = self.memory.len();
 
@@ -851,13 +927,23 @@ impl Heap {
         log::debug!(target: "gc", "Objects alive: {:?}", after_len);
 
         // put them back as unreachable
-        self.memory.iter().for_each(|x| x.borrow_mut().reset());
-        self.vectors.iter().for_each(|x| x.borrow_mut().reset());
+        self.memory.iter().for_each(|x| x.write().reset());
+        self.vectors.iter().for_each(|x| x.write().reset());
 
-        ROOTS.with(|x| x.borrow_mut().increment_generation());
+        #[cfg(feature = "sync")]
+        {
+            GLOBAL_ROOTS.lock().unwrap().increment_generation();
+        }
+
+        #[cfg(not(feature = "sync"))]
+        {
+            ROOTS.with(|x| x.borrow_mut().increment_generation());
+        }
 
         #[cfg(feature = "profiling")]
         log::debug!(target: "gc", "Sweep: Time taken: {:?}", now.elapsed());
+
+        synchronizer.resume_threads();
 
         object_count.saturating_sub(amount_freed)
     }
@@ -869,12 +955,12 @@ impl HeapAble for Vec<SteelVal> {}
 
 #[derive(Clone, Debug)]
 pub struct HeapRef<T: HeapAble> {
-    inner: Weak<RefCell<HeapAllocated<T>>>,
+    inner: WeakShared<MutContainer<HeapAllocated<T>>>,
 }
 
 impl<T: HeapAble> HeapRef<T> {
     pub fn get(&self) -> T {
-        self.inner.upgrade().unwrap().borrow().value.clone()
+        self.inner.upgrade().unwrap().read().value.clone()
     }
 
     pub fn as_ptr_usize(&self) -> usize {
@@ -884,34 +970,34 @@ impl<T: HeapAble> HeapRef<T> {
     pub fn set(&mut self, value: T) -> T {
         let inner = self.inner.upgrade().unwrap();
 
-        let ret = { inner.borrow().value.clone() };
+        let ret = { inner.read().value.clone() };
 
-        inner.borrow_mut().value = value;
+        inner.write().value = value;
         ret
     }
 
     pub fn set_and_return(&self, value: T) -> T {
         let inner = self.inner.upgrade().unwrap();
 
-        let mut guard = inner.borrow_mut();
+        let mut guard = inner.write();
         std::mem::replace(&mut guard.value, value)
     }
 
     pub(crate) fn set_interior_mut(&self, value: T) -> T {
         let inner = self.inner.upgrade().unwrap();
 
-        let ret = { inner.borrow().value.clone() };
+        let ret = { inner.read().value.clone() };
 
-        inner.borrow_mut().value = value;
+        inner.write().value = value;
         ret
     }
 
-    pub(crate) fn strong_ptr(&self) -> Rc<RefCell<HeapAllocated<T>>> {
+    pub(crate) fn strong_ptr(&self) -> SharedMut<HeapAllocated<T>> {
         self.inner.upgrade().unwrap()
     }
 
     pub(crate) fn ptr_eq(&self, other: &Self) -> bool {
-        Weak::ptr_eq(&self.inner, &other.inner)
+        WeakShared::ptr_eq(&self.inner, &other.inner)
     }
 }
 
@@ -961,32 +1047,32 @@ pub struct MarkAndSweepContext<'a> {
 }
 
 impl<'a> MarkAndSweepContext<'a> {
-    pub(crate) fn mark_heap_reference(&mut self, heap_ref: &Rc<RefCell<HeapAllocated<SteelVal>>>) {
-        if heap_ref.borrow().is_reachable() {
+    pub(crate) fn mark_heap_reference(&mut self, heap_ref: &SharedMut<HeapAllocated<SteelVal>>) {
+        if heap_ref.read().is_reachable() {
             return;
         }
 
         {
-            heap_ref.borrow_mut().mark_reachable();
+            heap_ref.write().mark_reachable();
         }
 
-        self.push_back(heap_ref.borrow().value.clone());
+        self.push_back(heap_ref.read().value.clone());
     }
 
     // Visit the heap vector, mark it as visited!
     pub(crate) fn mark_heap_vector(
         &mut self,
-        heap_vector: &Rc<RefCell<HeapAllocated<Vec<SteelVal>>>>,
+        heap_vector: &SharedMut<HeapAllocated<Vec<SteelVal>>>,
     ) {
-        if heap_vector.borrow().is_reachable() {
+        if heap_vector.read().is_reachable() {
             return;
         }
 
         {
-            heap_vector.borrow_mut().mark_reachable();
+            heap_vector.write().mark_reachable();
         }
 
-        for value in heap_vector.borrow().value.iter() {
+        for value in heap_vector.read().value.iter() {
             self.push_back(value.clone());
         }
     }
@@ -1031,13 +1117,13 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     fn visit_bignum(&mut self, _: Gc<BigInt>) -> Self::Output {}
     fn visit_complex(&mut self, _: Gc<SteelComplex>) -> Self::Output {}
     fn visit_bool(&mut self, _boolean: bool) -> Self::Output {}
-    fn visit_boxed_function(&mut self, _function: Rc<BoxedDynFunction>) -> Self::Output {}
+    fn visit_boxed_function(&mut self, _function: Gc<BoxedDynFunction>) -> Self::Output {}
     // TODO: Revisit this when the boxed iterator is cleaned up
-    fn visit_boxed_iterator(&mut self, iterator: Gc<RefCell<OpaqueIterator>>) -> Self::Output {
-        self.push_back(iterator.borrow().root.clone());
+    fn visit_boxed_iterator(&mut self, iterator: GcMut<OpaqueIterator>) -> Self::Output {
+        self.push_back(iterator.read().root.clone());
     }
-    fn visit_boxed_value(&mut self, boxed_value: Gc<RefCell<SteelVal>>) -> Self::Output {
-        self.push_back(boxed_value.borrow().clone());
+    fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) -> Self::Output {
+        self.push_back(boxed_value.read().clone());
     }
 
     fn visit_builtin_function(&mut self, _function: BuiltInSignature) -> Self::Output {}
@@ -1058,7 +1144,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     }
     fn visit_continuation(&mut self, continuation: Continuation) -> Self::Output {
         // TODO: Don't clone this here!
-        let continuation = (*continuation.inner.borrow()).clone();
+        let continuation = (*continuation.inner.read()).clone();
 
         match continuation {
             ContinuationMark::Closed(continuation) => {
@@ -1093,8 +1179,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
         }
     }
     // TODO: Come back to this
-    fn visit_custom_type(&mut self, custom_type: Gc<RefCell<Box<dyn CustomType>>>) -> Self::Output {
-        custom_type.borrow().visit_children(self);
+    fn visit_custom_type(&mut self, custom_type: GcMut<Box<dyn CustomType>>) -> Self::Output {
+        custom_type.read().visit_children(self);
     }
 
     fn visit_float(&mut self, _float: f64) -> Self::Output {}
@@ -1157,7 +1243,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     }
 
     // TODO: Revisit this
-    fn visit_reference_value(&mut self, _reference: Rc<OpaqueReference<'static>>) -> Self::Output {}
+    fn visit_reference_value(&mut self, _reference: Gc<OpaqueReference<'static>>) -> Self::Output {}
 
     fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output {
         for field in steel_struct.fields.iter() {

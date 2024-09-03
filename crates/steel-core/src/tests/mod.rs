@@ -9,7 +9,7 @@ fn generate_asserting_machine() -> Engine {
 
 pub(crate) fn assert_script<T: AsRef<str> + Into<Cow<'static, str>>>(script: T) {
     let mut vm = generate_asserting_machine();
-    assert!(vm.compile_and_run_raw_program(script).is_ok());
+    vm.compile_and_run_raw_program(script).unwrap();
 }
 
 pub(crate) fn assert_script_error<T: AsRef<str> + Into<Cow<'static, str>>>(script: T) {
@@ -21,6 +21,23 @@ macro_rules! test_harness_success {
     ($($file_name:ident),* $(,)?) => {
         #[cfg(test)]
         mod integration_success {
+            use super::*;
+            $(
+                #[test]
+                fn $file_name() {
+                    let script = include_str!(concat!("success/", stringify!($file_name), ".scm"));
+                    assert_script(script);
+                }
+            )*
+        }
+    };
+}
+
+macro_rules! test_harness_success_sync {
+    ($($file_name:ident),* $(,)?) => {
+        #[cfg(feature = "sync")]
+        #[cfg(test)]
+        mod integration_success_sync {
             use super::*;
             $(
                 #[test]
@@ -47,6 +64,10 @@ macro_rules! test_harness_failure {
             )*
         }
     };
+}
+
+test_harness_success_sync! {
+    native_threads
 }
 
 test_harness_success! {

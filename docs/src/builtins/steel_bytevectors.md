@@ -46,11 +46,13 @@ Decodes a string from a bytevector containing valid UTF-8.
 (bytes->string/utf8 (bytes #xe5 #x8d #x83 #xe8 #x91 #x89)) ;; => "千葉"
 ```
 ### **bytes-append**
-Append two byte vectors into a new bytevector.
+Append multiple byte vectors into a new bytevector.
 
 #### Examples
 ```scheme
-(bytes-append (bytes 0 1 2) (bytes 3 4 5)) ;; => (bytes 0 1 2 3 4 5)
+(bytes-append #u8(0 1 2) #u8(3 4 5)) ;; => #u8(#x00 #x01 #x02 #x03 #x04 #x05)
+
+(bytes-append #u8(0) #u8(1) #u8() #u8(2)) ;; => #u8(#x00 #x01 #x02)
 ```
 ### **bytes-length**
 Returns the length of the given byte vector

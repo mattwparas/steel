@@ -4,6 +4,9 @@ use std::{
 };
 
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
+
+#[cfg(feature = "sync")]
+use once_cell::sync::Lazy;
 use steel_parser::tokens::TokenType;
 
 use crate::{
@@ -33,8 +36,21 @@ thread_local! {
     pub(crate) static KERNEL_IMAGE: Engine = Engine::new_bootstrap_kernel();
 }
 
+#[cfg(feature = "sync")]
+pub static STATIC_KERNEL_IMAGE: Lazy<Engine> = Lazy::new(Engine::new_bootstrap_kernel);
+
 pub(crate) fn fresh_kernel_image() -> Engine {
-    KERNEL_IMAGE.with(|x| x.clone())
+    // Just deep clone the env coming out
+
+    #[cfg(feature = "sync")]
+    {
+        STATIC_KERNEL_IMAGE.clone().deep_clone()
+    }
+
+    #[cfg(not(feature = "sync"))]
+    {
+        KERNEL_IMAGE.with(|x| x.clone())
+    }
 }
 
 type TransformerMap = FxHashMap<String, FxHashSet<InternedString>>;
@@ -331,7 +347,7 @@ impl Kernel {
     // TODO: Have this report errors
     pub fn load_program_for_comptime(
         &mut self,
-        constants: im_rc::HashMap<InternedString, SteelVal, FxBuildHasher>,
+        constants: crate::values::HashMap<InternedString, SteelVal, FxBuildHasher>,
         exprs: &mut Vec<ExprKind>,
     ) -> Result<()> {
         let mut analysis = SemanticAnalysis::new(exprs);

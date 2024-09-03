@@ -29,7 +29,8 @@
      (begin
        body ...)]
 
-    [(parameterize ([var val] rest ...)
+    [(parameterize ([var val]
+                    rest ...)
        body ...)
 
      (let ([old-value (var)])
@@ -91,7 +92,8 @@
 
 ;;;;;;;;;;;;;;;;;;;;; Dynamic Wind ;;;;;;;;;;;;;;;;;;;;;;;
 
-(define winders '())
+; (define winders '())
+(define winders (make-tls '()))
 
 ; (define list-tail drop)
 
@@ -99,7 +101,8 @@
 
 (define common-tail
   (lambda (x y)
-    (let ([lx (length x)] [ly (length y)])
+    (let ([lx (length x)]
+          [ly (length y)])
       (let loop ([x (if (> lx ly) (list-tail x (- lx ly)) x)]
                  [y (if (> ly lx) (list-tail y (- ly lx)) y)])
 
@@ -107,13 +110,13 @@
 
 (define do-wind
   (lambda (new)
-    (let ([tail (common-tail new winders)])
-      (let f ([ls winders])
+    (let ([tail (common-tail new (get-tls winders))])
+      (let f ([ls (get-tls winders)])
         (when (not (equal? ls tail))
           (begin
             ;; TODO: This is probably wrong!
             ; (displayln "setting winders first" ls)
-            (set! winders (cdr ls))
+            (set-tls! winders (cdr ls))
             ((cdr (car ls)))
             (f (cdr ls)))))
       (let f ([ls new])
@@ -122,7 +125,7 @@
             ; (displayln "setting winders second" ls)
             (f (cdr ls))
             ((car (car ls)))
-            (set! winders ls)))))))
+            (set-tls! winders ls)))))))
 
 (struct Continuation (func)
   #:prop:procedure 0
@@ -133,9 +136,9 @@
 (define call/cc
   (lambda (f)
     (#%prim.call/cc (lambda (k)
-                      (f (let ([save winders])
+                      (f (let ([save (get-tls winders)])
                            (Continuation (lambda (x)
-                                           (unless (eq? save winders)
+                                           (unless (eq? save (get-tls winders))
                                              (do-wind save))
                                            (k x)))))))))
 
@@ -147,7 +150,7 @@
 (define dynamic-wind
   (lambda (in body out)
     (in)
-    (set! winders (cons (cons in out) winders))
+    (set-tls! winders (cons (cons in out) (get-tls winders)))
     (let ([ans* (call-with-exception-handler (lambda (err)
                                                ;; Catch the exception on the way out
 
@@ -155,7 +158,7 @@
 
                                                ; (displayln "catching exception here")
 
-                                               (set! winders (cdr winders))
+                                               (set-tls! winders (cdr (get-tls winders)))
                                                (out)
                                                (raise-error err)
 
@@ -164,6 +167,6 @@
 
       ; (displayln winders)
 
-      (set! winders (cdr winders))
+      (set-tls! winders (cdr (get-tls winders)))
       (out)
       ans*)))

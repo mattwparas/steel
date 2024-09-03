@@ -1,18 +1,23 @@
+use crate::gc::shared::ShareableMut;
+use crate::gc::Gc;
 use crate::rvals::{RestArgsIter, Result, SteelByteVector, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::stop;
-use crate::values::port::new_rc_ref_cell;
 use crate::values::port::{SteelPort, SteelPortRepr};
 use crate::values::structs::{make_struct_singleton, StructTypeDescriptor};
 
-use once_cell::unsync::Lazy;
 use steel_derive::function;
 
+#[cfg(not(feature = "sync"))]
 thread_local! {
-    static EOF_OBJECT: Lazy<(SteelVal, StructTypeDescriptor)>= Lazy::new(|| {
+    static EOF_OBJECT: once_cell::unsync::Lazy<(SteelVal, StructTypeDescriptor)>= once_cell::unsync::Lazy::new(|| {
         make_struct_singleton("eof".into())
     });
 }
+
+#[cfg(feature = "sync")]
+pub static EOF_OBJECT: once_cell::sync::Lazy<(SteelVal, StructTypeDescriptor)> =
+    once_cell::sync::Lazy::new(|| make_struct_singleton("eof".into()));
 
 pub fn port_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/ports");
@@ -63,14 +68,14 @@ pub fn port_module() -> BuiltInModule {
 #[function(name = "stdin")]
 pub fn open_stdin() -> SteelVal {
     SteelVal::PortV(SteelPort {
-        port: new_rc_ref_cell(SteelPortRepr::StdInput(std::io::stdin())),
+        port: Gc::new_mut(SteelPortRepr::StdInput(std::io::stdin())),
     })
 }
 
 #[function(name = "stdout")]
 pub fn open_stdout() -> SteelVal {
     SteelVal::PortV(SteelPort {
-        port: new_rc_ref_cell(SteelPortRepr::StdOutput(std::io::stdout())),
+        port: Gc::new_mut(SteelPortRepr::StdOutput(std::io::stdout())),
     })
 }
 
@@ -160,7 +165,7 @@ pub fn open_input_string(s: &SteelString) -> SteelVal {
 /// (open-input-bytevector bytes?) -> input-port?
 #[function(name = "open-input-bytevector")]
 pub fn open_input_bytevector(bytes: &SteelByteVector) -> SteelVal {
-    let vec: &Vec<u8> = &*bytes.vec.borrow();
+    let vec: &Vec<u8> = &*bytes.vec.read();
     SteelVal::PortV(SteelPort::new_input_port_bytevector(vec.clone()))
 }
 /// Takes a port and reads the entire content into a string
@@ -345,7 +350,15 @@ pub fn eof_objectp(value: &SteelVal) -> bool {
         return false;
     };
 
-    EOF_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
+    #[cfg(feature = "sync")]
+    {
+        struct_.type_descriptor == EOF_OBJECT.1
+    }
+
+    #[cfg(not(feature = "sync"))]
+    {
+        EOF_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
+    }
 }
 
 /// Returns an EOF object.
@@ -394,7 +407,7 @@ pub fn write_byte(byte: u8, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> 
 #[function(name = "write-bytes")]
 pub fn write_bytes(bytes: &SteelByteVector, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
     let port = output_args(rest)?;
-    port.write(&*bytes.vec.borrow())?;
+    port.write(&*bytes.vec.read())?;
 
     Ok(SteelVal::Void)
 }
@@ -444,5 +457,13 @@ fn io_args(max: usize, mut args: RestArgsIter<&SteelPort>) -> Result<Option<Stee
 }
 
 pub fn eof() -> SteelVal {
-    EOF_OBJECT.with(|eof| eof.0.clone())
+    #[cfg(feature = "sync")]
+    {
+        EOF_OBJECT.0.clone()
+    }
+
+    #[cfg(not(feature = "sync"))]
+    {
+        EOF_OBJECT.with(|eof| eof.0.clone())
+    }
 }

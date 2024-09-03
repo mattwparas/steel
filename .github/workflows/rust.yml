@@ -22,8 +22,69 @@ jobs:
           profile: minimal
           override: true
 
+      - name: Remove sync feature from build
+        run: sed -i 's/"dylib-build", "sync"/"dylib-build"/' Cargo.toml
+
       - name: Set the STEEL_HOME environment variable
         run: echo STEEL_HOME=${PWD}/.steel >> $GITHUB_ENV 
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "build"
+
+      - name: Build
+        run: cargo build --no-default-features --verbose
+        
+      - name: install steel dylib installer
+        env:
+          STEEL_HOME: ${{ env.STEEL_HOME }}
+        run: mkdir -p $STEEL_HOME/native && cd crates/cargo-steel-lib && cargo install --path .
+
+      - name: Install cogs
+        env:
+          STEEL_HOME: ${{ env.STEEL_HOME }}
+        run: |
+          echo $STEEL_HOME
+          mkdir -p .steel/cogs
+          cd cogs/
+          cargo run --no-default-features -- install.scm
+
+      - uses: actions-rs/cargo@v1
+        env:
+          STEEL_HOME: ${{ env.STEEL_HOME }}
+        with:
+          command: test
+          args: --all --no-default-features
+
+      - name: install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin
+
+      - name: run code coverage
+        run: cargo tarpaulin --all --no-default-features -o "lcov" --engine llvm
+
+      - name: Coveralls GitHub Action
+        uses: coverallsapp/github-action@v1.1.2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path-to-lcov: ./lcov.info
+
+
+  sync-build:
+    name: Test Suite (sync)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Set the STEEL_HOME environment variable
+        run: echo STEEL_HOME=${PWD}/.steel-sync >> $GITHUB_ENV 
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -51,19 +112,8 @@ jobs:
           STEEL_HOME: ${{ env.STEEL_HOME }}
         with:
           command: test
-          args: --all
+          args: --all steel-core/sync
 
-      - name: install cargo-tarpaulin
-        run: cargo install cargo-tarpaulin
-
-      - name: run code coverage
-        run: cargo tarpaulin --all -o "lcov"
-
-      - name: Coveralls GitHub Action
-        uses: coverallsapp/github-action@v1.1.2
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path-to-lcov: ./lcov.info
   
   wasm-build:
     name: Wasm32 build

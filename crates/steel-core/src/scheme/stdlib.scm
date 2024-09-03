@@ -353,7 +353,8 @@
        body ...) ; base case
      ((lambda ()
         body ...))]
-    [(let* ([var val] rest ...)
+    [(let* ([var val]
+            rest ...)
        body ...) ; binding case
      ((lambda (var)
         (let* (rest ...)
@@ -498,11 +499,7 @@
 ; (define compose (lambda (f g) (lambda (arg) (f (g arg)))))
 
 (define (foldl func accum lst)
-  (if (null? lst)
-      accum
-      (foldl func
-             (func (car lst) accum) ; here's the change
-             (cdr lst))))
+  (if (null? lst) accum (foldl func (func (car lst) accum) (cdr lst))))
 
 (define (map func lst . lsts)
 
@@ -640,20 +637,33 @@
 
 ;; TODO: This should be boxed at some point, we don't want it
 ;; to be globally accessible directly (I think)
-(define (*meta-continuation* v)
-  (error "You forgot the top-level reset..."))
+; (define (*meta-continuation* v)
+;   (error "You forgot the top-level reset..."))
+
+;; TODO: This doesn't just need to be TLS - it also
+;; needs to be captured by the children below. A global
+;; reference unforuntately isn't enough - it needs to be
+;; a copy of the underlying value.
+(define *meta-continuation* (make-tls (lambda (v) (error "You forgot the top-level reset..."))))
 
 (define (*abort thunk)
-  (let ([v (thunk)]) (*meta-continuation* v)))
+  (let ([v (thunk)]) ((get-tls *meta-continuation*) v)))
 
 (define (*reset thunk)
-  (let ([mc *meta-continuation*])
+  ; (let ([mc *meta-continuation*])
+  (let ([mc (get-tls *meta-continuation*)])
     (call/cc (lambda (k)
                (begin
-                 (set! *meta-continuation*
-                       (lambda (v)
-                         (set! *meta-continuation* mc)
-                         (k v)))
+                 ; (set! *meta-continuation*
+                 ;       (lambda (v)
+                 ;         (set! *meta-continuation* mc)
+                 ;         (k v)))
+
+                 (set-tls! *meta-continuation*
+                           (lambda (v)
+                             (set-tls! *meta-continuation* mc)
+                             (k v)))
+
                  (*abort thunk))))))
 
 (define (*shift f)
@@ -666,13 +676,19 @@
                                            (handler err)
                                            ; (shift k (k void))
 
-                                           (shift *meta-continuation* (*meta-continuation* void)))
+                                           ; (shift *meta-continuation* (*meta-continuation* void)))
+                                           (shift *meta-continuation*
+                                                  ; ((get-tls *meta-continuation*) void)))
+                                                  (*meta-continuation* void)))
                                          (lambda () expr)))]
     [(with-handler handler expr ...)
      (reset (call-with-exception-handler (lambda (err)
                                            (handler err)
                                            ; (shift k (k void))
-                                           (shift *meta-continuation* (*meta-continuation* void)))
+                                           ; (shift *meta-continuation* (*meta-continuation* void)))
+                                           (shift *meta-continuation*
+                                                  ; ((get-tls *meta-continuation*) void)))
+                                                  (*meta-continuation* void)))
                                          (lambda ()
                                            expr ...)))]))
 

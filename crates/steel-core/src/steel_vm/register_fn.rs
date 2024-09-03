@@ -6,20 +6,26 @@ use super::{
     builtin::{Arity, FunctionSignatureMetadata},
     engine::Engine,
 };
-use crate::values::lists::List;
+use crate::{gc::Gc, rvals::MaybeSendSyncStatic, values::lists::List};
 use crate::{
-    gc::unsafe_erased_pointers::{
-        BorrowedObject, OpaqueReferenceNursery, ReadOnlyBorrowedObject, ReadOnlyTemporary,
-        Temporary,
+    gc::{
+        shared::MutContainer,
+        unsafe_erased_pointers::{ReadOnlyTemporaryObject, TemporaryObject},
+    },
+    steel_vm::builtin::BuiltInModule,
+};
+use crate::{
+    gc::{
+        unsafe_erased_pointers::{
+            BorrowedObject, OpaqueReferenceNursery, ReadOnlyBorrowedObject, ReadOnlyTemporary,
+            Temporary,
+        },
+        Shared,
     },
     rvals::{
         AsRefMutSteelValFromRef, AsRefSteelVal, AsRefSteelValFromUnsized, AsSlice, FromSteelVal,
         IntoSteelVal, Result, SteelVal,
     },
-};
-use crate::{
-    gc::unsafe_erased_pointers::{ReadOnlyTemporaryObject, TemporaryObject},
-    steel_vm::builtin::BuiltInModule,
 };
 use crate::{rvals::AsRefSteelValFromRef, stop};
 use crate::{
@@ -47,6 +53,7 @@ pub trait RegisterFnBorrowed<FN, ARGS, RET> {
 }
 
 pub trait SendSyncStatic: Send + Sync + 'static {}
+
 impl<T: Send + Sync + 'static> SendSyncStatic for T {}
 
 // Exists only to provides some bounds for the impl_register_fn implementation
@@ -74,7 +81,7 @@ impl<'a> std::ops::Deref for RestArgs<'a> {
 }
 
 impl<
-        FUT: Future<Output = RET> + 'static,
+        FUT: Future<Output = RET> + SendSyncStatic,
         RET: IntoSteelVal + 'static,
         FN: Fn() -> FUT + SendSyncStatic,
     > RegisterFn<FN, AsyncWrapper<()>, RET> for Engine
@@ -90,7 +97,7 @@ impl<
             Ok(FutureResult::new(Box::pin(res.map(|x| x.into_steelval()))))
         };
 
-        self.register_value(name, SteelVal::FutureFunc(Box::new(Rc::new(f))))
+        self.register_value(name, SteelVal::FutureFunc(Shared::new(Box::new(f))))
     }
 }
 
@@ -139,7 +146,7 @@ impl<RET: IntoSteelVal, FN: Fn() -> RET + SendSyncStatic> RegisterFn<FN, Wrapper
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(0),
@@ -159,9 +166,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
             }
 
-            let mut nursery = <SELF::Nursery>::default();
-
-            let input = <SELF>::as_ref(&args[0], &mut nursery)?;
+            let input = <SELF>::as_ref(&args[0])?;
 
             let res = func(&input);
 
@@ -170,7 +175,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(1),
@@ -199,7 +204,7 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendS
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(1),
@@ -231,7 +236,7 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(1),
@@ -263,7 +268,7 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(2),
@@ -295,7 +300,7 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(2),
@@ -332,7 +337,7 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(4),
@@ -368,7 +373,7 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(4),
@@ -394,7 +399,7 @@ impl<
             let mut nursery = <AREA as AsRefSteelVal>::Nursery::default();
 
             let mut input = <SELF>::as_mut_ref(&args[0])?;
-            let mut area = <AREA>::as_ref(&args[1], &mut nursery)?;
+            let mut area = <AREA>::as_ref(&args[1])?;
             let mut ctx = <CTX>::as_mut_ref_from_ref(&args[2])?;
 
             let res = func(&mut input, &area, &mut ctx);
@@ -404,7 +409,7 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(3),
@@ -429,7 +434,7 @@ impl<
 
             let mut nursery = <SELF as AsRefSteelVal>::Nursery::default();
 
-            let mut input = <SELF>::as_ref(&args[0], &mut nursery)?;
+            let mut input = <SELF>::as_ref(&args[0])?;
             let mut area = <AREA>::from_steelval(&args[1])?;
             let mut ctx = <CTX>::as_ref_from_ref(&args[2])?;
 
@@ -440,7 +445,7 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(3),
@@ -481,7 +486,7 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(3),
@@ -514,7 +519,7 @@ impl<
 
         self.register_value(
             &cloned_name.to_string(),
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
                 Arc::new(f),
                 Some(cloned_name.into()),
                 Some(3),
@@ -549,7 +554,7 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(2),
@@ -578,7 +583,7 @@ impl<
 
         self.register_value(
             &cloned_name.to_string(),
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
                 Arc::new(f),
                 Some(cloned_name.into()),
                 Some(2),
@@ -613,7 +618,7 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(2),
@@ -640,7 +645,7 @@ impl<
 
         self.register_value(
             &cloned_name.to_string(),
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
                 Arc::new(f),
                 Some(cloned_name.into()),
                 Some(2),
@@ -653,9 +658,9 @@ impl<
         // RET: IntoSteelVal,
         'a,
         SELF: AsRefMutSteelValFromRef + 'a,
-        SELFSTAT: AsRefMutSteelValFromRef + 'static,
+        SELFSTAT: AsRefMutSteelValFromRef + 'static + MaybeSendSyncStatic,
         RET: AsRefMutSteelValFromRef + 'a,
-        STATICRET: AsRefMutSteelValFromRef + 'static,
+        STATICRET: AsRefMutSteelValFromRef + 'static + MaybeSendSyncStatic,
         // INNER: FromSteelVal + Clone + AsRefSteelValFromUnsized<INNER>,
         // F: FromSteelVal,
         FN: (Fn(&'a mut SELF) -> &'a mut RET) + SendSyncStatic,
@@ -682,8 +687,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Rc::new(RefCell::new(erased));
-            let weak_ptr = Rc::downgrade(&wrapped);
+            let wrapped = Shared::new(MutContainer::new(erased));
+            let weak_ptr = Shared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::TemporaryObject { ptr: wrapped };
@@ -711,7 +716,7 @@ impl<
             };
 
             let return_value =
-                SteelVal::Reference(Rc::new(extended.into_opaque_reference::<'static>()));
+                SteelVal::Reference(Gc::new(extended.into_opaque_reference::<'static>()));
 
             Ok(return_value)
 
@@ -726,7 +731,7 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(1),
@@ -740,9 +745,9 @@ impl<
         // RET: IntoSteelVal,
         'a,
         SELF: AsRefMutSteelValFromRef + 'a,
-        SELFSTAT: AsRefMutSteelValFromRef + 'static,
+        SELFSTAT: AsRefMutSteelValFromRef + 'static + MaybeSendSyncStatic,
         RET: AsRefSteelValFromRef + 'a,
-        STATICRET: AsRefSteelValFromRef + 'static,
+        STATICRET: AsRefSteelValFromRef + 'static + MaybeSendSyncStatic,
         FN: (Fn(&'a mut SELF) -> &'a RET) + SendSyncStatic,
     > RegisterFn<FN, MarkerWrapper8<(SELF, RET, STATICRET, SELFSTAT)>, STATICRET> for Engine
 {
@@ -763,8 +768,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Rc::new(RefCell::new(erased));
-            let weak_ptr = Rc::downgrade(&wrapped);
+            let wrapped = Shared::new(MutContainer::new(erased));
+            let weak_ptr = Shared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
@@ -794,14 +799,14 @@ impl<
             };
 
             let return_value =
-                SteelVal::Reference(Rc::new(extended.into_opaque_reference::<'static>()));
+                SteelVal::Reference(Gc::new(extended.into_opaque_reference::<'static>()));
 
             Ok(return_value)
         };
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(1),
@@ -814,9 +819,9 @@ impl<
         // RET: IntoSteelVal,
         'a,
         SELF: AsRefMutSteelValFromRef + 'a,
-        SELFSTAT: AsRefMutSteelValFromRef + 'static,
+        SELFSTAT: AsRefMutSteelValFromRef + 'static + MaybeSendSyncStatic,
         RET: AsRefSteelValFromRef + 'a,
-        STATICRET: AsRefSteelValFromRef + 'static,
+        STATICRET: AsRefSteelValFromRef + 'static + MaybeSendSyncStatic,
         ARG: FromSteelVal,
         FN: (Fn(&'a mut SELF, ARG) -> &'a RET) + SendSyncStatic,
     > RegisterFn<FN, MarkerWrapper8<(SELF, ARG, RET, STATICRET, SELFSTAT)>, STATICRET> for Engine
@@ -839,8 +844,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Rc::new(RefCell::new(erased));
-            let weak_ptr = Rc::downgrade(&wrapped);
+            let wrapped = Shared::new(MutContainer::new(erased));
+            let weak_ptr = Shared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
@@ -870,14 +875,14 @@ impl<
             };
 
             let return_value =
-                SteelVal::Reference(Rc::new(extended.into_opaque_reference::<'static>()));
+                SteelVal::Reference(Gc::new(extended.into_opaque_reference::<'static>()));
 
             Ok(return_value)
         };
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(2),
@@ -889,9 +894,9 @@ impl<
 impl<
         'a,
         SELF: AsRefSteelValFromRef + 'a,
-        SELFSTAT: AsRefSteelValFromRef + 'static,
+        SELFSTAT: AsRefSteelValFromRef + 'static + MaybeSendSyncStatic,
         RET: AsRefSteelValFromRef + 'a,
-        RETSTAT: AsRefSteelValFromRef + 'static,
+        RETSTAT: AsRefSteelValFromRef + 'static + MaybeSendSyncStatic,
         ARG: FromSteelVal,
         FN: (Fn(&'a SELF, ARG) -> RET) + SendSyncStatic,
     > RegisterFnBorrowed<FN, MarkerWrapper9<(SELF, ARG, SELFSTAT, RET, RETSTAT)>, RET>
@@ -919,8 +924,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Rc::new(erased);
-            let weak_ptr = Rc::downgrade(&wrapped);
+            let wrapped = Shared::new(erased);
+            let weak_ptr = Shared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::Temporary { ptr: wrapped };
@@ -939,14 +944,14 @@ impl<
             };
 
             let return_value =
-                SteelVal::Reference(Rc::new(extended.into_opaque_reference::<'static>()));
+                SteelVal::Reference(Gc::new(extended.into_opaque_reference::<'static>()));
 
             Ok(return_value)
         };
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(2),
@@ -958,9 +963,9 @@ impl<
 impl<
         'a,
         SELF: AsRefSteelValFromRef + 'a,
-        SELFSTAT: AsRefSteelValFromRef + 'static,
+        SELFSTAT: AsRefSteelValFromRef + 'static + MaybeSendSyncStatic,
         RET: AsRefSteelValFromRef + 'a,
-        RETSTAT: AsRefSteelValFromRef + 'static,
+        RETSTAT: AsRefSteelValFromRef + 'static + MaybeSendSyncStatic,
         FN: (Fn(&'a SELF) -> RET) + SendSyncStatic,
     > RegisterFnBorrowed<FN, MarkerWrapper9<(SELF, SELFSTAT, RET, RETSTAT)>, RET>
     for BuiltInModule
@@ -986,8 +991,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Rc::new(erased);
-            let weak_ptr = Rc::downgrade(&wrapped);
+            let wrapped = Shared::new(erased);
+            let weak_ptr = Shared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::Temporary { ptr: wrapped };
@@ -1006,14 +1011,14 @@ impl<
             };
 
             let return_value =
-                SteelVal::Reference(Rc::new(extended.into_opaque_reference::<'static>()));
+                SteelVal::Reference(Gc::new(extended.into_opaque_reference::<'static>()));
 
             Ok(return_value)
         };
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(1),
@@ -1039,7 +1044,7 @@ impl<
             let mut nursery = <AREA as AsRefSteelVal>::Nursery::default();
 
             let mut input = <SELF>::as_mut_ref(&args[0])?;
-            let mut area = <AREA>::as_ref(&args[1], &mut nursery)?;
+            let mut area = <AREA>::as_ref(&args[1])?;
             let mut ctx = <CTX>::as_mut_ref_from_ref(&args[2])?;
 
             let res = func(&mut input, &area, &mut ctx);
@@ -1049,7 +1054,7 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(3),
@@ -1074,7 +1079,7 @@ impl<
 
             let mut nursery = <SELF as AsRefSteelVal>::Nursery::default();
 
-            let mut input = <SELF>::as_ref(&args[0], &mut nursery)?;
+            let mut input = <SELF>::as_ref(&args[0])?;
             let mut area = <AREA>::from_steelval(&args[1])?;
             let mut ctx = <CTX>::as_ref_from_ref(&args[2])?;
 
@@ -1085,7 +1090,7 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(3),
@@ -1126,7 +1131,7 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(3),
@@ -1159,7 +1164,7 @@ impl<
 
         self.register_value(
             &cloned_name.to_string(),
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
                 Arc::new(f),
                 Some(cloned_name.into()),
                 Some(3),
@@ -1172,9 +1177,9 @@ impl<
         // RET: IntoSteelVal,
         'a,
         SELF: AsRefMutSteelValFromRef + 'a,
-        SELFSTAT: AsRefMutSteelValFromRef + 'static,
+        SELFSTAT: AsRefMutSteelValFromRef + 'static + MaybeSendSyncStatic,
         RET: AsRefMutSteelValFromRef + 'a,
-        STATICRET: AsRefMutSteelValFromRef + 'static,
+        STATICRET: AsRefMutSteelValFromRef + 'static + MaybeSendSyncStatic,
         // INNER: FromSteelVal + Clone + AsRefSteelValFromUnsized<INNER>,
         // F: FromSteelVal,
         FN: (Fn(&'a mut SELF) -> &'a mut RET) + SendSyncStatic,
@@ -1202,8 +1207,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Rc::new(RefCell::new(erased));
-            let weak_ptr = Rc::downgrade(&wrapped);
+            let wrapped = Shared::new(MutContainer::new(erased));
+            let weak_ptr = Shared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::TemporaryObject { ptr: wrapped };
@@ -1230,7 +1235,7 @@ impl<
             };
 
             let return_value =
-                SteelVal::Reference(Rc::new(extended.into_opaque_reference::<'static>()));
+                SteelVal::Reference(Gc::new(extended.into_opaque_reference::<'static>()));
 
             Ok(return_value)
 
@@ -1245,7 +1250,7 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(1),
@@ -1259,9 +1264,9 @@ impl<
         // RET: IntoSteelVal,
         'a,
         SELF: AsRefMutSteelValFromRef + 'a,
-        SELFSTAT: AsRefMutSteelValFromRef + 'static,
+        SELFSTAT: AsRefMutSteelValFromRef + 'static + MaybeSendSyncStatic,
         RET: AsRefSteelValFromRef + 'a,
-        STATICRET: AsRefSteelValFromRef + 'static,
+        STATICRET: AsRefSteelValFromRef + 'static + MaybeSendSyncStatic,
         FN: (Fn(&'a mut SELF) -> &'a RET) + SendSyncStatic,
     > RegisterFn<FN, MarkerWrapper8<(SELF, RET, STATICRET, SELFSTAT)>, STATICRET>
     for BuiltInModule
@@ -1283,8 +1288,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Rc::new(RefCell::new(erased));
-            let weak_ptr = Rc::downgrade(&wrapped);
+            let wrapped = Shared::new(MutContainer::new(erased));
+            let weak_ptr = Shared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
@@ -1317,14 +1322,14 @@ impl<
             };
 
             let return_value =
-                SteelVal::Reference(Rc::new(extended.into_opaque_reference::<'static>()));
+                SteelVal::Reference(Gc::new(extended.into_opaque_reference::<'static>()));
 
             Ok(return_value)
         };
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(1),
@@ -1337,9 +1342,9 @@ impl<
         // RET: IntoSteelVal,
         'a,
         SELF: AsRefMutSteelValFromRef + 'a,
-        SELFSTAT: AsRefMutSteelValFromRef + 'static,
+        SELFSTAT: AsRefMutSteelValFromRef + 'static + MaybeSendSyncStatic,
         RET: AsRefSteelValFromRef + 'a,
-        STATICRET: AsRefSteelValFromRef + 'static,
+        STATICRET: AsRefSteelValFromRef + 'static + MaybeSendSyncStatic,
         ARG: FromSteelVal,
         FN: (Fn(&'a mut SELF, ARG) -> &'a RET) + SendSyncStatic,
     > RegisterFn<FN, MarkerWrapper8<(SELF, ARG, RET, STATICRET, SELFSTAT)>, STATICRET>
@@ -1363,8 +1368,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Rc::new(RefCell::new(erased));
-            let weak_ptr = Rc::downgrade(&wrapped);
+            let wrapped = Shared::new(MutContainer::new(erased));
+            let weak_ptr = Shared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
@@ -1394,14 +1399,14 @@ impl<
             };
 
             let return_value =
-                SteelVal::Reference(Rc::new(extended.into_opaque_reference::<'static>()));
+                SteelVal::Reference(Gc::new(extended.into_opaque_reference::<'static>()));
 
             Ok(return_value)
         };
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(2),
@@ -1477,8 +1482,8 @@ impl<
 // }
 
 impl<
-        FUT: Future<Output = RET> + 'static,
-        RET: IntoSteelVal + 'static,
+        FUT: Future<Output = RET> + SendSyncStatic,
+        RET: IntoSteelVal + 'static + MaybeSendSyncStatic,
         FN: Fn() -> FUT + SendSyncStatic,
     > RegisterFn<FN, AsyncWrapper<()>, RET> for BuiltInModule
 {
@@ -1493,7 +1498,7 @@ impl<
             Ok(FutureResult::new(Box::pin(res.map(|x| x.into_steelval()))))
         };
 
-        self.register_value(name, SteelVal::FutureFunc(Box::new(Rc::new(f))))
+        self.register_value(name, SteelVal::FutureFunc(Shared::new(Box::new(f))))
     }
 }
 
@@ -1513,7 +1518,7 @@ impl<RET: IntoSteelVal, FN: Fn() -> RET + SendSyncStatic> RegisterFn<FN, Wrapper
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(0),
@@ -1533,7 +1538,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
 
             let mut nursery = <SELF::Nursery>::default();
 
-            let input = <SELF>::as_ref(&args[0], &mut nursery)?;
+            let input = <SELF>::as_ref(&args[0])?;
 
             let res = func(&input);
 
@@ -1542,7 +1547,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(1),
@@ -1561,7 +1566,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
 
             let mut nursery = <SELF::Nursery>::default();
 
-            let input = <SELF>::as_ref(&args[0], &mut nursery)?;
+            let input = <SELF>::as_ref(&args[0])?;
 
             let res = func(&input);
 
@@ -1601,7 +1606,7 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendS
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(1),
@@ -1633,7 +1638,7 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(1),
@@ -1660,7 +1665,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(1),
@@ -1696,7 +1701,7 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(2),
@@ -1725,7 +1730,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(1),
@@ -1765,11 +1770,11 @@ impl<
 
             let mut nursery = <A::Nursery>::default();
 
-            let one = A::as_ref(&args[0], &mut nursery)?;
+            let one = A::as_ref(&args[0])?;
 
             let mut nursery = <B::Nursery>::default();
 
-            let two = B::as_ref(&args[1], &mut nursery)?;
+            let two = B::as_ref(&args[1])?;
 
             let res = func(&one, &two);
 
@@ -1778,7 +1783,7 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(2),
@@ -1802,7 +1807,7 @@ impl<
 
             let mut nursery = <B::Nursery>::default();
 
-            let input = B::as_ref(&args[1], &mut nursery)?;
+            let input = B::as_ref(&args[1])?;
 
             let res = func(
                 A::from_steelval(&args[0]).map_err(|mut err| {
@@ -1818,7 +1823,7 @@ impl<
 
         self.register_value(
             name,
-            SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+            SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
                 Some(2),
@@ -1851,7 +1856,7 @@ macro_rules! impl_register_fn {
 
                 self.register_value(
                     name,
-                    SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+                    SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                         Arc::new(f),
                         Some(name),
                         Some($arg_count),
@@ -1882,7 +1887,7 @@ macro_rules! impl_register_fn {
 
                 self.register_value(
                     name,
-                    SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+                    SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                         Arc::new(f),
                         Some(name),
                         Some($arg_count),
@@ -1895,7 +1900,7 @@ macro_rules! impl_register_fn {
         // Async functions
 
         impl<
-            FUT: Future<Output = RET> + 'static,
+            FUT: Future<Output = RET> + SendSyncStatic,
             $($param: FromSteelVal,)*
             FN: Fn($($param),*) -> FUT + SendSyncStatic,
             RET: IntoSteelVal
@@ -1911,12 +1916,12 @@ macro_rules! impl_register_fn {
                     Ok(FutureResult::new(Box::pin(res.map(|x| x.into_steelval()))))
                 };
 
-                self.register_value(name, SteelVal::FutureFunc(Box::new(Rc::new(f))))
+                self.register_value(name, SteelVal::FutureFunc(Shared::new(Box::new(f))))
             }
         }
 
         impl<
-            FUT: Future<Output = RET> + 'static,
+            FUT: Future<Output = RET> + SendSyncStatic,
             $($param: FromSteelVal,)*
             FN: Fn($($param),*) -> FUT + SendSyncStatic,
             RET: IntoSteelVal
@@ -1932,7 +1937,7 @@ macro_rules! impl_register_fn {
                     Ok(FutureResult::new(Box::pin(res.map(|x| x.into_steelval()))))
                 };
 
-                self.register_value(name, SteelVal::FutureFunc(Box::new(Rc::new(f))))
+                self.register_value(name, SteelVal::FutureFunc(Shared::new(Box::new(f))))
             }
         }
     };
@@ -1955,7 +1960,7 @@ macro_rules! impl_register_fn_self {
 
                     let mut nursery = <SELF::Nursery>::default();
 
-                    let input = <SELF>::as_ref(&args[0], &mut nursery)?;
+                    let input = <SELF>::as_ref(&args[0])?;
 
                     let res = func(&input, $(<$param>::from_steelval(&args[$idx]).map_err(|mut err| {
                                     err.prepend_message(":");
@@ -1968,7 +1973,7 @@ macro_rules! impl_register_fn_self {
 
                 self.register_value_inner(
                     name,
-                    SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+                    SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                         Arc::new(f),
                         Some(name),
                         Some($arg_count),
@@ -2003,7 +2008,7 @@ macro_rules! impl_register_fn_self {
 
                 self.register_value_inner(
                     name,
-                    SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+                    SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                         Arc::new(f),
                         Some(name),
                         Some($arg_count),
@@ -2038,7 +2043,7 @@ macro_rules! impl_register_fn_self {
 
                 self.register_value_inner(
                     name,
-                    SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
+                    SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                         Arc::new(f),
                         Some(name),
                         Some($arg_count),
@@ -2065,7 +2070,7 @@ macro_rules! impl_register_fn_self {
 
              self.register_value_inner(
                  &cloned_name.to_string(),
-                 SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
+                 SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
                      Arc::new(f),
                      Some(Arc::new(cloned_name)),
                      Some($arg_count),

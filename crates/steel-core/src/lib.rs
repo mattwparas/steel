@@ -24,8 +24,8 @@ mod tests;
 pub(crate) mod values;
 
 pub use self::{rerrs::SteelErr, rvals::SteelVal, stdlib::PRELUDE};
+pub use crate::values::{HashMap, HashSet, Vector};
 pub use im_lists::list::List;
-pub use im_rc::HashMap;
 pub use primitives::UnRecoverableResult;
 pub use values::RootToken;
 pub use values::RootedSteelVal;

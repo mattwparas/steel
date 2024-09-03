@@ -12,7 +12,7 @@ use crate::{
         tokens::TokenType,
     },
     steel_vm::{
-        engine::{ModuleContainer, DEFAULT_PRELUDE_MACROS},
+        engine::{default_prelude_macros, ModuleContainer},
         transducers::interleave,
     },
 };
@@ -1398,8 +1398,8 @@ impl CompiledModule {
                             //     name_unmangler.unmangle_expr(&mut provide.1);
                             //     // continue;
                             // }
-                            _ => {
-                                stop!(TypeMismatch => "bar provide expects either an identifier, (for-syntax <ident>), or (contract/out ...)")
+                            unknown => {
+                                stop!(TypeMismatch => "bar provide expects either an identifier, (for-syntax <ident>), or (contract/out ...), found: {}", unknown)
                             }
                         }
                     } else {
@@ -1717,7 +1717,7 @@ impl<'a> ModuleBuilder<'a> {
             name,
             main: true,
             source_ast,
-            macro_map: DEFAULT_PRELUDE_MACROS.with(|x| x.borrow().clone()),
+            macro_map: default_prelude_macros(),
             require_objects: Vec::new(),
             provides: Vec::new(),
             provides_for_syntax: Vec::new(),
@@ -2760,8 +2760,8 @@ impl<'a> ModuleBuilder<'a> {
                 }
             }
 
-            _ => {
-                stop!(Generic => "require object expected a string literal referring to a file/module"; opt atom.span())
+            unknown => {
+                stop!(Generic => format!("require object expected a string literal referring to a file/module, found: {}", unknown); opt atom.span())
             }
         }
 
@@ -2886,7 +2886,7 @@ impl<'a> ModuleBuilder<'a> {
             main: false,
             source_ast: Vec::new(),
             // TODO: This used to be empty
-            macro_map: DEFAULT_PRELUDE_MACROS.with(|x| x.borrow().clone()),
+            macro_map: default_prelude_macros(),
             // macro_map: global_macro_map.clone(),
             require_objects: Vec::new(),
             provides: Vec::new(),

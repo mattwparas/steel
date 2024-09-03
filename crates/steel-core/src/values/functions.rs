@@ -5,7 +5,6 @@ use std::{
     collections::HashMap,
     convert::TryFrom,
     hash::Hasher,
-    rc::Rc,
     sync::Arc,
 };
 
@@ -13,12 +12,14 @@ use fxhash::FxHashSet;
 
 use crate::{
     core::{instructions::DenseInstruction, opcode::OpCode},
-    gc::Gc,
+    gc::{
+        shared::{MutContainer, ShareableMut},
+        Gc, Shared, SharedMut,
+    },
     parser::{parser::SyntaxObjectId, span::Span},
     rvals::{
-        from_serializable_value, into_serializable_value, AsRefSteelVal, BoxedFunctionSignature,
-        Custom, FunctionSignature, HeapSerializer, IntoSteelVal, MutFunctionSignature,
-        SerializableSteelVal, SteelString,
+        from_serializable_value, into_serializable_value, AsRefSteelVal, Custom, FunctionSignature,
+        HeapSerializer, IntoSteelVal, MutFunctionSignature, SerializableSteelVal, SteelString,
     },
     steel_vm::{
         register_fn::SendSyncStatic,
@@ -43,11 +44,6 @@ use super::{
 //     Builtin(BuiltInSignature),
 // }
 
-// TODO: replace body exp below with this
-// struct Blagh {
-//     body: Rc<RefCell<[DenseInstruction]>>,
-// }
-
 // Keep track of this metadata table for getting the docs associated
 // with a given function?
 pub struct LambdaMetadataTable {
@@ -69,7 +65,7 @@ impl LambdaMetadataTable {
                 self.fn_ptr_table.insert(b.id as _, doc);
             }
             SteelVal::BoxedFunction(b) => {
-                self.fn_ptr_table.insert(Rc::as_ptr(&b) as usize, doc);
+                self.fn_ptr_table.insert(Gc::as_ptr(&b) as usize, doc);
             }
             _ => {}
         }
@@ -79,7 +75,7 @@ impl LambdaMetadataTable {
         match function {
             SteelVal::Closure(b) => self.fn_ptr_table.get(&(b.id as _)).cloned(),
             SteelVal::BoxedFunction(b) => {
-                self.fn_ptr_table.get(&(Rc::as_ptr(&b) as usize)).cloned()
+                self.fn_ptr_table.get(&(Gc::as_ptr(&b) as usize)).cloned()
             }
             _ => None,
         }
@@ -98,13 +94,11 @@ pub struct ByteCodeLambda {
     pub(crate) id: u32,
     /// body of the function with identifiers yet to be bound
     #[cfg(feature = "dynamic")]
-    pub(crate) body_exp: RefCell<Rc<[DenseInstruction]>>,
+    pub(crate) body_exp: RefCell<Shared<[DenseInstruction]>>,
 
     #[cfg(not(feature = "dynamic"))]
-    pub(crate) body_exp: Rc<[DenseInstruction]>,
+    pub(crate) body_exp: Shared<[DenseInstruction]>,
 
-    // #[cfg(not(feature = "dynamic"))]
-    // pub(crate) body_exp: Rc<[DenseInstruction]>,
     pub(crate) arity: u16,
 
     #[cfg(feature = "dynamic")]
@@ -113,14 +107,15 @@ pub struct ByteCodeLambda {
     pub(crate) is_multi_arity: bool,
 
     pub(crate) captures: Vec<SteelVal>,
-    // TODO: Delete this
-    // pub(crate) heap_allocated: RefCell<Vec<HeapRef<SteelVal>>>,
-    // pub(crate) spans: Rc<[Span]>,
     #[cfg(feature = "dynamic")]
     pub(crate) blocks: RefCell<Vec<(BlockPattern, BlockMetadata)>>,
 
     // This is a little suspicious, but it should give us the necessary information to attach a struct of metadata
-    contract: RefCell<Option<Gc<UserDefinedStruct>>>,
+    #[cfg(feature = "sync")]
+    contract: SharedMut<Option<Gc<UserDefinedStruct>>>,
+
+    #[cfg(not(feature = "sync"))]
+    contract: MutContainer<Option<Gc<UserDefinedStruct>>>,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -171,7 +166,7 @@ pub struct SerializedLambdaPrototype {
 impl ByteCodeLambda {
     pub fn new(
         id: u32,
-        body_exp: Rc<[DenseInstruction]>,
+        body_exp: Shared<[DenseInstruction]>,
         arity: usize,
         is_multi_arity: bool,
         captures: Vec<SteelVal>,
@@ -194,12 +189,12 @@ impl ByteCodeLambda {
 
             is_multi_arity,
             captures,
-            // TODO: Allocated the necessary size right away <- we're going to index into it
-            // heap_allocated: RefCell::new(heap_allocated),
-            // spans,
 
-            // span_id,
-            contract: RefCell::new(None),
+            #[cfg(feature = "sync")]
+            contract: SharedMut::new(MutContainer::new(None)),
+
+            #[cfg(not(feature = "sync"))]
+            contract: MutContainer::new(None),
 
             #[cfg(feature = "dynamic")]
             blocks: RefCell::new(Vec::new()),
@@ -245,20 +240,20 @@ impl ByteCodeLambda {
     //     self.heap_allocated = RefCell::new(heap_allocated);
     // }
 
-    pub fn body_exp(&self) -> Rc<[DenseInstruction]> {
+    pub fn body_exp(&self) -> Shared<[DenseInstruction]> {
         #[cfg(feature = "dynamic")]
-        return Rc::clone(&self.body_exp.borrow());
+        return Shared::clone(&self.body_exp.borrow());
 
         #[cfg(not(feature = "dynamic"))]
-        Rc::clone(&self.body_exp)
+        Shared::clone(&self.body_exp)
     }
 
-    pub fn body_mut_exp(&mut self) -> Rc<[DenseInstruction]> {
+    pub fn body_mut_exp(&mut self) -> Shared<[DenseInstruction]> {
         #[cfg(feature = "dynamic")]
-        return Rc::clone(self.body_exp.get_mut());
+        return Shared::clone(self.body_exp.get_mut());
 
         #[cfg(not(feature = "dynamic"))]
-        Rc::clone(&self.body_exp)
+        Shared::clone(&self.body_exp)
     }
 
     // pub fn spans(&self) -> Rc<[Span]> {
@@ -274,7 +269,7 @@ impl ByteCodeLambda {
         &self,
         start: usize,
         super_instruction_id: usize,
-    ) -> (DenseInstruction, Rc<[DenseInstruction]>) {
+    ) -> (DenseInstruction, Shared<[DenseInstruction]>) {
         let mut guard = self.body_exp.borrow_mut();
         let mut old: Box<[_]> = guard.iter().copied().collect();
 
@@ -285,7 +280,7 @@ impl ByteCodeLambda {
         old[start].op_code = OpCode::DynSuperInstruction;
         old[start].payload_size = super_instruction_id as _;
         *guard = old.into();
-        (head_instruction, Rc::clone(&guard))
+        (head_instruction, Shared::clone(&guard))
     }
 
     #[inline(always)]
@@ -322,16 +317,37 @@ impl ByteCodeLambda {
     // }
 
     pub fn attach_contract_information(&self, steel_struct: Gc<UserDefinedStruct>) {
-        let mut guard = self.contract.borrow_mut();
+        #[cfg(feature = "sync")]
+        {
+            let mut guard = self.contract.write();
 
-        *guard = Some(steel_struct);
+            *guard = Some(steel_struct);
+        }
+
+        #[cfg(not(feature = "sync"))]
+        {
+            let mut guard = self.contract.borrow_mut();
+
+            *guard = Some(steel_struct);
+        }
     }
 
     pub fn get_contract_information(&self) -> Option<SteelVal> {
-        self.contract
-            .borrow()
-            .as_ref()
-            .map(|x| SteelVal::CustomStruct(x.clone()))
+        #[cfg(feature = "sync")]
+        {
+            self.contract
+                .read()
+                .as_ref()
+                .map(|x| SteelVal::CustomStruct(x.clone()))
+        }
+
+        #[cfg(not(feature = "sync"))]
+        {
+            self.contract
+                .borrow()
+                .as_ref()
+                .map(|x| SteelVal::CustomStruct(x.clone()))
+        }
     }
 
     // pub fn mark_hot(&self) {

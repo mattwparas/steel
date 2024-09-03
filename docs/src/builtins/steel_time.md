@@ -21,6 +21,12 @@ Returns the number of milliseconds since the Unix epoch as an integer.
 Returns the number of seconds since the Unix epoch as an integer.
 
 (current-second) -> int?
+### **duration->string**
+Returns a string representation of a duration
+
+(duration->string dur)
+
+* dur : duration?
 ### **local-time/now!**
 Returns the local time in the format given by the input string (using `chrono::Local::format`).
 
@@ -34,7 +40,6 @@ Sleeps the thread for a given number of milliseconds.
 
 * ms : int?
 ### **duration->seconds**
-### **duration->string**
 ### **duration-since**
 ### **instant/elapsed**
 ### **instant/now**

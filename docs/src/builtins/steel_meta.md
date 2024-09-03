@@ -6,6 +6,7 @@ including the command name as first argument.
 Returns the message of an error object.
 
 (error-object-message error?) -> string?
+### **%#interner-memory-usage**
 ### **%iterator?**
 ### **Engine::add-module**
 ### **Engine::clone**

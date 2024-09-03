@@ -1,5 +1,11 @@
 #![allow(unused)]
 
+use crate::gc::shared::MutContainer;
+use crate::gc::shared::ShareableMut;
+use crate::gc::shared::Shared;
+use crate::gc::shared::WeakShared;
+use crate::gc::shared::WeakSharedMut;
+use crate::gc::SharedMut;
 use crate::primitives::lists::car;
 use crate::primitives::lists::cdr;
 use crate::primitives::lists::cons;
@@ -7,11 +13,16 @@ use crate::primitives::lists::is_empty;
 use crate::primitives::lists::new as new_list;
 use crate::primitives::lists::steel_cons;
 use crate::primitives::numbers::add_two;
+use crate::rvals::as_underlying_type;
+use crate::rvals::cycles::BreadthFirstSearchSteelValVisitor;
 use crate::rvals::number_equality;
+use crate::rvals::BoxedAsyncFunctionSignature;
 use crate::steel_vm::primitives::steel_not;
 use crate::steel_vm::primitives::steel_set_box_mutable;
 use crate::steel_vm::primitives::steel_unbox_mutable;
+use crate::steel_vm::primitives::THREADING_MODULE;
 use crate::values::closed::Heap;
+use crate::values::closed::MarkAndSweepContext;
 use crate::values::functions::SerializedLambda;
 use crate::values::structs::UserDefinedStruct;
 use crate::values::transducers::Reducer;
@@ -36,9 +47,13 @@ use crate::{
     stop,
     values::functions::ByteCodeLambda,
 };
+use std::cell::UnsafeCell;
 use std::rc::Weak;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::thread::JoinHandle;
+use std::thread::ThreadId;
 use std::{cell::RefCell, collections::HashMap, iter::Iterator, rc::Rc};
 
 use super::builtin::DocTemplate;
@@ -46,11 +61,13 @@ use super::builtin::MarkdownDoc;
 
 use crate::values::lists::List;
 
+use crossbeam::atomic::AtomicCell;
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
 use smallvec::SmallVec;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
+use threads::ThreadHandle;
 
 use crate::rvals::{from_serializable_value, into_serializable_value, IntoSteelVal};
 
@@ -76,11 +93,6 @@ pub fn unlikely(b: bool) -> bool {
     }
     b
 }
-
-// #[test]
-// fn call_hello_world() {
-//     println!("{:?}", message());
-// }
 
 const STACK_LIMIT: usize = 1000000;
 const _JIT_THRESHOLD: usize = 100;
@@ -141,7 +153,7 @@ impl DehydratedStackTrace {
 pub struct StackFrame {
     sp: usize,
     // This _has_ to be a function
-    pub(crate) handler: Option<Rc<SteelVal>>,
+    pub(crate) handler: Option<Shared<SteelVal>>,
     // This should get added to the GC as well
     #[cfg(not(feature = "unsafe-internals"))]
     pub(crate) function: Gc<ByteCodeLambda>,
@@ -154,7 +166,7 @@ pub struct StackFrame {
 
     // TODO: This should just be... *const [DenseInstruction]
     // Since Rc<DenseInstruction> should always just be alive?
-    instructions: Rc<[DenseInstruction]>,
+    instructions: Shared<[DenseInstruction]>,
 
     // TODO: Delete this one!
     // continuation_mark: Option<MaybeContinuation>,
@@ -195,9 +207,7 @@ impl StackFrame {
         stack_index: usize,
         function: Gc<ByteCodeLambda>,
         ip: usize,
-        instructions: Rc<[DenseInstruction]>,
-        // span_id: usize,
-        // spans: Rc<[Span]>,
+        instructions: Shared<[DenseInstruction]>,
     ) -> Self {
         Self {
             sp: stack_index,
@@ -221,7 +231,7 @@ impl StackFrame {
 
     pub fn main() -> Self {
         let function = Gc::new(ByteCodeLambda::main(Vec::new()));
-        StackFrame::new(0, function, 0, Rc::from([]))
+        StackFrame::new(0, function, 0, Shared::from([]))
     }
 
     #[inline(always)]
@@ -243,7 +253,7 @@ impl StackFrame {
     }
 
     pub fn with_handler(mut self, handler: SteelVal) -> Self {
-        self.handler = Some(Rc::new(handler));
+        self.handler = Some(Shared::new(handler));
         self
     }
 }
@@ -252,23 +262,62 @@ thread_local! {
     pub(crate) static DEFAULT_CONSTANT_MAP: ConstantMap = ConstantMap::new();
 }
 
-// Drain and move across the thread boundary, OR, enforce the restriction that only pure functions
-// can move into a new thread... that might be the easiest way?
+// Incredibly unsafe, however I think it is what we're gonna
+// need in order to do this safepoint business.
+//
+// Once we're within a safe point, the thread _could_ be running
+// a native function. This is more or less the only time in which
+// we can take a peek at the contents of the thread.
+//
+// Note: we won't mutate, however it is almost assuredly, not safe.
+pub struct SafepointablePointer<T> {
+    within_safepoint: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
+    value: Arc<UnsafeCell<T>>,
+}
+
+impl<T> SafepointablePointer<T> {
+    pub unsafe fn get_mut(&self) -> &mut T {
+        &mut *self.value.get()
+    }
+
+    pub unsafe fn get_safepoint_safe(&self) -> Option<&T> {
+        if self
+            .within_safepoint
+            .load(std::sync::atomic::Ordering::Relaxed)
+            && self.paused.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            Some(&*self.value.get())
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Copy, Clone, Default)]
+pub enum ThreadState {
+    #[default]
+    Running,
+    Interrupted,
+    Suspended,
+    PausedAtSafepoint,
+}
+
 #[derive(Clone)]
 pub struct SteelThread {
     pub(crate) global_env: Env,
     pub(crate) stack: Vec<SteelVal>,
     profiler: OpCodeOccurenceProfiler,
     pub(crate) function_interner: FunctionInterner,
-    // _super_instructions: Vec<Rc<DynamicBlock>>,
-    pub(crate) heap: Heap,
-    // If contracts are set to off - contract construction results in a no-op,
-    // so we don't need generics on the thread
+    pub(crate) heap: Arc<Mutex<Heap>>,
     pub(crate) runtime_options: RunTimeOptions,
     pub(crate) current_frame: StackFrame,
     pub(crate) stack_frames: Vec<StackFrame>,
     pub(crate) constant_map: ConstantMap,
     pub(crate) interrupted: Option<Arc<AtomicBool>>,
+    pub(crate) synchronizer: Synchronizer,
+    // This will be static, for the thread.
+    pub(crate) thread_local_storage: Vec<SteelVal>,
 }
 
 #[derive(Clone)]
@@ -295,6 +344,7 @@ impl RunTimeOptions {
 #[derive(PartialEq)]
 struct SpanId(usize);
 
+// TODO: This object probably needs to be shared as well
 #[derive(Default, Clone)]
 pub struct FunctionInterner {
     closure_interner: fxhash::FxHashMap<u32, ByteCodeLambda>,
@@ -309,10 +359,157 @@ pub struct FunctionInterner {
     // actually any references to this still in existence. Functions should probably hold a direct
     // reference to the existing thread in which it was created, and if passed in externally by
     // another run time, we can nuke it?
-    spans: fxhash::FxHashMap<u32, Rc<[Span]>>,
+    spans: fxhash::FxHashMap<u32, Shared<[Span]>>,
     // Keep these around - each thread keeps track of the instructions on the bytecode object, but we shouldn't
     // need to dereference that until later? When we actually move to that
-    instructions: fxhash::FxHashMap<u32, Rc<[DenseInstruction]>>,
+    instructions: fxhash::FxHashMap<u32, Shared<[DenseInstruction]>>,
+}
+
+#[derive(Clone, Default)]
+pub struct ThreadStateController {
+    paused: Arc<AtomicBool>,
+    state: Arc<AtomicCell<ThreadState>>,
+}
+
+impl ThreadStateController {
+    pub fn suspend(&self) {
+        self.paused
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        self.state.store(ThreadState::Suspended)
+    }
+
+    pub fn pause_for_safepoint(&self) {
+        self.paused
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        self.state.store(ThreadState::PausedAtSafepoint)
+    }
+
+    pub fn resume(&self) {
+        self.paused
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        self.state.store(ThreadState::Running)
+    }
+
+    pub fn interrupt(&self) {
+        self.paused
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        self.state.store(ThreadState::Interrupted)
+    }
+}
+
+#[derive(Clone)]
+struct ThreadContext {
+    ctx: std::sync::Weak<AtomicCell<Option<*const SteelThread>>>,
+    handle: SteelVal,
+}
+
+#[derive(Clone)]
+pub struct Synchronizer {
+    // All of the threads that have been created
+    // from the root of the runtime. Since we're now operating
+    // in a world in which these kinds of threads might basically
+    // share memory space, we probably need to handle this
+    threads: Arc<Mutex<Vec<ThreadContext>>>,
+    // The signal to actually tell all the threads to stop
+    pub(crate) state: ThreadStateController,
+
+    // If we're at a safe point, then this will include a _live_ pointer
+    // to the context. Once we exit the safe point, we're done.
+    ctx: Arc<AtomicCell<Option<*const SteelThread>>>,
+}
+
+// TODO: Until I figure out how to note have this be the case
+unsafe impl Sync for Synchronizer {}
+unsafe impl Send for Synchronizer {}
+
+impl Synchronizer {
+    pub fn new() -> Self {
+        Self {
+            threads: Arc::new(Mutex::new(Vec::new())),
+            state: ThreadStateController {
+                paused: Arc::new(AtomicBool::new(false)),
+                state: Arc::new(AtomicCell::new(ThreadState::Running)),
+            },
+            ctx: Arc::new(AtomicCell::new(None)),
+        }
+    }
+
+    pub(crate) unsafe fn enumerate_stacks(&mut self, context: &mut MarkAndSweepContext) {
+        // TODO: Continue...
+        let mut guard = self.threads.lock().unwrap();
+
+        // Wait for all the threads to be legal
+        for ThreadContext { ctx, handle } in guard.iter() {
+            if let Some(ctx) = ctx.upgrade() {
+                // TODO: Have to use a condvar
+                loop {
+                    if let Some(ctx) = ctx.load() {
+                        println!("Sweeping other threads");
+
+                        unsafe {
+                            let live_ctx = &(*ctx);
+                            for value in &live_ctx.stack {
+                                context.push_back(value.clone());
+                            }
+
+                            for frame in &live_ctx.stack_frames {
+                                for value in frame.function.captures() {
+                                    context.push_back(value.clone());
+                                }
+                            }
+
+                            for value in live_ctx.current_frame.function.captures() {
+                                context.push_back(value.clone());
+                            }
+
+                            context.visit();
+                        }
+
+                        break;
+                    } else {
+                        println!("Waiting for thread...")
+
+                        // TODO: Some kind of condvar or message passing
+                        // is probably a better scheme here, but the idea is to just
+                        // wait until all the threads are done.
+                    }
+                }
+            } else {
+                continue;
+            }
+        }
+    }
+
+    /// Stops all threads within the context of this virtual machine, and
+    /// waits for all of those threads to stop before continuing on.
+    pub fn stop_threads(&mut self) {
+        self.state.pause_for_safepoint();
+
+        // Stop other threads, wait until we've gathered acknowledgements
+        self.threads.lock().unwrap().iter().for_each(|x| {
+            if let SteelVal::Custom(c) = &x.handle {
+                if let Some(inner) = as_underlying_type::<ThreadHandle>(c.read().as_ref()) {
+                    inner.thread_state_manager.pause_for_safepoint();
+                }
+            }
+        });
+    }
+
+    pub fn resume_threads(&mut self) {
+        self.state.resume();
+
+        // Go through, and resume all of the threads
+        self.threads.lock().unwrap().iter().for_each(|x| {
+            if let SteelVal::Custom(c) = &x.handle {
+                if let Some(inner) = as_underlying_type::<ThreadHandle>(c.read().as_ref()) {
+                    if let Some(handle) = inner.handle.as_ref() {
+                        handle.thread().unpark();
+                        inner.thread_state_manager.resume();
+                    }
+                }
+            }
+        });
+    }
 }
 
 impl SteelThread {
@@ -323,7 +520,7 @@ impl SteelThread {
             profiler: OpCodeOccurenceProfiler::new(),
             function_interner: FunctionInterner::default(),
             // _super_instructions: Vec::new(),
-            heap: Heap::new(),
+            heap: Arc::new(Mutex::new(Heap::new())),
             runtime_options: RunTimeOptions::new(),
             stack_frames: Vec::with_capacity(128),
             current_frame: StackFrame::main(),
@@ -334,7 +531,39 @@ impl SteelThread {
             // with the executables
             constant_map: DEFAULT_CONSTANT_MAP.with(|x| x.clone()),
             interrupted: Default::default(),
+            synchronizer: Synchronizer::new(),
+            thread_local_storage: Vec::new(),
         }
+    }
+
+    // Allow this thread to be available for garbage collection
+    // during the duration of the provided thunk
+    #[inline(always)]
+    pub fn enter_safepoint(
+        &mut self,
+        mut finish: impl FnMut(&SteelThread) -> Result<SteelVal>,
+    ) -> Result<SteelVal> {
+        if cfg!(feature = "sync") {
+            self.synchronizer.ctx.store(Some(self as _));
+        }
+
+        let res = finish(self);
+
+        if cfg!(feature = "sync") {
+            // Just block here until we're out
+            while self
+                .synchronizer
+                .state
+                .paused
+                .load(std::sync::atomic::Ordering::Relaxed)
+            {
+                std::thread::park();
+            }
+
+            self.synchronizer.ctx.store(None);
+        }
+
+        res
     }
 
     pub fn with_interrupted(&mut self, interrupted: Arc<AtomicBool>) -> &mut Self {
@@ -370,7 +599,7 @@ impl SteelThread {
         let result = instructions
             .iter()
             .zip(spans.iter())
-            .map(|x| self.execute(Rc::clone(x.0), constant_map.clone(), Rc::clone(x.1)))
+            .map(|x| self.execute(Shared::clone(x.0), constant_map.clone(), Shared::clone(x.1)))
             .collect();
 
         self.constant_map = DEFAULT_CONSTANT_MAP.with(|x| x.clone());
@@ -415,9 +644,9 @@ impl SteelThread {
                 let spans = closure.body_exp().iter().map(|_| Span::default()).collect();
 
                 let mut vm_instance = VmCore::new_unchecked(
-                    Rc::new([]),
+                    Shared::new([]),
                     constant_map,
-                    Rc::clone(&spans),
+                    Shared::clone(&spans),
                     self,
                     &spans,
                 );
@@ -464,8 +693,13 @@ impl SteelThread {
                 }
             }
             SteelVal::ContinuationFunction(c) => {
-                let mut vm_instance =
-                    VmCore::new_unchecked(Rc::new([]), constant_map, Rc::new([]), self, &[]);
+                let mut vm_instance = VmCore::new_unchecked(
+                    Shared::new([]),
+                    constant_map,
+                    Shared::new([]),
+                    self,
+                    &[],
+                );
 
                 vm_instance.call_cont_with_args(c, args)
             }
@@ -474,12 +708,9 @@ impl SteelThread {
                 let spans = closure.body_exp().iter().map(|_| Span::default()).collect();
 
                 let mut vm_instance = VmCore::new_unchecked(
-                    Rc::new([]),
+                    Shared::new([]),
                     constant_map,
-                    // &mut self.function_stack,
-                    // &mut self.stack_index,
-                    // 0,
-                    Rc::clone(&spans),
+                    Shared::clone(&spans),
                     self,
                     &spans,
                 );
@@ -494,35 +725,33 @@ impl SteelThread {
 
     pub fn execute(
         &mut self,
-        instructions: Rc<[DenseInstruction]>,
+        instructions: Shared<[DenseInstruction]>,
         constant_map: ConstantMap,
-        spans: Rc<[Span]>,
+        spans: Shared<[Span]>,
     ) -> Result<SteelVal> {
         self.profiler.reset();
 
         #[cfg(feature = "profiling")]
         let execution_time = Instant::now();
 
-        let mut vm_instance =
-            VmCore::new(instructions, constant_map, Rc::clone(&spans), self, &spans)?;
+        let mut vm_instance = VmCore::new(
+            instructions,
+            constant_map,
+            Shared::clone(&spans),
+            self,
+            &spans,
+        )?;
 
         // This is our pseudo "dynamic unwind"
         // If we need to, we'll walk back on the stack and find any handlers to pop
         'outer: loop {
-            // TODO: @Matt -> move the profiler out into the vm core type parameter and an argument
-            // that way theres 0 cost to including a profiler vs not including a profiler
-
             let result = vm_instance
                 .vm()
                 .map_err(|error| error.with_stack_trace(vm_instance.snapshot_stack_trace()));
 
-            // (let () (call-with-exception-handler (lambda (x) (displayln x)) (lambda () (+ 10 20 (error "oops!")))) (displayln "hi"))
-
             if let Err(e) = result {
                 while let Some(mut last) = vm_instance.thread.stack_frames.pop() {
                     // Unwind the stack, close continuation marks here!
-                    // vm_instance.close_continuation_marks(&last);
-
                     // For whatever reason - if we're at the top, we shouldn't go down below 0
                     if vm_instance.pop_count == 0 {
                         return Err(e);
@@ -535,7 +764,7 @@ impl SteelThread {
                         vm_instance.thread.stack.truncate(last.sp);
                         vm_instance.ip = last.ip;
                         vm_instance.sp = vm_instance.get_last_stack_frame_sp();
-                        vm_instance.instructions = Rc::clone(&last.instructions);
+                        vm_instance.instructions = Shared::clone(&last.instructions);
 
                         vm_instance.close_continuation_marks(&last);
                     }
@@ -543,7 +772,6 @@ impl SteelThread {
                     if let Some(handler) = last.handler {
                         // Drop the stack BACK to where it was on this level
                         vm_instance.thread.stack.truncate(last.sp);
-
                         vm_instance.thread.stack.push(e.into_steelval()?);
 
                         // If we're at the top level, we need to handle this _slightly_ differently
@@ -559,13 +787,12 @@ impl SteelThread {
                                         last.sp,
                                         Gc::clone(&closure),
                                         0,
-                                        Rc::from([]),
+                                        Shared::from([]),
                                     ));
                                 }
 
                                 vm_instance.sp = last.sp;
                                 vm_instance.instructions = closure.body_exp();
-                                // vm_instance.spans = closure.spans();
 
                                 last.handler = None;
 
@@ -605,15 +832,6 @@ impl SteelThread {
             }
         }
     }
-
-    // pub fn snapshot_stack_trace(&self) -> DehydratedStackTrace {
-    //     DehydratedStackTrace::new(
-    //         self.stack_frames
-    //             .iter()
-    //             .map(|x| DehydratedCallContext::new(x.span))
-    //             .collect(),
-    //     )
-    // }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -621,7 +839,7 @@ pub struct OpenContinuationMark {
     // Lazily capture the frames we need to?
     pub(crate) current_frame: StackFrame,
     pub(crate) stack_frame_offset: usize,
-    instructions: Rc<[DenseInstruction]>,
+    instructions: Shared<[DenseInstruction]>,
 
     // Captured at creation, everything on the stack
     // from the current frame
@@ -656,7 +874,7 @@ impl ContinuationMark {
                 continuation.ip = open.ip;
                 continuation.sp = open.sp;
                 continuation.pop_count = open.pop_count;
-                continuation.instructions = Rc::clone(&open.instructions);
+                continuation.instructions = Shared::clone(&open.instructions);
 
                 continuation.current_frame = open.current_frame.clone();
 
@@ -701,9 +919,9 @@ impl Continuation {
         if let Some(cont_mark) = stack_frame
             .weak_continuation_mark
             .as_ref()
-            .and_then(|x| Weak::upgrade(&x.inner))
+            .and_then(|x| WeakShared::upgrade(&x.inner))
         {
-            cont_mark.borrow_mut().close(ctx);
+            cont_mark.write().close(ctx);
 
             return true;
         }
@@ -713,18 +931,11 @@ impl Continuation {
 
     pub fn set_state_from_continuation(ctx: &mut VmCore<'_>, this: Self) {
         // Check if this is an open
-        let maybe_open_mark = (*this.inner.borrow()).clone().into_open_mark();
+        let maybe_open_mark = (*this.inner.read()).clone().into_open_mark();
 
         if let Some(open) = maybe_open_mark {
-            // println!("Setting state from open continuation");
-
-            let strong_count = Rc::strong_count(&this.inner);
-            let weak_count = Rc::weak_count(&this.inner);
-
-            // println!(
-            //     "Strong count: {} - Weak count: {}",
-            //     strong_count, weak_count
-            // );
+            let strong_count = Shared::strong_count(&this.inner);
+            let weak_count = Shared::weak_count(&this.inner);
 
             while let Some(stack_frame) = ctx.thread.stack_frames.pop() {
                 ctx.pop_count -= 1;
@@ -732,16 +943,16 @@ impl Continuation {
                 if let Some(mark) = &stack_frame
                     .weak_continuation_mark
                     .as_ref()
-                    .and_then(|x| Weak::upgrade(&x.inner))
+                    .and_then(|x| WeakShared::upgrade(&x.inner))
                 {
-                    if Rc::ptr_eq(&mark, &this.inner) {
+                    if Shared::ptr_eq(&mark, &this.inner) {
                         if weak_count == 1 && strong_count > 1 {
                             if Self::close_marks(ctx, &stack_frame) {
                                 // TODO: We shouldn't have to both close the frame and also
                                 // set state from the continuation in both spots. There is a nefarious
                                 // bug here that I haven't yet resolved.
                                 let definitely_closed =
-                                    this.inner.borrow().clone().into_closed().unwrap();
+                                    this.inner.read().clone().into_closed().unwrap();
 
                                 ctx.set_state_from_continuation(definitely_closed);
 
@@ -753,7 +964,7 @@ impl Continuation {
 
                         ctx.sp = open.sp;
                         ctx.ip = open.ip;
-                        ctx.instructions = Rc::clone(&open.instructions);
+                        ctx.instructions = Shared::clone(&open.instructions);
 
                         ctx.thread.stack.truncate(open.sp);
 
@@ -785,7 +996,7 @@ impl Continuation {
                 ctx.thread.stack.truncate(stack_frame.sp);
                 ctx.ip = stack_frame.ip;
                 ctx.sp = ctx.get_last_stack_frame_sp();
-                ctx.instructions = Rc::clone(&stack_frame.instructions);
+                ctx.instructions = Shared::clone(&stack_frame.instructions);
 
                 if Self::close_marks(ctx, &stack_frame) {
                     // println!("CLOSING MARKS WHEN SETTING STATE FROM CONTINUATION");
@@ -796,12 +1007,12 @@ impl Continuation {
         } else {
             // println!("Setting state from closed continuation");
 
-            match Rc::try_unwrap(this.inner).map(|x| x.into_inner()) {
+            match Shared::try_unwrap(this.inner).map(|x| x.into_inner()) {
                 Ok(cont) => {
                     ctx.set_state_from_continuation(cont.into_closed().unwrap());
                 }
                 Err(e) => {
-                    let definitely_closed = e.borrow().clone().into_closed().unwrap();
+                    let definitely_closed = e.read().clone().into_closed().unwrap();
 
                     ctx.set_state_from_continuation(definitely_closed);
                 }
@@ -810,25 +1021,33 @@ impl Continuation {
     }
 
     pub fn ptr_eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.inner, &other.inner)
+        Shared::ptr_eq(&self.inner, &other.inner)
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct Continuation {
     // TODO: This _might_ need to be a weak reference. We'll see!
-    pub(crate) inner: Rc<RefCell<ContinuationMark>>,
+    pub(crate) inner: SharedMut<ContinuationMark>,
 }
+
+impl PartialEq for Continuation {
+    fn eq(&self, other: &Self) -> bool {
+        *(self.inner.read()) == *(other.inner.read())
+    }
+}
+
+impl Eq for Continuation {}
 
 #[derive(Clone, Debug)]
 struct WeakContinuation {
-    pub(crate) inner: Weak<RefCell<ContinuationMark>>,
+    pub(crate) inner: WeakSharedMut<ContinuationMark>,
 }
 
 impl WeakContinuation {
     fn from_strong(cont: &Continuation) -> Self {
         Self {
-            inner: Rc::downgrade(&cont.inner),
+            inner: Shared::downgrade(&cont.inner),
         }
     }
 }
@@ -837,7 +1056,7 @@ impl WeakContinuation {
 pub struct ClosedContinuation {
     pub(crate) stack: Vec<SteelVal>,
     pub(crate) current_frame: StackFrame,
-    instructions: Rc<[DenseInstruction]>,
+    instructions: Shared<[DenseInstruction]>,
     pub(crate) stack_frames: Vec<StackFrame>,
     ip: usize,
     sp: usize,
@@ -1016,7 +1235,7 @@ impl<'a> VmContext for VmCore<'a> {
 // }
 
 pub struct VmCore<'a> {
-    pub(crate) instructions: Rc<[DenseInstruction]>,
+    pub(crate) instructions: Shared<[DenseInstruction]>,
     pub(crate) constants: ConstantMap,
     pub(crate) ip: usize,
     pub(crate) sp: usize,
@@ -1030,10 +1249,9 @@ pub struct VmCore<'a> {
 //
 impl<'a> VmCore<'a> {
     fn new_unchecked(
-        instructions: Rc<[DenseInstruction]>,
+        instructions: Shared<[DenseInstruction]>,
         constants: ConstantMap,
-        spans: Rc<[Span]>,
-        // span_id: usize,
+        spans: Shared<[Span]>,
         thread: &'a mut SteelThread,
         root_spans: &'a [Span],
     ) -> VmCore<'a> {
@@ -1043,8 +1261,6 @@ impl<'a> VmCore<'a> {
             ip: 0,
             sp: 0,
             pop_count: 1,
-            // spans,
-            // span_id,
             depth: 0,
             thread,
             root_spans,
@@ -1052,10 +1268,9 @@ impl<'a> VmCore<'a> {
     }
 
     fn new(
-        instructions: Rc<[DenseInstruction]>,
+        instructions: Shared<[DenseInstruction]>,
         constants: ConstantMap,
-        spans: Rc<[Span]>,
-        // span_id: usize,
+        spans: Shared<[Span]>,
         thread: &'a mut SteelThread,
         root_spans: &'a [Span],
     ) -> Result<VmCore<'a>> {
@@ -1074,65 +1289,117 @@ impl<'a> VmCore<'a> {
             ip: 0,
             sp: 0,
             pop_count: 1,
-            // spans,
-            // span_id,
             depth: 0,
             thread,
             root_spans,
         })
     }
 
+    fn park_thread_while_paused(&self) {
+        // TODO: Consider using condvar instead here
+        while self
+            .thread
+            .synchronizer
+            .state
+            .paused
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            std::thread::park();
+        }
+    }
+
+    #[inline(always)]
+    pub fn safepoint_or_interrupt(&self) -> Result<()> {
+        // Check if we need to be paused
+        if self
+            .thread
+            .synchronizer
+            .state
+            .paused
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            match self.thread.synchronizer.state.state.load() {
+                ThreadState::Interrupted => {
+                    stop!(Generic => format!("Thread: {:?} - Interrupted by user", std::thread::current().id()); self.current_span());
+                }
+                ThreadState::Suspended => {
+                    println!("Suspending thread");
+                    self.park_thread_while_paused();
+                }
+                ThreadState::PausedAtSafepoint => {
+                    // TODO:
+                    // Insert the code to do the stack things here
+                    println!("Suspending thread at safepoint");
+                    self.thread.synchronizer.ctx.store(Some(self.thread as _));
+                    self.park_thread_while_paused();
+                    self.thread.synchronizer.ctx.store(None);
+                }
+                ThreadState::Running => {}
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn make_box(&mut self, value: SteelVal) -> SteelVal {
-        let allocated_var = self.thread.heap.allocate(
+        let allocated_var = self.thread.heap.lock().unwrap().allocate(
             value,
-            self.thread.stack.iter(),
+            &self.thread.stack,
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
-            self.thread.global_env.roots(),
+            self.thread.global_env.roots().as_slice(),
+            &self.thread.thread_local_storage,
+            &mut self.thread.synchronizer,
         );
 
         SteelVal::HeapAllocated(allocated_var)
     }
 
     pub fn make_mutable_vector(&mut self, values: Vec<SteelVal>) -> SteelVal {
-        let allocated_var = self.thread.heap.allocate_vector(
+        let allocated_var = self.thread.heap.lock().unwrap().allocate_vector(
             values,
-            self.thread.stack.iter(),
+            &self.thread.stack,
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
-            self.thread.global_env.roots(),
+            self.thread.global_env.roots().as_slice(),
+            &self.thread.thread_local_storage,
+            &mut self.thread.synchronizer,
         );
 
         SteelVal::MutableVector(allocated_var)
     }
 
     pub(crate) fn gc_collect(&mut self) -> usize {
-        self.thread.heap.collect(
+        self.thread.heap.lock().unwrap().collect(
             None,
             None,
-            self.thread.stack.iter(),
+            &self.thread.stack,
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
-            self.thread.global_env.roots(),
+            self.thread.global_env.roots().as_slice(),
+            &self.thread.thread_local_storage,
+            &mut self.thread.synchronizer,
             true,
         )
     }
 
     fn weak_collection(&mut self) {
-        self.thread.heap.weak_collection();
+        self.thread.heap.lock().unwrap().weak_collection();
     }
 
     fn new_open_continuation_from_state(&self) -> Continuation {
         let offset = self.get_offset();
         Continuation {
-            inner: Rc::new(RefCell::new(ContinuationMark::Open(OpenContinuationMark {
-                current_frame: self.thread.stack_frames.last().unwrap().clone(),
-                stack_frame_offset: self.thread.stack.len(),
-                current_stack_values: self.thread.stack[offset..].to_vec(),
-                instructions: self.instructions.clone(),
-                ip: self.ip,
-                sp: self.sp,
-                pop_count: self.pop_count,
-                #[cfg(debug_assertions)]
-                closed_continuation: self.new_closed_continuation_from_state(),
-            }))),
+            inner: Shared::new(MutContainer::new(ContinuationMark::Open(
+                OpenContinuationMark {
+                    current_frame: self.thread.stack_frames.last().unwrap().clone(),
+                    stack_frame_offset: self.thread.stack.len(),
+                    current_stack_values: self.thread.stack[offset..].to_vec(),
+                    instructions: self.instructions.clone(),
+                    ip: self.ip,
+                    sp: self.sp,
+                    pop_count: self.pop_count,
+                    #[cfg(debug_assertions)]
+                    closed_continuation: self.new_closed_continuation_from_state(),
+                },
+            ))),
         }
     }
 
@@ -1140,7 +1407,7 @@ impl<'a> VmCore<'a> {
     fn new_closed_continuation_from_state(&self) -> ClosedContinuation {
         ClosedContinuation {
             stack: self.thread.stack.clone(),
-            instructions: Rc::clone(&self.instructions),
+            instructions: Shared::clone(&self.instructions),
             current_frame: self.thread.stack_frames.last().unwrap().clone(),
             stack_frames: self.thread.stack_frames.clone(),
             ip: self.ip,
@@ -1162,7 +1429,7 @@ impl<'a> VmCore<'a> {
     fn new_oneshot_continuation_from_state(&mut self) -> ClosedContinuation {
         ClosedContinuation {
             stack: std::mem::take(&mut self.thread.stack),
-            instructions: Rc::clone(&self.instructions),
+            instructions: Shared::clone(&self.instructions),
             current_frame: self.thread.current_frame.clone(),
             stack_frames: std::mem::take(&mut self.thread.stack_frames),
             ip: self.ip,
@@ -1212,10 +1479,9 @@ impl<'a> VmCore<'a> {
             if let Some(cont_mark) = frame
                 .weak_continuation_mark
                 .as_ref()
-                .and_then(|x| Weak::upgrade(&x.inner))
+                .and_then(|x| WeakShared::upgrade(&x.inner))
             {
-                marks_still_open.insert(cont_mark.as_ptr() as usize);
-                // println!("Found mark still open: {:p}", cont_mark.inner);
+                marks_still_open.insert(Shared::as_ptr(&cont_mark) as usize);
             }
         }
 
@@ -1223,14 +1489,14 @@ impl<'a> VmCore<'a> {
             if let Some(cont_mark) = frame
                 .weak_continuation_mark
                 .as_ref()
-                .and_then(|x| Weak::upgrade(&x.inner))
+                .and_then(|x| WeakShared::upgrade(&x.inner))
             {
                 // Close frame if the new continuation doesn't have it
-                if !marks_still_open.contains(&(cont_mark.as_ptr() as usize)) {
+                if !marks_still_open.contains(&(Shared::as_ptr(&cont_mark) as usize)) {
                     self.thread.stack.truncate(frame.sp);
                     self.ip = frame.ip;
                     self.sp = self.get_last_stack_frame_sp();
-                    self.instructions = Rc::clone(&frame.instructions);
+                    self.instructions = Shared::clone(&frame.instructions);
                     self.close_continuation_marks(&frame);
                     continue;
                 }
@@ -1254,8 +1520,7 @@ impl<'a> VmCore<'a> {
     // Reset state FULLY
     fn call_with_instructions_and_reset_state(
         &mut self,
-        closure: Rc<[DenseInstruction]>,
-        // spans: Rc<[Span]>,
+        closure: Shared<[DenseInstruction]>,
     ) -> Result<SteelVal> {
         let old_ip = self.ip;
         let old_instructions = std::mem::replace(&mut self.instructions, closure);
@@ -1267,7 +1532,98 @@ impl<'a> VmCore<'a> {
 
         self.depth += 1;
 
-        let res = self.vm();
+        let mut res = Ok(SteelVal::Void);
+
+        'outer: loop {
+            let result = self
+                .vm()
+                .map_err(|error| error.with_stack_trace(self.snapshot_stack_trace()));
+
+            if let Err(e) = result {
+                while let Some(mut last) = self.thread.stack_frames.pop() {
+                    // Unwind the stack, close continuation marks here!
+                    // For whatever reason - if we're at the top, we shouldn't go down below 0
+                    if self.pop_count == 0 {
+                        return Err(e);
+                    }
+
+                    // Drop the pop count along with everything else we're doing
+                    self.pop_count -= 1;
+
+                    if last.weak_continuation_mark.is_some() {
+                        self.thread.stack.truncate(last.sp);
+                        self.ip = last.ip;
+                        self.sp = self.get_last_stack_frame_sp();
+                        self.instructions = Shared::clone(&last.instructions);
+
+                        self.close_continuation_marks(&last);
+                    }
+
+                    if let Some(handler) = last.handler {
+                        // Drop the stack BACK to where it was on this level
+                        self.thread.stack.truncate(last.sp);
+
+                        self.thread.stack.push(e.into_steelval()?);
+
+                        // If we're at the top level, we need to handle this _slightly_ differently
+                        // if vm_instance.stack_frames.is_empty() {
+                        // Somehow update the main instruction group to _just_ be the new group
+                        match handler.as_ref() {
+                            SteelVal::Closure(closure) => {
+                                if self.thread.stack_frames.is_empty() {
+                                    self.sp = last.sp;
+
+                                    // Push on a dummy stack frame if we're at the top
+                                    self.thread.stack_frames.push(StackFrame::new(
+                                        last.sp,
+                                        Gc::clone(&closure),
+                                        0,
+                                        Shared::from([]),
+                                    ));
+                                }
+
+                                self.sp = last.sp;
+                                self.instructions = closure.body_exp();
+
+                                last.handler = None;
+
+                                #[cfg(not(feature = "unsafe-internals"))]
+                                {
+                                    last.function = closure.clone();
+                                }
+
+                                self.ip = 0;
+
+                                // Put this back as the last stack frame
+                                self.thread.stack_frames.push(last);
+
+                                self.pop_count += 1;
+                            }
+                            _ => {
+                                stop!(TypeMismatch => "expected a function for the exception handler, found: {}", handler)
+                            }
+                        }
+
+                        continue 'outer;
+                    }
+                }
+
+                // self.thread.stack.clear();
+
+                res = Err(e);
+                break;
+            } else {
+                // TODO: Do we need to close frames here?
+                // for frame in &self.thread.stack_frames {
+                //     Continuation::close_marks(&self, &frame);
+                // }
+
+                // self.thread.stack.clear();
+
+                res = result;
+                break;
+            }
+        }
 
         self.depth -= 1;
 
@@ -1441,7 +1797,7 @@ impl<'a> VmCore<'a> {
             prev_length,
             Gc::clone(closure),
             0,
-            Rc::from([]),
+            Shared::from([]),
             // Rc::from([]),
         ));
 
@@ -1464,7 +1820,7 @@ impl<'a> VmCore<'a> {
         arg: SteelVal,
     ) -> Result<SteelVal> {
         thread_local! {
-            static EMPTY_INSTRUCTIONS: Rc<[DenseInstruction]> = Rc::new([]);
+            static EMPTY_INSTRUCTIONS: Shared<[DenseInstruction]> = Shared::new([]);
         }
 
         let prev_length = self.thread.stack.len();
@@ -1560,18 +1916,8 @@ impl<'a> VmCore<'a> {
             }};
         }
 
-        // let mut frame = self.stack_frames.last().unwrap();
-
-        // while self.ip < self.instructions.len() {
         loop {
-            #[cfg(feature = "interrupt")]
-            {
-                if let Some(interrupted) = self.thread.interrupted.as_ref() {
-                    if interrupted.load(std::sync::atomic::Ordering::Relaxed) {
-                        stop!(Generic => "Interrupted by user"; self.current_span());
-                    }
-                }
-            }
+            self.safepoint_or_interrupt()?;
 
             // Process the op code
             // TODO: Just build up a slice, don't directly store the full vec of op codes
@@ -2787,7 +3133,7 @@ impl<'a> VmCore<'a> {
                 if let Some(span_range) = self.root_spans.get(self.ip..forward_jump_index) {
                     span_range.into_iter().cloned().collect::<Vec<_>>().into()
                 } else {
-                    Rc::from(Vec::new())
+                    Shared::from(Vec::new())
                 }
             };
 
@@ -3214,6 +3560,7 @@ impl<'a> VmCore<'a> {
             _ => {
                 // println!("{:?}", self.stack);
                 // println!("{:?}", self.stack_index);
+                println!("Bad tail call");
                 crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
                 stop!(BadSyntax => format!("TailCall - Application not a procedure or function type not supported: {stack_func}"); self.current_span());
             }
@@ -3226,15 +3573,14 @@ impl<'a> VmCore<'a> {
         func: &dyn Fn(&[SteelVal]) -> Result<SteelVal>,
         payload_size: usize,
     ) -> Result<()> {
-        // println!("{:?}, {:?}", self.thread.stack, payload_size);
-
         let last_index = self.thread.stack.len() - payload_size;
 
-        let result = func(&self.thread.stack[last_index..])
+        let result = self
+            .thread
+            .enter_safepoint(|ctx| func(&ctx.stack[last_index..]))
             .map_err(|x| x.set_span_if_none(self.current_span()))?;
 
         self.thread.stack.truncate(last_index);
-
         self.thread.stack.push(result);
         self.ip += 1;
         Ok(())
@@ -3283,16 +3629,12 @@ impl<'a> VmCore<'a> {
         f: fn(&mut [SteelVal]) -> Result<SteelVal>,
         payload_size: usize,
     ) -> Result<()> {
-        // println!("Stack: {:?}", self.stack);
-
         let last_index = self.thread.stack.len() - payload_size;
 
+        // These kinds of functions aren't valid for a safepoint.
         let result = f(&mut self.thread.stack[last_index..])
             .map_err(|x| x.set_span_if_none(self.current_span()))?;
 
-        // TODO -> this can actually just be something like:
-        // self.stack.truncate(self.stack.len() - payload_size + 1)
-        // self.stack[self.stack.len() - 1] = result
         self.thread.stack.truncate(last_index);
         self.thread.stack.push(result);
 
@@ -3321,10 +3663,11 @@ impl<'a> VmCore<'a> {
     ) -> Result<()> {
         let last_index = self.thread.stack.len() - payload_size;
 
-        let result = match f(&self.thread.stack[last_index..]) {
-            Ok(value) => value,
-            Err(e) => return Err(e.set_span_if_none(self.current_span())),
-        };
+        // Register safepoint
+        let result = self
+            .thread
+            .enter_safepoint(move |ctx: &SteelThread| f(&ctx.stack[last_index..]))
+            .map_err(|e| e.set_span_if_none(self.current_span()))?;
 
         // This is the old way... lets see if the below way improves the speed
         self.thread.stack.truncate(last_index);
@@ -3333,62 +3676,6 @@ impl<'a> VmCore<'a> {
         self.ip += 1;
         Ok(())
     }
-
-    // #[inline(always)]
-    // fn call_contracted_function(
-    //     &mut self,
-    //     cf: &ContractedFunction,
-    //     payload_size: usize,
-    // ) -> Result<()> {
-    //     if let Some(arity) = cf.arity() {
-    //         if arity != payload_size {
-    //             stop!(ArityMismatch => format!("function expected {arity} arguments, found {payload_size}"); self.current_span());
-    //         }
-    //     }
-
-    //     // if A::enforce_contracts() {
-    //     let args = self
-    //         .thread
-    //         .stack
-    //         .split_off(self.thread.stack.len() - payload_size);
-
-    //     let result = cf.apply(args, &self.current_span(), self)?;
-
-    //     self.thread.stack.push(result);
-    //     self.ip += 1;
-    //     Ok(())
-    //     // } else {
-    //     //     self.handle_function_call(cf.function.clone(), payload_size)
-    //     // }
-    // }
-
-    // // #[inline(always)]
-    // fn call_contracted_function_tail_call(
-    //     &mut self,
-    //     cf: &ContractedFunction,
-    //     payload_size: usize,
-    // ) -> Result<()> {
-    //     if let Some(arity) = cf.arity() {
-    //         if arity != payload_size {
-    //             stop!(ArityMismatch => format!("function expected {arity} arguments, found {payload_size}"); self.current_span());
-    //         }
-    //     }
-
-    //     // if A::enforce_contracts() {
-    //     let args = self
-    //         .thread
-    //         .stack
-    //         .split_off(self.thread.stack.len() - payload_size);
-
-    //     let result = cf.apply(args, &self.current_span(), self)?;
-
-    //     self.thread.stack.push(result);
-    //     self.ip += 1;
-    //     Ok(())
-    //     // } else {
-    //     // self.handle_tail_call(cf.function.clone(), payload_size)
-    //     // }
-    // }
 
     fn call_future_func_on_stack(
         &mut self,
@@ -3424,7 +3711,8 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     fn call_future_func(
         &mut self,
-        f: Box<Rc<dyn Fn(&[SteelVal]) -> Result<FutureResult>>>,
+        // f: Shared<Box<dyn Fn(&[SteelVal]) -> Result<FutureResult>>>,
+        f: BoxedAsyncFunctionSignature,
         payload_size: usize,
     ) -> Result<()> {
         let last_index = self.thread.stack.len() - payload_size;
@@ -3489,7 +3777,7 @@ impl<'a> VmCore<'a> {
                 prev_length,
                 Gc::clone(closure),
                 self.ip + 4,
-                Rc::clone(&self.instructions),
+                Shared::clone(&self.instructions),
                 // Rc::clone(&self.spans),
             ), // .with_span(self.current_span()),
         );
@@ -3949,7 +4237,7 @@ pub fn call_with_exception_handler(
                     ctx.sp,
                     Gc::clone(&closure),
                     ctx.ip + 1,
-                    Rc::clone(&ctx.instructions),
+                    Shared::clone(&ctx.instructions),
                 )
                 .with_handler(handler),
             );
@@ -4024,9 +4312,8 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
                     ctx.sp,
                     Gc::clone(&closure),
                     ctx.ip + 1,
-                    Rc::clone(&ctx.instructions),
-                    // Rc::clone(&ctx.spans),
-                ) // .with_span(ctx.current_span()),
+                    Shared::clone(&ctx.instructions),
+                )
                 .with_continuation_mark(continuation.clone()),
             );
 
@@ -4051,23 +4338,6 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
     Some(Ok(SteelVal::ContinuationFunction(continuation)))
 }
 
-pub(crate) const APPLY_DOC: MarkdownDoc<'static> = MarkdownDoc::from_str(
-    r#"
-Applies the given `function` with arguments as the contents of the `list`.
-
-(apply function lst) -> any?
-
-* function : function?
-* list: list?
-
-# Examples
-```scheme
-> (apply + (list 1 2 3 4)) ;; => 10
-> (apply list (list 1 2 3 4)) ;; => '(1 2 3 4)
-```
-    "#,
-);
-
 pub(crate) fn get_test_mode(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(Ok(ctx.thread.runtime_options.test.into()))
 }
@@ -4082,14 +4352,13 @@ pub(crate) fn list_modules(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Resul
     use crate::rvals::AsRefSteelVal;
     use crate::steel_vm::builtin::BuiltInModule;
 
-    let mut nursery = ();
-
     // Find all of the modules that are
     let modules = ctx
         .thread
         .global_env
         .roots()
-        .filter(|x| BuiltInModule::as_ref(x, &mut nursery).is_ok())
+        .iter()
+        .filter(|x| BuiltInModule::as_ref(x).is_ok())
         .cloned()
         .collect();
 
@@ -4105,6 +4374,20 @@ pub(crate) fn environment_offset(ctx: &mut VmCore, args: &[SteelVal]) -> Option<
 // _should_ result in an infinite loop. In the current form, this is a Rust stack overflow.
 // Similarly, care should be taken to check out transduce, because nested calls to that will
 // result in a stack overflow with sufficient depth on the recursive calls
+
+/// Applies the given `function` with arguments as the contents of the `list`.
+///
+/// (apply function lst) -> any?
+///
+/// * function : function?
+/// * list: list?
+///
+/// # Examples
+/// ```scheme
+/// > (apply + (list 1 2 3 4)) ;; => 10
+/// > (apply list (list 1 2 3 4)) ;; => '(1 2 3 4)
+///```
+#[steel_derive::context(name = "apply", arity = "Exact(2)")]
 pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     // arity_check!(apply, args, 2);
 
@@ -5237,11 +5520,13 @@ fn cons_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 fn new_box_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     let last = ctx.thread.stack.pop().unwrap();
 
-    let allocated_var = ctx.thread.heap.allocate(
+    let allocated_var = ctx.thread.heap.lock().unwrap().allocate(
         last,
-        ctx.thread.stack.iter(),
+        &ctx.thread.stack,
         ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
-        ctx.thread.global_env.roots(),
+        ctx.thread.global_env.roots().as_slice(),
+        &ctx.thread.thread_local_storage,
+        &mut ctx.thread.synchronizer,
     );
 
     let result = SteelVal::HeapAllocated(allocated_var);

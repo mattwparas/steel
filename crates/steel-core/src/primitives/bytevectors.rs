@@ -1,9 +1,9 @@
 use steel_derive::function;
 
 use crate::{
+    gc::shared::ShareableMut,
     rerrs::ErrorKind,
-    rvals::FromSteelVal,
-    rvals::{RestArgsIter, Result, SteelByteVector},
+    rvals::{FromSteelVal, RestArgsIter, Result, SteelByteVector},
     steel_vm::builtin::BuiltInModule,
     stop, throw, SteelErr, SteelVal,
 };
@@ -107,7 +107,7 @@ pub fn bytevector_copy_new(
     bytevector: &SteelByteVector,
     mut rest: RestArgsIter<'_, isize>,
 ) -> Result<SteelVal> {
-    let guard = bytevector.vec.borrow();
+    let guard = bytevector.vec.read();
 
     let start = if let Some(start) = rest.next() {
         let start = start?;
@@ -203,7 +203,7 @@ pub fn is_byte(value: &SteelVal) -> bool {
 /// ```
 #[function(name = "bytes-length")]
 pub fn bytes_length(value: &SteelByteVector) -> usize {
-    value.vec.borrow().len()
+    value.vec.read().len()
 }
 
 /// Fetches the byte at the given index within the bytevector.
@@ -221,7 +221,7 @@ pub fn bytes_length(value: &SteelByteVector) -> usize {
 /// ```
 #[function(name = "bytes-ref")]
 pub fn bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
-    let guard = value.vec.borrow();
+    let guard = value.vec.read();
     guard
         .get(index)
         .ok_or_else(
@@ -247,7 +247,7 @@ pub fn bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
 /// ```
 #[function(name = "bytes-set!")]
 pub fn bytes_set(value: &mut SteelByteVector, index: usize, byte: u8) -> Result<SteelVal> {
-    let mut guard = value.vec.borrow_mut();
+    let mut guard = value.vec.write();
 
     if index > guard.len() {
         stop!(Generic => "index out of bounds: index: {} of byte vector {:?}", index, guard);
@@ -269,7 +269,7 @@ pub fn bytes_to_list(value: &SteelByteVector) -> Result<SteelVal> {
     Ok(SteelVal::ListV(
         value
             .vec
-            .borrow()
+            .read()
             .iter()
             .map(|x| SteelVal::IntV(*x as isize))
             .collect(),
@@ -302,7 +302,7 @@ pub fn bytes_append(mut rest: RestArgsIter<'_, &SteelByteVector>) -> Result<Stee
     let mut vector = vec![];
 
     while let Some(bytes) = rest.next().transpose()? {
-        let borrow = (&*bytes.vec).borrow();
+        let borrow = bytes.vec.read();
         vector.extend(&*borrow);
     }
 
@@ -326,7 +326,7 @@ pub fn bytes_to_string(
     value: &SteelByteVector,
     mut rest: RestArgsIter<'_, isize>,
 ) -> Result<SteelVal> {
-    let borrowed = (&*value.vec).borrow();
+    let borrowed = value.vec.read();
 
     let start = rest.next().transpose()?.unwrap_or(0);
     let end = rest.next().transpose()?.unwrap_or(borrowed.len() as isize);

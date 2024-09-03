@@ -1,11 +1,11 @@
 use crate::rvals::SteelString;
 use crate::values::lists::List;
+use crate::values::HashMap;
 use crate::{
     gc::Gc,
     rerrs::SteelErr,
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
 };
-use im_rc::HashMap;
 use serde_json::{Map, Number, Value};
 use std::convert::{TryFrom, TryInto};
 use steel_derive::function;
@@ -191,7 +191,12 @@ mod json_tests {
     use super::*;
 
     use crate::rvals::SteelVal::*;
+
+    #[cfg(not(feature = "sync"))]
     use im_rc::hashmap;
+
+    #[cfg(feature = "sync")]
+    use im::hashmap;
 
     #[test]
     fn test_string_to_jsexpr() {

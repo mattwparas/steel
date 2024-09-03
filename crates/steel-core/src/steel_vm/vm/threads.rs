@@ -1,9 +1,14 @@
 use std::collections::HashSet;
 
 use fxhash::FxHashMap;
+use parking_lot::{lock_api::RawMutex, RwLock};
+use steel_derive::function;
 
 use crate::{
-    rvals::{Custom, HeapSerializer, SerializableSteelVal, SerializedHeapRef},
+    rvals::{
+        AsRefMutSteelVal, AsRefSteelVal as _, Custom, HeapSerializer, SerializableSteelVal,
+        SerializedHeapRef,
+    },
     steel_vm::{builtin::BuiltInModule, register_fn::RegisterFn},
     values::{functions::SerializedLambdaPrototype, structs::VTable},
 };
@@ -27,21 +32,79 @@ macro_rules! time {
 
 pub struct ThreadHandle {
     // If this can hold a native steelerr object that would be nice
-    handle: Option<std::thread::JoinHandle<std::result::Result<(), String>>>,
+    pub(crate) handle: Option<std::thread::JoinHandle<std::result::Result<(), String>>>,
+    pub(crate) thread_state_manager: ThreadStateController,
 }
 
-impl ThreadHandle {
-    pub fn is_finished(&self) -> bool {
-        self.handle
-            .as_ref()
-            .map(|x| x.is_finished())
-            .unwrap_or(true)
-    }
+/// Check if the given thread is finished running.
+#[steel_derive::function(name = "thread-finished?")]
+pub fn thread_finished(handle: &SteelVal) -> Result<SteelVal> {
+    Ok(ThreadHandle::as_ref(handle)?
+        .handle
+        .as_ref()
+        .map(|x| x.is_finished())
+        .unwrap_or(true))
+    .map(SteelVal::BoolV)
 }
 
 impl crate::rvals::Custom for ThreadHandle {}
 
-pub(crate) fn thread_join(handle: &mut ThreadHandle) -> Result<()> {
+pub struct SteelMutex {
+    mutex: Arc<parking_lot::Mutex<()>>,
+    guard: AtomicCell<Option<parking_lot::ArcMutexGuard<parking_lot::RawMutex, ()>>>,
+}
+
+impl crate::rvals::Custom for SteelMutex {}
+
+impl SteelMutex {
+    pub fn new() -> Self {
+        Self {
+            mutex: Arc::new(parking_lot::Mutex::new(())),
+            guard: AtomicCell::new(None),
+        }
+    }
+
+    // Attempt to lock it before killing the other one
+    pub fn lock(&self) {
+        // Acquire the lock first
+        let guard = self.mutex.lock_arc();
+        self.guard.store(Some(guard));
+    }
+
+    pub fn unlock(&self) {
+        self.guard.store(None);
+    }
+}
+
+/// Construct a new mutex
+#[steel_derive::function(name = "mutex")]
+pub fn new_mutex() -> Result<SteelVal> {
+    SteelMutex::new().into_steelval()
+}
+
+/// Lock the given mutex
+#[steel_derive::function(name = "lock-acquire!")]
+pub fn mutex_lock(mutex: &SteelVal) -> Result<SteelVal> {
+    SteelMutex::as_ref(mutex)?.lock();
+    Ok(SteelVal::Void)
+}
+
+/// Unlock the given mutex
+#[steel_derive::function(name = "lock-release!")]
+pub fn mutex_unlock(mutex: &SteelVal) -> Result<SteelVal> {
+    SteelMutex::as_ref(mutex)?.unlock();
+    Ok(SteelVal::Void)
+}
+
+/// Block until this thread finishes.
+#[steel_derive::function(name = "thread-join!")]
+pub fn thread_join(handle: &SteelVal) -> Result<SteelVal> {
+    ThreadHandle::as_mut_ref(handle)
+        .and_then(|mut x| thread_join_impl(&mut x))
+        .map(|_| SteelVal::Void)
+}
+
+pub(crate) fn thread_join_impl(handle: &mut ThreadHandle) -> Result<()> {
     if let Some(handle) = handle.handle.take() {
         handle
             .join()
@@ -50,6 +113,40 @@ pub(crate) fn thread_join(handle: &mut ThreadHandle) -> Result<()> {
     } else {
         stop!(ContractViolation => "thread handle has already been joined!");
     }
+}
+
+/// Suspend the thread. Note, this will _not_ interrupt any native code that is
+/// potentially running in the thread, and will attempt to block at the next
+/// bytecode instruction that is running.
+#[steel_derive::function(name = "thread-suspend")]
+pub(crate) fn thread_suspend(handle: &SteelVal) -> Result<SteelVal> {
+    ThreadHandle::as_mut_ref(handle)?
+        .thread_state_manager
+        .suspend();
+
+    Ok(SteelVal::Void)
+}
+
+/// Resume a suspended thread. This does nothing if the thread is already joined.
+#[steel_derive::function(name = "thread-resume")]
+pub(crate) fn thread_resume(handle: &SteelVal) -> Result<SteelVal> {
+    let mut handle = ThreadHandle::as_mut_ref(handle)?;
+    handle.thread_state_manager.resume();
+    if let Some(handle) = handle.handle.as_mut() {
+        handle.thread().unpark();
+    }
+    Ok(SteelVal::Void)
+}
+
+/// Interrupts the thread. Note, this will _not_ interrupt any native code
+/// that is potentially running in the thread, and will attempt to block
+/// at the next bytecode instruction that is running.
+#[steel_derive::function(name = "thread-interrupt")]
+pub(crate) fn thread_interrupt(handle: &SteelVal) -> Result<SteelVal> {
+    ThreadHandle::as_mut_ref(handle)?
+        .thread_state_manager
+        .interrupt();
+    Ok(SteelVal::Void)
 }
 
 thread_local! {
@@ -162,6 +259,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
 
             return ThreadHandle {
                 handle: Some(handle),
+                thread_state_manager: ThreadStateController::default(),
             }
             .into_steelval();
 
@@ -175,6 +273,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
 
             return ThreadHandle {
                 handle: Some(handle),
+                thread_state_manager: ThreadStateController::default(),
             }
             .into_steelval();
         }
@@ -201,6 +300,21 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
         // Void in this case, is a poisoned value. We need to trace the closure
         // (and all of its references) - to find any / all globals that _could_ be
         // referenced.
+        #[cfg(feature = "sync")]
+        global_env: time!(
+            "Global env serialization",
+            ctx.thread
+                .global_env
+                .bindings_vec
+                .read()
+                .iter()
+                .cloned()
+                .map(|x| into_serializable_value(x, &mut initial_map, &mut visited))
+                .map(|x| x.unwrap_or(SerializableSteelVal::Void))
+                .collect()
+        ),
+
+        #[cfg(not(feature = "sync"))]
         global_env: time!(
             "Global env serialization",
             ctx.thread
@@ -212,6 +326,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
                 .map(|x| x.unwrap_or(SerializableSteelVal::Void))
                 .collect()
         ),
+
         // Populate with the values after moving into the thread, spawn accordingly
         // TODO: Move this out of here
         function_interner: time!(
@@ -266,7 +381,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
     // TODO: Spawn a bunch of threads at the start to handle requests. That way we don't need to do this
     // the whole time they're in there.
     let handle = std::thread::spawn(move || {
-        let mut heap = time!("Heap Creation", Heap::new());
+        let mut heap = time!("Heap Creation", Arc::new(Mutex::new(Heap::new())));
 
         // Move across threads?
         let mut mapping = initial_map
@@ -277,8 +392,10 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
         let mut patcher = HashMap::new();
         let mut built_functions = HashMap::new();
 
+        let mut heap_guard = heap.lock().unwrap();
+
         let mut serializer = HeapSerializer {
-            heap: &mut heap,
+            heap: &mut heap_guard,
             fake_heap: &mut mapping,
             values_to_fill_in: &mut patcher,
             built_functions: &mut built_functions,
@@ -300,6 +417,21 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             )
         );
 
+        #[cfg(feature = "sync")]
+        let global_env = time!(
+            "Global env creation",
+            Env {
+                bindings_vec: Arc::new(RwLock::new(
+                    thread
+                        .global_env
+                        .into_iter()
+                        .map(|x| from_serializable_value(&mut serializer, x))
+                        .collect()
+                )),
+            }
+        );
+
+        #[cfg(not(feature = "sync"))]
         let global_env = time!(
             "Global env creation",
             Env {
@@ -366,6 +498,8 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             }
         });
 
+        drop(heap_guard);
+
         // New thread! It will result in a run time error if the function references globals that cannot be shared
         // between threads. This is a bit of an unfortunate occurrence - we probably _should_ just have the engine share
         // as much as possible between threads.
@@ -374,13 +508,14 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             stack: Vec::with_capacity(64),
             profiler: OpCodeOccurenceProfiler::new(),
             function_interner,
-            // _super_instructions: Vec::new(),
             heap,
             runtime_options: thread.runtime_options,
             current_frame: StackFrame::main(),
             stack_frames: Vec::with_capacity(32),
             constant_map,
             interrupted: Default::default(),
+            synchronizer: Synchronizer::new(),
+            thread_local_storage: Vec::new(),
         };
 
         #[cfg(feature = "profiling")]
@@ -399,8 +534,285 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
 
     return ThreadHandle {
         handle: Some(handle),
+        thread_state_manager: ThreadStateController::default(),
     }
     .into_steelval();
+}
+
+pub struct SteelReceiver {
+    receiver: crossbeam::channel::Receiver<SteelVal>,
+}
+
+pub struct SteelSender {
+    sender: crossbeam::channel::Sender<SteelVal>,
+}
+
+pub struct Channels {
+    sender: SteelVal,
+    receiver: SteelVal,
+}
+
+impl Custom for SteelReceiver {}
+impl Custom for SteelSender {}
+impl Custom for Channels {}
+
+impl Channels {
+    pub fn new() -> Self {
+        let (sender, receiver) = crossbeam::channel::unbounded();
+
+        Self {
+            sender: SteelSender { sender }.into_steelval().unwrap(),
+            receiver: SteelReceiver { receiver }.into_steelval().unwrap(),
+        }
+    }
+
+    pub fn sender(&self) -> SteelVal {
+        self.sender.clone()
+    }
+
+    pub fn receiver(&self) -> SteelVal {
+        self.receiver.clone()
+    }
+}
+
+/// Blocks until one of the channels passed in is ready to receive.
+/// Returns the index of the channel arguments passed in which is ready.
+///
+/// Using this directly is not recommended.
+#[steel_derive::native(name = "receivers-select", arity = "AtLeast(0)")]
+pub fn select(values: &[SteelVal]) -> Result<SteelVal> {
+    let mut selector = crossbeam::channel::Select::new();
+
+    let mut borrows = values
+        .iter()
+        .map(|x| SteelReceiver::as_ref(x))
+        .collect::<Result<smallvec::SmallVec<[_; 8]>>>()?;
+
+    for channel in &borrows {
+        selector.recv(&channel.receiver);
+    }
+
+    // Grab the index of the one that is ready first
+    selector.ready().into_steelval()
+}
+
+#[steel_derive::function(name = "channels/new")]
+pub fn new_channels() -> Channels {
+    Channels::new()
+}
+
+#[steel_derive::function(name = "channels-sender")]
+pub fn channels_sender(value: &SteelVal) -> Result<SteelVal> {
+    Channels::as_ref(value).map(|x| x.sender())
+}
+
+#[steel_derive::function(name = "channels-receiver")]
+pub fn channels_receiver(value: &SteelVal) -> Result<SteelVal> {
+    Channels::as_ref(value).map(|x| x.receiver())
+}
+
+#[steel_derive::function(name = "channel/send")]
+pub fn channel_send(sender: &SteelVal, value: SteelVal) -> Result<SteelVal> {
+    SteelSender::as_ref(sender)?
+        .sender
+        .send(value)
+        .map_err(|e| {
+            throw!(Generic => "channel disconnected - 
+            unable to send value across channel: {:?}", e.0)()
+        })
+        .map(|_| SteelVal::Void)
+}
+
+#[steel_derive::function(name = "channel/recv")]
+pub fn channel_recv(receiver: &SteelVal) -> Result<SteelVal> {
+    SteelReceiver::as_ref(receiver)?
+        .receiver
+        .recv()
+        .map_err(|e| {
+            throw!(Generic => "Unable to receive on the channel. 
+                The channel is empty and disconnected")()
+        })
+}
+
+// Need singletons to use for "empty"
+
+#[steel_derive::function(name = "channel/try-recv")]
+pub fn channel_try_recv(receiver: &SteelVal) -> Result<SteelVal> {
+    let value = SteelReceiver::as_ref(receiver)?.receiver.try_recv();
+
+    match value {
+        Ok(v) => Ok(v),
+        Err(crossbeam::channel::TryRecvError::Empty) => Ok(empty_channel()),
+        Err(crossbeam::channel::TryRecvError::Disconnected) => Ok(disconnected_channel()),
+    }
+}
+
+#[cfg(not(feature = "sync"))]
+thread_local! {
+    static EMPTY_CHANNEL_OBJECT: once_cell::unsync::Lazy<(SteelVal, crate::values::structs::StructTypeDescriptor)>= once_cell::unsync::Lazy::new(|| {
+        crate::values::structs::make_struct_singleton("#%empty-channel".into())
+    });
+
+    static DISCONNECTED_CHANNEL_OBJECT: once_cell::unsync::Lazy<(SteelVal, crate::values::structs::StructTypeDescriptor)>= once_cell::unsync::Lazy::new(|| {
+        crate::values::structs::make_struct_singleton("#%disconnected-channel".into())
+    });
+}
+
+#[cfg(feature = "sync")]
+pub static EMPTY_CHANNEL_OBJECT: once_cell::sync::Lazy<(
+    SteelVal,
+    crate::values::structs::StructTypeDescriptor,
+)> = once_cell::sync::Lazy::new(|| {
+    crate::values::structs::make_struct_singleton("#%empty-channel".into())
+});
+
+#[cfg(feature = "sync")]
+pub static DISCONNECTED_CHANNEL_OBJECT: once_cell::sync::Lazy<(
+    SteelVal,
+    crate::values::structs::StructTypeDescriptor,
+)> = once_cell::sync::Lazy::new(|| {
+    crate::values::structs::make_struct_singleton("#%empty-channel".into())
+});
+
+/// Returns `#t` if the value is an empty-channel object.
+///
+/// (empty-channel-object? any/c) -> bool?
+#[function(name = "empty-channel-object?")]
+pub fn empty_channel_objectp(value: &SteelVal) -> bool {
+    let SteelVal::CustomStruct(struct_) = value else {
+        return false;
+    };
+
+    #[cfg(feature = "sync")]
+    {
+        struct_.type_descriptor == EMPTY_CHANNEL_OBJECT.1
+    }
+
+    #[cfg(not(feature = "sync"))]
+    {
+        EMPTY_CHANNEL_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
+    }
+}
+
+pub fn empty_channel() -> SteelVal {
+    #[cfg(feature = "sync")]
+    {
+        EMPTY_CHANNEL_OBJECT.0.clone()
+    }
+
+    #[cfg(not(feature = "sync"))]
+    {
+        EMPTY_CHANNEL_OBJECT.with(|eof| eof.0.clone())
+    }
+}
+
+/// Returns `#t` if the value is an disconnected-channel object.
+///
+/// (eof-object? any/c) -> bool?
+#[function(name = "disconnected-channel-object?")]
+pub fn disconnected_channel_objectp(value: &SteelVal) -> bool {
+    let SteelVal::CustomStruct(struct_) = value else {
+        return false;
+    };
+
+    #[cfg(feature = "sync")]
+    {
+        struct_.type_descriptor == DISCONNECTED_CHANNEL_OBJECT.1
+    }
+
+    #[cfg(not(feature = "sync"))]
+    {
+        DISCONNECTED_CHANNEL_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
+    }
+}
+
+pub fn disconnected_channel() -> SteelVal {
+    #[cfg(feature = "sync")]
+    {
+        DISCONNECTED_CHANNEL_OBJECT.0.clone()
+    }
+
+    #[cfg(not(feature = "sync"))]
+    {
+        DISCONNECTED_CHANNEL_OBJECT.with(|eof| eof.0.clone())
+    }
+}
+
+// See... if this works...?
+
+#[cfg(feature = "sync")]
+#[steel_derive::context(name = "spawn-native-thread", arity = "Exact(2)")]
+pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    let thread_time = std::time::Instant::now();
+    let mut thread = ctx.thread.clone();
+    let interrupt = Arc::new(AtomicBool::new(false));
+    // Let this thread have its own interrupt handler
+    let controller = ThreadStateController::default();
+    thread.synchronizer.state = controller.clone();
+    // This thread needs its own context
+    thread.synchronizer.ctx = Arc::new(AtomicCell::new(None));
+
+    let weak_ctx = Arc::downgrade(&thread.synchronizer.ctx);
+
+    let func = args[0].clone();
+
+    // Try closing open continuations?
+    // TODO: See if we can close them here?
+
+    // Anything open, should be closed. And we'll be okay... I think.
+    // This could be an unreasonably negative performance hit, however in
+    // spirit I'd imagine its for the best in order to make sure that open
+    // continuations are legal to be called across other threads.
+
+    let now = std::time::Instant::now();
+    for frame in &ctx.thread.stack_frames {
+        ctx.close_continuation_marks(frame);
+    }
+    log::debug!(target: "threads", "Time to close continuations: {:?}", now.elapsed());
+
+    // Meta continuations should actually be captured?
+    ctx.close_continuation_marks(&ctx.thread.current_frame);
+
+    // thread.stack = Vec::new();
+    // thread.stack_frames = Vec::new();
+
+    // The whole stack above and below... should be able to be dropped
+    // from this context? - basically, unwind the stack since we're no
+    // longer going to be in this context.
+
+    let handle = std::thread::spawn(move || {
+        // TODO: We have to use the `execute` function in vm.rs - this sets up
+        // the proper dynamic wind stuff that is built in. Otherwise, it seems
+        // like we're not getting it installed correctly, and things are dying
+        thread
+            .call_function(thread.constant_map.clone(), func, Vec::new())
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+
+        // thread.execute(func, , )
+    });
+
+    let value = ThreadHandle {
+        handle: Some(handle),
+        thread_state_manager: controller,
+    }
+    .into_steelval()
+    .unwrap();
+
+    // Store for the shared runtime
+    ctx.thread
+        .synchronizer
+        .threads
+        .lock()
+        .unwrap()
+        .push(ThreadContext {
+            ctx: weak_ctx,
+            handle: value.clone(),
+        });
+
+    log::debug!(target: "threads", "Time to spawn thread: {:?}", thread_time.elapsed());
+
+    Some(Ok(value))
 }
 
 // Use internal spawn_thread function
@@ -419,6 +831,9 @@ struct SReceiver {
     receiver: Option<std::sync::mpsc::Receiver<SerializableSteelVal>>,
 }
 
+// TODO: @Matt - Revisit this!
+unsafe impl Sync for SReceiver {}
+
 impl Custom for SReceiver {
     fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         let inner = self.receiver.take();
@@ -435,17 +850,88 @@ impl Custom for std::thread::ThreadId {
     }
 }
 
+pub struct ThreadLocalStorage(usize);
+impl crate::rvals::Custom for ThreadLocalStorage {}
+
+/// Creates a thread local storage slot. These slots are static, and will _not_ be reclaimed.
+///
+/// When spawning a new thread, the value inside will be shared into that slot, however
+/// future updates to the slot will be local to that thread.
+#[steel_derive::context(name = "make-tls", arity = "Exact(0)")]
+pub(crate) fn make_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    let index = ctx.thread.thread_local_storage.len();
+    ctx.thread.thread_local_storage.push(args[0].clone());
+    Some(ThreadLocalStorage(index).into_steelval())
+}
+
+/// Get the value out of the thread local storage slot.
+#[steel_derive::context(name = "get-tls", arity = "Exact(1)")]
+pub(crate) fn get_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    if let SteelVal::Custom(c) = &args[0] {
+        if let Some(tls_index) = as_underlying_type::<ThreadLocalStorage>(c.read().as_ref()) {
+            ctx.thread
+                .thread_local_storage
+                .get(tls_index.0)
+                .map(|x| Ok(x.clone()))
+        } else {
+            todo!()
+        }
+    } else {
+        builtin_stop!(Generic => "get-tls expects a thread local storage handler, found: {:?}", &args[0])
+    }
+}
+
+/// Set the value in the the thread local storage. Only this thread will see the updates associated
+/// with this TLS.
+#[steel_derive::context(name = "set-tls!", arity = "Exact(2)")]
+pub(crate) fn set_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    if let SteelVal::Custom(c) = &args[0] {
+        if let Some(tls_index) = as_underlying_type::<ThreadLocalStorage>(c.read().as_ref()) {
+            ctx.thread.thread_local_storage[tls_index.0] = args[1].clone();
+
+            Some(Ok(SteelVal::Void))
+        } else {
+            todo!()
+        }
+    } else {
+        todo!()
+    }
+}
+
 // TODO: Document these
 pub fn threading_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/threads");
+
+    #[cfg(feature = "sync")]
+    {
+        module.register_native_fn_definition(SPAWN_NATIVE_THREAD_DEFINITION);
+    }
 
     module
         .register_value(
             "spawn-thread!",
             SteelVal::BuiltIn(crate::steel_vm::vm::spawn_thread),
         )
-        .register_fn("thread-join!", crate::steel_vm::vm::thread_join)
-        .register_fn("thread-finished?", ThreadHandle::is_finished)
+        .register_native_fn_definition(THREAD_JOIN_DEFINITION)
+        .register_native_fn_definition(THREAD_INTERRUPT_DEFINITION)
+        .register_native_fn_definition(THREAD_SUSPEND_DEFINITION)
+        .register_native_fn_definition(THREAD_RESUME_DEFINITION)
+        .register_native_fn_definition(THREAD_FINISHED_DEFINITION)
+        .register_native_fn_definition(NEW_MUTEX_DEFINITION)
+        .register_native_fn_definition(MUTEX_LOCK_DEFINITION)
+        .register_native_fn_definition(MUTEX_UNLOCK_DEFINITION)
+        .register_native_fn_definition(MAKE_TLS_DEFINITION)
+        .register_native_fn_definition(SET_TLS_DEFINITION)
+        .register_native_fn_definition(GET_TLS_DEFINITION)
+        .register_native_fn_definition(NEW_CHANNELS_DEFINITION)
+        .register_native_fn_definition(CHANNELS_SENDER_DEFINITION)
+        .register_native_fn_definition(CHANNELS_RECEIVER_DEFINITION)
+        .register_native_fn_definition(CHANNEL_SEND_DEFINITION)
+        .register_native_fn_definition(CHANNEL_RECV_DEFINITION)
+        .register_native_fn_definition(CHANNEL_TRY_RECV_DEFINITION)
+        .register_native_fn_definition(SELECT_DEFINITION)
+        .register_native_fn_definition(EMPTY_CHANNEL_OBJECTP_DEFINITION)
+        .register_native_fn_definition(DISCONNECTED_CHANNEL_OBJECTP_DEFINITION)
         .register_fn("make-channels", || {
             let (left, right) = std::sync::mpsc::channel::<SerializableSteelVal>();
 
@@ -534,6 +1020,9 @@ pub fn threading_module() -> BuiltInModule {
                 }
             },
         )
-        .register_fn("thread::current/id", || std::thread::current().id());
+        .register_fn("thread::current/id", || std::thread::current().id())
+        .register_fn("thread/available-parallelism", || {
+            std::thread::available_parallelism().map(|x| x.get()).ok()
+        });
     module
 }

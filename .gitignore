@@ -7,3 +7,4 @@ docs/theme
 /result
 .direnv/
 .steel/
+.helix/

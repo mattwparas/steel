@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Weak};
+use std::collections::HashMap;
 
 use crate::values::lists::List;
 use weak_table::WeakKeyHashMap;
@@ -45,7 +45,11 @@ impl MemoizationTable {
 }
 
 pub struct WeakMemoizationTable {
-    table: WeakKeyHashMap<Weak<ByteCodeLambda>, HashMap<List<SteelVal>, SteelVal>>,
+    #[cfg(not(feature = "sync"))]
+    table: WeakKeyHashMap<std::rc::Weak<ByteCodeLambda>, HashMap<List<SteelVal>, SteelVal>>,
+
+    #[cfg(feature = "sync")]
+    table: WeakKeyHashMap<std::sync::Weak<ByteCodeLambda>, HashMap<List<SteelVal>, SteelVal>>,
 }
 
 impl WeakMemoizationTable {

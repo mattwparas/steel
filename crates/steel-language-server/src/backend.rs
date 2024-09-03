@@ -285,10 +285,8 @@ impl LanguageServer for Backend {
                         return ENGINE.with(|engine| {
                             let guard = engine.borrow();
 
-                            let module = guard
-                                .modules()
-                                .get(&PathBuf::from(module_path_to_check))
-                                .unwrap();
+                            let module =
+                                guard.modules().get(&PathBuf::from(module_path_to_check))?;
 
                             let module_ast = module.get_ast();
 
@@ -400,10 +398,8 @@ impl LanguageServer for Backend {
 
                             log::debug!("Searching for: {} in {}", name, module_path_to_check);
 
-                            let module = guard
-                                .modules()
-                                .get(&PathBuf::from(module_path_to_check))
-                                .unwrap();
+                            let module =
+                                guard.modules().get(&PathBuf::from(module_path_to_check))?;
 
                             let module_ast = module.get_ast();
 

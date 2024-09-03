@@ -1,7 +1,14 @@
 pub mod cycles;
 
 use crate::{
-    gc::{unsafe_erased_pointers::OpaqueReference, Gc},
+    gc::{
+        shared::{
+            MappedScopedReadContainer, MappedScopedWriteContainer, ScopedReadContainer,
+            ScopedWriteContainer, ShareableMut,
+        },
+        unsafe_erased_pointers::OpaqueReference,
+        Gc, GcMut,
+    },
     parser::{
         ast::{self, Atom, ExprKind},
         parser::SyntaxObject,
@@ -11,22 +18,20 @@ use crate::{
     primitives::numbers::realp,
     rerrs::{ErrorKind, SteelErr},
     steel_vm::vm::{threads::closure_into_serializable, BuiltInSignature, Continuation},
-    values::port::SteelPort,
     values::{
         closed::{Heap, HeapRef, MarkAndSweepContext},
-        functions::ByteCodeLambda,
+        functions::{BoxedDynFunction, ByteCodeLambda},
         lazy_stream::LazyStream,
-        port::SendablePort,
-        structs::SerializableUserDefinedStruct,
+        port::{SendablePort, SteelPort},
+        structs::{SerializableUserDefinedStruct, UserDefinedStruct},
         transducers::{Reducer, Transducer},
-        SteelPortRepr,
+        HashMapConsumingIter, HashSetConsumingIter, SteelPortRepr, VectorConsumingIter,
     },
-    values::{functions::BoxedDynFunction, structs::UserDefinedStruct},
 };
 use std::vec::IntoIter;
 use std::{
     any::{Any, TypeId},
-    cell::{Ref, RefCell, RefMut},
+    cell::RefCell,
     cmp::Ordering,
     convert::TryInto,
     fmt,
@@ -64,7 +69,7 @@ macro_rules! list {
 use bigdecimal::BigDecimal;
 use SteelVal::*;
 
-use im_rc::{HashMap, Vector};
+use crate::values::{HashMap, HashSet, Vector};
 
 use futures_task::noop_waker_ref;
 use futures_util::future::Shared;
@@ -86,18 +91,32 @@ pub fn new_rc_ref_cell(x: SteelVal) -> RcRefSteelVal {
 pub type Result<T> = result::Result<T, SteelErr>;
 pub type FunctionSignature = fn(&[SteelVal]) -> Result<SteelVal>;
 pub type MutFunctionSignature = fn(&mut [SteelVal]) -> Result<SteelVal>;
-pub type BoxedFunctionSignature = Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>>;
-pub type BoxedAsyncFunctionSignature = Box<Rc<dyn Fn(&[SteelVal]) -> Result<FutureResult>>>;
+
+#[cfg(not(feature = "sync"))]
+pub type BoxedAsyncFunctionSignature =
+    crate::gc::Shared<Box<dyn Fn(&[SteelVal]) -> Result<FutureResult>>>;
+
+#[cfg(feature = "sync")]
+pub type BoxedAsyncFunctionSignature =
+    crate::gc::Shared<Box<dyn Fn(&[SteelVal]) -> Result<FutureResult> + Send + Sync + 'static>>;
+
 pub type AsyncSignature = fn(&[SteelVal]) -> FutureResult;
 
+#[cfg(not(feature = "sync"))]
 pub type BoxedFutureResult = Pin<Box<dyn Future<Output = Result<SteelVal>>>>;
+
+#[cfg(feature = "sync")]
+pub type BoxedFutureResult = Pin<Box<dyn Future<Output = Result<SteelVal>> + Send + 'static>>;
+
+// TODO: Why can't I put sync here?
+// #[cfg(feature = "sync")]
+// pub type BoxedFutureResult = Pin<Box<dyn Future<Output = Result<SteelVal>> + Send + 'static>>;
 
 #[derive(Clone)]
 pub struct FutureResult(Shared<BoxedFutureResult>);
 
 impl FutureResult {
     pub fn new(fut: BoxedFutureResult) -> Self {
-        // FutureResult()
         FutureResult(fut.shared())
     }
 
@@ -166,40 +185,69 @@ pub trait Custom: private::Sealed {
     }
 }
 
-pub trait CustomType {
-    // fn box_clone(&self) -> Box<dyn CustomType>;
-    // fn as_any(&self) -> Box<dyn Any>;
+#[cfg(not(feature = "sync"))]
+pub trait MaybeSendSyncStatic: 'static {}
+
+#[cfg(not(feature = "sync"))]
+impl<T: 'static> MaybeSendSyncStatic for T {}
+
+#[cfg(feature = "sync")]
+pub trait MaybeSendSyncStatic: Send + Sync + 'static {}
+
+#[cfg(feature = "sync")]
+impl<T: Send + Sync + 'static> MaybeSendSyncStatic for T {}
+
+#[cfg(feature = "sync")]
+pub trait CustomType: MaybeSendSyncStatic {
     fn as_any_ref(&self) -> &dyn Any;
     fn as_any_ref_mut(&mut self) -> &mut dyn Any;
     fn name(&self) -> &str {
         std::any::type_name::<Self>()
     }
     fn inner_type_id(&self) -> TypeId;
-    // fn new_steel_val(&self) -> SteelVal;
     fn display(&self) -> std::result::Result<String, std::fmt::Error> {
         Ok(format!("#<{}>", self.name().to_string()))
     }
-
     fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         None
     }
-
-    // Implement visit for anything that holds steel values
     fn drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
-
     fn visit_children(&self, _context: &mut MarkAndSweepContext) {}
     fn visit_children_for_equality(&self, _visitor: &mut cycles::EqualityVisitor) {}
-
     fn check_equality_hint(&self, _other: &dyn CustomType) -> bool {
         true
     }
-
     fn check_equality_hint_general(&self, _other: &SteelVal) -> bool {
         false
     }
 }
 
-impl<T: Custom + 'static> CustomType for T {
+#[cfg(not(feature = "sync"))]
+pub trait CustomType {
+    fn as_any_ref(&self) -> &dyn Any;
+    fn as_any_ref_mut(&mut self) -> &mut dyn Any;
+    fn name(&self) -> &str {
+        std::any::type_name::<Self>()
+    }
+    fn inner_type_id(&self) -> TypeId;
+    fn display(&self) -> std::result::Result<String, std::fmt::Error> {
+        Ok(format!("#<{}>", self.name().to_string()))
+    }
+    fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
+        None
+    }
+    fn drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
+    fn visit_children(&self, _context: &mut MarkAndSweepContext) {}
+    fn visit_children_for_equality(&self, _visitor: &mut cycles::EqualityVisitor) {}
+    fn check_equality_hint(&self, _other: &dyn CustomType) -> bool {
+        true
+    }
+    fn check_equality_hint_general(&self, _other: &SteelVal) -> bool {
+        false
+    }
+}
+
+impl<T: Custom + MaybeSendSyncStatic> CustomType for T {
     fn as_any_ref(&self) -> &dyn Any {
         self as &dyn Any
     }
@@ -245,8 +293,7 @@ impl<T: Custom + 'static> CustomType for T {
 
 impl<T: CustomType + 'static> IntoSteelVal for T {
     fn into_steelval(self) -> Result<SteelVal> {
-        // Ok(self.new_steel_val())
-        Ok(SteelVal::Custom(Gc::new(RefCell::new(Box::new(self)))))
+        Ok(SteelVal::Custom(Gc::new_mut(Box::new(self))))
     }
 }
 
@@ -260,7 +307,7 @@ impl<T: CustomType + Clone + Send + Sync + 'static> IntoSerializableSteelVal for
             // let left_type = v.borrow().as_any_ref();
             // TODO: @Matt - dylibs cause issues here, as the underlying type ids are different
             // across workspaces and builds
-            let left = v.borrow().as_any_ref().downcast_ref::<T>().cloned();
+            let left = v.read().as_any_ref().downcast_ref::<T>().cloned();
             let _lifted = left.ok_or_else(|| {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {:?}, did not match the given type: {}",
@@ -291,7 +338,7 @@ impl<T: CustomType + Clone + 'static> FromSteelVal for T {
             // let left_type = v.borrow().as_any_ref();
             // TODO: @Matt - dylibs cause issues here, as the underlying type ids are different
             // across workspaces and builds
-            let left = v.borrow().as_any_ref().downcast_ref::<T>().cloned();
+            let left = v.read().as_any_ref().downcast_ref::<T>().cloned();
             left.ok_or_else(|| {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {:?}, did not match the given type: {}",
@@ -402,23 +449,9 @@ mod private {
     impl<T: Any> Sealed for T {}
 }
 
-// pub trait DowncastSteelval: private::Sealed {
-//     type Output;
-//     fn downcast(&self) -> Result<&Self::Output>;
-// }
-
-// impl DowncastSteelval for SteelVal {
-//     type Output = Box<dyn CustomType>;
-
-//     fn downcast(&self) -> Result<&Self::Output> {
-//         todo!()
-//     }
-// }
-
 pub enum SRef<'b, T: ?Sized + 'b> {
     Temporary(&'b T),
-    Owned(Ref<'b, T>),
-    // ExistingBorrow(S),
+    Owned(MappedScopedReadContainer<'b, T>),
 }
 
 impl<'b, T: ?Sized + 'b> Deref for SRef<'b, T> {
@@ -429,7 +462,6 @@ impl<'b, T: ?Sized + 'b> Deref for SRef<'b, T> {
         match self {
             SRef::Temporary(inner) => inner,
             SRef::Owned(inner) => inner,
-            // SRef::ExistingBorrow(inner) =>
         }
     }
 }
@@ -438,10 +470,7 @@ impl<'b, T: ?Sized + 'b> Deref for SRef<'b, T> {
 pub trait AsRefSteelVal: Sized {
     type Nursery: Default;
 
-    fn as_ref<'b, 'a: 'b>(
-        val: &'a SteelVal,
-        _nursery: &'a mut Self::Nursery,
-    ) -> Result<SRef<'b, Self>>;
+    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>>;
 }
 
 pub trait AsSlice<T> {
@@ -462,7 +491,7 @@ pub trait AsRefSteelValFromUnsized<T>: Sized {
 }
 
 pub trait AsRefMutSteelVal: Sized {
-    fn as_mut_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<RefMut<'b, Self>>;
+    fn as_mut_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<MappedScopedWriteContainer<'b, Self>>;
 }
 
 pub trait AsRefMutSteelValFromRef: Sized {
@@ -473,22 +502,10 @@ pub trait AsRefSteelValFromRef: Sized {
     fn as_ref_from_ref<'a>(val: &'a SteelVal) -> crate::rvals::Result<&'a Self>;
 }
 
-// impl AsRefSteelVal for List<SteelVal> {
-//     type Nursery = ();
-
-//     fn as_ref<'b, 'a: 'b>(val: &'a SteelVal, _nursery: &mut ()) -> Result<SRef<'b, Self>> {
-//         if let SteelVal::ListV(l) = val {
-//             Ok(SRef::Temporary(l))
-//         } else {
-//             stop!(TypeMismatch => "Value cannot be referenced as a list")
-//         }
-//     }
-// }
-
 impl AsRefSteelVal for UserDefinedStruct {
     type Nursery = ();
 
-    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal, _nursery: &mut ()) -> Result<SRef<'b, Self>> {
+    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
         if let SteelVal::CustomStruct(l) = val {
             Ok(SRef::Temporary(l))
         } else {
@@ -497,30 +514,15 @@ impl AsRefSteelVal for UserDefinedStruct {
     }
 }
 
-// impl AsRefSteelVal for FunctionSignature {
-//     fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
-//         if let SteelVal::FuncV(f) = val {
-//             Ok(SRef::Temporary(f))
-//         } else {
-//             stop!(TypeMismatch => "Value cannot be referenced as a primitive function!")
-//         }
-//     }
-// }
-
-impl<T: CustomType + 'static> AsRefSteelVal for T {
+impl<T: CustomType + MaybeSendSyncStatic> AsRefSteelVal for T {
     type Nursery = ();
 
-    fn as_ref<'b, 'a: 'b>(
-        val: &'a SteelVal,
-        _nursery: &mut Self::Nursery,
-    ) -> Result<SRef<'b, Self>> {
-        // todo!()
-
+    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
         if let SteelVal::Custom(v) = val {
-            let res = Ref::map(v.borrow(), |x| x.as_any_ref());
+            let res = ScopedReadContainer::map(v.read(), |x| x.as_any_ref());
 
             if res.is::<T>() {
-                Ok(SRef::Owned(Ref::map(res, |x| {
+                Ok(SRef::Owned(MappedScopedReadContainer::map(res, |x| {
                     x.downcast_ref::<T>().unwrap()
                 })))
             } else {
@@ -544,15 +546,15 @@ impl<T: CustomType + 'static> AsRefSteelVal for T {
     }
 }
 
-impl<T: CustomType + 'static> AsRefMutSteelVal for T {
-    fn as_mut_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<RefMut<'b, Self>> {
-        // todo!()
-
+impl<T: CustomType + MaybeSendSyncStatic> AsRefMutSteelVal for T {
+    fn as_mut_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<MappedScopedWriteContainer<'b, Self>> {
         if let SteelVal::Custom(v) = val {
-            let res = RefMut::map(v.borrow_mut(), |x| x.as_any_ref_mut());
+            let res = ScopedWriteContainer::map(v.write(), |x| x.as_any_ref_mut());
 
             if res.is::<T>() {
-                Ok(RefMut::map(res, |x| x.downcast_mut::<T>().unwrap()))
+                Ok(MappedScopedWriteContainer::map(res, |x| {
+                    x.downcast_mut::<T>().unwrap()
+                }))
             } else {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
@@ -660,8 +662,6 @@ impl ast::TryFromSteelValVisitorForExprKind {
     }
 }
 
-// TODO: Replace this with RawSyntaxObject<SteelVal>
-
 #[derive(Debug, Clone)]
 pub struct Syntax {
     pub(crate) raw: Option<SteelVal>,
@@ -671,8 +671,6 @@ pub struct Syntax {
 
 impl Syntax {
     pub fn new(syntax: SteelVal, span: Span) -> Syntax {
-        // dbg!(&syntax);
-
         Self {
             raw: None,
             syntax,
@@ -806,10 +804,7 @@ impl IntoSteelVal for Syntax {
 impl AsRefSteelVal for Syntax {
     type Nursery = ();
 
-    fn as_ref<'b, 'a: 'b>(
-        val: &'a SteelVal,
-        _nursery: &'a mut Self::Nursery,
-    ) -> Result<SRef<'b, Self>> {
+    fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
         if let SteelVal::SyntaxObject(s) = val {
             Ok(SRef::Temporary(s))
         } else {
@@ -856,6 +851,7 @@ pub enum SerializableSteelVal {
     // Attempt to reuse the storage if possible
     HeapAllocated(usize),
     Port(SendablePort),
+    Rational(Rational32),
 }
 
 pub enum SerializedHeapRef {
@@ -900,6 +896,7 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
         SerializableSteelVal::IntV(i) => SteelVal::IntV(i),
         SerializableSteelVal::CharV(c) => SteelVal::CharV(c),
         SerializableSteelVal::Void => SteelVal::Void,
+        SerializableSteelVal::Rational(r) => SteelVal::Rational(r),
         SerializableSteelVal::StringV(s) => SteelVal::StringV(s.into()),
         SerializableSteelVal::FuncV(f) => SteelVal::FuncV(f),
         SerializableSteelVal::MutFunc(f) => SteelVal::MutFunc(f),
@@ -926,10 +923,10 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                 .map(|x| from_serializable_value(ctx, x))
                 .collect(),
         ))),
-        SerializableSteelVal::BoxedDynFunction(f) => SteelVal::BoxedFunction(Rc::new(f)),
+        SerializableSteelVal::BoxedDynFunction(f) => SteelVal::BoxedFunction(Gc::new(f)),
         SerializableSteelVal::BuiltIn(f) => SteelVal::BuiltIn(f),
         SerializableSteelVal::SymbolV(s) => SteelVal::SymbolV(s.into()),
-        SerializableSteelVal::Custom(b) => SteelVal::Custom(Gc::new(RefCell::new(b))),
+        SerializableSteelVal::Custom(b) => SteelVal::Custom(Gc::new_mut(b)),
         SerializableSteelVal::CustomStruct(s) => {
             SteelVal::CustomStruct(Gc::new(UserDefinedStruct {
                 fields: {
@@ -1053,7 +1050,7 @@ pub fn into_serializable_value(
         )),
 
         SteelVal::Custom(c) => {
-            if let Some(output) = c.borrow_mut().as_serializable_steelval() {
+            if let Some(output) = c.write().as_serializable_steelval() {
                 Ok(output)
             } else {
                 stop!(Generic => "Custom type not allowed to be moved across threads!")
@@ -1120,9 +1117,11 @@ pub fn into_serializable_value(
                 .collect::<Result<_>>()?,
         )),
 
-        SteelVal::ByteVector(bytes) => Ok(SerializableSteelVal::ByteVectorV(
-            (&*bytes.vec).borrow().clone(),
-        )),
+        SteelVal::ByteVector(bytes) => {
+            Ok(SerializableSteelVal::ByteVectorV(bytes.vec.read().clone()))
+        }
+
+        SteelVal::Rational(r) => Ok(SerializableSteelVal::Rational(r)),
 
         illegal => stop!(Generic => "Type not allowed to be moved across threads!: {}", illegal),
     }
@@ -1132,18 +1131,18 @@ pub fn into_serializable_value(
 pub struct SteelMutableVector(pub(crate) Gc<RefCell<Vec<SteelVal>>>);
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct SteelVector(pub(crate) Gc<im_rc::Vector<SteelVal>>);
+pub struct SteelVector(pub(crate) Gc<Vector<SteelVal>>);
 
 impl Deref for SteelVector {
-    type Target = im_rc::Vector<SteelVal>;
+    type Target = Vector<SteelVal>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl From<Gc<im_rc::Vector<SteelVal>>> for SteelVector {
-    fn from(value: Gc<im_rc::Vector<SteelVal>>) -> Self {
+impl From<Gc<Vector<SteelVal>>> for SteelVector {
+    fn from(value: Gc<Vector<SteelVal>>) -> Self {
         SteelVector(value)
     }
 }
@@ -1166,18 +1165,18 @@ impl From<Gc<HashMap<SteelVal, SteelVal>>> for SteelHashMap {
 }
 
 #[derive(Clone, PartialEq)]
-pub struct SteelHashSet(pub(crate) Gc<im_rc::HashSet<SteelVal>>);
+pub struct SteelHashSet(pub(crate) Gc<HashSet<SteelVal>>);
 
 impl Deref for SteelHashSet {
-    type Target = im_rc::HashSet<SteelVal>;
+    type Target = HashSet<SteelVal>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl From<Gc<im_rc::HashSet<SteelVal>>> for SteelHashSet {
-    fn from(value: Gc<im_rc::HashSet<SteelVal>>) -> Self {
+impl From<Gc<HashSet<SteelVal>>> for SteelHashSet {
+    fn from(value: Gc<HashSet<SteelVal>>) -> Self {
         SteelHashSet(value)
     }
 }
@@ -1196,9 +1195,6 @@ pub enum TypeKind {
     HashSet(Box<TypeKind>),
     List(Box<TypeKind>),
 }
-
-// TODO: Make this repr(transparent)
-// to work correctly with FFI
 
 /// A value as represented in the runtime.
 #[derive(Clone)]
@@ -1227,7 +1223,7 @@ pub enum SteelVal {
     /// Represents a symbol, internally represented as `String`s
     SymbolV(SteelString),
     /// Container for a type that implements the `Custom Type` trait. (trait object)
-    Custom(Gc<RefCell<Box<dyn CustomType>>>),
+    Custom(GcMut<Box<dyn CustomType>>), // TODO: @Matt - consider using just a mutex here, to relax some of the bounds?
     // Embedded HashMap
     HashMapV(SteelHashMap),
     // Embedded HashSet
@@ -1247,7 +1243,7 @@ pub enum SteelVal {
     // A stream of `SteelVal`.
     StreamV(Gc<LazyStream>),
     /// Custom closure
-    BoxedFunction(Rc<BoxedDynFunction>),
+    BoxedFunction(Gc<BoxedDynFunction>),
     // Continuation
     ContinuationFunction(Continuation),
     // Function Pointer
@@ -1265,16 +1261,16 @@ pub enum SteelVal {
     MutableVector(HeapRef<Vec<SteelVal>>),
     // This should delegate to the underlying iterator - can allow for faster raw iteration if possible
     // Should allow for polling just a raw "next" on underlying elements
-    BoxedIterator(Gc<RefCell<OpaqueIterator>>),
+    BoxedIterator(GcMut<OpaqueIterator>),
     // Contains a syntax object.
     SyntaxObject(Gc<Syntax>),
     // Mutable storage, with Gc backing
     // Boxed(HeapRef),
-    Boxed(Gc<RefCell<SteelVal>>),
+    Boxed(GcMut<SteelVal>),
     // Holds a SteelVal on the heap.
     HeapAllocated(HeapRef<SteelVal>),
     // TODO: This itself, needs to be boxed unfortunately.
-    Reference(Rc<OpaqueReference<'static>>),
+    Reference(Gc<OpaqueReference<'static>>),
     // Like IntV but supports larger values.
     BigNum(Gc<BigInt>),
     // Like Rational but supports larger numerators and denominators.
@@ -1285,23 +1281,40 @@ pub enum SteelVal {
     ByteVector(SteelByteVector),
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[cfg(feature = "sync")]
+#[test]
+fn check_send_sync() {
+    let value = SteelVal::IntV(10);
+
+    let handle = std::thread::spawn(move || value);
+
+    handle.join().unwrap();
+}
+
+#[derive(Clone)]
 pub struct SteelByteVector {
-    // TODO: Consider using Box<[u8]>
-    pub(crate) vec: Gc<RefCell<Vec<u8>>>,
+    pub(crate) vec: GcMut<Vec<u8>>,
 }
 
 impl SteelByteVector {
     pub fn new(vec: Vec<u8>) -> Self {
         Self {
-            vec: Gc::new(RefCell::new(vec)),
+            vec: Gc::new_mut(vec),
         }
     }
 }
 
+impl PartialEq for SteelByteVector {
+    fn eq(&self, other: &Self) -> bool {
+        *(self.vec.read()) == *(other.vec.read())
+    }
+}
+
+impl Eq for SteelByteVector {}
+
 impl Hash for SteelByteVector {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.vec.borrow().hash(state);
+        self.vec.read().hash(state);
     }
 }
 
@@ -1359,11 +1372,10 @@ impl fmt::Display for SteelComplex {
 }
 
 impl SteelVal {
+    // TODO: Re-evaluate this - should this be buffered?
     pub fn new_dyn_writer_port(port: impl Write + Send + Sync + 'static) -> SteelVal {
         SteelVal::PortV(SteelPort {
-            port: Rc::new(RefCell::new(SteelPortRepr::DynWriter(Arc::new(
-                Mutex::new(port),
-            )))),
+            port: Gc::new_mut(SteelPortRepr::DynWriter(Arc::new(Mutex::new(port)))),
         })
     }
 
@@ -1372,7 +1384,7 @@ impl SteelVal {
             dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> + Send + Sync + 'static,
         >,
     ) -> SteelVal {
-        SteelVal::BoxedFunction(Rc::new(BoxedDynFunction {
+        SteelVal::BoxedFunction(Gc::new(BoxedDynFunction {
             function,
             name: None,
             arity: None,
@@ -1527,41 +1539,53 @@ impl SteelVal {
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub struct SteelString(Rc<String>);
+pub struct SteelString(Gc<String>);
 
 impl Deref for SteelString {
-    type Target = Rc<String>;
+    type Target = crate::gc::Shared<String>;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.0 .0
     }
 }
 
 impl From<&str> for SteelString {
     fn from(val: &str) -> Self {
-        SteelString(Rc::new(val.to_string()))
+        SteelString(Gc::new(val.to_string()))
     }
 }
 
 impl From<&String> for SteelString {
     fn from(val: &String) -> Self {
-        SteelString(Rc::new(val.to_owned()))
+        SteelString(Gc::new(val.to_owned()))
     }
 }
 
 impl From<String> for SteelString {
     fn from(val: String) -> Self {
-        SteelString(Rc::new(val))
+        SteelString(Gc::new(val))
     }
 }
 
-impl From<Rc<String>> for SteelString {
-    fn from(val: Rc<String>) -> Self {
+impl From<crate::gc::Shared<String>> for SteelString {
+    fn from(val: crate::gc::Shared<String>) -> Self {
+        SteelString(Gc(val))
+    }
+}
+
+impl From<Gc<String>> for SteelString {
+    fn from(val: Gc<String>) -> Self {
         SteelString(val)
     }
 }
 
-impl From<SteelString> for Rc<String> {
+impl From<SteelString> for crate::gc::Shared<String> {
+    fn from(value: SteelString) -> Self {
+        value.0 .0
+    }
+}
+
+impl From<SteelString> for Gc<String> {
     fn from(value: SteelString) -> Self {
         value.0
     }
@@ -1569,13 +1593,13 @@ impl From<SteelString> for Rc<String> {
 
 impl std::fmt::Display for SteelString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.0.as_str())
     }
 }
 
 impl std::fmt::Debug for SteelString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.0)
+        write!(f, "{:?}", self.0.as_str())
     }
 }
 
@@ -1614,24 +1638,33 @@ impl Custom for OpaqueIterator {
 // a special enum variant.
 pub enum BuiltInDataStructureIterator {
     List(crate::values::lists::ConsumingIterator<SteelVal>),
-    Vector(im_rc::vector::ConsumingIter<SteelVal>),
-    Set(im_rc::hashset::ConsumingIter<SteelVal>),
-    Map(im_rc::hashmap::ConsumingIter<(SteelVal, SteelVal)>),
+    Vector(VectorConsumingIter<SteelVal>),
+    Set(HashSetConsumingIter<SteelVal>),
+    Map(HashMapConsumingIter<SteelVal, SteelVal>),
     String(Chunks),
+    #[cfg(not(feature = "sync"))]
     Opaque(Box<dyn Iterator<Item = SteelVal>>),
+    #[cfg(feature = "sync")]
+    Opaque(Box<dyn Iterator<Item = SteelVal> + Send + Sync + 'static>),
 }
 
 impl BuiltInDataStructureIterator {
     pub fn into_boxed_iterator(self, value: SteelVal) -> SteelVal {
-        SteelVal::BoxedIterator(Gc::new(RefCell::new(OpaqueIterator {
+        SteelVal::BoxedIterator(Gc::new_mut(OpaqueIterator {
             root: value,
             iterator: self,
-        })))
+        }))
     }
 }
 
 impl BuiltInDataStructureIterator {
-    pub fn from_iterator<T: IntoSteelVal, S: IntoIterator<Item = T> + 'static>(value: S) -> Self {
+    pub fn from_iterator<
+        T: IntoSteelVal + MaybeSendSyncStatic,
+        I: Iterator<Item = T> + MaybeSendSyncStatic,
+        S: IntoIterator<Item = T, IntoIter = I> + MaybeSendSyncStatic,
+    >(
+        value: S,
+    ) -> Self {
         Self::Opaque(Box::new(
             value
                 .into_iter()
@@ -1676,7 +1709,7 @@ thread_local! {
 
 pub fn iterator_next(args: &[SteelVal]) -> Result<SteelVal> {
     match &args[0] {
-        SteelVal::BoxedIterator(b) => match b.borrow_mut().iterator.next() {
+        SteelVal::BoxedIterator(b) => match b.write().iterator.next() {
             Some(v) => Ok(v),
             None => Ok(ITERATOR_FINISHED.with(|x| x.clone())),
         },
@@ -1686,7 +1719,7 @@ pub fn iterator_next(args: &[SteelVal]) -> Result<SteelVal> {
 
 impl SteelVal {
     pub fn boxed(value: SteelVal) -> SteelVal {
-        SteelVal::Boxed(Gc::new(RefCell::new(value)))
+        SteelVal::Boxed(Gc::new_mut(value))
     }
 
     pub(crate) fn ptr_eq(&self, other: &SteelVal) -> bool {
@@ -1697,21 +1730,21 @@ impl SteelVal {
             (BoolV(l), BoolV(r)) => l == r,
             (VectorV(l), VectorV(r)) => Gc::ptr_eq(&l.0, &r.0),
             (Void, Void) => true,
-            (StringV(l), StringV(r)) => Rc::ptr_eq(l, r),
+            (StringV(l), StringV(r)) => crate::gc::Shared::ptr_eq(l, r),
             (FuncV(l), FuncV(r)) => *l as usize == *r as usize,
-            (SymbolV(l), SymbolV(r)) => Rc::ptr_eq(l, r),
+            (SymbolV(l), SymbolV(r)) => crate::gc::Shared::ptr_eq(l, r),
             (SteelVal::Custom(l), SteelVal::Custom(r)) => Gc::ptr_eq(l, r),
             (HashMapV(l), HashMapV(r)) => Gc::ptr_eq(&l.0, &r.0),
             (HashSetV(l), HashSetV(r)) => Gc::ptr_eq(&l.0, &r.0),
-            (PortV(l), PortV(r)) => Rc::ptr_eq(&l.port, &r.port),
+            (PortV(l), PortV(r)) => Gc::ptr_eq(&l.port, &r.port),
             (Closure(l), Closure(r)) => Gc::ptr_eq(l, r),
             (IterV(l), IterV(r)) => Gc::ptr_eq(l, r),
             (ReducerV(l), ReducerV(r)) => Gc::ptr_eq(l, r),
             #[allow(clippy::vtable_address_comparisons)]
-            (FutureFunc(l), FutureFunc(r)) => Rc::ptr_eq(l, r),
+            (FutureFunc(l), FutureFunc(r)) => crate::gc::Shared::ptr_eq(l, r),
             (FutureV(l), FutureV(r)) => Gc::ptr_eq(l, r),
             (StreamV(l), StreamV(r)) => Gc::ptr_eq(l, r),
-            (BoxedFunction(l), BoxedFunction(r)) => Rc::ptr_eq(l, r),
+            (BoxedFunction(l), BoxedFunction(r)) => Gc::ptr_eq(l, r),
             (ContinuationFunction(l), ContinuationFunction(r)) => Continuation::ptr_eq(l, r),
             (ListV(l), ListV(r)) => {
                 l.ptr_eq(r) || l.storage_ptr_eq(r) || l.is_empty() && r.is_empty()
@@ -2090,11 +2123,6 @@ pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     Ok(BoolV(result))
 }
 
-fn partial_cmp_f64(l: &impl ToPrimitive, r: &impl ToPrimitive) -> Option<Ordering> {
-    l.to_f64()?.partial_cmp(&r.to_f64()?)
-}
-
-// TODO add tests
 impl PartialOrd for SteelVal {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         // TODO: Attempt to avoid converting to f64 for cases below as it may lead to precision loss
@@ -2287,6 +2315,11 @@ impl fmt::Debug for SteelVal {
 mod or_else_tests {
 
     use super::*;
+
+    #[cfg(feature = "sync")]
+    use im::vector;
+
+    #[cfg(not(feature = "sync"))]
     use im_rc::vector;
 
     #[test]
