@@ -49,3 +49,4 @@ members = [
 # debug = false
 debug = true
 lto = true
+strip = true
