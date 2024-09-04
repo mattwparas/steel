@@ -56,6 +56,16 @@ enum EmitAction {
     Dylib,
 }
 
+#[cfg(feature = "build-info")]
+const VERSION_MESSAGE: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    "-",
+    env!("VERGEN_RUSTC_SEMVER"),
+    " (",
+    env!("VERGEN_BUILD_DATE"),
+    ")"
+);
+
 pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
     let mut vm = Engine::new();
     vm.register_value("std::env::args", steel::SteelVal::ListV(vec![].into()));
@@ -66,6 +76,10 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             action: None,
             ..
         } => {
+            #[cfg(feature = "build-info")]
+            {
+                println!("{}", VERSION_MESSAGE);
+            }
             run_repl(vm)?;
             Ok(())
         }

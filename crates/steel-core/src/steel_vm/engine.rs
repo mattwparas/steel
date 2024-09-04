@@ -391,13 +391,14 @@ impl Engine {
         let mut total_time = std::time::Instant::now();
         // #[cfg(feature = "profiling")]
         let mut now = std::time::Instant::now();
+        let sources = Sources::new();
 
         let mut vm = Engine {
-            virtual_machine: SteelThread::new(),
+            virtual_machine: SteelThread::new(sources.clone()),
             compiler: Compiler::default(),
             constants: None,
             modules: ModuleContainer::default(),
-            sources: Sources::new(),
+            sources,
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
@@ -547,12 +548,14 @@ impl Engine {
 
         log::debug!(target:"kernel", "Instantiating a new kernel");
 
+        let sources = Sources::new();
+
         let mut vm = Engine {
-            virtual_machine: SteelThread::new(),
+            virtual_machine: SteelThread::new(sources.clone()),
             compiler: Compiler::default(),
             constants: None,
             modules: ModuleContainer::default(),
-            sources: Sources::new(),
+            sources,
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
@@ -658,12 +661,14 @@ impl Engine {
 
     // Create kernel bootstrap
     pub fn create_kernel_bootstrap_from_programs(output_path: PathBuf) {
+        let sources = Sources::new();
+
         let mut vm = Engine {
-            virtual_machine: SteelThread::new(),
+            virtual_machine: SteelThread::new(sources.clone()),
             compiler: Compiler::default(),
             constants: None,
             modules: ModuleContainer::default(),
-            sources: Sources::new(),
+            sources,
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
@@ -710,12 +715,13 @@ impl Engine {
     }
 
     pub fn create_new_engine_from_bootstrap(output_path: PathBuf) {
+        let sources = Sources::new();
         let mut vm = Engine {
-            virtual_machine: SteelThread::new(),
+            virtual_machine: SteelThread::new(sources.clone()),
             compiler: Compiler::default(),
             constants: None,
             modules: ModuleContainer::default(),
-            sources: Sources::new(),
+            sources,
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
@@ -817,13 +823,14 @@ impl Engine {
     pub fn top_level_load_from_bootstrap(bin: &[u8]) -> Engine {
         let bootstrap: StartupBootstrapImage = bincode::deserialize(bin).unwrap();
 
+        let sources = Sources::new();
         // This is going to be the kernel
         let mut vm = Engine {
-            virtual_machine: SteelThread::new(),
+            virtual_machine: SteelThread::new(sources.clone()),
             compiler: Compiler::default(),
             constants: None,
             modules: ModuleContainer::default(),
-            sources: Sources::new(),
+            sources,
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
@@ -893,12 +900,14 @@ impl Engine {
     }
 
     fn create_bootstrap() {
+        let sources = Sources::new();
+
         let mut vm = Engine {
-            virtual_machine: SteelThread::new(),
+            virtual_machine: SteelThread::new(sources.clone()),
             compiler: Compiler::default(),
             constants: None,
             modules: ModuleContainer::default(),
-            sources: Sources::new(),
+            sources,
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
@@ -952,12 +961,14 @@ impl Engine {
     /// assert!(vm.run("(+ 1 2 3").is_err()); // + is a free identifier
     /// ```
     pub fn new_raw() -> Self {
+        let sources = Sources::new();
+
         Engine {
-            virtual_machine: SteelThread::new(),
+            virtual_machine: SteelThread::new(sources.clone()),
             compiler: Compiler::default_with_kernel(),
             constants: None,
             modules: ModuleContainer::default(),
-            sources: Sources::new(),
+            sources,
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
@@ -1012,18 +1023,25 @@ impl Engine {
 
     #[inline]
     pub fn new_sandboxed() -> Self {
-        let mut vm = Engine::new_raw();
+        // let mut vm = Engine::new_raw();
 
-        register_builtin_modules_without_io(&mut vm);
+        // register_builtin_modules_without_io(&mut vm);
 
-        vm.compile_and_run_raw_program(crate::steel_vm::primitives::SANDBOXED_MODULES)
-            .unwrap();
+        // vm.compile_and_run_raw_program(crate::steel_vm::primitives::SANDBOXED_MODULES)
+        //     .unwrap();
 
-        let core_libraries = [crate::stdlib::PRELUDE];
+        // let core_libraries = [crate::stdlib::PRELUDE];
 
-        for core in core_libraries.into_iter() {
-            vm.compile_and_run_raw_program(core).unwrap();
-        }
+        // for core in core_libraries.into_iter() {
+        //     vm.compile_and_run_raw_program(core).unwrap();
+        // }
+
+        // vm
+
+        let mut vm = Engine::new();
+
+        // TODO:
+        // Remove the filesystem APIs
 
         vm
     }
@@ -2269,6 +2287,18 @@ pub(crate) fn raise_error_to_string(sources: &Sources, error: SteelErr) -> Optio
     None
 }
 
+pub struct EngineBuilder {
+    engine: Engine,
+}
+
+impl EngineBuilder {
+    pub fn raw() -> Self {
+        Self {
+            engine: Engine::new_raw(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod engine_api_tests {
     use crate::custom_reference;
@@ -2365,5 +2395,19 @@ mod engine_api_tests {
         assert!(engine
             .compile_and_run_raw_program("(external-get-value-imm *external*)")
             .is_err());
+    }
+}
+
+#[cfg(test)]
+mod engine_sandbox_tests {
+    use super::*;
+
+    #[test]
+    fn sandbox() {
+        let mut engine = Engine::new_sandboxed();
+
+        engine
+            .compile_and_run_raw_program("(displayln 10)")
+            .unwrap();
     }
 }

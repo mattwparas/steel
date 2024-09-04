@@ -76,6 +76,9 @@ bigdecimal = "0.4.5"
 # Also for sync stuff
 crossbeam = "0.8.4"
 
+httparse = "1.9.4"
+http = "1.1.0"
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "*", features = ["js"] }
 

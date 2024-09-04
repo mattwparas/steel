@@ -4,6 +4,7 @@ mod control;
 mod fs;
 pub mod hashmaps;
 pub mod hashsets;
+pub mod http;
 mod io;
 pub mod lists;
 pub mod meta_ops;

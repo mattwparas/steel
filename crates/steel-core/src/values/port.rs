@@ -225,6 +225,35 @@ impl SteelPortRepr {
         stop!(ConversionError => "unable to decode character, found {:?}", buf);
     }
 
+    pub fn read_bytes(&mut self, buf: &mut [u8], amount: usize) -> Result<()> {
+        let result = match self {
+            SteelPortRepr::FileInput(_, reader) => reader.read_exact(buf),
+            SteelPortRepr::StdInput(stdin) => stdin.read_exact(buf),
+            SteelPortRepr::ChildStdOutput(output) => output.read_exact(buf),
+            SteelPortRepr::ChildStdError(output) => output.read_exact(buf),
+            SteelPortRepr::StringInput(reader) => reader.read_exact(buf),
+            SteelPortRepr::DynReader(reader) => reader.read_exact(buf),
+            SteelPortRepr::TcpStream(t) => t.read(buf).map(|_| ()),
+            SteelPortRepr::FileOutput(_, _)
+            | SteelPortRepr::StdOutput(_)
+            | SteelPortRepr::StdError(_)
+            | SteelPortRepr::ChildStdInput(_)
+            | SteelPortRepr::StringOutput(_)
+            | SteelPortRepr::DynWriter(_) => stop!(ContractViolation => "expected input-port?"),
+            SteelPortRepr::Closed => return Ok(()),
+        };
+
+        if let Err(err) = result {
+            if err.kind() == io::ErrorKind::UnexpectedEof {
+                return Ok(());
+            }
+
+            return Err(err.into());
+        }
+
+        Ok(())
+    }
+
     pub fn read_byte(&mut self) -> Result<Option<u8>> {
         let mut byte = [0];
 

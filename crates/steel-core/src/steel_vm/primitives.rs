@@ -3,7 +3,10 @@ use super::{
     cache::WeakMemoizationTable,
     engine::Engine,
     register_fn::RegisterFn,
-    vm::{get_test_mode, list_modules, set_test_mode, VmCore},
+    vm::{
+        get_test_mode, list_modules, set_test_mode, VmCore, CALL_CC_DEFINITION,
+        CALL_WITH_EXCEPTION_HANDLER_DEFINITION, INSPECT_DEFINITION,
+    },
 };
 use crate::{
     compiler::modules::steel_home,
@@ -17,6 +20,7 @@ use crate::{
         fs_module,
         hashmaps::{hashmap_module, HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,
+        http::http_module,
         lists::{list_module, UnRecoverableResult},
         numbers::{self, realp},
         port_module,
@@ -335,6 +339,7 @@ define_modules! {
     STEEL_MUTABLE_VECTOR_MODULE => mutable_vector_module,
     STEEL_PRIVATE_READER_MODULE => reader_module,
     STEEL_TCP_MODULE => tcp_module,
+    STEEL_HTTP_MODULE => http_module,
     STEEL_PRELUDE_MODULE => prelude,
 }
 
@@ -371,6 +376,7 @@ thread_local! {
     pub static TYPE_ID_MODULE: BuiltInModule = build_type_id_module();
     pub static OPTION_MODULE: BuiltInModule = build_option_structs();
     pub static TCP_MODULE: BuiltInModule = tcp_module();
+    pub static HTTP_MODULE: BuiltInModule = http_module();
 
     #[cfg(feature = "dylibs")]
     pub static FFI_MODULE: BuiltInModule = ffi_module();
@@ -563,7 +569,8 @@ pub fn register_builtin_modules(engine: &mut Engine) {
             .register_module(STEEL_RANDOM_MODULE.clone())
             .register_module(STEEL_THREADING_MODULE.clone())
             .register_module(STEEL_BYTEVECTOR_MODULE.clone())
-            .register_module(STEEL_TCP_MODULE.clone());
+            .register_module(STEEL_TCP_MODULE.clone())
+            .register_module(STEEL_HTTP_MODULE.clone());
 
         #[cfg(feature = "dylibs")]
         engine.register_module(STEEL_FFI_MODULE.clone());
@@ -605,7 +612,8 @@ pub fn register_builtin_modules(engine: &mut Engine) {
             .register_module(RANDOM_MODULE.with(|x| x.clone()))
             .register_module(THREADING_MODULE.with(|x| x.clone()))
             .register_module(BYTEVECTOR_MODULE.with(|x| x.clone()))
-            .register_module(TCP_MODULE.with(|x| x.clone()));
+            .register_module(TCP_MODULE.with(|x| x.clone()))
+            .register_module(HTTP_MODULE.with(|x| x.clone()));
 
         #[cfg(feature = "dylibs")]
         engine.register_module(FFI_MODULE.with(|x| x.clone()));
@@ -1305,7 +1313,6 @@ fn sandboxed_meta_module() -> BuiltInModule {
     module
         // .register_value("assert!", MetaOperations::assert_truthy())
         .register_value("active-object-count", MetaOperations::active_objects())
-        .register_value("inspect-bytecode", MetaOperations::inspect_bytecode())
         // .register_value("memory-address", MetaOperations::memory_address())
         // .register_value("async-exec", MetaOperations::exec_async())
         // .register_value("poll!", MetaOperations::poll_value())
@@ -1715,7 +1722,6 @@ fn meta_module() -> BuiltInModule {
         )
         .register_value("assert!", MetaOperations::assert_truthy())
         .register_value("active-object-count", MetaOperations::active_objects())
-        .register_value("inspect-bytecode", MetaOperations::inspect_bytecode())
         .register_value("memory-address", MetaOperations::memory_address())
         // .register_value("async-exec", MetaOperations::exec_async())
         .register_value("poll!", MetaOperations::poll_value())
@@ -1739,12 +1745,10 @@ fn meta_module() -> BuiltInModule {
         .register_value("error-with-span", error_with_src_loc())
         .register_value("raise-error-with-span", error_from_error_with_span())
         .register_value("raise-error", raise_error_from_error())
-        .register_value("call/cc", SteelVal::BuiltIn(super::vm::call_cc))
-        .register_value(
-            "call-with-exception-handler",
-            SteelVal::BuiltIn(super::vm::call_with_exception_handler),
-        )
+        .register_native_fn_definition(CALL_CC_DEFINITION)
+        .register_native_fn_definition(CALL_WITH_EXCEPTION_HANDLER_DEFINITION)
         .register_value("breakpoint!", SteelVal::BuiltIn(super::vm::breakpoint))
+        .register_native_fn_definition(INSPECT_DEFINITION)
         .register_value(
             "#%environment-length",
             SteelVal::BuiltIn(super::vm::environment_offset),
@@ -1753,9 +1757,6 @@ fn meta_module() -> BuiltInModule {
             "call-with-current-continuation",
             SteelVal::BuiltIn(super::vm::call_cc),
         )
-        // .register_value("make-tls", SteelVal::BuiltIn(super::vm::make_tls))
-        // .register_value("get-tls", SteelVal::BuiltIn(super::vm::get_tls))
-        // .register_value("set-tls!", SteelVal::BuiltIn(super::vm::set_tls))
         .register_fn("eval!", super::meta::eval)
         .register_fn("value->string", super::meta::value_to_string)
         // TODO: @Matt -> implement the traits for modules as well

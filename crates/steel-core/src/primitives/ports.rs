@@ -384,6 +384,22 @@ pub fn read_byte(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
         .unwrap_or_else(eof))
 }
 
+/// Reads a bytes from an input port.
+///
+/// (read-byte amt [port]) -> byte?
+///
+/// * amt : (and positive? int?)
+/// * port : input-port? = (current-input-port)
+#[function(name = "read-bytes")]
+pub fn read_bytes(amt: usize, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
+    let port = input_args(rest)?;
+
+    Ok(port
+        .read_byte()?
+        .map(|b| SteelVal::IntV(b.into()))
+        .unwrap_or_else(eof))
+}
+
 /// Writes a single byte to an output port.
 ///
 /// (write-byte b [port])

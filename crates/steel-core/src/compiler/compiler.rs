@@ -48,7 +48,10 @@ use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 use super::{
     constants::SerializableConstantMap,
     modules::{CompiledModule, ModuleManager},
-    passes::{analysis::Analysis, mangle::NameMangler},
+    passes::{
+        analysis::{Analysis, DebugInfo},
+        mangle::NameMangler,
+    },
     program::RawProgramWithSymbols,
 };
 

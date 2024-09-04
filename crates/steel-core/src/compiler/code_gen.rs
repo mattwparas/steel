@@ -3,6 +3,7 @@ use super::{
     passes::analysis::{
         Analysis,
         CallKind::{Normal, SelfTailCall, TailCall},
+        DebugInfo,
     },
     program::number_literal_to_steel,
 };

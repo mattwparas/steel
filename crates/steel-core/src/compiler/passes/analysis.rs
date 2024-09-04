@@ -299,6 +299,11 @@ pub struct Analysis {
     pub(crate) scope: ScopeMap<InternedString, ScopeInfo, FxBuildHasher>,
 }
 
+#[derive(Default, Clone)]
+pub struct DebugInfo {
+    pub(crate) function_info: FxHashMap<u32, FunctionInformation>,
+}
+
 impl Analysis {
     pub fn pre_allocated() -> Self {
         Analysis {
