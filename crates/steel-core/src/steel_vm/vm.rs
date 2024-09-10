@@ -446,7 +446,7 @@ impl Synchronizer {
                 // TODO: Have to use a condvar
                 loop {
                     if let Some(ctx) = ctx.load() {
-                        println!("Sweeping other threads");
+                        log::debug!("Sweeping other threads");
 
                         unsafe {
                             let live_ctx = &(*ctx);
@@ -469,7 +469,7 @@ impl Synchronizer {
 
                         break;
                     } else {
-                        println!("Waiting for thread...")
+                        log::debug!("Waiting for thread...")
 
                         // TODO: Some kind of condvar or message passing
                         // is probably a better scheme here, but the idea is to just
@@ -598,6 +598,10 @@ impl SteelThread {
         } = program;
 
         self.constant_map = constant_map.clone();
+
+        // dbg!(&self.stack);
+        // dbg!(&self.stack_frames);
+        // dbg!(&self.current_frame);
 
         let result = instructions
             .iter()
@@ -821,6 +825,7 @@ impl SteelThread {
                 }
 
                 self.stack.clear();
+                // self.current_frame = StackFrame::main();
 
                 return Err(e);
             } else {
@@ -830,6 +835,10 @@ impl SteelThread {
 
                 // Clean up
                 self.stack.clear();
+
+                // self.current_frame = StackFrame::main();
+
+                // dbg!(&self.stack_frames);
 
                 return result;
             }
@@ -1008,8 +1017,6 @@ impl Continuation {
 
             panic!("Failed to find an open continuation on the stack");
         } else {
-            // println!("Setting state from closed continuation");
-
             match Shared::try_unwrap(this.inner).map(|x| x.into_inner()) {
                 Ok(cont) => {
                     ctx.set_state_from_continuation(cont.into_closed().unwrap());
@@ -1326,13 +1333,11 @@ impl<'a> VmCore<'a> {
                     stop!(Generic => format!("Thread: {:?} - Interrupted by user", std::thread::current().id()); self.current_span());
                 }
                 ThreadState::Suspended => {
-                    println!("Suspending thread");
                     self.park_thread_while_paused();
                 }
                 ThreadState::PausedAtSafepoint => {
                     // TODO:
                     // Insert the code to do the stack things here
-                    println!("Suspending thread at safepoint");
                     self.thread.synchronizer.ctx.store(Some(self.thread as _));
                     self.park_thread_while_paused();
                     self.thread.synchronizer.ctx.store(None);
@@ -1535,6 +1540,8 @@ impl<'a> VmCore<'a> {
 
         self.depth += 1;
 
+        // println!("Before: {:?}", self.thread.stack_frames.len());
+
         let mut res = Ok(SteelVal::Void);
 
         'outer: loop {
@@ -1621,7 +1628,7 @@ impl<'a> VmCore<'a> {
                 //     Continuation::close_marks(&self, &frame);
                 // }
 
-                // self.thread.stack.clear();
+                // self.thread.stack.truncate(self.sp);
 
                 res = result;
                 break;
@@ -1635,6 +1642,9 @@ impl<'a> VmCore<'a> {
         self.pop_count = old_pop_count;
         // self.spans = old_spans;
         self.sp = self.thread.stack_frames.last().map(|x| x.sp).unwrap_or(0);
+
+        // println!("After: {:?}", self.thread.stack_frames.len());
+        // self.thread.stack.truncate(self.sp);
 
         res
     }
@@ -1757,6 +1767,8 @@ impl<'a> VmCore<'a> {
         args: impl IntoIterator<Item = SteelVal>,
     ) -> Result<SteelVal> {
         let prev_length = self.thread.stack.len();
+        // let prev_stack_frame = self.thread.current_frame.clone();
+        // let stack_frame_len = self.thread.stack_frames.len();
 
         let instructions = closure.body_exp();
 
@@ -1782,6 +1794,8 @@ impl<'a> VmCore<'a> {
 
         // Clean up the stack now
         self.thread.stack.truncate(prev_length);
+        // self.thread.current_frame = prev_stack_frame;
+        // self.thread.stack_frames.truncate(stack_frame_len);
 
         res
     }
@@ -3327,7 +3341,14 @@ impl<'a> VmCore<'a> {
                 }
             } else {
                 // TODO: This seems to be causing an error
-                self.root_spans[self.ip..forward_jump_index].into()
+                // self.root_spans[self.ip..forward_jump_index].into()
+
+                // For now, lets go ahead and use this... hack to get us going
+                if let Some(span_range) = self.root_spans.get(self.ip..forward_jump_index) {
+                    span_range.into_iter().cloned().collect::<Vec<_>>().into()
+                } else {
+                    Shared::from(Vec::new())
+                }
             };
 
             // snag the arity from the eclosure instruction
@@ -3528,6 +3549,7 @@ impl<'a> VmCore<'a> {
     #[inline(always)]
     fn handle_tail_call(&mut self, stack_func: SteelVal, payload_size: usize) -> Result<()> {
         use SteelVal::*;
+
         match stack_func {
             FuncV(f) => self.call_primitive_func(f, payload_size),
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
@@ -3539,9 +3561,10 @@ impl<'a> VmCore<'a> {
             _ => {
                 // println!("{:?}", self.stack);
                 // println!("{:?}", self.stack_index);
-                println!("Bad tail call");
-                crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-                stop!(BadSyntax => format!("TailCall - Application not a procedure or function type not supported: {stack_func}"); self.current_span());
+                // println!("Bad tail call");
+                // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+                stop!(BadSyntax => format!("TailCall - Application not a procedure or function type 
+                    not supported: {stack_func}"); self.current_span());
             }
         }
     }
@@ -4384,6 +4407,8 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
     - Handle continuation function call separately in the handle_func_call
     */
 
+    let now = std::time::Instant::now();
+
     // Roll back one because we advanced prior to entering the builtin
     ctx.ip -= 1;
 
@@ -4448,6 +4473,8 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
             builtin_stop!(Generic => format!("call/cc expects a function, found: {function}"));
         }
     }
+
+    println!("call/cc time: {:?}", now.elapsed());
 
     Some(Ok(SteelVal::ContinuationFunction(continuation)))
 }

@@ -23,6 +23,7 @@ use crate::{
         http::http_module,
         lists::{list_module, UnRecoverableResult},
         numbers::{self, realp},
+        polling::polling_module,
         port_module,
         ports::EOF_OBJECTP_DEFINITION,
         process::process_module,
@@ -339,6 +340,7 @@ define_modules! {
     STEEL_MUTABLE_VECTOR_MODULE => mutable_vector_module,
     STEEL_PRIVATE_READER_MODULE => reader_module,
     STEEL_TCP_MODULE => tcp_module,
+    STEEL_POLLING_MODULE => polling_module,
     STEEL_HTTP_MODULE => http_module,
     STEEL_PRELUDE_MODULE => prelude,
 }
@@ -377,6 +379,7 @@ thread_local! {
     pub static OPTION_MODULE: BuiltInModule = build_option_structs();
     pub static TCP_MODULE: BuiltInModule = tcp_module();
     pub static HTTP_MODULE: BuiltInModule = http_module();
+    pub static POLLING_MODULE: BuiltInModule = polling_module();
 
     #[cfg(feature = "dylibs")]
     pub static FFI_MODULE: BuiltInModule = ffi_module();
@@ -570,7 +573,8 @@ pub fn register_builtin_modules(engine: &mut Engine) {
             .register_module(STEEL_THREADING_MODULE.clone())
             .register_module(STEEL_BYTEVECTOR_MODULE.clone())
             .register_module(STEEL_TCP_MODULE.clone())
-            .register_module(STEEL_HTTP_MODULE.clone());
+            .register_module(STEEL_HTTP_MODULE.clone())
+            .register_module(STEEL_POLLING_MODULE.clone());
 
         #[cfg(feature = "dylibs")]
         engine.register_module(STEEL_FFI_MODULE.clone());
@@ -613,7 +617,8 @@ pub fn register_builtin_modules(engine: &mut Engine) {
             .register_module(THREADING_MODULE.with(|x| x.clone()))
             .register_module(BYTEVECTOR_MODULE.with(|x| x.clone()))
             .register_module(TCP_MODULE.with(|x| x.clone()))
-            .register_module(HTTP_MODULE.with(|x| x.clone()));
+            .register_module(HTTP_MODULE.with(|x| x.clone()))
+            .register_module(POLLING_MODULE.with(|x| x.clone()));
 
         #[cfg(feature = "dylibs")]
         engine.register_module(FFI_MODULE.with(|x| x.clone()));
