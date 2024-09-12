@@ -389,7 +389,7 @@ impl Engine {
         log::debug!(target:"kernel", "Instantiating a new kernel");
         #[cfg(feature = "profiling")]
         let mut total_time = std::time::Instant::now();
-        // #[cfg(feature = "profiling")]
+        #[cfg(feature = "profiling")]
         let mut now = std::time::Instant::now();
 
         let mut vm = Engine {
@@ -478,7 +478,7 @@ impl Engine {
 
         set_default_prelude_macros(vm.in_scope_macros().clone());
 
-        // #[cfg(feature = "profiling")]
+        #[cfg(feature = "profiling")]
         log::debug!(target: "kernel", "Loaded prelude in the kernel!: {:?}", now.elapsed());
 
         #[cfg(feature = "profiling")]
