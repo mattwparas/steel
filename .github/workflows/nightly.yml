@@ -99,7 +99,7 @@ jobs:
 
       - name: Archive pgo optimized binary (windows)
         if: ${{ runner.os == 'windows' }}
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: pgo-nightly-build-${{ matrix.os.arch }}
           path: target\${{ matrix.os.arch }}\release\steel.exe
