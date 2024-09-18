@@ -4455,7 +4455,6 @@ pub fn call_with_exception_handler(
         }
     }
 
-    // Some(Ok(SteelVal::Void))
     None
 }
 
@@ -4471,8 +4470,6 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
     - Apply the function with the continuation
     - Handle continuation function call separately in the handle_func_call
     */
-
-    let now = std::time::Instant::now();
 
     // Roll back one because we advanced prior to entering the builtin
     ctx.ip -= 1;
@@ -4539,19 +4536,12 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
         }
     }
 
-    println!("call/cc time: {:?}", now.elapsed());
-
     Some(Ok(SteelVal::ContinuationFunction(continuation)))
 }
 
 fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-    // Install
-    // let mut compiler = super::engine::SelfCompiler::as_mut_ref(&args[0])?;
-
     let mut compiler_guard = ctx.thread.compiler.lock().unwrap();
-
     let mut compiler = compiler_guard.as_mut().unwrap();
-
     let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
     let comp = &mut compiler.compiler;
 
@@ -4589,6 +4579,13 @@ fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result
 }
 
 fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore) -> Result<()> {
+    let current_instruction = ctx.instructions[ctx.ip - 1];
+
+    let tail_call = matches!(
+        current_instruction.op_code,
+        OpCode::TAILCALL | OpCode::CALLGLOBALTAIL
+    );
+
     let Executable {
         name,
         version,
@@ -4617,8 +4614,13 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
         .function_interner
         .spans
         .insert(function_id as _, Arc::from(new_spans));
-    ctx.ip -= 1;
-    ctx.handle_function_call_closure(function, 0).unwrap();
+
+    if tail_call {
+        ctx.new_handle_tail_call_closure(function, 0).unwrap();
+    } else {
+        ctx.ip -= 1;
+        ctx.handle_function_call_closure(function, 0).unwrap();
+    }
     Ok(())
 }
 
@@ -4716,12 +4718,6 @@ pub(crate) fn environment_offset(ctx: &mut VmCore, args: &[SteelVal]) -> Option<
     Some(Ok(ctx.thread.global_env.len().into_steelval().unwrap()))
 }
 
-// TODO: This apply does not respect tail position
-// Something like this: (define (loop) (apply loop '()))
-// _should_ result in an infinite loop. In the current form, this is a Rust stack overflow.
-// Similarly, care should be taken to check out transduce, because nested calls to that will
-// result in a stack overflow with sufficient depth on the recursive calls
-
 /// Applies the given `function` with arguments as the contents of the `list`.
 ///
 /// (apply function lst) -> any?
@@ -4736,23 +4732,12 @@ pub(crate) fn environment_offset(ctx: &mut VmCore, args: &[SteelVal]) -> Option<
 ///```
 #[steel_derive::context(name = "apply", arity = "Exact(2)")]
 pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
-    // arity_check!(apply, args, 2);
-
-    // println!("Calling apply!");
-    // println!("Current instruction: {:?}", ctx.instructions[ctx.ip]);
-
-    // ctx.ip -= 1;
-
     let current_instruction = ctx.instructions[ctx.ip - 1];
 
     let tail_call = matches!(
         current_instruction.op_code,
         OpCode::TAILCALL | OpCode::CALLGLOBALTAIL
     );
-
-    // dbg!(tail_call);
-
-    // println!("Current instruction: {:?}", ctx.instructions[ctx.ip]);
 
     if args.len() != 2 {
         builtin_stop!(ArityMismatch => "apply expected 2 arguments");
@@ -4764,9 +4749,6 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
 
     if let SteelVal::ListV(l) = arg2 {
         if arg1.is_function() {
-            // println!("Calling apply with args: {:?}, {:?}", arg1, arg2);
-            // ctx.call_function_many_args(&arg1, l.clone())
-
             match arg1 {
                 SteelVal::Closure(closure) => {
                     for arg in l {
