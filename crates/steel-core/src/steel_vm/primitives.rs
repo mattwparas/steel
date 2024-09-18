@@ -5,7 +5,8 @@ use super::{
     register_fn::RegisterFn,
     vm::{
         get_test_mode, list_modules, set_test_mode, VmCore, CALL_CC_DEFINITION,
-        CALL_WITH_EXCEPTION_HANDLER_DEFINITION, INSPECT_DEFINITION,
+        CALL_WITH_EXCEPTION_HANDLER_DEFINITION, EVAL_DEFINITION, EVAL_FILE_DEFINITION,
+        INSPECT_DEFINITION,
     },
 };
 use crate::{
@@ -1751,6 +1752,8 @@ fn meta_module() -> BuiltInModule {
         .register_value("raise-error-with-span", error_from_error_with_span())
         .register_value("raise-error", raise_error_from_error())
         .register_native_fn_definition(CALL_CC_DEFINITION)
+        .register_native_fn_definition(EVAL_DEFINITION)
+        .register_native_fn_definition(EVAL_FILE_DEFINITION)
         .register_native_fn_definition(CALL_WITH_EXCEPTION_HANDLER_DEFINITION)
         .register_value("breakpoint!", SteelVal::BuiltIn(super::vm::breakpoint))
         .register_native_fn_definition(INSPECT_DEFINITION)

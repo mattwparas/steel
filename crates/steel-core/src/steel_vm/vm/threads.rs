@@ -519,6 +519,8 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             interrupted: Default::default(),
             synchronizer: Synchronizer::new(),
             thread_local_storage: Vec::new(),
+            // TODO: Fix this
+            compiler: Arc::new(Mutex::new(None)),
         };
 
         #[cfg(feature = "profiling")]

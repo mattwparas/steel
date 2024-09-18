@@ -1008,7 +1008,7 @@ impl Compiler {
 
         // println!("--- Final AST ---");
         // println!("");
-        // expanded_statements.pretty_print();
+        // steel_parser::ast::AstTools::pretty_print(&expanded_statements);
 
         log::debug!(target: "expansion-phase", "Generating instructions");
 

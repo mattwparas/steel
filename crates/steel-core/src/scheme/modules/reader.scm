@@ -24,7 +24,6 @@
 
           (if (void? next)
               (begin
-                ; (displayln "pushing another string")
                 (reader.reader-push-string *reader* (read-line-from-port (current-input-port)))
                 (read-impl))
               next))]
@@ -40,7 +39,6 @@
 
        (if (void? next)
            (begin
-             ; (displayln "pushing another string")
              (reader.reader-push-string *reader* (read-line-from-port (current-input-port)))
              (read-impl))
            next))]))

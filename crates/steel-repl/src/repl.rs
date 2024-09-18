@@ -131,29 +131,10 @@ fn finish_or_interrupt(vm: &mut Engine, line: String) {
     }
 }
 
-// Listen to commands coming through via readline,
-// otherwise do the same thing
-pub fn host_remote_repl<A: ToSocketAddrs>(mut vm: Engine, addr: A) {
-    // Set up engine to accommodate this
-
-    // Capture standard out such that it... goes onto the socket.
-    // Otherwise, continue on with business as usual?
-    let tcp = TcpListener::bind(addr).unwrap();
-
-    // Set up command listeners - only one person can be connected as the driver,
-    // but there can be arbitrary executors running commands within thread pools.
-    for connection in tcp.incoming() {
-        match connection {
-            Ok(connection) => {
-                todo!()
-            }
-            Err(_) => {}
-        }
-    }
-}
-
 // TODO: Connect to a remote repl
-pub fn connect_remote_repl(addr: SocketAddr) {}
+pub fn connect_remote_repl(addr: SocketAddr) {
+    // Somehow... eval? Run against the remote machine?
+}
 
 /// Entire point for the repl
 /// Automatically adds the prelude and contracts for the core library
@@ -185,7 +166,6 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     let tx = std::sync::Mutex::new(tx);
 
     let cancellation_function = move || {
-        println!("Calling cancellation function");
         tx.lock().unwrap().send(()).unwrap();
     };
 

@@ -1,5 +1,7 @@
 #![allow(unused)]
 
+use crate::compiler::code_gen::fresh_function_id;
+use crate::core::instructions::pretty_print_dense_instructions;
 use crate::gc::shared::MutContainer;
 use crate::gc::shared::ShareableMut;
 use crate::gc::shared::Shared;
@@ -17,7 +19,10 @@ use crate::primitives::numbers::add_two;
 use crate::rvals::as_underlying_type;
 use crate::rvals::cycles::BreadthFirstSearchSteelValVisitor;
 use crate::rvals::number_equality;
+use crate::rvals::AsRefMutSteelVal as _;
 use crate::rvals::BoxedAsyncFunctionSignature;
+use crate::rvals::FromSteelVal as _;
+use crate::rvals::SteelString;
 use crate::steel_vm::primitives::steel_not;
 use crate::steel_vm::primitives::steel_set_box_mutable;
 use crate::steel_vm::primitives::steel_unbox_mutable;
@@ -49,6 +54,7 @@ use crate::{
     values::functions::ByteCodeLambda,
 };
 use std::cell::UnsafeCell;
+use std::io::Read as _;
 use std::rc::Weak;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -304,6 +310,7 @@ pub enum ThreadState {
     PausedAtSafepoint,
 }
 
+/// The thread execution context
 #[derive(Clone)]
 pub struct SteelThread {
     pub(crate) global_env: Env,
@@ -320,6 +327,8 @@ pub struct SteelThread {
     // This will be static, for the thread.
     pub(crate) thread_local_storage: Vec<SteelVal>,
     pub(crate) sources: Sources,
+
+    pub(crate) compiler: Arc<Mutex<Option<super::engine::SelfCompiler>>>,
 }
 
 #[derive(Clone)]
@@ -536,6 +545,7 @@ impl SteelThread {
             synchronizer: Synchronizer::new(),
             thread_local_storage: Vec::new(),
             sources,
+            compiler: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -728,6 +738,18 @@ impl SteelThread {
                 stop!(TypeMismatch => format!("application not a procedure: {function}"))
             }
         }
+    }
+
+    pub fn execute_eval(
+        &mut self,
+        instructions: Shared<[DenseInstruction]>,
+        constant_map: ConstantMap,
+        spans: Shared<[Span]>,
+    ) -> Result<SteelVal> {
+        todo!()
+
+        // let stack = std::mem::take(&mut self.stack);
+        // let frames = std::mem::take(&mut self.stack_frames);
     }
 
     pub fn execute(
@@ -1526,7 +1548,7 @@ impl<'a> VmCore<'a> {
     }
 
     // Reset state FULLY
-    fn call_with_instructions_and_reset_state(
+    pub(crate) fn call_with_instructions_and_reset_state(
         &mut self,
         closure: Shared<[DenseInstruction]>,
     ) -> Result<SteelVal> {
@@ -1759,6 +1781,45 @@ impl<'a> VmCore<'a> {
             .pop()
             .ok_or_else(throw!(Generic => "stack empty at pop!"))
     }
+
+    // pub(crate) fn eval_executable(&mut self, executable: &Executable) -> Result<Vec<SteelVal>> {
+    //     // let prev_length = self.thread.stack.len();
+
+    //     // let prev_stack_frames = std::mem::take(&mut self.thread.stack_frames);
+
+    //     // let mut results = Vec::new();
+
+    //     // for instr in executable.instructions {
+    //     //     self.call_with_instructions_and_reset_state(Arc::clone(instr))
+    //     // }
+
+    //     let Executable {
+    //         instructions,
+    //         constant_map,
+    //         spans,
+    //         ..
+    //     } = executable;
+
+    //     // let res = instructions
+    //     //     .iter()
+    //     //     .zip(spans.iter())
+    //     //     .map(|x| {
+    //     //         pretty_print_dense_instructions(&x.0);
+
+    //     //         self.call_with_instructions_and_reset_state(
+    //     //             Shared::clone(x.0),
+    //     //             // constant_map.clone(),
+    //     //             // Shared::clone(x.1),
+    //     //         )
+    //     //     })
+    //     //     .collect::<Result<Vec<_>>>();
+
+    //     // self.thread.stack.truncate(prev_length);
+
+    //     // self.thread.stack_frames = prev_stack_frames;
+
+    //     res
+    // }
 
     // Call with an arbitrary number of arguments
     pub(crate) fn call_with_args(
@@ -1993,6 +2054,10 @@ impl<'a> VmCore<'a> {
             // We can elide the reads, and instead opt to just go for values directly on the instructions
             // Otherwise, we're going to be copying the instruction _every_ time we iterate which is going to slow down the loop
             // We'd rather just reference the instruction and call it a day
+
+            if self.ip >= self.instructions.len() {
+                pretty_print_dense_instructions(&self.instructions);
+            }
 
             let instr = self.instructions[self.ip];
 
@@ -3936,7 +4001,7 @@ impl<'a> VmCore<'a> {
     }
 
     // // #[inline(always)]
-    fn handle_function_call_closure(
+    pub(crate) fn handle_function_call_closure(
         &mut self,
         closure: Gc<ByteCodeLambda>,
         payload_size: usize,
@@ -4479,6 +4544,147 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
     Some(Ok(SteelVal::ContinuationFunction(continuation)))
 }
 
+fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    // Install
+    // let mut compiler = super::engine::SelfCompiler::as_mut_ref(&args[0])?;
+
+    let mut compiler_guard = ctx.thread.compiler.lock().unwrap();
+
+    let mut compiler = compiler_guard.as_mut().unwrap();
+
+    let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
+    let comp = &mut compiler.compiler;
+
+    if let Some(mut comp) = comp {
+        // SAFETY:
+        // This is guarded by the RwLock surround `compiler`, which locks this for writing since
+        // we're taking an &mut reference to it using the `as_mut_ref` function.
+        let comp = unsafe { &mut *comp };
+
+        let res = comp.compile_executable_from_expressions(
+            vec![expr],
+            compiler.modules.clone(),
+            compiler.constants.clone(),
+            &mut compiler.sources,
+        );
+
+        drop(compiler_guard);
+
+        match res {
+            Ok(program) => {
+                let symbol_map_offset = comp.symbol_map.len();
+                let result = program.build("eval-context".to_string(), &mut comp.symbol_map)?;
+
+                eval_program(result, ctx)?;
+
+                return Ok(SteelVal::Void);
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        }
+    } else {
+        stop!(Generic => "compiler missing!");
+    }
+}
+
+fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore) -> Result<()> {
+    let Executable {
+        name,
+        version,
+        time_stamp,
+        instructions,
+        constant_map,
+        spans,
+    } = program;
+    let mut bytecode = Vec::new();
+    let mut new_spans = Vec::new();
+    for (instr, span) in instructions.into_iter().zip(spans) {
+        new_spans.extend_from_slice(&span);
+        bytecode.extend_from_slice(&instr);
+        bytecode.last_mut().unwrap().op_code = OpCode::POPSINGLE;
+    }
+    bytecode.last_mut().unwrap().op_code = OpCode::POPPURE;
+    let function_id = crate::compiler::code_gen::fresh_function_id();
+    let function = Gc::new(ByteCodeLambda::new(
+        function_id as _,
+        Arc::from(bytecode),
+        0,
+        false,
+        Vec::new(),
+    ));
+    ctx.thread
+        .function_interner
+        .spans
+        .insert(function_id as _, Arc::from(new_spans));
+    ctx.ip -= 1;
+    ctx.handle_function_call_closure(function, 0).unwrap();
+    Ok(())
+}
+
+#[steel_derive::context(name = "eval", arity = "Exact(1)")]
+fn eval(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    match eval_impl(ctx, args) {
+        Ok(_) => None,
+        Err(e) => Some(Err(e)),
+    }
+}
+
+#[steel_derive::context(name = "load", arity = "Exact(1)")]
+fn eval_file(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    match eval_file_impl(ctx, args) {
+        Ok(_) => None,
+        Err(e) => Some(Err(e)),
+    }
+}
+
+fn eval_file_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    let mut compiler_guard = ctx.thread.compiler.lock().unwrap();
+
+    let mut compiler = compiler_guard.as_mut().unwrap();
+
+    let path = SteelString::from_steelval(&args[0])?;
+    let comp = &mut compiler.compiler;
+
+    if let Some(mut comp) = comp {
+        // SAFETY:
+        // This is guarded by the RwLock surround `compiler`, which locks this for writing since
+        // we're taking an &mut reference to it using the `as_mut_ref` function.
+        let comp = unsafe { &mut *comp };
+
+        let mut file = std::fs::File::open(path.as_str())?;
+
+        let mut exprs = String::new();
+        file.read_to_string(&mut exprs)?;
+
+        let res = comp.compile_executable(
+            exprs,
+            Some(std::path::PathBuf::from(path.as_str())),
+            compiler.constants.clone(),
+            compiler.modules.clone(),
+            &mut compiler.sources,
+        );
+
+        match res {
+            Ok(program) => {
+                let symbol_map_offset = comp.symbol_map.len();
+                let result = program.build("eval-context".to_string(), &mut comp.symbol_map)?;
+
+                drop(compiler_guard);
+
+                eval_program(result, ctx)?;
+
+                return Ok(SteelVal::Void);
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        }
+    } else {
+        stop!(Generic => "compiler missing!");
+    }
+}
+
 pub(crate) fn get_test_mode(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(Ok(ctx.thread.runtime_options.test.into()))
 }
@@ -4571,7 +4777,6 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
                         ctx.new_handle_tail_call_closure(closure.clone(), l.len())
                     } else {
                         ctx.ip -= 1;
-
                         ctx.handle_function_call_closure(closure.clone(), l.len())
                     };
 
