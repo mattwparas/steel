@@ -595,7 +595,7 @@ impl SteelPort {
 
 #[cfg(not(feature = "sync"))]
 thread_local! {
-    static WOULD_BLOCK_OBJECT: once_cell::unsync::Lazy<(crate::SteelVal,
+    pub static WOULD_BLOCK_OBJECT: once_cell::unsync::Lazy<(crate::SteelVal,
         super::structs::StructTypeDescriptor)>= once_cell::unsync::Lazy::new(|| {
         super::structs::make_struct_singleton("would-block".into())
     });
