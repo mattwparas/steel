@@ -1,5 +1,5 @@
 use crate::{
-    gc::Gc,
+    gc::{Gc, ShareableMut},
     rvals::{AsRefSteelVal, Custom, IntoSteelVal, SteelByteVector, SteelHashMap, SteelString},
     steel_vm::builtin::BuiltInModule,
     SteelVal,
