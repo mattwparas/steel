@@ -442,10 +442,11 @@ pub fn read_bytes(amt: usize, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal
     }
 }
 
-/// Reads bytes from an input port.
+/// Reads bytes from an input port into a given buffer.
 ///
-/// (read-bytes amt [port]) -> bytes?
+/// (read-bytes-into-buf buf amt [port]) -> bytes?
 ///
+/// * buf : bytes?
 /// * amt : (and positive? int?)
 /// * port : input-port? = (current-input-port)
 #[function(name = "read-bytes-into-buf")]
