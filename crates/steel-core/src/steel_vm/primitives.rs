@@ -24,7 +24,6 @@ use crate::{
         http::http_module,
         lists::{list_module, UnRecoverableResult},
         numbers::{self, realp},
-        polling::polling_module,
         port_module,
         ports::EOF_OBJECTP_DEFINITION,
         process::process_module,
@@ -74,6 +73,16 @@ use fxhash::{FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
 use std::cmp::Ordering;
 use steel_parser::{ast::ExprKind, interner::interned_current_memory_usage, parser::SourceId};
+
+#[cfg(not(target_arch = "wasm32"))]
+use crate::primitives::polling::polling_module;
+
+#[cfg(target_arch = "wasm32")]
+fn polling_module() -> BuiltInModule {
+    let mut module = BuiltInModule::new("steel/polling".to_string());
+
+    module
+}
 
 #[cfg(feature = "dylibs")]
 use crate::steel_vm::ffi::ffi_module;

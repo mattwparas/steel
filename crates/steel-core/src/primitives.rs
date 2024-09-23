@@ -10,7 +10,10 @@ pub mod lists;
 pub mod meta_ops;
 /// Implements numbers as defined in section 6.2 of the R7RS spec.
 pub mod numbers;
+
+#[cfg(not(target_arch = "wasm32"))]
 pub mod polling;
+
 pub mod ports;
 pub mod process;
 pub mod random;
