@@ -4613,7 +4613,7 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
     ctx.thread
         .function_interner
         .spans
-        .insert(function_id as _, Arc::from(new_spans));
+        .insert(function_id as _, Shared::from(new_spans));
 
     if tail_call {
         ctx.new_handle_tail_call_closure(function, 0).unwrap();
