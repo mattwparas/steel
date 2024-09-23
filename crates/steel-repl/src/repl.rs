@@ -2,7 +2,6 @@ extern crate rustyline;
 use colored::*;
 use steel::compiler::modules::steel_home;
 
-use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::{cell::RefCell, rc::Rc, sync::mpsc::channel};
 
 use rustyline::error::ReadlineError;
@@ -129,11 +128,6 @@ fn finish_or_interrupt(vm: &mut Engine, line: String) {
             }
         }
     }
-}
-
-// TODO: Connect to a remote repl
-pub fn connect_remote_repl(addr: SocketAddr) {
-    // Somehow... eval? Run against the remote machine?
 }
 
 /// Entire point for the repl

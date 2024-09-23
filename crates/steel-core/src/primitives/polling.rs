@@ -1,5 +1,5 @@
 use polling::{Event, Events, Poller};
-use std::{cell::RefCell, error::Error, net::TcpListener, sync::atomic::AtomicUsize};
+use std::{cell::RefCell, net::TcpListener, sync::atomic::AtomicUsize};
 
 use crate::{
     rvals::{AsRefSteelVal, Custom, IntoSteelVal, Result},
@@ -120,31 +120,31 @@ pub fn polling_module() -> BuiltInModule {
     module
 }
 
-unsafe fn test() -> std::result::Result<(), Box<dyn Error>> {
-    // Create a TCP listener.
-    let socket = TcpListener::bind("127.0.0.1:8000")?;
-    socket.set_nonblocking(true)?;
-    let key = 7; // Arbitrary key identifying the socket.
+// unsafe fn test() -> std::result::Result<(), Box<dyn Error>> {
+//     // Create a TCP listener.
+//     let socket = TcpListener::bind("127.0.0.1:8000")?;
+//     socket.set_nonblocking(true)?;
+//     let key = 7; // Arbitrary key identifying the socket.
 
-    // Create a poller and register interest in readability on the socket.
-    let poller = Poller::new()?;
-    poller.add(&socket, Event::readable(key))?;
+//     // Create a poller and register interest in readability on the socket.
+//     let poller = Poller::new()?;
+//     poller.add(&socket, Event::readable(key))?;
 
-    // The event loop.
-    let mut events = Events::new();
-    loop {
-        // Wait for at least one I/O event.
-        events.clear();
-        poller.wait(&mut events, None)?;
+//     // The event loop.
+//     let mut events = Events::new();
+//     loop {
+//         // Wait for at least one I/O event.
+//         events.clear();
+//         poller.wait(&mut events, None)?;
 
-        for ev in events.iter() {
-            // Map the key to the event properly
-            if ev.key == key {
-                // Perform a non-blocking accept operation.
-                socket.accept()?;
-                // Set interest in the next readability event.
-                poller.modify(&socket, Event::readable(key))?;
-            }
-        }
-    }
-}
+//         for ev in events.iter() {
+//             // Map the key to the event properly
+//             if ev.key == key {
+//                 // Perform a non-blocking accept operation.
+//                 socket.accept()?;
+//                 // Set interest in the next readability event.
+//                 poller.modify(&socket, Event::readable(key))?;
+//             }
+//         }
+//     }
+// }

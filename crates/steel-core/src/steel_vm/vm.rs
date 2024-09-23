@@ -4640,6 +4640,45 @@ fn eval_file(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Option
     }
 }
 
+#[steel_derive::context(name = "#%expand", arity = "Exact(1)")]
+fn expand_syntax_objects(
+    ctx: &mut crate::steel_vm::vm::VmCore,
+    args: &[SteelVal],
+) -> Option<Result<SteelVal>> {
+    Some(expand_impl(ctx, args))
+}
+
+// Expand syntax objects?
+fn expand_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    let mut compiler_guard = ctx.thread.compiler.lock().unwrap();
+    let mut compiler = compiler_guard.as_mut().unwrap();
+
+    // Syntax Objects -> Expr, expand, put back to syntax objects.
+    let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
+    let comp = &mut compiler.compiler;
+
+    if let Some(mut comp) = comp {
+        // SAFETY:
+        // This is guarded by the RwLock surround `compiler`, which locks this for writing since
+        // we're taking an &mut reference to it using the `as_mut_ref` function.
+        let comp = unsafe { &mut *comp };
+
+        let res = comp.lower_expressions_impl(
+            vec![expr],
+            compiler.constants.clone(),
+            compiler.modules.clone(),
+            None,
+            &mut compiler.sources,
+        )?;
+
+        crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(
+            res.into_iter().next().unwrap(),
+        )
+    } else {
+        stop!(Generic => "compiler missing!");
+    }
+}
+
 fn eval_file_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     let mut compiler_guard = ctx.thread.compiler.lock().unwrap();
 

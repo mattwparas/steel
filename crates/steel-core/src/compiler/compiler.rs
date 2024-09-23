@@ -48,10 +48,7 @@ use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 use super::{
     constants::SerializableConstantMap,
     modules::{CompiledModule, ModuleManager},
-    passes::{
-        analysis::{Analysis, DebugInfo},
-        mangle::NameMangler,
-    },
+    passes::{analysis::Analysis, mangle::NameMangler},
     program::RawProgramWithSymbols,
 };
 
@@ -779,7 +776,7 @@ impl Compiler {
         Ok(expanded_statements)
     }
 
-    fn lower_expressions_impl(
+    pub(crate) fn lower_expressions_impl(
         &mut self,
         exprs: Vec<ExprKind>,
         constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,

@@ -6,7 +6,7 @@ use super::{
     vm::{
         get_test_mode, list_modules, set_test_mode, VmCore, CALL_CC_DEFINITION,
         CALL_WITH_EXCEPTION_HANDLER_DEFINITION, EVAL_DEFINITION, EVAL_FILE_DEFINITION,
-        INSPECT_DEFINITION,
+        EXPAND_SYNTAX_OBJECTS_DEFINITION, INSPECT_DEFINITION,
     },
 };
 use crate::{
@@ -73,7 +73,7 @@ use crate::{
 use fxhash::{FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
 use std::cmp::Ordering;
-use steel_parser::{interner::interned_current_memory_usage, parser::SourceId};
+use steel_parser::{ast::ExprKind, interner::interned_current_memory_usage, parser::SourceId};
 
 #[cfg(feature = "dylibs")]
 use crate::steel_vm::ffi::ffi_module;
@@ -464,6 +464,8 @@ pub fn prelude() -> BuiltInModule {
 pub fn register_builtin_modules_without_io(engine: &mut Engine) {
     engine.register_fn("##__module-get", BuiltInModule::get);
     engine.register_fn("%module-get%", BuiltInModule::get);
+    // Fallible module-get - try to get a value from the original module
+    engine.register_fn("%#maybe-module-get", BuiltInModule::try_get);
 
     engine.register_fn("load-from-module!", BuiltInModule::get);
 
@@ -1566,15 +1568,11 @@ impl Reader {
         self.buffer.is_empty()
     }
 
-    fn read_one(&mut self) -> Result<SteelVal> {
+    fn read_one_impl(&mut self, finisher: fn(ExprKind) -> Result<SteelVal>) -> Result<SteelVal> {
         if let Some(buffer) = self.buffer.get(self.offset..) {
-            // println!("Reading range: {}", buffer);
-
             let mut parser = crate::parser::parser::Parser::new_flat(buffer, SourceId::none());
 
             if let Some(raw) = parser.next() {
-                // self.offset += parser.offset();
-
                 let next = if let Ok(next) = raw {
                     next
                 } else {
@@ -1583,7 +1581,7 @@ impl Reader {
 
                 self.offset += parser.offset();
 
-                let result = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(next);
+                let result = finisher(next);
 
                 if let Some(remaining) = self.buffer.get(self.offset..) {
                     for _ in remaining.chars().take_while(|x| x.is_whitespace()) {
@@ -1605,6 +1603,16 @@ impl Reader {
             Ok(crate::primitives::ports::eof())
         }
     }
+
+    fn read_one(&mut self) -> Result<SteelVal> {
+        self.read_one_impl(TryFromExprKindForSteelVal::try_from_expr_kind_quoted)
+    }
+
+    fn read_one_syntax_object(&mut self) -> Result<SteelVal> {
+        self.read_one_impl(
+            crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind,
+        )
+    }
 }
 
 fn reader_module() -> BuiltInModule {
@@ -1614,7 +1622,11 @@ fn reader_module() -> BuiltInModule {
         .register_fn("new-reader", Reader::create_reader)
         .register_fn("reader-push-string", Reader::push_string)
         .register_fn("reader-read-one", Reader::read_one)
-        .register_fn("reader-empty?", Reader::is_empty);
+        .register_fn("reader-empty?", Reader::is_empty)
+        .register_fn(
+            "reader-read-one-syntax-object",
+            Reader::read_one_syntax_object,
+        );
 
     module
 }
@@ -1754,6 +1766,7 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(CALL_CC_DEFINITION)
         .register_native_fn_definition(EVAL_DEFINITION)
         .register_native_fn_definition(EVAL_FILE_DEFINITION)
+        .register_native_fn_definition(EXPAND_SYNTAX_OBJECTS_DEFINITION)
         .register_native_fn_definition(CALL_WITH_EXCEPTION_HANDLER_DEFINITION)
         .register_value("breakpoint!", SteelVal::BuiltIn(super::vm::breakpoint))
         .register_native_fn_definition(INSPECT_DEFINITION)
