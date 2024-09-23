@@ -4605,7 +4605,7 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
     let function_id = crate::compiler::code_gen::fresh_function_id();
     let function = Gc::new(ByteCodeLambda::new(
         function_id as _,
-        Arc::from(bytecode),
+        Shared::from(bytecode),
         0,
         false,
         Vec::new(),
