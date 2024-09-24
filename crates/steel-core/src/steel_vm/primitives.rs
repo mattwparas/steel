@@ -521,7 +521,7 @@ pub fn sandboxed_prelude() -> BuiltInModule {
             .with_module(TRANSDUCER_MODULE.with(|x| x.clone()))
             .with_module(SYMBOL_MODULE.with(|x| x.clone()))
             .with_module(IO_MODULE.with(|x| x.clone()))
-            .with_module(STEEL_FS_MODULE_SB.clone())
+            .with_module(FS_MODULE_SB.with(|x| x.clone()))
             .with_module(PORT_MODULE_WITHOUT_FILESYSTEM.with(|x| x.clone()))
             .with_module(META_MODULE.with(|x| x.clone()))
             .with_module(JSON_MODULE.with(|x| x.clone()))
