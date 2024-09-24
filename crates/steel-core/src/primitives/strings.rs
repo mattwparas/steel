@@ -5,7 +5,7 @@ use crate::rvals::{RestArgsIter, Result, SteelByteVector, SteelString, SteelVal}
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::{stop, Vector};
 
-use compact_str::{format_compact, CompactString, ToCompactString};
+use compact_str::{CompactString, ToCompactString};
 use num::{BigInt, Num};
 use steel_derive::{function, native};
 
