@@ -1789,7 +1789,7 @@ impl Engine {
     /// use steel::rvals::SteelVal;
     ///
     /// let mut vm = Engine::new();
-    /// let external_value = SteelVal::StringV("hello-world".to_string().into());
+    /// let external_value = SteelVal::StringV("hello-world".into());
     /// vm.register_value("hello-world", external_value);
     /// vm.run("hello-world").unwrap(); // Will return the string
     /// ```
