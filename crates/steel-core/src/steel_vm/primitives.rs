@@ -354,6 +354,7 @@ define_modules! {
     STEEL_POLLING_MODULE => polling_module,
     STEEL_HTTP_MODULE => http_module,
     STEEL_PRELUDE_MODULE => prelude,
+    STEEL_SB_PRELUDE => sandboxed_prelude,
 }
 
 thread_local! {
@@ -397,6 +398,7 @@ thread_local! {
     pub static FFI_MODULE: BuiltInModule = ffi_module();
 
     pub static PRELUDE_MODULE: BuiltInModule = prelude();
+    pub static SB_PRELUDE: BuiltInModule = sandboxed_prelude();
 
     pub(crate) static PRELUDE_INTERNED_STRINGS: FxHashSet<InternedString> = PRELUDE_MODULE.with(|x| x.names().into_iter().map(|x| x.into()).collect());
 
@@ -618,10 +620,12 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
             engine
                 .register_module(STEEL_TCP_MODULE.clone())
                 .register_module(STEEL_HTTP_MODULE.clone())
-                .register_module(STEEL_POLLING_MODULE.clone())
-                .register_module(STEEL_PORT_WITHOUT_FS_MODULE.clone());
+                .register_module(STEEL_POLLING_MODULE.clone());
         } else {
-            engine.register_module(STEEL_FS_MODULE_SB.clone());
+            engine
+                .register_module(STEEL_FS_MODULE_SB.clone())
+                .register_module(STEEL_PORT_WITHOUT_FS_MODULE.clone())
+                .register_module(STEEL_SB_PRELUDE.clone());
         }
 
         #[cfg(feature = "dylibs")]
@@ -669,10 +673,12 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
             engine
                 .register_module(TCP_MODULE.with(|x| x.clone()))
                 .register_module(HTTP_MODULE.with(|x| x.clone()))
-                .register_module(POLLING_MODULE.with(|x| x.clone()))
-                .register_module(PORT_MODULE_WITHOUT_FILESYSTEM.with(|x| x.clone()));
+                .register_module(POLLING_MODULE.with(|x| x.clone()));
         } else {
-            engine.register_module(FS_MODULE_SB.with(|x| x.clone()));
+            engine
+                .register_module(FS_MODULE_SB.with(|x| x.clone()))
+                .register_module(PORT_MODULE_WITHOUT_FILESYSTEM.with(|x| x.clone()))
+                .register_module(SB_PRELUDE.with(|x| x.clone()));
         }
 
         #[cfg(feature = "dylibs")]
