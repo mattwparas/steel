@@ -2,7 +2,7 @@
 
 use super::{
     builtin::{BuiltInModule, FunctionSignatureMetadata},
-    primitives::{register_builtin_modules, register_builtin_modules_without_io, CONSTANTS},
+    primitives::{register_builtin_modules, CONSTANTS},
     vm::{SteelThread, ThreadStateController},
 };
 
@@ -43,7 +43,6 @@ use crate::{
     },
     rerrs::{back_trace, back_trace_to_string},
     rvals::{
-        cycles::{install_printer, print_in_engine, PRINT_IN_ENGINE_DEFINITION},
         AsRefMutSteelVal, AsRefSteelVal as _, FromSteelVal, IntoSteelVal, MaybeSendSyncStatic,
         Result, SteelString, SteelVal,
     },
@@ -407,7 +406,7 @@ impl Engine {
     /// Function to access a kernel level execution environment
     /// Has access to primitives and syntax rules, but will not defer to a child
     /// kernel in the compiler
-    pub(crate) fn new_kernel() -> Self {
+    pub(crate) fn new_kernel(sandbox: bool) -> Self {
         log::debug!(target:"kernel", "Instantiating a new kernel");
         #[cfg(feature = "profiling")]
         let mut total_time = std::time::Instant::now();
@@ -429,7 +428,7 @@ impl Engine {
         time!(
             "engine-creation",
             "Registering builtin modules",
-            register_builtin_modules(&mut vm)
+            register_builtin_modules(&mut vm, sandbox)
         );
 
         // These are used for creating the bootstrapped image
@@ -539,7 +538,7 @@ impl Engine {
     /// Function to access a kernel level execution environment
     /// Has access to primitives and syntax rules, but will not defer to a child
     /// kernel in the compiler
-    pub(crate) fn new_bootstrap_kernel() -> Self {
+    pub(crate) fn new_bootstrap_kernel(sandbox: bool) -> Self {
         // if !install_drop_handler() {
         //     panic!("Unable to install the drop handler!");
         // }
@@ -553,11 +552,11 @@ impl Engine {
         // however given that its a huge chore to pass around the interner everywhere there are strings,
         // its probably inevitable we have that.
         if get_interner().is_some() {
-            return Engine::new_kernel();
+            return Engine::new_kernel(sandbox);
         }
 
         if matches!(option_env!("STEEL_BOOTSTRAP"), Some("false") | None) {
-            let mut vm = Engine::new_kernel();
+            let mut vm = Engine::new_kernel(sandbox);
 
             let sources = vm.sources.clone();
 
@@ -584,7 +583,7 @@ impl Engine {
         };
 
         if let Some(programs) = Engine::load_from_bootstrap(&mut vm) {
-            register_builtin_modules(&mut vm);
+            register_builtin_modules(&mut vm, sandbox);
 
             for program in programs {
                 vm.compiler.constant_map = program.constant_map.clone();
@@ -603,7 +602,7 @@ impl Engine {
 
             vm
         } else {
-            let mut vm = Engine::new_kernel();
+            let mut vm = Engine::new_kernel(sandbox);
 
             let sources = vm.sources.clone();
 
@@ -696,7 +695,7 @@ impl Engine {
             id: EngineId::new(),
         };
 
-        register_builtin_modules(&mut vm);
+        register_builtin_modules(&mut vm, false);
 
         let mut programs = Vec::new();
 
@@ -749,7 +748,7 @@ impl Engine {
             id: EngineId::new(),
         };
 
-        register_builtin_modules(&mut vm);
+        register_builtin_modules(&mut vm, false);
 
         let mut pre_kernel_programs = Vec::new();
 
@@ -859,7 +858,7 @@ impl Engine {
         };
 
         // Register the modules
-        register_builtin_modules(&mut vm);
+        register_builtin_modules(&mut vm, false);
 
         // Set the syntax object id to be AFTER the previous items have been parsed
         SYNTAX_OBJECT_ID.store(
@@ -935,7 +934,7 @@ impl Engine {
             id: EngineId::new(),
         };
 
-        register_builtin_modules(&mut vm);
+        register_builtin_modules(&mut vm, false);
 
         let mut asts = Vec::new();
 
@@ -1026,13 +1025,10 @@ impl Engine {
     pub fn new_base() -> Self {
         let mut vm = Engine::new_raw();
         // Embed any primitives that we want to use
-
-        register_builtin_modules(&mut vm);
+        register_builtin_modules(&mut vm, false);
 
         vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
             .unwrap();
-
-        // vm.dylibs.load_modules(&mut vm);
 
         vm
     }
@@ -1045,27 +1041,22 @@ impl Engine {
 
     #[inline]
     pub fn new_sandboxed() -> Self {
-        // let mut vm = Engine::new_raw();
+        let mut engine = fresh_kernel_image(true);
 
-        // register_builtin_modules_without_io(&mut vm);
+        engine.compiler.kernel = Some(Kernel::new());
 
-        // vm.compile_and_run_raw_program(crate::steel_vm::primitives::SANDBOXED_MODULES)
-        //     .unwrap();
+        #[cfg(feature = "profiling")]
+        let now = std::time::Instant::now();
 
-        // let core_libraries = [crate::stdlib::PRELUDE];
+        if let Err(e) = engine.run(PRELUDE_WITHOUT_BASE) {
+            raise_error(&engine.sources, e);
+            panic!("This shouldn't happen!");
+        }
 
-        // for core in core_libraries.into_iter() {
-        //     vm.compile_and_run_raw_program(core).unwrap();
-        // }
+        #[cfg(feature = "profiling")]
+        log::info!(target: "engine-creation", "Engine Creation: {:?}", now.elapsed());
 
-        // vm
-
-        let mut vm = Engine::new();
-
-        // TODO:
-        // Remove the filesystem APIs
-
-        vm
+        engine
     }
 
     /// Call the print method within the VM
@@ -1281,7 +1272,7 @@ impl Engine {
     /// vm.run(r#"(+ 1 2 3)"#).unwrap();
     /// ```
     pub fn new() -> Self {
-        let mut engine = fresh_kernel_image();
+        let mut engine = fresh_kernel_image(false);
 
         engine.compiler.kernel = Some(Kernel::new());
 
@@ -1314,14 +1305,6 @@ impl Engine {
 
     pub fn get_thread_state_controller(&self) -> ThreadStateController {
         self.virtual_machine.synchronizer.state.clone()
-    }
-
-    pub(crate) fn new_printer() -> Self {
-        let mut engine = fresh_kernel_image();
-
-        engine.compiler.kernel = Some(Kernel::new());
-
-        engine
     }
 
     /// Consumes the current `Engine` and emits a new `Engine` with the prelude added
@@ -2378,8 +2361,8 @@ mod engine_sandbox_tests {
     fn sandbox() {
         let mut engine = Engine::new_sandboxed();
 
-        engine
-            .compile_and_run_raw_program("(displayln 10)")
-            .unwrap();
+        assert!(engine
+            .compile_and_run_raw_program(r#"(create-directory! "foo-bar")"#)
+            .is_err());
     }
 }

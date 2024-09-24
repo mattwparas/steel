@@ -1,40 +1,10 @@
 use crate::gc::shared::{MutableContainer, ShareableMut};
-use crate::steel_vm::{
-    builtin::get_function_name, engine::Engine, vm::Continuation, vm::ContinuationMark,
-};
+use crate::steel_vm::{builtin::get_function_name, vm::Continuation, vm::ContinuationMark};
 use crate::values::lists::Pair;
 use num::BigInt;
 use std::{cell::Cell, collections::VecDeque};
 
 use super::*;
-
-thread_local! {
-    // Use this to print values, in lieu of a bespoke printer
-    static PRINTING_KERNEL: RefCell<Engine> = {
-
-        let mut engine = Engine::new_printer();
-
-        engine.run(include_str!("../scheme/print.scm")).unwrap();
-
-        RefCell::new(engine)
-    };
-}
-
-pub fn install_printer() {
-    PRINTING_KERNEL.with(|x| {
-        x.borrow().globals();
-    });
-}
-
-#[steel_derive::function(name = "print-in-engine")]
-pub fn print_in_engine(value: SteelVal) {
-    PRINTING_KERNEL
-        .with(|x| {
-            x.borrow_mut()
-                .call_function_by_name_with_args("print", vec![value])
-        })
-        .unwrap();
-}
 
 #[derive(Default)]
 // Keep track of any reference counted values that are visited, in a pointer

@@ -18,14 +18,14 @@ use crate::{
     },
     primitives::{
         bytevectors::bytevector_module,
-        fs_module,
+        fs_module, fs_module_sandbox,
         hashmaps::{hashmap_module, HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,
         http::http_module,
         lists::{list_module, UnRecoverableResult},
         numbers::{self, realp},
         port_module,
-        ports::EOF_OBJECTP_DEFINITION,
+        ports::{port_module_without_filesystem, EOF_OBJECTP_DEFINITION},
         process::process_module,
         random::random_module,
         string_module,
@@ -332,13 +332,14 @@ define_modules! {
     STEEL_SYMBOL_MODULE => symbol_module,
     STEEL_IO_MODULE => io_module,
     STEEL_FS_MODULE => fs_module,
+    STEEL_FS_MODULE_SB => fs_module_sandbox,
     STEEL_PORT_MODULE => port_module,
+    STEEL_PORT_WITHOUT_FS_MODULE => port_module_without_filesystem,
     STEEL_META_MODULE => meta_module,
     STEEL_JSON_MODULE => json_module,
     STEEL_CONSTANTS_MODULE => constants_module,
     STEEL_SYNTAX_MODULE => syntax_module,
     STEEL_SANDBOXED_META_MODULE => sandboxed_meta_module,
-    STEEL_SANDBOXED_IO_MODULE => sandboxed_io_module,
     STEEL_PROCESS_MODULE => process_module,
     STEEL_RANDOM_MODULE => random_module,
     STEEL_RESULT_MODULE => build_result_structs,
@@ -375,13 +376,14 @@ thread_local! {
     pub static SYMBOL_MODULE: BuiltInModule = symbol_module();
     pub static IO_MODULE: BuiltInModule = io_module();
     pub static FS_MODULE: BuiltInModule = fs_module();
+    pub static FS_MODULE_SB: BuiltInModule = fs_module_sandbox();
     pub static PORT_MODULE: BuiltInModule = port_module();
+    pub static PORT_MODULE_WITHOUT_FILESYSTEM: BuiltInModule = port_module_without_filesystem();
     pub static META_MODULE: BuiltInModule = meta_module();
     pub static JSON_MODULE: BuiltInModule = json_module();
     pub static CONSTANTS_MODULE: BuiltInModule = constants_module();
     pub static SYNTAX_MODULE: BuiltInModule = syntax_module();
     pub static SANDBOXED_META_MODULE: BuiltInModule = sandboxed_meta_module();
-    pub static SANDBOXED_IO_MODULE: BuiltInModule = sandboxed_io_module();
     pub static PROCESS_MODULE: BuiltInModule = process_module();
     pub static RANDOM_MODULE: BuiltInModule = random_module();
     pub static RESULT_MODULE: BuiltInModule = build_result_structs();
@@ -470,40 +472,66 @@ pub fn prelude() -> BuiltInModule {
     }
 }
 
-pub fn register_builtin_modules_without_io(engine: &mut Engine) {
-    engine.register_fn("##__module-get", BuiltInModule::get);
-    engine.register_fn("%module-get%", BuiltInModule::get);
-    // Fallible module-get - try to get a value from the original module
-    engine.register_fn("%#maybe-module-get", BuiltInModule::try_get);
+pub fn sandboxed_prelude() -> BuiltInModule {
+    #[cfg(feature = "sync")]
+    {
+        BuiltInModule::new("steel/base")
+            .with_module(STEEL_MAP_MODULE.clone())
+            .with_module(STEEL_SET_MODULE.clone())
+            .with_module(STEEL_LIST_MODULE.clone())
+            .with_module(STEEL_STRING_MODULE.clone())
+            .with_module(STEEL_VECTOR_MODULE.clone())
+            .with_module(STEEL_STREAM_MODULE.clone())
+            .with_module(STEEL_IDENTITY_MODULE.clone())
+            .with_module(STEEL_NUMBER_MODULE.clone())
+            .with_module(STEEL_EQUALITY_MODULE.clone())
+            .with_module(STEEL_ORD_MODULE.clone())
+            .with_module(STEEL_TRANSDUCER_MODULE.clone())
+            .with_module(STEEL_SYMBOL_MODULE.clone())
+            .with_module(STEEL_IO_MODULE.clone())
+            .with_module(STEEL_FS_MODULE_SB.clone())
+            .with_module(STEEL_PORT_WITHOUT_FS_MODULE.clone())
+            .with_module(STEEL_META_MODULE.clone())
+            .with_module(STEEL_JSON_MODULE.clone())
+            .with_module(STEEL_CONSTANTS_MODULE.clone())
+            .with_module(STEEL_SYNTAX_MODULE.clone())
+            .with_module(STEEL_RESULT_MODULE.clone())
+            .with_module(STEEL_OPTION_MODULE.clone())
+            .with_module(STEEL_TYPE_ID_MODULE.clone())
+            .with_module(STEEL_TIME_MODULE.clone())
+            .with_module(STEEL_THREADING_MODULE.clone())
+            .with_module(STEEL_BYTEVECTOR_MODULE.clone())
+    }
 
-    engine.register_fn("load-from-module!", BuiltInModule::get);
-
-    engine.register_value("%proto-hash%", HM_CONSTRUCT);
-    engine.register_value("%proto-hash-insert%", HM_INSERT);
-    engine.register_value("%proto-hash-get%", HM_GET);
-    engine.register_value("error!", ControlOperations::error());
-
-    engine.register_value("error", ControlOperations::error());
-
-    engine
-        .register_module(MAP_MODULE.with(|x| x.clone()))
-        .register_module(SET_MODULE.with(|x| x.clone()))
-        .register_module(LIST_MODULE.with(|x| x.clone()))
-        .register_module(STRING_MODULE.with(|x| x.clone()))
-        .register_module(VECTOR_MODULE.with(|x| x.clone()))
-        .register_module(STREAM_MODULE.with(|x| x.clone()))
-        .register_module(IDENTITY_MODULE.with(|x| x.clone()))
-        .register_module(NUMBER_MODULE.with(|x| x.clone()))
-        .register_module(EQUALITY_MODULE.with(|x| x.clone()))
-        .register_module(ORD_MODULE.with(|x| x.clone()))
-        .register_module(TRANSDUCER_MODULE.with(|x| x.clone()))
-        .register_module(SYMBOL_MODULE.with(|x| x.clone()))
-        .register_module(SANDBOXED_IO_MODULE.with(|x| x.clone()))
-        .register_module(SANDBOXED_META_MODULE.with(|x| x.clone()))
-        .register_module(JSON_MODULE.with(|x| x.clone()))
-        .register_module(CONSTANTS_MODULE.with(|x| x.clone()))
-        .register_module(SYNTAX_MODULE.with(|x| x.clone()))
-        .register_module(PRELUDE_MODULE.with(|x| x.clone()));
+    #[cfg(not(feature = "sync"))]
+    {
+        BuiltInModule::new("steel/base")
+            .with_module(MAP_MODULE.with(|x| x.clone()))
+            .with_module(SET_MODULE.with(|x| x.clone()))
+            .with_module(LIST_MODULE.with(|x| x.clone()))
+            .with_module(STRING_MODULE.with(|x| x.clone()))
+            .with_module(VECTOR_MODULE.with(|x| x.clone()))
+            .with_module(STREAM_MODULE.with(|x| x.clone()))
+            .with_module(IDENTITY_MODULE.with(|x| x.clone()))
+            .with_module(NUMBER_MODULE.with(|x| x.clone()))
+            .with_module(EQUALITY_MODULE.with(|x| x.clone()))
+            .with_module(ORD_MODULE.with(|x| x.clone()))
+            .with_module(TRANSDUCER_MODULE.with(|x| x.clone()))
+            .with_module(SYMBOL_MODULE.with(|x| x.clone()))
+            .with_module(IO_MODULE.with(|x| x.clone()))
+            .with_module(STEEL_FS_MODULE_SB.clone())
+            .with_module(PORT_MODULE_WITHOUT_FILESYSTEM.with(|x| x.clone()))
+            .with_module(META_MODULE.with(|x| x.clone()))
+            .with_module(JSON_MODULE.with(|x| x.clone()))
+            .with_module(CONSTANTS_MODULE.with(|x| x.clone()))
+            .with_module(SYNTAX_MODULE.with(|x| x.clone()))
+            .with_module(RESULT_MODULE.with(|x| x.clone()))
+            .with_module(OPTION_MODULE.with(|x| x.clone()))
+            .with_module(TYPE_ID_MODULE.with(|x| x.clone()))
+            .with_module(TIME_MODULE.with(|x| x.clone()))
+            .with_module(THREADING_MODULE.with(|x| x.clone()))
+            .with_module(BYTEVECTOR_MODULE.with(|x| x.clone()))
+    }
 }
 
 fn render_as_md(text: String) {
@@ -514,11 +542,12 @@ fn render_as_md(text: String) {
     println!("{}", text);
 }
 
-pub fn register_builtin_modules(engine: &mut Engine) {
+pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
     engine.register_value("std::env::args", SteelVal::ListV(List::new()));
 
     engine.register_fn("##__module-get", BuiltInModule::get);
     engine.register_fn("%module-get%", BuiltInModule::get);
+    engine.register_fn("%#maybe-module-get", BuiltInModule::try_get);
 
     engine.register_fn("load-from-module!", BuiltInModule::get);
 
@@ -569,8 +598,8 @@ pub fn register_builtin_modules(engine: &mut Engine) {
             .register_module(STEEL_TRANSDUCER_MODULE.clone())
             .register_module(STEEL_SYMBOL_MODULE.clone())
             .register_module(STEEL_IO_MODULE.clone())
-            .register_module(STEEL_FS_MODULE.clone())
             .register_module(STEEL_PORT_MODULE.clone())
+            .register_module(STEEL_FS_MODULE.clone())
             .register_module(STEEL_META_MODULE.clone())
             .register_module(STEEL_JSON_MODULE.clone())
             .register_module(STEEL_CONSTANTS_MODULE.clone())
@@ -583,10 +612,17 @@ pub fn register_builtin_modules(engine: &mut Engine) {
             .register_module(STEEL_TIME_MODULE.clone())
             .register_module(STEEL_RANDOM_MODULE.clone())
             .register_module(STEEL_THREADING_MODULE.clone())
-            .register_module(STEEL_BYTEVECTOR_MODULE.clone())
-            .register_module(STEEL_TCP_MODULE.clone())
-            .register_module(STEEL_HTTP_MODULE.clone())
-            .register_module(STEEL_POLLING_MODULE.clone());
+            .register_module(STEEL_BYTEVECTOR_MODULE.clone());
+
+        if !sandbox {
+            engine
+                .register_module(STEEL_TCP_MODULE.clone())
+                .register_module(STEEL_HTTP_MODULE.clone())
+                .register_module(STEEL_POLLING_MODULE.clone())
+                .register_module(STEEL_PORT_WITHOUT_FS_MODULE.clone());
+        } else {
+            engine.register_module(STEEL_FS_MODULE_SB.clone());
+        }
 
         #[cfg(feature = "dylibs")]
         engine.register_module(STEEL_FFI_MODULE.clone());
@@ -627,10 +663,17 @@ pub fn register_builtin_modules(engine: &mut Engine) {
             .register_module(TIME_MODULE.with(|x| x.clone()))
             .register_module(RANDOM_MODULE.with(|x| x.clone()))
             .register_module(THREADING_MODULE.with(|x| x.clone()))
-            .register_module(BYTEVECTOR_MODULE.with(|x| x.clone()))
-            .register_module(TCP_MODULE.with(|x| x.clone()))
-            .register_module(HTTP_MODULE.with(|x| x.clone()))
-            .register_module(POLLING_MODULE.with(|x| x.clone()));
+            .register_module(BYTEVECTOR_MODULE.with(|x| x.clone()));
+
+        if !sandbox {
+            engine
+                .register_module(TCP_MODULE.with(|x| x.clone()))
+                .register_module(HTTP_MODULE.with(|x| x.clone()))
+                .register_module(POLLING_MODULE.with(|x| x.clone()))
+                .register_module(PORT_MODULE_WITHOUT_FILESYSTEM.with(|x| x.clone()));
+        } else {
+            engine.register_module(FS_MODULE_SB.with(|x| x.clone()));
+        }
 
         #[cfg(feature = "dylibs")]
         engine.register_module(FFI_MODULE.with(|x| x.clone()));
@@ -1277,31 +1320,12 @@ fn symbol_module() -> BuiltInModule {
 fn io_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/io");
     module
-        // .register_value("display", IoFunctions::display())
-        // .register_value("displayln", IoFunctions::displayln())
-        // .register_value("simple-display", IoFunctions::display())
         .register_value("stdout-simple-displayln", IoFunctions::displayln())
-        // .register_value("newline", IoFunctions::newline())
         .register_value("read-to-string", IoFunctions::read_to_string());
-
-    // #[cfg(feature = "colors")]
-    // module.register_value("display-color", IoFunctions::display_color());
 
     module
 }
 
-fn sandboxed_io_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/io");
-    module
-        .register_value("stdout-simple-displayln", IoFunctions::displayln())
-        // .register_value("newline", IoFunctions::newline())
-        .register_value("read-to-string", IoFunctions::read_to_string());
-    // .register_value("display", IoFunctions::sandboxed_display())
-    // .register_value("display-color", IoFunctions::display_color())
-    // .register_value("newline", IoFunctions::sandboxed_newline());
-    // .register_value("read-to-string", IoFunctions::read_to_string());
-    module
-}
 pub const VOID_DOC: MarkdownDoc = MarkdownDoc::from_str(
     "The void value, returned by many forms with side effects, such as `define`.",
 );

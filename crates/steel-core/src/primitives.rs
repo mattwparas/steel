@@ -42,7 +42,7 @@ use crate::{
     rvals::SteelString,
 };
 pub use control::ControlOperations;
-pub use fs::fs_module;
+pub use fs::{fs_module, fs_module_sandbox};
 pub use io::IoFunctions;
 pub use lists::UnRecoverableResult;
 pub use meta_ops::MetaOperations;

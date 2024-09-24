@@ -58,6 +58,43 @@ pub fn port_module() -> BuiltInModule {
     module
 }
 
+pub fn port_module_without_filesystem() -> BuiltInModule {
+    let mut module = BuiltInModule::new("steel/ports");
+    module
+        .register_native_fn_definition(OPEN_STDIN_DEFINITION)
+        .register_native_fn_definition(OPEN_STDOUT_DEFINITION)
+        .register_native_fn_definition(OPEN_OUTPUT_STRING_DEFINITION)
+        .register_native_fn_definition(OPEN_OUTPUT_BYTEVECTOR_DEFINITION)
+        .register_native_fn_definition(WRITE_LINE_DEFINITION)
+        .register_native_fn_definition(WRITE_STRING_DEFINITION)
+        .register_native_fn_definition(WRITE_DEFINITION)
+        .register_native_fn_definition(WRITE_CHAR_DEFINITION)
+        .register_native_fn_definition(FLUSH_OUTPUT_PORT_DEFINITION)
+        .register_native_fn_definition(READ_PORT_TO_STRING_DEFINITION)
+        .register_native_fn_definition(READ_LINE_TO_STRING_DEFINITION)
+        .register_native_fn_definition(GET_OUTPUT_STRING_DEFINITION)
+        .register_native_fn_definition(GET_OUTPUT_BYTEVECTOR_DEFINITION)
+        .register_native_fn_definition(IS_INPUT_DEFINITION)
+        .register_native_fn_definition(IS_OUTPUT_DEFINITION)
+        .register_native_fn_definition(DEFAULT_INPUT_PORT_DEFINITION)
+        .register_native_fn_definition(DEFAULT_OUTPUT_PORT_DEFINITION)
+        .register_native_fn_definition(CLOSE_OUTPUT_PORT_DEFINITION)
+        .register_native_fn_definition(DEFAULT_ERROR_PORT_DEFINITION)
+        .register_native_fn_definition(EOF_OBJECT_DEFINITION)
+        .register_native_fn_definition(OPEN_INPUT_STRING_DEFINITION)
+        .register_native_fn_definition(OPEN_INPUT_BYTEVECTOR_DEFINITION)
+        .register_native_fn_definition(READ_BYTE_DEFINITION)
+        .register_native_fn_definition(READ_CHAR_DEFINITION)
+        .register_native_fn_definition(WRITE_BYTE_DEFINITION)
+        .register_native_fn_definition(WRITE_BYTES_DEFINITION)
+        .register_native_fn_definition(PEEK_BYTE_DEFINITION)
+        .register_native_fn_definition(READ_BYTES_DEFINITION)
+        .register_native_fn_definition(READ_BYTES_INTO_BUF_DEFINITION)
+        .register_native_fn_definition(WOULD_BLOCK_OBJECTP_DEFINITION)
+        .register_native_fn_definition(WOULD_BLOCK_OBJECT_DEFINITION);
+    module
+}
+
 // TODO: implement textual-port? and binary-port?
 
 /// Gets the port handle to stdin
