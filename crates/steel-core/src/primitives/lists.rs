@@ -628,7 +628,7 @@ fn list_to_string(list: &List<SteelVal>) -> Result<SteelVal> {
             x.char_or_else(throw!(TypeMismatch => "list->string expected a list of characters"))
         })
         .collect::<Result<String>>()
-        .map(|x| x.into())
+        .map(|x| x.as_str().into())
         .map(SteelVal::StringV)
 }
 

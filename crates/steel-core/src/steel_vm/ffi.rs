@@ -25,6 +25,7 @@ use abi_stable::{
     },
     RMut, StableAbi,
 };
+use compact_str::ToCompactString;
 use futures_util::FutureExt;
 
 use crate::values::HashMap;
@@ -1103,7 +1104,7 @@ impl FFIValue {
             Self::CharV { c } => Ok(SteelVal::CharV(*c)),
             Self::Void => Ok(SteelVal::Void),
             // TODO: I think this might clone the string, its also a little suspect
-            Self::StringV(s) => Ok(SteelVal::StringV(s.to_string().into())),
+            Self::StringV(s) => Ok(SteelVal::StringV(s.to_compact_string().into())),
             Self::Vector(v) => v
                 .into_iter()
                 .map(|x| x.as_steelval())
@@ -1155,8 +1156,7 @@ impl IntoSteelVal for FFIValue {
             Self::IntV(i) => Ok(SteelVal::IntV(i)),
             Self::CharV { c } => Ok(SteelVal::CharV(c)),
             Self::Void => Ok(SteelVal::Void),
-            // TODO: I think this might clone the string, its also a little suspect
-            Self::StringV(s) => Ok(SteelVal::StringV(s.into_string().into())),
+            Self::StringV(s) => Ok(SteelVal::StringV(s.as_str().to_compact_string().into())),
             Self::Vector(v) => v
                 .into_iter()
                 .map(|x| x.into_steelval())

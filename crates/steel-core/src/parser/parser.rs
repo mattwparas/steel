@@ -178,7 +178,7 @@ impl TryFrom<SyntaxObject> for SteelVal {
                 }
                 .into_steelval(),
             },
-            StringLiteral(x) => Ok(StringV((*x).into())),
+            StringLiteral(x) => Ok(StringV((*x).as_str().into())),
             Keyword(x) => Ok(SymbolV(x.into())),
             QuoteTick => {
                 Err(SteelErr::new(ErrorKind::UnexpectedToken, "'".to_string()).with_span(span))

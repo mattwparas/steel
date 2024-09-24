@@ -5,6 +5,7 @@ use crate::rvals::{RestArgsIter, Result, SteelByteVector, SteelString, SteelVal}
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::{stop, Vector};
 
+use compact_str::{format_compact, CompactString, ToCompactString};
 use num::{BigInt, Num};
 use steel_derive::{function, native};
 
@@ -113,14 +114,14 @@ fn number_to_string_impl(value: &SteelVal, radix: Option<u32>) -> Result<SteelVa
         SteelVal::IntV(v) => {
             if let Some(radix) = radix {
                 Ok(SteelVal::StringV(
-                    radix_fmt::radix(*v, radix as u8).to_string().into(),
+                    radix_fmt::radix(*v, radix as u8).to_compact_string().into(),
                 ))
             } else {
-                Ok(SteelVal::StringV(v.to_string().into()))
+                Ok(SteelVal::StringV(format_compact!("{}", v).into()))
             }
         }
-        SteelVal::NumV(n) => Ok(SteelVal::StringV(n.to_string().into())),
-        SteelVal::BigNum(n) => Ok(SteelVal::StringV(n.to_string().into())),
+        SteelVal::NumV(n) => Ok(SteelVal::StringV(n.to_compact_string().into())),
+        SteelVal::BigNum(n) => Ok(SteelVal::StringV(n.to_compact_string().into())),
         _ => stop!(TypeMismatch => "number->string expects a number type, found: {}", value),
     }
 }
@@ -406,7 +407,7 @@ pub fn make_string(k: usize, mut c: RestArgsIter<'_, char>) -> Result<SteelVal> 
 #[function(name = "string-replace")]
 pub fn replace(value: &SteelString, from: &SteelString, to: &SteelString) -> Result<SteelVal> {
     Ok(SteelVal::StringV(
-        value.replace(from.as_str(), to.as_str()).into(),
+        value.replace(from.as_str(), to.as_str()).as_str().into(),
     ))
 }
 
@@ -436,7 +437,7 @@ pub fn to_string(args: &[SteelVal]) -> Result<SteelVal> {
         }
     }
 
-    Ok(SteelVal::StringV(error_message.into()))
+    Ok(SteelVal::StringV(error_message.as_str().into()))
 }
 
 /// Converts a string into a symbol.
@@ -529,7 +530,7 @@ pub fn string_to_list(value: &SteelString, mut rest: RestArgsIter<isize>) -> Res
 /// > (string->upper "lower") ;; => "LOWER"
 /// ```
 #[function(name = "string->upper")]
-pub fn string_to_upper(value: &SteelString) -> String {
+pub fn string_to_upper(value: &SteelString) -> CompactString {
     value.to_uppercase()
 }
 
@@ -543,7 +544,7 @@ pub fn string_to_upper(value: &SteelString) -> String {
 /// > (string->lower "sPonGeBoB tExT") ;; => "spongebob text"
 /// ```
 #[function(name = "string->lower")]
-pub fn string_to_lower(value: &SteelString) -> String {
+pub fn string_to_lower(value: &SteelString) -> CompactString {
     value.to_lowercase()
 }
 
@@ -750,7 +751,7 @@ pub fn string_length(value: &SteelString) -> usize {
 pub fn string_append(mut rest: RestArgsIter<'_, &SteelString>) -> Result<SteelVal> {
     rest.0
         .try_fold("".to_string(), |accum, next| Ok(accum + next?.as_str()))
-        .map(|x| SteelVal::StringV(x.into()))
+        .map(|x| SteelVal::StringV(x.as_str().into()))
 }
 
 macro_rules! impl_char_comparison {

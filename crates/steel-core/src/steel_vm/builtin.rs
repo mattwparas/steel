@@ -298,7 +298,7 @@ impl BuiltInModuleRepr {
     pub fn bound_identifiers(&self) -> crate::values::lists::List<SteelVal> {
         self.values
             .keys()
-            .map(|x| SteelVal::StringV(x.to_string().into()))
+            .map(|x| SteelVal::StringV(x.to_string().as_str().into()))
             .collect()
     }
 
