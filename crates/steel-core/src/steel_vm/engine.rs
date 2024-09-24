@@ -539,10 +539,6 @@ impl Engine {
     /// Has access to primitives and syntax rules, but will not defer to a child
     /// kernel in the compiler
     pub(crate) fn new_bootstrap_kernel(sandbox: bool) -> Self {
-        // if !install_drop_handler() {
-        //     panic!("Unable to install the drop handler!");
-        // }
-
         // If the interner has already been initialized, it most likely means that either:
         // 1) Tests are being run
         // 2) The parser was used in a standalone fashion, somewhere, which invalidates the bootstrap
@@ -1055,6 +1051,9 @@ impl Engine {
 
         #[cfg(feature = "profiling")]
         log::info!(target: "engine-creation", "Engine Creation: {:?}", now.elapsed());
+
+        // Block dylib loading for sandboxed instances
+        engine.disallow_dylib_loading();
 
         engine
     }
