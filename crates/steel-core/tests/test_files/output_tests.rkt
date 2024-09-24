@@ -22,3 +22,5 @@ Error: Parse: Parse: Unexpected token: CloseParen(Round)
 #false
 #false
 #<function:list>
+#<void>
+100

@@ -22,3 +22,5 @@
 (vector? '(1 2 3))
 (list? 'a)
 list
+(eval '(define eval-expression 100))
+(eval 'eval-expression)
