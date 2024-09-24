@@ -117,7 +117,7 @@ fn number_to_string_impl(value: &SteelVal, radix: Option<u32>) -> Result<SteelVa
                     radix_fmt::radix(*v, radix as u8).to_compact_string().into(),
                 ))
             } else {
-                Ok(SteelVal::StringV(format_compact!("{}", v).into()))
+                Ok(SteelVal::StringV(v.to_compact_string().into()))
             }
         }
         SteelVal::NumV(n) => Ok(SteelVal::StringV(n.to_compact_string().into())),

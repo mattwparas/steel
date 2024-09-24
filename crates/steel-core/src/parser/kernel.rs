@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use compact_str::{format_compact, ToCompactString};
+use compact_str::ToCompactString;
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 
 #[cfg(feature = "sync")]
