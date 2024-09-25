@@ -294,6 +294,8 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
         constants
     });
 
+    let sources = ctx.thread.sources.clone();
+
     let thread = MovableThread {
         constants,
 
@@ -505,6 +507,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
         // as much as possible between threads.
         let mut thread = SteelThread {
             global_env,
+            sources,
             stack: Vec::with_capacity(64),
             profiler: OpCodeOccurenceProfiler::new(),
             function_interner,
@@ -516,6 +519,8 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             interrupted: Default::default(),
             synchronizer: Synchronizer::new(),
             thread_local_storage: Vec::new(),
+            // TODO: Fix this
+            compiler: Arc::new(Mutex::new(None)),
         };
 
         #[cfg(feature = "profiling")]

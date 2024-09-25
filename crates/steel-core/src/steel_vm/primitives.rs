@@ -3,7 +3,11 @@ use super::{
     cache::WeakMemoizationTable,
     engine::Engine,
     register_fn::RegisterFn,
-    vm::{get_test_mode, list_modules, set_test_mode, VmCore},
+    vm::{
+        get_test_mode, list_modules, set_test_mode, VmCore, CALL_CC_DEFINITION,
+        CALL_WITH_EXCEPTION_HANDLER_DEFINITION, EVAL_DEFINITION, EVAL_FILE_DEFINITION,
+        EXPAND_SYNTAX_OBJECTS_DEFINITION, INSPECT_DEFINITION,
+    },
 };
 use crate::{
     compiler::modules::steel_home,
@@ -14,13 +18,14 @@ use crate::{
     },
     primitives::{
         bytevectors::bytevector_module,
-        fs_module,
+        fs_module, fs_module_sandbox,
         hashmaps::{hashmap_module, HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,
+        http::http_module,
         lists::{list_module, UnRecoverableResult},
         numbers::{self, realp},
         port_module,
-        ports::EOF_OBJECTP_DEFINITION,
+        ports::{port_module_without_filesystem, EOF_OBJECTP_DEFINITION},
         process::process_module,
         random::random_module,
         string_module,
@@ -67,7 +72,17 @@ use crate::{
 use fxhash::{FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
 use std::cmp::Ordering;
-use steel_parser::{interner::interned_current_memory_usage, parser::SourceId};
+use steel_parser::{ast::ExprKind, interner::interned_current_memory_usage, parser::SourceId};
+
+#[cfg(not(target_arch = "wasm32"))]
+use crate::primitives::polling::polling_module;
+
+#[cfg(target_arch = "wasm32")]
+fn polling_module() -> BuiltInModule {
+    let mut module = BuiltInModule::new("steel/polling".to_string());
+
+    module
+}
 
 #[cfg(feature = "dylibs")]
 use crate::steel_vm::ffi::ffi_module;
@@ -317,13 +332,14 @@ define_modules! {
     STEEL_SYMBOL_MODULE => symbol_module,
     STEEL_IO_MODULE => io_module,
     STEEL_FS_MODULE => fs_module,
+    STEEL_FS_MODULE_SB => fs_module_sandbox,
     STEEL_PORT_MODULE => port_module,
+    STEEL_PORT_WITHOUT_FS_MODULE => port_module_without_filesystem,
     STEEL_META_MODULE => meta_module,
     STEEL_JSON_MODULE => json_module,
     STEEL_CONSTANTS_MODULE => constants_module,
     STEEL_SYNTAX_MODULE => syntax_module,
     STEEL_SANDBOXED_META_MODULE => sandboxed_meta_module,
-    STEEL_SANDBOXED_IO_MODULE => sandboxed_io_module,
     STEEL_PROCESS_MODULE => process_module,
     STEEL_RANDOM_MODULE => random_module,
     STEEL_RESULT_MODULE => build_result_structs,
@@ -335,7 +351,10 @@ define_modules! {
     STEEL_MUTABLE_VECTOR_MODULE => mutable_vector_module,
     STEEL_PRIVATE_READER_MODULE => reader_module,
     STEEL_TCP_MODULE => tcp_module,
+    STEEL_POLLING_MODULE => polling_module,
+    STEEL_HTTP_MODULE => http_module,
     STEEL_PRELUDE_MODULE => prelude,
+    STEEL_SB_PRELUDE => sandboxed_prelude,
 }
 
 thread_local! {
@@ -358,24 +377,28 @@ thread_local! {
     pub static SYMBOL_MODULE: BuiltInModule = symbol_module();
     pub static IO_MODULE: BuiltInModule = io_module();
     pub static FS_MODULE: BuiltInModule = fs_module();
+    pub static FS_MODULE_SB: BuiltInModule = fs_module_sandbox();
     pub static PORT_MODULE: BuiltInModule = port_module();
+    pub static PORT_MODULE_WITHOUT_FILESYSTEM: BuiltInModule = port_module_without_filesystem();
     pub static META_MODULE: BuiltInModule = meta_module();
     pub static JSON_MODULE: BuiltInModule = json_module();
     pub static CONSTANTS_MODULE: BuiltInModule = constants_module();
     pub static SYNTAX_MODULE: BuiltInModule = syntax_module();
     pub static SANDBOXED_META_MODULE: BuiltInModule = sandboxed_meta_module();
-    pub static SANDBOXED_IO_MODULE: BuiltInModule = sandboxed_io_module();
     pub static PROCESS_MODULE: BuiltInModule = process_module();
     pub static RANDOM_MODULE: BuiltInModule = random_module();
     pub static RESULT_MODULE: BuiltInModule = build_result_structs();
     pub static TYPE_ID_MODULE: BuiltInModule = build_type_id_module();
     pub static OPTION_MODULE: BuiltInModule = build_option_structs();
     pub static TCP_MODULE: BuiltInModule = tcp_module();
+    pub static HTTP_MODULE: BuiltInModule = http_module();
+    pub static POLLING_MODULE: BuiltInModule = polling_module();
 
     #[cfg(feature = "dylibs")]
     pub static FFI_MODULE: BuiltInModule = ffi_module();
 
     pub static PRELUDE_MODULE: BuiltInModule = prelude();
+    pub static SB_PRELUDE: BuiltInModule = sandboxed_prelude();
 
     pub(crate) static PRELUDE_INTERNED_STRINGS: FxHashSet<InternedString> = PRELUDE_MODULE.with(|x| x.names().into_iter().map(|x| x.into()).collect());
 
@@ -451,38 +474,66 @@ pub fn prelude() -> BuiltInModule {
     }
 }
 
-pub fn register_builtin_modules_without_io(engine: &mut Engine) {
-    engine.register_fn("##__module-get", BuiltInModule::get);
-    engine.register_fn("%module-get%", BuiltInModule::get);
+pub fn sandboxed_prelude() -> BuiltInModule {
+    #[cfg(feature = "sync")]
+    {
+        BuiltInModule::new("steel/base")
+            .with_module(STEEL_MAP_MODULE.clone())
+            .with_module(STEEL_SET_MODULE.clone())
+            .with_module(STEEL_LIST_MODULE.clone())
+            .with_module(STEEL_STRING_MODULE.clone())
+            .with_module(STEEL_VECTOR_MODULE.clone())
+            .with_module(STEEL_STREAM_MODULE.clone())
+            .with_module(STEEL_IDENTITY_MODULE.clone())
+            .with_module(STEEL_NUMBER_MODULE.clone())
+            .with_module(STEEL_EQUALITY_MODULE.clone())
+            .with_module(STEEL_ORD_MODULE.clone())
+            .with_module(STEEL_TRANSDUCER_MODULE.clone())
+            .with_module(STEEL_SYMBOL_MODULE.clone())
+            .with_module(STEEL_IO_MODULE.clone())
+            .with_module(STEEL_FS_MODULE_SB.clone())
+            .with_module(STEEL_PORT_WITHOUT_FS_MODULE.clone())
+            .with_module(STEEL_META_MODULE.clone())
+            .with_module(STEEL_JSON_MODULE.clone())
+            .with_module(STEEL_CONSTANTS_MODULE.clone())
+            .with_module(STEEL_SYNTAX_MODULE.clone())
+            .with_module(STEEL_RESULT_MODULE.clone())
+            .with_module(STEEL_OPTION_MODULE.clone())
+            .with_module(STEEL_TYPE_ID_MODULE.clone())
+            .with_module(STEEL_TIME_MODULE.clone())
+            .with_module(STEEL_THREADING_MODULE.clone())
+            .with_module(STEEL_BYTEVECTOR_MODULE.clone())
+    }
 
-    engine.register_fn("load-from-module!", BuiltInModule::get);
-
-    engine.register_value("%proto-hash%", HM_CONSTRUCT);
-    engine.register_value("%proto-hash-insert%", HM_INSERT);
-    engine.register_value("%proto-hash-get%", HM_GET);
-    engine.register_value("error!", ControlOperations::error());
-
-    engine.register_value("error", ControlOperations::error());
-
-    engine
-        .register_module(MAP_MODULE.with(|x| x.clone()))
-        .register_module(SET_MODULE.with(|x| x.clone()))
-        .register_module(LIST_MODULE.with(|x| x.clone()))
-        .register_module(STRING_MODULE.with(|x| x.clone()))
-        .register_module(VECTOR_MODULE.with(|x| x.clone()))
-        .register_module(STREAM_MODULE.with(|x| x.clone()))
-        .register_module(IDENTITY_MODULE.with(|x| x.clone()))
-        .register_module(NUMBER_MODULE.with(|x| x.clone()))
-        .register_module(EQUALITY_MODULE.with(|x| x.clone()))
-        .register_module(ORD_MODULE.with(|x| x.clone()))
-        .register_module(TRANSDUCER_MODULE.with(|x| x.clone()))
-        .register_module(SYMBOL_MODULE.with(|x| x.clone()))
-        .register_module(SANDBOXED_IO_MODULE.with(|x| x.clone()))
-        .register_module(SANDBOXED_META_MODULE.with(|x| x.clone()))
-        .register_module(JSON_MODULE.with(|x| x.clone()))
-        .register_module(CONSTANTS_MODULE.with(|x| x.clone()))
-        .register_module(SYNTAX_MODULE.with(|x| x.clone()))
-        .register_module(PRELUDE_MODULE.with(|x| x.clone()));
+    #[cfg(not(feature = "sync"))]
+    {
+        BuiltInModule::new("steel/base")
+            .with_module(MAP_MODULE.with(|x| x.clone()))
+            .with_module(SET_MODULE.with(|x| x.clone()))
+            .with_module(LIST_MODULE.with(|x| x.clone()))
+            .with_module(STRING_MODULE.with(|x| x.clone()))
+            .with_module(VECTOR_MODULE.with(|x| x.clone()))
+            .with_module(STREAM_MODULE.with(|x| x.clone()))
+            .with_module(IDENTITY_MODULE.with(|x| x.clone()))
+            .with_module(NUMBER_MODULE.with(|x| x.clone()))
+            .with_module(EQUALITY_MODULE.with(|x| x.clone()))
+            .with_module(ORD_MODULE.with(|x| x.clone()))
+            .with_module(TRANSDUCER_MODULE.with(|x| x.clone()))
+            .with_module(SYMBOL_MODULE.with(|x| x.clone()))
+            .with_module(IO_MODULE.with(|x| x.clone()))
+            .with_module(FS_MODULE_SB.with(|x| x.clone()))
+            .with_module(PORT_MODULE_WITHOUT_FILESYSTEM.with(|x| x.clone()))
+            .with_module(META_MODULE.with(|x| x.clone()))
+            .with_module(JSON_MODULE.with(|x| x.clone()))
+            .with_module(CONSTANTS_MODULE.with(|x| x.clone()))
+            .with_module(SYNTAX_MODULE.with(|x| x.clone()))
+            .with_module(RESULT_MODULE.with(|x| x.clone()))
+            .with_module(OPTION_MODULE.with(|x| x.clone()))
+            .with_module(TYPE_ID_MODULE.with(|x| x.clone()))
+            .with_module(TIME_MODULE.with(|x| x.clone()))
+            .with_module(THREADING_MODULE.with(|x| x.clone()))
+            .with_module(BYTEVECTOR_MODULE.with(|x| x.clone()))
+    }
 }
 
 fn render_as_md(text: String) {
@@ -493,11 +544,12 @@ fn render_as_md(text: String) {
     println!("{}", text);
 }
 
-pub fn register_builtin_modules(engine: &mut Engine) {
+pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
     engine.register_value("std::env::args", SteelVal::ListV(List::new()));
 
     engine.register_fn("##__module-get", BuiltInModule::get);
     engine.register_fn("%module-get%", BuiltInModule::get);
+    engine.register_fn("%#maybe-module-get", BuiltInModule::try_get);
 
     engine.register_fn("load-from-module!", BuiltInModule::get);
 
@@ -548,8 +600,8 @@ pub fn register_builtin_modules(engine: &mut Engine) {
             .register_module(STEEL_TRANSDUCER_MODULE.clone())
             .register_module(STEEL_SYMBOL_MODULE.clone())
             .register_module(STEEL_IO_MODULE.clone())
-            .register_module(STEEL_FS_MODULE.clone())
             .register_module(STEEL_PORT_MODULE.clone())
+            .register_module(STEEL_FS_MODULE.clone())
             .register_module(STEEL_META_MODULE.clone())
             .register_module(STEEL_JSON_MODULE.clone())
             .register_module(STEEL_CONSTANTS_MODULE.clone())
@@ -562,8 +614,19 @@ pub fn register_builtin_modules(engine: &mut Engine) {
             .register_module(STEEL_TIME_MODULE.clone())
             .register_module(STEEL_RANDOM_MODULE.clone())
             .register_module(STEEL_THREADING_MODULE.clone())
-            .register_module(STEEL_BYTEVECTOR_MODULE.clone())
-            .register_module(STEEL_TCP_MODULE.clone());
+            .register_module(STEEL_BYTEVECTOR_MODULE.clone());
+
+        if !sandbox {
+            engine
+                .register_module(STEEL_TCP_MODULE.clone())
+                .register_module(STEEL_HTTP_MODULE.clone())
+                .register_module(STEEL_POLLING_MODULE.clone());
+        } else {
+            engine
+                .register_module(STEEL_FS_MODULE_SB.clone())
+                .register_module(STEEL_PORT_WITHOUT_FS_MODULE.clone())
+                .register_module(STEEL_SB_PRELUDE.clone());
+        }
 
         #[cfg(feature = "dylibs")]
         engine.register_module(STEEL_FFI_MODULE.clone());
@@ -604,8 +667,19 @@ pub fn register_builtin_modules(engine: &mut Engine) {
             .register_module(TIME_MODULE.with(|x| x.clone()))
             .register_module(RANDOM_MODULE.with(|x| x.clone()))
             .register_module(THREADING_MODULE.with(|x| x.clone()))
-            .register_module(BYTEVECTOR_MODULE.with(|x| x.clone()))
-            .register_module(TCP_MODULE.with(|x| x.clone()));
+            .register_module(BYTEVECTOR_MODULE.with(|x| x.clone()));
+
+        if !sandbox {
+            engine
+                .register_module(TCP_MODULE.with(|x| x.clone()))
+                .register_module(HTTP_MODULE.with(|x| x.clone()))
+                .register_module(POLLING_MODULE.with(|x| x.clone()));
+        } else {
+            engine
+                .register_module(FS_MODULE_SB.with(|x| x.clone()))
+                .register_module(PORT_MODULE_WITHOUT_FILESYSTEM.with(|x| x.clone()))
+                .register_module(SB_PRELUDE.with(|x| x.clone()));
+        }
 
         #[cfg(feature = "dylibs")]
         engine.register_module(FFI_MODULE.with(|x| x.clone()));
@@ -1252,31 +1326,12 @@ fn symbol_module() -> BuiltInModule {
 fn io_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/io");
     module
-        // .register_value("display", IoFunctions::display())
-        // .register_value("displayln", IoFunctions::displayln())
-        // .register_value("simple-display", IoFunctions::display())
         .register_value("stdout-simple-displayln", IoFunctions::displayln())
-        // .register_value("newline", IoFunctions::newline())
         .register_value("read-to-string", IoFunctions::read_to_string());
-
-    // #[cfg(feature = "colors")]
-    // module.register_value("display-color", IoFunctions::display_color());
 
     module
 }
 
-fn sandboxed_io_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/io");
-    module
-        .register_value("stdout-simple-displayln", IoFunctions::displayln())
-        // .register_value("newline", IoFunctions::newline())
-        .register_value("read-to-string", IoFunctions::read_to_string());
-    // .register_value("display", IoFunctions::sandboxed_display())
-    // .register_value("display-color", IoFunctions::display_color())
-    // .register_value("newline", IoFunctions::sandboxed_newline());
-    // .register_value("read-to-string", IoFunctions::read_to_string());
-    module
-}
 pub const VOID_DOC: MarkdownDoc = MarkdownDoc::from_str(
     "The void value, returned by many forms with side effects, such as `define`.",
 );
@@ -1305,7 +1360,6 @@ fn sandboxed_meta_module() -> BuiltInModule {
     module
         // .register_value("assert!", MetaOperations::assert_truthy())
         .register_value("active-object-count", MetaOperations::active_objects())
-        .register_value("inspect-bytecode", MetaOperations::inspect_bytecode())
         // .register_value("memory-address", MetaOperations::memory_address())
         // .register_value("async-exec", MetaOperations::exec_async())
         // .register_value("poll!", MetaOperations::poll_value())
@@ -1553,15 +1607,11 @@ impl Reader {
         self.buffer.is_empty()
     }
 
-    fn read_one(&mut self) -> Result<SteelVal> {
+    fn read_one_impl(&mut self, finisher: fn(ExprKind) -> Result<SteelVal>) -> Result<SteelVal> {
         if let Some(buffer) = self.buffer.get(self.offset..) {
-            // println!("Reading range: {}", buffer);
-
             let mut parser = crate::parser::parser::Parser::new_flat(buffer, SourceId::none());
 
             if let Some(raw) = parser.next() {
-                // self.offset += parser.offset();
-
                 let next = if let Ok(next) = raw {
                     next
                 } else {
@@ -1570,7 +1620,7 @@ impl Reader {
 
                 self.offset += parser.offset();
 
-                let result = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(next);
+                let result = finisher(next);
 
                 if let Some(remaining) = self.buffer.get(self.offset..) {
                     for _ in remaining.chars().take_while(|x| x.is_whitespace()) {
@@ -1592,6 +1642,16 @@ impl Reader {
             Ok(crate::primitives::ports::eof())
         }
     }
+
+    fn read_one(&mut self) -> Result<SteelVal> {
+        self.read_one_impl(TryFromExprKindForSteelVal::try_from_expr_kind_quoted)
+    }
+
+    fn read_one_syntax_object(&mut self) -> Result<SteelVal> {
+        self.read_one_impl(
+            crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind,
+        )
+    }
 }
 
 fn reader_module() -> BuiltInModule {
@@ -1601,7 +1661,11 @@ fn reader_module() -> BuiltInModule {
         .register_fn("new-reader", Reader::create_reader)
         .register_fn("reader-push-string", Reader::push_string)
         .register_fn("reader-read-one", Reader::read_one)
-        .register_fn("reader-empty?", Reader::is_empty);
+        .register_fn("reader-empty?", Reader::is_empty)
+        .register_fn(
+            "reader-read-one-syntax-object",
+            Reader::read_one_syntax_object,
+        );
 
     module
 }
@@ -1715,7 +1779,6 @@ fn meta_module() -> BuiltInModule {
         )
         .register_value("assert!", MetaOperations::assert_truthy())
         .register_value("active-object-count", MetaOperations::active_objects())
-        .register_value("inspect-bytecode", MetaOperations::inspect_bytecode())
         .register_value("memory-address", MetaOperations::memory_address())
         // .register_value("async-exec", MetaOperations::exec_async())
         .register_value("poll!", MetaOperations::poll_value())
@@ -1739,12 +1802,13 @@ fn meta_module() -> BuiltInModule {
         .register_value("error-with-span", error_with_src_loc())
         .register_value("raise-error-with-span", error_from_error_with_span())
         .register_value("raise-error", raise_error_from_error())
-        .register_value("call/cc", SteelVal::BuiltIn(super::vm::call_cc))
-        .register_value(
-            "call-with-exception-handler",
-            SteelVal::BuiltIn(super::vm::call_with_exception_handler),
-        )
+        .register_native_fn_definition(CALL_CC_DEFINITION)
+        .register_native_fn_definition(EVAL_DEFINITION)
+        .register_native_fn_definition(EVAL_FILE_DEFINITION)
+        .register_native_fn_definition(EXPAND_SYNTAX_OBJECTS_DEFINITION)
+        .register_native_fn_definition(CALL_WITH_EXCEPTION_HANDLER_DEFINITION)
         .register_value("breakpoint!", SteelVal::BuiltIn(super::vm::breakpoint))
+        .register_native_fn_definition(INSPECT_DEFINITION)
         .register_value(
             "#%environment-length",
             SteelVal::BuiltIn(super::vm::environment_offset),
@@ -1753,9 +1817,6 @@ fn meta_module() -> BuiltInModule {
             "call-with-current-continuation",
             SteelVal::BuiltIn(super::vm::call_cc),
         )
-        // .register_value("make-tls", SteelVal::BuiltIn(super::vm::make_tls))
-        // .register_value("get-tls", SteelVal::BuiltIn(super::vm::get_tls))
-        // .register_value("set-tls!", SteelVal::BuiltIn(super::vm::set_tls))
         .register_fn("eval!", super::meta::eval)
         .register_fn("value->string", super::meta::value_to_string)
         // TODO: @Matt -> implement the traits for modules as well

@@ -4,11 +4,16 @@ mod control;
 mod fs;
 pub mod hashmaps;
 pub mod hashsets;
+pub mod http;
 mod io;
 pub mod lists;
 pub mod meta_ops;
 /// Implements numbers as defined in section 6.2 of the R7RS spec.
 pub mod numbers;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod polling;
+
 pub mod ports;
 pub mod process;
 pub mod random;
@@ -37,7 +42,7 @@ use crate::{
     rvals::SteelString,
 };
 pub use control::ControlOperations;
-pub use fs::fs_module;
+pub use fs::{fs_module, fs_module_sandbox};
 pub use io::IoFunctions;
 pub use lists::UnRecoverableResult;
 pub use meta_ops::MetaOperations;

@@ -2,7 +2,7 @@
 
 use super::{
     builtin::{BuiltInModule, FunctionSignatureMetadata},
-    primitives::{register_builtin_modules, register_builtin_modules_without_io, CONSTANTS},
+    primitives::{register_builtin_modules, CONSTANTS},
     vm::{SteelThread, ThreadStateController},
 };
 
@@ -23,7 +23,10 @@ use crate::{
         },
     },
     containers::RegisterValue,
-    core::{instructions::Instruction, labels::Expr},
+    core::{
+        instructions::{pretty_print_dense_instructions, DenseInstruction, Instruction},
+        labels::Expr,
+    },
     gc::{
         unsafe_erased_pointers::{
             BorrowedObject, CustomReference, OpaqueReferenceNursery, ReadOnlyBorrowedObject,
@@ -40,12 +43,15 @@ use crate::{
     },
     rerrs::{back_trace, back_trace_to_string},
     rvals::{
-        cycles::{install_printer, print_in_engine, PRINT_IN_ENGINE_DEFINITION},
-        FromSteelVal, IntoSteelVal, MaybeSendSyncStatic, Result, SteelVal,
+        AsRefMutSteelVal, AsRefSteelVal as _, FromSteelVal, IntoSteelVal, MaybeSendSyncStatic,
+        Result, SteelString, SteelVal,
     },
     steel_vm::register_fn::RegisterFn,
     stop, throw,
-    values::{closed::GlobalSlotRecycler, functions::BoxedDynFunction},
+    values::{
+        closed::GlobalSlotRecycler,
+        functions::{BoxedDynFunction, ByteCodeLambda},
+    },
     SteelErr,
 };
 use std::{
@@ -64,6 +70,7 @@ use crate::values::HashMap as ImmutableHashMap;
 use fxhash::{FxBuildHasher, FxHashMap};
 use lasso::ThreadedRodeo;
 use once_cell::sync::OnceCell;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use steel_gen::OpCode;
 use steel_parser::{
@@ -175,6 +182,9 @@ impl EngineId {
     }
 }
 
+/// Handle to a steel engine. This contains a main entrypoint thread, alongside
+/// the compiler and all of the state necessary to keep a VM instance alive and
+/// well.
 #[derive(Clone)]
 pub struct Engine {
     pub(crate) virtual_machine: SteelThread,
@@ -367,6 +377,17 @@ thread_local! {
     pub(crate) static DEFAULT_PRELUDE_MACROS: RefCell<FxHashMap<InternedString, SteelMacro>> = RefCell::new(HashMap::default());
 }
 
+pub(crate) struct SelfCompiler {
+    pub(crate) compiler: Option<*mut Compiler>,
+    pub(crate) sources: Sources,
+    pub(crate) modules: ModuleContainer,
+    pub(crate) constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
+}
+
+unsafe impl Send for SelfCompiler {}
+unsafe impl Sync for SelfCompiler {}
+impl crate::rvals::Custom for SelfCompiler {}
+
 impl Engine {
     #[cfg(feature = "sync")]
     pub(crate) fn deep_clone(&self) -> Self {
@@ -385,19 +406,20 @@ impl Engine {
     /// Function to access a kernel level execution environment
     /// Has access to primitives and syntax rules, but will not defer to a child
     /// kernel in the compiler
-    pub(crate) fn new_kernel() -> Self {
+    pub(crate) fn new_kernel(sandbox: bool) -> Self {
         log::debug!(target:"kernel", "Instantiating a new kernel");
         #[cfg(feature = "profiling")]
         let mut total_time = std::time::Instant::now();
         #[cfg(feature = "profiling")]
         let mut now = std::time::Instant::now();
+        let sources = Sources::new();
 
         let mut vm = Engine {
-            virtual_machine: SteelThread::new(),
+            virtual_machine: SteelThread::new(sources.clone()),
             compiler: Compiler::default(),
             constants: None,
             modules: ModuleContainer::default(),
-            sources: Sources::new(),
+            sources,
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
@@ -406,7 +428,7 @@ impl Engine {
         time!(
             "engine-creation",
             "Registering builtin modules",
-            register_builtin_modules(&mut vm)
+            register_builtin_modules(&mut vm, sandbox)
         );
 
         // These are used for creating the bootstrapped image
@@ -516,11 +538,7 @@ impl Engine {
     /// Function to access a kernel level execution environment
     /// Has access to primitives and syntax rules, but will not defer to a child
     /// kernel in the compiler
-    pub(crate) fn new_bootstrap_kernel() -> Self {
-        // if !install_drop_handler() {
-        //     panic!("Unable to install the drop handler!");
-        // }
-
+    pub(crate) fn new_bootstrap_kernel(sandbox: bool) -> Self {
         // If the interner has already been initialized, it most likely means that either:
         // 1) Tests are being run
         // 2) The parser was used in a standalone fashion, somewhere, which invalidates the bootstrap
@@ -530,11 +548,11 @@ impl Engine {
         // however given that its a huge chore to pass around the interner everywhere there are strings,
         // its probably inevitable we have that.
         if get_interner().is_some() {
-            return Engine::new_kernel();
+            return Engine::new_kernel(sandbox);
         }
 
         if matches!(option_env!("STEEL_BOOTSTRAP"), Some("false") | None) {
-            let mut vm = Engine::new_kernel();
+            let mut vm = Engine::new_kernel(sandbox);
 
             let sources = vm.sources.clone();
 
@@ -547,19 +565,21 @@ impl Engine {
 
         log::debug!(target:"kernel", "Instantiating a new kernel");
 
+        let sources = Sources::new();
+
         let mut vm = Engine {
-            virtual_machine: SteelThread::new(),
+            virtual_machine: SteelThread::new(sources.clone()),
             compiler: Compiler::default(),
             constants: None,
             modules: ModuleContainer::default(),
-            sources: Sources::new(),
+            sources,
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
         };
 
         if let Some(programs) = Engine::load_from_bootstrap(&mut vm) {
-            register_builtin_modules(&mut vm);
+            register_builtin_modules(&mut vm, sandbox);
 
             for program in programs {
                 vm.compiler.constant_map = program.constant_map.clone();
@@ -578,7 +598,7 @@ impl Engine {
 
             vm
         } else {
-            let mut vm = Engine::new_kernel();
+            let mut vm = Engine::new_kernel(sandbox);
 
             let sources = vm.sources.clone();
 
@@ -658,18 +678,20 @@ impl Engine {
 
     // Create kernel bootstrap
     pub fn create_kernel_bootstrap_from_programs(output_path: PathBuf) {
+        let sources = Sources::new();
+
         let mut vm = Engine {
-            virtual_machine: SteelThread::new(),
+            virtual_machine: SteelThread::new(sources.clone()),
             compiler: Compiler::default(),
             constants: None,
             modules: ModuleContainer::default(),
-            sources: Sources::new(),
+            sources,
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
         };
 
-        register_builtin_modules(&mut vm);
+        register_builtin_modules(&mut vm, false);
 
         let mut programs = Vec::new();
 
@@ -710,18 +732,19 @@ impl Engine {
     }
 
     pub fn create_new_engine_from_bootstrap(output_path: PathBuf) {
+        let sources = Sources::new();
         let mut vm = Engine {
-            virtual_machine: SteelThread::new(),
+            virtual_machine: SteelThread::new(sources.clone()),
             compiler: Compiler::default(),
             constants: None,
             modules: ModuleContainer::default(),
-            sources: Sources::new(),
+            sources,
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
         };
 
-        register_builtin_modules(&mut vm);
+        register_builtin_modules(&mut vm, false);
 
         let mut pre_kernel_programs = Vec::new();
 
@@ -817,20 +840,21 @@ impl Engine {
     pub fn top_level_load_from_bootstrap(bin: &[u8]) -> Engine {
         let bootstrap: StartupBootstrapImage = bincode::deserialize(bin).unwrap();
 
+        let sources = Sources::new();
         // This is going to be the kernel
         let mut vm = Engine {
-            virtual_machine: SteelThread::new(),
+            virtual_machine: SteelThread::new(sources.clone()),
             compiler: Compiler::default(),
             constants: None,
             modules: ModuleContainer::default(),
-            sources: Sources::new(),
+            sources,
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
         };
 
         // Register the modules
-        register_builtin_modules(&mut vm);
+        register_builtin_modules(&mut vm, false);
 
         // Set the syntax object id to be AFTER the previous items have been parsed
         SYNTAX_OBJECT_ID.store(
@@ -893,18 +917,20 @@ impl Engine {
     }
 
     fn create_bootstrap() {
+        let sources = Sources::new();
+
         let mut vm = Engine {
-            virtual_machine: SteelThread::new(),
+            virtual_machine: SteelThread::new(sources.clone()),
             compiler: Compiler::default(),
             constants: None,
             modules: ModuleContainer::default(),
-            sources: Sources::new(),
+            sources,
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
         };
 
-        register_builtin_modules(&mut vm);
+        register_builtin_modules(&mut vm, false);
 
         let mut asts = Vec::new();
 
@@ -952,12 +978,14 @@ impl Engine {
     /// assert!(vm.run("(+ 1 2 3").is_err()); // + is a free identifier
     /// ```
     pub fn new_raw() -> Self {
+        let sources = Sources::new();
+
         Engine {
-            virtual_machine: SteelThread::new(),
+            virtual_machine: SteelThread::new(sources.clone()),
             compiler: Compiler::default_with_kernel(),
             constants: None,
             modules: ModuleContainer::default(),
-            sources: Sources::new(),
+            sources,
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
@@ -993,13 +1021,10 @@ impl Engine {
     pub fn new_base() -> Self {
         let mut vm = Engine::new_raw();
         // Embed any primitives that we want to use
-
-        register_builtin_modules(&mut vm);
+        register_builtin_modules(&mut vm, false);
 
         vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
             .unwrap();
-
-        // vm.dylibs.load_modules(&mut vm);
 
         vm
     }
@@ -1012,20 +1037,25 @@ impl Engine {
 
     #[inline]
     pub fn new_sandboxed() -> Self {
-        let mut vm = Engine::new_raw();
+        let mut engine = fresh_kernel_image(true);
 
-        register_builtin_modules_without_io(&mut vm);
+        engine.compiler.kernel = Some(Kernel::new());
 
-        vm.compile_and_run_raw_program(crate::steel_vm::primitives::SANDBOXED_MODULES)
-            .unwrap();
+        #[cfg(feature = "profiling")]
+        let now = std::time::Instant::now();
 
-        let core_libraries = [crate::stdlib::PRELUDE];
-
-        for core in core_libraries.into_iter() {
-            vm.compile_and_run_raw_program(core).unwrap();
+        if let Err(e) = engine.run(PRELUDE_WITHOUT_BASE) {
+            raise_error(&engine.sources, e);
+            panic!("This shouldn't happen!");
         }
 
-        vm
+        #[cfg(feature = "profiling")]
+        log::info!(target: "engine-creation", "Engine Creation: {:?}", now.elapsed());
+
+        // Block dylib loading for sandboxed instances
+        engine.disallow_dylib_loading();
+
+        engine
     }
 
     /// Call the print method within the VM
@@ -1241,7 +1271,7 @@ impl Engine {
     /// vm.run(r#"(+ 1 2 3)"#).unwrap();
     /// ```
     pub fn new() -> Self {
-        let mut engine = fresh_kernel_image();
+        let mut engine = fresh_kernel_image(false);
 
         engine.compiler.kernel = Some(Kernel::new());
 
@@ -1274,14 +1304,6 @@ impl Engine {
 
     pub fn get_thread_state_controller(&self) -> ThreadStateController {
         self.virtual_machine.synchronizer.state.clone()
-    }
-
-    pub(crate) fn new_printer() -> Self {
-        let mut engine = fresh_kernel_image();
-
-        engine.compiler.kernel = Some(Kernel::new());
-
-        engine
     }
 
     /// Consumes the current `Engine` and emits a new `Engine` with the prelude added
@@ -1669,7 +1691,37 @@ impl Engine {
             self.compiler.symbol_map.free_list.increment_generation();
         }
 
-        self.virtual_machine.run_executable(&executable)
+        // TODO: This isn't my favorite pattern.
+        // I'd prefer to just use a weak reference, but I don't think
+        // it is really worth it.
+
+        {
+            let constants = self.constants();
+            let mut guard = self.virtual_machine.compiler.lock().unwrap();
+            let compiler = &mut self.compiler as *mut _;
+
+            let compiler_value = SelfCompiler {
+                compiler: Some(compiler),
+                sources: self.sources.clone(),
+                modules: self.modules.clone(),
+                constants,
+            };
+            *guard = Some(compiler_value);
+        }
+
+        let res = self.virtual_machine.run_executable(&executable);
+
+        // Overwrite the compiler reference
+        self.virtual_machine
+            .compiler
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .compiler
+            .take();
+
+        res
     }
 
     pub fn run_executable(&mut self, executable: &Executable) -> Result<Vec<SteelVal>> {
@@ -1794,10 +1846,6 @@ impl Engine {
     /// ```
     pub fn register_value(&mut self, name: &str, value: SteelVal) -> &mut Self {
         self.register_value_inner(name, value)
-
-        // let idx = self.compiler.register(name);
-        // self.virtual_machine.insert_binding(idx, value);
-        // self
     }
 
     pub fn update_value(&mut self, name: &str, value: SteelVal) -> Option<&mut Self> {
@@ -1944,82 +1992,6 @@ impl Engine {
     //     let program = self.compiler.compile_program(expr, None, constants)?;
     //     self.virtual_machine
     //         .execute_program::<DoNotUseCallback, ApplyContract>(program)
-    // }
-
-    // TODO: Come back to this
-    /*
-    // / Execute a program (as per [`run`](crate::steel_vm::engine::Engine::run)), however do not enforce any contracts. Any contracts that are added are not
-    // / enforced.
-    // /
-    // / # Examples
-    // /
-    // / ```
-    // / # extern crate steel;
-    // / # use steel::steel_vm::engine::Engine;
-    // / use steel::rvals::SteelVal;
-    // / let mut vm = Engine::new();
-    // / let output = vm.run_without_contracts(r#"
-    // /        (define/contract (foo x)
-    // /           (->/c integer? any/c)
-    // /           "hello world")
-    // /
-    // /        (foo "bad-input")
-    // / "#).unwrap();
-    // / ```
-    // pub fn run_without_contracts(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-    //     let constants = self.constants();
-    //     let program = self.compiler.compile_program(expr, None, constants)?;
-    //     self.virtual_machine.execute_program::<UseCallback>(program)
-    // }
-     */
-
-    /// Execute a program without invoking any callbacks, or enforcing any contract checking
-    // pub fn run_without_callbacks_or_contracts(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-    //     let constants = self.constants();
-    //     let program = self.compiler.compile_program(expr, None, constants)?;
-    //     self.virtual_machine
-    //         .execute_program::<DoNotUseCallback, DoNotApplyContracts>(program)
-    // }
-
-    /// Similar to [`run`](crate::steel_vm::engine::Engine::run), however it includes path information
-    /// for error reporting purposes.
-    // pub fn run_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Vec<SteelVal>> {
-    //     let constants = self.constants();
-    //     let program = self.compiler.compile_program(expr, Some(path), constants)?;
-    //     self.virtual_machine.execute_program(program)
-    // }
-
-    // pub fn compile_and_run_raw_program(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-    //     let constants = self.constants();
-    //     let program = self.compiler.compile_program(expr, None, constants)?;
-    //     self.virtual_machine.execute_program(program)
-    // }
-
-    // pub fn compile_and_run_raw_program(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-    //     self.compile_and_run_raw_program(expr)
-    // }
-
-    // Read in the file from the given path and execute accordingly
-    // Loads all the functions in from the given env
-    // pub fn parse_and_execute_from_path<P: AsRef<Path>>(
-    //     &mut self,
-    //     path: P,
-    // ) -> Result<Vec<SteelVal>> {
-    //     let mut file = std::fs::File::open(path)?;
-    //     let mut exprs = String::new();
-    //     file.read_to_string(&mut exprs)?;
-    //     self.compile_and_run_raw_program(exprs.as_str(), )
-    // }
-
-    // pub fn parse_and_execute_from_path<P: AsRef<Path>>(
-    //     &mut self,
-    //     path: P,
-    // ) -> Result<Vec<SteelVal>> {
-    //     let path_buf = PathBuf::from(path.as_ref());
-    //     let mut file = std::fs::File::open(path)?;
-    //     let mut exprs = String::new();
-    //     file.read_to_string(&mut exprs)?;
-    //     self.run_with_path(exprs.as_str(), path_buf)
     // }
 
     // TODO this does not take into account the issues with
@@ -2269,6 +2241,18 @@ pub(crate) fn raise_error_to_string(sources: &Sources, error: SteelErr) -> Optio
     None
 }
 
+pub struct EngineBuilder {
+    engine: Engine,
+}
+
+impl EngineBuilder {
+    pub fn raw() -> Self {
+        Self {
+            engine: Engine::new_raw(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod engine_api_tests {
     use crate::custom_reference;
@@ -2364,6 +2348,20 @@ mod engine_api_tests {
         // This absolutely has to fail, otherwise we're in trouble.
         assert!(engine
             .compile_and_run_raw_program("(external-get-value-imm *external*)")
+            .is_err());
+    }
+}
+
+#[cfg(test)]
+mod engine_sandbox_tests {
+    use super::*;
+
+    #[test]
+    fn sandbox() {
+        let mut engine = Engine::new_sandboxed();
+
+        assert!(engine
+            .compile_and_run_raw_program(r#"(create-directory! "foo-bar")"#)
             .is_err());
     }
 }

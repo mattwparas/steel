@@ -43,6 +43,9 @@
 
 (define __module__ 'r5rs-test-suite)
 
+(check-equal? "eval catch exception" 100 (with-handler (lambda (err) 100) (eval `(+ 100 "foo"))))
+(check-equal? "basic eval" 100 (eval '(* 10 10)))
+
 (check-equal? "<= with rational numbers" (let* ([z (/ 3 2)]) (if (<= z 0) z (+ z 1))) (/ 5 2))
 
 (check-equal? "Parsing hex" #x0f 15)
@@ -112,13 +115,27 @@
 ;; TODO
 (skip-compile (check-equal? '(b c) (or (memq 'b '(a b c)) (/ 3 0))))
 
-(check-equal? "basic let" 6 (let ([x 2] [y 3]) (* x y)))
+(check-equal? "basic let"
+              6
+              (let ([x 2]
+                    [y 3])
+                (* x y)))
 
 (check-equal? "basic let with multiple levels"
               35
-              (let ([x 2] [y 3]) (let ([x 7] [z (+ x y)]) (* z x))))
+              (let ([x 2]
+                    [y 3])
+                (let ([x 7]
+                      [z (+ x y)])
+                  (* z x))))
 
-(check-equal? "basic let*" 70 (let ([x 2] [y 3]) (let* ([x 7] [z (+ x y)]) (* z x))))
+(check-equal? "basic let*"
+              70
+              (let ([x 2]
+                    [y 3])
+                (let* ([x 7]
+                       [z (+ x y)])
+                  (* z x))))
 
 (check-equal? "interior define"
               -2
@@ -144,7 +161,9 @@
 
 (check-equal? "named let"
               '((6 1 3) (-5 -2))
-              (let loop ([numbers '(3 -2 1 6 -5)] [nonneg '()] [neg '()])
+              (let loop ([numbers '(3 -2 1 6 -5)]
+                         [nonneg '()]
+                         [neg '()])
                 (cond
                   [(null? numbers) (list nonneg neg)]
                   [(>= (car numbers) 0) (loop (cdr numbers) (cons (car numbers) nonneg) neg)]
@@ -170,7 +189,9 @@
 
 (check-equal? "double unquote and quote"
               '(a `(b ,x ,'y d) e)
-              (let ([name1 'x] [name2 'y]) `(a `(b ,,name1 ,',name2 d) e)))
+              (let ([name1 'x]
+                    [name2 'y])
+                `(a `(b ,,name1 ,',name2 d) e)))
 
 (check-equal? "named quasiquote" '(list 3 4) (quasiquote (list (unquote (+ 1 2)) 4)))
 
@@ -588,13 +609,15 @@
 ; (skip-compile
 (check-equal? "Dynamic wind"
               '(a b c)
-              (let* ([path '()] [add (lambda (s) (set! path (cons s path)))])
+              (let* ([path '()]
+                     [add (lambda (s) (set! path (cons s path)))])
                 (dynamic-wind (lambda () (add 'a)) (lambda () (add 'b)) (lambda () (add 'c)))
                 (reverse path)))
 
 (check-equal? "Dynamic wind more complex"
               '(connect talk1 disconnect connect talk2 disconnect)
-              (let ([path '()] [c #f])
+              (let ([path '()]
+                    [c #f])
                 (let ([add (lambda (s) (set! path (cons s path)))])
                   (dynamic-wind (lambda () (add 'connect))
                                 (lambda ()
@@ -617,9 +640,7 @@
 
 ; )
 
-
 ;; vectors
-
 
 (define vector->list immutable-vector->list)
 (define vector->string immutable-vector->string)
@@ -630,7 +651,7 @@
 (check-equal? "vector predicate" #t (vector? #(1 2 3)))
 (check-equal? "vector predicated, quoted" #t (vector? '#(1 2 3)))
 
-(let [(make-vector make-immutable-vector)]
+(let ([make-vector make-immutable-vector])
   (check-equal? "vector length, empty" 0 (vector-length (make-vector 0)))
   (check-equal? "vector length" 1000 (vector-length (make-vector 1000))))
 
@@ -639,15 +660,17 @@
 (check-equal? "vector constructor" #(a b c) (vector 'a 'b 'c))
 
 (check-equal? "vector ref" 8 (vector-ref '#(1 1 2 3 5 8 13 21) 5))
-(skip-compile (check-equal? "TODO" 13 (vector-ref '#(1 1 2 3 5 8 13 21)
-            (let ((i (round (* 2 (acos -1)))))
-              (if (inexact? i)
-                  (exact i)
-                  i)))))
+(skip-compile (check-equal? "TODO"
+                            13
+                            (vector-ref '#(1 1 2 3 5 8 13 21)
+                                        (let ([i (round (* 2 (acos -1)))])
+                                          (if (inexact? i) (exact i) i)))))
 
-(skip-compile (check-equal? "TODO" #(0 ("Sue" "Sue") "Anna") (let ((vec (vector 0 '(2 2 2 2) "Anna")))
-  (vector-set! vec 1 '("Sue" "Sue"))
-  vec)))
+(skip-compile (check-equal? "TODO"
+                            #(0 ("Sue" "Sue") "Anna")
+                            (let ([vec (vector 0 '(2 2 2 2) "Anna")])
+                              (vector-set! vec 1 '("Sue" "Sue"))
+                              vec)))
 
 (check-equal? "vector->list" '(dah dah didah) (vector->list '#(dah dah didah)))
 (check-equal? "vector->list with start" '(dah didah) (vector->list '#(dah dah didah) 1))
@@ -677,31 +700,64 @@
 (check-equal? "vector-append" #(a b c d e) (vector-append #(a b c) #(d e)))
 (check-equal? "vector-append, multiple args" #(a b c d e f) (vector-append #(a b c) #(d e) #(f)))
 
-(skip-compile (check-equal? "TODO" #(1 2 smash smash 5)
-    (let ((vec (vector 1 2 3 4 5))) (vector-fill! vec 'smash 2 4) vec)))
-(skip-compile (check-equal? "TODO" #(x x x x x)
-    (let ((vec (vector 1 2 3 4 5))) (vector-fill! vec 'x) vec)))
-(skip-compile (check-equal? "TODO" #(1 2 x x x)
-    (let ((vec (vector 1 2 3 4 5))) (vector-fill! vec 'x 2) vec)))
-(skip-compile (check-equal? "TODO" #(1 2 x 4 5)
-    (let ((vec (vector 1 2 3 4 5))) (vector-fill! vec 'x 2 3) vec)))
+(skip-compile (check-equal? "TODO"
+                            #(1 2 smash smash 5)
+                            (let ([vec (vector 1 2 3 4 5)])
+                              (vector-fill! vec 'smash 2 4)
+                              vec)))
+(skip-compile (check-equal? "TODO"
+                            #(x x x x x)
+                            (let ([vec (vector 1 2 3 4 5)])
+                              (vector-fill! vec 'x)
+                              vec)))
+(skip-compile (check-equal? "TODO"
+                            #(1 2 x x x)
+                            (let ([vec (vector 1 2 3 4 5)])
+                              (vector-fill! vec 'x 2)
+                              vec)))
+(skip-compile (check-equal? "TODO"
+                            #(1 2 x 4 5)
+                            (let ([vec (vector 1 2 3 4 5)])
+                              (vector-fill! vec 'x 2 3)
+                              vec)))
 
-(skip-compile (check-equal? "TODO" #(1 a b 4 5)
-    (let ((vec (vector 1 2 3 4 5))) (vector-copy! vec 1 #(a b c d e) 0 2) vec)))
-(skip-compile (check-equal? "TODO" #(a b c d e)
-    (let ((vec (vector 1 2 3 4 5))) (vector-copy! vec 0 #(a b c d e)) vec)))
-(skip-compile (check-equal? "TODO" #(c d e 4 5)
-    (let ((vec (vector 1 2 3 4 5))) (vector-copy! vec 0 #(a b c d e) 2) vec)))
-(skip-compile (check-equal? "TODO" #(1 2 a b c)
-    (let ((vec (vector 1 2 3 4 5))) (vector-copy! vec 2 #(a b c d e) 0 3) vec)))
-(skip-compile (check-equal? "TODO" #(1 2 c 4 5)
-    (let ((vec (vector 1 2 3 4 5))) (vector-copy! vec 2 #(a b c d e) 2 3) vec)))
+(skip-compile (check-equal? "TODO"
+                            #(1 a b 4 5)
+                            (let ([vec (vector 1 2 3 4 5)])
+                              (vector-copy! vec 1 #(a b c d e) 0 2)
+                              vec)))
+(skip-compile (check-equal? "TODO"
+                            #(a b c d e)
+                            (let ([vec (vector 1 2 3 4 5)])
+                              (vector-copy! vec 0 #(a b c d e))
+                              vec)))
+(skip-compile (check-equal? "TODO"
+                            #(c d e 4 5)
+                            (let ([vec (vector 1 2 3 4 5)])
+                              (vector-copy! vec 0 #(a b c d e) 2)
+                              vec)))
+(skip-compile (check-equal? "TODO"
+                            #(1 2 a b c)
+                            (let ([vec (vector 1 2 3 4 5)])
+                              (vector-copy! vec 2 #(a b c d e) 0 3)
+                              vec)))
+(skip-compile (check-equal? "TODO"
+                            #(1 2 c 4 5)
+                            (let ([vec (vector 1 2 3 4 5)])
+                              (vector-copy! vec 2 #(a b c d e) 2 3)
+                              vec)))
 
 ; ;; same source and dest
-(skip-compile (check-equal? "TODO" #(1 1 2 4 5)
-    (let ((vec (vector 1 2 3 4 5))) (vector-copy! vec 1 vec 0 2) vec)))
-(skip-compile (check-equal? "TODO" #(1 2 3 1 2)
-    (let ((vec (vector 1 2 3 4 5))) (vector-copy! vec 3 vec 0 2) vec)))
+(skip-compile (check-equal? "TODO"
+                            #(1 1 2 4 5)
+                            (let ([vec (vector 1 2 3 4 5)])
+                              (vector-copy! vec 1 vec 0 2)
+                              vec)))
+(skip-compile (check-equal? "TODO"
+                            #(1 2 3 1 2)
+                            (let ([vec (vector 1 2 3 4 5)])
+                              (vector-copy! vec 3 vec 0 2)
+                              vec)))
 
 ;; -------------- Report ------------------
 

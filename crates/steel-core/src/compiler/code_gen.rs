@@ -34,7 +34,7 @@ use crate::rvals::Result;
 // TODO: Have this interner also be a part of what gets saved...
 pub(crate) static FUNCTION_ID: AtomicUsize = AtomicUsize::new(0);
 
-fn fresh_function_id() -> usize {
+pub fn fresh_function_id() -> usize {
     FUNCTION_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 

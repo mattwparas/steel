@@ -776,7 +776,7 @@ impl Compiler {
         Ok(expanded_statements)
     }
 
-    fn lower_expressions_impl(
+    pub(crate) fn lower_expressions_impl(
         &mut self,
         exprs: Vec<ExprKind>,
         constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
@@ -1005,7 +1005,7 @@ impl Compiler {
 
         // println!("--- Final AST ---");
         // println!("");
-        // expanded_statements.pretty_print();
+        // steel_parser::ast::AstTools::pretty_print(&expanded_statements);
 
         log::debug!(target: "expansion-phase", "Generating instructions");
 

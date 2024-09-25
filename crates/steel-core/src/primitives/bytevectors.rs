@@ -25,7 +25,9 @@ pub fn bytevector_module() -> BuiltInModule {
         .register_native_fn_definition(BYTES_TO_LIST_DEFINITION)
         .register_native_fn_definition(LIST_TO_BYTES_DEFINITION)
         .register_native_fn_definition(BYTES_APPEND_DEFINITION)
-        .register_native_fn_definition(BYTES_TO_STRING_DEFINITION);
+        .register_native_fn_definition(BYTES_TO_STRING_DEFINITION)
+        .register_native_fn_definition(BYTES_PUSH_DEFINITION)
+        .register_native_fn_definition(BYTES_CLEAR_DEFINITION);
 
     module
 }
@@ -255,6 +257,20 @@ pub fn bytes_set(value: &mut SteelByteVector, index: usize, byte: u8) -> Result<
 
     guard[index] = byte;
 
+    Ok(SteelVal::Void)
+}
+
+#[function(name = "bytes-push!")]
+pub fn bytes_push(value: &mut SteelByteVector, byte: u8) -> Result<SteelVal> {
+    let mut guard = value.vec.write();
+    guard.push(byte);
+    Ok(SteelVal::Void)
+}
+
+#[function(name = "bytes-clear!")]
+pub fn bytes_clear(value: &mut SteelByteVector) -> Result<SteelVal> {
+    let mut guard = value.vec.write();
+    guard.clear();
     Ok(SteelVal::Void)
 }
 

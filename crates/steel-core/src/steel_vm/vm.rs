@@ -1,11 +1,14 @@
 #![allow(unused)]
 
+use crate::compiler::code_gen::fresh_function_id;
+use crate::core::instructions::pretty_print_dense_instructions;
 use crate::gc::shared::MutContainer;
 use crate::gc::shared::ShareableMut;
 use crate::gc::shared::Shared;
 use crate::gc::shared::WeakShared;
 use crate::gc::shared::WeakSharedMut;
 use crate::gc::SharedMut;
+use crate::parser::parser::Sources;
 use crate::primitives::lists::car;
 use crate::primitives::lists::cdr;
 use crate::primitives::lists::cons;
@@ -16,7 +19,10 @@ use crate::primitives::numbers::add_two;
 use crate::rvals::as_underlying_type;
 use crate::rvals::cycles::BreadthFirstSearchSteelValVisitor;
 use crate::rvals::number_equality;
+use crate::rvals::AsRefMutSteelVal as _;
 use crate::rvals::BoxedAsyncFunctionSignature;
+use crate::rvals::FromSteelVal as _;
+use crate::rvals::SteelString;
 use crate::steel_vm::primitives::steel_not;
 use crate::steel_vm::primitives::steel_set_box_mutable;
 use crate::steel_vm::primitives::steel_unbox_mutable;
@@ -48,6 +54,7 @@ use crate::{
     values::functions::ByteCodeLambda,
 };
 use std::cell::UnsafeCell;
+use std::io::Read as _;
 use std::rc::Weak;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -303,6 +310,7 @@ pub enum ThreadState {
     PausedAtSafepoint,
 }
 
+/// The thread execution context
 #[derive(Clone)]
 pub struct SteelThread {
     pub(crate) global_env: Env,
@@ -318,6 +326,9 @@ pub struct SteelThread {
     pub(crate) synchronizer: Synchronizer,
     // This will be static, for the thread.
     pub(crate) thread_local_storage: Vec<SteelVal>,
+    pub(crate) sources: Sources,
+
+    pub(crate) compiler: Arc<Mutex<Option<super::engine::SelfCompiler>>>,
 }
 
 #[derive(Clone)]
@@ -444,7 +455,7 @@ impl Synchronizer {
                 // TODO: Have to use a condvar
                 loop {
                     if let Some(ctx) = ctx.load() {
-                        println!("Sweeping other threads");
+                        log::debug!("Sweeping other threads");
 
                         unsafe {
                             let live_ctx = &(*ctx);
@@ -467,7 +478,7 @@ impl Synchronizer {
 
                         break;
                     } else {
-                        println!("Waiting for thread...")
+                        log::debug!("Waiting for thread...")
 
                         // TODO: Some kind of condvar or message passing
                         // is probably a better scheme here, but the idea is to just
@@ -513,7 +524,7 @@ impl Synchronizer {
 }
 
 impl SteelThread {
-    pub fn new() -> SteelThread {
+    pub fn new(sources: Sources) -> SteelThread {
         SteelThread {
             global_env: Env::root(),
             stack: Vec::with_capacity(128),
@@ -533,6 +544,8 @@ impl SteelThread {
             interrupted: Default::default(),
             synchronizer: Synchronizer::new(),
             thread_local_storage: Vec::new(),
+            sources,
+            compiler: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -595,6 +608,10 @@ impl SteelThread {
         } = program;
 
         self.constant_map = constant_map.clone();
+
+        // dbg!(&self.stack);
+        // dbg!(&self.stack_frames);
+        // dbg!(&self.current_frame);
 
         let result = instructions
             .iter()
@@ -723,6 +740,18 @@ impl SteelThread {
         }
     }
 
+    pub fn execute_eval(
+        &mut self,
+        instructions: Shared<[DenseInstruction]>,
+        constant_map: ConstantMap,
+        spans: Shared<[Span]>,
+    ) -> Result<SteelVal> {
+        todo!()
+
+        // let stack = std::mem::take(&mut self.stack);
+        // let frames = std::mem::take(&mut self.stack_frames);
+    }
+
     pub fn execute(
         &mut self,
         instructions: Shared<[DenseInstruction]>,
@@ -818,6 +847,7 @@ impl SteelThread {
                 }
 
                 self.stack.clear();
+                // self.current_frame = StackFrame::main();
 
                 return Err(e);
             } else {
@@ -827,6 +857,10 @@ impl SteelThread {
 
                 // Clean up
                 self.stack.clear();
+
+                // self.current_frame = StackFrame::main();
+
+                // dbg!(&self.stack_frames);
 
                 return result;
             }
@@ -1005,8 +1039,6 @@ impl Continuation {
 
             panic!("Failed to find an open continuation on the stack");
         } else {
-            // println!("Setting state from closed continuation");
-
             match Shared::try_unwrap(this.inner).map(|x| x.into_inner()) {
                 Ok(cont) => {
                     ctx.set_state_from_continuation(cont.into_closed().unwrap());
@@ -1323,13 +1355,11 @@ impl<'a> VmCore<'a> {
                     stop!(Generic => format!("Thread: {:?} - Interrupted by user", std::thread::current().id()); self.current_span());
                 }
                 ThreadState::Suspended => {
-                    println!("Suspending thread");
                     self.park_thread_while_paused();
                 }
                 ThreadState::PausedAtSafepoint => {
                     // TODO:
                     // Insert the code to do the stack things here
-                    println!("Suspending thread at safepoint");
                     self.thread.synchronizer.ctx.store(Some(self.thread as _));
                     self.park_thread_while_paused();
                     self.thread.synchronizer.ctx.store(None);
@@ -1518,7 +1548,7 @@ impl<'a> VmCore<'a> {
     }
 
     // Reset state FULLY
-    fn call_with_instructions_and_reset_state(
+    pub(crate) fn call_with_instructions_and_reset_state(
         &mut self,
         closure: Shared<[DenseInstruction]>,
     ) -> Result<SteelVal> {
@@ -1531,6 +1561,8 @@ impl<'a> VmCore<'a> {
         self.pop_count = 1;
 
         self.depth += 1;
+
+        // println!("Before: {:?}", self.thread.stack_frames.len());
 
         let mut res = Ok(SteelVal::Void);
 
@@ -1618,7 +1650,7 @@ impl<'a> VmCore<'a> {
                 //     Continuation::close_marks(&self, &frame);
                 // }
 
-                // self.thread.stack.clear();
+                // self.thread.stack.truncate(self.sp);
 
                 res = result;
                 break;
@@ -1632,6 +1664,9 @@ impl<'a> VmCore<'a> {
         self.pop_count = old_pop_count;
         // self.spans = old_spans;
         self.sp = self.thread.stack_frames.last().map(|x| x.sp).unwrap_or(0);
+
+        // println!("After: {:?}", self.thread.stack_frames.len());
+        // self.thread.stack.truncate(self.sp);
 
         res
     }
@@ -1747,6 +1782,45 @@ impl<'a> VmCore<'a> {
             .ok_or_else(throw!(Generic => "stack empty at pop!"))
     }
 
+    // pub(crate) fn eval_executable(&mut self, executable: &Executable) -> Result<Vec<SteelVal>> {
+    //     // let prev_length = self.thread.stack.len();
+
+    //     // let prev_stack_frames = std::mem::take(&mut self.thread.stack_frames);
+
+    //     // let mut results = Vec::new();
+
+    //     // for instr in executable.instructions {
+    //     //     self.call_with_instructions_and_reset_state(Arc::clone(instr))
+    //     // }
+
+    //     let Executable {
+    //         instructions,
+    //         constant_map,
+    //         spans,
+    //         ..
+    //     } = executable;
+
+    //     // let res = instructions
+    //     //     .iter()
+    //     //     .zip(spans.iter())
+    //     //     .map(|x| {
+    //     //         pretty_print_dense_instructions(&x.0);
+
+    //     //         self.call_with_instructions_and_reset_state(
+    //     //             Shared::clone(x.0),
+    //     //             // constant_map.clone(),
+    //     //             // Shared::clone(x.1),
+    //     //         )
+    //     //     })
+    //     //     .collect::<Result<Vec<_>>>();
+
+    //     // self.thread.stack.truncate(prev_length);
+
+    //     // self.thread.stack_frames = prev_stack_frames;
+
+    //     res
+    // }
+
     // Call with an arbitrary number of arguments
     pub(crate) fn call_with_args(
         &mut self,
@@ -1754,6 +1828,8 @@ impl<'a> VmCore<'a> {
         args: impl IntoIterator<Item = SteelVal>,
     ) -> Result<SteelVal> {
         let prev_length = self.thread.stack.len();
+        // let prev_stack_frame = self.thread.current_frame.clone();
+        // let stack_frame_len = self.thread.stack_frames.len();
 
         let instructions = closure.body_exp();
 
@@ -1779,6 +1855,8 @@ impl<'a> VmCore<'a> {
 
         // Clean up the stack now
         self.thread.stack.truncate(prev_length);
+        // self.thread.current_frame = prev_stack_frame;
+        // self.thread.stack_frames.truncate(stack_frame_len);
 
         res
     }
@@ -1976,6 +2054,10 @@ impl<'a> VmCore<'a> {
             // We can elide the reads, and instead opt to just go for values directly on the instructions
             // Otherwise, we're going to be copying the instruction _every_ time we iterate which is going to slow down the loop
             // We'd rather just reference the instruction and call it a day
+
+            if self.ip >= self.instructions.len() {
+                pretty_print_dense_instructions(&self.instructions);
+            }
 
             let instr = self.instructions[self.ip];
 
@@ -2739,23 +2821,7 @@ impl<'a> VmCore<'a> {
         std::mem::replace(&mut self.thread.stack[offset], SteelVal::Void)
     }
 
-    // #[inline(always)]
-    // TODO: This is definitely an issue - if the instruction stack is empty,
-    // We will probably end up grabbing a garbage span
-    fn current_span(&self) -> Span {
-        //// New way
-        // self.thread
-        //     .stack_frames
-        //     .last()
-        //     .and_then(|x| x.function.spans.get(self.ip))
-        //     .copied()
-        //     // .unwrap()
-        //     .unwrap_or_default()
-
-        // println!("Span vec: {:#?}", self.spans);
-
-        // self.spans.get(self.ip).copied().unwrap_or_default()
-
+    fn current_span_for_index(&self, ip: usize) -> Span {
         self.thread
             .stack_frames
             .last()
@@ -2765,26 +2831,18 @@ impl<'a> VmCore<'a> {
                     .function_interner
                     .spans
                     .get(&x)
-                    .and_then(|x| x.get(self.ip))
+                    .and_then(|x| x.get(ip))
             })
-            .or_else(|| self.root_spans.get(self.ip))
+            .or_else(|| self.root_spans.get(ip))
             .copied()
             .unwrap_or_default()
+    }
 
-        // todo!()
-
-        // self.spans
-        //     .get(
-        //         self.instructions
-        //             .get(self.ip)
-        //             .map(|x| x.span_index)
-        //             .unwrap_or_default(),
-        //     )
-        //     // .flatten()
-        //     .copied()
-        //     .unwrap_or_default()
-
-        // Span::default()
+    // #[inline(always)]
+    // TODO: This is definitely an issue - if the instruction stack is empty,
+    // We will probably end up grabbing a garbage span
+    fn current_span(&self) -> Span {
+        self.current_span_for_index(self.ip)
     }
 
     fn enclosing_span(&self) -> Option<Span> {
@@ -3347,7 +3405,15 @@ impl<'a> VmCore<'a> {
                     spans[self.ip..forward_jump_index].into()
                 }
             } else {
-                self.root_spans[self.ip..forward_jump_index].into()
+                // TODO: This seems to be causing an error
+                // self.root_spans[self.ip..forward_jump_index].into()
+
+                // For now, lets go ahead and use this... hack to get us going
+                if let Some(span_range) = self.root_spans.get(self.ip..forward_jump_index) {
+                    span_range.into_iter().cloned().collect::<Vec<_>>().into()
+                } else {
+                    Shared::from(Vec::new())
+                }
             };
 
             // snag the arity from the eclosure instruction
@@ -3374,7 +3440,6 @@ impl<'a> VmCore<'a> {
                 .insert(closure_id, spans);
 
             constructed_lambda.set_captures(captures);
-            // constructed_lambda.set_heap_allocated(heap_vars);
 
             constructed_lambda
         };
@@ -3549,6 +3614,7 @@ impl<'a> VmCore<'a> {
     #[inline(always)]
     fn handle_tail_call(&mut self, stack_func: SteelVal, payload_size: usize) -> Result<()> {
         use SteelVal::*;
+
         match stack_func {
             FuncV(f) => self.call_primitive_func(f, payload_size),
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
@@ -3560,9 +3626,10 @@ impl<'a> VmCore<'a> {
             _ => {
                 // println!("{:?}", self.stack);
                 // println!("{:?}", self.stack_index);
-                println!("Bad tail call");
-                crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-                stop!(BadSyntax => format!("TailCall - Application not a procedure or function type not supported: {stack_func}"); self.current_span());
+                // println!("Bad tail call");
+                // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+                stop!(BadSyntax => format!("TailCall - Application not a procedure or function type 
+                    not supported: {stack_func}"); self.current_span());
             }
         }
     }
@@ -3934,7 +4001,7 @@ impl<'a> VmCore<'a> {
     }
 
     // // #[inline(always)]
-    fn handle_function_call_closure(
+    pub(crate) fn handle_function_call_closure(
         &mut self,
         closure: Gc<ByteCodeLambda>,
         payload_size: usize,
@@ -4180,12 +4247,85 @@ pub fn current_function_span(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Resu
         builtin_stop!(ArityMismatch => format!("current-function-span requires no arguments, found {}", args.len()))
     }
 
-    // println!("Enclosing span: {:?}", ctx.enclosing_span());
-
     match ctx.enclosing_span() {
         Some(s) => Some(Span::into_steelval(s)),
         None => Some(Ok(SteelVal::Void)),
     }
+}
+
+#[steel_derive::context(name = "inspect", arity = "Exact(1)")]
+pub fn inspect(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    let guard = ctx.thread.sources.sources.lock().unwrap();
+
+    if let Some(SteelVal::Closure(c)) = args.get(0) {
+        let spans = ctx.thread.function_interner.spans.get(&c.id);
+
+        let instructions = c.body_exp();
+
+        let first_column_width = instructions.len().to_string().len();
+        let second_column_width = instructions
+            .iter()
+            .map(|x| format!("{:?}", x.op_code).len())
+            .max()
+            .unwrap();
+        let third_column_width = instructions
+            .iter()
+            .map(|x| x.payload_size.to_string().len())
+            .max()
+            .unwrap();
+
+        let mut buffer = String::new();
+
+        for (i, instruction) in c.body_exp().iter().enumerate() {
+            let span = spans.and_then(|x| x.get(i));
+
+            let index = i.to_string();
+
+            buffer.push_str(index.as_str());
+            for _ in 0..(first_column_width - index.len()) {
+                buffer.push(' ');
+            }
+
+            buffer.push_str("    ");
+
+            let op_code = format!("{:?}", instruction.op_code);
+            buffer.push_str(op_code.as_str());
+            for _ in 0..(second_column_width - op_code.len()) {
+                buffer.push(' ');
+            }
+
+            buffer.push_str(" : ");
+
+            let payload_size = instruction.payload_size.to_string();
+            buffer.push_str(payload_size.as_str());
+            for _ in 0..(third_column_width - payload_size.len()) {
+                buffer.push(' ');
+            }
+
+            buffer.push_str("    ");
+
+            if let Some(source_id) = span.and_then(|x| x.source_id()) {
+                let source = guard.get(source_id);
+                if let Some(span) = span {
+                    if let Some(source) = source {
+                        let range = source.get(span.start..span.end);
+
+                        if let Some(range) =
+                            range.and_then(|x| if x.len() > 30 { x.get(0..30) } else { Some(x) })
+                        {
+                            buffer.push_str(";; ");
+                            buffer.push_str(range);
+                        }
+                    }
+                }
+            }
+
+            println!("{}", buffer);
+            buffer.clear();
+        }
+    }
+
+    Some(Ok(SteelVal::Void))
 }
 
 /// Inspect the locals at the given function. Probably need to provide a way to
@@ -4193,14 +4333,78 @@ pub fn current_function_span(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Resu
 pub fn breakpoint(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let offset = ctx.get_offset();
 
-    println!("----- Locals -----");
-    for (slot, i) in (offset..ctx.thread.stack.len()).enumerate() {
-        println!("x{} = {:?}", slot, &ctx.thread.stack[i]);
+    // Wait for user input to continue...
+    // -> Evaluation context, but lets first see if we can resolve what everything is on the stack
+
+    let guard = ctx.thread.sources.sources.lock().unwrap();
+
+    // Determine the globals at the current spot, use the span in order to resolve
+    // what they're looking for, into something more interesting.
+    // - Note: This can probably be done externally, as a library, in order to avoid
+    // having to bundle read line into steel-core
+    for (index, instr) in ctx.instructions.iter().enumerate() {
+        match instr {
+            DenseInstruction {
+                op_code:
+                    OpCode::READLOCAL
+                    | OpCode::MOVEREADLOCAL
+                    | OpCode::MOVEREADLOCAL0
+                    | OpCode::MOVEREADLOCAL1
+                    | OpCode::MOVEREADLOCAL2
+                    | OpCode::MOVEREADLOCAL3
+                    | OpCode::READLOCAL0
+                    | OpCode::READLOCAL1
+                    | OpCode::READLOCAL2
+                    | OpCode::READLOCAL3,
+                payload_size,
+            } => {
+                let span = ctx.current_span_for_index(index);
+
+                if let Some(source_id) = span.source_id() {
+                    let source = guard.get(source_id);
+
+                    if let Some(source) = source {
+                        let range = source.get(span.start..span.end);
+
+                        println!(
+                            "x{} = {:?} = {}",
+                            payload_size,
+                            range,
+                            ctx.thread.stack[payload_size.to_usize() + offset]
+                        );
+                    }
+                }
+            }
+
+            DenseInstruction {
+                op_code: OpCode::READCAPTURED,
+                payload_size,
+            } => {
+                let span = ctx.current_span_for_index(index);
+
+                if let Some(source_id) = span.source_id() {
+                    let source = guard.get(source_id);
+
+                    if let Some(source) = source {
+                        let range = source.get(span.start..span.end);
+
+                        let value = ctx.thread.stack_frames.last().unwrap().function.captures()
+                            [payload_size.to_usize()]
+                        .clone();
+
+                        println!("x(captured){} = {:?} = {}", payload_size, range, value);
+                    }
+                }
+            }
+
+            _ => {}
+        }
     }
 
     Some(Ok(SteelVal::Void))
 }
 
+#[steel_derive::context(name = "call-with-exception-handler", arity = "Exact(2)")]
 pub fn call_with_exception_handler(
     ctx: &mut VmCore,
     args: &[SteelVal],
@@ -4211,9 +4415,6 @@ pub fn call_with_exception_handler(
 
     let handler = args[0].clone();
     let thunk = args[1].clone();
-
-    // let guard = ctx.stack_frames.last_mut().unwrap();
-    // guard.attach_handler(handler);
 
     match thunk {
         SteelVal::Closure(closure) => {
@@ -4254,7 +4455,6 @@ pub fn call_with_exception_handler(
         }
     }
 
-    // Some(Ok(SteelVal::Void))
     None
 }
 
@@ -4262,6 +4462,7 @@ pub fn oneshot_call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<Ste
     todo!("Create continuation that can only be used once!")
 }
 
+#[steel_derive::context(name = "call/cc", arity = "Exact(1)")]
 pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     /*
     - Construct the continuation
@@ -4338,6 +4539,193 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
     Some(Ok(SteelVal::ContinuationFunction(continuation)))
 }
 
+fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    let mut compiler_guard = ctx.thread.compiler.lock().unwrap();
+    let mut compiler = compiler_guard.as_mut().unwrap();
+    let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
+    let comp = &mut compiler.compiler;
+
+    if let Some(mut comp) = comp {
+        // SAFETY:
+        // This is guarded by the RwLock surround `compiler`, which locks this for writing since
+        // we're taking an &mut reference to it using the `as_mut_ref` function.
+        let comp = unsafe { &mut *comp };
+
+        let res = comp.compile_executable_from_expressions(
+            vec![expr],
+            compiler.modules.clone(),
+            compiler.constants.clone(),
+            &mut compiler.sources,
+        );
+
+        drop(compiler_guard);
+
+        match res {
+            Ok(program) => {
+                let symbol_map_offset = comp.symbol_map.len();
+                let result = program.build("eval-context".to_string(), &mut comp.symbol_map)?;
+
+                eval_program(result, ctx)?;
+
+                return Ok(SteelVal::Void);
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        }
+    } else {
+        stop!(Generic => "compiler missing!");
+    }
+}
+
+fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore) -> Result<()> {
+    let current_instruction = ctx.instructions[ctx.ip - 1];
+
+    let tail_call = matches!(
+        current_instruction.op_code,
+        OpCode::TAILCALL | OpCode::CALLGLOBALTAIL
+    );
+
+    let Executable {
+        name,
+        version,
+        time_stamp,
+        instructions,
+        constant_map,
+        spans,
+    } = program;
+    let mut bytecode = Vec::new();
+    let mut new_spans = Vec::new();
+    for (instr, span) in instructions.into_iter().zip(spans) {
+        new_spans.extend_from_slice(&span);
+        bytecode.extend_from_slice(&instr);
+        bytecode.last_mut().unwrap().op_code = OpCode::POPSINGLE;
+    }
+    bytecode.last_mut().unwrap().op_code = OpCode::POPPURE;
+    let function_id = crate::compiler::code_gen::fresh_function_id();
+    let function = Gc::new(ByteCodeLambda::new(
+        function_id as _,
+        Shared::from(bytecode),
+        0,
+        false,
+        Vec::new(),
+    ));
+    ctx.thread
+        .function_interner
+        .spans
+        .insert(function_id as _, Shared::from(new_spans));
+
+    if tail_call {
+        ctx.new_handle_tail_call_closure(function, 0).unwrap();
+    } else {
+        ctx.ip -= 1;
+        ctx.handle_function_call_closure(function, 0).unwrap();
+    }
+    Ok(())
+}
+
+#[steel_derive::context(name = "eval", arity = "Exact(1)")]
+fn eval(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    match eval_impl(ctx, args) {
+        Ok(_) => None,
+        Err(e) => Some(Err(e)),
+    }
+}
+
+#[steel_derive::context(name = "load", arity = "Exact(1)")]
+fn eval_file(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    match eval_file_impl(ctx, args) {
+        Ok(_) => None,
+        Err(e) => Some(Err(e)),
+    }
+}
+
+#[steel_derive::context(name = "#%expand", arity = "Exact(1)")]
+fn expand_syntax_objects(
+    ctx: &mut crate::steel_vm::vm::VmCore,
+    args: &[SteelVal],
+) -> Option<Result<SteelVal>> {
+    Some(expand_impl(ctx, args))
+}
+
+// Expand syntax objects?
+fn expand_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    let mut compiler_guard = ctx.thread.compiler.lock().unwrap();
+    let mut compiler = compiler_guard.as_mut().unwrap();
+
+    // Syntax Objects -> Expr, expand, put back to syntax objects.
+    let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
+    let comp = &mut compiler.compiler;
+
+    if let Some(mut comp) = comp {
+        // SAFETY:
+        // This is guarded by the RwLock surround `compiler`, which locks this for writing since
+        // we're taking an &mut reference to it using the `as_mut_ref` function.
+        let comp = unsafe { &mut *comp };
+
+        let res = comp.lower_expressions_impl(
+            vec![expr],
+            compiler.constants.clone(),
+            compiler.modules.clone(),
+            None,
+            &mut compiler.sources,
+        )?;
+
+        crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(
+            res.into_iter().next().unwrap(),
+        )
+    } else {
+        stop!(Generic => "compiler missing!");
+    }
+}
+
+fn eval_file_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    let mut compiler_guard = ctx.thread.compiler.lock().unwrap();
+
+    let mut compiler = compiler_guard.as_mut().unwrap();
+
+    let path = SteelString::from_steelval(&args[0])?;
+    let comp = &mut compiler.compiler;
+
+    if let Some(mut comp) = comp {
+        // SAFETY:
+        // This is guarded by the RwLock surround `compiler`, which locks this for writing since
+        // we're taking an &mut reference to it using the `as_mut_ref` function.
+        let comp = unsafe { &mut *comp };
+
+        let mut file = std::fs::File::open(path.as_str())?;
+
+        let mut exprs = String::new();
+        file.read_to_string(&mut exprs)?;
+
+        let res = comp.compile_executable(
+            exprs,
+            Some(std::path::PathBuf::from(path.as_str())),
+            compiler.constants.clone(),
+            compiler.modules.clone(),
+            &mut compiler.sources,
+        );
+
+        match res {
+            Ok(program) => {
+                let symbol_map_offset = comp.symbol_map.len();
+                let result = program.build("eval-context".to_string(), &mut comp.symbol_map)?;
+
+                drop(compiler_guard);
+
+                eval_program(result, ctx)?;
+
+                return Ok(SteelVal::Void);
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        }
+    } else {
+        stop!(Generic => "compiler missing!");
+    }
+}
+
 pub(crate) fn get_test_mode(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(Ok(ctx.thread.runtime_options.test.into()))
 }
@@ -4369,12 +4757,6 @@ pub(crate) fn environment_offset(ctx: &mut VmCore, args: &[SteelVal]) -> Option<
     Some(Ok(ctx.thread.global_env.len().into_steelval().unwrap()))
 }
 
-// TODO: This apply does not respect tail position
-// Something like this: (define (loop) (apply loop '()))
-// _should_ result in an infinite loop. In the current form, this is a Rust stack overflow.
-// Similarly, care should be taken to check out transduce, because nested calls to that will
-// result in a stack overflow with sufficient depth on the recursive calls
-
 /// Applies the given `function` with arguments as the contents of the `list`.
 ///
 /// (apply function lst) -> any?
@@ -4389,23 +4771,12 @@ pub(crate) fn environment_offset(ctx: &mut VmCore, args: &[SteelVal]) -> Option<
 ///```
 #[steel_derive::context(name = "apply", arity = "Exact(2)")]
 pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
-    // arity_check!(apply, args, 2);
-
-    // println!("Calling apply!");
-    // println!("Current instruction: {:?}", ctx.instructions[ctx.ip]);
-
-    // ctx.ip -= 1;
-
     let current_instruction = ctx.instructions[ctx.ip - 1];
 
     let tail_call = matches!(
         current_instruction.op_code,
         OpCode::TAILCALL | OpCode::CALLGLOBALTAIL
     );
-
-    // dbg!(tail_call);
-
-    // println!("Current instruction: {:?}", ctx.instructions[ctx.ip]);
 
     if args.len() != 2 {
         builtin_stop!(ArityMismatch => "apply expected 2 arguments");
@@ -4417,9 +4788,6 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
 
     if let SteelVal::ListV(l) = arg2 {
         if arg1.is_function() {
-            // println!("Calling apply with args: {:?}, {:?}", arg1, arg2);
-            // ctx.call_function_many_args(&arg1, l.clone())
-
             match arg1 {
                 SteelVal::Closure(closure) => {
                     for arg in l {
@@ -4430,7 +4798,6 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
                         ctx.new_handle_tail_call_closure(closure.clone(), l.len())
                     } else {
                         ctx.ip -= 1;
-
                         ctx.handle_function_call_closure(closure.clone(), l.len())
                     };
 

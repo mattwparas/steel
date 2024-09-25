@@ -395,6 +395,10 @@ impl BuiltInModuleRepr {
         }
     }
 
+    pub fn try_get(&self, name: String) -> Option<SteelVal> {
+        self.values.get(name.as_str()).cloned()
+    }
+
     /// This does the boot strapping for bundling modules
     /// Rather than expose a native hash-get, the built in module above should expose a raw
     /// function to fetch a dependency. It will be a packaged #<BuiltInModule> with only a function to
@@ -645,6 +649,10 @@ impl BuiltInModule {
     // This _will_ panic given an incorrect value. This will be tied together by macros only allowing legal entries
     pub fn get(&self, name: String) -> SteelVal {
         self.module.read().get(name)
+    }
+
+    pub fn try_get(&self, name: String) -> Option<SteelVal> {
+        self.module.read().try_get(name)
     }
 
     /// This does the boot strapping for bundling modules

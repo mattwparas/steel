@@ -33,23 +33,38 @@ use super::{
 };
 
 thread_local! {
-    pub(crate) static KERNEL_IMAGE: Engine = Engine::new_bootstrap_kernel();
+    pub(crate) static KERNEL_IMAGE: Engine = Engine::new_bootstrap_kernel(false);
+    pub(crate) static KERNEL_IMAGE_SB: Engine = Engine::new_bootstrap_kernel(true);
 }
 
 #[cfg(feature = "sync")]
-pub static STATIC_KERNEL_IMAGE: Lazy<Engine> = Lazy::new(Engine::new_bootstrap_kernel);
+pub static STATIC_KERNEL_IMAGE: Lazy<Engine> = Lazy::new(|| Engine::new_bootstrap_kernel(false));
+#[cfg(feature = "sync")]
+pub static STATIC_KERNEL_IMAGE_SB: Lazy<Engine> = Lazy::new(|| Engine::new_bootstrap_kernel(true));
 
-pub(crate) fn fresh_kernel_image() -> Engine {
+pub(crate) fn fresh_kernel_image(sandbox: bool) -> Engine {
     // Just deep clone the env coming out
 
-    #[cfg(feature = "sync")]
-    {
-        STATIC_KERNEL_IMAGE.clone().deep_clone()
-    }
+    if sandbox {
+        #[cfg(feature = "sync")]
+        {
+            STATIC_KERNEL_IMAGE_SB.clone().deep_clone()
+        }
 
-    #[cfg(not(feature = "sync"))]
-    {
-        KERNEL_IMAGE.with(|x| x.clone())
+        #[cfg(not(feature = "sync"))]
+        {
+            KERNEL_IMAGE_SB.with(|x| x.clone())
+        }
+    } else {
+        #[cfg(feature = "sync")]
+        {
+            STATIC_KERNEL_IMAGE.clone().deep_clone()
+        }
+
+        #[cfg(not(feature = "sync"))]
+        {
+            KERNEL_IMAGE.with(|x| x.clone())
+        }
     }
 }
 
@@ -82,7 +97,7 @@ impl Default for Kernel {
 
 impl Kernel {
     pub fn new() -> Self {
-        let mut engine = fresh_kernel_image();
+        let mut engine = fresh_kernel_image(false);
 
         let transformers = Transformers {
             set: Arc::new(RwLock::new(HashMap::default())),

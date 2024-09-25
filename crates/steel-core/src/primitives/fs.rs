@@ -57,6 +57,11 @@ pub fn fs_module() -> BuiltInModule {
     module
 }
 
+#[steel_derive::define_module(name = "steel/filesystem")]
+pub fn fs_module_sandbox() -> BuiltInModule {
+    BuiltInModule::new("steel/filesystem")
+}
+
 /// Deletes the directory
 #[steel_derive::function(name = "delete-directory!")]
 pub fn delete_directory(directory: &SteelString) -> Result<SteelVal> {

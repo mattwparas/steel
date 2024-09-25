@@ -3,7 +3,7 @@ use crate::gc::Gc;
 use crate::rvals::{RestArgsIter, Result, SteelByteVector, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::stop;
-use crate::values::port::{SteelPort, SteelPortRepr};
+use crate::values::port::{would_block, SteelPort, SteelPortRepr, WOULD_BLOCK_OBJECT};
 use crate::values::structs::{make_struct_singleton, StructTypeDescriptor};
 
 use steel_derive::function;
@@ -50,7 +50,48 @@ pub fn port_module() -> BuiltInModule {
         .register_native_fn_definition(READ_CHAR_DEFINITION)
         .register_native_fn_definition(WRITE_BYTE_DEFINITION)
         .register_native_fn_definition(WRITE_BYTES_DEFINITION)
-        .register_native_fn_definition(PEEK_BYTE_DEFINITION);
+        .register_native_fn_definition(PEEK_BYTE_DEFINITION)
+        .register_native_fn_definition(READ_BYTES_DEFINITION)
+        .register_native_fn_definition(READ_BYTES_INTO_BUF_DEFINITION)
+        .register_native_fn_definition(WOULD_BLOCK_OBJECTP_DEFINITION)
+        .register_native_fn_definition(WOULD_BLOCK_OBJECT_DEFINITION);
+    module
+}
+
+pub fn port_module_without_filesystem() -> BuiltInModule {
+    let mut module = BuiltInModule::new("steel/ports");
+    module
+        .register_native_fn_definition(OPEN_STDIN_DEFINITION)
+        .register_native_fn_definition(OPEN_STDOUT_DEFINITION)
+        .register_native_fn_definition(OPEN_OUTPUT_STRING_DEFINITION)
+        .register_native_fn_definition(OPEN_OUTPUT_BYTEVECTOR_DEFINITION)
+        .register_native_fn_definition(WRITE_LINE_DEFINITION)
+        .register_native_fn_definition(WRITE_STRING_DEFINITION)
+        .register_native_fn_definition(WRITE_DEFINITION)
+        .register_native_fn_definition(WRITE_CHAR_DEFINITION)
+        .register_native_fn_definition(FLUSH_OUTPUT_PORT_DEFINITION)
+        .register_native_fn_definition(READ_PORT_TO_STRING_DEFINITION)
+        .register_native_fn_definition(READ_LINE_TO_STRING_DEFINITION)
+        .register_native_fn_definition(GET_OUTPUT_STRING_DEFINITION)
+        .register_native_fn_definition(GET_OUTPUT_BYTEVECTOR_DEFINITION)
+        .register_native_fn_definition(IS_INPUT_DEFINITION)
+        .register_native_fn_definition(IS_OUTPUT_DEFINITION)
+        .register_native_fn_definition(DEFAULT_INPUT_PORT_DEFINITION)
+        .register_native_fn_definition(DEFAULT_OUTPUT_PORT_DEFINITION)
+        .register_native_fn_definition(CLOSE_OUTPUT_PORT_DEFINITION)
+        .register_native_fn_definition(DEFAULT_ERROR_PORT_DEFINITION)
+        .register_native_fn_definition(EOF_OBJECT_DEFINITION)
+        .register_native_fn_definition(OPEN_INPUT_STRING_DEFINITION)
+        .register_native_fn_definition(OPEN_INPUT_BYTEVECTOR_DEFINITION)
+        .register_native_fn_definition(READ_BYTE_DEFINITION)
+        .register_native_fn_definition(READ_CHAR_DEFINITION)
+        .register_native_fn_definition(WRITE_BYTE_DEFINITION)
+        .register_native_fn_definition(WRITE_BYTES_DEFINITION)
+        .register_native_fn_definition(PEEK_BYTE_DEFINITION)
+        .register_native_fn_definition(READ_BYTES_DEFINITION)
+        .register_native_fn_definition(READ_BYTES_INTO_BUF_DEFINITION)
+        .register_native_fn_definition(WOULD_BLOCK_OBJECTP_DEFINITION)
+        .register_native_fn_definition(WOULD_BLOCK_OBJECT_DEFINITION);
     module
 }
 
@@ -369,6 +410,31 @@ pub fn eof_object() -> SteelVal {
     eof()
 }
 
+#[function(name = "would-block")]
+pub fn would_block_object() -> SteelVal {
+    would_block()
+}
+
+/// Returns `#t` if the value is an EOF object.
+///
+/// (eof-object? any/c) -> bool?
+#[function(name = "would-block-object?")]
+pub fn would_block_objectp(value: &SteelVal) -> bool {
+    let SteelVal::CustomStruct(struct_) = value else {
+        return false;
+    };
+
+    #[cfg(feature = "sync")]
+    {
+        struct_.type_descriptor == WOULD_BLOCK_OBJECT.1
+    }
+
+    #[cfg(not(feature = "sync"))]
+    {
+        WOULD_BLOCK_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
+    }
+}
+
 /// Reads a single byte from an input port.
 ///
 /// (read-byte [port]) -> byte?
@@ -378,10 +444,65 @@ pub fn eof_object() -> SteelVal {
 pub fn read_byte(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
     let port = input_args(rest)?;
 
-    Ok(port
-        .read_byte()?
-        .map(|b| SteelVal::IntV(b.into()))
-        .unwrap_or_else(eof))
+    let maybe_byte = port.read_byte()?;
+
+    match maybe_byte {
+        crate::values::port::MaybeBlocking::Nonblocking(b) => {
+            Ok(b.map(|b| SteelVal::IntV(b.into())).unwrap_or_else(eof))
+        }
+        crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
+    }
+
+    // Ok(port
+    //     .read_byte()?
+    //     .map(|b| SteelVal::IntV(b.into()))
+    //     .unwrap_or_else(eof))
+}
+
+/// Reads bytes from an input port.
+///
+/// (read-bytes amt [port]) -> bytes?
+///
+/// * amt : (and positive? int?)
+/// * port : input-port? = (current-input-port)
+#[function(name = "read-bytes")]
+pub fn read_bytes(amt: usize, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
+    let port = input_args(rest)?;
+
+    let bytes = port.read_bytes(amt)?;
+
+    match bytes {
+        crate::values::port::MaybeBlocking::Nonblocking(b) => {
+            Ok(SteelVal::ByteVector(SteelByteVector::new(b).into()))
+        }
+        crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
+    }
+}
+
+/// Reads bytes from an input port into a given buffer.
+///
+/// (read-bytes-into-buf buf amt [port]) -> bytes?
+///
+/// * buf : bytes?
+/// * amt : (and positive? int?)
+/// * port : input-port? = (current-input-port)
+#[function(name = "read-bytes-into-buf")]
+pub fn read_bytes_into_buf(
+    buf: &SteelByteVector,
+    amt: usize,
+    rest: RestArgsIter<&SteelPort>,
+) -> Result<SteelVal> {
+    let port = input_args(rest)?;
+
+    let mut guard = buf.vec.write();
+
+    if guard.len() < amt {
+        stop!(ContractViolation => "read-bytes-into-buf expects a buffer with the capacity to fill the buffer with the specified amount");
+    }
+
+    port.read_bytes_into_buf(&mut guard)?;
+
+    Ok(SteelVal::Void)
 }
 
 /// Writes a single byte to an output port.
@@ -435,7 +556,15 @@ pub fn peek_byte(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
 #[function(name = "read-char")]
 pub fn read_char(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
     let port = input_args(rest)?;
-    Ok(port.read_char()?.map(SteelVal::CharV).unwrap_or_else(eof))
+
+    let char = port.read_char()?;
+
+    match char {
+        crate::values::port::MaybeBlocking::Nonblocking(c) => {
+            Ok(c.map(SteelVal::CharV).unwrap_or_else(eof))
+        }
+        crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
+    }
 }
 
 fn input_args(args: RestArgsIter<&SteelPort>) -> Result<SteelPort> {

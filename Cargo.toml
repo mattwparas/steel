@@ -21,7 +21,8 @@ path = "src/main.rs"
 # This has to line up with the workspace version above
 steel-core = { path = "./crates/steel-core", version = "0.6.0", features = ["dylibs", "markdown", "stacker", "dylib-build", "sync"] }
 
-# [features]
+[features]
+build-info = ["vergen"]
 # Note: It does not appear that this will get propagated to any crate that depends on
 # the workspace feature. This is unfortunate, since we'd like everything to actually
 # use the workspace dependency. For now, if you want to test with sync, you should
@@ -56,3 +57,6 @@ lto = true
 
 [profile.test]
 opt-level = 2
+
+[build-dependencies]
+vergen = { version = "9.0.0", features = [ "build", "cargo", "rustc" ], optional = true}
