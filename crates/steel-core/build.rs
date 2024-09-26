@@ -1,7 +1,7 @@
 // build.rs
 
 fn main() {
-    #[cfg(feature = "dynamic")]
+    // #[cfg(feature = "dynamic")]
     {
         use std::env;
         use std::fs;

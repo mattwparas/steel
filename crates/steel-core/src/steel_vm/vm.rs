@@ -2803,11 +2803,13 @@ impl<'a> VmCore<'a> {
                 }
                 // match_dynamic_super_instructions!()
                 _ => {
-                    #[cfg(feature = "dynamic")]
+                    // #[cfg(feature = "dynamic")]
                     // TODO: Dispatch on the function here for super instructions!
                     dynamic::vm_match_dynamic_super_instruction(self, instr)?;
 
                     // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+
+                    // #[cfg(not(feature = "dynamic"))]
                     // panic!(
                     //     "Unhandled opcode: {:?} @ {}",
                     //     self.instructions[self.ip], self.ip
@@ -4141,10 +4143,25 @@ impl<'a> VmCore<'a> {
                         .push(std::mem::replace(arg, SteelVal::Void));
                 }
 
+                // Drop the ip back one? I guess? Not sure why exactly
+                self.ip -= 1;
+
                 self.handle_function_call_closure_jit(closure, arity)
                     .map(|_| None)
             }
-            // TODO: Implement this for other functions
+            // If the result is None, then we've handed control off
+            // Otherwise, just return
+            BuiltIn(func) => func(self, &args)
+                .map(|x| {
+                    x.map_err(|x| {
+                        if x.has_span() {
+                            x
+                        } else {
+                            x.set_span_if_none(self.current_span())
+                        }
+                    })
+                })
+                .transpose(),
             _ => {
                 log::error!("{stack_func:?}");
                 log::error!("Stack: {:?}", self.thread.stack);
@@ -5657,6 +5674,29 @@ fn call_global_handler_no_stack(
     ctx.handle_non_instr_global_function_call(func, args)
 }
 
+fn call_global_handler_with_args(
+    ctx: &mut VmCore<'_>,
+    args: &mut [SteelVal],
+) -> Result<Option<SteelVal>> {
+    // ctx.ip += 1;
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.ip += 1;
+
+    // TODO: Track the op codes of the surrounding values as well
+    // let next_inst = ctx.instructions[ctx.ip];
+
+    // println!("Looking up a function at index: {}", payload_size.to_usize());
+
+    let func = ctx
+        .thread
+        .global_env
+        .repl_lookup_idx(payload_size.to_usize());
+
+    ctx.handle_non_instr_global_function_call(func, args)
+
+    // ctx.handle_global_function_call(func, args)
+}
+
 fn num_equal_handler_no_stack(ctx: &mut VmCore<'_>, l: SteelVal, r: SteelVal) -> Result<bool> {
     if let SteelVal::BoolV(b) = number_equality(&l, &r)? {
         Ok(b)
@@ -6639,11 +6679,11 @@ mod handlers {
     }
 }
 
-#[cfg(feature = "dynamic")]
+// #[cfg(feature = "dynamic")]
 pub(crate) use dynamic::pattern_exists;
 
 #[macro_use]
-#[cfg(feature = "dynamic")]
+// #[cfg(feature = "dynamic")]
 mod dynamic {
     use super::*;
 

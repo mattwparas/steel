@@ -13,8 +13,6 @@ macro_rules! declare_opcodes {
             $($super),*
         }
 
-        // $( const $super: &'static [(TestOpCode, usize)] = &[ $($v),* ]; )*
-
         pub const fn op_code_to_super_instruction_pattern(op_code: OpCode) -> Option<&'static [(OpCode, usize)]> {
             match op_code {
                 $(OpCode::$super => Some( &[ $(($k, $v)),* ]) ),* ,
@@ -122,23 +120,35 @@ declare_opcodes! {
 
     // Super instructions
     {
-
-
         [
-            CaseLambdaDispatch =>
-                                  (OpCode::BEGINSCOPE, 0),
+            ReadLocal0CallGlobal1 =>
+                                  // (OpCode::BEGINSCOPE, 0),
                                   (OpCode::READLOCAL0, 0),
                                   (OpCode::CALLGLOBAL, 75),
                                   (OpCode::FUNC, 1),
-                                  (OpCode::READLOCAL1, 1),
-                                  (OpCode::PUSHCONST, 565),
+                                  // (OpCode::READLOCAL1, 1),
+                                  // (OpCode::PUSHCONST, 565),
+                                  // (OpCode::CALLGLOBAL, 75),
+                                  // (OpCode::FUNC, 1),
+                                  // (OpCode::NUMEQUAL, 2),
+                                  // (OpCode::PASS, 2),
+                                  // (OpCode::IF, 22),
+        ];
+
+        [
+            ReadLocal1CallGlobal1 =>
+                                  // (OpCode::BEGINSCOPE, 0),
+                                  (OpCode::READLOCAL1, 0),
                                   (OpCode::CALLGLOBAL, 75),
                                   (OpCode::FUNC, 1),
-                                  (OpCode::NUMEQUAL, 2),
-                                  (OpCode::PASS, 2),
-                                  (OpCode::IF, 22),
+                                  // (OpCode::READLOCAL1, 1),
+                                  // (OpCode::PUSHCONST, 565),
+                                  // (OpCode::CALLGLOBAL, 75),
+                                  // (OpCode::FUNC, 1),
+                                  // (OpCode::NUMEQUAL, 2),
+                                  // (OpCode::PASS, 2),
+                                  // (OpCode::IF, 22),
         ]
-
         // [
         //     ReadLocal1PushConstEqualIf => (OpCode::READLOCAL1, 1),
         //                                   (OpCode::PUSHCONST, 335),

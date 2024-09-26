@@ -222,6 +222,46 @@ impl StackToSSAConverter {
                     max_ip_read += 1;
                 }
                 Double(CALLGLOBAL, n) => {
+                    // let args = self
+                    //     .stack
+                    //     .split_off(self.stack.len() - n)
+                    //     .into_iter()
+                    //     .map(|x| x.to_string() + ".into(), ")
+                    //     .collect::<String>();
+
+                    // if index == last - 1 {
+                    //     // For whatever is left, push on to the SteelThread stack
+                    //     for value in &self.stack {
+                    //         match value.type_hint {
+                    //             TypeHint::Int | TypeHint::Bool | TypeHint::Float => {
+                    //                 lines.line(format!("ctx.thread.stack.push({value}.into());"))
+                    //             }
+                    //             // It is already confirmed to be... something thats non primitive.
+                    //             _ => lines.line(format!("ctx.thread.stack.push({value});")),
+                    //         };
+                    //     }
+
+                    //     let args = self
+                    //         .stack
+                    //         .split_off(self.stack.len() - n)
+                    //         .into_iter()
+                    //         .map(|x| x.to_string() + ".into(), ")
+                    //         .collect::<String>();
+
+                    //     self.stack.clear();
+
+                    //     // lines.line(format!(
+                    //     //     "let Some(res) = opcode_to_ssa_handler!(CALLGLOBAL, Tail)(ctx, &mut [{args}])? else {{ return Ok(()) }};"
+                    //     // ));
+
+                    //     lines.line(format!(
+                    //         "let Some(res) = opcode_to_ssa_handler!(CALLGLOBAL)(ctx, &mut [{args}])? else {{
+                    //             return Ok(());
+                    //         }};"
+                    //     ));
+
+                    //     lines.line("ctx.thread.stack.push(res);");
+                    // } else {
                     let args = self
                         .stack
                         .split_off(self.stack.len() - n)
@@ -229,32 +269,14 @@ impl StackToSSAConverter {
                         .map(|x| x.to_string() + ".into(), ")
                         .collect::<String>();
 
-                    if index == last - 1 {
-                        // For whatever is left, push on to the SteelThread stack
-                        for value in &self.stack {
-                            match value.type_hint {
-                                TypeHint::Int | TypeHint::Bool | TypeHint::Float => {
-                                    lines.line(format!("ctx.thread.stack.push({value}.into());"))
-                                }
-                                // It is already confirmed to be... something thats non primitive.
-                                _ => lines.line(format!("ctx.thread.stack.push({value});")),
-                            };
-                        }
+                    let local = self.push();
 
-                        self.stack.clear();
-
-                        lines.line(format!(
-                            "opcode_to_ssa_handler!(CALLGLOBAL, Tail)(ctx, &mut [{args}])?;"
-                        ));
-                    } else {
-                        let local = self.push();
-
-                        lines.line(format!(
+                    lines.line(format!(
                             "let Some({local}) = opcode_to_ssa_handler!(CALLGLOBAL)(ctx, &mut [{args}])? else {{
                                 return Ok(());
                             }};"
                         ));
-                    }
+                    // }
                 }
 
                 // TODO: Handle the numeric equality case
@@ -980,7 +1002,7 @@ pub fn generate_opcode_map() -> String {
             dbg!(&original_pattern);
 
             vm_match_loop_function.line(format!(
-                "DenseInstruction {{ op_code: OpCode::{:?}, payload_size, .. }} => dynamic::{}(ctx, payload_size as usize),",
+                "DenseInstruction {{ op_code: OpCode::{:?}, payload_size, .. }} => dynamic::{}(ctx, payload_size.to_usize()),",
                 op_code, generated_name
             ));
         };

@@ -32,7 +32,7 @@ use log::{debug, log_enabled};
 
 use super::{compiler::DebruijnIndicesInterner, map::SymbolMap};
 
-const _TILE_SUPER_INSTRUCTIONS: bool = true;
+const TILE_SUPER_INSTRUCTIONS: bool = true;
 
 pub fn number_literal_to_steel(n: &NumberLiteral) -> Result<SteelVal> {
     // real_to_steel does some cloning of bignums. It may be possible to optimize this away.
@@ -514,16 +514,12 @@ pub const fn sequence_to_opcode(pattern: &[(OpCode, usize)]) -> &'static [steel_
 
 #[allow(unused)]
 pub fn tile_super_instructions(instructions: &mut [Instruction]) {
-    #[cfg(feature = "dynamic")]
+    // #[cfg(feature = "dynamic")]
     {
         pub fn tile<const N: usize>(instructions: &mut [Instruction]) {
-            // let mut list: List<(usize, OpCode)> = List::new();
-
             let mut buffer = [(OpCode::VOID, 0); N];
 
             let mut pattern_buffer = Vec::with_capacity(N);
-
-            // Cell::from_mut()
 
             if N > instructions.len() {
                 return;
@@ -533,7 +529,7 @@ pub fn tile_super_instructions(instructions: &mut [Instruction]) {
                 for j in 0..N {
                     buffer[j] = (
                         instructions[i + j].op_code,
-                        instructions[i + j].payload_size,
+                        instructions[i + j].payload_size.to_u32() as _,
                     );
                 }
 
@@ -562,17 +558,17 @@ pub fn tile_super_instructions(instructions: &mut [Instruction]) {
 
         // Super instruction tiling here!
 
-        if _TILE_SUPER_INSTRUCTIONS {
-            tile::<11>(instructions);
-            tile::<10>(instructions);
-            tile::<9>(instructions);
-            tile::<8>(instructions);
-            tile::<7>(instructions);
-            tile::<6>(instructions);
-            tile::<5>(instructions);
-            tile::<4>(instructions);
+        if TILE_SUPER_INSTRUCTIONS {
+            // tile::<11>(instructions);
+            // tile::<10>(instructions);
+            // tile::<9>(instructions);
+            // tile::<8>(instructions);
+            // tile::<7>(instructions);
+            // tile::<6>(instructions);
+            // tile::<5>(instructions);
+            // tile::<4>(instructions);
             tile::<3>(instructions);
-            tile::<2>(instructions);
+            // tile::<2>(instructions);
         }
     }
 }
