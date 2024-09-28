@@ -13,7 +13,7 @@ impl ControlOperations {
                 error_message.push_str(error_val.trim_matches('\"'));
             }
 
-            Ok(SteelVal::StringV(error_message.into()))
+            Ok(SteelVal::StringV(error_message.as_str().into()))
         })
     }
 
