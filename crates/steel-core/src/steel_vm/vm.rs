@@ -549,6 +549,10 @@ impl SteelThread {
         }
     }
 
+    pub fn get_constant_map(&self) -> ConstantMap {
+        self.constant_map.clone()
+    }
+
     // Allow this thread to be available for garbage collection
     // during the duration of the provided thunk
     #[inline(always)]
@@ -624,7 +628,7 @@ impl SteelThread {
         result
     }
 
-    pub(crate) fn call_function_from_mut_slice(
+    pub fn call_function_from_mut_slice(
         &mut self,
         constant_map: ConstantMap,
         function: SteelVal,
@@ -676,7 +680,7 @@ impl SteelThread {
         }
     }
 
-    pub(crate) fn call_function(
+    pub fn call_function(
         &mut self,
         constant_map: ConstantMap,
         function: SteelVal,
@@ -1280,6 +1284,17 @@ pub struct VmCore<'a> {
 // TODO: Delete this entirely, and just have the run function live on top of the SteelThread.
 //
 impl<'a> VmCore<'a> {
+    // Copy the thread of execution. This just blindly copies the thread, and closes
+    // the continuations found.
+    pub fn make_thread(&self) -> SteelThread {
+        let thread = self.thread.clone();
+        for frame in &self.thread.stack_frames {
+            self.close_continuation_marks(frame);
+        }
+        self.close_continuation_marks(&self.thread.current_frame);
+        thread
+    }
+
     fn new_unchecked(
         instructions: Shared<[DenseInstruction]>,
         constants: ConstantMap,

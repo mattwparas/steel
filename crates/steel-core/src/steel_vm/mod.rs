@@ -16,4 +16,4 @@ mod test_util;
 #[cfg(test)]
 mod tests;
 pub(crate) mod transducers;
-pub(crate) mod vm;
+pub mod vm;
