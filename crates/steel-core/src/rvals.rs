@@ -1569,7 +1569,7 @@ impl From<String> for SteelString {
 
 impl From<crate::gc::Shared<String>> for SteelString {
     fn from(val: crate::gc::Shared<String>) -> Self {
-        SteelString(Gc(val))
+        SteelString(Gc::from(val))
     }
 }
 
@@ -1581,7 +1581,7 @@ impl From<Gc<String>> for SteelString {
 
 impl From<SteelString> for crate::gc::Shared<String> {
     fn from(value: SteelString) -> Self {
-        value.0 .0
+        value.0 .0.clone()
     }
 }
 

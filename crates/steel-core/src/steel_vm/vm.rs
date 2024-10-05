@@ -376,6 +376,13 @@ pub struct FunctionInterner {
     instructions: fxhash::FxHashMap<u32, Shared<[DenseInstruction]>>,
 }
 
+impl FunctionInterner {
+    pub fn stats(&self) {
+        println!("Closures: {}", self.closure_interner.len());
+        println!("Functions: {}", self.pure_function_interner.len());
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct ThreadStateController {
     paused: Arc<AtomicBool>,
@@ -620,6 +627,8 @@ impl SteelThread {
             .collect();
 
         self.constant_map = DEFAULT_CONSTANT_MAP.with(|x| x.clone());
+
+        self.function_interner.stats();
 
         result
     }

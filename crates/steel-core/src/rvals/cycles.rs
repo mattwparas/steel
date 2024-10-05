@@ -626,7 +626,6 @@ pub(crate) mod drop_impls {
 
     thread_local! {
         pub static DROP_BUFFER: RefCell<VecDeque<SteelVal>> = RefCell::new(VecDeque::with_capacity(128));
-        pub static FORMAT_BUFFER: RefCell<VecDeque<SteelVal>> = RefCell::new(VecDeque::with_capacity(128));
     }
 
     impl Drop for SteelVector {

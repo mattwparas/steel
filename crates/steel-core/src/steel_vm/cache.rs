@@ -74,7 +74,7 @@ impl WeakMemoizationTable {
                 let mut map = HashMap::new();
                 map.insert(arguments, value);
 
-                self.table.insert(l.0, map);
+                self.table.insert(l.0.clone(), map);
             }
         } else {
             stop!(TypeMismatch => "memoization table expected a function, found: {:?}", function);

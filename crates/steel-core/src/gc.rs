@@ -6,6 +6,7 @@ use crate::stop;
 use std::cell::RefCell;
 
 use std::fmt::Pointer;
+use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{ffi::OsStr, fmt};
@@ -332,6 +333,15 @@ pub enum MaybeWeak<T: Clone> {
 #[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 pub struct Gc<T: ?Sized>(pub(crate) Shared<T>);
 
+impl<T: ?Sized> Drop for Gc<T> {
+    fn drop(&mut self) {
+        // TODO: Does this work?
+        if Shared::strong_count(&self.0) == 1 {
+            OBJECT_COUNT.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+}
+
 impl<T: ?Sized> Pointer for Gc<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:p}", self.0)
@@ -351,7 +361,7 @@ impl fmt::Display for Gc<String> {
 }
 
 pub fn get_object_count() -> usize {
-    OBJECT_COUNT.fetch_add(0, Ordering::SeqCst)
+    OBJECT_COUNT.load(Ordering::SeqCst)
 }
 
 impl<T: Clone> Gc<T> {
@@ -368,8 +378,9 @@ impl<T: Clone> Gc<T> {
 impl<T> Gc<T> {
     // in order to fully sandbox, I have to check the memory limit
     pub fn new(val: T) -> Gc<T> {
-        // OBJECT_COUNT.fetch_add(1, Ordering::SeqCst);
-        Gc(Shared::new(val))
+        OBJECT_COUNT.fetch_add(1, Ordering::SeqCst);
+        let res = Gc(Shared::new(val));
+        res
     }
 
     pub fn new_mut(val: T) -> GcMut<T> {
@@ -391,7 +402,7 @@ impl<T> Gc<T> {
     }
 
     pub fn checked_allocate(allocations: usize) -> Result<(), SteelErr> {
-        let mem: usize = OBJECT_COUNT.fetch_add(0, Ordering::SeqCst);
+        let mem: usize = OBJECT_COUNT.load(Ordering::SeqCst);
         if mem + allocations > MAXIMUM_OBJECTS {
             stop!(Generic => "allocation would exceed maximum allowed memory")
         }
@@ -410,8 +421,32 @@ impl<T> Gc<T> {
         Shared::as_ptr(&self.0)
     }
 
+    // TODO: Guard against usage here?
     pub fn try_unwrap(self) -> Result<T, Gc<T>> {
-        Shared::try_unwrap(self.0).map_err(|x| Gc(x))
+        // TODO: Use manually drop here
+        unsafe {
+            // Don't use this again?
+            let manually_drop = ManuallyDrop::new(self);
+            let inner = std::ptr::read(&manually_drop.0);
+            Shared::try_unwrap(inner)
+                .map(|x| {
+                    OBJECT_COUNT.fetch_sub(1, Ordering::SeqCst);
+                    x
+                })
+                .map_err(|x| {
+                    // OBJECT_COUNT.fetch_add(1, Ordering::SeqCst);
+                    Gc(x)
+                })
+        }
+
+        // OBJECT_COUNT.fetch_sub(1, Ordering::SeqCst);
+
+        // Shared::try_unwrap(inner).map_err(|x| {
+        //     // OBJECT_COUNT.fetch_add(1, Ordering::SeqCst);
+        //     Gc::from(x)
+        // })
+
+        // Shared::try_unwrap(self.0).map_err(|x| Gc(x))
     }
 
     pub fn strong_count(this: &Self) -> usize {
@@ -424,6 +459,13 @@ impl<T> Gc<T> {
             stop!(Generic => "ran out of memory!")
         }
         Ok(mem)
+    }
+}
+
+impl<T> From<Shared<T>> for Gc<T> {
+    fn from(value: Shared<T>) -> Self {
+        OBJECT_COUNT.fetch_add(0, Ordering::SeqCst);
+        Gc(value)
     }
 }
 
