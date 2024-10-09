@@ -2,7 +2,7 @@ use crate::rvals::{Custom, Result, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::{steelerr, stop, throw};
 use dirs;
-use std::env::current_dir;
+use std::env::{current_dir, set_current_dir};
 use std::path::{Path, PathBuf};
 
 use std::fs;
@@ -50,8 +50,10 @@ pub fn fs_module() -> BuiltInModule {
         .register_native_fn_definition(READ_DIR_DEFINITION)
         .register_native_fn_definition(PATH_EXISTS_DEFINITION)
         .register_native_fn_definition(FILE_NAME_DEFINITION)
+        .register_native_fn_definition(PARENT_NAME_DEFINITION)
         .register_native_fn_definition(CANONICALIZE_PATH_DEFINITION)
         .register_native_fn_definition(CURRENT_DIRECTORY_DEFINITION)
+        .register_native_fn_definition(CHANGE_CURRENT_DIRECTORY_DEFINITION)
         .register_native_fn_definition(GET_EXTENSION_DEFINITION)
         .register_native_fn_definition(DELETE_FILE_DEFINITION);
     module
@@ -128,6 +130,18 @@ pub fn file_name(path: &SteelString) -> Result<SteelVal> {
     ))
 }
 
+/// Gets the parent directory name for a given path
+#[steel_derive::function(name = "parent-name")]
+pub fn parent_name(path: &SteelString) -> Result<SteelVal> {
+    Ok(SteelVal::StringV(
+        Path::new(path.as_str())
+            .parent()
+            .and_then(|x| x.to_str())
+            .unwrap_or("")
+            .into(),
+    ))
+}
+
 /// Returns canonical path with all components normalized
 #[steel_derive::function(name = "canonicalize-path")]
 pub fn canonicalize_path(path: &SteelString) -> Result<SteelVal> {
@@ -181,6 +195,15 @@ pub fn read_dir(path: &SteelString) -> Result<SteelVal> {
 pub fn current_directory() -> Result<SteelVal> {
     let path = current_dir()?;
     Ok(SteelVal::StringV(path.to_str().unwrap_or("").into()))
+}
+
+/// Change the current working directory
+#[steel_derive::function(name = "change-current-directory!")]
+pub fn change_current_directory(path: &SteelString) -> Result<SteelVal> {
+    let path = Path::new(path.as_ref());
+
+    set_current_dir(path)?;
+    Ok(SteelVal::Void)
 }
 
 /// Deletes the file
