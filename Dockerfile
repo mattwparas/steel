@@ -1,4 +1,4 @@
-FROM rust:slim as build
+FROM rust:slim AS build
 
 COPY . /steel/
 
@@ -16,13 +16,14 @@ RUN mkdir -p /lib/steel/
 ENV STEEL_HOME="/lib/steel"
 
 RUN cargo build --release
+
 RUN cargo install --path crates/cargo-steel-lib
 
 RUN cd cogs && cargo run -- install.scm
 
 FROM rust:slim
 
-COPY --from=build /steel/target/debug/steel /usr/local/bin
+COPY --from=build /steel/target/release/steel /usr/local/bin
 
 COPY --from=build /lib/steel /lib/
 
