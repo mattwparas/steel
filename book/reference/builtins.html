@@ -1,0 +1,937 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Built ins - The Steel Book</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../theme/pagetoc.css">
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../introduction.html">Introduction</a></li><li class="chapter-item expanded "><a href="../foundations/overview.html"><strong aria-hidden="true">1.</strong> Foundations</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../foundations/evaluation.html"><strong aria-hidden="true">1.1.</strong> Evaluation</a></li><li class="chapter-item expanded "><a href="../foundations/literals.html"><strong aria-hidden="true">1.2.</strong> Literals</a></li><li class="chapter-item expanded "><a href="../foundations/fncalls.html"><strong aria-hidden="true">1.3.</strong> Function calls</a></li><li class="chapter-item expanded "><a href="../foundations/symbols.html"><strong aria-hidden="true">1.4.</strong> Symbols</a></li><li class="chapter-item expanded "><a href="../foundations/bindings_scopes.html"><strong aria-hidden="true">1.5.</strong> Bindings and Scopes</a></li></ol></li><li class="chapter-item expanded "><a href="../about/about.html"><strong aria-hidden="true">2.</strong> Steel</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../about/features.html"><strong aria-hidden="true">2.1.</strong> Features</a></li><li class="chapter-item expanded "><a href="../about/license.html"><strong aria-hidden="true">2.2.</strong> Licensing</a></li></ol></li><li class="chapter-item expanded "><a href="../start/start.html"><strong aria-hidden="true">3.</strong> Getting Started</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../start/playground.html"><strong aria-hidden="true">3.1.</strong> Online Playground</a></li><li class="chapter-item expanded "><a href="../start/standalone.html"><strong aria-hidden="true">3.2.</strong> Using Steel on its own</a></li><li class="chapter-item expanded "><a href="../start/dylib.html"><strong aria-hidden="true">3.3.</strong> Using Rust in Steel</a></li><li class="chapter-item expanded "><a href="../start/embedded.html"><strong aria-hidden="true">3.4.</strong> Embedding Steel in Rust</a></li></ol></li><li class="chapter-item expanded "><a href="../engine/engine.html"><strong aria-hidden="true">4.</strong> The Rust Engine API</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../engine/register_function.html"><strong aria-hidden="true">4.1.</strong> Registering functions</a></li><li class="chapter-item expanded "><a href="../engine/embedding_values.html"><strong aria-hidden="true">4.2.</strong> Embedding values</a></li></ol></li><li class="chapter-item expanded "><a href="../reference/language.html"><strong aria-hidden="true">5.</strong> Language Reference</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../reference/keywords.html"><strong aria-hidden="true">5.1.</strong> Keywords</a></li><li class="chapter-item expanded "><a href="../reference/syntax.html"><strong aria-hidden="true">5.2.</strong> Syntax</a></li><li class="chapter-item expanded "><a href="../reference/macros.html"><strong aria-hidden="true">5.3.</strong> Macros</a></li><li class="chapter-item expanded "><a href="../reference/contracts.html"><strong aria-hidden="true">5.4.</strong> Contracts</a></li><li class="chapter-item expanded "><a href="../reference/transducers.html"><strong aria-hidden="true">5.5.</strong> Transducers</a></li><li class="chapter-item expanded "><a href="../reference/modules.html"><strong aria-hidden="true">5.6.</strong> Modules</a></li><li class="chapter-item expanded "><a href="../reference/functions.html"><strong aria-hidden="true">5.7.</strong> Functions</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../generated/logging.html"><strong aria-hidden="true">5.7.1.</strong> Logging</a></li><li class="chapter-item expanded "><a href="../reference/builtins.html" class="active"><strong aria-hidden="true">5.7.2.</strong> Built ins</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../builtins/steel_base.html"><strong aria-hidden="true">5.7.2.1.</strong> steel/base</a></li><li class="chapter-item expanded "><a href="../builtins/steel_bytevectors.html"><strong aria-hidden="true">5.7.2.2.</strong> steel/bytevectors</a></li><li class="chapter-item expanded "><a href="../builtins/steel_constants.html"><strong aria-hidden="true">5.7.2.3.</strong> steel/constants</a></li><li class="chapter-item expanded "><a href="../builtins/steel_core_option.html"><strong aria-hidden="true">5.7.2.4.</strong> steel/core/option</a></li><li class="chapter-item expanded "><a href="../builtins/steel_core_result.html"><strong aria-hidden="true">5.7.2.5.</strong> steel/core/result</a></li><li class="chapter-item expanded "><a href="../builtins/steel_core_types.html"><strong aria-hidden="true">5.7.2.6.</strong> steel/core/types</a></li><li class="chapter-item expanded "><a href="../builtins/steel_equality.html"><strong aria-hidden="true">5.7.2.7.</strong> steel/equality</a></li><li class="chapter-item expanded "><a href="../builtins/steel_filesystem.html"><strong aria-hidden="true">5.7.2.8.</strong> steel/filesystem</a></li><li class="chapter-item expanded "><a href="../builtins/steel_hash.html"><strong aria-hidden="true">5.7.2.9.</strong> steel/hash</a></li><li class="chapter-item expanded "><a href="../builtins/steel_identity.html"><strong aria-hidden="true">5.7.2.10.</strong> steel/identity</a></li><li class="chapter-item expanded "><a href="../builtins/steel_io.html"><strong aria-hidden="true">5.7.2.11.</strong> steel/io</a></li><li class="chapter-item expanded "><a href="../builtins/steel_immutable-vectors.html"><strong aria-hidden="true">5.7.2.12.</strong> steel/immutable-vectors</a></li><li class="chapter-item expanded "><a href="../builtins/steel_json.html"><strong aria-hidden="true">5.7.2.13.</strong> steel/json</a></li><li class="chapter-item expanded "><a href="../builtins/steel_lists.html"><strong aria-hidden="true">5.7.2.14.</strong> steel/lists</a></li><li class="chapter-item expanded "><a href="../builtins/steel_meta.html"><strong aria-hidden="true">5.7.2.15.</strong> steel/meta</a></li><li class="chapter-item expanded "><a href="../builtins/steel_numbers.html"><strong aria-hidden="true">5.7.2.16.</strong> steel/numbers</a></li><li class="chapter-item expanded "><a href="../builtins/steel_ord.html"><strong aria-hidden="true">5.7.2.17.</strong> steel/ord</a></li><li class="chapter-item expanded "><a href="../builtins/steel_ports.html"><strong aria-hidden="true">5.7.2.18.</strong> steel/ports</a></li><li class="chapter-item expanded "><a href="../builtins/steel_process.html"><strong aria-hidden="true">5.7.2.19.</strong> steel/process</a></li><li class="chapter-item expanded "><a href="../builtins/steel_random.html"><strong aria-hidden="true">5.7.2.20.</strong> steel/random</a></li><li class="chapter-item expanded "><a href="../builtins/steel_sets.html"><strong aria-hidden="true">5.7.2.21.</strong> steel/sets</a></li><li class="chapter-item expanded "><a href="../builtins/steel_streams.html"><strong aria-hidden="true">5.7.2.22.</strong> steel/streams</a></li><li class="chapter-item expanded "><a href="../builtins/steel_strings.html"><strong aria-hidden="true">5.7.2.23.</strong> steel/strings</a></li><li class="chapter-item expanded "><a href="../builtins/steel_symbols.html"><strong aria-hidden="true">5.7.2.24.</strong> steel/symbols</a></li><li class="chapter-item expanded "><a href="../builtins/steel_syntax.html"><strong aria-hidden="true">5.7.2.25.</strong> steel/syntax</a></li><li class="chapter-item expanded "><a href="../builtins/steel_time.html"><strong aria-hidden="true">5.7.2.26.</strong> steel/time</a></li><li class="chapter-item expanded "><a href="../builtins/steel_transducers.html"><strong aria-hidden="true">5.7.2.27.</strong> steel/transducers</a></li><li class="chapter-item expanded "><a href="../builtins/steel_vectors.html"><strong aria-hidden="true">5.7.2.28.</strong> steel/vectors</a></li></ol></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../bytecode/bytecode.html"><strong aria-hidden="true">6.</strong> Bytecode</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../bytecode/optimizations.html"><strong aria-hidden="true">6.1.</strong> Optimizations</a></li></ol></li><li class="chapter-item expanded "><a href="../benchmarks/benchmarks.html"><strong aria-hidden="true">7.</strong> Benchmarks</a></li><li class="chapter-item expanded "><a href="../patterns/patterns.html"><strong aria-hidden="true">8.</strong> Common Patterns</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../patterns/mutability.html"><strong aria-hidden="true">8.1.</strong> Interior Mutability</a></li><li class="chapter-item expanded "><a href="../patterns/async.html"><strong aria-hidden="true">8.2.</strong> Async</a></li></ol></li><li class="chapter-item expanded "><a href="../garbage-collection/gc.html"><strong aria-hidden="true">9.</strong> Memory Management</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">The Steel Book</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="steelcoreoption"><a class="header" href="#steelcoreoption">steel/core/option</a></h1>
+<h1 id="steelcoreresult"><a class="header" href="#steelcoreresult">steel/core/result</a></h1>
+<h1 id="steelidentity"><a class="header" href="#steelidentity">steel/identity</a></h1>
+<h1 id="steelhash"><a class="header" href="#steelhash">steel/hash</a></h1>
+<h3 id="hash-try-get"><a class="header" href="#hash-try-get"><strong>hash-try-get</strong></a></h3>
+<p>Gets the <code>key</code> from the given <code>map</code>. Returns #false if the key does not exist.</p>
+<p>(hash-try-get map key) -&gt; (or any/c #false)</p>
+<ul>
+<li>map : hash?</li>
+<li>key : any/c</li>
+</ul>
+<h4 id="examples"><a class="header" href="#examples">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (hash-try-get (hash 'a 10 'b 20) 'b) ;; =&gt; 20
+&gt; (hash-try-get (hash 'a 10 'b 20) 'does-not-exist) ;; =&gt; #false
+</code></pre>
+<h3 id="hash-length"><a class="header" href="#hash-length"><strong>hash-length</strong></a></h3>
+<p>Returns the number of key value pairs in the map</p>
+<p>(hash-length map) -&gt; (and positive? int?)</p>
+<ul>
+<li>map : hash?</li>
+</ul>
+<h4 id="examples-1"><a class="header" href="#examples-1">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (hash-length (hash 'a 10 'b 20)) ;; =&gt; 2
+</code></pre>
+<h3 id="hash-ref"><a class="header" href="#hash-ref"><strong>hash-ref</strong></a></h3>
+<p>Gets the <code>key</code> from the given <code>map</code>. Raises an error if the key does not exist. <code>hash-get</code> is an alias for this.</p>
+<p>(hash-ref map key) -&gt; any/c</p>
+<ul>
+<li>map : hash?</li>
+<li>key : any/c</li>
+</ul>
+<h4 id="examples-2"><a class="header" href="#examples-2">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (hash-get (hash 'a 10 'b 20) 'b) ;; =&gt; 20
+</code></pre>
+<h3 id="hash-contains"><a class="header" href="#hash-contains"><strong>hash-contains?</strong></a></h3>
+<p>Checks whether the given map contains the given key. Key must be hashable.</p>
+<p>(hash-contains? map key) -&gt; bool?</p>
+<ul>
+<li>map : hash?</li>
+<li>key : hashable?</li>
+</ul>
+<h4 id="example"><a class="header" href="#example">Example</a></h4>
+<pre><code class="language-scheme">&gt; (hash-contains? (hash 'a 10 'b 20) 'a) ;; =&gt; #true
+&gt; (hash-contains? (hash 'a 10 'b 20) 'not-there) ;; =&gt; #false
+</code></pre>
+<h3 id="hash-insert"><a class="header" href="#hash-insert"><strong>hash-insert</strong></a></h3>
+<p>Returns a new hashmap with the additional key value pair added. Performs a functional update,
+so the old hash map is still accessible.</p>
+<p>(hash-insert map key val) -&gt; hash?</p>
+<ul>
+<li>map : hash?</li>
+<li>key : any/c</li>
+<li>val : any/c</li>
+</ul>
+<h4 id="examples-3"><a class="header" href="#examples-3">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (hash-insert (hash 'a 10 'b 20) 'c 30)
+
+=&gt; #&lt;hashmap {
+'a: 10,
+'b: 20,
+'c: 30
+}&gt;
+</code></pre>
+<h1 id="steelrandom"><a class="header" href="#steelrandom">steel/random</a></h1>
+<h1 id="steelio"><a class="header" href="#steelio">steel/io</a></h1>
+<h1 id="steelequality"><a class="header" href="#steelequality">steel/equality</a></h1>
+<h1 id="steelord"><a class="header" href="#steelord">steel/ord</a></h1>
+<h1 id="steeljson"><a class="header" href="#steeljson">steel/json</a></h1>
+<h1 id="steelsets"><a class="header" href="#steelsets">steel/sets</a></h1>
+<h1 id="steeltime"><a class="header" href="#steeltime">steel/time</a></h1>
+<h3 id="steeltime-1"><a class="header" href="#steeltime-1"><strong>steel/time</strong></a></h3>
+<h4 id="steeltime-2"><a class="header" href="#steeltime-2">steel/time</a></h4>
+<p>Contains direct wrappers around the Rust <code>std::time::Instant</code> and <code>std::time::Duration</code> modules.
+For example, to measure the time something takes:</p>
+<pre><code class="language-scheme">(define t (instant/now))
+(displayln "Hello world")
+(displayln (instant/elapsed t))
+</code></pre>
+<h1 id="steelvectors"><a class="header" href="#steelvectors">steel/vectors</a></h1>
+<h1 id="steelports"><a class="header" href="#steelports">steel/ports</a></h1>
+<h3 id="read-port-to-string"><a class="header" href="#read-port-to-string"><strong>read-port-to-string</strong></a></h3>
+<p>Takes a port and reads the entire content into a string</p>
+<p>(read-port-to-string port) -&gt; string?</p>
+<ul>
+<li>port : input-port?</li>
+</ul>
+<h3 id="output-port"><a class="header" href="#output-port"><strong>output-port?</strong></a></h3>
+<p>Checks if a given value is an output port</p>
+<p>(output-port? any/c) -&gt; bool?</p>
+<h4 id="examples-4"><a class="header" href="#examples-4">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (define output (open-output-file "foo.txt"))
+&gt; (output-port? output) ;; =&gt; #true
+</code></pre>
+<h3 id="open-input-file"><a class="header" href="#open-input-file"><strong>open-input-file</strong></a></h3>
+<p>Takes a filename <code>path</code> referring to an existing file and returns an input port. Raises an error
+if the file does not exist</p>
+<p>(open-input-file string?) -&gt; input-port?</p>
+<h4 id="examples-5"><a class="header" href="#examples-5">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (open-input-file "foo-bar.txt") ;; =&gt; #&lt;port&gt;
+&gt; (open-input-file "file-does-not-exist.txt")
+error[E08]: Io
+┌─ :1:2
+│
+1 │ (open-input-file "foo-bar.txt")
+│  ^^^^^^^^^^^^^^^ No such file or directory (os error 2)
+</code></pre>
+<h3 id="stdin"><a class="header" href="#stdin"><strong>stdin</strong></a></h3>
+<p>Gets the port handle to stdin</p>
+<p>(stdin) -&gt; input-port?</p>
+<h4 id="examples-6"><a class="header" href="#examples-6">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (stdin) ;; =&gt; #&lt;port&gt;
+</code></pre>
+<h3 id="input-port"><a class="header" href="#input-port"><strong>input-port?</strong></a></h3>
+<p>Checks if a given value is an input port</p>
+<p>(input-port? any/c) -&gt; bool?</p>
+<h4 id="examples-7"><a class="header" href="#examples-7">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (input-port? (stdin)) ;; =&gt; #true
+&gt; (input-port? "foo") ;; =&gt; #false
+</code></pre>
+<h3 id="open-output-file"><a class="header" href="#open-output-file"><strong>open-output-file</strong></a></h3>
+<p>Takes a filename <code>path</code> referring to a file to be created and returns an output port.</p>
+<p>(open-output-file string?) -&gt; output-port?</p>
+<h4 id="examples-8"><a class="header" href="#examples-8">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (open-output-file "foo-bar.txt") ;; =&gt; #&lt;port&gt;
+</code></pre>
+<h1 id="steelstrings"><a class="header" href="#steelstrings">steel/strings</a></h1>
+<h3 id="starts-with"><a class="header" href="#starts-with"><strong>starts-with?</strong></a></h3>
+<p>Checks if the input string starts with a prefix</p>
+<p>(starts-with? input pattern) -&gt; bool?</p>
+<p>input : string?
+pattern: string?</p>
+<h4 id="examples-9"><a class="header" href="#examples-9">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (starts-with? "foobar" "foo") ;; =&gt; #true
+&gt; (starts-with? "foobar" "bar") ;; =&gt; #false
+</code></pre>
+<h3 id="split-whitespace"><a class="header" href="#split-whitespace"><strong>split-whitespace</strong></a></h3>
+<p>Returns a list of strings from the original string split on the whitespace</p>
+<p>(split-whitespace string?) -&gt; (listof string?)</p>
+<h4 id="examples-10"><a class="header" href="#examples-10">Examples</a></h4>
+<pre><code class="language-scheme">(split-whitespace "apples bananas fruits veggies") ;; '("apples" "bananas" "fruits" "veggies")
+</code></pre>
+<h3 id="trim-end"><a class="header" href="#trim-end"><strong>trim-end</strong></a></h3>
+<p>Returns a new string with the trailing whitespace removed.</p>
+<p>(trim string?) -&gt; string?</p>
+<h4 id="examples-11"><a class="header" href="#examples-11">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (trim "   foo     ") ;; =&gt; "   foo"
+</code></pre>
+<h3 id="string-int"><a class="header" href="#string-int"><strong>string-&gt;int</strong></a></h3>
+<p>Converts a string into an int. Raises an error if the string cannot be converted to an integer.</p>
+<p>(string-&gt;int string?) -&gt; int?</p>
+<h4 id="examples-12"><a class="header" href="#examples-12">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (string-&gt;int "100") ;; =&gt; 10
+&gt; (string-&gt;int "not-an-int") ;; error
+</code></pre>
+<h3 id="ends-with"><a class="header" href="#ends-with"><strong>ends-with?</strong></a></h3>
+<p>Checks if the input string ends with a given suffix</p>
+<p>(ends-with? input pattern) -&gt; bool?</p>
+<p>input : string?
+pattern: string?</p>
+<h4 id="examples-13"><a class="header" href="#examples-13">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (ends-with? "foobar" "foo") ;; =&gt; #false
+&gt; (ends-with? "foobar" "bar") ;; =&gt; #true
+</code></pre>
+<h3 id="string-length"><a class="header" href="#string-length"><strong>string-length</strong></a></h3>
+<p>Get the length of the given string</p>
+<p>(string-length string?) -&gt; int?</p>
+<h4 id="examples-14"><a class="header" href="#examples-14">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (string-length "apples") ;; =&gt; 6
+</code></pre>
+<h3 id="trim-start"><a class="header" href="#trim-start"><strong>trim-start</strong></a></h3>
+<p>Returns a new string with the leading whitespace removed.</p>
+<p>(trim string?) -&gt; string?</p>
+<h4 id="examples-15"><a class="header" href="#examples-15">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (trim "   foo     ") ;; =&gt; "foo     "
+</code></pre>
+<h3 id="string-upper"><a class="header" href="#string-upper"><strong>string-&gt;upper</strong></a></h3>
+<p>Creates a new uppercased version of the input string</p>
+<p>(string-&gt;upper string?) -&gt; string?</p>
+<h4 id="examples-16"><a class="header" href="#examples-16">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (string-&gt;upper "lower") ;; =&gt; "LOWER"
+</code></pre>
+<h3 id="trim"><a class="header" href="#trim"><strong>trim</strong></a></h3>
+<p>Returns a new string with the leading and trailing whitespace removed.</p>
+<p>(trim string?) -&gt; string?</p>
+<h4 id="examples-17"><a class="header" href="#examples-17">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (trim "   foo     ") ;; =&gt; "foo"
+</code></pre>
+<h3 id="string-list"><a class="header" href="#string-list"><strong>string-&gt;list</strong></a></h3>
+<p>Converts a string into a list of characters.</p>
+<p>(string-&gt;list string?) -&gt; (listof char?)</p>
+<h4 id="examples-18"><a class="header" href="#examples-18">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (string-&gt;list "hello") ;; =&gt; '(#\h #\e #\l #\l #\o)
+</code></pre>
+<h3 id="string-symbol"><a class="header" href="#string-symbol"><strong>string-&gt;symbol</strong></a></h3>
+<p>Converts a string into a symbol.</p>
+<p>(string-&gt;symbol string?) -&gt; symbol?</p>
+<h4 id="examples-19"><a class="header" href="#examples-19">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (string-&gt;symbol "FooBar") ;; =&gt; 'FooBar
+</code></pre>
+<h3 id="int-string"><a class="header" href="#int-string"><strong>int-&gt;string</strong></a></h3>
+<p>Converts an integer into a string.</p>
+<p>(int-&gt;string int?) -&gt; string?</p>
+<h4 id="examples-20"><a class="header" href="#examples-20">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (int-&gt;string 10) ;; =&gt; "10"
+</code></pre>
+<h3 id="string-append"><a class="header" href="#string-append"><strong>string-append</strong></a></h3>
+<p>Concatenates all of the given strings into one</p>
+<p>(string-append strs...) -&gt; string?</p>
+<ul>
+<li>strs ... : string?</li>
+</ul>
+<h4 id="examples-21"><a class="header" href="#examples-21">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (string-append) ;; =&gt; ""
+&gt; (string-append "foo" "bar") ;; =&gt; "foobar"
+### **string-&gt;lower**
+Creates a new lowercased version of the input string
+
+(string-&gt;lower string?) -&gt; string?
+
+#### Examples
+
+```scheme
+&gt; (string-&gt;lower "sPonGeBoB tExT") ;; =&gt; "spongebob text"
+</code></pre>
+<h3 id="to-string"><a class="header" href="#to-string"><strong>to-string</strong></a></h3>
+<p>Concatenatives all of the inputs to their string representation, separated by spaces.</p>
+<p>(to-string xs ...)</p>
+<ul>
+<li>xs : any/c</li>
+</ul>
+<h4 id="examples-22"><a class="header" href="#examples-22">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (to-string 10) ;; =&gt; "10"
+&gt; (to-string "hello" "world") ;; =&gt; "hello world"
+</code></pre>
+<h1 id="steelfilesystem"><a class="header" href="#steelfilesystem">steel/filesystem</a></h1>
+<h1 id="steelsyntax"><a class="header" href="#steelsyntax">steel/syntax</a></h1>
+<h1 id="steeltransducers"><a class="header" href="#steeltransducers">steel/transducers</a></h1>
+<h1 id="steelsymbols"><a class="header" href="#steelsymbols">steel/symbols</a></h1>
+<h1 id="steelstringscolors"><a class="header" href="#steelstringscolors">steel/strings/colors</a></h1>
+<h1 id="steelmeta"><a class="header" href="#steelmeta">steel/meta</a></h1>
+<h1 id="steelbase"><a class="header" href="#steelbase">steel/base</a></h1>
+<h3 id="read-port-to-string-1"><a class="header" href="#read-port-to-string-1"><strong>read-port-to-string</strong></a></h3>
+<p>Takes a port and reads the entire content into a string</p>
+<p>(read-port-to-string port) -&gt; string?</p>
+<ul>
+<li>port : input-port?</li>
+</ul>
+<h3 id="hash-contains-1"><a class="header" href="#hash-contains-1"><strong>hash-contains?</strong></a></h3>
+<p>Checks whether the given map contains the given key. Key must be hashable.</p>
+<p>(hash-contains? map key) -&gt; bool?</p>
+<ul>
+<li>map : hash?</li>
+<li>key : hashable?</li>
+</ul>
+<h4 id="example-1"><a class="header" href="#example-1">Example</a></h4>
+<pre><code class="language-scheme">&gt; (hash-contains? (hash 'a 10 'b 20) 'a) ;; =&gt; #true
+&gt; (hash-contains? (hash 'a 10 'b 20) 'not-there) ;; =&gt; #false
+</code></pre>
+<h3 id="list-ref"><a class="header" href="#list-ref"><strong>list-ref</strong></a></h3>
+<p>Returns the value located at the given index. Will raise an error if you try to index out of bounds.</p>
+<p>Note: Runs in time proportional to the length of the list, however lists in Steel are implemented in such a fashion that the
+time complexity is O(n/64). Meaning, for small lists this can be constant.</p>
+<p>(list-ref lst index) -&gt; list?</p>
+<ul>
+<li>lst : list?</li>
+<li>index : (and/c int? positive?)</li>
+</ul>
+<h4 id="examples-23"><a class="header" href="#examples-23">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (list-ref (list 1 2 3 4) 2) ;; =&gt; 3
+&gt; (list-ref (range 0 100) 42) ;; =&gt; 42"
+&gt; (list-ref (list 1 2 3 4) 10)
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (list-ref (list 1 2 3 4) 10)
+│  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10
+</code></pre>
+<h3 id="second"><a class="header" href="#second"><strong>second</strong></a></h3>
+<p>Get the second element of the list. Raises an error if the list does not have an element in the second position.</p>
+<p>(second l) -&gt; any/c</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-24"><a class="header" href="#examples-24">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (second '(1 2 3)) ;; =&gt; 2
+&gt; (second '())
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (second '())
+│  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
+### **to-string**
+Concatenatives all of the inputs to their string representation, separated by spaces.
+
+(to-string xs ...)
+
+* xs : any/c
+
+#### Examples
+```scheme
+&gt; (to-string 10) ;; =&gt; "10"
+&gt; (to-string "hello" "world") ;; =&gt; "hello world"
+</code></pre>
+<h3 id="output-port-1"><a class="header" href="#output-port-1"><strong>output-port?</strong></a></h3>
+<p>Checks if a given value is an output port</p>
+<p>(output-port? any/c) -&gt; bool?</p>
+<h4 id="examples-25"><a class="header" href="#examples-25">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (define output (open-output-file "foo.txt"))
+&gt; (output-port? output) ;; =&gt; #true
+</code></pre>
+<h3 id="open-output-file-1"><a class="header" href="#open-output-file-1"><strong>open-output-file</strong></a></h3>
+<p>Takes a filename <code>path</code> referring to a file to be created and returns an output port.</p>
+<p>(open-output-file string?) -&gt; output-port?</p>
+<h4 id="examples-26"><a class="header" href="#examples-26">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (open-output-file "foo-bar.txt") ;; =&gt; #&lt;port&gt;
+</code></pre>
+<h3 id="range"><a class="header" href="#range"><strong>range</strong></a></h3>
+<p>Returns a newly allocated list of the elements in the range (n, m]</p>
+<p>(range n m) -&gt; (listof int?)</p>
+<ul>
+<li>n : int?</li>
+<li>m : int?</li>
+</ul>
+<pre><code class="language-scheme">&gt; (range 0 10) ;; =&gt; '(0 1 2 3 4 5 6 7 8 9)
+</code></pre>
+<h3 id="string-length-1"><a class="header" href="#string-length-1"><strong>string-length</strong></a></h3>
+<p>Get the length of the given string</p>
+<p>(string-length string?) -&gt; int?</p>
+<h4 id="examples-27"><a class="header" href="#examples-27">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (string-length "apples") ;; =&gt; 6
+</code></pre>
+<h3 id="car"><a class="header" href="#car"><strong>car</strong></a></h3>
+<p>Returns the first element of the list l.</p>
+<p>(car l) -&gt; any/c</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-28"><a class="header" href="#examples-28">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (car '(1 2)) ;; =&gt; 1
+&gt; (car (cons 2 3)) ;; =&gt; 2
+</code></pre>
+<h3 id="hash-ref-1"><a class="header" href="#hash-ref-1"><strong>hash-ref</strong></a></h3>
+<p>Gets the <code>key</code> from the given <code>map</code>. Raises an error if the key does not exist. <code>hash-get</code> is an alias for this.</p>
+<p>(hash-ref map key) -&gt; any/c</p>
+<ul>
+<li>map : hash?</li>
+<li>key : any/c</li>
+</ul>
+<h4 id="examples-29"><a class="header" href="#examples-29">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (hash-get (hash 'a 10 'b 20) 'b) ;; =&gt; 20
+</code></pre>
+<h3 id="first"><a class="header" href="#first"><strong>first</strong></a></h3>
+<p>Returns the first element of the list l.</p>
+<p>(first l) -&gt; any/c</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-30"><a class="header" href="#examples-30">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (first '(1 2)) ;; =&gt; 1
+&gt; (first (cons 2 3)) ;; =&gt; 2
+</code></pre>
+<h3 id="split-whitespace-1"><a class="header" href="#split-whitespace-1"><strong>split-whitespace</strong></a></h3>
+<p>Returns a list of strings from the original string split on the whitespace</p>
+<p>(split-whitespace string?) -&gt; (listof string?)</p>
+<h4 id="examples-31"><a class="header" href="#examples-31">Examples</a></h4>
+<pre><code class="language-scheme">(split-whitespace "apples bananas fruits veggies") ;; '("apples" "bananas" "fruits" "veggies")
+</code></pre>
+<h3 id="list"><a class="header" href="#list"><strong>list</strong></a></h3>
+<p>Returns a newly allocated list containing the vs as its elements.</p>
+<p>(list v ...) -&gt; list?</p>
+<ul>
+<li>v : any/c</li>
+</ul>
+<h4 id="examples-32"><a class="header" href="#examples-32">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (list 1 2 3 4 5) ;; =&gt; '(1 2 3 4 5)
+&gt; (list (list 1 2) (list 3 4)) ;; =&gt; '((1 2) (3 4))
+</code></pre>
+<h3 id="hash-try-get-1"><a class="header" href="#hash-try-get-1"><strong>hash-try-get</strong></a></h3>
+<p>Gets the <code>key</code> from the given <code>map</code>. Returns #false if the key does not exist.</p>
+<p>(hash-try-get map key) -&gt; (or any/c #false)</p>
+<ul>
+<li>map : hash?</li>
+<li>key : any/c</li>
+</ul>
+<h4 id="examples-33"><a class="header" href="#examples-33">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (hash-try-get (hash 'a 10 'b 20) 'b) ;; =&gt; 20
+&gt; (hash-try-get (hash 'a 10 'b 20) 'does-not-exist) ;; =&gt; #false
+</code></pre>
+<h3 id="pair"><a class="header" href="#pair"><strong>pair?</strong></a></h3>
+<p>Checks if the given value can be treated as a pair.
+Note - there are no improper lists in steel, so any list with at least one element
+is considered a pair.</p>
+<p>(pair? any/c) -&gt; bool?</p>
+<h4 id="examples-34"><a class="header" href="#examples-34">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (pair? '(10 20)) ;; =&gt; #true
+&gt; (pair? '(10)) ;; =&gt; #true
+&gt; (pair? '()) ;; =&gt; #false
+</code></pre>
+<h3 id="steellists"><a class="header" href="#steellists"><strong>steel/lists</strong></a></h3>
+<h4 id="steellists-1"><a class="header" href="#steellists-1">steel/lists</a></h4>
+<p>Lists in Steel have an interface that matches those of classic schemes or lisps.
+At face value, they appear to be implemented as cons cells - however, under the hood
+they are actually implemented as unrolled linked lists.</p>
+<p>This means that for most practical purposes, interaction with lists is the same.
+That being said, there are no improper lists, meaning, pairs are actually just lists of two elements.</p>
+<p>Indexing into a list also takes O(n/64) - which means you'll get constant time indexing on small lists.</p>
+<pre><code class="language-scheme">(list 10 20 30 40) ;; =&gt; '(10 20 30 40)
+</code></pre>
+<h3 id="third"><a class="header" href="#third"><strong>third</strong></a></h3>
+<p>Get the third element of the list. Raises an error if the list does not have an element in the third position.</p>
+<p>(third l) -&gt; any/c</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-35"><a class="header" href="#examples-35">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (third '(1 2 3)) ;; =&gt; 3
+&gt; (third '())
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (third '())
+│  ^^^^^^ third: index out of bounds - list did not have an element in the second position: []
+</code></pre>
+<h3 id="hash-length-1"><a class="header" href="#hash-length-1"><strong>hash-length</strong></a></h3>
+<p>Returns the number of key value pairs in the map</p>
+<p>(hash-length map) -&gt; (and positive? int?)</p>
+<ul>
+<li>map : hash?</li>
+</ul>
+<h4 id="examples-36"><a class="header" href="#examples-36">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (hash-length (hash 'a 10 'b 20)) ;; =&gt; 2
+</code></pre>
+<h3 id="string-upper-1"><a class="header" href="#string-upper-1"><strong>string-&gt;upper</strong></a></h3>
+<p>Creates a new uppercased version of the input string</p>
+<p>(string-&gt;upper string?) -&gt; string?</p>
+<h4 id="examples-37"><a class="header" href="#examples-37">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (string-&gt;upper "lower") ;; =&gt; "LOWER"
+</code></pre>
+<h3 id="trim-1"><a class="header" href="#trim-1"><strong>trim</strong></a></h3>
+<p>Returns a new string with the leading and trailing whitespace removed.</p>
+<p>(trim string?) -&gt; string?</p>
+<h4 id="examples-38"><a class="header" href="#examples-38">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (trim "   foo     ") ;; =&gt; "foo"
+</code></pre>
+<h3 id="starts-with-1"><a class="header" href="#starts-with-1"><strong>starts-with?</strong></a></h3>
+<p>Checks if the input string starts with a prefix</p>
+<p>(starts-with? input pattern) -&gt; bool?</p>
+<p>input : string?
+pattern: string?</p>
+<h4 id="examples-39"><a class="header" href="#examples-39">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (starts-with? "foobar" "foo") ;; =&gt; #true
+&gt; (starts-with? "foobar" "bar") ;; =&gt; #false
+</code></pre>
+<h3 id="open-input-file-1"><a class="header" href="#open-input-file-1"><strong>open-input-file</strong></a></h3>
+<p>Takes a filename <code>path</code> referring to an existing file and returns an input port. Raises an error
+if the file does not exist</p>
+<p>(open-input-file string?) -&gt; input-port?</p>
+<h4 id="examples-40"><a class="header" href="#examples-40">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (open-input-file "foo-bar.txt") ;; =&gt; #&lt;port&gt;
+&gt; (open-input-file "file-does-not-exist.txt")
+error[E08]: Io
+┌─ :1:2
+│
+1 │ (open-input-file "foo-bar.txt")
+│  ^^^^^^^^^^^^^^^ No such file or directory (os error 2)
+</code></pre>
+<h3 id="input-port-1"><a class="header" href="#input-port-1"><strong>input-port?</strong></a></h3>
+<p>Checks if a given value is an input port</p>
+<p>(input-port? any/c) -&gt; bool?</p>
+<h4 id="examples-41"><a class="header" href="#examples-41">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (input-port? (stdin)) ;; =&gt; #true
+&gt; (input-port? "foo") ;; =&gt; #false
+</code></pre>
+<h3 id="ends-with-1"><a class="header" href="#ends-with-1"><strong>ends-with?</strong></a></h3>
+<p>Checks if the input string ends with a given suffix</p>
+<p>(ends-with? input pattern) -&gt; bool?</p>
+<p>input : string?
+pattern: string?</p>
+<h4 id="examples-42"><a class="header" href="#examples-42">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (ends-with? "foobar" "foo") ;; =&gt; #false
+&gt; (ends-with? "foobar" "bar") ;; =&gt; #true
+</code></pre>
+<h3 id="string-append-1"><a class="header" href="#string-append-1"><strong>string-append</strong></a></h3>
+<p>Concatenates all of the given strings into one</p>
+<p>(string-append strs...) -&gt; string?</p>
+<ul>
+<li>strs ... : string?</li>
+</ul>
+<h4 id="examples-43"><a class="header" href="#examples-43">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (string-append) ;; =&gt; ""
+&gt; (string-append "foo" "bar") ;; =&gt; "foobar"
+### **steel/time**
+
+
+#### steel/time
+    
+Contains direct wrappers around the Rust `std::time::Instant` and `std::time::Duration` modules. 
+For example, to measure the time something takes:
+
+```scheme
+(define t (instant/now))
+(displayln "Hello world")
+(displayln (instant/elapsed t))
+</code></pre>
+<h3 id="trim-end-1"><a class="header" href="#trim-end-1"><strong>trim-end</strong></a></h3>
+<p>Returns a new string with the trailing whitespace removed.</p>
+<p>(trim string?) -&gt; string?</p>
+<h4 id="examples-44"><a class="header" href="#examples-44">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (trim "   foo     ") ;; =&gt; "   foo"
+</code></pre>
+<h3 id="string-list-1"><a class="header" href="#string-list-1"><strong>string-&gt;list</strong></a></h3>
+<p>Converts a string into a list of characters.</p>
+<p>(string-&gt;list string?) -&gt; (listof char?)</p>
+<h4 id="examples-45"><a class="header" href="#examples-45">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (string-&gt;list "hello") ;; =&gt; '(#\h #\e #\l #\l #\o)
+</code></pre>
+<h3 id="empty"><a class="header" href="#empty"><strong>empty?</strong></a></h3>
+<p>Checks if the list is empty</p>
+<p>(empty? lst) -&gt; bool?</p>
+<ul>
+<li>lst: list?</li>
+</ul>
+<h4 id="examples-46"><a class="header" href="#examples-46">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (empty? (list 1 2 3 4 5)) ;; =&gt; #false
+&gt; (empty? '()) ;; =&gt; #true
+</code></pre>
+<h3 id="int-string-1"><a class="header" href="#int-string-1"><strong>int-&gt;string</strong></a></h3>
+<p>Converts an integer into a string.</p>
+<p>(int-&gt;string int?) -&gt; string?</p>
+<h4 id="examples-47"><a class="header" href="#examples-47">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (int-&gt;string 10) ;; =&gt; "10"
+</code></pre>
+<h3 id="trim-start-1"><a class="header" href="#trim-start-1"><strong>trim-start</strong></a></h3>
+<p>Returns a new string with the leading whitespace removed.</p>
+<p>(trim string?) -&gt; string?</p>
+<h4 id="examples-48"><a class="header" href="#examples-48">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (trim "   foo     ") ;; =&gt; "foo     "
+</code></pre>
+<h3 id="stdin-1"><a class="header" href="#stdin-1"><strong>stdin</strong></a></h3>
+<p>Gets the port handle to stdin</p>
+<p>(stdin) -&gt; input-port?</p>
+<h4 id="examples-49"><a class="header" href="#examples-49">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (stdin) ;; =&gt; #&lt;port&gt;
+</code></pre>
+<h3 id="hash-insert-1"><a class="header" href="#hash-insert-1"><strong>hash-insert</strong></a></h3>
+<p>Returns a new hashmap with the additional key value pair added. Performs a functional update,
+so the old hash map is still accessible.</p>
+<p>(hash-insert map key val) -&gt; hash?</p>
+<ul>
+<li>map : hash?</li>
+<li>key : any/c</li>
+<li>val : any/c</li>
+</ul>
+<h4 id="examples-50"><a class="header" href="#examples-50">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (hash-insert (hash 'a 10 'b 20) 'c 30)
+
+=&gt; #&lt;hashmap {
+'a: 10,
+'b: 20,
+'c: 30
+}&gt;
+</code></pre>
+<h3 id="string-lower"><a class="header" href="#string-lower"><strong>string-&gt;lower</strong></a></h3>
+<p>Creates a new lowercased version of the input string</p>
+<p>(string-&gt;lower string?) -&gt; string?</p>
+<h4 id="examples-51"><a class="header" href="#examples-51">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (string-&gt;lower "sPonGeBoB tExT") ;; =&gt; "spongebob text"
+</code></pre>
+<h3 id="string-int-1"><a class="header" href="#string-int-1"><strong>string-&gt;int</strong></a></h3>
+<p>Converts a string into an int. Raises an error if the string cannot be converted to an integer.</p>
+<p>(string-&gt;int string?) -&gt; int?</p>
+<h4 id="examples-52"><a class="header" href="#examples-52">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (string-&gt;int "100") ;; =&gt; 10
+&gt; (string-&gt;int "not-an-int") ;; error
+</code></pre>
+<h3 id="string-symbol-1"><a class="header" href="#string-symbol-1"><strong>string-&gt;symbol</strong></a></h3>
+<p>Converts a string into a symbol.</p>
+<p>(string-&gt;symbol string?) -&gt; symbol?</p>
+<h4 id="examples-53"><a class="header" href="#examples-53">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (string-&gt;symbol "FooBar") ;; =&gt; 'FooBar
+</code></pre>
+<h1 id="steelprocess"><a class="header" href="#steelprocess">steel/process</a></h1>
+<h1 id="steelnumbers"><a class="header" href="#steelnumbers">steel/numbers</a></h1>
+<h1 id="steelstreams"><a class="header" href="#steelstreams">steel/streams</a></h1>
+<h1 id="steelconstants"><a class="header" href="#steelconstants">steel/constants</a></h1>
+<h1 id="steelthreads"><a class="header" href="#steelthreads">steel/threads</a></h1>
+<h1 id="steellists-2"><a class="header" href="#steellists-2">steel/lists</a></h1>
+<h3 id="steellists-3"><a class="header" href="#steellists-3"><strong>steel/lists</strong></a></h3>
+<h4 id="steellists-4"><a class="header" href="#steellists-4">steel/lists</a></h4>
+<p>Lists in Steel have an interface that matches those of classic schemes or lisps.
+At face value, they appear to be implemented as cons cells - however, under the hood
+they are actually implemented as unrolled linked lists.</p>
+<p>This means that for most practical purposes, interaction with lists is the same.
+That being said, there are no improper lists, meaning, pairs are actually just lists of two elements.</p>
+<p>Indexing into a list also takes O(n/64) - which means you'll get constant time indexing on small lists.</p>
+<pre><code class="language-scheme">(list 10 20 30 40) ;; =&gt; '(10 20 30 40)
+</code></pre>
+<h3 id="pair-1"><a class="header" href="#pair-1"><strong>pair?</strong></a></h3>
+<p>Checks if the given value can be treated as a pair.
+Note - there are no improper lists in steel, so any list with at least one element
+is considered a pair.</p>
+<p>(pair? any/c) -&gt; bool?</p>
+<h4 id="examples-54"><a class="header" href="#examples-54">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (pair? '(10 20)) ;; =&gt; #true
+&gt; (pair? '(10)) ;; =&gt; #true
+&gt; (pair? '()) ;; =&gt; #false
+</code></pre>
+<h3 id="car-1"><a class="header" href="#car-1"><strong>car</strong></a></h3>
+<p>Returns the first element of the list l.</p>
+<p>(car l) -&gt; any/c</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-55"><a class="header" href="#examples-55">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (car '(1 2)) ;; =&gt; 1
+&gt; (car (cons 2 3)) ;; =&gt; 2
+</code></pre>
+<h3 id="third-1"><a class="header" href="#third-1"><strong>third</strong></a></h3>
+<p>Get the third element of the list. Raises an error if the list does not have an element in the third position.</p>
+<p>(third l) -&gt; any/c</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-56"><a class="header" href="#examples-56">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (third '(1 2 3)) ;; =&gt; 3
+&gt; (third '())
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (third '())
+│  ^^^^^^ third: index out of bounds - list did not have an element in the second position: []
+</code></pre>
+<h3 id="empty-1"><a class="header" href="#empty-1"><strong>empty?</strong></a></h3>
+<p>Checks if the list is empty</p>
+<p>(empty? lst) -&gt; bool?</p>
+<ul>
+<li>lst: list?</li>
+</ul>
+<h4 id="examples-57"><a class="header" href="#examples-57">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (empty? (list 1 2 3 4 5)) ;; =&gt; #false
+&gt; (empty? '()) ;; =&gt; #true
+</code></pre>
+<h3 id="range-1"><a class="header" href="#range-1"><strong>range</strong></a></h3>
+<p>Returns a newly allocated list of the elements in the range (n, m]</p>
+<p>(range n m) -&gt; (listof int?)</p>
+<ul>
+<li>n : int?</li>
+<li>m : int?</li>
+</ul>
+<pre><code class="language-scheme">&gt; (range 0 10) ;; =&gt; '(0 1 2 3 4 5 6 7 8 9)
+</code></pre>
+<h3 id="first-1"><a class="header" href="#first-1"><strong>first</strong></a></h3>
+<p>Returns the first element of the list l.</p>
+<p>(first l) -&gt; any/c</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-58"><a class="header" href="#examples-58">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (first '(1 2)) ;; =&gt; 1
+&gt; (first (cons 2 3)) ;; =&gt; 2
+</code></pre>
+<h3 id="list-1"><a class="header" href="#list-1"><strong>list</strong></a></h3>
+<p>Returns a newly allocated list containing the vs as its elements.</p>
+<p>(list v ...) -&gt; list?</p>
+<ul>
+<li>v : any/c</li>
+</ul>
+<h4 id="examples-59"><a class="header" href="#examples-59">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (list 1 2 3 4 5) ;; =&gt; '(1 2 3 4 5)
+&gt; (list (list 1 2) (list 3 4)) ;; =&gt; '((1 2) (3 4))
+</code></pre>
+<h3 id="second-1"><a class="header" href="#second-1"><strong>second</strong></a></h3>
+<p>Get the second element of the list. Raises an error if the list does not have an element in the second position.</p>
+<p>(second l) -&gt; any/c</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-60"><a class="header" href="#examples-60">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (second '(1 2 3)) ;; =&gt; 2
+&gt; (second '())
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (second '())
+│  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
+### **list-ref**
+Returns the value located at the given index. Will raise an error if you try to index out of bounds.
+
+Note: Runs in time proportional to the length of the list, however lists in Steel are implemented in such a fashion that the
+time complexity is O(n/64). Meaning, for small lists this can be constant.
+
+(list-ref lst index) -&gt; list?
+
+* lst : list?
+* index : (and/c int? positive?)
+
+#### Examples
+```scheme
+&gt; (list-ref (list 1 2 3 4) 2) ;; =&gt; 3
+&gt; (list-ref (range 0 100) 42) ;; =&gt; 42"
+&gt; (list-ref (list 1 2 3 4) 10)
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (list-ref (list 1 2 3 4) 10)
+│  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10
+</code></pre>
+<h1 id="steelcontracts"><a class="header" href="#steelcontracts">steel/contracts</a></h1>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../generated/logging.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../builtins/steel_base.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../generated/logging.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../builtins/steel_base.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../theme/pagetoc.js"></script>
+
+
+    </div>
+    </body>
+</html>
