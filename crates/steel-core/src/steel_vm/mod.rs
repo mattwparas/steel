@@ -17,3 +17,5 @@ mod test_util;
 mod tests;
 pub(crate) mod transducers;
 pub(crate) mod vm;
+
+pub use vm::ThreadStateController;
