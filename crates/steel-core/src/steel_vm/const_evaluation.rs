@@ -907,22 +907,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
     }
 
     fn visit_vector(&mut self, v: crate::parser::ast::Vector) -> Self::Output {
-        if v.bytes {
-            return Ok(v.into());
-        }
-
-        let args: Vec<_> = v
-            .args
-            .into_iter()
-            .map(|expr| self.visit(expr))
-            .collect::<Result<_>>()?;
-
-        Ok(crate::parser::ast::Vector {
-            args,
-            bytes: false,
-            span: v.span,
-        }
-        .into())
+        return Ok(v.into());
     }
 }
 
@@ -1033,13 +1018,5 @@ impl<'a> VisitorMut for CollectSet<'a> {
         self.scopes.pop_layer();
     }
 
-    fn visit_vector(&mut self, v: &crate::parser::ast::Vector) -> Self::Output {
-        if v.bytes {
-            return;
-        }
-
-        for expr in &v.args {
-            self.visit(expr);
-        }
-    }
+    fn visit_vector(&mut self, v: &crate::parser::ast::Vector) -> Self::Output {}
 }
