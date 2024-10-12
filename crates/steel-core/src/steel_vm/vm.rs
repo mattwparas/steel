@@ -4629,6 +4629,17 @@ fn eval_file(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Option
     }
 }
 
+#[steel_derive::context(name = "eval-string", arity = "Exact(1)")]
+fn eval_string(
+    ctx: &mut crate::steel_vm::vm::VmCore,
+    args: &[SteelVal],
+) -> Option<Result<SteelVal>> {
+    match eval_string_impl(ctx, args) {
+        Ok(_) => None,
+        Err(e) => Some(Err(e)),
+    }
+}
+
 #[steel_derive::context(name = "#%expand", arity = "Exact(1)")]
 fn expand_syntax_objects(
     ctx: &mut crate::steel_vm::vm::VmCore,
@@ -4639,80 +4650,78 @@ fn expand_syntax_objects(
 
 // Expand syntax objects?
 fn expand_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-    // let mut compiler_guard = ctx.thread.compiler.lock().unwrap();
-    // let mut compiler = compiler_guard.as_mut().unwrap();
+    // Syntax Objects -> Expr, expand, put back to syntax objects.
+    let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
 
-    // // Syntax Objects -> Expr, expand, put back to syntax objects.
-    // let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
-    // let comp = &mut compiler.compiler;
+    let res = ctx
+        .thread
+        .compiler
+        .write()
+        .lower_expressions_impl(vec![expr], None)?;
 
-    // if let Some(mut comp) = comp {
-    //     let comp = unsafe { &mut *comp };
-
-    //     let res = comp.lower_expressions_impl(
-    //         vec![expr],
-    //         compiler.constants.clone(),
-    //         compiler.modules.clone(),
-    //         None,
-    //         &mut compiler.sources,
-    //     )?;
-
-    //     crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(
-    //         res.into_iter().next().unwrap(),
-    //     )
-    // } else {
-    //     stop!(Generic => "compiler missing!");
-    // }
-
-    todo!()
+    crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(
+        res.into_iter().next().unwrap(),
+    )
 }
 
 fn eval_file_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-    // let mut compiler_guard = ctx.thread.compiler.lock().unwrap();
+    let path = SteelString::from_steelval(&args[0])?;
 
-    // let mut compiler = compiler_guard.as_mut().unwrap();
+    let mut file = std::fs::File::open(path.as_str())?;
 
-    // let path = SteelString::from_steelval(&args[0])?;
-    // let comp = &mut compiler.compiler;
+    let mut exprs = String::new();
+    file.read_to_string(&mut exprs)?;
 
-    // if let Some(mut comp) = comp {
-    //     let comp = unsafe { &mut *comp };
+    let res = ctx
+        .thread
+        .compiler
+        .write()
+        .compile_executable(exprs, Some(std::path::PathBuf::from(path.as_str())));
 
-    //     let mut file = std::fs::File::open(path.as_str())?;
+    match res {
+        Ok(program) => {
+            let symbol_map_offset = ctx.thread.compiler.read().symbol_map.len();
+            let result = program.build(
+                "eval-context".to_string(),
+                &mut ctx.thread.compiler.write().symbol_map,
+            )?;
 
-    //     let mut exprs = String::new();
-    //     file.read_to_string(&mut exprs)?;
+            eval_program(result, ctx)?;
 
-    //     let res = comp.compile_executable(
-    //         exprs,
-    //         Some(std::path::PathBuf::from(path.as_str())),
-    //         compiler.constants.clone(),
-    //         compiler.modules.clone(),
-    //         &mut compiler.sources,
-    //     );
-
-    //     match res {
-    //         Ok(program) => {
-    //             let symbol_map_offset = comp.symbol_map.len();
-    //             let result = program.build("eval-context".to_string(), &mut comp.symbol_map)?;
-
-    //             drop(compiler_guard);
-
-    //             eval_program(result, ctx)?;
-
-    //             return Ok(SteelVal::Void);
-    //         }
-    //         Err(e) => {
-    //             return Err(e);
-    //         }
-    //     }
-    // } else {
-    //     stop!(Generic => "compiler missing!");
-    // }
-
-    todo!()
+            return Ok(SteelVal::Void);
+        }
+        Err(e) => {
+            return Err(e);
+        }
+    }
 }
 
+fn eval_string_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    let string = SteelString::from_steelval(&args[0])?;
+
+    let res = ctx
+        .thread
+        .compiler
+        .write()
+        .compile_executable(string.to_string(), None);
+
+    match res {
+        Ok(program) => {
+            let symbol_map_offset = ctx.thread.compiler.read().symbol_map.len();
+            let result = program.build(
+                "eval-context".to_string(),
+                &mut ctx.thread.compiler.write().symbol_map,
+            )?;
+
+            eval_program(result, ctx)?;
+
+            return Ok(SteelVal::Void);
+        }
+        Err(e) => {
+            return Err(e);
+        }
+    }
+}
 pub(crate) fn get_test_mode(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(Ok(ctx.thread.runtime_options.test.into()))
 }
