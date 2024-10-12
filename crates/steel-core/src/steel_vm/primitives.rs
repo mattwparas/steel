@@ -48,7 +48,7 @@ use crate::{
         CustomType, FromSteelVal, SteelString, ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
     },
     steel_vm::{
-        builtin::{get_function_metadata, get_function_name, Arity},
+        builtin::{get_function_metadata, get_function_name, Arity, BuiltInFunctionType},
         vm::threads::threading_module,
     },
     values::{
@@ -69,7 +69,7 @@ use crate::{
     rvals::{Result, SteelVal},
     SteelErr,
 };
-use fxhash::{FxHashMap, FxHashSet};
+use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
 use std::cmp::Ordering;
 use steel_parser::{ast::ExprKind, interner::interned_current_memory_usage, parser::SourceId};
@@ -178,131 +178,50 @@ macro_rules! gen_pred {
     }};
 }
 
-const LIST: &str = "list";
-const PRIM_LIST: &str = "#%prim.list";
-const CAR: &str = "car";
-const CDR: &str = "cdr";
-const CONS: &str = "cons";
-const FIRST: &str = "first";
-const REST: &str = "rest";
-const APPEND: &str = "append";
-const PUSH_BACK: &str = "push-back";
-const LENGTH: &str = "length";
-const REVERSE: &str = "reverse";
-// const LIST_TO_VECTOR: &str = "list->vector";
-const LIST_TO_STRING: &str = "list->string";
-const NULL_HUH: &str = "null?";
-const INT_HUH: &str = "int?";
-const INTEGER_HUH: &str = "integer?";
-const FLOAT_HUH: &str = "float?";
-const NUMBER_HUH: &str = "number?";
-const SYMBOL_HUH: &str = "symbol?";
-const VECTOR_HUH: &str = "vector?";
-const STRING_HUH: &str = "string?";
-const LIST_HUH: &str = "list?";
-const BOOLEAN_HUH: &str = "boolean?";
-const FUNCTION_HUH: &str = "function?";
-
-// TODO: Add the equivalent with prim in front
 pub const CONSTANTS: &[&str] = &[
-    "+",
     "#%prim.+",
-    "i+",
     "#%prim.i+",
-    "f+",
     "#%prim.f+",
-    "*",
     "#%prim.*",
-    "/",
     "#%prim./",
-    "-",
     "#%prim.-",
-    CAR,
     "#%prim.car",
-    CDR,
     "#%prim.cdr",
-    FIRST,
     "#%prim.first",
-    REST,
     "#%prim.rest",
-    // RANGE,
-    // "#%prim.range",
-    NULL_HUH,
     "#%prim.null?",
-    INT_HUH,
     "#%prim.int?",
-    FLOAT_HUH,
     "#%prim.float?",
-    NUMBER_HUH,
     "#%prim.number?",
-    STRING_HUH,
     "#%prim.string?",
-    SYMBOL_HUH,
     "#%prim.symbol?",
-    VECTOR_HUH,
     "#%prim.vector?",
-    LIST_HUH,
     "#%prim.list?",
-    INTEGER_HUH,
     "#%prim.integer?",
-    BOOLEAN_HUH,
     "#%prim.boolean?",
-    FUNCTION_HUH,
-    "#%prim.function?",
-    "=",
     "#%prim.=",
-    "equal?",
     "#%prim.equal?",
-    ">",
     "#%prim.>",
-    ">=",
     "#%prim.>=",
-    "<",
     "#%prim.<",
-    "<=",
     "#%prim.<=",
-    "string-append",
     "#%prim.string-append",
-    "string->list",
     "#%prim.string->list",
-    "string-upcase",
     "#%prim.string-upcase",
-    "string-lowercase",
     "#%prim.string-lowercase",
-    "trim",
     "#%prim.trim",
-    "trim-start",
     "#%prim.trim-start",
-    "trim-end",
     "#%prim.trim-end",
-    "split-whitespace",
     "#%prim.split-whitespace",
-    "void",
     "#%prim.void",
-    "list->string",
     "#%prim.list->string",
-    "concat-symbols",
     "#%prim.concat-symbols",
-    "string->int",
     "#%prim.string->int",
-    "even?",
     "#%prim.even?",
-    "odd",
-    CONS,
-    "#%prim.cons",
-    APPEND,
     "#%prim.append",
-    PUSH_BACK,
-    LENGTH,
     "#%prim.length",
-    REVERSE,
-    "#%prim.reverse",
-    LIST_TO_STRING,
     "#%prim.list->string",
-    LIST,
-    PRIM_LIST,
     "#%prim.not",
-    "not",
 ];
 
 #[macro_export]
@@ -744,6 +663,28 @@ pub fn builtin_to_reserved(ident: &str) -> InternedString {
         ("#%prim.".to_string() + ident).into()
     }
 }
+
+// TODO: Do the same for the single threaded version as well
+pub static CONSTANT_PRIMITIVES: Lazy<
+    crate::values::HashMap<InternedString, SteelVal, FxBuildHasher>,
+> = Lazy::new(|| {
+    let names = STEEL_PRELUDE_MODULE.metadata_table();
+
+    names
+        .into_iter()
+        .filter_map(|(key, value)| match key {
+            BuiltInFunctionType::Reference(func) if value.is_const => Some((
+                ("#%prim.".to_string() + value.name).into(),
+                SteelVal::FuncV(func),
+            )),
+            BuiltInFunctionType::Mutable(func) if value.is_const => Some((
+                ("#%prim.".to_string() + value.name).into(),
+                SteelVal::MutFunc(func),
+            )),
+            _ => None,
+        })
+        .collect()
+});
 
 // TODO: Make the prelude string generation lazy - so that
 // the first time we load (steel/base) we don't have to regenerate
@@ -1421,8 +1362,7 @@ fn lookup_doc(value: SteelVal) -> bool {
     match value {
         // SteelVal::BoxedFunction(f) => ,
         SteelVal::FuncV(f) => {
-            let metadata =
-                get_function_metadata(crate::steel_vm::builtin::BuiltInFunctionType::Reference(f));
+            let metadata = get_function_metadata(BuiltInFunctionType::Reference(f));
 
             if let Some(data) = metadata.and_then(|x| x.doc) {
                 println!("{}", data);
@@ -1432,8 +1372,7 @@ fn lookup_doc(value: SteelVal) -> bool {
             }
         }
         SteelVal::MutFunc(f) => {
-            let metadata =
-                get_function_metadata(crate::steel_vm::builtin::BuiltInFunctionType::Mutable(f));
+            let metadata = get_function_metadata(BuiltInFunctionType::Mutable(f));
             if let Some(data) = metadata.and_then(|x| x.doc) {
                 println!("{}", data);
                 true
@@ -1442,8 +1381,7 @@ fn lookup_doc(value: SteelVal) -> bool {
             }
         }
         SteelVal::BuiltIn(f) => {
-            let metadata =
-                get_function_metadata(crate::steel_vm::builtin::BuiltInFunctionType::Context(f));
+            let metadata = get_function_metadata(BuiltInFunctionType::Context(f));
             if let Some(data) = metadata.and_then(|x| x.doc) {
                 println!("{}", data);
                 true

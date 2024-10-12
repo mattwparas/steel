@@ -305,6 +305,11 @@ impl BuiltInModuleRepr {
     pub fn with_module(&mut self, module: BuiltInModule) {
         self.values = std::mem::take(&mut self.values).union(module.module.read().values.clone());
 
+        // TODO: This almost assuredly, is not necessary, right? We could instead just use
+        // the global metadata table and get rid of the vast majority of this information.
+        self.fn_ptr_table =
+            std::mem::take(&mut self.fn_ptr_table).union(module.module.read().fn_ptr_table.clone());
+
         self.docs
             .definitions
             .extend(module.module.read().docs.definitions.clone());
@@ -483,6 +488,10 @@ impl BuiltInModule {
         Self {
             module: Shared::new(MutContainer::new(BuiltInModuleRepr::new(name))),
         }
+    }
+
+    pub(crate) fn metadata_table(&self) -> HashMap<BuiltInFunctionType, FunctionSignatureMetadata> {
+        self.module.read().fn_ptr_table.clone()
     }
 
     pub fn names(&self) -> Vec<String> {

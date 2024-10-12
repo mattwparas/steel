@@ -1,6 +1,7 @@
 #![allow(unused)]
 
 use crate::compiler::code_gen::fresh_function_id;
+use crate::compiler::compiler::Compiler;
 use crate::core::instructions::pretty_print_dense_instructions;
 use crate::gc::shared::MutContainer;
 use crate::gc::shared::ShareableMut;
@@ -71,6 +72,7 @@ use crate::values::lists::List;
 use crossbeam::atomic::AtomicCell;
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
+use parking_lot::RwLock;
 use smallvec::SmallVec;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
@@ -328,7 +330,8 @@ pub struct SteelThread {
     pub(crate) thread_local_storage: Vec<SteelVal>,
     pub(crate) sources: Sources,
 
-    pub(crate) compiler: Arc<Mutex<Option<super::engine::SelfCompiler>>>,
+    // Store... more stuff here
+    pub(crate) compiler: Option<std::sync::Weak<RwLock<Compiler>>>,
 }
 
 #[derive(Clone)]
@@ -524,7 +527,10 @@ impl Synchronizer {
 }
 
 impl SteelThread {
-    pub fn new(sources: Sources) -> SteelThread {
+    pub fn new(
+        sources: Sources,
+        compiler: Option<std::sync::Weak<RwLock<Compiler>>>,
+    ) -> SteelThread {
         SteelThread {
             global_env: Env::root(),
             stack: Vec::with_capacity(128),
@@ -545,7 +551,7 @@ impl SteelThread {
             synchronizer: Synchronizer::new(),
             thread_local_storage: Vec::new(),
             sources,
-            compiler: Arc::new(Mutex::new(None)),
+            compiler,
         }
     }
 
@@ -4540,41 +4546,29 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
 }
 
 fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-    let mut compiler_guard = ctx.thread.compiler.lock().unwrap();
-    let mut compiler = compiler_guard.as_mut().unwrap();
+    let mut compiler_guard = ctx
+        .thread
+        .compiler
+        .as_ref()
+        .expect("Compiler missing")
+        .upgrade()
+        .expect("Compiler dropped early");
+    let mut compiler = compiler_guard.write();
     let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
-    let comp = &mut compiler.compiler;
 
-    if let Some(mut comp) = comp {
-        // SAFETY:
-        // This is guarded by the RwLock surround `compiler`, which locks this for writing since
-        // we're taking an &mut reference to it using the `as_mut_ref` function.
-        let comp = unsafe { &mut *comp };
+    let res = compiler.compile_executable_from_expressions(vec![expr]);
 
-        let res = comp.compile_executable_from_expressions(
-            vec![expr],
-            compiler.modules.clone(),
-            compiler.constants.clone(),
-            &mut compiler.sources,
-        );
+    match res {
+        Ok(program) => {
+            let result = program.build("eval-context".to_string(), &mut compiler.symbol_map)?;
 
-        drop(compiler_guard);
+            eval_program(result, ctx)?;
 
-        match res {
-            Ok(program) => {
-                let symbol_map_offset = comp.symbol_map.len();
-                let result = program.build("eval-context".to_string(), &mut comp.symbol_map)?;
-
-                eval_program(result, ctx)?;
-
-                return Ok(SteelVal::Void);
-            }
-            Err(e) => {
-                return Err(e);
-            }
+            return Ok(SteelVal::Void);
         }
-    } else {
-        stop!(Generic => "compiler missing!");
+        Err(e) => {
+            return Err(e);
+        }
     }
 }
 
@@ -4650,80 +4644,78 @@ fn expand_syntax_objects(
 
 // Expand syntax objects?
 fn expand_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-    let mut compiler_guard = ctx.thread.compiler.lock().unwrap();
-    let mut compiler = compiler_guard.as_mut().unwrap();
+    // let mut compiler_guard = ctx.thread.compiler.lock().unwrap();
+    // let mut compiler = compiler_guard.as_mut().unwrap();
 
-    // Syntax Objects -> Expr, expand, put back to syntax objects.
-    let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
-    let comp = &mut compiler.compiler;
+    // // Syntax Objects -> Expr, expand, put back to syntax objects.
+    // let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
+    // let comp = &mut compiler.compiler;
 
-    if let Some(mut comp) = comp {
-        // SAFETY:
-        // This is guarded by the RwLock surround `compiler`, which locks this for writing since
-        // we're taking an &mut reference to it using the `as_mut_ref` function.
-        let comp = unsafe { &mut *comp };
+    // if let Some(mut comp) = comp {
+    //     let comp = unsafe { &mut *comp };
 
-        let res = comp.lower_expressions_impl(
-            vec![expr],
-            compiler.constants.clone(),
-            compiler.modules.clone(),
-            None,
-            &mut compiler.sources,
-        )?;
+    //     let res = comp.lower_expressions_impl(
+    //         vec![expr],
+    //         compiler.constants.clone(),
+    //         compiler.modules.clone(),
+    //         None,
+    //         &mut compiler.sources,
+    //     )?;
 
-        crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(
-            res.into_iter().next().unwrap(),
-        )
-    } else {
-        stop!(Generic => "compiler missing!");
-    }
+    //     crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(
+    //         res.into_iter().next().unwrap(),
+    //     )
+    // } else {
+    //     stop!(Generic => "compiler missing!");
+    // }
+
+    todo!()
 }
 
 fn eval_file_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-    let mut compiler_guard = ctx.thread.compiler.lock().unwrap();
+    // let mut compiler_guard = ctx.thread.compiler.lock().unwrap();
 
-    let mut compiler = compiler_guard.as_mut().unwrap();
+    // let mut compiler = compiler_guard.as_mut().unwrap();
 
-    let path = SteelString::from_steelval(&args[0])?;
-    let comp = &mut compiler.compiler;
+    // let path = SteelString::from_steelval(&args[0])?;
+    // let comp = &mut compiler.compiler;
 
-    if let Some(mut comp) = comp {
-        // SAFETY:
-        // This is guarded by the RwLock surround `compiler`, which locks this for writing since
-        // we're taking an &mut reference to it using the `as_mut_ref` function.
-        let comp = unsafe { &mut *comp };
+    // if let Some(mut comp) = comp {
+    //     let comp = unsafe { &mut *comp };
 
-        let mut file = std::fs::File::open(path.as_str())?;
+    //     let mut file = std::fs::File::open(path.as_str())?;
 
-        let mut exprs = String::new();
-        file.read_to_string(&mut exprs)?;
+    //     let mut exprs = String::new();
+    //     file.read_to_string(&mut exprs)?;
 
-        let res = comp.compile_executable(
-            exprs,
-            Some(std::path::PathBuf::from(path.as_str())),
-            compiler.constants.clone(),
-            compiler.modules.clone(),
-            &mut compiler.sources,
-        );
+    //     let res = comp.compile_executable(
+    //         exprs,
+    //         Some(std::path::PathBuf::from(path.as_str())),
+    //         compiler.constants.clone(),
+    //         compiler.modules.clone(),
+    //         &mut compiler.sources,
+    //     );
 
-        match res {
-            Ok(program) => {
-                let symbol_map_offset = comp.symbol_map.len();
-                let result = program.build("eval-context".to_string(), &mut comp.symbol_map)?;
+    //     match res {
+    //         Ok(program) => {
+    //             let symbol_map_offset = comp.symbol_map.len();
+    //             let result = program.build("eval-context".to_string(), &mut comp.symbol_map)?;
 
-                drop(compiler_guard);
+    //             drop(compiler_guard);
 
-                eval_program(result, ctx)?;
+    //             eval_program(result, ctx)?;
 
-                return Ok(SteelVal::Void);
-            }
-            Err(e) => {
-                return Err(e);
-            }
-        }
-    } else {
-        stop!(Generic => "compiler missing!");
-    }
+    //             return Ok(SteelVal::Void);
+    //         }
+    //         Err(e) => {
+    //             return Err(e);
+    //         }
+    //     }
+    // } else {
+    //     stop!(Generic => "compiler missing!");
+    // }
+
+    todo!()
 }
 
 pub(crate) fn get_test_mode(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
