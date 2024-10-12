@@ -331,7 +331,7 @@ pub struct SteelThread {
     pub(crate) sources: Sources,
 
     // Store... more stuff here
-    pub(crate) compiler: Option<std::sync::Weak<RwLock<Compiler>>>,
+    pub(crate) compiler: std::sync::Arc<RwLock<Compiler>>,
 }
 
 #[derive(Clone)]
@@ -527,10 +527,7 @@ impl Synchronizer {
 }
 
 impl SteelThread {
-    pub fn new(
-        sources: Sources,
-        compiler: Option<std::sync::Weak<RwLock<Compiler>>>,
-    ) -> SteelThread {
+    pub fn new(sources: Sources, compiler: std::sync::Arc<RwLock<Compiler>>) -> SteelThread {
         SteelThread {
             global_env: Env::root(),
             stack: Vec::with_capacity(128),
@@ -4546,21 +4543,19 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
 }
 
 fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-    let mut compiler_guard = ctx
+    let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
+    let res = ctx
         .thread
         .compiler
-        .as_ref()
-        .expect("Compiler missing")
-        .upgrade()
-        .expect("Compiler dropped early");
-    let mut compiler = compiler_guard.write();
-    let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
-
-    let res = compiler.compile_executable_from_expressions(vec![expr]);
+        .write()
+        .compile_executable_from_expressions(vec![expr]);
 
     match res {
         Ok(program) => {
-            let result = program.build("eval-context".to_string(), &mut compiler.symbol_map)?;
+            let result = program.build(
+                "eval-context".to_string(),
+                &mut ctx.thread.compiler.write().symbol_map,
+            )?;
 
             eval_program(result, ctx)?;
 

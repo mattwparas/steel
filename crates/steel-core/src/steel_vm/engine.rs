@@ -192,7 +192,10 @@ impl EngineId {
 /// well.
 pub struct Engine {
     pub(crate) virtual_machine: SteelThread,
-    pub(crate) compiler: Arc<RwLock<Compiler>>,
+    // TODO: Just put this, and all the other things,
+    // inside the `SteelThread` - The compiler probably
+    // still... needs to be shared, but thats fine.
+    // pub(crate) compiler: Arc<RwLock<Compiler>>,
     modules: ModuleContainer,
     sources: Sources,
     #[cfg(feature = "dylibs")]
@@ -203,13 +206,13 @@ pub struct Engine {
 impl Clone for Engine {
     fn clone(&self) -> Self {
         let mut virtual_machine = self.virtual_machine.clone();
-        let compiler = Arc::new(RwLock::new(self.compiler.write().clone()));
+        let compiler = Arc::new(RwLock::new(self.virtual_machine.compiler.write().clone()));
 
-        virtual_machine.compiler = Some(Arc::downgrade(&compiler));
+        // virtual_machine.compiler = Some(Arc::downgrade(&compiler));
 
         Self {
             virtual_machine,
-            compiler,
+            // compiler,
             modules: self.modules.clone(),
             sources: self.sources.clone(),
             #[cfg(feature = "dylibs")]
@@ -344,7 +347,7 @@ impl<'a> LifetimeGuard<'a> {
 
 impl RegisterValue for Engine {
     fn register_value_inner(&mut self, name: &str, value: SteelVal) -> &mut Self {
-        let idx = self.compiler.write().register(name);
+        let idx = self.virtual_machine.compiler.write().register(name);
         self.virtual_machine.insert_binding(idx, value);
         self
     }
@@ -405,12 +408,17 @@ impl Engine {
         let mut engine = self.clone();
         engine.virtual_machine.global_env = engine.virtual_machine.global_env.deep_clone();
 
-        let compiler_copy = engine.compiler.read().clone();
-        engine.compiler = Arc::new(RwLock::new(compiler_copy));
-        engine.virtual_machine.compiler = Some(Arc::downgrade(&engine.compiler));
+        let compiler_copy = engine.virtual_machine.compiler.read().clone();
+        engine.virtual_machine.compiler = Arc::new(RwLock::new(compiler_copy));
+        // engine.virtual_machine.compiler = Some(Arc::downgrade(&engine.compiler));
 
-        let constant_map = engine.compiler.read().constant_map.deep_clone();
-        engine.compiler.write().constant_map = constant_map;
+        let constant_map = engine
+            .virtual_machine
+            .compiler
+            .read()
+            .constant_map
+            .deep_clone();
+        engine.virtual_machine.compiler.write().constant_map = constant_map;
 
         let heap_copy = Arc::new(Mutex::new(
             engine.virtual_machine.heap.lock().unwrap().clone(),
@@ -438,8 +446,7 @@ impl Engine {
         )));
 
         let mut vm = Engine {
-            virtual_machine: SteelThread::new(sources.clone(), Some(Arc::downgrade(&compiler))),
-            compiler,
+            virtual_machine: SteelThread::new(sources.clone(), compiler),
             modules,
             sources,
             #[cfg(feature = "dylibs")]
@@ -599,8 +606,7 @@ impl Engine {
 
         // TODO: Pass compiler down if we want eval!
         let mut vm = Engine {
-            virtual_machine: SteelThread::new(sources.clone(), Some(Arc::downgrade(&compiler))),
-            compiler,
+            virtual_machine: SteelThread::new(sources.clone(), compiler),
             modules,
             sources,
             #[cfg(feature = "dylibs")]
@@ -1021,8 +1027,7 @@ impl Engine {
         )));
 
         Engine {
-            virtual_machine: SteelThread::new(sources.clone(), Some(Arc::downgrade(&compiler))),
-            compiler,
+            virtual_machine: SteelThread::new(sources.clone(), compiler),
             modules,
             sources,
             #[cfg(feature = "dylibs")]
@@ -1034,14 +1039,17 @@ impl Engine {
     pub fn report_engine_stats(&self) -> EngineStatistics {
         EngineStatistics {
             rooted_count: self.globals().len(),
-            constants_count: self.compiler.read().constant_map.len(),
+            constants_count: self.virtual_machine.compiler.read().constant_map.len(),
             sources_size: self.sources.size_in_bytes(),
         }
     }
 
     /// Registers a steel module
     pub fn register_steel_module(&mut self, module_name: String, text: String) {
-        self.compiler.write().register_builtin(module_name, text);
+        self.virtual_machine
+            .compiler
+            .write()
+            .register_builtin(module_name, text);
     }
 
     /// Instantiates a new engine instance with all primitive functions enabled.
@@ -1078,7 +1086,7 @@ impl Engine {
     pub fn new_sandboxed() -> Self {
         let mut engine = fresh_kernel_image(true);
 
-        engine.compiler.write().kernel = Some(Kernel::new());
+        engine.virtual_machine.compiler.write().kernel = Some(Kernel::new());
 
         #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
@@ -1109,11 +1117,10 @@ impl Engine {
         function: SteelVal,
         arguments: Vec<SteelVal>,
     ) -> Result<SteelVal> {
-        self.virtual_machine.call_function(
-            self.compiler.read().constant_map.clone(),
-            function,
-            arguments,
-        )
+        let constant_map = self.virtual_machine.compiler.read().constant_map.clone();
+
+        self.virtual_machine
+            .call_function(constant_map, function, arguments)
     }
 
     pub fn call_function_with_args_from_mut_slice(
@@ -1121,11 +1128,10 @@ impl Engine {
         function: SteelVal,
         arguments: &mut [SteelVal],
     ) -> Result<SteelVal> {
-        self.virtual_machine.call_function_from_mut_slice(
-            self.compiler.read().constant_map.clone(),
-            function,
-            arguments,
-        )
+        let constant_map = self.virtual_machine.compiler.read().constant_map.clone();
+
+        self.virtual_machine
+            .call_function_from_mut_slice(constant_map, function, arguments)
     }
 
     /// Call a function by name directly within the target environment
@@ -1134,12 +1140,10 @@ impl Engine {
         function: &str,
         arguments: Vec<SteelVal>,
     ) -> Result<SteelVal> {
+        let constant_map = self.virtual_machine.compiler.read().constant_map.clone();
         self.extract_value(function).and_then(|function| {
-            self.virtual_machine.call_function(
-                self.compiler.read().constant_map.clone(),
-                function,
-                arguments,
-            )
+            self.virtual_machine
+                .call_function(constant_map, function, arguments)
         })
     }
 
@@ -1148,12 +1152,11 @@ impl Engine {
         function: &str,
         arguments: &mut [SteelVal],
     ) -> Result<SteelVal> {
+        let constant_map = self.virtual_machine.compiler.read().constant_map.clone();
+
         self.extract_value(function).and_then(|function| {
-            self.virtual_machine.call_function_from_mut_slice(
-                self.compiler.read().constant_map.clone(),
-                function,
-                arguments,
-            )
+            self.virtual_machine
+                .call_function_from_mut_slice(constant_map, function, arguments)
         })
     }
 
@@ -1315,7 +1318,7 @@ impl Engine {
     pub fn new() -> Self {
         let mut engine = fresh_kernel_image(false);
 
-        engine.compiler.write().kernel = Some(Kernel::new());
+        engine.virtual_machine.compiler.write().kernel = Some(Kernel::new());
 
         #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
@@ -1337,7 +1340,10 @@ impl Engine {
     /// but any additional path added this way will increase the module
     /// resolution search space.
     pub fn add_search_directory(&mut self, dir: PathBuf) {
-        self.compiler.write().add_search_directory(dir)
+        self.virtual_machine
+            .compiler
+            .write()
+            .add_search_directory(dir)
     }
 
     pub fn with_interrupted(&mut self, interrupted: Arc<AtomicBool>) {
@@ -1438,7 +1444,10 @@ impl Engine {
         &mut self,
         expr: E,
     ) -> Result<RawProgramWithSymbols> {
-        self.compiler.write().compile_executable(expr, None)
+        self.virtual_machine
+            .compiler
+            .write()
+            .compile_executable(expr, None)
     }
 
     pub fn emit_raw_program<E: AsRef<str> + Into<Cow<'static, str>>>(
@@ -1446,12 +1455,15 @@ impl Engine {
         expr: E,
         path: PathBuf,
     ) -> Result<RawProgramWithSymbols> {
-        self.compiler.write().compile_executable(expr, Some(path))
+        self.virtual_machine
+            .compiler
+            .write()
+            .compile_executable(expr, Some(path))
     }
 
     #[doc(hidden)]
     pub fn debug_build_strings(&mut self, program: RawProgramWithSymbols) -> Result<Vec<String>> {
-        program.debug_generate_instructions(&mut self.compiler.write().symbol_map)
+        program.debug_generate_instructions(&mut self.virtual_machine.compiler.write().symbol_map)
     }
 
     pub fn debug_print_build(
@@ -1459,11 +1471,13 @@ impl Engine {
         name: String,
         program: RawProgramWithSymbols,
     ) -> Result<()> {
-        program.debug_build(name, &mut self.compiler.write().symbol_map)
+        program.debug_build(name, &mut self.virtual_machine.compiler.write().symbol_map)
     }
 
     pub fn globals(&self) -> MappedRwLockReadGuard<'_, Vec<InternedString>> {
-        RwLockReadGuard::map(self.compiler.read(), |x| x.symbol_map.values())
+        RwLockReadGuard::map(self.virtual_machine.compiler.read(), |x| {
+            x.symbol_map.values()
+        })
     }
 
     // pub fn get_exported_module_functions(&self, path: PathBuf) -> impl Iterator<Item = InternedString> {
@@ -1585,6 +1599,7 @@ impl Engine {
         path: PathBuf,
     ) -> Result<Vec<SteelVal>> {
         let program = self
+            .virtual_machine
             .compiler
             .write()
             .compile_executable(exprs, Some(path))?;
@@ -1597,6 +1612,7 @@ impl Engine {
         exprs: Vec<ExprKind>,
     ) -> Result<Vec<SteelVal>> {
         let program = self
+            .virtual_machine
             .compiler
             .write()
             .compile_executable_from_expressions(exprs)?;
@@ -1607,7 +1623,11 @@ impl Engine {
         &mut self,
         exprs: E,
     ) -> Result<Vec<SteelVal>> {
-        let program = self.compiler.write().compile_executable(exprs, None)?;
+        let program = self
+            .virtual_machine
+            .compiler
+            .write()
+            .compile_executable(exprs, None)?;
 
         self.run_raw_program(program)
     }
@@ -1616,16 +1636,17 @@ impl Engine {
         &mut self,
         program: RawProgramWithSymbols,
     ) -> Result<Executable> {
-        let symbol_map_offset = self.compiler.read().symbol_map.len();
+        let symbol_map_offset = self.virtual_machine.compiler.read().symbol_map.len();
 
         let result = program.build(
             "TestProgram".to_string(),
-            &mut self.compiler.write().symbol_map,
+            &mut self.virtual_machine.compiler.write().symbol_map,
         );
 
         // Revisit if we need to do this at all?
         if result.is_err() {
-            self.compiler
+            self.virtual_machine
+                .compiler
                 .write()
                 .symbol_map
                 .roll_back(symbol_map_offset);
@@ -1638,7 +1659,7 @@ impl Engine {
     #[doc(hidden)]
     pub fn environment_offset(&self) -> GlobalCheckpoint {
         GlobalCheckpoint {
-            symbol_map_offset: self.compiler.read().symbol_map.len(),
+            symbol_map_offset: self.virtual_machine.compiler.read().symbol_map.len(),
             globals_offset: self.virtual_machine.global_env.len(),
         }
     }
@@ -1646,7 +1667,8 @@ impl Engine {
     // TODO: Add doc for this
     #[doc(hidden)]
     pub fn rollback_to_checkpoint(&mut self, checkpoint: GlobalCheckpoint) -> Result<()> {
-        self.compiler
+        self.virtual_machine
+            .compiler
             .write()
             .symbol_map
             .roll_back(checkpoint.symbol_map_offset);
@@ -1677,12 +1699,19 @@ impl Engine {
 
         // Unfortunately, we have to invoke a whole GC algorithm here
         // for shadowed rooted values
-        if self.compiler.write().symbol_map.free_list.should_collect() {
+        if self
+            .virtual_machine
+            .compiler
+            .write()
+            .symbol_map
+            .free_list
+            .should_collect()
+        {
             #[cfg(feature = "sync")]
             {
                 GlobalSlotRecycler::free_shadowed_rooted_values(
                     &mut self.virtual_machine.global_env.bindings_vec.write(),
-                    &mut self.compiler.write().symbol_map,
+                    &mut self.virtual_machine.compiler.write().symbol_map,
                     &mut self.virtual_machine.heap.lock().unwrap(),
                 );
             }
@@ -1691,7 +1720,7 @@ impl Engine {
             {
                 GlobalSlotRecycler::free_shadowed_rooted_values(
                     &mut self.virtual_machine.global_env.bindings_vec,
-                    &mut self.compiler.symbol_map,
+                    &mut self.virtual_machine.compiler.symbol_map,
                     &mut self.virtual_machine.heap.lock().unwrap(),
                 );
             }
@@ -1709,7 +1738,8 @@ impl Engine {
             // the referenced globals; we track the referenced closures.
             // FIXME: Add that code here
 
-            self.compiler
+            self.virtual_machine
+                .compiler
                 .write()
                 .symbol_map
                 .free_list
@@ -1759,7 +1789,10 @@ impl Engine {
         expr: &str,
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
-        self.compiler.write().emit_expanded_ast(expr, path)
+        self.virtual_machine
+            .compiler
+            .write()
+            .emit_expanded_ast(expr, path)
     }
 
     pub fn emit_expanded_ast_without_optimizations(
@@ -1767,7 +1800,8 @@ impl Engine {
         expr: &str,
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
-        self.compiler
+        self.virtual_machine
+            .compiler
             .write()
             .emit_expanded_ast_without_optimizations(expr, path)
     }
@@ -1791,6 +1825,7 @@ impl Engine {
         path: Option<PathBuf>,
     ) -> Result<String> {
         Ok(self
+            .virtual_machine
             .compiler
             .write()
             .emit_expanded_ast(expr, path)?
@@ -1805,7 +1840,10 @@ impl Engine {
         expr: &str,
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
-        self.compiler.write().emit_expanded_ast(expr, path)
+        self.virtual_machine
+            .compiler
+            .write()
+            .emit_expanded_ast(expr, path)
     }
 
     /// Registers an external value of any type as long as it implements [`FromSteelVal`](crate::rvals::FromSteelVal) and
@@ -1849,7 +1887,7 @@ impl Engine {
     }
 
     pub fn update_value(&mut self, name: &str, value: SteelVal) -> Option<&mut Self> {
-        let idx = self.compiler.read().get_idx(name)?;
+        let idx = self.virtual_machine.compiler.read().get_idx(name)?;
         self.virtual_machine.global_env.repl_set_idx(idx, value);
         Some(self)
     }
@@ -1927,7 +1965,7 @@ impl Engine {
     /// assert_eq!(vm.extract_value("a").unwrap(), SteelVal::IntV(10));
     /// ```
     pub fn extract_value(&self, name: &str) -> Result<SteelVal> {
-        let idx = self.compiler.read().get_idx(name).ok_or_else(throw!(
+        let idx = self.virtual_machine.compiler.read().get_idx(name).ok_or_else(throw!(
             Generic => format!("free identifier: {name} - identifier given cannot be found in the global environment")
         ))?;
 
@@ -2001,13 +2039,15 @@ impl Engine {
     // }
 
     pub fn add_module(&mut self, path: String) -> Result<()> {
-        self.compiler
-            .write()
-            .compile_module(path.into(), &mut self.sources, self.modules.clone())
+        self.virtual_machine.compiler.write().compile_module(
+            path.into(),
+            &mut self.sources,
+            self.modules.clone(),
+        )
     }
 
     pub fn modules(&self) -> MappedRwLockReadGuard<'_, FxHashMap<PathBuf, CompiledModule>> {
-        RwLockReadGuard::map(self.compiler.read(), |x| x.modules())
+        RwLockReadGuard::map(self.virtual_machine.compiler.read(), |x| x.modules())
     }
 
     pub fn global_exists(&self, ident: &str) -> bool {
@@ -2017,23 +2057,28 @@ impl Engine {
             return false;
         };
 
-        self.compiler.read().symbol_map.get(&spur).is_ok()
+        self.virtual_machine
+            .compiler
+            .read()
+            .symbol_map
+            .get(&spur)
+            .is_ok()
     }
 
     pub fn symbol_map(&self) -> MappedRwLockReadGuard<'_, SymbolMap> {
-        RwLockReadGuard::map(self.compiler.read(), |x| &x.symbol_map)
+        RwLockReadGuard::map(self.virtual_machine.compiler.read(), |x| &x.symbol_map)
     }
 
     pub fn in_scope_macros(
         &self,
     ) -> MappedRwLockReadGuard<'_, FxHashMap<InternedString, SteelMacro>> {
-        RwLockReadGuard::map(self.compiler.read(), |x| &x.macro_env)
+        RwLockReadGuard::map(self.virtual_machine.compiler.read(), |x| &x.macro_env)
     }
 
     pub fn in_scope_macros_mut(
         &mut self,
     ) -> MappedRwLockWriteGuard<'_, FxHashMap<InternedString, SteelMacro>> {
-        RwLockWriteGuard::map(self.compiler.write(), |x| &mut x.macro_env)
+        RwLockWriteGuard::map(self.virtual_machine.compiler.write(), |x| &mut x.macro_env)
     }
 
     pub fn get_module(&self, path: PathBuf) -> Result<SteelVal> {

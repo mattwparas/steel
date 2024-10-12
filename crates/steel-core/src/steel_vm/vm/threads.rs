@@ -520,7 +520,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             synchronizer: Synchronizer::new(),
             thread_local_storage: Vec::new(),
             // TODO: Fix this
-            compiler: None,
+            compiler: todo!(),
         };
 
         #[cfg(feature = "profiling")]
