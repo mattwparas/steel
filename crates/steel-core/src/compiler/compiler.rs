@@ -14,7 +14,7 @@ use crate::{
         kernel::Kernel,
         parser::{lower_entire_ast, lower_macro_and_require_definitions},
     },
-    steel_vm::{cache::MemoizationTable, engine::ModuleContainer, primitives::CONSTANT_PRIMITIVES},
+    steel_vm::{cache::MemoizationTable, engine::ModuleContainer, primitives::constant_primitives},
 };
 use crate::{
     core::{instructions::Instruction, opcode::OpCode},
@@ -867,7 +867,7 @@ impl Compiler {
         // expanded_statements.pretty_print();
 
         let expanded_statements =
-            self.apply_const_evaluation(CONSTANT_PRIMITIVES.clone(), expanded_statements, false)?;
+            self.apply_const_evaluation(constant_primitives(), expanded_statements, false)?;
 
         let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
 

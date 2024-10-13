@@ -2,7 +2,7 @@
 
 use super::{
     builtin::{BuiltInModule, FunctionSignatureMetadata},
-    primitives::{register_builtin_modules, CONSTANTS, CONSTANT_PRIMITIVES},
+    primitives::{register_builtin_modules, CONSTANTS},
     vm::{SteelThread, ThreadStateController},
 };
 

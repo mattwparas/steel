@@ -665,6 +665,21 @@ pub fn builtin_to_reserved(ident: &str) -> InternedString {
 }
 
 // TODO: Do the same for the single threaded version as well
+
+pub(crate) fn constant_primitives(
+) -> crate::values::HashMap<InternedString, SteelVal, FxBuildHasher> {
+    #[cfg(feature = "sync")]
+    {
+        CONSTANT_PRIMITIVES.clone()
+    }
+
+    #[cfg(not(feature = "sync"))]
+    {
+        CONSTANT_PRIMITIVES.with(|x| x.clone())
+    }
+}
+
+#[cfg(feature = "sync")]
 pub static CONSTANT_PRIMITIVES: Lazy<
     crate::values::HashMap<InternedString, SteelVal, FxBuildHasher>,
 > = Lazy::new(|| {
@@ -685,6 +700,29 @@ pub static CONSTANT_PRIMITIVES: Lazy<
         })
         .collect()
 });
+
+#[cfg(not(feature = "sync"))]
+thread_local! {
+    pub static CONSTANT_PRIMITIVES: crate::values::HashMap<InternedString, SteelVal, FxBuildHasher> = {
+        let names = PRELUDE_MODULE.with(|x| x.metadata_table());
+
+        names
+            .into_iter()
+            .filter_map(|(key, value)| match key {
+                BuiltInFunctionType::Reference(func) if value.is_const => Some((
+                    ("#%prim.".to_string() + value.name).into(),
+                    SteelVal::FuncV(func),
+                )),
+                BuiltInFunctionType::Mutable(func) if value.is_const => Some((
+                    ("#%prim.".to_string() + value.name).into(),
+                    SteelVal::MutFunc(func),
+                )),
+                _ => None,
+            })
+            .collect()
+    };
+
+}
 
 // TODO: Make the prelude string generation lazy - so that
 // the first time we load (steel/base) we don't have to regenerate
