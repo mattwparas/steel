@@ -1720,7 +1720,7 @@ impl Engine {
             {
                 GlobalSlotRecycler::free_shadowed_rooted_values(
                     &mut self.virtual_machine.global_env.bindings_vec,
-                    &mut self.virtual_machine.compiler.symbol_map,
+                    &mut self.virtual_machine.compiler.write().symbol_map,
                     &mut self.virtual_machine.heap.lock().unwrap(),
                 );
             }
