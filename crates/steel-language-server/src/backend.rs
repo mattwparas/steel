@@ -284,9 +284,9 @@ impl LanguageServer for Backend {
 
                         return ENGINE.with(|engine| {
                             let guard = engine.borrow();
+                            let modules = guard.modules();
 
-                            let module =
-                                guard.modules().get(&PathBuf::from(module_path_to_check))?;
+                            let module = modules.get(&PathBuf::from(module_path_to_check))?;
 
                             let module_ast = module.get_ast();
 
@@ -398,8 +398,9 @@ impl LanguageServer for Backend {
 
                             log::debug!("Searching for: {} in {}", name, module_path_to_check);
 
-                            let module =
-                                guard.modules().get(&PathBuf::from(module_path_to_check))?;
+                            let modules = guard.modules();
+
+                            let module = modules.get(&PathBuf::from(module_path_to_check))?;
 
                             let module_ast = module.get_ast();
 
@@ -866,7 +867,7 @@ impl ExternalModuleResolver {
         }
 
         // Check globals now - for anything that isn't returned directly
-        for global in engine.globals() {
+        for global in engine.globals().iter() {
             if let Ok(module) = engine.extract::<BuiltInModule>(global.resolve()) {
                 if !modules.contains_key(module.name().as_ref()) {
                     modules.insert(module.name().to_string(), module);
