@@ -83,6 +83,8 @@ use crate::rvals::{from_serializable_value, into_serializable_value, IntoSteelVa
 pub(crate) mod threads;
 pub(crate) use threads::{spawn_thread, thread_join};
 
+pub use threads::{mutex_lock, mutex_unlock};
+
 #[inline]
 #[cold]
 pub fn cold() {}
