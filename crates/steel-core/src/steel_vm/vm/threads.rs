@@ -786,11 +786,13 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     // longer going to be in this context.
 
     let handle = std::thread::spawn(move || {
+        let constant_map = thread.compiler.read().constant_map.clone();
+
         // TODO: We have to use the `execute` function in vm.rs - this sets up
         // the proper dynamic wind stuff that is built in. Otherwise, it seems
         // like we're not getting it installed correctly, and things are dying
         thread
-            .call_function(thread.constant_map.clone(), func, Vec::new())
+            .call_function(constant_map, func, Vec::new())
             .map(|_| ())
             .map_err(|e| e.to_string())
 

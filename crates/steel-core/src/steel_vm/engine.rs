@@ -596,23 +596,23 @@ impl Engine {
 
         log::debug!(target:"kernel", "Instantiating a new kernel");
 
-        let sources = Sources::new();
-        let modules = ModuleContainer::default();
+        // let sources = Sources::new();
+        // let modules = ModuleContainer::default();
 
-        let compiler = Arc::new(RwLock::new(Compiler::default_without_kernel(
-            sources.clone(),
-            modules.clone(),
-        )));
+        // let compiler = Arc::new(RwLock::new(Compiler::default_without_kernel(
+        //     sources.clone(),
+        //     modules.clone(),
+        // )));
 
-        // TODO: Pass compiler down if we want eval!
-        let mut vm = Engine {
-            virtual_machine: SteelThread::new(sources.clone(), compiler),
-            modules,
-            sources,
-            #[cfg(feature = "dylibs")]
-            dylibs: DylibContainers::new(),
-            id: EngineId::new(),
-        };
+        // // TODO: Pass compiler down if we want eval!
+        // let mut vm = Engine {
+        //     virtual_machine: SteelThread::new(sources.clone(), compiler),
+        //     modules,
+        //     sources,
+        //     #[cfg(feature = "dylibs")]
+        //     dylibs: DylibContainers::new(),
+        //     id: EngineId::new(),
+        // };
 
         // if let Some(programs) = Engine::load_from_bootstrap(&mut vm) {
         //     register_builtin_modules(&mut vm, sandbox);
