@@ -28,7 +28,9 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - uses: dtolnay/rust-toolchain@nightly
-    - run: cd crates/steel-core && cargo bench --bench my_benchmark -- --output-format bencher | tee output.txt
+    - run: |
+        cd crates/steel-core
+        cargo bench --bench my_benchmark -- --output-format bencher | tee output.txt
     - uses: actions/cache@v1
       with:
         path: ./cache

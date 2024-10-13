@@ -17,7 +17,7 @@ impl SymbolOperations {
                 }
             }
 
-            Ok(SteelVal::SymbolV(new_symbol.into()))
+            Ok(SteelVal::SymbolV(new_symbol.as_str().into()))
         })
     }
 
