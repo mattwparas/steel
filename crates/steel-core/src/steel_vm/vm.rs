@@ -66,6 +66,7 @@ use std::{cell::RefCell, collections::HashMap, iter::Iterator, rc::Rc};
 
 use super::builtin::DocTemplate;
 use super::builtin::MarkdownDoc;
+use super::engine::EngineId;
 
 use crate::values::lists::List;
 
@@ -334,6 +335,8 @@ pub struct SteelThread {
 
     // Store... more stuff here
     pub(crate) compiler: std::sync::Arc<RwLock<Compiler>>,
+
+    pub(crate) id: EngineId,
 }
 
 #[derive(Clone)]
@@ -551,6 +554,7 @@ impl SteelThread {
             thread_local_storage: Vec::new(),
             sources,
             compiler,
+            id: EngineId::new(),
         }
     }
 

@@ -521,6 +521,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             thread_local_storage: Vec::new(),
             // TODO: Fix this
             compiler: todo!(),
+            id: EngineId::new(),
         };
 
         #[cfg(feature = "profiling")]
@@ -743,6 +744,11 @@ pub fn disconnected_channel() -> SteelVal {
     }
 }
 
+#[steel_derive::context(name = "current-thread-id", arity = "Exact(0)")]
+pub fn engine_id(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(Ok(SteelVal::IntV(ctx.thread.id.0 as _)))
+}
+
 // See... if this works...?
 
 #[cfg(feature = "sync")]
@@ -756,6 +762,8 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     thread.synchronizer.state = controller.clone();
     // This thread needs its own context
     thread.synchronizer.ctx = Arc::new(AtomicCell::new(None));
+
+    thread.id = EngineId::new();
 
     let weak_ctx = Arc::downgrade(&thread.synchronizer.ctx);
 
@@ -939,6 +947,7 @@ pub fn threading_module() -> BuiltInModule {
         .register_native_fn_definition(SELECT_DEFINITION)
         .register_native_fn_definition(EMPTY_CHANNEL_OBJECTP_DEFINITION)
         .register_native_fn_definition(DISCONNECTED_CHANNEL_OBJECTP_DEFINITION)
+        .register_native_fn_definition(ENGINE_ID_DEFINITION)
         .register_fn("make-channels", || {
             let (left, right) = std::sync::mpsc::channel::<SerializableSteelVal>();
 

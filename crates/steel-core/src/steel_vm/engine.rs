@@ -176,14 +176,18 @@ pub struct GlobalCheckpoint {
     globals_offset: usize,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct EngineId(usize);
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct EngineId(pub(crate) usize);
 
 impl EngineId {
     pub fn new() -> Self {
         static ENGINE_ID: AtomicUsize = AtomicUsize::new(0);
         let id = ENGINE_ID.fetch_add(1, Ordering::Relaxed);
         Self(id)
+    }
+
+    pub fn as_usize(self) -> usize {
+        self.0
     }
 }
 
@@ -217,7 +221,7 @@ impl Clone for Engine {
             sources: self.sources.clone(),
             #[cfg(feature = "dylibs")]
             dylibs: self.dylibs.clone(),
-            id: self.id.clone(),
+            id: EngineId::new(),
         }
     }
 }
@@ -403,6 +407,10 @@ thread_local! {
 }
 
 impl Engine {
+    pub fn engine_id(&self) -> EngineId {
+        self.virtual_machine.id
+    }
+
     #[cfg(feature = "sync")]
     pub(crate) fn deep_clone(&self) -> Self {
         let mut engine = self.clone();
