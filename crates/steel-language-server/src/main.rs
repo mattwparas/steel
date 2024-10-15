@@ -68,6 +68,7 @@ async fn main() {
                 && !resolved.starts_with("%")
                 && !resolved.starts_with("mangler#%")
                 && !resolved.starts_with("mangler")
+                && !resolved.starts_with("__module")
             {
                 defined_globals.insert(resolved.to_string());
             }
