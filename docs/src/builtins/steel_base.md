@@ -335,6 +335,9 @@ Rounds the given number up to the nearest integer not less than it.
 > (ceiling 42.1) ;; => 43
 > (ceiling -42.1) ;; => -42
 ```
+
+### **change-current-directory!**
+Change the current working directory
 ### **char->integer**
 Returns the Unicode codepoint of a given character.
 
@@ -1190,6 +1193,8 @@ Checks if the given value can be treated as a pair.
 > (pair? '(10)) ;; => #true
 > (pair? '()) ;; => #false
 ```
+### **parent-name**
+Gets the parent directory name for a given path
 ### **path->extension**
 Gets the extension from a path
 ### **path-exists?**

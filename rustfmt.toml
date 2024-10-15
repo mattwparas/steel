@@ -1,0 +1,1 @@
+# Present so that the default rustfmt configuration is used over any user specified configuration
