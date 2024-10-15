@@ -749,8 +749,6 @@ pub fn engine_id(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>
     Some(Ok(SteelVal::IntV(ctx.thread.id.0 as _)))
 }
 
-// See... if this works...?
-
 #[cfg(feature = "sync")]
 #[steel_derive::context(name = "spawn-native-thread", arity = "Exact(2)")]
 pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
