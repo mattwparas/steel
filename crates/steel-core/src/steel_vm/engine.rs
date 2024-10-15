@@ -411,6 +411,29 @@ impl Engine {
         self.virtual_machine.id
     }
 
+    #[cfg(not(feature = "sync"))]
+    pub(crate) fn deep_clone(&self) -> Self {
+        let mut engine = self.clone();
+
+        let compiler_copy = engine.virtual_machine.compiler.read().clone();
+        engine.virtual_machine.compiler = Arc::new(RwLock::new(compiler_copy));
+
+        let constant_map = engine
+            .virtual_machine
+            .compiler
+            .read()
+            .constant_map
+            .deep_clone();
+        engine.virtual_machine.compiler.write().constant_map = constant_map;
+
+        let heap_copy = Arc::new(Mutex::new(
+            engine.virtual_machine.heap.lock().unwrap().clone(),
+        ));
+
+        engine.virtual_machine.heap = heap_copy;
+        engine
+    }
+
     #[cfg(feature = "sync")]
     pub(crate) fn deep_clone(&self) -> Self {
         let mut engine = self.clone();
@@ -1326,7 +1349,9 @@ impl Engine {
     pub fn new() -> Self {
         let mut engine = fresh_kernel_image(false);
 
-        engine.virtual_machine.compiler.write().kernel = Some(Kernel::new());
+        {
+            engine.virtual_machine.compiler.write().kernel = Some(Kernel::new());
+        }
 
         #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
@@ -1754,37 +1779,7 @@ impl Engine {
                 .increment_generation();
         }
 
-        // TODO: This isn't my favorite pattern.
-        // I'd prefer to just use a weak reference, but I don't think
-        // it is really worth it.
-
-        // {
-        //     let constants = self.constants();
-        //     let mut guard = self.virtual_machine.compiler.lock().unwrap();
-        //     let compiler = &mut self.compiler as *mut _;
-
-        //     let compiler_value = SelfCompiler {
-        //         compiler: Some(compiler),
-        //         sources: self.sources.clone(),
-        //         modules: self.modules.clone(),
-        //         constants,
-        //     };
-        //     *guard = Some(compiler_value);
-        // }
-
-        let res = self.virtual_machine.run_executable(&executable);
-
-        // Overwrite the compiler reference
-        // self.virtual_machine
-        //     .compiler
-        //     .lock()
-        //     .unwrap()
-        //     .as_mut()
-        //     .unwrap()
-        //     .compiler
-        //     .take();
-
-        res
+        self.virtual_machine.run_executable(&executable)
     }
 
     pub fn run_executable(&mut self, executable: &Executable) -> Result<Vec<SteelVal>> {
