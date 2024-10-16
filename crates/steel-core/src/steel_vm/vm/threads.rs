@@ -756,6 +756,15 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     builtin_stop!(Generic => "the feature needed for spawn-native-thread is not enabled.")
 }
 
+/// Spawns the given `func` on another thread. It is required that the arity of the
+/// given function be 0. If the arity of the given function cannot be checked until runtime,
+/// the thread will be spawned and the function will fail to execute.
+///
+/// # Examples
+///
+/// ```scheme
+/// (define thread (spawn-native-thread (lambda () (displayln "Hello world!"))))
+/// ```
 #[cfg(feature = "sync")]
 #[steel_derive::context(name = "spawn-native-thread", arity = "Exact(1)")]
 pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
