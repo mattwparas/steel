@@ -750,8 +750,14 @@ pub fn engine_id(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>
     Some(Ok(SteelVal::IntV(ctx.thread.id.0 as _)))
 }
 
+#[cfg(not(feature = "sync"))]
+#[steel_derive::context(name = "spawn-native-thread", arity = "Exact(1)")]
+pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    builtin_stop!(Generic => "the feature needed for spawn-native-thread is not enabled.")
+}
+
 #[cfg(feature = "sync")]
-#[steel_derive::context(name = "spawn-native-thread", arity = "Exact(2)")]
+#[steel_derive::context(name = "spawn-native-thread", arity = "Exact(1)")]
 pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let thread_time = std::time::Instant::now();
     let mut thread = ctx.thread.clone();
@@ -916,18 +922,7 @@ pub(crate) fn set_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<Stee
 pub fn threading_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/threads");
 
-    #[cfg(feature = "sync")]
-    {
-        module.register_native_fn_definition(SPAWN_NATIVE_THREAD_DEFINITION);
-    }
-
-    #[cfg(not(feature = "sync"))]
-    {
-        module.register_fn(
-            "spawn-native-thread",
-            |_: &SteelVal| stop!(Generic => "the feature to use native threads is not enabled"),
-        );
-    }
+    module.register_native_fn_definition(SPAWN_NATIVE_THREAD_DEFINITION);
 
     module
         .register_value(
