@@ -377,6 +377,7 @@ impl<'a> ConstantEvaluator<'a> {
                     // {
                     // output
                     // } else {
+
                     let output = f(args)
                         .map_err(|e| e.set_span_if_none(func.atom_syntax_object().unwrap().span))?;
 
@@ -602,7 +603,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             let func = self.visit(func_expr)?;
 
             if let Some(evaluated_func) = self.to_constant(&func) {
-                // debug!("Attempting to evaluate: {}", &func);
+                // println!("Attempting to evaluate: {}", &func);
                 return self.eval_function(evaluated_func, func, Vec::new(), &mut []);
             } else if let Some(ident) = func.atom_identifier().and_then(|x| {
                 // TODO: @Matt 4/24/23 - this condition is super ugly and I would prefer if we cleaned it up

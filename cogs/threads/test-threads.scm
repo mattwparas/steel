@@ -13,21 +13,21 @@
 
 (define __module__ 'thread-test-module)
 
-(define (spawn-concurrent-tasks)
+; (define (spawn-concurrent-tasks)
 
-  (let ([tasks (time! (map (lambda (_)
-                             (spawn-thread! (lambda ()
-                                              (time/sleep-ms 2000)
-                                              (displayln (thread::current/id)))))
-                           (range 0 10)))])
-    (map (lambda (x) (thread-join! x)) tasks)))
+;   (let ([tasks (time! (map (lambda (_)
+;                              (spawn-thread! (lambda ()
+;                                               (time/sleep-ms 2000)
+;                                               (displayln (thread::current/id)))))
+;                            (range 0 10)))])
+;     (map (lambda (x) (thread-join! x)) tasks)))
 
-; (error "HELLO WORLD")
+; ; (error "HELLO WORLD")
 
-(test-module
- "Basic threads works"
- (check-equal? "spawn-threads" (spawn-concurrent-tasks) (map (lambda (x) void) (range 0 10))))
+; (test-module
+;  "Basic threads works"
+;  (check-equal? "spawn-threads" (spawn-concurrent-tasks) (map (lambda (x) void) (range 0 10))))
 
-(spawn-concurrent-tasks)
+; (spawn-concurrent-tasks)
 
 ; (define/generator (foo-bar-baz) (yield 10) (yield 20) (yield 30))

@@ -53,7 +53,7 @@ pub(crate) fn fresh_kernel_image(sandbox: bool) -> Engine {
 
         #[cfg(not(feature = "sync"))]
         {
-            KERNEL_IMAGE_SB.with(|x| x.clone())
+            KERNEL_IMAGE_SB.with(|x| x.deep_clone())
         }
     } else {
         #[cfg(feature = "sync")]
@@ -63,7 +63,7 @@ pub(crate) fn fresh_kernel_image(sandbox: bool) -> Engine {
 
         #[cfg(not(feature = "sync"))]
         {
-            KERNEL_IMAGE.with(|x| x.clone())
+            KERNEL_IMAGE.with(|x| x.deep_clone())
         }
     }
 }

@@ -82,14 +82,15 @@ pub fn new_mutex() -> Result<SteelVal> {
     SteelMutex::new().into_steelval()
 }
 
-/// Lock the given mutex
+/// Lock the given mutex. Note, this is most likely used as a building block
+/// with the `lock!` function.
 #[steel_derive::function(name = "lock-acquire!")]
 pub fn mutex_lock(mutex: &SteelVal) -> Result<SteelVal> {
     SteelMutex::as_ref(mutex)?.lock();
     Ok(SteelVal::Void)
 }
 
-/// Unlock the given mutex
+/// Unlock the given mutex.
 #[steel_derive::function(name = "lock-release!")]
 pub fn mutex_unlock(mutex: &SteelVal) -> Result<SteelVal> {
     SteelMutex::as_ref(mutex)?.unlock();
@@ -520,7 +521,8 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             synchronizer: Synchronizer::new(),
             thread_local_storage: Vec::new(),
             // TODO: Fix this
-            compiler: Arc::new(Mutex::new(None)),
+            compiler: todo!(),
+            id: EngineId::new(),
         };
 
         #[cfg(feature = "profiling")]
@@ -743,10 +745,28 @@ pub fn disconnected_channel() -> SteelVal {
     }
 }
 
-// See... if this works...?
+#[steel_derive::context(name = "current-thread-id", arity = "Exact(0)")]
+pub fn engine_id(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(Ok(SteelVal::IntV(ctx.thread.id.0 as _)))
+}
 
+#[cfg(not(feature = "sync"))]
+#[steel_derive::context(name = "spawn-native-thread", arity = "Exact(1)")]
+pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    builtin_stop!(Generic => "the feature needed for spawn-native-thread is not enabled.")
+}
+
+/// Spawns the given `func` on another thread. It is required that the arity of the
+/// given function be 0. If the arity of the given function cannot be checked until runtime,
+/// the thread will be spawned and the function will fail to execute.
+///
+/// # Examples
+///
+/// ```scheme
+/// (define thread (spawn-native-thread (lambda () (displayln "Hello world!"))))
+/// ```
 #[cfg(feature = "sync")]
-#[steel_derive::context(name = "spawn-native-thread", arity = "Exact(2)")]
+#[steel_derive::context(name = "spawn-native-thread", arity = "Exact(1)")]
 pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let thread_time = std::time::Instant::now();
     let mut thread = ctx.thread.clone();
@@ -756,6 +776,8 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     thread.synchronizer.state = controller.clone();
     // This thread needs its own context
     thread.synchronizer.ctx = Arc::new(AtomicCell::new(None));
+
+    thread.id = EngineId::new();
 
     let weak_ctx = Arc::downgrade(&thread.synchronizer.ctx);
 
@@ -786,11 +808,13 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     // longer going to be in this context.
 
     let handle = std::thread::spawn(move || {
+        let constant_map = thread.compiler.read().constant_map.clone();
+
         // TODO: We have to use the `execute` function in vm.rs - this sets up
         // the proper dynamic wind stuff that is built in. Otherwise, it seems
         // like we're not getting it installed correctly, and things are dying
         thread
-            .call_function(thread.constant_map.clone(), func, Vec::new())
+            .call_function(constant_map, func, Vec::new())
             .map(|_| ())
             .map_err(|e| e.to_string())
 
@@ -907,10 +931,7 @@ pub(crate) fn set_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<Stee
 pub fn threading_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/threads");
 
-    #[cfg(feature = "sync")]
-    {
-        module.register_native_fn_definition(SPAWN_NATIVE_THREAD_DEFINITION);
-    }
+    module.register_native_fn_definition(SPAWN_NATIVE_THREAD_DEFINITION);
 
     module
         .register_value(
@@ -937,6 +958,7 @@ pub fn threading_module() -> BuiltInModule {
         .register_native_fn_definition(SELECT_DEFINITION)
         .register_native_fn_definition(EMPTY_CHANNEL_OBJECTP_DEFINITION)
         .register_native_fn_definition(DISCONNECTED_CHANNEL_OBJECTP_DEFINITION)
+        .register_native_fn_definition(ENGINE_ID_DEFINITION)
         .register_fn("make-channels", || {
             let (left, right) = std::sync::mpsc::channel::<SerializableSteelVal>();
 
