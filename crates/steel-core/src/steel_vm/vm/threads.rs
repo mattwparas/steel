@@ -926,7 +926,7 @@ pub fn threading_module() -> BuiltInModule {
         module.register_fn(
             "spawn-native-thread",
             |_| stop!(Generic => "the feature to use native threads is not enabled"),
-        )
+        );
     }
 
     module
