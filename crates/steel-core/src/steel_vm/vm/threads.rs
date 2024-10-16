@@ -921,6 +921,14 @@ pub fn threading_module() -> BuiltInModule {
         module.register_native_fn_definition(SPAWN_NATIVE_THREAD_DEFINITION);
     }
 
+    #[cfg(not(feature = "sync"))]
+    {
+        module.register_fn(
+            "spawn-native-thread",
+            |_| stop!(Generic => "the feature to use native threads is not enabled"),
+        )
+    }
+
     module
         .register_value(
             "spawn-thread!",
