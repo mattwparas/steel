@@ -2004,6 +2004,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             // println!("Free identifier: {}", a);
         }
     }
+
+    fn visit_vector(&mut self, _: &'a steel_parser::ast::Vector) {}
 }
 
 impl<'a> VisitorMutUnitRef<'a> for Analysis {
