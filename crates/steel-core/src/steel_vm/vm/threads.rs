@@ -82,14 +82,15 @@ pub fn new_mutex() -> Result<SteelVal> {
     SteelMutex::new().into_steelval()
 }
 
-/// Lock the given mutex
+/// Lock the given mutex. Note, this is most likely used as a building block
+/// with the `lock!` function.
 #[steel_derive::function(name = "lock-acquire!")]
 pub fn mutex_lock(mutex: &SteelVal) -> Result<SteelVal> {
     SteelMutex::as_ref(mutex)?.lock();
     Ok(SteelVal::Void)
 }
 
-/// Unlock the given mutex
+/// Unlock the given mutex.
 #[steel_derive::function(name = "lock-release!")]
 pub fn mutex_unlock(mutex: &SteelVal) -> Result<SteelVal> {
     SteelMutex::as_ref(mutex)?.unlock();
