@@ -1461,18 +1461,6 @@ impl Engine {
         Ok(self)
     }
 
-    // /// Emits a program with path information embedded for error messaging.
-    // pub fn emit_program_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Program> {
-    //     let constants = self.constants();
-    //     self.compiler.compile_program(expr, Some(path), constants)
-    // }
-
-    /// Emits a program for a given `expr` directly without providing any error messaging for the path.
-    // pub fn emit_program(&mut self, expr: &str) -> Result<Program> {
-    //     let constants = self.constants();
-    //     self.compiler.compile_program(expr, None, constants)
-    // }
-
     pub fn emit_raw_program_no_path<E: AsRef<str> + Into<Cow<'static, str>>>(
         &mut self,
         expr: E,
@@ -1511,6 +1499,27 @@ impl Engine {
         RwLockReadGuard::map(self.virtual_machine.compiler.read(), |x| {
             x.symbol_map.values()
         })
+    }
+
+    pub fn readable_globals(&self, after_offset: usize) -> Vec<InternedString> {
+        self.virtual_machine
+            .compiler
+            .read()
+            .symbol_map
+            .values()
+            .iter()
+            .skip(after_offset)
+            .filter(|x| {
+                let resolved = x.resolve();
+                !resolved.starts_with("#")
+                    && !resolved.starts_with("%")
+                    && !resolved.starts_with("mangler#%")
+                    && !resolved.starts_with("mangler")
+                    && !resolved.starts_with("__module")
+                    && !resolved.ends_with("__doc__")
+            })
+            .copied()
+            .collect()
     }
 
     // pub fn get_exported_module_functions(&self, path: PathBuf) -> impl Iterator<Item = InternedString> {
