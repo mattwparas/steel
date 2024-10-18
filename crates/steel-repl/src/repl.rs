@@ -141,7 +141,8 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     #[cfg(not(target_os = "windows"))]
     let mut prompt = format!("{}", "λ > ".bright_green().bold().italic());
 
-    let mut rl = Editor::<RustylineHelper>::new().expect("Unable to instantiate the repl!");
+    let mut rl = Editor::<RustylineHelper, rustyline::history::DefaultHistory>::new()
+        .expect("Unable to instantiate the repl!");
     rl.set_check_cursor_position(true);
 
     // Load repl history

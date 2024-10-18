@@ -294,7 +294,7 @@ impl Highlighter for RustylineHelper {
     //     self.highlighter.highlight_char(line, pos)
     // }
 
-    fn highlight_char(&self, line: &str, mut pos: usize) -> bool {
+    fn highlight_char(&self, line: &str, mut pos: usize, _: bool) -> bool {
         // will highlight matching brace/bracket/parenthesis if it exists
         self.bracket.set(check_bracket(line, pos));
         if self.bracket.get().is_some() {

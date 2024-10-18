@@ -311,7 +311,8 @@ lto = true
             action: Some(EmitAction::Dylib),
             ..
         } => {
-            cargo_steel_lib::run()?;
+            // cargo_steel_lib::run()?;
+            todo!();
             Ok(())
         }
 
