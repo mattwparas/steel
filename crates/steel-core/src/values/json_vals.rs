@@ -43,7 +43,7 @@ pub fn string_to_jsexpr(value: &SteelString) -> Result<SteelVal> {
 pub fn serialize_val_to_string(value: SteelVal) -> Result<SteelVal> {
     let serde_value: Value = value.try_into()?;
     let serialized_value = serde_value.to_string();
-    Ok(SteelVal::StringV(serialized_value.into()))
+    Ok(SteelVal::StringV(serialized_value.as_str().into()))
 }
 
 // required to parse each string
@@ -81,7 +81,7 @@ impl TryFrom<Map<String, Value>> for SteelVal {
     fn try_from(map: Map<String, Value>) -> std::result::Result<Self, Self::Error> {
         let mut hm = HashMap::new();
         for (key, value) in map {
-            hm.insert(SteelVal::SymbolV(key.into()), value.try_into()?);
+            hm.insert(SteelVal::SymbolV(key.as_str().into()), value.try_into()?);
         }
         Ok(SteelVal::HashMapV(Gc::new(hm).into()))
     }
@@ -94,7 +94,7 @@ impl TryFrom<Value> for SteelVal {
             Value::Null => Ok(SteelVal::Void),
             Value::Bool(t) => Ok(SteelVal::BoolV(t)),
             Value::Number(n) => <SteelVal>::try_from(n),
-            Value::String(s) => Ok(SteelVal::StringV(s.into())),
+            Value::String(s) => Ok(SteelVal::StringV(s.as_str().into())),
             Value::Array(v) => Ok(SteelVal::ListV(
                 v.into_iter()
                     .map(<SteelVal>::try_from)

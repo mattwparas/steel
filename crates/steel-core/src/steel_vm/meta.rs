@@ -231,7 +231,7 @@ pub fn eval(program: String) -> List<SteelVal> {
     match res {
         Ok(v) => vec![
             SteelVal::ListV(v.into()),
-            SteelVal::StringV(drain_custom_output_port().into()),
+            SteelVal::StringV(drain_custom_output_port().as_str().into()),
             SteelVal::StringV("".into()),
         ]
         .into(),
@@ -240,8 +240,8 @@ pub fn eval(program: String) -> List<SteelVal> {
 
             vec![
                 SteelVal::ListV(List::new()),
-                SteelVal::StringV(drain_custom_output_port().into()),
-                SteelVal::StringV(report.into()),
+                SteelVal::StringV(drain_custom_output_port().as_str().into()),
+                SteelVal::StringV(report.as_str().into()),
             ]
             .into()
         }

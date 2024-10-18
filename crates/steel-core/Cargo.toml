@@ -48,8 +48,9 @@ rand = "0.8.5"
 num = "0.4.0"
 radix_fmt = "1.0.0"
 
-# For structs
+# Optimized datastructures
 smallvec = { version = "1.13.0" }
+compact_str = { version = "0.8.0" }
 
 # Pretty printing documentation
 termimad = { version = "0.21.0", optional = true }

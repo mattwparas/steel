@@ -293,7 +293,7 @@ impl<'a> ConstantEvaluator<'a> {
             }
             // todo!() figure out if it is ok to expand scope of eval_atom.
             TokenType::Number(n) => number_literal_to_steel(n).ok(),
-            TokenType::StringLiteral(s) => Some(SteelVal::StringV((*s.clone()).into())),
+            TokenType::StringLiteral(s) => Some(SteelVal::StringV((*s.clone()).as_str().into())),
             TokenType::CharacterLiteral(c) => Some(SteelVal::CharV(*c)),
             _ => None,
         }
