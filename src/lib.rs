@@ -311,8 +311,10 @@ lto = true
             action: Some(EmitAction::Dylib),
             ..
         } => {
-            // cargo_steel_lib::run()?;
-            todo!();
+
+            #[cfg(not(target_os = "redox"))]
+            cargo_steel_lib::run()?;
+
             Ok(())
         }
 

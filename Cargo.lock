@@ -3111,6 +3111,7 @@ dependencies = [
 name = "steel-interpreter"
 version = "0.6.0"
 dependencies = [
+ "cargo-steel-lib",
  "clap",
  "env_logger",
  "log",
