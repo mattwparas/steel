@@ -98,6 +98,7 @@ declare_builtins!(
     "steel/iterators" => "../scheme/modules/iterators.scm",
     "steel/mutable-vectors" => "../scheme/modules/mvector.scm",
     "steel/async" => "../scheme/modules/async.scm",
+    "steel/sync" => "../scheme/modules/sync.scm",
     "#%private/steel/contract" => "../scheme/modules/contracts.scm",
     "#%private/steel/print" => "../scheme/print.scm",
     "#%private/steel/control" => "../scheme/modules/parameters.scm",
@@ -342,78 +343,6 @@ impl ModuleManager {
                         ExprKind::List(l) => {
                             if let Some(qualifier) = l.first_ident() {
                                 match *qualifier {
-                                    // x if x == *CONTRACT_OUT => {
-                                    //     // Directly expand into define/contract, but with the value just being the hash get below
-
-                                    //     // (bind/c contract name 'name)
-
-                                    //     let name = l.args.get(1).unwrap();
-
-                                    //     if !explicit_requires.is_empty()
-                                    //         && !name
-                                    //             .atom_identifier()
-                                    //             .map(|x| explicit_requires.contains_key(x))
-                                    //             .unwrap_or_default()
-                                    //     {
-                                    //         continue;
-                                    //     }
-
-                                    //     // TODO: This should surface an error - cannot use contract
-                                    //     // out on a macro
-                                    //     if module
-                                    //         .macro_map
-                                    //         .contains_key(name.atom_identifier().unwrap())
-                                    //     {
-                                    //         continue;
-                                    //     }
-
-                                    //     // TODO: THe contract has to get mangled with the prefix as well?
-                                    //     let _contract = l.args.get(2).unwrap();
-
-                                    //     let hash_get = expr_list![
-                                    //         ExprKind::atom(*PROTO_HASH_GET),
-                                    //         ExprKind::atom(
-                                    //             "__module-".to_string() + &other_module_prefix
-                                    //         ),
-                                    //         ExprKind::Quote(Box::new(Quote::new(
-                                    //             name.clone(),
-                                    //             SyntaxObject::default(TokenType::Quote)
-                                    //         ))),
-                                    //     ];
-
-                                    //     let mut owned_name = name.clone();
-
-                                    //     // If we have the alias listed, we should use it
-                                    //     if !explicit_requires.is_empty() {
-                                    //         if let Some(alias) = explicit_requires
-                                    //             .get(name.atom_identifier().unwrap())
-                                    //             .copied()
-                                    //             .flatten()
-                                    //         {
-                                    //             *owned_name.atom_identifier_mut().unwrap() =
-                                    //                 alias.clone();
-                                    //         }
-                                    //     }
-
-                                    //     if let Some(prefix) = &require_object.prefix {
-                                    //         if let Some(existing) = owned_name.atom_identifier_mut()
-                                    //         {
-                                    //             let mut prefixed_identifier = prefix.clone();
-                                    //             prefixed_identifier.push_str(existing.resolve());
-
-                                    //             // Update the existing identifier to point to a new one with the prefix applied
-                                    //             *existing = prefixed_identifier.into();
-                                    //         }
-                                    //     }
-
-                                    //     let define = ExprKind::Define(Box::new(Define::new(
-                                    //         owned_name,
-                                    //         hash_get,
-                                    //         SyntaxObject::default(TokenType::Define),
-                                    //     )));
-
-                                    //     require_defines.push(define);
-                                    // }
                                     x if x == *REQUIRE_IDENT_SPEC => {
                                         // Directly expand into define/contract, but with the value just being the hash get below
 

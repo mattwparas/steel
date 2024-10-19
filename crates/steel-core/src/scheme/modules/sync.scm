@@ -3,7 +3,8 @@
          submit-task
          block-on-task
          task-done?
-         task-err)
+         task-err
+         task)
 
 ;;@doc
 ;; Lock the given lock during the duration
@@ -15,6 +16,9 @@
 (struct ThreadPool (task-sender capacity thread-handles))
 
 (struct Task (lock done func-or-result err) #:mutable)
+
+(define (task func)
+  (Task (mutex) #f func #f))
 
 ;;@doc
 ;; Check if the given task is done
