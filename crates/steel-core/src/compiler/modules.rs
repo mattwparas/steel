@@ -98,6 +98,7 @@ declare_builtins!(
     "steel/iterators" => "../scheme/modules/iterators.scm",
     "steel/mutable-vectors" => "../scheme/modules/mvector.scm",
     "steel/async" => "../scheme/modules/async.scm",
+    "steel/sync" => "../scheme/modules/sync.scm",
     "#%private/steel/contract" => "../scheme/modules/contracts.scm",
     "#%private/steel/print" => "../scheme/print.scm",
     "#%private/steel/control" => "../scheme/modules/parameters.scm",

@@ -5,11 +5,12 @@ use std::{
     collections::{HashMap, HashSet},
     error::Error,
     path::PathBuf,
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use dashmap::{DashMap, DashSet};
 
+use once_cell::sync::Lazy;
 use ropey::Rope;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -415,7 +416,7 @@ impl LanguageServer for Backend {
                                     },
                                 )?;
 
-                            log::debug!("Found define: {}", top_level_define);
+                            // log::debug!("Found define: {}", top_level_define);
 
                             top_level_define.name.atom_syntax_object().map(|x| x.span)
 
@@ -429,12 +430,12 @@ impl LanguageServer for Backend {
 
             let location = source_id_to_uri(resulting_span.source_id().unwrap())?;
 
-            log::debug!("Location: {:?}", location);
-            log::debug!("Rope length: {:?}", rope.len_chars());
+            // log::debug!("Location: {:?}", location);
+            // log::debug!("Rope length: {:?}", rope.len_chars());
             // log::debug!("span: {:?}", maybe_definition.span);
 
             if location != uri {
-                log::debug!("Jumping to definition that is not yet in the document map!");
+                // log::debug!("Jumping to definition that is not yet in the document map!");
 
                 let expression =
                     ENGINE.with(|x| x.borrow().get_source(&resulting_span.source_id().unwrap()))?;
@@ -448,8 +449,8 @@ impl LanguageServer for Backend {
                 self.document_map.insert(location.to_string(), rope.clone());
             }
 
-            log::debug!("Location: {:?}", location);
-            log::debug!("Rope length: {:?}", rope.len_chars());
+            // log::debug!("Location: {:?}", location);
+            // log::debug!("Rope length: {:?}", rope.len_chars());
             // log::debug!("span: {:?}", maybe_definition.span);
 
             let start_position = offset_to_position(resulting_span.start, &rope)?;
@@ -884,6 +885,14 @@ impl steel::steel_vm::engine::ModuleResolver for ExternalModuleResolver {
         self.modules.get(module).cloned()
     }
 }
+
+// TODO: Move these to the backend - we don't need them to be global like this now that
+// we're thread safe
+// pub static GLOBAL_ENGINE: Lazy<Mutex<Engine>> = Lazy::new(|| Mutex::new(Engine::new()));
+// pub static GLOBAL_LINT_ENGINE: Lazy<Mutex<UserDefinedLintEngine>> =
+//     Lazy::new(|| Mutex::new(configure_lints().unwrap()));
+// pub static GLOBAL_DIAGNOSTICS: Lazy<Mutex<Vec<SteelDiagnostic>>> =
+//     Lazy::new(|| Mutex::new(Vec::new()));
 
 thread_local! {
     pub static ENGINE: RefCell<Engine> = RefCell::new(Engine::new());
