@@ -311,7 +311,6 @@ lto = true
             action: Some(EmitAction::Dylib),
             ..
         } => {
-
             #[cfg(not(target_os = "redox"))]
             cargo_steel_lib::run()?;
 
