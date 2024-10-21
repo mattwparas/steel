@@ -352,7 +352,7 @@ static STATIC_DEFAULT_PRELUDE_MACROS: OnceCell<FxHashMap<InternedString, SteelMa
 
 pub(crate) fn set_default_prelude_macros(prelude_macros: FxHashMap<InternedString, SteelMacro>) {
     if cfg!(feature = "sync") {
-        STATIC_DEFAULT_PRELUDE_MACROS.set(prelude_macros).ok();
+        STATIC_DEFAULT_PRELUDE_MACROS.set(prelude_macros).unwrap();
     } else {
         DEFAULT_PRELUDE_MACROS.with(|x| {
             let mut guard = x.borrow_mut();
