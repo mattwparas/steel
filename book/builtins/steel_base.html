@@ -1,0 +1,1958 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>steel/base - The Steel Book</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../theme/pagetoc.css">
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../introduction.html">Introduction</a></li><li class="chapter-item expanded "><a href="../foundations/overview.html"><strong aria-hidden="true">1.</strong> Foundations</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../foundations/evaluation.html"><strong aria-hidden="true">1.1.</strong> Evaluation</a></li><li class="chapter-item expanded "><a href="../foundations/literals.html"><strong aria-hidden="true">1.2.</strong> Literals</a></li><li class="chapter-item expanded "><a href="../foundations/fncalls.html"><strong aria-hidden="true">1.3.</strong> Function calls</a></li><li class="chapter-item expanded "><a href="../foundations/symbols.html"><strong aria-hidden="true">1.4.</strong> Symbols</a></li><li class="chapter-item expanded "><a href="../foundations/bindings_scopes.html"><strong aria-hidden="true">1.5.</strong> Bindings and Scopes</a></li></ol></li><li class="chapter-item expanded "><a href="../about/about.html"><strong aria-hidden="true">2.</strong> Steel</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../about/features.html"><strong aria-hidden="true">2.1.</strong> Features</a></li><li class="chapter-item expanded "><a href="../about/license.html"><strong aria-hidden="true">2.2.</strong> Licensing</a></li></ol></li><li class="chapter-item expanded "><a href="../start/start.html"><strong aria-hidden="true">3.</strong> Getting Started</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../start/playground.html"><strong aria-hidden="true">3.1.</strong> Online Playground</a></li><li class="chapter-item expanded "><a href="../start/standalone.html"><strong aria-hidden="true">3.2.</strong> Using Steel on its own</a></li><li class="chapter-item expanded "><a href="../start/dylib.html"><strong aria-hidden="true">3.3.</strong> Using Rust in Steel</a></li><li class="chapter-item expanded "><a href="../start/embedded.html"><strong aria-hidden="true">3.4.</strong> Embedding Steel in Rust</a></li></ol></li><li class="chapter-item expanded "><a href="../engine/engine.html"><strong aria-hidden="true">4.</strong> The Rust Engine API</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../engine/register_function.html"><strong aria-hidden="true">4.1.</strong> Registering functions</a></li><li class="chapter-item expanded "><a href="../engine/embedding_values.html"><strong aria-hidden="true">4.2.</strong> Embedding values</a></li></ol></li><li class="chapter-item expanded "><a href="../reference/language.html"><strong aria-hidden="true">5.</strong> Language Reference</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../reference/keywords.html"><strong aria-hidden="true">5.1.</strong> Keywords</a></li><li class="chapter-item expanded "><a href="../reference/syntax.html"><strong aria-hidden="true">5.2.</strong> Syntax</a></li><li class="chapter-item expanded "><a href="../reference/macros.html"><strong aria-hidden="true">5.3.</strong> Macros</a></li><li class="chapter-item expanded "><a href="../reference/contracts.html"><strong aria-hidden="true">5.4.</strong> Contracts</a></li><li class="chapter-item expanded "><a href="../reference/transducers.html"><strong aria-hidden="true">5.5.</strong> Transducers</a></li><li class="chapter-item expanded "><a href="../reference/modules.html"><strong aria-hidden="true">5.6.</strong> Modules</a></li><li class="chapter-item expanded "><a href="../reference/functions.html"><strong aria-hidden="true">5.7.</strong> Functions</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../generated/logging.html"><strong aria-hidden="true">5.7.1.</strong> Logging</a></li><li class="chapter-item expanded "><a href="../reference/builtins.html"><strong aria-hidden="true">5.7.2.</strong> Built ins</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../builtins/steel_base.html" class="active"><strong aria-hidden="true">5.7.2.1.</strong> steel/base</a></li><li class="chapter-item expanded "><a href="../builtins/steel_bytevectors.html"><strong aria-hidden="true">5.7.2.2.</strong> steel/bytevectors</a></li><li class="chapter-item expanded "><a href="../builtins/steel_constants.html"><strong aria-hidden="true">5.7.2.3.</strong> steel/constants</a></li><li class="chapter-item expanded "><a href="../builtins/steel_core_option.html"><strong aria-hidden="true">5.7.2.4.</strong> steel/core/option</a></li><li class="chapter-item expanded "><a href="../builtins/steel_core_result.html"><strong aria-hidden="true">5.7.2.5.</strong> steel/core/result</a></li><li class="chapter-item expanded "><a href="../builtins/steel_core_types.html"><strong aria-hidden="true">5.7.2.6.</strong> steel/core/types</a></li><li class="chapter-item expanded "><a href="../builtins/steel_equality.html"><strong aria-hidden="true">5.7.2.7.</strong> steel/equality</a></li><li class="chapter-item expanded "><a href="../builtins/steel_filesystem.html"><strong aria-hidden="true">5.7.2.8.</strong> steel/filesystem</a></li><li class="chapter-item expanded "><a href="../builtins/steel_hash.html"><strong aria-hidden="true">5.7.2.9.</strong> steel/hash</a></li><li class="chapter-item expanded "><a href="../builtins/steel_identity.html"><strong aria-hidden="true">5.7.2.10.</strong> steel/identity</a></li><li class="chapter-item expanded "><a href="../builtins/steel_io.html"><strong aria-hidden="true">5.7.2.11.</strong> steel/io</a></li><li class="chapter-item expanded "><a href="../builtins/steel_immutable-vectors.html"><strong aria-hidden="true">5.7.2.12.</strong> steel/immutable-vectors</a></li><li class="chapter-item expanded "><a href="../builtins/steel_json.html"><strong aria-hidden="true">5.7.2.13.</strong> steel/json</a></li><li class="chapter-item expanded "><a href="../builtins/steel_lists.html"><strong aria-hidden="true">5.7.2.14.</strong> steel/lists</a></li><li class="chapter-item expanded "><a href="../builtins/steel_meta.html"><strong aria-hidden="true">5.7.2.15.</strong> steel/meta</a></li><li class="chapter-item expanded "><a href="../builtins/steel_numbers.html"><strong aria-hidden="true">5.7.2.16.</strong> steel/numbers</a></li><li class="chapter-item expanded "><a href="../builtins/steel_ord.html"><strong aria-hidden="true">5.7.2.17.</strong> steel/ord</a></li><li class="chapter-item expanded "><a href="../builtins/steel_ports.html"><strong aria-hidden="true">5.7.2.18.</strong> steel/ports</a></li><li class="chapter-item expanded "><a href="../builtins/steel_process.html"><strong aria-hidden="true">5.7.2.19.</strong> steel/process</a></li><li class="chapter-item expanded "><a href="../builtins/steel_random.html"><strong aria-hidden="true">5.7.2.20.</strong> steel/random</a></li><li class="chapter-item expanded "><a href="../builtins/steel_sets.html"><strong aria-hidden="true">5.7.2.21.</strong> steel/sets</a></li><li class="chapter-item expanded "><a href="../builtins/steel_streams.html"><strong aria-hidden="true">5.7.2.22.</strong> steel/streams</a></li><li class="chapter-item expanded "><a href="../builtins/steel_strings.html"><strong aria-hidden="true">5.7.2.23.</strong> steel/strings</a></li><li class="chapter-item expanded "><a href="../builtins/steel_symbols.html"><strong aria-hidden="true">5.7.2.24.</strong> steel/symbols</a></li><li class="chapter-item expanded "><a href="../builtins/steel_syntax.html"><strong aria-hidden="true">5.7.2.25.</strong> steel/syntax</a></li><li class="chapter-item expanded "><a href="../builtins/steel_time.html"><strong aria-hidden="true">5.7.2.26.</strong> steel/time</a></li><li class="chapter-item expanded "><a href="../builtins/steel_transducers.html"><strong aria-hidden="true">5.7.2.27.</strong> steel/transducers</a></li><li class="chapter-item expanded "><a href="../builtins/steel_vectors.html"><strong aria-hidden="true">5.7.2.28.</strong> steel/vectors</a></li></ol></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../bytecode/bytecode.html"><strong aria-hidden="true">6.</strong> Bytecode</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../bytecode/optimizations.html"><strong aria-hidden="true">6.1.</strong> Optimizations</a></li></ol></li><li class="chapter-item expanded "><a href="../benchmarks/benchmarks.html"><strong aria-hidden="true">7.</strong> Benchmarks</a></li><li class="chapter-item expanded "><a href="../patterns/patterns.html"><strong aria-hidden="true">8.</strong> Common Patterns</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../patterns/mutability.html"><strong aria-hidden="true">8.1.</strong> Interior Mutability</a></li><li class="chapter-item expanded "><a href="../patterns/async.html"><strong aria-hidden="true">8.2.</strong> Async</a></li></ol></li><li class="chapter-item expanded "><a href="../garbage-collection/gc.html"><strong aria-hidden="true">9.</strong> Memory Management</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">The Steel Book</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="steelbase"><a class="header" href="#steelbase">steel/base</a></h1>
+<h3 id=""><a class="header" href="#"><strong>*</strong></a></h3>
+<p>Multiplies the given numbers.</p>
+<p>(* . nums) -&gt; number?</p>
+<ul>
+<li>nums : number? - The numbers to multiply. Can have any number of arguments including zero.</li>
+</ul>
+<h4 id="examples"><a class="header" href="#examples">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (* 5 3) ;; =&gt; 15
+&gt; (* 10 3 2) ;; =&gt; 60
+&gt; (*) ;; =&gt; 1
+</code></pre>
+<h3 id="-1"><a class="header" href="#-1"><strong>+</strong></a></h3>
+<p>Adds the given numbers.</p>
+<p>(+ . nums) -&gt; number?</p>
+<ul>
+<li>nums : number? - The numbers to add. Can have any number of arguments including zero.</li>
+</ul>
+<h4 id="examples-1"><a class="header" href="#examples-1">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (+ 5 3) ;; =&gt; 8
+&gt; (+ 10 3 2) ;; =&gt; 15
+&gt; (+) ;; =&gt; 0
+</code></pre>
+<h3 id="-"><a class="header" href="#-"><strong>-</strong></a></h3>
+<p>Subtracts the given numbers.</p>
+<p>(- . nums) -&gt; number?</p>
+<ul>
+<li>nums : number? - The numbers to subtract. Must have at least one number.</li>
+</ul>
+<h4 id="examples-2"><a class="header" href="#examples-2">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (- 5 3) ;; =&gt; 2
+&gt; (- 10 3 2) ;; =&gt; 5
+&gt; (- -5) ;; =&gt; 5
+</code></pre>
+<h3 id="-2"><a class="header" href="#-2"><strong>/</strong></a></h3>
+<p>Divides the given numbers.</p>
+<p>(/ . nums) -&gt; number?</p>
+<ul>
+<li>nums : number? - The numbers to divide. Must have at least one number.</li>
+</ul>
+<h4 id="examples-3"><a class="header" href="#examples-3">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (/ 10 2) ;; =&gt; 5
+&gt; (/ 10 2 2.0) ;; =&gt; 2.5
+&gt; (/ 1 3.0) ;; =&gt; 0.3333333333333333
+&gt; (/ 1 3) ;; =&gt; 1/3
+</code></pre>
+<h3 id="-3"><a class="header" href="#-3"><strong>&lt;</strong></a></h3>
+<p>Compares real numbers to check if any number is less than the subsequent.</p>
+<p>(&lt; x . rest) -&gt; bool?</p>
+<ul>
+<li>x : real? - The first real number to compare.</li>
+<li>rest : real? - The rest of the numbers to compare.</li>
+</ul>
+<h4 id="examples-4"><a class="header" href="#examples-4">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (&lt; 1) ;; =&gt; #t
+&gt; (&lt; 3 2) ;; =&gt; #f
+&gt; (&lt; 2 3) ;; =&gt; #t
+&gt; (&lt; 3/2 1.5) ;; =&gt; #f
+&gt; (&lt; 2.5 3/2) ;; =&gt; #t
+&gt; (&lt; 2 5/2 3) ;; #t
+</code></pre>
+<h3 id="-4"><a class="header" href="#-4"><strong>&lt;=</strong></a></h3>
+<p>Compares real numbers to check if any number is less than or equal than the subsequent.</p>
+<p>(&lt;= x . rest) -&gt; bool?</p>
+<ul>
+<li>x : real? - The first real number to compare.</li>
+<li>rest : real? - The rest of the numbers to compare.</li>
+</ul>
+<h4 id="examples-5"><a class="header" href="#examples-5">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (&lt;= 1) ;; =&gt; #t
+&gt; (&lt;= 3 2) ;; =&gt; #f
+&gt; (&lt;= 2 3) ;; =&gt; #t
+&gt; (&lt;= 3/2 1.5) ;; =&gt; #t
+&gt; (&lt;= 2.5 3/2) ;; =&gt; #f
+&gt; (&lt;= 2 6/2 3) ;; #t
+</code></pre>
+<h3 id="-5"><a class="header" href="#-5"><strong>&gt;</strong></a></h3>
+<p>Compares real numbers to check if any number is greater than the subsequent.</p>
+<p>(&gt; x . rest) -&gt; bool?</p>
+<ul>
+<li>x : real? - The first real number to compare.</li>
+<li>rest : real? - The rest of the numbers to compare.</li>
+</ul>
+<h4 id="examples-6"><a class="header" href="#examples-6">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (&gt; 1) ;; =&gt; #t
+&gt; (&gt; 3 2) ;; =&gt; #t
+&gt; (&gt; 1 1) ;; =&gt; #f
+&gt; (&gt; 3/2 1.5) ;; =&gt; #f
+&gt; (&gt; 3/2 1.4) ;; =&gt; #t
+&gt; (&gt; 3 4/2 1) ;; #t
+</code></pre>
+<h3 id="-6"><a class="header" href="#-6"><strong>&gt;=</strong></a></h3>
+<p>Compares real numbers to check if any number is greater than or equal than the subsequent.</p>
+<p>(&gt;= x . rest) -&gt; bool?</p>
+<ul>
+<li>x : real? - The first real number to compare.</li>
+<li>rest : real? - The rest of the numbers to compare.</li>
+</ul>
+<h4 id="examples-7"><a class="header" href="#examples-7">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (&gt;= 1) ;; =&gt; #t
+&gt; (&gt;= 3 2) ;; =&gt; #t
+&gt; (&gt;= 2 3) ;; =&gt; #f
+&gt; (&gt;= 3/2 1.5) ;; =&gt; #t
+&gt; (&gt;= 3/2 1.4) ;; =&gt; #t
+&gt; (&gt;= 2 4/2 1) ;; #t
+</code></pre>
+<h3 id="abs"><a class="header" href="#abs"><strong>abs</strong></a></h3>
+<p>Computes the absolute value of the given number.</p>
+<p>(abs number) -&gt; number?</p>
+<ul>
+<li>number : number? - The number to compute the absolute value of.</li>
+</ul>
+<h4 id="examples-8"><a class="header" href="#examples-8">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (abs 42) ;; =&gt; 42
+&gt; (abs -42) ;; =&gt; 42
+&gt; (abs 0) ;; =&gt; 0
+</code></pre>
+<h3 id="append"><a class="header" href="#append"><strong>append</strong></a></h3>
+<p>Appends the given lists together. If provided with no lists, will return the empty list.</p>
+<p>(append lst ...)</p>
+<p>lst : list?</p>
+<h4 id="examples-9"><a class="header" href="#examples-9">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (append (list 1 2) (list 3 4)) ;; =&gt; '(1 2 3 4)
+&gt; (append) ;; =&gt; '()
+</code></pre>
+<h3 id="apply"><a class="header" href="#apply"><strong>apply</strong></a></h3>
+<p>Applies the given <code>function</code> with arguments as the contents of the <code>list</code>.</p>
+<p>(apply function lst) -&gt; any?</p>
+<ul>
+<li>function : function?</li>
+<li>list: list?</li>
+</ul>
+<h4 id="examples-10"><a class="header" href="#examples-10">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (apply + (list 1 2 3 4)) ;; =&gt; 10
+&gt; (apply list (list 1 2 3 4)) ;; =&gt; '(1 2 3 4)
+</code></pre>
+<h3 id="byte"><a class="header" href="#byte"><strong>byte?</strong></a></h3>
+<p>Returns <code>#t</code> if the given value is a byte, meaning an exact
+integer between 0 and 255 inclusive, <code>#f</code> otherwise.</p>
+<h4 id="examples-11"><a class="header" href="#examples-11">Examples</a></h4>
+<pre><code class="language-scheme">(byte? 65) ;; =&gt; #t
+(byte? 0) ;; =&gt; #t
+(byte? 256) ;; =&gt; #f
+(byte? 100000) ;; =&gt; #f
+(byte? -1) ;; =&gt; #f
+</code></pre>
+<h3 id="bytes"><a class="header" href="#bytes"><strong>bytes</strong></a></h3>
+<p>Returns a new mutable vector with each byte as the given arguments.
+Each argument must satisfy the <code>byte?</code> predicate, meaning it is an exact
+integer range from 0 - 255 (inclusive)</p>
+<p>(bytes b ...)</p>
+<ul>
+<li>b : byte?</li>
+</ul>
+<h4 id="examples-12"><a class="header" href="#examples-12">Examples</a></h4>
+<pre><code class="language-scheme">(bytes 65 112 112 108 101)
+</code></pre>
+<h3 id="bytes-list"><a class="header" href="#bytes-list"><strong>bytes-&gt;list</strong></a></h3>
+<p>Converts the bytevector to the equivalent list representation.</p>
+<h4 id="examples-13"><a class="header" href="#examples-13">Examples</a></h4>
+<pre><code class="language-scheme">(bytes-&gt;list (bytes 0 1 2 3 4 5)) ;; =&gt; '(0 1 2 3 4 5)
+</code></pre>
+<h3 id="bytes-stringutf8"><a class="header" href="#bytes-stringutf8"><strong>bytes-&gt;string/utf8</strong></a></h3>
+<p>Decodes a string from a bytevector containing valid UTF-8.</p>
+<p>(bytes-&gt;string/utf8 buf [start] [end]) -&gt; string?</p>
+<ul>
+<li>buf : bytes?</li>
+<li>start: int? = 0</li>
+<li>end: int? = (bytes-length buf)</li>
+</ul>
+<h4 id="examples-14"><a class="header" href="#examples-14">Examples</a></h4>
+<pre><code class="language-scheme">(bytes-&gt;string/utf8 (bytes #xe5 #x8d #x83 #xe8 #x91 #x89)) ;; =&gt; "千葉"
+</code></pre>
+<h3 id="bytes-append"><a class="header" href="#bytes-append"><strong>bytes-append</strong></a></h3>
+<p>Append multiple byte vectors into a new bytevector.</p>
+<h4 id="examples-15"><a class="header" href="#examples-15">Examples</a></h4>
+<pre><code class="language-scheme">(bytes-append #u8(0 1 2) #u8(3 4 5)) ;; =&gt; #u8(#x00 #x01 #x02 #x03 #x04 #x05)
+
+(bytes-append #u8(0) #u8(1) #u8() #u8(2)) ;; =&gt; #u8(#x00 #x01 #x02)
+</code></pre>
+<h3 id="bytes-length"><a class="header" href="#bytes-length"><strong>bytes-length</strong></a></h3>
+<p>Returns the length of the given byte vector</p>
+<h4 id="examples-16"><a class="header" href="#examples-16">Examples</a></h4>
+<pre><code class="language-scheme">(bytes-length (bytes 1 2 3 4 5)) ;; =&gt; 5
+</code></pre>
+<h3 id="bytes-ref"><a class="header" href="#bytes-ref"><strong>bytes-ref</strong></a></h3>
+<p>Fetches the byte at the given index within the bytevector.
+If the index is out of bounds, this will error.</p>
+<p>(bytes-ref vector index)</p>
+<ul>
+<li>vector : bytes?</li>
+<li>index: (and exact? int?)</li>
+</ul>
+<h4 id="examples-17"><a class="header" href="#examples-17">Examples</a></h4>
+<pre><code class="language-scheme">(bytes-ref (bytes 0 1 2 3 4 5) 3) ;; =&gt; 4
+(bytes-ref (bytes) 10) ;; error
+</code></pre>
+<h3 id="bytes-set"><a class="header" href="#bytes-set"><strong>bytes-set!</strong></a></h3>
+<p>Sets the byte at the given index to the given byte. Will error
+if the index is out of bounds.</p>
+<p>(bytes-set! vector index byte)</p>
+<ul>
+<li>vector : bytes?</li>
+<li>index: (and exact? int?)</li>
+<li>byte: byte?</li>
+</ul>
+<h4 id="examples-18"><a class="header" href="#examples-18">Examples</a></h4>
+<pre><code class="language-scheme">(define my-bytes (bytes 0 1 2 3 4 5))
+(bytes-set! my-bytes 0 100)
+(bytes-ref my-bytes 0) ;; =&gt; 100
+</code></pre>
+<h3 id="bytes-1"><a class="header" href="#bytes-1"><strong>bytes?</strong></a></h3>
+<p>Returns <code>#t</code> if this value is a bytevector</p>
+<h4 id="examples-19"><a class="header" href="#examples-19">Examples</a></h4>
+<pre><code class="language-scheme">(bytes? (bytes 0 1 2)) ;; =&gt; #t
+(bytes? (list 10 20 30)) ;; =&gt; #f
+</code></pre>
+<h3 id="bytevector"><a class="header" href="#bytevector"><strong>bytevector</strong></a></h3>
+<p>Returns a new mutable vector with each byte as the given arguments.
+Each argument must satisfy the <code>byte?</code> predicate, meaning it is an exact
+integer range from 0 - 255 (inclusive)</p>
+<p>(bytevector b ...)</p>
+<ul>
+<li>b : byte?</li>
+</ul>
+<h4 id="examples-20"><a class="header" href="#examples-20">Examples</a></h4>
+<pre><code class="language-scheme">(bytevector 65 112 112 108 101)
+</code></pre>
+<h3 id="bytevector-copy"><a class="header" href="#bytevector-copy"><strong>bytevector-copy</strong></a></h3>
+<p>Creates a copy of a bytevector.</p>
+<p>(bytevector-copy vector [start end]) -&gt; bytes?</p>
+<ul>
+<li>vector : bytes?</li>
+<li>start: int? = 0</li>
+<li>end: int? = (bytes-length vector)</li>
+</ul>
+<h4 id="examples-21"><a class="header" href="#examples-21">Examples</a></h4>
+<pre><code class="language-scheme">(define vec (bytes 1 2 3 4 5))
+
+(bytevector-copy vec) ;; =&gt; (bytes 1 2 3 4 5)
+(bytevector-copy vec 1 3) ;; =&gt; (bytes 2 3)
+</code></pre>
+<h3 id="canonicalize-path"><a class="header" href="#canonicalize-path"><strong>canonicalize-path</strong></a></h3>
+<p>Returns canonical path with all components normalized</p>
+<h3 id="car"><a class="header" href="#car"><strong>car</strong></a></h3>
+<p>Returns the first element of the list l.</p>
+<p>(car l) -&gt; any/c</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-22"><a class="header" href="#examples-22">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (car '(1 2)) ;; =&gt; 1
+&gt; (car (cons 2 3)) ;; =&gt; 2
+</code></pre>
+<h3 id="cdr"><a class="header" href="#cdr"><strong>cdr</strong></a></h3>
+<p>Returns the rest of the list. Will raise an error if the list is empty.</p>
+<p>(cdr l) -&gt; list?</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-23"><a class="header" href="#examples-23">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (cdr (list 10 20 30)) ;; =&gt; '(20 30)
+&gt; (cdr (list 10)) ;; =&gt; '()
+&gt; (cdr '())
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (cdr '())
+│  ^^^ cdr expects a non empty list
+</code></pre>
+<h3 id="ceiling"><a class="header" href="#ceiling"><strong>ceiling</strong></a></h3>
+<p>Rounds the given number up to the nearest integer not less than it.</p>
+<p>(ceiling number) -&gt; integer?</p>
+<ul>
+<li>number : number? - The number to round up.</li>
+</ul>
+<h4 id="examples-24"><a class="header" href="#examples-24">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (ceiling 42) ;; =&gt; 42
+&gt; (ceiling 42.1) ;; =&gt; 43
+&gt; (ceiling -42.1) ;; =&gt; -42
+</code></pre>
+<h3 id="change-current-directory"><a class="header" href="#change-current-directory"><strong>change-current-directory!</strong></a></h3>
+<p>Change the current working directory</p>
+<h3 id="char-integer"><a class="header" href="#char-integer"><strong>char-&gt;integer</strong></a></h3>
+<p>Returns the Unicode codepoint of a given character.</p>
+<p>(char-&gt;integer char?) -&gt; integer?</p>
+<h3 id="char-number"><a class="header" href="#char-number"><strong>char-&gt;number</strong></a></h3>
+<p>Attemps to convert the character into a decimal digit,
+and returns <code>#f</code> on failure.</p>
+<h3 id="char-digit"><a class="header" href="#char-digit"><strong>char-digit?</strong></a></h3>
+<p>Returns <code>#t</code> if the character is a decimal digit.</p>
+<h3 id="char-downcase"><a class="header" href="#char-downcase"><strong>char-downcase</strong></a></h3>
+<p>Returns the lower case version of a character, if defined by Unicode,
+or the same character otherwise.</p>
+<h3 id="char-upcase"><a class="header" href="#char-upcase"><strong>char-upcase</strong></a></h3>
+<p>Returns the upper case version of a character, if defined by Unicode,
+or the same character otherwise.</p>
+<h3 id="char-whitespace"><a class="header" href="#char-whitespace"><strong>char-whitespace?</strong></a></h3>
+<p>Returns <code>#t</code> if the character is a whitespace character.</p>
+<h3 id="char"><a class="header" href="#char"><strong>char&lt;=?</strong></a></h3>
+<p>Compares characters according to their codepoints, in a "less-than-or-equal" fashion.</p>
+<p>(char&lt;=? char1 char2 ... ) -&gt; bool?</p>
+<ul>
+<li>char1 : char?</li>
+<li>char2 : char?</li>
+</ul>
+<h3 id="char-1"><a class="header" href="#char-1"><strong>char&lt;?</strong></a></h3>
+<p>Compares characters according to their codepoints, in a "less-than" fashion.</p>
+<p>(char&lt;? char1 char2 ... ) -&gt; bool?</p>
+<ul>
+<li>char1 : char?</li>
+<li>char2 : char?</li>
+</ul>
+<h3 id="char-2"><a class="header" href="#char-2"><strong>char=?</strong></a></h3>
+<p>Checks if all characters are equal.</p>
+<p>Requires that all inputs are characters, and will otherwise raise an error.</p>
+<p>(char=? char1 char2 ...) -&gt; bool?</p>
+<ul>
+<li>char1 : char?</li>
+<li>char2 : char?</li>
+</ul>
+<h3 id="char-3"><a class="header" href="#char-3"><strong>char&gt;=?</strong></a></h3>
+<p>Compares characters according to their codepoints, in a "greater-than-or-equal" fashion.</p>
+<p>(char&gt;=? char1 char2 ... ) -&gt; bool?</p>
+<ul>
+<li>char1 : char?</li>
+<li>char2 : char?</li>
+</ul>
+<h3 id="char-4"><a class="header" href="#char-4"><strong>char&gt;?</strong></a></h3>
+<p>Compares characters according to their codepoints, in a "greater-than" fashion.</p>
+<p>(char&gt;? char1 char2 ... ) -&gt; bool?</p>
+<ul>
+<li>char1 : char?</li>
+<li>char2 : char?</li>
+</ul>
+<h3 id="command-line"><a class="header" href="#command-line"><strong>command-line</strong></a></h3>
+<p>Returns the command line passed to this process,
+including the command name as first argument.</p>
+<h3 id="complex"><a class="header" href="#complex"><strong>complex?</strong></a></h3>
+<p>Checks if the given value is a complex number</p>
+<p>(complex? value) -&gt; boolean?</p>
+<ul>
+<li>value : any - The value to check</li>
+</ul>
+<h4 id="examples-25"><a class="header" href="#examples-25">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (complex? 3+4i) ;; =&gt; #t
+&gt; (complex? 42) ;; =&gt; #t
+&gt; (complex? "hello") ;; =&gt; #f
+</code></pre>
+<h3 id="cons"><a class="header" href="#cons"><strong>cons</strong></a></h3>
+<p>Returns a newly allocated list whose first element is <code>a</code> and second element is <code>d</code>.</p>
+<p>(cons a d) -&gt; list?</p>
+<ul>
+<li>a : any/c</li>
+<li>d : any/c</li>
+</ul>
+<h4 id="examples-26"><a class="header" href="#examples-26">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (cons 1 2) ;; =&gt; '(1 . 2)
+&gt; (cons 1 '()) ;; =&gt; '(1)
+</code></pre>
+<h3 id="copy-directory-recursively"><a class="header" href="#copy-directory-recursively"><strong>copy-directory-recursively!</strong></a></h3>
+<p>Recursively copies the directory from source to destination</p>
+<h3 id="create-directory"><a class="header" href="#create-directory"><strong>create-directory!</strong></a></h3>
+<p>Creates the directory</p>
+<h3 id="current-directory"><a class="header" href="#current-directory"><strong>current-directory</strong></a></h3>
+<p>Check the current working directory</p>
+<h3 id="current-inexact-milliseconds"><a class="header" href="#current-inexact-milliseconds"><strong>current-inexact-milliseconds</strong></a></h3>
+<p>Returns the number of milliseconds since the Unix epoch as an inexact number.</p>
+<p>(current-inexact-milliseconds) -&gt; inexact?</p>
+<h3 id="current-milliseconds"><a class="header" href="#current-milliseconds"><strong>current-milliseconds</strong></a></h3>
+<p>Returns the number of milliseconds since the Unix epoch as an integer.</p>
+<p>(current-milliseconds) -&gt; int?</p>
+<h3 id="current-second"><a class="header" href="#current-second"><strong>current-second</strong></a></h3>
+<p>Returns the number of seconds since the Unix epoch as an integer.</p>
+<p>(current-second) -&gt; int?</p>
+<h3 id="delete-directory"><a class="header" href="#delete-directory"><strong>delete-directory!</strong></a></h3>
+<p>Deletes the directory</p>
+<h3 id="delete-file"><a class="header" href="#delete-file"><strong>delete-file!</strong></a></h3>
+<p>Deletes the file</p>
+<h3 id="denominator"><a class="header" href="#denominator"><strong>denominator</strong></a></h3>
+<p>Retrieves the denominator of the given rational number.</p>
+<p>(denominator number) -&gt; integer?</p>
+<ul>
+<li>number : number? - The rational number to retrieve the denominator from.</li>
+</ul>
+<h4 id="examples-27"><a class="header" href="#examples-27">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (denominator 1/2) ;; =&gt; 2
+&gt; (denominator 3/4) ;; =&gt; 4
+&gt; (denominator 4) ;; =&gt; 1
+</code></pre>
+<h3 id="disconnected-channel-object"><a class="header" href="#disconnected-channel-object"><strong>disconnected-channel-object?</strong></a></h3>
+<p>Returns <code>#t</code> if the value is an disconnected-channel object.</p>
+<p>(eof-object? any/c) -&gt; bool?</p>
+<h3 id="duration-string"><a class="header" href="#duration-string"><strong>duration-&gt;string</strong></a></h3>
+<p>Returns a string representation of a duration</p>
+<p>(duration-&gt;string dur)</p>
+<ul>
+<li>dur : duration?</li>
+</ul>
+<h3 id="empty-channel-object"><a class="header" href="#empty-channel-object"><strong>empty-channel-object?</strong></a></h3>
+<p>Returns <code>#t</code> if the value is an empty-channel object.</p>
+<p>(empty-channel-object? any/c) -&gt; bool?</p>
+<h3 id="empty"><a class="header" href="#empty"><strong>empty?</strong></a></h3>
+<p>Checks if the list is empty</p>
+<p>(empty? lst) -&gt; bool?</p>
+<ul>
+<li>lst: list?</li>
+</ul>
+<h4 id="examples-28"><a class="header" href="#examples-28">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (empty? (list 1 2 3 4 5)) ;; =&gt; #false
+&gt; (empty? '()) ;; =&gt; #true
+</code></pre>
+<h3 id="ends-with"><a class="header" href="#ends-with"><strong>ends-with?</strong></a></h3>
+<p>Checks if the input string ends with a given suffix</p>
+<p>(ends-with? input pattern) -&gt; bool?</p>
+<p>input : string?
+pattern: string?</p>
+<h4 id="examples-29"><a class="header" href="#examples-29">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (ends-with? "foobar" "foo") ;; =&gt; #false
+&gt; (ends-with? "foobar" "bar") ;; =&gt; #true
+</code></pre>
+<h3 id="eof-object"><a class="header" href="#eof-object"><strong>eof-object</strong></a></h3>
+<p>Returns an EOF object.</p>
+<p>(eof-object) -&gt; eof-object?</p>
+<h3 id="eof-object-1"><a class="header" href="#eof-object-1"><strong>eof-object?</strong></a></h3>
+<p>Returns <code>#t</code> if the value is an EOF object.</p>
+<p>(eof-object? any/c) -&gt; bool?</p>
+<h3 id="error-object-message"><a class="header" href="#error-object-message"><strong>error-object-message</strong></a></h3>
+<p>Returns the message of an error object.</p>
+<p>(error-object-message error?) -&gt; string?</p>
+<h3 id="exact-inexact"><a class="header" href="#exact-inexact"><strong>exact-&gt;inexact</strong></a></h3>
+<p>Converts an exact number to an inexact number.</p>
+<p>(exact-&gt;inexact num) -&gt; number?</p>
+<ul>
+<li>num : number? - The number to convert from exact to inexact.</li>
+</ul>
+<h4 id="examples-30"><a class="header" href="#examples-30">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (exact-&gt;inexact 10) ;; =&gt; 10
+&gt; (exact-&gt;inexact 1/2) ;; =&gt; 0.5
+&gt; (exact-&gt;inexact 1+2i) ;; =&gt; 1+2i
+</code></pre>
+<h3 id="exact-integer-sqrt"><a class="header" href="#exact-integer-sqrt"><strong>exact-integer-sqrt</strong></a></h3>
+<p>Computes the integer square root of the given non-negative integer.</p>
+<p>(exact-integer-sqrt number) -&gt; (integer? integer?)</p>
+<ul>
+<li>number : (and/c integer? positive?) - The non-negative integer to compute the square root for.</li>
+</ul>
+<h4 id="examples-31"><a class="header" href="#examples-31">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (exact-integer-sqrt 25) ;; =&gt; (5 0)
+&gt; (exact-integer-sqrt 35) ;; =&gt; (5 10)
+</code></pre>
+<h3 id="exact-integer"><a class="header" href="#exact-integer"><strong>exact-integer?</strong></a></h3>
+<p>Checks if the given value is an exact integer</p>
+<p>(exact-integer? value) -&gt; boolean?</p>
+<ul>
+<li>value : any - The value to check</li>
+</ul>
+<h4 id="examples-32"><a class="header" href="#examples-32">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (exact-integer? 42) ;; =&gt; #t
+&gt; (exact-integer? -42) ;; =&gt; #t
+&gt; (exact-integer? 4.0) ;; =&gt; #f
+</code></pre>
+<h3 id="exact"><a class="header" href="#exact"><strong>exact?</strong></a></h3>
+<p>Checks if the given value is exact.</p>
+<p>(exact? val) -&gt; boolean?</p>
+<ul>
+<li>val : any - The value to check for exactness.</li>
+</ul>
+<h4 id="examples-33"><a class="header" href="#examples-33">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (exact? 42) ;; =&gt; #t
+&gt; (exact? 3.14) ;; =&gt; #f
+&gt; (exact? "hello") ;; =&gt; #f
+</code></pre>
+<h3 id="exp"><a class="header" href="#exp"><strong>exp</strong></a></h3>
+<p>Returns Euler’s number raised to the power of z.</p>
+<p>(exp z) -&gt; number?</p>
+<ul>
+<li>z : number? - The number to raise e to the power of.</li>
+</ul>
+<h4 id="examples-34"><a class="header" href="#examples-34">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (exp 0) ;; =&gt; 1
+&gt; (exp 2) ;; =&gt; 7.38905609893065
+&gt; (exp 1.5) ;; =&gt; 4.4816890703380645
+</code></pre>
+<h3 id="expt"><a class="header" href="#expt"><strong>expt</strong></a></h3>
+<p>Raises the left operand to the power of the right operand.</p>
+<p>(expt base exponent) -&gt; number?</p>
+<ul>
+<li>base : number? - The base number.</li>
+<li>exponent : number? - The exponent to raise the base to.</li>
+</ul>
+<h4 id="examples-35"><a class="header" href="#examples-35">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (expt 2 3) ;; =&gt; 8
+&gt; (expt 2.0 0.5) ;; =&gt; 1.4142135623730951
+&gt; (expt 9 0.5) ;; =&gt; 3
+</code></pre>
+<h3 id="file-name"><a class="header" href="#file-name"><strong>file-name</strong></a></h3>
+<p>Gets the filename for a given path</p>
+<h3 id="finite"><a class="header" href="#finite"><strong>finite?</strong></a></h3>
+<p>Returns <code>#t</code> if the given number is finite.</p>
+<p>(finite? number) -&gt; boolean?</p>
+<ul>
+<li>number : number? - The number to check for finiteness.</li>
+</ul>
+<h4 id="examples-36"><a class="header" href="#examples-36">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (finite? 42) ;; =&gt; #t
+&gt; (finite? 0.1) ;; =&gt; #t
+&gt; (finite? +inf.0) ;; =&gt; #f
+&gt; (finite? -inf.0) ;; =&gt; #f
+&gt; (finite? +nan.0) ;; =&gt; #f
+</code></pre>
+<h3 id="first"><a class="header" href="#first"><strong>first</strong></a></h3>
+<p>Returns the first element of the list l.</p>
+<p>(first l) -&gt; any/c</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-37"><a class="header" href="#examples-37">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (first '(1 2)) ;; =&gt; 1
+&gt; (first (cons 2 3)) ;; =&gt; 2
+</code></pre>
+<h3 id="float"><a class="header" href="#float"><strong>float?</strong></a></h3>
+<p>Checks if the given value is a floating-point number</p>
+<p>(float? value) -&gt; boolean?</p>
+<ul>
+<li>value : any - The value to check</li>
+</ul>
+<h4 id="examples-38"><a class="header" href="#examples-38">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (float? 42) ;; =&gt; #f
+&gt; (float? 3.14) ;; =&gt; #t
+&gt; (float? #t) ;; =&gt; #f
+</code></pre>
+<h3 id="floor"><a class="header" href="#floor"><strong>floor</strong></a></h3>
+<p>Computes the largest integer less than or equal to the given number.</p>
+<p>(floor number) -&gt; number?</p>
+<ul>
+<li>number : number? - The number to compute the floor for.</li>
+</ul>
+<h4 id="examples-39"><a class="header" href="#examples-39">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (floor 3.14) ;; =&gt; 3
+&gt; (floor 4.99) ;; =&gt; 4
+&gt; (floor -2.5) ;; =&gt; -3
+</code></pre>
+<h3 id="get-output-bytevector"><a class="header" href="#get-output-bytevector"><strong>get-output-bytevector</strong></a></h3>
+<p>Extracts the contents from a port created with <code>open-output-bytevector</code>.</p>
+<p>(get-output-bytevector port?) -&gt; bytes?</p>
+<h3 id="get-output-string"><a class="header" href="#get-output-string"><strong>get-output-string</strong></a></h3>
+<p>Extracts the string contents from a port created with <code>open-output-string</code>.</p>
+<p>(get-output-string port?) -&gt; string?</p>
+<h3 id="get-tls"><a class="header" href="#get-tls"><strong>get-tls</strong></a></h3>
+<p>Get the value out of the thread local storage slot.</p>
+<h3 id="hash"><a class="header" href="#hash"><strong>hash</strong></a></h3>
+<p>Creates an immutable hash table with each given <code>key</code> mapped to the following <code>val</code>.
+Each key must have a val, so the total number of arguments must be even.</p>
+<p>(hash key val ...) -&gt; hash?</p>
+<p>key : hashable?
+val : any/c</p>
+<p>Note: the keys must be hashable.</p>
+<h4 id="examples-40"><a class="header" href="#examples-40">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (hash 'a 10 'b 20)",
+r#"=&gt; #&lt;hashmap {
+'a: 10,
+'b: 20,
+}&gt;"#,
+</code></pre>
+<h3 id="hash-clear"><a class="header" href="#hash-clear"><strong>hash-clear</strong></a></h3>
+<p>Clears the entries out of the existing hashmap.
+Will attempt to reuse the existing memory if there are no other references
+to the hashmap.</p>
+<p>(hash-clear h) -&gt; hash?</p>
+<p>h: hash?</p>
+<h4 id="examples-41"><a class="header" href="#examples-41">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (hash-clear (hash 'a 10 'b 20))
+=&gt; '#hash()
+</code></pre>
+<h3 id="hash-contains"><a class="header" href="#hash-contains"><strong>hash-contains?</strong></a></h3>
+<p>Checks whether the given map contains the given key. Key must be hashable.</p>
+<p>(hash-contains? map key) -&gt; bool?</p>
+<ul>
+<li>map : hash?</li>
+<li>key : hashable?</li>
+</ul>
+<h4 id="example"><a class="header" href="#example">Example</a></h4>
+<pre><code class="language-scheme">&gt; (hash-contains? (hash 'a 10 'b 20) 'a) ;; =&gt; #true
+&gt; (hash-contains? (hash 'a 10 'b 20) 'not-there) ;; =&gt; #false
+</code></pre>
+<h3 id="hash-empty"><a class="header" href="#hash-empty"><strong>hash-empty?</strong></a></h3>
+<p>Checks whether the hash map is empty</p>
+<p>(hash-empty? m) -&gt; bool?</p>
+<p>m: hash?</p>
+<h4 id="examples-42"><a class="header" href="#examples-42">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (hash-empty? (hash 'a 10)) ;; =&gt; #f
+&gt; (hash-emptY? (hash)) ;; =&gt; #true
+</code></pre>
+<h3 id="hash-insert"><a class="header" href="#hash-insert"><strong>hash-insert</strong></a></h3>
+<p>Returns a new hashmap with the additional key value pair added. Performs a functional update,
+so the old hash map is still accessible.</p>
+<p>(hash-insert map key val) -&gt; hash?</p>
+<ul>
+<li>map : hash?</li>
+<li>key : any/c</li>
+<li>val : any/c</li>
+</ul>
+<h4 id="examples-43"><a class="header" href="#examples-43">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (hash-insert (hash 'a 10 'b 20) 'c 30)
+
+=&gt; #&lt;hashmap {
+'a: 10,
+'b: 20,
+'c: 30
+}&gt;
+</code></pre>
+<h3 id="hash-keys-list"><a class="header" href="#hash-keys-list"><strong>hash-keys-&gt;list</strong></a></h3>
+<p>Returns the keys of the given hash map as a list.</p>
+<pre><code class="language-scheme">(hash-keys-&gt;list map) -&gt; (listof hashable?)
+</code></pre>
+<ul>
+<li>map : hash?</li>
+</ul>
+<h4 id="examples-44"><a class="header" href="#examples-44">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (hash-keys-&gt;list? (hash 'a 'b 20)) ;; =&gt; '(a b)
+</code></pre>
+<h3 id="hash-keys-vector"><a class="header" href="#hash-keys-vector"><strong>hash-keys-&gt;vector</strong></a></h3>
+<p>Returns the keys of the given hash map as an immutable vector</p>
+<p>(hash-keys-&gt;vector map) -&gt; (vectorof any/c)?</p>
+<p>map: hash?</p>
+<h4 id="examples-45"><a class="header" href="#examples-45">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (hash-keys-&gt;vector (hash 'a 10 'b 20)),
+=&gt; ['a 'b]",
+</code></pre>
+<h3 id="hash-length"><a class="header" href="#hash-length"><strong>hash-length</strong></a></h3>
+<p>Returns the number of key value pairs in the map</p>
+<p>(hash-length map) -&gt; (and positive? int?)</p>
+<ul>
+<li>map : hash?</li>
+</ul>
+<h4 id="examples-46"><a class="header" href="#examples-46">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (hash-length (hash 'a 10 'b 20)) ;; =&gt; 2
+</code></pre>
+<h3 id="hash-ref"><a class="header" href="#hash-ref"><strong>hash-ref</strong></a></h3>
+<p>Gets the <code>key</code> from the given <code>map</code>. Raises an error if the key does not exist. <code>hash-get</code> is an alias for this.</p>
+<p>(hash-ref map key) -&gt; any/c</p>
+<ul>
+<li>map : hash?</li>
+<li>key : any/c</li>
+</ul>
+<h4 id="examples-47"><a class="header" href="#examples-47">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (hash-ref (hash 'a 10 'b 20) 'b) ;; =&gt; 20
+</code></pre>
+<h3 id="hash-try-get"><a class="header" href="#hash-try-get"><strong>hash-try-get</strong></a></h3>
+<p>Gets the <code>key</code> from the given <code>map</code>. Returns #false if the key does not exist.</p>
+<p>(hash-try-get map key) -&gt; (or any/c #false)</p>
+<ul>
+<li>map : hash?</li>
+<li>key : any/c</li>
+</ul>
+<h4 id="examples-48"><a class="header" href="#examples-48">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (hash-try-get (hash 'a 10 'b 20) 'b) ;; =&gt; 20
+&gt; (hash-try-get (hash 'a 10 'b 20) 'does-not-exist) ;; =&gt; #false
+</code></pre>
+<h3 id="hash-union"><a class="header" href="#hash-union"><strong>hash-union</strong></a></h3>
+<p>Constructs the union of two hashmaps, keeping the values
+in the left map when the keys exist in both maps.</p>
+<p>Will reuse memory where possible.</p>
+<p>(hash-union l r) -&gt; hash?</p>
+<h4 id="examples-49"><a class="header" href="#examples-49">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (hash-union (hash 'a 10) (hash 'b 20)) ;; =&gt; '#hash((a . 10) (b . 20))
+</code></pre>
+<h3 id="hash-values-list"><a class="header" href="#hash-values-list"><strong>hash-values-&gt;list</strong></a></h3>
+<p>Returns the values of the given hash map as a list</p>
+<p>(hash-values-&gt;list? map) -&gt; (listof any/c)?</p>
+<p>map: hash?</p>
+<h4 id="examples-50"><a class="header" href="#examples-50">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (hash-values-&gt;list? (hash 'a 10 'b 20)),
+=&gt; '(10 20)",
+</code></pre>
+<h3 id="hash-values-vector"><a class="header" href="#hash-values-vector"><strong>hash-values-&gt;vector</strong></a></h3>
+<p>Returns the values of the given hash map as an immutable vector</p>
+<p>(hash-values-&gt;vector map) -&gt; (vectorof any/c)?</p>
+<p>map: hash?</p>
+<h4 id="examples-51"><a class="header" href="#examples-51">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (hash-keys-&gt;vector (hash 'a 10 'b 20)),
+=&gt; [10 10]",
+</code></pre>
+<h3 id="inexact-exact"><a class="header" href="#inexact-exact"><strong>inexact-&gt;exact</strong></a></h3>
+<p>Converts an inexact number to an exact number.</p>
+<p>(inexact-&gt;exact num) -&gt; number?</p>
+<ul>
+<li>num : number? - The number to convert from inexact to exact.</li>
+</ul>
+<h4 id="examples-52"><a class="header" href="#examples-52">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (inexact-&gt;exact 10.0) ;; =&gt; 10
+&gt; (inexact-&gt;exact 1.5) ;; =&gt; 3/2
+&gt; (inexact-&gt;exact 1.5+2.5i) ;; =&gt; 3/2+5/2i
+</code></pre>
+<h3 id="inexact"><a class="header" href="#inexact"><strong>inexact?</strong></a></h3>
+<p>Checks if the given value is inexact.</p>
+<p>(inexact? val) -&gt; boolean?</p>
+<ul>
+<li>val : any - The value to check for inexactness.</li>
+</ul>
+<h4 id="examples-53"><a class="header" href="#examples-53">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (inexact? 42) ;; =&gt; #f
+&gt; (inexact? 3.14) ;; =&gt; #t
+</code></pre>
+<h3 id="infinite"><a class="header" href="#infinite"><strong>infinite?</strong></a></h3>
+<p>Returns <code>#t</code> if the given number is infinite.</p>
+<p>(infinite? number) -&gt; boolean?</p>
+<ul>
+<li>number : number? - The number to check for infiniteness.</li>
+</ul>
+<h4 id="examples-54"><a class="header" href="#examples-54">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (infinite? 42) ;; =&gt; #f
+&gt; (infinite? -nan.0) ;; =&gt; #f
+&gt; (infinite? +inf.0) ;; =&gt; #t
+</code></pre>
+<h3 id="input-port"><a class="header" href="#input-port"><strong>input-port?</strong></a></h3>
+<p>Checks if a given value is an input port</p>
+<p>(input-port? any/c) -&gt; bool?</p>
+<h4 id="examples-55"><a class="header" href="#examples-55">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (input-port? (stdin)) ;; =&gt; #true
+&gt; (input-port? "foo") ;; =&gt; #false
+</code></pre>
+<h3 id="int-string"><a class="header" href="#int-string"><strong>int-&gt;string</strong></a></h3>
+<p>Converts an integer into a string.</p>
+<p>(int-&gt;string int?) -&gt; string?</p>
+<h4 id="examples-56"><a class="header" href="#examples-56">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (int-&gt;string 10) ;; =&gt; "10"
+</code></pre>
+<h3 id="int"><a class="header" href="#int"><strong>int?</strong></a></h3>
+<p>Checks if the given value is an integer, an alias for <code>integer?</code></p>
+<p>(int? value) -&gt; boolean?</p>
+<ul>
+<li>value : any - The value to check</li>
+</ul>
+<h4 id="examples-57"><a class="header" href="#examples-57">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (int? 42) ;; =&gt; #t
+&gt; (int? 3.14) ;; =&gt; #f
+&gt; (int? "hello") ;; =&gt; #f
+</code></pre>
+<h3 id="integer-char"><a class="header" href="#integer-char"><strong>integer-&gt;char</strong></a></h3>
+<p>Returns the character corresponding to a given Unicode codepoint.</p>
+<p>(integer-&gt;char integer?) -&gt; char?</p>
+<h3 id="integer"><a class="header" href="#integer"><strong>integer?</strong></a></h3>
+<p>Checks if the given value is an integer, an alias for <code>int?</code></p>
+<p>(integer? value) -&gt; boolean?</p>
+<ul>
+<li>value : any - The value to check</li>
+</ul>
+<h4 id="examples-58"><a class="header" href="#examples-58">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (integer? 42) ;; =&gt; #t
+&gt; (integer? 3.14) ;; =&gt; #f
+&gt; (integer? "hello") ;; =&gt; #f
+</code></pre>
+<h3 id="is-dir"><a class="header" href="#is-dir"><strong>is-dir?</strong></a></h3>
+<p>Checks if a path is a directory</p>
+<h3 id="is-file"><a class="header" href="#is-file"><strong>is-file?</strong></a></h3>
+<p>Checks if a path is a file</p>
+<h3 id="last"><a class="header" href="#last"><strong>last</strong></a></h3>
+<p>Returns the last element in the list. Takes time proportional to the length of the list.</p>
+<p>(last l) -&gt; any/c</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-59"><a class="header" href="#examples-59">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (list (list 1 2 3 4)) ;; =&gt; 4
+</code></pre>
+<h3 id="length"><a class="header" href="#length"><strong>length</strong></a></h3>
+<p>Returns the length of the list.</p>
+<p>(length l) -&gt; int?</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-60"><a class="header" href="#examples-60">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (length (list 10 20 30)) ;; =&gt; 3
+</code></pre>
+<h3 id="list"><a class="header" href="#list"><strong>list</strong></a></h3>
+<p>Returns a newly allocated list containing the vs as its elements.</p>
+<p>(list v ...) -&gt; list?</p>
+<ul>
+<li>v : any/c</li>
+</ul>
+<h4 id="examples-61"><a class="header" href="#examples-61">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (list 1 2 3 4 5) ;; =&gt; '(1 2 3 4 5)
+&gt; (list (list 1 2) (list 3 4)) ;; =&gt; '((1 2) (3 4))
+</code></pre>
+<h3 id="list-bytes"><a class="header" href="#list-bytes"><strong>list-&gt;bytes</strong></a></h3>
+<p>Converts the list of bytes to the equivalent bytevector representation.
+The list must contain <em>only</em> values which satisfy the <code>byte?</code> predicate,
+otherwise this function will error.</p>
+<h4 id="examples-62"><a class="header" href="#examples-62">Examples</a></h4>
+<pre><code class="language-scheme">(list-&gt;bytes (list 0 1 2 3 4 5)) ;; =&gt; (bytes 0 1 2 3 4 5)
+</code></pre>
+<h3 id="list-ref"><a class="header" href="#list-ref"><strong>list-ref</strong></a></h3>
+<p>Returns the value located at the given index. Will raise an error if you try to index out of bounds.</p>
+<p>Note: Runs in time proportional to the length of the list, however lists in Steel are implemented in such a fashion that the
+time complexity is O(n/64). Meaning, for small lists this can be constant.</p>
+<p>(list-ref lst index) -&gt; list?</p>
+<ul>
+<li>lst : list?</li>
+<li>index : (and/c int? positive?)</li>
+</ul>
+<h4 id="examples-63"><a class="header" href="#examples-63">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (list-ref (list 1 2 3 4) 2) ;; =&gt; 3
+&gt; (list-ref (range 0 100) 42) ;; =&gt; 42"
+&gt; (list-ref (list 1 2 3 4) 10)
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (list-ref (list 1 2 3 4) 10)
+│  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10
+</code></pre>
+<h3 id="local-timenow"><a class="header" href="#local-timenow"><strong>local-time/now!</strong></a></h3>
+<p>Returns the local time in the format given by the input string (using <code>chrono::Local::format</code>).</p>
+<p>(local-time/now! fmt) -&gt; string?</p>
+<ul>
+<li>fmt : string?</li>
+</ul>
+<h3 id="lock-acquire"><a class="header" href="#lock-acquire"><strong>lock-acquire!</strong></a></h3>
+<p>Lock the given mutex</p>
+<h3 id="lock-release"><a class="header" href="#lock-release"><strong>lock-release!</strong></a></h3>
+<p>Unlock the given mutex</p>
+<h3 id="log"><a class="header" href="#log"><strong>log</strong></a></h3>
+<p>Computes the natural logarithm of the given number.</p>
+<p>(log number [base]) -&gt; number?</p>
+<ul>
+<li>number : number? - The number to compute the logarithm for.</li>
+<li>base : number? - The base of the logarithm. If not provided, defaults to Euler's number (e).</li>
+</ul>
+<h4 id="examples-64"><a class="header" href="#examples-64">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (log 10) ;; =&gt; 2.302585092994046
+&gt; (log 100 10) ;; =&gt; 2
+&gt; (log 27 3) ;; =&gt; 3
+</code></pre>
+<h3 id="magnitude"><a class="header" href="#magnitude"><strong>magnitude</strong></a></h3>
+<p>Computes the magnitude of the given number.</p>
+<p>(magnitude number) -&gt; number?</p>
+<ul>
+<li>number : number? - The number to compute the magnitude for.</li>
+</ul>
+<h4 id="examples-65"><a class="header" href="#examples-65">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (magnitude 3+4i) ;; =&gt; 5
+&gt; (magnitude 5) ;; =&gt; 5
+&gt; (magnitude -5) ;; =&gt; 5
+</code></pre>
+<h3 id="make-bytes"><a class="header" href="#make-bytes"><strong>make-bytes</strong></a></h3>
+<p>Creates a bytevector given a length and a default value.</p>
+<p>(make-bytes len default) -&gt; bytes?</p>
+<ul>
+<li>len : int?</li>
+<li>default : byte?</li>
+</ul>
+<h4 id="examples-66"><a class="header" href="#examples-66">Examples</a></h4>
+<pre><code class="language-scheme">(make-bytes 6 42) ;; =&gt; (bytes 42 42 42 42 42)
+</code></pre>
+<h3 id="make-string"><a class="header" href="#make-string"><strong>make-string</strong></a></h3>
+<p>Creates a string of a given length, filled with an optional character
+(which defaults to <code>#\0</code>).</p>
+<p>(make-string len [char]) -&gt; string?</p>
+<ul>
+<li>len : int?</li>
+<li>char : char? = #\0</li>
+</ul>
+<h3 id="make-tls"><a class="header" href="#make-tls"><strong>make-tls</strong></a></h3>
+<p>Creates a thread local storage slot. These slots are static, and will <em>not</em> be reclaimed.</p>
+<p>When spawning a new thread, the value inside will be shared into that slot, however
+future updates to the slot will be local to that thread.</p>
+<h3 id="mutex"><a class="header" href="#mutex"><strong>mutex</strong></a></h3>
+<p>Construct a new mutex</p>
+<h3 id="nan"><a class="header" href="#nan"><strong>nan?</strong></a></h3>
+<p>Returns <code>#t</code> if the real number is Nan.</p>
+<p>(nan? value) -&gt; boolean?</p>
+<ul>
+<li>value : real? - The value to check</li>
+</ul>
+<pre><code class="language-scheme">(nan? +nan.0) =&gt; #t
+(nan? 100000) =&gt; #f
+</code></pre>
+<h3 id="negative"><a class="header" href="#negative"><strong>negative?</strong></a></h3>
+<p>Checks if the given real number is negative.</p>
+<p>(negative? num) -&gt; boolean?</p>
+<ul>
+<li>num : real? - The real number to check for negativity.</li>
+</ul>
+<h4 id="examples-67"><a class="header" href="#examples-67">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (negative? 0) ;; =&gt; #f
+&gt; (negative? 1) ;; =&gt; #f
+&gt; (negative? -1) ;; =&gt; #t
+</code></pre>
+<h3 id="number-string"><a class="header" href="#number-string"><strong>number-&gt;string</strong></a></h3>
+<p>Converts the given number to a string.</p>
+<h3 id="number"><a class="header" href="#number"><strong>number?</strong></a></h3>
+<p>Checks if the given value is a number</p>
+<p>(number? value) -&gt; boolean?</p>
+<ul>
+<li>value : any - The value to check</li>
+</ul>
+<h4 id="examples-68"><a class="header" href="#examples-68">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (number? 42) ;; =&gt; #t
+&gt; (number? "hello") ;; =&gt; #f
+&gt; (number? 'symbol) ;; =&gt; #f
+</code></pre>
+<h3 id="numerator"><a class="header" href="#numerator"><strong>numerator</strong></a></h3>
+<p>Retrieves the numerator of the given rational number.</p>
+<p>(numerator number) -&gt; number?</p>
+<ul>
+<li>number : number? - The rational number to retrieve the numerator from.</li>
+</ul>
+<h4 id="examples-69"><a class="header" href="#examples-69">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (numerator 3/4) ;; =&gt; 3
+&gt; (numerator 5/2) ;; =&gt; 5
+&gt; (numerator -2) ;; =&gt; -2
+</code></pre>
+<h3 id="open-input-bytevector"><a class="header" href="#open-input-bytevector"><strong>open-input-bytevector</strong></a></h3>
+<p>Creates an input port from a bytevector, that will return the bytevector contents.</p>
+<p>(open-input-bytevector bytes?) -&gt; input-port?</p>
+<h3 id="open-input-file"><a class="header" href="#open-input-file"><strong>open-input-file</strong></a></h3>
+<p>Takes a filename <code>path</code> referring to an existing file and returns an input port. Raises an error
+if the file does not exist</p>
+<p>(open-input-file string?) -&gt; input-port?</p>
+<h4 id="examples-70"><a class="header" href="#examples-70">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (open-input-file "foo-bar.txt") ;; =&gt; #&lt;port&gt;
+&gt; (open-input-file "file-does-not-exist.txt")
+error[E08]: Io
+┌─ :1:2
+│
+1 │ (open-input-file "foo-bar.txt")
+│  ^^^^^^^^^^^^^^^ No such file or directory (os error 2)
+</code></pre>
+<h3 id="open-input-string"><a class="header" href="#open-input-string"><strong>open-input-string</strong></a></h3>
+<p>Creates an input port from a string, that will return the string contents.</p>
+<p>(open-input-string string?) -&gt; input-port?</p>
+<h3 id="open-output-bytevector"><a class="header" href="#open-output-bytevector"><strong>open-output-bytevector</strong></a></h3>
+<p>Creates an output port that accumulates what is written into a bytevector.
+These bytes can be recovered calling <code>get-output-bytevector</code>.</p>
+<p>(open-output-bytevector) -&gt; output-port?</p>
+<h4 id="examples-71"><a class="header" href="#examples-71">Examples</a></h4>
+<pre><code class="language-scheme">(define out (open-output-bytevector))
+
+
+(write-byte 30 out)
+(write-byte 250 out)
+
+(get-output-bytevector out) ;; =&gt; (bytes 30 250)
+</code></pre>
+<h3 id="open-output-file"><a class="header" href="#open-output-file"><strong>open-output-file</strong></a></h3>
+<p>Takes a filename <code>path</code> referring to a file to be created and returns an output port.</p>
+<p>(open-output-file string?) -&gt; output-port?</p>
+<h4 id="examples-72"><a class="header" href="#examples-72">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (open-output-file "foo-bar.txt") ;; =&gt; #&lt;port&gt;
+</code></pre>
+<h3 id="open-output-string"><a class="header" href="#open-output-string"><strong>open-output-string</strong></a></h3>
+<p>Creates an output port that accumulates what is written into a string.
+This string can be recovered calling <code>get-output-string</code>.</p>
+<p>(open-output-string) -&gt; output-port?</p>
+<h4 id="examples-73"><a class="header" href="#examples-73">Examples</a></h4>
+<pre><code class="language-scheme">(define out (open-output-string))
+
+
+(write-char "α" out)
+(write-char "ω" out)
+
+(get-output-string out) ;; =&gt; "αω"
+</code></pre>
+<h3 id="output-port"><a class="header" href="#output-port"><strong>output-port?</strong></a></h3>
+<p>Checks if a given value is an output port</p>
+<p>(output-port? any/c) -&gt; bool?</p>
+<h4 id="examples-74"><a class="header" href="#examples-74">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (define output (open-output-file "foo.txt"))
+&gt; (output-port? output) ;; =&gt; #true
+</code></pre>
+<h3 id="pair"><a class="header" href="#pair"><strong>pair?</strong></a></h3>
+<p>Checks if the given value can be treated as a pair.</p>
+<p>(pair? any/c) -&gt; bool?</p>
+<h4 id="examples-75"><a class="header" href="#examples-75">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (pair? '(10 20)) ;; =&gt; #true
+&gt; (pair? '(10)) ;; =&gt; #true
+&gt; (pair? '()) ;; =&gt; #false
+</code></pre>
+<h3 id="parent-name"><a class="header" href="#parent-name"><strong>parent-name</strong></a></h3>
+<p>Gets the parent directory name for a given path</p>
+<h3 id="path-extension"><a class="header" href="#path-extension"><strong>path-&gt;extension</strong></a></h3>
+<p>Gets the extension from a path</p>
+<h3 id="path-exists"><a class="header" href="#path-exists"><strong>path-exists?</strong></a></h3>
+<p>Checks if a path exists</p>
+<h3 id="peek-byte"><a class="header" href="#peek-byte"><strong>peek-byte</strong></a></h3>
+<p>Peeks the next byte from an input port.</p>
+<p>(peek-byte [port]) -&gt; byte?</p>
+<ul>
+<li>port : input-port? = (current-input-port)</li>
+</ul>
+<h3 id="positive"><a class="header" href="#positive"><strong>positive?</strong></a></h3>
+<p>Checks if the given real number is positive.</p>
+<p>(positive? num) -&gt; boolean?</p>
+<ul>
+<li>num : real? - The real number to check for positivity.</li>
+</ul>
+<h4 id="examples-76"><a class="header" href="#examples-76">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (positive? 0) ;; =&gt; #f
+&gt; (positive? 1) ;; =&gt; #t
+&gt; (positive? -1) ;; =&gt; #f
+</code></pre>
+<h3 id="quotient"><a class="header" href="#quotient"><strong>quotient</strong></a></h3>
+<p>Returns quotient of dividing numerator by denomintator.</p>
+<p>(quotient numerator denominator) -&gt; integer?</p>
+<ul>
+<li>numerator : integer? - The numerator.</li>
+<li>denominator : integer? - The denominator.</li>
+</ul>
+<h4 id="examples-77"><a class="header" href="#examples-77">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (quotient 11 2) ;; =&gt; 5
+&gt; (quotient 10 2) ;; =&gt; 5
+&gt; (quotient -10 2) ;; =&gt; -5
+</code></pre>
+<h3 id="range"><a class="header" href="#range"><strong>range</strong></a></h3>
+<p>Returns a newly allocated list of the elements in the range (n, m]</p>
+<p>(range n m) -&gt; (listof int?)</p>
+<ul>
+<li>n : int?</li>
+<li>m : int?</li>
+</ul>
+<pre><code class="language-scheme">&gt; (range 0 10) ;; =&gt; '(0 1 2 3 4 5 6 7 8 9)
+</code></pre>
+<h3 id="rational"><a class="header" href="#rational"><strong>rational?</strong></a></h3>
+<p>Returns #t if obj is a rational number, #f otherwise.
+Rational numbers are numbers that can be expressed as the quotient of two numbers.
+For example, 3/4, -5/2, 0.25, and 0 are rational numbers.</p>
+<p>(rational? value) -&gt; bool?</p>
+<ul>
+<li>value : any - The value to check</li>
+</ul>
+<p>Examples:</p>
+<pre><code class="language-scheme">&gt; (rational? (/ 0.0)) ;; =&gt; #f
+&gt; (rational? 3.5) ;; =&gt; #t
+&gt; (rational? 6/10) ;; =&gt; #t
+&gt; (rational? +nan.0) ;; =&gt; #f
+</code></pre>
+<h3 id="read-byte"><a class="header" href="#read-byte"><strong>read-byte</strong></a></h3>
+<p>Reads a single byte from an input port.</p>
+<p>(read-byte [port]) -&gt; byte?</p>
+<ul>
+<li>port : input-port? = (current-input-port)</li>
+</ul>
+<h3 id="read-char"><a class="header" href="#read-char"><strong>read-char</strong></a></h3>
+<p>Reads the next character from an input port.</p>
+<p>(read-char [port]) -&gt; char?</p>
+<ul>
+<li>port : input-port? = (current-input-port)</li>
+</ul>
+<h3 id="read-dir"><a class="header" href="#read-dir"><strong>read-dir</strong></a></h3>
+<p>Returns the contents of the directory as a list</p>
+<h3 id="read-port-to-string"><a class="header" href="#read-port-to-string"><strong>read-port-to-string</strong></a></h3>
+<p>Takes a port and reads the entire content into a string</p>
+<p>(read-port-to-string port) -&gt; string?</p>
+<ul>
+<li>port : input-port?</li>
+</ul>
+<h3 id="real"><a class="header" href="#real"><strong>real?</strong></a></h3>
+<p>Checks if the given value is a real number</p>
+<p>(real? value) -&gt; boolean?</p>
+<ul>
+<li>value : any - The value to check</li>
+</ul>
+<h4 id="examples-78"><a class="header" href="#examples-78">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (real? 42) ;; =&gt; #t
+&gt; (real? 3+4i) ;; =&gt; #f
+&gt; (real? "hello") ;; =&gt; #f
+</code></pre>
+<h3 id="receivers-select"><a class="header" href="#receivers-select"><strong>receivers-select</strong></a></h3>
+<p>Blocks until one of the channels passed in is ready to receive.
+Returns the index of the channel arguments passed in which is ready.</p>
+<p>Using this directly is not recommended.</p>
+<h3 id="rest"><a class="header" href="#rest"><strong>rest</strong></a></h3>
+<p>Returns the rest of the list. Will raise an error if the list is empty.</p>
+<p>(rest l) -&gt; list?</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-79"><a class="header" href="#examples-79">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (rest (list 10 20 30)) ;; =&gt; '(20 30)
+&gt; (rest (list 10)) ;; =&gt; '()
+&gt; (rest (list 10))
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (rest '())
+│  ^^^^ rest expects a non empty list
+</code></pre>
+<h3 id="reverse"><a class="header" href="#reverse"><strong>reverse</strong></a></h3>
+<p>Returns a list that has the same elements as <code>lst</code>, but in reverse order.
+This function takes time proportional to the length of <code>lst</code>.</p>
+<p>(reverse lst) -&gt; list?</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-80"><a class="header" href="#examples-80">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (reverse (list 1 2 3 4)) ;; '(4 3 2 1)
+</code></pre>
+<h3 id="round"><a class="header" href="#round"><strong>round</strong></a></h3>
+<p>Rounds the given number to the nearest integer.</p>
+<p>(round number) -&gt; number?</p>
+<ul>
+<li>number : number? - The number to round.</li>
+</ul>
+<h4 id="examples-81"><a class="header" href="#examples-81">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (round 3.14) ;; =&gt; 3
+&gt; (round 4.6) ;; =&gt; 5
+&gt; (round -2.5) ;; =&gt; -3
+</code></pre>
+<h3 id="second"><a class="header" href="#second"><strong>second</strong></a></h3>
+<p>Get the second element of the list. Raises an error if the list does not have an element in the second position.</p>
+<p>(second l) -&gt; any/c</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-82"><a class="header" href="#examples-82">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (second '(1 2 3)) ;; =&gt; 2
+&gt; (second '())
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (second '())
+│  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
+### **set-tls!**
+Set the value in the the thread local storage. Only this thread will see the updates associated
+with this TLS.
+### **split-many**
+Splits a string given a separator pattern into a list of strings.
+
+(split-many str pat) -&gt; (listof string?)
+
+* str : string?
+* pat : string?
+
+#### Examples
+```scheme
+(split-many "foo,bar,baz" ",") ;; =&gt; '("foo" "bar" "baz")
+(split-many "foo|bar|" "|") ;; =&gt; '("foo" "bar" "")
+(split-many "" "&amp;") ;; =&gt; '("")
+</code></pre>
+<h3 id="split-once"><a class="header" href="#split-once"><strong>split-once</strong></a></h3>
+<p>Splits a string given a separator at most once, yielding
+a list with at most 2 elements.</p>
+<p>(split-once str pat) -&gt; string?</p>
+<ul>
+<li>str : string?</li>
+<li>pat : string?</li>
+</ul>
+<h4 id="examples-83"><a class="header" href="#examples-83">Examples</a></h4>
+<pre><code class="language-scheme">(split-once "foo,bar,baz" ",") ;; =&gt; '("foo" "bar,baz")
+(split-once "foo|bar|" "|") ;; =&gt; '("foo" "bar|")
+(split-once "" "&amp;") ;; =&gt; '("")
+</code></pre>
+<h3 id="split-whitespace"><a class="header" href="#split-whitespace"><strong>split-whitespace</strong></a></h3>
+<p>Returns a list of strings from the original string split on the whitespace</p>
+<p>(split-whitespace string?) -&gt; (listof string?)</p>
+<h4 id="examples-84"><a class="header" href="#examples-84">Examples</a></h4>
+<pre><code class="language-scheme">(split-whitespace "apples bananas fruits veggies") ;; '("apples" "bananas" "fruits" "veggies")
+</code></pre>
+<h3 id="sqrt"><a class="header" href="#sqrt"><strong>sqrt</strong></a></h3>
+<p>Computes the square root of the given number.</p>
+<p>(sqrt number) -&gt; number?</p>
+<ul>
+<li>number : number? - The number to compute the square root for.</li>
+</ul>
+<h4 id="examples-85"><a class="header" href="#examples-85">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (sqrt 4) ;; =&gt; 2
+&gt; (sqrt 2) ;; =&gt; 1.4142135623730951
+&gt; (sqrt -1) ;; =&gt; 0+1i
+</code></pre>
+<h3 id="square"><a class="header" href="#square"><strong>square</strong></a></h3>
+<p>Computes the square of the given number.</p>
+<p>(square number) -&gt; number?</p>
+<ul>
+<li>number : number? - The number to square.</li>
+</ul>
+<h4 id="examples-86"><a class="header" href="#examples-86">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (square 5) ;; =&gt; 25
+&gt; (square -3) ;; =&gt; 9
+&gt; (square 2.5) ;; =&gt; 6.25
+</code></pre>
+<h3 id="starts-with"><a class="header" href="#starts-with"><strong>starts-with?</strong></a></h3>
+<p>Checks if the input string starts with a prefix</p>
+<p>(starts-with? input pattern) -&gt; bool?</p>
+<ul>
+<li>input : string?</li>
+<li>pattern: string?</li>
+</ul>
+<h4 id="examples-87"><a class="header" href="#examples-87">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (starts-with? "foobar" "foo") ;; =&gt; #true
+&gt; (starts-with? "foobar" "bar") ;; =&gt; #false
+</code></pre>
+<h3 id="stdin"><a class="header" href="#stdin"><strong>stdin</strong></a></h3>
+<p>Gets the port handle to stdin</p>
+<p>(stdin) -&gt; input-port?</p>
+<h4 id="examples-88"><a class="header" href="#examples-88">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (stdin) ;; =&gt; #&lt;port&gt;
+</code></pre>
+<h3 id="string"><a class="header" href="#string"><strong>string</strong></a></h3>
+<p>Constructs a string from the given characters</p>
+<h3 id="string-bytes"><a class="header" href="#string-bytes"><strong>string-&gt;bytes</strong></a></h3>
+<p>Encodes a string as UTF-8 into a bytevector.</p>
+<p>(string-&gt;bytes string?) -&gt; bytes?</p>
+<h4 id="examples-89"><a class="header" href="#examples-89">Examples</a></h4>
+<pre><code class="language-scheme">(string-&gt;bytes "Apple") ;; =&gt; (bytes 65 112 112 108 101)
+</code></pre>
+<h3 id="string-int"><a class="header" href="#string-int"><strong>string-&gt;int</strong></a></h3>
+<p>Converts a string into an int. Raises an error if the string cannot be converted to an integer.</p>
+<p>(string-&gt;int string?) -&gt; int?</p>
+<h4 id="examples-90"><a class="header" href="#examples-90">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (string-&gt;int "100") ;; =&gt; 10
+&gt; (string-&gt;int "not-an-int") ;; error
+</code></pre>
+<h3 id="string-jsexpr"><a class="header" href="#string-jsexpr"><strong>string-&gt;jsexpr</strong></a></h3>
+<p>Deserializes a JSON string into a Steel value.</p>
+<p>(string-&gt;jsexpr json) -&gt; any/c</p>
+<ul>
+<li>json : string?</li>
+</ul>
+<h4 id="examples-91"><a class="header" href="#examples-91">Examples</a></h4>
+<pre><code class="language-scheme">(string-&gt;jsexpr "{\"foo\": [3]}") ;; =&gt; '#hash((foo . (3)))
+</code></pre>
+<h3 id="string-list"><a class="header" href="#string-list"><strong>string-&gt;list</strong></a></h3>
+<p>Converts a string into a list of characters.</p>
+<p>(string-&gt;list s [start] [end]) -&gt; (listof char?)</p>
+<ul>
+<li>s : string?</li>
+<li>start : int? = 0</li>
+<li>end : int?</li>
+</ul>
+<h4 id="examples-92"><a class="header" href="#examples-92">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (string-&gt;list "hello") ;; =&gt; '(#\h #\e #\l #\l #\o)
+</code></pre>
+<h3 id="string-lower"><a class="header" href="#string-lower"><strong>string-&gt;lower</strong></a></h3>
+<p>Creates a new lowercased version of the input string</p>
+<p>(string-&gt;lower string?) -&gt; string?</p>
+<h4 id="examples-93"><a class="header" href="#examples-93">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (string-&gt;lower "sPonGeBoB tExT") ;; =&gt; "spongebob text"
+</code></pre>
+<h3 id="string-number"><a class="header" href="#string-number"><strong>string-&gt;number</strong></a></h3>
+<p>Converts the given string to a number, with an optional radix.
+On failure, it returns <code>#f</code></p>
+<p>(string-&gt;number digits [radix]) -&gt; (or/c number? boolean?)</p>
+<ul>
+<li>digits : string?</li>
+<li>radix : number?</li>
+</ul>
+<h3 id="string-symbol"><a class="header" href="#string-symbol"><strong>string-&gt;symbol</strong></a></h3>
+<p>Converts a string into a symbol.</p>
+<p>(string-&gt;symbol string?) -&gt; symbol?</p>
+<h4 id="examples-94"><a class="header" href="#examples-94">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (string-&gt;symbol "FooBar") ;; =&gt; 'FooBar
+</code></pre>
+<h3 id="string-upper"><a class="header" href="#string-upper"><strong>string-&gt;upper</strong></a></h3>
+<p>Creates a new uppercased version of the input string</p>
+<p>(string-&gt;upper string?) -&gt; string?</p>
+<h4 id="examples-95"><a class="header" href="#examples-95">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (string-&gt;upper "lower") ;; =&gt; "LOWER"
+</code></pre>
+<h3 id="string-utf8"><a class="header" href="#string-utf8"><strong>string-&gt;utf8</strong></a></h3>
+<p>Alias of <code>string-&gt;bytes</code>.</p>
+<h3 id="string-vector"><a class="header" href="#string-vector"><strong>string-&gt;vector</strong></a></h3>
+<p>Returns a vector containing the characters of a given string</p>
+<p>(string-&gt;vector string?) -&gt; vector?</p>
+<h4 id="examples-96"><a class="header" href="#examples-96">Examples</a></h4>
+<pre><code class="language-scheme">(string-&gt;vector "hello") ;; =&gt; '#(#\h #\e #\l #\l #\o)
+</code></pre>
+<h3 id="string-append"><a class="header" href="#string-append"><strong>string-append</strong></a></h3>
+<p>Concatenates all of the given strings into one</p>
+<p>(string-append strs...) -&gt; string?</p>
+<ul>
+<li>strs ... : string?</li>
+</ul>
+<h4 id="examples-97"><a class="header" href="#examples-97">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (string-append) ;; =&gt; ""
+&gt; (string-append "foo" "bar") ;; =&gt; "foobar"
+</code></pre>
+<h3 id="string-ci"><a class="header" href="#string-ci"><strong>string-ci&lt;=?</strong></a></h3>
+<p>Compares strings lexicographically (as in"less-than-or-equal"),
+in a case insensitive fashion.</p>
+<p>(string-ci&lt;=? s1 s2 ... ) -&gt; bool?</p>
+<ul>
+<li>s1 : string?</li>
+<li>s2 : string?</li>
+</ul>
+<h3 id="string-ci-1"><a class="header" href="#string-ci-1"><strong>string-ci&lt;?</strong></a></h3>
+<p>Compares strings lexicographically (as in"less-than"),
+in a case insensitive fashion.</p>
+<p>(string-ci&lt;? s1 s2 ... ) -&gt; bool?</p>
+<ul>
+<li>s1 : string?</li>
+<li>s2 : string?</li>
+</ul>
+<h3 id="string-ci-2"><a class="header" href="#string-ci-2"><strong>string-ci=?</strong></a></h3>
+<p>Compares strings for equality, in a case insensitive fashion.</p>
+<h3 id="string-ci-3"><a class="header" href="#string-ci-3"><strong>string-ci&gt;=?</strong></a></h3>
+<p>Compares strings lexicographically (as in"greater-than-or-equal"),
+in a case insensitive fashion.</p>
+<p>(string-ci&gt;=? s1 s2 ... ) -&gt; bool?</p>
+<ul>
+<li>s1 : string?</li>
+<li>s2 : string?</li>
+</ul>
+<h3 id="string-ci-4"><a class="header" href="#string-ci-4"><strong>string-ci&gt;?</strong></a></h3>
+<p>Compares strings lexicographically (as in"greater-than"),
+in a case insensitive fashion.</p>
+<p>(string-ci&gt;? s1 s2 ... ) -&gt; bool?</p>
+<ul>
+<li>s1 : string?</li>
+<li>s2 : string?</li>
+</ul>
+<h3 id="string-contains"><a class="header" href="#string-contains"><strong>string-contains?</strong></a></h3>
+<p>Searches a string to check if it contains the second argument.</p>
+<p>(string-contains? string? string?) -&gt; bool?</p>
+<h4 id="examples-98"><a class="header" href="#examples-98">Examples</a></h4>
+<pre><code class="language-scheme">(string-contains? "hello" "lo") ;;=&gt; #t
+(string-contains? "hello" "world") ;;=&gt; #f
+</code></pre>
+<h3 id="string-join"><a class="header" href="#string-join"><strong>string-join</strong></a></h3>
+<p>Joins the given list of strings, with an optional separator.</p>
+<p>(string-join strings [sep]) -&gt; string?</p>
+<ul>
+<li>strings : (listof string?)</li>
+<li>sep : string? = ""</li>
+</ul>
+<h4 id="examples-99"><a class="header" href="#examples-99">Examples</a></h4>
+<pre><code class="language-scheme">(string-join '("a" "b" "c")) ;; =&gt; "abc"
+(string-join '("one" "two" "three") ", ") ;; =&gt; "one, two, three"
+</code></pre>
+<h3 id="string-length"><a class="header" href="#string-length"><strong>string-length</strong></a></h3>
+<p>Get the length of the given string in UTF-8 bytes.</p>
+<p>(string-length string?) -&gt; int?</p>
+<h4 id="examples-100"><a class="header" href="#examples-100">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (string-length "apples") ;; =&gt; 6
+&gt; (string-length "✅") ;; =&gt; 3
+&gt; (string-length "🤖") ;; =&gt; 4
+</code></pre>
+<h3 id="string-ref"><a class="header" href="#string-ref"><strong>string-ref</strong></a></h3>
+<p>Extracts the nth character out of a given string.</p>
+<p>(string-ref str n) -&gt; char?</p>
+<ul>
+<li>str : string?</li>
+<li>n : int?</li>
+</ul>
+<h3 id="string-replace"><a class="header" href="#string-replace"><strong>string-replace</strong></a></h3>
+<p>Replaces all occurrences of a pattern into the given string</p>
+<p>(string-replace str from to) -&gt; string?</p>
+<ul>
+<li>str : string?</li>
+<li>from : string?</li>
+<li>to : string?</li>
+</ul>
+<h4 id="examples-101"><a class="header" href="#examples-101">Examples</a></h4>
+<pre><code class="language-scheme">(string-replace "hello world" "o" "@") ;; =&gt; "hell@ w@rld"
+</code></pre>
+<h3 id="string-1"><a class="header" href="#string-1"><strong>string&lt;=?</strong></a></h3>
+<p>Compares strings lexicographically (as in"less-than-equal-to").</p>
+<p>(string&lt;=? s1 s2 ... ) -&gt; bool?</p>
+<ul>
+<li>s1 : string?</li>
+<li>s2 : string?</li>
+</ul>
+<h3 id="string-2"><a class="header" href="#string-2"><strong>string&lt;?</strong></a></h3>
+<p>Compares strings lexicographically (as in"less-than").</p>
+<p>(string&lt;? s1 s2 ... ) -&gt; bool?</p>
+<ul>
+<li>s1 : string?</li>
+<li>s2 : string?</li>
+</ul>
+<h3 id="string-3"><a class="header" href="#string-3"><strong>string=?</strong></a></h3>
+<p>Compares strings for equality.</p>
+<p>(string=? string1 string2 ...) -&gt; bool?</p>
+<ul>
+<li>string1 : string?</li>
+<li>string2 : string?</li>
+</ul>
+<h3 id="string-4"><a class="header" href="#string-4"><strong>string&gt;=?</strong></a></h3>
+<p>Compares strings lexicographically (as in"greater-than-or-equal").</p>
+<p>(string&gt;=? s1 s2 ... ) -&gt; bool?</p>
+<ul>
+<li>s1 : string?</li>
+<li>s2 : string?</li>
+</ul>
+<h3 id="string-5"><a class="header" href="#string-5"><strong>string&gt;?</strong></a></h3>
+<p>Compares strings lexicographically (as in"greater-than").</p>
+<p>(string&gt;? s1 s2 ... ) -&gt; bool?</p>
+<ul>
+<li>s1 : string?</li>
+<li>s2 : string?</li>
+</ul>
+<h3 id="substring"><a class="header" href="#substring"><strong>substring</strong></a></h3>
+<p>Creates a substring slicing the characters between two indices.</p>
+<p>(substring str start end) -&gt; string?</p>
+<ul>
+<li>str: string?</li>
+<li>start : int?</li>
+<li>end : int?</li>
+</ul>
+<h4 id="examples-102"><a class="header" href="#examples-102">Examples</a></h4>
+<pre><code class="language-scheme">(substring "hello" 1 4) ;; =&gt; "ell"
+(substring "hello" 10 15) ;; =&gt; error
+</code></pre>
+<h3 id="take"><a class="header" href="#take"><strong>take</strong></a></h3>
+<p>Returns the first n elements of the list l as a new list.</p>
+<p>(take l n) -&gt; list?</p>
+<ul>
+<li>l : list?</li>
+<li>n : (and/c positive? int?)</li>
+</ul>
+<h4 id="examples-103"><a class="header" href="#examples-103">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (take '(1 2 3 4) 2) ;; =&gt; '(0 1)
+&gt; (take (range 0 10) 4) ;; =&gt; '(0 1 2 3)
+</code></pre>
+<h3 id="third"><a class="header" href="#third"><strong>third</strong></a></h3>
+<p>Get the third element of the list. Raises an error if the list does not have an element in the third position.</p>
+<p>(third l) -&gt; any/c</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-104"><a class="header" href="#examples-104">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (third '(1 2 3)) ;; =&gt; 3
+&gt; (third '())
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (third '())
+│  ^^^^^^ third: index out of bounds - list did not have an element in the second position: []
+</code></pre>
+<h3 id="thread-finished"><a class="header" href="#thread-finished"><strong>thread-finished?</strong></a></h3>
+<p>Check if the given thread is finished running.</p>
+<h3 id="thread-interrupt"><a class="header" href="#thread-interrupt"><strong>thread-interrupt</strong></a></h3>
+<p>Interrupts the thread. Note, this will <em>not</em> interrupt any native code
+that is potentially running in the thread, and will attempt to block
+at the next bytecode instruction that is running.</p>
+<h3 id="thread-join"><a class="header" href="#thread-join"><strong>thread-join!</strong></a></h3>
+<p>Block until this thread finishes.</p>
+<h3 id="thread-resume"><a class="header" href="#thread-resume"><strong>thread-resume</strong></a></h3>
+<p>Resume a suspended thread. This does nothing if the thread is already joined.</p>
+<h3 id="thread-suspend"><a class="header" href="#thread-suspend"><strong>thread-suspend</strong></a></h3>
+<p>Suspend the thread. Note, this will <em>not</em> interrupt any native code that is
+potentially running in the thread, and will attempt to block at the next
+bytecode instruction that is running.</p>
+<h3 id="timesleep-ms"><a class="header" href="#timesleep-ms"><strong>time/sleep-ms</strong></a></h3>
+<p>Sleeps the thread for a given number of milliseconds.</p>
+<p>(time/sleep-ms ms)</p>
+<ul>
+<li>ms : int?</li>
+</ul>
+<h3 id="to-string"><a class="header" href="#to-string"><strong>to-string</strong></a></h3>
+<p>Concatenates all of the inputs to their string representation, separated by spaces.</p>
+<p>(to-string xs ...)</p>
+<ul>
+<li>xs : any/c</li>
+</ul>
+<h4 id="examples-105"><a class="header" href="#examples-105">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (to-string 10) ;; =&gt; "10"
+&gt; (to-string 10 20) ;; =&gt; "10 20"
+&gt; (to-string "hello" "world") ;; =&gt; "hello world"
+</code></pre>
+<h3 id="trim"><a class="header" href="#trim"><strong>trim</strong></a></h3>
+<p>Returns a new string with the leading and trailing whitespace removed.</p>
+<p>(trim string?) -&gt; string?</p>
+<h4 id="examples-106"><a class="header" href="#examples-106">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (trim "   foo     ") ;; =&gt; "foo"
+</code></pre>
+<h3 id="trim-end"><a class="header" href="#trim-end"><strong>trim-end</strong></a></h3>
+<p>Returns a new string with the trailing whitespace removed.</p>
+<p>(trim string?) -&gt; string?</p>
+<h4 id="examples-107"><a class="header" href="#examples-107">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (trim "   foo     ") ;; =&gt; "   foo"
+</code></pre>
+<h3 id="trim-end-matches"><a class="header" href="#trim-end-matches"><strong>trim-end-matches</strong></a></h3>
+<p>Returns a new string with the given <code>pat</code> repeatedly removed from the end
+of the string</p>
+<pre><code class="language-scheme">(trim-end-matches string? string?) -&gt; string?
+</code></pre>
+<h4 id="examples-108"><a class="header" href="#examples-108">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (trim-end-matches "123foo1bar123123" "123") ;; =&gt; "123foo1bar"
+</code></pre>
+<h3 id="trim-start"><a class="header" href="#trim-start"><strong>trim-start</strong></a></h3>
+<p>Returns a new string with the leading whitespace removed.</p>
+<p>(trim string?) -&gt; string?</p>
+<h4 id="examples-109"><a class="header" href="#examples-109">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (trim "   foo     ") ;; =&gt; "foo     "
+</code></pre>
+<h3 id="trim-start-matches"><a class="header" href="#trim-start-matches"><strong>trim-start-matches</strong></a></h3>
+<p>Returns a new string with the given <code>pat</code> repeatedly removed from the start
+of the string</p>
+<pre><code class="language-scheme">(trim-start-matches string? string?) -&gt; string?
+</code></pre>
+<h4 id="examples-110"><a class="header" href="#examples-110">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (trim-start-matches "123foo1bar123123" "123") ;; =&gt; "foo1bar123123"
+</code></pre>
+<h3 id="utf8-string"><a class="header" href="#utf8-string"><strong>utf8-&gt;string</strong></a></h3>
+<p>Alias of <code>bytes-&gt;string/utf8</code>.</p>
+<h3 id="value-jsexpr-string"><a class="header" href="#value-jsexpr-string"><strong>value-&gt;jsexpr-string</strong></a></h3>
+<p>Serializes a Steel value into a string.</p>
+<p>(value-&gt;jsexpr-string any/c) -&gt; string?</p>
+<h4 id="examples-111"><a class="header" href="#examples-111">Examples</a></h4>
+<pre><code class="language-scheme">(value-&gt;jsexpr-string `(,(hash "foo" #t))) ;; =&gt; "[{\"foo\":true}]"
+</code></pre>
+<h3 id="void"><a class="header" href="#void"><strong>void</strong></a></h3>
+<p>The void value, returned by many forms with side effects, such as <code>define</code>.</p>
+<h3 id="write-byte"><a class="header" href="#write-byte"><strong>write-byte</strong></a></h3>
+<p>Writes a single byte to an output port.</p>
+<p>(write-byte b [port])</p>
+<ul>
+<li>b : byte?</li>
+<li>port : output-port? = (current-output-port)</li>
+</ul>
+<h3 id="write-bytes"><a class="header" href="#write-bytes"><strong>write-bytes</strong></a></h3>
+<p>Writes the contents of a bytevector into an output port.</p>
+<p>(write-bytes buf [port])</p>
+<ul>
+<li>buf : bytes?</li>
+<li>port : output-port? = (current-output-port)</li>
+</ul>
+<h3 id="zero"><a class="header" href="#zero"><strong>zero?</strong></a></h3>
+<p>Checks if the given real number is zero.</p>
+<p>(zero? num) -&gt; boolean?</p>
+<ul>
+<li>num : real? - The number to check for zero.</li>
+</ul>
+<h4 id="examples-112"><a class="header" href="#examples-112">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (zero? 0) ;; =&gt; #t
+&gt; (zero? 0.0) ;; =&gt; #t
+&gt; (zero? 0.1) ;; =&gt; #f
+</code></pre>
+<h3 id="interner-memory-usage"><a class="header" href="#interner-memory-usage"><strong>%#interner-memory-usage</strong></a></h3>
+<h3 id="iterator"><a class="header" href="#iterator"><strong>%iterator?</strong></a></h3>
+<h3 id="keyword-hash"><a class="header" href="#keyword-hash"><strong>%keyword-hash</strong></a></h3>
+<h3 id="-7"><a class="header" href="#-7"><strong>=</strong></a></h3>
+<h3 id="engineadd-module"><a class="header" href="#engineadd-module"><strong>Engine::add-module</strong></a></h3>
+<h3 id="engineclone"><a class="header" href="#engineclone"><strong>Engine::clone</strong></a></h3>
+<h3 id="enginemodules-list"><a class="header" href="#enginemodules-list"><strong>Engine::modules-&gt;list</strong></a></h3>
+<h3 id="enginenew"><a class="header" href="#enginenew"><strong>Engine::new</strong></a></h3>
+<h3 id="engineraise_error"><a class="header" href="#engineraise_error"><strong>Engine::raise_error</strong></a></h3>
+<h3 id="err"><a class="header" href="#err"><strong>Err</strong></a></h3>
+<h3 id="err-value"><a class="header" href="#err-value"><strong>Err-&gt;value</strong></a></h3>
+<h3 id="err-1"><a class="header" href="#err-1"><strong>Err?</strong></a></h3>
+<h3 id="none"><a class="header" href="#none"><strong>None</strong></a></h3>
+<h3 id="none-1"><a class="header" href="#none-1"><strong>None?</strong></a></h3>
+<h3 id="ok"><a class="header" href="#ok"><strong>Ok</strong></a></h3>
+<h3 id="ok-value"><a class="header" href="#ok-value"><strong>Ok-&gt;value</strong></a></h3>
+<h3 id="ok-1"><a class="header" href="#ok-1"><strong>Ok?</strong></a></h3>
+<h3 id="some"><a class="header" href="#some"><strong>Some</strong></a></h3>
+<h3 id="some-value"><a class="header" href="#some-value"><strong>Some-&gt;value</strong></a></h3>
+<h3 id="some-1"><a class="header" href="#some-1"><strong>Some?</strong></a></h3>
+<h3 id="typeid"><a class="header" href="#typeid"><strong>TypeId?</strong></a></h3>
+<h3 id="active-object-count"><a class="header" href="#active-object-count"><strong>active-object-count</strong></a></h3>
+<h3 id="arithmetic-shift"><a class="header" href="#arithmetic-shift"><strong>arithmetic-shift</strong></a></h3>
+<h3 id="arity"><a class="header" href="#arity"><strong>arity?</strong></a></h3>
+<h3 id="assert"><a class="header" href="#assert"><strong>assert!</strong></a></h3>
+<h3 id="atom"><a class="header" href="#atom"><strong>atom?</strong></a></h3>
+<h3 id="attach-contract-struct"><a class="header" href="#attach-contract-struct"><strong>attach-contract-struct!</strong></a></h3>
+<h3 id="block-on"><a class="header" href="#block-on"><strong>block-on</strong></a></h3>
+<h3 id="bool"><a class="header" href="#bool"><strong>bool?</strong></a></h3>
+<h3 id="boolean"><a class="header" href="#boolean"><strong>boolean?</strong></a></h3>
+<h3 id="box"><a class="header" href="#box"><strong>box</strong></a></h3>
+<h3 id="box-strong"><a class="header" href="#box-strong"><strong>box-strong</strong></a></h3>
+<h3 id="breakpoint"><a class="header" href="#breakpoint"><strong>breakpoint!</strong></a></h3>
+<h3 id="call-with-current-continuation"><a class="header" href="#call-with-current-continuation"><strong>call-with-current-continuation</strong></a></h3>
+<h3 id="call-with-exception-handler"><a class="header" href="#call-with-exception-handler"><strong>call-with-exception-handler</strong></a></h3>
+<h3 id="callcc"><a class="header" href="#callcc"><strong>call/cc</strong></a></h3>
+<h3 id="cdr-null"><a class="header" href="#cdr-null"><strong>cdr-null?</strong></a></h3>
+<h3 id="channel-recv"><a class="header" href="#channel-recv"><strong>channel-&gt;recv</strong></a></h3>
+<h3 id="channel-send"><a class="header" href="#channel-send"><strong>channel-&gt;send</strong></a></h3>
+<h3 id="channel-try-recv"><a class="header" href="#channel-try-recv"><strong>channel-&gt;try-recv</strong></a></h3>
+<h3 id="channelrecv"><a class="header" href="#channelrecv"><strong>channel/recv</strong></a></h3>
+<h3 id="channelsend"><a class="header" href="#channelsend"><strong>channel/send</strong></a></h3>
+<h3 id="channeltry-recv"><a class="header" href="#channeltry-recv"><strong>channel/try-recv</strong></a></h3>
+<h3 id="channels-receiver"><a class="header" href="#channels-receiver"><strong>channels-receiver</strong></a></h3>
+<h3 id="channels-sender"><a class="header" href="#channels-sender"><strong>channels-sender</strong></a></h3>
+<h3 id="channelsnew"><a class="header" href="#channelsnew"><strong>channels/new</strong></a></h3>
+<h3 id="char-5"><a class="header" href="#char-5"><strong>char?</strong></a></h3>
+<h3 id="child-stderr"><a class="header" href="#child-stderr"><strong>child-stderr</strong></a></h3>
+<h3 id="child-stdin"><a class="header" href="#child-stdin"><strong>child-stdin</strong></a></h3>
+<h3 id="child-stdout"><a class="header" href="#child-stdout"><strong>child-stdout</strong></a></h3>
+<h3 id="close-output-port"><a class="header" href="#close-output-port"><strong>close-output-port</strong></a></h3>
+<h3 id="command"><a class="header" href="#command"><strong>command</strong></a></h3>
+<h3 id="compose"><a class="header" href="#compose"><strong>compose</strong></a></h3>
+<h3 id="concat-symbols"><a class="header" href="#concat-symbols"><strong>concat-symbols</strong></a></h3>
+<h3 id="continuation"><a class="header" href="#continuation"><strong>continuation?</strong></a></h3>
+<h3 id="current-function-span"><a class="header" href="#current-function-span"><strong>current-function-span</strong></a></h3>
+<h3 id="current-os"><a class="header" href="#current-os"><strong>current-os!</strong></a></h3>
+<h3 id="dropping"><a class="header" href="#dropping"><strong>dropping</strong></a></h3>
+<h3 id="duration-seconds"><a class="header" href="#duration-seconds"><strong>duration-&gt;seconds</strong></a></h3>
+<h3 id="duration-since"><a class="header" href="#duration-since"><strong>duration-since</strong></a></h3>
+<h3 id="empty-stream"><a class="header" href="#empty-stream"><strong>empty-stream</strong></a></h3>
+<h3 id="enumerating"><a class="header" href="#enumerating"><strong>enumerating</strong></a></h3>
+<h3 id="env-var"><a class="header" href="#env-var"><strong>env-var</strong></a></h3>
+<h3 id="eq"><a class="header" href="#eq"><strong>eq?</strong></a></h3>
+<h3 id="equal"><a class="header" href="#equal"><strong>equal?</strong></a></h3>
+<h3 id="eqv"><a class="header" href="#eqv"><strong>eqv?</strong></a></h3>
+<h3 id="error-object"><a class="header" href="#error-object"><strong>error-object?</strong></a></h3>
+<h3 id="error-with-span"><a class="header" href="#error-with-span"><strong>error-with-span</strong></a></h3>
+<h3 id="eval"><a class="header" href="#eval"><strong>eval!</strong></a></h3>
+<h3 id="even"><a class="header" href="#even"><strong>even?</strong></a></h3>
+<h3 id="expand"><a class="header" href="#expand"><strong>expand!</strong></a></h3>
+<h3 id="extending"><a class="header" href="#extending"><strong>extending</strong></a></h3>
+<h3 id="f"><a class="header" href="#f"><strong>f+</strong></a></h3>
+<h3 id="filtering"><a class="header" href="#filtering"><strong>filtering</strong></a></h3>
+<h3 id="flat-mapping"><a class="header" href="#flat-mapping"><strong>flat-mapping</strong></a></h3>
+<h3 id="flattening"><a class="header" href="#flattening"><strong>flattening</strong></a></h3>
+<h3 id="flush-output-port"><a class="header" href="#flush-output-port"><strong>flush-output-port</strong></a></h3>
+<h3 id="function-name"><a class="header" href="#function-name"><strong>function-name</strong></a></h3>
+<h3 id="function"><a class="header" href="#function"><strong>function?</strong></a></h3>
+<h3 id="future"><a class="header" href="#future"><strong>future?</strong></a></h3>
+<h3 id="get-contract-struct"><a class="header" href="#get-contract-struct"><strong>get-contract-struct</strong></a></h3>
+<h3 id="get-test-mode"><a class="header" href="#get-test-mode"><strong>get-test-mode</strong></a></h3>
+<h3 id="hash-get"><a class="header" href="#hash-get"><strong>hash-get</strong></a></h3>
+<h3 id="hash-1"><a class="header" href="#hash-1"><strong>hash?</strong></a></h3>
+<h3 id="hashset"><a class="header" href="#hashset"><strong>hashset</strong></a></h3>
+<h3 id="hashset-list"><a class="header" href="#hashset-list"><strong>hashset-&gt;list</strong></a></h3>
+<h3 id="hashset-vector"><a class="header" href="#hashset-vector"><strong>hashset-&gt;vector</strong></a></h3>
+<h3 id="hashset-clear"><a class="header" href="#hashset-clear"><strong>hashset-clear</strong></a></h3>
+<h3 id="hashset-contains"><a class="header" href="#hashset-contains"><strong>hashset-contains?</strong></a></h3>
+<h3 id="hashset-insert"><a class="header" href="#hashset-insert"><strong>hashset-insert</strong></a></h3>
+<h3 id="hashset-length"><a class="header" href="#hashset-length"><strong>hashset-length</strong></a></h3>
+<h3 id="hashset-subset"><a class="header" href="#hashset-subset"><strong>hashset-subset?</strong></a></h3>
+<h3 id="inspect-bytecode"><a class="header" href="#inspect-bytecode"><strong>inspect-bytecode</strong></a></h3>
+<h3 id="instantelapsed"><a class="header" href="#instantelapsed"><strong>instant/elapsed</strong></a></h3>
+<h3 id="instantnow"><a class="header" href="#instantnow"><strong>instant/now</strong></a></h3>
+<h3 id="interleaving"><a class="header" href="#interleaving"><strong>interleaving</strong></a></h3>
+<h3 id="into-count"><a class="header" href="#into-count"><strong>into-count</strong></a></h3>
+<h3 id="into-for-each"><a class="header" href="#into-for-each"><strong>into-for-each</strong></a></h3>
+<h3 id="into-hashmap"><a class="header" href="#into-hashmap"><strong>into-hashmap</strong></a></h3>
+<h3 id="into-hashset"><a class="header" href="#into-hashset"><strong>into-hashset</strong></a></h3>
+<h3 id="into-last"><a class="header" href="#into-last"><strong>into-last</strong></a></h3>
+<h3 id="into-list"><a class="header" href="#into-list"><strong>into-list</strong></a></h3>
+<h3 id="into-max"><a class="header" href="#into-max"><strong>into-max</strong></a></h3>
+<h3 id="into-min"><a class="header" href="#into-min"><strong>into-min</strong></a></h3>
+<h3 id="into-nth"><a class="header" href="#into-nth"><strong>into-nth</strong></a></h3>
+<h3 id="into-product"><a class="header" href="#into-product"><strong>into-product</strong></a></h3>
+<h3 id="into-reducer"><a class="header" href="#into-reducer"><strong>into-reducer</strong></a></h3>
+<h3 id="into-string"><a class="header" href="#into-string"><strong>into-string</strong></a></h3>
+<h3 id="into-sum"><a class="header" href="#into-sum"><strong>into-sum</strong></a></h3>
+<h3 id="into-vector"><a class="header" href="#into-vector"><strong>into-vector</strong></a></h3>
+<h3 id="iter-next"><a class="header" href="#iter-next"><strong>iter-next!</strong></a></h3>
+<h3 id="join"><a class="header" href="#join"><strong>join!</strong></a></h3>
+<h3 id="list-hashset"><a class="header" href="#list-hashset"><strong>list-&gt;hashset</strong></a></h3>
+<h3 id="list-string"><a class="header" href="#list-string"><strong>list-&gt;string</strong></a></h3>
+<h3 id="list-vector"><a class="header" href="#list-vector"><strong>list-&gt;vector</strong></a></h3>
+<h3 id="list-tail"><a class="header" href="#list-tail"><strong>list-tail</strong></a></h3>
+<h3 id="list-1"><a class="header" href="#list-1"><strong>list?</strong></a></h3>
+<h3 id="local-executorblock-on"><a class="header" href="#local-executorblock-on"><strong>local-executor/block-on</strong></a></h3>
+<h3 id="make-channels"><a class="header" href="#make-channels"><strong>make-channels</strong></a></h3>
+<h3 id="make-struct-type"><a class="header" href="#make-struct-type"><strong>make-struct-type</strong></a></h3>
+<h3 id="make-vector"><a class="header" href="#make-vector"><strong>make-vector</strong></a></h3>
+<h3 id="mapping"><a class="header" href="#mapping"><strong>mapping</strong></a></h3>
+<h3 id="maybe-get-env-var"><a class="header" href="#maybe-get-env-var"><strong>maybe-get-env-var</strong></a></h3>
+<h3 id="memory-address"><a class="header" href="#memory-address"><strong>memory-address</strong></a></h3>
+<h3 id="multi-arity"><a class="header" href="#multi-arity"><strong>multi-arity?</strong></a></h3>
+<h3 id="mut-vec-len"><a class="header" href="#mut-vec-len"><strong>mut-vec-len</strong></a></h3>
+<h3 id="mut-vector-ref"><a class="header" href="#mut-vector-ref"><strong>mut-vector-ref</strong></a></h3>
+<h3 id="mutable-vector"><a class="header" href="#mutable-vector"><strong>mutable-vector</strong></a></h3>
+<h3 id="mutable-vector-clear"><a class="header" href="#mutable-vector-clear"><strong>mutable-vector-&gt;clear</strong></a></h3>
+<h3 id="mutable-vector-list"><a class="header" href="#mutable-vector-list"><strong>mutable-vector-&gt;list</strong></a></h3>
+<h3 id="mutable-vector-string"><a class="header" href="#mutable-vector-string"><strong>mutable-vector-&gt;string</strong></a></h3>
+<h3 id="mutable-vector-pop"><a class="header" href="#mutable-vector-pop"><strong>mutable-vector-pop!</strong></a></h3>
+<h3 id="mutable-vector-1"><a class="header" href="#mutable-vector-1"><strong>mutable-vector?</strong></a></h3>
+<h3 id="not"><a class="header" href="#not"><strong>not</strong></a></h3>
+<h3 id="null"><a class="header" href="#null"><strong>null?</strong></a></h3>
+<h3 id="odd"><a class="header" href="#odd"><strong>odd?</strong></a></h3>
+<h3 id="poll"><a class="header" href="#poll"><strong>poll!</strong></a></h3>
+<h3 id="pop-front"><a class="header" href="#pop-front"><strong>pop-front</strong></a></h3>
+<h3 id="port"><a class="header" href="#port"><strong>port?</strong></a></h3>
+<h3 id="procedure"><a class="header" href="#procedure"><strong>procedure?</strong></a></h3>
+<h3 id="push"><a class="header" href="#push"><strong>push</strong></a></h3>
+<h3 id="push-back"><a class="header" href="#push-back"><strong>push-back</strong></a></h3>
+<h3 id="push-front"><a class="header" href="#push-front"><strong>push-front</strong></a></h3>
+<h3 id="raise-error"><a class="header" href="#raise-error"><strong>raise-error</strong></a></h3>
+<h3 id="raise-error-with-span"><a class="header" href="#raise-error-with-span"><strong>raise-error-with-span</strong></a></h3>
+<h3 id="range-vec"><a class="header" href="#range-vec"><strong>range-vec</strong></a></h3>
+<h3 id="read"><a class="header" href="#read"><strong>read!</strong></a></h3>
+<h3 id="read-line-from-port"><a class="header" href="#read-line-from-port"><strong>read-line-from-port</strong></a></h3>
+<h3 id="read-to-string"><a class="header" href="#read-to-string"><strong>read-to-string</strong></a></h3>
+<h3 id="run"><a class="header" href="#run"><strong>run!</strong></a></h3>
+<h3 id="set-box"><a class="header" href="#set-box"><strong>set-box!</strong></a></h3>
+<h3 id="set-current-dir"><a class="header" href="#set-current-dir"><strong>set-current-dir!</strong></a></h3>
+<h3 id="set-env-var"><a class="header" href="#set-env-var"><strong>set-env-var!</strong></a></h3>
+<h3 id="set-piped-stdout"><a class="header" href="#set-piped-stdout"><strong>set-piped-stdout!</strong></a></h3>
+<h3 id="set-strong-box"><a class="header" href="#set-strong-box"><strong>set-strong-box!</strong></a></h3>
+<h3 id="set-test-mode"><a class="header" href="#set-test-mode"><strong>set-test-mode!</strong></a></h3>
+<h3 id="set"><a class="header" href="#set"><strong>set?</strong></a></h3>
+<h3 id="spawn-native-thread"><a class="header" href="#spawn-native-thread"><strong>spawn-native-thread</strong></a></h3>
+<h3 id="spawn-process"><a class="header" href="#spawn-process"><strong>spawn-process</strong></a></h3>
+<h3 id="spawn-thread"><a class="header" href="#spawn-thread"><strong>spawn-thread!</strong></a></h3>
+<h3 id="stdout"><a class="header" href="#stdout"><strong>stdout</strong></a></h3>
+<h3 id="stdout-simple-displayln"><a class="header" href="#stdout-simple-displayln"><strong>stdout-simple-displayln</strong></a></h3>
+<h3 id="steel-home-location"><a class="header" href="#steel-home-location"><strong>steel-home-location</strong></a></h3>
+<h3 id="stream-car"><a class="header" href="#stream-car"><strong>stream-car</strong></a></h3>
+<h3 id="stream-cons"><a class="header" href="#stream-cons"><strong>stream-cons</strong></a></h3>
+<h3 id="stream-empty"><a class="header" href="#stream-empty"><strong>stream-empty?</strong></a></h3>
+<h3 id="string-6"><a class="header" href="#string-6"><strong>string?</strong></a></h3>
+<h3 id="struct-list"><a class="header" href="#struct-list"><strong>struct-&gt;list</strong></a></h3>
+<h3 id="struct"><a class="header" href="#struct"><strong>struct?</strong></a></h3>
+<h3 id="symbol-string"><a class="header" href="#symbol-string"><strong>symbol-&gt;string</strong></a></h3>
+<h3 id="symbol"><a class="header" href="#symbol"><strong>symbol?</strong></a></h3>
+<h3 id="syntax-datum"><a class="header" href="#syntax-datum"><strong>syntax-&gt;datum</strong></a></h3>
+<h3 id="syntax-e"><a class="header" href="#syntax-e"><strong>syntax-e</strong></a></h3>
+<h3 id="syntax-loc"><a class="header" href="#syntax-loc"><strong>syntax-loc</strong></a></h3>
+<h3 id="syntax-span"><a class="header" href="#syntax-span"><strong>syntax-span</strong></a></h3>
+<h3 id="syntaxloc"><a class="header" href="#syntaxloc"><strong>syntax/loc</strong></a></h3>
+<h3 id="syntax"><a class="header" href="#syntax"><strong>syntax?</strong></a></h3>
+<h3 id="taking"><a class="header" href="#taking"><strong>taking</strong></a></h3>
+<h3 id="threadavailable-parallelism"><a class="header" href="#threadavailable-parallelism"><strong>thread/available-parallelism</strong></a></h3>
+<h3 id="threadcurrentid"><a class="header" href="#threadcurrentid"><strong>thread::current/id</strong></a></h3>
+<h3 id="transduce"><a class="header" href="#transduce"><strong>transduce</strong></a></h3>
+<h3 id="try-list-ref"><a class="header" href="#try-list-ref"><strong>try-list-ref</strong></a></h3>
+<h3 id="unbox"><a class="header" href="#unbox"><strong>unbox</strong></a></h3>
+<h3 id="unbox-strong"><a class="header" href="#unbox-strong"><strong>unbox-strong</strong></a></h3>
+<h3 id="value-iterator"><a class="header" href="#value-iterator"><strong>value-&gt;iterator</strong></a></h3>
+<h3 id="value-string"><a class="header" href="#value-string"><strong>value-&gt;string</strong></a></h3>
+<h3 id="vec-append"><a class="header" href="#vec-append"><strong>vec-append</strong></a></h3>
+<h3 id="vec-rest"><a class="header" href="#vec-rest"><strong>vec-rest</strong></a></h3>
+<h3 id="vector"><a class="header" href="#vector"><strong>vector</strong></a></h3>
+<h3 id="vector-append"><a class="header" href="#vector-append"><strong>vector-append!</strong></a></h3>
+<h3 id="vector-length"><a class="header" href="#vector-length"><strong>vector-length</strong></a></h3>
+<h3 id="vector-push"><a class="header" href="#vector-push"><strong>vector-push!</strong></a></h3>
+<h3 id="vector-ref"><a class="header" href="#vector-ref"><strong>vector-ref</strong></a></h3>
+<h3 id="vector-set"><a class="header" href="#vector-set"><strong>vector-set!</strong></a></h3>
+<h3 id="vector-1"><a class="header" href="#vector-1"><strong>vector?</strong></a></h3>
+<h3 id="void-1"><a class="header" href="#void-1"><strong>void?</strong></a></h3>
+<h3 id="wait"><a class="header" href="#wait"><strong>wait</strong></a></h3>
+<h3 id="wait-stdout"><a class="header" href="#wait-stdout"><strong>wait-&gt;stdout</strong></a></h3>
+<h3 id="which"><a class="header" href="#which"><strong>which</strong></a></h3>
+<h3 id="write-line"><a class="header" href="#write-line"><strong>write-line!</strong></a></h3>
+<h3 id="zipping"><a class="header" href="#zipping"><strong>zipping</strong></a></h3>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../reference/builtins.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../builtins/steel_bytevectors.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../reference/builtins.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../builtins/steel_bytevectors.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../theme/pagetoc.js"></script>
+
+
+    </div>
+    </body>
+</html>

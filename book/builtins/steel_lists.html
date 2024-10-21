@@ -1,0 +1,454 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>steel/lists - The Steel Book</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../theme/pagetoc.css">
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../introduction.html">Introduction</a></li><li class="chapter-item expanded "><a href="../foundations/overview.html"><strong aria-hidden="true">1.</strong> Foundations</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../foundations/evaluation.html"><strong aria-hidden="true">1.1.</strong> Evaluation</a></li><li class="chapter-item expanded "><a href="../foundations/literals.html"><strong aria-hidden="true">1.2.</strong> Literals</a></li><li class="chapter-item expanded "><a href="../foundations/fncalls.html"><strong aria-hidden="true">1.3.</strong> Function calls</a></li><li class="chapter-item expanded "><a href="../foundations/symbols.html"><strong aria-hidden="true">1.4.</strong> Symbols</a></li><li class="chapter-item expanded "><a href="../foundations/bindings_scopes.html"><strong aria-hidden="true">1.5.</strong> Bindings and Scopes</a></li></ol></li><li class="chapter-item expanded "><a href="../about/about.html"><strong aria-hidden="true">2.</strong> Steel</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../about/features.html"><strong aria-hidden="true">2.1.</strong> Features</a></li><li class="chapter-item expanded "><a href="../about/license.html"><strong aria-hidden="true">2.2.</strong> Licensing</a></li></ol></li><li class="chapter-item expanded "><a href="../start/start.html"><strong aria-hidden="true">3.</strong> Getting Started</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../start/playground.html"><strong aria-hidden="true">3.1.</strong> Online Playground</a></li><li class="chapter-item expanded "><a href="../start/standalone.html"><strong aria-hidden="true">3.2.</strong> Using Steel on its own</a></li><li class="chapter-item expanded "><a href="../start/dylib.html"><strong aria-hidden="true">3.3.</strong> Using Rust in Steel</a></li><li class="chapter-item expanded "><a href="../start/embedded.html"><strong aria-hidden="true">3.4.</strong> Embedding Steel in Rust</a></li></ol></li><li class="chapter-item expanded "><a href="../engine/engine.html"><strong aria-hidden="true">4.</strong> The Rust Engine API</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../engine/register_function.html"><strong aria-hidden="true">4.1.</strong> Registering functions</a></li><li class="chapter-item expanded "><a href="../engine/embedding_values.html"><strong aria-hidden="true">4.2.</strong> Embedding values</a></li></ol></li><li class="chapter-item expanded "><a href="../reference/language.html"><strong aria-hidden="true">5.</strong> Language Reference</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../reference/keywords.html"><strong aria-hidden="true">5.1.</strong> Keywords</a></li><li class="chapter-item expanded "><a href="../reference/syntax.html"><strong aria-hidden="true">5.2.</strong> Syntax</a></li><li class="chapter-item expanded "><a href="../reference/macros.html"><strong aria-hidden="true">5.3.</strong> Macros</a></li><li class="chapter-item expanded "><a href="../reference/contracts.html"><strong aria-hidden="true">5.4.</strong> Contracts</a></li><li class="chapter-item expanded "><a href="../reference/transducers.html"><strong aria-hidden="true">5.5.</strong> Transducers</a></li><li class="chapter-item expanded "><a href="../reference/modules.html"><strong aria-hidden="true">5.6.</strong> Modules</a></li><li class="chapter-item expanded "><a href="../reference/functions.html"><strong aria-hidden="true">5.7.</strong> Functions</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../generated/logging.html"><strong aria-hidden="true">5.7.1.</strong> Logging</a></li><li class="chapter-item expanded "><a href="../reference/builtins.html"><strong aria-hidden="true">5.7.2.</strong> Built ins</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../builtins/steel_base.html"><strong aria-hidden="true">5.7.2.1.</strong> steel/base</a></li><li class="chapter-item expanded "><a href="../builtins/steel_bytevectors.html"><strong aria-hidden="true">5.7.2.2.</strong> steel/bytevectors</a></li><li class="chapter-item expanded "><a href="../builtins/steel_constants.html"><strong aria-hidden="true">5.7.2.3.</strong> steel/constants</a></li><li class="chapter-item expanded "><a href="../builtins/steel_core_option.html"><strong aria-hidden="true">5.7.2.4.</strong> steel/core/option</a></li><li class="chapter-item expanded "><a href="../builtins/steel_core_result.html"><strong aria-hidden="true">5.7.2.5.</strong> steel/core/result</a></li><li class="chapter-item expanded "><a href="../builtins/steel_core_types.html"><strong aria-hidden="true">5.7.2.6.</strong> steel/core/types</a></li><li class="chapter-item expanded "><a href="../builtins/steel_equality.html"><strong aria-hidden="true">5.7.2.7.</strong> steel/equality</a></li><li class="chapter-item expanded "><a href="../builtins/steel_filesystem.html"><strong aria-hidden="true">5.7.2.8.</strong> steel/filesystem</a></li><li class="chapter-item expanded "><a href="../builtins/steel_hash.html"><strong aria-hidden="true">5.7.2.9.</strong> steel/hash</a></li><li class="chapter-item expanded "><a href="../builtins/steel_identity.html"><strong aria-hidden="true">5.7.2.10.</strong> steel/identity</a></li><li class="chapter-item expanded "><a href="../builtins/steel_io.html"><strong aria-hidden="true">5.7.2.11.</strong> steel/io</a></li><li class="chapter-item expanded "><a href="../builtins/steel_immutable-vectors.html"><strong aria-hidden="true">5.7.2.12.</strong> steel/immutable-vectors</a></li><li class="chapter-item expanded "><a href="../builtins/steel_json.html"><strong aria-hidden="true">5.7.2.13.</strong> steel/json</a></li><li class="chapter-item expanded "><a href="../builtins/steel_lists.html" class="active"><strong aria-hidden="true">5.7.2.14.</strong> steel/lists</a></li><li class="chapter-item expanded "><a href="../builtins/steel_meta.html"><strong aria-hidden="true">5.7.2.15.</strong> steel/meta</a></li><li class="chapter-item expanded "><a href="../builtins/steel_numbers.html"><strong aria-hidden="true">5.7.2.16.</strong> steel/numbers</a></li><li class="chapter-item expanded "><a href="../builtins/steel_ord.html"><strong aria-hidden="true">5.7.2.17.</strong> steel/ord</a></li><li class="chapter-item expanded "><a href="../builtins/steel_ports.html"><strong aria-hidden="true">5.7.2.18.</strong> steel/ports</a></li><li class="chapter-item expanded "><a href="../builtins/steel_process.html"><strong aria-hidden="true">5.7.2.19.</strong> steel/process</a></li><li class="chapter-item expanded "><a href="../builtins/steel_random.html"><strong aria-hidden="true">5.7.2.20.</strong> steel/random</a></li><li class="chapter-item expanded "><a href="../builtins/steel_sets.html"><strong aria-hidden="true">5.7.2.21.</strong> steel/sets</a></li><li class="chapter-item expanded "><a href="../builtins/steel_streams.html"><strong aria-hidden="true">5.7.2.22.</strong> steel/streams</a></li><li class="chapter-item expanded "><a href="../builtins/steel_strings.html"><strong aria-hidden="true">5.7.2.23.</strong> steel/strings</a></li><li class="chapter-item expanded "><a href="../builtins/steel_symbols.html"><strong aria-hidden="true">5.7.2.24.</strong> steel/symbols</a></li><li class="chapter-item expanded "><a href="../builtins/steel_syntax.html"><strong aria-hidden="true">5.7.2.25.</strong> steel/syntax</a></li><li class="chapter-item expanded "><a href="../builtins/steel_time.html"><strong aria-hidden="true">5.7.2.26.</strong> steel/time</a></li><li class="chapter-item expanded "><a href="../builtins/steel_transducers.html"><strong aria-hidden="true">5.7.2.27.</strong> steel/transducers</a></li><li class="chapter-item expanded "><a href="../builtins/steel_vectors.html"><strong aria-hidden="true">5.7.2.28.</strong> steel/vectors</a></li></ol></li></ol></li></ol></li><li class="chapter-item expanded "><a href="../bytecode/bytecode.html"><strong aria-hidden="true">6.</strong> Bytecode</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../bytecode/optimizations.html"><strong aria-hidden="true">6.1.</strong> Optimizations</a></li></ol></li><li class="chapter-item expanded "><a href="../benchmarks/benchmarks.html"><strong aria-hidden="true">7.</strong> Benchmarks</a></li><li class="chapter-item expanded "><a href="../patterns/patterns.html"><strong aria-hidden="true">8.</strong> Common Patterns</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../patterns/mutability.html"><strong aria-hidden="true">8.1.</strong> Interior Mutability</a></li><li class="chapter-item expanded "><a href="../patterns/async.html"><strong aria-hidden="true">8.2.</strong> Async</a></li></ol></li><li class="chapter-item expanded "><a href="../garbage-collection/gc.html"><strong aria-hidden="true">9.</strong> Memory Management</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">The Steel Book</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="steellists"><a class="header" href="#steellists">steel/lists</a></h1>
+<p>Lists in Steel have an interface that matches those of classic schemes or lisps.
+At face value, they appear to be implemented as cons cells - however, under the hood
+they are actually implemented as unrolled linked lists.</p>
+<p>This means that for most practical purposes, interaction with lists is the same.
+That being said, there are no improper lists, meaning, pairs are actually just lists of two elements.</p>
+<p>Indexing into a list also takes O(n/64) - which means you'll get constant time indexing on small lists.</p>
+<pre><code class="language-scheme">(list 10 20 30 40) ;; =&gt; '(10 20 30 40)
+</code></pre>
+<h3 id="append"><a class="header" href="#append"><strong>append</strong></a></h3>
+<p>Appends the given lists together. If provided with no lists, will return the empty list.</p>
+<p>(append lst ...)</p>
+<p>lst : list?</p>
+<h4 id="examples"><a class="header" href="#examples">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (append (list 1 2) (list 3 4)) ;; =&gt; '(1 2 3 4)
+&gt; (append) ;; =&gt; '()
+</code></pre>
+<h3 id="apply"><a class="header" href="#apply"><strong>apply</strong></a></h3>
+<p>Applies the given <code>function</code> with arguments as the contents of the <code>list</code>.</p>
+<p>(apply function lst) -&gt; any?</p>
+<ul>
+<li>function : function?</li>
+<li>list: list?</li>
+</ul>
+<h4 id="examples-1"><a class="header" href="#examples-1">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (apply + (list 1 2 3 4)) ;; =&gt; 10
+&gt; (apply list (list 1 2 3 4)) ;; =&gt; '(1 2 3 4)
+</code></pre>
+<h3 id="car"><a class="header" href="#car"><strong>car</strong></a></h3>
+<p>Returns the first element of the list l.</p>
+<p>(car l) -&gt; any/c</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-2"><a class="header" href="#examples-2">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (car '(1 2)) ;; =&gt; 1
+&gt; (car (cons 2 3)) ;; =&gt; 2
+</code></pre>
+<h3 id="cdr"><a class="header" href="#cdr"><strong>cdr</strong></a></h3>
+<p>Returns the rest of the list. Will raise an error if the list is empty.</p>
+<p>(cdr l) -&gt; list?</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-3"><a class="header" href="#examples-3">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (cdr (list 10 20 30)) ;; =&gt; '(20 30)
+&gt; (cdr (list 10)) ;; =&gt; '()
+&gt; (cdr '())
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (cdr '())
+│  ^^^ cdr expects a non empty list
+</code></pre>
+<h3 id="cons"><a class="header" href="#cons"><strong>cons</strong></a></h3>
+<p>Returns a newly allocated list whose first element is <code>a</code> and second element is <code>d</code>.</p>
+<p>(cons a d) -&gt; list?</p>
+<ul>
+<li>a : any/c</li>
+<li>d : any/c</li>
+</ul>
+<h4 id="examples-4"><a class="header" href="#examples-4">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (cons 1 2) ;; =&gt; '(1 . 2)
+&gt; (cons 1 '()) ;; =&gt; '(1)
+</code></pre>
+<h3 id="empty"><a class="header" href="#empty"><strong>empty?</strong></a></h3>
+<p>Checks if the list is empty</p>
+<p>(empty? lst) -&gt; bool?</p>
+<ul>
+<li>lst: list?</li>
+</ul>
+<h4 id="examples-5"><a class="header" href="#examples-5">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (empty? (list 1 2 3 4 5)) ;; =&gt; #false
+&gt; (empty? '()) ;; =&gt; #true
+</code></pre>
+<h3 id="first"><a class="header" href="#first"><strong>first</strong></a></h3>
+<p>Returns the first element of the list l.</p>
+<p>(first l) -&gt; any/c</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-6"><a class="header" href="#examples-6">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (first '(1 2)) ;; =&gt; 1
+&gt; (first (cons 2 3)) ;; =&gt; 2
+</code></pre>
+<h3 id="last"><a class="header" href="#last"><strong>last</strong></a></h3>
+<p>Returns the last element in the list. Takes time proportional to the length of the list.</p>
+<p>(last l) -&gt; any/c</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-7"><a class="header" href="#examples-7">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (list (list 1 2 3 4)) ;; =&gt; 4
+</code></pre>
+<h3 id="length"><a class="header" href="#length"><strong>length</strong></a></h3>
+<p>Returns the length of the list.</p>
+<p>(length l) -&gt; int?</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-8"><a class="header" href="#examples-8">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (length (list 10 20 30)) ;; =&gt; 3
+</code></pre>
+<h3 id="list"><a class="header" href="#list"><strong>list</strong></a></h3>
+<p>Returns a newly allocated list containing the vs as its elements.</p>
+<p>(list v ...) -&gt; list?</p>
+<ul>
+<li>v : any/c</li>
+</ul>
+<h4 id="examples-9"><a class="header" href="#examples-9">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (list 1 2 3 4 5) ;; =&gt; '(1 2 3 4 5)
+&gt; (list (list 1 2) (list 3 4)) ;; =&gt; '((1 2) (3 4))
+</code></pre>
+<h3 id="list-ref"><a class="header" href="#list-ref"><strong>list-ref</strong></a></h3>
+<p>Returns the value located at the given index. Will raise an error if you try to index out of bounds.</p>
+<p>Note: Runs in time proportional to the length of the list, however lists in Steel are implemented in such a fashion that the
+time complexity is O(n/64). Meaning, for small lists this can be constant.</p>
+<p>(list-ref lst index) -&gt; list?</p>
+<ul>
+<li>lst : list?</li>
+<li>index : (and/c int? positive?)</li>
+</ul>
+<h4 id="examples-10"><a class="header" href="#examples-10">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (list-ref (list 1 2 3 4) 2) ;; =&gt; 3
+&gt; (list-ref (range 0 100) 42) ;; =&gt; 42"
+&gt; (list-ref (list 1 2 3 4) 10)
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (list-ref (list 1 2 3 4) 10)
+│  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10
+</code></pre>
+<h3 id="pair"><a class="header" href="#pair"><strong>pair?</strong></a></h3>
+<p>Checks if the given value can be treated as a pair.</p>
+<p>(pair? any/c) -&gt; bool?</p>
+<h4 id="examples-11"><a class="header" href="#examples-11">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (pair? '(10 20)) ;; =&gt; #true
+&gt; (pair? '(10)) ;; =&gt; #true
+&gt; (pair? '()) ;; =&gt; #false
+</code></pre>
+<h3 id="range"><a class="header" href="#range"><strong>range</strong></a></h3>
+<p>Returns a newly allocated list of the elements in the range (n, m]</p>
+<p>(range n m) -&gt; (listof int?)</p>
+<ul>
+<li>n : int?</li>
+<li>m : int?</li>
+</ul>
+<pre><code class="language-scheme">&gt; (range 0 10) ;; =&gt; '(0 1 2 3 4 5 6 7 8 9)
+</code></pre>
+<h3 id="rest"><a class="header" href="#rest"><strong>rest</strong></a></h3>
+<p>Returns the rest of the list. Will raise an error if the list is empty.</p>
+<p>(rest l) -&gt; list?</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-12"><a class="header" href="#examples-12">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (rest (list 10 20 30)) ;; =&gt; '(20 30)
+&gt; (rest (list 10)) ;; =&gt; '()
+&gt; (rest (list 10))
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (rest '())
+│  ^^^^ rest expects a non empty list
+</code></pre>
+<h3 id="reverse"><a class="header" href="#reverse"><strong>reverse</strong></a></h3>
+<p>Returns a list that has the same elements as <code>lst</code>, but in reverse order.
+This function takes time proportional to the length of <code>lst</code>.</p>
+<p>(reverse lst) -&gt; list?</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-13"><a class="header" href="#examples-13">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (reverse (list 1 2 3 4)) ;; '(4 3 2 1)
+</code></pre>
+<h3 id="second"><a class="header" href="#second"><strong>second</strong></a></h3>
+<p>Get the second element of the list. Raises an error if the list does not have an element in the second position.</p>
+<p>(second l) -&gt; any/c</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-14"><a class="header" href="#examples-14">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (second '(1 2 3)) ;; =&gt; 2
+&gt; (second '())
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (second '())
+│  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
+### **take**
+Returns the first n elements of the list l as a new list.
+
+(take l n) -&gt; list?
+
+* l : list?
+* n : (and/c positive? int?)
+
+#### Examples
+
+```scheme
+&gt; (take '(1 2 3 4) 2) ;; =&gt; '(0 1)
+&gt; (take (range 0 10) 4) ;; =&gt; '(0 1 2 3)
+</code></pre>
+<h3 id="third"><a class="header" href="#third"><strong>third</strong></a></h3>
+<p>Get the third element of the list. Raises an error if the list does not have an element in the third position.</p>
+<p>(third l) -&gt; any/c</p>
+<ul>
+<li>l : list?</li>
+</ul>
+<h4 id="examples-15"><a class="header" href="#examples-15">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (third '(1 2 3)) ;; =&gt; 3
+&gt; (third '())
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (third '())
+│  ^^^^^^ third: index out of bounds - list did not have an element in the second position: []
+</code></pre>
+<h3 id="cdr-null"><a class="header" href="#cdr-null"><strong>cdr-null?</strong></a></h3>
+<h3 id="list-string"><a class="header" href="#list-string"><strong>list-&gt;string</strong></a></h3>
+<h3 id="list-vector"><a class="header" href="#list-vector"><strong>list-&gt;vector</strong></a></h3>
+<h3 id="list-tail"><a class="header" href="#list-tail"><strong>list-tail</strong></a></h3>
+<h3 id="push-back"><a class="header" href="#push-back"><strong>push-back</strong></a></h3>
+<h3 id="transduce"><a class="header" href="#transduce"><strong>transduce</strong></a></h3>
+<h3 id="try-list-ref"><a class="header" href="#try-list-ref"><strong>try-list-ref</strong></a></h3>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../builtins/steel_json.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../builtins/steel_meta.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../builtins/steel_json.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../builtins/steel_meta.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../theme/pagetoc.js"></script>
+
+
+    </div>
+    </body>
+</html>
