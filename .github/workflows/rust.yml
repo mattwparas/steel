@@ -23,7 +23,7 @@ jobs:
           override: true
 
       - name: Remove sync feature from build
-        run: sed -i 's/"dylib-build", "sync"/"dylib-build"/' Cargo.toml
+        run: sed -i 's/"stacker", "sync"/"stacker"/' Cargo.toml
 
       - name: Set the STEEL_HOME environment variable
         run: echo STEEL_HOME=${PWD}/.steel >> $GITHUB_ENV 
@@ -114,6 +114,23 @@ jobs:
           command: test
           args: --all steel-core/sync
 
+  redox-build:
+    name: redox build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+      - name: Build x86_64-unknown-redox
+        run: |
+          sudo apt-get update -y && sudo apt-get install fuse3 libfuse3-dev pkg-config -y
+          cargo install redoxer
+          redoxer build
   
   wasm-build:
     name: Wasm32 build
