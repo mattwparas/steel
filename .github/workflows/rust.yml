@@ -128,8 +128,8 @@ jobs:
           override: true
       - name: Build x86_64-unknown-redox
         run: |
-          rustup target add x86_64-unknown-redox
-          cargo build --target x86_64-unknown-redox
+          cargo install redoxer
+          redoxer build
   
   wasm-build:
     name: Wasm32 build
