@@ -59,12 +59,17 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         );
     }
 
+    // Pass through whatever other args we want to use for building
+    // In this case, it will probably be building sync things
+    let args: Vec<String> = std::env::args().skip(1).collect();
+
     let mut command = Command::new("cargo")
         .args([
             "build",
             "--release",
             "--message-format=json-render-diagnostics",
         ])
+        .args(args)
         .stdout(Stdio::piped())
         .spawn()
         .unwrap();
@@ -86,11 +91,9 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
         for file in last.filenames {
             let filename = file.file_name().unwrap();
-
             steel_home.push(filename);
 
             println!("Copying {} to {}", file, &steel_home.to_str().unwrap());
-
             std::fs::copy(file, &steel_home).unwrap();
 
             steel_home.pop();
@@ -100,11 +103,9 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
         for file in last.filenames {
             let filename = file.file_name().unwrap();
-
             steel_home.push(filename);
 
             println!("Copying {} to {}", file, &steel_home.to_str().unwrap());
-
             std::fs::copy(file, &steel_home).unwrap();
 
             steel_home.pop();
