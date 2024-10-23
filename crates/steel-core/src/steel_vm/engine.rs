@@ -1503,6 +1503,8 @@ impl Engine {
 
     // TODO: Remove duplicates!
     pub fn readable_globals(&self, after_offset: usize) -> Vec<InternedString> {
+        let mut seen = HashSet::new();
+
         self.virtual_machine
             .compiler
             .read()
@@ -1519,67 +1521,17 @@ impl Engine {
                     && !resolved.starts_with("__module")
                     && !resolved.ends_with("__doc__")
             })
+            .filter_map(|x| {
+                if seen.contains(x) {
+                    None
+                } else {
+                    seen.insert(x);
+                    Some(x)
+                }
+            })
             .copied()
             .collect()
     }
-
-    // pub fn get_exported_module_functions(&self, path: PathBuf) -> impl Iterator<Item = InternedString> {
-
-    // }
-
-    // Attempts to disassemble the given expression into a series of bytecode dumps
-    // pub fn disassemble(&mut self, expr: &str) -> Result<String> {
-    //     let constants = self.constants();
-    //     self.compiler
-    //         .emit_debug_instructions(expr, constants)
-    //         .map(|x| {
-    //             x.into_iter()
-    //                 .map(|i| crate::core::instructions::disassemble(&i))
-    //                 .join("\n\n")
-    //         })
-    // }
-
-    // pub fn execute_without_callbacks(
-    //     &mut self,
-    //     bytecode: Rc<[DenseInstruction]>,
-    //     constant_map: &ConstantMap,
-    // ) -> Result<SteelVal> {
-    //     self.virtual_machine
-    //         .execute::<DoNotUseCallback>(bytecode, constant_map, &[])
-    // }
-
-    /// Execute bytecode with a constant map directly.
-    // pub fn execute(
-    //     &mut self,
-    //     bytecode: Rc<[DenseInstruction]>,
-    //     constant_map: ConstantMap,
-    // ) -> Result<SteelVal> {
-    //     self.virtual_machine
-    //         .execute(bytecode, constant_map, Rc::from([]))
-    // }
-
-    /// Emit the bytecode directly, with a path provided.
-    // pub fn emit_instructions_with_path(
-    //     &mut self,
-    //     exprs: &str,
-    //     path: PathBuf,
-    // ) -> Result<Vec<Vec<DenseInstruction>>> {
-    //     let constants = self.constants();
-    //     self.compiler
-    //         .emit_instructions(exprs, Some(path), constants)
-    // }
-
-    // /// Emit instructions directly, without a path for error messaging.
-    // pub fn emit_instructions(&mut self, exprs: &str) -> Result<Vec<Vec<DenseInstruction>>> {
-    //     let constants = self.constants();
-    //     self.compiler.emit_instructions(exprs, None, constants)
-    // }
-
-    /// Execute a program directly, returns a vector of `SteelVal`s corresponding to each expr in the `Program`.
-    // pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {
-    //     self.virtual_machine
-    //         .execute_program::<UseCallback, ApplyContract>(program)
-    // }
 
     // Generate dynamically linked files, containing all of the necessary information
     // This means - compiling all macros as well.
