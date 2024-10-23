@@ -294,13 +294,14 @@
 
 ;; TODO: Adjust the below check-equals
 
-(skip-compile (check-equal 1 (modulo 13 4))
-              (check-equal 1 (remainder 13 4))
-              (check-equal 3 (modulo -13 4))
+(check-equal? "modulo positive numbers" 1 (modulo 13 4))
+(check-equal? "modulo negative and positive" 3 (modulo -13 4))
+(check-equal? "modulo positive and negative" -3 (modulo 13 -4))
+(check-equal? "modulo both negative" -1 (modulo -13 -4))
+
+(skip-compile (check-equal 1 (remainder 13 4))
               (check-equal -1 (remainder -13 4))
-              (check-equal -3 (modulo 13 -4))
               (check-equal 1 (remainder 13 -4))
-              (check-equal -1 (modulo -13 -4))
               (check-equal -1 (remainder -13 -4))
               (check-equal 4 (gcd 32 -36))
               (check-equal 288 (lcm 32 -36)))

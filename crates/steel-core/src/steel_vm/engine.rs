@@ -1501,6 +1501,7 @@ impl Engine {
         })
     }
 
+    // TODO: Remove duplicates!
     pub fn readable_globals(&self, after_offset: usize) -> Vec<InternedString> {
         self.virtual_machine
             .compiler
