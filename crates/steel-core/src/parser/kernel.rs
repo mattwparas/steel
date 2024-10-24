@@ -12,7 +12,7 @@ use steel_parser::tokens::TokenType;
 use crate::{
     compiler::{
         passes::analysis::SemanticAnalysis,
-        program::{RawProgramWithSymbols, BEGIN_FOR_SYNTAX, DEFMACRO},
+        program::{BEGIN_FOR_SYNTAX, DEFMACRO},
     },
     parser::{
         ast::{Atom, Set},
@@ -156,93 +156,93 @@ impl Kernel {
         }
     }
 
-    pub(crate) fn bootstrap(_engine: Engine) -> (Self, RawProgramWithSymbols) {
-        todo!()
+    // pub(crate) fn bootstrap(_engine: Engine) -> (Self, RawProgramWithSymbols) {
+    //     todo!()
 
-        // let transformers = Transformers {
-        //     set: Arc::new(RwLock::new(HashSet::default())),
-        // };
+    // let transformers = Transformers {
+    //     set: Arc::new(RwLock::new(HashSet::default())),
+    // };
 
-        // let embedded_transformer_object = transformers.clone();
-        // engine.register_fn("register-macro-transformer!", move |name: String| {
-        //     embedded_transformer_object
-        //         .set
-        //         .write()
-        //         .unwrap()
-        //         .insert(name.as_str().into())
-        // });
+    // let embedded_transformer_object = transformers.clone();
+    // engine.register_fn("register-macro-transformer!", move |name: String| {
+    //     embedded_transformer_object
+    //         .set
+    //         .write()
+    //         .unwrap()
+    //         .insert(name.as_str().into())
+    // });
 
-        // let embedded_transformer_object = transformers.clone();
-        // engine.register_fn("current-macro-transformers!", move || -> SteelVal {
-        //     embedded_transformer_object
-        //         .set
-        //         .read()
-        //         .unwrap()
-        //         .iter()
-        //         .map(|x| x.resolve().to_string())
-        //         .map(|x| SteelVal::SymbolV(x.into()))
-        //         .collect::<crate::values::lists::List<SteelVal>>()
-        //         .into()
-        // });
+    // let embedded_transformer_object = transformers.clone();
+    // engine.register_fn("current-macro-transformers!", move || -> SteelVal {
+    //     embedded_transformer_object
+    //         .set
+    //         .read()
+    //         .unwrap()
+    //         .iter()
+    //         .map(|x| x.resolve().to_string())
+    //         .map(|x| SteelVal::SymbolV(x.into()))
+    //         .collect::<crate::values::lists::List<SteelVal>>()
+    //         .into()
+    // });
 
-        // Run the script for building the core interface for structs
-        // engine.compile_and_run_raw_program(KERNEL).unwrap();
+    // Run the script for building the core interface for structs
+    // engine.compile_and_run_raw_program(KERNEL).unwrap();
 
-        // let raw_program = engine.emit_raw_program_no_path(KERNEL).unwrap();
-        // engine.run_raw_program(raw_program.clone()).unwrap();
+    // let raw_program = engine.emit_raw_program_no_path(KERNEL).unwrap();
+    // engine.run_raw_program(raw_program.clone()).unwrap();
 
-        // let mut macros = HashSet::new();
-        // macros.insert("%better-lambda%".to_string());
-        // macros.insert(*STRUCT_KEYWORD);
-        // macros.insert(*DEFINE_VALUES);
+    // let mut macros = HashSet::new();
+    // macros.insert("%better-lambda%".to_string());
+    // macros.insert(*STRUCT_KEYWORD);
+    // macros.insert(*DEFINE_VALUES);
 
-        // (
-        //     Kernel {
-        //         // macros,
-        //         transformers,
-        //         constants: HashSet::new(),
-        //         engine: Box::new(engine),
-        //     },
-        //     raw_program,
-        // )
-    }
+    // (
+    //     Kernel {
+    //         // macros,
+    //         transformers,
+    //         constants: HashSet::new(),
+    //         engine: Box::new(engine),
+    //     },
+    //     raw_program,
+    // )
+    // }
 
-    pub(crate) fn initialize_post_bootstrap(_engine: Engine) -> Self {
-        // let transformers = Transformers {
-        //     set: Arc::new(RwLock::new(HashSet::default())),
-        // };
+    // pub(crate) fn initialize_post_bootstrap(_engine: Engine) -> Self {
+    // let transformers = Transformers {
+    //     set: Arc::new(RwLock::new(HashSet::default())),
+    // };
 
-        // let embedded_transformer_object = transformers.clone();
-        // engine.register_fn("register-macro-transformer!", move |name: String| {
-        //     embedded_transformer_object
-        //         .set
-        //         .write()
-        //         .unwrap()
-        //         .insert(name.as_str().into())
-        // });
+    // let embedded_transformer_object = transformers.clone();
+    // engine.register_fn("register-macro-transformer!", move |name: String| {
+    //     embedded_transformer_object
+    //         .set
+    //         .write()
+    //         .unwrap()
+    //         .insert(name.as_str().into())
+    // });
 
-        // let embedded_transformer_object = transformers.clone();
-        // engine.register_fn("current-macro-transformers!", move || -> SteelVal {
-        //     embedded_transformer_object
-        //         .set
-        //         .read()
-        //         .unwrap()
-        //         .iter()
-        //         .map(|x| x.resolve().to_string())
-        //         .map(|x| SteelVal::SymbolV(x.into()))
-        //         .collect::<crate::values::lists::List<SteelVal>>()
-        //         .into()
-        // });
+    // let embedded_transformer_object = transformers.clone();
+    // engine.register_fn("current-macro-transformers!", move || -> SteelVal {
+    //     embedded_transformer_object
+    //         .set
+    //         .read()
+    //         .unwrap()
+    //         .iter()
+    //         .map(|x| x.resolve().to_string())
+    //         .map(|x| SteelVal::SymbolV(x.into()))
+    //         .collect::<crate::values::lists::List<SteelVal>>()
+    //         .into()
+    // });
 
-        // Kernel {
-        //     // macros,
-        //     transformers,
-        //     constants: HashSet::new(),
-        //     engine: Box::new(engine),
-        // }
+    // Kernel {
+    //     // macros,
+    //     transformers,
+    //     constants: HashSet::new(),
+    //     engine: Box::new(engine),
+    // }
 
-        todo!()
-    }
+    //     todo!()
+    // }
 
     pub fn is_constant(&self, ident: &InternedString) -> bool {
         self.constants.contains(ident)

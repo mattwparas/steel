@@ -316,6 +316,7 @@ pub struct SerializableCompiler {
 }
 
 impl SerializableCompiler {
+    #[allow(unused)]
     pub(crate) fn into_compiler(self) -> Compiler {
         let mut compiler = Compiler::default();
 
@@ -330,6 +331,7 @@ impl SerializableCompiler {
 }
 
 impl Compiler {
+    #[allow(unused)]
     pub(crate) fn into_serializable_compiler(self) -> Result<SerializableCompiler> {
         Ok(SerializableCompiler {
             symbol_map: self.symbol_map,
