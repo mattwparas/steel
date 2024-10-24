@@ -1,6 +1,7 @@
 #![allow(unused)]
 #![allow(clippy::type_complexity)]
 
+use crate::steel_vm::primitives::{steel_unbox_mutable, unbox_mutable};
 use crate::values::HashMap;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
@@ -144,6 +145,26 @@ impl UserDefinedStruct {
         self.get(&TRANSPARENT_KEY.with(|x| x.clone()))
             .and_then(|x| x.as_bool())
             .unwrap_or_default()
+    }
+
+    pub fn get_index(&self, index: usize) -> Option<&SteelVal> {
+        self.fields.get(index)
+    }
+
+    pub fn get_mut_index(&self, index: usize) -> Option<SteelVal> {
+        self.fields
+            .get(index)
+            .cloned()
+            .map(|x| steel_unbox_mutable(&[x]).unwrap())
+    }
+
+    // This only works if the underlying value is a box
+    pub fn set_index(&self, index: usize, value: SteelVal) {
+        let inner = self.fields.get(index);
+
+        if let Some(SteelVal::HeapAllocated(s)) = inner {
+            s.set_and_return(value);
+        }
     }
 }
 

@@ -70,7 +70,9 @@ use crate::values::HashMap as ImmutableHashMap;
 use fxhash::{FxBuildHasher, FxHashMap};
 use lasso::ThreadedRodeo;
 use once_cell::sync::OnceCell;
-use parking_lot::RwLock;
+use parking_lot::{
+    MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
+};
 use serde::{Deserialize, Serialize};
 use steel_gen::OpCode;
 use steel_parser::{
@@ -101,20 +103,20 @@ pub trait ModuleResolver: MaybeSendSyncStatic {
 
 #[derive(Clone, Default)]
 pub struct ModuleContainer {
-    modules: ImmutableHashMap<Shared<str>, BuiltInModule>,
+    modules: Arc<RwLock<HashMap<Shared<str>, BuiltInModule>>>,
     // For modules that don't exist in memory. This could be useful for a world
     // in which a builtin module exists BUT we'd like to resolve the module for
     // inference purposes.
-    unresolved_modules: Option<Shared<dyn ModuleResolver>>,
+    unresolved_modules: Arc<RwLock<Option<Shared<dyn ModuleResolver>>>>,
 }
 
 impl ModuleContainer {
     pub fn insert(&mut self, key: Shared<str>, value: BuiltInModule) {
-        self.modules.insert(key, value);
+        self.modules.write().insert(key, value);
     }
 
     pub fn get_doc(&self, key: &str) -> Option<String> {
-        for module in self.modules.values() {
+        for module in self.modules.read().values() {
             let maybe_doc = module.get_documentation(key);
 
             if maybe_doc.is_some() {
@@ -126,7 +128,7 @@ impl ModuleContainer {
     }
 
     pub fn get_metadata_by_name(&self, key: &str) -> Option<FunctionSignatureMetadata> {
-        for module in self.modules.values() {
+        for module in self.modules.read().values() {
             let maybe_meta = module.search_by_name(key);
 
             if maybe_meta.is_some() {
@@ -137,24 +139,27 @@ impl ModuleContainer {
         None
     }
 
-    pub fn get(&mut self, key: &str) -> Option<BuiltInModule> {
-        self.modules.get(key).cloned().or_else(|| {
+    pub fn get(&self, key: &str) -> Option<BuiltInModule> {
+        self.modules.read().get(key).cloned().or_else(|| {
             self.unresolved_modules
+                .read()
                 .as_ref()
                 .and_then(|x| x.resolve(key))
         })
     }
 
-    pub fn inner(&self) -> &ImmutableHashMap<Shared<str>, BuiltInModule> {
-        &self.modules
+    pub fn inner(&self) -> RwLockReadGuard<'_, HashMap<Shared<str>, BuiltInModule>> {
+        self.modules.read()
     }
 
-    pub(crate) fn inner_mut(&mut self) -> &mut ImmutableHashMap<Shared<str>, BuiltInModule> {
-        &mut self.modules
+    pub(crate) fn inner_mut(
+        &mut self,
+    ) -> RwLockWriteGuard<'_, HashMap<Shared<str>, BuiltInModule>> {
+        self.modules.write()
     }
 
     pub fn with_resolver<T: ModuleResolver + 'static>(&mut self, resolver: T) {
-        self.unresolved_modules = Some(Shared::new(resolver));
+        *self.unresolved_modules.write() = Some(Shared::new(resolver));
     }
 }
 
@@ -171,8 +176,8 @@ pub struct GlobalCheckpoint {
     globals_offset: usize,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct EngineId(usize);
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct EngineId(pub(crate) usize);
 
 impl EngineId {
     pub fn new() -> Self {
@@ -180,21 +185,45 @@ impl EngineId {
         let id = ENGINE_ID.fetch_add(1, Ordering::Relaxed);
         Self(id)
     }
+
+    pub fn as_usize(self) -> usize {
+        self.0
+    }
 }
 
 /// Handle to a steel engine. This contains a main entrypoint thread, alongside
 /// the compiler and all of the state necessary to keep a VM instance alive and
 /// well.
-#[derive(Clone)]
 pub struct Engine {
     pub(crate) virtual_machine: SteelThread,
-    pub(crate) compiler: Compiler,
-    constants: Option<ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>>,
+    // TODO: Just put this, and all the other things,
+    // inside the `SteelThread` - The compiler probably
+    // still... needs to be shared, but thats fine.
+    // pub(crate) compiler: Arc<RwLock<Compiler>>,
     modules: ModuleContainer,
     sources: Sources,
     #[cfg(feature = "dylibs")]
     dylibs: DylibContainers,
     pub(crate) id: EngineId,
+}
+
+impl Clone for Engine {
+    fn clone(&self) -> Self {
+        let mut virtual_machine = self.virtual_machine.clone();
+        let compiler = Arc::new(RwLock::new(self.virtual_machine.compiler.write().clone()));
+
+        // virtual_machine.compiler = Some(Arc::downgrade(&compiler));
+
+        Self {
+            virtual_machine,
+            // compiler,
+            modules: self.modules.clone(),
+            sources: self.sources.clone(),
+            #[cfg(feature = "dylibs")]
+            dylibs: self.dylibs.clone(),
+            id: EngineId::new(),
+        }
+    }
 }
 
 impl Default for Engine {
@@ -322,7 +351,7 @@ impl<'a> LifetimeGuard<'a> {
 
 impl RegisterValue for Engine {
     fn register_value_inner(&mut self, name: &str, value: SteelVal) -> &mut Self {
-        let idx = self.compiler.register(name);
+        let idx = self.virtual_machine.compiler.write().register(name);
         self.virtual_machine.insert_binding(idx, value);
         self
     }
@@ -377,23 +406,50 @@ thread_local! {
     pub(crate) static DEFAULT_PRELUDE_MACROS: RefCell<FxHashMap<InternedString, SteelMacro>> = RefCell::new(HashMap::default());
 }
 
-pub(crate) struct SelfCompiler {
-    pub(crate) compiler: Option<*mut Compiler>,
-    pub(crate) sources: Sources,
-    pub(crate) modules: ModuleContainer,
-    pub(crate) constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
-}
-
-unsafe impl Send for SelfCompiler {}
-unsafe impl Sync for SelfCompiler {}
-impl crate::rvals::Custom for SelfCompiler {}
-
 impl Engine {
+    pub fn engine_id(&self) -> EngineId {
+        self.virtual_machine.id
+    }
+
+    #[cfg(not(feature = "sync"))]
+    pub(crate) fn deep_clone(&self) -> Self {
+        let mut engine = self.clone();
+
+        let compiler_copy = engine.virtual_machine.compiler.read().clone();
+        engine.virtual_machine.compiler = Arc::new(RwLock::new(compiler_copy));
+
+        let constant_map = engine
+            .virtual_machine
+            .compiler
+            .read()
+            .constant_map
+            .deep_clone();
+        engine.virtual_machine.compiler.write().constant_map = constant_map;
+
+        let heap_copy = Arc::new(Mutex::new(
+            engine.virtual_machine.heap.lock().unwrap().clone(),
+        ));
+
+        engine.virtual_machine.heap = heap_copy;
+        engine
+    }
+
     #[cfg(feature = "sync")]
     pub(crate) fn deep_clone(&self) -> Self {
         let mut engine = self.clone();
         engine.virtual_machine.global_env = engine.virtual_machine.global_env.deep_clone();
-        engine.compiler.constant_map = engine.compiler.constant_map.deep_clone();
+
+        let compiler_copy = engine.virtual_machine.compiler.read().clone();
+        engine.virtual_machine.compiler = Arc::new(RwLock::new(compiler_copy));
+        // engine.virtual_machine.compiler = Some(Arc::downgrade(&engine.compiler));
+
+        let constant_map = engine
+            .virtual_machine
+            .compiler
+            .read()
+            .constant_map
+            .deep_clone();
+        engine.virtual_machine.compiler.write().constant_map = constant_map;
 
         let heap_copy = Arc::new(Mutex::new(
             engine.virtual_machine.heap.lock().unwrap().clone(),
@@ -413,12 +469,16 @@ impl Engine {
         #[cfg(feature = "profiling")]
         let mut now = std::time::Instant::now();
         let sources = Sources::new();
+        let modules = ModuleContainer::default();
+
+        let compiler = Arc::new(RwLock::new(Compiler::default_without_kernel(
+            sources.clone(),
+            modules.clone(),
+        )));
 
         let mut vm = Engine {
-            virtual_machine: SteelThread::new(sources.clone()),
-            compiler: Compiler::default(),
-            constants: None,
-            modules: ModuleContainer::default(),
+            virtual_machine: SteelThread::new(sources.clone(), compiler),
+            modules,
             sources,
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
@@ -524,13 +584,15 @@ impl Engine {
 
     #[doc(hidden)]
     pub fn disallow_dylib_loading(&mut self) -> &mut Self {
-        let module = self.modules.inner_mut();
+        let mut module = self.modules.inner_mut();
 
         // TODO: This should actually just clone the whole module, and then add this definition
         // in. That way it has its own unique module loader.
         if let Some(builtin_module) = module.get_mut("steel/meta") {
             builtin_module.register_native_fn_definition(LOAD_MODULE_NOOP_DEFINITION);
         }
+
+        drop(module);
 
         self
     }
@@ -565,83 +627,88 @@ impl Engine {
 
         log::debug!(target:"kernel", "Instantiating a new kernel");
 
-        let sources = Sources::new();
+        // let sources = Sources::new();
+        // let modules = ModuleContainer::default();
 
-        let mut vm = Engine {
-            virtual_machine: SteelThread::new(sources.clone()),
-            compiler: Compiler::default(),
-            constants: None,
-            modules: ModuleContainer::default(),
-            sources,
-            #[cfg(feature = "dylibs")]
-            dylibs: DylibContainers::new(),
-            id: EngineId::new(),
-        };
+        // let compiler = Arc::new(RwLock::new(Compiler::default_without_kernel(
+        //     sources.clone(),
+        //     modules.clone(),
+        // )));
 
-        if let Some(programs) = Engine::load_from_bootstrap(&mut vm) {
-            register_builtin_modules(&mut vm, sandbox);
+        // // TODO: Pass compiler down if we want eval!
+        // let mut vm = Engine {
+        //     virtual_machine: SteelThread::new(sources.clone(), compiler),
+        //     modules,
+        //     sources,
+        //     #[cfg(feature = "dylibs")]
+        //     dylibs: DylibContainers::new(),
+        //     id: EngineId::new(),
+        // };
 
-            for program in programs {
-                vm.compiler.constant_map = program.constant_map.clone();
-                vm.virtual_machine.constant_map = program.constant_map.clone();
+        // if let Some(programs) = Engine::load_from_bootstrap(&mut vm) {
+        //     register_builtin_modules(&mut vm, sandbox);
 
-                vm.run_raw_program(program).unwrap();
-            }
+        //     for program in programs {
+        //         vm.compiler.write().constant_map = program.constant_map.clone();
+        //         vm.virtual_machine.constant_map = program.constant_map.clone();
 
-            log::debug!(target: "kernel", "Loaded prelude in the kernel!");
+        //         vm.run_raw_program(program).unwrap();
+        //     }
 
-            let sources = vm.sources.clone();
+        //     log::debug!(target: "kernel", "Loaded prelude in the kernel!");
 
-            vm.register_fn("report-error!", move |error: SteelErr| {
-                raise_error(&sources, error);
-            });
+        //     let sources = vm.sources.clone();
 
-            vm
-        } else {
-            let mut vm = Engine::new_kernel(sandbox);
+        //     vm.register_fn("report-error!", move |error: SteelErr| {
+        //         raise_error(&sources, error);
+        //     });
 
-            let sources = vm.sources.clone();
+        //     vm
+        // } else {
+        let mut vm = Engine::new_kernel(sandbox);
 
-            vm.register_fn("report-error!", move |error: SteelErr| {
-                raise_error(&sources, error);
-            });
+        let sources = vm.sources.clone();
 
-            vm
-        }
+        vm.register_fn("report-error!", move |error: SteelErr| {
+            raise_error(&sources, error);
+        });
+
+        vm
+        // }
     }
 
-    fn load_from_bootstrap(vm: &mut Engine) -> Option<Vec<RawProgramWithSymbols>> {
-        if matches!(option_env!("STEEL_BOOTSTRAP"), Some("false") | None) {
-            return None;
-        } else {
-            println!("LOADING A KERNEL FROM THE BIN FILE");
-        }
+    // fn load_from_bootstrap(vm: &mut Engine) -> Option<Vec<RawProgramWithSymbols>> {
+    //     if matches!(option_env!("STEEL_BOOTSTRAP"), Some("false") | None) {
+    //         return None;
+    //     } else {
+    //         println!("LOADING A KERNEL FROM THE BIN FILE");
+    //     }
 
-        let bootstrap: StartupBootstrapImage =
-            bincode::deserialize(KERNEL_BIN_FILE.with(|x| x.get())?).unwrap();
+    //     let bootstrap: StartupBootstrapImage =
+    //         bincode::deserialize(KERNEL_BIN_FILE.with(|x| x.get())?).unwrap();
 
-        // Set the syntax object id to be AFTER the previous items have been parsed
-        SYNTAX_OBJECT_ID.store(
-            bootstrap.syntax_object_id,
-            std::sync::atomic::Ordering::Relaxed,
-        );
+    //     // Set the syntax object id to be AFTER the previous items have been parsed
+    //     SYNTAX_OBJECT_ID.store(
+    //         bootstrap.syntax_object_id,
+    //         std::sync::atomic::Ordering::Relaxed,
+    //     );
 
-        crate::compiler::code_gen::FUNCTION_ID
-            .store(bootstrap.function_id, std::sync::atomic::Ordering::Relaxed);
+    //     crate::compiler::code_gen::FUNCTION_ID
+    //         .store(bootstrap.function_id, std::sync::atomic::Ordering::Relaxed);
 
-        vm.sources = bootstrap.sources;
-        // vm.compiler.macro_env = bootstrap.macros;
+    //     vm.sources = bootstrap.sources;
+    //     // vm.compiler.macro_env = bootstrap.macros;
 
-        todo!();
+    //     todo!();
 
-        Some(
-            bootstrap
-                .pre_kernel_programs
-                .into_iter()
-                .map(SerializableRawProgramWithSymbols::into_raw_program)
-                .collect(),
-        )
-    }
+    //     Some(
+    //         bootstrap
+    //             .pre_kernel_programs
+    //             .into_iter()
+    //             .map(SerializableRawProgramWithSymbols::into_raw_program)
+    //             .collect(),
+    //     )
+    // }
 
     /// Creates a statically linked program ready to deserialize
     pub fn create_non_interactive_program_image<E: AsRef<str> + Into<Cow<'static, str>>>(
@@ -677,295 +744,299 @@ impl Engine {
     }
 
     // Create kernel bootstrap
-    pub fn create_kernel_bootstrap_from_programs(output_path: PathBuf) {
-        let sources = Sources::new();
+    // pub fn create_kernel_bootstrap_from_programs(output_path: PathBuf) {
+    //     let sources = Sources::new();
 
-        let mut vm = Engine {
-            virtual_machine: SteelThread::new(sources.clone()),
-            compiler: Compiler::default(),
-            constants: None,
-            modules: ModuleContainer::default(),
-            sources,
-            #[cfg(feature = "dylibs")]
-            dylibs: DylibContainers::new(),
-            id: EngineId::new(),
-        };
+    //     let mut vm = Engine {
+    //         virtual_machine: SteelThread::new(sources.clone()),
+    //         compiler: Arc::new(RwLock::new(Compiler::default())),
+    //         constants: None,
+    //         modules: ModuleContainer::default(),
+    //         sources,
+    //         #[cfg(feature = "dylibs")]
+    //         dylibs: DylibContainers::new(),
+    //         id: EngineId::new(),
+    //     };
 
-        register_builtin_modules(&mut vm, false);
+    //     register_builtin_modules(&mut vm, false);
 
-        let mut programs = Vec::new();
+    //     let mut programs = Vec::new();
 
-        let bootstrap_sources = [
-            crate::steel_vm::primitives::ALL_MODULES,
-            crate::stdlib::PRELUDE,
-        ];
+    //     let bootstrap_sources = [
+    //         crate::steel_vm::primitives::ALL_MODULES,
+    //         crate::stdlib::PRELUDE,
+    //     ];
 
-        for source in bootstrap_sources {
-            let raw_program = vm.emit_raw_program_no_path(source).unwrap();
-            programs.push(raw_program.clone());
-            vm.run_raw_program(raw_program).unwrap();
-        }
+    //     for source in bootstrap_sources {
+    //         let raw_program = vm.emit_raw_program_no_path(source).unwrap();
+    //         programs.push(raw_program.clone());
+    //         vm.run_raw_program(raw_program).unwrap();
+    //     }
 
-        // Grab the last value of the offset
-        let syntax_object_id = SYNTAX_OBJECT_ID.load(std::sync::atomic::Ordering::Relaxed);
-        let function_id =
-            crate::compiler::code_gen::FUNCTION_ID.load(std::sync::atomic::Ordering::Relaxed);
+    //     // Grab the last value of the offset
+    //     let syntax_object_id = SYNTAX_OBJECT_ID.load(std::sync::atomic::Ordering::Relaxed);
+    //     let function_id =
+    //         crate::compiler::code_gen::FUNCTION_ID.load(std::sync::atomic::Ordering::Relaxed);
 
-        let bootstrap = StartupBootstrapImage {
-            syntax_object_id,
-            function_id,
-            sources: vm.sources,
-            pre_kernel_programs: programs
-                .into_iter()
-                .map(RawProgramWithSymbols::into_serializable_program)
-                .collect::<Result<_>>()
-                .unwrap(),
-            // macros: vm.compiler.macro_env,
-            post_kernel_programs: Vec::new(),
-            kernel: None,
-            compiler: None,
-        };
+    //     let bootstrap = StartupBootstrapImage {
+    //         syntax_object_id,
+    //         function_id,
+    //         sources: vm.sources,
+    //         pre_kernel_programs: programs
+    //             .into_iter()
+    //             .map(RawProgramWithSymbols::into_serializable_program)
+    //             .collect::<Result<_>>()
+    //             .unwrap(),
+    //         // macros: vm.compiler.macro_env,
+    //         post_kernel_programs: Vec::new(),
+    //         kernel: None,
+    //         compiler: None,
+    //     };
 
-        // Encode to something implementing `Write`
-        let mut f = std::fs::File::create(output_path).unwrap();
-        bincode::serialize_into(&mut f, &bootstrap).unwrap();
-    }
+    //     // Encode to something implementing `Write`
+    //     let mut f = std::fs::File::create(output_path).unwrap();
+    //     bincode::serialize_into(&mut f, &bootstrap).unwrap();
+    // }
 
-    pub fn create_new_engine_from_bootstrap(output_path: PathBuf) {
-        let sources = Sources::new();
-        let mut vm = Engine {
-            virtual_machine: SteelThread::new(sources.clone()),
-            compiler: Compiler::default(),
-            constants: None,
-            modules: ModuleContainer::default(),
-            sources,
-            #[cfg(feature = "dylibs")]
-            dylibs: DylibContainers::new(),
-            id: EngineId::new(),
-        };
+    // pub fn create_new_engine_from_bootstrap(output_path: PathBuf) {
+    //     let sources = Sources::new();
+    //     let mut vm = Engine {
+    //         virtual_machine: SteelThread::new(sources.clone()),
+    //         compiler: Arc::new(RwLock::new(Compiler::default())),
+    //         constants: None,
+    //         modules: ModuleContainer::default(),
+    //         sources,
+    //         #[cfg(feature = "dylibs")]
+    //         dylibs: DylibContainers::new(),
+    //         id: EngineId::new(),
+    //     };
 
-        register_builtin_modules(&mut vm, false);
+    //     register_builtin_modules(&mut vm, false);
 
-        let mut pre_kernel_programs = Vec::new();
+    //     let mut pre_kernel_programs = Vec::new();
 
-        let bootstrap_sources = [
-            crate::steel_vm::primitives::ALL_MODULES,
-            crate::stdlib::PRELUDE,
-        ];
+    //     let bootstrap_sources = [
+    //         crate::steel_vm::primitives::ALL_MODULES,
+    //         crate::stdlib::PRELUDE,
+    //     ];
 
-        for source in bootstrap_sources {
-            let raw_program = vm.emit_raw_program_no_path(source).unwrap();
-            pre_kernel_programs.push(raw_program.clone());
-            vm.run_raw_program(raw_program).unwrap();
-        }
+    //     for source in bootstrap_sources {
+    //         let raw_program = vm.emit_raw_program_no_path(source).unwrap();
+    //         pre_kernel_programs.push(raw_program.clone());
+    //         vm.run_raw_program(raw_program).unwrap();
+    //     }
 
-        // This will be our new top level engine
-        let mut top_level_engine = vm.clone();
+    //     // This will be our new top level engine
+    //     let mut top_level_engine = vm.clone();
 
-        let sources = vm.sources.clone();
+    //     let sources = vm.sources.clone();
 
-        vm.register_fn("report-error!", move |error: SteelErr| {
-            raise_error(&sources, error);
-        });
+    //     vm.register_fn("report-error!", move |error: SteelErr| {
+    //         raise_error(&sources, error);
+    //     });
 
-        let (kernel, kernel_program) = Kernel::bootstrap(vm);
+    //     let (kernel, kernel_program) = Kernel::bootstrap(vm);
 
-        // Create kernel for the compiler for the top level vm
-        top_level_engine.compiler.kernel = Some(kernel);
+    //     // Create kernel for the compiler for the top level vm
+    //     top_level_engine.compiler.write().kernel = Some(kernel);
 
-        let builtin_modules =
-            ["(require \"#%private/steel/contract\" (for-syntax \"#%private/steel/contract\"))"];
+    //     let builtin_modules =
+    //         ["(require \"#%private/steel/contract\" (for-syntax \"#%private/steel/contract\"))"];
 
-        let mut post_kernel_programs = Vec::new();
+    //     let mut post_kernel_programs = Vec::new();
 
-        for source in builtin_modules {
-            let raw_program = top_level_engine.emit_raw_program_no_path(source).unwrap();
-            post_kernel_programs.push(raw_program.clone());
-            top_level_engine.run_raw_program(raw_program).unwrap();
-        }
+    //     for source in builtin_modules {
+    //         let raw_program = top_level_engine.emit_raw_program_no_path(source).unwrap();
+    //         post_kernel_programs.push(raw_program.clone());
+    //         top_level_engine.run_raw_program(raw_program).unwrap();
+    //     }
 
-        // Grab the last value of the offset
-        let syntax_object_id = SYNTAX_OBJECT_ID.load(std::sync::atomic::Ordering::Relaxed);
-        let function_id =
-            crate::compiler::code_gen::FUNCTION_ID.load(std::sync::atomic::Ordering::Relaxed);
+    //     // Grab the last value of the offset
+    //     let syntax_object_id = SYNTAX_OBJECT_ID.load(std::sync::atomic::Ordering::Relaxed);
+    //     let function_id =
+    //         crate::compiler::code_gen::FUNCTION_ID.load(std::sync::atomic::Ordering::Relaxed);
 
-        let kernel_sources = top_level_engine
-            .compiler
-            .kernel
-            .as_ref()
-            .unwrap()
-            .engine
-            .sources
-            .clone();
-        let bootstrap = StartupBootstrapImage {
-            syntax_object_id,
-            function_id,
-            sources: top_level_engine.sources,
-            pre_kernel_programs: pre_kernel_programs
-                .into_iter()
-                .map(RawProgramWithSymbols::into_serializable_program)
-                .collect::<Result<_>>()
-                .unwrap(),
-            post_kernel_programs: post_kernel_programs
-                .into_iter()
-                .map(RawProgramWithSymbols::into_serializable_program)
-                .collect::<Result<_>>()
-                .unwrap(),
-            kernel: Some(KernelImage {
-                compiler: top_level_engine
-                    .compiler
-                    .kernel
-                    .take()
-                    .unwrap()
-                    .engine
-                    .compiler
-                    .into_serializable_compiler()
-                    .unwrap(),
-                sources: kernel_sources,
-                kernel_source: kernel_program.into_serializable_program().unwrap(),
-            }),
-            compiler: Some(
-                top_level_engine
-                    .compiler
-                    .into_serializable_compiler()
-                    .unwrap(),
-            ),
-        };
+    //     let kernel_sources = top_level_engine
+    //         .compiler
+    //         .write()
+    //         .kernel
+    //         .as_ref()
+    //         .unwrap()
+    //         .engine
+    //         .sources
+    //         .clone();
+    //     let bootstrap = StartupBootstrapImage {
+    //         syntax_object_id,
+    //         function_id,
+    //         sources: top_level_engine.sources,
+    //         pre_kernel_programs: pre_kernel_programs
+    //             .into_iter()
+    //             .map(RawProgramWithSymbols::into_serializable_program)
+    //             .collect::<Result<_>>()
+    //             .unwrap(),
+    //         post_kernel_programs: post_kernel_programs
+    //             .into_iter()
+    //             .map(RawProgramWithSymbols::into_serializable_program)
+    //             .collect::<Result<_>>()
+    //             .unwrap(),
+    //         kernel: Some(KernelImage {
+    //             compiler: top_level_engine
+    //                 .compiler
+    //                 .write()
+    //                 .kernel
+    //                 .take()
+    //                 .unwrap()
+    //                 .engine
+    //                 .compiler
+    //                 .write()
+    //                 .into_serializable_compiler()
+    //                 .unwrap(),
+    //             sources: kernel_sources,
+    //             kernel_source: kernel_program.into_serializable_program().unwrap(),
+    //         }),
+    //         compiler: Some(
+    //             top_level_engine
+    //                 .compiler
+    //                 .write()
+    //                 .into_serializable_compiler()
+    //                 .unwrap(),
+    //         ),
+    //     };
 
-        // Encode to something implementing `Write`
-        let mut f = std::fs::File::create(output_path).unwrap();
-        bincode::serialize_into(&mut f, &bootstrap).unwrap();
-    }
+    //     // Encode to something implementing `Write`
+    //     let mut f = std::fs::File::create(output_path).unwrap();
+    //     bincode::serialize_into(&mut f, &bootstrap).unwrap();
+    // }
 
-    pub fn top_level_load_from_bootstrap(bin: &[u8]) -> Engine {
-        let bootstrap: StartupBootstrapImage = bincode::deserialize(bin).unwrap();
+    // pub fn top_level_load_from_bootstrap(bin: &[u8]) -> Engine {
+    //     let bootstrap: StartupBootstrapImage = bincode::deserialize(bin).unwrap();
 
-        let sources = Sources::new();
-        // This is going to be the kernel
-        let mut vm = Engine {
-            virtual_machine: SteelThread::new(sources.clone()),
-            compiler: Compiler::default(),
-            constants: None,
-            modules: ModuleContainer::default(),
-            sources,
-            #[cfg(feature = "dylibs")]
-            dylibs: DylibContainers::new(),
-            id: EngineId::new(),
-        };
+    //     let sources = Sources::new();
+    //     // This is going to be the kernel
+    //     let mut vm = Engine {
+    //         virtual_machine: SteelThread::new(sources.clone()),
+    //         compiler: Arc::new(RwLock::new(Compiler::default())),
+    //         constants: None,
+    //         modules: ModuleContainer::default(),
+    //         sources,
+    //         #[cfg(feature = "dylibs")]
+    //         dylibs: DylibContainers::new(),
+    //         id: EngineId::new(),
+    //     };
 
-        // Register the modules
-        register_builtin_modules(&mut vm, false);
+    //     // Register the modules
+    //     register_builtin_modules(&mut vm, false);
 
-        // Set the syntax object id to be AFTER the previous items have been parsed
-        SYNTAX_OBJECT_ID.store(
-            bootstrap.syntax_object_id,
-            std::sync::atomic::Ordering::Relaxed,
-        );
+    //     // Set the syntax object id to be AFTER the previous items have been parsed
+    //     SYNTAX_OBJECT_ID.store(
+    //         bootstrap.syntax_object_id,
+    //         std::sync::atomic::Ordering::Relaxed,
+    //     );
 
-        crate::compiler::code_gen::FUNCTION_ID
-            .store(bootstrap.function_id, std::sync::atomic::Ordering::Relaxed);
+    //     crate::compiler::code_gen::FUNCTION_ID
+    //         .store(bootstrap.function_id, std::sync::atomic::Ordering::Relaxed);
 
-        let bootstrap_kernel = bootstrap.kernel.unwrap();
+    //     let bootstrap_kernel = bootstrap.kernel.unwrap();
 
-        vm.sources = bootstrap_kernel.sources;
-        vm.compiler = bootstrap_kernel.compiler.into_compiler();
+    //     vm.sources = bootstrap_kernel.sources;
+    //     vm.compiler = Arc::new(RwLock::new(bootstrap_kernel.compiler.into_compiler()));
 
-        // TODO: Only need to bring around the last constant map
-        for program in bootstrap
-            .pre_kernel_programs
-            .into_iter()
-            .map(SerializableRawProgramWithSymbols::into_raw_program)
-        {
-            vm.compiler.constant_map = program.constant_map.clone();
-            vm.virtual_machine.constant_map = program.constant_map.clone();
+    //     // TODO: Only need to bring around the last constant map
+    //     for program in bootstrap
+    //         .pre_kernel_programs
+    //         .into_iter()
+    //         .map(SerializableRawProgramWithSymbols::into_raw_program)
+    //     {
+    //         vm.compiler.write().constant_map = program.constant_map.clone();
+    //         vm.virtual_machine.constant_map = program.constant_map.clone();
 
-            vm.run_raw_program(program).unwrap();
-        }
+    //         vm.run_raw_program(program).unwrap();
+    //     }
 
-        log::debug!(target: "kernel", "Loaded prelude in the kernel!");
+    //     log::debug!(target: "kernel", "Loaded prelude in the kernel!");
 
-        let sources = vm.sources.clone();
+    //     let sources = vm.sources.clone();
 
-        vm.register_fn("report-error!", move |error: SteelErr| {
-            raise_error(&sources, error);
-        });
+    //     vm.register_fn("report-error!", move |error: SteelErr| {
+    //         raise_error(&sources, error);
+    //     });
 
-        // Now we're going to set up the top level environment
-        let mut kernel = Kernel::initialize_post_bootstrap(vm.clone());
+    //     // Now we're going to set up the top level environment
+    //     let mut kernel = Kernel::initialize_post_bootstrap(vm.clone());
 
-        kernel
-            .engine
-            .run_raw_program(bootstrap_kernel.kernel_source.into_raw_program())
-            .unwrap();
+    //     kernel
+    //         .engine
+    //         .run_raw_program(bootstrap_kernel.kernel_source.into_raw_program())
+    //         .unwrap();
 
-        vm.sources = bootstrap.sources;
-        vm.compiler = bootstrap.compiler.unwrap().into_compiler();
-        vm.compiler.kernel = Some(kernel);
+    //     vm.sources = bootstrap.sources;
+    //     vm.compiler = Arc::new(RwLock::new(bootstrap.compiler.unwrap().into_compiler()));
+    //     vm.compiler.write().kernel = Some(kernel);
 
-        for program in bootstrap
-            .post_kernel_programs
-            .into_iter()
-            .map(SerializableRawProgramWithSymbols::into_raw_program)
-        {
-            vm.compiler.constant_map = program.constant_map.clone();
-            vm.virtual_machine.constant_map = program.constant_map.clone();
+    //     for program in bootstrap
+    //         .post_kernel_programs
+    //         .into_iter()
+    //         .map(SerializableRawProgramWithSymbols::into_raw_program)
+    //     {
+    //         vm.compiler.write().constant_map = program.constant_map.clone();
+    //         vm.virtual_machine.constant_map = program.constant_map.clone();
 
-            vm.run_raw_program(program).unwrap();
-        }
+    //         vm.run_raw_program(program).unwrap();
+    //     }
 
-        vm
-    }
+    //     vm
+    // }
 
-    fn create_bootstrap() {
-        let sources = Sources::new();
+    // fn create_bootstrap() {
+    //     let sources = Sources::new();
 
-        let mut vm = Engine {
-            virtual_machine: SteelThread::new(sources.clone()),
-            compiler: Compiler::default(),
-            constants: None,
-            modules: ModuleContainer::default(),
-            sources,
-            #[cfg(feature = "dylibs")]
-            dylibs: DylibContainers::new(),
-            id: EngineId::new(),
-        };
+    //     let mut vm = Engine {
+    //         virtual_machine: SteelThread::new(sources.clone()),
+    //         compiler: Arc::new(RwLock::new(Compiler::default())),
+    //         constants: None,
+    //         modules: ModuleContainer::default(),
+    //         sources,
+    //         #[cfg(feature = "dylibs")]
+    //         dylibs: DylibContainers::new(),
+    //         id: EngineId::new(),
+    //     };
 
-        register_builtin_modules(&mut vm, false);
+    //     register_builtin_modules(&mut vm, false);
 
-        let mut asts = Vec::new();
+    //     let mut asts = Vec::new();
 
-        let bootstrap_sources = [
-            crate::steel_vm::primitives::ALL_MODULES,
-            crate::stdlib::PRELUDE,
-        ];
+    //     let bootstrap_sources = [
+    //         crate::steel_vm::primitives::ALL_MODULES,
+    //         crate::stdlib::PRELUDE,
+    //     ];
 
-        for source in bootstrap_sources {
-            let id = vm.sources.add_source(source.to_string(), None);
+    //     for source in bootstrap_sources {
+    //         let id = vm.sources.add_source(source.to_string(), None);
 
-            // Could fail here
-            let parsed: Vec<ExprKind> = Parser::new(source, Some(id))
-                .collect::<std::result::Result<_, _>>()
-                .unwrap();
+    //         // Could fail here
+    //         let parsed: Vec<ExprKind> = Parser::new(source, Some(id))
+    //             .collect::<std::result::Result<_, _>>()
+    //             .unwrap();
 
-            asts.push(parsed.clone());
+    //         asts.push(parsed.clone());
 
-            vm.run_raw_program_from_exprs(parsed).unwrap();
-        }
+    //         vm.run_raw_program_from_exprs(parsed).unwrap();
+    //     }
 
-        // Grab the last value of the offset
-        let syntax_object_id = SYNTAX_OBJECT_ID.load(std::sync::atomic::Ordering::Relaxed);
+    //     // Grab the last value of the offset
+    //     let syntax_object_id = SYNTAX_OBJECT_ID.load(std::sync::atomic::Ordering::Relaxed);
 
-        let bootstrap = BootstrapImage {
-            interner: take_interner(),
-            syntax_object_id,
-            sources: vm.sources,
-            programs: asts,
-        };
+    //     let bootstrap = BootstrapImage {
+    //         interner: take_interner(),
+    //         syntax_object_id,
+    //         sources: vm.sources,
+    //         programs: asts,
+    //     };
 
-        // Encode to something implementing `Write`
-        let mut f = std::fs::File::create("src/boot/bootstrap.bin").unwrap();
-        bincode::serialize_into(&mut f, &bootstrap).unwrap();
-    }
+    //     // Encode to something implementing `Write`
+    //     let mut f = std::fs::File::create("src/boot/bootstrap.bin").unwrap();
+    //     bincode::serialize_into(&mut f, &bootstrap).unwrap();
+    // }
 
     /// Instantiates a raw engine instance. Includes no primitives or prelude.
     ///
@@ -979,12 +1050,16 @@ impl Engine {
     /// ```
     pub fn new_raw() -> Self {
         let sources = Sources::new();
+        let modules = ModuleContainer::default();
+
+        let compiler = Arc::new(RwLock::new(Compiler::default_with_kernel(
+            sources.clone(),
+            modules.clone(),
+        )));
 
         Engine {
-            virtual_machine: SteelThread::new(sources.clone()),
-            compiler: Compiler::default_with_kernel(),
-            constants: None,
-            modules: ModuleContainer::default(),
+            virtual_machine: SteelThread::new(sources.clone(), compiler),
+            modules,
             sources,
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
@@ -995,14 +1070,17 @@ impl Engine {
     pub fn report_engine_stats(&self) -> EngineStatistics {
         EngineStatistics {
             rooted_count: self.globals().len(),
-            constants_count: self.compiler.constant_map.len(),
+            constants_count: self.virtual_machine.compiler.read().constant_map.len(),
             sources_size: self.sources.size_in_bytes(),
         }
     }
 
     /// Registers a steel module
     pub fn register_steel_module(&mut self, module_name: String, text: String) {
-        self.compiler.register_builtin(module_name, text);
+        self.virtual_machine
+            .compiler
+            .write()
+            .register_builtin(module_name, text);
     }
 
     /// Instantiates a new engine instance with all primitive functions enabled.
@@ -1039,7 +1117,7 @@ impl Engine {
     pub fn new_sandboxed() -> Self {
         let mut engine = fresh_kernel_image(true);
 
-        engine.compiler.kernel = Some(Kernel::new());
+        engine.virtual_machine.compiler.write().kernel = Some(Kernel::new());
 
         #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
@@ -1070,8 +1148,10 @@ impl Engine {
         function: SteelVal,
         arguments: Vec<SteelVal>,
     ) -> Result<SteelVal> {
+        let constant_map = self.virtual_machine.compiler.read().constant_map.clone();
+
         self.virtual_machine
-            .call_function(self.compiler.constant_map.clone(), function, arguments)
+            .call_function(constant_map, function, arguments)
     }
 
     pub fn call_function_with_args_from_mut_slice(
@@ -1079,11 +1159,10 @@ impl Engine {
         function: SteelVal,
         arguments: &mut [SteelVal],
     ) -> Result<SteelVal> {
-        self.virtual_machine.call_function_from_mut_slice(
-            self.compiler.constant_map.clone(),
-            function,
-            arguments,
-        )
+        let constant_map = self.virtual_machine.compiler.read().constant_map.clone();
+
+        self.virtual_machine
+            .call_function_from_mut_slice(constant_map, function, arguments)
     }
 
     /// Call a function by name directly within the target environment
@@ -1092,12 +1171,10 @@ impl Engine {
         function: &str,
         arguments: Vec<SteelVal>,
     ) -> Result<SteelVal> {
+        let constant_map = self.virtual_machine.compiler.read().constant_map.clone();
         self.extract_value(function).and_then(|function| {
-            self.virtual_machine.call_function(
-                self.compiler.constant_map.clone(),
-                function,
-                arguments,
-            )
+            self.virtual_machine
+                .call_function(constant_map, function, arguments)
         })
     }
 
@@ -1106,12 +1183,11 @@ impl Engine {
         function: &str,
         arguments: &mut [SteelVal],
     ) -> Result<SteelVal> {
+        let constant_map = self.virtual_machine.compiler.read().constant_map.clone();
+
         self.extract_value(function).and_then(|function| {
-            self.virtual_machine.call_function_from_mut_slice(
-                self.compiler.constant_map.clone(),
-                function,
-                arguments,
-            )
+            self.virtual_machine
+                .call_function_from_mut_slice(constant_map, function, arguments)
         })
     }
 
@@ -1273,7 +1349,9 @@ impl Engine {
     pub fn new() -> Self {
         let mut engine = fresh_kernel_image(false);
 
-        engine.compiler.kernel = Some(Kernel::new());
+        {
+            engine.virtual_machine.compiler.write().kernel = Some(Kernel::new());
+        }
 
         #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
@@ -1295,7 +1373,10 @@ impl Engine {
     /// but any additional path added this way will increase the module
     /// resolution search space.
     pub fn add_search_directory(&mut self, dir: PathBuf) {
-        self.compiler.add_search_directory(dir)
+        self.virtual_machine
+            .compiler
+            .write()
+            .add_search_directory(dir)
     }
 
     pub fn with_interrupted(&mut self, interrupted: Arc<AtomicBool>) {
@@ -1380,30 +1461,14 @@ impl Engine {
         Ok(self)
     }
 
-    // /// Emits a program with path information embedded for error messaging.
-    // pub fn emit_program_with_path(&mut self, expr: &str, path: PathBuf) -> Result<Program> {
-    //     let constants = self.constants();
-    //     self.compiler.compile_program(expr, Some(path), constants)
-    // }
-
-    /// Emits a program for a given `expr` directly without providing any error messaging for the path.
-    // pub fn emit_program(&mut self, expr: &str) -> Result<Program> {
-    //     let constants = self.constants();
-    //     self.compiler.compile_program(expr, None, constants)
-    // }
-
     pub fn emit_raw_program_no_path<E: AsRef<str> + Into<Cow<'static, str>>>(
         &mut self,
         expr: E,
     ) -> Result<RawProgramWithSymbols> {
-        let constants = self.constants();
-        self.compiler.compile_executable(
-            expr,
-            None,
-            constants,
-            self.modules.clone(),
-            &mut self.sources,
-        )
+        self.virtual_machine
+            .compiler
+            .write()
+            .compile_executable(expr, None)
     }
 
     pub fn emit_raw_program<E: AsRef<str> + Into<Cow<'static, str>>>(
@@ -1411,19 +1476,15 @@ impl Engine {
         expr: E,
         path: PathBuf,
     ) -> Result<RawProgramWithSymbols> {
-        let constants = self.constants();
-        self.compiler.compile_executable(
-            expr,
-            Some(path),
-            constants,
-            self.modules.clone(),
-            &mut self.sources,
-        )
+        self.virtual_machine
+            .compiler
+            .write()
+            .compile_executable(expr, Some(path))
     }
 
     #[doc(hidden)]
     pub fn debug_build_strings(&mut self, program: RawProgramWithSymbols) -> Result<Vec<String>> {
-        program.debug_generate_instructions(&mut self.compiler.symbol_map)
+        program.debug_generate_instructions(&mut self.virtual_machine.compiler.write().symbol_map)
     }
 
     pub fn debug_print_build(
@@ -1431,70 +1492,46 @@ impl Engine {
         name: String,
         program: RawProgramWithSymbols,
     ) -> Result<()> {
-        program.debug_build(name, &mut self.compiler.symbol_map)
+        program.debug_build(name, &mut self.virtual_machine.compiler.write().symbol_map)
     }
 
-    pub fn globals(&self) -> &Vec<InternedString> {
-        self.compiler.symbol_map.values()
+    pub fn globals(&self) -> MappedRwLockReadGuard<'_, Vec<InternedString>> {
+        RwLockReadGuard::map(self.virtual_machine.compiler.read(), |x| {
+            x.symbol_map.values()
+        })
     }
 
-    // pub fn get_exported_module_functions(&self, path: PathBuf) -> impl Iterator<Item = InternedString> {
+    // TODO: Remove duplicates!
+    pub fn readable_globals(&self, after_offset: usize) -> Vec<InternedString> {
+        let mut seen = HashSet::new();
 
-    // }
-
-    // Attempts to disassemble the given expression into a series of bytecode dumps
-    // pub fn disassemble(&mut self, expr: &str) -> Result<String> {
-    //     let constants = self.constants();
-    //     self.compiler
-    //         .emit_debug_instructions(expr, constants)
-    //         .map(|x| {
-    //             x.into_iter()
-    //                 .map(|i| crate::core::instructions::disassemble(&i))
-    //                 .join("\n\n")
-    //         })
-    // }
-
-    // pub fn execute_without_callbacks(
-    //     &mut self,
-    //     bytecode: Rc<[DenseInstruction]>,
-    //     constant_map: &ConstantMap,
-    // ) -> Result<SteelVal> {
-    //     self.virtual_machine
-    //         .execute::<DoNotUseCallback>(bytecode, constant_map, &[])
-    // }
-
-    /// Execute bytecode with a constant map directly.
-    // pub fn execute(
-    //     &mut self,
-    //     bytecode: Rc<[DenseInstruction]>,
-    //     constant_map: ConstantMap,
-    // ) -> Result<SteelVal> {
-    //     self.virtual_machine
-    //         .execute(bytecode, constant_map, Rc::from([]))
-    // }
-
-    /// Emit the bytecode directly, with a path provided.
-    // pub fn emit_instructions_with_path(
-    //     &mut self,
-    //     exprs: &str,
-    //     path: PathBuf,
-    // ) -> Result<Vec<Vec<DenseInstruction>>> {
-    //     let constants = self.constants();
-    //     self.compiler
-    //         .emit_instructions(exprs, Some(path), constants)
-    // }
-
-    // /// Emit instructions directly, without a path for error messaging.
-    // pub fn emit_instructions(&mut self, exprs: &str) -> Result<Vec<Vec<DenseInstruction>>> {
-    //     let constants = self.constants();
-    //     self.compiler.emit_instructions(exprs, None, constants)
-    // }
-
-    /// Execute a program directly, returns a vector of `SteelVal`s corresponding to each expr in the `Program`.
-    // pub fn execute_program(&mut self, program: Program) -> Result<Vec<SteelVal>> {
-    //     self.virtual_machine
-    //         .execute_program::<UseCallback, ApplyContract>(program)
-    // }
+        self.virtual_machine
+            .compiler
+            .read()
+            .symbol_map
+            .values()
+            .iter()
+            .skip(after_offset)
+            .filter(|x| {
+                let resolved = x.resolve();
+                !resolved.starts_with("#")
+                    && !resolved.starts_with("%")
+                    && !resolved.starts_with("mangler#%")
+                    && !resolved.starts_with("mangler")
+                    && !resolved.starts_with("__module")
+                    && !resolved.ends_with("__doc__")
+            })
+            .filter_map(|x| {
+                if seen.contains(x) {
+                    None
+                } else {
+                    seen.insert(x);
+                    Some(x)
+                }
+            })
+            .copied()
+            .collect()
+    }
 
     // Generate dynamically linked files, containing all of the necessary information
     // This means - compiling all macros as well.
@@ -1556,14 +1593,11 @@ impl Engine {
         exprs: E,
         path: PathBuf,
     ) -> Result<Vec<SteelVal>> {
-        let constants = self.constants();
-        let program = self.compiler.compile_executable(
-            exprs,
-            Some(path),
-            constants,
-            self.modules.clone(),
-            &mut self.sources,
-        )?;
+        let program = self
+            .virtual_machine
+            .compiler
+            .write()
+            .compile_executable(exprs, Some(path))?;
 
         self.run_raw_program(program)
     }
@@ -1572,13 +1606,11 @@ impl Engine {
         &mut self,
         exprs: Vec<ExprKind>,
     ) -> Result<Vec<SteelVal>> {
-        let constants = self.constants();
-        let program = self.compiler.compile_executable_from_expressions(
-            exprs,
-            self.modules.clone(),
-            constants,
-            &mut self.sources,
-        )?;
+        let program = self
+            .virtual_machine
+            .compiler
+            .write()
+            .compile_executable_from_expressions(exprs)?;
         self.run_raw_program(program)
     }
 
@@ -1586,14 +1618,11 @@ impl Engine {
         &mut self,
         exprs: E,
     ) -> Result<Vec<SteelVal>> {
-        let constants = self.constants();
-        let program = self.compiler.compile_executable(
-            exprs,
-            None,
-            constants,
-            self.modules.clone(),
-            &mut self.sources,
-        )?;
+        let program = self
+            .virtual_machine
+            .compiler
+            .write()
+            .compile_executable(exprs, None)?;
 
         self.run_raw_program(program)
     }
@@ -1602,13 +1631,20 @@ impl Engine {
         &mut self,
         program: RawProgramWithSymbols,
     ) -> Result<Executable> {
-        let symbol_map_offset = self.compiler.symbol_map.len();
+        let symbol_map_offset = self.virtual_machine.compiler.read().symbol_map.len();
 
-        let result = program.build("TestProgram".to_string(), &mut self.compiler.symbol_map);
+        let result = program.build(
+            "TestProgram".to_string(),
+            &mut self.virtual_machine.compiler.write().symbol_map,
+        );
 
         // Revisit if we need to do this at all?
         if result.is_err() {
-            self.compiler.symbol_map.roll_back(symbol_map_offset);
+            self.virtual_machine
+                .compiler
+                .write()
+                .symbol_map
+                .roll_back(symbol_map_offset);
         }
 
         result
@@ -1618,7 +1654,7 @@ impl Engine {
     #[doc(hidden)]
     pub fn environment_offset(&self) -> GlobalCheckpoint {
         GlobalCheckpoint {
-            symbol_map_offset: self.compiler.symbol_map.len(),
+            symbol_map_offset: self.virtual_machine.compiler.read().symbol_map.len(),
             globals_offset: self.virtual_machine.global_env.len(),
         }
     }
@@ -1626,7 +1662,9 @@ impl Engine {
     // TODO: Add doc for this
     #[doc(hidden)]
     pub fn rollback_to_checkpoint(&mut self, checkpoint: GlobalCheckpoint) -> Result<()> {
-        self.compiler
+        self.virtual_machine
+            .compiler
+            .write()
             .symbol_map
             .roll_back(checkpoint.symbol_map_offset);
 
@@ -1656,12 +1694,19 @@ impl Engine {
 
         // Unfortunately, we have to invoke a whole GC algorithm here
         // for shadowed rooted values
-        if self.compiler.symbol_map.free_list.should_collect() {
+        if self
+            .virtual_machine
+            .compiler
+            .write()
+            .symbol_map
+            .free_list
+            .should_collect()
+        {
             #[cfg(feature = "sync")]
             {
                 GlobalSlotRecycler::free_shadowed_rooted_values(
                     &mut self.virtual_machine.global_env.bindings_vec.write(),
-                    &mut self.compiler.symbol_map,
+                    &mut self.virtual_machine.compiler.write().symbol_map,
                     &mut self.virtual_machine.heap.lock().unwrap(),
                 );
             }
@@ -1670,7 +1715,7 @@ impl Engine {
             {
                 GlobalSlotRecycler::free_shadowed_rooted_values(
                     &mut self.virtual_machine.global_env.bindings_vec,
-                    &mut self.compiler.symbol_map,
+                    &mut self.virtual_machine.compiler.write().symbol_map,
                     &mut self.virtual_machine.heap.lock().unwrap(),
                 );
             }
@@ -1688,40 +1733,15 @@ impl Engine {
             // the referenced globals; we track the referenced closures.
             // FIXME: Add that code here
 
-            self.compiler.symbol_map.free_list.increment_generation();
+            self.virtual_machine
+                .compiler
+                .write()
+                .symbol_map
+                .free_list
+                .increment_generation();
         }
 
-        // TODO: This isn't my favorite pattern.
-        // I'd prefer to just use a weak reference, but I don't think
-        // it is really worth it.
-
-        {
-            let constants = self.constants();
-            let mut guard = self.virtual_machine.compiler.lock().unwrap();
-            let compiler = &mut self.compiler as *mut _;
-
-            let compiler_value = SelfCompiler {
-                compiler: Some(compiler),
-                sources: self.sources.clone(),
-                modules: self.modules.clone(),
-                constants,
-            };
-            *guard = Some(compiler_value);
-        }
-
-        let res = self.virtual_machine.run_executable(&executable);
-
-        // Overwrite the compiler reference
-        self.virtual_machine
-            .compiler
-            .lock()
-            .unwrap()
-            .as_mut()
-            .unwrap()
-            .compiler
-            .take();
-
-        res
+        self.virtual_machine.run_executable(&executable)
     }
 
     pub fn run_executable(&mut self, executable: &Executable) -> Result<Vec<SteelVal>> {
@@ -1734,14 +1754,10 @@ impl Engine {
         expr: &str,
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
-        let constants = self.constants();
-        self.compiler.emit_expanded_ast(
-            expr,
-            constants,
-            path,
-            &mut self.sources,
-            self.modules.clone(),
-        )
+        self.virtual_machine
+            .compiler
+            .write()
+            .emit_expanded_ast(expr, path)
     }
 
     pub fn emit_expanded_ast_without_optimizations(
@@ -1749,14 +1765,10 @@ impl Engine {
         expr: &str,
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
-        let constants = self.constants();
-        self.compiler.emit_expanded_ast_without_optimizations(
-            expr,
-            constants,
-            path,
-            &mut self.sources,
-            self.modules.clone(),
-        )
+        self.virtual_machine
+            .compiler
+            .write()
+            .emit_expanded_ast_without_optimizations(expr, path)
     }
 
     /// Emit the unexpanded AST
@@ -1777,16 +1789,11 @@ impl Engine {
         expr: &str,
         path: Option<PathBuf>,
     ) -> Result<String> {
-        let constants = self.constants();
         Ok(self
+            .virtual_machine
             .compiler
-            .emit_expanded_ast(
-                expr,
-                constants,
-                path,
-                &mut self.sources,
-                self.modules.clone(),
-            )?
+            .write()
+            .emit_expanded_ast(expr, path)?
             .into_iter()
             .map(|x| x.to_pretty(60))
             .join("\n\n"))
@@ -1798,14 +1805,10 @@ impl Engine {
         expr: &str,
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
-        let constants = self.constants();
-        self.compiler.emit_expanded_ast(
-            expr,
-            constants,
-            path,
-            &mut self.sources,
-            self.modules.clone(),
-        )
+        self.virtual_machine
+            .compiler
+            .write()
+            .emit_expanded_ast(expr, path)
     }
 
     /// Registers an external value of any type as long as it implements [`FromSteelVal`](crate::rvals::FromSteelVal) and
@@ -1849,7 +1852,7 @@ impl Engine {
     }
 
     pub fn update_value(&mut self, name: &str, value: SteelVal) -> Option<&mut Self> {
-        let idx = self.compiler.get_idx(name)?;
+        let idx = self.virtual_machine.compiler.read().get_idx(name)?;
         self.virtual_machine.global_env.repl_set_idx(idx, value);
         Some(self)
     }
@@ -1927,7 +1930,7 @@ impl Engine {
     /// assert_eq!(vm.extract_value("a").unwrap(), SteelVal::IntV(10));
     /// ```
     pub fn extract_value(&self, name: &str) -> Result<SteelVal> {
-        let idx = self.compiler.get_idx(name).ok_or_else(throw!(
+        let idx = self.virtual_machine.compiler.read().get_idx(name).ok_or_else(throw!(
             Generic => format!("free identifier: {name} - identifier given cannot be found in the global environment")
         ))?;
 
@@ -1996,52 +1999,20 @@ impl Engine {
 
     // TODO this does not take into account the issues with
     // people registering new functions that shadow the original one
-    fn constants(&mut self) -> ImmutableHashMap<InternedString, SteelVal, FxBuildHasher> {
-        // TODO: The constants need to be invalidated, if any of them are redefined within
-        // the scope of execution.
-
-        if let Some(hm) = &mut self.constants {
-            if !hm.is_empty() {
-                for constant in CONSTANTS {
-                    let value = self
-                        .compiler
-                        .get_idx(constant)
-                        .ok_or_else(throw!(
-                            Generic => format!("Constants: unreachable")
-                        ))
-                        .and_then(|idx| {
-                            self.virtual_machine.extract_value(idx).ok_or_else(throw!(
-                                Generic => "Constants: unreachable"
-                            ))
-                        });
-
-                    if let Ok(v) = value {
-                        hm.insert((*constant).into(), v);
-                    }
-                }
-            }
-
-            return hm.clone();
-        }
-
-        let mut hm = ImmutableHashMap::default();
-        for constant in CONSTANTS {
-            if let Ok(v) = self.extract_value(constant) {
-                hm.insert((*constant).into(), v);
-            }
-        }
-        self.constants = Some(hm.clone());
-
-        hm
-    }
+    // fn constants(&mut self) -> ImmutableHashMap<InternedString, SteelVal, FxBuildHasher> {
+    //     CONSTANT_PRIMITIVES.clone()
+    // }
 
     pub fn add_module(&mut self, path: String) -> Result<()> {
-        self.compiler
-            .compile_module(path.into(), &mut self.sources, self.modules.clone())
+        self.virtual_machine.compiler.write().compile_module(
+            path.into(),
+            &mut self.sources,
+            self.modules.clone(),
+        )
     }
 
-    pub fn modules(&self) -> &FxHashMap<PathBuf, CompiledModule> {
-        self.compiler.modules()
+    pub fn modules(&self) -> MappedRwLockReadGuard<'_, FxHashMap<PathBuf, CompiledModule>> {
+        RwLockReadGuard::map(self.virtual_machine.compiler.read(), |x| x.modules())
     }
 
     pub fn global_exists(&self, ident: &str) -> bool {
@@ -2051,19 +2022,28 @@ impl Engine {
             return false;
         };
 
-        self.compiler.symbol_map.get(&spur).is_ok()
+        self.virtual_machine
+            .compiler
+            .read()
+            .symbol_map
+            .get(&spur)
+            .is_ok()
     }
 
-    pub fn symbol_map(&self) -> &SymbolMap {
-        &self.compiler.symbol_map
+    pub fn symbol_map(&self) -> MappedRwLockReadGuard<'_, SymbolMap> {
+        RwLockReadGuard::map(self.virtual_machine.compiler.read(), |x| &x.symbol_map)
     }
 
-    pub fn in_scope_macros(&self) -> &FxHashMap<InternedString, SteelMacro> {
-        &self.compiler.macro_env
+    pub fn in_scope_macros(
+        &self,
+    ) -> MappedRwLockReadGuard<'_, FxHashMap<InternedString, SteelMacro>> {
+        RwLockReadGuard::map(self.virtual_machine.compiler.read(), |x| &x.macro_env)
     }
 
-    pub fn in_scope_macros_mut(&mut self) -> &mut FxHashMap<InternedString, SteelMacro> {
-        &mut self.compiler.macro_env
+    pub fn in_scope_macros_mut(
+        &mut self,
+    ) -> MappedRwLockWriteGuard<'_, FxHashMap<InternedString, SteelMacro>> {
+        RwLockWriteGuard::map(self.virtual_machine.compiler.write(), |x| &mut x.macro_env)
     }
 
     pub fn get_module(&self, path: PathBuf) -> Result<SteelVal> {

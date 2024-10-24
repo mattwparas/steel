@@ -366,6 +366,31 @@ pub fn quotient(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+/// Returns the remainder of the division of the first number by the second
+///
+/// (modulo n m) -> integer?
+///
+/// * n : integer?
+/// * m : integer?
+///
+/// # Examples
+/// ```scheme
+/// > (modulo 10 3) ;; => 1
+/// > (modulo -10 3) ;; => 2
+/// > (modulo 10 -3) ;; => -2
+/// > (module -10 -3) ;; => -1
+/// ```
+#[steel_derive::native(name = "modulo", constant = true, arity = "Exact(2)")]
+pub fn modulo(args: &[SteelVal]) -> Result<SteelVal> {
+    match &args {
+        [l, r] => match (l, r) {
+            (SteelVal::IntV(l), SteelVal::IntV(r)) => ((l % r + r) % r).into_steelval(),
+            _ => steelerr!(TypeMismatch => "quotient only supports integers"),
+        },
+        _ => steelerr!(ArityMismatch => "quotient requires 2 arguments"),
+    }
+}
+
 /// Divides the given numbers.
 ///
 /// (/ . nums) -> number?

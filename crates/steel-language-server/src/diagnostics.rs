@@ -46,7 +46,7 @@ impl DiagnosticGenerator for FreeIdentifiersAndUnusedIdentifiers {
     fn diagnose(&mut self, context: &mut DiagnosticContext) -> Vec<Diagnostic> {
         context
             .analysis
-            .free_identifiers_with_globals(context.engine.symbol_map())
+            .free_identifiers_with_globals(&context.engine.symbol_map())
             .into_iter()
             .map(|(ident, info)| (ident, info.span))
             .flat_map(|(ident, span)| {
@@ -169,10 +169,9 @@ impl DiagnosticGenerator for StaticArityChecker {
                         .trim_end_matches(interned.resolve())
                         .trim_end_matches("__%#__");
 
-                    let Some(module) = context
-                        .engine
-                        .modules()
-                        .get(&PathBuf::from(module_path_to_check))
+                    let module_guard = context.engine.modules();
+
+                    let Some(module) = module_guard.get(&PathBuf::from(module_path_to_check))
                     else {
                         continue;
                     };

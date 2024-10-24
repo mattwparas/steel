@@ -62,12 +62,13 @@ async fn main() {
     let defined_globals = DashSet::new();
 
     ENGINE.with(|engine| {
-        for global in engine.borrow().globals() {
+        for global in engine.borrow().globals().iter() {
             let resolved = global.resolve();
             if !resolved.starts_with("#")
                 && !resolved.starts_with("%")
                 && !resolved.starts_with("mangler#%")
                 && !resolved.starts_with("mangler")
+                && !resolved.starts_with("__module")
             {
                 defined_globals.insert(resolved.to_string());
             }

@@ -14,7 +14,7 @@ use crate::{
         kernel::Kernel,
         parser::{lower_entire_ast, lower_macro_and_require_definitions},
     },
-    steel_vm::{cache::MemoizationTable, engine::ModuleContainer},
+    steel_vm::{cache::MemoizationTable, engine::ModuleContainer, primitives::constant_primitives},
 };
 use crate::{
     core::{instructions::Instruction, opcode::OpCode},
@@ -296,6 +296,14 @@ pub struct Compiler {
     shadowed_variable_renamer: RenameShadowedVariables,
 
     search_dirs: Vec<PathBuf>,
+
+    // Include all the sources, module container, and constants
+    // so that we can reference those at runtime. We probably should
+    // just ignore the constants function in general. This unfortunately,
+    // is under the hood, shared references to the engine, since we
+    // want to have the compiler share everything with the runtime.
+    sources: Sources,
+    builtin_modules: ModuleContainer,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -308,6 +316,7 @@ pub struct SerializableCompiler {
 }
 
 impl SerializableCompiler {
+    #[allow(unused)]
     pub(crate) fn into_compiler(self) -> Compiler {
         let mut compiler = Compiler::default();
 
@@ -322,6 +331,7 @@ impl SerializableCompiler {
 }
 
 impl Compiler {
+    #[allow(unused)]
     pub(crate) fn into_serializable_compiler(self) -> Result<SerializableCompiler> {
         Ok(SerializableCompiler {
             symbol_map: self.symbol_map,
@@ -340,6 +350,8 @@ impl Default for Compiler {
             ConstantMap::new(),
             FxHashMap::default(),
             ModuleManager::default(),
+            Sources::default(),
+            ModuleContainer::default(),
         )
     }
 }
@@ -350,6 +362,8 @@ impl Compiler {
         constant_map: ConstantMap,
         macro_env: FxHashMap<InternedString, SteelMacro>,
         module_manager: ModuleManager,
+        sources: Sources,
+        builtin_modules: ModuleContainer,
     ) -> Compiler {
         Compiler {
             symbol_map,
@@ -365,6 +379,8 @@ impl Compiler {
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
             search_dirs: Vec::new(),
+            sources,
+            builtin_modules,
         }
     }
 
@@ -374,6 +390,8 @@ impl Compiler {
         macro_env: FxHashMap<InternedString, SteelMacro>,
         module_manager: ModuleManager,
         kernel: Kernel,
+        sources: Sources,
+        builtin_modules: ModuleContainer,
     ) -> Compiler {
         Compiler {
             symbol_map,
@@ -389,26 +407,34 @@ impl Compiler {
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
             search_dirs: Vec::new(),
+            sources,
+            builtin_modules,
         }
     }
 
-    pub(crate) fn _default_from_kernel(kernel: Kernel) -> Compiler {
-        Compiler::new_with_kernel(
-            SymbolMap::new(),
-            ConstantMap::new(),
-            FxHashMap::default(),
-            ModuleManager::default(),
-            kernel,
-        )
-    }
-
-    pub fn default_with_kernel() -> Compiler {
+    pub fn default_with_kernel(sources: Sources, builtin_modules: ModuleContainer) -> Compiler {
         Compiler::new_with_kernel(
             SymbolMap::new(),
             ConstantMap::new(),
             FxHashMap::default(),
             ModuleManager::default(),
             Kernel::new(),
+            sources,
+            builtin_modules,
+        )
+    }
+
+    pub(crate) fn default_without_kernel(
+        sources: Sources,
+        builtin_modules: ModuleContainer,
+    ) -> Compiler {
+        Compiler::new(
+            SymbolMap::new(),
+            ConstantMap::new(),
+            FxHashMap::default(),
+            ModuleManager::default(),
+            sources,
+            builtin_modules,
         )
     }
 
@@ -435,27 +461,21 @@ impl Compiler {
     pub fn compile_executable_from_expressions(
         &mut self,
         exprs: Vec<ExprKind>,
-        builtin_modules: ModuleContainer,
-        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
-        sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {
-        self.compile_raw_program(exprs, constants, builtin_modules, None, sources)
+        self.compile_raw_program(exprs, None)
     }
 
     pub fn compile_executable<E: AsRef<str> + Into<Cow<'static, str>>>(
         &mut self,
         expr_str: E,
         path: Option<PathBuf>,
-        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
-        builtin_modules: ModuleContainer,
-        sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {
         #[cfg(feature = "profiling")]
         let now = Instant::now();
 
         let expr_str = expr_str.into();
 
-        let id = sources.add_source(expr_str.clone(), path.clone());
+        let id = self.sources.add_source(expr_str.clone(), path.clone());
 
         // Could fail here
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> = path
@@ -472,7 +492,7 @@ impl Compiler {
         }
 
         // TODO fix this hack
-        self.compile_raw_program(parsed?, constants, builtin_modules, path, sources)
+        self.compile_raw_program(parsed?, path)
     }
 
     // TODO: Add a flag/function for parsing comments as well
@@ -480,12 +500,9 @@ impl Compiler {
     pub fn emit_expanded_ast(
         &mut self,
         expr_str: &str,
-        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         path: Option<PathBuf>,
-        sources: &mut Sources,
-        builtin_modules: ModuleContainer,
     ) -> Result<Vec<ExprKind>> {
-        let id = sources.add_source(expr_str.to_string(), path.clone());
+        let id = self.sources.add_source(expr_str.to_string(), path.clone());
 
         // Could fail here
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
@@ -496,18 +513,15 @@ impl Compiler {
 
         let parsed = parsed?;
 
-        self.lower_expressions_impl(parsed, constants, builtin_modules, path, sources)
+        self.lower_expressions_impl(parsed, path)
     }
 
     pub fn emit_expanded_ast_without_optimizations(
         &mut self,
         expr_str: &str,
-        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         path: Option<PathBuf>,
-        sources: &mut Sources,
-        builtin_modules: ModuleContainer,
     ) -> Result<Vec<ExprKind>> {
-        let id = sources.add_source(expr_str.to_string(), path.clone());
+        let id = self.sources.add_source(expr_str.to_string(), path.clone());
 
         // Could fail here
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
@@ -518,7 +532,7 @@ impl Compiler {
 
         let parsed = parsed?;
 
-        self.expand_ast(parsed, constants, builtin_modules, path, sources)
+        self.expand_ast(parsed, path)
     }
 
     pub fn compile_module(
@@ -544,17 +558,15 @@ impl Compiler {
         &mut self,
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
-        sources: &mut Sources,
-        builtin_modules: ModuleContainer,
     ) -> Result<Vec<ExprKind>> {
         // #[cfg(feature = "modules")]
         return self.module_manager.compile_main(
             &mut self.macro_env,
             &mut self.kernel,
-            sources,
+            &mut self.sources,
             exprs,
             path,
-            builtin_modules,
+            self.builtin_modules.clone(),
             &mut self.lifted_kernel_environments,
             &mut self.lifted_macro_environments,
             &self.search_dirs,
@@ -604,16 +616,8 @@ impl Compiler {
         Ok(results)
     }
 
-    fn expand_ast(
-        &mut self,
-        exprs: Vec<ExprKind>,
-        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
-        builtin_modules: ModuleContainer,
-        path: Option<PathBuf>,
-        sources: &mut Sources,
-    ) -> Result<Vec<ExprKind>> {
-        let mut expanded_statements =
-            self.expand_expressions(exprs, path, sources, builtin_modules.clone())?;
+    fn expand_ast(&mut self, exprs: Vec<ExprKind>, path: Option<PathBuf>) -> Result<Vec<ExprKind>> {
+        let mut expanded_statements = self.expand_expressions(exprs, path)?;
 
         log::debug!(target: "expansion-phase", "Expanding macros -> phase 1");
 
@@ -626,7 +630,7 @@ impl Compiler {
             expand_kernel_in_env(
                 expr,
                 self.kernel.as_mut(),
-                builtin_modules.clone(),
+                self.builtin_modules.clone(),
                 "top-level",
             )?;
 
@@ -637,7 +641,7 @@ impl Compiler {
             expand_kernel_in_env(
                 expr,
                 self.kernel.as_mut(),
-                builtin_modules.clone(),
+                self.builtin_modules.clone(),
                 "top-level",
             )?;
             crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
@@ -645,7 +649,7 @@ impl Compiler {
 
             for module in &self.lifted_macro_environments {
                 if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
-                    let source_id = sources.get_source_id(module).unwrap();
+                    let source_id = self.sources.get_source_id(module).unwrap();
 
                     // println!("Expanding macros from: {:?}", module);
 
@@ -664,7 +668,7 @@ impl Compiler {
                 let changed = expand_kernel_in_env_with_change(
                     expr,
                     self.kernel.as_mut(),
-                    builtin_modules.clone(),
+                    self.builtin_modules.clone(),
                     &module,
                 )?;
 
@@ -676,7 +680,7 @@ impl Compiler {
             expand_kernel_in_env(
                 expr,
                 self.kernel.as_mut(),
-                builtin_modules.clone(),
+                self.builtin_modules.clone(),
                 "top-level",
             )?;
 
@@ -689,8 +693,8 @@ impl Compiler {
 
         log::debug!(target: "expansion-phase", "Beginning constant folding");
 
-        let mut expanded_statements =
-            self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
+        // let mut expanded_statements =
+        //     self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
 
         // expanded_statements.pretty_print();
 
@@ -779,10 +783,7 @@ impl Compiler {
     pub(crate) fn lower_expressions_impl(
         &mut self,
         exprs: Vec<ExprKind>,
-        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
-        builtin_modules: ModuleContainer,
         path: Option<PathBuf>,
-        sources: &mut Sources,
     ) -> Result<Vec<ExprKind>> {
         #[cfg(feature = "profiling")]
         let now = Instant::now();
@@ -790,8 +791,7 @@ impl Compiler {
         // println!("Before expanding macros");
         // exprs.pretty_print();
 
-        let mut expanded_statements =
-            self.expand_expressions(exprs, path, sources, builtin_modules.clone())?;
+        let mut expanded_statements = self.expand_expressions(exprs, path)?;
 
         // println!("After expanding macros");
         // expanded_statements.pretty_print();
@@ -813,7 +813,7 @@ impl Compiler {
             expand_kernel_in_env(
                 expr,
                 self.kernel.as_mut(),
-                builtin_modules.clone(),
+                self.builtin_modules.clone(),
                 "top-level",
             )?;
             crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
@@ -821,7 +821,7 @@ impl Compiler {
 
             for module in &self.lifted_macro_environments {
                 if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
-                    let source_id = sources.get_source_id(module).unwrap();
+                    let source_id = self.sources.get_source_id(module).unwrap();
 
                     crate::parser::expand_visitor::expand_with_source_id(
                         expr,
@@ -836,7 +836,7 @@ impl Compiler {
                 let changed = expand_kernel_in_env_with_change(
                     expr,
                     self.kernel.as_mut(),
-                    builtin_modules.clone(),
+                    self.builtin_modules.clone(),
                     &module,
                 )?;
 
@@ -848,7 +848,7 @@ impl Compiler {
             expand_kernel_in_env(
                 expr,
                 self.kernel.as_mut(),
-                builtin_modules.clone(),
+                self.builtin_modules.clone(),
                 "top-level",
             )?;
 
@@ -869,7 +869,7 @@ impl Compiler {
         // expanded_statements.pretty_print();
 
         let expanded_statements =
-            self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
+            self.apply_const_evaluation(constant_primitives(), expanded_statements, false)?;
 
         let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
 
@@ -993,15 +993,11 @@ impl Compiler {
     fn compile_raw_program(
         &mut self,
         exprs: Vec<ExprKind>,
-        constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
-        builtin_modules: ModuleContainer,
         path: Option<PathBuf>,
-        sources: &mut Sources,
     ) -> Result<RawProgramWithSymbols> {
         log::debug!(target: "expansion-phase", "Expanding macros -> phase 0");
 
-        let expanded_statements =
-            self.lower_expressions_impl(exprs, constants, builtin_modules, path, sources)?;
+        let expanded_statements = self.lower_expressions_impl(exprs, path)?;
 
         // println!("--- Final AST ---");
         // println!("");
@@ -1028,7 +1024,6 @@ impl Compiler {
 
     fn _run_const_evaluation_with_memoization(
         &mut self,
-        _constants: ImmutableHashMap<InternedString, SteelVal>,
         mut _expanded_statements: Vec<ExprKind>,
     ) -> Result<Vec<ExprKind>> {
         todo!("Implement kernel level const evaluation here!")
@@ -1067,8 +1062,6 @@ impl Compiler {
             // Cut this off at 10 iterations no matter what
             OptLevel::Three => {
                 // for _ in 0..10 {
-                // println!("Running const evaluation");
-
                 expanded_statements = manager.run(expanded_statements)?;
 
                 // if !manager.changed {
