@@ -90,13 +90,16 @@
     [(quasiquote (#%unquote x)) x]
 
     [(quasiquote ((#%unquote-splicing x))) (append x '())]
+    [(quasiquote #((#%unquote-splicing x))) (list->vector (append x '()))]
     [(quasiquote ((#%unquote-splicing x) xs ...)) (append x (quasiquote (xs ...)))]
+    [(quasiquote #((#%unquote-splicing x) xs ...)) (list->vector (append x (quasiquote (xs ...))))]
 
     ;; TODO: Do unquote-splicing as well, follow the same rules as unquote
     [(quasiquote ((unquote-splicing x))) (append (list (list 'unquote-splicing (quasiquote x))) '())]
     [(quasiquote ((unquote-splicing x) xs ...))
      (append (list (list 'unquote-splicing (quasiquote x))) (quasiquote (xs ...)))]
     [(quasiquote (x xs ...)) (cons (quasiquote x) (quasiquote (xs ...)))]
+    [(quasiquote #(x xs ...)) (list->vector (cons (quasiquote x) (quasiquote (xs ...))))]
     [(quasiquote x) 'x]))
 
 ; (define-syntax #%unquote
