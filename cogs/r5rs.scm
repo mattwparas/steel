@@ -43,7 +43,6 @@
 
 (define __module__ 'r5rs-test-suite)
 
-;; NOTE: with-handler not returning the value from the called function?
 (check-equal? "eval catch exception" 100 (with-handler (lambda (err) 100) (eval `(+ 100 "foo"))))
 (check-equal? "basic eval" 100 (eval '(* 10 10)))
 
