@@ -1,9 +1,9 @@
 use crate::rvals::{IntoSteelVal, Result, SteelComplex, SteelVal};
 use crate::{steelerr, stop};
-use num::Zero;
 use num::{
     pow::Pow, BigInt, BigRational, CheckedAdd, CheckedMul, Integer, Rational32, Signed, ToPrimitive,
 };
+use num::{Float, Zero};
 use std::ops::Neg;
 
 /// Checks if the given value is a number
@@ -400,6 +400,19 @@ pub fn remainder(args: &[SteelVal]) -> Result<SteelVal> {
         },
         _ => steelerr!(ArityMismatch => "remainder requires 2 arguments"),
     }
+}
+
+// TODO: Do this for sin, cos, tan, asin, acos, atan
+#[steel_derive::function(name = "sin", constant = true)]
+pub fn sin(arg: &SteelVal) -> Result<SteelVal> {
+    match arg {
+        SteelVal::IntV(i) => (*i as f64).sin(),
+        SteelVal::BigNum(i) => i.to_f64().unwrap().sin(),
+        SteelVal::NumV(n) => n.sin(),
+        SteelVal::Rational(r) => (*r.numer() as f32 / *r.denom() as f32).sin() as f64,
+        _ => todo!(),
+    }
+    .into_steelval()
 }
 
 /// Divides the given numbers.

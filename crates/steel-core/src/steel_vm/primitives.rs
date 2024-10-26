@@ -1081,7 +1081,8 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(numbers::REMAINDER_DEFINITION)
         .register_native_fn_definition(numbers::ROUND_DEFINITION)
         .register_native_fn_definition(numbers::SQUARE_DEFINITION)
-        .register_native_fn_definition(numbers::SQRT_DEFINITION);
+        .register_native_fn_definition(numbers::SQRT_DEFINITION)
+        .register_native_fn_definition(numbers::SIN_DEFINITION);
 
     module
 }

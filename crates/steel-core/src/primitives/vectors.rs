@@ -1,5 +1,6 @@
 use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;
+use crate::primitives::Either;
 use crate::rvals::{IntoSteelVal, RestArgsIter, Result, SteelVal};
 use crate::rvals::{SteelVal::*, SteelVector};
 use crate::steel_vm::builtin::BuiltInModule;
@@ -21,6 +22,7 @@ pub fn immutable_vectors_module() -> BuiltInModule {
         .register_native_fn_definition(IMMUTABLE_VECTOR_DROP_DEFINITION)
         .register_native_fn_definition(IMMUTABLE_VECTOR_TAKE_DEFINITION)
         .register_native_fn_definition(IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION)
+        .register_native_fn_definition(IMMUTABLE_VECTOR_CONSTRUCT_ALTERNATE_DEFINITION)
         .register_native_fn_definition(IMMUTABLE_VECTOR_TO_LIST_DEFINITION)
         .register_native_fn_definition(IMMUTABLE_VECTOR_TO_STRING_DEFINITION)
         .register_native_fn_definition(IMMUTABLE_VECTOR_COPY_DEFINITION)
@@ -451,9 +453,20 @@ pub fn immutable_vector_construct(args: &[SteelVal]) -> Result<SteelVal> {
     ))
 }
 
+// TODO: Fix this naming issue
+#[steel_derive::native(name = "vector-immutable", arity = "AtLeast(0)")]
+pub fn immutable_vector_construct_alternate(args: &[SteelVal]) -> Result<SteelVal> {
+    Ok(SteelVal::VectorV(
+        Gc::new(args.iter().cloned().collect::<Vector<_>>()).into(),
+    ))
+}
+
 #[steel_derive::function(name = "vector-length")]
-pub fn vec_length(v: &SteelVector) -> SteelVal {
-    SteelVal::IntV(v.len() as isize)
+pub fn vec_length(v: Either<&SteelVector, &HeapRef<Vec<SteelVal>>>) -> SteelVal {
+    match v {
+        Either::Left(v) => SteelVal::IntV(v.len() as _),
+        Either::Right(v) => SteelVal::IntV(v.get().len() as _),
+    }
 }
 
 pub struct VectorOperations {}
