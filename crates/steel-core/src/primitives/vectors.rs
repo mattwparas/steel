@@ -385,6 +385,11 @@ pub fn mut_vec_construct(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<S
     Some(Ok(ctx.make_mutable_vector(args.to_vec())))
 }
 
+#[steel_derive::context(name = "vector", arity = "AtLeast(0)")]
+pub fn mut_vec_construct_vec(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(Ok(ctx.make_mutable_vector(args.to_vec())))
+}
+
 #[steel_derive::context(name = "make-vector", arity = "AtLeast(1)")]
 pub fn make_vector(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     fn make_vector_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
@@ -404,10 +409,18 @@ pub fn make_vector(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVa
 }
 
 #[steel_derive::function(name = "mutable-vector->list")]
-pub fn mut_vec_to_list(vec: &HeapRef<Vec<SteelVal>>) -> SteelVal {
+pub fn mut_vec_to_list(
+    vec: &HeapRef<Vec<SteelVal>>,
+    rest: RestArgsIter<'_, isize>,
+) -> Result<SteelVal> {
     let ptr = vec.strong_ptr();
-    let guard = &mut ptr.write().value;
-    SteelVal::ListV(guard.iter().collect())
+    let guard = &ptr.read().value;
+
+    let (start, end) = bounds_mut(rest, "mutable-vector->list", 3, guard)?;
+
+    let items = guard.iter().skip(start).take(end - start).cloned();
+
+    Ok(SteelVal::ListV(items.collect()))
 }
 
 #[steel_derive::function(name = "mut-vec-len")]
@@ -431,7 +444,7 @@ pub fn mut_vec_set(vec: &HeapRef<Vec<SteelVal>>, i: usize, value: SteelVal) -> R
     Ok(SteelVal::Void)
 }
 
-#[steel_derive::native(name = "vector", arity = "AtLeast(0)")]
+#[steel_derive::native(name = "immutable-vector", arity = "AtLeast(0)")]
 pub fn immutable_vector_construct(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::VectorV(
         Gc::new(args.iter().cloned().collect::<Vector<_>>()).into(),
@@ -730,6 +743,37 @@ fn unwrap_single_list(exp: &SteelVal) -> Result<Vector<SteelVal>> {
         SteelVal::VectorV(lst) => Ok(lst.0.unwrap()),
         _ => stop!(TypeMismatch => "expected a list"),
     }
+}
+
+fn bounds_mut(
+    mut rest: RestArgsIter<'_, isize>,
+    name: &str,
+    args: usize,
+    vector: &Vec<SteelVal>,
+) -> Result<(usize, usize)> {
+    if rest.len() > 2 {
+        stop!(ArityMismatch => "{} expects at most {} arguments", name, args);
+    }
+
+    let start = rest.next().transpose()?.unwrap_or(0);
+    let end = rest.next().transpose()?.unwrap_or(vector.len() as isize);
+
+    if start < 0 || end < 0 {
+        stop!(ContractViolation => "start and end must be non-negative");
+    }
+
+    let start = start as usize;
+    let end = end as usize;
+
+    if end > vector.len() {
+        stop!(ContractViolation => "end bound is out of range");
+    }
+
+    if start > end {
+        stop!(ContractViolation => "start bound cannot be greater than end bound");
+    }
+
+    Ok((start, end))
 }
 
 fn bounds(

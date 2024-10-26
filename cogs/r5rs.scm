@@ -152,12 +152,12 @@
   #f)
 (check-equal? "Redefine top level with interior define, stays the same" 1 let*-def)
 
-;; TODO: `do` macro
-(skip-compile
- (check-equal '#(0 1 2 3 4)
+(check-equal? "do macro with vec"
+              '#(0 1 2 3 4)
               (do ((vec (make-vector 5)) (i 0 (+ i 1))) ((= i 5) vec) (vector-set! vec i i)))
- (check-equal 25
-              (let ([x '(1 3 5 7 9)]) (do ((x x (cdr x)) (sum 0 (+ sum (car x)))) ((null? x) sum)))))
+(check-equal? "do macro with list"
+              25
+              (let ([x '(1 3 5 7 9)]) (do ((x x (cdr x)) (sum 0 (+ sum (car x)))) ((null? x) sum))))
 
 (check-equal? "named let"
               '((6 1 3) (-5 -2))
@@ -299,12 +299,13 @@
 (check-equal? "modulo positive and negative" -3 (modulo 13 -4))
 (check-equal? "modulo both negative" -1 (modulo -13 -4))
 
-(skip-compile (check-equal 1 (remainder 13 4))
-              (check-equal -1 (remainder -13 4))
-              (check-equal 1 (remainder 13 -4))
-              (check-equal -1 (remainder -13 -4))
-              (check-equal 4 (gcd 32 -36))
-              (check-equal 288 (lcm 32 -36)))
+(check-equal? "Remainder with positive numbers" 1 (remainder 13 4))
+(check-equal? "Remainder with negative and positive" -1 (remainder -13 4))
+(check-equal? "Remainder with positive and negative" 1 (remainder 13 -4))
+(check-equal? "Remainder with negative numbers" -1 (remainder -13 -4))
+
+(check-equal? "GCD with negative number" 4 (gcd 32 -36))
+(check-equal? "LCM with negative number" 288 (lcm 32 -36))
 
 (check-equal? "integers are truthy" #f (not 3))
 
@@ -498,9 +499,10 @@
 (skip-compile (check-equal '#(0 ("Sue" "Sue") "Anna")
                            (let ([vec (vector 0 '(2 2 2 2) "Anna")])
                              (vector-set! vec 1 '("Sue" "Sue"))
-                             vec))
-              (check-equal '(dah dah didah) (vector->list '#(dah dah didah)))
-              (check-equal '#(dididit dah) (list->vector '(dididit dah))))
+                             vec)))
+
+; (check-equal? "vector->list with constants" '(dah dah didah) (vector->list '#(dah dah didah)))
+; (check-equal? "list->vector with constants" '#(dididit dah) (list->vector '(dididit dah)))
 
 (check-equal? "function correctly identified as a procedure" #t (procedure? car))
 
@@ -538,10 +540,11 @@
               '(3 3)
               (let ([p (delay (+ 1 2))]) (list (force p) (force p))))
 
-(skip-compile (check-equal '#(0 1 4 9 16)
-                           (let ([v (make-vector 5)])
-                             (for-each (lambda (i) (vector-set! v i (* i i))) '(0 1 2 3 4))
-                             v)))
+(check-equal? "make-vector makes mutable vector with for each"
+              '#(0 1 4 9 16)
+              (let ([v (make-vector 5)])
+                (for-each (lambda (i) (vector-set! v i (* i i))) '(0 1 2 3 4))
+                v))
 
 (check-equal? "using else as a variable"
               'ok
@@ -643,7 +646,7 @@
 
 ;; vectors
 
-(define vector->list immutable-vector->list)
+; (define vector->list immutable-vector->list)
 (define vector->string immutable-vector->string)
 (define vector-copy immutable-vector-copy)
 (define vector-append immutable-vector-append)
@@ -667,11 +670,11 @@
                                         (let ([i (round (* 2 (acos -1)))])
                                           (if (inexact? i) (exact i) i)))))
 
-(skip-compile (check-equal? "TODO"
-                            #(0 ("Sue" "Sue") "Anna")
-                            (let ([vec (vector 0 '(2 2 2 2) "Anna")])
-                              (vector-set! vec 1 '("Sue" "Sue"))
-                              vec)))
+(check-equal? "vector-set! with mutable vector"
+              #(0 ("Sue" "Sue") "Anna")
+              (let ([vec (vector 0 '(2 2 2 2) "Anna")])
+                (vector-set! vec 1 '("Sue" "Sue"))
+                vec))
 
 (check-equal? "vector->list" '(dah dah didah) (vector->list '#(dah dah didah)))
 (check-equal? "vector->list with start" '(dah didah) (vector->list '#(dah dah didah) 1))

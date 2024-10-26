@@ -1430,6 +1430,27 @@ impl<'a> RecursiveEqualityHandler<'a> {
 
                     continue;
                 }
+
+                (VectorV(l), MutableVector(r)) => {
+                    if l.len() != r.get().len() {
+                        return false;
+                    }
+
+                    self.left.visit_immutable_vector(l);
+                    self.right.visit_mutable_vector(r);
+
+                    continue;
+                }
+                (MutableVector(l), VectorV(r)) => {
+                    if l.get().len() != r.len() {
+                        return false;
+                    }
+
+                    self.left.visit_mutable_vector(l);
+                    self.right.visit_immutable_vector(r);
+
+                    continue;
+                }
                 (Void, Void) => {
                     continue;
                 }

@@ -396,9 +396,9 @@ pub fn remainder(args: &[SteelVal]) -> Result<SteelVal> {
     match &args {
         [l, r] => match (l, r) {
             (SteelVal::IntV(l), SteelVal::IntV(r)) => (l % r).into_steelval(),
-            _ => steelerr!(TypeMismatch => "modulo only supports integers"),
+            _ => steelerr!(TypeMismatch => "remainder only supports integers"),
         },
-        _ => steelerr!(ArityMismatch => "modulo requires 2 arguments"),
+        _ => steelerr!(ArityMismatch => "remainder requires 2 arguments"),
     }
 }
 

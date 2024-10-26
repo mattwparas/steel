@@ -114,6 +114,17 @@
                     (cdr set-as-list))
           (simple-display ")"))])]
 
+    [(vector? obj)
+     (let ([list-obj (vector->list obj)])
+       (simple-display "'#(")
+       (when (not (empty? list-obj))
+         (#%print (car list-obj) collector)
+         (for-each (λ (obj)
+                     (simple-display " ")
+                     (#%print obj collector))
+                   (cdr list-obj)))
+       (simple-display ")"))]
+
     [(hash? obj)
      (simple-display "'#hash(")
      ;; TODO: This should use the private transduce

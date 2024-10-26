@@ -625,6 +625,30 @@
     [(list? lst) (append (flatten (car lst)) (flatten (cdr lst)))]
     [else (list lst)]))
 
+(define (gcd a b)
+  (cond
+    [(= b 0) (abs a)]
+    [else (gcd b (modulo a b))]))
+
+(define (lcm a b)
+  (if (or (zero? a) (zero? b)) 0 (abs (* b (floor (/ a (gcd a b)))))))
+
+(define (for-each func lst)
+  (if (null? lst)
+      void
+      (begin
+        (func (car lst))
+        (when (null? lst)
+          (return! void))
+        (for-each func (cdr lst)))))
+
+;; TODO: Just make this a built in!
+(define (vector->list v . remaining)
+  (cond
+    [(immutable-vector? v) (apply immutable-vector->list (cons v remaining))]
+    [(mutable-vector? v) (apply mutable-vector->list (cons v remaining))]
+    [else (error "vector->list expects a vector, found: " v)]))
+
 ;;; Macros go here:
 
 (define-syntax reset
