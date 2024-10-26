@@ -585,6 +585,27 @@ impl VectorOperations {
             let mut args = args.iter();
             match (args.next(), args.next()) {
                 (Some(vec), Some(idx)) => {
+                    if let SteelVal::MutableVector(v) = &vec {
+                        if let SteelVal::IntV(i) = idx.clone() {
+                            if i < 0 {
+                                stop!(Generic => "mut-vector-ref expects a positive integer, found: {:?}", vec);
+                            }
+
+                            let ptr = v.strong_ptr();
+
+                            let guard = &mut ptr.write().value;
+
+                            if i as usize >= guard.len() {
+                                stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
+                            }
+
+                            // Grab the value out of the vector
+                            return Ok(guard[i as usize].clone());
+                        } else {
+                            stop!(TypeMismatch => "mut-vector-ref expects an integer, found: {:?}", idx);
+                        }
+                    }
+
                     if let (VectorV(vec), IntV(idx)) = (vec, idx) {
                         if idx < &0 {
                             stop!(TypeMismatch => "vector-ref expected a positive integer");
