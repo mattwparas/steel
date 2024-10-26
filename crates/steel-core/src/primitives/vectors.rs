@@ -28,7 +28,9 @@ pub fn immutable_vectors_module() -> BuiltInModule {
         .register_native_fn_definition(IMMUTABLE_VECTOR_COPY_DEFINITION)
         .register_native_fn_definition(IMMUTABLE_VECTOR_APPEND_DEFINITION)
         .register_native_fn_definition(MAKE_IMMUTABLE_VECTOR_DEFINITION)
-        .register_native_fn_definition(VECTOR_COPY_DEFINITION);
+        .register_native_fn_definition(VECTOR_COPY_DEFINITION)
+        .register_native_fn_definition(VECTOR_APPEND_DEFINITION)
+        .register_native_fn_definition(VECTOR_TO_STRING_DEFINITION);
 
     module
 }
@@ -64,6 +66,31 @@ fn immutable_vector_to_list(
     let items = vector.iter().skip(start).take(end - start).cloned();
 
     Ok(SteelVal::ListV(items.collect()))
+}
+
+#[steel_derive::function(name = "vector->string")]
+fn vector_to_string(
+    vector: Either<&SteelVector, &HeapRef<Vec<SteelVal>>>,
+    rest: RestArgsIter<'_, isize>,
+) -> Result<SteelVal> {
+    match vector {
+        Either::Left(vector) => immutable_vector_to_string(vector, rest),
+        Either::Right(vec) => {
+            let (start, end) = bounds_mut(rest, "vector->string", 3, &vec.get())?;
+
+            vec.get()
+                .iter()
+                .skip(start)
+                .take(end - start)
+                .map(|x| {
+                    x.char_or_else(throw!(TypeMismatch => "vector->string 
+                expected a succession of characters"))
+                })
+                .collect::<Result<String>>()
+                .map(|x| x.into())
+                .map(SteelVal::StringV)
+        }
+    }
 }
 
 #[steel_derive::function(name = "immutable-vector->string")]
@@ -141,6 +168,40 @@ fn immutable_vector_copy(vector: &SteelVector, rest: RestArgsIter<'_, isize>) ->
         .collect();
 
     Ok(SteelVal::VectorV(Gc::new(copy).into()))
+}
+
+// TODO: Fix this!
+#[steel_derive::context(name = "vector-append", arity = "AtLeast(0)")]
+fn vector_append(
+    ctx: &mut crate::steel_vm::vm::VmCore,
+    args: &[SteelVal],
+) -> Option<Result<SteelVal>> {
+    fn vector_copy_impl(
+        ctx: &mut crate::steel_vm::vm::VmCore,
+        args: &[SteelVal],
+    ) -> Result<SteelVal> {
+        // TODO: Preallocate the length by iterating over first
+        // and extracting the values?
+        let mut vector = Vec::new();
+
+        for arg in args {
+            match arg {
+                SteelVal::VectorV(v) => {
+                    vector.extend(v.iter().cloned());
+                }
+                SteelVal::MutableVector(v) => {
+                    vector.extend(v.get().iter().cloned());
+                }
+                _ => {
+                    stop!(TypeMismatch => "vector-append expects only vectors, found: {}", arg)
+                }
+            }
+        }
+
+        Ok(ctx.make_mutable_vector(vector))
+    }
+
+    Some(vector_copy_impl(ctx, args))
 }
 
 #[steel_derive::function(name = "immutable-vector-append")]

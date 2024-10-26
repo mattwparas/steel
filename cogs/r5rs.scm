@@ -646,11 +646,6 @@
 
 ;; vectors
 
-; (define vector->list immutable-vector->list)
-(define vector->string immutable-vector->string)
-; (define vector-copy immutable-vector-copy)
-(define vector-append immutable-vector-append)
-
 (check-equal? "empty vector" #t (vector? #()))
 (check-equal? "vector predicate" #t (vector? #(1 2 3)))
 (check-equal? "vector predicated, quoted" #t (vector? '#(1 2 3)))
