@@ -46,10 +46,10 @@ in
       popd
       rm "$out/bin/cargo-steel-lib"
     '';
-    meta = with lib; {
+    meta = {
       description = "An embedded scheme interpreter in Rust";
       homepage = "https://github.com/mattwparas/steel";
-      license = with licenses; [asl20 mit];
+      license = with lib.licenses; [asl20 mit];
       mainProgram = "steel";
     };
   }
