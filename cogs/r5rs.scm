@@ -501,8 +501,8 @@
                              (vector-set! vec 1 '("Sue" "Sue"))
                              vec)))
 
-; (check-equal? "vector->list with constants" '(dah dah didah) (vector->list '#(dah dah didah)))
-; (check-equal? "list->vector with constants" '#(dididit dah) (list->vector '(dididit dah)))
+(check-equal? "vector->list with constants" '(dah dah didah) (vector->list '#(dah dah didah)))
+(check-equal? "list->vector with constants" '#(dididit dah) (list->vector '(dididit dah)))
 
 (check-equal? "function correctly identified as a procedure" #t (procedure? car))
 
