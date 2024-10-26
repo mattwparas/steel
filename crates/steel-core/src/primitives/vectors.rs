@@ -27,7 +27,8 @@ pub fn immutable_vectors_module() -> BuiltInModule {
         .register_native_fn_definition(IMMUTABLE_VECTOR_TO_STRING_DEFINITION)
         .register_native_fn_definition(IMMUTABLE_VECTOR_COPY_DEFINITION)
         .register_native_fn_definition(IMMUTABLE_VECTOR_APPEND_DEFINITION)
-        .register_native_fn_definition(MAKE_IMMUTABLE_VECTOR_DEFINITION);
+        .register_native_fn_definition(MAKE_IMMUTABLE_VECTOR_DEFINITION)
+        .register_native_fn_definition(VECTOR_COPY_DEFINITION);
 
     module
 }
@@ -81,6 +82,51 @@ fn immutable_vector_to_string(
         .collect::<Result<String>>()
         .map(|x| x.into())
         .map(SteelVal::StringV)
+}
+
+#[steel_derive::context(name = "vector-copy", arity = "AtLeast(1)")]
+fn vector_copy(
+    ctx: &mut crate::steel_vm::vm::VmCore,
+    args: &[SteelVal],
+) -> Option<Result<SteelVal>> {
+    fn vector_copy_impl(
+        ctx: &mut crate::steel_vm::vm::VmCore,
+        args: &[SteelVal],
+    ) -> Result<SteelVal> {
+        use crate::rvals::FromSteelVal;
+
+        // TODO: Arity check - process the args here
+        let mut args_iter = args.iter();
+
+        let vector = args_iter.next();
+        let rest = RestArgsIter(args_iter.map(|x| <isize>::from_steelval(x)));
+
+        match vector {
+            Some(SteelVal::VectorV(v)) => immutable_vector_copy(v, rest),
+            Some(SteelVal::MutableVector(vector)) => {
+                let vector = vector.get();
+                let (start, end) = bounds_mut(rest, "vector-copy", 3, &vector)?;
+
+                // Have to allocate another thing
+                let copy: Vec<_> = vector
+                    .iter()
+                    .skip(start)
+                    .cloned()
+                    .take(end - start)
+                    .collect();
+
+                let vec = ctx.make_mutable_vector(copy);
+
+                Ok(vec)
+            }
+            Some(other) => {
+                stop!(TypeMismatch => "vector-copy expected a vector, found: {}", other)
+            }
+            None => todo!(),
+        }
+    }
+
+    Some(vector_copy_impl(ctx, args))
 }
 
 #[steel_derive::function(name = "immutable-vector-copy")]
