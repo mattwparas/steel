@@ -391,6 +391,17 @@ pub fn modulo(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+#[steel_derive::native(name = "remainder", constant = true, arity = "Exact(2)")]
+pub fn remainder(args: &[SteelVal]) -> Result<SteelVal> {
+    match &args {
+        [l, r] => match (l, r) {
+            (SteelVal::IntV(l), SteelVal::IntV(r)) => (l % r).into_steelval(),
+            _ => steelerr!(TypeMismatch => "modulo only supports integers"),
+        },
+        _ => steelerr!(ArityMismatch => "modulo requires 2 arguments"),
+    }
+}
+
 /// Divides the given numbers.
 ///
 /// (/ . nums) -> number?
