@@ -517,6 +517,110 @@ pub fn make_vector(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVa
     Some(make_vector_impl(ctx, args))
 }
 
+#[steel_derive::function(name = "vector-copy!")]
+pub fn mut_vector_copy(
+    dest: &HeapRef<Vec<SteelVal>>,
+    dest_start: usize,
+    src: Either<&HeapRef<Vec<SteelVal>>, &SteelVector>,
+    rest: RestArgsIter<'_, isize>,
+) -> Result<SteelVal> {
+    // TODO: Check if the src and dest are the same
+
+    match src {
+        Either::Left(src) => {
+            if HeapRef::ptr_eq(src, dest) {
+                // let range_to_copy =
+
+                let (src_start, src_end) = {
+                    let ptr = src.strong_ptr();
+                    let src_guard = &ptr.read().value;
+                    bounds_mut(rest, "vector-copy!", 5, src_guard)?
+                };
+
+                // Check if the ranges overlap
+                let dest_ptr = dest.strong_ptr();
+                let dest_guard = &mut dest_ptr.write().value;
+
+                if dest_start > dest_guard.len() {
+                    stop!(Generic => "vector-copy!: dest-start must be within the range of the destination vector. Destination vector length: {}, index: {}", dest_guard.len(), dest_start);
+                }
+
+                let temporary_buffer = dest_guard[src_start..src_end].to_vec();
+
+                dest_guard
+                    .iter_mut()
+                    .skip(dest_start)
+                    .zip(temporary_buffer.into_iter())
+                    .for_each(|(dest, src)| {
+                        *dest = src;
+                    })
+            } else {
+                // Source range
+                let ptr = src.strong_ptr();
+                let src_guard = &ptr.read().value;
+                let (src_start, src_end) = bounds_mut(rest, "vector-copy!", 5, src_guard)?;
+
+                let dest_ptr = dest.strong_ptr();
+                let dest_guard = &mut dest_ptr.write().value;
+
+                if dest_start > dest_guard.len() {
+                    stop!(Generic => "vector-copy!: dest-start must be within the range of the destination vector. Destination vector length: {}, index: {}", dest_guard.len(), dest_start);
+                }
+
+                src_guard
+                    .iter()
+                    .skip(src_start)
+                    .take(src_end - src_start)
+                    .zip(dest_guard.iter_mut().skip(dest_start))
+                    .for_each(|(src, dest)| {
+                        *dest = src.clone();
+                    });
+            }
+        }
+        Either::Right(src) => {
+            // Source range
+            let (src_start, src_end) = bounds(rest, "vector-copy!", 5, src)?;
+
+            let dest_ptr = dest.strong_ptr();
+            let dest_guard = &mut dest_ptr.write().value;
+
+            if dest_start > dest_guard.len() {
+                stop!(Generic => "vector-copy!: dest-start must be within the range of the destination vector. Destination vector length: {}, index: {}", dest_guard.len(), dest_start);
+            }
+
+            src.iter()
+                .skip(src_start)
+                .take(src_end - src_start)
+                .zip(dest_guard.iter_mut().skip(dest_start))
+                .for_each(|(src, dest)| {
+                    *dest = src.clone();
+                });
+        }
+    }
+
+    Ok(SteelVal::Void)
+}
+
+#[steel_derive::function(name = "vector-fill!")]
+pub fn vector_fill(
+    vec: &HeapRef<Vec<SteelVal>>,
+    element: SteelVal,
+    rest: RestArgsIter<'_, isize>,
+) -> Result<SteelVal> {
+    let ptr = vec.strong_ptr();
+    let guard = &mut ptr.write().value;
+
+    let (start, end) = bounds_mut(rest, "vector-fill", 4, guard)?;
+
+    guard
+        .iter_mut()
+        .skip(start)
+        .take(end - start)
+        .for_each(|x| *x = element.clone());
+
+    Ok(SteelVal::Void)
+}
+
 #[steel_derive::function(name = "mutable-vector->list")]
 pub fn mut_vec_to_list(
     vec: &HeapRef<Vec<SteelVal>>,

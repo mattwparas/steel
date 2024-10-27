@@ -694,68 +694,76 @@
 (check-equal? "vector-append, empty list" #() (vector-append #()))
 (check-equal? "vector-append, empty lists" #() (vector-append #() #()))
 (check-equal? "vector-append, emtpy plus non-empty" #(a b c) (vector-append #() #(a b c)))
-(check-equal? "vector-append, non-empty plust empty" #(a b c) (vector-append #(a b c) #()))
+(check-equal? "vector-append, non-empty plus empty" #(a b c) (vector-append #(a b c) #()))
 (check-equal? "vector-append" #(a b c d e) (vector-append #(a b c) #(d e)))
 (check-equal? "vector-append, multiple args" #(a b c d e f) (vector-append #(a b c) #(d e) #(f)))
 
-(skip-compile (check-equal? "TODO"
-                            #(1 2 smash smash 5)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-fill! vec 'smash 2 4)
-                              vec)))
-(skip-compile (check-equal? "TODO"
-                            #(x x x x x)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-fill! vec 'x)
-                              vec)))
-(skip-compile (check-equal? "TODO"
-                            #(1 2 x x x)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-fill! vec 'x 2)
-                              vec)))
-(skip-compile (check-equal? "TODO"
-                            #(1 2 x 4 5)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-fill! vec 'x 2 3)
-                              vec)))
+(check-equal? "vector-fill! with range"
+              #(1 2 smash smash 5)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-fill! vec 'smash 2 4)
+                vec))
 
-(skip-compile (check-equal? "TODO"
-                            #(1 a b 4 5)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-copy! vec 1 #(a b c d e) 0 2)
-                              vec)))
-(skip-compile (check-equal? "TODO"
-                            #(a b c d e)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-copy! vec 0 #(a b c d e))
-                              vec)))
-(skip-compile (check-equal? "TODO"
-                            #(c d e 4 5)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-copy! vec 0 #(a b c d e) 2)
-                              vec)))
-(skip-compile (check-equal? "TODO"
-                            #(1 2 a b c)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-copy! vec 2 #(a b c d e) 0 3)
-                              vec)))
-(skip-compile (check-equal? "TODO"
-                            #(1 2 c 4 5)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-copy! vec 2 #(a b c d e) 2 3)
-                              vec)))
+(check-equal? "vector-fill! the whole range"
+              #(x x x x x)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-fill! vec 'x)
+                vec))
+
+(check-equal? "vector-fill! with starting offset"
+              #(1 2 x x x)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-fill! vec 'x 2)
+                vec))
+
+(check-equal? "vector-fill! with smaller range"
+              #(1 2 x 4 5)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-fill! vec 'x 2 3)
+                vec))
+
+(check-equal? "vector-copy! with range"
+              #(1 a b 4 5)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-copy! vec 1 #(a b c d e) 0 2)
+                vec))
+
+(check-equal? "vector-copy! with full range"
+              #(a b c d e)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-copy! vec 0 #(a b c d e))
+                vec))
+
+(check-equal? "vector-copy! with starting offset"
+              #(c d e 4 5)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-copy! vec 0 #(a b c d e) 2)
+                vec))
+
+(check-equal? "vector-copy! with larger range"
+              #(1 2 a b c)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-copy! vec 2 #(a b c d e) 0 3)
+                vec))
+
+(check-equal? "vector-copy! with smaller range"
+              #(1 2 c 4 5)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-copy! vec 2 #(a b c d e) 2 3)
+                vec))
 
 ; ;; same source and dest
-(skip-compile (check-equal? "TODO"
-                            #(1 1 2 4 5)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-copy! vec 1 vec 0 2)
-                              vec)))
-(skip-compile (check-equal? "TODO"
-                            #(1 2 3 1 2)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-copy! vec 3 vec 0 2)
-                              vec)))
+(check-equal? "vector-copy! same source and destination with offset"
+              #(1 1 2 4 5)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-copy! vec 1 vec 0 2)
+                vec))
+
+(check-equal? "vector-copy! same source and destination"
+              #(1 2 3 1 2)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-copy! vec 3 vec 0 2)
+                vec))
 
 ;; -------------- Report ------------------
 
