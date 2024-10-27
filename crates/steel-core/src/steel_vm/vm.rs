@@ -572,13 +572,19 @@ impl SteelThread {
         let res = finish(self);
 
         if cfg!(feature = "sync") {
-            // Just block here until we're out
+            // Just block here until we're out - this only applies if we're not the main thread and
+            // not in garbage collection
             while self
                 .synchronizer
                 .state
                 .paused
                 .load(std::sync::atomic::Ordering::Relaxed)
             {
+                match self.synchronizer.state.state.load() {
+                    ThreadState::Interrupted => break,
+                    _ => {}
+                }
+
                 std::thread::park();
             }
 
