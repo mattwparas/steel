@@ -524,13 +524,9 @@ pub fn mut_vector_copy(
     src: Either<&HeapRef<Vec<SteelVal>>, &SteelVector>,
     rest: RestArgsIter<'_, isize>,
 ) -> Result<SteelVal> {
-    // TODO: Check if the src and dest are the same
-
     match src {
         Either::Left(src) => {
             if HeapRef::ptr_eq(src, dest) {
-                // let range_to_copy =
-
                 let (src_start, src_end) = {
                     let ptr = src.strong_ptr();
                     let src_guard = &ptr.read().value;
@@ -542,7 +538,8 @@ pub fn mut_vector_copy(
                 let dest_guard = &mut dest_ptr.write().value;
 
                 if dest_start > dest_guard.len() {
-                    stop!(Generic => "vector-copy!: dest-start must be within the range of the destination vector. Destination vector length: {}, index: {}", dest_guard.len(), dest_start);
+                    stop!(Generic => "vector-copy!: dest-start must be within the range of the destination vector. 
+                        Destination vector length: {}, index: {}", dest_guard.len(), dest_start);
                 }
 
                 let temporary_buffer = dest_guard[src_start..src_end].to_vec();
@@ -564,7 +561,8 @@ pub fn mut_vector_copy(
                 let dest_guard = &mut dest_ptr.write().value;
 
                 if dest_start > dest_guard.len() {
-                    stop!(Generic => "vector-copy!: dest-start must be within the range of the destination vector. Destination vector length: {}, index: {}", dest_guard.len(), dest_start);
+                    stop!(Generic => "vector-copy!: dest-start must be within the range of the destination vector. 
+                        Destination vector length: {}, index: {}", dest_guard.len(), dest_start);
                 }
 
                 src_guard
@@ -585,7 +583,8 @@ pub fn mut_vector_copy(
             let dest_guard = &mut dest_ptr.write().value;
 
             if dest_start > dest_guard.len() {
-                stop!(Generic => "vector-copy!: dest-start must be within the range of the destination vector. Destination vector length: {}, index: {}", dest_guard.len(), dest_start);
+                stop!(Generic => "vector-copy!: dest-start must be within the range of the destination vector. 
+                    Destination vector length: {}, index: {}", dest_guard.len(), dest_start);
             }
 
             src.iter()
