@@ -121,6 +121,13 @@ jobs:
           command: test
           args: --all steel-core/sync
 
+      - name: Install shared libraries
+        env:
+          STEEL_HOME: ${{ env.STEEL_HOME }}
+        run: |
+          cd cogs/
+          cargo run -- install.scm ../contrib/slack
+
   redox-build:
     name: redox build
     runs-on: ubuntu-latest
