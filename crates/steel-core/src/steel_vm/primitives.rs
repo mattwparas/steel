@@ -858,6 +858,7 @@ fn vector_module() -> BuiltInModule {
         .register_value("push", VectorOperations::vec_push())
         .register_value("range-vec", VectorOperations::vec_range())
         .register_value("vec-append", VectorOperations::vec_append())
+        // TODO: This has to be cleaned up
         .register_value("vector-ref", VectorOperations::vec_ref())
         .register_native_fn_definition(MUTABLE_VECTOR_CLEAR_DEFINITION)
         .register_native_fn_definition(MUTABLE_VECTOR_TO_STRING_DEFINITION)
