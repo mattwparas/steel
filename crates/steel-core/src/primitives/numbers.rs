@@ -1224,6 +1224,14 @@ fn multiply_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
             let y = SteelComplex::new(y.clone(), SteelVal::IntV(0));
             multiply_complex(x, &y)
         }
+        (SteelVal::BigRational(x), SteelVal::Rational(y)) => {
+            let mut res = BigRational::new(
+                BigInt::from(x.numer().clone()),
+                BigInt::from(x.denom().clone()),
+            );
+            res *= BigRational::new(BigInt::from(*y.numer()), BigInt::from(*y.denom()));
+            res.into_steelval()
+        }
         _ => unreachable!(),
     }
 }
@@ -1364,14 +1372,6 @@ pub fn add_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
         (SteelVal::Complex(x), y) | (y, SteelVal::Complex(x)) => {
             debug_assert!(realp(y));
             add_complex(x, &SteelComplex::new(y.clone(), SteelVal::IntV(0)))
-        }
-        (SteelVal::BigRational(x), SteelVal::Rational(y)) => {
-            let mut res = BigRational::new(
-                BigInt::from(x.numer().clone()),
-                BigInt::from(x.denom().clone()),
-            );
-            res *= BigRational::new(BigInt::from(*y.numer()), BigInt::from(*y.denom()));
-            res.into_steelval()
         }
         _ => unreachable!(),
     }
