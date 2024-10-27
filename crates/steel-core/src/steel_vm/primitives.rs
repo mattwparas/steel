@@ -1065,6 +1065,7 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(numbers::CEILING_DEFINITION)
         .register_native_fn_definition(numbers::DENOMINATOR_DEFINITION)
         .register_native_fn_definition(numbers::EXACTP_DEFINITION)
+        .register_native_fn_definition(numbers::EXACT_DEFINITION)
         .register_native_fn_definition(numbers::EXACT_TO_INEXACT_DEFINITION)
         .register_native_fn_definition(numbers::EXACT_INTEGER_SQRT_DEFINITION)
         .register_native_fn_definition(numbers::EXPT_DEFINITION)
@@ -1083,7 +1084,12 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(numbers::ROUND_DEFINITION)
         .register_native_fn_definition(numbers::SQUARE_DEFINITION)
         .register_native_fn_definition(numbers::SQRT_DEFINITION)
-        .register_native_fn_definition(numbers::SIN_DEFINITION);
+        .register_native_fn_definition(numbers::SIN_DEFINITION)
+        .register_native_fn_definition(numbers::COS_DEFINITION)
+        .register_native_fn_definition(numbers::TAN_DEFINITION)
+        .register_native_fn_definition(numbers::ASIN_DEFINITION)
+        .register_native_fn_definition(numbers::ACOS_DEFINITION)
+        .register_native_fn_definition(numbers::ATAN_DEFINITION);
 
     module
 }

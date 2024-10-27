@@ -695,7 +695,7 @@ impl VectorOperations {
                     if let SteelVal::MutableVector(v) = &vec {
                         if let SteelVal::IntV(i) = idx.clone() {
                             if i < 0 {
-                                stop!(Generic => "mut-vector-ref expects a positive integer, found: {:?}", vec);
+                                stop!(Generic => "vector-ref expects a positive integer, found: {:?}", vec);
                             }
 
                             let ptr = v.strong_ptr();
@@ -709,7 +709,7 @@ impl VectorOperations {
                             // Grab the value out of the vector
                             return Ok(guard[i as usize].clone());
                         } else {
-                            stop!(TypeMismatch => "mut-vector-ref expects an integer, found: {:?}", idx);
+                            stop!(TypeMismatch => "vector-ref expects an integer, found: {:?}", idx);
                         }
                     }
 

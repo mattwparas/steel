@@ -1,9 +1,9 @@
 use crate::rvals::{IntoSteelVal, Result, SteelComplex, SteelVal};
 use crate::{steelerr, stop};
+use num::Zero;
 use num::{
     pow::Pow, BigInt, BigRational, CheckedAdd, CheckedMul, Integer, Rational32, Signed, ToPrimitive,
 };
-use num::{Float, Zero};
 use std::ops::Neg;
 
 /// Checks if the given value is a number
@@ -410,7 +410,67 @@ pub fn sin(arg: &SteelVal) -> Result<SteelVal> {
         SteelVal::BigNum(i) => i.to_f64().unwrap().sin(),
         SteelVal::NumV(n) => n.sin(),
         SteelVal::Rational(r) => (*r.numer() as f32 / *r.denom() as f32).sin() as f64,
-        _ => todo!(),
+        _ => stop!(TypeMismatch => "sin expects a number, found: {}", arg),
+    }
+    .into_steelval()
+}
+
+#[steel_derive::function(name = "cos", constant = true)]
+pub fn cos(arg: &SteelVal) -> Result<SteelVal> {
+    match arg {
+        SteelVal::IntV(i) => (*i as f64).cos(),
+        SteelVal::BigNum(i) => i.to_f64().unwrap().cos(),
+        SteelVal::NumV(n) => n.cos(),
+        SteelVal::Rational(r) => (*r.numer() as f32 / *r.denom() as f32).cos() as f64,
+        _ => stop!(TypeMismatch => "cos expects a number, found: {}", arg),
+    }
+    .into_steelval()
+}
+
+#[steel_derive::function(name = "tan", constant = true)]
+pub fn tan(arg: &SteelVal) -> Result<SteelVal> {
+    match arg {
+        SteelVal::IntV(i) => (*i as f64).tan(),
+        SteelVal::BigNum(i) => i.to_f64().unwrap().tan(),
+        SteelVal::NumV(n) => n.tan(),
+        SteelVal::Rational(r) => (*r.numer() as f32 / *r.denom() as f32).tan() as f64,
+        _ => stop!(TypeMismatch => "tan expects a number, found: {}", arg),
+    }
+    .into_steelval()
+}
+
+#[steel_derive::function(name = "asin", constant = true)]
+pub fn asin(arg: &SteelVal) -> Result<SteelVal> {
+    match arg {
+        SteelVal::IntV(i) => (*i as f64).asin(),
+        SteelVal::BigNum(i) => i.to_f64().unwrap().asin(),
+        SteelVal::NumV(n) => n.asin(),
+        SteelVal::Rational(r) => (*r.numer() as f32 / *r.denom() as f32).asin() as f64,
+        _ => stop!(TypeMismatch => "asin expects a number, found: {}", arg),
+    }
+    .into_steelval()
+}
+
+#[steel_derive::function(name = "acos", constant = true)]
+pub fn acos(arg: &SteelVal) -> Result<SteelVal> {
+    match arg {
+        SteelVal::IntV(i) => (*i as f64).acos(),
+        SteelVal::BigNum(i) => i.to_f64().unwrap().acos(),
+        SteelVal::NumV(n) => n.acos(),
+        SteelVal::Rational(r) => (*r.numer() as f32 / *r.denom() as f32).acos() as f64,
+        _ => stop!(TypeMismatch => "acos expects a number, found: {}", arg),
+    }
+    .into_steelval()
+}
+
+#[steel_derive::function(name = "atan", constant = true)]
+pub fn atan(arg: &SteelVal) -> Result<SteelVal> {
+    match arg {
+        SteelVal::IntV(i) => (*i as f64).atan(),
+        SteelVal::BigNum(i) => i.to_f64().unwrap().atan(),
+        SteelVal::NumV(n) => n.atan(),
+        SteelVal::Rational(r) => (*r.numer() as f32 / *r.denom() as f32).atan() as f64,
+        _ => stop!(TypeMismatch => "atan expects a number, found: {}", arg),
     }
     .into_steelval()
 }
@@ -483,6 +543,18 @@ pub fn exactp(value: &SteelVal) -> bool {
         | SteelVal::BigRational(_) => true,
         SteelVal::Complex(x) => exactp(&x.re) && exactp(&x.im),
         _ => false,
+    }
+}
+
+#[steel_derive::function(name = "exact", constant = true)]
+pub fn exact(value: &SteelVal) -> Result<SteelVal> {
+    match value {
+        SteelVal::IntV(_)
+        | SteelVal::BigNum(_)
+        | SteelVal::Rational(_)
+        | SteelVal::BigRational(_) => Ok(value.clone()),
+        SteelVal::NumV(n) if n.fract() == 0.0 => Ok(SteelVal::IntV(*n as isize)),
+        _ => stop!(Generic => "unable to convert to exact number: {}", value),
     }
 }
 

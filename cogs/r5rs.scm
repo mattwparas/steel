@@ -659,11 +659,10 @@
 (check-equal? "vector constructor" #(a b c) (vector 'a 'b 'c))
 
 (check-equal? "vector ref" 8 (vector-ref '#(1 1 2 3 5 8 13 21) 5))
-(skip-compile (check-equal? "TODO"
-                            13
-                            (vector-ref '#(1 1 2 3 5 8 13 21)
-                                        (let ([i (round (* 2 (acos -1)))])
-                                          (if (inexact? i) (exact i) i)))))
+(check-equal? "vector-ref with acos"
+              13
+              (vector-ref '#(1 1 2 3 5 8 13 21)
+                          (let ([i (round (* 2 (acos -1)))]) (if (inexact? i) (exact i) i))))
 
 (check-equal? "vector-set! with mutable vector"
               #(0 ("Sue" "Sue") "Anna")
