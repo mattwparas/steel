@@ -2064,10 +2064,6 @@ impl<'a> VmCore<'a> {
             // Otherwise, we're going to be copying the instruction _every_ time we iterate which is going to slow down the loop
             // We'd rather just reference the instruction and call it a day
 
-            if self.ip >= self.instructions.len() {
-                pretty_print_dense_instructions(&self.instructions);
-            }
-
             let instr = self.instructions[self.ip];
 
             match instr {
