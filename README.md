@@ -12,7 +12,7 @@ An embeddable and extensible scheme dialect built in Rust.
 ![Actions Status](https://github.com/mattwparas/steel/workflows/Docker%20CI/badge.svg)
 [![Coverage Status](https://coveralls.io/repos/github/mattwparas/steel/badge.svg?branch=master)](https://coveralls.io/github/mattwparas/steel?branch=master)
 [![Discord Chat](https://img.shields.io/discord/1152443024715034675.svg?logo=discord&label=discord)](https://discord.gg/WwFRXdN6HU)
-[![Matrix Chat](https://img.shields.io/matrix/steel:matrix.org)](https://matrix.to/#/#steel:matrix.org)
+[![Matrix Chat](https://img.shields.io/matrix/steel:matrix.org?label=matrix)](https://matrix.to/#/#steel:matrix.org)
 
 <a href="https://mattwparas.github.io/steel-playground/dev">
     <b>Try it on the Playground</b>
