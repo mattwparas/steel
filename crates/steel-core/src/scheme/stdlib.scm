@@ -539,9 +539,15 @@
 (define mem-helper
   (lambda (pred op) (lambda (acc next) (if (and (not acc) (pred (op next))) next acc))))
 
-; (define memq (lambda (obj lst)       (fold (mem-helper (curry eq? obj) id) #f lst)))
 ; (define memv (lambda (obj lst)       (fold (mem-helper (curry eqv? obj) id) #f lst)))
 ; (define member (lambda (obj lst) (fold (mem-helper (curry equal? obj) id) #f lst)))
+
+(define memq
+  (lambda (x los)
+    (cond
+      [(null? los) #f]
+      [(eq? x (car los)) los]
+      [else (memq x (cdr los))])))
 
 (define member
   (lambda (x los)

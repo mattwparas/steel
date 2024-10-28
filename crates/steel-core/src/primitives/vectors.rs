@@ -542,6 +542,7 @@ pub fn mut_vector_copy(
                         Destination vector length: {}, index: {}", dest_guard.len(), dest_start);
                 }
 
+                // TODO: Try better to avoid this allocation
                 let temporary_buffer = dest_guard[src_start..src_end].to_vec();
 
                 dest_guard

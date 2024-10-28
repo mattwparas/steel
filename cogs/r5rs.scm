@@ -243,9 +243,11 @@
 
 (check-equal? "numeric equality with float and float" #t (= 1.0 1.0))
 
-(skip-compile (check-equal #f (eqv? 2 2.0))
-              ;; TODO: Add make-vector function
-              (check-equal #t (equal? (make-vector 5 'a) (make-vector 5 'a))))
+(skip-compile (check-equal #f (eqv? 2 2.0)))
+
+(check-equal? "make-vector yields equivalent vectors"
+              #t
+              (equal? (make-vector 5 'a) (make-vector 5 'a)))
 
 (check-equal? "max over ints" 4 (max 3 4))
 
@@ -382,10 +384,10 @@
 
 (check-equal? "simple list-ref" 'c (list-ref '(a b c d) 2))
 
-(skip-compile (check-equal '(a b c) (memq 'a '(a b c)))
-              (check-equal '(b c) (memq 'b '(a b c)))
-              (check-equal #f (memq 'a '(b c d)))
-              (check-equal #f (memq (list 'a) '(b (a) c))))
+(check-equal? "memq with symbosl" '(a b c) (memq 'a '(a b c)))
+(check-equal? "memq with symbols second element" '(b c) (memq 'b '(a b c)))
+(check-equal? "memq no match" #f (memq 'a '(b c d)))
+(check-equal? "memq with list not matching constant list" #f (memq (list 'a) '(b (a) c)))
 
 (check-equal? "simple member" '((a) c) (member (list 'a) '(b (a) c)))
 
