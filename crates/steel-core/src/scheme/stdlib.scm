@@ -563,18 +563,13 @@
     [(pred? (car lst)) #t]
     [else (contains? pred? (cdr lst))]))
 
-;; TODO come back to this
-(define assq (lambda (obj alist) (fold (mem-helper (curry eq? obj) car) #f alist)))
-
 ;; (define assv (lambda (obj alist)     (fold (mem-helper (curry eqv? obj) car) #f alist)))
-; (define assoc (lambda (obj alist) (fold (mem-helper (curry equal? obj) car) #f alist)))
-
-; (define assoc )
 
 (define (assoc thing alist)
-  ; (simple-displayln "Calling assoc")
-  ; (simple-displayln alist)
   (if (null? alist) #f (if (equal? (car (car alist)) thing) (car alist) (assoc thing (cdr alist)))))
+
+(define (assq thing alist)
+  (if (null? alist) #f (if (eq? (car (car alist)) thing) (car alist) (assq thing (cdr alist)))))
 
 ;;@doc
 ;; Returns new list, keeping elements from `lst` which applying `pred` to the element

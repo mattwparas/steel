@@ -112,8 +112,7 @@
 
 (check-equal? "or true on the first, second not true" #t (or (= 2 2) (< 2 1)))
 
-;; TODO
-(skip-compile (check-equal? '(b c) (or (memq 'b '(a b c)) (/ 3 0))))
+(check-equal? "memq with lists" '(b c) (or (memq 'b '(a b c)) (/ 3 0)))
 
 (check-equal? "basic let"
               6
@@ -391,8 +390,9 @@
 
 (check-equal? "simple member" '((a) c) (member (list 'a) '(b (a) c)))
 
+(check-equal? "assq with no match" #f (assq (list 'a) '(((a)) ((b)) ((c)))))
+
 (skip-compile (check-equal '(101 102) (memv 101 '(100 101 102)))
-              (check-equal #f (assq (list 'a) '(((a)) ((b)) ((c)))))
               (check-equal '(5 7) (assv 5 '((2 3) (5 7) (11 13)))))
 
 (check-equal? "assoc" '((a)) (assoc (list 'a) '(((a)) ((b)) ((c)))))
@@ -498,10 +498,11 @@
 
 (check-equal? "string-append with two non empty strings" "abc" (string-append "a" "bc"))
 
-(skip-compile (check-equal '#(0 ("Sue" "Sue") "Anna")
-                           (let ([vec (vector 0 '(2 2 2 2) "Anna")])
-                             (vector-set! vec 1 '("Sue" "Sue"))
-                             vec)))
+(check-equal? "vector-set! with list"
+              '#(0 ("Sue" "Sue") "Anna")
+              (let ([vec (vector 0 '(2 2 2 2) "Anna")])
+                (vector-set! vec 1 '("Sue" "Sue"))
+                vec))
 
 (check-equal? "vector->list with constants" '(dah dah didah) (vector->list '#(dah dah didah)))
 (check-equal? "list->vector with constants" '#(dididit dah) (list->vector '(dididit dah)))
