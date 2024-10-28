@@ -194,13 +194,12 @@
 
 (check-equal? "named quasiquote" '(list 3 4) (quasiquote (list (unquote (+ 1 2)) 4)))
 
-;; TODO: Add eqv?
-(skip-compile (check-equal? #t (eqv? 'a 'a))
-              (check-equal #f (eqv? 'a 'b))
-              (check-equal #t (eqv? '() '()))
-              (check-equal #f (eqv? (cons 1 2) (cons 1 2)))
-              (check-equal #f (eqv? (lambda () 1) (lambda () 2)))
-              (check-equal #t (let ([p (lambda (x) x)]) (eqv? p p))))
+(check-equal? "eqv? interned symbols" #t (eqv? 'a 'a))
+(check-equal? "eqv? different interned symbols" #f (eqv? 'a 'b))
+(check-equal? "eqv? constant lists" #t (eqv? '() '()))
+(check-equal? "eqv? with runtime allocated cons cells" #f (eqv? (cons 1 2) (cons 1 2)))
+(check-equal? "eqv? runtime allocated functions" #f (eqv? (lambda () 1) (lambda () 2)))
+(check-equal? "eqv? same function" #t (let ([p (lambda (x) x)]) (eqv? p p)))
 
 (check-equal? "Symbols are interned" #t (eq? 'a 'a))
 
@@ -242,7 +241,7 @@
 
 (check-equal? "numeric equality with float and float" #t (= 1.0 1.0))
 
-(skip-compile (check-equal #f (eqv? 2 2.0)))
+(check-equal? "eqv? false with different numbers" #f (eqv? 2 2.0))
 
 (check-equal? "make-vector yields equivalent vectors"
               #t
@@ -392,8 +391,8 @@
 
 (check-equal? "assq with no match" #f (assq (list 'a) '(((a)) ((b)) ((c)))))
 
-(skip-compile (check-equal '(101 102) (memv 101 '(100 101 102)))
-              (check-equal '(5 7) (assv 5 '((2 3) (5 7) (11 13)))))
+(check-equal? "memv with a match" '(101 102) (memv 101 '(100 101 102)))
+(check-equal? "assv with a match" '(5 7) (assv 5 '((2 3) (5 7) (11 13))))
 
 (check-equal? "assoc" '((a)) (assoc (list 'a) '(((a)) ((b)) ((c)))))
 
@@ -613,7 +612,6 @@
                      (set! y 3)
                      (list x y))))))
 
-; (skip-compile
 (check-equal? "Dynamic wind"
               '(a b c)
               (let* ([path '()]

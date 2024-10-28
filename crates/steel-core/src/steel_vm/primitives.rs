@@ -1134,7 +1134,12 @@ fn equality_module() -> BuiltInModule {
             "equal?",
             SteelVal::FuncV(ensure_tonicity_two!(|a, b| a == b)),
         )
-        .register_value("eqv?", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a == b)))
+        .register_value(
+            "eqv?",
+            SteelVal::FuncV(ensure_tonicity_two!(
+                |a: &SteelVal, b: &SteelVal| a.ptr_eq(b)
+            )),
+        )
         .register_value(
             "eq?",
             SteelVal::FuncV(ensure_tonicity_two!(

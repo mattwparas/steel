@@ -539,15 +539,19 @@
 (define mem-helper
   (lambda (pred op) (lambda (acc next) (if (and (not acc) (pred (op next))) next acc))))
 
-; (define memv (lambda (obj lst)       (fold (mem-helper (curry eqv? obj) id) #f lst)))
-; (define member (lambda (obj lst) (fold (mem-helper (curry equal? obj) id) #f lst)))
-
 (define memq
   (lambda (x los)
     (cond
       [(null? los) #f]
       [(eq? x (car los)) los]
       [else (memq x (cdr los))])))
+
+(define memv
+  (lambda (x los)
+    (cond
+      [(null? los) #f]
+      [(eqv? x (car los)) los]
+      [else (memv x (cdr los))])))
 
 (define member
   (lambda (x los)
@@ -557,19 +561,19 @@
       [else (member x (cdr los))])))
 
 (define (contains? pred? lst)
-  ; (displayln lst)
   (cond
     [(empty? lst) #f]
     [(pred? (car lst)) #t]
     [else (contains? pred? (cdr lst))]))
-
-;; (define assv (lambda (obj alist)     (fold (mem-helper (curry eqv? obj) car) #f alist)))
 
 (define (assoc thing alist)
   (if (null? alist) #f (if (equal? (car (car alist)) thing) (car alist) (assoc thing (cdr alist)))))
 
 (define (assq thing alist)
   (if (null? alist) #f (if (eq? (car (car alist)) thing) (car alist) (assq thing (cdr alist)))))
+
+(define (assv thing alist)
+  (if (null? alist) #f (if (eq? (car (car alist)) thing) (car alist) (assv thing (cdr alist)))))
 
 ;;@doc
 ;; Returns new list, keeping elements from `lst` which applying `pred` to the element
