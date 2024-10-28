@@ -34,9 +34,10 @@ use crate::{
         vectors::{
             immutable_vectors_module, IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION,
             MAKE_VECTOR_DEFINITION, MUTABLE_VECTOR_CLEAR_DEFINITION, MUTABLE_VECTOR_POP_DEFINITION,
-            MUTABLE_VECTOR_TO_STRING_DEFINITION, MUT_VEC_CONSTRUCT_DEFINITION,
+            MUTABLE_VECTOR_TO_STRING_DEFINITION, MUT_VECTOR_COPY_DEFINITION,
+            MUT_VEC_CONSTRUCT_DEFINITION, MUT_VEC_CONSTRUCT_VEC_DEFINITION,
             MUT_VEC_LENGTH_DEFINITION, MUT_VEC_SET_DEFINITION, MUT_VEC_TO_LIST_DEFINITION,
-            VEC_LENGTH_DEFINITION,
+            VECTOR_FILL_DEFINITION, VEC_LENGTH_DEFINITION,
         },
         ControlOperations, IoFunctions, MetaOperations, NumOperations, StreamOperations,
         SymbolOperations, VectorOperations,
@@ -620,6 +621,7 @@ pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::n
     set.insert("%-builtin-module-steel/lists".into());
     set.insert("%-builtin-module-steel/strings".into());
     set.insert("%-builtin-module-steel/vectors".into());
+    set.insert("%-builtin-module-steel/immutable-vectors".into());
     set.insert("%-builtin-module-steel/streams".into());
     set.insert("%-builtin-module-steel/identity".into());
     set.insert("%-builtin-module-steel/numbers".into());
@@ -735,6 +737,7 @@ pub static ALL_MODULES: &str = r#"
     (require-builtin steel/strings)
     (require-builtin steel/symbols)
     (require-builtin steel/vectors)
+    (require-builtin steel/immutable-vectors)
     (require-builtin steel/streams)
     (require-builtin steel/identity)
     (require-builtin steel/numbers)
@@ -761,6 +764,7 @@ pub static ALL_MODULES: &str = r#"
     (require-builtin steel/strings as #%prim.)
     (require-builtin steel/symbols as #%prim.)
     (require-builtin steel/vectors as #%prim.)
+    (require-builtin steel/immutable-vectors as #%prim.)
     (require-builtin steel/streams as #%prim.)
     (require-builtin steel/identity as #%prim.)
     (require-builtin steel/numbers as #%prim.)
@@ -789,6 +793,7 @@ pub static ALL_MODULES_RESERVED: &str = r#"
     (require-builtin steel/strings as #%prim.)
     (require-builtin steel/symbols as #%prim.)
     (require-builtin steel/vectors as #%prim.)
+    (require-builtin steel/immutable-vectors as #%prim.)
     (require-builtin steel/streams as #%prim.)
     (require-builtin steel/identity as #%prim.)
     (require-builtin steel/numbers as #%prim.)
@@ -817,6 +822,7 @@ pub static SANDBOXED_MODULES: &str = r#"
     (require-builtin steel/strings)
     (require-builtin steel/symbols)
     (require-builtin steel/vectors)
+    (require-builtin steel/immutable-vectors)
     (require-builtin steel/streams)
     (require-builtin steel/identity)
     (require-builtin steel/numbers)
@@ -835,8 +841,11 @@ fn vector_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/vectors");
     module
         .register_native_fn_definition(MUT_VEC_CONSTRUCT_DEFINITION)
+        .register_native_fn_definition(MUT_VEC_CONSTRUCT_VEC_DEFINITION)
         .register_native_fn_definition(MAKE_VECTOR_DEFINITION)
         .register_native_fn_definition(MUT_VEC_TO_LIST_DEFINITION)
+        .register_native_fn_definition(VECTOR_FILL_DEFINITION)
+        .register_native_fn_definition(MUT_VECTOR_COPY_DEFINITION)
         .register_value("vector-push!", VectorOperations::mut_vec_push())
         .register_native_fn_definition(MUT_VEC_LENGTH_DEFINITION)
         .register_native_fn_definition(VEC_LENGTH_DEFINITION)
@@ -852,6 +861,7 @@ fn vector_module() -> BuiltInModule {
         .register_value("push", VectorOperations::vec_push())
         .register_value("range-vec", VectorOperations::vec_range())
         .register_value("vec-append", VectorOperations::vec_append())
+        // TODO: This has to be cleaned up
         .register_value("vector-ref", VectorOperations::vec_ref())
         .register_native_fn_definition(MUTABLE_VECTOR_CLEAR_DEFINITION)
         .register_native_fn_definition(MUTABLE_VECTOR_TO_STRING_DEFINITION)
@@ -876,7 +886,7 @@ fn listp(value: &SteelVal) -> bool {
 
 #[steel_derive::function(name = "vector?", constant = true)]
 fn vectorp(value: &SteelVal) -> bool {
-    matches!(value, SteelVal::VectorV(_))
+    matches!(value, SteelVal::VectorV(_) | SteelVal::MutableVector(_))
 }
 
 #[steel_derive::function(name = "symbol?", constant = true)]
@@ -1001,6 +1011,7 @@ fn identity_module() -> BuiltInModule {
         .register_native_fn_definition(PRIVATE_STRUCTP_DEFINITION)
         .register_native_fn_definition(ERROR_OBJECTP_DEFINITION)
         .register_value("mutable-vector?", gen_pred!(MutableVector))
+        .register_value("immutable-vector?", gen_pred!(VectorV))
         .register_value("char?", gen_pred!(CharV))
         .register_value("future?", gen_pred!(FutureV))
         .register_native_fn_definition(FUNCTIONP_DEFINITION)
@@ -1057,6 +1068,7 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(numbers::CEILING_DEFINITION)
         .register_native_fn_definition(numbers::DENOMINATOR_DEFINITION)
         .register_native_fn_definition(numbers::EXACTP_DEFINITION)
+        .register_native_fn_definition(numbers::EXACT_DEFINITION)
         .register_native_fn_definition(numbers::EXACT_TO_INEXACT_DEFINITION)
         .register_native_fn_definition(numbers::EXACT_INTEGER_SQRT_DEFINITION)
         .register_native_fn_definition(numbers::EXPT_DEFINITION)
@@ -1071,9 +1083,16 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(numbers::NUMERATOR_DEFINITION)
         .register_native_fn_definition(numbers::QUOTIENT_DEFINITION)
         .register_native_fn_definition(numbers::MODULO_DEFINITION)
+        .register_native_fn_definition(numbers::REMAINDER_DEFINITION)
         .register_native_fn_definition(numbers::ROUND_DEFINITION)
         .register_native_fn_definition(numbers::SQUARE_DEFINITION)
-        .register_native_fn_definition(numbers::SQRT_DEFINITION);
+        .register_native_fn_definition(numbers::SQRT_DEFINITION)
+        .register_native_fn_definition(numbers::SIN_DEFINITION)
+        .register_native_fn_definition(numbers::COS_DEFINITION)
+        .register_native_fn_definition(numbers::TAN_DEFINITION)
+        .register_native_fn_definition(numbers::ASIN_DEFINITION)
+        .register_native_fn_definition(numbers::ACOS_DEFINITION)
+        .register_native_fn_definition(numbers::ATAN_DEFINITION);
 
     module
 }

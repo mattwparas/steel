@@ -112,8 +112,7 @@
 
 (check-equal? "or true on the first, second not true" #t (or (= 2 2) (< 2 1)))
 
-;; TODO
-(skip-compile (check-equal? '(b c) (or (memq 'b '(a b c)) (/ 3 0))))
+(check-equal? "memq with lists" '(b c) (or (memq 'b '(a b c)) (/ 3 0)))
 
 (check-equal? "basic let"
               6
@@ -152,12 +151,12 @@
   #f)
 (check-equal? "Redefine top level with interior define, stays the same" 1 let*-def)
 
-;; TODO: `do` macro
-(skip-compile
- (check-equal '#(0 1 2 3 4)
+(check-equal? "do macro with vec"
+              '#(0 1 2 3 4)
               (do ((vec (make-vector 5)) (i 0 (+ i 1))) ((= i 5) vec) (vector-set! vec i i)))
- (check-equal 25
-              (let ([x '(1 3 5 7 9)]) (do ((x x (cdr x)) (sum 0 (+ sum (car x)))) ((null? x) sum)))))
+(check-equal? "do macro with list"
+              25
+              (let ([x '(1 3 5 7 9)]) (do ((x x (cdr x)) (sum 0 (+ sum (car x)))) ((null? x) sum))))
 
 (check-equal? "named let"
               '((6 1 3) (-5 -2))
@@ -243,9 +242,11 @@
 
 (check-equal? "numeric equality with float and float" #t (= 1.0 1.0))
 
-(skip-compile (check-equal #f (eqv? 2 2.0))
-              ;; TODO: Add make-vector function
-              (check-equal #t (equal? (make-vector 5 'a) (make-vector 5 'a))))
+(skip-compile (check-equal #f (eqv? 2 2.0)))
+
+(check-equal? "make-vector yields equivalent vectors"
+              #t
+              (equal? (make-vector 5 'a) (make-vector 5 'a)))
 
 (check-equal? "max over ints" 4 (max 3 4))
 
@@ -299,12 +300,13 @@
 (check-equal? "modulo positive and negative" -3 (modulo 13 -4))
 (check-equal? "modulo both negative" -1 (modulo -13 -4))
 
-(skip-compile (check-equal 1 (remainder 13 4))
-              (check-equal -1 (remainder -13 4))
-              (check-equal 1 (remainder 13 -4))
-              (check-equal -1 (remainder -13 -4))
-              (check-equal 4 (gcd 32 -36))
-              (check-equal 288 (lcm 32 -36)))
+(check-equal? "Remainder with positive numbers" 1 (remainder 13 4))
+(check-equal? "Remainder with negative and positive" -1 (remainder -13 4))
+(check-equal? "Remainder with positive and negative" 1 (remainder 13 -4))
+(check-equal? "Remainder with negative numbers" -1 (remainder -13 -4))
+
+(check-equal? "GCD with negative number" 4 (gcd 32 -36))
+(check-equal? "LCM with negative number" 288 (lcm 32 -36))
 
 (check-equal? "integers are truthy" #f (not 3))
 
@@ -381,15 +383,16 @@
 
 (check-equal? "simple list-ref" 'c (list-ref '(a b c d) 2))
 
-(skip-compile (check-equal '(a b c) (memq 'a '(a b c)))
-              (check-equal '(b c) (memq 'b '(a b c)))
-              (check-equal #f (memq 'a '(b c d)))
-              (check-equal #f (memq (list 'a) '(b (a) c))))
+(check-equal? "memq with symbosl" '(a b c) (memq 'a '(a b c)))
+(check-equal? "memq with symbols second element" '(b c) (memq 'b '(a b c)))
+(check-equal? "memq no match" #f (memq 'a '(b c d)))
+(check-equal? "memq with list not matching constant list" #f (memq (list 'a) '(b (a) c)))
 
 (check-equal? "simple member" '((a) c) (member (list 'a) '(b (a) c)))
 
+(check-equal? "assq with no match" #f (assq (list 'a) '(((a)) ((b)) ((c)))))
+
 (skip-compile (check-equal '(101 102) (memv 101 '(100 101 102)))
-              (check-equal #f (assq (list 'a) '(((a)) ((b)) ((c)))))
               (check-equal '(5 7) (assv 5 '((2 3) (5 7) (11 13)))))
 
 (check-equal? "assoc" '((a)) (assoc (list 'a) '(((a)) ((b)) ((c)))))
@@ -495,12 +498,14 @@
 
 (check-equal? "string-append with two non empty strings" "abc" (string-append "a" "bc"))
 
-(skip-compile (check-equal '#(0 ("Sue" "Sue") "Anna")
-                           (let ([vec (vector 0 '(2 2 2 2) "Anna")])
-                             (vector-set! vec 1 '("Sue" "Sue"))
-                             vec))
-              (check-equal '(dah dah didah) (vector->list '#(dah dah didah)))
-              (check-equal '#(dididit dah) (list->vector '(dididit dah))))
+(check-equal? "vector-set! with list"
+              '#(0 ("Sue" "Sue") "Anna")
+              (let ([vec (vector 0 '(2 2 2 2) "Anna")])
+                (vector-set! vec 1 '("Sue" "Sue"))
+                vec))
+
+(check-equal? "vector->list with constants" '(dah dah didah) (vector->list '#(dah dah didah)))
+(check-equal? "list->vector with constants" '#(dididit dah) (list->vector '(dididit dah)))
 
 (check-equal? "function correctly identified as a procedure" #t (procedure? car))
 
@@ -538,10 +543,11 @@
               '(3 3)
               (let ([p (delay (+ 1 2))]) (list (force p) (force p))))
 
-(skip-compile (check-equal '#(0 1 4 9 16)
-                           (let ([v (make-vector 5)])
-                             (for-each (lambda (i) (vector-set! v i (* i i))) '(0 1 2 3 4))
-                             v)))
+(check-equal? "make-vector makes mutable vector with for each"
+              '#(0 1 4 9 16)
+              (let ([v (make-vector 5)])
+                (for-each (lambda (i) (vector-set! v i (* i i))) '(0 1 2 3 4))
+                v))
 
 (check-equal? "using else as a variable"
               'ok
@@ -643,11 +649,6 @@
 
 ;; vectors
 
-(define vector->list immutable-vector->list)
-(define vector->string immutable-vector->string)
-(define vector-copy immutable-vector-copy)
-(define vector-append immutable-vector-append)
-
 (check-equal? "empty vector" #t (vector? #()))
 (check-equal? "vector predicate" #t (vector? #(1 2 3)))
 (check-equal? "vector predicated, quoted" #t (vector? '#(1 2 3)))
@@ -661,17 +662,16 @@
 (check-equal? "vector constructor" #(a b c) (vector 'a 'b 'c))
 
 (check-equal? "vector ref" 8 (vector-ref '#(1 1 2 3 5 8 13 21) 5))
-(skip-compile (check-equal? "TODO"
-                            13
-                            (vector-ref '#(1 1 2 3 5 8 13 21)
-                                        (let ([i (round (* 2 (acos -1)))])
-                                          (if (inexact? i) (exact i) i)))))
+(check-equal? "vector-ref with acos"
+              13
+              (vector-ref '#(1 1 2 3 5 8 13 21)
+                          (let ([i (round (* 2 (acos -1)))]) (if (inexact? i) (exact i) i))))
 
-(skip-compile (check-equal? "TODO"
-                            #(0 ("Sue" "Sue") "Anna")
-                            (let ([vec (vector 0 '(2 2 2 2) "Anna")])
-                              (vector-set! vec 1 '("Sue" "Sue"))
-                              vec)))
+(check-equal? "vector-set! with mutable vector"
+              #(0 ("Sue" "Sue") "Anna")
+              (let ([vec (vector 0 '(2 2 2 2) "Anna")])
+                (vector-set! vec 1 '("Sue" "Sue"))
+                vec))
 
 (check-equal? "vector->list" '(dah dah didah) (vector->list '#(dah dah didah)))
 (check-equal? "vector->list with start" '(dah didah) (vector->list '#(dah dah didah) 1))
@@ -697,68 +697,76 @@
 (check-equal? "vector-append, empty list" #() (vector-append #()))
 (check-equal? "vector-append, empty lists" #() (vector-append #() #()))
 (check-equal? "vector-append, emtpy plus non-empty" #(a b c) (vector-append #() #(a b c)))
-(check-equal? "vector-append, non-empty plust empty" #(a b c) (vector-append #(a b c) #()))
+(check-equal? "vector-append, non-empty plus empty" #(a b c) (vector-append #(a b c) #()))
 (check-equal? "vector-append" #(a b c d e) (vector-append #(a b c) #(d e)))
 (check-equal? "vector-append, multiple args" #(a b c d e f) (vector-append #(a b c) #(d e) #(f)))
 
-(skip-compile (check-equal? "TODO"
-                            #(1 2 smash smash 5)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-fill! vec 'smash 2 4)
-                              vec)))
-(skip-compile (check-equal? "TODO"
-                            #(x x x x x)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-fill! vec 'x)
-                              vec)))
-(skip-compile (check-equal? "TODO"
-                            #(1 2 x x x)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-fill! vec 'x 2)
-                              vec)))
-(skip-compile (check-equal? "TODO"
-                            #(1 2 x 4 5)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-fill! vec 'x 2 3)
-                              vec)))
+(check-equal? "vector-fill! with range"
+              #(1 2 smash smash 5)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-fill! vec 'smash 2 4)
+                vec))
 
-(skip-compile (check-equal? "TODO"
-                            #(1 a b 4 5)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-copy! vec 1 #(a b c d e) 0 2)
-                              vec)))
-(skip-compile (check-equal? "TODO"
-                            #(a b c d e)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-copy! vec 0 #(a b c d e))
-                              vec)))
-(skip-compile (check-equal? "TODO"
-                            #(c d e 4 5)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-copy! vec 0 #(a b c d e) 2)
-                              vec)))
-(skip-compile (check-equal? "TODO"
-                            #(1 2 a b c)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-copy! vec 2 #(a b c d e) 0 3)
-                              vec)))
-(skip-compile (check-equal? "TODO"
-                            #(1 2 c 4 5)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-copy! vec 2 #(a b c d e) 2 3)
-                              vec)))
+(check-equal? "vector-fill! the whole range"
+              #(x x x x x)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-fill! vec 'x)
+                vec))
+
+(check-equal? "vector-fill! with starting offset"
+              #(1 2 x x x)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-fill! vec 'x 2)
+                vec))
+
+(check-equal? "vector-fill! with smaller range"
+              #(1 2 x 4 5)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-fill! vec 'x 2 3)
+                vec))
+
+(check-equal? "vector-copy! with range"
+              #(1 a b 4 5)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-copy! vec 1 #(a b c d e) 0 2)
+                vec))
+
+(check-equal? "vector-copy! with full range"
+              #(a b c d e)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-copy! vec 0 #(a b c d e))
+                vec))
+
+(check-equal? "vector-copy! with starting offset"
+              #(c d e 4 5)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-copy! vec 0 #(a b c d e) 2)
+                vec))
+
+(check-equal? "vector-copy! with larger range"
+              #(1 2 a b c)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-copy! vec 2 #(a b c d e) 0 3)
+                vec))
+
+(check-equal? "vector-copy! with smaller range"
+              #(1 2 c 4 5)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-copy! vec 2 #(a b c d e) 2 3)
+                vec))
 
 ; ;; same source and dest
-(skip-compile (check-equal? "TODO"
-                            #(1 1 2 4 5)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-copy! vec 1 vec 0 2)
-                              vec)))
-(skip-compile (check-equal? "TODO"
-                            #(1 2 3 1 2)
-                            (let ([vec (vector 1 2 3 4 5)])
-                              (vector-copy! vec 3 vec 0 2)
-                              vec)))
+(check-equal? "vector-copy! same source and destination with offset"
+              #(1 1 2 4 5)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-copy! vec 1 vec 0 2)
+                vec))
+
+(check-equal? "vector-copy! same source and destination"
+              #(1 2 3 1 2)
+              (let ([vec (vector 1 2 3 4 5)])
+                (vector-copy! vec 3 vec 0 2)
+                vec))
 
 ;; -------------- Report ------------------
 

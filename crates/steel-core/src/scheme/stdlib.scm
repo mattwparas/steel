@@ -539,9 +539,15 @@
 (define mem-helper
   (lambda (pred op) (lambda (acc next) (if (and (not acc) (pred (op next))) next acc))))
 
-; (define memq (lambda (obj lst)       (fold (mem-helper (curry eq? obj) id) #f lst)))
 ; (define memv (lambda (obj lst)       (fold (mem-helper (curry eqv? obj) id) #f lst)))
 ; (define member (lambda (obj lst) (fold (mem-helper (curry equal? obj) id) #f lst)))
+
+(define memq
+  (lambda (x los)
+    (cond
+      [(null? los) #f]
+      [(eq? x (car los)) los]
+      [else (memq x (cdr los))])))
 
 (define member
   (lambda (x los)
@@ -557,18 +563,13 @@
     [(pred? (car lst)) #t]
     [else (contains? pred? (cdr lst))]))
 
-;; TODO come back to this
-(define assq (lambda (obj alist) (fold (mem-helper (curry eq? obj) car) #f alist)))
-
 ;; (define assv (lambda (obj alist)     (fold (mem-helper (curry eqv? obj) car) #f alist)))
-; (define assoc (lambda (obj alist) (fold (mem-helper (curry equal? obj) car) #f alist)))
-
-; (define assoc )
 
 (define (assoc thing alist)
-  ; (simple-displayln "Calling assoc")
-  ; (simple-displayln alist)
   (if (null? alist) #f (if (equal? (car (car alist)) thing) (car alist) (assoc thing (cdr alist)))))
+
+(define (assq thing alist)
+  (if (null? alist) #f (if (eq? (car (car alist)) thing) (car alist) (assq thing (cdr alist)))))
 
 ;;@doc
 ;; Returns new list, keeping elements from `lst` which applying `pred` to the element
@@ -624,6 +625,30 @@
     [(null? lst) '()]
     [(list? lst) (append (flatten (car lst)) (flatten (cdr lst)))]
     [else (list lst)]))
+
+(define (gcd a b)
+  (cond
+    [(= b 0) (abs a)]
+    [else (gcd b (modulo a b))]))
+
+(define (lcm a b)
+  (if (or (zero? a) (zero? b)) 0 (abs (* b (floor (/ a (gcd a b)))))))
+
+(define (for-each func lst)
+  (if (null? lst)
+      void
+      (begin
+        (func (car lst))
+        (when (null? lst)
+          (return! void))
+        (for-each func (cdr lst)))))
+
+;; TODO: Just make this a built in!
+(define (vector->list v . remaining)
+  (cond
+    [(immutable-vector? v) (apply immutable-vector->list (cons v remaining))]
+    [(mutable-vector? v) (apply mutable-vector->list (cons v remaining))]
+    [else (error "vector->list expects a vector, found: " v)]))
 
 ;;; Macros go here:
 

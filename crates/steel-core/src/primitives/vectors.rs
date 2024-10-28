@@ -1,5 +1,6 @@
 use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;
+use crate::primitives::Either;
 use crate::rvals::{IntoSteelVal, RestArgsIter, Result, SteelVal};
 use crate::rvals::{SteelVal::*, SteelVector};
 use crate::steel_vm::builtin::BuiltInModule;
@@ -21,11 +22,15 @@ pub fn immutable_vectors_module() -> BuiltInModule {
         .register_native_fn_definition(IMMUTABLE_VECTOR_DROP_DEFINITION)
         .register_native_fn_definition(IMMUTABLE_VECTOR_TAKE_DEFINITION)
         .register_native_fn_definition(IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION)
+        .register_native_fn_definition(IMMUTABLE_VECTOR_CONSTRUCT_ALTERNATE_DEFINITION)
         .register_native_fn_definition(IMMUTABLE_VECTOR_TO_LIST_DEFINITION)
         .register_native_fn_definition(IMMUTABLE_VECTOR_TO_STRING_DEFINITION)
         .register_native_fn_definition(IMMUTABLE_VECTOR_COPY_DEFINITION)
         .register_native_fn_definition(IMMUTABLE_VECTOR_APPEND_DEFINITION)
-        .register_native_fn_definition(MAKE_IMMUTABLE_VECTOR_DEFINITION);
+        .register_native_fn_definition(MAKE_IMMUTABLE_VECTOR_DEFINITION)
+        .register_native_fn_definition(VECTOR_COPY_DEFINITION)
+        .register_native_fn_definition(VECTOR_APPEND_DEFINITION)
+        .register_native_fn_definition(VECTOR_TO_STRING_DEFINITION);
 
     module
 }
@@ -63,6 +68,31 @@ fn immutable_vector_to_list(
     Ok(SteelVal::ListV(items.collect()))
 }
 
+#[steel_derive::function(name = "vector->string")]
+fn vector_to_string(
+    vector: Either<&SteelVector, &HeapRef<Vec<SteelVal>>>,
+    rest: RestArgsIter<'_, isize>,
+) -> Result<SteelVal> {
+    match vector {
+        Either::Left(vector) => immutable_vector_to_string(vector, rest),
+        Either::Right(vec) => {
+            let (start, end) = bounds_mut(rest, "vector->string", 3, &vec.get())?;
+
+            vec.get()
+                .iter()
+                .skip(start)
+                .take(end - start)
+                .map(|x| {
+                    x.char_or_else(throw!(TypeMismatch => "vector->string 
+                expected a succession of characters"))
+                })
+                .collect::<Result<String>>()
+                .map(|x| x.into())
+                .map(SteelVal::StringV)
+        }
+    }
+}
+
 #[steel_derive::function(name = "immutable-vector->string")]
 fn immutable_vector_to_string(
     vector: &SteelVector,
@@ -81,6 +111,51 @@ fn immutable_vector_to_string(
         .map(SteelVal::StringV)
 }
 
+#[steel_derive::context(name = "vector-copy", arity = "AtLeast(1)")]
+fn vector_copy(
+    ctx: &mut crate::steel_vm::vm::VmCore,
+    args: &[SteelVal],
+) -> Option<Result<SteelVal>> {
+    fn vector_copy_impl(
+        ctx: &mut crate::steel_vm::vm::VmCore,
+        args: &[SteelVal],
+    ) -> Result<SteelVal> {
+        use crate::rvals::FromSteelVal;
+
+        // TODO: Arity check - process the args here
+        let mut args_iter = args.iter();
+
+        let vector = args_iter.next();
+        let rest = RestArgsIter(args_iter.map(|x| <isize>::from_steelval(x)));
+
+        match vector {
+            Some(SteelVal::VectorV(v)) => immutable_vector_copy(v, rest),
+            Some(SteelVal::MutableVector(vector)) => {
+                let vector = vector.get();
+                let (start, end) = bounds_mut(rest, "vector-copy", 3, &vector)?;
+
+                // Have to allocate another thing
+                let copy: Vec<_> = vector
+                    .iter()
+                    .skip(start)
+                    .cloned()
+                    .take(end - start)
+                    .collect();
+
+                let vec = ctx.make_mutable_vector(copy);
+
+                Ok(vec)
+            }
+            Some(other) => {
+                stop!(TypeMismatch => "vector-copy expected a vector, found: {}", other)
+            }
+            None => todo!(),
+        }
+    }
+
+    Some(vector_copy_impl(ctx, args))
+}
+
 #[steel_derive::function(name = "immutable-vector-copy")]
 fn immutable_vector_copy(vector: &SteelVector, rest: RestArgsIter<'_, isize>) -> Result<SteelVal> {
     let (start, end) = bounds(rest, "immutable-vector-copy", 3, vector)?;
@@ -93,6 +168,40 @@ fn immutable_vector_copy(vector: &SteelVector, rest: RestArgsIter<'_, isize>) ->
         .collect();
 
     Ok(SteelVal::VectorV(Gc::new(copy).into()))
+}
+
+// TODO: Fix this!
+#[steel_derive::context(name = "vector-append", arity = "AtLeast(0)")]
+fn vector_append(
+    ctx: &mut crate::steel_vm::vm::VmCore,
+    args: &[SteelVal],
+) -> Option<Result<SteelVal>> {
+    fn vector_copy_impl(
+        ctx: &mut crate::steel_vm::vm::VmCore,
+        args: &[SteelVal],
+    ) -> Result<SteelVal> {
+        // TODO: Preallocate the length by iterating over first
+        // and extracting the values?
+        let mut vector = Vec::new();
+
+        for arg in args {
+            match arg {
+                SteelVal::VectorV(v) => {
+                    vector.extend(v.iter().cloned());
+                }
+                SteelVal::MutableVector(v) => {
+                    vector.extend(v.get().iter().cloned());
+                }
+                _ => {
+                    stop!(TypeMismatch => "vector-append expects only vectors, found: {}", arg)
+                }
+            }
+        }
+
+        Ok(ctx.make_mutable_vector(vector))
+    }
+
+    Some(vector_copy_impl(ctx, args))
 }
 
 #[steel_derive::function(name = "immutable-vector-append")]
@@ -385,6 +494,11 @@ pub fn mut_vec_construct(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<S
     Some(Ok(ctx.make_mutable_vector(args.to_vec())))
 }
 
+#[steel_derive::context(name = "vector", arity = "AtLeast(0)")]
+pub fn mut_vec_construct_vec(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(Ok(ctx.make_mutable_vector(args.to_vec())))
+}
+
 #[steel_derive::context(name = "make-vector", arity = "AtLeast(1)")]
 pub fn make_vector(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     fn make_vector_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
@@ -403,11 +517,123 @@ pub fn make_vector(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVa
     Some(make_vector_impl(ctx, args))
 }
 
-#[steel_derive::function(name = "mutable-vector->list")]
-pub fn mut_vec_to_list(vec: &HeapRef<Vec<SteelVal>>) -> SteelVal {
+#[steel_derive::function(name = "vector-copy!")]
+pub fn mut_vector_copy(
+    dest: &HeapRef<Vec<SteelVal>>,
+    dest_start: usize,
+    src: Either<&HeapRef<Vec<SteelVal>>, &SteelVector>,
+    rest: RestArgsIter<'_, isize>,
+) -> Result<SteelVal> {
+    match src {
+        Either::Left(src) => {
+            if HeapRef::ptr_eq(src, dest) {
+                let (src_start, src_end) = {
+                    let ptr = src.strong_ptr();
+                    let src_guard = &ptr.read().value;
+                    bounds_mut(rest, "vector-copy!", 5, src_guard)?
+                };
+
+                // Check if the ranges overlap
+                let dest_ptr = dest.strong_ptr();
+                let dest_guard = &mut dest_ptr.write().value;
+
+                if dest_start > dest_guard.len() {
+                    stop!(Generic => "vector-copy!: dest-start must be within the range of the destination vector. 
+                        Destination vector length: {}, index: {}", dest_guard.len(), dest_start);
+                }
+
+                // TODO: Try better to avoid this allocation
+                let temporary_buffer = dest_guard[src_start..src_end].to_vec();
+
+                dest_guard
+                    .iter_mut()
+                    .skip(dest_start)
+                    .zip(temporary_buffer.into_iter())
+                    .for_each(|(dest, src)| {
+                        *dest = src;
+                    })
+            } else {
+                // Source range
+                let ptr = src.strong_ptr();
+                let src_guard = &ptr.read().value;
+                let (src_start, src_end) = bounds_mut(rest, "vector-copy!", 5, src_guard)?;
+
+                let dest_ptr = dest.strong_ptr();
+                let dest_guard = &mut dest_ptr.write().value;
+
+                if dest_start > dest_guard.len() {
+                    stop!(Generic => "vector-copy!: dest-start must be within the range of the destination vector. 
+                        Destination vector length: {}, index: {}", dest_guard.len(), dest_start);
+                }
+
+                src_guard
+                    .iter()
+                    .skip(src_start)
+                    .take(src_end - src_start)
+                    .zip(dest_guard.iter_mut().skip(dest_start))
+                    .for_each(|(src, dest)| {
+                        *dest = src.clone();
+                    });
+            }
+        }
+        Either::Right(src) => {
+            // Source range
+            let (src_start, src_end) = bounds(rest, "vector-copy!", 5, src)?;
+
+            let dest_ptr = dest.strong_ptr();
+            let dest_guard = &mut dest_ptr.write().value;
+
+            if dest_start > dest_guard.len() {
+                stop!(Generic => "vector-copy!: dest-start must be within the range of the destination vector. 
+                    Destination vector length: {}, index: {}", dest_guard.len(), dest_start);
+            }
+
+            src.iter()
+                .skip(src_start)
+                .take(src_end - src_start)
+                .zip(dest_guard.iter_mut().skip(dest_start))
+                .for_each(|(src, dest)| {
+                    *dest = src.clone();
+                });
+        }
+    }
+
+    Ok(SteelVal::Void)
+}
+
+#[steel_derive::function(name = "vector-fill!")]
+pub fn vector_fill(
+    vec: &HeapRef<Vec<SteelVal>>,
+    element: SteelVal,
+    rest: RestArgsIter<'_, isize>,
+) -> Result<SteelVal> {
     let ptr = vec.strong_ptr();
     let guard = &mut ptr.write().value;
-    SteelVal::ListV(guard.iter().collect())
+
+    let (start, end) = bounds_mut(rest, "vector-fill", 4, guard)?;
+
+    guard
+        .iter_mut()
+        .skip(start)
+        .take(end - start)
+        .for_each(|x| *x = element.clone());
+
+    Ok(SteelVal::Void)
+}
+
+#[steel_derive::function(name = "mutable-vector->list")]
+pub fn mut_vec_to_list(
+    vec: &HeapRef<Vec<SteelVal>>,
+    rest: RestArgsIter<'_, isize>,
+) -> Result<SteelVal> {
+    let ptr = vec.strong_ptr();
+    let guard = &ptr.read().value;
+
+    let (start, end) = bounds_mut(rest, "mutable-vector->list", 3, guard)?;
+
+    let items = guard.iter().skip(start).take(end - start).cloned();
+
+    Ok(SteelVal::ListV(items.collect()))
 }
 
 #[steel_derive::function(name = "mut-vec-len")]
@@ -431,16 +657,27 @@ pub fn mut_vec_set(vec: &HeapRef<Vec<SteelVal>>, i: usize, value: SteelVal) -> R
     Ok(SteelVal::Void)
 }
 
-#[steel_derive::native(name = "vector", arity = "AtLeast(0)")]
+#[steel_derive::native(name = "immutable-vector", arity = "AtLeast(0)")]
 pub fn immutable_vector_construct(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::VectorV(
         Gc::new(args.iter().cloned().collect::<Vector<_>>()).into(),
     ))
 }
 
+// TODO: Fix this naming issue
+#[steel_derive::native(name = "vector-immutable", arity = "AtLeast(0)")]
+pub fn immutable_vector_construct_alternate(args: &[SteelVal]) -> Result<SteelVal> {
+    Ok(SteelVal::VectorV(
+        Gc::new(args.iter().cloned().collect::<Vector<_>>()).into(),
+    ))
+}
+
 #[steel_derive::function(name = "vector-length")]
-pub fn vec_length(v: &SteelVector) -> SteelVal {
-    SteelVal::IntV(v.len() as isize)
+pub fn vec_length(v: Either<&SteelVector, &HeapRef<Vec<SteelVal>>>) -> SteelVal {
+    match v {
+        Either::Left(v) => SteelVal::IntV(v.len() as _),
+        Either::Right(v) => SteelVal::IntV(v.get().len() as _),
+    }
 }
 
 pub struct VectorOperations {}
@@ -559,6 +796,27 @@ impl VectorOperations {
             let mut args = args.iter();
             match (args.next(), args.next()) {
                 (Some(vec), Some(idx)) => {
+                    if let SteelVal::MutableVector(v) = &vec {
+                        if let SteelVal::IntV(i) = idx.clone() {
+                            if i < 0 {
+                                stop!(Generic => "vector-ref expects a positive integer, found: {:?}", vec);
+                            }
+
+                            let ptr = v.strong_ptr();
+
+                            let guard = &mut ptr.write().value;
+
+                            if i as usize >= guard.len() {
+                                stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
+                            }
+
+                            // Grab the value out of the vector
+                            return Ok(guard[i as usize].clone());
+                        } else {
+                            stop!(TypeMismatch => "vector-ref expects an integer, found: {:?}", idx);
+                        }
+                    }
+
                     if let (VectorV(vec), IntV(idx)) = (vec, idx) {
                         if idx < &0 {
                             stop!(TypeMismatch => "vector-ref expected a positive integer");
@@ -730,6 +988,37 @@ fn unwrap_single_list(exp: &SteelVal) -> Result<Vector<SteelVal>> {
         SteelVal::VectorV(lst) => Ok(lst.0.unwrap()),
         _ => stop!(TypeMismatch => "expected a list"),
     }
+}
+
+fn bounds_mut(
+    mut rest: RestArgsIter<'_, isize>,
+    name: &str,
+    args: usize,
+    vector: &Vec<SteelVal>,
+) -> Result<(usize, usize)> {
+    if rest.len() > 2 {
+        stop!(ArityMismatch => "{} expects at most {} arguments", name, args);
+    }
+
+    let start = rest.next().transpose()?.unwrap_or(0);
+    let end = rest.next().transpose()?.unwrap_or(vector.len() as isize);
+
+    if start < 0 || end < 0 {
+        stop!(ContractViolation => "start and end must be non-negative");
+    }
+
+    let start = start as usize;
+    let end = end as usize;
+
+    if end > vector.len() {
+        stop!(ContractViolation => "end bound is out of range");
+    }
+
+    if start > end {
+        stop!(ContractViolation => "start bound cannot be greater than end bound");
+    }
+
+    Ok((start, end))
 }
 
 fn bounds(
