@@ -7,7 +7,8 @@
   rustc,
   openssl,
   libiconv,
-  darwin,
+  CoreServices,
+  SystemConfiguration,
   pkg-config,
   rust-analyzer,
   rustfmt,
@@ -19,8 +20,8 @@ mkShell {
   buildInputs =
     [cargo rustc openssl libiconv]
     ++ lib.optionals stdenv.isDarwin [
-      darwin.apple_sdk.frameworks.CoreServices
-      darwin.apple_sdk.frameworks.SystemConfiguration
+      CoreServices
+      SystemConfiguration
     ];
   nativeBuildInputs = [
     pkg-config

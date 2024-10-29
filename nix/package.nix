@@ -1,7 +1,7 @@
 {
   lib,
   stdenv,
-  darwin,
+  Security,
   openssl,
   pkg-config,
   rustPlatform,
@@ -31,7 +31,7 @@ in
       lockFile = ../Cargo.lock;
     };
     cargoBuildFlags = "-p cargo-steel-lib -p steel-interpreter";
-    buildInputs = [openssl] ++ lib.optionals stdenv.isDarwin [darwin.apple_sdk.frameworks.Security];
+    buildInputs = [openssl] ++ lib.optionals stdenv.isDarwin [Security];
     nativeBuildInputs = [
       pkg-config
     ];

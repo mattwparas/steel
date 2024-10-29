@@ -13,7 +13,10 @@
   in {
     packages = eachSystem (system: {
       default = self.packages.${system}.steel;
-      steel = pkgsFor.${system}.callPackage ./nix/package.nix {};
+      steel = pkgsFor.${system}.callPackage ./nix/package.nix {
+        inherit (self.packages.${system}) steel;
+        inherit (pkgsFor.${system}.darwin.apple_sdk.frameworks) CoreServices SystemConfiguration;
+      };
     });
 
     formatter = eachSystem (system: pkgsFor.${system}.alejandra);
@@ -21,7 +24,9 @@
     defaultPackage = eachSystem (system: self.packages.${system}.default);
 
     devShells = eachSystem (system: {
-      default = pkgsFor.${system}.callPackage ./nix/package.nix {};
+      default = pkgsFor.${system}.callPackage ./nix/package.nix {
+        inherit (pkgsFor.${system}.darwin.apple_sdk.frameworks) Security;
+      };
     });
 
     apps = eachSystem (system: {
