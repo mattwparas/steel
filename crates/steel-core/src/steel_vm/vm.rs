@@ -3133,7 +3133,14 @@ impl<'a> VmCore<'a> {
                 .and_then(|x| self.thread.function_interner.spans.get(&x.function.id))
             {
                 if forward_jump_index >= spans.len() {
-                    self.root_spans[self.ip..forward_jump_index].into()
+                    // TODO: This is a bug! We can panic here if we are
+                    // not running on the root?
+                    // self.root_spans[self.ip..forward_jump_index].into()
+                    if let Some(span_range) = self.root_spans.get(self.ip..forward_jump_index) {
+                        span_range.into_iter().cloned().collect::<Vec<_>>().into()
+                    } else {
+                        Shared::from(Vec::new())
+                    }
                 } else {
                     spans[self.ip..forward_jump_index].into()
                 }
@@ -3411,7 +3418,13 @@ impl<'a> VmCore<'a> {
                 .and_then(|x| self.thread.function_interner.spans.get(&x.function.id))
             {
                 if forward_jump_index >= spans.len() {
-                    self.root_spans[self.ip..forward_jump_index].into()
+                    // self.root_spans[self.ip..forward_jump_index].into()
+
+                    if let Some(span_range) = self.root_spans.get(self.ip..forward_jump_index) {
+                        span_range.into_iter().cloned().collect::<Vec<_>>().into()
+                    } else {
+                        Shared::from(Vec::new())
+                    }
                 } else {
                     spans[self.ip..forward_jump_index].into()
                 }
