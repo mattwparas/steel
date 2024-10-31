@@ -4596,7 +4596,10 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
     for (instr, span) in instructions.into_iter().zip(spans) {
         new_spans.extend_from_slice(&span);
         bytecode.extend_from_slice(&instr);
-        bytecode.last_mut().unwrap().op_code = OpCode::POPSINGLE;
+        bytecode
+            .last_mut()
+            .ok_or_else(throw!(Generic => "Compilation error: empty expression"))?
+            .op_code = OpCode::POPSINGLE;
     }
     bytecode.last_mut().unwrap().op_code = OpCode::POPPURE;
     let function_id = crate::compiler::code_gen::fresh_function_id();
