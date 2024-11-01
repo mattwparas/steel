@@ -14,8 +14,7 @@
     packages = eachSystem (system: {
       default = self.packages.${system}.steel;
       steel = pkgsFor.${system}.callPackage ./nix/package.nix {
-        inherit (self.packages.${system}) steel;
-        inherit (pkgsFor.${system}.darwin.apple_sdk.frameworks) CoreServices SystemConfiguration;
+        inherit (pkgsFor.${system}.darwin.apple_sdk.frameworks) Security;
       };
     });
 
@@ -24,8 +23,9 @@
     defaultPackage = eachSystem (system: self.packages.${system}.default);
 
     devShells = eachSystem (system: {
-      default = pkgsFor.${system}.callPackage ./nix/package.nix {
-        inherit (pkgsFor.${system}.darwin.apple_sdk.frameworks) Security;
+      default = pkgsFor.${system}.callPackage ./nix/shell.nix {
+        inherit (self.packages.${system}) steel;
+        inherit (pkgsFor.${system}.darwin.apple_sdk.frameworks) CoreServices SystemConfiguration;
       };
     });
 
