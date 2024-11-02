@@ -292,8 +292,8 @@ pub struct Compiler {
     // running at the top level using private macros.
     lifted_macro_environments: HashSet<PathBuf>,
 
-    analysis: Analysis,
-    shadowed_variable_renamer: RenameShadowedVariables,
+    pub(crate) analysis: Analysis,
+    pub(crate) shadowed_variable_renamer: RenameShadowedVariables,
 
     search_dirs: Vec<PathBuf>,
 
@@ -694,7 +694,7 @@ impl Compiler {
         log::debug!(target: "expansion-phase", "Beginning constant folding");
 
         // let mut expanded_statements =
-        //     self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
+        // self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
 
         // expanded_statements.pretty_print();
 
@@ -866,7 +866,14 @@ impl Compiler {
 
         log::debug!(target: "expansion-phase", "Beginning constant folding");
 
-        // expanded_statements.pretty_print();
+        // steel_parser::ast::AstTools::pretty_print(&expanded_statements);
+
+        // println!(
+        //     "Modules: {:#?}",
+        //     self.module_manager.modules().keys().collect::<Vec<_>>()
+        // );
+
+        // self.sources.debug_sources();
 
         let expanded_statements =
             self.apply_const_evaluation(constant_primitives(), expanded_statements, false)?;
@@ -963,7 +970,6 @@ impl Compiler {
         log::info!(target: "expansion-phase", "Aggressive constant evaluation with memoization");
 
         // Begin lowering anonymous function calls to lets
-
         analysis.fresh_from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
@@ -980,11 +986,13 @@ impl Compiler {
         // interactive usages
         self.analysis.shrink_capacity();
 
+        // steel_parser::ast::AstTools::pretty_print(&expanded_statements);
+
         Ok(expanded_statements)
 
         // Done lowering anonymous function calls to let
         // TODO: Re-enable this, but not in the repl. This repl causes... issues with the implementation
-        // self.apply_const_evaluation(constants, expanded_statements, true)
+        // self.apply_const_evaluation(constant_primitives(), expanded_statements, true)
     }
 
     // TODO

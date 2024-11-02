@@ -39,8 +39,7 @@
     (let ([result (run! shared-engine (list (list 'require path)))])
 
       (when (Err? result)
-
-        (error result)))))
+        (error "Error when trying to require:" path result)))))
 
 (define (get-directory-from-args)
   (if (empty? std::env::args) "." (car std::env::args)))

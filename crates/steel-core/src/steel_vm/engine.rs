@@ -453,9 +453,12 @@ impl Engine {
         let mut engine = self.clone();
         engine.virtual_machine.global_env = engine.virtual_machine.global_env.deep_clone();
 
-        let compiler_copy = engine.virtual_machine.compiler.read().clone();
+        let mut compiler_copy = engine.virtual_machine.compiler.read().clone();
+
+        compiler_copy.analysis.clear();
+        // compiler_copy.shadowed_variable_renamer
+
         engine.virtual_machine.compiler = Arc::new(RwLock::new(compiler_copy));
-        // engine.virtual_machine.compiler = Some(Arc::downgrade(&engine.compiler));
 
         let constant_map = engine
             .virtual_machine

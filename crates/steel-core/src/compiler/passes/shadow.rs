@@ -38,7 +38,7 @@ impl RenameShadowedVariables {
         }
     }
 
-    fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.scope.clear_all();
         self.shadows.clear_all();
         self.modified = false;

@@ -499,7 +499,7 @@ impl ModuleManager {
             let require_for_syntax = require_object.path.get_path();
 
             let (module, in_scope_macros, mut name_mangler) = Self::find_in_scope_macros(
-                &self.compiled_modules,
+                &mut self.compiled_modules,
                 require_for_syntax.as_ref(),
                 &require_object,
                 &mut mangled_asts,
@@ -772,7 +772,7 @@ impl ModuleManager {
     }
 
     fn find_in_scope_macros<'a>(
-        compiled_modules: &'a FxHashMap<PathBuf, CompiledModule>,
+        compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
         require_for_syntax: &'a PathBuf,
         require_object: &'a RequireObject,
         mangled_asts: &'a mut Vec<ExprKind>,
@@ -782,7 +782,7 @@ impl ModuleManager {
         NameMangler,
     ) {
         let module = compiled_modules
-            .get(require_for_syntax)
+            .get_mut(require_for_syntax)
             .expect(&format!("Module missing!: {:?}", require_for_syntax));
 
         let prefix = "mangler".to_string() + module.name.to_str().unwrap() + MANGLER_SEPARATOR;
@@ -814,13 +814,30 @@ impl ModuleManager {
             .iter()
             // Chain with just the normal provides!
             // .chain(module.provides)
-            .filter_map(|x| module.macro_map.get(x).map(|m| (*x, m.clone()))) // TODO -> fix this unwrap
-            .map(|mut x| {
-                for expr in x.1.exprs_mut() {
-                    name_mangler.visit(expr);
+            // .filter_map(|x| module.macro_map.get(x).map(|m| (*x, m.clone()))) // TODO -> fix this unwrap
+            // .filter_map(|x| module.macro_map.get_mut(x).map(|m| (*x, m))) // TODO -> fix this unwrap
+            .filter_map(|x| {
+                let smacro = module.macro_map.get_mut(x);
+
+                if let Some(smacro) = smacro {
+                    if !smacro.special_mangled {
+                        for expr in smacro.exprs_mut() {
+                            name_mangler.visit(expr);
+                        }
+                    }
+
+                    Some((*x, smacro.clone()))
+                } else {
+                    None
                 }
 
-                x
+                // if !x.1.special_mangled {
+                //     for expr in x.1.exprs_mut() {
+                //         name_mangler.visit(expr);
+                //     }
+                // }
+
+                // (x.0, x.1.clone())
             })
             .collect::<FxHashMap<_, _>>();
 
@@ -2270,6 +2287,13 @@ impl<'a> ModuleBuilder<'a> {
         //     .remove_unused_globals_with_prefix("mangler");
 
         // log::debug!(target: "requires", "Adding compiled module: {:?}", self.name);
+        // println!("Adding compiled module: {:?}", self.name);
+        // for (key, smacro) in module.macro_map.iter() {
+        //     println!("{}", key.resolve());
+        //     for expr in smacro.exprs() {
+        //         println!("{}", expr);
+        //     }
+        // }
 
         self.compiled_modules.insert(self.name.clone(), module);
 
@@ -2542,6 +2566,8 @@ impl<'a> ModuleBuilder<'a> {
                 // Get the absolute path and store that
                 // self.requires.push(current)
 
+                let current = std::fs::canonicalize(current).unwrap();
+
                 require_object.path = Some(PathOrBuiltIn::Path(current));
             }
 
@@ -2677,6 +2703,7 @@ impl<'a> ModuleBuilder<'a> {
                                 }
 
                                 require_object.for_syntax = true;
+                                let current = std::fs::canonicalize(current).unwrap();
                                 require_object.path = Some(PathOrBuiltIn::Path(current));
                             }
                         } else {
@@ -2810,6 +2837,13 @@ impl<'a> ModuleBuilder<'a> {
         custom_builtins: &'a HashMap<String, String>,
         search_dirs: &'a [PathBuf],
     ) -> Self {
+        // println!("New module found: {:?}", name);
+
+        let name = match std::fs::canonicalize(&name) {
+            Ok(p) => p,
+            _ => name,
+        };
+
         ModuleBuilder {
             name,
             main: false,

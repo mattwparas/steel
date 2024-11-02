@@ -36,7 +36,7 @@ impl FromSteelVal for SourceId {
     }
 }
 
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub(crate) struct InterierSources {
     paths: HashMap<SourceId, PathBuf>,
     reverse: HashMap<PathBuf, SourceId>,
@@ -139,6 +139,13 @@ impl Sources {
 
     pub fn size_in_bytes(&self) -> usize {
         self.sources.lock().unwrap().size_in_bytes()
+    }
+
+    pub(crate) fn debug_sources(&self) {
+        let guard = self.sources.lock().unwrap();
+
+        println!("{:#?}", guard.paths);
+        println!("{:#?}", guard.reverse);
     }
 }
 

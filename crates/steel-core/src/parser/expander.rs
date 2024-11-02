@@ -145,6 +145,7 @@ pub struct SteelMacro {
     cases: Vec<MacroCase>,
     mangled: bool,
     pub(crate) location: Span,
+    pub(crate) special_mangled: bool,
 }
 
 impl SteelMacro {
@@ -161,6 +162,7 @@ impl SteelMacro {
             cases,
             mangled: false,
             location,
+            special_mangled: false,
         }
     }
 
@@ -217,6 +219,7 @@ impl SteelMacro {
             cases,
             mangled: false,
             location: ast_macro.location.span,
+            special_mangled: false,
         })
     }
 
