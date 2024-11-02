@@ -119,7 +119,7 @@ jobs:
           STEEL_HOME: ${{ env.STEEL_HOME }}
         with:
           command: test
-          args: --all steel-core/sync
+          args: --all
 
       - name: Install shared libraries
         env:
