@@ -46,7 +46,11 @@
   task)
 
 (define (block-on-task task)
-  (lock! (Task-lock task) (lambda () (Task-func-or-result task))))
+  (lock! (Task-lock task)
+         (lambda ()
+           (unless (Task-done task)
+             (error "block on task did not wait until the task was finished"))
+           (Task-func-or-result task))))
 
 ;; Create work for the thread-pool
 
