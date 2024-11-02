@@ -1608,6 +1608,10 @@ impl RequireObjectBuilder {
     }
 }
 
+fn try_canonicalize(path: PathBuf) -> PathBuf {
+    std::fs::canonicalize(&path).unwrap_or_else(|_| path)
+}
+
 struct ModuleBuilder<'a> {
     name: PathBuf,
     main: bool,
@@ -2566,7 +2570,7 @@ impl<'a> ModuleBuilder<'a> {
                 // Get the absolute path and store that
                 // self.requires.push(current)
 
-                let current = std::fs::canonicalize(current).unwrap();
+                let current = try_canonicalize(current);
 
                 require_object.path = Some(PathOrBuiltIn::Path(current));
             }
@@ -2703,7 +2707,7 @@ impl<'a> ModuleBuilder<'a> {
                                 }
 
                                 require_object.for_syntax = true;
-                                let current = std::fs::canonicalize(current).unwrap();
+                                let current = try_canonicalize(current);
                                 require_object.path = Some(PathOrBuiltIn::Path(current));
                             }
                         } else {
