@@ -11,9 +11,6 @@ jobs:
   test:
     name: Test Suite
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
@@ -82,6 +79,9 @@ jobs:
               { os: windows-latest, arch: x86_64-pc-windows-msvc }
             ]
     runs-on: ${{ matrix.os.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
