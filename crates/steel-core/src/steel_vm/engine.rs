@@ -379,9 +379,21 @@ macro_rules! time {
 static STATIC_DEFAULT_PRELUDE_MACROS: OnceCell<FxHashMap<InternedString, SteelMacro>> =
     OnceCell::new();
 
-pub(crate) fn set_default_prelude_macros(prelude_macros: FxHashMap<InternedString, SteelMacro>) {
+static STATIC_DEFAULT_PRELUDE_MACROS_SANDBOX: OnceCell<FxHashMap<InternedString, SteelMacro>> =
+    OnceCell::new();
+
+pub(crate) fn set_default_prelude_macros(
+    prelude_macros: FxHashMap<InternedString, SteelMacro>,
+    sandbox: bool,
+) {
     if cfg!(feature = "sync") {
-        STATIC_DEFAULT_PRELUDE_MACROS.set(prelude_macros).unwrap();
+        if sandbox {
+            STATIC_DEFAULT_PRELUDE_MACROS_SANDBOX
+                .set(prelude_macros)
+                .unwrap();
+        } else {
+            STATIC_DEFAULT_PRELUDE_MACROS.set(prelude_macros).unwrap();
+        }
     } else {
         DEFAULT_PRELUDE_MACROS.with(|x| {
             let mut guard = x.borrow_mut();
@@ -392,10 +404,12 @@ pub(crate) fn set_default_prelude_macros(prelude_macros: FxHashMap<InternedStrin
 
 pub(crate) fn default_prelude_macros() -> FxHashMap<InternedString, SteelMacro> {
     if cfg!(feature = "sync") {
-        STATIC_DEFAULT_PRELUDE_MACROS
-            .get()
-            .cloned()
-            .unwrap_or_default()
+        STATIC_DEFAULT_PRELUDE_MACROS.get().cloned().unwrap_or(
+            STATIC_DEFAULT_PRELUDE_MACROS_SANDBOX
+                .get()
+                .cloned()
+                .unwrap_or_default(),
+        )
     } else {
         DEFAULT_PRELUDE_MACROS.with(|x| x.borrow().clone())
     }
@@ -558,7 +572,7 @@ impl Engine {
         // values won't leak when top level macros are defined - and modules can clone from
         // this to begin seeding their environment.
 
-        set_default_prelude_macros(vm.in_scope_macros().clone());
+        set_default_prelude_macros(vm.in_scope_macros().clone(), sandbox);
 
         #[cfg(feature = "profiling")]
         log::debug!(target: "kernel", "Loaded prelude in the kernel!: {:?}", now.elapsed());
