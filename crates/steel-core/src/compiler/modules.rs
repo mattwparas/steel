@@ -2532,7 +2532,7 @@ impl<'a> ModuleBuilder<'a> {
                 // // But theres the case where we're searching for a module on the STEEL_HOME
                 if !current.exists() {
                     if let Some(mut home) = home.clone() {
-                        home.push(s.as_str());
+                        home.push(PathBuf::from(s.as_str()));
                         current = home;
 
                         log::info!("Searching STEEL_HOME for {:?}", current);
@@ -2677,7 +2677,7 @@ impl<'a> ModuleBuilder<'a> {
 
                                 if !current.exists() {
                                     if let Some(mut home) = home.clone() {
-                                        home.push(path);
+                                        home.push(PathBuf::from(path));
                                         current = home;
 
                                         if !current.exists() {
