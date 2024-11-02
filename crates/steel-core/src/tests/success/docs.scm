@@ -3,7 +3,7 @@
 (define (foo x)
   (list 10 20 30 40 x))
 
-(assert! (equal? "This is a function that does something\n" foo__doc__))
+(assert! (equal? "This is a function that does something" (trim-end foo__doc__)))
 
 ;;@doc
 ;; This is a function that takes multiple arguments
