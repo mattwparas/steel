@@ -11,7 +11,11 @@
 ;; of the thunk.
 (define (lock! lock thunk)
   (lock-acquire! lock)
-  (dynamic-wind (lambda () void) (lambda () (thunk)) (lambda () (lock-release! lock))))
+  (dynamic-wind (lambda () void)
+                (lambda ()
+                  (thunk)
+                  (lock-release! lock))
+                (lambda () (lock-release! lock))))
 
 (struct ThreadPool (task-sender capacity thread-handles))
 
