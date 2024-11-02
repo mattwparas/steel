@@ -525,7 +525,7 @@ pub fn function(
         }
     }
 
-    let arity_number = type_vec.len();
+    let mut arity_number = type_vec.len();
 
     // TODO: Awful hack, but this just keeps track of which
     // variables are presented as mutable, which we can then use to chn
@@ -571,6 +571,9 @@ pub fn function(
     );
 
     let arity_exactness = if rest_arg_generic_inner_type {
+        // We don't want to include the rest argument in the count
+        arity_number -= 1;
+
         quote! { AtLeast }
     } else {
         quote! { Exact }
@@ -907,7 +910,7 @@ pub fn custom_function(
         }
     }
 
-    let arity_number = type_vec.len();
+    let mut arity_number = type_vec.len();
 
     // TODO: Awful hack, but this just keeps track of which
     // variables are presented as mutable, which we can then use to chn
@@ -953,6 +956,9 @@ pub fn custom_function(
     );
 
     let arity_exactness = if rest_arg_generic_inner_type {
+        // We don't want to include the rest argument in the count
+        arity_number -= 1;
+
         quote! { AtLeast }
     } else {
         quote! { Exact }
