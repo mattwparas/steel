@@ -1610,7 +1610,11 @@ impl RequireObjectBuilder {
 
 fn try_canonicalize(path: PathBuf) -> PathBuf {
     // std::fs::canonicalize(&path).unwrap_or_else(|_| path)
-    dunce::canonicalize(&path).unwrap_or_else(|_| path)
+    #[cfg(target_os = "windows")]
+    {
+        return path;
+    }
+    std::fs::canonicalize(&path).unwrap_or_else(|_| path)
 }
 
 struct ModuleBuilder<'a> {
@@ -1656,8 +1660,7 @@ impl<'a> ModuleBuilder<'a> {
 
         #[cfg(not(target_arch = "wasm32"))]
         let name = if let Some(p) = name {
-            // std::fs::canonicalize(p)?
-            dunce::canonicalize(p)?
+            std::fs::canonicalize(p)?
         } else {
             std::env::current_dir()?
         };
@@ -2845,10 +2848,7 @@ impl<'a> ModuleBuilder<'a> {
     ) -> Self {
         // println!("New module found: {:?}", name);
 
-        let name = match dunce::canonicalize(&name) {
-            Ok(p) => p,
-            _ => name,
-        };
+        let name = try_canonicalize(name);
 
         ModuleBuilder {
             name,
