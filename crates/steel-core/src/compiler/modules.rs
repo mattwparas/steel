@@ -2526,7 +2526,7 @@ impl<'a> ModuleBuilder<'a> {
                 if current.is_file() {
                     current.pop();
                 }
-                current.push(s.as_str());
+                current.push(PathBuf::from(s.as_str()));
 
                 // // If the path exists on its own, we can continue
                 // // But theres the case where we're searching for a module on the STEEL_HOME
@@ -2673,7 +2673,7 @@ impl<'a> ModuleBuilder<'a> {
                                 if current.is_file() {
                                     current.pop();
                                 }
-                                current.push(path);
+                                current.push(PathBuf::from(path));
 
                                 if !current.exists() {
                                     if let Some(mut home) = home.clone() {
