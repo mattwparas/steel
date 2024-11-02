@@ -2743,10 +2743,24 @@ impl<'a> ModuleBuilder<'a> {
         let mut exprs_without_requires = Vec::new();
         let exprs = std::mem::take(&mut self.source_ast);
 
-        let home = STEEL_HOME.clone().map(PathBuf::from).map(|mut x| {
-            x.push("cogs");
-            x
-        });
+        let home = STEEL_HOME
+            .clone()
+            .map(|x| {
+                // TODO: Fix this - try to hack in a root drive
+                // for windows if a unix path is provided
+                if cfg!(target_os = "windows") {
+                    let mut result = x.trim_start_matches("/").to_string();
+                    result.insert(1, ':');
+                    return PathBuf::from(result);
+                }
+
+                PathBuf::from(x)
+            })
+            .map(|mut x| {
+                x.push("cogs");
+
+                x
+            });
 
         fn walk(
             module_builder: &mut ModuleBuilder,
