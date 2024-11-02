@@ -292,8 +292,8 @@ pub struct Compiler {
     // running at the top level using private macros.
     lifted_macro_environments: HashSet<PathBuf>,
 
-    pub(crate) analysis: Analysis,
-    pub(crate) shadowed_variable_renamer: RenameShadowedVariables,
+    analysis: Analysis,
+    shadowed_variable_renamer: RenameShadowedVariables,
 
     search_dirs: Vec<PathBuf>,
 

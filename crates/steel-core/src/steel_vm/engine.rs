@@ -455,9 +455,6 @@ impl Engine {
 
         let mut compiler_copy = engine.virtual_machine.compiler.read().clone();
 
-        compiler_copy.analysis.clear();
-        // compiler_copy.shadowed_variable_renamer
-
         engine.virtual_machine.compiler = Arc::new(RwLock::new(compiler_copy));
 
         let constant_map = engine
