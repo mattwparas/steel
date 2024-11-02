@@ -1609,11 +1609,6 @@ impl RequireObjectBuilder {
 }
 
 fn try_canonicalize(path: PathBuf) -> PathBuf {
-    // std::fs::canonicalize(&path).unwrap_or_else(|_| path)
-    #[cfg(target_os = "windows")]
-    {
-        return path;
-    }
     std::fs::canonicalize(&path).unwrap_or_else(|_| path)
 }
 
@@ -1660,11 +1655,7 @@ impl<'a> ModuleBuilder<'a> {
 
         #[cfg(not(target_arch = "wasm32"))]
         let name = if let Some(p) = name {
-            if cfg!(target_os = "windows") {
-                p
-            } else {
-                std::fs::canonicalize(p)?
-            }
+            std::fs::canonicalize(p)?
         } else {
             std::env::current_dir()?
         };
