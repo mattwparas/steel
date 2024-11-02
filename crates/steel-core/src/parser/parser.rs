@@ -140,13 +140,6 @@ impl Sources {
     pub fn size_in_bytes(&self) -> usize {
         self.sources.lock().unwrap().size_in_bytes()
     }
-
-    pub(crate) fn debug_sources(&self) {
-        let guard = self.sources.lock().unwrap();
-
-        println!("{:#?}", guard.paths);
-        println!("{:#?}", guard.reverse);
-    }
 }
 
 thread_local! {
