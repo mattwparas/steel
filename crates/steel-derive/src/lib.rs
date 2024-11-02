@@ -571,9 +571,7 @@ pub fn function(
     );
 
     let arity_exactness = if rest_arg_generic_inner_type {
-        // We don't want to include the rest argument in the count
         arity_number -= 1;
-
         quote! { AtLeast }
     } else {
         quote! { Exact }
@@ -631,8 +629,6 @@ pub fn function(
         if let Some(last) = arg_index.last_mut() {
             *last = quote! { #last.. };
         }
-
-        let arity_number = arity_number - 1;
 
         if let Some(last) = conversion_functions.last_mut() {
             *last = quote! { from_slice };
@@ -958,7 +954,6 @@ pub fn custom_function(
     let arity_exactness = if rest_arg_generic_inner_type {
         // We don't want to include the rest argument in the count
         arity_number -= 1;
-
         quote! { AtLeast }
     } else {
         quote! { Exact }
@@ -1016,8 +1011,6 @@ pub fn custom_function(
         if let Some(last) = arg_index.last_mut() {
             *last = quote! { #last.. };
         }
-
-        let arity_number = arity_number - 1;
 
         if let Some(last) = conversion_functions.last_mut() {
             *last = quote! { from_slice };
