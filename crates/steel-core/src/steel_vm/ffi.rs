@@ -815,7 +815,7 @@ impl<RET: IntoFFIVal, FN: Fn() -> RET + SendSyncStatic> RegisterFFIFn<FN, Wrappe
 pub use abi_stable::std_types::RBox;
 pub use abi_stable::{export_root_module, prefix_type::PrefixTypeTrait, sabi_extern_fn};
 
-use super::{builtin::BuiltInModule, register_fn::RegisterFn};
+use super::{builtin::BuiltInModule, register_fn::RegisterFn, vm::VmCore};
 
 #[macro_export]
 macro_rules! declare_module {
@@ -886,6 +886,20 @@ pub struct StringMutRef<'a> {
     guard: ScopedWriteContainer<'a, Box<dyn CustomType>>,
 }
 
+#[repr(C)]
+#[derive(StableAbi)]
+pub struct RuntimeFunctionRef<'a> {
+    func: RMut<'a, HostRuntimeFunction>,
+    #[sabi(unsafe_opaque_field)]
+    guard: ScopedWriteContainer<'a, Box<dyn CustomType>>,
+}
+
+impl<'a> RuntimeFunctionRef<'a> {
+    pub fn call(&mut self, args: RSliceMut<FFIValue>) -> RResult<FFIValue, RBoxError> {
+        unsafe { self.func.get_mut().call(args) }
+    }
+}
+
 // TODO:
 // Values that are safe to cross the FFI Boundary as arguments from
 // `SteelVal`s. This means the values can be borrowed without
@@ -915,6 +929,7 @@ pub enum FFIArg<'a> {
         #[sabi(unsafe_opaque_field)]
         fut: FfiFuture<RResult<FFIArg<'a>, RBoxError>>,
     },
+    HostFunction(RuntimeFunctionRef<'a>),
 }
 
 impl<'a> std::default::Default for FFIArg<'a> {
@@ -962,7 +977,8 @@ pub fn ffi_module() -> BuiltInModule {
         })
         .register_fn("mutable-string", || MutableString {
             string: RString::new(),
-        });
+        })
+        .register_native_fn_definition(FUNCTION_TO_FFI_FUNCTION_DEFINITION);
 
     module
 }
@@ -1261,6 +1277,81 @@ pub fn as_ffi_value(value: &SteelVal) -> Result<FFIValue> {
     }
 }
 
+#[repr(C)]
+#[derive(StableAbi)]
+struct HostRuntimeFunction {
+    function: RFn_TO<
+        'static,
+        'static,
+        RArc<()>,
+        RSliceMut<'static, FFIValue>,
+        RResult<FFIValue, RBoxError>,
+    >,
+}
+
+#[steel_derive::context(name = "function->ffi-function", arity = "Exact(1)")]
+pub fn function_to_ffi_function(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    fn function_to_ffi_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+        if args.len() != 1 {
+            stop!(ArityMismatch => "function->ffi-function expects one arg, found: {}", args.len());
+        }
+
+        let function = args[0].clone();
+
+        if function.is_function() {
+            let function = ctx.steel_function_to_rust_function(function);
+
+            let foreign_fn_ptr = HostRuntimeFunction::from_dyn_function(function);
+
+            // Convert the foreign fn ptr into something that we can use
+            foreign_fn_ptr.into_steelval()
+        } else {
+            stop!(TypeMismatch => "function->ffi-function expected a function, found: {}", function);
+        }
+    }
+
+    Some(function_to_ffi_impl(ctx, args))
+}
+
+impl HostRuntimeFunction {
+    fn from_dyn_function(
+        func: Box<dyn Fn(&mut [SteelVal]) -> Result<SteelVal> + Send + Sync + 'static>,
+    ) -> Self {
+        let f = move |args: RSliceMut<'static, FFIValue>| -> RResult<FFIValue, RBoxError> {
+            let other_args = args
+                .into_iter()
+                .map(|x| std::mem::replace(x, FFIValue::Void).into_steelval())
+                .collect::<Result<smallvec::SmallVec<[SteelVal; 16]>>>();
+
+            match other_args {
+                Ok(mut args) => {
+                    let res = (func)(&mut args);
+
+                    match res.and_then(|x| as_ffi_value(&x)) {
+                        Ok(value) => RResult::ROk(value),
+                        Err(e) => RResult::RErr(RBoxError::new(e)),
+                    }
+                }
+                Err(e) => RResult::RErr(RBoxError::new(e)),
+            }
+        };
+
+        Self {
+            function: RFn_TO::from_ptr(RArc::new(f), TD_CanDowncast),
+        }
+    }
+
+    unsafe fn call(&self, mut args: RSliceMut<FFIValue>) -> RResult<FFIValue, RBoxError> {
+        let lifted_slice = unsafe {
+            std::mem::transmute::<&mut [FFIValue], &'static mut [FFIValue]>(args.as_mut_slice())
+        };
+
+        self.function.call(RSliceMut::from_mut_slice(lifted_slice))
+    }
+}
+
+impl Custom for HostRuntimeFunction {}
+
 fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
     match value {
         SteelVal::BoolV(b) => Ok(FFIArg::BoolV(*b)),
@@ -1309,6 +1400,16 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
                     // Passing the same one _shoudl_ panic
                     Ok(FFIArg::StringMutRef(StringMutRef {
                         string: RMut::from_raw(mut_ptr),
+                        guard,
+                    }))
+                }
+            // TODO: Change this to be the callback
+            } else if let Some(c) = as_underlying_type_mut::<HostRuntimeFunction>(guard.as_mut()) {
+                unsafe {
+                    let mut_ptr = c as *mut _;
+
+                    Ok(FFIArg::HostFunction(RuntimeFunctionRef {
+                        func: RMut::from_raw(mut_ptr),
                         guard,
                     }))
                 }

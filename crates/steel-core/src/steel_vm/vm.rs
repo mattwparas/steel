@@ -639,6 +639,16 @@ impl SteelThread {
         result
     }
 
+    pub fn call_fn_from_mut_slice(
+        &mut self,
+        function: SteelVal,
+        args: &mut [SteelVal],
+    ) -> Result<SteelVal> {
+        let constants = self.constant_map.clone();
+
+        self.call_function_from_mut_slice(constants, function, args)
+    }
+
     pub(crate) fn call_function_from_mut_slice(
         &mut self,
         constant_map: ConstantMap,
@@ -1340,6 +1350,29 @@ impl<'a> VmCore<'a> {
             thread,
             root_spans,
         })
+    }
+
+    pub fn steel_function_to_rust_function(
+        &self,
+        func: SteelVal,
+    ) -> Box<dyn Fn(&mut [SteelVal]) -> Result<SteelVal> + Send + Sync + 'static> {
+        let thread = Arc::new(Mutex::new(self.make_thread()));
+
+        Box::new(move |args: &mut [SteelVal]| {
+            let mut guard = thread.lock().unwrap();
+            guard.call_fn_from_mut_slice(func.clone(), args)
+        })
+    }
+
+    // Copy the thread of execution. This just blindly copies the thread, and closes
+    // the continuations found.
+    pub fn make_thread(&self) -> SteelThread {
+        let thread = self.thread.clone();
+        for frame in &self.thread.stack_frames {
+            self.close_continuation_marks(frame);
+        }
+        self.close_continuation_marks(&self.thread.current_frame);
+        thread
     }
 
     fn park_thread_while_paused(&self) {
