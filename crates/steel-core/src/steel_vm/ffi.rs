@@ -313,6 +313,15 @@ impl<'a> FromFFIArg<'a> for RMut<'a, RString> {
     }
 }
 
+impl<'a> FromFFIArg<'a> for HostRuntimeFunction {
+    fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
+        match val {
+            FFIArg::HostFunction(h) => RResult::ROk(h),
+            _ => conversion_error!(runtime_function, val),
+        }
+    }
+}
+
 impl<'a> FromFFIArg<'a> for RSliceMut<'a, FFIValue> {
     fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
         if let FFIArg::VectorRef(v) = val {
