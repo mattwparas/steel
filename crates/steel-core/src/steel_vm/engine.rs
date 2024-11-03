@@ -69,7 +69,7 @@ use std::{
 use crate::values::HashMap as ImmutableHashMap;
 use fxhash::{FxBuildHasher, FxHashMap};
 use lasso::ThreadedRodeo;
-use once_cell::sync::OnceCell;
+use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::{
     MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };
@@ -505,54 +505,12 @@ impl Engine {
             register_builtin_modules(&mut vm, sandbox)
         );
 
-        // These are used for creating the bootstrapped image
-        // let USE_BOOTSTRAP = false;
-        // let EMIT_BOOTSTRAP = false;
-
-        // if EMIT_BOOTSTRAP {
-        //     let bootstrap = vm
-        //         .emit_raw_program(
-        //             crate::steel_vm::primitives::ALL_MODULES,
-        //             PathBuf::from("dumb.scm"),
-        //         )
-        //         .unwrap()
-        //         .into_serializable_program()
-        //         .map(|program| NonInteractiveProgramImage {
-        //             sources: vm.sources.clone(),
-        //             program,
-        //         })
-        //         .unwrap();
-
-        //     let mut output = PathBuf::from("crates/steel-core/src/boot/all-modules-builtins.boot");
-
-        //     bootstrap.write_bytes_to_file(&output);
-        // };
-
-        // if USE_BOOTSTRAP {
-        //     time!(
-        //         "engine-creation",
-        //         "Loading the ALL_MODULES prelude code from bootstrap",
-        //         {
-        //             let program = NonInteractiveProgramImage::from_bytes(include_bytes!(
-        //                 "../boot/all-modules-builtins.boot"
-        //             ));
-
-        //             vm.sources = program.sources;
-
-        //             let raw_program =
-        //                 SerializableRawProgramWithSymbols::into_raw_program(program.program);
-        //             vm.run_raw_program(raw_program).unwrap();
-        //         }
-        //     )
-        // } else {
-
         time!(
             "engine-creation",
             "Loading the ALL_MODULES prelude code",
             vm.compile_and_run_raw_program(crate::steel_vm::primitives::ALL_MODULES)
                 .expect("loading ALL_MODULES failed")
         );
-        // }
 
         // log::debug!(target: "kernel", "Registered modules in the kernel!: {:?}", now.elapsed());
 

@@ -24,6 +24,7 @@ async fn main() {
 
     globals_set.insert("#%ignore-unused-identifier".into());
     globals_set.insert("#%register-global".into());
+    globals_set.insert("#%register-additional-search-path".into());
 
     let cloned_set = globals_set.clone();
     resolver_engine.register_fn("#%register-global", move |global: String| {
@@ -44,36 +45,31 @@ async fn main() {
 
     let home_directory = lsp_home();
 
-    ENGINE.with(|x| {
-        x.borrow_mut().register_module_resolver(
-            ExternalModuleResolver::new(&mut resolver_engine, PathBuf::from(home_directory))
-                .unwrap(),
-        )
-    });
+    ENGINE.write().unwrap().register_module_resolver(
+        ExternalModuleResolver::new(&mut resolver_engine, PathBuf::from(home_directory)).unwrap(),
+    );
 
-    ENGINE.with(|x| {
-        let mut guard = x.borrow_mut();
+    {
+        let mut guard = ENGINE.write().unwrap();
 
         for dir in additional_search_paths.iter() {
             guard.add_search_directory(PathBuf::from(dir.to_string()));
         }
-    });
+    };
 
     let defined_globals = DashSet::new();
 
-    ENGINE.with(|engine| {
-        for global in engine.borrow().globals().iter() {
-            let resolved = global.resolve();
-            if !resolved.starts_with("#")
-                && !resolved.starts_with("%")
-                && !resolved.starts_with("mangler#%")
-                && !resolved.starts_with("mangler")
-                && !resolved.starts_with("__module")
-            {
-                defined_globals.insert(resolved.to_string());
-            }
+    for global in ENGINE.read().unwrap().globals().iter() {
+        let resolved = global.resolve();
+        if !resolved.starts_with("#")
+            && !resolved.starts_with("%")
+            && !resolved.starts_with("mangler#%")
+            && !resolved.starts_with("mangler")
+            && !resolved.starts_with("__module")
+        {
+            defined_globals.insert(resolved.to_string());
         }
-    });
+    }
 
     let (service, socket) = LspService::build(|client| Backend {
         client,

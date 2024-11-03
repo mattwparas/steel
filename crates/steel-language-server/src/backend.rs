@@ -223,8 +223,11 @@ impl LanguageServer for Backend {
 
                 let name = syntax_object_id_to_interned_string.get(syntax_object_id)?;
 
-                let doc =
-                    ENGINE.with(|x| x.borrow().builtin_modules().get_doc((*name)?.resolve()))?;
+                let doc = ENGINE
+                    .read()
+                    .unwrap()
+                    .builtin_modules()
+                    .get_doc((*name)?.resolve())?;
 
                 return Some(Hover {
                     contents: HoverContents::Scalar(MarkedString::String(doc)),
@@ -240,7 +243,7 @@ impl LanguageServer for Backend {
 
             let maybe_definition = analysis.get_identifier(refers_to)?;
 
-            log::debug!("Refers to information: {:?}", &maybe_definition);
+            // log::debug!("Refers to information: {:?}", &maybe_definition);
 
             if maybe_definition.is_required_identifier {
                 match analysis.resolve_required_identifier(refers_to)? {
@@ -283,34 +286,30 @@ impl LanguageServer for Backend {
                             .trim_end_matches(interned.resolve())
                             .trim_end_matches("__%#__");
 
-                        return ENGINE.with(|engine| {
-                            let guard = engine.borrow();
-                            let modules = guard.modules();
+                        let guard = ENGINE.read().unwrap();
+                        let modules = guard.modules();
+                        let module = modules.get(&PathBuf::from(module_path_to_check))?;
+                        let module_ast = module.get_ast();
 
-                            let module = modules.get(&PathBuf::from(module_path_to_check))?;
+                        // Find the doc form of this
+                        let interned = interned.resolve().to_string() + "__doc__";
 
-                            let module_ast = module.get_ast();
+                        let top_level_define = query_top_level_define(module_ast, &interned)
+                            .or_else(|| {
+                                query_top_level_define_on_condition(
+                                    module_ast,
+                                    &interned,
+                                    |name, target| name.ends_with(target),
+                                )
+                            })?;
 
-                            // Find the doc form of this
-                            let interned = interned.resolve().to_string() + "__doc__";
+                        let definition = top_level_define.body.to_string_literal()?;
 
-                            let top_level_define = query_top_level_define(module_ast, &interned)
-                                .or_else(|| {
-                                    query_top_level_define_on_condition(
-                                        module_ast,
-                                        &interned,
-                                        |name, target| name.ends_with(target),
-                                    )
-                                })?;
-
-                            let definition = top_level_define.body.to_string_literal()?;
-
-                            Some(Hover {
-                                contents: HoverContents::Scalar(MarkedString::String(
-                                    definition.clone(),
-                                )),
-                                range: None,
-                            })
+                        return Some(Hover {
+                            contents: HoverContents::Scalar(MarkedString::String(
+                                definition.clone(),
+                            )),
+                            range: None,
                         });
                     }
                 }
@@ -373,7 +372,7 @@ impl LanguageServer for Backend {
 
             let mut resulting_span = maybe_definition.span;
 
-            log::debug!("Refers to information: {:?}", &maybe_definition);
+            // log::debug!("Refers to information: {:?}", &maybe_definition);
 
             if maybe_definition.is_required_identifier {
                 match analysis.resolve_required_identifier(refers_to)? {
@@ -382,22 +381,22 @@ impl LanguageServer for Backend {
                     }
 
                     RequiredIdentifierInformation::Unresolved(interned, name) => {
-                        log::debug!("Found unresolved identifier: {} - {}", interned, name);
+                        // log::debug!("Found unresolved identifier: {} - {}", interned, name);
 
                         let module_path_to_check = name
                             .trim_start_matches("mangler")
                             .trim_end_matches(interned.resolve())
                             .trim_end_matches("__%#__");
 
-                        resulting_span = ENGINE.with(|engine| {
-                            let guard = engine.borrow();
+                        resulting_span = {
+                            let guard = ENGINE.read().unwrap();
 
-                            log::debug!(
-                                "Compiled modules: {:?}",
-                                guard.modules().keys().collect::<Vec<_>>()
-                            );
+                            // log::debug!(
+                            //     "Compiled modules: {:?}",
+                            //     guard.modules().keys().collect::<Vec<_>>()
+                            // );
 
-                            log::debug!("Searching for: {} in {}", name, module_path_to_check);
+                            // log::debug!("Searching for: {} in {}", name, module_path_to_check);
 
                             let modules = guard.modules();
 
@@ -416,16 +415,12 @@ impl LanguageServer for Backend {
                                     },
                                 )?;
 
-                            // log::debug!("Found define: {}", top_level_define);
-
-                            top_level_define.name.atom_syntax_object().map(|x| x.span)
-
-                            // top_level_define
-                        })?;
+                            top_level_define.name.atom_syntax_object().map(|x| x.span)?
+                        };
                     }
                 }
 
-                log::debug!("Found new definition: {:?}", maybe_definition);
+                // log::debug!("Found new definition: {:?}", maybe_definition);
             }
 
             let location = source_id_to_uri(resulting_span.source_id().unwrap())?;
@@ -437,8 +432,10 @@ impl LanguageServer for Backend {
             if location != uri {
                 // log::debug!("Jumping to definition that is not yet in the document map!");
 
-                let expression =
-                    ENGINE.with(|x| x.borrow().get_source(&resulting_span.source_id().unwrap()))?;
+                let expression = ENGINE
+                    .read()
+                    .unwrap()
+                    .get_source(&resulting_span.source_id().unwrap())?;
 
                 rope = self
                     .document_map
@@ -458,7 +455,7 @@ impl LanguageServer for Backend {
 
             let range = Range::new(start_position, end_position);
 
-            log::debug!("{:?}", range);
+            // log::debug!("{:?}", range);
 
             Some(GotoDefinitionResponse::Scalar(Location::new(
                 location, range,
@@ -578,9 +575,10 @@ impl LanguageServer for Backend {
             }));
 
             // TODO: Build completions from macros that have been introduced into this scope
-            completions.extend(ENGINE.with(|engine| {
-                engine
-                    .borrow()
+            completions.extend(
+                ENGINE
+                    .read()
+                    .unwrap()
                     .in_scope_macros()
                     .keys()
                     .filter_map(|x| {
@@ -592,8 +590,8 @@ impl LanguageServer for Backend {
 
                         Some(x.resolve().to_string())
                     })
-                    .collect::<Vec<_>>()
-            }));
+                    .collect::<Vec<_>>(),
+            );
 
             let mut ret = Vec::with_capacity(completions.len());
             for var in completions {
@@ -606,7 +604,7 @@ impl LanguageServer for Backend {
                 });
             }
 
-            log::debug!("Time to calculate completions: {:?}", now.elapsed());
+            // log::debug!("Time to calculate completions: {:?}", now.elapsed());
 
             Some(ret)
         }();
@@ -710,8 +708,8 @@ impl Backend {
         let expression = params.text;
 
         let diagnostics = {
-            let program = ENGINE.with(|x| {
-                let mut guard = x.borrow_mut();
+            let program = {
+                let mut guard = ENGINE.write().unwrap();
 
                 // TODO: Reuse this!a
                 let macro_env_before: HashSet<InternedString> =
@@ -736,7 +734,7 @@ impl Backend {
                 });
 
                 expressions
-            });
+            };
 
             let mut ast = match program {
                 Ok(ast) => ast,
@@ -777,9 +775,9 @@ impl Backend {
 
             let analysis = SemanticAnalysis::new(&mut ast);
 
-            let diagnostics = ENGINE.with(|engine| {
+            let diagnostics = {
                 let mut context = DiagnosticContext {
-                    engine: &engine.borrow(),
+                    engine: &ENGINE.read().unwrap(),
                     analysis: &analysis,
                     uri: &params.uri,
                     source_id: id,
@@ -798,18 +796,20 @@ impl Backend {
                 let now = std::time::Instant::now();
 
                 // TODO: Enable this once the syntax object let conversion is implemented
-                let mut user_defined_lints =
-                    LINT_ENGINE.with(|x| x.borrow_mut().diagnostics(&rope, &analysis.exprs));
+                let mut user_defined_lints = LINT_ENGINE
+                    .write()
+                    .unwrap()
+                    .diagnostics(&rope, &analysis.exprs);
 
-                log::debug!("Lints found: {:#?}", user_defined_lints);
+                // log::debug!("Lints found: {:#?}", user_defined_lints);
 
                 free_identifiers_and_unused.append(&mut user_defined_lints);
 
-                log::debug!("User defined lints time taken: {:?}", now.elapsed());
+                // log::debug!("User defined lints time taken: {:?}", now.elapsed());
 
                 // All the diagnostics total
                 free_identifiers_and_unused
-            });
+            };
 
             self.ast_map.insert(params.uri.to_string(), ast);
 
@@ -820,17 +820,20 @@ impl Backend {
             .publish_diagnostics(params.uri.clone(), diagnostics, Some(params.version))
             .await;
 
-        log::debug!("On change time taken: {:?}", now.elapsed());
+        // log::debug!("On change time taken: {:?}", now.elapsed());
     }
 }
 
 fn uri_to_source_id(uri: &Url) -> Option<steel::parser::parser::SourceId> {
-    let id = ENGINE.with(|x| x.borrow().get_source_id(&uri.to_file_path().unwrap()));
+    let id = ENGINE
+        .read()
+        .unwrap()
+        .get_source_id(&uri.to_file_path().unwrap());
     id
 }
 
 fn source_id_to_uri(source_id: SourceId) -> Option<Url> {
-    let path = ENGINE.with(|x| x.borrow().get_path_for_source_id(&source_id))?;
+    let path = ENGINE.read().unwrap().get_path_for_source_id(&source_id)?;
 
     Some(Url::from_file_path(path).unwrap())
 }
@@ -888,17 +891,10 @@ impl steel::steel_vm::engine::ModuleResolver for ExternalModuleResolver {
 
 // TODO: Move these to the backend - we don't need them to be global like this now that
 // we're thread safe
-// pub static GLOBAL_ENGINE: Lazy<Mutex<Engine>> = Lazy::new(|| Mutex::new(Engine::new()));
-// pub static GLOBAL_LINT_ENGINE: Lazy<Mutex<UserDefinedLintEngine>> =
-//     Lazy::new(|| Mutex::new(configure_lints().unwrap()));
-// pub static GLOBAL_DIAGNOSTICS: Lazy<Mutex<Vec<SteelDiagnostic>>> =
-//     Lazy::new(|| Mutex::new(Vec::new()));
-
-thread_local! {
-    pub static ENGINE: RefCell<Engine> = RefCell::new(Engine::new());
-    pub static LINT_ENGINE: RefCell<UserDefinedLintEngine> = RefCell::new(configure_lints().unwrap());
-    pub static DIAGNOSTICS: RefCell<Vec<SteelDiagnostic>> = RefCell::new(Vec::new());
-}
+pub static ENGINE: Lazy<RwLock<Engine>> = Lazy::new(|| RwLock::new(Engine::new()));
+pub static LINT_ENGINE: Lazy<RwLock<UserDefinedLintEngine>> =
+    Lazy::new(|| RwLock::new(configure_lints().unwrap()));
+pub static DIAGNOSTICS: Lazy<RwLock<Vec<SteelDiagnostic>>> = Lazy::new(|| RwLock::new(Vec::new()));
 
 // At one time, call the lints, collecting the diagnostics each time.
 pub struct UserDefinedLintEngine {
@@ -918,29 +914,29 @@ impl UserDefinedLintEngine {
         for lint in lints.iter() {
             for object in &syntax_objects {
                 if let Ok(o) = object.clone() {
-                    log::debug!("calling: {} with {}", lint, o);
+                    // log::debug!("calling: {} with {}", lint, o);
 
                     let res = self.engine.call_function_by_name_with_args(lint, vec![o]);
 
-                    log::debug!("{:?}", res);
+                    // log::debug!("{:?}", res);
                 }
             }
         }
 
-        DIAGNOSTICS.with(|x| {
-            x.borrow_mut()
-                .drain(..)
-                .filter_map(|d| {
-                    let start_position = offset_to_position(d.span.start, &rope)?;
-                    let end_position = offset_to_position(d.span.end, &rope)?;
+        DIAGNOSTICS
+            .write()
+            .unwrap()
+            .drain(..)
+            .filter_map(|d| {
+                let start_position = offset_to_position(d.span.start, &rope)?;
+                let end_position = offset_to_position(d.span.end, &rope)?;
 
-                    Some(Diagnostic::new_simple(
-                        Range::new(start_position, end_position),
-                        d.message.to_string(),
-                    ))
-                })
-                .collect()
-        })
+                Some(Diagnostic::new_simple(
+                    Range::new(start_position, end_position),
+                    d.message.to_string(),
+                ))
+            })
+            .collect()
     }
 }
 
@@ -957,8 +953,11 @@ fn configure_lints() -> std::result::Result<UserDefinedLintEngine, Box<dyn Error
     let lints = Arc::new(RwLock::new(HashSet::new()));
 
     diagnostics.register_fn("suggest", move |span: Span, message: SteelString| {
-        log::debug!("Adding suggestion at: {:?} - {:?}", span, message);
-        DIAGNOSTICS.with(|x| x.borrow_mut().push(SteelDiagnostic { span, message }));
+        // log::debug!("Adding suggestion at: {:?} - {:?}", span, message);
+        DIAGNOSTICS
+            .write()
+            .unwrap()
+            .push(SteelDiagnostic { span, message });
     });
 
     let engine_lints = lints.clone();
