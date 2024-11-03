@@ -3,11 +3,7 @@
 
 (define (lock! lock thunk)
   (lock-acquire! lock)
-  (dynamic-wind (lambda () void)
-                (lambda ()
-                  (thunk)
-                  (lock-release! lock))
-                (lambda () (lock-release! lock))))
+  (dynamic-wind (lambda () void) (lambda () (thunk)) (lambda () (lock-release! lock))))
 
 (struct ThreadPool (task-sender capacity thread-handles))
 
@@ -66,9 +62,12 @@
                  (time/sleep-ms 1000)
                  10)))
 
+(define (sum-all-tasks all-tasks)
+  (if (null? all-tasks) 0 (+ (block-on-task (car all-tasks)) (sum-all-tasks (cdr all-tasks)))))
+
 (define all-tasks (map (lambda (_) (make-task)) (range 0 10)))
 
-(define results (map block-on-task all-tasks))
+(define results (sum-all-tasks all-tasks))
 
 (displayln results)
 
