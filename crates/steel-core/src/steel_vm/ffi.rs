@@ -63,6 +63,10 @@ impl FFIModule {
         self.values.insert(RString::from(name), value.into());
         self
     }
+
+    pub fn bindings(&self) -> Vec<RString> {
+        self.values.keys().cloned().collect()
+    }
 }
 
 #[abi_stable::sabi_trait]
@@ -281,7 +285,7 @@ impl<'a> FromFFIArg<'a> for RSliceMut<'a, FFIValue> {
     }
 }
 
-impl<'a, T: OpaqueObject + Clone + 'static> FromFFIArg<'a> for T {
+impl<'a, T: Custom + Clone + 'static> FromFFIArg<'a> for T {
     fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
         let lifted = unsafe { std::mem::transmute::<FFIArg<'a>, FFIArg<'static>>(val) };
         match lifted {
@@ -293,6 +297,16 @@ impl<'a, T: OpaqueObject + Clone + 'static> FromFFIArg<'a> for T {
                     None => conversion_error!(custom, "#<opaque>"),
                 }
             }
+
+            FFIArg::CustomRef(mut custom) => {
+                let inner = as_underlying_ffi_type::<T>(custom.custom.get_mut());
+
+                match inner {
+                    Some(v) => RResult::ROk(v.clone()),
+                    None => conversion_error!(custom, "#<opaque>"),
+                }
+            }
+
             _ => conversion_error!(custom, lifted),
         }
     }
@@ -1174,8 +1188,8 @@ impl FFIValue {
             //         }
             //     }
             // })))
-            _v => {
-                todo!("Missing enum variant not accounted for during FFIValue -> SteelVal conversion!")
+            v => {
+                todo!("Missing enum variant not accounted for during FFIValue -> SteelVal conversion!: {:?}", v);
             }
         }
     }
@@ -1553,14 +1567,14 @@ pub struct FFIWrappedModule {
 }
 
 impl FFIWrappedModule {
-    pub fn new(raw_module: RBox<FFIModule>) -> Result<Self> {
+    pub fn new(mut raw_module: RBox<FFIModule>) -> Result<Self> {
         let mut converted_module = BuiltInModule::new((&raw_module.name).to_string());
 
-        for tuple in raw_module.values.iter() {
+        for tuple in std::mem::take(&mut raw_module.values).into_iter() {
             let key = tuple.0;
             let value = tuple.1;
 
-            converted_module.register_value(&key, value.as_steelval()?);
+            converted_module.register_value(&key, value.into_steelval()?);
         }
 
         Ok(Self {
