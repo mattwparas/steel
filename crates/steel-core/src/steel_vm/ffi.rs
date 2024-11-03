@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    io::Write,
     marker::PhantomData,
     sync::{Arc, Mutex},
 };
@@ -66,6 +67,47 @@ impl FFIModule {
 
     pub fn bindings(&self) -> Vec<RString> {
         self.values.keys().cloned().collect()
+    }
+
+    // TODO: Have this take a writer
+    pub fn emit_package(&self, name: &str) -> std::result::Result<String, std::fmt::Error> {
+        use std::fmt::Write;
+
+        let mut writer = String::new();
+        let mut bindings = self.bindings();
+
+        bindings.sort();
+
+        writeln!(&mut writer, r#"(#%require-dylib "{}" (only-in"#, name)?;
+
+        for key in &bindings {
+            writeln!(&mut writer, "    {}", key)?;
+        }
+
+        writeln!(&mut writer, "))")?;
+
+        writeln!(&mut writer, "(provide ")?;
+        for key in &bindings {
+            writeln!(&mut writer, "    {}", key)?;
+        }
+
+        writeln!(&mut writer, ")")?;
+
+        Ok(writer)
+    }
+
+    pub fn emit_package_to_file(
+        &self,
+        name: &str,
+        path: impl AsRef<std::path::Path>,
+    ) -> std::io::Result<()> {
+        let mut file = std::fs::File::create(path)?;
+
+        let package_contents = self.emit_package(name).unwrap();
+
+        file.write_all(package_contents.as_bytes())?;
+
+        Ok(())
     }
 }
 
