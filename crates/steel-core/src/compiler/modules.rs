@@ -499,7 +499,7 @@ impl ModuleManager {
             let require_for_syntax = require_object.path.get_path();
 
             let (module, in_scope_macros, mut name_mangler) = Self::find_in_scope_macros(
-                &self.compiled_modules,
+                &mut self.compiled_modules,
                 require_for_syntax.as_ref(),
                 &require_object,
                 &mut mangled_asts,
@@ -772,7 +772,7 @@ impl ModuleManager {
     }
 
     fn find_in_scope_macros<'a>(
-        compiled_modules: &'a FxHashMap<PathBuf, CompiledModule>,
+        compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
         require_for_syntax: &'a PathBuf,
         require_object: &'a RequireObject,
         mangled_asts: &'a mut Vec<ExprKind>,
@@ -782,7 +782,7 @@ impl ModuleManager {
         NameMangler,
     ) {
         let module = compiled_modules
-            .get(require_for_syntax)
+            .get_mut(require_for_syntax)
             .expect(&format!("Module missing!: {:?}", require_for_syntax));
 
         let prefix = "mangler".to_string() + module.name.to_str().unwrap() + MANGLER_SEPARATOR;
@@ -814,13 +814,30 @@ impl ModuleManager {
             .iter()
             // Chain with just the normal provides!
             // .chain(module.provides)
-            .filter_map(|x| module.macro_map.get(x).map(|m| (*x, m.clone()))) // TODO -> fix this unwrap
-            .map(|mut x| {
-                for expr in x.1.exprs_mut() {
-                    name_mangler.visit(expr);
+            // .filter_map(|x| module.macro_map.get(x).map(|m| (*x, m.clone()))) // TODO -> fix this unwrap
+            // .filter_map(|x| module.macro_map.get_mut(x).map(|m| (*x, m))) // TODO -> fix this unwrap
+            .filter_map(|x| {
+                let smacro = module.macro_map.get_mut(x);
+
+                if let Some(smacro) = smacro {
+                    if !smacro.special_mangled {
+                        for expr in smacro.exprs_mut() {
+                            name_mangler.visit(expr);
+                        }
+                    }
+
+                    Some((*x, smacro.clone()))
+                } else {
+                    None
                 }
 
-                x
+                // if !x.1.special_mangled {
+                //     for expr in x.1.exprs_mut() {
+                //         name_mangler.visit(expr);
+                //     }
+                // }
+
+                // (x.0, x.1.clone())
             })
             .collect::<FxHashMap<_, _>>();
 
@@ -1591,6 +1608,10 @@ impl RequireObjectBuilder {
     }
 }
 
+fn try_canonicalize(path: PathBuf) -> PathBuf {
+    std::fs::canonicalize(&path).unwrap_or_else(|_| path)
+}
+
 struct ModuleBuilder<'a> {
     name: PathBuf,
     main: bool,
@@ -1807,7 +1828,7 @@ impl<'a> ModuleBuilder<'a> {
                         let mut err = crate::SteelErr::from(err);
                         err.prepend_message(&format!(
                             "Attempting to load module from: {:?} ",
-                            module
+                            module.components().collect::<Vec<_>>()
                         ));
                         err.set_span(require_statement_span)
                     })?
@@ -2270,6 +2291,13 @@ impl<'a> ModuleBuilder<'a> {
         //     .remove_unused_globals_with_prefix("mangler");
 
         // log::debug!(target: "requires", "Adding compiled module: {:?}", self.name);
+        // println!("Adding compiled module: {:?}", self.name);
+        // for (key, smacro) in module.macro_map.iter() {
+        //     println!("{}", key.resolve());
+        //     for expr in smacro.exprs() {
+        //         println!("{}", expr);
+        //     }
+        // }
 
         self.compiled_modules.insert(self.name.clone(), module);
 
@@ -2496,13 +2524,13 @@ impl<'a> ModuleBuilder<'a> {
                 if current.is_file() {
                     current.pop();
                 }
-                current.push(s.as_str());
+                current.push(PathBuf::from(s.as_str()));
 
                 // // If the path exists on its own, we can continue
                 // // But theres the case where we're searching for a module on the STEEL_HOME
                 if !current.exists() {
                     if let Some(mut home) = home.clone() {
-                        home.push(s.as_str());
+                        home.push(PathBuf::from(s.as_str()));
                         current = home;
 
                         log::info!("Searching STEEL_HOME for {:?}", current);
@@ -2541,6 +2569,8 @@ impl<'a> ModuleBuilder<'a> {
 
                 // Get the absolute path and store that
                 // self.requires.push(current)
+
+                let current = try_canonicalize(current);
 
                 require_object.path = Some(PathOrBuiltIn::Path(current));
             }
@@ -2641,11 +2671,11 @@ impl<'a> ModuleBuilder<'a> {
                                 if current.is_file() {
                                     current.pop();
                                 }
-                                current.push(path);
+                                current.push(PathBuf::from(path));
 
                                 if !current.exists() {
                                     if let Some(mut home) = home.clone() {
-                                        home.push(path);
+                                        home.push(PathBuf::from(path));
                                         current = home;
 
                                         if !current.exists() {
@@ -2677,6 +2707,7 @@ impl<'a> ModuleBuilder<'a> {
                                 }
 
                                 require_object.for_syntax = true;
+                                let current = try_canonicalize(current);
                                 require_object.path = Some(PathOrBuiltIn::Path(current));
                             }
                         } else {
@@ -2703,10 +2734,24 @@ impl<'a> ModuleBuilder<'a> {
         let mut exprs_without_requires = Vec::new();
         let exprs = std::mem::take(&mut self.source_ast);
 
-        let home = STEEL_HOME.clone().map(PathBuf::from).map(|mut x| {
-            x.push("cogs");
-            x
-        });
+        let home = STEEL_HOME
+            .clone()
+            .map(|x| {
+                // TODO: Fix this - try to hack in a root drive
+                // for windows if a unix path is provided
+                if cfg!(target_os = "windows") {
+                    let mut result = x.trim_start_matches("/").to_string();
+                    result.insert(1, ':');
+                    return PathBuf::from(result);
+                }
+
+                PathBuf::from(x)
+            })
+            .map(|mut x| {
+                x.push("cogs");
+
+                x
+            });
 
         fn walk(
             module_builder: &mut ModuleBuilder,
@@ -2810,6 +2855,10 @@ impl<'a> ModuleBuilder<'a> {
         custom_builtins: &'a HashMap<String, String>,
         search_dirs: &'a [PathBuf],
     ) -> Self {
+        // println!("New module found: {:?}", name);
+
+        let name = try_canonicalize(name);
+
         ModuleBuilder {
             name,
             main: false,

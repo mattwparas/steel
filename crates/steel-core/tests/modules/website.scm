@@ -15,11 +15,14 @@
   (mdstring->html-highlighted-string contents))
 
 (define (mdstring->html-highlighted-string contents)
-  (let ([output (open-output-string)] [parser (parser contents)])
+  (let ([output (open-output-string)]
+        [parser (parser contents)])
     ;; TODO: When this is named `parser` - shadowing the global, the compiler
     ;; is unhappy.
     ; (define parser (parser contents))
-    (let loop ([mdparser parser] [sink output] [language #f])
+    (let loop ([mdparser parser]
+               [sink output]
+               [language #f])
       (define next (parser-next mdparser))
       (when next
         (define start-language (event->start-code-block-label next))

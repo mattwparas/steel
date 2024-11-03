@@ -36,7 +36,7 @@ impl FromSteelVal for SourceId {
     }
 }
 
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub(crate) struct InterierSources {
     paths: HashMap<SourceId, PathBuf>,
     reverse: HashMap<PathBuf, SourceId>,

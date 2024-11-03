@@ -2,8 +2,9 @@
 (require-builtin steel/time)
 
 (define (lock! lock thunk)
-  (lock-acquire! lock)
-  (dynamic-wind (lambda () void) (lambda () (thunk)) (lambda () (lock-release! lock))))
+  (dynamic-wind (lambda () (lock-acquire! lock))
+                (lambda () (thunk))
+                (lambda () (lock-release! lock))))
 
 (struct ThreadPool (task-sender capacity thread-handles))
 
@@ -19,15 +20,15 @@
     (define next-task (channel/recv receiver))
     (define func (Task-func-or-result next-task))
 
-    (with-handler (lambda (err) (set-Task-err! next-task err))
+    (with-handler (lambda (err)
+                    (set-Task-err! next-task err)
+                    (set-Task-done! next-task #t))
                   ;; Capture exception, if it exists. Store it in the task
                   (lock! (Task-lock next-task)
                          (lambda ()
-
                            ;; This should be fine, we're updating the task to be finished,
                            ;; so we can check the progress of it
                            (set-Task-func-or-result! next-task (func))
-
                            (set-Task-done! next-task #t))))
 
     (listen-for-tasks))
@@ -45,8 +46,24 @@
   (channel/send (ThreadPool-task-sender tp) task)
   task)
 
-(define (block-on-task task)
+(define (try-block task)
   (lock! (Task-lock task) (lambda () (Task-func-or-result task))))
+
+(define (block-on-task task)
+  ;; This could be acquiring the lock too quickly, since
+  ;; it could reach the thread pool after we've acquired this lock.
+  ;; So we should attempt to grab the lock, but if the task has not
+  ;; been locked yet, then we won't actually wait on it. We should
+  ;; just spin lock until the lock can be acquired, and then
+  ;; block on it
+  (define (loop task)
+    (cond
+      [(Task-done task) (Task-func-or-result task)]
+      [else
+       (try-block task)
+       (loop task)]))
+
+  (loop task))
 
 ;; Create work for the thread-pool
 
@@ -65,6 +82,6 @@
 (displayln results)
 
 ;; Could do some timing tests - but for now this will work
-; (assert! (= (sum results) 100))
+(assert! (= (sum results) 100))
 
-(assert! (equal? (sum results) 100))
+; (assert! (equal? results 100))

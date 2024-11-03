@@ -10,8 +10,9 @@
 ;; Lock the given lock during the duration
 ;; of the thunk.
 (define (lock! lock thunk)
-  (lock-acquire! lock)
-  (dynamic-wind (lambda () void) (lambda () (thunk)) (lambda () (lock-release! lock))))
+  (dynamic-wind (lambda () (lock-acquire! lock))
+                (lambda () (thunk))
+                (lambda () (lock-release! lock))))
 
 (struct ThreadPool (task-sender capacity thread-handles))
 
@@ -65,7 +66,25 @@
   (channel/send (ThreadPool-task-sender tp) task)
   task)
 
+(define (try-block task)
+  (lock! (Task-lock task) (lambda () (Task-func-or-result task))))
+
 ;;@doc
 ;; Block the current thread on this task until it is finished.
 (define (block-on-task task)
-  (lock! (Task-lock task) (lambda () (Task-func-or-result task))))
+  ;; This could be acquiring the lock too quickly, since
+  ;; it could reach the thread pool after we've acquired this lock.
+  ;; So we should attempt to grab the lock, but if the task has not
+  ;; been locked yet, then we won't actually wait on it. We should
+  ;; just spin lock until the lock can be acquired, and then
+  ;; block on it
+  (define (loop task)
+    (cond
+      ;; If its an error, we don't immediately raise
+      ;; the exception for now
+      [(Task-done task) (if (Task-err task) (Task-err task) (Task-func-or-result task))]
+      [else
+       (try-block task)
+       (loop task)]))
+
+  (loop task))

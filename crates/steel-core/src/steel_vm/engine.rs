@@ -376,12 +376,24 @@ macro_rules! time {
     }};
 }
 
-static STATIC_DEFAULT_PRELUDE_MACROS: Lazy<Mutex<FxHashMap<InternedString, SteelMacro>>> =
-    Lazy::new(|| Mutex::new(FxHashMap::default()));
+static STATIC_DEFAULT_PRELUDE_MACROS: OnceCell<FxHashMap<InternedString, SteelMacro>> =
+    OnceCell::new();
 
-pub(crate) fn set_default_prelude_macros(prelude_macros: FxHashMap<InternedString, SteelMacro>) {
+static STATIC_DEFAULT_PRELUDE_MACROS_SANDBOX: OnceCell<FxHashMap<InternedString, SteelMacro>> =
+    OnceCell::new();
+
+pub(crate) fn set_default_prelude_macros(
+    prelude_macros: FxHashMap<InternedString, SteelMacro>,
+    sandbox: bool,
+) {
     if cfg!(feature = "sync") {
-        *STATIC_DEFAULT_PRELUDE_MACROS.lock().unwrap() = prelude_macros;
+        if sandbox {
+            STATIC_DEFAULT_PRELUDE_MACROS_SANDBOX
+                .set(prelude_macros)
+                .unwrap();
+        } else {
+            STATIC_DEFAULT_PRELUDE_MACROS.set(prelude_macros).unwrap();
+        }
     } else {
         DEFAULT_PRELUDE_MACROS.with(|x| {
             let mut guard = x.borrow_mut();
@@ -392,10 +404,12 @@ pub(crate) fn set_default_prelude_macros(prelude_macros: FxHashMap<InternedStrin
 
 pub(crate) fn default_prelude_macros() -> FxHashMap<InternedString, SteelMacro> {
     if cfg!(feature = "sync") {
-        STATIC_DEFAULT_PRELUDE_MACROS
-            .lock()
-            .map(|x| x.clone())
-            .unwrap_or_default()
+        STATIC_DEFAULT_PRELUDE_MACROS.get().cloned().unwrap_or(
+            STATIC_DEFAULT_PRELUDE_MACROS_SANDBOX
+                .get()
+                .cloned()
+                .unwrap_or_default(),
+        )
     } else {
         DEFAULT_PRELUDE_MACROS.with(|x| x.borrow().clone())
     }
@@ -439,9 +453,9 @@ impl Engine {
         let mut engine = self.clone();
         engine.virtual_machine.global_env = engine.virtual_machine.global_env.deep_clone();
 
-        let compiler_copy = engine.virtual_machine.compiler.read().clone();
+        let mut compiler_copy = engine.virtual_machine.compiler.read().clone();
+
         engine.virtual_machine.compiler = Arc::new(RwLock::new(compiler_copy));
-        // engine.virtual_machine.compiler = Some(Arc::downgrade(&engine.compiler));
 
         let constant_map = engine
             .virtual_machine
@@ -516,7 +530,7 @@ impl Engine {
         // values won't leak when top level macros are defined - and modules can clone from
         // this to begin seeding their environment.
 
-        set_default_prelude_macros(vm.in_scope_macros().clone());
+        set_default_prelude_macros(vm.in_scope_macros().clone(), sandbox);
 
         #[cfg(feature = "profiling")]
         log::debug!(target: "kernel", "Loaded prelude in the kernel!: {:?}", now.elapsed());
