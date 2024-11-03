@@ -1,6 +1,5 @@
 use std::{
     borrow::Cow,
-    io::Write,
     marker::PhantomData,
     sync::{Arc, Mutex},
 };
@@ -70,30 +69,31 @@ impl FFIModule {
     }
 
     // TODO: Have this take a writer
-    pub fn emit_package(&self, name: &str) -> std::result::Result<String, std::fmt::Error> {
-        use std::fmt::Write;
-
-        let mut writer = String::new();
+    pub fn emit_package<W: std::io::Write>(
+        &self,
+        name: &str,
+        writer: &mut W,
+    ) -> std::result::Result<(), std::io::Error> {
         let mut bindings = self.bindings();
 
         bindings.sort();
 
-        writeln!(&mut writer, r#"(#%require-dylib "{}" (only-in"#, name)?;
+        writeln!(writer, r#"(#%require-dylib "{}" (only-in"#, name)?;
 
         for key in &bindings {
-            writeln!(&mut writer, "    {}", key)?;
+            writeln!(writer, "    {}", key)?;
         }
 
-        writeln!(&mut writer, "))")?;
+        writeln!(writer, "))")?;
 
-        writeln!(&mut writer, "(provide ")?;
+        writeln!(writer, "(provide ")?;
         for key in &bindings {
-            writeln!(&mut writer, "    {}", key)?;
+            writeln!(writer, "    {}", key)?;
         }
 
-        writeln!(&mut writer, ")")?;
+        writeln!(writer, ")")?;
 
-        Ok(writer)
+        Ok(())
     }
 
     pub fn emit_package_to_file(
@@ -103,11 +103,7 @@ impl FFIModule {
     ) -> std::io::Result<()> {
         let mut file = std::fs::File::create(path)?;
 
-        let package_contents = self.emit_package(name).unwrap();
-
-        file.write_all(package_contents.as_bytes())?;
-
-        Ok(())
+        self.emit_package(name, &mut file)
     }
 }
 
