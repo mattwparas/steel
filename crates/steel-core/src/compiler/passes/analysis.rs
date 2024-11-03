@@ -3248,8 +3248,10 @@ struct CollectReferences {
 
 impl<'a> VisitorMutUnitRef<'a> for CollectReferences {
     fn visit_atom(&mut self, a: &'a Atom) {
+        // println!("collect references: {}", a);
         if let TokenType::Identifier(ident) = a.syn.ty {
             if ident.resolve().starts_with("mangler") {
+                // println!("Adding: {}", ident.resolve());
                 self.idents.insert(ident);
             }
         }
@@ -3944,6 +3946,10 @@ impl<'a> SemanticAnalysis<'a> {
             replacer.visit(expr);
         }
 
+        // for identifier in replacer.identifiers_to_replace.iter() {
+        //     println!("{}", identifier.resolve());
+        // }
+
         let mut macro_replacer = ReplaceBuiltinUsagesInsideMacros {
             identifiers_to_replace: replacer.identifiers_to_replace,
             analysis: &self.analysis,
@@ -4059,7 +4065,7 @@ impl<'a> SemanticAnalysis<'a> {
                                                 if *func == module_get_interned
                                                     || *func == proto_hash_get
                                                 {
-                                                    // dbg!(format!("REMOVING: {}", define));
+                                                    // println!("REMOVING: {}", define);
                                                     found = true;
                                                     break;
                                                 }
@@ -4083,7 +4089,7 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         for steel_macro in macros.values() {
-            // if !steel_macro.is_mangled() {
+            // println!("Visiting: {}", steel_macro.name().resolve());
             for expr in steel_macro.exprs() {
                 collected.visit(expr);
             }
@@ -4091,7 +4097,9 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         for module in module_manager.modules() {
+            // println!("Visiting module: {:?}", module.0);
             for steel_macro in module.1.macro_map.values() {
+                // println!("Visiting: {}", steel_macro.name().resolve());
                 // if !steel_macro.is_mangled() {
                 for expr in steel_macro.exprs() {
                     collected.visit(expr);
@@ -4123,7 +4131,7 @@ impl<'a> SemanticAnalysis<'a> {
                                                 return true;
                                             }
 
-                                            // dbg!(format!("REMOVING: {}", name));
+                                            // println!("REMOVING: {}", name);
 
                                             return false;
                                         }
@@ -4165,7 +4173,7 @@ impl<'a> SemanticAnalysis<'a> {
                                                         return true;
                                                     }
 
-                                                    // dbg!(format!("REMOVING: {}", name));
+                                                    // println!("4172 - REMOVING: {}", name);
 
                                                     // if name.resolve().ends_with("parser") {
                                                     //     println!("Removing: {}", name);

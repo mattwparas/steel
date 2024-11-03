@@ -930,13 +930,23 @@ mod lexer_tests {
             .next()
             .unwrap();
 
-        // assert!(
-        //     matches!(got.ty, TokenType::Number(NumberLiteral::Real(RealLiteral::Float(x))) if x.is_nan())
-        // );
-        // let got = TokenStream::new("-nan.0", true, None).next().unwrap();
-        // assert!(
-        //     matches!(got.ty, TokenType::Number(NumberLiteral::Real(RealLiteral::Float(x))) if x.is_nan())
-        // );
+        match got.ty {
+            TokenType::Number(n) => {
+                assert!(matches!(*n, NumberLiteral::Real(RealLiteral::Float(x)) if x.is_nan()))
+            }
+
+            _ => panic!("Didn't match"),
+        }
+
+        let got = TokenStream::new("-nan.0", true, None).next().unwrap();
+
+        match got.ty {
+            TokenType::Number(n) => {
+                assert!(matches!(*n, NumberLiteral::Real(RealLiteral::Float(x)) if x.is_nan()))
+            }
+
+            _ => panic!("Didn't match"),
+        }
     }
 
     #[test]
