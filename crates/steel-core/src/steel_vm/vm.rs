@@ -1357,8 +1357,11 @@ impl<'a> VmCore<'a> {
         func: SteelVal,
     ) -> Box<dyn Fn(&mut [SteelVal]) -> Result<SteelVal> + Send + Sync + 'static> {
         let thread = Arc::new(Mutex::new(self.make_thread()));
+        let rooted = func.as_rooted();
 
         Box::new(move |args: &mut [SteelVal]| {
+            let func = rooted.value();
+
             let mut guard = thread.lock().unwrap();
             guard.call_fn_from_mut_slice(func.clone(), args)
         })

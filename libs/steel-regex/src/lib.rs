@@ -39,9 +39,11 @@ steel::declare_module!(build_module);
 
 pub fn call_function_from_steel(value: FFIArg) -> isize {
     let mut sum = 0;
-    if let FFIArg::HostFunction(mut func) = value {
-        for _ in 0..100 {
-            let result = func.call(RSliceMut::from_mut_slice(&mut [])).unwrap();
+    if let FFIArg::HostFunction(func) = value {
+        for x in 0..100 {
+            let result = func
+                .call(RSliceMut::from_mut_slice(&mut [FFIValue::IntV(x)]))
+                .unwrap();
 
             if let FFIValue::IntV(i) = result {
                 sum += i;

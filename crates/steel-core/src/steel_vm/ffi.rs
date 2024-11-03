@@ -886,20 +886,6 @@ pub struct StringMutRef<'a> {
     guard: ScopedWriteContainer<'a, Box<dyn CustomType>>,
 }
 
-#[repr(C)]
-#[derive(StableAbi)]
-pub struct RuntimeFunctionRef<'a> {
-    func: RMut<'a, HostRuntimeFunction>,
-    #[sabi(unsafe_opaque_field)]
-    guard: ScopedWriteContainer<'a, Box<dyn CustomType>>,
-}
-
-impl<'a> RuntimeFunctionRef<'a> {
-    pub fn call(&mut self, args: RSliceMut<FFIValue>) -> RResult<FFIValue, RBoxError> {
-        unsafe { self.func.get_mut().call(args) }
-    }
-}
-
 // TODO:
 // Values that are safe to cross the FFI Boundary as arguments from
 // `SteelVal`s. This means the values can be borrowed without
@@ -929,7 +915,7 @@ pub enum FFIArg<'a> {
         #[sabi(unsafe_opaque_field)]
         fut: FfiFuture<RResult<FFIArg<'a>, RBoxError>>,
     },
-    HostFunction(RuntimeFunctionRef<'a>),
+    HostFunction(HostRuntimeFunction),
 }
 
 impl<'a> std::default::Default for FFIArg<'a> {
@@ -1279,7 +1265,7 @@ pub fn as_ffi_value(value: &SteelVal) -> Result<FFIValue> {
 
 #[repr(C)]
 #[derive(StableAbi)]
-struct HostRuntimeFunction {
+pub struct HostRuntimeFunction {
     function: RFn_TO<
         'static,
         'static,
@@ -1341,7 +1327,7 @@ impl HostRuntimeFunction {
         }
     }
 
-    unsafe fn call(&self, mut args: RSliceMut<FFIValue>) -> RResult<FFIValue, RBoxError> {
+    pub fn call(&self, mut args: RSliceMut<FFIValue>) -> RResult<FFIValue, RBoxError> {
         let lifted_slice = unsafe {
             std::mem::transmute::<&mut [FFIValue], &'static mut [FFIValue]>(args.as_mut_slice())
         };
@@ -1405,14 +1391,10 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
                 }
             // TODO: Change this to be the callback
             } else if let Some(c) = as_underlying_type_mut::<HostRuntimeFunction>(guard.as_mut()) {
-                unsafe {
-                    let mut_ptr = c as *mut _;
-
-                    Ok(FFIArg::HostFunction(RuntimeFunctionRef {
-                        func: RMut::from_raw(mut_ptr),
-                        guard,
-                    }))
-                }
+                // Just pass the function by value
+                Ok(FFIArg::HostFunction(HostRuntimeFunction {
+                    function: RFn_TO::from_sabi(c.function.obj.shallow_clone()),
+                }))
             } else {
                 stop!(TypeMismatch => "This opaque type did not originate from an FFI boundary, and thus cannot be passed across it: {:?}", value);
             }
