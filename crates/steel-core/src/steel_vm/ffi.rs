@@ -177,6 +177,16 @@ impl FromFFIVal for bool {
     }
 }
 
+impl<'a> FromFFIArg<'a> for bool {
+    fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
+        if let FFIArg::BoolV(b) = val {
+            RResult::ROk(b)
+        } else {
+            conversion_error!(boolean, val)
+        }
+    }
+}
+
 impl From<bool> for FFIValue {
     fn from(value: bool) -> Self {
         FFIValue::BoolV(value)
@@ -267,6 +277,23 @@ impl<'a> FromFFIArg<'a> for RSliceMut<'a, FFIValue> {
             RResult::ROk(v.vec)
         } else {
             conversion_error!(vec_slice, val)
+        }
+    }
+}
+
+impl<'a, T: OpaqueObject + Clone + 'static> FromFFIArg<'a> for T {
+    fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
+        let lifted = unsafe { std::mem::transmute::<FFIArg<'a>, FFIArg<'static>>(val) };
+        match lifted {
+            FFIArg::Custom { mut custom } => {
+                let inner = as_underlying_ffi_type::<T>(&mut custom.inner);
+
+                match inner {
+                    Some(v) => RResult::ROk(v.clone()),
+                    None => conversion_error!(custom, "#<opaque>"),
+                }
+            }
+            _ => conversion_error!(custom, lifted),
         }
     }
 }
@@ -364,6 +391,15 @@ impl FromFFIVal for () {
 impl From<()> for FFIValue {
     fn from(_: ()) -> Self {
         FFIValue::Void
+    }
+}
+
+impl<'a, T: FromFFIArg<'a>> FromFFIArg<'a> for Option<T> {
+    fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
+        match val {
+            FFIArg::BoolV(false) => RResult::ROk(None),
+            anything => T::from_ffi_arg(anything).map(Some),
+        }
     }
 }
 
