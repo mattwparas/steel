@@ -2741,6 +2741,13 @@ impl<'a> ModuleBuilder<'a> {
                 // for windows if a unix path is provided
                 if cfg!(target_os = "windows") {
                     let mut result = x.trim_start_matches("/").to_string();
+
+                    let mut iter = result.chars();
+                    iter.next();
+                    if matches!(iter.next(), Some(':')) {
+                        return PathBuf::from(result);
+                    }
+
                     result.insert(1, ':');
                     return PathBuf::from(result);
                 }
