@@ -1060,8 +1060,10 @@ pub fn ffi_module() -> BuiltInModule {
         })
         .register_fn("mutable-string", || MutableString {
             string: RString::new(),
-        })
-        .register_native_fn_definition(FUNCTION_TO_FFI_FUNCTION_DEFINITION);
+        });
+
+    #[cfg(feature = "sync")]
+    module.register_native_fn_definition(FUNCTION_TO_FFI_FUNCTION_DEFINITION);
 
     module
 }
@@ -1372,6 +1374,7 @@ pub struct HostRuntimeFunction {
     >,
 }
 
+#[cfg(feature = "sync")]
 #[steel_derive::context(name = "function->ffi-function", arity = "Exact(1)")]
 pub fn function_to_ffi_function(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     fn function_to_ffi_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {

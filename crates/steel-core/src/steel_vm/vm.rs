@@ -1352,6 +1352,7 @@ impl<'a> VmCore<'a> {
         })
     }
 
+    #[cfg(feature = "sync")]
     pub fn steel_function_to_rust_function(
         &self,
         func: SteelVal,
@@ -1369,6 +1370,7 @@ impl<'a> VmCore<'a> {
 
     // Copy the thread of execution. This just blindly copies the thread, and closes
     // the continuations found.
+    #[cfg(feature = "sync")]
     pub fn make_thread(&self) -> SteelThread {
         let thread = self.thread.clone();
         for frame in &self.thread.stack_frames {
