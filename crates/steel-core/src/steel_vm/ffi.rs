@@ -63,6 +63,48 @@ impl FFIModule {
         self.values.insert(RString::from(name), value.into());
         self
     }
+
+    pub fn bindings(&self) -> Vec<RString> {
+        self.values.keys().cloned().collect()
+    }
+
+    // TODO: Have this take a writer
+    pub fn emit_package<W: std::io::Write>(
+        &self,
+        name: &str,
+        writer: &mut W,
+    ) -> std::result::Result<(), std::io::Error> {
+        let mut bindings = self.bindings();
+
+        bindings.sort();
+
+        writeln!(writer, r#"(#%require-dylib "{}" (only-in"#, name)?;
+
+        for key in &bindings {
+            writeln!(writer, "    {}", key)?;
+        }
+
+        writeln!(writer, "))")?;
+
+        writeln!(writer, "(provide ")?;
+        for key in &bindings {
+            writeln!(writer, "    {}", key)?;
+        }
+
+        writeln!(writer, ")")?;
+
+        Ok(())
+    }
+
+    pub fn emit_package_to_file(
+        &self,
+        name: &str,
+        path: impl AsRef<std::path::Path>,
+    ) -> std::io::Result<()> {
+        let mut file = std::fs::File::create(path)?;
+
+        self.emit_package(name, &mut file)
+    }
 }
 
 #[abi_stable::sabi_trait]
@@ -177,6 +219,16 @@ impl FromFFIVal for bool {
     }
 }
 
+impl<'a> FromFFIArg<'a> for bool {
+    fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
+        if let FFIArg::BoolV(b) = val {
+            RResult::ROk(b)
+        } else {
+            conversion_error!(boolean, val)
+        }
+    }
+}
+
 impl From<bool> for FFIValue {
     fn from(value: bool) -> Self {
         FFIValue::BoolV(value)
@@ -261,12 +313,48 @@ impl<'a> FromFFIArg<'a> for RMut<'a, RString> {
     }
 }
 
+impl<'a> FromFFIArg<'a> for HostRuntimeFunction {
+    fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
+        match val {
+            FFIArg::HostFunction(h) => RResult::ROk(h),
+            _ => conversion_error!(runtime_function, val),
+        }
+    }
+}
+
 impl<'a> FromFFIArg<'a> for RSliceMut<'a, FFIValue> {
     fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
         if let FFIArg::VectorRef(v) = val {
             RResult::ROk(v.vec)
         } else {
             conversion_error!(vec_slice, val)
+        }
+    }
+}
+
+impl<'a, T: Custom + Clone + 'static> FromFFIArg<'a> for T {
+    fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
+        let lifted = unsafe { std::mem::transmute::<FFIArg<'a>, FFIArg<'static>>(val) };
+        match lifted {
+            FFIArg::Custom { mut custom } => {
+                let inner = as_underlying_ffi_type::<T>(&mut custom.inner);
+
+                match inner {
+                    Some(v) => RResult::ROk(v.clone()),
+                    None => conversion_error!(custom, "#<opaque>"),
+                }
+            }
+
+            FFIArg::CustomRef(mut custom) => {
+                let inner = as_underlying_ffi_type::<T>(custom.custom.get_mut());
+
+                match inner {
+                    Some(v) => RResult::ROk(v.clone()),
+                    None => conversion_error!(custom, "#<opaque>"),
+                }
+            }
+
+            _ => conversion_error!(custom, lifted),
         }
     }
 }
@@ -364,6 +452,15 @@ impl FromFFIVal for () {
 impl From<()> for FFIValue {
     fn from(_: ()) -> Self {
         FFIValue::Void
+    }
+}
+
+impl<'a, T: FromFFIArg<'a>> FromFFIArg<'a> for Option<T> {
+    fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
+        match val {
+            FFIArg::BoolV(false) => RResult::ROk(None),
+            anything => T::from_ffi_arg(anything).map(Some),
+        }
     }
 }
 
@@ -815,7 +912,7 @@ impl<RET: IntoFFIVal, FN: Fn() -> RET + SendSyncStatic> RegisterFFIFn<FN, Wrappe
 pub use abi_stable::std_types::RBox;
 pub use abi_stable::{export_root_module, prefix_type::PrefixTypeTrait, sabi_extern_fn};
 
-use super::{builtin::BuiltInModule, register_fn::RegisterFn};
+use super::{builtin::BuiltInModule, register_fn::RegisterFn, vm::VmCore};
 
 #[macro_export]
 macro_rules! declare_module {
@@ -915,6 +1012,7 @@ pub enum FFIArg<'a> {
         #[sabi(unsafe_opaque_field)]
         fut: FfiFuture<RResult<FFIArg<'a>, RBoxError>>,
     },
+    HostFunction(HostRuntimeFunction),
 }
 
 impl<'a> std::default::Default for FFIArg<'a> {
@@ -963,6 +1061,9 @@ pub fn ffi_module() -> BuiltInModule {
         .register_fn("mutable-string", || MutableString {
             string: RString::new(),
         });
+
+    #[cfg(feature = "sync")]
+    module.register_native_fn_definition(FUNCTION_TO_FFI_FUNCTION_DEFINITION);
 
     module
 }
@@ -1136,8 +1237,8 @@ impl FFIValue {
             //         }
             //     }
             // })))
-            _v => {
-                todo!("Missing enum variant not accounted for during FFIValue -> SteelVal conversion!")
+            v => {
+                todo!("Missing enum variant not accounted for during FFIValue -> SteelVal conversion!: {:?}", v);
             }
         }
     }
@@ -1261,6 +1362,82 @@ pub fn as_ffi_value(value: &SteelVal) -> Result<FFIValue> {
     }
 }
 
+#[repr(C)]
+#[derive(StableAbi)]
+pub struct HostRuntimeFunction {
+    function: RFn_TO<
+        'static,
+        'static,
+        RArc<()>,
+        RSliceMut<'static, FFIValue>,
+        RResult<FFIValue, RBoxError>,
+    >,
+}
+
+#[cfg(feature = "sync")]
+#[steel_derive::context(name = "function->ffi-function", arity = "Exact(1)")]
+pub fn function_to_ffi_function(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    fn function_to_ffi_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+        if args.len() != 1 {
+            stop!(ArityMismatch => "function->ffi-function expects one arg, found: {}", args.len());
+        }
+
+        let function = args[0].clone();
+
+        if function.is_function() {
+            let function = ctx.steel_function_to_rust_function(function);
+
+            let foreign_fn_ptr = HostRuntimeFunction::from_dyn_function(function);
+
+            // Convert the foreign fn ptr into something that we can use
+            foreign_fn_ptr.into_steelval()
+        } else {
+            stop!(TypeMismatch => "function->ffi-function expected a function, found: {}", function);
+        }
+    }
+
+    Some(function_to_ffi_impl(ctx, args))
+}
+
+impl HostRuntimeFunction {
+    fn from_dyn_function(
+        func: Box<dyn Fn(&mut [SteelVal]) -> Result<SteelVal> + Send + Sync + 'static>,
+    ) -> Self {
+        let f = move |args: RSliceMut<'static, FFIValue>| -> RResult<FFIValue, RBoxError> {
+            let other_args = args
+                .into_iter()
+                .map(|x| std::mem::replace(x, FFIValue::Void).into_steelval())
+                .collect::<Result<smallvec::SmallVec<[SteelVal; 16]>>>();
+
+            match other_args {
+                Ok(mut args) => {
+                    let res = (func)(&mut args);
+
+                    match res.and_then(|x| as_ffi_value(&x)) {
+                        Ok(value) => RResult::ROk(value),
+                        Err(e) => RResult::RErr(RBoxError::new(e)),
+                    }
+                }
+                Err(e) => RResult::RErr(RBoxError::new(e)),
+            }
+        };
+
+        Self {
+            function: RFn_TO::from_ptr(RArc::new(f), TD_CanDowncast),
+        }
+    }
+
+    pub fn call(&self, mut args: RSliceMut<FFIValue>) -> RResult<FFIValue, RBoxError> {
+        let lifted_slice = unsafe {
+            std::mem::transmute::<&mut [FFIValue], &'static mut [FFIValue]>(args.as_mut_slice())
+        };
+
+        self.function.call(RSliceMut::from_mut_slice(lifted_slice))
+    }
+}
+
+impl Custom for HostRuntimeFunction {}
+
 fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
     match value {
         SteelVal::BoolV(b) => Ok(FFIArg::BoolV(*b)),
@@ -1312,6 +1489,12 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
                         guard,
                     }))
                 }
+            // TODO: Change this to be the callback
+            } else if let Some(c) = as_underlying_type_mut::<HostRuntimeFunction>(guard.as_mut()) {
+                // Just pass the function by value
+                Ok(FFIArg::HostFunction(HostRuntimeFunction {
+                    function: RFn_TO::from_sabi(c.function.obj.shallow_clone()),
+                }))
             } else {
                 stop!(TypeMismatch => "This opaque type did not originate from an FFI boundary, and thus cannot be passed across it: {:?}", value);
             }
@@ -1434,14 +1617,14 @@ pub struct FFIWrappedModule {
 }
 
 impl FFIWrappedModule {
-    pub fn new(raw_module: RBox<FFIModule>) -> Result<Self> {
+    pub fn new(mut raw_module: RBox<FFIModule>) -> Result<Self> {
         let mut converted_module = BuiltInModule::new((&raw_module.name).to_string());
 
-        for tuple in raw_module.values.iter() {
+        for tuple in std::mem::take(&mut raw_module.values).into_iter() {
             let key = tuple.0;
             let value = tuple.1;
 
-            converted_module.register_value(&key, value.as_steelval()?);
+            converted_module.register_value(&key, value.into_steelval()?);
         }
 
         Ok(Self {

@@ -70,44 +70,61 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         .unwrap();
 
     let reader = std::io::BufReader::new(command.stdout.take().unwrap());
-    let last = cargo_metadata::Message::parse_stream(reader)
-        .filter_map(|x| {
-            if let Ok(Message::CompilerArtifact(artifact)) = x {
-                Some(artifact)
-            } else {
-                None
-            }
-        })
-        .last()
-        .unwrap();
 
-    if last.target.kind == ["cdylib"] {
-        println!("Found a cdylib!");
-
-        for file in last.filenames {
-            let filename = file.file_name().unwrap();
-
-            steel_home.push(filename);
-
-            println!("Copying {} to {}", file, &steel_home.to_str().unwrap());
-
-            std::fs::copy(file, &steel_home).unwrap();
-
-            steel_home.pop();
+    let artifacts = cargo_metadata::Message::parse_stream(reader).filter_map(|x| {
+        if let Ok(Message::CompilerArtifact(artifact)) = x {
+            Some(artifact)
+        } else {
+            None
         }
-    } else if last.target.kind == ["dylib"] {
-        println!("Found a dylib!");
+    });
 
-        for file in last.filenames {
-            let filename = file.file_name().unwrap();
+    for last in artifacts {
+        if last
+            .target
+            .kind
+            .iter()
+            .find(|x| x.as_str() == "cdylib")
+            .is_some()
+        {
+            for file in last.filenames {
+                if matches!(file.extension(), Some("so") | Some("dylib") | Some("lib")) {
+                    println!("Found a cdylib!");
+                    let filename = file.file_name().unwrap();
 
-            steel_home.push(filename);
+                    steel_home.push(filename);
 
-            println!("Copying {} to {}", file, &steel_home.to_str().unwrap());
+                    println!("Copying {} to {}", file, &steel_home.to_str().unwrap());
 
-            std::fs::copy(file, &steel_home).unwrap();
+                    std::fs::copy(file, &steel_home).unwrap();
 
-            steel_home.pop();
+                    steel_home.pop();
+                    break;
+                }
+            }
+        } else if last
+            .target
+            .kind
+            .iter()
+            .find(|x| x.as_str() == "dylib")
+            .is_some()
+        {
+            for file in last.filenames {
+                if matches!(file.extension(), Some("so") | Some("dylib") | Some("lib")) {
+                    println!("Found a dylib!");
+
+                    let filename = file.file_name().unwrap();
+
+                    steel_home.push(filename);
+
+                    println!("Copying {} to {}", file, &steel_home.to_str().unwrap());
+
+                    std::fs::copy(file, &steel_home).unwrap();
+
+                    steel_home.pop();
+                    break;
+                }
+            }
         }
     }
 
