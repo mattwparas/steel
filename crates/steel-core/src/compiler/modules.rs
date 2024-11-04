@@ -1828,7 +1828,7 @@ impl<'a> ModuleBuilder<'a> {
                         let mut err = crate::SteelErr::from(err);
                         err.prepend_message(&format!(
                             "Attempting to load module from: {:?} ",
-                            module.components().collect::<Vec<_>>()
+                            module
                         ));
                         err.set_span(require_statement_span)
                     })?
