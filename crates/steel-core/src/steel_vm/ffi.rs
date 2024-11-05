@@ -132,7 +132,6 @@ impl<T: Custom + MaybeSendSyncStatic> OpaqueObject for T {}
 
 // TODO: Swap this implementation with the above.
 #[repr(C)]
-// #[derive(Clone)]
 #[derive(StableAbi)]
 pub struct OpaqueFFIValueReturn {
     pub inner: OpaqueObject_TO<'static, RBox<()>>,
@@ -1329,6 +1328,63 @@ impl std::fmt::Debug for FFIBoxedDynFunction {
     }
 }
 
+fn into_ffi_value(value: SteelVal) -> Result<FFIValue> {
+    match value {
+        SteelVal::BoolV(b) => Ok(FFIValue::BoolV(b)),
+        SteelVal::IntV(i) => Ok(FFIValue::IntV(i)),
+        SteelVal::NumV(n) => Ok(FFIValue::NumV(n)),
+        SteelVal::CharV(c) => Ok(FFIValue::CharV { c }),
+        SteelVal::Void => Ok(FFIValue::Void),
+        SteelVal::HashMapV(h) => {
+            h.0.unwrap()
+                .into_iter()
+                .map(|(key, value)| {
+                    let key = into_ffi_value(key)?;
+                    let value = into_ffi_value(value)?;
+
+                    Ok((key, value))
+                })
+                .collect::<Result<_>>()
+                .map(FFIValue::HashMap)
+        }
+        SteelVal::ListV(l) => l
+            .into_iter()
+            .map(into_ffi_value)
+            .collect::<Result<_>>()
+            .map(FFIValue::Vector),
+
+        // TODO:
+        // Don't copy the string unless we have to!
+        SteelVal::StringV(s) => Ok(FFIValue::StringV(s.as_str().into())),
+
+        SteelVal::Custom(c) => {
+            let mut guard = c.write();
+
+            if let Some(c) = as_underlying_type_mut::<OpaqueFFIValueReturn>(guard.as_mut()) {
+                #[repr(C)]
+                #[derive(StableAbi)]
+                struct DummyOpaqueObject;
+                impl Custom for DummyOpaqueObject {}
+
+                let existing = std::mem::replace(
+                    c,
+                    OpaqueFFIValueReturn {
+                        inner: OpaqueObject_TO::from_value(DummyOpaqueObject, TD_CanDowncast),
+                    },
+                );
+
+                Ok(FFIValue::Custom { custom: existing })
+            } else {
+                stop!(TypeMismatch => "Cannot proceed with the conversion from steelval to FFI Value. This value did not originate from across an FFI boundary")
+            }
+        }
+
+        _ => {
+            stop!(TypeMismatch => "Cannot proceed with the conversion from steelval to FFI Value. This will only succeed for a subset of values deemed as FFI-safe-enough: {:?}", value)
+        }
+    }
+}
+
 pub fn as_ffi_value(value: &SteelVal) -> Result<FFIValue> {
     match value {
         SteelVal::BoolV(b) => Ok(FFIValue::BoolV(*b)),
@@ -1413,7 +1469,7 @@ impl HostRuntimeFunction {
                 Ok(mut args) => {
                     let res = (func)(&mut args);
 
-                    match res.and_then(|x| as_ffi_value(&x)) {
+                    match res.and_then(|x| into_ffi_value(x)) {
                         Ok(value) => RResult::ROk(value),
                         Err(e) => RResult::RErr(RBoxError::new(e)),
                     }
@@ -1471,14 +1527,12 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
                 unsafe {
                     let mut_ptr = &mut c.vec as *mut RVec<FFIValue>;
 
-                    // Passing the same one _shoudl_ panic
+                    // Passing the same one _should_ panic
                     Ok(FFIArg::VectorRef(VectorRef {
                         vec: (*mut_ptr).as_mut_rslice(),
                         guard,
                     }))
                 }
-
-                // stop!(TypeMismatch => "This opaque type did not originate from an FFI boundary, and thus cannot be passed across it: {:?}", value);
             } else if let Some(c) = as_underlying_type_mut::<MutableString>(guard.as_mut()) {
                 unsafe {
                     let mut_ptr = &mut c.string as *mut RString;
@@ -1489,7 +1543,6 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
                         guard,
                     }))
                 }
-            // TODO: Change this to be the callback
             } else if let Some(c) = as_underlying_type_mut::<HostRuntimeFunction>(guard.as_mut()) {
                 // Just pass the function by value
                 Ok(FFIArg::HostFunction(HostRuntimeFunction {
