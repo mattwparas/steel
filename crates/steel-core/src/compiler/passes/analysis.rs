@@ -1096,6 +1096,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // the function call.
         let stack_offset = self.stack_offset;
 
+        if l.is_empty() {
+            return;
+        }
+
         for expr in &l.args[1..] {
             self.escape_analysis = true;
 
