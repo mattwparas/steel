@@ -18,9 +18,146 @@ pub fn derive_steel(input: TokenStream) -> TokenStream {
     let name = &input.ident;
 
     match &input.data {
-        Data::Struct(_) | Data::Enum(_) => {
+        Data::Struct(_) => {
             let gen = quote! {
                 impl steel::rvals::Custom for #name {}
+            };
+
+            gen.into()
+        }
+        Data::Enum(e) => {
+            let mut names = Vec::new();
+            let mut values = Vec::new();
+
+            // Iterate over the variants, and generate a function
+            // to check each of the variants.
+            for variant in &e.variants {
+                let identifier = &variant.ident;
+
+                match variant.fields {
+                    syn::Fields::Named(_) => {
+                        names.push(format!("{}-{}?", name, identifier));
+                        values.push(quote! {
+                            |value: &#name| matches!(value, #name::#identifier{..})
+                        });
+
+                        names.push(format!("{}-{}", name, identifier));
+
+                        let field_names_args =
+                            variant.fields.iter().filter_map(|x| x.ident.clone());
+                        let field_names_body =
+                            variant.fields.iter().filter_map(|x| x.ident.clone());
+
+                        values.push(quote! {
+                            |#(
+                                #field_names_args,
+                            )*| #name::#identifier {
+                                #(
+                                    #field_names_body,
+                                )*
+                            }
+                        });
+
+                        for field in variant.fields.iter() {
+                            if let Some(field_name) = &field.ident {
+                                let accessor_func =
+                                    format!("{}-{}-{}", name, identifier, field_name);
+
+                                // Accessors
+                                names.push(accessor_func.clone());
+
+                                values.push(quote! {
+                                    |value: &#name| {
+                                        use crate::rvals::IntoSteelVal;
+                                        use crate::stop;
+
+                                        if let #name::#identifier { #field_name, .. } = value {
+                                            #field_name.into_steelval()
+                                        } else {
+                                            crate::stop!(TypeMismatch =>
+                                                format!("{} expected {}-{}, found {:?}",
+                                                #accessor_func,
+                                                stringify!(#name),
+                                                stringify!(#identifier), value));
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }
+                    syn::Fields::Unnamed(_) => {
+                        names.push(format!("{}-{}?", name, identifier));
+                        values.push(quote! {
+                            |value: &#name| matches!(value, #name::#identifier(..))
+                        });
+
+                        names.push(format!("{}-{}", name, identifier));
+                        values.push(quote! {
+                            #name::#identifier
+                        });
+
+                        for (field_name, _) in variant.fields.iter().enumerate() {
+                            let accessor_func = format!("{}-{}-{}", name, identifier, field_name);
+
+                            let blank = std::iter::repeat_n(quote!(_), field_name);
+
+                            // Accessors
+                            names.push(accessor_func.clone());
+
+                            values.push(quote! {
+                                |value: &#name| {
+                                    use crate::rvals::IntoSteelVal;
+                                    use crate::stop;
+
+                                    if let #name::#identifier(#(#blank,)* value, ..) = value {
+                                        value.into_steelval()
+                                    } else {
+                                        crate::stop!(TypeMismatch =>
+                                            format!("{} expected {}-{}, found {:?}",
+                                            #accessor_func,
+                                            stringify!(#name),
+                                            stringify!(#identifier), value));
+                                    }
+                                }
+                            });
+                        }
+                    }
+                    syn::Fields::Unit => {
+                        names.push(format!("{}-{}?", name, identifier));
+                        values.push(quote! {
+                            |value: &#name| matches!(value, #name::#identifier)
+                        });
+
+                        names.push(format!("{}-{}", name, identifier));
+                        values.push(quote! {
+                            || #name::#identifier
+                        });
+                    }
+                }
+            }
+
+            let gen = quote! {
+                impl crate::rvals::Custom for #name {
+                    fn equality_hint(&self, other: &dyn crate::rvals::CustomType) -> bool {
+                        if let Some(other) = as_underlying_type::<#name>(other) {
+                            self == other
+                        } else {
+                            false
+                        }
+                    }
+                }
+
+                impl #name {
+                    #[doc = "Registers the enum variant functions with this module"]
+                    fn register_enum_variants(module: &mut crate::steel_vm::builtin::BuiltInModule) ->
+                        &mut crate::steel_vm::builtin::BuiltInModule {
+                        #(
+                            module.register_fn(#names, #values);
+                        )*
+
+                        module
+                    }
+                }
             };
 
             gen.into()
@@ -218,7 +355,8 @@ pub fn native(
 
     let definition_struct = if let Some(doc) = maybe_doc_comments {
         quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
+            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition =
+            crate::steel_vm::builtin::NativeFunctionDefinition {
                 name: #value,
                 aliases: &[],
                 func: crate::steel_vm::builtin::BuiltInFunctionType::Reference(#function_name),
