@@ -242,7 +242,7 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                                 let accessor_func =
                                     format!("{}-{}-{}", name, identifier, field_name);
 
-                                let blank = std::iter::repeat_n(quote!(_), field_name);
+                                let blank = vec![quote!(_); field_name];
 
                                 // Accessors
                                 names.push(accessor_func.clone());
