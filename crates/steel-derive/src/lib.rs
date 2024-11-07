@@ -427,7 +427,7 @@ fn filter_out_ignored(field: &syn::Field) -> bool {
 #[proc_macro_derive(Steel, attributes(steel))]
 pub fn derive_steel(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
-    let prefix = quote! { steel };
+    let prefix = quote! { ::steel };
 
     derive_steel_impl(input, prefix)
 }
