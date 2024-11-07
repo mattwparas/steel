@@ -8,28 +8,435 @@ use std::collections::HashMap;
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{
-    punctuated::Punctuated, spanned::Spanned, Data, DeriveInput, Expr, ExprGroup, ExprLit, FnArg,
-    Ident, ItemFn, Lit, LitStr, Meta, ReturnType, Signature, Type, TypeReference,
+    punctuated::Punctuated, spanned::Spanned, Attribute, Data, DeriveInput, Expr, ExprGroup,
+    ExprLit, FnArg, Ident, ItemFn, Lit, LitStr, Meta, ReturnType, Signature, Type, TypeReference,
 };
 
-#[proc_macro_derive(Steel)]
-pub fn derive_steel(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
+fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> TokenStream {
     let name = &input.ident;
+    let mut names = Vec::new();
+    let mut values = Vec::new();
+
+    let should_impl_equals = should_derive_param(&input, "equality");
+    let should_impl_getters = should_derive_param(&input, "getters");
+    let should_impl_constructor =
+        should_derive_param(&input, "constructor") || should_derive_param(&input, "constructors");
 
     match &input.data {
-        Data::Struct(_) | Data::Enum(_) => {
+        Data::Struct(s) => {
+            match &s.fields {
+                syn::Fields::Named(_) => {
+                    let field_names_args = s.fields.iter().filter_map(|x| x.ident.clone());
+                    let field_names_body = s.fields.iter().filter_map(|x| x.ident.clone());
+
+                    if should_impl_constructor {
+                        names.push(format!("{}", name));
+                        values.push(quote! {
+                            |#(
+                                #field_names_args,
+                            )*| #name {
+                                #(
+                                    #field_names_body,
+                                )*
+                            }
+                        });
+                    }
+
+                    if should_impl_getters {
+                        for field in s.fields.iter() {
+                            if !filter_out_ignored(field) {
+                                continue;
+                            }
+
+                            if let Some(field_name) = &field.ident {
+                                let accessor_func = format!("{}-{}", name, field_name);
+
+                                // Accessors
+                                names.push(accessor_func.clone());
+
+                                values.push(quote! {
+                                    |value: &#name| {
+                                        use #prefix::rvals::IntoSteelVal;
+                                        &value.#field_name.clone().into_steelval()
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+                // TODO:
+                syn::Fields::Unnamed(_) => {
+                    if should_impl_constructor {
+                        names.push(format!("{}", name,));
+                        values.push(quote! {
+                            #name
+                        });
+                    }
+
+                    if should_impl_getters {
+                        for (index, field) in s.fields.iter().enumerate() {
+                            if !filter_out_ignored(field) {
+                                continue;
+                            }
+
+                            let accessor_func = format!("{}-{}", name, index);
+
+                            let index = syn::Index::from(index);
+
+                            // Accessors
+                            names.push(accessor_func.clone());
+
+                            values.push(quote! {
+                                |value: &#name| {
+                                    use #prefix::rvals::IntoSteelVal;
+                                    &value.#index.clone().into_steelval()
+                                }
+                            });
+                        }
+                    }
+                }
+                syn::Fields::Unit => {
+                    if should_impl_constructor {
+                        names.push(format!("{}", name));
+                        values.push(quote! {
+                            || #name
+                        });
+                    }
+                }
+            }
+
+            let equality_impl = if should_impl_equals {
+                quote! {
+                    fn equality_hint(&self, other: &dyn #prefix::rvals::CustomType) -> bool {
+                        if let Some(other) = #prefix::rvals::as_underlying_type::<#name>(other) {
+                            self == other
+                        } else {
+                            false
+                        }
+                    }
+                }
+            } else {
+                quote! {}
+            };
+
             let gen = quote! {
-                impl steel::rvals::Custom for #name {}
+                impl #prefix::rvals::Custom for #name {
+                    #equality_impl
+                }
+
+                impl #name {
+                    #[doc = "Registers the struct functions with this module"]
+                    fn register_type(module: &mut #prefix::steel_vm::builtin::BuiltInModule) ->
+                        &mut #prefix::steel_vm::builtin::BuiltInModule {
+                        #(
+                            module.register_fn(#names, #values);
+                        )*
+
+                        module
+                    }
+                }
+            };
+
+            gen.into()
+        }
+        Data::Enum(e) => {
+            let mut names = Vec::new();
+            let mut values = Vec::new();
+
+            // Iterate over the variants, and generate a function
+            // to check each of the variants.
+            'variant: for variant in &e.variants {
+                let identifier = &variant.ident;
+
+                for attr in &variant.attrs {
+                    if !filter_out_ignored_attr(&attr) {
+                        continue 'variant;
+                    }
+                }
+
+                match variant.fields {
+                    syn::Fields::Named(_) => {
+                        names.push(format!("{}-{}?", name, identifier));
+                        values.push(quote! {
+                        |value: #prefix::rvals::SteelVal| {
+                            use #prefix::gc::ShareableMut;
+                            if let #prefix::rvals::SteelVal::Custom(c) = value {
+                                if let Some(inner) = #prefix::rvals::as_underlying_type::<#name>(c.read().as_ref())
+                                {
+                                    return matches!(inner, #name::#identifier{..});
+                                }
+                            }
+                            false
+                        }});
+
+                        if should_impl_constructor {
+                            let field_names_args = variant
+                                .fields
+                                .iter()
+                                // TODO: Filter out those we want to ignore for accessors, but
+                                // otherwise don't do it here?
+                                .filter_map(|x| x.ident.clone());
+
+                            let field_names_body =
+                                variant.fields.iter().filter_map(|x| x.ident.clone());
+
+                            names.push(format!("{}-{}", name, identifier));
+                            values.push(quote! {
+                                |#(
+                                    #field_names_args,
+                                )*| #name::#identifier {
+                                    #(
+                                        #field_names_body,
+                                    )*
+                                }
+                            });
+                        }
+
+                        if should_impl_getters {
+                            for field in variant.fields.iter() {
+                                if !filter_out_ignored(field) {
+                                    continue;
+                                }
+
+                                if let Some(field_name) = &field.ident {
+                                    let accessor_func =
+                                        format!("{}-{}-{}", name, identifier, field_name);
+
+                                    // Accessors
+                                    names.push(accessor_func.clone());
+
+                                    values.push(quote! {
+                                        |value: &#name| {
+                                            use #prefix::rvals::IntoSteelVal;
+                                            use #prefix::stop;
+                                            use #prefix::rerrs::SteelErr;
+
+                                            if let #name::#identifier { #field_name, .. } = &value {
+                                                #field_name.clone().into_steelval()
+                                            } else {
+                                                #prefix::stop!(TypeMismatch =>
+                                                    format!("{} expected {}-{}, found {:?}",
+                                                    #accessor_func,
+                                                    stringify!(#name),
+                                                    stringify!(#identifier),
+                                                    value));
+                                            }
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    syn::Fields::Unnamed(_) => {
+                        names.push(format!("{}-{}?", name, identifier));
+                        values.push(quote! {
+                        |value: #prefix::rvals::SteelVal| {
+                            use #prefix::gc::ShareableMut;
+                            if let #prefix::rvals::SteelVal::Custom(c) = value {
+                                if let Some(inner) = #prefix::rvals::as_underlying_type::<#name>(c.read().as_ref())
+                                {
+                                    return matches!(inner, #name::#identifier(..));
+                                }
+                            }
+                            false
+                        }});
+
+                        if should_impl_constructor {
+                            names.push(format!("{}-{}", name, identifier));
+                            values.push(quote! {
+                                #name::#identifier
+                            });
+                        }
+
+                        if should_impl_getters {
+                            for (field_name, _) in variant
+                                .fields
+                                .iter()
+                                .filter(|x| filter_out_ignored(x))
+                                .enumerate()
+                            {
+                                let accessor_func =
+                                    format!("{}-{}-{}", name, identifier, field_name);
+
+                                let blank = vec![quote!(_); field_name];
+
+                                // Accessors
+                                names.push(accessor_func.clone());
+
+                                values.push(quote! {
+                                    |value: &#name| {
+                                        use #prefix::rvals::IntoSteelVal;
+                                        use #prefix::stop;
+                                        use #prefix::rerrs::SteelErr;
+
+                                        if let #name::#identifier(#(#blank,)* value, ..) = value {
+                                            value.clone().into_steelval()
+                                        } else {
+                                            #prefix::stop!(TypeMismatch =>
+                                                format!("{} expected {}-{}, found {:?}",
+                                                #accessor_func,
+                                                stringify!(#name),
+                                                stringify!(#identifier), value));
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }
+                    syn::Fields::Unit => {
+                        names.push(format!("{}-{}?", name, identifier));
+                        values.push(quote! {
+                        |value: #prefix::rvals::SteelVal| {
+                            use #prefix::gc::ShareableMut;
+                            if let #prefix::rvals::SteelVal::Custom(c) = value {
+                                if let Some(inner) = #prefix::rvals::as_underlying_type::<#name>(c.read().as_ref())
+                                {
+                                    return matches!(inner, #name::#identifier);
+                                }
+                            }
+                            false
+                        }});
+
+                        if should_impl_getters {
+                            names.push(format!("{}-{}", name, identifier));
+                            values.push(quote! {
+                                || #name::#identifier
+                            });
+                        }
+                    }
+                }
+            }
+
+            let equality_impl = if should_impl_equals {
+                quote! {
+                    fn equality_hint(&self, other: &dyn #prefix::rvals::CustomType) -> bool {
+                        if let Some(other) = #prefix::rvals::as_underlying_type::<#name>(other) {
+                            self == other
+                        } else {
+                            false
+                        }
+                    }
+                }
+            } else {
+                quote! {}
+            };
+
+            let gen = quote! {
+                impl #prefix::rvals::Custom for #name {
+                    #equality_impl
+                }
+
+                impl #name {
+                    #[doc = "Registers the enum variant functions with this module"]
+                    fn register_enum_variants(module: &mut #prefix::steel_vm::builtin::BuiltInModule) ->
+                        &mut #prefix::steel_vm::builtin::BuiltInModule {
+                        #(
+                            module.register_fn(#names, #values);
+                        )*
+
+                        module
+                    }
+                }
             };
 
             gen.into()
         }
         _ => {
-            let output = quote! { #input };
+            let output = quote! {};
             output.into()
         }
     }
+}
+
+fn should_derive_param(derive: &DeriveInput, kind: &str) -> bool {
+    for attr in &derive.attrs {
+        match &attr.meta {
+            Meta::Path(_) => {}
+            Meta::List(p) => {
+                if p.path.is_ident("steel") {
+                    let args = ::syn::parse::Parser::parse2(
+                        Punctuated::<Ident, Token![,]>::parse_terminated,
+                        p.tokens.clone(),
+                    )
+                    .unwrap();
+
+                    for arg in args {
+                        if arg == kind {
+                            return true;
+                        }
+                    }
+                }
+            }
+            Meta::NameValue(_) => {}
+        }
+    }
+
+    false
+}
+
+fn filter_out_ignored_attr(attr: &Attribute) -> bool {
+    match &attr.meta {
+        Meta::Path(_) => {}
+        Meta::List(p) => {
+            if p.path.is_ident("steel") {
+                let args = ::syn::parse::Parser::parse2(
+                    Punctuated::<Ident, Token![,]>::parse_terminated,
+                    p.tokens.clone(),
+                )
+                .unwrap();
+
+                for arg in args {
+                    if arg == "ignore" {
+                        return false;
+                    }
+                }
+            }
+        }
+        Meta::NameValue(_) => {}
+    }
+
+    true
+}
+
+fn filter_out_ignored(field: &syn::Field) -> bool {
+    for attr in &field.attrs {
+        match &attr.meta {
+            Meta::Path(_) => {}
+            Meta::List(p) => {
+                if p.path.is_ident("steel") {
+                    let args = ::syn::parse::Parser::parse2(
+                        Punctuated::<Ident, Token![,]>::parse_terminated,
+                        p.tokens.clone(),
+                    )
+                    .unwrap();
+
+                    for arg in args {
+                        if arg == "ignore" {
+                            return false;
+                        }
+                    }
+                }
+            }
+            Meta::NameValue(_) => {}
+        }
+    }
+
+    true
+}
+
+#[proc_macro_derive(Steel, attributes(steel))]
+pub fn derive_steel(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let prefix = quote! { ::steel };
+
+    derive_steel_impl(input, prefix)
+}
+
+#[proc_macro_derive(_Steel, attributes(steel))]
+pub fn derive_steel_internal(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let prefix = quote! { crate };
+    derive_steel_impl(input, prefix)
 }
 
 fn parse_key_value_pairs(args: &Punctuated<Meta, Token![,]>) -> HashMap<String, String> {
@@ -218,7 +625,8 @@ pub fn native(
 
     let definition_struct = if let Some(doc) = maybe_doc_comments {
         quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
+            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition =
+            crate::steel_vm::builtin::NativeFunctionDefinition {
                 name: #value,
                 aliases: &[],
                 func: crate::steel_vm::builtin::BuiltInFunctionType::Reference(#function_name),
