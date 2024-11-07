@@ -2352,7 +2352,6 @@ mod derive_macro_tests {
         let mut module = BuiltInModule::new("foo");
 
         TestEnumVariants::register_enum_variants(&mut module);
-        println!("{:?}", module.names());
         engine.register_module(module);
 
         engine
@@ -2368,6 +2367,9 @@ mod derive_macro_tests {
 (assert! (equal? (TestEnumVariants-Bazinga-bananas (TestEnumVariants-Bazinga 100 200)) 200))
 (assert! (equal? (TestEnumVariants-Baz-0 (TestEnumVariants-Baz 100 200)) 100))
 (assert! (equal? (TestEnumVariants-Baz-1 (TestEnumVariants-Baz 100 200)) 200))
+
+(assert! (not (equal? 100 (TestEnumVariants-Foo))))
+
             "#,
             )
             .unwrap();

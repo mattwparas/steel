@@ -158,8 +158,16 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                     syn::Fields::Named(_) => {
                         names.push(format!("{}-{}?", name, identifier));
                         values.push(quote! {
-                            |value: &#name| matches!(value, #name::#identifier{..})
-                        });
+                        |value: #prefix::rvals::SteelVal| {
+                            use #prefix::gc::ShareableMut;
+                            if let #prefix::rvals::SteelVal::Custom(c) = value {
+                                if let Some(inner) = #prefix::rvals::as_underlying_type::<#name>(c.read().as_ref())
+                                {
+                                    return matches!(inner, #name::#identifier{..});
+                                }
+                            }
+                            false
+                        }});
 
                         if should_impl_constructor {
                             let field_names_args = variant
@@ -222,8 +230,16 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                     syn::Fields::Unnamed(_) => {
                         names.push(format!("{}-{}?", name, identifier));
                         values.push(quote! {
-                            |value: &#name| matches!(value, #name::#identifier(..))
-                        });
+                        |value: #prefix::rvals::SteelVal| {
+                            use #prefix::gc::ShareableMut;
+                            if let #prefix::rvals::SteelVal::Custom(c) = value {
+                                if let Some(inner) = #prefix::rvals::as_underlying_type::<#name>(c.read().as_ref())
+                                {
+                                    return matches!(inner, #name::#identifier(..));
+                                }
+                            }
+                            false
+                        }});
 
                         if should_impl_constructor {
                             names.push(format!("{}-{}", name, identifier));
@@ -270,8 +286,16 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                     syn::Fields::Unit => {
                         names.push(format!("{}-{}?", name, identifier));
                         values.push(quote! {
-                            |value: &#name| matches!(value, #name::#identifier)
-                        });
+                        |value: #prefix::rvals::SteelVal| {
+                            use #prefix::gc::ShareableMut;
+                            if let #prefix::rvals::SteelVal::Custom(c) = value {
+                                if let Some(inner) = #prefix::rvals::as_underlying_type::<#name>(c.read().as_ref())
+                                {
+                                    return matches!(inner, #name::#identifier);
+                                }
+                            }
+                            false
+                        }});
 
                         if should_impl_getters {
                             names.push(format!("{}-{}", name, identifier));
