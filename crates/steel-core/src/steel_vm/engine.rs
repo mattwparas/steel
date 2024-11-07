@@ -2323,6 +2323,7 @@ mod derive_macro_tests {
     use super::*;
 
     #[derive(steel_derive::_Steel, PartialEq, Debug)]
+    #[steel(equality, getters, constructors)]
     enum TestEnumVariants {
         Foo,
         Bar,

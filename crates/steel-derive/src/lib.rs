@@ -19,7 +19,8 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
 
     let should_impl_equals = should_derive_param(&input, "equality");
     let should_impl_getters = should_derive_param(&input, "getters");
-    let should_impl_constructor = should_derive_param(&input, "constructor");
+    let should_impl_constructor =
+        should_derive_param(&input, "constructor") || should_derive_param(&input, "constructors");
 
     match &input.data {
         Data::Struct(s) => {
