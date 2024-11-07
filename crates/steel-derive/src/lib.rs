@@ -69,8 +69,8 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                                         use #prefix::stop;
                                         use #prefix::rerrs::SteelErr;
 
-                                        if let #name::#identifier { #field_name, .. } = value {
-                                            #field_name.into_steelval()
+                                        if let #name::#identifier { #field_name, .. } = &value {
+                                            #field_name.clone().into_steelval()
                                         } else {
                                             #prefix::stop!(TypeMismatch =>
                                                 format!("{} expected {}-{}, found {:?}",
@@ -109,7 +109,7 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                                     use #prefix::rerrs::SteelErr;
 
                                     if let #name::#identifier(#(#blank,)* value, ..) = value {
-                                        value.into_steelval()
+                                        value.clone().into_steelval()
                                     } else {
                                         #prefix::stop!(TypeMismatch =>
                                             format!("{} expected {}-{}, found {:?}",
@@ -138,7 +138,7 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
             let gen = quote! {
                 impl #prefix::rvals::Custom for #name {
                     fn equality_hint(&self, other: &dyn #prefix::rvals::CustomType) -> bool {
-                        if let Some(other) = as_underlying_type::<#name>(other) {
+                        if let Some(other) = #prefix::rvals::as_underlying_type::<#name>(other) {
                             self == other
                         } else {
                             false
