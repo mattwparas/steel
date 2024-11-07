@@ -2317,3 +2317,62 @@ mod engine_sandbox_tests {
             .is_err());
     }
 }
+
+#[cfg(test)]
+mod derive_macro_tests {
+    use super::*;
+
+    #[derive(steel_derive::_Steel, PartialEq, Debug)]
+    enum TestEnumVariants {
+        Foo,
+        Bar,
+        Baz(usize, usize),
+        Bazinga {
+            foo: usize,
+            bananas: usize,
+        },
+        #[steel(ignore)]
+        Ignored(SteelString),
+    }
+
+    fn test() {
+        let mut module = BuiltInModule::new("foo");
+        TestEnumVariants::register_enum_variants(&mut module);
+    }
+
+    enum Foo {
+        Bananas(usize, usize, usize, usize),
+        Bananas2(usize, usize, usize, usize),
+    }
+
+    #[test]
+    fn test_primitives_are_registered() {
+        let mut engine = Engine::new();
+        let mut module = BuiltInModule::new("foo");
+
+        TestEnumVariants::register_enum_variants(&mut module);
+        println!("{:?}", module.names());
+        engine.register_module(module);
+
+        engine
+            .run(
+                r#"
+(require-builtin foo)
+(assert! (TestEnumVariants-Foo? (TestEnumVariants-Foo)))
+(assert! (TestEnumVariants-Bar? (TestEnumVariants-Bar)))
+(assert! (TestEnumVariants-Baz? (TestEnumVariants-Baz 10 20)))
+(assert! (TestEnumVariants-Bazinga? (TestEnumVariants-Bazinga 100 200)))
+
+(assert! (equal? (TestEnumVariants-Bazinga-foo (TestEnumVariants-Bazinga 100 200)) 100))
+(assert! (equal? (TestEnumVariants-Bazinga-bananas (TestEnumVariants-Bazinga 100 200)) 200))
+(assert! (equal? (TestEnumVariants-Baz-0 (TestEnumVariants-Baz 100 200)) 100))
+(assert! (equal? (TestEnumVariants-Baz-1 (TestEnumVariants-Baz 100 200)) 200))
+            "#,
+            )
+            .unwrap();
+
+        assert!(engine
+            .run(r#"(TestEnumVariants-Ignored "Hello world")"#)
+            .is_err())
+    }
+}

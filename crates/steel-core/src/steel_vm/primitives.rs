@@ -2007,21 +2007,3 @@ fn _lookup_doc(_ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVal> {
 
     todo!()
 }
-
-#[derive(steel_derive::_Steel, PartialEq, Debug)]
-enum TestEnumVariants {
-    Foo,
-    Bar,
-    Baz(usize, usize),
-    Bazinga { foo: usize, bananas: usize },
-}
-
-fn test() {
-    let mut module = BuiltInModule::new("foo");
-    TestEnumVariants::register_enum_variants(&mut module);
-}
-
-enum Foo {
-    Bananas(usize, usize, usize, usize),
-    Bananas2(usize, usize, usize, usize),
-}
