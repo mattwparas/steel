@@ -12,11 +12,8 @@ use syn::{
     Ident, ItemFn, Lit, LitStr, Meta, ReturnType, Signature, Type, TypeReference,
 };
 
-#[proc_macro_derive(Steel)]
-pub fn derive_steel(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
+fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> TokenStream {
     let name = &input.ident;
-
     match &input.data {
         Data::Struct(_) => {
             let gen = quote! {
@@ -68,13 +65,14 @@ pub fn derive_steel(input: TokenStream) -> TokenStream {
 
                                 values.push(quote! {
                                     |value: &#name| {
-                                        use crate::rvals::IntoSteelVal;
-                                        use crate::stop;
+                                        use #prefix::rvals::IntoSteelVal;
+                                        use #prefix::stop;
+                                        use #prefix::rerrs::SteelErr;
 
                                         if let #name::#identifier { #field_name, .. } = value {
                                             #field_name.into_steelval()
                                         } else {
-                                            crate::stop!(TypeMismatch =>
+                                            #prefix::stop!(TypeMismatch =>
                                                 format!("{} expected {}-{}, found {:?}",
                                                 #accessor_func,
                                                 stringify!(#name),
@@ -106,13 +104,14 @@ pub fn derive_steel(input: TokenStream) -> TokenStream {
 
                             values.push(quote! {
                                 |value: &#name| {
-                                    use crate::rvals::IntoSteelVal;
-                                    use crate::stop;
+                                    use #prefix::rvals::IntoSteelVal;
+                                    use #prefix::stop;
+                                    use #prefix::rerrs::SteelErr;
 
                                     if let #name::#identifier(#(#blank,)* value, ..) = value {
                                         value.into_steelval()
                                     } else {
-                                        crate::stop!(TypeMismatch =>
+                                        #prefix::stop!(TypeMismatch =>
                                             format!("{} expected {}-{}, found {:?}",
                                             #accessor_func,
                                             stringify!(#name),
@@ -137,8 +136,8 @@ pub fn derive_steel(input: TokenStream) -> TokenStream {
             }
 
             let gen = quote! {
-                impl crate::rvals::Custom for #name {
-                    fn equality_hint(&self, other: &dyn crate::rvals::CustomType) -> bool {
+                impl #prefix::rvals::Custom for #name {
+                    fn equality_hint(&self, other: &dyn #prefix::rvals::CustomType) -> bool {
                         if let Some(other) = as_underlying_type::<#name>(other) {
                             self == other
                         } else {
@@ -149,8 +148,8 @@ pub fn derive_steel(input: TokenStream) -> TokenStream {
 
                 impl #name {
                     #[doc = "Registers the enum variant functions with this module"]
-                    fn register_enum_variants(module: &mut crate::steel_vm::builtin::BuiltInModule) ->
-                        &mut crate::steel_vm::builtin::BuiltInModule {
+                    fn register_enum_variants(module: &mut #prefix::steel_vm::builtin::BuiltInModule) ->
+                        &mut #prefix::steel_vm::builtin::BuiltInModule {
                         #(
                             module.register_fn(#names, #values);
                         )*
@@ -169,6 +168,20 @@ pub fn derive_steel(input: TokenStream) -> TokenStream {
     }
 }
 
+#[proc_macro_derive(Steel)]
+pub fn derive_steel(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let prefix = quote! { steel };
+
+    derive_steel_impl(input, prefix)
+}
+
+#[proc_macro_derive(_Steel)]
+pub fn derive_steel_internal(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let prefix = quote! { crate };
+    derive_steel_impl(input, prefix)
+}
 fn parse_key_value_pairs(args: &Punctuated<Meta, Token![,]>) -> HashMap<String, String> {
     let mut map = HashMap::new();
 

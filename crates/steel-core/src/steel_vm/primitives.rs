@@ -2008,7 +2008,7 @@ fn _lookup_doc(_ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVal> {
     todo!()
 }
 
-#[derive(steel_derive::Steel, PartialEq, Debug)]
+#[derive(steel_derive::_Steel, PartialEq, Debug)]
 enum TestEnumVariants {
     Foo,
     Bar,
