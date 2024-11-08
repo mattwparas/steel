@@ -96,28 +96,10 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
                     println!("Copying {} to {}", file, &steel_home.to_str().unwrap());
 
-                    std::fs::copy(file, &steel_home).unwrap();
-
-                    steel_home.pop();
-                    break;
-                }
-            }
-        } else if last
-            .target
-            .kind
-            .iter()
-            .find(|x| x.as_str() == "dylib")
-            .is_some()
-        {
-            for file in last.filenames {
-                if matches!(file.extension(), Some("so") | Some("dylib") | Some("lib")) {
-                    println!("Found a dylib!");
-
-                    let filename = file.file_name().unwrap();
-
-                    steel_home.push(filename);
-
-                    println!("Copying {} to {}", file, &steel_home.to_str().unwrap());
+                    if steel_home.exists() {
+                        std::fs::remove_file(&steel_home)
+                            .expect("Unable to delete the existing dylib");
+                    }
 
                     std::fs::copy(file, &steel_home).unwrap();
 
