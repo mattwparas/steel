@@ -12,6 +12,7 @@ in
   rustPlatform.buildRustPackage {
     pname = manifest.package.name;
     version = manifest.workspace.package.version;
+
     src = fs.toSource {
       root = ../.;
       fileset =
@@ -27,14 +28,17 @@ in
             || f.hasExt "toml")
           ../.);
     };
+
     cargoLock = {
       lockFile = ../Cargo.lock;
     };
     cargoBuildFlags = "-p cargo-steel-lib -p steel-interpreter";
+
     buildInputs = [openssl] ++ lib.optionals stdenv.isDarwin [Security];
     nativeBuildInputs = [
       pkg-config
     ];
+
     # Test failing
     doCheck = false;
     postInstall = ''
@@ -46,10 +50,12 @@ in
       popd
       rm "$out/bin/cargo-steel-lib"
     '';
+
     meta = {
       description = "An embedded scheme interpreter in Rust";
       homepage = "https://github.com/mattwparas/steel";
       license = with lib.licenses; [asl20 mit];
+      platforms = lib.platforms.unix;
       mainProgram = "steel";
     };
   }
