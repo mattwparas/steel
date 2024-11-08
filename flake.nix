@@ -1,14 +1,17 @@
 {
   description = "Steel";
 
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    systems.url = "github:nix-systems/default";
+  };
 
   outputs = {
     self,
     nixpkgs,
+    systems,
   }: let
-    systems = ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"];
-    eachSystem = nixpkgs.lib.genAttrs systems;
+    eachSystem = nixpkgs.lib.genAttrs (import systems);
     pkgsFor = nixpkgs.legacyPackages;
   in {
     packages = eachSystem (system: {
@@ -19,6 +22,8 @@
     });
 
     formatter = eachSystem (system: pkgsFor.${system}.alejandra);
+
+    # DEPRECATED
     legacyPackages = self.packages;
     defaultPackage = eachSystem (system: self.packages.${system}.default);
 
@@ -32,7 +37,9 @@
     apps = eachSystem (system: {
       steel = {
         type = "app";
-        program = "${self.packages.${system}.steel}/bin/steel";
+        program =
+          pkgsFor.${system}.lib.getExe
+          self.packages.${system}.steel;
       };
       default = self.apps.${system}.steel;
     });
