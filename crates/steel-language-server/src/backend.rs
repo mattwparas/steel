@@ -593,6 +593,8 @@ impl LanguageServer for Backend {
                     .collect::<Vec<_>>(),
             );
 
+            completions.extend(self.globals_set.iter().map(|x| x.resolve().to_owned()));
+
             let mut ret = Vec::with_capacity(completions.len());
             for var in completions {
                 ret.push(CompletionItem {
