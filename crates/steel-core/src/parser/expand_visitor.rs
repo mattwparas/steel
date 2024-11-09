@@ -636,9 +636,10 @@ fn expand_keyword_arguments(lambda_function: &mut super::ast::LambdaFunction) ->
             // This is a bit wasteful... come back to this
             let (var_name, expr) = if let ExprKind::List(l) = original_var_name {
                 if l.len() != 2 {
-                    stop!(BadSyntax => "Missing default argument for keyword"; lambda_function.location.span)
+                    stop!(BadSyntax => "Missing default argument for keyword"; 
+                        lambda_function.location.span)
                 }
-                
+
                 (l[0].clone(), l[1].clone())
             } else {
                 (original_var_name.clone(), original_var_name.clone())
