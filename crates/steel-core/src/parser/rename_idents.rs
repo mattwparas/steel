@@ -390,8 +390,6 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
     // TODO: This needs to be fixed!
     fn visit_let(&mut self, l: &mut super::ast::Let) -> Self::Output {
         for (arg, expr) in &mut l.bindings {
-            println!("RENAME IDENTS - Visiting arg: {}", arg);
-
             if let ExprKind::Atom(a) = arg {
                 if let SyntaxObject {
                     ty: TokenType::Identifier(ref s),

@@ -1,6 +1,6 @@
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use quickscope::ScopeSet;
-use steel_parser::ast::{parse_lambda, Begin, Let};
+use steel_parser::ast::{parse_lambda, Begin};
 use steel_parser::parser::SourceId;
 
 use crate::parser::ast::ExprKind;
@@ -699,27 +699,27 @@ fn expand_keyword_arguments(lambda_function: &mut super::ast::LambdaFunction) ->
 
     non_keyword_args.push(ExprKind::ident("!!dummy-rest-arg!!"));
 
-    let inner_application = ExprKind::Let(Box::new(Let::new(
-        bindings,
-        lambda_function.body.clone(),
-        SyntaxObject::default(TokenType::Let),
-    )));
-
-    // let mut inner_application = vec![ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-    //     bindings.iter().map(|x| x.0.clone()).collect(),
+    // let inner_application = ExprKind::Let(Box::new(Let::new(
+    //     bindings,
     //     lambda_function.body.clone(),
-    //     SyntaxObject::default(TokenType::Lambda),
-    // )))];
+    //     SyntaxObject::default(TokenType::Let),
+    // )));
 
-    // inner_application.extend(bindings.iter().map(|x| x.1.clone()));
+    let mut inner_application = vec![ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
+        bindings.iter().map(|x| x.0.clone()).collect(),
+        lambda_function.body.clone(),
+        SyntaxObject::default(TokenType::Lambda),
+    )))];
+
+    inner_application.extend(bindings.iter().map(|x| x.1.clone()));
 
     *lambda_function = LambdaFunction::new_with_rest_arg(
         non_keyword_args,
         expr_list![
             ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
                 vec![ExprKind::ident("!!dummy-rest-arg!!")],
-                // ExprKind::List(List::new(inner_application)),
-                inner_application,
+                ExprKind::List(List::new(inner_application)),
+                // inner_application,
                 SyntaxObject::default(TokenType::Lambda),
             ))),
             expr_list![
