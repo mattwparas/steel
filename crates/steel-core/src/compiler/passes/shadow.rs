@@ -78,55 +78,6 @@ impl RenameShadowedVariables {
 }
 
 impl VisitorMutRefUnit for RenameShadowedVariables {
-    // fn visit_begin(&mut self, begin: &mut steel_parser::ast::Begin) {
-    //     for expr in &mut begin.exprs {
-    //         if self.scope.depth() > 1 {
-    //             // TODO: Flatten begins _first_
-    //             if let ExprKind::Define(define) = expr {
-    //                 if let ExprKind::Atom(a) = &mut define.name {
-    //                     let variable = if let Some(variable) = a.syn.ty.identifier_mut() {
-    //                         variable
-    //                     } else {
-    //                         return;
-    //                     };
-
-    //                     if self.rename_all || self.scope.contains(variable) {
-    //                         let modifier = self.scope.depth();
-    //                         self.shadows.define(*variable, modifier);
-    //                         // println!("Renaming: {} -> {}", variable.resolve());
-
-    //                         // Create a mutable string to mangle
-    //                         let mut mut_var = "##".to_string() + variable.resolve();
-
-    //                         if let Some(char_modifier) = char::from_digit(modifier as u32, 10) {
-    //                             mut_var.push(char_modifier);
-    //                         } else if let Some(str_modifier) = self.str_modifiers.get(&modifier) {
-    //                             mut_var.push_str(str_modifier);
-    //                         } else {
-    //                             self.str_modifiers.insert(modifier, modifier.to_string());
-    //                             mut_var.push_str(self.str_modifiers.get(&modifier).unwrap());
-    //                         }
-    //                         println!(
-    //                             "define - Renaming: {} -> {} @ depth: {}",
-    //                             variable.resolve(),
-    //                             mut_var,
-    //                             modifier
-    //                         );
-
-    //                         *variable = mut_var.into();
-    //                     }
-
-    //                     self.scope.define(*variable);
-    //                 }
-    //             }
-    //         }
-    //     }
-
-    //     for expr in &mut begin.exprs {
-    //         self.visit(expr);
-    //     }
-    // }
-
     fn visit_define(&mut self, define: &mut steel_parser::ast::Define) {
         if self.scope.depth() > 1 {
             if let ExprKind::Atom(a) = &mut define.name {
@@ -305,6 +256,7 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
 
     fn visit_let(&mut self, l: &mut crate::parser::ast::Let) {
         l.bindings.iter_mut().for_each(|x| self.visit(&mut x.1));
+
         self.scope.push_layer();
         self.shadows.push_layer();
 

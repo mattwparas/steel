@@ -1,4 +1,4 @@
-use steel_parser::ast::{Atom, LAMBDA, LAMBDA_FN};
+use steel_parser::ast::{Atom, LAMBDA, LAMBDA_FN, PLAIN_LET};
 
 use crate::compiler::program::{DATUM_SYNTAX, LAMBDA_SYMBOL};
 use crate::parser::ast::ExprKind;
@@ -124,7 +124,6 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
             if self.is_gensym(&s) {
                 a.syn.ty = TokenType::Identifier(("##".to_string() + s.resolve()).into());
             } else {
-                // println!("Unresolved: {}", a);
                 a.syn.unresolved = true;
             }
         }
@@ -273,7 +272,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
 
             Some(ExprKind::Atom(Atom {
                 syn: SyntaxObject { ty, .. },
-            })) if *ty == TokenType::Let => {
+            })) if *ty == TokenType::Let || *ty == TokenType::Identifier(*PLAIN_LET) => {
                 match l.args.get_mut(1) {
                     Some(ExprKind::List(bindings)) => {
                         for pair in &mut bindings.args {
@@ -390,8 +389,26 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
 
     // TODO: This needs to be fixed!
     fn visit_let(&mut self, l: &mut super::ast::Let) -> Self::Output {
-        for (_, expr) in &mut l.bindings {
-            // println!("Visiting arg: {}", a);
+        for (arg, expr) in &mut l.bindings {
+            println!("RENAME IDENTS - Visiting arg: {}", arg);
+
+            if let ExprKind::Atom(a) = arg {
+                if let SyntaxObject {
+                    ty: TokenType::Identifier(ref s),
+                    ..
+                } = a.syn
+                {
+                    if !self.pattern_variables.contains(&s) {
+                        self.add(*s);
+                    }
+
+                    a.syn = SyntaxObject::default(TokenType::Identifier(
+                        ("##".to_string() + s.resolve()).into(),
+                    ));
+                    a.syn.introduced_via_macro = true;
+                }
+            }
+
             self.visit(expr);
         }
 
