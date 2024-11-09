@@ -578,6 +578,9 @@ fn expand_keyword_arguments(lambda_function: &mut super::ast::LambdaFunction) ->
         return Ok(());
     }
 
+    // println!("Expanding keyword args");
+    // println!("Body: {}", lambda_function.body);
+
     if (keyword_args.len() % 2 != 0 && !lambda_function.rest)
         || (lambda_function.rest && keyword_args.len() - 1 % 2 != 0)
     {
@@ -634,7 +637,7 @@ fn expand_keyword_arguments(lambda_function: &mut super::ast::LambdaFunction) ->
             let original_var_name = x.1;
 
             // This is a bit wasteful... come back to this
-            let (var_name, expr) = if let ExprKind::List(l) = original_var_name {
+            let (mut var_name, expr) = if let ExprKind::List(l) = original_var_name {
                 if l.len() != 2 {
                     stop!(BadSyntax => "Missing default argument for keyword"; 
                         lambda_function.location.span)
@@ -645,7 +648,9 @@ fn expand_keyword_arguments(lambda_function: &mut super::ast::LambdaFunction) ->
                 (original_var_name.clone(), original_var_name.clone())
             };
 
-            // println!("{:?}", original_var_name);
+            if let Some(var) = var_name.atom_syntax_object_mut() {
+                var.introduced_via_macro = true;
+            }
 
             // TODO: Go here to implement default arguments
             let expression = ExprKind::default_if(
@@ -694,6 +699,12 @@ fn expand_keyword_arguments(lambda_function: &mut super::ast::LambdaFunction) ->
 
     non_keyword_args.push(ExprKind::ident("!!dummy-rest-arg!!"));
 
+    // let inner_application = ExprKind::Let(Box::new(Let::new(
+    //     bindings,
+    //     lambda_function.body.clone(),
+    //     SyntaxObject::default(TokenType::Let),
+    // )));
+
     let mut inner_application = vec![ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
         bindings.iter().map(|x| x.0.clone()).collect(),
         lambda_function.body.clone(),
@@ -708,6 +719,7 @@ fn expand_keyword_arguments(lambda_function: &mut super::ast::LambdaFunction) ->
             ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
                 vec![ExprKind::ident("!!dummy-rest-arg!!")],
                 ExprKind::List(List::new(inner_application)),
+                // inner_application,
                 SyntaxObject::default(TokenType::Lambda),
             ))),
             expr_list![
@@ -719,6 +731,14 @@ fn expand_keyword_arguments(lambda_function: &mut super::ast::LambdaFunction) ->
         ],
         SyntaxObject::default(TokenType::Lambda),
     );
+
+    // let pretty = {
+    //     let mut w = Vec::new();
+    //     lambda_function.to_doc().render(60, &mut w).unwrap();
+    //     String::from_utf8(w).unwrap()
+    // };
+
+    // println!("After expansion: {}", pretty);
 
     Ok(())
 }
@@ -749,6 +769,9 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
         self.visit(&mut lambda_function.body)?;
 
         // Expand keyword arguments if we can
+        // TODO: If this isn't a lambda function, we're gonna have problems
+        // if its a list, we should run the same thing, but on a list
+        // that starts with lambda, and coerce it to be expanded that way
         expand_keyword_arguments(lambda_function)?;
 
         Ok(())
