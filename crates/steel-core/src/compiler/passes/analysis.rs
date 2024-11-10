@@ -3,7 +3,7 @@ use std::{
     hash::BuildHasherDefault,
 };
 
-use crate::values::HashMap as ImmutableHashMap;
+use crate::{compiler::modules::MANGLER_PREFIX, values::HashMap as ImmutableHashMap};
 use quickscope::ScopeMap;
 use smallvec::SmallVec;
 use steel_parser::{
@@ -2522,7 +2522,7 @@ impl<'a> VisitorMutRefUnit for RemoveUnusedDefineImports<'a> {
 
             if begin.exprs.is_empty() {
                 begin.exprs.push(ExprKind::Quote(Box::new(Quote::new(
-                    ExprKind::atom("void".to_string()),
+                    ExprKind::atom("void"),
                     RawSyntaxObject::default(TokenType::Quote),
                 ))));
             }
@@ -3254,7 +3254,7 @@ impl<'a> VisitorMutUnitRef<'a> for CollectReferences {
     fn visit_atom(&mut self, a: &'a Atom) {
         // println!("collect references: {}", a);
         if let TokenType::Identifier(ident) = a.syn.ty {
-            if ident.resolve().starts_with("mangler") {
+            if ident.resolve().starts_with(MANGLER_PREFIX) {
                 // println!("Adding: {}", ident.resolve());
                 self.idents.insert(ident);
             }

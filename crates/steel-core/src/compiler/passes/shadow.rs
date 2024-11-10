@@ -1,3 +1,4 @@
+use compact_str::CompactString;
 use fxhash::{FxBuildHasher, FxHashMap};
 use quickscope::{ScopeMap, ScopeSet};
 
@@ -16,7 +17,7 @@ pub struct RenameShadowedVariables {
     reverse_map: ScopeMap<InternedString, InternedString>,
     // Modify the variable with the depth
     shadows: ScopeMap<InternedString, usize, FxBuildHasher>,
-    str_modifiers: FxHashMap<usize, String>,
+    str_modifiers: FxHashMap<usize, CompactString>,
     rename_all: bool,
 }
 
@@ -95,14 +96,15 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
                     let prev = *variable;
 
                     // Create a mutable string to mangle
-                    let mut mut_var = "##".to_string() + variable.resolve();
+                    let mut mut_var = CompactString::new("##") + variable.resolve();
 
                     if let Some(char_modifier) = char::from_digit(modifier as u32, 10) {
                         mut_var.push(char_modifier);
                     } else if let Some(str_modifier) = self.str_modifiers.get(&modifier) {
                         mut_var.push_str(str_modifier);
                     } else {
-                        self.str_modifiers.insert(modifier, modifier.to_string());
+                        self.str_modifiers
+                            .insert(modifier, compact_str::format_compact!("{}", modifier));
                         mut_var.push_str(self.str_modifiers.get(&modifier).unwrap());
                     }
                     // println!(
@@ -152,14 +154,15 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
                 let prev = *variable;
 
                 // Create a mutable string to mangle
-                let mut mut_var = "##".to_string() + variable.resolve();
+                let mut mut_var = CompactString::new("##") + variable.resolve();
 
                 if let Some(char_modifier) = char::from_digit(modifier as u32, 10) {
                     mut_var.push(char_modifier);
                 } else if let Some(str_modifier) = self.str_modifiers.get(&modifier) {
                     mut_var.push_str(str_modifier);
                 } else {
-                    self.str_modifiers.insert(modifier, modifier.to_string());
+                    self.str_modifiers
+                        .insert(modifier, compact_str::format_compact!("{}", modifier));
                     mut_var.push_str(self.str_modifiers.get(&modifier).unwrap());
                 }
                 // println!("Renaming: {} -> {}", variable.resolve(), mut_var);
@@ -233,7 +236,7 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
                 // Now, shadowing shouldn't actually _be_ a problem
                 // ident.push(char::from_digit(*modifier as u32, 10).unwrap());
 
-                let mut mut_ident = "##".to_string() + ident.resolve();
+                let mut mut_ident = CompactString::new("##") + ident.resolve();
 
                 if let Some(char_modifier) = char::from_digit(*modifier as u32, 10) {
                     mut_ident.push(char_modifier)
@@ -276,14 +279,15 @@ impl VisitorMutRefUnit for RenameShadowedVariables {
                 self.shadows.define(*variable, modifier);
                 let prev = *variable;
 
-                let mut mut_var = "##".to_string() + variable.resolve();
+                let mut mut_var = CompactString::new("##") + variable.resolve();
 
                 if let Some(char_modifier) = char::from_digit(modifier as u32, 10) {
                     mut_var.push(char_modifier);
                 } else if let Some(str_modifier) = self.str_modifiers.get(&modifier) {
                     mut_var.push_str(str_modifier);
                 } else {
-                    self.str_modifiers.insert(modifier, modifier.to_string());
+                    self.str_modifiers
+                        .insert(modifier, compact_str::format_compact!("{}", modifier));
                     mut_var.push_str(self.str_modifiers.get(&modifier).unwrap());
                 }
 

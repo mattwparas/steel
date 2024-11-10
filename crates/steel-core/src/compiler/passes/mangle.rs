@@ -1,3 +1,4 @@
+use compact_str::CompactString;
 use fxhash::FxHashSet;
 use steel_parser::ast::DEFINE;
 
@@ -131,11 +132,11 @@ impl<'a> VisitorMutRefUnit for NameUnMangler<'a> {
 #[derive(Clone)]
 pub struct NameMangler {
     pub(crate) globals: FxHashSet<InternedString>,
-    prefix: String,
+    prefix: CompactString,
 }
 
 impl NameMangler {
-    pub fn new(globals: FxHashSet<InternedString>, prefix: String) -> Self {
+    pub fn new(globals: FxHashSet<InternedString>, prefix: CompactString) -> Self {
         Self { globals, prefix }
     }
 
@@ -146,7 +147,7 @@ impl NameMangler {
     }
 }
 
-pub fn mangle_vars_with_prefix(prefix: String, exprs: &mut [ExprKind]) {
+pub fn mangle_vars_with_prefix(prefix: CompactString, exprs: &mut [ExprKind]) {
     let globals = collect_globals(exprs);
 
     let mut name_mangler = NameMangler { globals, prefix };
@@ -164,8 +165,6 @@ impl VisitorMutRefUnit for NameMangler {
                 let new_str = i.resolve();
 
                 *i = (self.prefix.clone() + new_str).into();
-
-                // i.insert_str(0, &self.prefix);
             }
         }
     }
@@ -195,7 +194,7 @@ mod name_mangling_tests {
 
         let mut parsed = Parser::parse(expr).unwrap();
 
-        mangle_vars_with_prefix("--test--".to_string(), &mut parsed);
+        mangle_vars_with_prefix("--test--".into(), &mut parsed);
 
         eraser.visit_many(&mut parsed);
 
@@ -223,7 +222,7 @@ mod name_mangling_tests {
 
         let mut parsed = Parser::parse(expr).unwrap();
 
-        mangle_vars_with_prefix("--test--".to_string(), &mut parsed);
+        mangle_vars_with_prefix("--test--".into(), &mut parsed);
 
         eraser.visit_many(&mut parsed);
 
@@ -257,7 +256,7 @@ mod name_mangling_tests {
 
         let mut parsed = Parser::parse(expr).unwrap();
 
-        mangle_vars_with_prefix("--test--".to_string(), &mut parsed);
+        mangle_vars_with_prefix("--test--".into(), &mut parsed);
 
         let expected = Parser::parse(
             r#"

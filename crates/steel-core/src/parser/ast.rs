@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     parser::{
         parser::SyntaxObject, tokens::TokenType::*, tryfrom_visitor::TryFromExprKindForSteelVal,
@@ -49,17 +51,11 @@ pub(crate) struct TryFromSteelValVisitorForExprKind {
 
 impl TryFromSteelValVisitorForExprKind {
     pub fn root(value: &SteelVal) -> std::result::Result<ExprKind, SteelErr> {
-        // let now = std::time::Instant::now();
-
         Self {
             qq_depth: 0,
             quoted: false,
         }
         .visit(value)
-
-        // log::debug!(target: "pipeline_time", "SteelVal->ExprKind time: {:?}", now.elapsed());
-
-        // res
     }
 
     // type Error = &'static str;
@@ -85,7 +81,7 @@ impl TryFromSteelValVisitorForExprKind {
             }
             Void => stop!(Generic => "Can't convert from Void to expression!"),
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                StringLiteral(Box::new(x.to_string())),
+                StringLiteral(x.to_arc_string()),
             )))),
             FuncV(_) => stop!(Generic => "Can't convert from Function to expression!"),
             // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
@@ -238,7 +234,7 @@ impl TryFrom<&SteelVal> for ExprKind {
                 }
                 Void => Err("Can't convert from Void to expression!"),
                 StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    StringLiteral(Box::new(x.to_string())),
+                    StringLiteral(x.to_arc_string()),
                 )))),
                 FuncV(_) => Err("Can't convert from Function to expression!"),
                 // LambdaV(_) => Err("Can't convert from Lambda to expression!"),

@@ -4,6 +4,7 @@ use crate::tokens::{IntLiteral, Token, TokenType};
 use smallvec::SmallVec;
 use std::iter::Iterator;
 use std::marker::PhantomData;
+use std::sync::Arc;
 use std::{iter::Peekable, str::Chars};
 
 pub const INFINITY: &str = "+inf.0";
@@ -77,7 +78,7 @@ impl<'a> Lexer<'a> {
         while let Some(&c) = self.chars.peek() {
             self.eat();
             match c {
-                '"' => return Ok(TokenType::StringLiteral(Box::new(buf))),
+                '"' => return Ok(TokenType::StringLiteral(Arc::new(buf))),
                 '\\' => match self.chars.peek() {
                     Some('"') => {
                         self.eat();
@@ -1164,17 +1165,17 @@ mod lexer_tests {
             got.as_slice(),
             &[
                 Token {
-                    ty: StringLiteral(Box::new(r#""#.to_string())),
+                    ty: StringLiteral(Arc::new(r#""#.to_string())),
                     source: r#""""#,
                     span: Span::new(1, 3, SourceId::none()),
                 },
                 Token {
-                    ty: StringLiteral(Box::new(r#"Foo bar"#.to_string())),
+                    ty: StringLiteral(Arc::new(r#"Foo bar"#.to_string())),
                     source: r#""Foo bar""#,
                     span: Span::new(4, 13, SourceId::none()),
                 },
                 Token {
-                    ty: StringLiteral(Box::new(r#""\"#.to_string())),
+                    ty: StringLiteral(Arc::new(r#""\"#.to_string())),
                     source: r#""\"\\""#,
                     span: Span::new(14, 20, SourceId::none()),
                 },

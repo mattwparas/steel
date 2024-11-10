@@ -262,6 +262,8 @@ impl Kernel {
         let mut def_macro_expr_indices = smallvec::SmallVec::<[IndexKind; 5]>::new();
 
         let mut provide_definitions = vec![ExprKind::ident("provide")];
+        // TOOD: Consider using Arc<String> instead of just plain String!
+        let environment_ident = ExprKind::string_lit(environment.clone());
 
         for (i, expr) in exprs.iter_mut().enumerate() {
             let first_ident = expr.list().and_then(|l| l.first_ident());
@@ -281,9 +283,7 @@ impl Kernel {
                         }
                     }
 
-                    underlying
-                        .args
-                        .insert(1, ExprKind::string_lit(environment.clone()));
+                    underlying.args.insert(1, environment_ident.clone());
 
                     def_macro_expr_indices.push(IndexKind::DefMacro(i));
                 }

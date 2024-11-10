@@ -8,6 +8,7 @@ use std::convert::TryFrom;
 use std::fmt::{self, Display};
 use std::num::ParseIntError;
 use std::str::FromStr;
+use std::sync::Arc;
 use TokenType::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,7 +164,9 @@ pub enum TokenType<S> {
     Identifier(S),
     Keyword(S),
     Number(Box<NumberLiteral>),
-    StringLiteral(Box<String>),
+    // TODO: Consider using Arc<String> here instead to save
+    // on copies
+    StringLiteral(Arc<String>),
     Dot,
     Error,
 }

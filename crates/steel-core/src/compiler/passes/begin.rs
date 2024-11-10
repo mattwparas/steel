@@ -1,3 +1,4 @@
+use smallvec::SmallVec;
 use steel_parser::{
     ast::{Define, If, Let, Macro, Quote, Require, Return, SyntaxRules, Vector},
     tokens::IntLiteral,
@@ -524,20 +525,20 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
                 x.clone()
             }
         })
-        .collect::<Vec<_>>();
+        .collect::<SmallVec<[_; 8]>>();
 
     // This corresponds to the (let ((apple ..) (banana ..) (cucumber ..)))
     //                               ^^^^^^     ^^^^^^^      ^^^^^^^^
-    let mut top_level_arguments: Vec<ExprKind> = Vec::new();
+    let mut top_level_arguments: Vec<ExprKind> = Vec::with_capacity(idx + 1);
 
     // This corresponds to the set expressions
     // (set! apple #####apple0)
     // (set! banana #####banana1)
     // (set! cucumber #####cucumber1)
-    let mut set_expressions: Vec<ExprKind> = Vec::new();
+    let mut set_expressions: Vec<ExprKind> = Vec::with_capacity(idx + 1);
 
     // corresponds to #####apple0, #####banana1, #####cucumber1, etc
-    let mut bound_names: Vec<ExprKind> = Vec::new();
+    let mut bound_names: Vec<ExprKind> = Vec::with_capacity(idx + 1);
 
     // TODO - check that the last expression does not contain any usages of the constant?
     // if expression_types[0..idx + 1]
@@ -548,14 +549,9 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
     // }
 
     // Top level application with dummy arguments that will immediately get overwritten
-    let mut top_level_dummy_args = vec![
-        // ExprKind::Atom(Atom::new(SyntaxObject::default(
-        //     TokenType::IntegerLiteral(123)
-        // )));
-        // top_level_arguments.len()
-    ];
+    let mut top_level_dummy_args = Vec::with_capacity(idx + 1);
 
-    let mut new_args = Vec::new();
+    let mut new_args = Vec::with_capacity(idx + 1);
 
     // println!("{:#?}", expression_types);
 
