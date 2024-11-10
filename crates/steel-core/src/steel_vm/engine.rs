@@ -67,6 +67,7 @@ use std::{
 };
 
 use crate::values::HashMap as ImmutableHashMap;
+use compact_str::ToCompactString;
 use fxhash::{FxBuildHasher, FxHashMap};
 use lasso::ThreadedRodeo;
 use once_cell::sync::{Lazy, OnceCell};
@@ -1512,7 +1513,7 @@ impl Engine {
             match &t.ty {
                 TokenType::BooleanLiteral(b) => Ok((*b).into()),
                 TokenType::Number(n) => number_literal_to_steel(n),
-                TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.to_string().into())),
+                TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.to_compact_string().into())),
                 TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
                 // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
                 TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
@@ -1815,7 +1816,7 @@ impl Engine {
     /// use steel::rvals::SteelVal;
     ///
     /// let mut vm = Engine::new();
-    /// let external_value = SteelVal::StringV("hello-world".to_string().into());
+    /// let external_value = SteelVal::StringV("hello-world".into());
     /// vm.register_value("hello-world", external_value);
     /// vm.run("hello-world").unwrap(); // Will return the string
     /// ```

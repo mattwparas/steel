@@ -13,6 +13,7 @@ use std::{ffi::OsStr, fmt};
 pub static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static MAXIMUM_OBJECTS: usize = 50000;
 
+use compact_str::CompactString;
 pub use shared::{GcMut, MutContainer, ShareableMut, Shared, SharedMut};
 
 #[cfg(feature = "sync")]
@@ -447,31 +448,31 @@ impl<T: ?Sized> Clone for Gc<T> {
     }
 }
 
-impl AsRef<OsStr> for Gc<String> {
+impl AsRef<OsStr> for Gc<CompactString> {
     fn as_ref(&self) -> &OsStr {
         self.0.as_ref().as_ref()
     }
 }
 
-impl From<&str> for Gc<String> {
+impl From<&str> for Gc<CompactString> {
     fn from(val: &str) -> Self {
-        Gc::new(val.to_string())
+        Gc::new(val.into())
     }
 }
 
-impl From<String> for Gc<String> {
-    fn from(val: String) -> Self {
+impl From<CompactString> for Gc<CompactString> {
+    fn from(val: CompactString) -> Self {
         Gc::new(val)
     }
 }
 
-impl From<&String> for Gc<String> {
-    fn from(val: &String) -> Self {
+impl From<&CompactString> for Gc<CompactString> {
+    fn from(val: &CompactString) -> Self {
         Gc::new(val.clone())
     }
 }
 
-impl AsRef<str> for Gc<String> {
+impl AsRef<str> for Gc<CompactString> {
     fn as_ref(&self) -> &str {
         self.0.as_ref()
     }

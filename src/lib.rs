@@ -94,7 +94,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
                 steel::SteelVal::ListV(
                     arguments
                         .into_iter()
-                        .map(|x| steel::SteelVal::StringV(x.into()))
+                        .map(|x| steel::SteelVal::StringV(x.as_str().into()))
                         .collect(),
                 ),
             );

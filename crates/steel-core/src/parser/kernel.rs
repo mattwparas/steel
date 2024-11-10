@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use compact_str::ToCompactString;
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 
 #[cfg(feature = "sync")]
@@ -129,7 +130,7 @@ impl Kernel {
                     .map(|set| {
                         set.iter()
                             .map(|x| x.resolve().to_string())
-                            .map(|x| SteelVal::SymbolV(x.into()))
+                            .map(|x| SteelVal::SymbolV(x.as_str().into()))
                             .collect::<crate::values::lists::List<SteelVal>>()
                             .into()
                     })
@@ -566,8 +567,9 @@ impl Kernel {
         } else {
             // Check if there is anything to expand in this environment
             if let Ok(SteelVal::HashMapV(map)) = self.engine.extract_value(environment) {
-                if let Some(func) = map.get(&SteelVal::SymbolV(ident.resolve().to_string().into()))
-                {
+                if let Some(func) = map.get(&SteelVal::SymbolV(SteelString::from(
+                    ident.resolve().to_compact_string(),
+                ))) {
                     func.clone()
                 } else {
                     self.engine.extract_value(ident.resolve())?

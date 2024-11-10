@@ -382,7 +382,7 @@ impl TryFrom<&SteelVal> for String {
 
 impl From<String> for SteelVal {
     fn from(val: String) -> SteelVal {
-        SteelVal::StringV(val.into())
+        SteelVal::StringV(val.as_str().into())
     }
 }
 
@@ -824,7 +824,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelHashMap {
 
 impl IntoSteelVal for String {
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
-        Ok(SteelVal::StringV(self.into()))
+        Ok(SteelVal::StringV(self.as_str().into()))
     }
 }
 

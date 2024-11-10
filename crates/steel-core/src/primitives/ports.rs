@@ -217,7 +217,7 @@ pub fn open_input_bytevector(bytes: &SteelByteVector) -> SteelVal {
 #[function(name = "read-port-to-string")]
 pub fn read_port_to_string(port: &SteelPort) -> Result<SteelVal> {
     let (_, result) = port.read_all_str()?;
-    Ok(SteelVal::StringV(result.into()))
+    Ok(SteelVal::StringV(result.as_str().into()))
 }
 
 /// Checks if a given value is an input port
@@ -266,7 +266,7 @@ pub fn read_line_to_string(port: &SteelPort) -> Result<SteelVal> {
         if size == 0 {
             Ok(eof())
         } else {
-            Ok(SteelVal::StringV(result.into()))
+            Ok(SteelVal::StringV(result.as_str().into()))
         }
     } else {
         // bit of a hack for now we'll see

@@ -67,6 +67,7 @@ macro_rules! list {
 }
 
 use bigdecimal::BigDecimal;
+use compact_str::CompactString;
 use SteelVal::*;
 
 use crate::values::{HashMap, HashSet, Vector};
@@ -897,7 +898,7 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
         SerializableSteelVal::CharV(c) => SteelVal::CharV(c),
         SerializableSteelVal::Void => SteelVal::Void,
         SerializableSteelVal::Rational(r) => SteelVal::Rational(r),
-        SerializableSteelVal::StringV(s) => SteelVal::StringV(s.into()),
+        SerializableSteelVal::StringV(s) => SteelVal::StringV(s.as_str().into()),
         SerializableSteelVal::FuncV(f) => SteelVal::FuncV(f),
         SerializableSteelVal::MutFunc(f) => SteelVal::MutFunc(f),
         SerializableSteelVal::HashMapV(h) => SteelVal::HashMapV(
@@ -925,7 +926,7 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
         ))),
         SerializableSteelVal::BoxedDynFunction(f) => SteelVal::BoxedFunction(Gc::new(f)),
         SerializableSteelVal::BuiltIn(f) => SteelVal::BuiltIn(f),
-        SerializableSteelVal::SymbolV(s) => SteelVal::SymbolV(s.into()),
+        SerializableSteelVal::SymbolV(s) => SteelVal::SymbolV(s.as_str().into()),
         SerializableSteelVal::Custom(b) => SteelVal::Custom(Gc::new_mut(b)),
         SerializableSteelVal::CustomStruct(s) => {
             SteelVal::CustomStruct(Gc::new(UserDefinedStruct {
@@ -1539,10 +1540,10 @@ impl SteelVal {
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub struct SteelString(Gc<String>);
+pub struct SteelString(Gc<CompactString>);
 
 impl Deref for SteelString {
-    type Target = crate::gc::Shared<String>;
+    type Target = crate::gc::Shared<CompactString>;
 
     fn deref(&self) -> &Self::Target {
         &self.0 .0
@@ -1551,41 +1552,41 @@ impl Deref for SteelString {
 
 impl From<&str> for SteelString {
     fn from(val: &str) -> Self {
-        SteelString(Gc::new(val.to_string()))
+        SteelString(Gc::new(val.into()))
     }
 }
 
-impl From<&String> for SteelString {
-    fn from(val: &String) -> Self {
-        SteelString(Gc::new(val.to_owned()))
+impl From<&CompactString> for SteelString {
+    fn from(val: &CompactString) -> Self {
+        SteelString(Gc::new(val.clone()))
     }
 }
 
-impl From<String> for SteelString {
-    fn from(val: String) -> Self {
+impl From<CompactString> for SteelString {
+    fn from(val: CompactString) -> Self {
         SteelString(Gc::new(val))
     }
 }
 
-impl From<crate::gc::Shared<String>> for SteelString {
-    fn from(val: crate::gc::Shared<String>) -> Self {
+impl From<crate::gc::Shared<CompactString>> for SteelString {
+    fn from(val: crate::gc::Shared<CompactString>) -> Self {
         SteelString(Gc(val))
     }
 }
 
-impl From<Gc<String>> for SteelString {
-    fn from(val: Gc<String>) -> Self {
+impl From<Gc<CompactString>> for SteelString {
+    fn from(val: Gc<CompactString>) -> Self {
         SteelString(val)
     }
 }
 
-impl From<SteelString> for crate::gc::Shared<String> {
+impl From<SteelString> for crate::gc::Shared<CompactString> {
     fn from(value: SteelString) -> Self {
         value.0 .0
     }
 }
 
-impl From<SteelString> for Gc<String> {
+impl From<SteelString> for Gc<CompactString> {
     fn from(value: SteelString) -> Self {
         value.0
     }

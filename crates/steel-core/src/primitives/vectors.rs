@@ -107,7 +107,7 @@ fn immutable_vector_to_string(
             x.char_or_else(throw!(TypeMismatch => "immutable-vector->string expected a succession of characters"))
         })
         .collect::<Result<String>>()
-        .map(|x| x.into())
+        .map(|x| x.as_str().into())
         .map(SteelVal::StringV)
 }
 
