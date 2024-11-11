@@ -571,8 +571,11 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
                         IntLiteral::Small(123).into(),
                     ))));
-                    let name_prime =
-                        atom("_____".to_string() + name.resolve() + i.to_string().as_str());
+                    let name_prime = ExprKind::atom(compact_str::format_compact!(
+                        "_____{}{}",
+                        name.resolve(),
+                        i
+                    ));
                     let set_expr = set(d.name.clone(), name_prime.clone());
                     bound_names.push(name_prime);
                     set_expressions.push(set_expr);
@@ -589,8 +592,11 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
                         IntLiteral::Small(123).into(),
                     ))));
-                    let name_prime =
-                        atom("_____".to_string() + name.resolve() + i.to_string().as_str());
+                    let name_prime = ExprKind::atom(compact_str::format_compact!(
+                        "_____{}{}",
+                        name.resolve(),
+                        i
+                    ));
                     let set_expr = set(d.name.clone(), name_prime.clone());
                     bound_names.push(name_prime);
                     set_expressions.push(set_expr);
@@ -618,8 +624,11 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
                         IntLiteral::Small(123).into(),
                     ))));
-                    let name_prime =
-                        atom("_____".to_string() + name.resolve() + i.to_string().as_str());
+                    let name_prime = ExprKind::atom(compact_str::format_compact!(
+                        "_____{}{}",
+                        name.resolve(),
+                        i
+                    ));
 
                     // Make this a (set! x (x'))
                     // Applying the function
