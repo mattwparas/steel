@@ -6,6 +6,7 @@ use crate::parser::span::Span;
 // use super::
 use proptest::prelude::*;
 use std::convert::TryFrom;
+use std::sync::Arc;
 use steel_parser::parser::SourceId;
 use steel_parser::tokens::{IntLiteral, RealLiteral};
 
