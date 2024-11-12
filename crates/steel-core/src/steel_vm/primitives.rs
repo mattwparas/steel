@@ -690,22 +690,7 @@ pub static CONSTANT_PRIMITIVES: Lazy<
 #[cfg(not(feature = "sync"))]
 thread_local! {
     pub static CONSTANT_PRIMITIVES: crate::values::HashMap<InternedString, SteelVal, FxBuildHasher> = {
-        let names = PRELUDE_MODULE.with(|x| x.metadata_table());
-
-        names
-            .into_iter()
-            .filter_map(|(key, value)| match key {
-                BuiltInFunctionType::Reference(func) if value.is_const => Some((
-                    (CompactString::new("#%prim.") + value.name).into(),
-                    SteelVal::FuncV(func),
-                )),
-                BuiltInFunctionType::Mutable(func) if value.is_const => Some((
-                    (CompactString::new("#%prim.") + value.name).into(),
-                    SteelVal::MutFunc(func),
-                )),
-                _ => None,
-            })
-            .collect()
+        PRELUDE_MODULE.with(|x| x.constant_funcs())
     };
 
 }

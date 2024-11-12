@@ -515,12 +515,6 @@ impl BuiltInModule {
         }
     }
 
-    pub(crate) fn metadata_table(
-        &self,
-    ) -> std::collections::HashMap<BuiltInFunctionType, FunctionSignatureMetadata> {
-        self.module.read().fn_ptr_table.clone()
-    }
-
     pub(crate) fn constant_funcs(
         &self,
     ) -> crate::values::HashMap<InternedString, SteelVal, FxBuildHasher> {

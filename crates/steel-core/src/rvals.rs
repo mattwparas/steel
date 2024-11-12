@@ -1549,6 +1549,13 @@ impl Deref for SteelString {
     }
 }
 
+#[cfg(not(feature = "sync"))]
+impl From<Arc<String>> for SteelString {
+    fn from(value: Arc<String>) -> Self {
+        SteelString(Gc(Rc::new((*value).clone())))
+    }
+}
+
 impl SteelString {
     pub(crate) fn to_arc_string(&self) -> Arc<String> {
         #[cfg(feature = "sync")]

@@ -424,12 +424,6 @@ impl ExpressionType {
     }
 }
 
-fn atom(name: String) -> ExprKind {
-    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-        name.into(),
-    ))))
-}
-
 fn set(var: ExprKind, expr: ExprKind) -> ExprKind {
     ExprKind::Set(Box::new(Set::new(
         var,

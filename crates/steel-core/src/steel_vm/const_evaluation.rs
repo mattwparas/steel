@@ -20,7 +20,6 @@ use crate::{
     rerrs::ErrorKind,
     SteelErr,
 };
-use std::sync::Arc;
 use std::{
     cell::RefCell,
     collections::HashSet,
