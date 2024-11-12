@@ -3,7 +3,7 @@ use fxhash::FxHashSet;
 use steel_parser::ast::DEFINE;
 
 use crate::{
-    compiler::program::BEGIN,
+    compiler::{modules::MANGLER_PREFIX, program::BEGIN},
     parser::{
         ast::{Atom, ExprKind, Quote},
         interner::InternedString,
@@ -30,7 +30,7 @@ pub fn collect_globals(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
         match expr {
             ExprKind::Define(d) => {
                 if let Some(name) = d.name.atom_identifier() {
-                    if name.resolve().starts_with("mangler") {
+                    if name.resolve().starts_with(MANGLER_PREFIX) {
                         continue;
                     }
                     global_defs.insert(*name);
@@ -46,7 +46,7 @@ pub fn collect_globals(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
                 match l.get(1) {
                     Some(ExprKind::Atom(_)) => {
                         if let Some(name) = l.second_ident() {
-                            if name.resolve().starts_with("mangler") {
+                            if name.resolve().starts_with(MANGLER_PREFIX) {
                                 continue;
                             }
                             // println!("Inserting: {}", name);
@@ -56,7 +56,7 @@ pub fn collect_globals(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
 
                     Some(ExprKind::List(l)) => {
                         if let Some(name) = l.first_ident() {
-                            if name.resolve().starts_with("mangler") {
+                            if name.resolve().starts_with(MANGLER_PREFIX) {
                                 continue;
                             }
                             // println!("Inserting: {}", name);

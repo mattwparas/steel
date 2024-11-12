@@ -3,6 +3,7 @@ use std::{path::PathBuf, sync::Arc};
 use dashmap::{DashMap, DashSet};
 
 use steel::{
+    compiler::modules::MANGLER_PREFIX,
     parser::interner::InternedString,
     steel_vm::{engine::Engine, register_fn::RegisterFn},
 };
@@ -64,7 +65,7 @@ async fn main() {
         if !resolved.starts_with("#")
             && !resolved.starts_with("%")
             && !resolved.starts_with("mangler#%")
-            && !resolved.starts_with("mangler")
+            && !resolved.starts_with(MANGLER_PREFIX)
             && !resolved.starts_with("__module")
         {
             defined_globals.insert(resolved.to_string());

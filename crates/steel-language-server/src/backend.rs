@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use steel::{
     compiler::{
-        modules::steel_home,
+        modules::{steel_home, MANGLER_PREFIX, MODULE_PREFIX},
         passes::analysis::{
             query_top_level_define, query_top_level_define_on_condition,
             RequiredIdentifierInformation, SemanticAnalysis,
@@ -282,7 +282,7 @@ impl LanguageServer for Backend {
 
                     RequiredIdentifierInformation::Unresolved(interned, name) => {
                         let module_path_to_check = name
-                            .trim_start_matches("mangler")
+                            .trim_start_matches(MANGLER_PREFIX)
                             .trim_end_matches(interned.resolve())
                             .trim_end_matches("__%#__");
 
@@ -384,7 +384,7 @@ impl LanguageServer for Backend {
                         // log::debug!("Found unresolved identifier: {} - {}", interned, name);
 
                         let module_path_to_check = name
-                            .trim_start_matches("mangler")
+                            .trim_start_matches(MANGLER_PREFIX)
                             .trim_end_matches(interned.resolve())
                             .trim_end_matches("__%#__");
 
@@ -665,10 +665,10 @@ fn filter_interned_string_with_char(
 
     if !resolved.starts_with("#")
         && !resolved.starts_with("%")
-        && !resolved.starts_with("mangler")
+        && !resolved.starts_with(MANGLER_PREFIX)
         && !resolved.starts_with("mangler#%")
         && !resolved.starts_with("!!dummy-rest")
-        && !resolved.starts_with("__module-mangler")
+        && !resolved.starts_with(MODULE_PREFIX)
     {
         Some(resolved.to_string())
     } else {

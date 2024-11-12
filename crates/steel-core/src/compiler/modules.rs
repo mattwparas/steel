@@ -369,7 +369,7 @@ impl ModuleManager {
                                         let hash_get = expr_list![
                                             ExprKind::atom(*PROTO_HASH_GET),
                                             ExprKind::atom(
-                                                CompactString::new("__module-")
+                                                CompactString::new(MODULE_PREFIX)
                                                     + &other_module_prefix
                                             ),
                                             ExprKind::Quote(Box::new(Quote::new(
@@ -439,7 +439,7 @@ impl ModuleManager {
                             let hash_get = expr_list![
                                 ExprKind::atom(*PROTO_HASH_GET),
                                 ExprKind::atom(
-                                    CompactString::new("__module-") + &other_module_prefix
+                                    CompactString::new(MODULE_PREFIX) + &other_module_prefix
                                 ),
                                 ExprKind::Quote(Box::new(Quote::new(
                                     provide.clone(),
@@ -957,6 +957,34 @@ pub struct CompiledModule {
 }
 
 pub static MANGLER_PREFIX: &'static str = "##mm";
+pub static MODULE_PREFIX: &'static str = "__module-";
+pub static MANGLED_MODULE_PREFIX: &'static str = "__module-##mm";
+
+pub fn path_to_module_name(name: PathBuf) -> String {
+    let mut base = CompactString::new(MANGLED_MODULE_PREFIX);
+
+    if let Some(steel_home) = STEEL_HOME.as_ref() {
+        // Intern this?
+        let name = name
+            .to_str()
+            .unwrap()
+            .trim_start_matches(steel_home.as_str());
+
+        let interned = InternedString::from_str(&name);
+        let id = interned.get().into_inner();
+
+        base.push_str(&id.to_string());
+        base.push_str(MANGLER_SEPARATOR);
+    } else {
+        let interned = InternedString::from_str(name.to_str().unwrap());
+        let id = interned.get().into_inner();
+
+        base.push_str(&id.to_string());
+        base.push_str(MANGLER_SEPARATOR);
+    }
+
+    base.into_string()
+}
 
 // TODO: @Matt 6/12/23 - This _should_ be serializable. If possible, we can try to store intermediate objects down to some file.
 impl CompiledModule {
@@ -1118,7 +1146,7 @@ impl CompiledModule {
                                         let hash_get = expr_list![
                                             ExprKind::atom(*PROTO_HASH_GET),
                                             ExprKind::atom(
-                                                CompactString::new("__module-")
+                                                CompactString::new(MODULE_PREFIX)
                                                     + &other_module_prefix
                                             ),
                                             ExprKind::Quote(Box::new(Quote::new(
@@ -1291,7 +1319,7 @@ impl CompiledModule {
                                 expr_list![
                                     ExprKind::atom(*PROTO_HASH_GET),
                                     ExprKind::atom(
-                                        CompactString::new("__module-") + &other_module_prefix
+                                        CompactString::new(MODULE_PREFIX) + &other_module_prefix
                                     ),
                                     ExprKind::Quote(Box::new(Quote::new(
                                         raw_provide.clone(),
@@ -1472,7 +1500,7 @@ impl CompiledModule {
         ));
 
         let module_define = ExprKind::Define(Box::new(Define::new(
-            ExprKind::atom(CompactString::new("__module-") + &prefix),
+            ExprKind::atom(CompactString::new(MODULE_PREFIX) + &prefix),
             ExprKind::List(List::new(hash_body)),
             SyntaxObject::default(TokenType::Quote),
         )));

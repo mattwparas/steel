@@ -2,6 +2,7 @@
 
 use std::{env::current_dir, error::Error, io::BufWriter, path::PathBuf};
 
+use steel::compiler::modules::MANGLER_PREFIX;
 use steel::steel_vm::engine::Engine;
 
 use std::collections::HashSet;
@@ -52,7 +53,7 @@ fn walk_for_defines<W: Write>(
                 let name = d.name.atom_identifier().unwrap().resolve();
 
                 // We'll only check things that are values
-                if !name.starts_with("mangler") && name.ends_with("__doc__") {
+                if !name.starts_with(MANGLER_PREFIX) && name.ends_with("__doc__") {
                     writeln!(writer, "### **{}**", name.trim_end_matches("__doc__"))?;
 
                     let ast_node = nodes.next().unwrap();

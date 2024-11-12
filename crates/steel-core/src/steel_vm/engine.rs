@@ -16,7 +16,7 @@ use crate::{
     compiler::{
         compiler::{Compiler, SerializableCompiler},
         map::SymbolMap,
-        modules::{CompiledModule, MANGLER_PREFIX, PRELUDE_WITHOUT_BASE},
+        modules::{path_to_module_name, CompiledModule, MANGLER_PREFIX, PRELUDE_WITHOUT_BASE},
         program::{
             number_literal_to_steel, Executable, RawProgramWithSymbols,
             SerializableRawProgramWithSymbols,
@@ -2025,10 +2025,9 @@ impl Engine {
         RwLockWriteGuard::map(self.virtual_machine.compiler.write(), |x| &mut x.macro_env)
     }
 
+    // TODO: Re-implement the module path expansion
     pub fn get_module(&self, path: PathBuf) -> Result<SteelVal> {
-        let module_path =
-            "__module-mangler".to_string() + path.as_os_str().to_str().unwrap() + "__%#__";
-
+        let module_path = path_to_module_name(path);
         self.extract_value(&module_path)
     }
 
