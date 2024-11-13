@@ -669,6 +669,9 @@ fn filter_interned_string_with_char(
         && !resolved.starts_with("mangler#%")
         && !resolved.starts_with("!!dummy-rest")
         && !resolved.starts_with(MODULE_PREFIX)
+        // TODO: This should just be prefixed with # as well, to make it
+        // so that it doesn't show up here at all
+        && !resolved.ends_with("__doc__")
     {
         Some(resolved.to_string())
     } else {
