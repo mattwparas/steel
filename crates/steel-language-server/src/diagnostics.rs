@@ -65,6 +65,10 @@ impl DiagnosticGenerator for FreeIdentifiersAndUnusedIdentifiers {
                     return None;
                 }
 
+                if resolved.starts_with("##") && resolved.ends_with(char::is_numeric) {
+                    return None;
+                }
+
                 let start_position = offset_to_position(span.start, &context.rope)?;
                 let end_position = offset_to_position(span.end, &context.rope)?;
 
