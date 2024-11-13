@@ -6,6 +6,7 @@ use crate::parser::span::Span;
 // use super::
 use proptest::prelude::*;
 use std::convert::TryFrom;
+use std::sync::Arc;
 use steel_parser::parser::SourceId;
 use steel_parser::tokens::{IntLiteral, RealLiteral};
 
@@ -150,7 +151,7 @@ fn tokentype_strategy() -> impl Strategy<Value = TokenType<InternedString>> {
     use TokenType::*;
     prop_oneof![
         any::<char>().prop_map(CharacterLiteral),
-        string_strategy().prop_map(|x| StringLiteral(Box::new(x))),
+        string_strategy().prop_map(|x| StringLiteral(Arc::new(x))),
         ident_strategy().prop_map(Identifier),
         any::<isize>().prop_map(|x| IntLiteral::Small(x).into()),
         any::<bool>().prop_map(BooleanLiteral),

@@ -2,6 +2,7 @@ use crate::{
     compiler::{
         constants::ConstantMap,
         map::SymbolMap,
+        modules::MANGLER_PREFIX,
         passes::{
             analysis::SemanticAnalysis, begin::flatten_begins_and_expand_defines,
             shadow::RenameShadowedVariables, VisitorMutRefUnit,
@@ -718,7 +719,11 @@ impl Compiler {
             // TODO: To get this to work, we have to check the macros to make sure those
             // are safe to eliminate. In interactive mode, we'll
             // be unable to optimize those away
-            .remove_unused_globals_with_prefix("mangler", &self.macro_env, &self.module_manager);
+            .remove_unused_globals_with_prefix(
+                MANGLER_PREFIX,
+                &self.macro_env,
+                &self.module_manager,
+            );
         // Don't do lambda lifting here
         // .lift_pure_local_functions()
         // .lift_all_local_functions();
@@ -765,7 +770,7 @@ impl Compiler {
             .rename_shadowed_variables(&mut expanded_statements, false);
 
         // let mut expanded_statements =
-        log::info!(target: "expansion-phase", "Aggressive constant evaluation with memoization");
+        // log::info!(target: "expansion-phase", "Aggressive constant evaluation with memoization");
 
         // Begin lowering anonymous function calls to lets
 
@@ -917,7 +922,11 @@ impl Compiler {
             // TODO: To get this to work, we have to check the macros to make sure those
             // are safe to eliminate. In interactive mode, we'll
             // be unable to optimize those away
-            .remove_unused_globals_with_prefix("mangler", &self.macro_env, &self.module_manager)
+            .remove_unused_globals_with_prefix(
+                MANGLER_PREFIX,
+                &self.macro_env,
+                &self.module_manager,
+            )
             .lift_pure_local_functions()
             .lift_all_local_functions();
 
@@ -967,7 +976,7 @@ impl Compiler {
         // TODO - make sure I want to keep this
         // let mut expanded_statements =
 
-        log::info!(target: "expansion-phase", "Aggressive constant evaluation with memoization");
+        // log::info!(target: "expansion-phase", "Aggressive constant evaluation with memoization");
 
         // Begin lowering anonymous function calls to lets
         analysis.fresh_from_exprs(&expanded_statements);

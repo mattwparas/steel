@@ -673,7 +673,7 @@
 ;; needs to be captured by the children below. A global
 ;; reference unforuntately isn't enough - it needs to be
 ;; a copy of the underlying value.
-(define *meta-continuation* (make-tls (lambda (v) (error "You forgot the top-level reset..."))))
+(define *meta-continuation* (make-tls (lambda (_) (error "You forgot the top-level reset..."))))
 
 (define (*abort thunk)
   (let ([v (thunk)]) ((get-tls *meta-continuation*) v)))
@@ -879,14 +879,17 @@
 
 (define-syntax @doc
   (syntax-rules (struct define/contract)
-    ; [(_ documentation (define name body))
 
-    ;  (begin
-    ;    ; (stdout-simple-displayln "Expanding doc top case: " (quote (define name body)))
-    ;    (define (datum->syntax name __doc__)
-    ;      documentation)
-    ;    (define name body)
-    ;    (#%function-ptr-table-add #%function-ptr-table name (datum->syntax name __doc__)))]
+    [(_ documentation
+        (define (name . args)
+          body ...))
+
+     (begin
+       (define (datum->syntax name __doc__)
+         documentation)
+       (define (name . args)
+         body ...)
+       (#%function-ptr-table-add #%function-ptr-table name (datum->syntax name __doc__)))]
 
     [(_ documentation
         (define (name args ...)

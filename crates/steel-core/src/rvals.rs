@@ -601,7 +601,7 @@ impl ast::TryFromSteelValVisitorForExprKind {
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                TokenType::StringLiteral(Box::new(x.to_string())),
+                TokenType::StringLiteral(x.to_arc_string()),
                 span,
             )))),
             SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
@@ -725,7 +725,7 @@ impl Syntax {
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                TokenType::StringLiteral(Box::new(x.to_string())),
+                TokenType::StringLiteral(x.to_arc_string()),
             )))),
             // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
             // MacroV(_) => Err("Can't convert from Macro to expression!"),
@@ -771,7 +771,7 @@ impl Syntax {
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                TokenType::StringLiteral(Box::new(x.to_string())),
+                TokenType::StringLiteral(x.to_arc_string()),
                 span,
             )))),
             // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
@@ -1546,6 +1546,24 @@ impl Deref for SteelString {
 
     fn deref(&self) -> &Self::Target {
         &self.0 .0
+    }
+}
+
+#[cfg(not(feature = "sync"))]
+impl From<Arc<String>> for SteelString {
+    fn from(value: Arc<String>) -> Self {
+        SteelString(Gc(Rc::new((*value).clone())))
+    }
+}
+
+impl SteelString {
+    pub(crate) fn to_arc_string(&self) -> Arc<String> {
+        #[cfg(feature = "sync")]
+        {
+            self.0 .0.clone()
+        }
+        #[cfg(not(feature = "sync"))]
+        Arc::new(self.0.unwrap())
     }
 }
 

@@ -3,7 +3,10 @@ use std::{
     hash::BuildHasherDefault,
 };
 
-use crate::values::HashMap as ImmutableHashMap;
+use crate::{
+    compiler::modules::{MANGLER_PREFIX, MODULE_PREFIX},
+    values::HashMap as ImmutableHashMap,
+};
 use quickscope::ScopeMap;
 use smallvec::SmallVec;
 use steel_parser::{
@@ -2522,7 +2525,7 @@ impl<'a> VisitorMutRefUnit for RemoveUnusedDefineImports<'a> {
 
             if begin.exprs.is_empty() {
                 begin.exprs.push(ExprKind::Quote(Box::new(Quote::new(
-                    ExprKind::atom("void".to_string()),
+                    ExprKind::atom("void"),
                     RawSyntaxObject::default(TokenType::Quote),
                 ))));
             }
@@ -3254,7 +3257,7 @@ impl<'a> VisitorMutUnitRef<'a> for CollectReferences {
     fn visit_atom(&mut self, a: &'a Atom) {
         // println!("collect references: {}", a);
         if let TokenType::Identifier(ident) = a.syn.ty {
-            if ident.resolve().starts_with("mangler") {
+            if ident.resolve().starts_with(MANGLER_PREFIX) {
                 // println!("Adding: {}", ident.resolve());
                 self.idents.insert(ident);
             }
@@ -3716,7 +3719,7 @@ impl<'a> SemanticAnalysis<'a> {
                             .and_then(|x| x.atom_identifier())
                             .map(|x| x.resolve())?;
 
-                        let prefix = module.trim_start_matches("__module-").to_string()
+                        let prefix = module.trim_start_matches(MODULE_PREFIX).to_string()
                             + d.name.atom_identifier()?.resolve();
 
                         let top_level_define = self.query_top_level_define(&prefix);
@@ -3747,7 +3750,7 @@ impl<'a> SemanticAnalysis<'a> {
                                     .and_then(|x| x.atom_identifier())
                                     .map(|x| x.resolve())?;
 
-                                let prefix = module.trim_start_matches("__module-").to_string()
+                                let prefix = module.trim_start_matches(MODULE_PREFIX).to_string()
                                     + d.name.atom_identifier()?.resolve();
 
                                 let top_level_define = self.query_top_level_define(&prefix);
@@ -3792,7 +3795,7 @@ impl<'a> SemanticAnalysis<'a> {
                     .and_then(|x| x.atom_identifier())
                     .map(|x| x.resolve())?;
 
-                let prefix = module.trim_start_matches("__module-").to_string()
+                let prefix = module.trim_start_matches(MODULE_PREFIX).to_string()
                     + d.name.atom_identifier()?.resolve();
 
                 let top_level_define = self.query_top_level_define(&prefix);

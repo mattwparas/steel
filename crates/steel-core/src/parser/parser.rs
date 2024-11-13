@@ -6,7 +6,8 @@ use std::borrow::Cow;
 use std::str;
 use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, path::PathBuf};
-use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
+use steel_parser::interner::InternedString;
+use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral, TokenType};
 
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -155,6 +156,68 @@ fn real_literal_to_steelval(r: RealLiteral) -> Result<SteelVal, SteelErr> {
     }
 }
 
+impl TryFrom<TokenType<InternedString>> for SteelVal {
+    type Error = SteelErr;
+
+    fn try_from(value: TokenType<InternedString>) -> Result<Self, Self::Error> {
+        match value {
+            OpenParen(p, _) => Err(SteelErr::new(
+                ErrorKind::UnexpectedToken,
+                p.open().to_string(),
+            )),
+            CloseParen(p) => Err(SteelErr::new(
+                ErrorKind::UnexpectedToken,
+                p.close().to_string(),
+            )),
+            CharacterLiteral(x) => Ok(CharV(x)),
+            BooleanLiteral(x) => Ok(BoolV(x)),
+            Identifier(x) => Ok(SymbolV(x.into())),
+            Number(x) => match *x {
+                NumberLiteral::Real(r) => real_literal_to_steelval(r),
+                NumberLiteral::Complex(re, im) => SteelComplex {
+                    re: real_literal_to_steelval(re)?,
+                    im: real_literal_to_steelval(im)?,
+                }
+                .into_steelval(),
+            },
+            StringLiteral(x) => Ok(StringV(x.into())),
+            Keyword(x) => Ok(SymbolV(x.into())),
+            QuoteTick => Err(SteelErr::new(ErrorKind::UnexpectedToken, "'".to_string())),
+            Unquote => Err(SteelErr::new(ErrorKind::UnexpectedToken, ",".to_string())),
+            QuasiQuote => Err(SteelErr::new(ErrorKind::UnexpectedToken, "`".to_string())),
+            UnquoteSplice => Err(SteelErr::new(ErrorKind::UnexpectedToken, ",@".to_string())),
+            Error => Err(SteelErr::new(
+                ErrorKind::UnexpectedToken,
+                "error".to_string(),
+            )),
+            Comment => Err(SteelErr::new(
+                ErrorKind::UnexpectedToken,
+                "comment".to_string(),
+            )),
+            If => Ok(SymbolV("if".into())),
+            Define => Ok(SymbolV("define".into())),
+            Let => Ok(SymbolV("let".into())),
+            TestLet => Ok(SymbolV("%plain-let".into())),
+            Return => Ok(SymbolV("return!".into())),
+            Begin => Ok(SymbolV("begin".into())),
+            Lambda => Ok(SymbolV(LAMBDA_SYMBOL.with(|x| x.clone()))),
+            Quote => Ok(SymbolV("quote".into())),
+            DefineSyntax => Ok(SymbolV("define-syntax".into())),
+            SyntaxRules => Ok(SymbolV("syntax-rules".into())),
+            Ellipses => Ok(SymbolV("...".into())),
+            Set => Ok(SymbolV("set!".into())),
+            Require => Ok(SymbolV("require".into())),
+            QuasiQuoteSyntax => Err(SteelErr::new(ErrorKind::UnexpectedToken, "#`".to_string())),
+            UnquoteSyntax => Err(SteelErr::new(ErrorKind::UnexpectedToken, "#,".to_string())),
+            QuoteSyntax => Err(SteelErr::new(ErrorKind::UnexpectedToken, "#'".to_string())),
+            UnquoteSpliceSyntax => {
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#,@".to_string()))
+            }
+            Dot => Err(SteelErr::new(ErrorKind::UnexpectedToken, ".".to_string())),
+        }
+    }
+}
+
 impl TryFrom<SyntaxObject> for SteelVal {
     type Error = SteelErr;
 
@@ -178,7 +241,7 @@ impl TryFrom<SyntaxObject> for SteelVal {
                 }
                 .into_steelval(),
             },
-            StringLiteral(x) => Ok(StringV((*x).into())),
+            StringLiteral(x) => Ok(StringV(x.into())),
             Keyword(x) => Ok(SymbolV(x.into())),
             QuoteTick => {
                 Err(SteelErr::new(ErrorKind::UnexpectedToken, "'".to_string()).with_span(span))

@@ -18,6 +18,7 @@ use crate::{
 };
 use crate::{parser::expand_visitor::Expander, rvals::Result};
 
+use compact_str::CompactString;
 use fxhash::{FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
 // use smallvec::SmallVec;
@@ -334,8 +335,7 @@ impl ModuleManager {
                     // Would be nice if this could be handled by some macro expansion...
                     // See if contract/out
 
-                    let other_module_prefix =
-                        "mangler".to_string() + module.name.to_str().unwrap() + MANGLER_SEPARATOR;
+                    let other_module_prefix = module.prefix();
 
                     // TODO: Expand the contract out into something we expect
                     // Otherwise, this is going to blow up
@@ -369,7 +369,8 @@ impl ModuleManager {
                                         let hash_get = expr_list![
                                             ExprKind::atom(*PROTO_HASH_GET),
                                             ExprKind::atom(
-                                                "__module-".to_string() + &other_module_prefix
+                                                CompactString::new(MODULE_PREFIX)
+                                                    + &other_module_prefix
                                             ),
                                             ExprKind::Quote(Box::new(Quote::new(
                                                 name.clone(),
@@ -437,7 +438,9 @@ impl ModuleManager {
 
                             let hash_get = expr_list![
                                 ExprKind::atom(*PROTO_HASH_GET),
-                                ExprKind::atom("__module-".to_string() + &other_module_prefix),
+                                ExprKind::atom(
+                                    CompactString::new(MODULE_PREFIX) + &other_module_prefix
+                                ),
                                 ExprKind::Quote(Box::new(Quote::new(
                                     provide.clone(),
                                     SyntaxObject::default(TokenType::Quote)
@@ -785,7 +788,7 @@ impl ModuleManager {
             .get_mut(require_for_syntax)
             .expect(&format!("Module missing!: {:?}", require_for_syntax));
 
-        let prefix = "mangler".to_string() + module.name.to_str().unwrap() + MANGLER_SEPARATOR;
+        let prefix = module.prefix();
 
         let globals = collect_globals(&module.ast);
 
@@ -950,6 +953,37 @@ pub struct CompiledModule {
     pub(crate) macro_map: FxHashMap<InternedString, SteelMacro>,
     ast: Vec<ExprKind>,
     emitted: bool,
+    cached_prefix: CompactString,
+}
+
+pub static MANGLER_PREFIX: &'static str = "##mm";
+pub static MODULE_PREFIX: &'static str = "__module-";
+pub static MANGLED_MODULE_PREFIX: &'static str = "__module-##mm";
+
+pub fn path_to_module_name(name: PathBuf) -> String {
+    let mut base = CompactString::new(MANGLED_MODULE_PREFIX);
+
+    if let Some(steel_home) = STEEL_HOME.as_ref() {
+        // Intern this?
+        let name = name
+            .to_str()
+            .unwrap()
+            .trim_start_matches(steel_home.as_str());
+
+        let interned = InternedString::from_str(&name);
+        let id = interned.get().into_inner();
+
+        base.push_str(&id.to_string());
+        base.push_str(MANGLER_SEPARATOR);
+    } else {
+        let interned = InternedString::from_str(name.to_str().unwrap());
+        let id = interned.get().into_inner();
+
+        base.push_str(&id.to_string());
+        base.push_str(MANGLER_SEPARATOR);
+    }
+
+    base.into_string()
 }
 
 // TODO: @Matt 6/12/23 - This _should_ be serializable. If possible, we can try to store intermediate objects down to some file.
@@ -962,6 +996,33 @@ impl CompiledModule {
         macro_map: FxHashMap<InternedString, SteelMacro>,
         ast: Vec<ExprKind>,
     ) -> Self {
+        let mut base = CompactString::new(MANGLER_PREFIX);
+
+        if let Some(steel_home) = STEEL_HOME.as_ref() {
+            // Intern this?
+            let name = name
+                .to_str()
+                .unwrap()
+                .trim_start_matches(steel_home.as_str());
+
+            let interned = InternedString::from_str(&name);
+            let id = interned.get().into_inner();
+
+            // base.push_str(name);
+            base.push_str(&id.to_string());
+            base.push_str(MANGLER_SEPARATOR);
+
+            // println!("{}", base);
+            // println!("Byte length: {}", base.len());
+        } else {
+            let interned = InternedString::from_str(name.to_str().unwrap());
+            let id = interned.get().into_inner();
+
+            // base.push_str(self.name.to_str().unwrap());
+            base.push_str(&id.to_string());
+            base.push_str(MANGLER_SEPARATOR);
+        }
+
         Self {
             name,
             provides,
@@ -970,7 +1031,13 @@ impl CompiledModule {
             macro_map,
             ast,
             emitted: false,
+            cached_prefix: base,
         }
+    }
+
+    // TODO: Should cache this
+    pub fn prefix(&self) -> CompactString {
+        self.cached_prefix.clone()
     }
 
     pub fn get_ast(&self) -> &[ExprKind] {
@@ -1000,7 +1067,15 @@ impl CompiledModule {
 
         let mut provide_definitions = Vec::new();
 
-        let prefix = "mangler".to_string() + self.name.to_str().unwrap() + MANGLER_SEPARATOR;
+        // TODO: Change this to not use the full path. Unfortunately that isn't portable,
+        // so we should use something that is more agnostic of the target location
+        // if we were to load.
+        //
+        // Probably a better idea would be to somehow assign a unique ID to each module;
+        // the path from the $STEEL_HOME would be relatively safe. That way we can just strip
+        // the $STEEL_HOME root away from the path if it starts with it, and then have
+        // that resolve to be the "name" of the module.
+        let prefix = self.prefix();
 
         // Now we should be able to set up a series of requires with the right style
         // ;; Refresh the module definition in this namespace
@@ -1032,8 +1107,7 @@ impl CompiledModule {
             // println!("{:?}", modules.keys().collect::<Vec<_>>());
             let module = modules.get(path.as_ref()).unwrap();
 
-            let other_module_prefix =
-                "mangler".to_string() + module.name.to_str().unwrap() + MANGLER_SEPARATOR;
+            let other_module_prefix = module.prefix();
 
             for provide_expr in &module.provides {
                 // For whatever reason, the value coming into module.provides is an expression like: (provide expr...)
@@ -1072,7 +1146,8 @@ impl CompiledModule {
                                         let hash_get = expr_list![
                                             ExprKind::atom(*PROTO_HASH_GET),
                                             ExprKind::atom(
-                                                "__module-".to_string() + &other_module_prefix
+                                                CompactString::new(MODULE_PREFIX)
+                                                    + &other_module_prefix
                                             ),
                                             ExprKind::Quote(Box::new(Quote::new(
                                                 name.clone(),
@@ -1243,7 +1318,9 @@ impl CompiledModule {
                                 ExprKind::atom(prefix.clone() + provide_ident.resolve()),
                                 expr_list![
                                     ExprKind::atom(*PROTO_HASH_GET),
-                                    ExprKind::atom("__module-".to_string() + &other_module_prefix),
+                                    ExprKind::atom(
+                                        CompactString::new(MODULE_PREFIX) + &other_module_prefix
+                                    ),
                                     ExprKind::Quote(Box::new(Quote::new(
                                         raw_provide.clone(),
                                         SyntaxObject::default(TokenType::Quote)
@@ -1423,7 +1500,7 @@ impl CompiledModule {
         ));
 
         let module_define = ExprKind::Define(Box::new(Define::new(
-            ExprKind::atom("__module-".to_string() + &prefix),
+            ExprKind::atom(CompactString::new(MODULE_PREFIX) + &prefix),
             ExprKind::List(List::new(hash_body)),
             SyntaxObject::default(TokenType::Quote),
         )));

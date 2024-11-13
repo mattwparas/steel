@@ -242,7 +242,7 @@ fn steelval_to_atom(value: &SteelVal) -> Option<TokenType<InternedString>> {
         SteelVal::NumV(n) => Some(RealLiteral::Float(*n).into()),
         SteelVal::CharV(c) => Some(TokenType::CharacterLiteral(*c)),
         SteelVal::IntV(i) => Some(IntLiteral::Small(*i).into()),
-        SteelVal::StringV(s) => Some(TokenType::StringLiteral(Box::new(s.to_string()))),
+        SteelVal::StringV(s) => Some(TokenType::StringLiteral(s.to_arc_string())),
         _ => None,
     }
 }
@@ -293,7 +293,7 @@ impl<'a> ConstantEvaluator<'a> {
             }
             // todo!() figure out if it is ok to expand scope of eval_atom.
             TokenType::Number(n) => number_literal_to_steel(n).ok(),
-            TokenType::StringLiteral(s) => Some(SteelVal::StringV((*s.clone()).into())),
+            TokenType::StringLiteral(s) => Some(SteelVal::StringV((s.clone()).into())),
             TokenType::CharacterLiteral(c) => Some(SteelVal::CharV(*c)),
             _ => None,
         }

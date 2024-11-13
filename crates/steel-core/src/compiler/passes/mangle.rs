@@ -1,8 +1,9 @@
+use compact_str::CompactString;
 use fxhash::FxHashSet;
 use steel_parser::ast::DEFINE;
 
 use crate::{
-    compiler::program::BEGIN,
+    compiler::{modules::MANGLER_PREFIX, program::BEGIN},
     parser::{
         ast::{Atom, ExprKind, Quote},
         interner::InternedString,
@@ -29,7 +30,7 @@ pub fn collect_globals(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
         match expr {
             ExprKind::Define(d) => {
                 if let Some(name) = d.name.atom_identifier() {
-                    if name.resolve().starts_with("mangler") {
+                    if name.resolve().starts_with(MANGLER_PREFIX) {
                         continue;
                     }
                     global_defs.insert(*name);
@@ -45,7 +46,7 @@ pub fn collect_globals(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
                 match l.get(1) {
                     Some(ExprKind::Atom(_)) => {
                         if let Some(name) = l.second_ident() {
-                            if name.resolve().starts_with("mangler") {
+                            if name.resolve().starts_with(MANGLER_PREFIX) {
                                 continue;
                             }
                             // println!("Inserting: {}", name);
@@ -55,7 +56,7 @@ pub fn collect_globals(exprs: &[ExprKind]) -> FxHashSet<InternedString> {
 
                     Some(ExprKind::List(l)) => {
                         if let Some(name) = l.first_ident() {
-                            if name.resolve().starts_with("mangler") {
+                            if name.resolve().starts_with(MANGLER_PREFIX) {
                                 continue;
                             }
                             // println!("Inserting: {}", name);
@@ -131,11 +132,11 @@ impl<'a> VisitorMutRefUnit for NameUnMangler<'a> {
 #[derive(Clone)]
 pub struct NameMangler {
     pub(crate) globals: FxHashSet<InternedString>,
-    prefix: String,
+    prefix: CompactString,
 }
 
 impl NameMangler {
-    pub fn new(globals: FxHashSet<InternedString>, prefix: String) -> Self {
+    pub fn new(globals: FxHashSet<InternedString>, prefix: CompactString) -> Self {
         Self { globals, prefix }
     }
 
@@ -146,7 +147,7 @@ impl NameMangler {
     }
 }
 
-pub fn mangle_vars_with_prefix(prefix: String, exprs: &mut [ExprKind]) {
+pub fn mangle_vars_with_prefix(prefix: CompactString, exprs: &mut [ExprKind]) {
     let globals = collect_globals(exprs);
 
     let mut name_mangler = NameMangler { globals, prefix };
@@ -164,8 +165,6 @@ impl VisitorMutRefUnit for NameMangler {
                 let new_str = i.resolve();
 
                 *i = (self.prefix.clone() + new_str).into();
-
-                // i.insert_str(0, &self.prefix);
             }
         }
     }
@@ -195,7 +194,7 @@ mod name_mangling_tests {
 
         let mut parsed = Parser::parse(expr).unwrap();
 
-        mangle_vars_with_prefix("--test--".to_string(), &mut parsed);
+        mangle_vars_with_prefix("--test--".into(), &mut parsed);
 
         eraser.visit_many(&mut parsed);
 
@@ -223,7 +222,7 @@ mod name_mangling_tests {
 
         let mut parsed = Parser::parse(expr).unwrap();
 
-        mangle_vars_with_prefix("--test--".to_string(), &mut parsed);
+        mangle_vars_with_prefix("--test--".into(), &mut parsed);
 
         eraser.visit_many(&mut parsed);
 
@@ -257,7 +256,7 @@ mod name_mangling_tests {
 
         let mut parsed = Parser::parse(expr).unwrap();
 
-        mangle_vars_with_prefix("--test--".to_string(), &mut parsed);
+        mangle_vars_with_prefix("--test--".into(), &mut parsed);
 
         let expected = Parser::parse(
             r#"

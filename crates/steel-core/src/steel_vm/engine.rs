@@ -16,7 +16,7 @@ use crate::{
     compiler::{
         compiler::{Compiler, SerializableCompiler},
         map::SymbolMap,
-        modules::{CompiledModule, PRELUDE_WITHOUT_BASE},
+        modules::{path_to_module_name, CompiledModule, MANGLER_PREFIX, PRELUDE_WITHOUT_BASE},
         program::{
             number_literal_to_steel, Executable, RawProgramWithSymbols,
             SerializableRawProgramWithSymbols,
@@ -111,6 +111,13 @@ pub struct ModuleContainer {
 }
 
 impl ModuleContainer {
+    pub fn with_expected_capacity() -> Self {
+        Self {
+            modules: Arc::new(RwLock::new(HashMap::with_capacity(48))),
+            unresolved_modules: Default::default(),
+        }
+    }
+
     pub fn insert(&mut self, key: Shared<str>, value: BuiltInModule) {
         self.modules.write().insert(key, value);
     }
@@ -483,7 +490,7 @@ impl Engine {
         #[cfg(feature = "profiling")]
         let mut now = std::time::Instant::now();
         let sources = Sources::new();
-        let modules = ModuleContainer::default();
+        let modules = ModuleContainer::with_expected_capacity();
 
         let compiler = Arc::new(RwLock::new(Compiler::default_without_kernel(
             sources.clone(),
@@ -1489,7 +1496,7 @@ impl Engine {
                 !resolved.starts_with("#")
                     && !resolved.starts_with("%")
                     && !resolved.starts_with("mangler#%")
-                    && !resolved.starts_with("mangler")
+                    && !resolved.starts_with(MANGLER_PREFIX)
                     && !resolved.starts_with("__module")
                     && !resolved.ends_with("__doc__")
             })
@@ -1512,7 +1519,7 @@ impl Engine {
             match &t.ty {
                 TokenType::BooleanLiteral(b) => Ok((*b).into()),
                 TokenType::Number(n) => number_literal_to_steel(n),
-                TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.to_string().into())),
+                TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.clone().into())),
                 TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
                 // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
                 TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
@@ -2018,10 +2025,9 @@ impl Engine {
         RwLockWriteGuard::map(self.virtual_machine.compiler.write(), |x| &mut x.macro_env)
     }
 
+    // TODO: Re-implement the module path expansion
     pub fn get_module(&self, path: PathBuf) -> Result<SteelVal> {
-        let module_path =
-            "__module-mangler".to_string() + path.as_os_str().to_str().unwrap() + "__%#__";
-
+        let module_path = path_to_module_name(path);
         self.extract_value(&module_path)
     }
 

@@ -9,6 +9,7 @@ use crate::parser::span::Span;
 
 use crate::rvals::Result;
 use std::cell::RefCell;
+use std::sync::Arc;
 use std::{
     collections::HashMap,
     fs::File,
@@ -19,6 +20,7 @@ use std::{
 
 use fxhash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
 
 use super::{ast::Quote, interner::InternedString, parser::Parser};
@@ -288,7 +290,7 @@ impl MacroCase {
             bindings.remove(&macro_keyword);
         };
 
-        let args_str: Vec<_> = bindings.iter().copied().collect();
+        let args_str: SmallVec<[_; 8]> = bindings.iter().copied().collect();
 
         // dbg!(args_str.iter().map(|x| x.resolve()).collect::<Vec<_>>());
 
@@ -385,7 +387,7 @@ pub enum MacroPattern {
     ManyNested(Vec<MacroPattern>),
     CharacterLiteral(char),
     IntLiteral(isize),
-    StringLiteral(String),
+    StringLiteral(Arc<String>),
     FloatLiteral(f64),
     BooleanLiteral(bool),
     QuotedExpr(Box<Quote>),
@@ -472,7 +474,7 @@ impl MacroPattern {
         bindings: &mut FxHashSet<InternedString>,
         top_level: bool,
     ) -> Result<(Vec<MacroPattern>, Option<InternedString>)> {
-        let mut pattern_vec: Vec<MacroPattern> = Vec::new();
+        let mut pattern_vec: Vec<MacroPattern> = Vec::with_capacity(4);
         let len = list.args.len();
         let mut exprs_iter = list.args.into_iter().enumerate().peekable();
         let mut ellipsis = false;
@@ -509,7 +511,7 @@ impl MacroPattern {
                 }) => match s {
                     TokenType::Identifier(t) => {
                         if t == *macro_name || special_forms.contains(&t) {
-                            pattern_vec.push(MacroPattern::Syntax(t.clone()))
+                            pattern_vec.push(MacroPattern::Syntax(t))
                         } else {
                             let peek = exprs_iter.peek().map(|(_, expr)| expr);
 
@@ -583,7 +585,7 @@ impl MacroPattern {
                         pattern_vec.push(MacroPattern::CharacterLiteral(c));
                     }
                     TokenType::StringLiteral(s) => {
-                        pattern_vec.push(MacroPattern::StringLiteral(*s));
+                        pattern_vec.push(MacroPattern::StringLiteral(s));
                     }
                     TokenType::Keyword(k) => {
                         pattern_vec.push(MacroPattern::Keyword(k));

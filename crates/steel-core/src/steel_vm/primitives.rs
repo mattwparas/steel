@@ -70,6 +70,7 @@ use crate::{
     rvals::{Result, SteelVal},
     SteelErr,
 };
+use compact_str::CompactString;
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
 use std::cmp::Ordering;
@@ -651,7 +652,7 @@ pub(crate) static PRELUDE_TO_RESERVED_MAP: Lazy<FxHashMap<String, InternedString
                 .map(|x| {
                     (
                         x.resolve().to_string(),
-                        ("#%prim.".to_string() + x.resolve()).into(),
+                        (CompactString::new("#%prim.") + x.resolve()).into(),
                     )
                 })
                 .collect()
@@ -662,7 +663,7 @@ pub fn builtin_to_reserved(ident: &str) -> InternedString {
     if let Some(value) = PRELUDE_TO_RESERVED_MAP.get(ident) {
         *value
     } else {
-        ("#%prim.".to_string() + ident).into()
+        (CompactString::new("#%prim.") + ident).into()
     }
 }
 
@@ -684,44 +685,12 @@ pub(crate) fn constant_primitives(
 #[cfg(feature = "sync")]
 pub static CONSTANT_PRIMITIVES: Lazy<
     crate::values::HashMap<InternedString, SteelVal, FxBuildHasher>,
-> = Lazy::new(|| {
-    let names = STEEL_PRELUDE_MODULE.metadata_table();
-
-    names
-        .into_iter()
-        .filter_map(|(key, value)| match key {
-            BuiltInFunctionType::Reference(func) if value.is_const => Some((
-                ("#%prim.".to_string() + value.name).into(),
-                SteelVal::FuncV(func),
-            )),
-            BuiltInFunctionType::Mutable(func) if value.is_const => Some((
-                ("#%prim.".to_string() + value.name).into(),
-                SteelVal::MutFunc(func),
-            )),
-            _ => None,
-        })
-        .collect()
-});
+> = Lazy::new(|| STEEL_PRELUDE_MODULE.constant_funcs());
 
 #[cfg(not(feature = "sync"))]
 thread_local! {
     pub static CONSTANT_PRIMITIVES: crate::values::HashMap<InternedString, SteelVal, FxBuildHasher> = {
-        let names = PRELUDE_MODULE.with(|x| x.metadata_table());
-
-        names
-            .into_iter()
-            .filter_map(|(key, value)| match key {
-                BuiltInFunctionType::Reference(func) if value.is_const => Some((
-                    ("#%prim.".to_string() + value.name).into(),
-                    SteelVal::FuncV(func),
-                )),
-                BuiltInFunctionType::Mutable(func) if value.is_const => Some((
-                    ("#%prim.".to_string() + value.name).into(),
-                    SteelVal::MutFunc(func),
-                )),
-                _ => None,
-            })
-            .collect()
+        PRELUDE_MODULE.with(|x| x.constant_funcs())
     };
 
 }

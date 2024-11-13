@@ -15,6 +15,7 @@ use crate::{
     },
     values::functions::BoxedDynFunction,
 };
+use compact_str::CompactString;
 use fxhash::FxBuildHasher;
 use once_cell::sync::Lazy;
 
@@ -52,10 +53,10 @@ pub struct BuiltInModule {
 #[derive(Clone)]
 struct BuiltInModuleRepr {
     pub(crate) name: Shared<str>,
-    values: HashMap<Arc<str>, SteelVal, FxBuildHasher>,
+    values: std::collections::HashMap<Arc<str>, SteelVal, FxBuildHasher>,
     docs: Box<InternalDocumentation>,
     // Add the metadata separate from the pointer, keeps the pointer slim
-    fn_ptr_table: HashMap<BuiltInFunctionType, FunctionSignatureMetadata>,
+    fn_ptr_table: std::collections::HashMap<BuiltInFunctionType, FunctionSignatureMetadata>,
     // We don't need to generate this every time, just need to
     // clone it?
     generated_expression: SharedMut<Option<ExprKind>>,
@@ -190,9 +191,9 @@ impl BuiltInModuleRepr {
     pub fn new<T: Into<Shared<str>>>(name: T) -> Self {
         Self {
             name: name.into(),
-            values: HashMap::default(),
+            values: std::collections::HashMap::default(),
             docs: Box::new(InternalDocumentation::new()),
-            fn_ptr_table: HashMap::new(),
+            fn_ptr_table: std::collections::HashMap::new(),
             generated_expression: Shared::new(MutContainer::new(None)),
         }
     }
@@ -303,16 +304,40 @@ impl BuiltInModuleRepr {
     }
 
     pub fn with_module(&mut self, module: BuiltInModule) {
-        self.values = std::mem::take(&mut self.values).union(module.module.read().values.clone());
+        // self.values = std::mem::take(&mut self.values).union(module.module.read().values.clone());
+
+        self.values.extend(
+            module
+                .module
+                .read()
+                .values
+                .iter()
+                .map(|x| (x.0.clone(), x.1.clone())),
+        );
 
         // TODO: This almost assuredly, is not necessary, right? We could instead just use
         // the global metadata table and get rid of the vast majority of this information.
-        self.fn_ptr_table =
-            std::mem::take(&mut self.fn_ptr_table).union(module.module.read().fn_ptr_table.clone());
+        // self.fn_ptr_table =
+        //     std::mem::take(&mut self.fn_ptr_table).union(module.module.read().fn_ptr_table.clone());
 
-        self.docs
-            .definitions
-            .extend(module.module.read().docs.definitions.clone());
+        self.fn_ptr_table.extend(
+            module
+                .module
+                .read()
+                .fn_ptr_table
+                .iter()
+                .map(|x| (*x.0, x.1.clone())),
+        );
+
+        self.docs.definitions.extend(
+            module
+                .module
+                .read()
+                .docs
+                .definitions
+                .iter()
+                .map(|x| (x.0.clone(), x.1.clone())),
+        );
     }
 
     pub fn register_type<T: FromSteelVal + IntoSteelVal>(
@@ -490,8 +515,25 @@ impl BuiltInModule {
         }
     }
 
-    pub(crate) fn metadata_table(&self) -> HashMap<BuiltInFunctionType, FunctionSignatureMetadata> {
-        self.module.read().fn_ptr_table.clone()
+    pub(crate) fn constant_funcs(
+        &self,
+    ) -> crate::values::HashMap<InternedString, SteelVal, FxBuildHasher> {
+        self.module
+            .read()
+            .fn_ptr_table
+            .iter()
+            .filter_map(|(key, value)| match key {
+                BuiltInFunctionType::Reference(func) if value.is_const => Some((
+                    (CompactString::new("#%prim.") + value.name).into(),
+                    SteelVal::FuncV(*func),
+                )),
+                BuiltInFunctionType::Mutable(func) if value.is_const => Some((
+                    (CompactString::new("#%prim.") + value.name).into(),
+                    SteelVal::MutFunc(*func),
+                )),
+                _ => None,
+            })
+            .collect()
     }
 
     pub fn names(&self) -> Vec<String> {

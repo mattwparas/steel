@@ -424,7 +424,8 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
     fn visit_atom(&mut self, a: &steel_parser::ast::Atom) -> Self::Output {
         let span = a.syn.span;
 
-        let atom = SteelVal::try_from(a.syn.clone())?;
+        // TODO: Don't need to copy the whole syntax object in
+        let atom = SteelVal::try_from(a.syn.ty.clone()).map_err(|e| e.with_span(span))?;
 
         Ok(Syntax::proto(atom.clone(), atom, span).into())
     }

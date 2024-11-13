@@ -3,7 +3,7 @@ use crate::{
     tokens::{NumberLiteral, ParenMod, RealLiteral, TokenType},
 };
 
-use std::{convert::TryFrom, fmt::Write};
+use std::{convert::TryFrom, fmt::Write, sync::Arc};
 
 use crate::tokens::IntLiteral;
 use pretty::RcDoc;
@@ -228,7 +228,7 @@ impl ExprKind {
 
     pub fn string_lit(input: String) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::StringLiteral(
-            Box::new(input),
+            Arc::new(input),
         ))))
     }
 

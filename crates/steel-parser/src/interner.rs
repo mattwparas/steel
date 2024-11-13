@@ -1,3 +1,4 @@
+use compact_str::CompactString;
 use fxhash::FxBuildHasher;
 use lasso::Key;
 use lasso::Spur;
@@ -48,6 +49,14 @@ impl InternedString {
         )
     }
 
+    pub fn from_str(ident: &str) -> Self {
+        Self(
+            INTERNER
+                .get_or_init(|| Arc::new(ThreadedRodeo::with_hasher(FxBuildHasher::default())))
+                .get_or_intern(ident),
+        )
+    }
+
     pub fn new(key: usize) -> Self {
         Self(Spur::try_from_usize(key).unwrap())
     }
@@ -70,13 +79,15 @@ impl InternedString {
     }
 }
 
+impl From<CompactString> for InternedString {
+    fn from(value: CompactString) -> Self {
+        Self::from_str(&value)
+    }
+}
+
 impl From<&str> for InternedString {
     fn from(ident: &str) -> Self {
-        Self(
-            INTERNER
-                .get_or_init(|| Arc::new(ThreadedRodeo::with_hasher(FxBuildHasher::default())))
-                .get_or_intern(ident),
-        )
+        Self::from_str(ident)
     }
 }
 

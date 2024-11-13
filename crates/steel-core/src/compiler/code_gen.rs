@@ -70,7 +70,7 @@ fn try_eval_atom_with_context(t: &SyntaxObject) -> Result<SteelVal> {
     match &t.ty {
         TokenType::BooleanLiteral(b) => Ok((*b).into()),
         TokenType::Number(n) => number_literal_to_steel(n).map_err(|e| e.with_span(t.span)),
-        TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.to_string().into())),
+        TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.clone().into())),
         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
         TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
         _what => {
