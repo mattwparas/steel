@@ -1884,6 +1884,7 @@ fn syntax_module() -> BuiltInModule {
         .register_fn("syntax-loc", crate::rvals::Syntax::syntax_loc)
         .register_fn("syntax/loc", crate::rvals::Syntax::new)
         .register_fn("syntax-span", crate::rvals::Syntax::syntax_loc)
+        .register_fn("span-file-id", |span: Span| span.source_id.map(|x| x.0))
         .register_fn("#%syntax/raw", crate::rvals::Syntax::proto)
         .register_fn("syntax-e", crate::rvals::Syntax::syntax_e)
         .register_value("syntax?", gen_pred!(SyntaxObject))

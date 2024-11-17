@@ -22,7 +22,12 @@ use compact_str::CompactString;
 use fxhash::{FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
 // use smallvec::SmallVec;
-use steel_parser::{ast::PROTO_HASH_GET, expr_list, parser::SourceId, span::Span};
+use steel_parser::{
+    ast::{AstTools, BEGIN, PROTO_HASH_GET},
+    expr_list,
+    parser::SourceId,
+    span::Span,
+};
 
 use std::{
     borrow::Cow,
@@ -267,18 +272,7 @@ impl ModuleManager {
 
         let mut module_statements = module_builder.compile()?;
 
-        // for expr in module_builder.source_ast.iter_mut() {
-        //     expand(expr, global_macro_map)?;
-        // }
-
-        // let mut ast = module_builder.source_ast;
-
-        {
-            // module_builder.source_ast = ast;
-            module_builder.collect_provides()?;
-
-            // ast = std::mem::take(&mut module_builder.source_ast);
-        }
+        module_builder.collect_provides()?;
 
         let mut ast = module_builder.source_ast;
 
@@ -1794,11 +1788,11 @@ impl<'a> ModuleBuilder<'a> {
         self.collect_requires()?;
         self.collect_provides()?;
 
-        if log_enabled!(log::Level::Info) {
-            // debug!(target: "requires", "Requires: {:#?}", self.require_objects);
-            // debug!(target: "requires", "Provides: {:#?}", self.provides);
-            // debug!(target: "requires", "Provides for-syntax: {:?}", self.provides_for_syntax);
-        }
+        // if log_enabled!(log::Level::Info) {
+        // debug!(target: "requires", "Requires: {:#?}", self.require_objects);
+        // debug!(target: "requires", "Provides: {:#?}", self.provides);
+        // debug!(target: "requires", "Provides for-syntax: {:?}", self.provides_for_syntax);
+        // }
 
         if self.visited.contains(&self.name) {
             stop!(Generic => format!("circular dependency found during module resolution with: {:?}", self.name))
@@ -2289,20 +2283,20 @@ impl<'a> ModuleBuilder<'a> {
         // TODO: Check HERE for whether there are more requires than were previously found.
         // If so, we should go back and compile the module again
 
+        for expr in &mut ast {
+            lower_entire_ast(expr)?;
+            FlattenBegin::flatten(expr);
+        }
+
         // TODO: @Matt - fix this hack
         {
             self.source_ast = ast;
             self.provides = provides;
 
+            // println!("Collecting provides again:");
+            // println!("{}", self.source_ast);
+            // self.source_ast.pretty_print();
             self.collect_provides()?;
-
-            // let requires_before = self.require_objects.len();
-
-            // self.collect_requires()?;
-
-            // if self.require_objects.len() > requires_before {
-            //     println!("EXPANDED INTO A REQUIRE");
-            // }
 
             provides = std::mem::take(&mut self.provides);
             ast = std::mem::take(&mut self.source_ast);
@@ -2310,13 +2304,15 @@ impl<'a> ModuleBuilder<'a> {
 
         // Put the mangled asts at the top
         // then include the ast there
-        mangled_asts.append(&mut ast);
+        // mangled_asts.append(&mut ast);
 
         for expr in mangled_asts.iter_mut() {
             lower_entire_ast(expr)?;
 
             FlattenBegin::flatten(expr);
         }
+
+        mangled_asts.append(&mut ast);
 
         // mangled_asts = mangled_asts
         //     .into_iter()
@@ -2332,6 +2328,9 @@ impl<'a> ModuleBuilder<'a> {
 
         // Take ast, expand with self modules, then expand with each of the require for-syntaxes
         // Then mangle the require-for-syntax, include the mangled directly in the ast
+
+        // @Matt: 11/15/2024
+        // Try collecting the provides again?
 
         // TODO: Come back here - we're going to need to figure out the require objects
         let mut module = CompiledModule::new(

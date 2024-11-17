@@ -4652,7 +4652,21 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
             .ok_or_else(throw!(Generic => "Compilation error: empty expression"))?
             .op_code = OpCode::POPSINGLE;
     }
-    bytecode.last_mut().unwrap().op_code = OpCode::POPPURE;
+    // TODO: Fix the unwrap here
+    if let Some(last) = bytecode.last_mut() {
+        last.op_code = OpCode::POPPURE;
+    } else {
+        // Push an op code void?
+        bytecode.push(DenseInstruction {
+            op_code: OpCode::VOID,
+            payload_size: crate::core::instructions::u24::from_u32(0),
+        });
+        bytecode.push(DenseInstruction {
+            op_code: OpCode::POPPURE,
+            payload_size: crate::core::instructions::u24::from_u32(0),
+        });
+    }
+
     let function_id = crate::compiler::code_gen::fresh_function_id();
     let function = Gc::new(ByteCodeLambda::new(
         function_id as _,
