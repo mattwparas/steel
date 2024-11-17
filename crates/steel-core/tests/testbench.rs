@@ -63,6 +63,22 @@ fn macro_provide_module_test() {
 }
 
 #[test]
+fn macro_provide_module_test_loading() {
+    let mut evaluator = Engine::new();
+
+    let path_buf = PathBuf::from("tests/modules/provide-macro.scm");
+    let mut file = std::fs::File::open(&path_buf).unwrap();
+    let mut exprs = String::new();
+    file.read_to_string(&mut exprs).unwrap();
+
+    evaluator
+        .compile_and_run_raw_program_with_path(exprs, path_buf)
+        .unwrap();
+    test_line("bar", &["10"], &mut evaluator);
+    test_line("baz", &["10"], &mut evaluator);
+}
+
+#[test]
 fn redefinition_of_values_over_time() {
     let mut vm = Engine::new();
 
