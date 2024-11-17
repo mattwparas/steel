@@ -60,6 +60,9 @@ fn macro_provide_module_test() {
         .unwrap();
     test_line("bar", &["10"], &mut evaluator);
     test_line("baz", &["10"], &mut evaluator);
+
+    test_line("(barcon 100)", &["10"], &mut evaluator);
+    test_line("(bazcon 100)", &["10"], &mut evaluator);
 }
 
 #[test]
