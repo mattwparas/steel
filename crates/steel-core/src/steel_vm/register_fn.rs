@@ -166,7 +166,10 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
             }
 
-            let input = <SELF>::as_ref(&args[0])?;
+            let input = <SELF>::as_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&input);
 
@@ -195,7 +198,10 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendS
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
             }
 
-            let mut input = <SELF>::as_mut_ref(&args[0])?;
+            let mut input = <SELF>::as_mut_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&mut input);
 
@@ -227,7 +233,10 @@ impl<
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
             }
 
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&mut input);
 
@@ -258,8 +267,14 @@ impl<
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
             }
 
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
-            let mut area = <FRAME>::as_mut_ref(&args[1])?;
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
+            let mut area = <FRAME>::as_mut_ref(&args[1]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&mut input, &mut area);
 
@@ -290,8 +305,14 @@ impl<
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
             }
 
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
-            let mut area = <FRAME>::as_mut_ref(&args[1])?;
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
+            let mut area = <FRAME>::as_mut_ref(&args[1]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&mut input, &mut area);
 
@@ -325,10 +346,22 @@ impl<
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 4, args.len()));
             }
 
-            let mut input = <SELF>::as_mut_ref(&args[0])?;
-            let mut area = <AREA>::from_steelval(&args[1])?;
-            let mut frame = <FRAME>::as_mut_ref_from_ref(&args[2])?;
-            let mut ctx = <CTX>::as_mut_ref_from_ref(&args[3])?;
+            let mut input = <SELF>::as_mut_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
+            let mut area = <AREA>::from_steelval(&args[1]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
+            let mut frame = <FRAME>::as_mut_ref_from_ref(&args[2]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
+            let mut ctx = <CTX>::as_mut_ref_from_ref(&args[3]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&mut input, area, &mut frame, &mut ctx);
 
@@ -361,10 +394,22 @@ impl<
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 4, args.len()));
             }
 
-            let mut input = <SELF>::as_mut_ref(&args[0])?;
-            let mut area = <AREA>::from_steelval(&args[1])?;
-            let mut frame = <FRAME>::as_mut_ref_from_ref(&args[2])?;
-            let mut ctx = <CTX>::as_mut_ref_from_ref(&args[3])?;
+            let mut input = <SELF>::as_mut_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
+            let mut area = <AREA>::from_steelval(&args[1]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
+            let mut frame = <FRAME>::as_mut_ref_from_ref(&args[2]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
+            let mut ctx = <CTX>::as_mut_ref_from_ref(&args[3]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&mut input, area, &mut frame, &mut ctx);
 
@@ -398,9 +443,18 @@ impl<
 
             let mut nursery = <AREA as AsRefSteelVal>::Nursery::default();
 
-            let mut input = <SELF>::as_mut_ref(&args[0])?;
-            let mut area = <AREA>::as_ref(&args[1])?;
-            let mut ctx = <CTX>::as_mut_ref_from_ref(&args[2])?;
+            let mut input = <SELF>::as_mut_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
+            let mut area = <AREA>::as_ref(&args[1]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
+            let mut ctx = <CTX>::as_mut_ref_from_ref(&args[2]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&mut input, &area, &mut ctx);
 
@@ -434,9 +488,18 @@ impl<
 
             let mut nursery = <SELF as AsRefSteelVal>::Nursery::default();
 
-            let mut input = <SELF>::as_ref(&args[0])?;
-            let mut area = <AREA>::from_steelval(&args[1])?;
-            let mut ctx = <CTX>::as_ref_from_ref(&args[2])?;
+            let mut input = <SELF>::as_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
+            let mut area = <AREA>::from_steelval(&args[1]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
+            let mut ctx = <CTX>::as_ref_from_ref(&args[2]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&input, area, &ctx);
 
@@ -471,9 +534,15 @@ impl<
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
-            let temp_res = INNER::as_ref_from_unsized(&args[1])?;
+            let temp_res = INNER::as_ref_from_unsized(&args[1]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(
                 &mut input,
@@ -504,9 +573,15 @@ impl<
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
-            let temp_res = INNER::as_ref_from_unsized(&args[1])?;
+            let temp_res = INNER::as_ref_from_unsized(&args[1]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(
                 &mut input,
@@ -543,9 +618,15 @@ impl<
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
-            let temp_res = INNER::as_ref_from_unsized(&args[1])?;
+            let temp_res = INNER::as_ref_from_unsized(&args[1]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&mut input, temp_res.as_slice_repr());
 
@@ -572,9 +653,15 @@ impl<
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
-            let temp_res = INNER::as_ref_from_unsized(&args[1])?;
+            let temp_res = INNER::as_ref_from_unsized(&args[1]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&mut input, temp_res.as_slice_repr());
 
@@ -607,9 +694,15 @@ impl<
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
-            let temp_res = INNER::as_ref_from_unsized(&args[1])?;
+            let temp_res = INNER::as_ref_from_unsized(&args[1]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&mut input, temp_res.as_slice_repr());
 
@@ -634,9 +727,15 @@ impl<
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
-            let temp_res = INNER::as_ref_from_unsized(&args[1])?;
+            let temp_res = INNER::as_ref_from_unsized(&args[1]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&mut input, temp_res.as_slice_repr());
 
@@ -679,7 +778,10 @@ impl<
             }
 
             // If this value is
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(input);
 
@@ -760,7 +862,10 @@ impl<
             }
 
             // If this value is
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(input);
 
@@ -835,8 +940,14 @@ impl<
             }
 
             // If this value is
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
-            let arg = ARG::from_steelval(&args[1])?;
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
+            let arg = ARG::from_steelval(&args[1]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(input, arg);
 
@@ -911,8 +1022,14 @@ impl<
             }
 
             // If this value is
-            let mut input = <SELF>::as_ref_from_ref(&args[0])?;
-            let arg = ARG::from_steelval(&args[1])?;
+            let mut input = <SELF>::as_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
+            let arg = ARG::from_steelval(&args[1]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(input, arg);
 
@@ -979,7 +1096,10 @@ impl<
             }
 
             // If this value is
-            let mut input = <SELF>::as_ref_from_ref(&args[0])?;
+            let mut input = <SELF>::as_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(input);
 
@@ -1043,9 +1163,18 @@ impl<
 
             let mut nursery = <AREA as AsRefSteelVal>::Nursery::default();
 
-            let mut input = <SELF>::as_mut_ref(&args[0])?;
-            let mut area = <AREA>::as_ref(&args[1])?;
-            let mut ctx = <CTX>::as_mut_ref_from_ref(&args[2])?;
+            let mut input = <SELF>::as_mut_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
+            let mut area = <AREA>::as_ref(&args[1]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
+            let mut ctx = <CTX>::as_mut_ref_from_ref(&args[2]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&mut input, &area, &mut ctx);
 
@@ -1079,9 +1208,18 @@ impl<
 
             let mut nursery = <SELF as AsRefSteelVal>::Nursery::default();
 
-            let mut input = <SELF>::as_ref(&args[0])?;
-            let mut area = <AREA>::from_steelval(&args[1])?;
-            let mut ctx = <CTX>::as_ref_from_ref(&args[2])?;
+            let mut input = <SELF>::as_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
+            let mut area = <AREA>::from_steelval(&args[1]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
+            let mut ctx = <CTX>::as_ref_from_ref(&args[2]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&input, area, &ctx);
 
@@ -1116,9 +1254,15 @@ impl<
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
             }
 
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
-            let temp_res = INNER::as_ref_from_unsized(&args[1])?;
+            let temp_res = INNER::as_ref_from_unsized(&args[1]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(
                 &mut input,
@@ -1149,14 +1293,23 @@ impl<
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
             }
 
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
-            let temp_res = INNER::as_ref_from_unsized(&args[1])?;
+            let temp_res = INNER::as_ref_from_unsized(&args[1]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(
                 &mut input,
                 temp_res.as_slice_repr(),
-                F::from_steelval(&args[2])?,
+                F::from_steelval(&args[2]).map_err(|mut e| {
+                    e.prepend_message(&format!("{}:", name));
+                    e
+                })?,
             );
 
             res.into_steelval()
@@ -1199,7 +1352,10 @@ impl<
             }
 
             // If this value is
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(input);
 
@@ -1280,7 +1436,10 @@ impl<
             }
 
             // If this value is
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(input);
 
@@ -1359,8 +1518,14 @@ impl<
             }
 
             // If this value is
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
-            let arg = ARG::from_steelval(&args[1])?;
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
+            let arg = ARG::from_steelval(&args[1]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(input, arg);
 
@@ -1538,7 +1703,10 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
 
             let mut nursery = <SELF::Nursery>::default();
 
-            let input = <SELF>::as_ref(&args[0])?;
+            let input = <SELF>::as_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&input);
 
@@ -1566,7 +1734,10 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
 
             let mut nursery = <SELF::Nursery>::default();
 
-            let input = <SELF>::as_ref(&args[0])?;
+            let input = <SELF>::as_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&input);
 
@@ -1597,7 +1768,10 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendS
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
             }
 
-            let mut input = <SELF>::as_mut_ref(&args[0])?;
+            let mut input = <SELF>::as_mut_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&mut input);
 
@@ -1629,7 +1803,10 @@ impl<
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
             }
 
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&mut input);
 
@@ -1656,7 +1833,10 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
             }
 
-            let mut input = <SELF>::as_ref_from_ref(&args[0])?;
+            let mut input = <SELF>::as_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&mut input);
 
@@ -1721,7 +1901,10 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
             }
 
-            let mut input = <SELF>::as_ref_from_ref(&args[0])?;
+            let mut input = <SELF>::as_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&mut input);
 
@@ -1770,11 +1953,17 @@ impl<
 
             let mut nursery = <A::Nursery>::default();
 
-            let one = A::as_ref(&args[0])?;
+            let one = A::as_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let mut nursery = <B::Nursery>::default();
 
-            let two = B::as_ref(&args[1])?;
+            let two = B::as_ref(&args[1]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
             let res = func(&one, &two);
 
@@ -1960,7 +2149,10 @@ macro_rules! impl_register_fn_self {
 
                     let mut nursery = <SELF::Nursery>::default();
 
-                    let input = <SELF>::as_ref(&args[0])?;
+                    let input = <SELF>::as_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
                     let res = func(&input, $(<$param>::from_steelval(&args[$idx]).map_err(|mut err| {
                                     err.prepend_message(":");
@@ -1995,7 +2187,10 @@ macro_rules! impl_register_fn_self {
                         stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
                     }
 
-                    let mut input = <SELF>::as_mut_ref(&args[0])?;
+                    let mut input = <SELF>::as_mut_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
                     let res = func(&mut input, $(<$param>::from_steelval(&args[$idx]).map_err(|mut err| {
                             err.prepend_message(":");
@@ -2030,7 +2225,10 @@ macro_rules! impl_register_fn_self {
                         stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
                     }
 
-                    let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+                    let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
                     let res = func(&mut input, $(<$param>::from_steelval(&args[$idx]).map_err(|mut err| {
                             err.prepend_message(":");
@@ -2061,9 +2259,15 @@ macro_rules! impl_register_fn_self {
                      stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
                  }
 
-                 let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
+                 let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?;
 
-                 let res = func(&mut input, $(<$param>::from_steelval(&args[$idx])?,)*);
+                 let res = func(&mut input, $(<$param>::from_steelval(&args[$idx]).map_err(|mut e| {
+                e.prepend_message(&format!("{}:", name));
+                e
+            })?,)*);
 
                  res.into_steelval()
              };

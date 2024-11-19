@@ -1032,6 +1032,14 @@ impl Compiler {
         // println!("");
         // steel_parser::ast::AstTools::pretty_print(&expanded_statements);
 
+        // log::info!(
+        //     "{}",
+        //     expanded_statements
+        //         .iter()
+        //         .map(|x| x.to_pretty(60))
+        //         .join("\n\n")
+        // );
+
         log::debug!(target: "expansion-phase", "Generating instructions");
 
         let instructions = self.generate_instructions_for_executable(expanded_statements)?;
@@ -1046,7 +1054,7 @@ impl Compiler {
         raw_program.apply_optimizations();
 
         // Lets see everything that gets run!
-        // raw_program.debug_print();
+        // raw_program.debug_print_log();
 
         Ok(raw_program)
     }

@@ -404,12 +404,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             // Just remove them otherwise
             self.push(LabeledInstruction::builder(OpCode::EDEF));
 
-            // if let Some(elem) = self.instructions.get_mut(sidx) {
-            //     (*elem).payload_size = defn_body_size;
-            // } else {
-            //     stop!(Generic => "out of bounds closure len");
-            // }
-
             // println!("binding global: {}", name);
             self.push(LabeledInstruction::builder(OpCode::BIND).contents(name.syn.clone()));
 
