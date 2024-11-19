@@ -22,12 +22,7 @@ use compact_str::CompactString;
 use fxhash::{FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
 // use smallvec::SmallVec;
-use steel_parser::{
-    ast::{AstTools, BEGIN, PROTO_HASH_GET},
-    expr_list,
-    parser::SourceId,
-    span::Span,
-};
+use steel_parser::{ast::PROTO_HASH_GET, expr_list, parser::SourceId, span::Span};
 
 use std::{
     borrow::Cow,
@@ -42,8 +37,6 @@ use crate::stop;
 use std::time::SystemTime;
 
 use crate::parser::expand_visitor::{expand, extract_macro_defs};
-
-use log::log_enabled;
 
 use super::{
     compiler::KernelDefMacroSpec,
@@ -278,15 +271,6 @@ impl ModuleManager {
 
         let mut require_defines = Vec::new();
 
-        // let mut mangled_prefixes = module_builder
-        //     .require_objects
-        //     .iter()
-        //     .filter(|x| !x.for_syntax)
-        //     .map(|x| {
-        //         "mangler".to_string() + x.path.get_path().to_str().unwrap() + MANGLER_SEPARATOR
-        //     })
-        //     .collect::<Vec<_>>();
-
         let mut explicit_requires = HashMap::new();
 
         for require_object in &module_builder.require_objects {
@@ -322,13 +306,6 @@ impl ModuleManager {
             for provide_expr in &module.provides {
                 // For whatever reason, the value coming into module.provides is an expression like: (provide expr...)
                 for provide in &provide_expr.list().unwrap().args[1..] {
-                    // println!("{}", provide);
-
-                    // println!("Top level provide handler");
-
-                    // Would be nice if this could be handled by some macro expansion...
-                    // See if contract/out
-
                     let other_module_prefix = module.prefix();
 
                     // TODO: Expand the contract out into something we expect
@@ -919,19 +896,6 @@ impl ModuleManager {
         // );
         (module, in_scope_macros, name_mangler)
     }
-
-    // #[cfg(not(feature = "modules"))]
-    // pub(crate) fn expand_expressions(
-    //     &mut self,
-    //     global_macro_map: &mut HashMap<InternedString, SteelMacro>,
-    //     mut exprs: Vec<ExprKind>,
-    // ) -> Result<Vec<ExprKind>> {
-    //     extract_macro_defs(&mut exprs, global_macro_map)?;
-    //     exprs
-    //         .into_iter()
-    //         .map(|x| expand(x, global_macro_map))
-    //         .collect()
-    // }
 }
 
 // Pre-compile module to bytecode? Is it even possible?
