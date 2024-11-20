@@ -11,6 +11,9 @@ jobs:
   test:
     name: Test Suite
     runs-on: ubuntu-latest
+    # It seems that occasionally things get stuck. Not sure why since I'm unable to
+    # reproduce locally. But this stops the jobs from running for 6 hours.
+    timeout-minutes: 30
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
@@ -79,6 +82,9 @@ jobs:
               { os: windows-latest, arch: x86_64-pc-windows-msvc }
             ]
     runs-on: ${{ matrix.os.os }}
+    # It seems that occasionally things get stuck. Not sure why since I'm unable to
+    # reproduce locally. But this stops the jobs from running for 6 hours.
+    timeout-minutes: 30
     defaults:
       run:
         shell: bash
