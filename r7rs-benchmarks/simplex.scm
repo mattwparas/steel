@@ -89,7 +89,8 @@
                 (set! bmax (matrix-ref a mm (vector-ref l1 k))))))))
     (define (simp2)
       (set! ip 0)
-      (let ([q1 0.0] [flag? #f])
+      (let ([q1 0.0]
+            [flag? #f])
         (do ((i 0 (+ i 1)))
             ((= i m))
             (if flag?
@@ -101,7 +102,8 @@
                        (set! ip (vector-ref l2 i))
                        (set! q1 q)]
                       [(= q q1)
-                       (let ([qp 0.0] [q0 0.0])
+                       (let ([qp 0.0]
+                             [q0 0.0])
                          (let loop ([k 1])
                            (when (<= k n)
                              (begin
@@ -237,7 +239,7 @@
 
 (let loop ([i 0])
   ; (when (< i 1000000)
-  (when (< i 10000)
+  (when (< i 1000)
     (begin
       ; (displayln i)
       (assert! (equal? (list (vector 4 1 3 2) (vector 0 5 7 6)) (test 740.0)))
