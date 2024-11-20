@@ -945,6 +945,12 @@ impl RawProgramWithSymbols {
             .for_each(|i| println!("{}\n\n", crate::core::instructions::disassemble(i)))
     }
 
+    pub fn debug_print_log(&self) {
+        self.instructions
+            .iter()
+            .for_each(|i| log::info!("{}\n\n", crate::core::instructions::disassemble(i)))
+    }
+
     /// Applies a peephole style optimization to the underlying instruction set
     pub fn with_optimization<F: Fn(&mut [Instruction])>(&mut self, f: F) {
         for instructions in &mut self.instructions {

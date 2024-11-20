@@ -3,6 +3,7 @@
 use crate::compiler::code_gen::fresh_function_id;
 use crate::compiler::compiler::Compiler;
 use crate::core::instructions::pretty_print_dense_instructions;
+use crate::core::instructions::u24;
 use crate::gc::shared::MutContainer;
 use crate::gc::shared::ShareableMut;
 use crate::gc::shared::Shared;
@@ -2110,6 +2111,8 @@ impl<'a> VmCore<'a> {
 
             let instr = self.instructions[self.ip];
 
+            // dbg!(&instr);
+
             match instr {
                 // DenseInstruction {
                 //     op_code: OpCode::DynSuperInstruction,
@@ -2850,6 +2853,14 @@ impl<'a> VmCore<'a> {
                     self.thread.stack.push(val);
                     self.ip += 1;
                 }
+
+                // DenseInstruction {
+                //     op_code: OpCode::ECLOSURE,
+                //     ..
+                // } => {
+                //     self.ip += 1;
+                // }
+
                 // match_dynamic_super_instructions!()
                 _ => {
                     #[cfg(feature = "dynamic")]
@@ -3111,8 +3122,6 @@ impl<'a> VmCore<'a> {
     }
 
     fn handle_pure_function(&mut self, offset: usize) {
-        // println!("Hitting start closure");
-
         // println!("Instruction: {:?}", self.instructions[self.ip]);
 
         // if self.instructions[self.ip].payload_size == 1 {
@@ -4644,15 +4653,63 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
     } = program;
     let mut bytecode = Vec::new();
     let mut new_spans = Vec::new();
+
+    // Rewrite relative jumps at the top level into absolute jumps.
     for (instr, span) in instructions.into_iter().zip(spans) {
+        let mut depth = 0;
+
+        let offset = bytecode.len();
+
         new_spans.extend_from_slice(&span);
         bytecode.extend_from_slice(&instr);
+
         bytecode
             .last_mut()
             .ok_or_else(throw!(Generic => "Compilation error: empty expression"))?
             .op_code = OpCode::POPSINGLE;
+
+        for instruction in &mut bytecode[offset..] {
+            match instruction {
+                DenseInstruction {
+                    op_code: OpCode::JMP | OpCode::IF,
+                    payload_size,
+                } => {
+                    if depth == 0 {
+                        *payload_size = *payload_size + u24::from_usize(offset);
+                    }
+                }
+                DenseInstruction {
+                    op_code: OpCode::NEWSCLOSURE | OpCode::PUREFUNC,
+                    ..
+                } => {
+                    depth += 1;
+                }
+                DenseInstruction {
+                    op_code: OpCode::ECLOSURE,
+                    ..
+                } => {
+                    depth -= 1;
+                }
+                _ => {}
+            }
+        }
     }
-    bytecode.last_mut().unwrap().op_code = OpCode::POPPURE;
+
+    // TODO: Fix the unwrap here
+    if let Some(last) = bytecode.last_mut() {
+        last.op_code = OpCode::POPPURE;
+    } else {
+        // Push an op code void?
+        bytecode.push(DenseInstruction {
+            op_code: OpCode::VOID,
+            payload_size: crate::core::instructions::u24::from_u32(0),
+        });
+        bytecode.push(DenseInstruction {
+            op_code: OpCode::POPPURE,
+            payload_size: crate::core::instructions::u24::from_u32(0),
+        });
+    }
+
     let function_id = crate::compiler::code_gen::fresh_function_id();
     let function = Gc::new(ByteCodeLambda::new(
         function_id as _,

@@ -38,8 +38,6 @@ use std::time::SystemTime;
 
 use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
-use log::log_enabled;
-
 use super::{
     compiler::KernelDefMacroSpec,
     passes::{
@@ -267,31 +265,11 @@ impl ModuleManager {
 
         let mut module_statements = module_builder.compile()?;
 
-        // for expr in module_builder.source_ast.iter_mut() {
-        //     expand(expr, global_macro_map)?;
-        // }
-
-        // let mut ast = module_builder.source_ast;
-
-        {
-            // module_builder.source_ast = ast;
-            module_builder.collect_provides()?;
-
-            // ast = std::mem::take(&mut module_builder.source_ast);
-        }
+        module_builder.collect_provides()?;
 
         let mut ast = module_builder.source_ast;
 
         let mut require_defines = Vec::new();
-
-        // let mut mangled_prefixes = module_builder
-        //     .require_objects
-        //     .iter()
-        //     .filter(|x| !x.for_syntax)
-        //     .map(|x| {
-        //         "mangler".to_string() + x.path.get_path().to_str().unwrap() + MANGLER_SEPARATOR
-        //     })
-        //     .collect::<Vec<_>>();
 
         let mut explicit_requires = HashMap::new();
 
@@ -328,13 +306,6 @@ impl ModuleManager {
             for provide_expr in &module.provides {
                 // For whatever reason, the value coming into module.provides is an expression like: (provide expr...)
                 for provide in &provide_expr.list().unwrap().args[1..] {
-                    // println!("{}", provide);
-
-                    // println!("Top level provide handler");
-
-                    // Would be nice if this could be handled by some macro expansion...
-                    // See if contract/out
-
                     let other_module_prefix = module.prefix();
 
                     // TODO: Expand the contract out into something we expect
@@ -925,19 +896,6 @@ impl ModuleManager {
         // );
         (module, in_scope_macros, name_mangler)
     }
-
-    // #[cfg(not(feature = "modules"))]
-    // pub(crate) fn expand_expressions(
-    //     &mut self,
-    //     global_macro_map: &mut HashMap<InternedString, SteelMacro>,
-    //     mut exprs: Vec<ExprKind>,
-    // ) -> Result<Vec<ExprKind>> {
-    //     extract_macro_defs(&mut exprs, global_macro_map)?;
-    //     exprs
-    //         .into_iter()
-    //         .map(|x| expand(x, global_macro_map))
-    //         .collect()
-    // }
 }
 
 // Pre-compile module to bytecode? Is it even possible?
@@ -1794,11 +1752,11 @@ impl<'a> ModuleBuilder<'a> {
         self.collect_requires()?;
         self.collect_provides()?;
 
-        if log_enabled!(log::Level::Info) {
-            // debug!(target: "requires", "Requires: {:#?}", self.require_objects);
-            // debug!(target: "requires", "Provides: {:#?}", self.provides);
-            // debug!(target: "requires", "Provides for-syntax: {:?}", self.provides_for_syntax);
-        }
+        // if log_enabled!(log::Level::Info) {
+        // debug!(target: "requires", "Requires: {:#?}", self.require_objects);
+        // debug!(target: "requires", "Provides: {:#?}", self.provides);
+        // debug!(target: "requires", "Provides for-syntax: {:?}", self.provides_for_syntax);
+        // }
 
         if self.visited.contains(&self.name) {
             stop!(Generic => format!("circular dependency found during module resolution with: {:?}", self.name))
@@ -2289,20 +2247,20 @@ impl<'a> ModuleBuilder<'a> {
         // TODO: Check HERE for whether there are more requires than were previously found.
         // If so, we should go back and compile the module again
 
+        for expr in &mut ast {
+            lower_entire_ast(expr)?;
+            FlattenBegin::flatten(expr);
+        }
+
         // TODO: @Matt - fix this hack
         {
             self.source_ast = ast;
             self.provides = provides;
 
+            // println!("Collecting provides again:");
+            // println!("{}", self.source_ast);
+            // self.source_ast.pretty_print();
             self.collect_provides()?;
-
-            // let requires_before = self.require_objects.len();
-
-            // self.collect_requires()?;
-
-            // if self.require_objects.len() > requires_before {
-            //     println!("EXPANDED INTO A REQUIRE");
-            // }
 
             provides = std::mem::take(&mut self.provides);
             ast = std::mem::take(&mut self.source_ast);
@@ -2310,13 +2268,15 @@ impl<'a> ModuleBuilder<'a> {
 
         // Put the mangled asts at the top
         // then include the ast there
-        mangled_asts.append(&mut ast);
+        // mangled_asts.append(&mut ast);
 
         for expr in mangled_asts.iter_mut() {
             lower_entire_ast(expr)?;
 
             FlattenBegin::flatten(expr);
         }
+
+        mangled_asts.append(&mut ast);
 
         // mangled_asts = mangled_asts
         //     .into_iter()
@@ -2332,6 +2292,9 @@ impl<'a> ModuleBuilder<'a> {
 
         // Take ast, expand with self modules, then expand with each of the require for-syntaxes
         // Then mangle the require-for-syntax, include the mangled directly in the ast
+
+        // @Matt: 11/15/2024
+        // Try collecting the provides again?
 
         // TODO: Come back here - we're going to need to figure out the require objects
         let mut module = CompiledModule::new(

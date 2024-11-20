@@ -31,6 +31,7 @@ use std::{
 // TODO: Replace the usages of hashmap with this directly
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
+use steel_parser::ast::PROVIDE;
 
 use crate::rvals::{Result, SteelVal};
 
@@ -692,7 +693,13 @@ impl Compiler {
             lower_entire_ast(expr)?;
         }
 
+        // @Matt 11/15/2024
+        // TODO: At this point, we'll want to remove
+        // any remaining provide statements.
+
         log::debug!(target: "expansion-phase", "Beginning constant folding");
+
+        // Remove remaining provides from the top level.
 
         // let mut expanded_statements =
         // self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
@@ -734,7 +741,9 @@ impl Compiler {
 
         let mut analysis = semantic.into_analysis();
 
-        let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
+        let expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
+
+        let mut expanded_statements = filter_provides(expanded_statements);
 
         // After define expansion, we'll want this
         // RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
@@ -883,7 +892,10 @@ impl Compiler {
         let expanded_statements =
             self.apply_const_evaluation(constant_primitives(), expanded_statements, false)?;
 
-        let mut expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
+        let expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
+
+        // TODO: Move this to its own function
+        let mut expanded_statements = filter_provides(expanded_statements);
 
         #[cfg(feature = "profiling")]
         let now = Instant::now();
@@ -1020,6 +1032,14 @@ impl Compiler {
         // println!("");
         // steel_parser::ast::AstTools::pretty_print(&expanded_statements);
 
+        // log::info!(
+        //     "{}",
+        //     expanded_statements
+        //         .iter()
+        //         .map(|x| x.to_pretty(60))
+        //         .join("\n\n")
+        // );
+
         log::debug!(target: "expansion-phase", "Generating instructions");
 
         let instructions = self.generate_instructions_for_executable(expanded_statements)?;
@@ -1034,7 +1054,7 @@ impl Compiler {
         raw_program.apply_optimizations();
 
         // Lets see everything that gets run!
-        // raw_program.debug_print();
+        // raw_program.debug_print_log();
 
         Ok(raw_program)
     }
@@ -1115,4 +1135,36 @@ impl Compiler {
 
         Ok(expanded_statements)
     }
+}
+
+fn filter_provides(expanded_statements: Vec<ExprKind>) -> Vec<ExprKind> {
+    expanded_statements
+        .into_iter()
+        .filter_map(|expr| match expr {
+            ExprKind::Begin(mut b) => {
+                let exprs = std::mem::take(&mut b.exprs);
+                b.exprs = exprs
+                    .into_iter()
+                    .filter_map(|e| match e {
+                        ExprKind::List(l) => {
+                            if l.first_ident().copied() == Some(*PROVIDE) {
+                                return None;
+                            }
+                            return Some(ExprKind::List(l));
+                        }
+                        other => return Some(other),
+                    })
+                    .collect();
+
+                Some(ExprKind::Begin(b))
+            }
+            ExprKind::List(l) => {
+                if l.first_ident().copied() == Some(*PROVIDE) {
+                    return None;
+                }
+                return Some(ExprKind::List(l));
+            }
+            other => Some(other),
+        })
+        .collect()
 }

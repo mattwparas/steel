@@ -1167,6 +1167,21 @@ impl List {
         }
     }
 
+    pub fn is_begin(&self) -> bool {
+        if let Some(ExprKind::Atom(Atom {
+            syn:
+                SyntaxObject {
+                    ty: TokenType::Begin,
+                    ..
+                },
+        })) = self.args.first()
+        {
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn is_define_syntax(&self) -> bool {
         if let Some(ExprKind::Atom(Atom {
             syn:
