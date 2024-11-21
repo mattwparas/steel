@@ -303,45 +303,7 @@ impl DebruijnIndicesInterner {
                         stop!(FreeIdentifier => message; *span);
                     }
 
-                    if s.resolve() == "client-connection" {
-                        println!(
-                            "Flat defines: {:?}",
-                            self.flat_defines
-                                .iter()
-                                .map(|x| x.resolve())
-                                .collect::<Vec<_>>()
-                        );
-
-                        println!("Flat defines idx: {:?}", self.flat_defines_idx);
-
-                        println!(
-                            "Second pass defines: {:?}",
-                            self.second_pass_defines
-                                .iter()
-                                .map(|x| x.resolve())
-                                .collect::<Vec<_>>()
-                        );
-
-                        println!(
-                            "Second pass defines idx: {:?}",
-                            self.second_pass_defines_idx
-                        );
-                    }
-
                     let idx = symbol_map.get(s).map_err(|e| e.set_span(*span))?;
-
-                    if s.resolve() == "client-connection" {
-                        println!("idx: {} -> {}", idx, s.resolve());
-                    }
-
-                    // if self.flat_defines.get(s).is_some()
-                    //     && self.second_pass_defines.get(s).is_some()
-                    //     && self.second_pass_defines_idx.get(&idx).is_some()
-                    // {
-                    //     let message =
-                    //         format!("Cannot reference an identifier before its definition: {s}");
-                    //     stop!(FreeIdentifier => message; *span);
-                    // }
 
                     // TODO commenting this for now
                     if let Some(x) = instructions.get_mut(i) {
