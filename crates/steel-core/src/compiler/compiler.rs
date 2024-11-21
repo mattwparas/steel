@@ -8,10 +8,7 @@ use crate::{
             shadow::RenameShadowedVariables, VisitorMutRefUnit,
         },
     },
-    core::{
-        instructions::{disassemble, u24},
-        labels::Expr,
-    },
+    core::{instructions::u24, labels::Expr},
     parser::{
         expand_visitor::{expand_kernel_in_env, expand_kernel_in_env_with_change},
         interner::InternedString,
@@ -65,9 +62,7 @@ use std::time::Instant;
 #[derive(Default)]
 pub struct DebruijnIndicesInterner {
     flat_defines: HashSet<InternedString>,
-    flat_defines_idx: HashSet<usize>,
     second_pass_defines: HashSet<InternedString>,
-    second_pass_defines_idx: HashSet<usize>,
 }
 
 impl DebruijnIndicesInterner {
@@ -143,22 +138,12 @@ impl DebruijnIndicesInterner {
                         x.payload_size = u24::from_usize(idx);
                     }
                 }
-                // (
-                //     Instruction {
-                //         op_code: OpCode::EDEF,
-                //         ..
-                //     },
-                //     ..,
-                // ) => {
-                //     flat_defines_non_closure.clear();
-                // }
                 (
                     Instruction {
                         op_code: OpCode::CALLGLOBAL,
                         contents:
                             Some(Expr::Atom(SyntaxObject {
                                 ty: TokenType::Identifier(s),
-                                span,
                                 ..
                             })),
                         ..
@@ -167,16 +152,6 @@ impl DebruijnIndicesInterner {
                 ) => {
                     // We're referencing things within the scope
                     flat_defines_non_closure.insert(*s);
-
-                    // let idx = symbol_map.add(s);
-                    // self.flat_defines.insert(s.to_owned());
-
-                    // self.flat_defines_idx.insert(idx);
-
-                    // if flat_defines_non_closure.contains(s) {
-                    //     println!("{}", disassemble(instructions));
-                    //     stop!(BadSyntax => format!("Cannot reference identifier before definition: {}", s.resolve()); *span);
-                    // }
                 }
                 _ => {}
             }
