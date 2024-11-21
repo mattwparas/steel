@@ -8,7 +8,10 @@ use crate::{
             shadow::RenameShadowedVariables, VisitorMutRefUnit,
         },
     },
-    core::{instructions::u24, labels::Expr},
+    core::{
+        instructions::{disassemble, u24},
+        labels::Expr,
+    },
     parser::{
         expand_visitor::{expand_kernel_in_env, expand_kernel_in_env_with_change},
         interner::InternedString,
@@ -62,7 +65,9 @@ use std::time::Instant;
 #[derive(Default)]
 pub struct DebruijnIndicesInterner {
     flat_defines: HashSet<InternedString>,
+    flat_defines_idx: HashSet<usize>,
     second_pass_defines: HashSet<InternedString>,
+    second_pass_defines_idx: HashSet<usize>,
 }
 
 impl DebruijnIndicesInterner {
@@ -71,6 +76,8 @@ impl DebruijnIndicesInterner {
         instructions: &mut [Instruction],
         symbol_map: &mut SymbolMap,
     ) -> Result<()> {
+        let mut flat_defines_non_closure: HashSet<InternedString> = HashSet::default();
+
         for i in 2..instructions.len() {
             match (&instructions[i], &instructions[i - 1], &instructions[i - 2]) {
                 (
@@ -93,11 +100,11 @@ impl DebruijnIndicesInterner {
                         ..
                     },
                 ) => {
+                    // Exiting a definition, clear it
+                    flat_defines_non_closure.clear();
+
                     let idx = symbol_map.add(s);
                     self.flat_defines.insert(s.to_owned());
-                    // if !self.flat_defines.insert(s.to_owned()) {
-                    //     stop!(BadSyntax => format!("Cannot redefine define within the same scope: {}", s); *span);
-                    // }
 
                     if let Some(x) = instructions.get_mut(i) {
                         x.payload_size = u24::from_usize(idx);
@@ -109,22 +116,67 @@ impl DebruijnIndicesInterner {
                         contents:
                             Some(Expr::Atom(SyntaxObject {
                                 ty: TokenType::Identifier(s),
-                                // span,
+                                span,
                                 ..
                             })),
+                        ..
+                    },
+                    Instruction {
+                        op_code: OpCode::EDEF,
                         ..
                     },
                     ..,
                 ) => {
                     let idx = symbol_map.add(s);
                     self.flat_defines.insert(s.to_owned());
-                    // if !self.flat_defines.insert(s.to_owned()) {
-                    //     stop!(BadSyntax => format!("Cannot redefine define within the same scope: {}", s); *span);
-                    // }
+
+                    if flat_defines_non_closure.contains(s) {
+                        stop!(BadSyntax => format!("Cannot reference identifier before its definition: {}", s.resolve()); *span);
+                    }
+
+                    flat_defines_non_closure.clear();
+
+                    // self.flat_defines_idx.insert(idx);
+                    // flat_defines_non_closure.insert(s.to_owned());
 
                     if let Some(x) = instructions.get_mut(i) {
                         x.payload_size = u24::from_usize(idx);
                     }
+                }
+                // (
+                //     Instruction {
+                //         op_code: OpCode::EDEF,
+                //         ..
+                //     },
+                //     ..,
+                // ) => {
+                //     flat_defines_non_closure.clear();
+                // }
+                (
+                    Instruction {
+                        op_code: OpCode::CALLGLOBAL,
+                        contents:
+                            Some(Expr::Atom(SyntaxObject {
+                                ty: TokenType::Identifier(s),
+                                span,
+                                ..
+                            })),
+                        ..
+                    },
+                    ..,
+                ) => {
+                    // We're referencing things within the scope
+                    flat_defines_non_closure.insert(*s);
+
+                    // let idx = symbol_map.add(s);
+                    // self.flat_defines.insert(s.to_owned());
+
+                    // self.flat_defines_idx.insert(idx);
+
+                    // if flat_defines_non_closure.contains(s) {
+                    //     println!("{}", disassemble(instructions));
+                    //     stop!(BadSyntax => format!("Cannot reference identifier before definition: {}", s.resolve()); *span);
+                    // }
                 }
                 _ => {}
             }
@@ -181,6 +233,10 @@ impl DebruijnIndicesInterner {
                 } => {
                     // Keep track of where the defines actually are in the process
                     self.second_pass_defines.insert(s.to_owned());
+
+                    // let idx = symbol_map.get(s).unwrap();
+
+                    // self.second_pass_defines_idx.insert(idx);
                 }
                 Instruction {
                     op_code: OpCode::PUSH,
@@ -247,7 +303,45 @@ impl DebruijnIndicesInterner {
                         stop!(FreeIdentifier => message; *span);
                     }
 
+                    if s.resolve() == "client-connection" {
+                        println!(
+                            "Flat defines: {:?}",
+                            self.flat_defines
+                                .iter()
+                                .map(|x| x.resolve())
+                                .collect::<Vec<_>>()
+                        );
+
+                        println!("Flat defines idx: {:?}", self.flat_defines_idx);
+
+                        println!(
+                            "Second pass defines: {:?}",
+                            self.second_pass_defines
+                                .iter()
+                                .map(|x| x.resolve())
+                                .collect::<Vec<_>>()
+                        );
+
+                        println!(
+                            "Second pass defines idx: {:?}",
+                            self.second_pass_defines_idx
+                        );
+                    }
+
                     let idx = symbol_map.get(s).map_err(|e| e.set_span(*span))?;
+
+                    if s.resolve() == "client-connection" {
+                        println!("idx: {} -> {}", idx, s.resolve());
+                    }
+
+                    // if self.flat_defines.get(s).is_some()
+                    //     && self.second_pass_defines.get(s).is_some()
+                    //     && self.second_pass_defines_idx.get(&idx).is_some()
+                    // {
+                    //     let message =
+                    //         format!("Cannot reference an identifier before its definition: {s}");
+                    //     stop!(FreeIdentifier => message; *span);
+                    // }
 
                     // TODO commenting this for now
                     if let Some(x) = instructions.get_mut(i) {

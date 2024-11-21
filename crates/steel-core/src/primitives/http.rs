@@ -86,6 +86,23 @@ pub fn headers(value: &SteelVal) -> Result<SteelVal> {
     ))))
 }
 
+#[steel_derive::function(name = "http-response-headers")]
+pub fn resp_headers(value: &SteelVal) -> Result<SteelVal> {
+    let resp = SteelResponse::as_ref(value)?;
+
+    Ok(SteelVal::HashMapV(SteelHashMap(Gc::new(
+        resp.headers
+            .iter()
+            .map(|x| {
+                (
+                    SteelVal::StringV(x.name.clone().into()),
+                    SteelVal::ByteVector(SteelByteVector::new(x.value.clone())),
+                )
+            })
+            .collect::<crate::values::HashMap<_, _>>(),
+    ))))
+}
+
 // If not complete, try again?
 fn parse_request(buf: &[u8]) -> Result<SteelVal> {
     // Pull more bytes from the stream?
@@ -121,7 +138,7 @@ fn parse_request(buf: &[u8]) -> Result<SteelVal> {
 
 fn parse_response(buf: &[u8]) -> Result<SteelVal> {
     // Pull more bytes from the stream?
-    let mut headers = [httparse::EMPTY_HEADER; 16];
+    let mut headers = [httparse::EMPTY_HEADER; 64];
     let mut req = httparse::Response::new(&mut headers);
     let res = req.parse(&buf).unwrap();
     if res.is_complete() {
@@ -171,6 +188,7 @@ pub fn http_module() -> BuiltInModule {
         .register_native_fn_definition(PATH_DEFINITION)
         .register_native_fn_definition(BODY_OFFSET_DEFINITION)
         .register_native_fn_definition(HEADERS_DEFINITION)
+        .register_native_fn_definition(RESP_HEADERS_DEFINITION)
         .register_native_fn_definition(PARSE_HTTP_RESPONSE_DEFINITION);
 
     // module
