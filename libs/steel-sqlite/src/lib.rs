@@ -262,7 +262,7 @@ impl<'a> ToSql for FFIWrapper<'a> {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
         match &self.0 {
             // FFIValue::BoxedFunction(_) => todo!(),
-            // FFIValue::BoolV(b) => Ok(rusqlite::types::ToSqlOutput::Owned(Value::Bo)),
+            FFIArg::BoolV(b) => Ok(ToSqlOutput::Owned(Value::Integer(if *b { 1 } else { 0 }))),
             FFIArg::NumV(f) => Ok(ToSqlOutput::Owned(Value::Real(*f))),
             FFIArg::IntV(i) => Ok(ToSqlOutput::Owned(Value::Integer(*i as i64))),
             FFIArg::Void => Ok(ToSqlOutput::Owned(Value::Null)),

@@ -12,5 +12,5 @@ steel-core = { path = "../../crates/steel-core", version = "0.6.0", features = [
 abi_stable = "0.11.1"
 rustls = "0.23.17"
 webpki-roots = "0.26"
-
+flate2 = "1.0.35"
 

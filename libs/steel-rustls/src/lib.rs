@@ -1,4 +1,4 @@
-use abi_stable::DynTrait;
+use abi_stable::{std_types::RVec, DynTrait};
 use steel::{
     rvals::{Custom, CustomType},
     steel_vm::ffi::{
@@ -7,7 +7,7 @@ use steel::{
     },
 };
 
-use std::sync::Arc;
+use std::{io::Cursor, sync::Arc};
 use std::{
     io::{stdout, Read, Write},
     sync::Mutex,
@@ -163,6 +163,12 @@ fn tls_tcp_writer(stream: &RustlsStream) -> DynWriter {
     }
 }
 
+fn gz_decoder(buf: RVec<u8>) -> DynReader {
+    DynReader {
+        reader: DynTrait::from_value(flate2::read::GzDecoder::new(Cursor::new(buf))),
+    }
+}
+
 pub fn build_module() -> FFIModule {
     let mut module = FFIModule::new("steel/rustls");
 
@@ -173,7 +179,8 @@ pub fn build_module() -> FFIModule {
         .register_fn("client-connection", RustlsClientConnection::new)
         .register_fn("tls-stream", RustlsStream::new)
         .register_fn("tls-reader", tls_tcp_reader)
-        .register_fn("tls-writer", tls_tcp_writer);
+        .register_fn("tls-writer", tls_tcp_writer)
+        .register_fn("gz-decode", gz_decoder);
 
     module
 }

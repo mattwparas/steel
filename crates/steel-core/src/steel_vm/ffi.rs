@@ -336,6 +336,16 @@ impl<'a> FromFFIArg<'a> for RSliceMut<'a, FFIValue> {
     }
 }
 
+impl<'a> FromFFIArg<'a> for RVec<u8> {
+    fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
+        if let FFIArg::ByteVector(b) = val {
+            RResult::ROk(b)
+        } else {
+            conversion_error!(bytevector, val)
+        }
+    }
+}
+
 impl<'a, T: Custom + Clone + 'static> FromFFIArg<'a> for T {
     fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
         let lifted = unsafe { std::mem::transmute::<FFIArg<'a>, FFIArg<'static>>(val) };
@@ -1065,6 +1075,7 @@ pub enum FFIArg<'a> {
         fut: FfiFuture<RResult<FFIArg<'a>, RBoxError>>,
     },
     HostFunction(HostRuntimeFunction),
+    ByteVector(RVec<u8>),
 }
 
 impl<'a> std::default::Default for FFIArg<'a> {
@@ -1566,6 +1577,10 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
         SteelVal::NumV(n) => Ok(FFIArg::NumV(*n)),
         SteelVal::CharV(c) => Ok(FFIArg::CharV { c: *c }),
         SteelVal::Void => Ok(FFIArg::Void),
+
+        // TODO: Find a way to not have to copy the whole byte vector
+        SteelVal::ByteVector(b) => Ok(FFIArg::ByteVector(b.vec.read().iter().copied().collect())),
+
         // We can really only look at values that were made from the FFI boundary.
         SteelVal::Custom(c) => {
             // let mut guard = if let Ok(guard) = RefCell::try_borrow_mut(c) {

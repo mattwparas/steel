@@ -1,5 +1,6 @@
 (#%require-dylib "libsteel_rustls" (only-in
     client-connection
+    gz-decode
     tcp-connect
     tcp-reader
     tcp-writer
@@ -9,6 +10,7 @@
 ))
 (provide 
     client-connection
+    gz-decode
     tcp-connect
     tcp-reader
     tcp-writer
