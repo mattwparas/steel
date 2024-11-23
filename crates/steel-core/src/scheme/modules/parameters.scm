@@ -73,7 +73,10 @@
 
 (define write-char #%raw-write-char)
 
-(define write #%raw-write)
+(define write
+  (case-lambda
+    [(arg) (#%raw-write arg (current-output-port))]
+    [(arg port) (#%raw-write arg port)]))
 
 ;;;;;;;;;;;;;;;;;;;;; Port functions ;;;;;;;;;;;;;;;;;;;;;
 

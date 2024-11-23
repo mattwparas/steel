@@ -22,7 +22,8 @@ use steel_derive::function;
 /// ```
 #[function(name = "string->jsexpr")]
 pub fn string_to_jsexpr(value: &SteelString) -> Result<SteelVal> {
-    let unescaped = unescape(&value);
+    // let unescaped = unescape(&value);
+    let unescaped = value;
     let res: std::result::Result<Value, _> = serde_json::from_str(unescaped.as_str());
 
     match res {

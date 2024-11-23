@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    io::BufReader,
     marker::PhantomData,
     sync::{Arc, Mutex},
 };
@@ -14,7 +15,11 @@ use crate::{
         as_underlying_type_mut, Custom, CustomType, FutureResult, IntoSteelVal,
         MaybeSendSyncStatic, Result, SteelByteVector, SteelHashMap, SteelVal,
     },
-    values::functions::{BoxedDynFunction, StaticOrRcStr},
+    values::{
+        functions::{BoxedDynFunction, StaticOrRcStr},
+        port::SteelPort,
+        SteelPortRepr,
+    },
     SteelErr,
 };
 
@@ -23,7 +28,7 @@ use abi_stable::{
     std_types::{
         RArc, RBoxError, RCowStr, RHashMap, RResult, RSlice, RSliceMut, RStr, RString, RVec, Tuple2,
     },
-    RMut, StableAbi,
+    DynTrait, RMut, StableAbi,
 };
 use futures_util::FutureExt;
 
@@ -327,6 +332,16 @@ impl<'a> FromFFIArg<'a> for RSliceMut<'a, FFIValue> {
             RResult::ROk(v.vec)
         } else {
             conversion_error!(vec_slice, val)
+        }
+    }
+}
+
+impl<'a> FromFFIArg<'a> for RVec<u8> {
+    fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
+        if let FFIArg::ByteVector(b) = val {
+            RResult::ROk(b)
+        } else {
+            conversion_error!(bytevector, val)
         }
     }
 }
@@ -931,12 +946,60 @@ macro_rules! declare_module {
 
 #[repr(C)]
 #[derive(StableAbi)]
+#[sabi(impl_InterfaceType(Sync, Send, IoWrite))]
+pub struct WriterInterface;
+
+#[repr(C)]
+#[derive(StableAbi)]
+#[sabi(impl_InterfaceType(Sync, Send, IoRead))]
+pub struct ReaderInterface;
+
+#[repr(C)]
+#[derive(StableAbi)]
+pub struct DynWriter {
+    pub writer: DynTrait<'static, RBox<()>, WriterInterface>,
+}
+
+impl DynWriter {
+    fn into_port(self) -> SteelPortRepr {
+        SteelPortRepr::DynWriter(Arc::new(Mutex::new(self.writer)))
+    }
+}
+
+#[repr(C)]
+#[derive(StableAbi)]
+pub struct DynReader {
+    pub reader: DynTrait<'static, RBox<()>, ReaderInterface>,
+}
+
+impl DynReader {
+    fn into_port(self) -> SteelPortRepr {
+        SteelPortRepr::DynReader(BufReader::new(Box::new(self.reader)))
+    }
+}
+
+impl IntoFFIVal for DynWriter {
+    fn into_ffi_val(self) -> RResult<FFIValue, RBoxError> {
+        RResult::ROk(FFIValue::DynWriter(self))
+    }
+}
+
+impl IntoFFIVal for DynReader {
+    fn into_ffi_val(self) -> RResult<FFIValue, RBoxError> {
+        RResult::ROk(FFIValue::DynReader(self))
+    }
+}
+
+#[repr(C)]
+#[derive(StableAbi)]
 pub struct MutableString {
     pub string: RString,
 }
 
 impl Custom for MutableString {}
 
+#[repr(C)]
+#[derive(StableAbi)]
 struct FFIVector {
     vec: RVec<FFIValue>,
 }
@@ -1012,6 +1075,7 @@ pub enum FFIArg<'a> {
         fut: FfiFuture<RResult<FFIArg<'a>, RBoxError>>,
     },
     HostFunction(HostRuntimeFunction),
+    ByteVector(RVec<u8>),
 }
 
 impl<'a> std::default::Default for FFIArg<'a> {
@@ -1101,6 +1165,8 @@ pub enum FFIValue {
         fut: SyncFfiFuture,
     },
     ByteVector(RVec<u8>),
+    DynWriter(DynWriter),
+    DynReader(DynReader),
 }
 
 #[repr(C)]
@@ -1167,6 +1233,8 @@ impl std::fmt::Debug for FFIValue {
             FFIValue::HashMap(h) => write!(f, "{:?}", h),
             FFIValue::Future { .. } => write!(f, "#<future>"),
             FFIValue::ByteVector(b) => write!(f, "{:?}", b),
+            FFIValue::DynWriter(_) => write!(f, "#<ffi-writer>"),
+            FFIValue::DynReader(_) => write!(f, "#<ffi-reader>"),
         }
     }
 }
@@ -1294,6 +1362,14 @@ impl IntoSteelVal for FFIValue {
             )))),
 
             Self::ByteVector(b) => Ok(SteelVal::ByteVector(SteelByteVector::new(b.into()))),
+
+            Self::DynWriter(d) => Ok(SteelVal::PortV(SteelPort {
+                port: Gc::new_mut(d.into_port()),
+            })),
+
+            Self::DynReader(d) => Ok(SteelVal::PortV(SteelPort {
+                port: Gc::new_mut(d.into_port()),
+            })),
         }
     }
 }
@@ -1501,6 +1577,10 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
         SteelVal::NumV(n) => Ok(FFIArg::NumV(*n)),
         SteelVal::CharV(c) => Ok(FFIArg::CharV { c: *c }),
         SteelVal::Void => Ok(FFIArg::Void),
+
+        // TODO: Find a way to not have to copy the whole byte vector
+        SteelVal::ByteVector(b) => Ok(FFIArg::ByteVector(b.vec.read().iter().copied().collect())),
+
         // We can really only look at values that were made from the FFI boundary.
         SteelVal::Custom(c) => {
             // let mut guard = if let Ok(guard) = RefCell::try_borrow_mut(c) {

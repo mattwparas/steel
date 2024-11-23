@@ -71,6 +71,8 @@ impl DebruijnIndicesInterner {
         instructions: &mut [Instruction],
         symbol_map: &mut SymbolMap,
     ) -> Result<()> {
+        let mut flat_defines_non_closure: HashSet<InternedString> = HashSet::default();
+
         for i in 2..instructions.len() {
             match (&instructions[i], &instructions[i - 1], &instructions[i - 2]) {
                 (
@@ -93,11 +95,11 @@ impl DebruijnIndicesInterner {
                         ..
                     },
                 ) => {
+                    // Exiting a definition, clear it
+                    flat_defines_non_closure.clear();
+
                     let idx = symbol_map.add(s);
                     self.flat_defines.insert(s.to_owned());
-                    // if !self.flat_defines.insert(s.to_owned()) {
-                    //     stop!(BadSyntax => format!("Cannot redefine define within the same scope: {}", s); *span);
-                    // }
 
                     if let Some(x) = instructions.get_mut(i) {
                         x.payload_size = u24::from_usize(idx);
@@ -109,22 +111,47 @@ impl DebruijnIndicesInterner {
                         contents:
                             Some(Expr::Atom(SyntaxObject {
                                 ty: TokenType::Identifier(s),
-                                // span,
+                                span,
                                 ..
                             })),
+                        ..
+                    },
+                    Instruction {
+                        op_code: OpCode::EDEF,
                         ..
                     },
                     ..,
                 ) => {
                     let idx = symbol_map.add(s);
                     self.flat_defines.insert(s.to_owned());
-                    // if !self.flat_defines.insert(s.to_owned()) {
-                    //     stop!(BadSyntax => format!("Cannot redefine define within the same scope: {}", s); *span);
-                    // }
+
+                    if flat_defines_non_closure.contains(s) {
+                        stop!(BadSyntax => format!("Cannot reference identifier before its definition: {}", s.resolve()); *span);
+                    }
+
+                    flat_defines_non_closure.clear();
+
+                    // self.flat_defines_idx.insert(idx);
+                    // flat_defines_non_closure.insert(s.to_owned());
 
                     if let Some(x) = instructions.get_mut(i) {
                         x.payload_size = u24::from_usize(idx);
                     }
+                }
+                (
+                    Instruction {
+                        op_code: OpCode::CALLGLOBAL,
+                        contents:
+                            Some(Expr::Atom(SyntaxObject {
+                                ty: TokenType::Identifier(s),
+                                ..
+                            })),
+                        ..
+                    },
+                    ..,
+                ) => {
+                    // We're referencing things within the scope
+                    flat_defines_non_closure.insert(*s);
                 }
                 _ => {}
             }
@@ -181,6 +208,10 @@ impl DebruijnIndicesInterner {
                 } => {
                     // Keep track of where the defines actually are in the process
                     self.second_pass_defines.insert(s.to_owned());
+
+                    // let idx = symbol_map.get(s).unwrap();
+
+                    // self.second_pass_defines_idx.insert(idx);
                 }
                 Instruction {
                     op_code: OpCode::PUSH,
