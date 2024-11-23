@@ -1,19 +1,13 @@
 use abi_stable::{std_types::RVec, DynTrait};
 use steel::{
-    rvals::{Custom, CustomType},
-    steel_vm::ffi::{
-        as_underlying_ffi_type, DynReader, DynWriter, FFIArg, FFIModule, FFIValue, FromFFIArg,
-        HostRuntimeFunction, IntoFFIVal, RegisterFFIFn,
-    },
+    rvals::Custom,
+    steel_vm::ffi::{DynReader, DynWriter, FFIModule, RegisterFFIFn},
 };
 
+use std::sync::Mutex;
 use std::{io::Cursor, sync::Arc};
-use std::{
-    io::{stdout, Read, Write},
-    sync::Mutex,
-};
 
-use rustls::{ClientConnection, RootCertStore};
+use rustls::RootCertStore;
 
 struct RustlsClientConnection(Option<rustls::ClientConnection>);
 impl Custom for RustlsClientConnection {}
@@ -67,44 +61,6 @@ impl RustlsStream {
     }
 }
 
-// fn test() {
-//     let root_store = RootCertStore {
-//         roots: webpki_roots::TLS_SERVER_ROOTS.into(),
-//     };
-//     let mut config = rustls::ClientConfig::builder()
-//         .with_root_certificates(root_store)
-//         .with_no_client_auth();
-
-//     // Allow using SSLKEYLOGFILE.
-//     config.key_log = Arc::new(rustls::KeyLogFile::new());
-
-//     let server_name = "www.rust-lang.org".try_into().unwrap();
-//     let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name).unwrap();
-//     let mut sock = TcpStream::connect("www.rust-lang.org:443").unwrap();
-//     let mut tls = rustls::Stream::new(&mut conn, &mut sock);
-//     tls.write_all(
-//         concat!(
-//             "GET / HTTP/1.1\r\n",
-//             "Host: www.rust-lang.org\r\n",
-//             "Connection: close\r\n",
-//             "Accept-Encoding: identity\r\n",
-//             "\r\n"
-//         )
-//         .as_bytes(),
-//     )
-//     .unwrap();
-//     let ciphersuite = tls.conn.negotiated_cipher_suite().unwrap();
-//     writeln!(
-//         &mut std::io::stderr(),
-//         "Current ciphersuite: {:?}",
-//         ciphersuite.suite()
-//     )
-//     .unwrap();
-//     let mut plaintext = Vec::new();
-//     tls.read_to_end(&mut plaintext).unwrap();
-//     stdout().write_all(&plaintext).unwrap();
-// }
-
 steel::declare_module!(build_module);
 
 use std::net::TcpStream;
@@ -118,6 +74,7 @@ impl Clone for RustlsTcpStream {
     }
 }
 
+#[allow(unused)]
 #[derive(Debug)]
 enum RustlsError {
     Io(std::io::Error),
