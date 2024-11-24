@@ -1,7 +1,8 @@
 use crate::gc::Gc;
+use crate::rvals::AsRefSteelValFromUnsized;
 use crate::SteelVal;
 use crate::{rvals::Custom, steel_vm::builtin::MarkdownDoc};
-use chrono::Local;
+use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use std::time::Duration;
 use std::time::Instant;
 use steel_derive::function;
@@ -41,6 +42,50 @@ fn duration_to_string(duration: Duration) -> String {
 #[function(name = "local-time/now!")]
 fn current_time_formatted(format_string: String) -> String {
     Local::now().format(&format_string).to_string()
+}
+
+enum TimeZones {
+    Local(Local),
+    Utc(Utc),
+    FixedOffset(FixedOffset),
+}
+
+pub struct SteelDateTime {
+    datetime: NaiveDateTime,
+    timezone: TimeZones,
+}
+
+impl Custom for NaiveDateTime {}
+impl Custom for NaiveDate {}
+
+#[function(name = "naive-current-date-local")]
+fn naive_current_date() -> NaiveDate {
+    Local::now().date_naive()
+}
+
+#[function(name = "naive-date-ymd")]
+fn naive_date(year: i32, month: u32, day: u32) -> Option<NaiveDate> {
+    NaiveDate::from_ymd_opt(year, month, day)
+}
+
+#[function(name = "naive-date-and-hms")]
+fn with_time(date: NaiveDate, hour: u32, minute: u32, second: u32) -> Option<NaiveDateTime> {
+    date.and_hms_opt(hour, minute, second)
+}
+
+#[function(name = "naive-date-year")]
+fn date_year(date: NaiveDate) -> i32 {
+    date.year()
+}
+
+#[function(name = "naive-date-month")]
+fn date_month(date: NaiveDate) -> u32 {
+    date.month()
+}
+
+#[function(name = "naive-date-day")]
+fn date_day(date: NaiveDate) -> u32 {
+    date.day()
 }
 
 /// Sleeps the thread for a given number of milliseconds.
@@ -119,7 +164,13 @@ pub fn time_module() -> BuiltInModule {
         .register_native_fn_definition(SLEEP_MILLIS_DEFINITION)
         .register_native_fn_definition(CURRENT_MILLISECONDS_DEFINITION)
         .register_native_fn_definition(CURRENT_SECONDS_DEFINITION)
-        .register_native_fn_definition(CURRENT_INEXACT_MILLISECONDS_DEFINITION);
+        .register_native_fn_definition(CURRENT_INEXACT_MILLISECONDS_DEFINITION)
+        .register_native_fn_definition(NAIVE_DATE_DEFINITION)
+        .register_native_fn_definition(WITH_TIME_DEFINITION)
+        .register_native_fn_definition(DATE_YEAR_DEFINITION)
+        .register_native_fn_definition(DATE_MONTH_DEFINITION)
+        .register_native_fn_definition(DATE_DAY_DEFINITION)
+        .register_native_fn_definition(NAIVE_CURRENT_DATE_DEFINITION);
 
     module
 }
