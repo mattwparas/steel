@@ -116,7 +116,7 @@ Commands:
       [(equal? "build" command) (install-dependencies package-index)]
 
       ;; Run the entrypoint as specified in the cog.scm, if present.
-      [(equal? "run") (install-dependencies-and-run-entrypoint package-index args)]
+      [(equal? "run") (install-dependencies-and-run-entrypoint package-index (cdr command-line-args))]
 
       ;; install the given package
       [(equal? "install" command) (install-package-temp package-index (cdr command-line-args))]
