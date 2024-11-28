@@ -2,6 +2,7 @@ use crate::gc::shared::{MutableContainer, ShareableMut};
 use crate::steel_vm::{builtin::get_function_name, vm::Continuation, vm::ContinuationMark};
 use crate::values::lists::Pair;
 use num::BigInt;
+use once_cell::sync::Lazy;
 use std::{cell::Cell, collections::VecDeque};
 
 use super::*;
@@ -622,6 +623,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
 
 #[cfg(not(feature = "without-drop-protection"))]
 pub(crate) mod drop_impls {
+    use crate::values::recycler::{Recyclable, Recycle};
+
     use super::*;
 
     thread_local! {
@@ -688,8 +691,11 @@ pub(crate) mod drop_impls {
                         // }
 
                         drop_buffer.extend(
-                            self.fields.drain(..), // std::mem::replace(&mut self.fields, Recycle::noop()).into_iter(),
+                            self.fields.drain(..),
+                            // std::mem::replace(&mut self.fields, Recycle::noop()).into_iter(),
                         );
+
+                        // std::mem::replace(&mut self, self.fields.put();
 
                         IterativeDropHandler::bfs(&mut drop_buffer);
                     }
@@ -745,15 +751,16 @@ pub(crate) mod drop_impls {
 
 pub struct IterativeDropHandler<'a> {
     drop_buffer: &'a mut VecDeque<SteelVal>,
+    moved_threads: bool,
 }
 
 impl<'a> IterativeDropHandler<'a> {
     pub fn bfs(drop_buffer: &'a mut VecDeque<SteelVal>) {
-        // println!("Current depth: {}", DEPTH.with(|x| x.get()));
-
-        // DEPTH.with(|x| x.set(x.get() + 1));
-        IterativeDropHandler { drop_buffer }.visit();
-        // DEPTH.with(|x| x.set(x.get() - 1));
+        IterativeDropHandler {
+            drop_buffer,
+            moved_threads: false,
+        }
+        .visit();
     }
 }
 
@@ -959,12 +966,6 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
                 self.push_back(value);
             }
         }
-
-        // if list.strong_count() == 1 {
-        //     for value in list {
-        //         self.push_back(value);
-        //     }
-        // }
     }
 
     // TODO: When this gets replaced with heap storage, then we can do this more
@@ -1002,6 +1003,363 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
     fn visit_heap_allocated(&mut self, _heap_ref: HeapRef<SteelVal>) -> Self::Output {}
 
+    // TODO: After a certain point, we should just pause
+    // and continue the iteration on another thread. That will
+    // help with long drops for recursive data structures.
+    fn visit(&mut self) -> Self::Output {
+        let mut ret = self.default_output();
+
+        while let Some(value) = self.pop_front() {
+            ret = match value {
+                Closure(c) => self.visit_closure(c),
+                BoolV(b) => self.visit_bool(b),
+                NumV(n) => self.visit_float(n),
+                IntV(i) => self.visit_int(i),
+                Rational(x) => self.visit_rational(x),
+                BigRational(x) => self.visit_bigrational(x),
+                BigNum(b) => self.visit_bignum(b),
+                Complex(x) => self.visit_complex(x),
+                CharV(c) => self.visit_char(c),
+                VectorV(v) => self.visit_immutable_vector(v),
+                Void => self.visit_void(),
+                StringV(s) => self.visit_string(s),
+                FuncV(f) => self.visit_function_pointer(f),
+                SymbolV(s) => self.visit_symbol(s),
+                SteelVal::Custom(c) => self.visit_custom_type(c),
+                HashMapV(h) => self.visit_hash_map(h),
+                HashSetV(s) => self.visit_hash_set(s),
+                CustomStruct(c) => self.visit_steel_struct(c),
+                PortV(p) => self.visit_port(p),
+                IterV(t) => self.visit_transducer(t),
+                ReducerV(r) => self.visit_reducer(r),
+                FutureFunc(f) => self.visit_future_function(f),
+                FutureV(f) => self.visit_future(f),
+                StreamV(s) => self.visit_stream(s),
+                BoxedFunction(b) => self.visit_boxed_function(b),
+                ContinuationFunction(c) => self.visit_continuation(c),
+                ListV(l) => self.visit_list(l),
+                MutFunc(m) => self.visit_mutable_function(m),
+                BuiltIn(b) => self.visit_builtin_function(b),
+                MutableVector(b) => self.visit_mutable_vector(b),
+                BoxedIterator(b) => self.visit_boxed_iterator(b),
+                SteelVal::SyntaxObject(s) => self.visit_syntax_object(s),
+                Boxed(b) => self.visit_boxed_value(b),
+                Reference(r) => self.visit_reference_value(r),
+                HeapAllocated(b) => self.visit_heap_allocated(b),
+                Pair(p) => self.visit_pair(p),
+                ByteVector(b) => self.visit_bytevector(b),
+            };
+
+            // Long recursive drops will block the main thread from continuing - we should
+            // have another thread pick up the work?
+            if !self.moved_threads && self.drop_buffer.len() > 20 {
+                self.moved_threads = true;
+
+                static DROP_THREAD: Lazy<crossbeam::channel::Sender<OwnedIterativeDropHandler>> =
+                    Lazy::new(start_background_drop_thread);
+
+                fn start_background_drop_thread(
+                ) -> crossbeam::channel::Sender<OwnedIterativeDropHandler> {
+                    let (sender, receiver) =
+                        crossbeam::channel::unbounded::<OwnedIterativeDropHandler>();
+
+                    std::thread::spawn(move || {
+                        while let Ok(mut value) = receiver.recv() {
+                            // let now = std::time::Instant::now();
+                            value.visit();
+                            // println!("Dropping: {:?}", now.elapsed());
+                        }
+                    });
+
+                    sender
+                }
+
+                // let buffer = VecDeque::new();
+                let original_buffer = std::mem::replace(self.drop_buffer, VecDeque::new());
+
+                // println!("Moving to another thread");
+
+                DROP_THREAD
+                    .send(OwnedIterativeDropHandler {
+                        drop_buffer: original_buffer,
+                    })
+                    .ok();
+
+                // std::thread::spawn(move || {
+                //     let mut handler = OwnedIterativeDropHandler {
+                //         drop_buffer: original_buffer,
+                //     };
+
+                //     handler.visit();
+
+                //     drop(handler)
+                // });
+            }
+        }
+
+        ret
+    }
+
+    fn visit_pair(&mut self, pair: Gc<Pair>) -> Self::Output {
+        if let Ok(inner) = Gc::try_unwrap(pair) {
+            self.push_back(inner.car);
+            self.push_back(inner.cdr);
+        }
+    }
+}
+
+// TODO: Figure out a more elegant way to do this!
+
+pub struct OwnedIterativeDropHandler {
+    drop_buffer: VecDeque<SteelVal>,
+}
+
+impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
+    type Output = ();
+
+    fn default_output(&mut self) -> Self::Output {
+        ()
+    }
+
+    fn pop_front(&mut self) -> Option<SteelVal> {
+        self.drop_buffer.pop_front()
+    }
+
+    fn push_back(&mut self, value: SteelVal) {
+        match &value {
+            SteelVal::BoolV(_)
+            | SteelVal::NumV(_)
+            | SteelVal::IntV(_)
+            | SteelVal::CharV(_)
+            | SteelVal::Void
+            | SteelVal::StringV(_)
+            | SteelVal::FuncV(_)
+            | SteelVal::SymbolV(_)
+            | SteelVal::FutureFunc(_)
+            | SteelVal::FutureV(_)
+            | SteelVal::BoxedFunction(_)
+            | SteelVal::MutFunc(_)
+            | SteelVal::BuiltIn(_)
+            | SteelVal::ByteVector(_)
+            | SteelVal::BigNum(_) => return,
+            _ => {
+                self.drop_buffer.push_back(value);
+            }
+        }
+    }
+
+    fn visit_bytevector(&mut self, _bytevector: SteelByteVector) -> Self::Output {}
+    fn visit_bool(&mut self, _boolean: bool) {}
+    fn visit_float(&mut self, _float: f64) {}
+    fn visit_int(&mut self, _int: isize) {}
+    fn visit_rational(&mut self, _: Rational32) {}
+    fn visit_bigrational(&mut self, _: Gc<BigRational>) {}
+    fn visit_char(&mut self, _c: char) {}
+    fn visit_void(&mut self) {}
+    fn visit_string(&mut self, _string: SteelString) {}
+    fn visit_function_pointer(&mut self, _ptr: FunctionSignature) {}
+    fn visit_symbol(&mut self, _symbol: SteelString) {}
+    fn visit_port(&mut self, _port: SteelPort) {}
+    fn visit_future(&mut self, _future: Gc<FutureResult>) {}
+    fn visit_mutable_function(&mut self, _function: MutFunctionSignature) {}
+    fn visit_complex(&mut self, _: Gc<SteelComplex>) {}
+    fn visit_bignum(&mut self, _bignum: Gc<BigInt>) {}
+    fn visit_future_function(&mut self, _function: BoxedAsyncFunctionSignature) {}
+    fn visit_builtin_function(&mut self, _function: BuiltInSignature) {}
+    fn visit_boxed_function(&mut self, _function: Gc<BoxedDynFunction>) {}
+
+    fn visit_closure(&mut self, closure: Gc<ByteCodeLambda>) {
+        if let Ok(mut inner) = closure.try_unwrap() {
+            for value in std::mem::take(&mut inner.captures) {
+                self.push_back(value);
+            }
+        }
+    }
+
+    fn visit_immutable_vector(&mut self, mut vector: SteelVector) {
+        if let Some(inner) = vector.0.get_mut() {
+            for value in std::mem::take(inner) {
+                self.push_back(value);
+            }
+        }
+    }
+
+    fn visit_custom_type(&mut self, custom_type: GcMut<Box<dyn CustomType>>) {
+        if let Ok(inner) = custom_type.try_unwrap() {
+            let mut inner = inner.consume();
+
+            // TODO: @matt - Don't leave this while merging
+            // inner.drop_mut(self);
+
+            // let this decide if we're doing anything with this custom type
+            // inner.drop_mut(self);
+        }
+    }
+
+    fn visit_hash_map(&mut self, mut hashmap: SteelHashMap) {
+        if let Some(inner) = hashmap.0.get_mut() {
+            for (key, value) in std::mem::take(inner) {
+                self.push_back(key);
+                self.push_back(value);
+            }
+        }
+    }
+
+    fn visit_hash_set(&mut self, mut hashset: SteelHashSet) {
+        if let Some(inner) = hashset.0.get_mut() {
+            for key in std::mem::take(inner) {
+                self.push_back(key);
+            }
+        }
+    }
+
+    fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) {
+        if let Ok(mut inner) = steel_struct.try_unwrap() {
+            for value in inner.fields.drain(..) {
+                self.push_back(value);
+            }
+        }
+    }
+
+    fn visit_transducer(&mut self, transducer: Gc<Transducer>) {
+        if let Ok(inner) = transducer.try_unwrap() {
+            for transducer in inner.ops {
+                match transducer {
+                    crate::values::transducers::Transducers::Map(m) => self.push_back(m),
+                    crate::values::transducers::Transducers::Filter(v) => self.push_back(v),
+                    crate::values::transducers::Transducers::Take(t) => self.push_back(t),
+                    crate::values::transducers::Transducers::Drop(d) => self.push_back(d),
+                    crate::values::transducers::Transducers::FlatMap(fm) => self.push_back(fm),
+                    crate::values::transducers::Transducers::Flatten => {}
+                    crate::values::transducers::Transducers::Window(w) => self.push_back(w),
+                    crate::values::transducers::Transducers::TakeWhile(tw) => self.push_back(tw),
+                    crate::values::transducers::Transducers::DropWhile(dw) => self.push_back(dw),
+                    crate::values::transducers::Transducers::Extend(e) => self.push_back(e),
+                    crate::values::transducers::Transducers::Cycle => {}
+                    crate::values::transducers::Transducers::Enumerating => {}
+                    crate::values::transducers::Transducers::Zipping(z) => self.push_back(z),
+                    crate::values::transducers::Transducers::Interleaving(i) => self.push_back(i),
+                }
+            }
+        }
+    }
+
+    fn visit_reducer(&mut self, reducer: Gc<Reducer>) {
+        if let Ok(inner) = reducer.try_unwrap() {
+            match inner {
+                Reducer::ForEach(f) => self.push_back(f),
+                Reducer::Generic(rf) => {
+                    self.push_back(rf.initial_value);
+                    self.push_back(rf.function);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn visit_stream(&mut self, stream: Gc<LazyStream>) {
+        if let Ok(mut inner) = stream.try_unwrap() {
+            self.push_back(replace_with_void(&mut inner.initial_value));
+            self.push_back(replace_with_void(&mut inner.stream_thunk));
+        }
+    }
+
+    // Walk the whole thing! This includes the stack and all the stack frames
+    fn visit_continuation(&mut self, continuation: Continuation) {
+        if let Ok(inner) = crate::gc::Shared::try_unwrap(continuation.inner).map(|x| x.consume()) {
+            match inner {
+                ContinuationMark::Closed(mut inner) => {
+                    for value in std::mem::take(&mut inner.stack) {
+                        self.push_back(value);
+                    }
+
+                    if let Some(inner) = inner.current_frame.function.get_mut() {
+                        for value in std::mem::take(&mut inner.captures) {
+                            self.push_back(value);
+                        }
+                    }
+
+                    for mut frame in std::mem::take(&mut inner.stack_frames) {
+                        if let Some(inner) = frame.function.get_mut() {
+                            for value in std::mem::take(&mut inner.captures) {
+                                self.push_back(value);
+                            }
+                        }
+                    }
+                }
+
+                ContinuationMark::Open(mut inner) => {
+                    for value in inner.current_stack_values {
+                        self.push_back(value);
+                    }
+
+                    if let Some(inner) = inner.current_frame.function.get_mut() {
+                        for value in std::mem::take(&mut inner.captures) {
+                            self.push_back(value);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn visit_list(&mut self, list: List<SteelVal>) {
+        // println!("VISITING LIST: {}", list.strong_count());
+        // println!("list: {:?}", list);
+
+        if list.strong_count() == 1 {
+            for value in list.draining_iterator() {
+                // println!(
+                // "PUSHING BACK VALUE - queue size: {}",
+                // self.drop_buffer.len()
+                // );
+
+                // println!("enqueueing: {}", value);
+
+                self.push_back(value);
+            }
+        }
+    }
+
+    // TODO: When this gets replaced with heap storage, then we can do this more
+    // effectively!
+    fn visit_mutable_vector(&mut self, _vector: HeapRef<Vec<SteelVal>>) {}
+
+    // TODO: Once the root is added back to this, bring it back
+    fn visit_boxed_iterator(&mut self, iterator: GcMut<OpaqueIterator>) {
+        if let Ok(inner) = iterator.try_unwrap() {
+            self.push_back(inner.consume().root)
+        }
+    }
+
+    fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) {
+        if let Ok(inner) = syntax_object.try_unwrap() {
+            if let Some(raw) = inner.raw {
+                self.push_back(raw);
+            }
+
+            self.push_back(inner.syntax);
+        }
+    }
+
+    fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) {
+        if let Ok(inner) = boxed_value.try_unwrap() {
+            self.push_back(inner.consume());
+        }
+    }
+
+    fn visit_reference_value(&mut self, reference: Gc<OpaqueReference<'static>>) {
+        if let Ok(mut inner) = Gc::try_unwrap(reference) {
+            // TODO: @matt - Don't leave this while merging
+            // inner.drop_mut(self);
+        }
+    }
+
+    fn visit_heap_allocated(&mut self, _heap_ref: HeapRef<SteelVal>) -> Self::Output {}
+
+    // TODO: After a certain point, we should just pause
+    // and continue the iteration on another thread. That will
+    // help with long drops for recursive data structures.
     fn visit(&mut self) -> Self::Output {
         let mut ret = self.default_output();
 
@@ -1046,8 +1404,6 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
                 ByteVector(b) => self.visit_bytevector(b),
             };
         }
-
-        // println!("--- finished draining drop queue ----");
 
         ret
     }

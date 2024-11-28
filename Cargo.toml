@@ -19,10 +19,12 @@ path = "src/main.rs"
 
 [workspace.dependencies]
 # This has to line up with the workspace version above
-steel-core = { path = "./crates/steel-core", version = "0.6.0", features = ["dylibs", "markdown", "stacker", "sync"] }
+steel-core = { path = "./crates/steel-core", version = "0.6.0", features = ["dylibs", "markdown", "stacker", "sync", "rooted-instructions"] }
 
 [features]
+default = ["mimalloc"]
 build-info = ["vergen"]
+mimalloc = ["dep:mimalloc"]
 # Note: It does not appear that this will get propagated to any crate that depends on
 # the workspace feature. This is unfortunate, since we'd like everything to actually
 # use the workspace dependency. For now, if you want to test with sync, you should
@@ -40,6 +42,9 @@ log = "0.4.17"
 clap = { version = "=4.1.4", features = ["derive"] }
 steel-doc = { path = "./crates/steel-doc", version = "0.6.0" }
 
+# Maybe try this?
+mimalloc = { version = "0.1.43", optional = true }
+
 [target.'cfg(not(target_os = "redox"))'.dependencies]
 cargo-steel-lib = { path = "./crates/cargo-steel-lib", version = "0.1.0" }
 
@@ -55,7 +60,7 @@ members = [
 ]
 
 [profile.release]
-debug = false
+debug = true
 lto = true
 
 [profile.test]

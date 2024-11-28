@@ -132,6 +132,48 @@ fn run_tests() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn install_pgo() -> Result<(), Box<dyn Error>> {
+    std::process::Command::new("cargo")
+        .arg("pgo")
+        .arg("build")
+        .spawn()?
+        .wait()?;
+
+    let binary = format!("target/{}/release/steel", env!("TARGET_PLATFORM"));
+
+    let benches = &[
+        "r7rs-benchmarks/scheme.scm",
+        "r7rs-benchmarks/simplex.scm",
+        "r7rs-benchmarks/array1.scm",
+        "r7rs-benchmarks/triangl.scm",
+        "benchmarks/bin-trees/bin-trees.scm",
+        "benchmarks/fib/fib.scm",
+    ];
+
+    for _ in 0..10 {
+        for bench in benches {
+            std::process::Command::new(&binary)
+                .arg(bench)
+                .spawn()?
+                .wait()?;
+        }
+    }
+
+    std::process::Command::new("cargo")
+        .arg("pgo")
+        .arg("optimize")
+        .spawn()?
+        .wait()?;
+
+    let destination = format!("{}/.cargo/bin/steel", env!("HOME"));
+
+    println!("Installing to: {}", destination);
+
+    std::fs::copy(binary, destination).unwrap();
+
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let task = std::env::args().nth(1);
     match task {
@@ -141,6 +183,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             "cogs" => install_cogs()?,
             "docgen" => generate_docs()?,
             "test" => run_tests()?,
+            "pgo" => install_pgo()?,
             invalid => return Err(format!("Invalid task name: {}", invalid).into()),
         },
     };

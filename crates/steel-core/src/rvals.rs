@@ -67,6 +67,7 @@ macro_rules! list {
 }
 
 use bigdecimal::BigDecimal;
+use smallvec::SmallVec;
 use SteelVal::*;
 
 use crate::values::{HashMap, HashSet, Vector};
@@ -935,7 +936,12 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                         .into_iter()
                         .map(|x| from_serializable_value(ctx, x));
 
-                    let mut recycle: crate::values::recycler::Recycle<Vec<_>> =
+                    // fields.collect()
+
+                    // let mut recycle: crate::values::recycler::Recycle<Vec<_>> =
+                    //     crate::values::recycler::Recycle::new();
+
+                    let mut recycle: crate::values::recycler::Recycle<SmallVec<_>> =
                         crate::values::recycler::Recycle::new();
 
                     recycle.extend(fields);

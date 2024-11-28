@@ -20,7 +20,9 @@
          create-dylib-index
          parse-cog-file
          install-package
-         install-package-and-log)
+         install-package-and-log
+         *STEEL_HOME*
+         check-install-package)
 
 (define (append-with-separator path dir)
   (if (ends-with? path "/") (string-append path dir) (string-append path "/" dir)))
@@ -30,6 +32,7 @@
 (define *NATIVE-SOURCES-DIR* (~> (steel-home-location) (append-with-separator "sources")))
 (define *COG-SOURCES* (~> (steel-home-location) (append-with-separator "cog-sources")))
 (define *DYLIB-DIR* (~> (steel-home-location) (append-with-separator "native")))
+(define *BIN* (~> (steel-home-location) (append-with-separator "bin")))
 
 (define (for-each func lst)
   (if (null? lst)
@@ -40,6 +43,9 @@
           (return! void))
         (for-each func (cdr lst)))))
 
+(define (shebang-line)
+  "#!/usr/bin/env steel")
+
 ;;@doc
 ;; Given a package spec, install that package directly to the file system
 (define/contract (install-package package)
@@ -49,11 +55,50 @@
     (string-append *STEEL_HOME* "/" (symbol->string (hash-get package 'package-name))))
 
   (displayln "=> Installing: " package)
+  (displayln "   ...Installing to:" destination)
+
+  (when (path-exists? destination)
+    (delete-directory! destination))
 
   ;; Install the package cog sources to the target location.
   ;; When this package does not have any dylibs, this is a trivial copy to the
   ;; sources directory.
   (copy-directory-recursively! (hash-get package 'path) destination)
+
+  (when (hash-contains? package 'entrypoint)
+    (define entrypoint-spec (apply hash (hash-get package 'entrypoint)))
+    (define executable-name (hash-get entrypoint-spec '#:name))
+    (define executable-path (hash-get entrypoint-spec '#:path))
+    ;; Path to the entrypoint should go here, and since it is most likely expressed
+    ;; as a path relative to the cog.scm file, we should expand the path.
+    (define path-to-entrypoint (append-with-separator (hash-get package 'path) executable-path))
+
+    (define destination-binary (append-with-separator *BIN* executable-name))
+
+    (displayln "-----> Discovered entrypoint:" path-to-entrypoint)
+    (displayln "-----> Entrypoint name:" executable-name)
+    (displayln "-----> Resulting executable location:" destination-binary)
+
+    (let ([binary-file (open-output-file destination-binary)])
+
+      (write-string (shebang-line) binary-file)
+      (newline binary-file)
+      (let ([file (open-input-file path-to-entrypoint)])
+        (write-string (read-port-to-string file) binary-file)
+        (close-input-port file))
+      (close-output-port binary-file))
+
+    (~> (command "chmod" (list "755" destination-binary))
+        spawn-process
+        Ok->value
+        wait->stdout
+        Ok->value)
+
+    ;; Open up the file, inject a shebang, write to the bin, chmod it according to the
+    ;; host platform
+
+    ; (let [(binary (open-output-file ))])
+    )
 
   (displayln "=> Copied package over to: " destination)
 
@@ -81,6 +126,21 @@
      (run-dylib-installation (append-with-separator *STEEL_HOME*
                                                     (symbol->string (hash-ref package 'package-name)))
                              #:subdir (or (hash-try-get dylib-dependency '#:subdir) ""))]))
+
+(define (list-package-index)
+  (eval '(require "steel/packages/packages.scm"))
+  (eval 'package-index))
+
+(define (install-package-from-pkg-index index package)
+  ;; TODO: Cache this result from list-package-index
+  (define pkg-index (list-package-index))
+  (define remote-pkg-spec (hash-ref pkg-index (string->symbol package)))
+  (define git-url (hash-ref remote-pkg-spec '#:url))
+  (define subdir (or (hash-try-get remote-pkg-spec '#:path) ""))
+  ;; Pass the path down as well - so that we can install things that way
+  (define package-spec (download-cog-to-sources-and-parse-module package git-url #:subdir subdir))
+
+  (check-install-package index package-spec))
 
 ;; TODO: Decide if we actually need the package spec here
 (define (fetch-and-install-cog-dependency-from-spec cog-dependency)
@@ -116,14 +176,24 @@
       ;; Attempt to find the local path to the package if this is
       ;; just another package installed locally.
       [(hash-contains? cog-dependency '#:path)
-
        (define source (hash-get cog-dependency '#:path))
-
-       (install-package (car (parse-cog source)))]
+       (define spec (car (parse-cog source)))
+       (install-package spec)]
 
       ;; We're unable to find the package! Logically, here would be a place
       ;; we'd check against some kind of package index to help with this.
-      [else (error "Unable to resolve module!: " cog-dependency)])))
+      [else
+       (displayln "Attempting to resolve from the package index.")
+       (define package-index (list-package-index))
+       ;; Check if the package exists in the package index.
+       ;; If it does, we can go ahead and install it into our fake
+       ;; hash. Right now we pretty much install everything sequentially,
+       ;; which is not the worst thing since we have to discover dependencies
+       ;; along the way, but something better would be to try to find all
+       ;; the leaves, and then we can install in one big command
+       (if (hash-contains? package-index (hash-ref cog-dependency '#:name))
+           (install-package-from-pkg-index (hash) (hash-ref cog-dependency '#:name))
+           (error "Unable to resolve module!: " cog-dependency))])))
 
 ;; Go through each of the dependencies, and install the cogs
 ;; and subsequently go through each of the dylibs, and install
@@ -162,7 +232,7 @@
   (define package-name (hash-get cog-to-install 'package-name))
   (if (hash-contains? installed-cogs package-name)
       (begin
-        (displayln "Beginning installation for " package-name)
+        (displayln "Beginning installation for:" package-name)
         (displayln "    Package already installed...")
         (displayln "    Overwriting existing package installation...")
         (install-package-and-log cog-to-install))
@@ -185,6 +255,10 @@
   (when (not (path-exists? *DYLIB-DIR*))
     (displayln "dylib directory does not exist, creating now...")
     (create-directory! *DYLIB-DIR*))
+
+  (when (not (path-exists? *BIN*))
+    (displayln "bin directory does not exist, creating now...")
+    (create-directory! *BIN*))
 
   (transduce cogs-to-install
              (flat-mapping parse-cog)

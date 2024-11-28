@@ -20,7 +20,8 @@ pub fn process_module() -> BuiltInModule {
         .register_fn("which", binary_exists_on_path)
         .register_fn("child-stdout", ChildProcess::stdout)
         .register_fn("child-stderr", ChildProcess::stderr)
-        .register_fn("child-stdin", ChildProcess::stdin);
+        .register_fn("child-stdin", ChildProcess::stdin)
+        .register_fn("set-env-var!", CommandBuilder::env_var);
 
     module
 }
@@ -140,6 +141,10 @@ impl CommandBuilder {
 
     pub fn current_dir(&mut self, directory: String) {
         self.command.current_dir(directory);
+    }
+
+    pub fn env_var(&mut self, key: String, value: String) {
+        self.command.env(key, value);
     }
 
     pub fn stdout_piped(&mut self) {

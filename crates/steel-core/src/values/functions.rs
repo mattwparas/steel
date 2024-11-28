@@ -155,9 +155,49 @@ pub struct SerializedLambdaPrototype {
     pub body_exp: Vec<DenseInstruction>,
     pub arity: usize,
     pub is_multi_arity: bool,
-    // TODO: Go ahead and create a ThreadSafeSteelVal where we will just deep clone everything, move
-    // it across the thread, and reconstruct on the other side.
-    // pub captures: Vec<SerializableSteelVal>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct RootedInstructions {
+    #[cfg(feature = "rooted-instructions")]
+    inner: *const [DenseInstruction],
+    #[cfg(not(feature = "rooted-instructions"))]
+    inner: Shared<[DenseInstruction]>,
+}
+
+// TODO: Come back to this
+unsafe impl Send for RootedInstructions {}
+unsafe impl Sync for RootedInstructions {}
+
+impl RootedInstructions {
+    pub fn new(instructions: Shared<[DenseInstruction]>) -> Self {
+        Self {
+            #[cfg(feature = "rooted-instructions")]
+            inner: Shared::as_ptr(&instructions),
+            #[cfg(not(feature = "rooted-instructions"))]
+            inner: instructions,
+        }
+    }
+}
+
+impl std::fmt::Debug for RootedInstructions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.inner)
+    }
+}
+
+impl std::ops::Deref for RootedInstructions {
+    type Target = [DenseInstruction];
+
+    fn deref(&self) -> &Self::Target {
+        #[cfg(feature = "rooted-instructions")]
+        unsafe {
+            &(*self.inner)
+        }
+
+        #[cfg(not(feature = "rooted-instructions"))]
+        &self.inner
+    }
 }
 
 // TODO
@@ -240,12 +280,22 @@ impl ByteCodeLambda {
     //     self.heap_allocated = RefCell::new(heap_allocated);
     // }
 
-    pub fn body_exp(&self) -> Shared<[DenseInstruction]> {
-        #[cfg(feature = "dynamic")]
-        return Shared::clone(&self.body_exp.borrow());
+    pub fn body_exp(&self) -> RootedInstructions {
+        // #[cfg(feature = "dynamic")]
+        // return Shared::clone(&self.body_exp.borrow());
 
-        #[cfg(not(feature = "dynamic"))]
-        Shared::clone(&self.body_exp)
+        // #[cfg(not(feature = "dynamic"))]
+        // Shared::clone(&self.body_exp)
+
+        #[cfg(not(feature = "rooted-instructions"))]
+        return RootedInstructions {
+            inner: Shared::clone(&self.body_exp),
+        };
+
+        #[cfg(feature = "rooted-instructions")]
+        return RootedInstructions {
+            inner: Shared::as_ptr(&self.body_exp),
+        };
     }
 
     pub fn body_mut_exp(&mut self) -> Shared<[DenseInstruction]> {

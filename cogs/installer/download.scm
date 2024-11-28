@@ -22,6 +22,7 @@
 (define *COG-SOURCES* (path-from-steel-home "cog-sources"))
 (define *NATIVE_SOURCES_DIR* (path-from-steel-home "sources"))
 (define *DYLIB-DIR* (path-from-steel-home "native"))
+(define *CARGO_TARGET_DIR* (path-from-steel-home "target"))
 
 ;;@doc
 ;; Most likely should use gix here instead of shelling out to git?
@@ -34,9 +35,15 @@
 
   ;; Delete the target directory if it already exists
   (when (path-exists? resulting-path)
-    (display "Clearing the target directory since it already exists: ")
-    (displayln resulting-path)
-    (delete-directory! resulting-path))
+    ; (display "Clearing the target directory since it already exists: ")
+    ; (displayln resulting-path)
+    ; (delete-directory! resulting-path)
+
+    (displayln "Updating git repo from remote...")
+
+    (~> (command "git" (list "pull")) (in-directory resulting-path) spawn-process Ok->value wait)
+
+    (return! resulting-path))
 
   ;; Git clone command, run against specific directory. For now we're going to
   ;; naively install them all into the same spot.
@@ -60,6 +67,10 @@
   (set-current-dir! command directory)
   command)
 
+(define (with-env-var command key value)
+  (set-env-var! command key value)
+  command)
+
 ;; Run the cargo-steel-lib installer in the target directory
 (define (run-dylib-installation target-directory #:subdir [subdir ""])
   (wait (run-dylib-installation-in-background target-directory #:subdir subdir)))
@@ -67,7 +78,11 @@
 (define (run-dylib-installation-in-background target-directory #:subdir [subdir ""])
   (define target (append-with-separator target-directory subdir))
   (displayln "Running dylib build in: " target)
-  (~> (command "cargo-steel-lib" '()) (in-directory target) spawn-process Ok->value))
+  (~> (command "cargo-steel-lib" '())
+      (in-directory target)
+      (with-env-var "CARGO_TARGET_DIR" *CARGO_TARGET_DIR*)
+      spawn-process
+      Ok->value))
 
 ;;@doc
 ;; Download cog source to sources directory, and then install from there.

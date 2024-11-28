@@ -115,6 +115,8 @@ stacker = ["dep:stacker"]
 dylib-build = ["dep:cargo-steel-lib"]
 sync = ["dep:im"]
 interrupt = []
+rooted-instructions = []
+recycle = []
 
 
 [[bench]]

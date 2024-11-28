@@ -10,11 +10,11 @@ use std::path::PathBuf;
 use std::process;
 use std::{error::Error, fs};
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 
 /// Steel Interpreter
 #[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None, trailing_var_arg = true)]
+#[clap(author, version, about, long_about = None, trailing_var_arg = true, allow_hyphen_values = true, disable_help_flag = true, disable_help_subcommand = true)]
 pub struct Args {
     /// What action to perform on this file, the absence of a subcommand indicates that the given file (if any)
     /// will be run as the entrypoint
@@ -76,6 +76,10 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             action: None,
             ..
         } => {
+            // if arguments.iter().find(|x| x.as_str() == "--help").is_some() {
+            //     println!("{}", Args::command().render_long_help());
+            // }
+
             #[cfg(feature = "build-info")]
             {
                 println!("{}", VERSION_MESSAGE);
@@ -89,6 +93,15 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             action: None,
             arguments,
         } => {
+            if path
+                .as_os_str()
+                .to_str()
+                .map(|x| x == "--help")
+                .unwrap_or_default()
+            {
+                println!("{}", Args::command().render_long_help());
+            }
+
             vm.register_value(
                 "std::env::args",
                 steel::SteelVal::ListV(

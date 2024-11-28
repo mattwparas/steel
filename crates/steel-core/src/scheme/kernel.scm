@@ -32,25 +32,19 @@
 ;; which will then load and register macros accordingly.
 (define-syntax defmacro
   (syntax-rules ()
-    [(defmacro environment
-       (name arg)
-       expr)
+    [(defmacro environment (name arg) expr)
      (begin
        (register-macro-transformer! (symbol->string 'name) environment)
        (define (name arg)
          expr))]
 
-    [(defmacro environment
-       (name arg)
-       exprs ...)
+    [(defmacro environment (name arg) exprs ...)
      (begin
        (register-macro-transformer! (symbol->string 'name) environment)
        (define (name arg)
          exprs ...))]
 
-    [(defmacro environment
-       name
-       expr)
+    [(defmacro environment name expr)
      (begin
        (register-macro-transformer! (symbol->string 'name) environment)
        (define name expr))]))
@@ -228,7 +222,10 @@
         (%plain-let
          ([struct-type-descriptor (list-ref prototypes 0)] [constructor-proto (list-ref prototypes 1)]
                                                            [predicate-proto (list-ref prototypes 2)]
-                                                           [getter-proto (list-ref prototypes 3)])
+                                                           ;; TODO: Deprecate this
+                                                           [getter-proto (list-ref prototypes 3)]
+                                                           [getter-proto-list
+                                                            (list-ref prototypes 4)])
          (set! ,struct-prop-name struct-type-descriptor)
          (#%vtable-update-entry! struct-type-descriptor ,maybe-procedure-field ,struct-options-name)
          ,(if mutable?
@@ -261,7 +258,9 @@
 (define (new-make-getters struct-name fields)
   (map (lambda (field)
          `(set! ,(concat-symbols struct-name '- (car field))
-                (lambda (this) (getter-proto this ,(list-ref field 1)))))
+                (list-ref getter-proto-list ,(list-ref field 1))
+                ; (lambda (this) (getter-proto this ,(list-ref field 1)))
+                ))
        (enumerate 0 '() fields)))
 
 (define (new-make-setters struct-name fields)

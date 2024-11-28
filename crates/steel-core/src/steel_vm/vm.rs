@@ -31,6 +31,7 @@ use crate::steel_vm::primitives::steel_unbox_mutable;
 use crate::steel_vm::primitives::THREADING_MODULE;
 use crate::values::closed::Heap;
 use crate::values::closed::MarkAndSweepContext;
+use crate::values::functions::RootedInstructions;
 use crate::values::functions::SerializedLambda;
 use crate::values::structs::UserDefinedStruct;
 use crate::values::transducers::Reducer;
@@ -59,6 +60,7 @@ use std::cell::UnsafeCell;
 use std::io::Read as _;
 use std::rc::Weak;
 use std::sync::atomic::AtomicBool;
+use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread::JoinHandle;
@@ -74,6 +76,7 @@ use crate::values::lists::List;
 use crossbeam::atomic::AtomicCell;
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
+use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use smallvec::SmallVec;
 #[cfg(feature = "profiling")]
@@ -158,6 +161,12 @@ impl DehydratedStackTrace {
 //     Transducer,
 // }
 
+#[derive(Debug, Clone)]
+pub struct StackFrameAttachments {
+    pub(crate) handler: Option<SteelVal>,
+    weak_continuation_mark: Option<WeakContinuation>,
+}
+
 // This should be the go to thing for handling basically everything we need
 // Then - do I want to always reference the last one, or just refer to the current one?
 // TODO: We'll need to add these functions to the GC as well
@@ -165,8 +174,9 @@ impl DehydratedStackTrace {
 #[derive(Debug, Clone)]
 pub struct StackFrame {
     sp: usize,
+
     // This _has_ to be a function
-    pub(crate) handler: Option<Shared<SteelVal>>,
+    // pub(crate) handler: Option<Shared<SteelVal>>,
     // This should get added to the GC as well
     #[cfg(not(feature = "unsafe-internals"))]
     pub(crate) function: Gc<ByteCodeLambda>,
@@ -177,13 +187,19 @@ pub struct StackFrame {
 
     ip: usize,
 
-    // TODO: This should just be... *const [DenseInstruction]
-    // Since Rc<DenseInstruction> should always just be alive?
-    instructions: Shared<[DenseInstruction]>,
+    // // TODO: This should just be... *const [DenseInstruction]
+    // // Since Rc<DenseInstruction> should always just be alive?
+    // instructions: Shared<[DenseInstruction]>,
+
+    // // TODO: Delete this one!
+    // // continuation_mark: Option<MaybeContinuation>,
+    // weak_continuation_mark: Option<WeakContinuation>,
+    instructions: RootedInstructions,
 
     // TODO: Delete this one!
     // continuation_mark: Option<MaybeContinuation>,
-    weak_continuation_mark: Option<WeakContinuation>,
+    // weak_continuation_mark: Option<WeakContinuation>,
+    pub(crate) attachments: Option<Box<StackFrameAttachments>>,
 }
 
 impl Eq for StackFrame {}
@@ -191,7 +207,8 @@ impl Eq for StackFrame {}
 impl PartialEq for StackFrame {
     fn eq(&self, other: &Self) -> bool {
         self.sp == other.sp
-            && self.handler == other.handler
+            && self.attachments.as_ref().map(|x| &x.handler)
+                == other.attachments.as_ref().map(|x| &x.handler)
             && self.ip == other.ip
             && self.instructions == other.instructions
             && self.function == other.function
@@ -215,12 +232,17 @@ fn check_sizes() {
     );
 }
 
+thread_local! {
+    static THE_EMPTY_INSTRUCTION_SET: Shared<[DenseInstruction]> = Shared::from([]);
+}
+
 impl StackFrame {
     pub fn new(
         stack_index: usize,
         function: Gc<ByteCodeLambda>,
         ip: usize,
-        instructions: Shared<[DenseInstruction]>,
+        // instructions: Shared<[DenseInstruction]>,
+        instructions: RootedInstructions,
     ) -> Self {
         Self {
             sp: stack_index,
@@ -230,21 +252,40 @@ impl StackFrame {
             function,
             ip,
             instructions,
-            handler: None,
-
-            weak_continuation_mark: None,
+            // handler: None,
+            attachments: None,
+            // weak_continuation_mark: None,
         }
     }
 
     fn with_continuation_mark(mut self, continuation_mark: Continuation) -> Self {
-        self.weak_continuation_mark = Some(WeakContinuation::from_strong(&continuation_mark));
+        // self.weak_continuation_mark = Some(WeakContinuation::from_strong(&continuation_mark));
+        match &mut self.attachments {
+            Some(attachments) => {
+                attachments.weak_continuation_mark =
+                    Some(WeakContinuation::from_strong(&continuation_mark));
+            }
+
+            None => {
+                self.attachments = Some(Box::new(StackFrameAttachments {
+                    handler: None,
+                    weak_continuation_mark: Some(WeakContinuation::from_strong(&continuation_mark)),
+                }))
+            }
+        }
 
         self
     }
 
     pub fn main() -> Self {
         let function = Gc::new(ByteCodeLambda::main(Vec::new()));
-        StackFrame::new(0, function, 0, Shared::from([]))
+        // StackFrame::new(0, function, 0, Shared::from([]))
+        StackFrame::new(
+            0,
+            function,
+            0,
+            RootedInstructions::new(THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone())),
+        )
     }
 
     #[inline(always)]
@@ -262,11 +303,38 @@ impl StackFrame {
 
     #[inline(always)]
     pub fn set_continuation(&mut self, continuation: &Continuation) {
-        self.weak_continuation_mark = Some(WeakContinuation::from_strong(&continuation));
+        // self.weak_continuation_mark = Some(WeakContinuation::from_strong(&continuation));
+
+        match &mut self.attachments {
+            Some(attachments) => {
+                attachments.weak_continuation_mark =
+                    Some(WeakContinuation::from_strong(continuation));
+            }
+
+            None => {
+                self.attachments = Some(Box::new(StackFrameAttachments {
+                    handler: None,
+                    weak_continuation_mark: Some(WeakContinuation::from_strong(continuation)),
+                }))
+            }
+        }
     }
 
     pub fn with_handler(mut self, handler: SteelVal) -> Self {
-        self.handler = Some(Shared::new(handler));
+        // self.handler = Some(Shared::new(handler));
+
+        match &mut self.attachments {
+            Some(attachments) => {
+                attachments.handler = Some(handler);
+            }
+
+            None => {
+                self.attachments = Some(Box::new(StackFrameAttachments {
+                    handler: Some(handler),
+                    weak_continuation_mark: None,
+                }))
+            }
+        }
         self
     }
 }
@@ -338,6 +406,8 @@ pub struct SteelThread {
     pub(crate) compiler: std::sync::Arc<RwLock<Compiler>>,
 
     pub(crate) id: EngineId,
+
+    pub(crate) safepoints_enabled: bool,
 }
 
 #[derive(Clone)]
@@ -556,6 +626,10 @@ impl SteelThread {
             sources,
             compiler,
             id: EngineId::new(),
+
+            // Only incur the cost of the actual safepoint behavior
+            // if multiple threads are enabled
+            safepoints_enabled: false,
         }
     }
 
@@ -566,13 +640,17 @@ impl SteelThread {
         &mut self,
         mut finish: impl FnMut(&SteelThread) -> Result<SteelVal>,
     ) -> Result<SteelVal> {
-        if cfg!(feature = "sync") {
+        // TODO:
+        // Only need to actually enter the safepoint if another
+        // thread exists
+
+        if cfg!(feature = "sync") && self.safepoints_enabled {
             self.synchronizer.ctx.store(Some(self as _));
         }
 
         let res = finish(self);
 
-        if cfg!(feature = "sync") {
+        if cfg!(feature = "sync") && self.safepoints_enabled {
             // Just block here until we're out - this only applies if we're not the main thread and
             // not in garbage collection
             while self
@@ -687,7 +765,8 @@ impl SteelThread {
                 let spans = closure.body_exp().iter().map(|_| Span::default()).collect();
 
                 let mut vm_instance = VmCore::new_unchecked(
-                    Shared::new([]),
+                    // Shared::new([]),
+                    RootedInstructions::new(THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone())),
                     constant_map,
                     Shared::clone(&spans),
                     self,
@@ -737,7 +816,7 @@ impl SteelThread {
             }
             SteelVal::ContinuationFunction(c) => {
                 let mut vm_instance = VmCore::new_unchecked(
-                    Shared::new([]),
+                    RootedInstructions::new(THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone())),
                     constant_map,
                     Shared::new([]),
                     self,
@@ -751,7 +830,7 @@ impl SteelThread {
                 let spans = closure.body_exp().iter().map(|_| Span::default()).collect();
 
                 let mut vm_instance = VmCore::new_unchecked(
-                    Shared::new([]),
+                    RootedInstructions::new(THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone())),
                     constant_map,
                     Shared::clone(&spans),
                     self,
@@ -789,8 +868,21 @@ impl SteelThread {
         #[cfg(feature = "profiling")]
         let execution_time = Instant::now();
 
+        // let mut vm_instance = VmCore::new(
+        //     instructions,
+        //     constant_map,
+        //     Shared::clone(&spans),
+        //     self,
+        //     &spans,
+        // )?;
+
+        let keep_alive = instructions.clone();
+
+        // TODO: Very important! Convert this back before we return
+        let raw_keep_alive = Shared::into_raw(keep_alive);
+
         let mut vm_instance = VmCore::new(
-            instructions,
+            RootedInstructions::new(instructions),
             constant_map,
             Shared::clone(&spans),
             self,
@@ -800,9 +892,11 @@ impl SteelThread {
         // This is our pseudo "dynamic unwind"
         // If we need to, we'll walk back on the stack and find any handlers to pop
         'outer: loop {
-            let result = vm_instance
-                .vm()
-                .map_err(|error| error.with_stack_trace(vm_instance.snapshot_stack_trace()));
+            let result = vm_instance.vm().map_err(|mut error| {
+                error
+                    .set_span_if_none(vm_instance.current_span())
+                    .with_stack_trace(vm_instance.snapshot_stack_trace())
+            });
 
             if let Err(e) = result {
                 while let Some(mut last) = vm_instance.thread.stack_frames.pop() {
@@ -815,16 +909,24 @@ impl SteelThread {
                     // Drop the pop count along with everything else we're doing
                     vm_instance.pop_count -= 1;
 
-                    if last.weak_continuation_mark.is_some() {
-                        vm_instance.thread.stack.truncate(last.sp);
+                    if last
+                        .attachments
+                        .as_mut()
+                        .and_then(|mut x| x.weak_continuation_mark.take())
+                        .is_some()
+                    {
+                        vm_instance.thread.stack.truncate(last.sp as _);
                         vm_instance.ip = last.ip;
                         vm_instance.sp = vm_instance.get_last_stack_frame_sp();
-                        vm_instance.instructions = Shared::clone(&last.instructions);
 
+                        // vm_instance.instructions = Rc::clone(&last.instructions);
+                        vm_instance.instructions = last.instructions.clone();
                         vm_instance.close_continuation_marks(&last);
                     }
 
-                    if let Some(handler) = last.handler {
+                    if let Some(handler) =
+                        last.attachments.as_mut().and_then(|mut x| x.handler.take())
+                    {
                         // Drop the stack BACK to where it was on this level
                         vm_instance.thread.stack.truncate(last.sp);
                         vm_instance.thread.stack.push(e.into_steelval()?);
@@ -832,7 +934,7 @@ impl SteelThread {
                         // If we're at the top level, we need to handle this _slightly_ differently
                         // if vm_instance.stack_frames.is_empty() {
                         // Somehow update the main instruction group to _just_ be the new group
-                        match handler.as_ref() {
+                        match handler {
                             SteelVal::Closure(closure) => {
                                 if vm_instance.thread.stack_frames.is_empty() {
                                     vm_instance.sp = last.sp;
@@ -842,14 +944,20 @@ impl SteelThread {
                                         last.sp,
                                         Gc::clone(&closure),
                                         0,
-                                        Shared::from([]),
+                                        RootedInstructions::new(
+                                            THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone()),
+                                        ),
                                     ));
                                 }
 
                                 vm_instance.sp = last.sp;
                                 vm_instance.instructions = closure.body_exp();
 
-                                last.handler = None;
+                                if let Some(attachments) = &mut last.attachments {
+                                    attachments.handler = None;
+                                } else {
+                                    panic!("This shouldn't happen")
+                                }
 
                                 #[cfg(not(feature = "unsafe-internals"))]
                                 {
@@ -875,6 +983,8 @@ impl SteelThread {
                 self.stack.clear();
                 // self.current_frame = StackFrame::main();
 
+                unsafe { Shared::from_raw(raw_keep_alive) };
+
                 return Err(e);
             } else {
                 for frame in &vm_instance.thread.stack_frames {
@@ -888,6 +998,8 @@ impl SteelThread {
 
                 // dbg!(&self.stack_frames);
 
+                unsafe { Shared::from_raw(raw_keep_alive) };
+
                 return result;
             }
         }
@@ -899,7 +1011,8 @@ pub struct OpenContinuationMark {
     // Lazily capture the frames we need to?
     pub(crate) current_frame: StackFrame,
     pub(crate) stack_frame_offset: usize,
-    instructions: Shared<[DenseInstruction]>,
+    // instructions: Shared<[DenseInstruction]>,
+    instructions: RootedInstructions,
 
     // Captured at creation, everything on the stack
     // from the current frame
@@ -934,7 +1047,8 @@ impl ContinuationMark {
                 continuation.ip = open.ip;
                 continuation.sp = open.sp;
                 continuation.pop_count = open.pop_count;
-                continuation.instructions = Shared::clone(&open.instructions);
+                // continuation.instructions = Shared::clone(&open.instructions);
+                continuation.instructions = open.instructions.clone();
 
                 continuation.current_frame = open.current_frame.clone();
 
@@ -976,11 +1090,17 @@ impl ContinuationMark {
 impl Continuation {
     #[inline(always)]
     pub fn close_marks(ctx: &VmCore<'_>, stack_frame: &StackFrame) -> bool {
-        if let Some(cont_mark) = stack_frame
-            .weak_continuation_mark
-            .as_ref()
-            .and_then(|x| WeakShared::upgrade(&x.inner))
-        {
+        // if let Some(cont_mark) = stack_frame
+        //     .weak_continuation_mark
+        //     .as_ref()
+        //     .and_then(|x| WeakShared::upgrade(&x.inner))
+        // {
+
+        if let Some(cont_mark) = stack_frame.attachments.as_ref().and_then(|x| {
+            x.weak_continuation_mark
+                .as_ref()
+                .and_then(|x| WeakShared::upgrade(&x.inner))
+        }) {
             cont_mark.write().close(ctx);
 
             return true;
@@ -1000,11 +1120,17 @@ impl Continuation {
             while let Some(stack_frame) = ctx.thread.stack_frames.pop() {
                 ctx.pop_count -= 1;
 
-                if let Some(mark) = &stack_frame
-                    .weak_continuation_mark
-                    .as_ref()
-                    .and_then(|x| WeakShared::upgrade(&x.inner))
-                {
+                // if let Some(mark) = &stack_frame
+                //     .weak_continuation_mark
+                //     .as_ref()
+                //     .and_then(|x| WeakShared::upgrade(&x.inner))
+                // {
+
+                if let Some(mark) = &stack_frame.attachments.as_ref().and_then(|x| {
+                    x.weak_continuation_mark
+                        .as_ref()
+                        .and_then(|x| WeakShared::upgrade(&x.inner))
+                }) {
                     if Shared::ptr_eq(&mark, &this.inner) {
                         if weak_count == 1 && strong_count > 1 {
                             if Self::close_marks(ctx, &stack_frame) {
@@ -1024,7 +1150,9 @@ impl Continuation {
 
                         ctx.sp = open.sp;
                         ctx.ip = open.ip;
-                        ctx.instructions = Shared::clone(&open.instructions);
+                        // ctx.instructions = Shared::clone(&open.instructions);
+
+                        ctx.instructions = open.instructions.clone();
 
                         ctx.thread.stack.truncate(open.sp);
 
@@ -1056,7 +1184,9 @@ impl Continuation {
                 ctx.thread.stack.truncate(stack_frame.sp);
                 ctx.ip = stack_frame.ip;
                 ctx.sp = ctx.get_last_stack_frame_sp();
-                ctx.instructions = Shared::clone(&stack_frame.instructions);
+                // ctx.instructions = Shared::clone(&stack_frame.instructions);
+
+                ctx.instructions = stack_frame.instructions.clone();
 
                 if Self::close_marks(ctx, &stack_frame) {
                     // println!("CLOSING MARKS WHEN SETTING STATE FROM CONTINUATION");
@@ -1114,7 +1244,8 @@ impl WeakContinuation {
 pub struct ClosedContinuation {
     pub(crate) stack: Vec<SteelVal>,
     pub(crate) current_frame: StackFrame,
-    instructions: Shared<[DenseInstruction]>,
+    // instructions: Shared<[DenseInstruction]>,
+    instructions: RootedInstructions,
     pub(crate) stack_frames: Vec<StackFrame>,
     ip: usize,
     sp: usize,
@@ -1293,7 +1424,8 @@ impl<'a> VmContext for VmCore<'a> {
 // }
 
 pub struct VmCore<'a> {
-    pub(crate) instructions: Shared<[DenseInstruction]>,
+    // pub(crate) instructions: Shared<[DenseInstruction]>,
+    pub(crate) instructions: RootedInstructions,
     pub(crate) constants: ConstantMap,
     pub(crate) ip: usize,
     pub(crate) sp: usize,
@@ -1307,7 +1439,8 @@ pub struct VmCore<'a> {
 //
 impl<'a> VmCore<'a> {
     fn new_unchecked(
-        instructions: Shared<[DenseInstruction]>,
+        // instructions: Shared<[DenseInstruction]>,
+        instructions: RootedInstructions,
         constants: ConstantMap,
         spans: Shared<[Span]>,
         thread: &'a mut SteelThread,
@@ -1326,7 +1459,8 @@ impl<'a> VmCore<'a> {
     }
 
     fn new(
-        instructions: Shared<[DenseInstruction]>,
+        // instructions: Shared<[DenseInstruction]>,
+        instructions: RootedInstructions,
         constants: ConstantMap,
         spans: Shared<[Span]>,
         thread: &'a mut SteelThread,
@@ -1491,7 +1625,7 @@ impl<'a> VmCore<'a> {
     fn new_closed_continuation_from_state(&self) -> ClosedContinuation {
         ClosedContinuation {
             stack: self.thread.stack.clone(),
-            instructions: Shared::clone(&self.instructions),
+            instructions: self.instructions.clone(),
             current_frame: self.thread.stack_frames.last().unwrap().clone(),
             stack_frames: self.thread.stack_frames.clone(),
             ip: self.ip,
@@ -1513,7 +1647,7 @@ impl<'a> VmCore<'a> {
     fn new_oneshot_continuation_from_state(&mut self) -> ClosedContinuation {
         ClosedContinuation {
             stack: std::mem::take(&mut self.thread.stack),
-            instructions: Shared::clone(&self.instructions),
+            instructions: self.instructions.clone(),
             current_frame: self.thread.current_frame.clone(),
             stack_frames: std::mem::take(&mut self.thread.stack_frames),
             ip: self.ip,
@@ -1560,27 +1694,41 @@ impl<'a> VmCore<'a> {
         let mut marks_still_open = fxhash::FxHashSet::default();
 
         for frame in &continuation.stack_frames {
-            if let Some(cont_mark) = frame
-                .weak_continuation_mark
-                .as_ref()
-                .and_then(|x| WeakShared::upgrade(&x.inner))
-            {
+            // if let Some(cont_mark) = frame
+            //     .weak_continuation_mark
+            //     .as_ref()
+            //     .and_then(|x| WeakShared::upgrade(&x.inner))
+            // {
+
+            if let Some(cont_mark) = frame.attachments.as_ref().and_then(|x| {
+                x.weak_continuation_mark
+                    .as_ref()
+                    .and_then(|x| WeakShared::upgrade(&x.inner))
+            }) {
                 marks_still_open.insert(Shared::as_ptr(&cont_mark) as usize);
             }
         }
 
         while let Some(frame) = self.thread.stack_frames.pop() {
-            if let Some(cont_mark) = frame
-                .weak_continuation_mark
-                .as_ref()
-                .and_then(|x| WeakShared::upgrade(&x.inner))
-            {
+            // if let Some(cont_mark) = frame
+            //     .weak_continuation_mark
+            //     .as_ref()
+            //     .and_then(|x| WeakShared::upgrade(&x.inner))
+            // {
+            if let Some(cont_mark) = frame.attachments.as_ref().and_then(|x| {
+                x.weak_continuation_mark
+                    .as_ref()
+                    .and_then(|x| WeakShared::upgrade(&x.inner))
+            }) {
                 // Close frame if the new continuation doesn't have it
                 if !marks_still_open.contains(&(Shared::as_ptr(&cont_mark) as usize)) {
                     self.thread.stack.truncate(frame.sp);
                     self.ip = frame.ip;
                     self.sp = self.get_last_stack_frame_sp();
-                    self.instructions = Shared::clone(&frame.instructions);
+                    // self.instructions = Shared::clone(&frame.instructions);
+
+                    self.instructions = frame.instructions.clone();
+
                     self.close_continuation_marks(&frame);
                     continue;
                 }
@@ -1604,7 +1752,8 @@ impl<'a> VmCore<'a> {
     // Reset state FULLY
     pub(crate) fn call_with_instructions_and_reset_state(
         &mut self,
-        closure: Shared<[DenseInstruction]>,
+        // closure: Shared<[DenseInstruction]>,
+        closure: RootedInstructions,
     ) -> Result<SteelVal> {
         let old_ip = self.ip;
         let old_instructions = std::mem::replace(&mut self.instructions, closure);
@@ -1636,16 +1785,27 @@ impl<'a> VmCore<'a> {
                     // Drop the pop count along with everything else we're doing
                     self.pop_count -= 1;
 
-                    if last.weak_continuation_mark.is_some() {
+                    // if last.weak_continuation_mark.is_some() {
+
+                    if last
+                        .attachments
+                        .as_mut()
+                        .and_then(|mut x| x.weak_continuation_mark.take())
+                        .is_some()
+                    {
                         self.thread.stack.truncate(last.sp);
                         self.ip = last.ip;
                         self.sp = self.get_last_stack_frame_sp();
-                        self.instructions = Shared::clone(&last.instructions);
+                        // self.instructions = Shared::clone(&last.instructions);
+
+                        self.instructions = last.instructions.clone();
 
                         self.close_continuation_marks(&last);
                     }
 
-                    if let Some(handler) = last.handler {
+                    if let Some(handler) =
+                        last.attachments.as_mut().and_then(|mut x| x.handler.take())
+                    {
                         // Drop the stack BACK to where it was on this level
                         self.thread.stack.truncate(last.sp);
 
@@ -1654,7 +1814,7 @@ impl<'a> VmCore<'a> {
                         // If we're at the top level, we need to handle this _slightly_ differently
                         // if vm_instance.stack_frames.is_empty() {
                         // Somehow update the main instruction group to _just_ be the new group
-                        match handler.as_ref() {
+                        match handler {
                             SteelVal::Closure(closure) => {
                                 if self.thread.stack_frames.is_empty() {
                                     self.sp = last.sp;
@@ -1664,14 +1824,16 @@ impl<'a> VmCore<'a> {
                                         last.sp,
                                         Gc::clone(&closure),
                                         0,
-                                        Shared::from([]),
+                                        RootedInstructions::new(
+                                            THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone()),
+                                        ),
                                     ));
                                 }
 
                                 self.sp = last.sp;
                                 self.instructions = closure.body_exp();
 
-                                last.handler = None;
+                                // last.handler = None;
 
                                 #[cfg(not(feature = "unsafe-internals"))]
                                 {
@@ -1929,7 +2091,7 @@ impl<'a> VmCore<'a> {
             prev_length,
             Gc::clone(closure),
             0,
-            Shared::from([]),
+            RootedInstructions::new(THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone())),
             // Rc::from([]),
         ));
 
@@ -1951,9 +2113,9 @@ impl<'a> VmCore<'a> {
         closure: &Gc<ByteCodeLambda>,
         arg: SteelVal,
     ) -> Result<SteelVal> {
-        thread_local! {
-            static EMPTY_INSTRUCTIONS: Shared<[DenseInstruction]> = Shared::new([]);
-        }
+        // thread_local! {
+        // static EMPTY_INSTRUCTIONS: Shared<[DenseInstruction]> = Shared::new([]);
+        // }
 
         let prev_length = self.thread.stack.len();
 
@@ -1961,7 +2123,7 @@ impl<'a> VmCore<'a> {
             prev_length,
             Gc::clone(closure),
             0,
-            EMPTY_INSTRUCTIONS.with(|x| x.clone()),
+            RootedInstructions::new(THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone())),
         ));
 
         self.sp = prev_length;
@@ -3048,28 +3210,94 @@ impl<'a> VmCore<'a> {
 
     #[inline(always)]
     fn handle_call_global(&mut self, index: usize, payload_size: usize) -> Result<()> {
-        #[cfg(not(feature = "unsafe-internals"))]
-        {
-            let func = self.thread.global_env.repl_lookup_idx(index);
-            // TODO - handle this a bit more elegantly
-            // self.handle_function_call(func, payload_size, span)
-            self.handle_global_function_call(func, payload_size)
-        }
-        #[cfg(feature = "unsafe-internals")]
-        {
-            let func = self.thread.global_env.repl_lookup_idx(index);
-            // TODO - handle this a bit more elegantly
-            // self.handle_function_call(func, payload_size, span)
-            self.handle_global_function_call_by_reference(&func, payload_size)
+        // TODO: Lazily fetch the function. Avoid cloning where relevant.
+        // Boxed functions probably _should_ be rooted in the modules?
+        // let func = self.thread.global_env.repl_lookup_idx(index);
+        // self.handle_global_function_call(func, payload_size)
+
+        let stack_func = &self.thread.global_env.thread_local_bindings[index] as *const _;
+
+        use SteelVal::*;
+
+        match unsafe { &*stack_func } {
+            Closure(closure) => {
+                let closure = closure.clone();
+                self.handle_function_call_closure_jit(closure, payload_size)
+            }
+            FuncV(f) => {
+                let f = *f;
+                self.call_primitive_func(f, payload_size)
+            }
+            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
+            MutFunc(f) => {
+                let f = *f;
+                self.call_primitive_mut_func(f, payload_size)
+            }
+            FutureFunc(f) => {
+                let f = f.clone();
+                self.call_future_func(f, payload_size)
+            }
+            ContinuationFunction(cc) => {
+                let cc = cc.clone();
+                self.call_continuation(cc)
+            }
+            BuiltIn(f) => {
+                let f = *f;
+                // self.ip -= 1;
+                self.call_builtin_func(f, payload_size)
+            }
+            CustomStruct(s) => {
+                let s = s.clone();
+                self.call_custom_struct(&s, payload_size)
+            }
+            other => {
+                // Explicitly mark this as unlikely
+                cold();
+                log::error!("{stack_func:?}");
+                log::error!("Stack: {:?}", self.thread.stack);
+                stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", other); self.current_span());
+            }
         }
     }
 
     #[inline(always)]
     fn handle_tail_call_global(&mut self, index: usize, payload_size: usize) -> Result<()> {
-        let func = self.thread.global_env.repl_lookup_idx(index);
+        // let stack_func = self.thread.global_env.repl_lookup_idx(index);
         self.ip += 1;
-        self.handle_tail_call(func, payload_size)
+
+        // self.handle_tail_call(func, payload_size)
+
+        let stack_func = &self.thread.global_env.thread_local_bindings[index] as *const _;
+
+        use SteelVal::*;
+
+        match unsafe { &*stack_func } {
+            FuncV(f) => self.call_primitive_func(*f, payload_size),
+            MutFunc(f) => self.call_primitive_mut_func(*f, payload_size),
+            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
+            Closure(closure) => self.new_handle_tail_call_closure(closure.clone(), payload_size),
+            BuiltIn(f) => self.call_builtin_func(*f, payload_size),
+            CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+            ContinuationFunction(cc) => self.call_continuation(cc.clone()),
+            stack_func => {
+                // println!("{:?}", self.stack);
+                // println!("{:?}", self.stack_index);
+                // println!("Bad tail call");
+                // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+                stop!(BadSyntax => format!("TailCall - Application not a procedure or function type 
+                    not supported: {stack_func}"); self.current_span());
+            }
+        }
     }
+
+    // #[inline(always)]
+    // fn handle_tail_call_global(&mut self, index: usize, payload_size: usize) -> Result<()> {
+    //     let func = self.thread.global_env.repl_lookup_idx(index);
+    //     self.ip += 1;
+
+    //     // self.handle_tail_call(func, payload_size)
+
+    // }
 
     #[inline(always)]
     fn handle_push(&mut self, index: usize) -> Result<()> {
@@ -3331,11 +3559,6 @@ impl<'a> VmCore<'a> {
 
         // TODO preallocate size
         let mut captures = Vec::with_capacity(ndefs);
-
-        // TODO: This shouldn't be the same size as the captures
-        // let mut heap_vars = Vec::with_capacity(ndefs.to_usize());
-
-        // let mut heap_vars = Vec::new();
 
         // TODO clean this up a bit
         // hold the spot for where we need to jump aftwards
@@ -3718,6 +3941,7 @@ impl<'a> VmCore<'a> {
             .enter_safepoint(|ctx| func(&ctx.stack[last_index..]))
             .map_err(|x| x.set_span_if_none(self.current_span()))?;
 
+        // TODO: Drain, and push onto another thread to drop?
         self.thread.stack.truncate(last_index);
         self.thread.stack.push(result);
         self.ip += 1;
@@ -3805,6 +4029,7 @@ impl<'a> VmCore<'a> {
         let result = self
             .thread
             .enter_safepoint(move |ctx: &SteelThread| f(&ctx.stack[last_index..]))
+            // // TODO: Can we just apply this at the end?
             .map_err(|e| e.set_span_if_none(self.current_span()))?;
 
         // This is the old way... lets see if the below way improves the speed
@@ -3915,7 +4140,8 @@ impl<'a> VmCore<'a> {
                 prev_length,
                 Gc::clone(closure),
                 self.ip + 4,
-                Shared::clone(&self.instructions),
+                // Shared::clone(&self.instructions),
+                self.instructions.clone(),
                 // Rc::clone(&self.spans),
             ), // .with_span(self.current_span()),
         );
@@ -4188,6 +4414,37 @@ impl<'a> VmCore<'a> {
         }
     }
 
+    #[inline(always)]
+    fn handle_global_function_call_by_ref(
+        &mut self,
+        stack_func: &SteelVal,
+        payload_size: usize,
+    ) -> Result<()> {
+        use SteelVal::*;
+
+        match stack_func {
+            Closure(closure) => {
+                self.handle_function_call_closure_jit(closure.clone(), payload_size)
+            }
+            FuncV(f) => self.call_primitive_func(*f, payload_size),
+            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
+            MutFunc(f) => self.call_primitive_mut_func(*f, payload_size),
+            FutureFunc(f) => self.call_future_func(f.clone(), payload_size),
+            ContinuationFunction(cc) => self.call_continuation(cc.clone()),
+            BuiltIn(f) => {
+                // self.ip -= 1;
+                self.call_builtin_func(*f, payload_size)
+            }
+            CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+            _ => {
+                // Explicitly mark this as unlikely
+                cold();
+                log::error!("{stack_func:?}");
+                log::error!("Stack: {:?}", self.thread.stack);
+                stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); self.current_span());
+            }
+        }
+    }
     #[inline(always)]
     fn handle_non_instr_global_function_call(
         &mut self,
@@ -4509,7 +4766,8 @@ pub fn call_with_exception_handler(
                     ctx.sp,
                     Gc::clone(&closure),
                     ctx.ip + 1,
-                    Shared::clone(&ctx.instructions),
+                    // Shared::clone(&ctx.instructions),
+                    ctx.instructions.clone(),
                 )
                 .with_handler(handler),
             );
@@ -4584,7 +4842,8 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
                     ctx.sp,
                     Gc::clone(&closure),
                     ctx.ip + 1,
-                    Shared::clone(&ctx.instructions),
+                    // Shared::clone(&ctx.instructions),
+                    ctx.instructions.clone(),
                 )
                 .with_continuation_mark(continuation.clone()),
             );

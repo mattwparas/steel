@@ -289,8 +289,24 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
         [] => steelerr!(TypeMismatch => "- requires at least one argument"),
         [x] => negate(x),
         [x, ys @ ..] => {
-            let y = negate(&add_primitive(ys)?)?;
+            let y = negate(&add_primitive_no_check(ys)?)?;
             add_two(x, &y)
+        }
+    }
+}
+
+#[inline(always)]
+fn add_primitive_no_check(args: &[SteelVal]) -> Result<SteelVal> {
+    match args {
+        [] => 0.into_steelval(),
+        [x] => x.clone().into_steelval(),
+        [x, y] => add_two(x, y),
+        [x, y, zs @ ..] => {
+            let mut res = add_two(x, y)?;
+            for z in zs {
+                res = add_two(&res, z)?;
+            }
+            res.into_steelval()
         }
     }
 }
@@ -1363,6 +1379,7 @@ fn complex_reciprocal(c: &SteelComplex) -> Result<SteelVal> {
 ///
 /// # Precondition
 /// `value` must be a number.
+#[inline(always)]
 fn negate(value: &SteelVal) -> Result<SteelVal> {
     match value {
         SteelVal::NumV(x) => (-x).into_steelval(),
@@ -1387,6 +1404,7 @@ fn negate(value: &SteelVal) -> Result<SteelVal> {
 ///
 /// # Precondition
 /// x and y must be valid numbers.
+#[inline(always)]
 pub fn add_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
     match (x, y) {
         // Simple integer case. Probably very common.

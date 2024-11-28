@@ -1725,7 +1725,8 @@ pub fn black_box(_: &[SteelVal]) -> Result<SteelVal> {
 #[steel_derive::function(name = "struct->list")]
 pub fn struct_to_list(value: &UserDefinedStruct) -> Result<SteelVal> {
     if value.is_transparent() {
-        Ok(SteelVal::ListV((*value.fields).clone().into()))
+        // Ok(SteelVal::ListV((*value.fields).clone().into()))
+        Ok(SteelVal::ListV((*value.fields).iter().cloned().collect()))
     } else {
         Ok(SteelVal::BoolV(false))
     }

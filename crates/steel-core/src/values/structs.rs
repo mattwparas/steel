@@ -5,6 +5,7 @@ use crate::steel_vm::primitives::{steel_unbox_mutable, unbox_mutable};
 use crate::values::HashMap;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
+use smallvec::SmallVec;
 
 use crate::compiler::map::SymbolMap;
 use crate::parser::interner::InternedString;
@@ -130,7 +131,9 @@ pub struct SerializableUserDefinedStruct {
 
 #[derive(Clone, Debug, Hash)]
 pub struct UserDefinedStruct {
-    pub(crate) fields: Recycle<Vec<SteelVal>>,
+    // pub(crate) fields: Recycle<Vec<SteelVal>>,
+    pub(crate) fields: Recycle<SmallVec<[SteelVal; 4]>>,
+    // pub(crate) fields: SmallVec<[SteelVal; 4]>,
 
     // Type Descriptor. Use this as an index into the VTable to find anything that we need.
     pub(crate) type_descriptor: StructTypeDescriptor,
@@ -199,8 +202,13 @@ impl std::fmt::Display for UserDefinedStruct {
 
 impl UserDefinedStruct {
     fn new(type_descriptor: StructTypeDescriptor, raw_fields: &[SteelVal]) -> Self {
-        let mut fields: Recycle<Vec<_>> = Recycle::new();
-        fields.extend_from_slice(raw_fields);
+        // let mut fields: Recycle<Vec<_>> = Recycle::new();
+        let mut fields: Recycle<SmallVec<[SteelVal; 4]>> = Recycle::new();
+        // fields.extend_from_slice(raw_fields);
+        fields.extend(raw_fields.into_iter().cloned());
+
+        // let fields = raw_fields.into_iter().cloned().collect();
+
         Self {
             fields,
             type_descriptor,
@@ -282,8 +290,13 @@ impl UserDefinedStruct {
         type_descriptor: StructTypeDescriptor,
         rest: &[SteelVal],
     ) -> Self {
-        let mut fields: Recycle<Vec<_>> = Recycle::new();
-        fields.extend_from_slice(rest);
+        // let mut fields: Recycle<Vec<_>> = Recycle::new_with_capacity(rest.len());
+        // fields.extend_from_slice(rest);
+
+        let mut fields: Recycle<SmallVec<[_; 4]>> = Recycle::new_with_capacity(rest.len());
+        fields.extend(rest.into_iter().cloned());
+
+        // let fields = rest.into_iter().cloned().collect();
 
         Self {
             fields,
@@ -399,10 +412,10 @@ impl UserDefinedStruct {
                 stop!(ArityMismatch => format!("{} expected two arguments", descriptor.name()));
             }
 
-            let steel_struct = &args[0].clone();
-            let idx = &args[1].clone();
+            let steel_struct = &args[0];
+            let idx = &args[1];
 
-            match (&steel_struct, &idx) {
+            match (steel_struct, idx) {
                 (SteelVal::CustomStruct(s), SteelVal::IntV(idx)) => {
                     if s.type_descriptor != descriptor {
                         stop!(TypeMismatch => format!("Struct getter expected {}, found {:?}, {:?}", descriptor.name(), &s, &steel_struct));
@@ -557,8 +570,13 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
         stop!(TypeMismatch => format!("make-struct-type expected an integer for the field count, found: {}", &args[0]));
     };
 
-    let (struct_type_descriptor, struct_constructor, struct_predicate, getter_prototype) =
-        make_struct_type_inner(name.as_str(), *field_count as usize);
+    let (
+        struct_type_descriptor,
+        struct_constructor,
+        struct_predicate,
+        getter_prototype,
+        getter_prototypes,
+    ) = make_struct_type_inner(name.as_str(), *field_count as usize);
 
     Ok(SteelVal::ListV(
         vec![
@@ -567,6 +585,7 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
             struct_constructor,
             struct_predicate,
             getter_prototype,
+            getter_prototypes,
             // struct_type_descriptor,
         ]
         .into(),
@@ -574,7 +593,7 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 pub fn make_struct_singleton(name: &str) -> (SteelVal, StructTypeDescriptor) {
-    let (descriptor, _, _, _) = make_struct_type_inner(name, 0);
+    let (descriptor, _, _, _, _) = make_struct_type_inner(name, 0);
 
     let instance = UserDefinedStruct::new(descriptor, &[]);
 
@@ -584,7 +603,7 @@ pub fn make_struct_singleton(name: &str) -> (SteelVal, StructTypeDescriptor) {
 fn make_struct_type_inner(
     name: &str,
     field_count: usize,
-) -> (StructTypeDescriptor, SteelVal, SteelVal, SteelVal) {
+) -> (StructTypeDescriptor, SteelVal, SteelVal, SteelVal, SteelVal) {
     let name = InternedString::from(name);
 
     // Make a slot in the VTable for this struct
@@ -597,11 +616,21 @@ fn make_struct_type_inner(
 
     let getter_prototype = UserDefinedStruct::getter_prototype(struct_type_descriptor);
 
+    let mut getter_prototypes = Vec::new();
+
+    for i in 0..field_count {
+        getter_prototypes.push(UserDefinedStruct::getter_prototype_index(
+            struct_type_descriptor,
+            i,
+        ));
+    }
+
     (
         struct_type_descriptor,
         struct_constructor,
         struct_predicate,
         getter_prototype,
+        getter_prototypes.into_steelval().unwrap(),
     )
 }
 
