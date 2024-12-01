@@ -283,6 +283,12 @@ impl NonInteractiveProgramImage {
         bincode::serialize_into(&mut f, self).unwrap();
     }
 
+    pub fn as_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        bincode::serialize_into(&mut out, self).unwrap();
+        out
+    }
+
     pub fn from_bytes(bytes: &[u8]) -> Self {
         bincode::deserialize(&bytes).unwrap()
     }
@@ -718,7 +724,15 @@ impl Engine {
         let program = crate::steel_vm::engine::NonInteractiveProgramImage::from_bytes(program);
 
         engine.sources = program.sources;
+
+        // TODO: The constant map needs to be brought back as well. Install it here.
+        // it needs to get installed in the VM and the compiler. Lets just try that now.
+
         let raw_program = SerializableRawProgramWithSymbols::into_raw_program(program.program);
+
+        engine.virtual_machine.constant_map = raw_program.constant_map.clone();
+        engine.virtual_machine.compiler.write().constant_map = raw_program.constant_map.clone();
+
         let results = engine.run_raw_program(raw_program);
 
         if let Err(e) = results {

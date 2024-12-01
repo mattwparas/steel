@@ -51,6 +51,7 @@
 
 ;; TODO: Move this to `installer/package.scm`
 (define (list-package-index)
+  ;; What is going on here?
   (eval '(require "steel/packages/packages.scm"))
   (eval 'package-index))
 

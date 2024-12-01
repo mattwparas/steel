@@ -8,4 +8,4 @@
 ;; shebang on it?
 ;;
 ;; That would then work
-(define entrypoint '(#:name "forge" #:path "spm.scm"))
+(define entrypoint '(#:name "spm" #:path "spm.scm"))
