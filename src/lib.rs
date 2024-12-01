@@ -273,9 +273,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
 
             let rust_entrypoint = r#"
 fn main() {
-    let program = steel::steel_vm::engine::NonInteractiveProgramImage::from_bytes(include_bytes!("program.bin"));
-
-    steel::steel_vm::engine::Engine::execute_non_interactive_program_image(program);
+    steel::steel_vm::engine::Engine::execute_non_interactive_program_image(include_bytes!("program.bin"));
 }
             "#;
 
@@ -300,7 +298,8 @@ version = "0.1.0"
 
 
 [dependencies]
-steel-core = { git = "https://github.com/mattwparas/steel.git", features = ["dylibs"] }
+# steel-core = { git = "https://github.com/mattwparas/steel.git", features = ["dylibs", "stacker", "sync"] }
+steel-core = { path = "../crates/steel-core", features = ["dylibs", "stacker", "sync"] }
 
 [profile.release]
 debug = false

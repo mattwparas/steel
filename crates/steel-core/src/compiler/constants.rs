@@ -112,9 +112,7 @@ impl ConstantMap {
 
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
         let str_vector = self.to_constant_expr_map();
-
-        println!("{:?}", str_vector);
-
+        // println!("{:?}", str_vector);
         let result = bincode::serialize(&str_vector);
 
         Ok(result.unwrap())

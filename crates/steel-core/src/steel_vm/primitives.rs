@@ -1781,6 +1781,9 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(CALL_WITH_EXCEPTION_HANDLER_DEFINITION)
         .register_value("breakpoint!", SteelVal::BuiltIn(super::vm::breakpoint))
         .register_native_fn_definition(INSPECT_DEFINITION)
+        // TODO: Come back to this
+        .register_native_fn_definition(super::vm::EMIT_EXPANDED_FILE_DEFINITION)
+        .register_native_fn_definition(super::vm::LOAD_EXPANDED_FILE_DEFINITION)
         .register_value(
             "#%environment-length",
             SteelVal::BuiltIn(super::vm::environment_offset),

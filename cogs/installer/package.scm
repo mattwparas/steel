@@ -22,7 +22,8 @@
          install-package
          install-package-and-log
          *STEEL_HOME*
-         check-install-package)
+         check-install-package
+         walk-and-install)
 
 (define (append-with-separator path dir)
   (if (ends-with? path "/") (string-append path dir) (string-append path "/" dir)))
@@ -144,6 +145,10 @@
 
 ;; TODO: Decide if we actually need the package spec here
 (define (fetch-and-install-cog-dependency-from-spec cog-dependency)
+  ;; TODO: Figure out a way to resolve if the specified package is
+  ;; the correct package.
+  (when (package-installed? (hash-ref cog-dependency '#:name))
+    (displayln "=> Package already installed:" (hash-ref cog-dependency '#:name)))
 
   ;; For each cog, go through and install the package to the `STEEL_HOME` directory.
   ;; This should not only check if the package is installed, but also check
@@ -199,6 +204,7 @@
 ;; and subsequently go through each of the dylibs, and install
 ;; those as well.
 (define (walk-and-install package)
+
   ;; Check the direct cog level dependencies
   (for-each fetch-and-install-cog-dependency-from-spec (hash-ref package 'dependencies))
 

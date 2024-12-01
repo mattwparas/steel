@@ -16,7 +16,10 @@ use crate::{
     compiler::{
         compiler::{Compiler, SerializableCompiler},
         map::SymbolMap,
-        modules::{path_to_module_name, CompiledModule, MANGLER_PREFIX, PRELUDE_WITHOUT_BASE},
+        modules::{
+            intern_modules, path_to_module_name, CompiledModule, MANGLER_PREFIX,
+            PRELUDE_WITHOUT_BASE,
+        },
         program::{
             number_literal_to_steel, Executable, RawProgramWithSymbols,
             SerializableRawProgramWithSymbols,
@@ -592,6 +595,8 @@ impl Engine {
             return Engine::new_kernel(sandbox);
         }
 
+        intern_modules();
+
         if matches!(option_env!("STEEL_BOOTSTRAP"), Some("false") | None) {
             let mut vm = Engine::new_kernel(sandbox);
 
@@ -706,11 +711,12 @@ impl Engine {
     }
 
     // Execute from a statically linked non interactive program
-    pub fn execute_non_interactive_program_image(
-        program: NonInteractiveProgramImage,
-    ) -> Result<()> {
-        // This _has_ to match the as the creation of the program above
+    pub fn execute_non_interactive_program_image(program: &'static [u8]) -> Result<()> {
+        // This _has_ to match the as the creation of the program above.
+        // So, engine first, then non interactive program.
         let mut engine = Engine::new();
+        let program = crate::steel_vm::engine::NonInteractiveProgramImage::from_bytes(program);
+
         engine.sources = program.sources;
         let raw_program = SerializableRawProgramWithSymbols::into_raw_program(program.program);
         let results = engine.run_raw_program(raw_program);
@@ -1564,6 +1570,29 @@ impl Engine {
                 // }
             }
         }
+    }
+
+    pub fn expand_to_file<E: AsRef<str> + Into<Cow<'static, str>>>(
+        &mut self,
+        exprs: E,
+        path: PathBuf,
+    ) {
+        self.virtual_machine
+            .compiler
+            .write()
+            .fully_expand_to_file(exprs, Some(path))
+            .unwrap();
+    }
+
+    pub fn load_from_expanded_file(&mut self, path: &str) {
+        let program = self
+            .virtual_machine
+            .compiler
+            .write()
+            .load_from_file(path)
+            .unwrap();
+
+        self.run_raw_program(program).unwrap();
     }
 
     // TODO -> clean up this API a lot

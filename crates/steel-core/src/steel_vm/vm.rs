@@ -4991,6 +4991,21 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
     Ok(())
 }
 
+#[steel_derive::function(name = "emit-expanded", arity = "Exact(1)")]
+fn emit_expanded_file(path: String) {
+    let mut engine = crate::steel_vm::engine::Engine::new();
+
+    let mut contents = std::fs::read_to_string(&path).unwrap();
+
+    engine.expand_to_file(contents, std::path::PathBuf::from(path))
+}
+
+#[steel_derive::function(name = "load-expanded", arity = "Exact(1)")]
+fn load_expanded_file(path: String) {
+    let mut engine = crate::steel_vm::engine::Engine::new();
+    engine.load_from_expanded_file(&path)
+}
+
 #[steel_derive::context(name = "eval", arity = "Exact(1)")]
 fn eval(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     match eval_impl(ctx, args) {
