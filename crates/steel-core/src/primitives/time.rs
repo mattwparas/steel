@@ -1,7 +1,7 @@
 use crate::gc::Gc;
 use crate::SteelVal;
 use crate::{rvals::Custom, steel_vm::builtin::MarkdownDoc};
-use chrono::{Datelike, FixedOffset, Local, NaiveDate, NaiveDateTime, Utc};
+use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
 use std::time::Duration;
 use std::time::Instant;
 use steel_derive::function;
