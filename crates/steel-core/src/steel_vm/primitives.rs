@@ -19,6 +19,7 @@ use crate::{
     primitives::{
         bytevectors::bytevector_module,
         fs_module, fs_module_sandbox,
+        git::git_module,
         hashmaps::{hashmap_module, HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,
         http::http_module,
@@ -276,6 +277,8 @@ define_modules! {
     STEEL_HTTP_MODULE => http_module,
     STEEL_PRELUDE_MODULE => prelude,
     STEEL_SB_PRELUDE => sandboxed_prelude,
+
+    STEEL_GIT_MODULE => git_module,
 }
 
 thread_local! {
@@ -329,6 +332,8 @@ thread_local! {
 
     pub static MUTABLE_VECTOR_MODULE: BuiltInModule = mutable_vector_module();
     pub static PRIVATE_READER_MODULE: BuiltInModule = reader_module();
+
+    pub static GIT_MODULE: BuiltInModule = git_module();
 }
 
 pub fn prelude() -> BuiltInModule {
@@ -536,6 +541,8 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
             .register_module(STEEL_RANDOM_MODULE.clone())
             .register_module(STEEL_THREADING_MODULE.clone())
             .register_module(STEEL_BYTEVECTOR_MODULE.clone());
+
+        engine.register_module(STEEL_GIT_MODULE.clone());
 
         if !sandbox {
             engine

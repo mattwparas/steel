@@ -1,0 +1,12 @@
+[package]
+name = "forge"
+edition = "2021"
+version.workspace = true
+
+[dependencies]
+# TODO: Don't use the workspace, instead explicitly
+# depend on the version with the git dependency
+steel-core = { workspace = true }
+
+[build-dependencies]
+steel-core = { workspace = true }

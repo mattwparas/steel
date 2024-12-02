@@ -2,6 +2,7 @@
 ;; $STEEL_HOME directory.
 
 (require-builtin steel/process)
+(require-builtin steel/git)
 (require "steel/result")
 (require "parser.scm")
 
@@ -41,24 +42,29 @@
 
     (displayln "Updating git repo from remote...")
 
-    (~> (command "git" (list "pull")) (in-directory resulting-path) spawn-process Ok->value wait)
+    ; (~> (command "git" (list "pull")) (in-directory resulting-path) spawn-process Ok->value wait)
+
+    (git-pull resulting-path #f #f)
 
     (return! resulting-path))
 
   ;; Git clone command, run against specific directory. For now we're going to
   ;; naively install them all into the same spot.
-  (~> (command "git" (list "clone" https-address resulting-path)) (spawn-process) (Ok->value) (wait))
+  ; (~> (command "git" (list "clone" https-address resulting-path)) (spawn-process) (Ok->value) (wait))
+
+  (git-clone https-address resulting-path (if (not (void? *sha*)) *sha* #f))
+
   ;; If we have a SHA, check out that commit
-  (when (not (void? *sha*))
+  ; (when (not (void? *sha*))
 
-    (display "...Checking out sha: ")
-    (displayln *sha*)
+  ;   (display "...Checking out sha: ")
+  ;   (displayln *sha*)
 
-    (~> (command "git" (list "checkout" *sha*))
-        (in-directory resulting-path)
-        (spawn-process)
-        (Ok->value)
-        (wait)))
+  ;   (~> (command "git" (list "checkout" *sha*))
+  ;       (in-directory resulting-path)
+  ;       (spawn-process)
+  ;       (Ok->value)
+  ;       (wait)))
 
   resulting-path)
 

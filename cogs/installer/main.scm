@@ -69,6 +69,14 @@
              (flat-mapping parse-cog)
              (into-for-each (lambda (x) (check-install-package index x)))))
 
+(define (install-package-if-not-installed installed-cogs cog-to-install)
+  (define package-name (hash-get cog-to-install 'package-name))
+  (if (hash-contains? installed-cogs package-name)
+      (displayln "Package already installed. Skipping installation.")
+      (begin
+        (displayln "Package is not currently installed.")
+        (install-package-and-log cog-to-install))))
+
 ;; TODO: Move this to `installer/package.scm`
 (define (install-package-from-pkg-index index package)
   (define pkg-index (list-package-index))
@@ -78,7 +86,7 @@
   ;; Pass the path down as well - so that we can install things that way
   (define package-spec (download-cog-to-sources-and-parse-module package git-url #:subdir subdir))
 
-  (check-install-package index package-spec))
+  (install-package-if-not-installed index package-spec))
 
 ;; Automatically re-installing isn't good. We'll fix that.
 (define (install-dependencies index args)
