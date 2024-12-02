@@ -124,6 +124,7 @@ rooted-instructions = []
 recycle = []
 # git = ["dep:gix", "anyhow"]
 git = ["dep:git2", "anyhow"]
+experimental-drop-handler = []
 
 
 [[bench]]

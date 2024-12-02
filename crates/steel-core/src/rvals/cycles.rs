@@ -2,7 +2,6 @@ use crate::gc::shared::{MutableContainer, ShareableMut};
 use crate::steel_vm::{builtin::get_function_name, vm::Continuation, vm::ContinuationMark};
 use crate::values::lists::Pair;
 use num::BigInt;
-use once_cell::sync::Lazy;
 use std::{cell::Cell, collections::VecDeque};
 
 use super::*;
@@ -623,7 +622,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
 
 #[cfg(not(feature = "without-drop-protection"))]
 pub(crate) mod drop_impls {
-    use crate::values::recycler::{Recyclable, Recycle};
+    // use crate::values::recycler::{Recyclable, Recycle};
 
     use super::*;
 
@@ -751,6 +750,7 @@ pub(crate) mod drop_impls {
 
 pub struct IterativeDropHandler<'a> {
     drop_buffer: &'a mut VecDeque<SteelVal>,
+    #[cfg(feature = "experimental-drop-handler")]
     moved_threads: bool,
 }
 
@@ -758,6 +758,7 @@ impl<'a> IterativeDropHandler<'a> {
     pub fn bfs(drop_buffer: &'a mut VecDeque<SteelVal>) {
         IterativeDropHandler {
             drop_buffer,
+            #[cfg(feature = "experimental-drop-handler")]
             moved_threads: false,
         }
         .visit();
@@ -1052,11 +1053,13 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
             // Long recursive drops will block the main thread from continuing - we should
             // have another thread pick up the work?
+            #[cfg(feature = "experimental-drop-handler")]
             if !self.moved_threads && self.drop_buffer.len() > 20 {
                 self.moved_threads = true;
 
-                static DROP_THREAD: Lazy<crossbeam::channel::Sender<OwnedIterativeDropHandler>> =
-                    Lazy::new(start_background_drop_thread);
+                static DROP_THREAD: once_cell::sync::Lazy<
+                    crossbeam::channel::Sender<OwnedIterativeDropHandler>,
+                > = once_cell::sync::Lazy::new(start_background_drop_thread);
 
                 fn start_background_drop_thread(
                 ) -> crossbeam::channel::Sender<OwnedIterativeDropHandler> {
@@ -1110,10 +1113,12 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
 // TODO: Figure out a more elegant way to do this!
 
+#[cfg(feature = "experimental-drop-handler")]
 pub struct OwnedIterativeDropHandler {
     drop_buffer: VecDeque<SteelVal>,
 }
 
+#[cfg(feature = "experimental-drop-handler")]
 impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
     type Output = ();
 

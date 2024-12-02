@@ -43,16 +43,16 @@ fn current_time_formatted(format_string: String) -> String {
     Local::now().format(&format_string).to_string()
 }
 
-enum TimeZones {
-    Local(Local),
-    Utc(Utc),
-    FixedOffset(FixedOffset),
-}
+// enum TimeZones {
+//     Local(Local),
+//     Utc(Utc),
+//     FixedOffset(FixedOffset),
+// }
 
-pub struct SteelDateTime {
-    datetime: NaiveDateTime,
-    timezone: TimeZones,
-}
+// pub struct SteelDateTime {
+//     datetime: NaiveDateTime,
+//     timezone: TimeZones,
+// }
 
 impl Custom for NaiveDateTime {}
 impl Custom for NaiveDate {}

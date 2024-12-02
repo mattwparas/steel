@@ -6,7 +6,7 @@
 (require "steel/result")
 (require "parser.scm")
 
-(provide git-clone
+(provide maybe-git-clone
          in-directory
          run-dylib-installation
          download-and-install-library
@@ -28,7 +28,7 @@
 ;;@doc
 ;; Most likely should use gix here instead of shelling out to git?
 ;; Use the sha to pin to a specific commit, if interested
-(define (git-clone package-name https-address installation-dir #:sha (*sha* void))
+(define (maybe-git-clone package-name https-address installation-dir #:sha (*sha* void))
 
   (define resulting-path (string-append installation-dir "/" package-name))
 

@@ -20,7 +20,23 @@ mod libgit {
         dst: String,
         ref_name: Option<String>,
     ) -> anyhow::Result<()> {
-        todo!()
+        std::process::Command::new("git")
+            .arg("clone")
+            .arg(repo_url)
+            .arg(&dst)
+            .spawn()?
+            .wait()?;
+
+        if let Some(ref_name) = ref_name {
+            std::process::Command::new("git")
+                .arg("checkout")
+                .arg(ref_name)
+                .current_dir(dst)
+                .spawn()?
+                .wait()?;
+        }
+
+        Ok(())
     }
 
     pub fn git_pull(
@@ -28,7 +44,21 @@ mod libgit {
         remote_name: Option<String>,
         remote_branch: Option<String>,
     ) -> anyhow::Result<()> {
-        todo!()
+        let mut command = std::process::Command::new("git");
+
+        command.arg("pull").current_dir(path);
+
+        if let Some(remote_name) = remote_name {
+            command.arg(remote_name);
+        }
+
+        if let Some(remote_branch) = remote_branch {
+            command.arg(remote_branch);
+        }
+
+        command.spawn()?.wait()?;
+
+        Ok(())
     }
 }
 

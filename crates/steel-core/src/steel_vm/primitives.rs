@@ -269,7 +269,6 @@ define_modules! {
     STEEL_OPTION_MODULE => build_option_structs,
     STEEL_THREADING_MODULE => threading_module,
     STEEL_TIME_MODULE => time_module,
-    STEEL_FFI_MODULE => ffi_module,
     STEEL_MUTABLE_VECTOR_MODULE => mutable_vector_module,
     STEEL_PRIVATE_READER_MODULE => reader_module,
     STEEL_TCP_MODULE => tcp_module,
@@ -280,6 +279,10 @@ define_modules! {
 
     STEEL_GIT_MODULE => git_module,
 }
+
+#[cfg(feature = "dylibs")]
+pub static STEEL_FFI_MODULE: once_cell::sync::Lazy<BuiltInModule> =
+    once_cell::sync::Lazy::new(ffi_module);
 
 thread_local! {
     pub static MAP_MODULE: BuiltInModule = hashmap_module();
