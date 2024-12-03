@@ -1,7 +1,7 @@
 (require "steel/command-line/args.scm")
-(require "installer/package.scm")
-(require "installer/parser.scm")
-(require "installer/download.scm")
+(require "package.scm")
+(require "parser.scm")
+(require "download.scm")
 
 (define my-options
   (make-command-line-arg-parser #:positional (list '("command" "The subcommand to run"))
@@ -103,8 +103,8 @@
 
     [(list package)
      ;; Get the passed in argument
-     (define path-to-package (cadr args))
-     (define spec (parse-cog path-to-package))
+     (define path-to-package (car args))
+     (define spec (car (parse-cog path-to-package)))
      (walk-and-install spec)
      (displayln "Package built!")]))
 
@@ -187,4 +187,7 @@ Commands:
        (install-package-from-pkg-index package-index (list-ref command-line-args 2))]
 
       ;; No matching command
-      [else (displayln "No matching command: " command)])))
+      [else (displayln "No matching command: " command)]))
+
+  ;; Wait for the jobs to finish
+  (wait-for-jobs))

@@ -133,9 +133,13 @@
   (eval 'package-index))
 
 (define (install-package-from-pkg-index index package)
+
   ;; TODO: Cache this result from list-package-index
   (define pkg-index (list-package-index))
-  (define remote-pkg-spec (hash-ref pkg-index (string->symbol package)))
+
+  (define remote-pkg-spec
+    (hash-ref pkg-index (if (symbol? package) package (string->symbol package))))
+
   (define git-url (hash-ref remote-pkg-spec '#:url))
   (define subdir (or (hash-try-get remote-pkg-spec '#:path) ""))
   ;; Pass the path down as well - so that we can install things that way
@@ -145,6 +149,7 @@
 
 ;; TODO: Decide if we actually need the package spec here
 (define (fetch-and-install-cog-dependency-from-spec cog-dependency)
+
   ;; TODO: Figure out a way to resolve if the specified package is
   ;; the correct package.
   (when (package-installed? (hash-ref cog-dependency '#:name))
@@ -217,10 +222,10 @@
 ;; Does not currently check the in memory index, since this could be done during the
 ;; package installation process where the index is constantly getting updated.
 (define (package-installed? name)
-  (define destination (string-append *STEEL_HOME* "/" (symbol->string name)))
+  (define destination (string-append *STEEL_HOME* "/" (if (string? name) name (symbol->string name))))
   (path-exists? destination))
 
-;; Given a package pec, uninstall that package by deleting the contents of the installation
+;; Given a package spec, uninstall that package by deleting the contents of the installation
 (define/contract (uninstall-package package)
   (->/c hash? string?)
   (define destination

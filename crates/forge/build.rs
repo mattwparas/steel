@@ -3,6 +3,11 @@ use std::path::PathBuf;
 use steel::steel_vm::engine::Engine;
 
 fn main() {
+    // Re run this if any of the files within the directory
+    // have changed. Note - this may not pick up changes in any
+    // dependencies, but it should be good enough.
+    println!("cargo::rerun-if-changed=../../cogs/installer/");
+
     let out_dir = std::env::var_os("OUT_DIR").unwrap();
     let dest_path = std::path::Path::new(&out_dir).join("program.rs");
     let dest_bytes = std::path::Path::new(&out_dir).join("program.bin");

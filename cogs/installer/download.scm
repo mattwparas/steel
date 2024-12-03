@@ -10,7 +10,8 @@
          in-directory
          run-dylib-installation
          download-and-install-library
-         download-cog-to-sources-and-parse-module)
+         download-cog-to-sources-and-parse-module
+         wait-for-jobs)
 
 ;; Sources!
 (define (append-with-separator path dir-name)
@@ -30,7 +31,10 @@
 ;; Use the sha to pin to a specific commit, if interested
 (define (maybe-git-clone package-name https-address installation-dir #:sha (*sha* void))
 
-  (define resulting-path (string-append installation-dir "/" package-name))
+  (define resulting-path
+    (string-append installation-dir
+                   "/"
+                   (if (symbol? package-name) (symbol->string package-name) package-name)))
 
   (displayln "Fetching package from git: " package-name)
 
@@ -77,9 +81,22 @@
   (set-env-var! command key value)
   command)
 
+;; Jobs that need to run.
+(define *jobs* '())
+
+(define (wait-for-jobs)
+  (unless (empty? *jobs*)
+    (displayln "Waiting for dylib builds to finish")
+    (for-each wait *jobs*)))
+
 ;; Run the cargo-steel-lib installer in the target directory
+; (define (run-dylib-installation target-directory #:subdir [subdir ""])
+;   (wait (run-dylib-installation-in-background target-directory #:subdir subdir)))
+
+;; At the end, we're gonna await the jobs to finish compilation
 (define (run-dylib-installation target-directory #:subdir [subdir ""])
-  (wait (run-dylib-installation-in-background target-directory #:subdir subdir)))
+  (define process (run-dylib-installation-in-background target-directory #:subdir subdir))
+  (set! *jobs* (cons process *jobs*)))
 
 (define (run-dylib-installation-in-background target-directory #:subdir [subdir ""])
   (define target (append-with-separator target-directory subdir))
@@ -101,7 +118,7 @@
                                                   #:subdir [subdir ""]
                                                   #:sha [*sha* void])
 
-  (~> (git-clone library-name git-url *COG-SOURCES* #:sha *sha*)
+  (~> (maybe-git-clone library-name git-url *COG-SOURCES* #:sha *sha*)
       ;; If we're attempting to install the package from a subdirectory of
       ;; git urls, we should do that accordingly here.
       (append-with-separator subdir)
