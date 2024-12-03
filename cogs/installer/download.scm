@@ -84,9 +84,11 @@
 (define (run-dylib-installation-in-background target-directory #:subdir [subdir ""])
   (define target (append-with-separator target-directory subdir))
   (displayln "Running dylib build in: " target)
+  ;; This... should be run in the background?
   (~> (command "cargo-steel-lib" '())
       (in-directory target)
-      (with-env-var "CARGO_TARGET_DIR" *CARGO_TARGET_DIR*)
+      (with-env-var "CARGO_TARGET_DIR"
+                    (append-with-separator *CARGO_TARGET_DIR* (file-name target-directory)))
       spawn-process
       Ok->value))
 
@@ -119,7 +121,8 @@
 ;;@doc
 ;; Download and install the dylib library!
 (define (download-and-install-library library-name git-url #:subdir [subdir ""] #:sha [*sha* void])
-  (~> (git-clone library-name git-url *NATIVE_SOURCES_DIR*) (run-dylib-installation #:subdir subdir)))
+  (~> (maybe-git-clone library-name git-url *NATIVE_SOURCES_DIR*)
+      (run-dylib-installation #:subdir subdir)))
 
 ;; Grabs the latest from the git url, stores in sources, and runs the installation in the target directory
 ; (download-and-install-library "steel-sys-info"
