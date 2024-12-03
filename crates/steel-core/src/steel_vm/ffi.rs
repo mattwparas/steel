@@ -1195,8 +1195,15 @@ impl FFIValue {
 }
 
 impl std::hash::Hash for FFIValue {
-    fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {
-        todo!()
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            FFIValue::BoolV(b) => b.hash(state),
+            FFIValue::IntV(i) => i.hash(state),
+            FFIValue::Void => 0.hash(state),
+            FFIValue::StringV(s) => s.hash(state),
+            FFIValue::CharV { c } => c.hash(state),
+            _ => panic!("Cannot hash this value: {:?}", self),
+        }
     }
 }
 

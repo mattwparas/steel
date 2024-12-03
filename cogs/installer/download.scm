@@ -125,23 +125,23 @@
       parse-cog
       car))
 
-;; TODO: steps
-;; - git clone to temporary directory (or site-packages style thing, something)
-;; Probably install native dylibs to their own native section
-;; Then, run the installation script.
-
-;; Install to the im-lists directory. What we probably have to do is install it to some
-;; temporary location, parse the module name, and move it back out. Unless - we do something
-;; like the org name, but I don't love that.
-; (git-clone "im-lists" "https://github.com/mattwparas/im-lists.git" *NATIVE_SOURCES_DIR*)
-
 ;;@doc
 ;; Download and install the dylib library!
 (define (download-and-install-library library-name git-url #:subdir [subdir ""] #:sha [*sha* void])
   (~> (maybe-git-clone library-name git-url *NATIVE_SOURCES_DIR*)
       (run-dylib-installation #:subdir subdir)))
 
-;; Grabs the latest from the git url, stores in sources, and runs the installation in the target directory
-; (download-and-install-library "steel-sys-info"
-;                               "https://github.com/mattwparas/steel.git"
-;                               #:subdir "crates/steel-sys-info")
+;; Attempt to get the toml - This should actually just expand to the function to parse it,
+;; otherwise return a function that can't do anything with it if the toml library
+;; isn't present.
+(define (try-parse-toml str)
+  ;; Include the dylib if relevant
+  (eval '(#%require-dylib "libsteel_toml" (only-in toml->value string->toml)))
+  (eval `(toml->value (string->toml ,str))))
+
+;; TODO: Implement some proper error handling, assuming we can't discover
+;; the reason for not finding the lib name
+(define (find-dylib-name path)
+  (define contents (read-port-to-string (open-input-file path)))
+  (define toml-contents (try-parse-toml contents))
+  (string-append "lib" (~> toml-contents (hash-ref "lib") (hash-ref "name"))))
