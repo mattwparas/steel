@@ -6,20 +6,20 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/mattwparas/steel"
 description = "Steel repl and command line interface"
+default-run = "steel"
 
 include = ["/src/**/*", "/Cargo.toml", "/README.md", "LICENSE*"]
 
 [workspace.package]
 version = "0.6.0"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [[bin]]
 name = "steel"
 path = "src/main.rs"
 
 [workspace.dependencies]
 # This has to line up with the workspace version above
-steel-core = { path = "./crates/steel-core", version = "0.6.0", features = ["dylibs", "markdown", "stacker", "sync", "anyhow"] }
+steel-core = { path = "./crates/steel-core", version = "0.6.0", features = ["dylibs", "markdown", "stacker", "sync"] }
 
 [features]
 default = ["mimalloc"]
@@ -41,8 +41,6 @@ env_logger = "0.10.0"
 log = "0.4.17"
 clap = { version = "=4.1.4", features = ["derive"] }
 steel-doc = { path = "./crates/steel-doc", version = "0.6.0" }
-
-# Maybe try this?
 mimalloc = { version = "0.1.43", optional = true }
 
 [target.'cfg(not(target_os = "redox"))'.dependencies]

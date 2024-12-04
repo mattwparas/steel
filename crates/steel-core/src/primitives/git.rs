@@ -15,11 +15,13 @@ pub fn git_module() -> BuiltInModule {
 
 #[cfg(not(feature = "git"))]
 mod libgit {
+    use crate::SteelErr;
+
     pub fn git_clone(
         repo_url: String,
         dst: String,
         ref_name: Option<String>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), SteelErr> {
         std::process::Command::new("git")
             .arg("clone")
             .arg(repo_url)
@@ -43,7 +45,7 @@ mod libgit {
         path: String,
         remote_name: Option<String>,
         remote_branch: Option<String>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), SteelErr> {
         let mut command = std::process::Command::new("git");
 
         command.arg("pull").current_dir(path);

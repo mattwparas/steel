@@ -11,7 +11,8 @@
          run-dylib-installation
          download-and-install-library
          download-cog-to-sources-and-parse-module
-         wait-for-jobs)
+         wait-for-jobs
+         find-dylib-name)
 
 ;; Sources!
 (define (append-with-separator path dir-name)
@@ -87,7 +88,7 @@
 (define (wait-for-jobs)
   (unless (empty? *jobs*)
     (displayln "Waiting for dylib builds to finish")
-    (for-each wait *jobs*)))
+    (if (feature-dylib-build?) (for-each thread-join! *jobs*) (for-each wait *jobs*))))
 
 ;; Run the cargo-steel-lib installer in the target directory
 ; (define (run-dylib-installation target-directory #:subdir [subdir ""])
@@ -101,13 +102,22 @@
 (define (run-dylib-installation-in-background target-directory #:subdir [subdir ""])
   (define target (append-with-separator target-directory subdir))
   (displayln "Running dylib build in: " target)
-  ;; This... should be run in the background?
-  (~> (command "cargo-steel-lib" '())
-      (in-directory target)
-      (with-env-var "CARGO_TARGET_DIR"
-                    (append-with-separator *CARGO_TARGET_DIR* (file-name target-directory)))
-      spawn-process
-      Ok->value))
+  (if (feature-dylib-build?)
+      ;; Kick off on a new thread
+      (spawn-native-thread
+       (lambda ()
+         (#%build-dylib (list "--manifest-path" (append-with-separator target "Cargo.toml"))
+                        (list (list "CARGO_TARGET_DIR"
+                                    (append-with-separator *CARGO_TARGET_DIR*
+                                                           (file-name target-directory)))))))
+
+      ;; This... should be run in the background?
+      (~> (command "cargo-steel-lib" '())
+          (in-directory target)
+          (with-env-var "CARGO_TARGET_DIR"
+                        (append-with-separator *CARGO_TARGET_DIR* (file-name target-directory)))
+          spawn-process
+          Ok->value)))
 
 ;;@doc
 ;; Download cog source to sources directory, and then install from there.
@@ -144,4 +154,16 @@
 (define (find-dylib-name path)
   (define contents (read-port-to-string (open-input-file path)))
   (define toml-contents (try-parse-toml contents))
-  (string-append "lib" (~> toml-contents (hash-ref "lib") (hash-ref "name"))))
+
+  (define current-os (current-os!))
+
+  ;; TODO: Replace with the constants where `current-os!` is defined
+  ;; they have the shared prefix and shared suffix information
+  (define *file-extension*
+    (cond
+      [(equal? current-os "macos") ".dylib"]
+      [(equal? current-os "linux") ".so"]
+      [(equal? current-os "windows") ".dll"]
+      [else ".so"]))
+
+  (string-append "lib" (~> toml-contents (hash-ref "lib") (hash-ref "name")) *file-extension*))

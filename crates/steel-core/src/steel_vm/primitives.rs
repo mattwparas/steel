@@ -1853,10 +1853,14 @@ fn meta_module() -> BuiltInModule {
         )
         .register_value("get-contract-struct", SteelVal::FuncV(get_contract))
         .register_fn("current-os!", || std::env::consts::OS)
-        .register_fn("#%build-dylib", || {
-            #[cfg(feature = "dylib-build")]
-            cargo_steel_lib::run().ok()
-        })
+        .register_fn(
+            "#%build-dylib",
+            |_args: Vec<String>, _env_vars: Vec<(String, String)>| {
+                #[cfg(feature = "dylib-build")]
+                cargo_steel_lib::run(_args, _env_vars).ok()
+            },
+        )
+        .register_fn("feature-dylib-build?", || cfg!(feature = "dylib-build"))
         .register_native_fn_definition(COMMAND_LINE_DEFINITION)
         .register_native_fn_definition(ERROR_OBJECT_MESSAGE_DEFINITION)
         .register_fn("steel-home-location", steel_home)

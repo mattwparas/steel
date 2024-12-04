@@ -88,6 +88,17 @@
 
   (install-package-if-not-installed index package-spec))
 
+(define (uninstall-package-from-index index package)
+  (define pkg (if (symbol? package) package (string->symbol package)))
+  (unless (hash-contains? index pkg)
+    (displayln "Package not found:" package)
+    (return! void))
+
+  (define package (hash-ref index pkg))
+  ;; TODO: Contracts called in tail position get the call site location
+  ;; wrong, since that is removed from the stack.
+  (uninstall-package package))
+
 ;; Automatically re-installing isn't good. We'll fix that.
 (define (install-dependencies index args)
   ;; Find all the dependencies, install those
@@ -185,6 +196,9 @@ Commands:
       ;; Install package from remote
       [(equal? '("pkg" "install") (take command-line-args 2))
        (install-package-from-pkg-index package-index (list-ref command-line-args 2))]
+
+      [(equal? '("pkg" "uninstall") (take command-line-args 2))
+       (uninstall-package-from-index package-index (list-ref command-line-args 2))]
 
       ;; No matching command
       [else (displayln "No matching command: " command)]))

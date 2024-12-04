@@ -12,7 +12,8 @@
 (require (only-in "download.scm"
                   download-and-install-library
                   download-cog-to-sources-and-parse-module
-                  run-dylib-installation))
+                  run-dylib-installation
+                  find-dylib-name))
 
 (provide package-installer-main
          parse-cog
@@ -23,7 +24,8 @@
          install-package-and-log
          *STEEL_HOME*
          check-install-package
-         walk-and-install)
+         walk-and-install
+         uninstall-package)
 
 (define (append-with-separator path dir)
   (if (ends-with? path "/") (string-append path dir) (string-append path "/" dir)))
@@ -230,7 +232,20 @@
   (->/c hash? string?)
   (define destination
     (string-append *STEEL_HOME* "/" (symbol->string (hash-get package 'package-name))))
-  (displayln destination))
+  (displayln "Deleting:" destination)
+
+  ;; Check if this produced a dylib, and if so, delete it
+  (when (hash-contains? package 'dylibs)
+    (let ([cargo-toml-path (append-with-separator destination "Cargo.toml")])
+      (when (path-exists? cargo-toml-path)
+        (define dylib-name (find-dylib-name cargo-toml-path))
+        (define dylib-path (append-with-separator *DYLIB-DIR* dylib-name))
+        ;; Delete the dylib. If it doesn't exist, we can continue on.
+        (if (path-exists? dylib-path) (delete-file! dylib-path) (displayln "Dylib not found.")))))
+
+  (delete-directory! destination)
+
+  destination)
 
 (define/contract (install-package-and-log cog-to-install)
   (->/c hash? void?)

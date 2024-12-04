@@ -324,7 +324,7 @@ lto = true
             ..
         } => {
             #[cfg(not(target_os = "redox"))]
-            cargo_steel_lib::run()?;
+            cargo_steel_lib::run(Vec::new(), Vec::new())?;
 
             #[cfg(target_os = "redox")]
             println!("Creating dylibs is not yet supported on Redox");
