@@ -78,7 +78,7 @@
         (install-package-and-log cog-to-install))))
 
 ;; TODO: Move this to `installer/package.scm`
-(define (install-package-from-pkg-index index package)
+(define (install-package-from-pkg-index index package args)
   (define pkg-index (list-package-index))
   (define remote-pkg-spec (hash-ref pkg-index (string->symbol package)))
   (define git-url (hash-ref remote-pkg-spec '#:url))
@@ -86,7 +86,11 @@
   ;; Pass the path down as well - so that we can install things that way
   (define package-spec (download-cog-to-sources-and-parse-module package git-url #:subdir subdir))
 
-  (install-package-if-not-installed index package-spec))
+  (define force (member "--force" args))
+
+  (if force
+      (install-package-and-log package-spec)
+      (install-package-if-not-installed index package-spec)))
 
 (define (uninstall-package-from-index index package)
   (define pkg (if (symbol? package) package (string->symbol package)))
@@ -195,7 +199,10 @@ Commands:
 
       ;; Install package from remote
       [(equal? '("pkg" "install") (take command-line-args 2))
-       (install-package-from-pkg-index package-index (list-ref command-line-args 2))]
+       ;; Force a re-install
+       (install-package-from-pkg-index package-index
+                                       (list-ref command-line-args 2)
+                                       (drop command-line-args 3))]
 
       [(equal? '("pkg" "uninstall") (take command-line-args 2))
        (uninstall-package-from-index package-index (list-ref command-line-args 2))]
