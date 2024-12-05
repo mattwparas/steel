@@ -61,13 +61,15 @@ fn install_everything() -> Result<(), Box<dyn Error>> {
 
     let mut workspace_dir = workspace_dir();
 
-    std::process::Command::new("cargo")
-        .arg("install")
-        .arg("--path")
-        .arg(".")
-        .arg("--force")
-        .spawn()?
-        .wait()?;
+    install_pgo()?;
+
+    // std::process::Command::new("cargo")
+    //     .arg("install")
+    //     .arg("--path")
+    //     .arg(".")
+    //     .arg("--force")
+    //     .spawn()?
+    //     .wait()?;
 
     println!("Successfully installed `steel`");
 
@@ -99,6 +101,18 @@ fn install_everything() -> Result<(), Box<dyn Error>> {
         .wait()?;
 
     println!("Successfully installed `cargo-steel-lib`");
+
+    println!("Installing `forge`");
+
+    workspace_dir.pop();
+    workspace_dir.push("forge");
+
+    std::process::Command::new("cargo")
+        .arg("install")
+        .arg("--path")
+        .arg(&workspace_dir)
+        .spawn()?
+        .wait()?;
 
     install_cogs()?;
 
@@ -150,7 +164,7 @@ fn install_pgo() -> Result<(), Box<dyn Error>> {
         "benchmarks/fib/fib.scm",
     ];
 
-    for _ in 0..10 {
+    for _ in 0..3 {
         for bench in benches {
             std::process::Command::new(&binary)
                 .arg(bench)

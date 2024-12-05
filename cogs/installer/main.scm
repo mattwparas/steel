@@ -152,7 +152,9 @@ Commands:
   pkg <command>  Subcommand for the package repository
   pkg refresh    Update the package repository from the remote
   pkg list       List the packages in the remote index
-  pkg install    Install a package from the remote index"))
+  pkg install    Install a package from the remote index
+
+  pkg install <package> --force  Force an install of a package from the remote index"))
 
 (define (get-command-line-args)
   (define args (command-line))
