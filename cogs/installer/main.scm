@@ -1,15 +1,15 @@
-(require "steel/command-line/args.scm")
+; (require "steel/command-line/args.scm")
 (require "package.scm")
 (require "parser.scm")
 (require "download.scm")
 
-(define my-options
-  (make-command-line-arg-parser #:positional (list '("command" "The subcommand to run"))
-                                ; #:required '((("list" #f) "Setting up the values")))
-                                ))
+; (define my-options
+;   (make-command-line-arg-parser #:positional (list '("command" "The subcommand to run"))
+;                                 ; #:required '((("list" #f) "Setting up the values")))
+;                                 ))
 
-(define list-parser
-  (make-command-line-arg-parser #:required '((("path" #f) "Path to discover packages"))))
+; (define list-parser
+;   (make-command-line-arg-parser #:required '((("path" #f) "Path to discover packages"))))
 
 (define (list-packages index)
   (define package-name-width

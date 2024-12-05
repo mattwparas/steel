@@ -298,7 +298,49 @@ mod libgit {
     //     todo!()
     // }
     // Bootstrap git bindings
-    // fn gix_clone(repo_url: String, dst: String, ref_name: Option<String>) -> anyhow::Result<()> {
+
+    // fn gix_pull(
+    //     path: String,
+    //     remote_name: Option<String>,
+    //     remote_branch: Option<String>,
+    // ) -> Result<(), anyhow::Error> {
+    //     let repo = gix::open(path)?;
+
+    //     let remote_name = remote_name.as_ref().map(|s| &s[..]).unwrap_or("origin");
+    //     let remote_branch = remote_branch
+    //         .as_ref()
+    //         .map(|s| &s[..])
+    //         .unwrap_or("master")
+    //         .to_owned();
+
+    //     let remote_branch = repo
+    //         .head()?
+    //         .referent_name()
+    //         .map(|x| x.as_bstr().to_string())
+    //         .unwrap_or(remote_branch);
+
+    //     let mut remote = repo
+    //         .find_remote(remote_name)?
+    //         .with_fetch_tags(gix::remote::fetch::Tags::All);
+
+    //     println!("Fetching {:?} for repo", remote.name().unwrap());
+
+    //     let connection = remote.connect(Direction::Fetch)?;
+
+    //     let outcome = connection
+    //         .prepare_fetch(gix::remote::ref_map::Options::default())?
+    //         .receive(should_interrupt)?;
+    //     Ok(outcome);
+
+    //     todo!()
+    // }
+
+    // // TODO: Check this, see if it works for multiple things?
+    // pub fn gix_clone(
+    //     repo_url: String,
+    //     dst: String,
+    //     ref_name: Option<String>,
+    // ) -> anyhow::Result<()> {
     //     // SAFETY: The closure doesn't use mutexes or memory allocation, so it should be safe to call from a signal handler.
     //     unsafe {
     //         gix::interrupt::init_handler(1, || {})?;
@@ -319,8 +361,8 @@ mod libgit {
     //         prepare_checkout.repo().work_dir().expect("should be there")
     //     );
 
-    //     let (repo, _) =
-    //         prepare_checkout.main_worktree(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)?;
+    //     let (repo, _) = prepare_checkout
+    //         .main_worktree(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)?;
 
     //     println!(
     //         "Repo cloned into {:?}",
