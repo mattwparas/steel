@@ -65,7 +65,12 @@ impl Visitor for CoalescingSpanVisitor {
             .iter()
             .map(|x| self.visit(x))
             .collect::<SmallVec<[_; 16]>>();
-        Span::coalesce_span(&span_vec)
+
+        if span_vec.is_empty() {
+            l.location
+        } else {
+            Span::coalesce_span(&span_vec)
+        }
     }
 
     fn visit_vector(&self, l: &super::ast::Vector) -> Self::Output {
