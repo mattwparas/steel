@@ -170,6 +170,14 @@ Commands:
     (render-help)
     (return! void))
 
+  (when (not (path-exists? *DYLIB-DIR*))
+    (displayln "dylib directory does not exist, creating now...")
+    (create-directory! *DYLIB-DIR*))
+
+  (when (not (path-exists? *BIN*))
+    (displayln "bin directory does not exist, creating now...")
+    (create-directory! *BIN*))
+
   (let ([command (car command-line-args)])
     ;; Dispatch on the command
     (cond

@@ -25,7 +25,9 @@
          *STEEL_HOME*
          check-install-package
          walk-and-install
-         uninstall-package)
+         uninstall-package
+         *DYLIB-DIR*
+         *BIN*)
 
 (define (append-with-separator path dir)
   (if (ends-with? path "/") (string-append path dir) (string-append path "/" dir)))
