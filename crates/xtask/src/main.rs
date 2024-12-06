@@ -61,15 +61,19 @@ fn install_everything() -> Result<(), Box<dyn Error>> {
 
     let mut workspace_dir = workspace_dir();
 
-    install_pgo()?;
-
-    // std::process::Command::new("cargo")
-    //     .arg("install")
-    //     .arg("--path")
-    //     .arg(".")
-    //     .arg("--force")
-    //     .spawn()?
-    //     .wait()?;
+    // Check if cargo pgo is installed
+    if which::which("cargo-pgo").is_ok() {
+        println!("`cargo-pgo` found - building with PGO");
+        install_pgo()?;
+    } else {
+        std::process::Command::new("cargo")
+            .arg("install")
+            .arg("--path")
+            .arg(".")
+            .arg("--force")
+            .spawn()?
+            .wait()?;
+    }
 
     println!("Successfully installed `steel`");
 

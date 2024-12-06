@@ -354,7 +354,7 @@ dependencies = [
  "rustc-hash",
  "shlex",
  "syn 2.0.87",
- "which",
+ "which 4.4.2",
 ]
 
 [[package]]
@@ -3369,7 +3369,7 @@ dependencies = [
  "strsim 0.11.1",
  "termimad",
  "weak-table",
- "which",
+ "which 7.0.0",
 ]
 
 [[package]]
@@ -4283,6 +4283,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "which"
+version = "7.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9cad3279ade7346b96e38731a641d7343dd6a53d55083dd54eadfa5a1b38c6b"
+dependencies = [
+ "either",
+ "home",
+ "rustix",
+ "winsafe",
+]
+
+[[package]]
 name = "winapi"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4480,8 +4492,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "winsafe"
+version = "0.0.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d135d17ab770252ad95e9a872d365cf3090e3be864a34ab46f48555993efc904"
+
+[[package]]
 name = "xtask"
 version = "0.6.0"
+dependencies = [
+ "which 7.0.0",
+]
 
 [[package]]
 name = "yaml-rust"
