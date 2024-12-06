@@ -1466,6 +1466,12 @@ impl<'a> RecursiveEqualityHandler<'a> {
                     }
                     continue;
                 }
+                (MutFunc(l), MutFunc(r)) => {
+                    if l as usize != r as usize {
+                        return false;
+                    }
+                    continue;
+                }
                 (SymbolV(l), SymbolV(r)) => {
                     if l != r {
                         return false;

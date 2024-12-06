@@ -1037,12 +1037,6 @@ impl<'a> Parser<'a> {
                                 &self.source_name.clone(),
                             ));
 
-                            if matches!(current_frame.paren_mod, Some(ParenMod::Bytes))
-                                && atom.byte().is_none()
-                            {
-                                return Err(ParseError::SyntaxError("bytevector literals can only contain integer literals in the 0-255 range".into(), atom.syn.span, None));
-                            }
-
                             current_frame.push(ExprKind::Atom(atom))?
                         }
                     }
@@ -1677,6 +1671,20 @@ impl Frame {
                     None,
                 ));
             }
+        }
+
+        let valid_for_bytes = match (self.paren_mod, &expr) {
+            (Some(ParenMod::Bytes), ExprKind::Atom(atom)) if atom.byte().is_some() => true,
+            (Some(ParenMod::Bytes), _) => false,
+            _ => true,
+        };
+
+        if !valid_for_bytes {
+            return Err(ParseError::SyntaxError(
+                "bytevector literals can only contain integer literals in the 0-255 range".into(),
+                expr.span().unwrap_or_default(),
+                None,
+            ));
         }
 
         Ok(self.exprs.push(expr))
@@ -2821,6 +2829,11 @@ mod parser_tests {
     fn test_malformed_vectors() {
         assert_syntax_err(
             "#u8(#\\a)",
+            "bytevector literals can only contain integer literals in the 0-255 range",
+        );
+
+        assert_syntax_err(
+            "#u8(())",
             "bytevector literals can only contain integer literals in the 0-255 range",
         );
 
