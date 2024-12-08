@@ -3461,29 +3461,31 @@ impl<'a> VisitorMutRefUnit for FlattenAnonymousFunctionCalls<'a> {
                     .map(|x| x.atom_syntax_object().unwrap().syntax_object_id)
                     .collect::<smallvec::SmallVec<[_; 8]>>();
 
-                let all_dont_contain_references = inner_l.args[1..]
-                    .iter()
-                    .all(|x| !ExprContainsIds::contains(self.analysis, &arg_ids, x));
+                if !inner_l.is_empty() {
+                    let all_dont_contain_references = inner_l.args[1..]
+                        .iter()
+                        .all(|x| !ExprContainsIds::contains(self.analysis, &arg_ids, x));
 
-                if all_dont_contain_references {
-                    if let Some(function_b) = inner_l.first_func_mut() {
-                        // Then we should be able to flatten the function into one
+                    if all_dont_contain_references {
+                        if let Some(function_b) = inner_l.first_func_mut() {
+                            // Then we should be able to flatten the function into one
 
-                        // TODO: Check that any of the vars we're using are used in the body expression
-                        // They can only be used in the argument position
+                            // TODO: Check that any of the vars we're using are used in the body expression
+                            // They can only be used in the argument position
 
-                        let mut dummy = ExprKind::empty();
+                            let mut dummy = ExprKind::empty();
 
-                        // Extract the inner body
-                        std::mem::swap(&mut function_b.body, &mut dummy);
+                            // Extract the inner body
+                            std::mem::swap(&mut function_b.body, &mut dummy);
 
-                        inner_body = Some(dummy);
+                            inner_body = Some(dummy);
 
-                        // TODO: This doesn't work quite yet -
-                        function_a.args.append(&mut function_b.args);
-                        args.extend(inner_l.args.drain(1..));
+                            // TODO: This doesn't work quite yet -
+                            function_a.args.append(&mut function_b.args);
+                            args.extend(inner_l.args.drain(1..));
 
-                        changed = true;
+                            changed = true;
+                        }
                     }
                 }
             }
