@@ -88,7 +88,14 @@ pub fn list_module() -> BuiltInModule {
         .register_native_fn_definition(TAKE_DEFINITION)
         .register_native_fn_definition(LIST_TAIL_DEFINITION)
         .register_native_fn_definition(CDR_IS_NULL_DEFINITION)
-        .register_native_fn_definition(LIST_TO_VECTOR_DEFINITION);
+        .register_native_fn_definition(LIST_TO_VECTOR_DEFINITION)
+        .register_native_fn_definition(PLIST_GET_DEFINITION)
+        .register_native_fn_definition(PLIST_TRY_GET_DEFINITION)
+        .register_native_fn_definition(PLIST_GET_CONTEXT_DEFINITION)
+        .register_native_fn_definition(PLIST_GET_POSITIONAL_DEFINITION)
+        .register_native_fn_definition(PLIST_TRY_GET_POSITIONAL_DEFINITION)
+        .register_native_fn_definition(PLIST_GET_POSITIONAL_LIST_DEFINITION)
+        .register_native_fn_definition(DROP_START_DEFINITION);
 
     module
 }
@@ -587,6 +594,141 @@ pub fn try_list_ref(list: &List<SteelVal>, index: isize) -> Result<SteelVal> {
     } else {
         Ok(SteelVal::BoolV(false))
     }
+}
+
+#[steel_derive::function(name = "list-drop", constant = true)]
+pub fn drop_start(list: &List<SteelVal>, skip: usize) -> Result<SteelVal> {
+    let mut list = list.clone();
+    for _ in 0..skip {
+        list.cdr_mut();
+    }
+    Ok(SteelVal::ListV(list))
+}
+
+#[steel_derive::function(name = "plist-get", constant = true)]
+pub fn plist_get(list: &List<SteelVal>, key: &SteelVal) -> Result<SteelVal> {
+    let mut iter = list.iter();
+    // TODO: Change this to be pointer equality!
+    let symbol = iter.find(|x| *x == key);
+    let value = iter.next();
+    match (symbol, value) {
+        (None, _) => stop!(Generic => format!("Key not found: {}", key)),
+        (Some(_), None) => stop!(Generic => format!("Missing value for key: {}", key)),
+        (Some(_), Some(v)) => Ok(v.clone()),
+    }
+}
+
+// Find the arg by index, skipping keyword pairs
+#[steel_derive::function(name = "plist-get-positional-arg-list")]
+pub fn plist_get_positional_list(list: &List<SteelVal>, index: usize) -> Result<SteelVal> {
+    let mut iter = list.iter();
+    let mut positional_arg_offset = 0;
+
+    while let Some(next) = iter.next() {
+        if let SteelVal::SymbolV(v) = next {
+            // If we found a keyword, skip the next one.
+            if v.starts_with("#:") {
+                iter.next();
+                continue;
+            }
+        }
+
+        if index == positional_arg_offset {
+            let mut list = iter.collect::<List<_>>();
+            list.cons_mut(next.clone());
+
+            return Ok(SteelVal::ListV(list));
+        }
+
+        positional_arg_offset += 1;
+    }
+
+    Ok(SteelVal::ListV(List::new()))
+}
+
+// Find the arg by index, skipping keyword pairs
+#[steel_derive::function(name = "plist-get-positional-arg")]
+pub fn plist_get_positional(list: &List<SteelVal>, index: usize) -> Result<SteelVal> {
+    let mut iter = list.iter();
+    let mut positional_arg_offset = 0;
+
+    dbg!(list);
+
+    while let Some(next) = iter.next() {
+        if let SteelVal::SymbolV(v) = next {
+            // If we found a keyword, skip the next one.
+            if v.starts_with("#:") {
+                iter.next();
+                continue;
+            }
+        }
+
+        if index == positional_arg_offset {
+            return Ok(next.clone());
+        }
+
+        positional_arg_offset += 1;
+    }
+
+    stop!(Generic => "Missing positional arg")
+}
+
+// Find the arg by index, skipping keyword pairs
+#[steel_derive::function(name = "plist-try-get-positional-arg")]
+pub fn plist_try_get_positional(
+    list: &List<SteelVal>,
+    index: usize,
+    default_value: SteelVal,
+) -> Result<SteelVal> {
+    let mut iter = list.iter();
+    let mut positional_arg_offset = 0;
+
+    while let Some(next) = iter.next() {
+        if let SteelVal::SymbolV(v) = next {
+            // If we found a keyword, skip the next one.
+            if v.starts_with("#:") {
+                iter.next();
+            }
+        } else {
+            if index == positional_arg_offset {
+                return Ok(next.clone());
+            }
+
+            positional_arg_offset += 1;
+        }
+    }
+
+    Ok(default_value)
+}
+
+#[steel_derive::function(name = "plist-get-kwarg", constant = true)]
+pub fn plist_get_context(
+    list: &List<SteelVal>,
+    key: &SteelVal,
+    func: &SteelVal,
+) -> Result<SteelVal> {
+    let mut iter = list.iter();
+    let symbol = iter.find(|x| *x == key);
+    let value = iter.next();
+    match (symbol, value) {
+        (None, _) => stop!(Generic => format!("{} : Key not found: {}", func, key)),
+        (Some(_), None) => stop!(Generic => format!("{} : Missing value for key: {}", func, key)),
+        (Some(_), Some(v)) => Ok(v.clone()),
+    }
+}
+
+#[steel_derive::function(name = "plist-try-get", constant = true)]
+pub fn plist_try_get(
+    list: &List<SteelVal>,
+    key: &SteelVal,
+    default_value: SteelVal,
+) -> Result<SteelVal> {
+    let mut iter = list.iter();
+
+    Ok(iter
+        .find(|x| *x == key)
+        .and_then(|_| iter.next().cloned())
+        .unwrap_or(default_value))
 }
 
 /// Returns the value located at the given index. Will raise an error if you try to index out of bounds.

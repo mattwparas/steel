@@ -226,6 +226,13 @@ impl ExprKind {
         ))))
     }
 
+    pub fn ident_with_span(name: &str, span: Span) -> ExprKind {
+        ExprKind::Atom(Atom::new(SyntaxObject::new(
+            TokenType::Identifier(name.into()),
+            span,
+        )))
+    }
+
     pub fn string_lit(input: String) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::StringLiteral(
             Arc::new(input),
@@ -766,6 +773,9 @@ pub struct LambdaFunction {
     pub location: SyntaxObject,
     pub rest: bool,
     pub syntax_object_id: u32,
+    // Helpful for the optimizer and the LSP
+    // to resolve keyword args ahead of time.
+    pub kwargs: bool,
 }
 
 impl Clone for LambdaFunction {
@@ -776,6 +786,7 @@ impl Clone for LambdaFunction {
             location: self.location.clone(),
             rest: self.rest,
             syntax_object_id: SyntaxObjectId::fresh().0,
+            kwargs: self.kwargs,
         }
     }
 }
@@ -836,6 +847,7 @@ impl LambdaFunction {
             location,
             rest: false,
             syntax_object_id: SyntaxObjectId::fresh().0,
+            kwargs: false,
         }
     }
 
@@ -846,6 +858,7 @@ impl LambdaFunction {
             location,
             rest: true,
             syntax_object_id: SyntaxObjectId::fresh().0,
+            kwargs: false,
         }
     }
 
@@ -861,6 +874,7 @@ impl LambdaFunction {
             location,
             rest,
             syntax_object_id: SyntaxObjectId::fresh().0,
+            kwargs: false,
         }
     }
 

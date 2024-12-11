@@ -4570,6 +4570,7 @@ impl<'a> VmCore<'a> {
     }
 }
 
+// TODO: This is gonna cause issues assuming this was called in tail call.
 pub fn current_function_span(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if !args.is_empty() {
         builtin_stop!(ArityMismatch => format!("current-function-span requires no arguments, found {}", args.len()))

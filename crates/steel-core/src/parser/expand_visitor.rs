@@ -2,6 +2,7 @@ use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use quickscope::ScopeSet;
 use steel_parser::ast::{parse_lambda, Begin};
 use steel_parser::parser::SourceId;
+use steel_parser::tokens::NumberLiteral;
 
 use crate::parser::ast::ExprKind;
 use crate::parser::parser::SyntaxObject;
@@ -387,6 +388,7 @@ pub fn expand_kernel_in_env_with_allowed(
         environment: Some(env),
         depth: 0,
         allowed_macros: Some(allowed),
+        define_context: None,
     };
 
     expander.visit(&mut expr)?;
@@ -409,6 +411,7 @@ pub fn expand_kernel_in_env_with_change(
         environment: Some(env),
         depth: 0,
         allowed_macros: None,
+        define_context: None,
     };
 
     expander.visit(expr)?;
@@ -431,6 +434,7 @@ pub fn expand_kernel_in_env(
         environment: Some(env),
         depth: 0,
         allowed_macros: None,
+        define_context: None,
     };
 
     expander.visit(expr)
@@ -448,6 +452,7 @@ pub fn expand_kernel(
         environment: None,
         depth: 0,
         allowed_macros: None,
+        define_context: None,
     };
 
     expander.visit(&mut expr)?;
@@ -462,6 +467,7 @@ pub struct KernelExpander<'a> {
     environment: Option<&'a str>,
     depth: usize,
     allowed_macros: Option<&'a FxHashSet<InternedString>>,
+    define_context: Option<ExprKind>,
 }
 
 impl<'a> KernelExpander<'a> {
@@ -473,6 +479,7 @@ impl<'a> KernelExpander<'a> {
             environment: None,
             depth: 0,
             allowed_macros: None,
+            define_context: None,
         }
     }
 
@@ -483,116 +490,45 @@ impl<'a> KernelExpander<'a> {
     }
 }
 
-fn _expand_default_arguments(
-    lambda_function: Box<super::ast::LambdaFunction>,
-) -> Result<Box<super::ast::LambdaFunction>> {
-    // todo!()
+// Requirements:
+// - Don't actually implement using a hashmap. Most likely
+//   not necessary, and we don't need to introduce _another_
+//   allocation into a kwargs dictionary.
+//
+// - We can just provide this as a function where the default
+//   value is provided to the plist-get function
+//   if the value is not there.
+//
+// As a result, expansion with default arguments should look like this:
+//
+// (define (test-kwargs #:foo [foo 10] #:bar [bar 20])
+//  (+ foo bar))
+//
+// (define test-kwargs (lambda args
+//     (let [(foo (plist-try-get args 10))
+//           (bar (plist-try-get args 20))]
+//        (+ foo bar)))
+//
+// This gives us the ability to fetch args quickly - just one linear scan,
+// no additional allocation beyond the rest args that are already getting allocated.
+//
+// Handling args with non defaults just means we'll just plist-get instead of plist-try-get
+// with a default value. That more or less means we'll only do a handful of scans.
+fn expand_keyword_and_default_arguments(
+    lambda_function: &mut super::ast::LambdaFunction,
+    define_name: &Option<ExprKind>,
+) -> Result<()> {
+    let is_rest = lambda_function.rest;
 
-    let _args_len = lambda_function.args.len();
+    // First, lets find the pairs of keyword args. These could be default or not.
+    // The order of keyword args doesn't matter, and they can be interwoven with
+    // non key word arguments.
 
-    let mut found_pair = false;
-    for argument in &lambda_function.args {
-        if let ExprKind::List(_) = argument {
-            found_pair = true;
-        } else if found_pair {
-            stop!(BadSyntax => "Non default argument occurs after a default argument"; lambda_function.location.span)
-        }
-    }
+    // kwargs - These are things that are of the format:
+    // #:foo [foo 10] or #:foo foo.
+    let mut keyword_map: Vec<(&ExprKind, &ExprKind)> = Vec::new();
 
-    let _non_default_bindings = lambda_function
-        .args
-        .iter()
-        .filter(|x| !matches!(x, ExprKind::List(_)))
-        .collect::<Vec<_>>();
-
-    // let bindings = lambda_function
-    //     .args
-    //     .iter()
-    //     .enumerate()
-    //     .filter(|x| matches!(x.1, ExprKind::List(_)))
-    //     .map(|x| {
-    //         if let ExprKind::List(l) = x.1 {
-    //             let var_name = l
-    //                 .get(0)
-    //                 .ok_or_else(throw!(BadSyntax => "empty default argument"))?;
-    //             let expr = l.get(1).ok_or_else(
-    //                 throw!(BadSyntax => "default argument missing default expression"),
-    //             )?;
-
-    //             let index = ExprKind::integer_literal(x.0 as isize, lambda_function.location.span);
-
-    //             let body = vec![
-
-    //             ]
-
-    //             todo!()
-    //         } else {
-    //             unreachable!()
-    //         }
-    //     })
-    //     .collect::<Result<Vec<_>>>();
-
-    todo!()
-}
-
-// Adjust the generated code to raise a specific error saying certain keys were missing.
-fn expand_keyword_arguments(lambda_function: &mut super::ast::LambdaFunction) -> Result<()> {
-    // TODO: Check if this already has a rest argument - if so, the generated code will need to be changed.
-    // The naive generated code will not handle rest arguments with keyword arguments, which can be a concern.
-    // In addition, this naively assumes that keyword arguments cannot be applied before positional arguments - which
-    // on its own is not the worst restriction, and perhaps we can leave that in place.
-    //
-    // If there are rest arguments though, we'll need to split the rest argument list into two - the first half will then get
-    // applied to the hashmap list, while the rest of the arguments will get applied to the correct place.
-
-    // If this already has a rest arguments, we need to slice out the
-    // remaining function values from the keywords, and then bind those to whatever variable in the original
-    // list before we create the hash. Making the hash itself is also not exactly my favorite pattern - we need
-    // to allocate extra stuff - what we should probably do is create a special keyword allocation that we
-    // can consistently reuse inside the VM. If we can reuse that allocation repeatedly, we should be able
-    // to avoid much of the overhead of the allocation.
-
-    // TODO: Can partition these directly into the two groups
-    let keyword_args: Vec<&ExprKind> = lambda_function
-        .args
-        .iter()
-        .skip_while(|x| {
-            !matches!(
-                x,
-                ExprKind::Atom(Atom {
-                    syn: SyntaxObject {
-                        ty: TokenType::Keyword(_),
-                        ..
-                    }
-                })
-            )
-        })
-        .collect();
-
-    // If there is a rest argument, we'll want to grab it for later use in the expansion
-    // TODO: @Matt - Come back to this one
-    // let mut rest_arg_expr = None;
-
-    // Bail out if theres no keyword args
-    if keyword_args.is_empty() {
-        return Ok(());
-    }
-
-    // println!("Expanding keyword args");
-    // println!("Body: {}", lambda_function.body);
-
-    if (keyword_args.len() % 2 != 0 && !lambda_function.rest)
-        || (lambda_function.rest && keyword_args.len() - 1 % 2 != 0)
-    {
-        // The last argument is going to be the rest argument
-        // if lambda_function.rest {
-        //     rest_arg_expr = keyword_args.pop();
-        // }
-
-        stop!(Generic => "keyword arguments malformed - each option requires a value"; lambda_function.location.span)
-    }
-
-    let mut non_keyword_args: Vec<ExprKind> = lambda_function
+    let mut non_keyword_or_default_args: Vec<ExprKind> = lambda_function
         .args
         .iter()
         .take_while(|x| {
@@ -603,38 +539,209 @@ fn expand_keyword_arguments(lambda_function: &mut super::ast::LambdaFunction) ->
                         ty: TokenType::Keyword(_),
                         ..
                     }
-                })
+                }) | ExprKind::List(_)
             )
         })
         .cloned()
         .collect();
 
-    // From the keyword args, group them into pairs
-    let keyword_map = keyword_args
-        .chunks(2)
-        .into_iter()
-        .map(|x| (x[0], x[1]))
-        .collect::<Vec<_>>();
+    enum MaybeDefault<'a> {
+        Rest(&'a ExprKind),
+        Positional(&'a ExprKind),
+        DefaultArg(&'a ExprKind, &'a ExprKind),
+    }
 
-    if !keyword_map.iter().map(|x| x.0).all(|x| {
-        matches!(
-            x,
+    // Fetch positional args this way as well
+    let mut positional_args: Vec<MaybeDefault> = Vec::new();
+    let mut iter = lambda_function.args.iter().peekable();
+    let mut seen_default_or_kwarg = false;
+
+    while let Some(next) = iter.next() {
+        let is_keyword = matches!(
+            next,
             ExprKind::Atom(Atom {
                 syn: SyntaxObject {
                     ty: TokenType::Keyword(_),
                     ..
                 }
             })
-        )
-    }) {
-        stop!(Generic => "Non keyword arguments found after the first keyword argument"; lambda_function.location.span)
+        );
+
+        let is_default_arg = matches!(next, ExprKind::List(_));
+        seen_default_or_kwarg = seen_default_or_kwarg || is_default_arg;
+
+        if is_keyword {
+            let value = iter.next();
+            match value {
+                Some(v) => {
+                    keyword_map.push((next, v));
+                }
+                None => {
+                    stop!(BadSyntax => format!("keyword arg missing variable name: {}", next); lambda_function.location.span)
+                }
+            }
+
+            seen_default_or_kwarg = true;
+        } else {
+            if seen_default_or_kwarg {
+                match next {
+                    ExprKind::Atom(_) => {
+                        if is_rest && iter.peek().is_none() {
+                            positional_args.push(MaybeDefault::Rest(next))
+                        } else {
+                            positional_args.push(MaybeDefault::Positional(next))
+                        }
+                    }
+                    ExprKind::List(l) => {
+                        if l.len() != 2 {
+                            stop!(BadSyntax => "malformed default argument"; lambda_function.location.span)
+                        }
+
+                        positional_args.push(MaybeDefault::DefaultArg(
+                            l.get(0).unwrap(),
+                            l.get(1).unwrap(),
+                        ));
+                    }
+                    _ => {
+                        stop!(BadSyntax => "Internal compiler error")
+                    }
+                }
+            }
+        }
     }
+
+    // kwargs - These are things that are of the format:
+    // #:foo [foo 10] or #:foo foo.
+    // let keyword_args: Vec<&ExprKind> = lambda_function
+    //     .args
+    //     .iter()
+    //     .skip_while(|x| {
+    //         !matches!(
+    //             x,
+    //             ExprKind::Atom(Atom {
+    //                 syn: SyntaxObject {
+    //                     ty: TokenType::Keyword(_),
+    //                     ..
+    //                 }
+    //             })
+    //         )
+    //     })
+    //     .collect();
+
+    // Bail out if theres no keyword args or default arguments to expand
+    if keyword_map.is_empty()
+        && positional_args
+            .iter()
+            .all(|x| matches!(x, MaybeDefault::Positional(_)))
+    {
+        return Ok(());
+    }
+
+    // if (keyword_args.len() % 2 != 0 && !lambda_function.rest)
+    //     || (lambda_function.rest && keyword_args.len() - 1 % 2 != 0)
+    // {
+    //     stop!(Generic => "keyword arguments malformed - each option requires a value"; lambda_function.location.span)
+    // }
+
+    // From the keyword args, group them into pairs
+    // let keyword_map = keyword_args
+    //     .chunks(2)
+    //     .into_iter()
+    //     .map(|x| (x[0], x[1]))
+    //     .collect::<Vec<_>>();
+
+    // if !keyword_map.iter().map(|x| x.0).all(|x| {
+    //     matches!(
+    //         x,
+    //         ExprKind::Atom(Atom {
+    //             syn: SyntaxObject {
+    //                 ty: TokenType::Keyword(_),
+    //                 ..
+    //             }
+    //         })
+    //     )
+    // }) {
+    //     stop!(Generic => "Non keyword arguments found after the first keyword argument"; lambda_function.location.span)
+    // }
+
+    let positional_arg_iter = positional_args
+        .into_iter()
+        .enumerate()
+        .map(|(index, x)| match x {
+            MaybeDefault::Rest(p) => {
+                let mut p = p.clone();
+                if let Some(var) = p.atom_syntax_object_mut() {
+                    var.introduced_via_macro = true;
+                }
+
+                let expression = expr_list![
+                    // TODO: this should actually be the call site span? How do we anchor against
+                    // the calling function? Tail calls seem to mess that up - how do we reserve that
+                    // information?
+                    ExprKind::ident("#%prim.plist-get-positional-arg-list",),
+                    ExprKind::ident("!!dummy-rest-arg!!"),
+                    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Number(
+                        Box::new(NumberLiteral::Real(steel_parser::tokens::RealLiteral::Int(
+                            steel_parser::tokens::IntLiteral::Small(index as _)
+                        )))
+                    )))),
+                ];
+
+                Ok((p.clone(), expression))
+            }
+
+            MaybeDefault::Positional(p) => {
+                let mut p = p.clone();
+                if let Some(var) = p.atom_syntax_object_mut() {
+                    var.introduced_via_macro = true;
+                }
+
+                let expression = expr_list![
+                    // TODO: this should actually be the call site span? How do we anchor against
+                    // the calling function? Tail calls seem to mess that up - how do we reserve that
+                    // information?
+                    ExprKind::ident("#%prim.plist-get-positional-arg",),
+                    ExprKind::ident("!!dummy-rest-arg!!"),
+                    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Number(
+                        Box::new(NumberLiteral::Real(steel_parser::tokens::RealLiteral::Int(
+                            steel_parser::tokens::IntLiteral::Small(index as _)
+                        )))
+                    )))),
+                ];
+
+                Ok((p.clone(), expression))
+            }
+            MaybeDefault::DefaultArg(p, default_value) => {
+                let mut p = p.clone();
+                if let Some(var) = p.atom_syntax_object_mut() {
+                    var.introduced_via_macro = true;
+                }
+
+                let expression = expr_list![
+                    // TODO: this should actually be the call site span? How do we anchor against
+                    // the calling function? Tail calls seem to mess that up - how do we reserve that
+                    // information?
+                    ExprKind::ident("#%prim.plist-try-get-positional-arg",),
+                    ExprKind::ident("!!dummy-rest-arg!!"),
+                    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Number(
+                        Box::new(NumberLiteral::Real(steel_parser::tokens::RealLiteral::Int(
+                            steel_parser::tokens::IntLiteral::Small(index as _)
+                        )))
+                    )))),
+                    default_value.clone()
+                ];
+
+                Ok((p.clone(), expression))
+            }
+        });
 
     let bindings = keyword_map
         .into_iter()
         .map(|x| {
             let keyword = x.0;
             let original_var_name = x.1;
+
+            let mut required_kwarg = false;
 
             // This is a bit wasteful... come back to this
             let (mut var_name, expr) = if let ExprKind::List(l) = original_var_name {
@@ -645,6 +752,8 @@ fn expand_keyword_arguments(lambda_function: &mut super::ast::LambdaFunction) ->
 
                 (l[0].clone(), l[1].clone())
             } else {
+                required_kwarg = true;
+
                 (original_var_name.clone(), original_var_name.clone())
             };
 
@@ -652,58 +761,57 @@ fn expand_keyword_arguments(lambda_function: &mut super::ast::LambdaFunction) ->
                 var.introduced_via_macro = true;
             }
 
-            // TODO: Go here to implement default arguments
-            let expression = ExprKind::default_if(
+            // TODO: This is the error from racket, try to match this?
+            // application: required keyword argument not supplied
+            //  procedure: foo
+            //  required keyword: #:bar
+            // [,bt for context]
+
+            let mut expression = if required_kwarg {
                 expr_list![
-                    ExprKind::ident("hash-contains?"),
+                    // TODO: this should actually be the call site span? How do we anchor against
+                    // the calling function? Tail calls seem to mess that up - how do we reserve that
+                    // information?
+                    ExprKind::ident("#%prim.plist-get-kwarg",),
                     ExprKind::ident("!!dummy-rest-arg!!"),
                     ExprKind::Quote(Box::new(Quote::new(
                         keyword.clone(),
                         lambda_function.location.clone(),
                     ))),
-                ],
-                var_name.clone(),
-                ExprKind::default_if(
-                    ExprKind::bool_lit(matches!(original_var_name, ExprKind::List(_))),
-                    expr,
-                    expr_list![
-                        ExprKind::ident("error!"),
-                        ExprKind::string_lit(format!(
-                            "Function application missing required keyword argument: {keyword}"
-                        ))
-                    ],
-                ),
-            );
-
-            let func = ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                vec![var_name.clone()],
-                expression,
-                SyntaxObject::default(TokenType::Lambda),
-            )));
-
-            let application = expr_list![
-                func,
+                    ExprKind::Quote(Box::new(Quote::new(
+                        define_name
+                            .clone()
+                            .unwrap_or_else(|| ExprKind::ident("anonymous function")),
+                        lambda_function.location.clone()
+                    )))
+                ]
+            } else {
                 expr_list![
-                    ExprKind::ident("hash-try-get"),
+                    ExprKind::ident("#%prim.plist-try-get"),
                     ExprKind::ident("!!dummy-rest-arg!!"),
                     ExprKind::Quote(Box::new(Quote::new(
                         keyword.clone(),
                         lambda_function.location.clone(),
                     ))),
-                ],
-            ];
+                    expr
+                ]
+            };
 
-            Ok((var_name, application))
+            if let ExprKind::List(l) = &mut expression {
+                l.location = lambda_function.location.span;
+            } else {
+                unreachable!()
+            }
+
+            Ok((var_name, expression))
         })
+        .chain(positional_arg_iter)
         .collect::<Result<Vec<_>>>()?;
 
-    non_keyword_args.push(ExprKind::ident("!!dummy-rest-arg!!"));
+    // if let Some(rest_arg) =
 
-    // let inner_application = ExprKind::Let(Box::new(Let::new(
-    //     bindings,
-    //     lambda_function.body.clone(),
-    //     SyntaxObject::default(TokenType::Let),
-    // )));
+    // TODO: Pick up all keyword args before the start
+    non_keyword_or_default_args.push(ExprKind::ident("!!dummy-rest-arg!!"));
 
     let mut inner_application = vec![ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
         bindings.iter().map(|x| x.0.clone()).collect(),
@@ -714,31 +822,10 @@ fn expand_keyword_arguments(lambda_function: &mut super::ast::LambdaFunction) ->
     inner_application.extend(bindings.iter().map(|x| x.1.clone()));
 
     *lambda_function = LambdaFunction::new_with_rest_arg(
-        non_keyword_args,
-        expr_list![
-            ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                vec![ExprKind::ident("!!dummy-rest-arg!!")],
-                ExprKind::List(List::new(inner_application)),
-                // inner_application,
-                SyntaxObject::default(TokenType::Lambda),
-            ))),
-            expr_list![
-                ExprKind::ident("apply"),
-                ExprKind::ident("%keyword-hash"), // This shouldn't be `hash` directly - something with a specific error
-                // TODO: do like, `(take x !!dummy-rest-arg!!)`
-                ExprKind::ident("!!dummy-rest-arg!!"),
-            ],
-        ],
+        non_keyword_or_default_args,
+        ExprKind::List(List::new(inner_application)),
         SyntaxObject::default(TokenType::Lambda),
     );
-
-    // let pretty = {
-    //     let mut w = Vec::new();
-    //     lambda_function.to_doc().render(60, &mut w).unwrap();
-    //     String::from_utf8(w).unwrap()
-    // };
-
-    // println!("After expansion: {}", pretty);
 
     Ok(())
 }
@@ -754,7 +841,11 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
     }
 
     fn visit_define(&mut self, define: &mut super::ast::Define) -> Self::Output {
-        self.visit(&mut define.body)
+        self.define_context = Some(define.name.clone());
+        self.visit(&mut define.body)?;
+        self.define_context = None;
+
+        Ok(())
     }
 
     // TODO: Kernel expander should have the liberty to parse everything
@@ -772,7 +863,9 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
         // TODO: If this isn't a lambda function, we're gonna have problems
         // if its a list, we should run the same thing, but on a list
         // that starts with lambda, and coerce it to be expanded that way
-        expand_keyword_arguments(lambda_function)?;
+        // expand_keyword_arguments(lambda_function)?;
+
+        expand_keyword_and_default_arguments(lambda_function, &self.define_context)?;
 
         Ok(())
     }
