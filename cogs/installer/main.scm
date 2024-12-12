@@ -57,14 +57,25 @@
 
 (define (print-package-index)
   (define package-index (list-package-index))
+
+  ;; TODO:
+  ;; Do a better job of formatting this. Also, set up versioning a little bit better?
   (transduce package-index
              (into-for-each (lambda (p)
-                              (display (car p))
-                              (display " ")
-                              (displayln (cadr p))))))
+                              (displayln (symbol->string (car p)))
+                              ;; Display the keys, each on a new line, indented.
+                              (transduce (cadr p)
+                                         (into-for-each (lambda (kvp)
+                                                          (display " - ")
+                                                          (display (symbol->string (car kvp)))
+                                                          (display ": ")
+                                                          (displayln (cadr kvp)))))))))
 
 (define (install-package-temp index args)
-  (define cogs-to-install (if (empty? args) (list (current-directory)) args))
+  (define cogs-to-install
+    (if (empty? args)
+        (list (current-directory))
+        args))
   (transduce cogs-to-install
              (flat-mapping parse-cog)
              (into-for-each (lambda (x) (check-install-package index x)))))
@@ -93,7 +104,10 @@
       (install-package-if-not-installed index package-spec)))
 
 (define (uninstall-package-from-index index package)
-  (define pkg (if (symbol? package) package (string->symbol package)))
+  (define pkg
+    (if (symbol? package)
+        package
+        (string->symbol package)))
   (unless (hash-contains? index pkg)
     (displayln "Package not found:" package)
     (return! void))
@@ -159,7 +173,9 @@ Commands:
 (define (get-command-line-args)
   (define args (command-line))
   ;; Running as a program, vs embedded elsewhere?
-  (if (ends-with? (car args) "steel") (drop args 2) (drop args 1)))
+  (if (ends-with? (car args) "steel")
+      (drop args 2)
+      (drop args 1)))
 
 (provide main)
 (define (main)
