@@ -26,7 +26,7 @@ fn main() {
     let rust_entrypoint = format!(
         r#"
 fn main() {{
-    steel::steel_vm::engine::Engine::execute_non_interactive_program_image(include_bytes!("{}")).unwrap();
+    steel::steel_vm::engine::Engine::execute_non_interactive_program_image(include_bytes!(r"{}")).unwrap();
 }}
     "#,
         dest_bytes.as_os_str().to_str().unwrap()
