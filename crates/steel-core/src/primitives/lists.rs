@@ -708,7 +708,7 @@ pub fn plist_get_context(
     func: &SteelVal,
 ) -> Result<SteelVal> {
     let mut iter = list.iter();
-    let symbol = iter.find(|x| *x == key);
+    let symbol = iter.find(|x| x.ptr_eq(key));
     let value = iter.next();
     match (symbol, value) {
         (None, _) => stop!(Generic => format!("{} : Key not found: {}", func, key)),
@@ -726,7 +726,7 @@ pub fn plist_try_get(
     let mut iter = list.iter();
 
     Ok(iter
-        .find(|x| *x == key)
+        .find(|x| x.ptr_eq(key))
         .and_then(|_| iter.next().cloned())
         .unwrap_or(default_value))
 }
