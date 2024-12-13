@@ -58,7 +58,9 @@
 ;; Given a list, splits off the last argument, returns as a pair
 (define (split-last lst)
   (define (loop accum lst)
-    (if (empty? (cdr lst)) (list (reverse accum) (car lst)) (loop (cons (car lst) accum) (cdr lst))))
+    (if (empty? (cdr lst))
+        (list (reverse accum) (car lst))
+        (loop (cons (car lst) accum) (cdr lst))))
   (loop '() lst))
 
 ;;@doc
@@ -81,7 +83,10 @@
 
 ;; Call a contracted function
 (define (apply-contracted-function contracted-function arguments span)
-  (define span (if span span '(0 0 0)))
+  (define span
+    (if span
+        span
+        '(0 0 0)))
   (apply-function-contract (ContractedFunction-contract contracted-function)
                            (ContractedFunction-name contracted-function)
                            (ContractedFunction-function contracted-function)
@@ -89,7 +94,10 @@
                            span))
 
 (define (apply-contracted-function-one-arg contracted-function arg span)
-  (define span (if span span '(0 0 0)))
+  (define span
+    (if span
+        span
+        '(0 0 0)))
   (apply-function-contract-one-arg (ContractedFunction-contract contracted-function)
                                    (ContractedFunction-name contracted-function)
                                    (ContractedFunction-function contracted-function)
@@ -97,7 +105,10 @@
                                    span))
 
 (define (apply-contracted-function-two-arg contracted-function arg arg2 span)
-  (define span (if span span '(0 0 0)))
+  (define span
+    (if span
+        span
+        '(0 0 0)))
   (apply-function-contract-two-arg (ContractedFunction-contract contracted-function)
                                    (ContractedFunction-name contracted-function)
                                    (ContractedFunction-function contracted-function)
@@ -106,7 +117,10 @@
                                    span))
 
 (define (apply-contracted-function-three-arg contracted-function arg arg2 arg3 span)
-  (define span (if span span '(0 0 0)))
+  (define span
+    (if span
+        span
+        '(0 0 0)))
   (apply-function-contract-three-arg (ContractedFunction-contract contracted-function)
                                      (ContractedFunction-name contracted-function)
                                      (ContractedFunction-function contracted-function)
@@ -333,40 +347,46 @@
                 (lambda ()
                   (apply-contracted-function contracted-function
                                              '()
-                                             (if (empty? span) (current-function-span) (car span))))]
+                                             (if (empty? span)
+                                                 (current-function-span)
+                                                 (car span))))]
 
                [(= 1 arity)
 
                 (lambda (arg)
-                  (apply-contracted-function-one-arg
-                   contracted-function
-                   arg
-                   (if (empty? span) (current-function-span) (car span))))]
+                  (apply-contracted-function-one-arg contracted-function
+                                                     arg
+                                                     (if (empty? span)
+                                                         (current-function-span)
+                                                         (car span))))]
 
                [(= 2 arity)
 
                 (lambda (arg arg2)
-                  (apply-contracted-function-two-arg
-                   contracted-function
-                   arg
-                   arg2
-                   (if (empty? span) (current-function-span) (car span))))]
+                  (apply-contracted-function-two-arg contracted-function
+                                                     arg
+                                                     arg2
+                                                     (if (empty? span)
+                                                         (current-function-span)
+                                                         (car span))))]
                [(= 3 arity)
 
                 (lambda (arg arg2 arg3)
-                  (apply-contracted-function-three-arg
-                   contracted-function
-                   arg
-                   arg2
-                   arg3
-                   (if (empty? span) (current-function-span) (car span))))]
+                  (apply-contracted-function-three-arg contracted-function
+                                                       arg
+                                                       arg2
+                                                       arg3
+                                                       (if (empty? span)
+                                                           (current-function-span)
+                                                           (car span))))]
                [else
 
                 (lambda args
-                  (apply-contracted-function
-                   contracted-function
-                   args
-                   (if (empty? span) (current-function-span) (car span))))])])
+                  (apply-contracted-function contracted-function
+                                             args
+                                             (if (empty? span)
+                                                 (current-function-span)
+                                                 (car span))))])])
         (attach-contract-struct! resulting-lambda-function
                                  (ContractedFunction-contract contracted-function))
         resulting-lambda-function))))
@@ -450,7 +470,10 @@
     [(FlatContract? x) (FlatContract-name x)]
     [(FunctionContract? x) (string->symbol (contract->string x))]
     [else
-     (let ([lookup (function-name x)]) (if (string? lookup) (string->symbol lookup) '#<function>))]))
+     (let ([lookup (function-name x)])
+       (if (string? lookup)
+           (string->symbol lookup)
+           '#<function>))]))
 
 ;; Like listof, however requires that the list is non empty as well
 (define (non-empty-listof pred)

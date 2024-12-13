@@ -1,7 +1,7 @@
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use quickscope::ScopeSet;
 use smallvec::SmallVec;
-use steel_parser::ast::{parse_lambda, Begin};
+use steel_parser::ast::{self, parse_lambda, Begin};
 use steel_parser::parser::SourceId;
 use steel_parser::tokens::NumberLiteral;
 
@@ -779,9 +779,34 @@ fn expand_keyword_and_default_arguments(
 
     inner_application.extend(bindings.iter().map(|x| x.1.clone()));
 
+    let arity_check_condition = ExprKind::If(Box::new(ast::If::new(
+        ExprKind::List(List::new(vec![
+            ExprKind::ident("#%prim.<"),
+            expr_list![ExprKind::ident("#%prim.length"), ExprKind::ident(REST_ARG)],
+            // Length of the args!
+            ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Number(
+                Box::new(NumberLiteral::Real(steel_parser::tokens::RealLiteral::Int(
+                    steel_parser::tokens::IntLiteral::Small(bindings.len() as isize + 1isize),
+                ))),
+            )))),
+        ])),
+        ExprKind::List(List::new(inner_application)),
+        expr_list![
+            ExprKind::ident("#%prim.error-with-span"),
+            expr_list![ExprKind::ident("#%prim.current-function-span")],
+            ExprKind::string_lit(format!(
+                "Optional args - arity mismatch: {}",
+                define_name
+                    .clone()
+                    .unwrap_or_else(|| ExprKind::ident("anonymous function")),
+            ))
+        ],
+        SyntaxObject::default(TokenType::If),
+    )));
+
     *lambda_function = LambdaFunction::new_with_rest_arg(
         non_keyword_or_default_args.to_vec(),
-        ExprKind::List(List::new(inner_application)),
+        arity_check_condition,
         SyntaxObject::default(TokenType::Lambda),
     );
 

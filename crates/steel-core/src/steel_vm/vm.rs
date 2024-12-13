@@ -2846,7 +2846,7 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
-                    let current_arity = payload_size.to_usize();
+                    let mut current_arity = payload_size.to_usize();
                     // This is the number of (local) functions we need to pop to get back to the place we want to be at
                     // let depth = self.instructions[self.ip + 1].payload_size.to_usize();
 
@@ -2872,10 +2872,46 @@ impl<'a> VmCore<'a> {
 
                     self.ip = 0;
 
-                    let closure_arity = last_stack_frame.function.arity();
+                    let mut closure_arity = last_stack_frame.function.arity();
 
-                    if current_arity != closure_arity {
-                        stop!(ArityMismatch => format!("tco: function expected {closure_arity} arguments, found {current_arity}"); self.current_span());
+                    // TODO: Adjust the stack for multiple arity functions
+                    let is_multi_arity = last_stack_frame.function.is_multi_arity;
+                    let original_arity = last_stack_frame.function.arity();
+                    let payload_size = current_arity;
+                    // let new_arity = &mut closure_arity;
+
+                    // TODO: Reuse the original list allocation, if it exists.
+                    if likely(!is_multi_arity) {
+                        if unlikely(original_arity != payload_size) {
+                            stop!(ArityMismatch => format!("function expected {} arguments, found {}", original_arity, payload_size); self.current_span());
+                        }
+                    } else {
+                        // println!(
+                        //     "multi closure function, multi arity, arity: {:?} - called with: {:?}",
+                        //     original_arity, payload_size
+                        // );
+
+                        if payload_size < original_arity - 1 {
+                            stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", original_arity, payload_size); self.current_span());
+                        }
+
+                        // (define (test x . y))
+                        // (test 1 2 3 4 5)
+                        // in this case, arity = 2 and payload size = 5
+                        // pop off the last 4, collect into a list
+                        let amount_to_remove = 1 + payload_size - original_arity;
+
+                        let values = self
+                            .thread
+                            .stack
+                            .drain(self.thread.stack.len() - amount_to_remove..)
+                            .collect();
+
+                        let list = SteelVal::ListV(values);
+
+                        self.thread.stack.push(list);
+
+                        current_arity = original_arity;
                     }
 
                     // HACK COME BACK TO THIS
@@ -3067,21 +3103,22 @@ impl<'a> VmCore<'a> {
         self.current_span_for_index(self.ip)
     }
 
+    // TODO: Tail calls see to obfuscate the proper span information.
+    // These will need to be rewritten, somehow, assuming we have knowledge
+    // if the last function was called in tail position.
     fn enclosing_span(&self) -> Option<Span> {
         if self.thread.stack_frames.len() > 1 {
             let back_two = self.thread.stack_frames.len() - 2;
 
             if let [second, last] = &self.thread.stack_frames[self.thread.stack_frames.len() - 2..]
             {
-                // todo!();
-
                 let id = second.function.id;
                 let spans = self.thread.function_interner.spans.get(&second.function.id);
 
                 spans
                     .and_then(|x| {
-                        if last.ip > 2 {
-                            x.get(last.ip - 2)
+                        if last.ip > 1 {
+                            x.get(last.ip - 1)
                         } else {
                             None
                         }
@@ -3091,17 +3128,18 @@ impl<'a> VmCore<'a> {
                 todo!()
             }
         } else {
-            self.thread
+            dbg!(self
+                .thread
                 .stack_frames
                 .last()
                 .and_then(|frame| {
-                    if frame.ip > 2 {
-                        self.root_spans.get(frame.ip - 2)
+                    if frame.ip > 1 {
+                        self.root_spans.get(frame.ip - 1)
                     } else {
                         None
                     }
                 })
-                .copied()
+                .copied())
         }
     }
 
@@ -3821,6 +3859,57 @@ impl<'a> VmCore<'a> {
         last.set_function(closure);
 
         self.ip = 0;
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn adjust_stack_for_multi_arity_tco(
+        &mut self,
+        is_multi_arity: bool,
+        original_arity: usize,
+        payload_size: usize,
+        new_arity: &mut usize,
+    ) -> Result<()> {
+        if likely(!is_multi_arity) {
+            if unlikely(original_arity != payload_size) {
+                stop!(ArityMismatch => format!("function expected {} arguments, found {}", original_arity, payload_size); self.current_span());
+            }
+        } else {
+            // println!(
+            //     "multi closure function, multi arity, arity: {:?}",
+            //     closure.arity()
+            // );
+
+            if payload_size < original_arity - 1 {
+                stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", original_arity, payload_size); self.current_span());
+            }
+
+            // (define (test x . y))
+            // (test 1 2 3 4 5)
+            // in this case, arity = 2 and payload size = 5
+            // pop off the last 4, collect into a list
+            let amount_to_remove = 1 + payload_size - original_arity;
+
+            let values = self
+                .thread
+                .stack
+                .drain(self.thread.stack.len() - amount_to_remove..)
+                .collect();
+            // .split_off(self.thread.stack.len() - amount_to_remove);
+
+            let list = SteelVal::ListV(values);
+
+            self.thread.stack.push(list);
+
+            *new_arity = original_arity;
+
+            // println!("Stack after list conversion: {:?}", self.stack);
+        }
+
+        // else if closure.arity() != payload_size {
+        //     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
+        // }
+
         Ok(())
     }
 
@@ -4572,6 +4661,17 @@ impl<'a> VmCore<'a> {
 
 // TODO: This is gonna cause issues assuming this was called in tail call.
 pub fn current_function_span(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    if !args.is_empty() {
+        builtin_stop!(ArityMismatch => format!("current-function-span requires no arguments, found {}", args.len()))
+    }
+
+    match ctx.enclosing_span() {
+        Some(s) => Some(Span::into_steelval(s)),
+        None => Some(Ok(SteelVal::Void)),
+    }
+}
+
+pub fn caller_span(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if !args.is_empty() {
         builtin_stop!(ArityMismatch => format!("current-function-span requires no arguments, found {}", args.len()))
     }
@@ -6861,7 +6961,7 @@ mod handlers {
 
     #[inline(always)]
     fn tco_jump_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        // println!("At tco jump");
+        // TODO: Handle multiple arity for TCO
 
         let payload_size = ctx.instructions[ctx.ip].payload_size;
 

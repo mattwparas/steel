@@ -506,6 +506,8 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
 
     engine.register_value("error", ControlOperations::error());
 
+    engine.register_value("#%error", ControlOperations::error());
+
     engine.register_value(
         "%memo-table",
         WeakMemoizationTable::new().into_steelval().unwrap(),
