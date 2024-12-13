@@ -803,16 +803,13 @@ fn expand_keyword_and_default_arguments(
     // at the callsite, respectively.
     let arity_check_condition = ExprKind::If(Box::new(ast::If::new(
         ExprKind::List(List::new(vec![
-            // ExprKind::ident("#%prim.<"),
-            // expr_list![ExprKind::ident("#%prim.length"), ExprKind::ident(REST_ARG)],
-            // // Length of the args!
-            // expr_usize(bindings.len() + 1),
             ExprKind::ident("#%prim.plist-validate-args"),
             ExprKind::ident(REST_ARG),
             expr_usize(required_keyword_arg_count),
             expr_usize(required_positional_arg_count),
             expr_usize(optional_keyword_arg_count),
             expr_usize(optional_positional_arg_count),
+            ExprKind::bool_lit(is_rest),
         ])),
         ExprKind::List(List::new(inner_application)),
         expr_list![
