@@ -183,11 +183,11 @@ fn install_pgo() -> Result<(), Box<dyn Error>> {
         .spawn()?
         .wait()?;
 
-    let destination = format!("{}/.cargo/bin/steel", env!("HOME"));
-
-    println!("Installing to: {}", destination);
-
-    std::fs::copy(binary, destination).unwrap();
+    let mut cargo_bin_location = which::which("cargo").expect("Unable to find cargo");
+    cargo_bin_location.pop();
+    cargo_bin_location.push("steel");
+    println!("Installing to: {:?}", cargo_bin_location);
+    std::fs::copy(binary, cargo_bin_location).unwrap();
 
     Ok(())
 }
