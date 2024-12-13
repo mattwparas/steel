@@ -493,6 +493,14 @@ impl<'a> KernelExpander<'a> {
     }
 }
 
+fn expr_usize(value: usize) -> ExprKind {
+    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Number(
+        Box::new(NumberLiteral::Real(steel_parser::tokens::RealLiteral::Int(
+            steel_parser::tokens::IntLiteral::Small(value as _),
+        ))),
+    ))))
+}
+
 // Requirements:
 // - Don't actually implement using a hashmap. Most likely
 //   not necessary, and we don't need to introduce _another_
@@ -560,6 +568,12 @@ fn expand_keyword_and_default_arguments(
     let mut seen_default_or_kwarg = false;
     let mut seen_default = false;
 
+    let mut required_positional_arg_count = 0;
+    let mut optional_positional_arg_count = 0;
+
+    let mut required_keyword_arg_count = 0;
+    let mut optional_keyword_arg_count = 0;
+
     while let Some(next) = iter.next() {
         let is_keyword = matches!(
             next,
@@ -578,6 +592,12 @@ fn expand_keyword_and_default_arguments(
             let value = iter.next();
             match value {
                 Some(v) => {
+                    if matches!(v, ExprKind::List(_)) {
+                        optional_keyword_arg_count += 1;
+                    } else {
+                        required_keyword_arg_count += 1;
+                    }
+
                     keyword_map.push((next, v));
                 }
                 None => {
@@ -597,6 +617,7 @@ fn expand_keyword_and_default_arguments(
                                 stop!(BadSyntax => "positional arg without default found after default argument"; a.syn.span)
                             }
 
+                            required_positional_arg_count += 1;
                             positional_args.push(MaybeDefault::Positional(next))
                         }
                     }
@@ -607,6 +628,7 @@ fn expand_keyword_and_default_arguments(
 
                         seen_default = true;
 
+                        optional_positional_arg_count += 1;
                         positional_args.push(MaybeDefault::DefaultArg(
                             l.get(0).unwrap(),
                             l.get(1).unwrap(),
@@ -645,11 +667,7 @@ fn expand_keyword_and_default_arguments(
                     // information?
                     ExprKind::ident("#%prim.plist-get-positional-arg-list",),
                     ExprKind::ident(REST_ARG),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Number(
-                        Box::new(NumberLiteral::Real(steel_parser::tokens::RealLiteral::Int(
-                            steel_parser::tokens::IntLiteral::Small(index as _)
-                        )))
-                    )))),
+                    expr_usize(index),
                 ];
 
                 Ok((p.clone(), expression))
@@ -667,11 +685,7 @@ fn expand_keyword_and_default_arguments(
                     // information?
                     ExprKind::ident("#%prim.plist-get-positional-arg",),
                     ExprKind::ident(REST_ARG),
-                    ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Number(
-                        Box::new(NumberLiteral::Real(steel_parser::tokens::RealLiteral::Int(
-                            steel_parser::tokens::IntLiteral::Small(index as _)
-                        )))
-                    )))),
+                    expr_usize(index),
                 ];
 
                 Ok((p.clone(), expression))
@@ -779,16 +793,26 @@ fn expand_keyword_and_default_arguments(
 
     inner_application.extend(bindings.iter().map(|x| x.1.clone()));
 
+    // TODO: This check has to be a little bit better.
+    // For this to behave, we have to check the arity of the positional arguments,
+    // as well as the non positional args. To do so, we should
+    // just count the length of kwargs provided, as well as the length
+    // of the positional args.
+    //
+    // Required positional and keyword args will count for 1 and 2 spaces
+    // at the callsite, respectively.
     let arity_check_condition = ExprKind::If(Box::new(ast::If::new(
         ExprKind::List(List::new(vec![
-            ExprKind::ident("#%prim.<"),
-            expr_list![ExprKind::ident("#%prim.length"), ExprKind::ident(REST_ARG)],
-            // Length of the args!
-            ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Number(
-                Box::new(NumberLiteral::Real(steel_parser::tokens::RealLiteral::Int(
-                    steel_parser::tokens::IntLiteral::Small(bindings.len() as isize + 1isize),
-                ))),
-            )))),
+            // ExprKind::ident("#%prim.<"),
+            // expr_list![ExprKind::ident("#%prim.length"), ExprKind::ident(REST_ARG)],
+            // // Length of the args!
+            // expr_usize(bindings.len() + 1),
+            ExprKind::ident("#%prim.plist-validate-args"),
+            ExprKind::ident(REST_ARG),
+            expr_usize(required_keyword_arg_count),
+            expr_usize(required_positional_arg_count),
+            expr_usize(optional_keyword_arg_count),
+            expr_usize(optional_positional_arg_count),
         ])),
         ExprKind::List(List::new(inner_application)),
         expr_list![

@@ -95,6 +95,7 @@ pub fn list_module() -> BuiltInModule {
         .register_native_fn_definition(PLIST_GET_POSITIONAL_DEFINITION)
         .register_native_fn_definition(PLIST_TRY_GET_POSITIONAL_DEFINITION)
         .register_native_fn_definition(PLIST_GET_POSITIONAL_LIST_DEFINITION)
+        .register_native_fn_definition(PLIST_VALIDATE_ARGS_DEFINITION)
         .register_native_fn_definition(DROP_START_DEFINITION);
 
     module
@@ -644,6 +645,45 @@ pub fn plist_get_positional_list(list: &List<SteelVal>, index: usize) -> Result<
     }
 
     Ok(SteelVal::ListV(List::new()))
+}
+
+#[steel_derive::function(name = "plist-validate-args")]
+pub fn plist_validate_args(
+    list: &List<SteelVal>,
+    required_keyword_arg_count: usize,
+    required_positional_arg_count: usize,
+    optional_keyword_arg_count: usize,
+    optional_positional_arg_count: usize,
+) -> bool {
+    // Count each item
+    let mut iter = list.iter();
+
+    let mut found_keyword = 0;
+    let mut found_positional = 0;
+
+    while let Some(next) = iter.next() {
+        if let SteelVal::SymbolV(v) = next {
+            // If we found a keyword, skip the next one.
+            if v.starts_with("#:") {
+                let value = iter.next();
+                if value.is_none() {
+                    return false;
+                }
+
+                found_keyword += 1;
+                continue;
+            }
+        }
+
+        found_positional += 1;
+    }
+
+    // What is the range of arguments that we could expect?
+    // we should see at least
+    return found_positional >= required_positional_arg_count
+        && found_positional <= (required_positional_arg_count + optional_positional_arg_count)
+        && found_keyword >= required_keyword_arg_count
+        && found_keyword <= (required_keyword_arg_count + optional_keyword_arg_count);
 }
 
 // Find the arg by index, skipping keyword pairs

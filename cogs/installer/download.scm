@@ -16,7 +16,9 @@
 
 ;; Sources!
 (define (append-with-separator path dir-name)
-  (if (ends-with? path "/") (string-append path dir-name) (string-append path "/" dir-name)))
+  (if (ends-with? path "/")
+      (string-append path dir-name)
+      (string-append path "/" dir-name)))
 
 (define (path-from-steel-home dir)
   (~> (steel-home-location) (append-with-separator dir)))
@@ -35,7 +37,9 @@
   (define resulting-path
     (string-append installation-dir
                    "/"
-                   (if (symbol? package-name) (symbol->string package-name) package-name)))
+                   (if (symbol? package-name)
+                       (symbol->string package-name)
+                       package-name)))
 
   (displayln "Fetching package from git: " package-name)
 
@@ -88,7 +92,9 @@
 (define (wait-for-jobs)
   (unless (empty? *jobs*)
     (displayln "Waiting for dylib builds to finish")
-    (if (feature-dylib-build?) (for-each thread-join! *jobs*) (for-each wait *jobs*))))
+    (if (feature-dylib-build?)
+        (for-each thread-join! *jobs*)
+        (for-each wait *jobs*))))
 
 ;; Run the cargo-steel-lib installer in the target directory
 ; (define (run-dylib-installation target-directory #:subdir [subdir ""])
