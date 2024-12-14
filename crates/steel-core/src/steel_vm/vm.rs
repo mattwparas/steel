@@ -81,6 +81,7 @@ use parking_lot::RwLock;
 use smallvec::SmallVec;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
+use steel_parser::interner::InternedString;
 use threads::ThreadHandle;
 
 use crate::rvals::{from_serializable_value, into_serializable_value, IntoSteelVal};
@@ -5245,6 +5246,37 @@ pub(crate) fn list_modules(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Resul
 
 pub(crate) fn environment_offset(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(Ok(ctx.thread.global_env.len().into_steelval().unwrap()))
+}
+
+pub(crate) fn match_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    let macro_name: InternedString = String::from_steelval(&args[0]).unwrap().into();
+    let guard = ctx.thread.compiler.read();
+    let macro_object = guard.macro_env.get(&macro_name).unwrap();
+    let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[1])?;
+
+    let list = expr.list().unwrap();
+
+    let case = macro_object.match_case(list)?;
+
+    let (bindings, _) = case.gather_bindings(list.clone())?;
+
+    let map = bindings
+        .into_iter()
+        .map(|(k, v)| {
+            (
+                SteelVal::SymbolV(k.resolve().trim_start_matches("##").into()),
+                crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(v)
+                    .unwrap(),
+            )
+        })
+        .collect::<crate::values::HashMap<_, _>>();
+
+    Ok(SteelVal::HashMapV(Gc::new(map).into()))
+}
+
+#[steel_derive::context(name = "#%match-syntax-case", arity = "Exact(2)")]
+pub(crate) fn match_syntax_case(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(match_syntax_case_impl(ctx, args))
 }
 
 /// Applies the given `function` with arguments as the contents of the `list`.

@@ -7,6 +7,7 @@ use super::{
         get_test_mode, list_modules, set_test_mode, VmCore, CALL_CC_DEFINITION,
         CALL_WITH_EXCEPTION_HANDLER_DEFINITION, EVAL_DEFINITION, EVAL_FILE_DEFINITION,
         EVAL_STRING_DEFINITION, EXPAND_SYNTAX_OBJECTS_DEFINITION, INSPECT_DEFINITION,
+        MATCH_SYNTAX_CASE_DEFINITION,
     },
 };
 use crate::{
@@ -1789,6 +1790,7 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(EVAL_DEFINITION)
         .register_native_fn_definition(EVAL_FILE_DEFINITION)
         .register_native_fn_definition(EXPAND_SYNTAX_OBJECTS_DEFINITION)
+        .register_native_fn_definition(MATCH_SYNTAX_CASE_DEFINITION)
         .register_native_fn_definition(EVAL_STRING_DEFINITION)
         .register_native_fn_definition(CALL_WITH_EXCEPTION_HANDLER_DEFINITION)
         .register_value("breakpoint!", SteelVal::BuiltIn(super::vm::breakpoint))

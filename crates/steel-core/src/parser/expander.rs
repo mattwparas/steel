@@ -227,7 +227,7 @@ impl SteelMacro {
 
     // TODO the case matching should be a little bit more informed than this
     // I think it should also not be greedy, and should report if there are ambiguous matchings
-    fn match_case(&self, expr: &List) -> Result<&MacroCase> {
+    pub(crate) fn match_case(&self, expr: &List) -> Result<&MacroCase> {
         for case in &self.cases {
             if case.recursive_match(expr) {
                 return Ok(case);
@@ -313,6 +313,27 @@ impl MacroCase {
 
     fn recursive_match(&self, list: &List) -> bool {
         match_list_pattern(&self.args[1..], &list.args[1..], list.improper)
+    }
+
+    pub(crate) fn gather_bindings(
+        &self,
+        expr: List,
+    ) -> Result<(
+        FxHashMap<InternedString, ExprKind>,
+        FxHashMap<InternedString, BindingKind>,
+    )> {
+        let mut bindings = Default::default();
+        let mut binding_kind = Default::default();
+
+        collect_bindings(
+            &self.args[1..],
+            &expr[1..],
+            &mut bindings,
+            &mut binding_kind,
+            expr.improper,
+        )?;
+
+        Ok((bindings, binding_kind))
     }
 
     fn expand(&self, expr: List, span: Span) -> Result<ExprKind> {
@@ -959,6 +980,7 @@ fn match_single_pattern(pattern: &MacroPattern, expr: &ExprKind) -> bool {
     }
 }
 
+#[derive(Debug)]
 pub enum BindingKind {
     Many,
     Single,
