@@ -1364,6 +1364,23 @@ pub fn lower_macro_and_require_definitions(expr: ExprKind) -> Result<ExprKind> {
         return Ok(ExprKind::Require(Box::new(ast::Require::new(raw, syn))));
     }
 
+    let mut expr = expr;
+
+    // TODO: Here, we should lower syntax-case itself
+    // to a defmacro, so that things seem to work out correctly.
+
+    // HACK:
+    // If we get here, we can convert the define-syntax back into an identifier
+    // so that other macro expansion can occur on it.
+    if let Some(first) = expr
+        .list_mut()
+        .and_then(|x| x.args.first_mut().and_then(|x| x.atom_syntax_object_mut()))
+    {
+        if first.ty == TokenType::DefineSyntax {
+            first.ty = TokenType::Identifier("define-syntax".into());
+        }
+    }
+
     Ok(expr)
 }
 
@@ -1372,7 +1389,6 @@ struct ASTLowerPass {
 }
 
 impl ASTLowerPass {
-    // TODO: Make this mutable references, otherwise we'll be re-boxing everything for now reason
     fn lower(&mut self, expr: &mut ExprKind) -> Result<()> {
         match expr {
             ExprKind::List(ref mut value) => {

@@ -360,6 +360,14 @@ impl ExprKind {
         }
     }
 
+    pub fn list_mut(&mut self) -> Option<&mut List> {
+        if let ExprKind::List(l) = self {
+            Some(l)
+        } else {
+            None
+        }
+    }
+
     pub fn list_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&List, E> {
         match self {
             Self::List(l) => Ok(l),

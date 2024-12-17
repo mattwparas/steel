@@ -11,6 +11,15 @@
 ;; Compatibility layers for making defmacro not as painful
 (define displayln stdout-simple-displayln)
 
+;; TODO: This needs to be updated with the current module during execution.
+;; that way, `syntax-case` can go ahead and check which module to expand
+;; from. It also needs a way to dynamically add itself to that module hash.
+(define #%loading-current-module "default")
+
+;; Snag the current environment
+(define (current-env)
+  #%loading-current-module)
+
 (define-syntax #%syntax-transformer-module
   (syntax-rules (provide)
 
@@ -99,6 +108,9 @@
   (equal? x '#:mutable))
 (define (transparent-keyword? x)
   (equal? x '#:transparent))
+
+(define (identifier? x)
+  (symbol? (syntax-e x)))
 
 (#%define-syntax (struct expr)
                  (define unwrapped (syntax-e expr))
@@ -314,3 +326,85 @@
                  (define underlying (syntax-e expr))
                  (define rest (cdr underlying))
                  (cons '#%plain-lambda rest))
+
+;; Note: Will only work if the length is even
+(define (take-every-other lst)
+  (define count (/ (length lst) 2))
+  (define indices (map (lambda (x) (+ 1 (* x 2))) (range 0 count)))
+  (map (lambda (x) (list-ref lst x)) indices))
+
+(define gensym-offset 0)
+(define (gensym-sym base)
+  (string->symbol (string-append (symbol->string base)
+                                 (int->string (set! gensym-offset (+ gensym-offset 1))))))
+
+;; TODO: Snag define-syntax, convert it to the right format?
+;; As of now, the define-syntax will get parsed and yoinked
+;; into the wrong format. Add plumbing to ignore those.
+(define (parse-def-syntax stx)
+  ;; Name of the function
+  (define name-expr (list-ref stx 1))
+  ;; Syntax case expr
+  (define syntax-case-expr (list-ref stx 2))
+
+  (define name (list-ref name-expr 0))
+  (define param-name (list-ref name-expr 1))
+  (define syntax-case-param (list-ref syntax-case-expr 1))
+  (define syntax-case-syntax (list-ref syntax-case-expr 2))
+  (define cases (list-ref syntax-case-expr 3))
+
+  (define gensym-name (gensym-sym (concat-symbols '__generated- name)))
+
+  ;; Expand to syntax-rules:
+  (define fake-syntax-rules
+    `(define-syntax ,gensym-name
+       (syntax-rules ()
+         ,cases)))
+
+  (define conditions (take-every-other cases))
+
+  ; (for-each displayln (split-by cases 2))
+  (define generated-match-function
+    `(lambda (expr)
+       ;; Get the bindings first
+       ; (define-values (index case-bindings binding-kind)
+       ;   (#%match-syntax-case ,(symbol->string gensym-name) expr))
+
+       (define result (#%match-syntax-case ,(symbol->string gensym-name) expr))
+
+       (define index (list-ref result 0))
+       (define case-bindings (list-ref result 1))
+       (define binding-kind (list-ref result 2))
+
+       ;; Then, calculate the one that we've matched:
+       (define matched-case-expr (list-ref (quote ,conditions) index))
+       (define func-args (hash-keys->list case-bindings))
+       (define application-args (map (lambda (x) (hash-ref case-bindings x)) func-args))
+       (define template-func (eval (list 'lambda func-args matched-case-expr)))
+       (define template-result (apply template-func application-args))
+
+       ;; Time to run expansions:
+       (#%expand-syntax-case template-result case-bindings binding-kind)))
+
+  ; (displayln generated-match-function)
+
+  (eval fake-syntax-rules)
+  generated-match-function)
+
+(#%define-syntax (define-syntax-case expression)
+                 (define unwrapped (syntax->datum expression))
+                 ;; Just register a syntax transformer?
+                 (define func (parse-def-syntax unwrapped))
+                 (define name (list-ref (list-ref unwrapped 1) 0))
+                 (define originating-file (syntax-originating-file expression))
+                 (define env (or originating-file "default"))
+                 ; (displayln "Loading: " (current-env))
+                 (register-macro-transformer! name env)
+                 ;; Update the environment in place if it exists?
+                 ; (eval `(define ,name ,func))
+                 (if (equal? env "default")
+                     (eval `(define ,name ,func))
+                     (begin
+                       (eval `(set! ,(string->symbol env)
+                                    (%proto-hash-insert% ,(string->symbol env) ,name ,func)))))
+                 'void)

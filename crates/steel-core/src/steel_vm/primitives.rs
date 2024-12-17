@@ -1900,6 +1900,25 @@ fn json_module() -> BuiltInModule {
     module
 }
 
+fn syntax_to_module_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    if let SteelVal::SyntaxObject(s) = &args[0] {
+        let span = s.syntax_loc();
+        let source = span.source_id();
+
+        if let Some(source) = source {
+            let path = ctx.thread.sources.get_path(&source);
+            return path.into_steelval();
+        }
+    }
+
+    Ok(SteelVal::BoolV(false))
+}
+
+#[steel_derive::context(name = "syntax-originating-file", arity = "Exact(1)")]
+fn syntax_to_module(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(syntax_to_module_impl(ctx, args))
+}
+
 fn syntax_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/syntax");
     module
@@ -1922,7 +1941,8 @@ fn syntax_module() -> BuiltInModule {
                     println!("{}", e);
                 }
             }
-        });
+        })
+        .register_native_fn_definition(SYNTAX_TO_MODULE_DEFINITION);
     module
 }
 
