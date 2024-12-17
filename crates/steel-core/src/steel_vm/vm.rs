@@ -10,7 +10,9 @@ use crate::gc::shared::Shared;
 use crate::gc::shared::WeakShared;
 use crate::gc::shared::WeakSharedMut;
 use crate::gc::SharedMut;
+use crate::parser::expander::BindingKind;
 use crate::parser::parser::Sources;
+use crate::parser::replace_idents::expand_template;
 use crate::primitives::lists::car;
 use crate::primitives::lists::cdr;
 use crate::primitives::lists::cons;
@@ -4973,6 +4975,11 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
 
 fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
+    // TODO: Looks like this isn't correctly parsing / pushing down macros!
+    // This needs to extract macros
+
+    // println!("EVAL => {}", expr.to_pretty(60));
+
     let res = ctx
         .thread
         .compiler
@@ -5248,6 +5255,55 @@ pub(crate) fn environment_offset(ctx: &mut VmCore, args: &[SteelVal]) -> Option<
     Some(Ok(ctx.thread.global_env.len().into_steelval().unwrap()))
 }
 
+// Should really change this to be:
+// Snag values, then expand them, then convert back? The constant conversion
+// back and forth will probably hamper performance significantly. That being said,
+// it is entirely at compile time, so probably _okay_
+pub(crate) fn expand_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    let mut template = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
+
+    let mut bindings: fxhash::FxHashMap<_, _> = if let SteelVal::HashMapV(h) = &args[1] {
+        h.iter()
+            .map(|(k, v)| match (k, v) {
+                (SteelVal::SymbolV(k), e) => Ok((
+                    InternedString::from_str(k.as_str()),
+                    crate::parser::ast::TryFromSteelValVisitorForExprKind::root(v)?,
+                )),
+                _ => stop!(TypeMismatch => "#%expand-template error"),
+            })
+            .collect::<Result<_>>()?
+    } else {
+        stop!(TypeMismatch => "#%expand-template expected a map of bindings")
+    };
+
+    let mut binding_kind: fxhash::FxHashMap<_, _> = if let SteelVal::HashMapV(h) = &args[2] {
+        h.iter()
+            .map(|(k, v)| match (k, v) {
+                (SteelVal::SymbolV(k), e) => Ok((
+                    InternedString::from_str(k.as_str()),
+                    if usize::from_steelval(e)? == 1 {
+                        BindingKind::Many
+                    } else {
+                        BindingKind::Single
+                    },
+                )),
+                _ => stop!(TypeMismatch => "#%expand-template error"),
+            })
+            .collect::<Result<_>>()?
+    } else {
+        stop!(TypeMismatch => "#%expand-template expected a map of bindings")
+    };
+
+    expand_template(&mut template, &mut bindings, &mut binding_kind);
+
+    crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(template)
+}
+
+#[steel_derive::context(name = "#%expand-syntax-case", arity = "Exact(3)")]
+pub(crate) fn expand_syntax_case(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(expand_syntax_case_impl(ctx, args))
+}
+
 pub(crate) fn match_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     let macro_name: InternedString = String::from_steelval(&args[0]).unwrap().into();
     let guard = ctx.thread.compiler.read();
@@ -5256,9 +5312,9 @@ pub(crate) fn match_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
 
     let list = expr.list().unwrap();
 
-    let case = macro_object.match_case(list)?;
+    let (case, index) = macro_object.match_case_index(list)?;
 
-    let (bindings, _) = case.gather_bindings(list.clone())?;
+    let (bindings, binding_kind) = case.gather_bindings(list.clone())?;
 
     let map = bindings
         .into_iter()
@@ -5271,7 +5327,25 @@ pub(crate) fn match_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
         })
         .collect::<crate::values::HashMap<_, _>>();
 
-    Ok(SteelVal::HashMapV(Gc::new(map).into()))
+    let kind = binding_kind
+        .into_iter()
+        .map(|(k, v)| {
+            (
+                SteelVal::SymbolV(k.resolve().trim_start_matches("##").into()),
+                match v {
+                    crate::parser::expander::BindingKind::Single => 0.into_steelval().unwrap(),
+                    crate::parser::expander::BindingKind::Many => 1.into_steelval().unwrap(),
+                },
+            )
+        })
+        .collect::<crate::values::HashMap<_, _>>();
+
+    Ok(crate::list![
+        // The index of the case that matched
+        index.into_steelval()?,
+        SteelVal::HashMapV(Gc::new(map).into()),
+        SteelVal::HashMapV(Gc::new(kind).into())
+    ])
 }
 
 #[steel_derive::context(name = "#%match-syntax-case", arity = "Exact(2)")]

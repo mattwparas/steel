@@ -188,7 +188,14 @@ impl SteelMacro {
         self.mangled
     }
 
-    pub fn parse_from_ast_macro(ast_macro: Box<Macro>) -> Result<Self> {
+    pub fn parse_from_ast_macro(mut ast_macro: Box<Macro>) -> Result<Self> {
+        // HACK: Parse the token as a specific kind of identifier
+        if let Some(ident) = ast_macro.name.atom_syntax_object_mut() {
+            if ident.ty == TokenType::DefineSyntax {
+                ident.ty = TokenType::Identifier("define-syntax".into())
+            }
+        }
+
         let name = *ast_macro
             .name
             .atom_identifier_or_else(throw!(BadSyntax => "macros only currently support
@@ -241,6 +248,20 @@ impl SteelMacro {
         }
     }
 
+    pub(crate) fn match_case_index(&self, expr: &List) -> Result<(&MacroCase, usize)> {
+        for (index, case) in self.cases.iter().enumerate() {
+            if case.recursive_match(expr) {
+                return Ok((case, index));
+            }
+        }
+
+        if let Some(ExprKind::Atom(a)) = expr.first() {
+            stop!(BadSyntax => format!("macro expansion unable to match case: {expr}"); a.syn.span);
+        } else {
+            unreachable!()
+        }
+    }
+
     pub fn expand(&self, expr: List, span: Span) -> Result<ExprKind> {
         // if log::log_enabled!(log::Level::Debug) {
         //     log::debug!("Expanding macro with tokens: {}", expr);
@@ -262,7 +283,7 @@ impl SteelMacro {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MacroCase {
     args: Vec<MacroPattern>,
-    body: ExprKind,
+    pub(crate) body: ExprKind,
 }
 
 impl MacroCase {

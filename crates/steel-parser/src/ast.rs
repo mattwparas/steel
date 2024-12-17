@@ -58,6 +58,8 @@ define_symbols! {
     UNSYNTAX_SPLICING => "unsyntax-splicing",
     RAW_UNSYNTAX_SPLICING => "#%unsyntax-splicing",
     SYNTAX_QUOTE => "syntax",
+    DEFINE_SYNTAX => "define-syntax",
+    SYNTAX_RULES => "syntax-rules",
 }
 
 pub trait AstTools {
@@ -2124,6 +2126,43 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                             parse_lambda(a, value)
                         }
 
+                        TokenType::Identifier(expr) if *expr == *DEFINE_SYNTAX => {
+                            let syn = a.syn.clone();
+
+                            if value.len() < 3 {
+                                return Err(ParseError::SyntaxError(
+                                    format!("define-syntax expects 2 arguments - the name of the macro and the syntax-rules, found {}", value.len()), syn.span, None
+                                ));
+                            }
+
+                            // println!("{}", value.iter().map(|x| x.to_pretty(60)).join("\n\n"));
+
+                            let mut value_iter = value.into_iter();
+                            value_iter.next();
+
+                            let name = value_iter.next().unwrap();
+
+                            let syntax = value_iter.next();
+
+                            // println!("{:?}", syntax);
+
+                            let syntax_rules = if let Some(ExprKind::SyntaxRules(s)) = syntax {
+                                s
+                            } else {
+                                return Err(ParseError::SyntaxError(
+                                    "define-syntax expected a syntax-rules object".to_string(),
+                                    syn.span,
+                                    None,
+                                ));
+                            };
+
+                            Ok(ExprKind::Macro(Box::new(Macro::new(
+                                name,
+                                syntax_rules,
+                                syn,
+                            ))))
+                        }
+
                         TokenType::DefineSyntax => {
                             let syn = a.syn.clone();
 
@@ -2161,6 +2200,57 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                             ))))
                         }
                         TokenType::SyntaxRules => {
+                            let syn = a.syn.clone();
+
+                            if value.len() < 3 {
+                                return Err(ParseError::SyntaxError(
+                                    format!("syntax-rules expects a list of introduced syntax, and at least one pattern-body pair, found {} arguments", value.len()), syn.span, None
+                                ));
+                            }
+
+                            let mut value_iter = value.into_iter();
+                            value_iter.next();
+
+                            let syntax_vec = if let Some(ExprKind::List(l)) = value_iter.next() {
+                                l.args
+                            } else {
+                                return Err(ParseError::SyntaxError(
+                                    "syntax-rules expects a list of new syntax forms used in the macro".to_string(), syn.span, None));
+                            };
+
+                            let mut pairs = Vec::new();
+                            let rest: Vec<_> = value_iter.collect();
+
+                            for pair in rest {
+                                if let ExprKind::List(l) = pair {
+                                    if l.args.len() != 2 {
+                                        return Err(ParseError::SyntaxError(
+                                            "syntax-rules requires only one pattern to one body"
+                                                .to_string(),
+                                            syn.span,
+                                            None,
+                                        ));
+                                    }
+
+                                    let mut pair_iter = l.args.into_iter();
+                                    let pair_object = PatternPair::new(
+                                        pair_iter.next().unwrap(),
+                                        pair_iter.next().unwrap(),
+                                    );
+                                    pairs.push(pair_object);
+                                } else {
+                                    return Err(ParseError::SyntaxError(
+                                        "syntax-rules requires pattern to expressions to be in a list".to_string(), syn.span, None
+                                    ));
+                                }
+                            }
+
+                            Ok(ExprKind::SyntaxRules(Box::new(SyntaxRules::new(
+                                syntax_vec, pairs, syn,
+                            ))))
+                        }
+
+                        TokenType::Identifier(expr) if *expr == *SYNTAX_RULES => {
                             let syn = a.syn.clone();
 
                             if value.len() < 3 {
