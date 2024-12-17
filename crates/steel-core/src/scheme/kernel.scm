@@ -358,7 +358,7 @@
   ;; Expand to syntax-rules:
   (define fake-syntax-rules
     `(define-syntax ,gensym-name
-       (syntax-rules ()
+       (syntax-rules ,syntax-case-syntax
          ,cases)))
 
   (define conditions (take-every-other cases))
