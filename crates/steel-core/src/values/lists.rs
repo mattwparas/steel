@@ -1,6 +1,9 @@
 use std::cell::Cell;
 
-use im_lists::handler::{DefaultDropHandler, DropHandler};
+use im_lists::{
+    handler::{DefaultDropHandler, DropHandler},
+    shared::PointerFamily,
+};
 
 use crate::{
     gc::Gc,
@@ -49,6 +52,44 @@ type DropHandlerChoice = list_drop_handler::ListDropHandler;
 
 thread_local! {
     pub static DEPTH: Cell<usize> = Cell::new(0);
+}
+
+pub struct GcPointerType;
+
+impl PointerFamily for GcPointerType {
+    type Pointer<T> = Gc<T>;
+
+    fn new<T>(value: T) -> Self::Pointer<T> {
+        Gc::new(value)
+    }
+
+    fn strong_count<T>(this: &Self::Pointer<T>) -> usize {
+        Gc::strong_count(this)
+    }
+
+    fn try_unwrap<T>(this: Self::Pointer<T>) -> Option<T> {
+        Gc::try_unwrap(this).ok()
+    }
+
+    fn get_mut<T>(this: &mut Self::Pointer<T>) -> Option<&mut T> {
+        Gc::get_mut(this)
+    }
+
+    fn ptr_eq<T>(this: &Self::Pointer<T>, other: &Self::Pointer<T>) -> bool {
+        Gc::ptr_eq(this, other)
+    }
+
+    fn make_mut<T: Clone>(ptr: &mut Self::Pointer<T>) -> &mut T {
+        Gc::make_mut(ptr)
+    }
+
+    fn clone<T>(ptr: &Self::Pointer<T>) -> Self::Pointer<T> {
+        Gc::clone(ptr)
+    }
+
+    fn as_ptr<T>(this: &Self::Pointer<T>) -> *const T {
+        Gc::as_ptr(this)
+    }
 }
 
 #[cfg(not(feature = "without-drop-protection"))]
@@ -160,11 +201,13 @@ mod list_drop_handler {
     }
 }
 
-#[cfg(not(feature = "sync"))]
-type PointerType = im_lists::shared::RcPointer;
+// #[cfg(not(feature = "sync"))]
+// type PointerType = im_lists::shared::RcPointer;
 
-#[cfg(feature = "sync")]
-type PointerType = im_lists::shared::ArcPointer;
+// #[cfg(feature = "sync")]
+// type PointerType = im_lists::shared::ArcPointer;
+
+type PointerType = GcPointerType;
 
 pub type SteelList<T> = im_lists::list::GenericList<T, PointerType, 4, 2, DefaultDropHandler>;
 

@@ -338,22 +338,8 @@ fn tokentype_error_to_parse_error(t: &Token<'_, InternedString>) -> ParseError {
     }
 }
 
-fn strip_shebang_line(input: &str) -> &str {
-    if input.starts_with("#!") {
-        let stripped = input.trim_start_matches("#!");
-        match stripped.char_indices().skip_while(|x| x.1 != '\n').next() {
-            Some((pos, _)) => &stripped[pos..],
-            None => "",
-        }
-    } else {
-        input
-    }
-}
-
 impl<'a> Parser<'a> {
     pub fn new(input: &'a str, source_id: Option<SourceId>) -> Self {
-        let input = strip_shebang_line(input);
-
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
             quote_stack: Vec::new(),
@@ -374,7 +360,6 @@ impl<'a> Parser<'a> {
     }
 
     pub fn new_flat(input: &'a str, source_id: Option<SourceId>) -> Self {
-        let input = strip_shebang_line(input);
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
             quote_stack: Vec::new(),
@@ -394,7 +379,6 @@ impl<'a> Parser<'a> {
         source_name: PathBuf,
         source_id: Option<SourceId>,
     ) -> Self {
-        let input = strip_shebang_line(input);
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
             quote_stack: Vec::new(),
@@ -411,7 +395,6 @@ impl<'a> Parser<'a> {
 
     // Attach comments!
     pub fn doc_comment_parser(input: &'a str, source_id: Option<SourceId>) -> Self {
-        let input = strip_shebang_line(input);
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
             quote_stack: Vec::new(),
@@ -1381,6 +1364,23 @@ pub fn lower_macro_and_require_definitions(expr: ExprKind) -> Result<ExprKind> {
         return Ok(ExprKind::Require(Box::new(ast::Require::new(raw, syn))));
     }
 
+    let mut expr = expr;
+
+    // TODO: Here, we should lower syntax-case itself
+    // to a defmacro, so that things seem to work out correctly.
+
+    // HACK:
+    // If we get here, we can convert the define-syntax back into an identifier
+    // so that other macro expansion can occur on it.
+    if let Some(first) = expr
+        .list_mut()
+        .and_then(|x| x.args.first_mut().and_then(|x| x.atom_syntax_object_mut()))
+    {
+        if first.ty == TokenType::DefineSyntax {
+            first.ty = TokenType::Identifier("define-syntax".into());
+        }
+    }
+
     Ok(expr)
 }
 
@@ -1389,7 +1389,6 @@ struct ASTLowerPass {
 }
 
 impl ASTLowerPass {
-    // TODO: Make this mutable references, otherwise we'll be re-boxing everything for now reason
     fn lower(&mut self, expr: &mut ExprKind) -> Result<()> {
         match expr {
             ExprKind::List(ref mut value) => {
@@ -1414,8 +1413,12 @@ impl ASTLowerPass {
                     self.quote_depth -= 1;
                 }
 
-                if let Some(f) = value.first().and_then(|x| {
-                    if let ExprKind::Atom(_) = x {
+                if let Some(f) = value.args.first_mut().and_then(|x| {
+                    if let ExprKind::Atom(a) = x {
+                        if a.syn.ty == TokenType::DefineSyntax {
+                            a.syn.ty = TokenType::Identifier("define-syntax".into());
+                        }
+
                         Some(x.clone())
                     } else {
                         None

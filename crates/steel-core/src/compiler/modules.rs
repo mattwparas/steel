@@ -67,6 +67,13 @@ macro_rules! declare_builtins {
         static BUILT_INS: &[(&str, &str)] = &[
             $( ($name, include_str!($path)), )*
         ];
+
+        pub(crate) fn intern_modules() {
+            $(
+                let _ = InternedString::from($name);
+                let _ = InternedString::from($path);
+            )*
+        }
     };
 }
 
@@ -91,6 +98,7 @@ macro_rules! create_prelude {
     }
 }
 
+// TODO: These need to be set up and interned in a stable position.
 declare_builtins!(
     "steel/option" => "../scheme/modules/option.scm",
     "steel/result" => "../scheme/modules/result.scm",

@@ -41,6 +41,14 @@ pub fn replace_identifiers(
     ReplaceExpressions::new(bindings, binding_kind, fallback_bindings).visit(expr)
 }
 
+pub fn expand_template(
+    expr: &mut ExprKind,
+    bindings: &mut FxHashMap<InternedString, ExprKind>,
+    binding_kind: &mut FxHashMap<InternedString, BindingKind>,
+) -> Result<()> {
+    ReplaceExpressions::new(bindings, binding_kind, &mut Default::default()).visit(expr)
+}
+
 // struct ConstExprKindTransformers {
 //     functions: HashMap<&'static str, fn(&ReplaceExpressions<'_>, ExprKind) -> Result<ExprKind>>,
 // }
@@ -422,8 +430,9 @@ impl<'a> ReplaceExpressions<'a> {
                 let start = ExprKind::integer_literal(span.start as isize, span);
                 let end = ExprKind::integer_literal(span.end as isize, span);
 
+                // TODO: Fix this unwrap
                 let source_id = ExprKind::integer_literal(
-                    span.source_id().map(|x| x.0).unwrap() as isize,
+                    span.source_id().map(|x| x.0).unwrap_or(0) as isize,
                     span,
                 );
 

@@ -16,13 +16,13 @@
   (node #f val #f))
 (define (leaf? l)
   (not (node-left l)))
-(define (leaf-val l)
-  node-val)
 
 (define (make item d)
   (if (= d 0)
       (leaf item)
-      (let ([item2 (* item 2)] [d2 (- d 1)]) (node (make (- item2 1) d2) item (make item2 d2)))))
+      (let ([item2 (* item 2)]
+            [d2 (- d 1)])
+        (node (make (- item2 1) d2) item (make item2 d2)))))
 
 (define (check t)
   (if (leaf? t) 1 (+ 1 (+ (check (node-left t)) (check (node-right t))))))
@@ -42,7 +42,8 @@
         (loop (+ 2 d) end max-depth min-depth))))
 
 (define (main n)
-  (let* ([min-depth 4] [max-depth (max (+ min-depth 2) n)])
+  (let* ([min-depth 4]
+         [max-depth (max (+ min-depth 2) n)])
     (let ([stretch-depth (+ max-depth 1)])
       (displayln "stretch tree of depth " stretch-depth " check: " (check (make 0 stretch-depth))))
     (let ([long-lived-tree (make 0 max-depth)])

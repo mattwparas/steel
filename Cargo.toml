@@ -6,13 +6,13 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/mattwparas/steel"
 description = "Steel repl and command line interface"
+default-run = "steel"
 
 include = ["/src/**/*", "/Cargo.toml", "/README.md", "LICENSE*"]
 
 [workspace.package]
 version = "0.6.0"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [[bin]]
 name = "steel"
 path = "src/main.rs"
@@ -22,7 +22,9 @@ path = "src/main.rs"
 steel-core = { path = "./crates/steel-core", version = "0.6.0", features = ["dylibs", "markdown", "stacker", "sync"] }
 
 [features]
+default = ["mimalloc"]
 build-info = ["vergen"]
+mimalloc = ["dep:mimalloc"]
 # Note: It does not appear that this will get propagated to any crate that depends on
 # the workspace feature. This is unfortunate, since we'd like everything to actually
 # use the workspace dependency. For now, if you want to test with sync, you should
@@ -39,6 +41,7 @@ env_logger = "0.10.0"
 log = "0.4.17"
 clap = { version = "=4.1.4", features = ["derive"] }
 steel-doc = { path = "./crates/steel-doc", version = "0.6.0" }
+mimalloc = { version = "0.1.43", optional = true }
 
 [target.'cfg(not(target_os = "redox"))'.dependencies]
 cargo-steel-lib = { path = "./crates/cargo-steel-lib", version = "0.1.0" }
@@ -55,7 +58,7 @@ members = [
 ]
 
 [profile.release]
-debug = false
+debug = true
 lto = true
 
 [profile.test]

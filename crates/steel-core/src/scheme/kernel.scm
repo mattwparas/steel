@@ -11,6 +11,15 @@
 ;; Compatibility layers for making defmacro not as painful
 (define displayln stdout-simple-displayln)
 
+;; TODO: This needs to be updated with the current module during execution.
+;; that way, `syntax-case` can go ahead and check which module to expand
+;; from. It also needs a way to dynamically add itself to that module hash.
+(define #%loading-current-module "default")
+
+;; Snag the current environment
+(define (current-env)
+  #%loading-current-module)
+
 (define-syntax #%syntax-transformer-module
   (syntax-rules (provide)
 
@@ -32,25 +41,19 @@
 ;; which will then load and register macros accordingly.
 (define-syntax defmacro
   (syntax-rules ()
-    [(defmacro environment
-       (name arg)
-       expr)
+    [(defmacro environment (name arg) expr)
      (begin
        (register-macro-transformer! (symbol->string 'name) environment)
        (define (name arg)
          expr))]
 
-    [(defmacro environment
-       (name arg)
-       exprs ...)
+    [(defmacro environment (name arg) exprs ...)
      (begin
        (register-macro-transformer! (symbol->string 'name) environment)
        (define (name arg)
          exprs ...))]
 
-    [(defmacro environment
-       name
-       expr)
+    [(defmacro environment name expr)
      (begin
        (register-macro-transformer! (symbol->string 'name) environment)
        (define name expr))]))
@@ -105,6 +108,12 @@
   (equal? x '#:mutable))
 (define (transparent-keyword? x)
   (equal? x '#:transparent))
+
+(define (identifier? x)
+  (symbol? (syntax-e x)))
+
+(define (all-but-last l)
+  (reverse (cdr (reverse l))))
 
 (#%define-syntax (struct expr)
                  (define unwrapped (syntax-e expr))
@@ -228,7 +237,10 @@
         (%plain-let
          ([struct-type-descriptor (list-ref prototypes 0)] [constructor-proto (list-ref prototypes 1)]
                                                            [predicate-proto (list-ref prototypes 2)]
-                                                           [getter-proto (list-ref prototypes 3)])
+                                                           ;; TODO: Deprecate this
+                                                           [getter-proto (list-ref prototypes 3)]
+                                                           [getter-proto-list
+                                                            (list-ref prototypes 4)])
          (set! ,struct-prop-name struct-type-descriptor)
          (#%vtable-update-entry! struct-type-descriptor ,maybe-procedure-field ,struct-options-name)
          ,(if mutable?
@@ -261,7 +273,9 @@
 (define (new-make-getters struct-name fields)
   (map (lambda (field)
          `(set! ,(concat-symbols struct-name '- (car field))
-                (lambda (this) (getter-proto this ,(list-ref field 1)))))
+                (list-ref getter-proto-list ,(list-ref field 1))
+                ; (lambda (this) (getter-proto this ,(list-ref field 1)))
+                ))
        (enumerate 0 '() fields)))
 
 (define (new-make-setters struct-name fields)
@@ -315,3 +329,105 @@
                  (define underlying (syntax-e expr))
                  (define rest (cdr underlying))
                  (cons '#%plain-lambda rest))
+
+;; Note: Will only work if the length is even
+(define (take-every-other lst)
+  (define count (/ (length lst) 2))
+  (define indices (map (lambda (x) (+ 1 (* x 2))) (range 0 count)))
+  (map (lambda (x) (list-ref lst x)) indices))
+
+(define gensym-offset 0)
+(define (gensym-sym base)
+  (string->symbol (string-append (symbol->string base)
+                                 (int->string (set! gensym-offset (+ gensym-offset 1))))))
+
+;; TODO: Snag define-syntax, convert it to the right format?
+;; As of now, the define-syntax will get parsed and yoinked
+;; into the wrong format. Add plumbing to ignore those.
+(define (parse-def-syntax stx)
+  ;; Name of the function
+  (define name-expr (list-ref stx 1))
+  ;; Syntax case expr
+  (define syntax-case-expr (last stx))
+
+  (define body-exprs (all-but-last (drop stx 2)))
+
+  (define name (list-ref name-expr 0))
+  (define param-name (list-ref name-expr 1))
+  (define syntax-case-param (list-ref syntax-case-expr 1))
+  (define syntax-case-syntax (list-ref syntax-case-expr 2))
+  (define cases (list-ref syntax-case-expr 3))
+
+  (define gensym-name (gensym-sym (concat-symbols '__generated- name)))
+
+  ;; Expand to syntax-rules:
+  (define fake-syntax-rules
+    `(define-syntax ,gensym-name
+       (syntax-rules ,syntax-case-syntax
+         ,cases)))
+
+  ;; This needs to be eval'd right away so that we can actually
+  ;; reference the values.
+  (eval fake-syntax-rules)
+
+  (define conditions (take-every-other cases))
+
+  ;; List of cases, in order, for the syntax rules
+  (define matched-case-bindings (#%macro-case-bindings (symbol->string gensym-name)))
+
+  (define generated-function-name (gensym-sym '#%func))
+
+  (define expressions (transduce matched-case-bindings (zipping conditions) (into-list)))
+
+  (define expansion-func
+    ;; TODO: gensym this!
+    `(define ,generated-function-name
+       (lambda #%#%args
+         ,@body-exprs
+         (apply (case-lambda
+                  ,@expressions)
+                #%#%args))))
+
+  (define generated-match-function
+    `(lambda (expr)
+       ;; Get the bindings first
+       (define result (#%match-syntax-case ,(symbol->string gensym-name) expr))
+       (define index (list-ref result 0))
+       (define case-bindings (list-ref result 1))
+       (define binding-kind (list-ref result 2))
+       ;; Then, calculate the one that we've matched:
+       ; (define matched-case-expr (list-ref (quote ,conditions) index))
+
+       (define matched-bindings (list-ref (quote ,matched-case-bindings) index))
+
+       ; (define func-args (hash-keys->list case-bindings))
+       (define application-args (map (lambda (x) (hash-ref case-bindings x)) matched-bindings))
+
+       ; (define template-func (eval (list 'lambda func-args matched-case-expr)))
+       (define template-result (apply ,generated-function-name application-args))
+       ;; Time to run expansions:
+       (#%expand-syntax-case template-result case-bindings binding-kind)))
+
+  (displayln expansion-func)
+  (eval expansion-func)
+  (displayln generated-match-function)
+
+  generated-match-function)
+
+(#%define-syntax (define-syntax expression)
+                 (define unwrapped (syntax->datum expression))
+                 ;; Just register a syntax transformer?
+                 (define func (parse-def-syntax unwrapped))
+                 (define name (list-ref (list-ref unwrapped 1) 0))
+                 (define originating-file (syntax-originating-file expression))
+                 (define env (or originating-file "default"))
+                 ; (displayln "Loading: " (current-env))
+                 (register-macro-transformer! name env)
+                 ;; Update the environment in place if it exists?
+                 ; (eval `(define ,name ,func))
+                 (if (equal? env "default")
+                     (eval `(define ,name ,func))
+                     (begin
+                       (eval `(set! ,(string->symbol env)
+                                    (%proto-hash-insert% ,(string->symbol env) ,name ,func)))))
+                 'void)

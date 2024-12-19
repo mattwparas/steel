@@ -399,6 +399,15 @@ impl SteelPortRepr {
         }
     }
 
+    pub fn close_input_port(&mut self) -> Result<()> {
+        if self.is_input() {
+            *self = SteelPortRepr::Closed;
+            Ok(())
+        } else {
+            stop!(TypeMismatch => "close-input-port expects an input port, found: {:?}", self)
+        }
+    }
+
     pub fn write(&mut self, buf: &[u8]) -> Result<usize> {
         macro_rules! write_and_flush(
             ($br: expr) => {{
@@ -591,6 +600,10 @@ impl SteelPort {
 
     pub fn close_output_port(&self) -> Result<()> {
         self.port.write().close_output_port()
+    }
+
+    pub fn close_input_port(&self) -> Result<()> {
+        self.port.write().close_input_port()
     }
 }
 

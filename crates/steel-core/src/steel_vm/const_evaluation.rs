@@ -684,7 +684,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
         if let ExprKind::LambdaFunction(l) = func_expr {
             if l.args.len() != args.len() && !l.rest {
-                println!("{}", l);
+                // println!("{}", l);
 
                 let m = format!(
                     "Anonymous function expected {} arguments, found {}",

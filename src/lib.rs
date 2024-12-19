@@ -10,11 +10,11 @@ use std::path::PathBuf;
 use std::process;
 use std::{error::Error, fs};
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 
 /// Steel Interpreter
 #[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None, trailing_var_arg = true)]
+#[clap(author, version, about, long_about = None, trailing_var_arg = true, allow_hyphen_values = true, disable_help_flag = true, disable_help_subcommand = true)]
 pub struct Args {
     /// What action to perform on this file, the absence of a subcommand indicates that the given file (if any)
     /// will be run as the entrypoint
@@ -76,6 +76,10 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             action: None,
             ..
         } => {
+            // if arguments.iter().find(|x| x.as_str() == "--help").is_some() {
+            //     println!("{}", Args::command().render_long_help());
+            // }
+
             #[cfg(feature = "build-info")]
             {
                 println!("{}", VERSION_MESSAGE);
@@ -89,6 +93,15 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
             action: None,
             arguments,
         } => {
+            if path
+                .as_os_str()
+                .to_str()
+                .map(|x| x == "--help")
+                .unwrap_or_default()
+            {
+                println!("{}", Args::command().render_long_help());
+            }
+
             vm.register_value(
                 "std::env::args",
                 steel::SteelVal::ListV(
@@ -260,9 +273,7 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
 
             let rust_entrypoint = r#"
 fn main() {
-    let program = steel::steel_vm::engine::NonInteractiveProgramImage::from_bytes(include_bytes!("program.bin"));
-
-    steel::steel_vm::engine::Engine::execute_non_interactive_program_image(program);
+    steel::steel_vm::engine::Engine::execute_non_interactive_program_image(include_bytes!("program.bin"));
 }
             "#;
 
@@ -287,7 +298,8 @@ version = "0.1.0"
 
 
 [dependencies]
-steel-core = { git = "https://github.com/mattwparas/steel.git", features = ["dylibs"] }
+# steel-core = { git = "https://github.com/mattwparas/steel.git", features = ["dylibs", "stacker", "sync"] }
+steel-core = { path = "../crates/steel-core", features = ["dylibs", "stacker", "sync"] }
 
 [profile.release]
 debug = false
@@ -312,7 +324,7 @@ lto = true
             ..
         } => {
             #[cfg(not(target_os = "redox"))]
-            cargo_steel_lib::run()?;
+            cargo_steel_lib::run(Vec::new(), Vec::new())?;
 
             #[cfg(target_os = "redox")]
             println!("Creating dylibs is not yet supported on Redox");

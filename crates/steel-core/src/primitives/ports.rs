@@ -42,6 +42,7 @@ pub fn port_module() -> BuiltInModule {
         .register_native_fn_definition(DEFAULT_INPUT_PORT_DEFINITION)
         .register_native_fn_definition(DEFAULT_OUTPUT_PORT_DEFINITION)
         .register_native_fn_definition(CLOSE_OUTPUT_PORT_DEFINITION)
+        .register_native_fn_definition(CLOSE_INPUT_PORT_DEFINITION)
         .register_native_fn_definition(DEFAULT_ERROR_PORT_DEFINITION)
         .register_native_fn_definition(EOF_OBJECT_DEFINITION)
         .register_native_fn_definition(OPEN_INPUT_STRING_DEFINITION)
@@ -380,6 +381,11 @@ pub fn default_error_port() -> SteelVal {
 #[function(name = "close-output-port")]
 pub fn close_output_port(port: &SteelPort) -> Result<SteelVal> {
     port.close_output_port().map(|_| SteelVal::Void)
+}
+
+#[function(name = "close-input-port")]
+pub fn close_input_port(port: &SteelPort) -> Result<SteelVal> {
+    port.close_input_port().map(|_| SteelVal::Void)
 }
 
 /// Returns `#t` if the value is an EOF object.
