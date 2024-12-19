@@ -5305,7 +5305,7 @@ pub(crate) fn expand_syntax_case(ctx: &mut VmCore, args: &[SteelVal]) -> Option<
 }
 
 pub(crate) fn match_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-    let macro_name: InternedString = String::from_steelval(&args[0]).unwrap().into();
+    let macro_name: InternedString = String::from_steelval(&args[0])?.into();
     let guard = ctx.thread.compiler.read();
     let macro_object = guard.macro_env.get(&macro_name).unwrap();
     let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[1])?;
@@ -5346,6 +5346,32 @@ pub(crate) fn match_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
         SteelVal::HashMapV(Gc::new(map).into()),
         SteelVal::HashMapV(Gc::new(kind).into())
     ])
+}
+
+fn macro_case_bindings_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    let macro_name = String::from_steelval(&args[0])?.into();
+    let guard = ctx.thread.compiler.read();
+    let macro_object = guard.macro_env.get(&macro_name).unwrap();
+
+    Ok(SteelVal::ListV(
+        macro_object
+            .cases
+            .iter()
+            .map(|x| {
+                SteelVal::ListV(
+                    x.all_bindings()
+                        .into_iter()
+                        .map(|x| SteelVal::SymbolV(x.trim_start_matches("##").into()))
+                        .collect(),
+                )
+            })
+            .collect(),
+    ))
+}
+
+#[steel_derive::context(name = "#%macro-case-bindings", arity = "Exact(2)")]
+pub(crate) fn macro_case_bindings(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(macro_case_bindings_impl(ctx, args))
 }
 
 #[steel_derive::context(name = "#%match-syntax-case", arity = "Exact(2)")]

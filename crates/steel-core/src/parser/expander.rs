@@ -144,7 +144,7 @@ pub struct GlobalMacroManager {
 pub struct SteelMacro {
     name: InternedString,
     special_forms: Vec<InternedString>,
-    cases: Vec<MacroCase>,
+    pub(crate) cases: Vec<MacroCase>,
     mangled: bool,
     pub(crate) location: Span,
     pub(crate) special_mangled: bool,
@@ -290,6 +290,33 @@ impl MacroCase {
     #[cfg(test)]
     pub fn new(args: Vec<MacroPattern>, body: ExprKind) -> Self {
         MacroCase { args, body }
+    }
+
+    pub fn all_bindings(&self) -> Vec<String> {
+        fn walk_bindings(pattern: &MacroPattern, idents: &mut Vec<String>) {
+            match pattern {
+                MacroPattern::Rest(r) => walk_bindings(&r, idents),
+                MacroPattern::Single(s) | MacroPattern::Many(s) | MacroPattern::Quote(s)
+                    if *s != InternedString::from_static("_") =>
+                {
+                    idents.push(s.resolve().to_owned());
+                }
+                MacroPattern::Nested(n) | MacroPattern::ManyNested(n) => {
+                    for p in n {
+                        walk_bindings(p, idents)
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut idents = Vec::new();
+
+        for pattern in &self.args {
+            walk_bindings(&pattern, &mut idents)
+        }
+
+        idents
     }
 
     fn parse_from_pattern_pair(

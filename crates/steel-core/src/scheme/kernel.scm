@@ -112,6 +112,9 @@
 (define (identifier? x)
   (symbol? (syntax-e x)))
 
+(define (all-but-last l)
+  (reverse (cdr (reverse l))))
+
 (#%define-syntax (struct expr)
                  (define unwrapped (syntax-e expr))
                  (define struct-name (syntax->datum (second unwrapped)))
@@ -345,7 +348,9 @@
   ;; Name of the function
   (define name-expr (list-ref stx 1))
   ;; Syntax case expr
-  (define syntax-case-expr (list-ref stx 2))
+  (define syntax-case-expr (last stx))
+
+  (define body-exprs (all-but-last (drop stx 2)))
 
   (define name (list-ref name-expr 0))
   (define param-name (list-ref name-expr 1))
@@ -361,37 +366,55 @@
        (syntax-rules ,syntax-case-syntax
          ,cases)))
 
+  ;; This needs to be eval'd right away so that we can actually
+  ;; reference the values.
+  (eval fake-syntax-rules)
+
   (define conditions (take-every-other cases))
 
-  ; (for-each displayln (split-by cases 2))
+  ;; List of cases, in order, for the syntax rules
+  (define matched-case-bindings (#%macro-case-bindings (symbol->string gensym-name)))
+
+  (define generated-function-name (gensym-sym '#%func))
+
+  (define expressions (transduce matched-case-bindings (zipping conditions) (into-list)))
+
+  (define expansion-func
+    ;; TODO: gensym this!
+    `(define ,generated-function-name
+       (lambda #%#%args
+         ,@body-exprs
+         (apply (case-lambda
+                  ,@expressions)
+                #%#%args))))
+
   (define generated-match-function
     `(lambda (expr)
        ;; Get the bindings first
-       ; (define-values (index case-bindings binding-kind)
-       ;   (#%match-syntax-case ,(symbol->string gensym-name) expr))
-
        (define result (#%match-syntax-case ,(symbol->string gensym-name) expr))
-
        (define index (list-ref result 0))
        (define case-bindings (list-ref result 1))
        (define binding-kind (list-ref result 2))
-
        ;; Then, calculate the one that we've matched:
-       (define matched-case-expr (list-ref (quote ,conditions) index))
-       (define func-args (hash-keys->list case-bindings))
-       (define application-args (map (lambda (x) (hash-ref case-bindings x)) func-args))
-       (define template-func (eval (list 'lambda func-args matched-case-expr)))
-       (define template-result (apply template-func application-args))
+       ; (define matched-case-expr (list-ref (quote ,conditions) index))
 
+       (define matched-bindings (list-ref (quote ,matched-case-bindings) index))
+
+       ; (define func-args (hash-keys->list case-bindings))
+       (define application-args (map (lambda (x) (hash-ref case-bindings x)) matched-bindings))
+
+       ; (define template-func (eval (list 'lambda func-args matched-case-expr)))
+       (define template-result (apply ,generated-function-name application-args))
        ;; Time to run expansions:
        (#%expand-syntax-case template-result case-bindings binding-kind)))
 
-  ; (displayln generated-match-function)
+  (displayln expansion-func)
+  (eval expansion-func)
+  (displayln generated-match-function)
 
-  (eval fake-syntax-rules)
   generated-match-function)
 
-(#%define-syntax (define-syntax-case expression)
+(#%define-syntax (define-syntax expression)
                  (define unwrapped (syntax->datum expression))
                  ;; Just register a syntax transformer?
                  (define func (parse-def-syntax unwrapped))

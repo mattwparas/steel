@@ -1413,8 +1413,12 @@ impl ASTLowerPass {
                     self.quote_depth -= 1;
                 }
 
-                if let Some(f) = value.first().and_then(|x| {
-                    if let ExprKind::Atom(_) = x {
+                if let Some(f) = value.args.first_mut().and_then(|x| {
+                    if let ExprKind::Atom(a) = x {
+                        if a.syn.ty == TokenType::DefineSyntax {
+                            a.syn.ty = TokenType::Identifier("define-syntax".into());
+                        }
+
                         Some(x.clone())
                     } else {
                         None
