@@ -119,6 +119,7 @@ Checks if the given value is a real number
 ### **function?**
 ### **future?**
 ### **hash?**
+### **immutable-vector?**
 ### **list?**
 ### **mutable-vector?**
 ### **not**

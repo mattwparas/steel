@@ -153,3 +153,5 @@ Creates a bytevector given a length and a default value.
 ```
 ### **utf8->string**
 Alias of `bytes->string/utf8`.
+### **bytes-clear!**
+### **bytes-push!**

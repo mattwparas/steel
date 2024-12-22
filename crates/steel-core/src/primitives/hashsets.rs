@@ -22,6 +22,12 @@ pub(crate) fn hashset_module() -> BuiltInModule {
     module
 }
 
+/// Constructs a new hash set
+///
+/// # Examples
+/// ```scheme
+/// (hashset 10 20 30 40)
+/// ```
 #[steel_derive::native(name = "hashset", arity = "AtLeast(0)")]
 pub fn hs_construct(args: &[SteelVal]) -> Result<SteelVal> {
     let mut hs = HashSet::new();
@@ -37,11 +43,26 @@ pub fn hs_construct(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::HashSetV(Gc::new(hs).into()))
 }
 
+/// Get the number of elements in the hashset
+///
+/// # Examples
+/// ```scheme
+/// (hashset-length (hashset 10 20 30)) ;; => 3
+/// ```
 #[steel_derive::function(name = "hashset-length")]
 pub fn hashset_length(hashset: &SteelHashSet) -> usize {
     hashset.len()
 }
 
+/// Insert a new element into the hashset. Returns a hashset.
+///
+/// # Examples
+/// ```scheme
+/// (define hs (hashset 10 20 30))
+/// (define updated (hashset-insert hs 40))
+/// (equal? hs (hashset 10 20 30)) ;; => #true
+/// (equal? updated (hashset 10 20 30 40)) ;; => #true
+/// ```
 #[steel_derive::function(name = "hashset-insert")]
 pub fn hs_insert(hashset: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
     if value.is_hashable() {
@@ -62,6 +83,13 @@ pub fn hs_insert(hashset: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Test if the hashset contains a given element.
+///
+/// # Examples
+/// ```scheme
+/// (hashset-contains? (hashset 10 20) 10) ;; => #true
+/// (hashset-contains? (hashset 10 20) "foo") ;; => #false
+/// ```
 #[steel_derive::function(name = "hashset-contains?")]
 pub fn hashset_contains(hashset: &SteelHashSet, key: &SteelVal) -> Result<SteelVal> {
     if key.is_hashable() {
@@ -71,21 +99,49 @@ pub fn hashset_contains(hashset: &SteelHashSet, key: &SteelVal) -> Result<SteelV
     }
 }
 
+/// Check if the left set is a subset of the right set
+///
+/// # Examples
+/// ```scheme
+/// (hashset-subset? (hash 10) (hashset 10 20)) ;; => #true
+/// (hashset-subset? (hash 100) (hashset 30)) ;; => #false
+/// ```
 #[steel_derive::function(name = "hashset-subset?")]
 pub fn hashset_is_subset(left: &SteelHashSet, right: &SteelHashSet) -> bool {
     left.is_subset(right.0.as_ref())
 }
 
+/// Creates a list from this hashset. The order of the list is not guaranteed.
+///
+/// # Examples
+/// ```scheme
+/// (hashset->list (hashset 10 20 30)) ;; => '(10 20 30)
+/// (hashset->list (hashset 10 20 30)) ;; => '(20 10 30)
+/// ```
 #[steel_derive::function(name = "hashset->list")]
 pub fn hashset_to_list(hashset: &SteelHashSet) -> SteelVal {
     SteelVal::ListV(hashset.iter().cloned().collect::<List<SteelVal>>())
 }
 
+/// Creates an immutable vector from this hashset. The order of the vector is not guaranteed.
+///
+/// # Examples
+/// ```scheme
+/// (hashset->immutable-vector (hashset 10 20 30)) ;; => '#(10 20 30)
+/// (hashset->immutable-vector (hashset 10 20 30)) ;; => '#(20 10 30)
+/// ```
 #[steel_derive::function(name = "hashset->immutable-vector")]
 pub fn hashset_to_immutable_vector(hashset: &SteelHashSet) -> SteelVal {
     SteelVal::VectorV(Gc::new(hashset.0.iter().cloned().collect::<Vector<_>>()).into())
 }
 
+/// Creates a mutable vector from this hashset. The order of the vector is not guaranteed.
+///
+/// # Examples
+/// ```scheme
+/// (hashset->vector (hashset 10 20 30)) ;; => '#(10 20 30)
+/// (hashset->vector (hashset 10 20 30)) ;; => '#(20 10 30)
+/// ```
 #[steel_derive::context(name = "hashset->vector", arity = "Exact(1)")]
 pub fn hashset_to_mutable_vector(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     fn hashset_to_mutable_vector_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
@@ -105,6 +161,11 @@ pub fn hashset_to_mutable_vector(ctx: &mut VmCore, args: &[SteelVal]) -> Option<
     Some(hashset_to_mutable_vector_impl(ctx, args))
 }
 
+/// Clears the hashset and returns the passed in hashset.
+/// This first checks if there are no other references to this hashset,
+/// and if there aren't, clears that allocation. Given that there are
+/// functional updates, this is only relevant if there are no more
+/// references to a given hashset, and you want to reuse its allocation.
 #[steel_derive::function(name = "hashset-clear")]
 pub fn hashset_clear(hashset: &mut SteelVal) -> Result<SteelVal> {
     if let SteelVal::HashSetV(SteelHashSet(hs)) = hashset {
@@ -120,6 +181,12 @@ pub fn hashset_clear(hashset: &mut SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Convert the given list into a hashset.
+///
+/// # Examples
+/// ```scheme
+/// (list 10 20 30) ;; => (hashset 10 20 30)
+/// ```
 #[steel_derive::function(name = "list->hashset")]
 pub fn list_to_hashset(l: &List<SteelVal>) -> SteelVal {
     SteelVal::HashSetV(Gc::new(l.iter().cloned().collect::<HashSet<_>>()).into())

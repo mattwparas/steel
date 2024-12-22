@@ -1,6 +1,7 @@
 # steel/immutable-vectors
 ### **immutable-vector-push**
 Pushes a value to the back of the vector, returning a new vector.
+### **immutable-vector**
 ### **immutable-vector->list**
 ### **immutable-vector->string**
 ### **immutable-vector-append**
@@ -10,5 +11,8 @@ Pushes a value to the back of the vector, returning a new vector.
 ### **immutable-vector-set**
 ### **immutable-vector-take**
 ### **make-immutable-vector**
-### **vector**
+### **vector->string**
+### **vector-append**
+### **vector-copy**
+### **vector-immutable**
 ### **vector-push-front**

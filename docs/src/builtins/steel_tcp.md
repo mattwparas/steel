@@ -1,7 +1,10 @@
 # steel/tcp
 ### **tcp-accept**
+### **tcp-accept-with-addr**
 ### **tcp-connect**
 ### **tcp-listen**
-### **tcp-stream-buffered-output-port**
-### **tcp-stream-input-port**
-### **tcp-stream-output-port**
+### **tcp-listener-set-non-blocking!**
+### **tcp-stream-buffered-reader**
+### **tcp-stream-reader**
+### **tcp-stream-set-non-blocking!**
+### **tcp-stream-writer**
