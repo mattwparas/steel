@@ -137,6 +137,15 @@ impl Kernel {
             },
         );
 
+        // Load in parameters.
+        // TODO: Merge this with the path in modules.rs
+        if let Err(err) =
+            engine.compile_and_run_raw_program(include_str!("../scheme/modules/parameters.scm"))
+        {
+            engine.raise_error(err);
+            panic!("Kernel failed to load: This shouldn't happen!");
+        }
+
         // Run the script for building the core interface for structs
         if let Err(err) = engine.compile_and_run_raw_program(KERNEL) {
             engine.raise_error(err);
@@ -338,6 +347,11 @@ impl Kernel {
         // Create the generated module
         let generated_module = ExprKind::List(steel_parser::ast::List::new(def_macro_exprs));
 
+        self.engine.run(format!(
+            "(set! #%loading-current-module \"{}\")",
+            environment
+        ))?;
+
         // TODO: Load this as a module instead, so that way we have some real
         // separation from each other.
         //
@@ -355,6 +369,9 @@ impl Kernel {
         // for the purposes of this.
         self.engine
             .run_raw_program_from_exprs(vec![generated_module])?;
+
+        self.engine
+            .run(format!("(set! #%loading-current-module \"default\")",))?;
 
         Ok(())
     }

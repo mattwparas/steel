@@ -6,7 +6,14 @@
 (define (run-bench args)
   (~> (command "hyperfine" args) (spawn-process) (Ok->value) (wait)))
 
-(define *interpreter-map* (hash "py" "python3.10" "scm" "../target/release/steel" "lua" "lua"))
+(define *interpreter-map*
+  (hash "py"
+        "python3.13"
+        ;; "scm" "../target/release/steel"
+        "scm"
+        "../target/aarch64-apple-darwin/release/steel"
+        "lua"
+        "lua"))
 
 (define (extension->interpreter ext)
   (hash-get *interpreter-map* ext))

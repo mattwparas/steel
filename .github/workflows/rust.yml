@@ -109,10 +109,11 @@ jobs:
       - name: Build
         run: cargo build --verbose
         
-      - name: install steel dylib installer
+      - name: Install steel dylib installer and package manager
         env:
           STEEL_HOME: ${{ env.STEEL_HOME }}
-        run: mkdir -p $STEEL_HOME/native && cd crates/cargo-steel-lib && cargo install --path .
+        # run: mkdir -p $STEEL_HOME/native && cd crates/cargo-steel-lib && cargo install --path .
+        run: cargo install --path crates/cargo-steel-lib && cargo install --path crates/forge
 
       - name: Install cogs
         env:

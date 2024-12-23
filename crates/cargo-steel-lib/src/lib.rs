@@ -38,12 +38,24 @@ pub fn steel_home() -> Option<PathBuf> {
         })
 }
 
-pub fn run() -> Result<(), Box<dyn Error>> {
+pub fn run(args: Vec<String>, env_vars: Vec<(String, String)>) -> Result<(), Box<dyn Error>> {
     let mut steel_home = steel_home().expect("Unable to find STEEL_HOME");
 
     steel_home.push("native");
 
-    let metadata = MetadataCommand::new().exec()?;
+    // --manifest-path
+    let mut metadata_command = MetadataCommand::new();
+
+    for pair in args.chunks(2) {
+        match &pair {
+            &[arg, path] if arg == "--manifest-path" => {
+                metadata_command.manifest_path(path);
+            }
+            _ => {}
+        }
+    }
+
+    let metadata = metadata_command.exec()?;
 
     let package = match metadata.root_package() {
         Some(p) => p,
@@ -65,6 +77,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             "--release",
             "--message-format=json-render-diagnostics",
         ])
+        .args(args)
+        .envs(env_vars)
         .stdout(Stdio::piped())
         .spawn()
         .unwrap();

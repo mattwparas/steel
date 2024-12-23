@@ -1,5 +1,9 @@
-use abi_stable::std_types::RVec;
+use std::error::Error;
+use std::fmt::Display;
 
+use abi_stable::std_types::{RHashMap, RVec};
+
+use steel::rvals::Custom;
 use toml::Value;
 
 use steel::declare_module;
@@ -13,32 +17,7 @@ impl SteelTomlValue {
     }
 }
 
-impl steel::rvals::Custom for SteelTomlValue {}
-
-// fn as_native_steelval(value: &Value) -> steel::rvals::Result<SteelVal> {
-//     match value {
-//         Value::String(s) => Ok(s.clone().into()),
-//         Value::Integer(i) => Ok((*i as i32).into()),
-//         Value::Float(f) => Ok((*f).into()),
-//         Value::Boolean(b) => Ok((*b).into()),
-//         Value::Datetime(_) => todo!(),
-//         Value::Array(a) => Ok(a
-//             .into_iter()
-//             .map(|x| as_native_steelval(x))
-//             .collect::<steel::rvals::Result<steel::List<steel::SteelVal>>>()?
-//             .into()),
-//         Value::Table(m) => Ok(SteelVal::HashMapV(steel::gc::Gc::new(
-//             m.into_iter()
-//                 .map(|x| {
-//                     let key: steel::SteelVal = x.0.clone().into();
-//                     let value = as_native_steelval(x.1)?;
-
-//                     Ok((key, value))
-//                 })
-//                 .collect::<steel::rvals::Result<steel::HashMap<_, _>>>()?,
-//         ))),
-//     }
-// }
+impl Custom for SteelTomlValue {}
 
 fn as_ffi_value(value: &Value) -> FFIValue {
     match value {
@@ -46,36 +25,42 @@ fn as_ffi_value(value: &Value) -> FFIValue {
         Value::Integer(i) => (*i as isize).into(),
         Value::Float(f) => (*f).into(),
         Value::Boolean(b) => (*b).into(),
-        Value::Datetime(_) => todo!(),
         Value::Array(a) => a.iter().map(as_ffi_value).collect::<RVec<_>>().into(),
-        // Value::Table(m) => Ok(SteelVal::HashMapV(steel::gc::Gc::new(
-        //     m.into_iter()
-        //         .map(|x| {
-        //             let key: steel::SteelVal = x.0.clone().into();
-        //             let value = as_ffi_value(x.1);
-
-        //             Ok((key, value))
-        //         })
-        //         .collect::<steel::rvals::Result<steel::HashMap<_, _>>>()?,
-        // ))),
-        _ => todo!(),
+        Value::Table(a) => FFIValue::HashMap(
+            a.into_iter()
+                .map(|x| (FFIValue::from(x.0.to_owned()), as_ffi_value(x.1)))
+                .collect::<RHashMap<FFIValue, FFIValue>>(),
+        ),
+        // Just send back as a string if it is a datetime
+        _ => toml::to_string(value).unwrap().into(),
     }
 }
-// impl FromSteelVal for SteelTomlValue {
-//     fn from_steelval(val: &SteelVal) -> steel::rvals::Result<Self> {
-//         todo!()
-//     }
-// }
 
-// thread_local! {
-//     static MODULE: Rc<BuiltInModule> = create_module();
-// }
+#[derive(Debug)]
+struct TomlError(toml::de::Error);
+
+impl Error for TomlError {}
+impl Display for TomlError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Custom for TomlError {}
+
+fn string_to_toml(string: &str) -> Result<SteelTomlValue, TomlError> {
+    toml::from_str(string)
+        .map(SteelTomlValue)
+        .map_err(TomlError)
+}
 
 declare_module!(create_module);
 
 fn create_module() -> FFIModule {
     let mut module = FFIModule::new("dylib/toml");
 
-    module.register_fn("toml->value", SteelTomlValue::as_ffi_value);
+    module
+        .register_fn("string->toml", string_to_toml)
+        .register_fn("toml->value", SteelTomlValue::as_ffi_value);
     module
 }

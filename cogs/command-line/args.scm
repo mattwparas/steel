@@ -16,7 +16,7 @@
     [(empty? arg-list)
      ;; Check that the positionl args have been fulfilled
      (when (not (= (length (ArgumentParserSpec-positional-args spec)) (length positional-args)))
-       (displayln "getting here")
+       ; (displayln "getting here")
        (error "Missing positional arguments: "
               (drop (ArgumentParserSpec-positional-args spec) (length positional-args))))
 

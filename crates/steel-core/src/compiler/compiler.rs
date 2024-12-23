@@ -528,6 +528,35 @@ impl Compiler {
         self.compile_raw_program(parsed?, path)
     }
 
+    pub fn fully_expand_to_file<E: AsRef<str> + Into<Cow<'static, str>>>(
+        &mut self,
+        expr_str: E,
+        path: Option<PathBuf>,
+    ) -> Result<()> {
+        #[cfg(feature = "profiling")]
+        let now = Instant::now();
+
+        let expr_str = expr_str.into();
+
+        let id = self.sources.add_source(expr_str.clone(), path.clone());
+
+        // Could fail here
+        let parsed: std::result::Result<Vec<ExprKind>, ParseError> = path
+            .as_ref()
+            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.clone(), Some(id)))
+            .unwrap_or_else(|| Parser::new(expr_str.as_ref(), Some(id)))
+            .without_lowering()
+            .map(|x| x.and_then(lower_macro_and_require_definitions))
+            .collect();
+
+        #[cfg(feature = "profiling")]
+        if log::log_enabled!(target: "pipeline_time", log::Level::Debug) {
+            log::debug!(target: "pipeline_time", "Parsing Time: {:?}", now.elapsed());
+        }
+
+        self.expand_to_file(parsed?, path)
+    }
+
     // TODO: Add a flag/function for parsing comments as well
     // Move the body of this function into the other one, so that way we have proper
     pub fn emit_expanded_ast(
@@ -1047,6 +1076,40 @@ impl Compiler {
         // self.apply_const_evaluation(constant_primitives(), expanded_statements, true)
     }
 
+    // Just write the fully expanded AST out. Then, read it in ~special~.
+    // This will have to do a lot of noise in order to get things to work properly,
+    // but its probably still faster than starting from scratch each time?
+    //
+    // Unknown.
+    pub fn expand_to_file(&mut self, exprs: Vec<ExprKind>, path: Option<PathBuf>) -> Result<()> {
+        let expanded_statements = self.lower_expressions_impl(exprs, path)?;
+        let mut file = std::fs::File::create("fully-expanded.bin").unwrap();
+        let buffer = bincode::serialize(&expanded_statements).unwrap();
+        std::io::Write::write_all(&mut file, &buffer).unwrap();
+        Ok(())
+    }
+
+    pub fn load_from_file(&mut self, path: &str) -> Result<RawProgramWithSymbols> {
+        let contents = std::fs::read(path).unwrap();
+        let expanded_statements = bincode::deserialize(&contents).unwrap();
+
+        let instructions = self.generate_instructions_for_executable(expanded_statements)?;
+
+        let mut raw_program = RawProgramWithSymbols::new(
+            instructions,
+            self.constant_map.clone(),
+            "0.1.0".to_string(),
+        );
+
+        // Make sure to apply the peephole optimizations
+        raw_program.apply_optimizations();
+
+        // Lets see everything that gets run!
+        // raw_program.debug_print_log();
+
+        Ok(raw_program)
+    }
+
     // TODO
     // figure out how the symbols will work so that a raw program with symbols
     // can be later pulled in and symbols can be interned correctly
@@ -1058,18 +1121,6 @@ impl Compiler {
         log::debug!(target: "expansion-phase", "Expanding macros -> phase 0");
 
         let expanded_statements = self.lower_expressions_impl(exprs, path)?;
-
-        // println!("--- Final AST ---");
-        // println!("");
-        // steel_parser::ast::AstTools::pretty_print(&expanded_statements);
-
-        // log::info!(
-        //     "{}",
-        //     expanded_statements
-        //         .iter()
-        //         .map(|x| x.to_pretty(60))
-        //         .join("\n\n")
-        // );
 
         log::debug!(target: "expansion-phase", "Generating instructions");
 

@@ -204,7 +204,7 @@ impl LanguageServer for Backend {
             let analysis = SemanticAnalysis::new(&mut ast);
 
             let (syntax_object_id, information) =
-                analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri).unwrap())?;
+                analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
 
             let mut syntax_object_id_to_interned_string = HashMap::new();
             syntax_object_id_to_interned_string.insert(*syntax_object_id, None);
@@ -225,7 +225,7 @@ impl LanguageServer for Backend {
 
                 let doc = ENGINE
                     .read()
-                    .unwrap()
+                    .ok()?
                     .builtin_modules()
                     .get_doc((*name)?.resolve())?;
 
@@ -286,7 +286,7 @@ impl LanguageServer for Backend {
                             .trim_end_matches(interned.resolve())
                             .trim_end_matches("__%#__");
 
-                        let guard = ENGINE.read().unwrap();
+                        let guard = ENGINE.read().ok()?;
                         let modules = guard.modules();
                         let module = modules.get(&PathBuf::from(module_path_to_check))?;
                         let module_ast = module.get_ast();
@@ -364,7 +364,7 @@ impl LanguageServer for Backend {
             let analysis = SemanticAnalysis::new(&mut ast);
 
             let (_syntax_object_id, information) =
-                analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri).unwrap())?;
+                analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
 
             let refers_to = information.refers_to?;
 
@@ -389,7 +389,7 @@ impl LanguageServer for Backend {
                             .trim_end_matches("__%#__");
 
                         resulting_span = {
-                            let guard = ENGINE.read().unwrap();
+                            let guard = ENGINE.read().ok()?;
 
                             // log::debug!(
                             //     "Compiled modules: {:?}",
@@ -423,7 +423,7 @@ impl LanguageServer for Backend {
                 // log::debug!("Found new definition: {:?}", maybe_definition);
             }
 
-            let location = source_id_to_uri(resulting_span.source_id().unwrap())?;
+            let location = source_id_to_uri(resulting_span.source_id()?)?;
 
             // log::debug!("Location: {:?}", location);
             // log::debug!("Rope length: {:?}", rope.len_chars());
@@ -434,8 +434,8 @@ impl LanguageServer for Backend {
 
                 let expression = ENGINE
                     .read()
-                    .unwrap()
-                    .get_source(&resulting_span.source_id().unwrap())?;
+                    .ok()?
+                    .get_source(&resulting_span.source_id()?)?;
 
                 rope = self
                     .document_map
@@ -509,7 +509,7 @@ impl LanguageServer for Backend {
                     if offset > 2 {
                         let prior = rope.get_char(offset - 2);
 
-                        if prior.is_some() && prior.map(char::is_whitespace).unwrap() {
+                        if prior.is_some() && prior.map(char::is_whitespace)? {
                             filter_character = previously_typed;
                         }
                     } else {
@@ -525,8 +525,7 @@ impl LanguageServer for Backend {
             let analysis = SemanticAnalysis::new(&mut ast);
 
             // Finds the scoped contexts that we're currently inside of by the span
-            let contexts =
-                analysis.find_contexts_with_offset(offset, uri_to_source_id(&uri).unwrap());
+            let contexts = analysis.find_contexts_with_offset(offset, uri_to_source_id(&uri)?);
 
             let now = std::time::Instant::now();
 
@@ -578,7 +577,7 @@ impl LanguageServer for Backend {
             completions.extend(
                 ENGINE
                     .read()
-                    .unwrap()
+                    .ok()?
                     .in_scope_macros()
                     .keys()
                     .filter_map(|x| {
@@ -832,15 +831,15 @@ impl Backend {
 fn uri_to_source_id(uri: &Url) -> Option<steel::parser::parser::SourceId> {
     let id = ENGINE
         .read()
-        .unwrap()
+        .ok()?
         .get_source_id(&uri.to_file_path().unwrap());
     id
 }
 
 fn source_id_to_uri(source_id: SourceId) -> Option<Url> {
-    let path = ENGINE.read().unwrap().get_path_for_source_id(&source_id)?;
+    let path = ENGINE.read().ok()?.get_path_for_source_id(&source_id)?;
 
-    Some(Url::from_file_path(path).unwrap())
+    Some(Url::from_file_path(path).ok()?)
 }
 
 pub fn make_error(mut diagnostic: Diagnostic) -> Diagnostic {

@@ -61,13 +61,19 @@ fn install_everything() -> Result<(), Box<dyn Error>> {
 
     let mut workspace_dir = workspace_dir();
 
-    std::process::Command::new("cargo")
-        .arg("install")
-        .arg("--path")
-        .arg(".")
-        .arg("--force")
-        .spawn()?
-        .wait()?;
+    // Check if cargo pgo is installed
+    if which::which("cargo-pgo").is_ok() {
+        println!("`cargo-pgo` found - building with PGO");
+        install_pgo()?;
+    } else {
+        std::process::Command::new("cargo")
+            .arg("install")
+            .arg("--path")
+            .arg(".")
+            .arg("--force")
+            .spawn()?
+            .wait()?;
+    }
 
     println!("Successfully installed `steel`");
 
@@ -99,6 +105,18 @@ fn install_everything() -> Result<(), Box<dyn Error>> {
         .wait()?;
 
     println!("Successfully installed `cargo-steel-lib`");
+
+    println!("Installing `forge`");
+
+    workspace_dir.pop();
+    workspace_dir.push("forge");
+
+    std::process::Command::new("cargo")
+        .arg("install")
+        .arg("--path")
+        .arg(&workspace_dir)
+        .spawn()?
+        .wait()?;
 
     install_cogs()?;
 
@@ -132,6 +150,48 @@ fn run_tests() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn install_pgo() -> Result<(), Box<dyn Error>> {
+    std::process::Command::new("cargo")
+        .arg("pgo")
+        .arg("build")
+        .spawn()?
+        .wait()?;
+
+    let binary = format!("target/{}/release/steel", env!("TARGET_PLATFORM"));
+
+    let benches = &[
+        "r7rs-benchmarks/scheme.scm",
+        "r7rs-benchmarks/simplex.scm",
+        "r7rs-benchmarks/array1.scm",
+        "r7rs-benchmarks/triangl.scm",
+        "benchmarks/bin-trees/bin-trees.scm",
+        "benchmarks/fib/fib.scm",
+    ];
+
+    for _ in 0..3 {
+        for bench in benches {
+            std::process::Command::new(&binary)
+                .arg(bench)
+                .spawn()?
+                .wait()?;
+        }
+    }
+
+    std::process::Command::new("cargo")
+        .arg("pgo")
+        .arg("optimize")
+        .spawn()?
+        .wait()?;
+
+    let mut cargo_bin_location = which::which("cargo").expect("Unable to find cargo");
+    cargo_bin_location.pop();
+    cargo_bin_location.push("steel");
+    println!("Installing to: {:?}", cargo_bin_location);
+    std::fs::copy(binary, cargo_bin_location).unwrap();
+
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let task = std::env::args().nth(1);
     match task {
@@ -141,6 +201,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             "cogs" => install_cogs()?,
             "docgen" => generate_docs()?,
             "test" => run_tests()?,
+            "pgo" => install_pgo()?,
             invalid => return Err(format!("Invalid task name: {}", invalid).into()),
         },
     };

@@ -14,4 +14,6 @@ crate-type = ["cdylib"]
 abi_stable = "0.11.1"
 # steel-core = { path = "../../crates/steel-core", version = "0.6.0", features = ["dylibs"] }
 steel-core = { workspace = true }
-rusqlite =  { version = "0.28.0", features = ["bundled", "functions"] }
+rusqlite =  { version = "0.32.1", features = ["bundled", "functions", "load_extension"] }
+# rusqlite =  { version = "0.32.1", features = ["functions", "load_extension"] }
+# rusqlite =  { version = "0.32.1", features = ["load_extension"] }

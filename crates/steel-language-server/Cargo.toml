@@ -14,5 +14,5 @@ tower-lsp = { version = "0.20.0", features = ["proposed"] }
 serde = { version = "1.0.152", features = ["derive"] }
 dashmap = "5.1.0"
 log = "0.4.17"
-steel-core = { path = "../steel-core", version = "0.6.0", features = ["dylibs", "markdown", "stacker", "sync"] }
+steel-core = { path = "../steel-core", version = "0.6.0", features = ["dylibs", "markdown", "stacker", "sync", "anyhow"] }
 once_cell = "1.18.0"
