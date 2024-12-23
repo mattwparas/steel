@@ -10,9 +10,10 @@ Returns `#t` if the value is an empty-channel object.
 ### **get-tls**
 Get the value out of the thread local storage slot.
 ### **lock-acquire!**
-Lock the given mutex
+Lock the given mutex. Note, this is most likely used as a building block
+with the `lock!` function.
 ### **lock-release!**
-Unlock the given mutex
+Unlock the given mutex.
 ### **make-tls**
 Creates a thread local storage slot. These slots are static, and will _not_ be reclaimed.
 
@@ -28,6 +29,16 @@ Using this directly is not recommended.
 ### **set-tls!**
 Set the value in the the thread local storage. Only this thread will see the updates associated
 with this TLS.
+### **spawn-native-thread**
+Spawns the given `func` on another thread. It is required that the arity of the
+given function be 0. If the arity of the given function cannot be checked until runtime,
+the thread will be spawned and the function will fail to execute.
+
+#### Examples
+
+```scheme
+(define thread (spawn-native-thread (lambda () (displayln "Hello world!"))))
+```
 ### **thread-finished?**
 Check if the given thread is finished running.
 ### **thread-interrupt**
@@ -51,8 +62,8 @@ bytecode instruction that is running.
 ### **channels-receiver**
 ### **channels-sender**
 ### **channels/new**
+### **current-thread-id**
 ### **make-channels**
-### **spawn-native-thread**
 ### **spawn-thread!**
 ### **thread/available-parallelism**
 ### **thread::current/id**

@@ -1,4 +1,5 @@
 # steel/vectors
+### **immutable-vector**
 ### **make-vector**
 ### **mut-vec-len**
 ### **mut-vector-ref**
@@ -16,6 +17,8 @@
 ### **vec-rest**
 ### **vector**
 ### **vector-append!**
+### **vector-copy!**
+### **vector-fill!**
 ### **vector-length**
 ### **vector-push!**
 ### **vector-ref**

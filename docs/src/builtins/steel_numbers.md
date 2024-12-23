@@ -249,6 +249,21 @@ Computes the magnitude of the given number.
 > (magnitude 5) ;; => 5
 > (magnitude -5) ;; => 5
 ```
+### **modulo**
+Returns the remainder of the division of the first number by the second
+
+(modulo n m) -> integer?
+
+* n : integer?
+* m : integer?
+
+#### Examples
+```scheme
+> (modulo 10 3) ;; => 1
+> (modulo -10 3) ;; => 2
+> (modulo 10 -3) ;; => -2
+> (module -10 -3) ;; => -1
+```
 ### **nan?**
 Returns `#t` if the real number is Nan.
 
@@ -365,7 +380,15 @@ Checks if the given real number is zero.
 > (zero? 0.0) ;; => #t
 > (zero? 0.1) ;; => #f
 ```
+### **acos**
 ### **arithmetic-shift**
+### **asin**
+### **atan**
+### **cos**
 ### **even?**
+### **exact**
 ### **f+**
 ### **odd?**
+### **remainder**
+### **sin**
+### **tan**
