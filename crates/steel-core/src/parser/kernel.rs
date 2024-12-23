@@ -137,6 +137,15 @@ impl Kernel {
             },
         );
 
+        // Load in parameters.
+        // TODO: Merge this with the path in modules.rs
+        if let Err(err) =
+            engine.compile_and_run_raw_program(include_str!("../scheme/modules/parameters.scm"))
+        {
+            engine.raise_error(err);
+            panic!("Kernel failed to load: This shouldn't happen!");
+        }
+
         // Run the script for building the core interface for structs
         if let Err(err) = engine.compile_and_run_raw_program(KERNEL) {
             engine.raise_error(err);

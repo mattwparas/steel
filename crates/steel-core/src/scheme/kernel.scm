@@ -8,6 +8,24 @@
 
 ; (define *transformer-functions* (hashset))
 
+;; TODO: Move the parameter stuff to the stdlib.
+(define #%syntax-bindings (make-parameter (hash)))
+(define #%syntax-binding-kind (make-parameter (hash)))
+
+;; Template? Come up with how to do the expansion?
+;; That would be like... snag the result, it mu
+(define-syntax syntax
+  (syntax-rules (#%syntax/raw)
+    ;; HACK: This makes it so that quasisyntax is happy.
+    [(syntax (#%syntax/raw x ...))
+     (#%expand-syntax-case (#%syntax/raw x ...) (#%syntax-bindings) (#%syntax-binding-kind))]
+
+    ;; Don't quote things that are already quoted
+    [(syntax (quote x)) (#%expand-syntax-case (quote x) (#%syntax-bindings) (#%syntax-binding-kind))]
+
+    ;; Otherwise, if its not quoted, just quote it
+    [(syntax x) (#%expand-syntax-case (quote x) (#%syntax-bindings) (#%syntax-binding-kind))]))
+
 ;; Compatibility layers for making defmacro not as painful
 (define displayln stdout-simple-displayln)
 
@@ -356,7 +374,8 @@
   (define param-name (list-ref name-expr 1))
   (define syntax-case-param (list-ref syntax-case-expr 1))
   (define syntax-case-syntax (list-ref syntax-case-expr 2))
-  (define cases (list-ref syntax-case-expr 3))
+
+  (define cases (drop syntax-case-expr 3))
 
   (define gensym-name (gensym-sym (concat-symbols '__generated- name)))
 
@@ -364,29 +383,33 @@
   (define fake-syntax-rules
     `(define-syntax ,gensym-name
        (syntax-rules ,syntax-case-syntax
-         ,cases)))
+         ,@(drop syntax-case-expr 3))))
+
+  ; (displayln cases)
+  ; (displayln fake-syntax-rules)
 
   ;; This needs to be eval'd right away so that we can actually
   ;; reference the values.
   (eval fake-syntax-rules)
 
-  (define conditions (take-every-other cases))
+  (define conditions (map (lambda (p) (list-ref p 1)) cases))
 
   ;; List of cases, in order, for the syntax rules
   (define matched-case-bindings (#%macro-case-bindings (symbol->string gensym-name)))
 
   (define generated-function-name (gensym-sym '#%func))
 
-  (define expressions (transduce matched-case-bindings (zipping conditions) (into-list)))
+  ;;
+  (define expressions
+    (transduce (map list (range 0 (length conditions))) (zipping conditions) (into-list)))
 
   (define expansion-func
     ;; TODO: gensym this!
     `(define ,generated-function-name
-       (lambda #%#%args
+       (lambda (#%#%index)
          ,@body-exprs
-         (apply (case-lambda
-                  ,@expressions)
-                #%#%args))))
+         (case #%#%index
+           ,@expressions))))
 
   (define generated-match-function
     `(lambda (expr)
@@ -397,20 +420,20 @@
        (define binding-kind (list-ref result 2))
        ;; Then, calculate the one that we've matched:
        ; (define matched-case-expr (list-ref (quote ,conditions) index))
-
-       (define matched-bindings (list-ref (quote ,matched-case-bindings) index))
-
+       ; (define matched-bindings (list-ref (quote ,matched-case-bindings) index))
        ; (define func-args (hash-keys->list case-bindings))
-       (define application-args (map (lambda (x) (hash-ref case-bindings x)) matched-bindings))
-
+       ; (define application-args (map (lambda (x) (hash-ref case-bindings x)) matched-bindings))
        ; (define template-func (eval (list 'lambda func-args matched-case-expr)))
-       (define template-result (apply ,generated-function-name application-args))
-       ;; Time to run expansions:
-       (#%expand-syntax-case template-result case-bindings binding-kind)))
 
-  (displayln expansion-func)
+       (parameterize ([#%syntax-bindings case-bindings])
+         (parameterize ([#%syntax-binding-kind binding-kind])
+           (,generated-function-name index)))
+       ;; Time to run expansions:
+       ; (#%expand-syntax-case template-result case-bindings binding-kind)
+       ))
+
   (eval expansion-func)
-  (displayln generated-match-function)
+  ; (displayln generated-match-function)
 
   generated-match-function)
 
