@@ -71,6 +71,25 @@
 ;     ((_ (x  . xs))                   (cons (quasiquote x) (quasiquote xs)))
 ;     ((_ x)                           (quote x))))
 
+(define (#%syntax-bindings)
+  (hash))
+(define (#%syntax-binding-kind)
+  (hash))
+
+;; Note: The syntax-bindings and binding-kind will get updated in the kernel
+(define-syntax syntax
+  (syntax-rules (#%syntax/raw)
+
+    ;; HACK: This makes it so that quasisyntax is happy.
+    [(syntax (#%syntax/raw x ...))
+     (#%expand-syntax-case (#%syntax/raw x ...) (#%syntax-bindings) (#%syntax-binding-kind))]
+
+    ;; Don't quote things that are already quoted
+    [(syntax (quote x)) (#%expand-syntax-case (quote x) (#%syntax-bindings) (#%syntax-binding-kind))]
+
+    ;; Otherwise, if its not quoted, just quote it
+    [(syntax x) (#%expand-syntax-case (quote x) (#%syntax-bindings) (#%syntax-binding-kind))]))
+
 (define-syntax quasiquote
   (syntax-rules (unquote unquote-splicing #%unquote #%unquote-splicing #%quote)
 
@@ -123,8 +142,6 @@
      (cons (list 'unsyntax (quasisyntax x)) (quasisyntax (xs ...)))]
     [(quasisyntax (unsyntax x)) (list 'unsyntax (quasisyntax x))]
 
-    ; ((quasiquote ((#%unquote x) xs ...))          (cons x (quasiquote (xs ...))))
-
     [(quasisyntax ((#%unsyntax x) xs ...)) (cons x (quasisyntax (xs ...)))]
     [(quasisyntax (#%unsyntax x)) x]
 
@@ -138,34 +155,25 @@
      (append (list (list 'unsyntax-splicing (quasisyntax x))) (quasisyntax (xs ...)))]
 
     [(quasisyntax #%internal-crunch ()) (list)]
-    ; (list
-    ; (#%syntax/raw
-    ;   (quote x)
-
-    ;   (cons (quasisyntax x) (quasisyntax #%internal-crunch (xs ...)))
-
-    ;   (#%syntax-span x)))
-
     [(quasisyntax #%internal-crunch (x xs ...))
-     ; (list
-     ; (#%syntax/raw
-     ; (quote x)
+     (cons (quasisyntax #%internal-crunch x) (quasisyntax #%internal-crunch (xs ...)))]
 
-     (cons (quasisyntax x) (quasisyntax #%internal-crunch (xs ...)))]
-
-    ; (#%syntax-span x)))
+    ;; Internal, we don't do anything special
+    [(quasisyntax #%internal-crunch x)
+     (if (empty? 'x)
+         (list)
+         (#%syntax/raw 'x 'x (#%syntax-span x)))]
 
     [(quasisyntax (x xs ...))
-     ; (list
-     (#%syntax/raw (quote (x xs ...))
-                   (cons (quasisyntax x) (quasisyntax #%internal-crunch (xs ...)))
-                   (#%syntax-span (x xs ...)))]
-    ; )
+     (syntax (#%syntax/raw (quote (x xs ...))
+                           (cons (quasisyntax #%internal-crunch x)
+                                 (quasisyntax #%internal-crunch (xs ...)))
+                           (#%syntax-span (x xs ...))))]
 
-    ; ((quasisyntax x)                          'x)))
-
-    ; ((quasisyntax (quote ()))     '())
-    [(quasisyntax x) (if (empty? 'x) (list) (#%syntax/raw 'x 'x (#%syntax-span x)))]))
+    [(quasisyntax x)
+     (if (empty? 'x)
+         (list)
+         (syntax (#%syntax/raw 'x 'x (#%syntax-span x))))]))
 
 (define-syntax or
   (syntax-rules ()
@@ -499,7 +507,9 @@
 ; (define compose (lambda (f g) (lambda (arg) (f (g arg)))))
 
 (define (foldl func accum lst)
-  (if (null? lst) accum (foldl func (func (car lst) accum) (cdr lst))))
+  (if (null? lst)
+      accum
+      (foldl func (func (car lst) accum) (cdr lst))))
 
 (define (map func lst . lsts)
 
@@ -523,11 +533,16 @@
 ;     (transduce lst (mapping func) (into-list))))
 
 (define foldr
-  (lambda (func accum lst) (if (null? lst) accum (func (car lst) (foldr func accum (cdr lst))))))
+  (lambda (func accum lst)
+    (if (null? lst)
+        accum
+        (func (car lst) (foldr func accum (cdr lst))))))
 
 (define unfold
   (lambda (func init pred)
-    (if (pred init) (cons init '()) (cons init (unfold func (func init) pred)))))
+    (if (pred init)
+        (cons init '())
+        (cons init (unfold func (func init) pred)))))
 
 (define fold (lambda (f a l) (foldl f a l)))
 (define reduce (lambda (f a l) (fold f a l)))
@@ -567,13 +582,25 @@
     [else (contains? pred? (cdr lst))]))
 
 (define (assoc thing alist)
-  (if (null? alist) #f (if (equal? (car (car alist)) thing) (car alist) (assoc thing (cdr alist)))))
+  (if (null? alist)
+      #f
+      (if (equal? (car (car alist)) thing)
+          (car alist)
+          (assoc thing (cdr alist)))))
 
 (define (assq thing alist)
-  (if (null? alist) #f (if (eq? (car (car alist)) thing) (car alist) (assq thing (cdr alist)))))
+  (if (null? alist)
+      #f
+      (if (eq? (car (car alist)) thing)
+          (car alist)
+          (assq thing (cdr alist)))))
 
 (define (assv thing alist)
-  (if (null? alist) #f (if (eq? (car (car alist)) thing) (car alist) (assv thing (cdr alist)))))
+  (if (null? alist)
+      #f
+      (if (eq? (car (car alist)) thing)
+          (car alist)
+          (assv thing (cdr alist)))))
 
 ;;@doc
 ;; Returns new list, keeping elements from `lst` which applying `pred` to the element
@@ -586,7 +613,9 @@
 ;; (filter even? (range 0 5)) ;; '(0 2 4)
 ;; ```
 (define (filter pred lst)
-  (if (empty? lst) '() (transduce lst (filtering pred) (into-list))))
+  (if (empty? lst)
+      '()
+      (transduce lst (filtering pred) (into-list))))
 
 ; (define (fact n)
 ;   (define factorial-tail (lambda (n acc)
@@ -595,8 +624,16 @@
 ;                                (factorial-tail (- n 1)  (* acc n )))))
 ;   (factorial-tail n 1))
 
-(define even-rec? (lambda (x) (if (= x 0) #t (odd-rec? (- x 1)))))
-(define odd-rec? (lambda (x) (if (= x 0) #f (even-rec? (- x 1)))))
+(define even-rec?
+  (lambda (x)
+    (if (= x 0)
+        #t
+        (odd-rec? (- x 1)))))
+(define odd-rec?
+  (lambda (x)
+    (if (= x 0)
+        #f
+        (even-rec? (- x 1)))))
 
 (define sum (lambda (x) (reduce + 0 x)))
 ;; (define head car)
@@ -618,7 +655,9 @@
 
 (define (drop lst n)
   (define (loop x l)
-    (if (zero? x) l (loop (sub1 x) (cdr l))))
+    (if (zero? x)
+        l
+        (loop (sub1 x) (cdr l))))
   (loop n lst))
 
 (define (slice l offset n)
@@ -636,7 +675,9 @@
     [else (gcd b (modulo a b))]))
 
 (define (lcm a b)
-  (if (or (zero? a) (zero? b)) 0 (abs (* b (floor (/ a (gcd a b)))))))
+  (if (or (zero? a) (zero? b))
+      0
+      (abs (* b (floor (/ a (gcd a b)))))))
 
 (define (for-each func lst)
   (if (null? lst)

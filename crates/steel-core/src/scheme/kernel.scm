@@ -9,22 +9,23 @@
 ; (define *transformer-functions* (hashset))
 
 ;; TODO: Move the parameter stuff to the stdlib.
-(define #%syntax-bindings (make-parameter (hash)))
-(define #%syntax-binding-kind (make-parameter (hash)))
+; (define #%syntax-bindings (make-parameter (hash)))
+; (define #%syntax-binding-kind (make-parameter (hash)))
+
+(set! #%syntax-bindings (make-parameter (hash)))
+(set! #%syntax-binding-kind (make-parameter (hash)))
 
 ;; Template? Come up with how to do the expansion?
 ;; That would be like... snag the result, it mu
-(define-syntax syntax
-  (syntax-rules (#%syntax/raw)
-    ;; HACK: This makes it so that quasisyntax is happy.
-    [(syntax (#%syntax/raw x ...))
-     (#%expand-syntax-case (#%syntax/raw x ...) (#%syntax-bindings) (#%syntax-binding-kind))]
-
-    ;; Don't quote things that are already quoted
-    [(syntax (quote x)) (#%expand-syntax-case (quote x) (#%syntax-bindings) (#%syntax-binding-kind))]
-
-    ;; Otherwise, if its not quoted, just quote it
-    [(syntax x) (#%expand-syntax-case (quote x) (#%syntax-bindings) (#%syntax-binding-kind))]))
+; (define-syntax syntax
+;   (syntax-rules (#%syntax/raw)
+;     ;; HACK: This makes it so that quasisyntax is happy.
+;     [(syntax (#%syntax/raw x ...))
+;      (#%expand-syntax-case (#%syntax/raw x ...) (#%syntax-bindings) (#%syntax-binding-kind))]
+;     ;; Don't quote things that are already quoted
+;     [(syntax (quote x)) (#%expand-syntax-case (quote x) (#%syntax-bindings) (#%syntax-binding-kind))]
+;     ;; Otherwise, if its not quoted, just quote it
+;     [(syntax x) (#%expand-syntax-case (quote x) (#%syntax-bindings) (#%syntax-binding-kind))]))
 
 ;; Compatibility layers for making defmacro not as painful
 (define displayln stdout-simple-displayln)
@@ -140,7 +141,9 @@
                  (define options
                    (let ([raw (cdddr unwrapped)])
                      ; (displayln raw)
-                     (if (empty? raw) raw (map syntax->datum raw))))
+                     (if (empty? raw)
+                         raw
+                         (map syntax->datum raw))))
                  (define result (struct-impl struct-name fields options))
                  (syntax/loc result
                    (syntax-span expr)))
@@ -267,10 +270,13 @@
 
               `(set! ,struct-name constructor-proto))
          ,(new-make-predicate struct-predicate struct-name fields)
-         ,@
-         (if mutable? (mutable-make-getters struct-name fields) (new-make-getters struct-name fields))
+         ,@(if mutable?
+               (mutable-make-getters struct-name fields)
+               (new-make-getters struct-name fields))
          ;; If this is a mutable struct, generate the setters
-         ,@(if mutable? (mutable-make-setters struct-name fields) (list))
+         ,@(if mutable?
+               (mutable-make-setters struct-name fields)
+               (list))
          void)))))
 
 (define (new-make-predicate struct-predicate-name struct-name fields)
@@ -433,6 +439,8 @@
        ))
 
   (eval expansion-func)
+
+  (displayln expansion-func)
   ; (displayln generated-match-function)
 
   generated-match-function)
