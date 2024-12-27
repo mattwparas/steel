@@ -5307,7 +5307,9 @@ pub(crate) fn expand_syntax_case(ctx: &mut VmCore, args: &[SteelVal]) -> Option<
 pub(crate) fn match_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     let macro_name: InternedString = String::from_steelval(&args[0])?.into();
     let guard = ctx.thread.compiler.read();
-    let macro_object = guard.macro_env.get(&macro_name).unwrap();
+    let macro_object = guard.macro_env.get(&macro_name).ok_or_else(
+        throw!(Generic => format!("unable to find macro: {}", &macro_name); ctx.current_span()),
+    )?;
     let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[1])?;
 
     let list = expr.list().unwrap();
