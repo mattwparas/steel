@@ -15,6 +15,20 @@
 (set! #%syntax-bindings (make-parameter (hash)))
 (set! #%syntax-binding-kind (make-parameter (hash)))
 
+;; TODO: Figure out a way to have this bootstrap correctly
+;; in the global environment within the stdlib, and not just
+;; reserved for the kernel.
+(define-syntax with-syntax
+  (syntax-rules ()
+    [(_ ([var expr]) body ...)
+     (parameterize ([#%syntax-bindings (hash-insert (#%syntax-bindings) 'var expr)])
+       body ...)]
+
+    [(_ ([var expr] others ...) body ...)
+     (parameterize ([#%syntax-bindings (hash-insert (#%syntax-bindings) 'var expr)])
+       (with-syntax (others ...)
+         body ...))]))
+
 ;; Compatibility layers for making defmacro not as painful
 (define displayln stdout-simple-displayln)
 
