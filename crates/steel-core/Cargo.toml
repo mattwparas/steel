@@ -122,7 +122,7 @@ recycle = []
 # git = ["dep:gix", "anyhow"]
 git = ["dep:git2", "anyhow"]
 experimental-drop-handler = []
-
+unsandboxed-kernel = []
 
 [[bench]]
 name = "my_benchmark"

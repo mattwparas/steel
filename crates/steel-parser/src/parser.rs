@@ -14,7 +14,6 @@ use crate::{
         SyntaxRules, Vector, BEGIN, DEFINE, IF, LAMBDA, LAMBDA_FN, LAMBDA_SYMBOL, LET, PLAIN_LET,
         QUASIQUOTE, QUASISYNTAX, QUOTE, RAW_UNQUOTE, RAW_UNQUOTE_SPLICING, RAW_UNSYNTAX,
         RAW_UNSYNTAX_SPLICING, REQUIRE, RETURN, SET, SYNTAX_QUOTE, UNQUOTE, UNQUOTE_SPLICING,
-        UNSYNTAX, UNSYNTAX_SPLICING,
     },
     interner::InternedString,
     lexer::{OwnedTokenStream, ToOwnedString, TokenStream},
