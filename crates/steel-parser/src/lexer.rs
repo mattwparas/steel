@@ -187,6 +187,21 @@ impl<'a> Lexer<'a> {
                     self.eat();
                     self.eat();
                 }
+                '\'' | '`' => {
+                    self.eat();
+                    break;
+                }
+
+                ',' => {
+                    self.eat();
+                    if Some('@') == self.chars.peek().copied() {
+                        self.eat();
+                        break;
+                    } else {
+                        break;
+                    }
+                }
+
                 '(' | '[' | ')' | ']' => break,
                 c if c.is_whitespace() => break,
                 _ => {
@@ -520,6 +535,7 @@ impl<'a> Iterator for Lexer<'a> {
                 self.eat();
                 Some(Ok(TokenType::QuasiQuote))
             }
+
             Some(',') => {
                 self.eat();
 

@@ -134,25 +134,31 @@
 (define-syntax quasisyntax
   (syntax-rules (syntax unsyntax unsyntax-splicing #%unsyntax #%unsyntax-splicing #%internal-crunch)
 
-    [(quasisyntax ((syntax x) xs ...)) (cons (list 'syntax (quasisyntax x)) (quasisyntax (xs ...)))]
+    [(quasisyntax #%internal-crunch ((syntax x) xs ...))
+     (cons (list 'syntax (quasisyntax #%internal-crunch x)) (quasisyntax #%internal-crunch (xs ...)))]
 
-    [(quasisyntax (syntax x)) (list 'quote (quasisyntax x))]
+    [(quasisyntax #%internal-crunch (syntax x)) (list 'quote (quasisyntax #%internal-crunch x))]
 
-    [(quasisyntax ((unsyntax x) xs ...))
-     (cons (list 'unsyntax (quasisyntax x)) (quasisyntax (xs ...)))]
-    [(quasisyntax (unsyntax x)) (list 'unsyntax (quasisyntax x))]
+    [(quasisyntax #%internal-crunch ((unsyntax x) xs ...))
+     (cons (list 'unsyntax (quasisyntax #%internal-crunch x))
+           (quasisyntax #%internal-crunch (xs ...)))]
+    [(quasisyntax #%internal-crunch (unsyntax x)) (list 'unsyntax (quasisyntax #%internal-crunch x))]
 
-    [(quasisyntax ((#%unsyntax x) xs ...)) (cons x (quasisyntax (xs ...)))]
-    [(quasisyntax (#%unsyntax x)) x]
+    [(quasisyntax #%internal-crunch ((#%unsyntax x) xs ...))
+     (cons x (quasisyntax #%internal-crunch (xs ...)))]
 
-    [(quasisyntax ((#%unsyntax-splicing x))) (append x '())]
-    [(quasisyntax ((#%unsyntax-splicing x) xs ...)) (append x (quasisyntax (xs ...)))]
+    [(quasisyntax #%internal-crunch (#%unsyntax x)) x]
+
+    [(quasisyntax #%internal-crunch ((#%unsyntax-splicing x))) (append x '())]
+    [(quasisyntax #%internal-crunch ((#%unsyntax-splicing x) xs ...))
+     (append x (quasisyntax #%internal-crunch (xs ...)))]
 
     ;; TODO: Do unquote-splicing as well, follow the same rules as unquote
-    [(quasisyntax ((unsyntax-splicing x)))
-     (append (list (list 'unsyntax-splicing (quasisyntax x))) '())]
-    [(quasisyntax ((unsyntax-splicing x) xs ...))
-     (append (list (list 'unsyntax-splicing (quasisyntax x))) (quasisyntax (xs ...)))]
+    [(quasisyntax #%internal-crunch ((unsyntax-splicing x)))
+     (append (list (list 'unsyntax-splicing (quasisyntax #%internal-crunch x))) '())]
+    [(quasisyntax #%internal-crunch ((unsyntax-splicing x) xs ...))
+     (append (list (list 'unsyntax-splicing (quasisyntax #%internal-crunch x)))
+             (quasisyntax #%internal-crunch (xs ...)))]
 
     [(quasisyntax #%internal-crunch ()) (list)]
     [(quasisyntax #%internal-crunch (x xs ...))

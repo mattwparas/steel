@@ -15,18 +15,6 @@
 (set! #%syntax-bindings (make-parameter (hash)))
 (set! #%syntax-binding-kind (make-parameter (hash)))
 
-;; Template? Come up with how to do the expansion?
-;; That would be like... snag the result, it mu
-; (define-syntax syntax
-;   (syntax-rules (#%syntax/raw)
-;     ;; HACK: This makes it so that quasisyntax is happy.
-;     [(syntax (#%syntax/raw x ...))
-;      (#%expand-syntax-case (#%syntax/raw x ...) (#%syntax-bindings) (#%syntax-binding-kind))]
-;     ;; Don't quote things that are already quoted
-;     [(syntax (quote x)) (#%expand-syntax-case (quote x) (#%syntax-bindings) (#%syntax-binding-kind))]
-;     ;; Otherwise, if its not quoted, just quote it
-;     [(syntax x) (#%expand-syntax-case (quote x) (#%syntax-bindings) (#%syntax-binding-kind))]))
-
 ;; Compatibility layers for making defmacro not as painful
 (define displayln stdout-simple-displayln)
 
@@ -391,9 +379,6 @@
        (syntax-rules ,syntax-case-syntax
          ,@(drop syntax-case-expr 3))))
 
-  ; (displayln cases)
-  ; (displayln fake-syntax-rules)
-
   ;; This needs to be eval'd right away so that we can actually
   ;; reference the values.
   (eval fake-syntax-rules)
@@ -402,10 +387,7 @@
 
   ;; List of cases, in order, for the syntax rules
   (define matched-case-bindings (#%macro-case-bindings (symbol->string gensym-name)))
-
   (define generated-function-name (gensym-sym '#%func))
-
-  ;;
   (define expressions
     (transduce (map list (range 0 (length conditions))) (zipping conditions) (into-list)))
 
@@ -424,41 +406,46 @@
        (define index (list-ref result 0))
        (define case-bindings (list-ref result 1))
        (define binding-kind (list-ref result 2))
-       ;; Then, calculate the one that we've matched:
-       ; (define matched-case-expr (list-ref (quote ,conditions) index))
-       ; (define matched-bindings (list-ref (quote ,matched-case-bindings) index))
-       ; (define func-args (hash-keys->list case-bindings))
-       ; (define application-args (map (lambda (x) (hash-ref case-bindings x)) matched-bindings))
-       ; (define template-func (eval (list 'lambda func-args matched-case-expr)))
-
        (parameterize ([#%syntax-bindings case-bindings])
          (parameterize ([#%syntax-binding-kind binding-kind])
-           (,generated-function-name index)))
-       ;; Time to run expansions:
-       ; (#%expand-syntax-case template-result case-bindings binding-kind)
-       ))
+           (,generated-function-name index)))))
 
   (eval expansion-func)
 
-  (displayln expansion-func)
-  ; (displayln generated-match-function)
-
   generated-match-function)
 
-(#%define-syntax (define-syntax expression)
-                 (define unwrapped (syntax->datum expression))
-                 ;; Just register a syntax transformer?
-                 (define func (parse-def-syntax unwrapped))
-                 (define name (list-ref (list-ref unwrapped 1) 0))
-                 (define originating-file (syntax-originating-file expression))
-                 (define env (or originating-file "default"))
-                 ; (displayln "Loading: " (current-env))
-                 (register-macro-transformer! name env)
-                 ;; Update the environment in place if it exists?
-                 ; (eval `(define ,name ,func))
-                 (if (equal? env "default")
-                     (eval `(define ,name ,func))
-                     (begin
-                       (eval `(set! ,(string->symbol env)
-                                    (%proto-hash-insert% ,(string->symbol env) ,name ,func)))))
-                 'void)
+(#%define-syntax
+ (define-syntax expression)
+ (define unwrapped (syntax->datum expression))
+ ;; Just register a syntax transformer?
+ (define func (parse-def-syntax unwrapped))
+ (define name (list-ref (list-ref unwrapped 1) 0))
+ (define originating-file (syntax-originating-file expression))
+ ;; We'd like to
+ (define env (or originating-file "default"))
+ (if (equal? env "default")
+
+     (begin
+       (eval `(define ,name ,func))
+       ;; Register into the top environment
+       (register-macro-transformer! name env))
+
+     (with-handler (lambda (_)
+
+                     (with-handler (lambda (_)
+                                     ;; We failed to find an existing environment to install it in.
+                                     (eval `(define top-level (hash (quote ,name) ,func)))
+                                     (register-macro-transformer! name "top-level"))
+                                   ;; We failed to find an existing environment to install it in.
+                                   (eval `(set! top-level
+                                                (%proto-hash-insert% top-level (quote ,name) ,func)))
+                                   (register-macro-transformer! name "top-level"))
+
+                     ;; Does this work?
+                     ; (eval `(define ,name ,func))
+                     'void)
+                   ;;
+                   (eval `(set! ,(string->symbol env)
+                                (%proto-hash-insert% ,(string->symbol env) (quote ,name) ,func)))
+                   (register-macro-transformer! name env)))
+ 'void)

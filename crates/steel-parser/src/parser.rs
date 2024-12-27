@@ -12,8 +12,9 @@ use crate::{
         self, parse_begin, parse_define, parse_if, parse_lambda, parse_let, parse_new_let,
         parse_require, parse_set, parse_single_argument, Atom, ExprKind, List, Macro, PatternPair,
         SyntaxRules, Vector, BEGIN, DEFINE, IF, LAMBDA, LAMBDA_FN, LAMBDA_SYMBOL, LET, PLAIN_LET,
-        QUASIQUOTE, QUOTE, RAW_UNQUOTE, RAW_UNQUOTE_SPLICING, REQUIRE, RETURN, SET, UNQUOTE,
-        UNQUOTE_SPLICING,
+        QUASIQUOTE, QUASISYNTAX, QUOTE, RAW_UNQUOTE, RAW_UNQUOTE_SPLICING, RAW_UNSYNTAX,
+        RAW_UNSYNTAX_SPLICING, REQUIRE, RETURN, SET, SYNTAX_QUOTE, UNQUOTE, UNQUOTE_SPLICING,
+        UNSYNTAX, UNSYNTAX_SPLICING,
     },
     interner::InternedString,
     lexer::{OwnedTokenStream, ToOwnedString, TokenStream},
@@ -441,6 +442,44 @@ impl<'a> Parser<'a> {
         vec![q, val]
     }
 
+    // Reader macro for #'
+    fn construct_syntax(&mut self, val: ExprKind, span: Span) -> ExprKind {
+        let q = {
+            let rc_val = TokenType::Identifier(*SYNTAX_QUOTE);
+            ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
+        };
+
+        ExprKind::List(List::new(vec![q, val]))
+    }
+
+    // Reader macro for #'
+    fn construct_quasiquote_syntax(&mut self, val: ExprKind, span: Span) -> ExprKind {
+        let q = {
+            let rc_val = TokenType::Identifier(*QUASISYNTAX);
+            ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
+        };
+
+        ExprKind::List(List::new(vec![q, val]))
+    }
+
+    fn construct_quasiunquote_syntax(&mut self, val: ExprKind, span: Span) -> ExprKind {
+        let q = {
+            let rc_val = TokenType::Identifier(*RAW_UNSYNTAX);
+            ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
+        };
+
+        ExprKind::List(List::new(vec![q, val]))
+    }
+
+    fn construct_quasiunquote_syntax_splicing(&mut self, val: ExprKind, span: Span) -> ExprKind {
+        let q = {
+            let rc_val = TokenType::Identifier(*RAW_UNSYNTAX_SPLICING);
+            ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
+        };
+
+        ExprKind::List(List::new(vec![q, val]))
+    }
+
     // Reader macro for `
     fn construct_quasiquote(&mut self, val: ExprKind, span: Span) -> ExprKind {
         let q = {
@@ -598,6 +637,45 @@ impl<'a> Parser<'a> {
                             continue;
                         }
                         TokenType::Error => return Err(tokentype_error_to_parse_error(&token)), // TODO
+
+                        TokenType::QuoteSyntax => {
+                            let quote_inner = self
+                                .next()
+                                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                                .map(|x| self.construct_syntax(x, token.span))?;
+
+                            current_frame.push(quote_inner)?
+                        }
+
+                        TokenType::QuasiQuoteSyntax => {
+                            let quote_inner = self
+                                .next()
+                                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                                .map(|x| self.construct_quasiquote_syntax(x, token.span))?;
+
+                            current_frame.push(quote_inner)?
+                        }
+
+                        TokenType::UnquoteSyntax => {
+                            let quote_inner = self
+                                .next()
+                                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                                .map(|x| self.construct_quasiunquote_syntax(x, token.span))?;
+
+                            current_frame.push(quote_inner)?
+                        }
+
+                        TokenType::UnquoteSpliceSyntax => {
+                            let quote_inner = self
+                                .next()
+                                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                                .map(|x| {
+                                    self.construct_quasiunquote_syntax_splicing(x, token.span)
+                                })?;
+
+                            current_frame.push(quote_inner)?
+                        }
+
                         TokenType::QuoteTick => {
                             // quote_count += 1;
                             // self.quote_stack.push(current_frame.exprs.len());
@@ -1083,6 +1161,43 @@ impl<'a> Parser<'a> {
                         }
 
                         continue;
+                    }
+
+                    // Just turn this into `syntax`
+                    TokenType::QuoteSyntax => {
+                        let value = self
+                            .next()
+                            .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                            .map(|x| self.construct_syntax(x, res.span));
+
+                        return Some(value);
+                    }
+
+                    TokenType::QuasiQuoteSyntax => {
+                        let value = self
+                            .next()
+                            .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                            .map(|x| self.construct_quasiquote_syntax(x, res.span));
+
+                        return Some(value);
+                    }
+
+                    TokenType::UnquoteSyntax => {
+                        let quote_inner = self
+                            .next()
+                            .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                            .map(|x| self.construct_quasiunquote_syntax(x, res.span));
+
+                        return Some(quote_inner);
+                    }
+
+                    TokenType::UnquoteSpliceSyntax => {
+                        let quote_inner = self
+                            .next()
+                            .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                            .map(|x| self.construct_quasiunquote_syntax_splicing(x, res.span));
+
+                        return Some(quote_inner);
                     }
 
                     TokenType::QuoteTick => {
