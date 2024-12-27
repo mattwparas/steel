@@ -97,7 +97,8 @@ impl Default for Kernel {
 
 impl Kernel {
     pub fn new() -> Self {
-        let mut engine = fresh_kernel_image(false);
+        // Does... sandboxing help here?
+        let mut engine = fresh_kernel_image(true);
 
         let transformers = Transformers {
             set: Arc::new(RwLock::new(HashMap::default())),
