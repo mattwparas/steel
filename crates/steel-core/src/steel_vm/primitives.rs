@@ -281,7 +281,7 @@ define_modules! {
     STEEL_GIT_MODULE => git_module,
 }
 
-#[cfg(feature = "dylibs")]
+#[cfg(all(feature = "dylibs", feature = "sync"))]
 pub static STEEL_FFI_MODULE: once_cell::sync::Lazy<BuiltInModule> =
     once_cell::sync::Lazy::new(ffi_module);
 
