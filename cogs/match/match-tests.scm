@@ -143,87 +143,76 @@
 ;; the contract level, assuming those checks are visible to the optimizer
 (define (check-type-info raw-expr type-info)
 
-  (match-syntax raw-expr
-    ;; Do this generically for every type?
-    ;; For primitive checks, we can do this
-    [`(if (,primitive-type-check ,variable) ,then-expr ,else-expr)
-     ; #:when (equal? (syntax-e ifp) 'if)
-     ;; Check the type?
-     (define primitive-type-check-type (hash-try-get primitive-table (syntax-e primitive-type-check)))
-     (define maybe-type (check-type-info variable type-info))
+  (match-syntax
+   raw-expr
+   ;; Do this generically for every type?
+   ;; For primitive checks, we can do this
+   [`(if (,primitive-type-check ,variable) ,then-expr ,else-expr)
+    ; #:when (equal? (syntax-e ifp) 'if)
+    ;; Check the type?
+    (define primitive-type-check-type (hash-try-get primitive-table (syntax-e primitive-type-check)))
+    (define maybe-type (check-type-info variable type-info))
+    ; (displayln "maybe-type" maybe-type)
+    ; (displayln "primitive-type-check-type" primitive-type-check-type)
+    ;; Check that the expected types are the same - if we've concretely found that they won't
+    ;; line up, we should suggest that the then branch is unreachable.
+    (when (and maybe-type
+               primitive-type-check-type
+               (not (equal? 'any maybe-type))
+               (not (equal? primitive-type-check-type maybe-type)))
+      (displayln "Warning: It appears that the then branch is unreachable"))
+    ;; Unify these types, otherwise lift to None
+    (let ([then-expr-type (check-type-info
+                           then-expr
+                           (hash-insert type-info (syntax-e variable) primitive-type-check-type))]
+          [else-expr-type (check-type-info else-expr type-info)])
 
-     ; (displayln "maybe-type" maybe-type)
-     ; (displayln "primitive-type-check-type" primitive-type-check-type)
+      (if (equal? then-expr-type else-expr-type)
 
-     ;; Check that the expected types are the same - if we've concretely found that they won't
-     ;; line up, we should suggest that the then branch is unreachable.
-     (when (and maybe-type
-                primitive-type-check-type
-                (not (equal? 'any maybe-type))
-                (not (equal? primitive-type-check-type maybe-type)))
-       (displayln "Warning: It appears that the then branch is unreachable"))
+          then-expr-type
 
-     ;; Unify these types, otherwise lift to None
-     (let ([then-expr-type (check-type-info
-                            then-expr
-                            (hash-insert type-info (syntax-e variable) primitive-type-check-type))]
-           [else-expr-type (check-type-info else-expr type-info)])
+          ;; Just promote to the any type
+          'any))
+    ; (list (check-type-info then-expr
+    ;                        (hash-insert type-info (syntax-e variable) primitive-type-check-type))
+    ;       (check-type-info else-expr type-info))
+    ]
+   ;; Function application, check that the variable found in `known-variable`
+   ;; matches the expected type from known-variable
+   [(list application args ...)
+    (define maybe-type (check-type-info application type-info))
+    (define args-types (map (lambda (e) (check-type-info e type-info)) args))
+    (match maybe-type
+      [(list args ret-val)
 
-       (if (equal? then-expr-type else-expr-type)
+       (unless (equal? args args-types)
+         (error-with-span (syntax-span application)
+                          "Type mismatch! expected "
+                          args
+                          " found "
+                          args-types))
 
-           then-expr-type
+       ret-val]
 
-           ;; Just promote to the any type
-           'any))
-
-     ; (list (check-type-info then-expr
-     ;                        (hash-insert type-info (syntax-e variable) primitive-type-check-type))
-     ;       (check-type-info else-expr type-info))
-     ]
-    ;; Function application, check that the variable found in `known-variable`
-    ;; matches the expected type from known-variable
-
-    [(list application args ...)
-
-     (define maybe-type (check-type-info application type-info))
-     (define args-types (map (lambda (e) (check-type-info e type-info)) args))
-
-     (match maybe-type
-       [(list args ret-val)
-
-        (unless (equal? args args-types)
-          (error-with-span (syntax-span application)
-                           "Type mismatch! expected "
-                           args
-                           " found "
-                           args-types))
-
-        ret-val]
-
-       [any any])
-
-     ;; Application
-     ; (define maybe-type (hash-try-get type-info (syntax-e known-variable)))
-     ; (define maybe-signature (hash-try-get type-info (syntax-e function-application)))
-     ; (when (and maybe-type maybe-signature (not (equal? maybe-type (car maybe-signature))))
-     ;   (error-with-span (syntax-span function-application)
-     ;                    "Type mismatch! expected "
-     ;                    (car maybe-signature)
-     ;                    " found "
-     ;                    maybe-type))
-
-     ;; This should then return the
-     ; (displayln maybe-signature)
-
-     ; (list (check-type-info function-application type-info)
-     ;       (check-type-info known-variable type-info))
-     ]
-
-    ;; If this doesn't match any of our other forms, recur
-    [(list other ...) (map (lambda (e) (check-type-info e type-info)) other)]
-
-    ;; We've bottomed out, just return the collected type information
-    [other (or (hash-try-get type-info (syntax-e other)) 'any)]))
+      [any any])
+    ;; Application
+    ; (define maybe-type (hash-try-get type-info (syntax-e known-variable)))
+    ; (define maybe-signature (hash-try-get type-info (syntax-e function-application)))
+    ; (when (and maybe-type maybe-signature (not (equal? maybe-type (car maybe-signature))))
+    ;   (error-with-span (syntax-span function-application)
+    ;                    "Type mismatch! expected "
+    ;                    (car maybe-signature)
+    ;                    " found "
+    ;                    maybe-type))
+    ;; This should then return the
+    ; (displayln maybe-signature)
+    ; (list (check-type-info function-application type-info)
+    ;       (check-type-info known-variable type-info))
+    ]
+   ;; If this doesn't match any of our other forms, recur
+   [(list other ...) (map (lambda (e) (check-type-info e type-info)) other)]
+   ;; We've bottomed out, just return the collected type information
+   [other (or (hash-try-get type-info (syntax-e other)) 'any)]))
 
 (define my-expr2
   (quasisyntax (define loop
@@ -236,25 +225,20 @@
 (define (tile-null-cdr-checks expr)
 
   (match-syntax expr
-    ;; Function call merging optimizations
-    [`(#%prim.null? (#%prim.cdr ,expr))
-
-     ;; Map the span of this object to the span
-     ;; of the incoming one.
-     (syntax/loc (list (syntax/loc '#%prim.cdr-null?
-                         (syntax-span expr))
-                       expr)
-       (syntax-span expr))]
-
-    [(list other ...)
-
-     (syntax/loc (map tile-null-cdr-checks other)
-       (syntax-span expr))]
-
-    [other other]))
+                ;; Function call merging optimizations
+                [`(#%prim.null? (#%prim.cdr ,expr))
+                 ;; Map the span of this object to the span
+                 ;; of the incoming one.
+                 (syntax/loc (list (syntax/loc '#%prim.cdr-null?
+                                     (syntax-span expr))
+                                   expr)
+                   (syntax-span expr))]
+                [(list other ...)
+                 (syntax/loc (map tile-null-cdr-checks other)
+                   (syntax-span expr))]
+                [other other]))
 
 (define test-expr
-
   (quasisyntax
    (define foo
      (lambda (x)
@@ -271,18 +255,13 @@
        (lambda (expr)
 
          ;;
-         (match-syntax expr
-           pat ...
-           [other other])
+         (match-syntax expr pat ... [other other])
 
          (match-syntax expr
-
-           [(list other ...)
-
-            (syntax/loc (map name other)
-              (syntax-span expr))]
-
-           [other other])))]))
+                       [(list other ...)
+                        (syntax/loc (map name other)
+                          (syntax-span expr))]
+                       [other other])))]))
 
 ;; define/lint
 (define/lint (null-cdr-check expr)
@@ -301,21 +280,16 @@
 
 (define (flatten-cons expr)
   (match-syntax expr
+                [`(#%prim.cons ,x (#%prim.list ,@expr))
+                 (syntax/loc (cons (syntax/loc '#%prim.list
+                                     (syntax-span (car expr)))
+                                   (cons x expr))
 
-    [`(#%prim.cons ,x (#%prim.list ,@expr))
-
-     (syntax/loc (cons (syntax/loc '#%prim.list
-                         (syntax-span (car expr)))
-                       (cons x expr))
-
-       (syntax-span (car expr)))]
-
-    [(list other ...)
-
-     (syntax/loc (map flatten-cons other)
-       (syntax-span expr))]
-
-    [other other]))
+                   (syntax-span (car expr)))]
+                [(list other ...)
+                 (syntax/loc (map flatten-cons other)
+                   (syntax-span expr))]
+                [other other]))
 
 (flatten-cons
  (quasisyntax
