@@ -432,7 +432,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
                         .collect()
                 )),
                 // TODO:
-                thread_local_bindings: Vec::new(),
+                // thread_local_bindings: Vec::new(),
             }
         );
 

@@ -19,9 +19,8 @@ pub struct Env {
     pub(crate) bindings_vec: Arc<RwLock<Vec<SteelVal>>>,
     // Keep a copy of the globals that we can access
     // just by offset.
-    // pub(crate) bindings_vec_local: Vec<SteelVal>,
-    #[cfg(feature = "sync")]
-    pub(crate) thread_local_bindings: Vec<SteelVal>,
+    // #[cfg(feature = "sync")]
+    // pub(crate) thread_local_bindings: Vec<SteelVal>,
 }
 
 #[cfg(feature = "sync")]
@@ -29,7 +28,7 @@ impl Clone for Env {
     fn clone(&self) -> Self {
         Self {
             bindings_vec: self.bindings_vec.clone(),
-            thread_local_bindings: self.thread_local_bindings.clone(),
+            // thread_local_bindings: self.thread_local_bindings.clone(),
         }
     }
 }
@@ -135,7 +134,7 @@ impl Env {
     pub fn root() -> Self {
         Env {
             bindings_vec: Arc::new(RwLock::new(Vec::with_capacity(1024))),
-            thread_local_bindings: Vec::with_capacity(1024),
+            // thread_local_bindings: Vec::with_capacity(1024),
         }
     }
 
@@ -144,7 +143,7 @@ impl Env {
             bindings_vec: Arc::new(RwLock::new(
                 self.bindings_vec.read().iter().map(|x| x.clone()).collect(),
             )),
-            thread_local_bindings: self.thread_local_bindings.clone(),
+            // thread_local_bindings: self.thread_local_bindings.clone(),
         }
     }
 
@@ -162,8 +161,8 @@ impl Env {
 
     #[inline(always)]
     pub fn repl_lookup_idx(&self, idx: usize) -> SteelVal {
-        // self.bindings_vec.read()[idx].clone()
-        self.thread_local_bindings[idx].clone()
+        self.bindings_vec.read()[idx].clone()
+        // self.thread_local_bindings[idx].clone()
     }
 
     // /// Get the value located at that index
@@ -177,7 +176,7 @@ impl Env {
 
         if idx < guard.len() {
             guard[idx] = val.clone();
-            self.thread_local_bindings[idx] = val;
+            // self.thread_local_bindings[idx] = val;
         } else {
             if idx > guard.len() {
                 // TODO: This seems suspect. Try to understand
@@ -188,28 +187,21 @@ impl Env {
                 // to the correct values.
                 for _ in 0..(idx - guard.len()) {
                     guard.push(SteelVal::Void);
-                    self.thread_local_bindings.push(SteelVal::Void);
+                    // self.thread_local_bindings.push(SteelVal::Void);
                 }
             }
 
             guard.push(val.clone());
-            self.thread_local_bindings.push(val);
+            // self.thread_local_bindings.push(val);
             assert_eq!(guard.len() - 1, idx);
         }
     }
-
-    // pub fn repl_set_idx(&mut self, idx: usize, val: SteelVal) -> Result<SteelVal> {
-    //     let mut guard = self.bindings_vec.write();
-    //     let output = guard[idx].clone();
-    //     guard[idx] = val;
-    //     Ok(output)
-    // }
 
     pub fn repl_set_idx(&mut self, idx: usize, val: SteelVal) -> Result<SteelVal> {
         let mut guard = self.bindings_vec.write();
         let output = guard[idx].clone();
         guard[idx] = val.clone();
-        self.thread_local_bindings[idx] = val;
+        // self.thread_local_bindings[idx] = val;
         Ok(output)
     }
 
