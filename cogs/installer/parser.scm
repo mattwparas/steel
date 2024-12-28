@@ -26,7 +26,7 @@
   ;; TODO: This needs to handle relative paths
   (displayln "searching for: " module)
   (if (is-dir? module)
-      (let ([cog-path (string-append module "/cog.scm")])
+      (let ([cog-path (convert-path (string-append module "/cog.scm"))])
         (if (is-file? cog-path)
             ;; Update the resulting map with the path to the module
             (list (hash-insert (parse-cog-file cog-path) 'path module))
