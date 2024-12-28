@@ -3,7 +3,9 @@
 ### **child-stdin**
 ### **child-stdout**
 ### **command**
+### **kill**
 ### **set-current-dir!**
+### **set-env-var!**
 ### **set-piped-stdout!**
 ### **spawn-process**
 ### **wait**

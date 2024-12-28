@@ -26,12 +26,14 @@ Returns the message of an error object.
 ### **call/cc**
 ### **current-function-span**
 ### **current-os!**
+### **emit-expanded**
 ### **env-var**
 ### **error-with-span**
 ### **eval**
 ### **eval!**
 ### **eval-string**
 ### **expand!**
+### **feature-dylib-build?**
 ### **function-name**
 ### **get-contract-struct**
 ### **get-test-mode**
@@ -39,6 +41,7 @@ Returns the message of an error object.
 ### **iter-next!**
 ### **join!**
 ### **load**
+### **load-expanded**
 ### **local-executor/block-on**
 ### **make-struct-type**
 ### **maybe-get-env-var**
