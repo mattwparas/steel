@@ -85,9 +85,10 @@
     (define executable-path (hash-get entrypoint-spec '#:path))
     ;; Path to the entrypoint should go here, and since it is most likely expressed
     ;; as a path relative to the cog.scm file, we should expand the path.
-    (define path-to-entrypoint (append-with-separator (hash-get package 'path) executable-path))
+    (define path-to-entrypoint
+      (convert-path (append-with-separator (hash-get package 'path) executable-path)))
 
-    (define destination-binary (append-with-separator *BIN* executable-name))
+    (define destination-binary (convert-path (append-with-separator *BIN* executable-name)))
 
     (displayln "-----> Discovered entrypoint:" path-to-entrypoint)
     (displayln "-----> Entrypoint name:" executable-name)
