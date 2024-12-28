@@ -17,6 +17,11 @@
              (mapping (lambda (package) (list (hash-get package 'package-name) package)))
              (into-hashmap)))
 
+(define (convert-path path)
+  (if (equal? (current-os!) "windows")
+      (string-replace path "/" "\\")
+      path))
+
 (define (parse-cog module [search-from #f])
   ;; TODO: This needs to handle relative paths
   (displayln "searching for: " module)
@@ -31,7 +36,9 @@
       (if search-from
           (begin
             ;; This is no good - need to do platform agnostic separator
-            (define new-search-path (string-append (trim-end-matches search-from "/") "/" module))
+            (define new-search-path
+              (convert-path (string-append (trim-end-matches search-from "/") "/" module)))
+
             (parse-cog new-search-path))
 
           (error! "Unable to locate the module " module))))

@@ -14,11 +14,12 @@
          wait-for-jobs
          find-dylib-name)
 
-;; Sources!
-(define (append-with-separator path dir-name)
-  (if (ends-with? path "/")
-      (string-append path dir-name)
-      (string-append path "/" dir-name)))
+(define SEP (if (equal? (current-os!) "windows") "\\" "/"))
+
+(define (append-with-separator path dir)
+  (if (ends-with? path SEP)
+      (string-append path dir)
+      (string-append path SEP dir)))
 
 (define (path-from-steel-home dir)
   (~> (steel-home-location) (append-with-separator dir)))

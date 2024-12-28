@@ -29,10 +29,12 @@
          *DYLIB-DIR*
          *BIN*)
 
+(define SEP (if (equal? (current-os!) "windows") "\\" "/"))
+
 (define (append-with-separator path dir)
-  (if (ends-with? path "/")
+  (if (ends-with? path SEP)
       (string-append path dir)
-      (string-append path "/" dir)))
+      (string-append path SEP dir)))
 
 ;; Should make this lazy?
 (define *STEEL_HOME* (~> (steel-home-location) (append-with-separator "cogs")))

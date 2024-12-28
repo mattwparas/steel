@@ -60,7 +60,7 @@ jobs:
           args: --all --no-default-features
 
       - name: install cargo-tarpaulin
-        run: cargo install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin --force
 
       - name: run code coverage
         run: cargo tarpaulin --exclude steel-derive --all --no-default-features -o "lcov" --engine llvm
