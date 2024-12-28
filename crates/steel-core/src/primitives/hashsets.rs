@@ -1,42 +1,34 @@
 use crate::rvals::SteelHashSet;
-use crate::stop;
+use crate::rvals::{Result, SteelVal};
+use crate::steel_vm::vm::VmCore;
 use crate::values::lists::List;
 use crate::values::HashSet;
-use crate::{
-    core::utils::declare_const_ref_functions,
-    rvals::{Result, SteelVal},
-};
 use crate::{gc::Gc, steel_vm::builtin::BuiltInModule};
-
-use crate::primitives::VectorOperations;
-
-declare_const_ref_functions!(
-    HS_CONSTRUCT => hs_construct,
-    HS_LENGTH => hs_length,
-    HS_CONTAINS => hs_contains,
-    // HS_INSERT => hs_insert,
-    HS_TO_LIST => keys_to_list,
-    HS_TO_VEC => keys_to_vector,
-    HS_CLEAR => clear,
-    HS_SUBSET => is_subset,
-    LIST_TO_HS => list_to_hashset,
-);
+use crate::{stop, Vector};
 
 pub(crate) fn hashset_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/sets");
     module
-        .register_value("hashset", HS_CONSTRUCT)
-        .register_value("hashset-length", HS_LENGTH)
-        .register_value("hashset-contains?", HS_CONTAINS)
+        .register_native_fn_definition(HS_CONSTRUCT_DEFINITION)
+        .register_native_fn_definition(HASHSET_LENGTH_DEFINITION)
+        .register_native_fn_definition(HASHSET_CONTAINS_DEFINITION)
         .register_native_fn_definition(HS_INSERT_DEFINITION)
-        .register_value("hashset->list", HS_TO_LIST)
-        .register_value("hashset->vector", HS_TO_VEC)
-        .register_value("hashset-clear", HS_CLEAR)
-        .register_value("hashset-subset?", HS_SUBSET)
-        .register_value("list->hashset", LIST_TO_HS);
+        .register_native_fn_definition(HASHSET_TO_LIST_DEFINITION)
+        .register_native_fn_definition(HASHSET_TO_IMMUTABLE_VECTOR_DEFINITION)
+        .register_native_fn_definition(HASHSET_TO_MUTABLE_VECTOR_DEFINITION)
+        .register_native_fn_definition(HASHSET_CLEAR_DEFINITION)
+        .register_native_fn_definition(HASHSET_IS_SUBSET_DEFINITION)
+        .register_native_fn_definition(LIST_TO_HASHSET_DEFINITION);
     module
 }
 
+/// Constructs a new hash set
+///
+/// # Examples
+/// ```scheme
+/// (hashset 10 20 30 40)
+/// ```
+#[steel_derive::native(name = "hashset", arity = "AtLeast(0)")]
 pub fn hs_construct(args: &[SteelVal]) -> Result<SteelVal> {
     let mut hs = HashSet::new();
 
@@ -51,20 +43,26 @@ pub fn hs_construct(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::HashSetV(Gc::new(hs).into()))
 }
 
-pub fn hs_length(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => "hs-length takes 1 argument")
-    }
-
-    let hashmap = &args[0];
-
-    if let SteelVal::HashSetV(hm) = hashmap {
-        Ok(SteelVal::IntV(hm.len() as isize))
-    } else {
-        stop!(TypeMismatch => "hs-length takes a hashmap")
-    }
+/// Get the number of elements in the hashset
+///
+/// # Examples
+/// ```scheme
+/// (hashset-length (hashset 10 20 30)) ;; => 3
+/// ```
+#[steel_derive::function(name = "hashset-length")]
+pub fn hashset_length(hashset: &SteelHashSet) -> usize {
+    hashset.len()
 }
 
+/// Insert a new element into the hashset. Returns a hashset.
+///
+/// # Examples
+/// ```scheme
+/// (define hs (hashset 10 20 30))
+/// (define updated (hashset-insert hs 40))
+/// (equal? hs (hashset 10 20 30)) ;; => #true
+/// (equal? updated (hashset 10 20 30 40)) ;; => #true
+/// ```
 #[steel_derive::function(name = "hashset-insert")]
 pub fn hs_insert(hashset: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
     if value.is_hashable() {
@@ -85,103 +83,113 @@ pub fn hs_insert(hashset: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
     }
 }
 
-pub fn hs_contains(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 2 {
-        stop!(ArityMismatch => "set-contains? get takes 2 arguments")
+/// Test if the hashset contains a given element.
+///
+/// # Examples
+/// ```scheme
+/// (hashset-contains? (hashset 10 20) 10) ;; => #true
+/// (hashset-contains? (hashset 10 20) "foo") ;; => #false
+/// ```
+#[steel_derive::function(name = "hashset-contains?")]
+pub fn hashset_contains(hashset: &SteelHashSet, key: &SteelVal) -> Result<SteelVal> {
+    if key.is_hashable() {
+        Ok(SteelVal::BoolV(hashset.contains(key)))
+    } else {
+        stop!(TypeMismatch => "hash key not hashable!: {}", key);
+    }
+}
+
+/// Check if the left set is a subset of the right set
+///
+/// # Examples
+/// ```scheme
+/// (hashset-subset? (hash 10) (hashset 10 20)) ;; => #true
+/// (hashset-subset? (hash 100) (hashset 30)) ;; => #false
+/// ```
+#[steel_derive::function(name = "hashset-subset?")]
+pub fn hashset_is_subset(left: &SteelHashSet, right: &SteelHashSet) -> bool {
+    left.is_subset(right.0.as_ref())
+}
+
+/// Creates a list from this hashset. The order of the list is not guaranteed.
+///
+/// # Examples
+/// ```scheme
+/// (hashset->list (hashset 10 20 30)) ;; => '(10 20 30)
+/// (hashset->list (hashset 10 20 30)) ;; => '(20 10 30)
+/// ```
+#[steel_derive::function(name = "hashset->list")]
+pub fn hashset_to_list(hashset: &SteelHashSet) -> SteelVal {
+    SteelVal::ListV(hashset.iter().cloned().collect::<List<SteelVal>>())
+}
+
+/// Creates an immutable vector from this hashset. The order of the vector is not guaranteed.
+///
+/// # Examples
+/// ```scheme
+/// (hashset->immutable-vector (hashset 10 20 30)) ;; => '#(10 20 30)
+/// (hashset->immutable-vector (hashset 10 20 30)) ;; => '#(20 10 30)
+/// ```
+#[steel_derive::function(name = "hashset->immutable-vector")]
+pub fn hashset_to_immutable_vector(hashset: &SteelHashSet) -> SteelVal {
+    SteelVal::VectorV(Gc::new(hashset.0.iter().cloned().collect::<Vector<_>>()).into())
+}
+
+/// Creates a mutable vector from this hashset. The order of the vector is not guaranteed.
+///
+/// # Examples
+/// ```scheme
+/// (hashset->vector (hashset 10 20 30)) ;; => '#(10 20 30)
+/// (hashset->vector (hashset 10 20 30)) ;; => '#(20 10 30)
+/// ```
+#[steel_derive::context(name = "hashset->vector", arity = "Exact(1)")]
+pub fn hashset_to_mutable_vector(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    fn hashset_to_mutable_vector_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+        if args.len() != 1 {
+            stop!(ArityMismatch => "hashset->vector takes 1 argument")
+        }
+
+        let hashset = &args[0];
+
+        if let SteelVal::HashSetV(hs) = hashset {
+            Ok(ctx.make_mutable_vector(hs.iter().cloned().collect()))
+        } else {
+            stop!(TypeMismatch => "hashset->vector takes a hashset")
+        }
     }
 
-    let hashset = &args[0];
-    let key = &args[1];
+    Some(hashset_to_mutable_vector_impl(ctx, args))
+}
 
-    if let SteelVal::HashSetV(hm) = hashset {
-        if key.is_hashable() {
-            Ok(SteelVal::BoolV(hm.contains(key)))
-        } else {
-            stop!(TypeMismatch => "hash key not hashable!: {}", key);
+/// Clears the hashset and returns the passed in hashset.
+/// This first checks if there are no other references to this hashset,
+/// and if there aren't, clears that allocation. Given that there are
+/// functional updates, this is only relevant if there are no more
+/// references to a given hashset, and you want to reuse its allocation.
+#[steel_derive::function(name = "hashset-clear")]
+pub fn hashset_clear(hashset: &mut SteelVal) -> Result<SteelVal> {
+    if let SteelVal::HashSetV(SteelHashSet(hs)) = hashset {
+        match Gc::get_mut(hs) {
+            Some(m) => {
+                m.clear();
+                Ok(std::mem::replace(hashset, SteelVal::Void))
+            }
+            None => Ok(SteelVal::HashSetV(Gc::new(HashSet::new()).into())),
         }
     } else {
-        stop!(TypeMismatch => "set-contains? takes a hashmap")
+        stop!(TypeMismatch => format!("hashset-clear takes a hashset, found: {}", hashset))
     }
 }
 
-pub fn is_subset(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 2 {
-        stop!(ArityMismatch => "hashset-subset? takes 2 arguments")
-    }
-
-    let left = &args[0];
-    let right = &args[1];
-
-    if let SteelVal::HashSetV(left) = left {
-        if let SteelVal::HashSetV(right) = right {
-            Ok(SteelVal::BoolV(left.is_subset(right.0.as_ref())))
-        } else {
-            stop!(TypeMismatch => "hash-subset? takes a hashset")
-        }
-    } else {
-        stop!(TypeMismatch => "hashset-subset? takes a hashset")
-    }
-}
-
-// keys as list
-pub fn keys_to_list(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => "hs-keys->list takes 1 argument")
-    }
-
-    let hashset = &args[0];
-
-    if let SteelVal::HashSetV(hs) = hashset {
-        Ok(SteelVal::ListV(
-            hs.iter().cloned().collect::<List<SteelVal>>(),
-        ))
-    } else {
-        stop!(TypeMismatch => "hs-keys->list takes a hashmap")
-    }
-}
-
-// keys as vectors
-pub fn keys_to_vector(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => "hs-keys->vector takes 1 argument")
-    }
-
-    let hashset = &args[0];
-
-    if let SteelVal::HashSetV(hs) = hashset {
-        VectorOperations::vec_construct_iter_normal(hs.iter().cloned())
-    } else {
-        stop!(TypeMismatch => "hs-keys->vector takes a hashmap")
-    }
-}
-
-pub fn clear(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => "hs-clear takes 1 argument")
-    }
-
-    let hashset = &args[0];
-
-    if let SteelVal::HashSetV(hs) = hashset {
-        let mut hs = hs.0.unwrap();
-        hs.clear();
-        Ok(SteelVal::HashSetV(Gc::new(hs).into()))
-    } else {
-        stop!(TypeMismatch => "hs-clear takes a hashmap")
-    }
-}
-
-pub fn list_to_hashset(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => "list->hashset takes one argument")
-    }
-    if let SteelVal::ListV(l) = &args[0] {
-        Ok(SteelVal::HashSetV(
-            Gc::new(l.iter().cloned().collect::<HashSet<_>>()).into(),
-        ))
-    } else {
-        stop!(TypeMismatch => "list->hashset takes a hashset");
-    }
+/// Convert the given list into a hashset.
+///
+/// # Examples
+/// ```scheme
+/// (list 10 20 30) ;; => (hashset 10 20 30)
+/// ```
+#[steel_derive::function(name = "list->hashset")]
+pub fn list_to_hashset(l: &List<SteelVal>) -> SteelVal {
+    SteelVal::HashSetV(Gc::new(l.iter().cloned().collect::<HashSet<_>>()).into())
 }
 
 #[cfg(test)]
@@ -285,7 +293,7 @@ mod hashset_tests {
             ),
             SteelVal::StringV("foo".into()),
         ];
-        let res = hs_contains(&args);
+        let res = steel_hashset_contains(&args);
         let expected = SteelVal::BoolV(true);
         assert_eq!(res.unwrap(), expected);
     }
@@ -304,7 +312,7 @@ mod hashset_tests {
             ),
             SteelVal::StringV("bar".into()),
         ];
-        let res = hs_contains(&args);
+        let res = steel_hashset_contains(&args);
         let expected = SteelVal::BoolV(false);
         assert_eq!(res.unwrap(), expected);
     }
@@ -323,7 +331,7 @@ mod hashset_tests {
             )
             .into(),
         )];
-        let res = keys_to_vector(&args);
+        let res = steel_hashset_to_immutable_vector(&args);
         let expected = vector![
             SteelVal::StringV("foo".into()),
             SteelVal::StringV("bar".into()),

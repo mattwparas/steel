@@ -335,7 +335,6 @@ Rounds the given number up to the nearest integer not less than it.
 > (ceiling 42.1) ;; => 43
 > (ceiling -42.1) ;; => -42
 ```
-
 ### **change-current-directory!**
 Change the current working directory
 ### **char->integer**
@@ -829,6 +828,76 @@ map: hash?
 > (hash-keys->vector (hash 'a 10 'b 20)),
 => [10 10]",
 ```
+### **hashset**
+Constructs a new hash set
+
+#### Examples
+```scheme
+(hashset 10 20 30 40)
+```
+### **hashset->immutable-vector**
+Creates an immutable vector from this hashset. The order of the vector is not guaranteed.
+
+#### Examples
+```scheme
+(hashset->immutable-vector (hashset 10 20 30)) ;; => '#(10 20 30)
+(hashset->immutable-vector (hashset 10 20 30)) ;; => '#(20 10 30)
+```
+### **hashset->list**
+Creates a list from this hashset. The order of the list is not guaranteed.
+
+#### Examples
+```scheme
+(hashset->list (hashset 10 20 30)) ;; => '(10 20 30)
+(hashset->list (hashset 10 20 30)) ;; => '(20 10 30)
+```
+### **hashset->vector**
+Creates a mutable vector from this hashset. The order of the vector is not guaranteed.
+
+#### Examples
+```scheme
+(hashset->vector (hashset 10 20 30)) ;; => '#(10 20 30)
+(hashset->vector (hashset 10 20 30)) ;; => '#(20 10 30)
+```
+### **hashset-clear**
+Clears the hashset and returns the passed in hashset.
+This first checks if there are no other references to this hashset,
+and if there aren't, clears that allocation. Given that there are
+functional updates, this is only relevant if there are no more
+references to a given hashset, and you want to reuse its allocation.
+### **hashset-contains?**
+Test if the hashset contains a given element.
+
+#### Examples
+```scheme
+(hashset-contains? (hashset 10 20) 10) ;; => #true
+(hashset-contains? (hashset 10 20) "foo") ;; => #false
+```
+### **hashset-insert**
+Insert a new element into the hashset. Returns a hashset.
+
+#### Examples
+```scheme
+(define hs (hashset 10 20 30))
+(define updated (hashset-insert hs 40))
+(equal? hs (hashset 10 20 30)) ;; => #true
+(equal? updated (hashset 10 20 30 40)) ;; => #true
+```
+### **hashset-length**
+Get the number of elements in the hashset
+
+#### Examples
+```scheme
+(hashset-length (hashset 10 20 30)) ;; => 3
+```
+### **hashset-subset?**
+Check if the left set is a subset of the right set
+
+#### Examples
+```scheme
+(hashset-subset? (hash 10) (hashset 10 20)) ;; => #true
+(hashset-subset? (hash 100) (hashset 30)) ;; => #false
+```
 ### **inexact->exact**
 Converts an inexact number to an exact number.
 
@@ -967,6 +1036,13 @@ otherwise this function will error.
 ```scheme
 (list->bytes (list 0 1 2 3 4 5)) ;; => (bytes 0 1 2 3 4 5)
 ```
+### **list->hashset**
+Convert the given list into a hashset.
+
+#### Examples
+```scheme
+(list 10 20 30) ;; => (hashset 10 20 30)
+```
 ### **list-ref**
 Returns the value located at the given index. Will raise an error if you try to index out of bounds.
 
@@ -996,9 +1072,10 @@ Returns the local time in the format given by the input string (using `chrono::L
 
 * fmt : string?
 ### **lock-acquire!**
-Lock the given mutex
+Lock the given mutex. Note, this is most likely used as a building block
+with the `lock!` function.
 ### **lock-release!**
-Unlock the given mutex
+Unlock the given mutex.
 ### **log**
 Computes the natural logarithm of the given number.
 
@@ -1051,6 +1128,21 @@ Creates a thread local storage slot. These slots are static, and will _not_ be r
 
 When spawning a new thread, the value inside will be shared into that slot, however
 future updates to the slot will be local to that thread.
+### **modulo**
+Returns the remainder of the division of the first number by the second
+
+(modulo n m) -> integer?
+
+* n : integer?
+* m : integer?
+
+#### Examples
+```scheme
+> (modulo 10 3) ;; => 1
+> (modulo -10 3) ;; => 2
+> (modulo 10 -3) ;; => -2
+> (module -10 -3) ;; => -1
+```
 ### **mutex**
 Construct a new mutex
 ### **nan?**
@@ -1265,6 +1357,21 @@ Reads a single byte from an input port.
 (read-byte [port]) -> byte?
 
 * port : input-port? = (current-input-port)
+### **read-bytes**
+Reads bytes from an input port.
+
+(read-bytes amt [port]) -> bytes?
+
+* amt : (and positive? int?)
+* port : input-port? = (current-input-port)
+### **read-bytes-into-buf**
+Reads bytes from an input port into a given buffer.
+
+(read-bytes-into-buf buf amt [port]) -> bytes?
+
+* buf : bytes?
+* amt : (and positive? int?)
+* port : input-port? = (current-input-port)
 ### **read-char**
 Reads the next character from an input port.
 
@@ -1360,6 +1467,16 @@ error[E11]: Generic
 ### **set-tls!**
 Set the value in the the thread local storage. Only this thread will see the updates associated
 with this TLS.
+### **spawn-native-thread**
+Spawns the given `func` on another thread. It is required that the arity of the
+given function be 0. If the arity of the given function cannot be checked until runtime,
+the thread will be spawned and the function will fail to execute.
+
+#### Examples
+
+```scheme
+(define thread (spawn-native-thread (lambda () (displayln "Hello world!"))))
+```
 ### **split-many**
 Splits a string given a separator pattern into a list of strings.
 
@@ -1818,6 +1935,10 @@ Serializes a Steel value into a string.
 ```
 ### **void**
 The void value, returned by many forms with side effects, such as `define`.
+### **would-block-object?**
+Returns `#t` if the value is an EOF object.
+
+(eof-object? any/c) -> bool?
 ### **write-byte**
 Writes a single byte to an output port.
 
@@ -1866,10 +1987,13 @@ Checks if the given real number is zero.
 ### **Some->value**
 ### **Some?**
 ### **TypeId?**
+### **acos**
 ### **active-object-count**
 ### **arithmetic-shift**
 ### **arity?**
+### **asin**
 ### **assert!**
+### **atan**
 ### **atom?**
 ### **attach-contract-struct!**
 ### **block-on**
@@ -1878,6 +2002,8 @@ Checks if the given real number is zero.
 ### **box**
 ### **box-strong**
 ### **breakpoint!**
+### **bytes-clear!**
+### **bytes-push!**
 ### **call-with-current-continuation**
 ### **call-with-exception-handler**
 ### **call/cc**
@@ -1900,8 +2026,10 @@ Checks if the given real number is zero.
 ### **compose**
 ### **concat-symbols**
 ### **continuation?**
+### **cos**
 ### **current-function-span**
 ### **current-os!**
+### **current-thread-id**
 ### **dropping**
 ### **duration->seconds**
 ### **duration-since**
@@ -1913,8 +2041,11 @@ Checks if the given real number is zero.
 ### **eqv?**
 ### **error-object?**
 ### **error-with-span**
+### **eval**
 ### **eval!**
+### **eval-string**
 ### **even?**
+### **exact**
 ### **expand!**
 ### **extending**
 ### **f+**
@@ -1929,15 +2060,9 @@ Checks if the given real number is zero.
 ### **get-test-mode**
 ### **hash-get**
 ### **hash?**
-### **hashset**
-### **hashset->list**
-### **hashset->vector**
-### **hashset-clear**
-### **hashset-contains?**
-### **hashset-insert**
-### **hashset-length**
-### **hashset-subset?**
-### **inspect-bytecode**
+### **immutable-vector**
+### **immutable-vector?**
+### **inspect**
 ### **instant/elapsed**
 ### **instant/now**
 ### **interleaving**
@@ -1957,11 +2082,11 @@ Checks if the given real number is zero.
 ### **into-vector**
 ### **iter-next!**
 ### **join!**
-### **list->hashset**
 ### **list->string**
 ### **list->vector**
 ### **list-tail**
 ### **list?**
+### **load**
 ### **local-executor/block-on**
 ### **make-channels**
 ### **make-struct-type**
@@ -1994,6 +2119,7 @@ Checks if the given real number is zero.
 ### **read!**
 ### **read-line-from-port**
 ### **read-to-string**
+### **remainder**
 ### **run!**
 ### **set-box!**
 ### **set-current-dir!**
@@ -2002,7 +2128,8 @@ Checks if the given real number is zero.
 ### **set-strong-box!**
 ### **set-test-mode!**
 ### **set?**
-### **spawn-native-thread**
+### **sin**
+### **span-file-id**
 ### **spawn-process**
 ### **spawn-thread!**
 ### **stdout**
@@ -2023,6 +2150,7 @@ Checks if the given real number is zero.
 ### **syntax/loc**
 ### **syntax?**
 ### **taking**
+### **tan**
 ### **thread/available-parallelism**
 ### **thread::current/id**
 ### **transduce**
@@ -2035,6 +2163,8 @@ Checks if the given real number is zero.
 ### **vec-rest**
 ### **vector**
 ### **vector-append!**
+### **vector-copy!**
+### **vector-fill!**
 ### **vector-length**
 ### **vector-push!**
 ### **vector-ref**
@@ -2044,5 +2174,6 @@ Checks if the given real number is zero.
 ### **wait**
 ### **wait->stdout**
 ### **which**
+### **would-block**
 ### **write-line!**
 ### **zipping**

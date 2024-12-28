@@ -20,7 +20,7 @@ macro_rules! arity_check_generator {
             $ (
                 ($name:tt, $args:expr, $arity) => {
                     if $args.len() != $arity {
-                        stop!(ArityMismatch => format!(stringify!($name expected two arguments, found {}), $args.len()))
+                        stop!(ArityMismatch => format!(stringify!($name expected {} arguments, found {}), $arity, $args.len()))
                     }
                     assert!($args.len() == $arity);
                 };

@@ -110,6 +110,21 @@ Reads a single byte from an input port.
 (read-byte [port]) -> byte?
 
 * port : input-port? = (current-input-port)
+### **read-bytes**
+Reads bytes from an input port.
+
+(read-bytes amt [port]) -> bytes?
+
+* amt : (and positive? int?)
+* port : input-port? = (current-input-port)
+### **read-bytes-into-buf**
+Reads bytes from an input port into a given buffer.
+
+(read-bytes-into-buf buf amt [port]) -> bytes?
+
+* buf : bytes?
+* amt : (and positive? int?)
+* port : input-port? = (current-input-port)
 ### **read-char**
 Reads the next character from an input port.
 
@@ -132,6 +147,10 @@ Gets the port handle to stdin
 ```scheme
 > (stdin) ;; => #<port>
 ```
+### **would-block-object?**
+Returns `#t` if the value is an EOF object.
+
+(eof-object? any/c) -> bool?
 ### **write-byte**
 Writes a single byte to an output port.
 
@@ -150,4 +169,5 @@ Writes the contents of a bytevector into an output port.
 ### **flush-output-port**
 ### **read-line-from-port**
 ### **stdout**
+### **would-block**
 ### **write-line!**
