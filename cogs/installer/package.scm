@@ -36,6 +36,11 @@
       (string-append path dir)
       (string-append path SEP dir)))
 
+(define (convert-path path)
+  (if (equal? (current-os!) "windows")
+      (string-replace path "/" "\\")
+      path))
+
 ;; Should make this lazy?
 (define *STEEL_HOME* (~> (steel-home-location) (append-with-separator "cogs")))
 (define *NATIVE-SOURCES-DIR* (~> (steel-home-location) (append-with-separator "sources")))
@@ -61,7 +66,7 @@
   (->/c hash? string?)
 
   (define destination
-    (string-append *STEEL_HOME* "/" (symbol->string (hash-get package 'package-name))))
+    (convert-path (string-append *STEEL_HOME* "/" (symbol->string (hash-get package 'package-name)))))
 
   (displayln "=> Installing: " package)
   (displayln "   ...Installing to:" destination)
