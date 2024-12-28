@@ -162,7 +162,10 @@
 
     [(quasisyntax #%internal-crunch ()) (list)]
     [(quasisyntax #%internal-crunch (x xs ...))
-     (cons (quasisyntax #%internal-crunch x) (quasisyntax #%internal-crunch (xs ...)))]
+     ;; TODO: Wrap this up in a syntax/raw?
+     (#%syntax/raw (quote (x xs ...))
+                   (cons (quasisyntax #%internal-crunch x) (quasisyntax #%internal-crunch (xs ...)))
+                   (#%syntax-span (x xs ...)))]
 
     ;; Internal, we don't do anything special
     [(quasisyntax #%internal-crunch x) (if (empty? 'x) (list) (#%syntax/raw 'x 'x (#%syntax-span x)))]

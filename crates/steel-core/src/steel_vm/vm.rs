@@ -5261,7 +5261,9 @@ pub(crate) fn environment_offset(ctx: &mut VmCore, args: &[SteelVal]) -> Option<
 // back and forth will probably hamper performance significantly. That being said,
 // it is entirely at compile time, so probably _okay_
 pub(crate) fn expand_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-    let mut template = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
+    if args.len() != 3 {
+        stop!(ArityMismatch => format!("#%expand-template expected 3 arguments, found: {}", args.len()))
+    }
 
     let mut bindings: fxhash::FxHashMap<_, _> = if let SteelVal::HashMapV(h) = &args[1] {
         h.iter()
@@ -5294,6 +5296,12 @@ pub(crate) fn expand_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Re
     } else {
         stop!(TypeMismatch => "#%expand-template expected a map of bindings")
     };
+
+    if bindings.is_empty() && binding_kind.is_empty() {
+        return Ok(args[0].clone());
+    }
+
+    let mut template = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
 
     expand_template(&mut template, &mut bindings, &mut binding_kind);
 
