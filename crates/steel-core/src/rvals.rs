@@ -580,6 +580,7 @@ impl<T: CustomType + MaybeSendSyncStatic> AsRefMutSteelVal for T {
 impl ast::TryFromSteelValVisitorForExprKind {
     pub fn visit_syntax_object(&mut self, value: &Syntax) -> Result<ExprKind> {
         let span = value.span;
+
         // dbg!(&span);
         // let source = self.source.clone();
         match &value.syntax {
