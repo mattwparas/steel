@@ -20,7 +20,8 @@ pub fn process_module() -> BuiltInModule {
         .register_fn("which", binary_exists_on_path)
         .register_fn("child-stdout", ChildProcess::stdout)
         .register_fn("child-stderr", ChildProcess::stderr)
-        .register_fn("child-stdin", ChildProcess::stdin);
+        .register_fn("child-stdin", ChildProcess::stdin)
+        .register_fn("kill", ChildProcess::kill);
 
     module
 }
@@ -110,6 +111,15 @@ impl ChildProcess {
 
     pub fn wait(&mut self) -> SteelResult<SteelVal, SteelErr> {
         self.wait_impl().into()
+    }
+
+    pub fn kill(&mut self) -> Result<SteelVal, SteelErr> {
+        self.child
+            .take()
+            .ok_or_else(crate::throw!(Generic => "Child already killed!"))?
+            .kill()
+            .map_err(SteelErr::from)
+            .map(|_| SteelVal::Void)
     }
 
     fn wait_with_stdout_impl(&mut self) -> Result<String, SteelErr> {
