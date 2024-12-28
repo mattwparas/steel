@@ -39,6 +39,8 @@
             (define new-search-path
               (convert-path (string-append (trim-end-matches search-from "/") "/" module)))
 
+            (displayln "Searching in: " new-search-path)
+
             (parse-cog new-search-path))
 
           (error! "Unable to locate the module " module))))
