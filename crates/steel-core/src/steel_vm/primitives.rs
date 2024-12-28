@@ -603,6 +603,8 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
             .register_module(THREADING_MODULE.with(|x| x.clone()))
             .register_module(BYTEVECTOR_MODULE.with(|x| x.clone()));
 
+        engine.register_module(GIT_MODULE.with(|x| x.clone()));
+
         if !sandbox {
             engine
                 .register_module(TCP_MODULE.with(|x| x.clone()))
