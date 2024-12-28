@@ -63,7 +63,7 @@ jobs:
         run: cargo install cargo-tarpaulin
 
       - name: run code coverage
-        run: cargo tarpaulin --exclude steel_derive --all --no-default-features -o "lcov" --engine llvm
+        run: cargo tarpaulin --exclude steel-derive --all --no-default-features -o "lcov" --engine llvm
 
       - name: Coveralls GitHub Action
         uses: coverallsapp/github-action@v1.1.2
