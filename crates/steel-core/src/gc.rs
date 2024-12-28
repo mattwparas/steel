@@ -139,10 +139,22 @@ pub mod shared {
     }
 
     impl<T> ShareableMut<T> for Rc<RefCell<T>> {
-        type ShareableRead<'a> = Ref<'a, T> where T: 'a;
-        type ShareableWrite<'a> = RefMut<'a, T> where T: 'a;
-        type TryReadResult<'a> = Result<Ref<'a, T>, BorrowError> where T: 'a;
-        type TryWriteResult<'a> = Result<RefMut<'a, T>, BorrowMutError> where T: 'a;
+        type ShareableRead<'a>
+            = Ref<'a, T>
+        where
+            T: 'a;
+        type ShareableWrite<'a>
+            = RefMut<'a, T>
+        where
+            T: 'a;
+        type TryReadResult<'a>
+            = Result<Ref<'a, T>, BorrowError>
+        where
+            T: 'a;
+        type TryWriteResult<'a>
+            = Result<RefMut<'a, T>, BorrowMutError>
+        where
+            T: 'a;
 
         fn read<'a>(&'a self) -> Self::ShareableRead<'a> {
             Rc::deref(self).borrow()
@@ -162,10 +174,22 @@ pub mod shared {
     }
 
     impl<T> ShareableMut<T> for Gc<RefCell<T>> {
-        type ShareableRead<'a> = Ref<'a, T> where T: 'a;
-        type ShareableWrite<'a> = RefMut<'a, T> where T: 'a;
-        type TryReadResult<'a> = Result<Ref<'a, T>, BorrowError> where T: 'a;
-        type TryWriteResult<'a> = Result<RefMut<'a, T>, BorrowMutError> where T: 'a;
+        type ShareableRead<'a>
+            = Ref<'a, T>
+        where
+            T: 'a;
+        type ShareableWrite<'a>
+            = RefMut<'a, T>
+        where
+            T: 'a;
+        type TryReadResult<'a>
+            = Result<Ref<'a, T>, BorrowError>
+        where
+            T: 'a;
+        type TryWriteResult<'a>
+            = Result<RefMut<'a, T>, BorrowMutError>
+        where
+            T: 'a;
 
         fn read<'a>(&'a self) -> Self::ShareableRead<'a> {
             Gc::deref(self).borrow()
@@ -185,16 +209,26 @@ pub mod shared {
     }
 
     impl<T> ShareableMut<T> for Arc<RwLock<T>> {
-        type ShareableRead<'a> = RwLockReadGuard<'a, T> where T: 'a;
-        type ShareableWrite<'a> = RwLockWriteGuard<'a, T> where T: 'a;
+        type ShareableRead<'a>
+            = RwLockReadGuard<'a, T>
+        where
+            T: 'a;
+        type ShareableWrite<'a>
+            = RwLockWriteGuard<'a, T>
+        where
+            T: 'a;
         // type TryReadResult<'a>
         // = TryLockResult<RwLockReadGuard<'a, T>> where T: 'a;
         type TryReadResult<'a>
-        = Result<RwLockReadGuard<'a, T>, ()> where T: 'a;
+            = Result<RwLockReadGuard<'a, T>, ()>
+        where
+            T: 'a;
         // type TryWriteResult<'a>
         // = TryLockResult<RwLockWriteGuard<'a, T>> where T: 'a;
         type TryWriteResult<'a>
-        = Result<RwLockWriteGuard<'a, T>, ()> where T: 'a;
+            = Result<RwLockWriteGuard<'a, T>, ()>
+        where
+            T: 'a;
 
         fn read<'a>(&'a self) -> Self::ShareableRead<'a> {
             Arc::deref(self).read()
@@ -222,16 +256,26 @@ pub mod shared {
     }
 
     impl<T> ShareableMut<T> for Gc<RwLock<T>> {
-        type ShareableRead<'a> = RwLockReadGuard<'a, T> where T: 'a;
-        type ShareableWrite<'a> = RwLockWriteGuard<'a, T> where T: 'a;
+        type ShareableRead<'a>
+            = RwLockReadGuard<'a, T>
+        where
+            T: 'a;
+        type ShareableWrite<'a>
+            = RwLockWriteGuard<'a, T>
+        where
+            T: 'a;
         // type TryReadResult<'a>
         // = TryLockResult<RwLockReadGuard<'a, T>> where T: 'a;
         // type TryWriteResult<'a>
         // = TryLockResult<RwLockWriteGuard<'a, T>> where T: 'a;
         type TryReadResult<'a>
-        = Result<RwLockReadGuard<'a, T>, ()> where T: 'a;
+            = Result<RwLockReadGuard<'a, T>, ()>
+        where
+            T: 'a;
         type TryWriteResult<'a>
-        = Result<RwLockWriteGuard<'a, T>, ()> where T: 'a;
+            = Result<RwLockWriteGuard<'a, T>, ()>
+        where
+            T: 'a;
 
         fn read<'a>(&'a self) -> Self::ShareableRead<'a> {
             Gc::deref(self).read()
@@ -259,12 +303,22 @@ pub mod shared {
     }
 
     impl<T> ShareableMut<T> for Arc<Mutex<T>> {
-        type ShareableRead<'a> = MutexGuard<'a, T> where T: 'a;
-        type ShareableWrite<'a> = MutexGuard<'a, T> where T: 'a;
+        type ShareableRead<'a>
+            = MutexGuard<'a, T>
+        where
+            T: 'a;
+        type ShareableWrite<'a>
+            = MutexGuard<'a, T>
+        where
+            T: 'a;
         type TryReadResult<'a>
-        = TryLockResult<MutexGuard<'a, T>> where T: 'a;
+            = TryLockResult<MutexGuard<'a, T>>
+        where
+            T: 'a;
         type TryWriteResult<'a>
-        = TryLockResult<MutexGuard<'a, T>> where T: 'a;
+            = TryLockResult<MutexGuard<'a, T>>
+        where
+            T: 'a;
 
         fn read<'a>(&'a self) -> Self::ShareableRead<'a> {
             Arc::deref(self)
@@ -288,12 +342,22 @@ pub mod shared {
     }
 
     impl<T> ShareableMut<T> for Gc<Mutex<T>> {
-        type ShareableRead<'a> = MutexGuard<'a, T> where T: 'a;
-        type ShareableWrite<'a> = MutexGuard<'a, T> where T: 'a;
+        type ShareableRead<'a>
+            = MutexGuard<'a, T>
+        where
+            T: 'a;
+        type ShareableWrite<'a>
+            = MutexGuard<'a, T>
+        where
+            T: 'a;
         type TryReadResult<'a>
-        = TryLockResult<MutexGuard<'a, T>> where T: 'a;
+            = TryLockResult<MutexGuard<'a, T>>
+        where
+            T: 'a;
         type TryWriteResult<'a>
-        = TryLockResult<MutexGuard<'a, T>> where T: 'a;
+            = TryLockResult<MutexGuard<'a, T>>
+        where
+            T: 'a;
 
         fn read<'a>(&'a self) -> Self::ShareableRead<'a> {
             Gc::deref(self)
