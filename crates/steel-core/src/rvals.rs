@@ -67,6 +67,7 @@ macro_rules! list {
 }
 
 use bigdecimal::BigDecimal;
+use smallvec::SmallVec;
 use SteelVal::*;
 
 use crate::values::{HashMap, HashSet, Vector};
@@ -579,6 +580,7 @@ impl<T: CustomType + MaybeSendSyncStatic> AsRefMutSteelVal for T {
 impl ast::TryFromSteelValVisitorForExprKind {
     pub fn visit_syntax_object(&mut self, value: &Syntax) -> Result<ExprKind> {
         let span = value.span;
+
         // dbg!(&span);
         // let source = self.source.clone();
         match &value.syntax {
@@ -935,7 +937,12 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                         .into_iter()
                         .map(|x| from_serializable_value(ctx, x));
 
-                    let mut recycle: crate::values::recycler::Recycle<Vec<_>> =
+                    // fields.collect()
+
+                    // let mut recycle: crate::values::recycler::Recycle<Vec<_>> =
+                    //     crate::values::recycler::Recycle::new();
+
+                    let mut recycle: crate::values::recycler::Recycle<SmallVec<_>> =
                         crate::values::recycler::Recycle::new();
 
                     recycle.extend(fields);

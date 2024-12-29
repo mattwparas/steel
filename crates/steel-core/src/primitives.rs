@@ -26,6 +26,11 @@ pub mod transducers;
 mod utils;
 pub mod vectors;
 
+// This is for boot strapping the package
+// manager with an embedded git implementation,
+// as to not require depending on the system git.
+pub mod git;
+
 use crate::gc::{Gc, GcMut};
 use crate::rvals::{FromSteelVal, IntoSteelVal, SteelByteVector};
 use crate::rvals::{

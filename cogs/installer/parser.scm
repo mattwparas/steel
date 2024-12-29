@@ -17,16 +17,33 @@
              (mapping (lambda (package) (list (hash-get package 'package-name) package)))
              (into-hashmap)))
 
-(define/contract (parse-cog module)
-  (->/c string? list?)
+(define (convert-path path)
+  (if (equal? (current-os!) "windows")
+      (string-replace path "/" "\\")
+      path))
+
+(define (parse-cog module [search-from #f])
+  ;; TODO: This needs to handle relative paths
+  (displayln "searching for: " module)
   (if (is-dir? module)
-      (let ([cog-path (string-append module "/cog.scm")])
+      (let ([cog-path (convert-path (string-append module "/cog.scm"))])
         (if (is-file? cog-path)
             ;; Update the resulting map with the path to the module
             (list (hash-insert (parse-cog-file cog-path) 'path module))
 
             (hash-values->list (discover-cogs module))))
-      (error! "Unable to locate the module " module)))
+
+      (if search-from
+          (begin
+            ;; This is no good - need to do platform agnostic separator
+            (define new-search-path
+              (convert-path (string-append (trim-end-matches search-from "/") "/" module)))
+
+            (displayln "Searching in: " new-search-path)
+
+            (parse-cog new-search-path))
+
+          (error! "Unable to locate the module " module))))
 
 ;; Parses a cog file directly into a hashmap
 (define/contract (parse-cog-file path)
@@ -38,7 +55,10 @@
                         ;; TODO: Move this out - also make sure
                         (if (member (car p) '(dylibs dependencies))
                             (list (car p)
-                                  (map (lambda (spec) (if (list? spec) (apply hash spec) spec))
+                                  (map (lambda (spec)
+                                         (if (list? spec)
+                                             (apply hash spec)
+                                             spec))
                                        (cadr p)))
                             p)))
              (into-hashmap)))

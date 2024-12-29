@@ -165,6 +165,7 @@ Writes the contents of a bytevector into an output port.
 
 * buf : bytes?
 * port : output-port? = (current-output-port)
+### **close-input-port**
 ### **close-output-port**
 ### **flush-output-port**
 ### **read-line-from-port**

@@ -144,7 +144,7 @@ pub struct GlobalMacroManager {
 pub struct SteelMacro {
     name: InternedString,
     special_forms: Vec<InternedString>,
-    cases: Vec<MacroCase>,
+    pub(crate) cases: Vec<MacroCase>,
     mangled: bool,
     pub(crate) location: Span,
     pub(crate) special_mangled: bool,
@@ -188,7 +188,14 @@ impl SteelMacro {
         self.mangled
     }
 
-    pub fn parse_from_ast_macro(ast_macro: Box<Macro>) -> Result<Self> {
+    pub fn parse_from_ast_macro(mut ast_macro: Box<Macro>) -> Result<Self> {
+        // HACK: Parse the token as a specific kind of identifier
+        if let Some(ident) = ast_macro.name.atom_syntax_object_mut() {
+            if ident.ty == TokenType::DefineSyntax {
+                ident.ty = TokenType::Identifier("define-syntax".into())
+            }
+        }
+
         let name = *ast_macro
             .name
             .atom_identifier_or_else(throw!(BadSyntax => "macros only currently support
@@ -227,10 +234,24 @@ impl SteelMacro {
 
     // TODO the case matching should be a little bit more informed than this
     // I think it should also not be greedy, and should report if there are ambiguous matchings
-    fn match_case(&self, expr: &List) -> Result<&MacroCase> {
+    pub(crate) fn match_case(&self, expr: &List) -> Result<&MacroCase> {
         for case in &self.cases {
             if case.recursive_match(expr) {
                 return Ok(case);
+            }
+        }
+
+        if let Some(ExprKind::Atom(a)) = expr.first() {
+            stop!(BadSyntax => format!("macro expansion unable to match case: {expr}"); a.syn.span);
+        } else {
+            unreachable!()
+        }
+    }
+
+    pub(crate) fn match_case_index(&self, expr: &List) -> Result<(&MacroCase, usize)> {
+        for (index, case) in self.cases.iter().enumerate() {
+            if case.recursive_match(expr) {
+                return Ok((case, index));
             }
         }
 
@@ -262,13 +283,40 @@ impl SteelMacro {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MacroCase {
     args: Vec<MacroPattern>,
-    body: ExprKind,
+    pub(crate) body: ExprKind,
 }
 
 impl MacroCase {
     #[cfg(test)]
     pub fn new(args: Vec<MacroPattern>, body: ExprKind) -> Self {
         MacroCase { args, body }
+    }
+
+    pub fn all_bindings(&self) -> Vec<String> {
+        fn walk_bindings(pattern: &MacroPattern, idents: &mut Vec<String>) {
+            match pattern {
+                MacroPattern::Rest(r) => walk_bindings(&r, idents),
+                MacroPattern::Single(s) | MacroPattern::Many(s) | MacroPattern::Quote(s)
+                    if *s != InternedString::from_static("_") =>
+                {
+                    idents.push(s.resolve().to_owned());
+                }
+                MacroPattern::Nested(n) | MacroPattern::ManyNested(n) => {
+                    for p in n {
+                        walk_bindings(p, idents)
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut idents = Vec::new();
+
+        for pattern in &self.args {
+            walk_bindings(&pattern, &mut idents)
+        }
+
+        idents
     }
 
     fn parse_from_pattern_pair(
@@ -313,6 +361,27 @@ impl MacroCase {
 
     fn recursive_match(&self, list: &List) -> bool {
         match_list_pattern(&self.args[1..], &list.args[1..], list.improper)
+    }
+
+    pub(crate) fn gather_bindings(
+        &self,
+        expr: List,
+    ) -> Result<(
+        FxHashMap<InternedString, ExprKind>,
+        FxHashMap<InternedString, BindingKind>,
+    )> {
+        let mut bindings = Default::default();
+        let mut binding_kind = Default::default();
+
+        collect_bindings(
+            &self.args[1..],
+            &expr[1..],
+            &mut bindings,
+            &mut binding_kind,
+            expr.improper,
+        )?;
+
+        Ok((bindings, binding_kind))
     }
 
     fn expand(&self, expr: List, span: Span) -> Result<ExprKind> {
@@ -959,6 +1028,7 @@ fn match_single_pattern(pattern: &MacroPattern, expr: &ExprKind) -> bool {
     }
 }
 
+#[derive(Debug)]
 pub enum BindingKind {
     Many,
     Single,

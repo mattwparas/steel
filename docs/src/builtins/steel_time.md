@@ -43,3 +43,9 @@ Sleeps the thread for a given number of milliseconds.
 ### **duration-since**
 ### **instant/elapsed**
 ### **instant/now**
+### **naive-current-date-local**
+### **naive-date-and-hms**
+### **naive-date-day**
+### **naive-date-month**
+### **naive-date-year**
+### **naive-date-ymd**

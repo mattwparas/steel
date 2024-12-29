@@ -268,7 +268,15 @@ error[E11]: Generic
 ### **cdr-null?**
 ### **list->string**
 ### **list->vector**
+### **list-drop**
 ### **list-tail**
+### **plist-get**
+### **plist-get-kwarg**
+### **plist-get-positional-arg**
+### **plist-get-positional-arg-list**
+### **plist-try-get**
+### **plist-try-get-positional-arg**
+### **plist-validate-args**
 ### **push-back**
 ### **transduce**
 ### **try-list-ref**

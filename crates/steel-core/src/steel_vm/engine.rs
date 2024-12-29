@@ -16,7 +16,10 @@ use crate::{
     compiler::{
         compiler::{Compiler, SerializableCompiler},
         map::SymbolMap,
-        modules::{path_to_module_name, CompiledModule, MANGLER_PREFIX, PRELUDE_WITHOUT_BASE},
+        modules::{
+            intern_modules, path_to_module_name, CompiledModule, MANGLER_PREFIX,
+            PRELUDE_WITHOUT_BASE,
+        },
         program::{
             number_literal_to_steel, Executable, RawProgramWithSymbols,
             SerializableRawProgramWithSymbols,
@@ -278,6 +281,12 @@ impl NonInteractiveProgramImage {
     pub fn write_bytes_to_file(&self, out: &PathBuf) {
         let mut f = std::fs::File::create(out).unwrap();
         bincode::serialize_into(&mut f, self).unwrap();
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        bincode::serialize_into(&mut out, self).unwrap();
+        out
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Self {
@@ -592,6 +601,8 @@ impl Engine {
             return Engine::new_kernel(sandbox);
         }
 
+        intern_modules();
+
         if matches!(option_env!("STEEL_BOOTSTRAP"), Some("false") | None) {
             let mut vm = Engine::new_kernel(sandbox);
 
@@ -706,13 +717,22 @@ impl Engine {
     }
 
     // Execute from a statically linked non interactive program
-    pub fn execute_non_interactive_program_image(
-        program: NonInteractiveProgramImage,
-    ) -> Result<()> {
-        // This _has_ to match the as the creation of the program above
+    pub fn execute_non_interactive_program_image(program: &'static [u8]) -> Result<()> {
+        // This _has_ to match the as the creation of the program above.
+        // So, engine first, then non interactive program.
         let mut engine = Engine::new();
+        let program = crate::steel_vm::engine::NonInteractiveProgramImage::from_bytes(program);
+
         engine.sources = program.sources;
+
+        // TODO: The constant map needs to be brought back as well. Install it here.
+        // it needs to get installed in the VM and the compiler. Lets just try that now.
+
         let raw_program = SerializableRawProgramWithSymbols::into_raw_program(program.program);
+
+        engine.virtual_machine.constant_map = raw_program.constant_map.clone();
+        engine.virtual_machine.compiler.write().constant_map = raw_program.constant_map.clone();
+
         let results = engine.run_raw_program(raw_program);
 
         if let Err(e) = results {
@@ -1564,6 +1584,29 @@ impl Engine {
                 // }
             }
         }
+    }
+
+    pub fn expand_to_file<E: AsRef<str> + Into<Cow<'static, str>>>(
+        &mut self,
+        exprs: E,
+        path: PathBuf,
+    ) {
+        self.virtual_machine
+            .compiler
+            .write()
+            .fully_expand_to_file(exprs, Some(path))
+            .unwrap();
+    }
+
+    pub fn load_from_expanded_file(&mut self, path: &str) {
+        let program = self
+            .virtual_machine
+            .compiler
+            .write()
+            .load_from_file(path)
+            .unwrap();
+
+        self.run_raw_program(program).unwrap();
     }
 
     // TODO -> clean up this API a lot

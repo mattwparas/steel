@@ -431,6 +431,8 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
                         .map(|x| from_serializable_value(&mut serializer, x))
                         .collect()
                 )),
+                // TODO:
+                // thread_local_bindings: Vec::new(),
             }
         );
 
@@ -523,6 +525,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             // TODO: Fix this
             compiler: todo!(),
             id: EngineId::new(),
+            safepoints_enabled: false,
         };
 
         #[cfg(feature = "profiling")]
@@ -768,6 +771,9 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
 #[cfg(feature = "sync")]
 #[steel_derive::context(name = "spawn-native-thread", arity = "Exact(1)")]
 pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    // We are now in a world in which we have to support safe points
+    ctx.thread.safepoints_enabled = true;
+
     let thread_time = std::time::Instant::now();
     let mut thread = ctx.thread.clone();
     let interrupt = Arc::new(AtomicBool::new(false));

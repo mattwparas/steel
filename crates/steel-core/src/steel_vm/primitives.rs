@@ -6,7 +6,8 @@ use super::{
     vm::{
         get_test_mode, list_modules, set_test_mode, VmCore, CALL_CC_DEFINITION,
         CALL_WITH_EXCEPTION_HANDLER_DEFINITION, EVAL_DEFINITION, EVAL_FILE_DEFINITION,
-        EVAL_STRING_DEFINITION, EXPAND_SYNTAX_OBJECTS_DEFINITION, INSPECT_DEFINITION,
+        EVAL_STRING_DEFINITION, EXPAND_SYNTAX_CASE_DEFINITION, EXPAND_SYNTAX_OBJECTS_DEFINITION,
+        INSPECT_DEFINITION, MACRO_CASE_BINDINGS_DEFINITION, MATCH_SYNTAX_CASE_DEFINITION,
     },
 };
 use crate::{
@@ -19,6 +20,7 @@ use crate::{
     primitives::{
         bytevectors::bytevector_module,
         fs_module, fs_module_sandbox,
+        git::git_module,
         hashmaps::{hashmap_module, HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,
         http::http_module,
@@ -268,7 +270,6 @@ define_modules! {
     STEEL_OPTION_MODULE => build_option_structs,
     STEEL_THREADING_MODULE => threading_module,
     STEEL_TIME_MODULE => time_module,
-    STEEL_FFI_MODULE => ffi_module,
     STEEL_MUTABLE_VECTOR_MODULE => mutable_vector_module,
     STEEL_PRIVATE_READER_MODULE => reader_module,
     STEEL_TCP_MODULE => tcp_module,
@@ -276,7 +277,13 @@ define_modules! {
     STEEL_HTTP_MODULE => http_module,
     STEEL_PRELUDE_MODULE => prelude,
     STEEL_SB_PRELUDE => sandboxed_prelude,
+
+    STEEL_GIT_MODULE => git_module,
 }
+
+#[cfg(all(feature = "dylibs", feature = "sync"))]
+pub static STEEL_FFI_MODULE: once_cell::sync::Lazy<BuiltInModule> =
+    once_cell::sync::Lazy::new(ffi_module);
 
 thread_local! {
     pub static MAP_MODULE: BuiltInModule = hashmap_module();
@@ -329,6 +336,8 @@ thread_local! {
 
     pub static MUTABLE_VECTOR_MODULE: BuiltInModule = mutable_vector_module();
     pub static PRIVATE_READER_MODULE: BuiltInModule = reader_module();
+
+    pub static GIT_MODULE: BuiltInModule = git_module();
 }
 
 pub fn prelude() -> BuiltInModule {
@@ -498,6 +507,8 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
 
     engine.register_value("error", ControlOperations::error());
 
+    engine.register_value("#%error", ControlOperations::error());
+
     engine.register_value(
         "%memo-table",
         WeakMemoizationTable::new().into_steelval().unwrap(),
@@ -536,6 +547,8 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
             .register_module(STEEL_RANDOM_MODULE.clone())
             .register_module(STEEL_THREADING_MODULE.clone())
             .register_module(STEEL_BYTEVECTOR_MODULE.clone());
+
+        engine.register_module(STEEL_GIT_MODULE.clone());
 
         if !sandbox {
             engine
@@ -589,6 +602,8 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
             .register_module(RANDOM_MODULE.with(|x| x.clone()))
             .register_module(THREADING_MODULE.with(|x| x.clone()))
             .register_module(BYTEVECTOR_MODULE.with(|x| x.clone()));
+
+        engine.register_module(GIT_MODULE.with(|x| x.clone()));
 
         if !sandbox {
             engine
@@ -1725,7 +1740,8 @@ pub fn black_box(_: &[SteelVal]) -> Result<SteelVal> {
 #[steel_derive::function(name = "struct->list")]
 pub fn struct_to_list(value: &UserDefinedStruct) -> Result<SteelVal> {
     if value.is_transparent() {
-        Ok(SteelVal::ListV((*value.fields).clone().into()))
+        // Ok(SteelVal::ListV((*value.fields).clone().into()))
+        Ok(SteelVal::ListV((*value.fields).iter().cloned().collect()))
     } else {
         Ok(SteelVal::BoolV(false))
     }
@@ -1776,10 +1792,16 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(EVAL_DEFINITION)
         .register_native_fn_definition(EVAL_FILE_DEFINITION)
         .register_native_fn_definition(EXPAND_SYNTAX_OBJECTS_DEFINITION)
+        .register_native_fn_definition(MATCH_SYNTAX_CASE_DEFINITION)
+        .register_native_fn_definition(EXPAND_SYNTAX_CASE_DEFINITION)
+        .register_native_fn_definition(MACRO_CASE_BINDINGS_DEFINITION)
         .register_native_fn_definition(EVAL_STRING_DEFINITION)
         .register_native_fn_definition(CALL_WITH_EXCEPTION_HANDLER_DEFINITION)
         .register_value("breakpoint!", SteelVal::BuiltIn(super::vm::breakpoint))
         .register_native_fn_definition(INSPECT_DEFINITION)
+        // TODO: Come back to this
+        .register_native_fn_definition(super::vm::EMIT_EXPANDED_FILE_DEFINITION)
+        .register_native_fn_definition(super::vm::LOAD_EXPANDED_FILE_DEFINITION)
         .register_value(
             "#%environment-length",
             SteelVal::BuiltIn(super::vm::environment_offset),
@@ -1839,10 +1861,14 @@ fn meta_module() -> BuiltInModule {
         )
         .register_value("get-contract-struct", SteelVal::FuncV(get_contract))
         .register_fn("current-os!", || std::env::consts::OS)
-        .register_fn("#%build-dylib", || {
-            #[cfg(feature = "dylib-build")]
-            cargo_steel_lib::run().ok()
-        })
+        .register_fn(
+            "#%build-dylib",
+            |_args: Vec<String>, _env_vars: Vec<(String, String)>| {
+                #[cfg(feature = "dylib-build")]
+                cargo_steel_lib::run(_args, _env_vars).ok()
+            },
+        )
+        .register_fn("feature-dylib-build?", || cfg!(feature = "dylib-build"))
         .register_native_fn_definition(COMMAND_LINE_DEFINITION)
         .register_native_fn_definition(ERROR_OBJECT_MESSAGE_DEFINITION)
         .register_fn("steel-home-location", steel_home)
@@ -1877,6 +1903,27 @@ fn json_module() -> BuiltInModule {
     module
 }
 
+fn syntax_to_module_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    if let SteelVal::SyntaxObject(s) = &args[0] {
+        let span = s.syntax_loc();
+        let source = span.source_id();
+
+        if let Some(source) = source {
+            let path = ctx.thread.sources.get_path(&source);
+            return path
+                .map(|x| x.to_str().unwrap().to_string())
+                .into_steelval();
+        }
+    }
+
+    Ok(SteelVal::BoolV(false))
+}
+
+#[steel_derive::context(name = "syntax-originating-file", arity = "Exact(1)")]
+fn syntax_to_module(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(syntax_to_module_impl(ctx, args))
+}
+
 fn syntax_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/syntax");
     module
@@ -1899,7 +1946,8 @@ fn syntax_module() -> BuiltInModule {
                     println!("{}", e);
                 }
             }
-        });
+        })
+        .register_native_fn_definition(SYNTAX_TO_MODULE_DEFINITION);
     module
 }
 

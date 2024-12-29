@@ -71,6 +71,25 @@
 ;     ((_ (x  . xs))                   (cons (quasiquote x) (quasiquote xs)))
 ;     ((_ x)                           (quote x))))
 
+(define (#%syntax-bindings)
+  (hash))
+(define (#%syntax-binding-kind)
+  (hash))
+
+;; Note: The syntax-bindings and binding-kind will get updated in the kernel
+(define-syntax syntax
+  (syntax-rules (#%syntax/raw)
+
+    ;; HACK: This makes it so that quasisyntax is happy.
+    [(syntax (#%syntax/raw x ...))
+     (#%expand-syntax-case (#%syntax/raw x ...) (#%syntax-bindings) (#%syntax-binding-kind))]
+
+    ;; Don't quote things that are already quoted
+    [(syntax (quote x)) (#%expand-syntax-case (quote x) (#%syntax-bindings) (#%syntax-binding-kind))]
+
+    ;; Otherwise, if its not quoted, just quote it
+    [(syntax x) (#%expand-syntax-case (quote x) (#%syntax-bindings) (#%syntax-binding-kind))]))
+
 (define-syntax quasiquote
   (syntax-rules (unquote unquote-splicing #%unquote #%unquote-splicing #%quote)
 
@@ -115,57 +134,65 @@
 (define-syntax quasisyntax
   (syntax-rules (syntax unsyntax unsyntax-splicing #%unsyntax #%unsyntax-splicing #%internal-crunch)
 
-    [(quasisyntax ((syntax x) xs ...)) (cons (list 'syntax (quasisyntax x)) (quasisyntax (xs ...)))]
+    [(quasisyntax #%internal-crunch ((syntax x) xs ...))
+     (cons (list 'syntax (quasisyntax #%internal-crunch x)) (quasisyntax #%internal-crunch (xs ...)))]
 
-    [(quasisyntax (syntax x)) (list 'quote (quasisyntax x))]
+    [(quasisyntax #%internal-crunch (syntax x)) (list 'quote (quasisyntax #%internal-crunch x))]
 
-    [(quasisyntax ((unsyntax x) xs ...))
-     (cons (list 'unsyntax (quasisyntax x)) (quasisyntax (xs ...)))]
-    [(quasisyntax (unsyntax x)) (list 'unsyntax (quasisyntax x))]
+    [(quasisyntax #%internal-crunch ((unsyntax x) xs ...))
+     (cons (list 'unsyntax (quasisyntax #%internal-crunch x))
+           (quasisyntax #%internal-crunch (xs ...)))]
+    [(quasisyntax #%internal-crunch (unsyntax x)) (list 'unsyntax (quasisyntax #%internal-crunch x))]
 
-    ; ((quasiquote ((#%unquote x) xs ...))          (cons x (quasiquote (xs ...))))
+    [(quasisyntax #%internal-crunch ((#%unsyntax x) xs ...))
+     (#%syntax/raw (quote (xs ...))
+                   (cons x (syntax-e (quasisyntax #%internal-crunch (xs ...))))
+                   (#%syntax-span (xs ...)))]
 
-    [(quasisyntax ((#%unsyntax x) xs ...)) (cons x (quasisyntax (xs ...)))]
-    [(quasisyntax (#%unsyntax x)) x]
+    [(quasisyntax #%internal-crunch (#%unsyntax x)) x]
 
-    [(quasisyntax ((#%unsyntax-splicing x))) (append x '())]
-    [(quasisyntax ((#%unsyntax-splicing x) xs ...)) (append x (quasisyntax (xs ...)))]
+    [(quasisyntax #%internal-crunch ((#%unsyntax-splicing x)))
+     (#%syntax/raw (quote x) (append (syntax-e x) '()) (#%syntax-span x))]
+
+    [(quasisyntax #%internal-crunch ((#%unsyntax-splicing x) xs ...))
+     (#%syntax/raw (quote (xs ...))
+                   (append (syntax-e x) (syntax-e (quasisyntax #%internal-crunch (xs ...))))
+                   (#%syntax-span (xs ...)))]
 
     ;; TODO: Do unquote-splicing as well, follow the same rules as unquote
-    [(quasisyntax ((unsyntax-splicing x)))
-     (append (list (list 'unsyntax-splicing (quasisyntax x))) '())]
-    [(quasisyntax ((unsyntax-splicing x) xs ...))
-     (append (list (list 'unsyntax-splicing (quasisyntax x))) (quasisyntax (xs ...)))]
+    [(quasisyntax #%internal-crunch ((unsyntax-splicing x)))
+     (#%syntax/raw (quote '())
+                   (append (list (list 'unsyntax-splicing (quasisyntax #%internal-crunch x))) '())
+                   (#%syntax-span x))]
 
-    [(quasisyntax #%internal-crunch ()) (list)]
-    ; (list
-    ; (#%syntax/raw
-    ;   (quote x)
+    [(quasisyntax #%internal-crunch ((unsyntax-splicing x) xs ...))
+     (#%syntax/raw (quote xs ...)
+                   (append (list (list 'unsyntax-splicing (quasisyntax #%internal-crunch x)))
+                           (syntax-e (quasisyntax #%internal-crunch (xs ...))))
+                   (#%syntax-span (xs ...)))]
 
-    ;   (cons (quasisyntax x) (quasisyntax #%internal-crunch (xs ...)))
-
-    ;   (#%syntax-span x)))
-
+    [(quasisyntax #%internal-crunch ()) (#%syntax/raw '() '() '(0 0 0))]
     [(quasisyntax #%internal-crunch (x xs ...))
-     ; (list
-     ; (#%syntax/raw
-     ; (quote x)
+     ;; TODO: Wrap this up in a syntax/raw?
+     (#%syntax/raw (quote (x xs ...))
+                   (cons (quasisyntax #%internal-crunch x)
+                         (syntax-e (quasisyntax #%internal-crunch (xs ...))))
+                   (#%syntax-span (x xs ...)))]
 
-     (cons (quasisyntax x) (quasisyntax #%internal-crunch (xs ...)))]
-
-    ; (#%syntax-span x)))
+    ;; Internal, we don't do anything special
+    [(quasisyntax #%internal-crunch x)
+     (if (empty? 'x) (#%syntax/raw '() '() (#%syntax-span x)) (#%syntax/raw 'x 'x (#%syntax-span x)))]
 
     [(quasisyntax (x xs ...))
-     ; (list
-     (#%syntax/raw (quote (x xs ...))
-                   (cons (quasisyntax x) (quasisyntax #%internal-crunch (xs ...)))
-                   (#%syntax-span (x xs ...)))]
-    ; )
+     (syntax (#%syntax/raw (quote (x xs ...))
+                           (cons (quasisyntax #%internal-crunch x)
+                                 (syntax-e (quasisyntax #%internal-crunch (xs ...))))
+                           (#%syntax-span (x xs ...))))]
 
-    ; ((quasisyntax x)                          'x)))
-
-    ; ((quasisyntax (quote ()))     '())
-    [(quasisyntax x) (if (empty? 'x) (list) (#%syntax/raw 'x 'x (#%syntax-span x)))]))
+    [(quasisyntax x)
+     (if (empty? 'x)
+         (#%syntax/raw '() '() (#%syntax-span x))
+         (syntax (#%syntax/raw 'x 'x (#%syntax-span x))))]))
 
 (define-syntax or
   (syntax-rules ()

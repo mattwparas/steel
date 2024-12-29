@@ -3,6 +3,7 @@
                             (only-in open-in-memory
                                      prepare
                                      execute
+                                     execute-batch
                                      query
                                      begin/transaction
                                      transaction/finish
@@ -13,13 +14,18 @@
                                      SqliteConnection?
                                      SqliteTransaction?
                                      SqlitePreparedStatement?
-                                     open)))
+                                     open
+                                     load-extension
+                                     version)))
 
 (provide SqliteConnection?
          SqliteTransaction?
          SqlitePreparedStatement?
          open-in-memory
          open
+         load-extension
+         version
+         (contract/out execute-batch (->/c SqliteConnection? string? void?))
          (contract/out prepare (->/c SqliteConnection? string? any/c))
          (contract/out execute (->/c SqlitePreparedStatement? list? any/c))
          (contract/out query (->/c SqlitePreparedStatement? list? list?))
@@ -30,6 +36,16 @@
          (contract/out transaction/try-finish (->/c SqliteTransaction? any/c))
          (contract/out run-transaction
                        (->/c SqliteConnection? (->/c SqliteTransaction? any/c) any/c)))
+
+(define version sqlite/version)
+
+;;@doc
+;; Load the extension from the given path
+(define load-extension sqlite/load-extension)
+
+;;@doc
+;; Convenience method to execute a batch of statements without any parameters
+(define execute-batch sqlite/execute-batch)
 
 ;;@doc
 ;; Prepares a sqlite statement for further use.

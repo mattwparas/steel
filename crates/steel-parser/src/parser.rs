@@ -12,8 +12,8 @@ use crate::{
         self, parse_begin, parse_define, parse_if, parse_lambda, parse_let, parse_new_let,
         parse_require, parse_set, parse_single_argument, Atom, ExprKind, List, Macro, PatternPair,
         SyntaxRules, Vector, BEGIN, DEFINE, IF, LAMBDA, LAMBDA_FN, LAMBDA_SYMBOL, LET, PLAIN_LET,
-        QUASIQUOTE, QUOTE, RAW_UNQUOTE, RAW_UNQUOTE_SPLICING, REQUIRE, RETURN, SET, UNQUOTE,
-        UNQUOTE_SPLICING,
+        QUASIQUOTE, QUASISYNTAX, QUOTE, RAW_UNQUOTE, RAW_UNQUOTE_SPLICING, RAW_UNSYNTAX,
+        RAW_UNSYNTAX_SPLICING, REQUIRE, RETURN, SET, SYNTAX_QUOTE, UNQUOTE, UNQUOTE_SPLICING,
     },
     interner::InternedString,
     lexer::{OwnedTokenStream, ToOwnedString, TokenStream},
@@ -338,22 +338,8 @@ fn tokentype_error_to_parse_error(t: &Token<'_, InternedString>) -> ParseError {
     }
 }
 
-fn strip_shebang_line(input: &str) -> &str {
-    if input.starts_with("#!") {
-        let stripped = input.trim_start_matches("#!");
-        match stripped.char_indices().skip_while(|x| x.1 != '\n').next() {
-            Some((pos, _)) => &stripped[pos..],
-            None => "",
-        }
-    } else {
-        input
-    }
-}
-
 impl<'a> Parser<'a> {
     pub fn new(input: &'a str, source_id: Option<SourceId>) -> Self {
-        let input = strip_shebang_line(input);
-
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
             quote_stack: Vec::new(),
@@ -374,7 +360,6 @@ impl<'a> Parser<'a> {
     }
 
     pub fn new_flat(input: &'a str, source_id: Option<SourceId>) -> Self {
-        let input = strip_shebang_line(input);
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
             quote_stack: Vec::new(),
@@ -394,7 +379,6 @@ impl<'a> Parser<'a> {
         source_name: PathBuf,
         source_id: Option<SourceId>,
     ) -> Self {
-        let input = strip_shebang_line(input);
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
             quote_stack: Vec::new(),
@@ -411,7 +395,6 @@ impl<'a> Parser<'a> {
 
     // Attach comments!
     pub fn doc_comment_parser(input: &'a str, source_id: Option<SourceId>) -> Self {
-        let input = strip_shebang_line(input);
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
             quote_stack: Vec::new(),
@@ -456,6 +439,44 @@ impl<'a> Parser<'a> {
         };
 
         vec![q, val]
+    }
+
+    // Reader macro for #'
+    fn construct_syntax(&mut self, val: ExprKind, span: Span) -> ExprKind {
+        let q = {
+            let rc_val = TokenType::Identifier(*SYNTAX_QUOTE);
+            ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
+        };
+
+        ExprKind::List(List::new(vec![q, val]))
+    }
+
+    // Reader macro for #'
+    fn construct_quasiquote_syntax(&mut self, val: ExprKind, span: Span) -> ExprKind {
+        let q = {
+            let rc_val = TokenType::Identifier(*QUASISYNTAX);
+            ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
+        };
+
+        ExprKind::List(List::new(vec![q, val]))
+    }
+
+    fn construct_quasiunquote_syntax(&mut self, val: ExprKind, span: Span) -> ExprKind {
+        let q = {
+            let rc_val = TokenType::Identifier(*RAW_UNSYNTAX);
+            ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
+        };
+
+        ExprKind::List(List::new(vec![q, val]))
+    }
+
+    fn construct_quasiunquote_syntax_splicing(&mut self, val: ExprKind, span: Span) -> ExprKind {
+        let q = {
+            let rc_val = TokenType::Identifier(*RAW_UNSYNTAX_SPLICING);
+            ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
+        };
+
+        ExprKind::List(List::new(vec![q, val]))
     }
 
     // Reader macro for `
@@ -615,6 +636,45 @@ impl<'a> Parser<'a> {
                             continue;
                         }
                         TokenType::Error => return Err(tokentype_error_to_parse_error(&token)), // TODO
+
+                        TokenType::QuoteSyntax => {
+                            let quote_inner = self
+                                .next()
+                                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                                .map(|x| self.construct_syntax(x, token.span))?;
+
+                            current_frame.push(quote_inner)?
+                        }
+
+                        TokenType::QuasiQuoteSyntax => {
+                            let quote_inner = self
+                                .next()
+                                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                                .map(|x| self.construct_quasiquote_syntax(x, token.span))?;
+
+                            current_frame.push(quote_inner)?
+                        }
+
+                        TokenType::UnquoteSyntax => {
+                            let quote_inner = self
+                                .next()
+                                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                                .map(|x| self.construct_quasiunquote_syntax(x, token.span))?;
+
+                            current_frame.push(quote_inner)?
+                        }
+
+                        TokenType::UnquoteSpliceSyntax => {
+                            let quote_inner = self
+                                .next()
+                                .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                                .map(|x| {
+                                    self.construct_quasiunquote_syntax_splicing(x, token.span)
+                                })?;
+
+                            current_frame.push(quote_inner)?
+                        }
+
                         TokenType::QuoteTick => {
                             // quote_count += 1;
                             // self.quote_stack.push(current_frame.exprs.len());
@@ -1102,6 +1162,43 @@ impl<'a> Parser<'a> {
                         continue;
                     }
 
+                    // Just turn this into `syntax`
+                    TokenType::QuoteSyntax => {
+                        let value = self
+                            .next()
+                            .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                            .map(|x| self.construct_syntax(x, res.span));
+
+                        return Some(value);
+                    }
+
+                    TokenType::QuasiQuoteSyntax => {
+                        let value = self
+                            .next()
+                            .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                            .map(|x| self.construct_quasiquote_syntax(x, res.span));
+
+                        return Some(value);
+                    }
+
+                    TokenType::UnquoteSyntax => {
+                        let quote_inner = self
+                            .next()
+                            .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                            .map(|x| self.construct_quasiunquote_syntax(x, res.span));
+
+                        return Some(quote_inner);
+                    }
+
+                    TokenType::UnquoteSpliceSyntax => {
+                        let quote_inner = self
+                            .next()
+                            .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                            .map(|x| self.construct_quasiunquote_syntax_splicing(x, res.span));
+
+                        return Some(quote_inner);
+                    }
+
                     TokenType::QuoteTick => {
                         // See if this does the job
                         self.shorthand_quote_stack.push(0);
@@ -1381,6 +1478,23 @@ pub fn lower_macro_and_require_definitions(expr: ExprKind) -> Result<ExprKind> {
         return Ok(ExprKind::Require(Box::new(ast::Require::new(raw, syn))));
     }
 
+    let mut expr = expr;
+
+    // TODO: Here, we should lower syntax-case itself
+    // to a defmacro, so that things seem to work out correctly.
+
+    // HACK:
+    // If we get here, we can convert the define-syntax back into an identifier
+    // so that other macro expansion can occur on it.
+    if let Some(first) = expr
+        .list_mut()
+        .and_then(|x| x.args.first_mut().and_then(|x| x.atom_syntax_object_mut()))
+    {
+        if first.ty == TokenType::DefineSyntax {
+            first.ty = TokenType::Identifier("define-syntax".into());
+        }
+    }
+
     Ok(expr)
 }
 
@@ -1389,7 +1503,6 @@ struct ASTLowerPass {
 }
 
 impl ASTLowerPass {
-    // TODO: Make this mutable references, otherwise we'll be re-boxing everything for now reason
     fn lower(&mut self, expr: &mut ExprKind) -> Result<()> {
         match expr {
             ExprKind::List(ref mut value) => {
@@ -1414,8 +1527,12 @@ impl ASTLowerPass {
                     self.quote_depth -= 1;
                 }
 
-                if let Some(f) = value.first().and_then(|x| {
-                    if let ExprKind::Atom(_) = x {
+                if let Some(f) = value.args.first_mut().and_then(|x| {
+                    if let ExprKind::Atom(a) = x {
+                        if a.syn.ty == TokenType::DefineSyntax {
+                            a.syn.ty = TokenType::Identifier("define-syntax".into());
+                        }
+
                         Some(x.clone())
                     } else {
                         None

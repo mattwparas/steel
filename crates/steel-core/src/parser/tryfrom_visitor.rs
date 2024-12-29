@@ -45,6 +45,8 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
 
     fn visit_define(&mut self, define: Box<super::ast::Define>) -> Self::Output {
         let expr = [
+            // TODO: This needs to get converted into a syntax object,
+            // not a symbol?
             SteelVal::try_from(define.location)?,
             self.visit(define.name)?,
             self.visit(define.body)?,
@@ -581,9 +583,10 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
         let raw = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::If(f.clone()))?;
 
         let span = f.location.span;
+        let if_ident = SteelVal::try_from(f.location)?;
 
         let expr = [
-            SteelVal::try_from(f.location)?,
+            Syntax::proto(if_ident.clone(), if_ident, span.into()).into(),
             self.visit(f.test_expr)?,
             self.visit(f.then_expr)?,
             self.visit(f.else_expr)?,
@@ -600,8 +603,11 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
 
         let span = define.location.span;
 
+        let define_ident = SteelVal::try_from(define.location)?;
+
         let expr = [
-            SteelVal::try_from(define.location)?,
+            // Make this a proto
+            Syntax::proto(define_ident.clone(), define_ident, span).into(),
             self.visit(define.name)?,
             self.visit(define.body)?,
         ];
@@ -624,9 +630,13 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
             .map(|x| self.visit(x))
             .collect::<Result<List<_>>>()?;
 
+        let lambda_ident = SteelVal::try_from(lambda_function.location)?;
+
+        let args = SteelVal::ListV(args);
+
         let expr = [
-            SteelVal::try_from(lambda_function.location)?,
-            SteelVal::ListV(args),
+            Syntax::proto(lambda_ident.clone(), lambda_ident, span).into(),
+            Syntax::proto(args.clone(), args, span).into(),
             self.visit(lambda_function.body)?,
         ];
 
@@ -638,7 +648,9 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
             TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::Begin(begin.clone()))?;
 
         let span = begin.location.span;
-        let mut exprs = vec![SteelVal::try_from(begin.location)?];
+        let begin_ident = SteelVal::try_from(begin.location)?;
+
+        let mut exprs = vec![Syntax::proto(begin_ident.clone(), begin_ident, span).into()];
         for expr in begin.exprs {
             exprs.push(self.visit(expr)?);
         }
@@ -647,7 +659,11 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
 
     fn visit_return(&mut self, r: Box<super::ast::Return>) -> Self::Output {
         let span = r.location.span;
-        let expr = [SteelVal::try_from(r.location)?, self.visit(r.expr)?];
+        let return_ident = SteelVal::try_from(r.location)?;
+        let expr = [
+            Syntax::proto(return_ident.clone(), return_ident, span).into(),
+            self.visit(r.expr)?,
+        ];
         Ok(Syntax::new_with_source(SteelVal::ListV(expr.into_iter().collect()), span).into())
     }
 
@@ -753,8 +769,9 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
             TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::Set(s.clone()))?;
 
         let span = s.location.span;
+        let set_ident = SteelVal::try_from(s.location)?;
         let expr = [
-            SteelVal::try_from(s.location)?,
+            Syntax::proto(set_ident.clone(), set_ident, span).into(),
             self.visit(s.variable)?,
             self.visit(s.expr)?,
         ];

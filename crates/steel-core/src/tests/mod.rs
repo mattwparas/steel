@@ -137,6 +137,7 @@ test_harness_success! {
     string_append,
     structs,
     // TODO: @Matt 11/11/2023
+    syntax_case,
     threads,
     transducer_over_streams,
     tree_traversal,

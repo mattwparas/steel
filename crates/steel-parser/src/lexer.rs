@@ -187,6 +187,21 @@ impl<'a> Lexer<'a> {
                     self.eat();
                     self.eat();
                 }
+                '\'' | '`' => {
+                    self.eat();
+                    break;
+                }
+
+                ',' => {
+                    self.eat();
+                    if Some('@') == self.chars.peek().copied() {
+                        self.eat();
+                        break;
+                    } else {
+                        break;
+                    }
+                }
+
                 '(' | '[' | ')' | ']' => break,
                 c if c.is_whitespace() => break,
                 _ => {
@@ -343,6 +358,27 @@ impl<'a> Lexer<'a> {
     }
 }
 
+fn strip_shebang_line(input: &str) -> (&str, usize, usize) {
+    if input.starts_with("#!") {
+        let stripped = input.trim_start_matches("#!");
+        let result = match stripped.char_indices().skip_while(|x| x.1 != '\n').next() {
+            Some((pos, _)) => &stripped[pos..],
+            None => "",
+        };
+
+        let original = input.len();
+        let new = result.len();
+
+        (
+            result,
+            original - new,
+            input.as_bytes().len() - result.as_bytes().len(),
+        )
+    } else {
+        (input, 0, 0)
+    }
+}
+
 impl<'a> Lexer<'a> {
     #[inline]
     pub fn span(&self) -> Span {
@@ -356,18 +392,29 @@ impl<'a> Lexer<'a> {
 }
 
 pub struct TokenStream<'a> {
-    lexer: Lexer<'a>,
+    pub(crate) lexer: Lexer<'a>,
     skip_comments: bool,
     source_id: Option<SourceId>,
 }
 
 impl<'a> TokenStream<'a> {
     pub fn new(input: &'a str, skip_comments: bool, source_id: Option<SourceId>) -> Self {
-        Self {
+        let (_, char_offset, bytes_offset) = strip_shebang_line(input);
+
+        let mut res = Self {
             lexer: Lexer::new(input),
             skip_comments,
             source_id, // skip_doc_comments,
+        };
+
+        res.lexer.token_start += bytes_offset;
+        res.lexer.token_end += bytes_offset;
+
+        for _ in 0..char_offset {
+            res.lexer.chars.next();
         }
+
+        res
     }
 
     pub fn into_owned<T, F: ToOwnedString<T>>(self, adapter: F) -> OwnedTokenStream<'a, T, F> {
@@ -380,7 +427,7 @@ impl<'a> TokenStream<'a> {
 }
 
 pub struct OwnedTokenStream<'a, T, F> {
-    stream: TokenStream<'a>,
+    pub(crate) stream: TokenStream<'a>,
     adapter: F,
     _token_type: PhantomData<T>,
 }
@@ -488,6 +535,7 @@ impl<'a> Iterator for Lexer<'a> {
                 self.eat();
                 Some(Ok(TokenType::QuasiQuote))
             }
+
             Some(',') => {
                 self.eat();
 

@@ -1,0 +1,16 @@
+[package]
+name = "forge"
+edition = "2021"
+version.workspace = true
+
+[dependencies]
+# TODO: Don't use the workspace, instead explicitly
+# depend on the version with the git dependency
+steel-core = { path = "../steel-core", version = "0.6.0", features = ["dylibs", "stacker", "sync", "git"] }
+
+[build-dependencies]
+steel-core = { path = "../steel-core", version = "0.6.0", features = ["dylibs", "stacker", "sync", "git"] }
+
+[features]
+default = ["dylib-build"]
+dylib-build = ["steel-core/dylib-build"]

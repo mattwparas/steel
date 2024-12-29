@@ -4,7 +4,7 @@ use abi_stable::std_types::{RString, RVec};
 use rusqlite::{
     params_from_iter,
     types::{FromSql, FromSqlError, ToSqlOutput, Value},
-    Connection, Statement, ToSql, Transaction,
+    version, Connection, LoadExtensionGuard, Statement, ToSql, Transaction,
 };
 use steel::{
     gc::Shared,
@@ -242,6 +242,20 @@ impl SqliteConnection {
             })),
         })
     }
+
+    fn execute_batch(&mut self, sql: String) -> Result<(), SqliteError> {
+        self.connection.lock().unwrap().execute_batch(&sql)?;
+        Ok(())
+    }
+
+    fn load_extension(&self, extension: String) -> Result<(), SqliteError> {
+        unsafe {
+            let conn = self.connection.lock().unwrap();
+            let _guard = LoadExtensionGuard::new(&conn)?;
+            conn.load_extension(extension, None)?;
+            Ok(())
+        }
+    }
 }
 
 struct FFIWrapper<'a>(FFIArg<'a>);
@@ -311,6 +325,8 @@ pub fn build_module() -> FFIModule {
 
     module
         .register_fn("prepare", SqliteConnection::prepare)
+        .register_fn("execute-batch", SqliteConnection::execute_batch)
+        .register_fn("load-extension", SqliteConnection::load_extension)
         .register_fn("SqliteConnection?", is_opaque_type::<SqliteConnection>)
         .register_fn("SqliteTransaction?", is_opaque_type::<SqliteTransaction>)
         .register_fn(
@@ -326,7 +342,8 @@ pub fn build_module() -> FFIModule {
         .register_fn("transaction/commit", SqliteTransaction::commit)
         .register_fn("transaction/try-commit", SqliteTransaction::try_commit)
         .register_fn("transaction/rollback", SqliteTransaction::rollback)
-        .register_fn("transaction/try-finish", SqliteTransaction::try_finish);
+        .register_fn("transaction/try-finish", SqliteTransaction::try_finish)
+        .register_fn("version", || version().to_string());
 
     module
 }
