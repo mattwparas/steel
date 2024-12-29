@@ -137,9 +137,47 @@
      (walk-and-install spec)
      (displayln "Package built!")]))
 
+(define SEP (if (equal? (current-os!) "windows") "\\" "/"))
+
 ;; Generate a directory with a cog.scm, a hello world, etc
 (define (generate-new-project args)
-  (error "Implement generate new project"))
+  ;; Check if the directory exists already. If it does, bail out
+  ;; since we don't want to clobber an existing project.
+  ;;
+  ;; If it doesn't exist, create it, and create stubs for `cog.scm`,
+  ;; a `<package-name.scm>`, and a `main.scm`.
+  (define directory-name (car args))
+
+  (when (path-exists? directory-name)
+    (displayln "Unable to create new project -" directory-name "exists already.")
+    (return! void))
+  (create-directory! directory-name)
+
+  (let ([cog-file (open-output-file (string-append directory-name SEP "cog.scm"))])
+    (display "(define package-name '" cog-file)
+    (display directory-name cog-file)
+    (display ")" cog-file)
+    (newline cog-file)
+    (display "
+(define version \"0.1.0\")
+(define dependencies '())
+" cog-file)
+    (newline cog-file)
+
+    (display
+     (string-append "(define entrypoint '(#:name \"" directory-name "\" #:path \"main.scm\"))")
+     cog-file)
+
+    (flush-output-port cog-file)
+    (close-output-port cog-file))
+
+  (let ([entrypoint (open-output-file (string-append directory-name SEP "main.scm"))])
+
+    (display "(displayln \"Hello world!\")" entrypoint)
+    (newline entrypoint)
+
+    (flush-output-port entrypoint)
+    (close-output-port entrypoint)))
 
 (define (install-dependencies-and-run-entrypoint index args)
   (define top-level-files (read-dir (current-directory)))
