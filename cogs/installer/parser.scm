@@ -24,7 +24,7 @@
 
 (define (parse-cog module [search-from #f])
   ;; TODO: This needs to handle relative paths
-  (displayln "searching for: " module)
+  ; (displayln "searching for: " module)
   (if (is-dir? module)
       (let ([cog-path (convert-path (string-append module "/cog.scm"))])
         (if (is-file? cog-path)
@@ -38,9 +38,7 @@
             ;; This is no good - need to do platform agnostic separator
             (define new-search-path
               (convert-path (string-append (trim-end-matches search-from "/") "/" module)))
-
-            (displayln "Searching in: " new-search-path)
-
+            ; (displayln "Searching in: " new-search-path)
             (parse-cog new-search-path))
 
           (error! "Unable to locate the module " module))))
