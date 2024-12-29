@@ -12,3 +12,8 @@
          #`(list name place #,foo #,bar baz)))]))
 
 (assert! (equal? (hello 500 1000) '(500 1000 10 20 10)))
+
+(define test #`(40 50 60))
+(define res #`(list 10 20 30 #,@test))
+
+(assert! (equal? (map syntax-e (syntax-e res)) '(list 10 20 30 40 50 60)))

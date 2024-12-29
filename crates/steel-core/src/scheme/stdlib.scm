@@ -151,16 +151,25 @@
 
     [(quasisyntax #%internal-crunch (#%unsyntax x)) x]
 
-    [(quasisyntax #%internal-crunch ((#%unsyntax-splicing x))) (append x '())]
+    [(quasisyntax #%internal-crunch ((#%unsyntax-splicing x)))
+     (#%syntax/raw (quote x) (append (syntax-e x) '()) (#%syntax-span x))]
+
     [(quasisyntax #%internal-crunch ((#%unsyntax-splicing x) xs ...))
-     (append x (quasisyntax #%internal-crunch (xs ...)))]
+     (#%syntax/raw (quote (xs ...))
+                   (append (syntax-e x) (syntax-e (quasisyntax #%internal-crunch (xs ...))))
+                   (#%syntax-span (xs ...)))]
 
     ;; TODO: Do unquote-splicing as well, follow the same rules as unquote
     [(quasisyntax #%internal-crunch ((unsyntax-splicing x)))
-     (append (list (list 'unsyntax-splicing (quasisyntax #%internal-crunch x))) '())]
+     (#%syntax/raw (quote '())
+                   (append (list (list 'unsyntax-splicing (quasisyntax #%internal-crunch x))) '())
+                   (#%syntax-span x))]
+
     [(quasisyntax #%internal-crunch ((unsyntax-splicing x) xs ...))
-     (append (list (list 'unsyntax-splicing (quasisyntax #%internal-crunch x)))
-             (quasisyntax #%internal-crunch (xs ...)))]
+     (#%syntax/raw (quote xs ...)
+                   (append (list (list 'unsyntax-splicing (quasisyntax #%internal-crunch x)))
+                           (syntax-e (quasisyntax #%internal-crunch (xs ...))))
+                   (#%syntax-span (xs ...)))]
 
     [(quasisyntax #%internal-crunch ()) (#%syntax/raw '() '() '(0 0 0))]
     [(quasisyntax #%internal-crunch (x xs ...))
