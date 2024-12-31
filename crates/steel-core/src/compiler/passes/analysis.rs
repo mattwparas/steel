@@ -1161,6 +1161,11 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         CallSiteInformation::new(call_site_kind, span),
                     );
                 }
+            } else {
+                self.info.call_info.insert(
+                    l.syntax_object_id,
+                    CallSiteInformation::new(call_site_kind, l.location),
+                );
             }
         }
     }
@@ -5491,6 +5496,51 @@ mod analysis_pass_tests {
                 "input.rkt",
                 script,
                 "let-var".to_string(),
+                var.span,
+            );
+        }
+    }
+
+    #[test]
+    fn tail_call_eligible_test_with_let_local() {
+        let script = r#"
+(define loop
+  (λ ()
+    (%plain-let ((##captured3 123) (##foo3 123))
+      (%plain-let ((####captured34 (#%box ##captured3))
+          (####foo34 (#%box ##foo3)))
+        (%plain-let ((##_____captured04 (list))
+            (##_____foo14 (λ ()
+              (begin
+               (cons 10 (#%unbox ####captured34))
+                    ((#%unbox ####foo34))))))
+          (begin
+           (#%set-box! ####captured34 ##_____captured04)
+                (#%set-box! ####foo34 ##_____foo14)
+                ((#%unbox ####foo34))))))))
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+        let mut analysis = SemanticAnalysis::new(&mut exprs);
+        analysis.populate_captures();
+
+        let tail_calls = analysis
+            .analysis
+            .call_info
+            .values()
+            .filter(|x| matches!(x.kind, CallKind::TailCall))
+            .collect::<Vec<_>>();
+
+        assert_eq!(tail_calls.len(), 2);
+
+        for var in tail_calls {
+            println!("{var:?}");
+
+            crate::rerrs::report_info(
+                ErrorKind::FreeIdentifier.to_error_code(),
+                "input.rkt",
+                script,
+                "tail call".to_string(),
                 var.span,
             );
         }
