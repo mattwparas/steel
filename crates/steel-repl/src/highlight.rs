@@ -29,6 +29,9 @@ pub struct RustylineHelper {
     bracket: std::cell::Cell<Option<(u8, usize)>>, // keywords: HashSet<&'static str>,
 }
 
+unsafe impl Send for RustylineHelper {}
+unsafe impl Sync for RustylineHelper {}
+
 impl RustylineHelper {
     pub fn new(engine: Rc<RefCell<Engine>>) -> Self {
         Self {

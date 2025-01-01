@@ -18,9 +18,7 @@
              (into-hashmap)))
 
 (define (convert-path path)
-  (if (equal? (current-os!) "windows")
-      (string-replace path "/" "\\")
-      path))
+  (if (equal? (current-os!) "windows") (string-replace path "/" "\\") path))
 
 (define (parse-cog module [search-from #f])
   ;; TODO: This needs to handle relative paths
@@ -41,6 +39,7 @@
             ; (displayln "Searching in: " new-search-path)
             (parse-cog new-search-path))
 
+          ;; Try installing?
           (error! "Unable to locate the module " module))))
 
 ;; Parses a cog file directly into a hashmap
@@ -53,10 +52,7 @@
                         ;; TODO: Move this out - also make sure
                         (if (member (car p) '(dylibs dependencies))
                             (list (car p)
-                                  (map (lambda (spec)
-                                         (if (list? spec)
-                                             (apply hash spec)
-                                             spec))
+                                  (map (lambda (spec) (if (list? spec) (apply hash spec) spec))
                                        (cadr p)))
                             p)))
              (into-hashmap)))

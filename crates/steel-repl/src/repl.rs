@@ -1,7 +1,10 @@
 extern crate rustyline;
 use colored::*;
+use rustyline::history::FileHistory;
 use steel::compiler::modules::steel_home;
+use steel::rvals::Custom;
 
+use std::error::Error;
 use std::{cell::RefCell, rc::Rc, sync::mpsc::channel};
 
 use rustyline::error::ReadlineError;
@@ -130,7 +133,83 @@ fn finish_or_interrupt(vm: &mut Engine, line: String) {
     }
 }
 
-/// Entire point for the repl
+#[derive(Debug)]
+struct RustyLine(Editor<RustylineHelper, FileHistory>);
+impl Custom for RustyLine {}
+
+#[derive(Debug)]
+struct RustyLineError(rustyline::error::ReadlineError);
+
+impl Custom for RustyLineError {}
+
+impl std::fmt::Display for RustyLineError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl Error for RustyLineError {}
+
+pub fn readline_module(vm: &mut Engine) {
+    let mut module = steel::steel_vm::builtin::BuiltInModule::new("#%private/steel/readline");
+
+    module.register_fn("#%create-repl", || {
+        display_startup();
+
+        // #[cfg(target_os = "windows")]
+        // let prompt = String::from("λ > ");
+
+        // #[cfg(not(target_os = "windows"))]
+        // let prompt = format!("{}", "λ > ".bright_green().bold().italic());
+
+        let mut rl = Editor::<RustylineHelper, rustyline::history::DefaultHistory>::new()
+            .expect("Unable to instantiate the repl!");
+        rl.set_check_cursor_position(true);
+
+        // Load repl history
+        let history_path = get_repl_history_path();
+        if let Err(_) = rl.load_history(&history_path) {
+            if let Err(_) = File::create(&history_path) {
+                eprintln!("Unable to create repl history file {:?}", history_path)
+            }
+        };
+
+        // let mut print_time = false;
+
+        // let (tx, rx) = channel();
+        // let tx = std::sync::Mutex::new(tx);
+
+        // let cancellation_function = move || {
+        //     tx.lock().unwrap().send(()).unwrap();
+        // };
+
+        // let safepoint = vm.get_thread_state_controller();
+
+        // let safepoint = safepoint.clone();
+        // let ctrlc_safepoint = safepoint.clone();
+
+        // ctrlc::set_handler(move || {
+        //     ctrlc_safepoint.clone().interrupt();
+        // })
+        // .unwrap();
+
+        // let clear_interrupted = move || {
+        //     safepoint.resume();
+        // };
+
+        RustyLine(rl)
+    });
+
+    module.register_fn("#%read-line", |rl: &mut RustyLine| {
+        let prompt = format!("{}", "λ > ".bright_green().bold().italic());
+
+        rl.0.readline(&prompt).map_err(RustyLineError)
+    });
+
+    vm.register_module(module);
+}
+
+/// Entry point for the repl
 /// Automatically adds the prelude and contracts for the core library
 pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     display_startup();
