@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  build_and_deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -27,18 +27,24 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       # disable push on merge requests
-      - name: Test Build
-        uses: docker/build-push-action@v6
-        if: ${{ github.event_name == 'pull_request' }}
-        with:
-          push: false
-          platforms: linux/amd64,linux/arm64
-          tags: steelscheme/steel:latest
+      # - name: Build docker image (Pull Request)
+      #   uses: docker/build-push-action@v6
+      #   if: ${{ github.event_name == 'pull_request' }}
+      #   with:
+      #     push: false
+      #     platforms: linux/amd64,linux/arm64
+      #     tags: steelscheme/steel:latest
+      #     # cache-from: type=gha
+      #     # cache-to: type=gha,mode=max
+      #     cache-from: type=registry,ref=steelscheme/steel:buildcache
+      #     cache-to: type=registry,ref=steelscheme/steel:buildcache,mode=max
 
-      - name: Build and push the docker image
+      - name: Build & publish the docker image
         uses: docker/build-push-action@v6
         if: ${{ github.event_name != 'pull_request' }}
         with:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: steelscheme/steel:latest
+          cache-from: type=registry,ref=steelscheme/steel:buildcache
+          cache-to: type=registry,ref=steelscheme/steel:buildcache,mode=max
