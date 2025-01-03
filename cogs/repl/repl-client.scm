@@ -46,9 +46,12 @@
 
                 ;; Read the next value
                 (define next-value (read-bytes size reader))
-                (display "=> ")
-                (display (bytes->string/utf8 next-value))
-                (newline)
+                (define value-as-string (bytes->string/utf8 next-value))
+
+                (unless (equal? "#<void>" value-as-string)
+                  (display "=> ")
+                  (display value-as-string)
+                  (newline))
 
                 (channel/send sender #t))
               ;; Next should be the length, until the next newline
