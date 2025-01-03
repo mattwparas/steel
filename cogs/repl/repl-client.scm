@@ -3,10 +3,7 @@
 
 (require "steel/sync")
 
-; (define display-mode #f)
-
 (define channels (channels/new))
-
 (define sender (channels-sender channels))
 (define receiver (channels-receiver channels))
 
@@ -23,9 +20,8 @@
         (read-size buffer port))))
 
 ;; Handle user input, forward, dump out things happening, continue.
-(define (repl-loop)
-
-  (define stream (tcp-connect "0.0.0.0:8080"))
+(define (repl-loop [host "0.0.0.0"] [port 8080])
+  (define stream (tcp-connect (string-append host ":" (int->string port))))
   (define reader (tcp-stream-reader stream))
   (define writer (tcp-stream-writer stream))
 
@@ -89,7 +85,17 @@
                   (channel/recv receiver)
                   ;; Wait for acknowledgement?
                   (input-loop)))
-
   (input-loop))
 
-(repl-loop)
+(define (main)
+  ;; Fetch the args, check if there is a host provided.
+  ;; If not, default to the loop back host.
+  (define args (command-line))
+
+  (match (drop args 2)
+    [(list) (repl-loop)]
+    [(list "--port" port) (repl-loop "0.0.0.0" (string->int port))]
+    [(list "--host" host) (repl-loop host)]
+    [(list "--host" host "--port" port) (repl-loop host (string->int port))]))
+
+(main)

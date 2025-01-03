@@ -47,4 +47,4 @@
         (repl-loop))))))
 
 ;; Serve with a thread pool
-; (repl 8080)
+(repl)
