@@ -1624,6 +1624,7 @@ impl Reader {
                 Ok(SteelVal::Void)
             }
         } else {
+            // TODO: This needs to get fixed
             Ok(crate::primitives::ports::eof())
         }
     }

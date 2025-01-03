@@ -1662,7 +1662,6 @@ impl<'a> VmCore<'a> {
     }
 
     pub fn snapshot_stack_trace(&self) -> DehydratedStackTrace {
-        dbg!(self.thread.stack_frames.len());
         DehydratedStackTrace::new(
             self.thread
                 .stack_frames
