@@ -1,6 +1,8 @@
 (require-builtin steel/tcp)
 (require "steel/sync")
 
+(provide repl)
+
 (define (repl [port 8080] [thread-pool-size 2])
   (define listener (tcp-listen (string-append "0.0.0.0:" (int->string port))))
   (define tp (make-thread-pool thread-pool-size))
@@ -16,8 +18,6 @@
       ;; background thread?
       (define reader-port (tcp-stream-buffered-reader input-stream))
       (define writer-port (tcp-stream-writer input-stream))
-      ;; Read until... newline?
-      (define buffer (bytevector))
       ;; Continue to accept connections until this one disconnects
       (define (repl-loop)
         ;; Assume, that for now, we are comfortable with the fact
@@ -47,4 +47,4 @@
         (repl-loop))))))
 
 ;; Serve with a thread pool
-(repl 8080)
+; (repl 8080)
