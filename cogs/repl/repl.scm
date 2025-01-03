@@ -1,9 +1,9 @@
 (require-builtin steel/tcp)
 (require "steel/sync")
 
-(provide repl)
+(provide repl-serve)
 
-(define (repl [port 8080] [thread-pool-size 2])
+(define (repl-serve [port 8080] [thread-pool-size 2])
   (define listener (tcp-listen (string-append "0.0.0.0:" (int->string port))))
   (define tp (make-thread-pool thread-pool-size))
 
@@ -45,6 +45,3 @@
       ;; Set up the repl to also grab std out
       (parameterize ([current-output-port writer-port])
         (repl-loop))))))
-
-;; Serve with a thread pool
-(repl)
