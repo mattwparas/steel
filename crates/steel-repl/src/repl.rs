@@ -2,10 +2,11 @@ extern crate rustyline;
 use colored::*;
 use rustyline::history::FileHistory;
 use steel::compiler::modules::steel_home;
-use steel::rvals::Custom;
+use steel::rvals::{Custom, SteelString};
 
 use std::error::Error;
-use std::{cell::RefCell, rc::Rc, sync::mpsc::channel};
+use std::sync::mpsc::channel;
+use std::sync::{Arc, Mutex};
 
 use rustyline::error::ReadlineError;
 
@@ -138,6 +139,7 @@ struct RustyLine(Editor<RustylineHelper, FileHistory>);
 impl Custom for RustyLine {}
 
 #[derive(Debug)]
+#[allow(unused)]
 struct RustyLineError(rustyline::error::ReadlineError);
 
 impl Custom for RustyLineError {}
@@ -153,58 +155,29 @@ impl Error for RustyLineError {}
 pub fn readline_module(vm: &mut Engine) {
     let mut module = steel::steel_vm::builtin::BuiltInModule::new("#%private/steel/readline");
 
-    module.register_fn("#%create-repl", || {
-        display_startup();
+    module
+        .register_fn("#%repl-display-startup", display_startup)
+        .register_fn(
+            "#%repl-add-history-entry",
+            |rl: &mut RustyLine, entry: SteelString| rl.0.add_history_entry(entry.as_str()).ok(),
+        )
+        .register_fn("#%create-repl", || {
+            let mut rl = Editor::<RustylineHelper, rustyline::history::DefaultHistory>::new()
+                .expect("Unable to instantiate the repl!");
+            rl.set_check_cursor_position(true);
 
-        // #[cfg(target_os = "windows")]
-        // let prompt = String::from("λ > ");
-
-        // #[cfg(not(target_os = "windows"))]
-        // let prompt = format!("{}", "λ > ".bright_green().bold().italic());
-
-        let mut rl = Editor::<RustylineHelper, rustyline::history::DefaultHistory>::new()
-            .expect("Unable to instantiate the repl!");
-        rl.set_check_cursor_position(true);
-
-        // Load repl history
-        let history_path = get_repl_history_path();
-        if let Err(_) = rl.load_history(&history_path) {
-            if let Err(_) = File::create(&history_path) {
-                eprintln!("Unable to create repl history file {:?}", history_path)
-            }
-        };
-
-        // let mut print_time = false;
-
-        // let (tx, rx) = channel();
-        // let tx = std::sync::Mutex::new(tx);
-
-        // let cancellation_function = move || {
-        //     tx.lock().unwrap().send(()).unwrap();
-        // };
-
-        // let safepoint = vm.get_thread_state_controller();
-
-        // let safepoint = safepoint.clone();
-        // let ctrlc_safepoint = safepoint.clone();
-
-        // ctrlc::set_handler(move || {
-        //     ctrlc_safepoint.clone().interrupt();
-        // })
-        // .unwrap();
-
-        // let clear_interrupted = move || {
-        //     safepoint.resume();
-        // };
-
-        RustyLine(rl)
-    });
-
-    module.register_fn("#%read-line", |rl: &mut RustyLine| {
-        let prompt = format!("{}", "λ > ".bright_green().bold().italic());
-
-        rl.0.readline(&prompt).map_err(RustyLineError)
-    });
+            let history_path = get_repl_history_path();
+            if let Err(_) = rl.load_history(&history_path) {
+                if let Err(_) = File::create(&history_path) {
+                    eprintln!("Unable to create repl history file {:?}", history_path)
+                }
+            };
+            RustyLine(rl)
+        })
+        .register_fn("#%read-line", |rl: &mut RustyLine| {
+            let prompt = format!("{}", "λ > ".bright_green().bold().italic());
+            rl.0.readline(&prompt).map_err(RustyLineError)
+        });
 
     vm.register_module(module);
 }
@@ -246,7 +219,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     vm.register_fn("quit", cancellation_function);
     let safepoint = vm.get_thread_state_controller();
 
-    let engine = Rc::new(RefCell::new(vm));
+    let engine = Arc::new(Mutex::new(vm));
     rl.set_helper(Some(RustylineHelper::new(engine.clone())));
 
     let safepoint = safepoint.clone();
@@ -309,7 +282,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                         clear_interrupted();
 
                         finish_load_or_interrupt(
-                            &mut engine.borrow_mut(),
+                            &mut engine.lock().unwrap(),
                             exprs,
                             path.to_path_buf(),
                         );
@@ -320,7 +293,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
 
                         clear_interrupted();
 
-                        finish_or_interrupt(&mut engine.borrow_mut(), line);
+                        finish_or_interrupt(&mut engine.lock().unwrap(), line);
 
                         if print_time {
                             println!("Time taken: {:?}", now.elapsed());

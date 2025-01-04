@@ -2,7 +2,7 @@ extern crate rustyline;
 use colored::*;
 use steel_parser::parser::SourceId;
 
-use std::{cell::RefCell, rc::Rc};
+use std::sync::{Arc, Mutex};
 
 use rustyline::highlight::Highlighter;
 use rustyline::validate::{ValidationContext, ValidationResult, Validator};
@@ -25,18 +25,15 @@ impl Completer for RustylineHelper {
 
 #[derive(Helper)]
 pub struct RustylineHelper {
-    engine: Rc<RefCell<Engine>>,
-    bracket: std::cell::Cell<Option<(u8, usize)>>, // keywords: HashSet<&'static str>,
+    engine: Arc<Mutex<Engine>>,
+    bracket: crossbeam::atomic::AtomicCell<Option<(u8, usize)>>, // keywords: HashSet<&'static str>,
 }
 
-unsafe impl Send for RustylineHelper {}
-unsafe impl Sync for RustylineHelper {}
-
 impl RustylineHelper {
-    pub fn new(engine: Rc<RefCell<Engine>>) -> Self {
+    pub fn new(engine: Arc<Mutex<Engine>>) -> Self {
         Self {
             engine,
-            bracket: std::cell::Cell::new(None),
+            bracket: crossbeam::atomic::AtomicCell::new(None),
         }
     }
 }
@@ -198,7 +195,7 @@ impl Highlighter for RustylineHelper {
                 }
                 TokenType::Identifier(ident) => {
                     // If its a free identifier, nix it?
-                    if self.engine.borrow().global_exists(ident) {
+                    if self.engine.lock().unwrap().global_exists(ident) {
                         // println!("before length: {}", token.source().as_bytes().len());
                         let highlighted = format!("{}", token.source().bright_blue());
                         // println!("After length: {}", highlighted.as_bytes().len());
@@ -299,8 +296,8 @@ impl Highlighter for RustylineHelper {
 
     fn highlight_char(&self, line: &str, mut pos: usize, _: bool) -> bool {
         // will highlight matching brace/bracket/parenthesis if it exists
-        self.bracket.set(check_bracket(line, pos));
-        if self.bracket.get().is_some() {
+        self.bracket.store(check_bracket(line, pos));
+        if self.bracket.load().is_some() {
             return true;
         }
 
@@ -317,7 +314,7 @@ impl Highlighter for RustylineHelper {
                 _ => false,
             }
         } else {
-            self.bracket.get().is_some()
+            self.bracket.load().is_some()
         }
     }
 }

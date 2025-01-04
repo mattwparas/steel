@@ -3509,6 +3509,7 @@ name = "steel-repl"
 version = "0.6.0"
 dependencies = [
  "colored",
+ "crossbeam",
  "ctrlc",
  "dirs",
  "rustyline",

@@ -23,6 +23,13 @@ pub fn tcp_connect(addr: SteelString) -> Result<SteelVal> {
     TcpStream::connect(addr.as_str())?.into_steelval()
 }
 
+#[function(name = "tcp-shutdown!")]
+pub fn tcp_close(stream: &SteelVal) -> Result<SteelVal> {
+    let writer = TcpStream::as_ref(stream)?.try_clone().unwrap();
+    writer.shutdown(std::net::Shutdown::Both)?;
+    Ok(SteelVal::Void)
+}
+
 #[function(name = "tcp-stream-writer")]
 pub fn tcp_input_port(stream: &SteelVal) -> Result<SteelVal> {
     let writer = TcpStream::as_ref(stream)?.try_clone().unwrap();
@@ -82,6 +89,7 @@ pub fn tcp_module() -> BuiltInModule {
 
     module
         .register_native_fn_definition(TCP_CONNECT_DEFINITION)
+        .register_native_fn_definition(TCP_CLOSE_DEFINITION)
         .register_native_fn_definition(TCP_INPUT_PORT_DEFINITION)
         .register_native_fn_definition(TCP_OUTPUT_PORT_DEFINITION)
         .register_native_fn_definition(TCP_BUFFERED_OUTPUT_PORT_DEFINITION)
