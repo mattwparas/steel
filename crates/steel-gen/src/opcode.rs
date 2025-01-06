@@ -136,19 +136,10 @@ declare_opcodes! {
     }
 }
 
-// // expansion
-// enum EntryPoints {
-//     SomeLibCallback(u64),
-
-//     A(),
-//     B(),
-// }
-
 impl OpCode {
     /// Is this op code created as part of the aggregation of multiple op codes?
     pub fn is_super_instruction(&self) -> bool {
         // TODO: Check where super instructions start!
-
         *self as u32 > Self::LTEIMMEDIATEIF as u32
     }
 
@@ -161,16 +152,16 @@ impl OpCode {
     pub fn is_ephemeral_opcode(&self) -> bool {
         use OpCode::*;
 
-        match self {
+        matches!(
+            self,
             ECLOSURE
-            | PASS
-            | Arity
-            | NDEFS
-            | COPYCAPTURECLOSURE
-            | COPYCAPTURESTACK
-            | COPYHEAPCAPTURECLOSURE => true,
-            _ => false,
-        }
+                | PASS
+                | Arity
+                | NDEFS
+                | COPYCAPTURECLOSURE
+                | COPYCAPTURESTACK
+                | COPYHEAPCAPTURECLOSURE
+        )
     }
 
     // TODO better error handling here
