@@ -171,13 +171,6 @@ impl UserDefinedStruct {
     }
 }
 
-// TODO: This could blow the stack for big trees...
-impl PartialEq for UserDefinedStruct {
-    fn eq(&self, other: &Self) -> bool {
-        self.type_descriptor == other.type_descriptor && self.fields.deref() == other.fields.deref()
-    }
-}
-
 impl std::fmt::Display for UserDefinedStruct {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self
