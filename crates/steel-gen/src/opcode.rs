@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 macro_rules! declare_opcodes {
-
     ( { $($variant:tt);* } { $( [ $super:tt => $(($k:path, $v:expr),)* ] );* } ) => {
         #[repr(u8)]
         #[derive(Copy, Clone, Debug, Hash, PartialEq, Serialize, Deserialize, Eq, PartialOrd, Ord)]
@@ -12,8 +11,6 @@ macro_rules! declare_opcodes {
 
             $($super),*
         }
-
-        // $( const $super: &'static [(TestOpCode, usize)] = &[ $($v),* ]; )*
 
         pub const fn op_code_to_super_instruction_pattern(op_code: OpCode) -> Option<&'static [(OpCode, usize)]> {
             match op_code {
@@ -122,8 +119,6 @@ declare_opcodes! {
 
     // Super instructions
     {
-
-
         [
             CaseLambdaDispatch =>
                                   (OpCode::BEGINSCOPE, 0),
@@ -138,52 +133,6 @@ declare_opcodes! {
                                   (OpCode::PASS, 2),
                                   (OpCode::IF, 22),
         ]
-
-        // [
-        //     ReadLocal1PushConstEqualIf => (OpCode::READLOCAL1, 1),
-        //                                   (OpCode::PUSHCONST, 335),
-        //                                   (OpCode::EQUAL, 2),
-        //                                   (OpCode::PASS, 0),
-        //                                   (OpCode::IF, 8),
-        // ];
-
-        // [
-        //     ReadLocal2CallGlobalIf => (OpCode::READLOCAL2, 2),
-        //                               (OpCode::CALLGLOBAL, 1),
-        //                               (OpCode::FUNC, 1),
-        //                               (OpCode::IF, 8),
-        // ]
-
-        // 16    READLOCAL0         : 0      ##args
-        // 17    CALLGLOBAL         : 1      length
-        // 18    Arity              : 82     length
-        // 19    READLOCAL1         : 1      l
-        // 20    LOADINT0           : 274    0
-        // 21    CALLGLOBAL         : 2      =
-        // 22    Arity              : 180    =
-        // 23    IF                 : 22
-
-        // [
-        //     CaseLambdaDispatch => (OpCode::READLOCAL0, 0),
-        //                           (OpCode::CALLGLOBAL, 1),
-        //                           (OpCode::Arity, 92),
-        //                           (OpCode::READLOCAL1, 1),
-        //                           (OpCode::LOADINT0, 0),
-        //                           (OpCode::CALLGLOBAL, 2),
-        //                           (OpCode::Arity, 181),
-        //                           (OpCode::IF, 22),
-        // ]
-
-        // [ MOVERLLIS2CG => (OpCode::MOVEREADLOCAL, 0), (OpCode::LOADINT2, 225), (OpCode::SUB, 2), (OpCode::CALLGLOBAL, 1), ];
-
-        // [ MOVERLLIS2CGFOO => (OpCode::MOVEREADLOCAL, 1), (OpCode::LOADINT2, 225), (OpCode::SUB, 2), (OpCode::CALLGLOBAL, 1), ]
-
-
-        //         (MOVEREADLOCAL0, 0),
-        //         (LOADINT2, 225),
-        //         (SUB, 2),
-        //         (CALLGLOBAL, 1),
-
     }
 }
 
