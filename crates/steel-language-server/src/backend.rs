@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},

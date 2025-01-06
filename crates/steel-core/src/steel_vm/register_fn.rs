@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use std::{cell::RefCell, future::Future, marker::PhantomData, rc::Rc, sync::Arc};
 
 use super::{

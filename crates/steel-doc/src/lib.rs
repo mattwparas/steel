@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use std::{env::current_dir, error::Error, io::BufWriter, path::PathBuf};
 
 use steel::compiler::modules::MANGLER_PREFIX;

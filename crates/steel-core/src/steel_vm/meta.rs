@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 // pub type BuiltInSignature = fn(Vec<SteelVal>, &mut dyn VmContext) -> Result<SteelVal>;`
 
 use std::borrow::Cow;

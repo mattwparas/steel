@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use crate::compiler::code_gen::fresh_function_id;
 use crate::compiler::compiler::Compiler;
 use crate::core::instructions::pretty_print_dense_instructions;
@@ -6677,7 +6675,6 @@ fn set_alloc_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     */
 }
 
-#[allow(unused)]
 mod handlers {
 
     use super::*;

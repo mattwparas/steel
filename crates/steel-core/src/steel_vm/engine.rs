@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use super::{
     builtin::{BuiltInModule, FunctionSignatureMetadata},
     primitives::{register_builtin_modules, CONSTANTS},

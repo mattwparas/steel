@@ -1,5 +1,4 @@
 // TODO: Create stack to ssa representation of the op codes, via macros
-#![allow(unused)]
 
 pub mod opcode;
 pub mod permutations;

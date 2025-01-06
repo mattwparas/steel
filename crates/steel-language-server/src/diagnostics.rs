@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use std::{
     collections::{BTreeSet, HashMap},
     iter::FlatMap,

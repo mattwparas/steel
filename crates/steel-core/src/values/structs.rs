@@ -1,4 +1,3 @@
-#![allow(unused)]
 #![allow(clippy::type_complexity)]
 
 use crate::steel_vm::primitives::{steel_unbox_mutable, unbox_mutable};

@@ -627,7 +627,7 @@ pub mod unsafe_roots {
 }
 
 // #[cfg(feature = "unsafe-internals")]
-#[allow(unused)]
+
 pub mod unsafe_erased_pointers {
     /*
     Warning - here be dragons. Definitely a lot of unsafe things here, and when used incorrectly

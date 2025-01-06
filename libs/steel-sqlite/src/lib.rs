@@ -142,7 +142,6 @@ impl Drop for SqliteTransaction {
     }
 }
 
-#[allow(unused)]
 #[derive(Debug)]
 enum SqliteError {
     TransactionAlreadyCompleted,
