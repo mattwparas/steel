@@ -233,7 +233,7 @@ fn code_gen_permutation(values: &[ValueKind], id: usize, row: usize) -> String {
 
     let mut scope = codegen::Scope::new();
 
-    let mut marker = scope.new_struct(&format!("Marker{row}{id}"));
+    let marker = scope.new_struct(&format!("Marker{row}{id}"));
 
     marker.generic("ARGS");
     marker.tuple_field("PhantomData<ARGS>");

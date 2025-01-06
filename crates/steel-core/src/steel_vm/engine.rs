@@ -1,6 +1,6 @@
 use super::{
     builtin::{BuiltInModule, FunctionSignatureMetadata},
-    primitives::{register_builtin_modules, CONSTANTS},
+    primitives::register_builtin_modules,
     vm::{SteelThread, ThreadStateController},
 };
 
@@ -24,35 +24,25 @@ use crate::{
         },
     },
     containers::RegisterValue,
-    core::{
-        instructions::{pretty_print_dense_instructions, DenseInstruction, Instruction},
-        labels::Expr,
-    },
     gc::{
-        unsafe_erased_pointers::{
-            BorrowedObject, CustomReference, OpaqueReferenceNursery, ReadOnlyBorrowedObject,
-            ReferenceMarker,
-        },
+        unsafe_erased_pointers::{CustomReference, ReferenceMarker},
         Gc, Shared,
     },
     parser::{
         ast::ExprKind,
         expander::SteelMacro,
-        interner::{get_interner, take_interner, InternedString},
+        interner::{get_interner, InternedString},
         kernel::{fresh_kernel_image, Kernel},
-        parser::{ParseError, Parser, Sources, SYNTAX_OBJECT_ID},
+        parser::{ParseError, Parser, Sources},
     },
     rerrs::{back_trace, back_trace_to_string},
     rvals::{
         AsRefMutSteelVal, AsRefSteelVal as _, FromSteelVal, IntoSteelVal, MaybeSendSyncStatic,
-        Result, SteelString, SteelVal,
+        Result, SteelVal,
     },
     steel_vm::register_fn::RegisterFn,
     stop, throw,
-    values::{
-        closed::GlobalSlotRecycler,
-        functions::{BoxedDynFunction, ByteCodeLambda},
-    },
+    values::{closed::GlobalSlotRecycler, functions::BoxedDynFunction},
     SteelErr,
 };
 use std::{
@@ -60,25 +50,22 @@ use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
     path::PathBuf,
-    rc::Rc,
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
     },
 };
 
-use crate::values::HashMap as ImmutableHashMap;
 use fxhash::{FxBuildHasher, FxHashMap};
 use lasso::ThreadedRodeo;
-use once_cell::sync::{Lazy, OnceCell};
+use once_cell::sync::OnceCell;
 use parking_lot::{
     MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };
 use serde::{Deserialize, Serialize};
-use steel_gen::OpCode;
 use steel_parser::{
     parser::{SourceId, SyntaxObject},
-    tokens::{IntLiteral, TokenType},
+    tokens::TokenType,
 };
 
 use crate::parser::ast::IteratorExtensions;
@@ -217,7 +204,7 @@ pub struct Engine {
 
 impl Clone for Engine {
     fn clone(&self) -> Self {
-        let mut virtual_machine = self.virtual_machine.clone();
+        let virtual_machine = self.virtual_machine.clone();
         let compiler = Arc::new(RwLock::new(self.virtual_machine.compiler.write().clone()));
 
         // virtual_machine.compiler = Some(Arc::downgrade(&compiler));
@@ -355,7 +342,7 @@ impl<'a> LifetimeGuard<'a> {
         thunk(self.engine, values)
     }
 
-    pub fn consume_once<T>(self, mut thunk: impl FnOnce(&mut Engine, Vec<SteelVal>) -> T) -> T {
+    pub fn consume_once<T>(self, thunk: impl FnOnce(&mut Engine, Vec<SteelVal>) -> T) -> T {
         let values =
             crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::drain_weak_references_to_steelvals();
 
@@ -467,7 +454,7 @@ impl Engine {
         let mut engine = self.clone();
         engine.virtual_machine.global_env = engine.virtual_machine.global_env.deep_clone();
 
-        let mut compiler_copy = engine.virtual_machine.compiler.read().clone();
+        let compiler_copy = engine.virtual_machine.compiler.read().clone();
 
         engine.virtual_machine.compiler = Arc::new(RwLock::new(compiler_copy));
 
@@ -1305,7 +1292,7 @@ impl Engine {
         T: ReferenceMarker<'b, Static = EXT>,
     {
         self.with_mut_reference(obj).consume(|engine, args| {
-            let mut args = args.into_iter();
+            let args = args.into_iter();
 
             thunk(engine, args.into_iter().next().unwrap_or(SteelVal::Void))
         })
@@ -1325,7 +1312,7 @@ impl Engine {
         T: ReferenceMarker<'b, Static = EXT>,
     {
         self.with_immutable_reference(obj).consume(|engine, args| {
-            let mut args = args.into_iter();
+            let args = args.into_iter();
 
             thunk(engine, args.into_iter().next().unwrap_or(SteelVal::Void))
         })
@@ -2367,6 +2354,8 @@ mod engine_sandbox_tests {
 
 #[cfg(test)]
 mod derive_macro_tests {
+    use crate::rvals::SteelString;
+
     use super::*;
 
     #[derive(steel_derive::_Steel, PartialEq, Debug)]

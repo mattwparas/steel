@@ -1,20 +1,16 @@
 // pub type BuiltInSignature = fn(Vec<SteelVal>, &mut dyn VmContext) -> Result<SteelVal>;`
 
 use std::borrow::Cow;
-use std::{cell::RefCell, convert::TryFrom, io::Write, rc::Rc};
+use std::{convert::TryFrom, io::Write};
 
 use crate::gc::shared::ShareableMut;
 use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
 // use im_lists::list::List;
 use crate::values::lists::List;
 
-use crate::values::port::SteelPortRepr;
 use crate::values::structs::SteelResult;
 use crate::{
-    parser::ast::ExprKind,
-    rvals::Custom,
-    values::port::{SteelPort, CAPTURED_OUTPUT_PORT, DEFAULT_OUTPUT_PORT},
-    SteelErr, SteelVal,
+    parser::ast::ExprKind, rvals::Custom, values::port::CAPTURED_OUTPUT_PORT, SteelErr, SteelVal,
 };
 use crate::{parser::expander::LocalMacroManager, rvals::Result};
 use crate::{parser::parser::ParseError, steel_vm::engine::Engine};

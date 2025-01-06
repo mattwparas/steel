@@ -272,7 +272,7 @@ impl std::fmt::Display for SqliteConversionError {
 impl std::error::Error for SqliteConversionError {}
 impl Custom for SqliteConnection {}
 
-impl<'a> ToSql for FFIWrapper<'a> {
+impl ToSql for FFIWrapper<'_> {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
         match &self.0 {
             // FFIValue::BoxedFunction(_) => todo!(),

@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeSet, HashMap},
-    iter::FlatMap,
     path::PathBuf,
 };
 
@@ -94,15 +93,16 @@ impl DiagnosticGenerator for FreeIdentifiersAndUnusedIdentifiers {
 
                         // This identifier has been renamed - so we can unmangle it and see if it
                         // is in the ignore set
-                        if resolved.starts_with("##") && resolved.ends_with(char::is_numeric) {
-                            if context.ignore_set.contains(
+                        if resolved.starts_with("##")
+                            && resolved.ends_with(char::is_numeric)
+                            && context.ignore_set.contains(
                                 &resolved
                                     .trim_start_matches("##")
                                     .trim_end_matches(char::is_numeric)
                                     .into(),
-                            ) {
-                                return None;
-                            }
+                            )
+                        {
+                            return None;
                         }
 
                         let start_position = offset_to_position(span.start, &context.rope)?;
@@ -110,7 +110,7 @@ impl DiagnosticGenerator for FreeIdentifiersAndUnusedIdentifiers {
 
                         let mut diagnostic = Diagnostic::new_simple(
                             Range::new(start_position, end_position),
-                            format!("unused variable"),
+                            "unused variable".to_string(),
                         );
 
                         diagnostic.severity = Some(DiagnosticSeverity::INFORMATION);
@@ -128,19 +128,19 @@ impl DiagnosticGenerator for StaticArityChecker {
     fn diagnose(&mut self, context: &mut DiagnosticContext) -> Vec<Diagnostic> {
         let mut arity_checker = StaticArityChecking {
             known_functions: HashMap::new(),
-            analysis: &context.analysis,
+            analysis: context.analysis,
             known_contracts: HashMap::new(),
         };
 
         for expr in context.analysis.exprs.iter() {
-            arity_checker.visit(&expr);
+            arity_checker.visit(expr);
         }
 
         // TODO: Resolve all required values to their original
         // values in the other module, and link those known
         // functions there.
 
-        let mut identifiers = context
+        let identifiers = context
             .analysis
             .analysis
             .identifier_info()
@@ -232,20 +232,19 @@ pub struct StaticArityChecking<'a> {
 impl<'a> VisitorMutUnitRef<'a> for StaticArityChecking<'a> {
     fn visit_begin(&mut self, begin: &'a steel::parser::ast::Begin) {
         // Check if this is a define/contract
-        match (begin.exprs.get(0), begin.exprs.get(1)) {
-            (Some(ExprKind::Define(d)), Some(ExprKind::Set(s))) => {
-                if let ExprKind::LambdaFunction(l) = &d.body {
-                    if let Some(contract) = function_contract(&s.expr) {
-                        self.known_functions
-                            .insert(d.name_id().unwrap(), l.args.len());
+        if let (Some(ExprKind::Define(d)), Some(ExprKind::Set(s))) =
+            (begin.exprs.first(), begin.exprs.get(1))
+        {
+            if let ExprKind::LambdaFunction(l) = &d.body {
+                if let Some(contract) = function_contract(&s.expr) {
+                    self.known_functions
+                        .insert(d.name_id().unwrap(), l.args.len());
 
-                        if let Ok(contract) = contract {
-                            self.known_contracts.insert(d.name_id().unwrap(), contract);
-                        }
+                    if let Ok(contract) = contract {
+                        self.known_contracts.insert(d.name_id().unwrap(), contract);
                     }
                 }
             }
-            _ => {}
         }
 
         for expr in &begin.exprs {
@@ -277,7 +276,7 @@ pub struct StaticCallSiteArityChecker<'a, 'b> {
     diagnostics: Vec<Diagnostic>,
 }
 
-impl<'a, 'b> StaticCallSiteArityChecker<'a, 'b> {
+impl StaticCallSiteArityChecker<'_, '_> {
     fn check(mut self) -> Vec<Diagnostic> {
         for expr in self.context.analysis.exprs.iter() {
             self.visit(expr);
@@ -288,8 +287,8 @@ impl<'a, 'b> StaticCallSiteArityChecker<'a, 'b> {
 }
 
 fn create_diagnostic(rope: &Rope, span: &Span, message: String) -> Option<Diagnostic> {
-    let start_position = offset_to_position(span.start, &rope)?;
-    let end_position = offset_to_position(span.end, &rope)?;
+    let start_position = offset_to_position(span.start, rope)?;
+    let end_position = offset_to_position(span.end, rope)?;
 
     let mut diagnostic = Diagnostic::new_simple(Range::new(start_position, end_position), message);
 
@@ -298,7 +297,7 @@ fn create_diagnostic(rope: &Rope, span: &Span, message: String) -> Option<Diagno
     Some(diagnostic)
 }
 
-impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
+impl<'a> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, '_> {
     fn visit_list(&mut self, l: &'a steel::parser::ast::List) {
         if let Some(function_call_ident) = l
             .first()
@@ -472,11 +471,7 @@ fn is_contract(expr: &ExprKind) -> bool {
         expr.list()?.first_ident().map(is_bind_c)
     }
 
-    if let Some(inner) = is_contract_option(expr) {
-        inner
-    } else {
-        false
-    }
+    is_contract_option(expr).unwrap_or_default()
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]

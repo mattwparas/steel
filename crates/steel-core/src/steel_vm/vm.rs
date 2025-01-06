@@ -1,6 +1,4 @@
-use crate::compiler::code_gen::fresh_function_id;
 use crate::compiler::compiler::Compiler;
-use crate::core::instructions::pretty_print_dense_instructions;
 use crate::core::instructions::u24;
 use crate::gc::shared::MutContainer;
 use crate::gc::shared::ShareableMut;
@@ -13,7 +11,6 @@ use crate::parser::parser::Sources;
 use crate::parser::replace_idents::expand_template;
 use crate::primitives::lists::car;
 use crate::primitives::lists::cdr;
-use crate::primitives::lists::cons;
 use crate::primitives::lists::is_empty;
 use crate::primitives::lists::new as new_list;
 use crate::primitives::lists::steel_cons;
@@ -28,7 +25,6 @@ use crate::rvals::SteelString;
 use crate::steel_vm::primitives::steel_not;
 use crate::steel_vm::primitives::steel_set_box_mutable;
 use crate::steel_vm::primitives::steel_unbox_mutable;
-use crate::steel_vm::primitives::THREADING_MODULE;
 use crate::values::closed::Heap;
 use crate::values::closed::MarkAndSweepContext;
 use crate::values::functions::RootedInstructions;
@@ -58,17 +54,11 @@ use crate::{
 };
 use std::cell::UnsafeCell;
 use std::io::Read as _;
-use std::rc::Weak;
 use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::thread::JoinHandle;
-use std::thread::ThreadId;
 use std::{cell::RefCell, collections::HashMap, iter::Iterator, rc::Rc};
 
-use super::builtin::DocTemplate;
-use super::builtin::MarkdownDoc;
 use super::engine::EngineId;
 
 use crate::values::lists::List;
@@ -76,7 +66,6 @@ use crate::values::lists::List;
 use crossbeam::atomic::AtomicCell;
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
-use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use smallvec::SmallVec;
 #[cfg(feature = "profiling")]
@@ -87,7 +76,7 @@ use threads::ThreadHandle;
 use crate::rvals::{from_serializable_value, into_serializable_value, IntoSteelVal};
 
 pub(crate) mod threads;
-pub(crate) use threads::{spawn_thread, thread_join};
+pub(crate) use threads::spawn_thread;
 
 pub use threads::{mutex_lock, mutex_unlock};
 
@@ -523,7 +512,7 @@ impl Synchronizer {
 
     pub(crate) unsafe fn enumerate_stacks(&mut self, context: &mut MarkAndSweepContext) {
         // TODO: Continue...
-        let mut guard = self.threads.lock().unwrap();
+        let guard = self.threads.lock().unwrap();
 
         // Wait for all the threads to be legal
         for ThreadContext { ctx, handle } in guard.iter() {
@@ -889,7 +878,7 @@ impl SteelThread {
         // This is our pseudo "dynamic unwind"
         // If we need to, we'll walk back on the stack and find any handlers to pop
         'outer: loop {
-            let result = vm_instance.vm().map_err(|mut error| {
+            let result = vm_instance.vm().map_err(|error| {
                 error
                     .set_span_if_none(vm_instance.current_span())
                     .with_stack_trace(vm_instance.snapshot_stack_trace())
@@ -909,7 +898,7 @@ impl SteelThread {
                     if last
                         .attachments
                         .as_mut()
-                        .and_then(|mut x| x.weak_continuation_mark.take())
+                        .and_then(|x| x.weak_continuation_mark.take())
                         .is_some()
                     {
                         vm_instance.thread.stack.truncate(last.sp as _);
@@ -921,8 +910,7 @@ impl SteelThread {
                         vm_instance.close_continuation_marks(&last);
                     }
 
-                    if let Some(handler) =
-                        last.attachments.as_mut().and_then(|mut x| x.handler.take())
+                    if let Some(handler) = last.attachments.as_mut().and_then(|x| x.handler.take())
                     {
                         // Drop the stack BACK to where it was on this level
                         vm_instance.thread.stack.truncate(last.sp);
@@ -1787,7 +1775,7 @@ impl<'a> VmCore<'a> {
                     if last
                         .attachments
                         .as_mut()
-                        .and_then(|mut x| x.weak_continuation_mark.take())
+                        .and_then(|x| x.weak_continuation_mark.take())
                         .is_some()
                     {
                         self.thread.stack.truncate(last.sp);
@@ -1800,8 +1788,7 @@ impl<'a> VmCore<'a> {
                         self.close_continuation_marks(&last);
                     }
 
-                    if let Some(handler) =
-                        last.attachments.as_mut().and_then(|mut x| x.handler.take())
+                    if let Some(handler) = last.attachments.as_mut().and_then(|x| x.handler.take())
                     {
                         // Drop the stack BACK to where it was on this level
                         self.thread.stack.truncate(last.sp);
@@ -2869,7 +2856,7 @@ impl<'a> VmCore<'a> {
 
                     self.ip = 0;
 
-                    let mut closure_arity = last_stack_frame.function.arity();
+                    let closure_arity = last_stack_frame.function.arity();
 
                     // TODO: Adjust the stack for multiple arity functions
                     let is_multi_arity = last_stack_frame.function.is_multi_arity;
@@ -4401,7 +4388,7 @@ impl<'a> VmCore<'a> {
 
         self.sp = self.thread.stack.len() - closure.arity();
 
-        let mut instructions = closure.body_exp();
+        let instructions = closure.body_exp();
 
         self.thread.stack_frames.push(StackFrame::new(
             self.sp,
@@ -5099,7 +5086,7 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
 fn emit_expanded_file(path: String) {
     let mut engine = crate::steel_vm::engine::Engine::new();
 
-    let mut contents = std::fs::read_to_string(&path).unwrap();
+    let contents = std::fs::read_to_string(&path).unwrap();
 
     engine.expand_to_file(contents, std::path::PathBuf::from(path))
 }
@@ -5459,7 +5446,7 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
                     Some(result)
                 }
                 SteelVal::BoxedFunction(f) => {
-                    let mut args = l.into_iter().cloned().collect::<Vec<_>>();
+                    let args = l.into_iter().cloned().collect::<Vec<_>>();
 
                     let result =
                         f.func()(&args).map_err(|e| e.set_span_if_none(ctx.current_span()));

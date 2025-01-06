@@ -1,9 +1,8 @@
 use std::{
-    cell::RefCell,
     collections::{HashMap, HashSet},
     error::Error,
     path::PathBuf,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
 };
 
 use dashmap::{DashMap, DashSet};
@@ -255,10 +254,8 @@ impl LanguageServer for Backend {
                         );
 
                         // Guaranteed to be here given that we've resolve it above
-                        let definition_name = syntax_object_id_to_interned_string
-                            .get(&refers_to)
-                            .clone()?
-                            .clone()?;
+                        let definition_name =
+                            (*syntax_object_id_to_interned_string.get(&refers_to)?)?;
 
                         // Memoize a lot of these lookups if possible, or at least share the memory;
                         let doc_suffix = definition_name.resolve().to_string() + "__doc__";
@@ -316,10 +313,7 @@ impl LanguageServer for Backend {
             // Resolve what we've found?
             analysis.syntax_object_ids_to_identifiers(&mut syntax_object_id_to_interned_string);
 
-            let definition_name = syntax_object_id_to_interned_string
-                .get(&refers_to)
-                .clone()?
-                .clone()?;
+            let definition_name = (*syntax_object_id_to_interned_string.get(&refers_to)?)?;
 
             // Memoize a lot of these lookups if possible, or at least share the memory;
             let doc_suffix = definition_name.resolve().to_string() + "__doc__";
@@ -727,7 +721,7 @@ impl Backend {
 
                 guard.in_scope_macros_mut().retain(|key, value| {
                     if macro_env_before.contains(key) {
-                        return true;
+                        true
                     } else {
                         // FIXME: Try to avoid this clone!
                         introduced_macros.insert(*key, value.clone());
@@ -801,7 +795,7 @@ impl Backend {
                 let mut user_defined_lints = LINT_ENGINE
                     .write()
                     .unwrap()
-                    .diagnostics(&rope, &analysis.exprs);
+                    .diagnostics(&rope, analysis.exprs);
 
                 // log::debug!("Lints found: {:#?}", user_defined_lints);
 
@@ -827,17 +821,16 @@ impl Backend {
 }
 
 fn uri_to_source_id(uri: &Url) -> Option<steel::parser::parser::SourceId> {
-    let id = ENGINE
+    ENGINE
         .read()
         .ok()?
-        .get_source_id(&uri.to_file_path().unwrap());
-    id
+        .get_source_id(&uri.to_file_path().unwrap())
 }
 
 fn source_id_to_uri(source_id: SourceId) -> Option<Url> {
     let path = ENGINE.read().ok()?.get_path_for_source_id(&source_id)?;
 
-    Some(Url::from_file_path(path).ok()?)
+    Url::from_file_path(path).ok()
 }
 
 pub fn make_error(mut diagnostic: Diagnostic) -> Diagnostic {
@@ -930,8 +923,8 @@ impl UserDefinedLintEngine {
             .unwrap()
             .drain(..)
             .filter_map(|d| {
-                let start_position = offset_to_position(d.span.start, &rope)?;
-                let end_position = offset_to_position(d.span.end, &rope)?;
+                let start_position = offset_to_position(d.span.start, rope)?;
+                let end_position = offset_to_position(d.span.end, rope)?;
 
                 Some(Diagnostic::new_simple(
                     Range::new(start_position, end_position),
