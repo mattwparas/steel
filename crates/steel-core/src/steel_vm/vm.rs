@@ -361,10 +361,6 @@ pub struct SafepointablePointer<T> {
 }
 
 impl<T> SafepointablePointer<T> {
-    pub unsafe fn get_mut(&self) -> &mut T {
-        &mut *self.value.get()
-    }
-
     pub unsafe fn get_safepoint_safe(&self) -> Option<&T> {
         if self
             .within_safepoint
