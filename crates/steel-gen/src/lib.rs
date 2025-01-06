@@ -1,7 +1,6 @@
 // TODO: Create stack to ssa representation of the op codes, via macros
 
 pub mod opcode;
-pub mod permutations;
 use std::{borrow::Cow, fmt::Write};
 
 pub use opcode::OpCode;
