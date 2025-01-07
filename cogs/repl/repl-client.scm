@@ -110,4 +110,5 @@
     [(list "--host" host) (repl-loop host)]
     [(list "--host" host "--port" port) (repl-loop host (string->int port))]))
 
-(main)
+(unless (get-test-mode)
+  (main))
