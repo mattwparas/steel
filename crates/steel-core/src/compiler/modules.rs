@@ -234,7 +234,7 @@ impl ModuleManager {
         Ok(())
     }
 
-    // #[allow(unused)]
+    //
     pub(crate) fn compile_main(
         &mut self,
         global_macro_map: &mut FxHashMap<InternedString, SteelMacro>,
@@ -1678,7 +1678,7 @@ struct ModuleBuilder<'a> {
 
 impl<'a> ModuleBuilder<'a> {
     #[allow(clippy::too_many_arguments)]
-    #[allow(unused)]
+
     fn main(
         name: Option<PathBuf>,
         source_ast: Vec<ExprKind>,

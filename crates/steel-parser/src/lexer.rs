@@ -113,8 +113,8 @@ impl<'a> Lexer<'a> {
                     Some('x') => {
                         self.eat();
 
-                        let digit1 = self.eat().ok_or_else(|| TokenError::MalformedByteEscape)?;
-                        let digit2 = self.eat().ok_or_else(|| TokenError::MalformedByteEscape)?;
+                        let digit1 = self.eat().ok_or(TokenError::MalformedByteEscape)?;
+                        let digit2 = self.eat().ok_or(TokenError::MalformedByteEscape)?;
 
                         let mut chars = String::new();
                         chars.push(digit1);
@@ -123,8 +123,8 @@ impl<'a> Lexer<'a> {
                         let byte = u8::from_str_radix(&chars, 16)
                             .map_err(|_| TokenError::MalformedByteEscape)?;
 
-                        let char = char::from_u32(byte as u32)
-                            .ok_or_else(|| TokenError::MalformedByteEscape)?;
+                        let char =
+                            char::from_u32(byte as u32).ok_or(TokenError::MalformedByteEscape)?;
 
                         buf.push(char);
                     }
@@ -369,11 +369,7 @@ fn strip_shebang_line(input: &str) -> (&str, usize, usize) {
         let original = input.len();
         let new = result.len();
 
-        (
-            result,
-            original - new,
-            input.as_bytes().len() - result.as_bytes().len(),
-        )
+        (result, original - new, input.len() - result.len())
     } else {
         (input, 0, 0)
     }
@@ -444,7 +440,7 @@ impl<'a, T, F: ToOwnedString<T>> Iterator for OwnedTokenStream<'a, T, F> {
     }
 }
 
-impl<'a, T, F: ToOwnedString<T>> OwnedTokenStream<'a, T, F> {
+impl<T, F: ToOwnedString<T>> OwnedTokenStream<'_, T, F> {
     pub fn offset(&self) -> usize {
         self.stream.lexer.span().end
     }
@@ -637,7 +633,7 @@ fn parse_real(s: &str) -> Option<RealLiteral> {
         }
     }
     if has_e || has_dot {
-        s.parse().map(|f| RealLiteral::Float(f)).ok()
+        s.parse().map(RealLiteral::Float).ok()
     } else if let Some(p) = frac_position {
         let (n_str, d_str) = s.split_at(p);
         let d_str = &d_str[1..];
@@ -657,7 +653,10 @@ fn parse_number(s: &str) -> Option<NumberLiteral> {
             if !matches!(x.chars().next(), Some('+') | Some('-')) {
                 return None;
             };
-            Some(NumberLiteral::Complex(IntLiteral::Small(0).into(), parse_real(x)?).into())
+            Some(NumberLiteral::Complex(
+                IntLiteral::Small(0).into(),
+                parse_real(x)?,
+            ))
         }
         [NumPart::Real(re), NumPart::Imaginary(im)]
         | [NumPart::Imaginary(im), NumPart::Real(re)] => {
@@ -1139,18 +1138,15 @@ mod lexer_tests {
                     span: Span::new(16, 19, SourceId::none()),
                 },
                 Token {
-                    ty: NumberLiteral::Complex(
-                        RealLiteral::Float(1.0).into(),
-                        RealLiteral::Float(2.0).into()
-                    )
-                    .into(),
+                    ty: NumberLiteral::Complex(RealLiteral::Float(1.0), RealLiteral::Float(2.0))
+                        .into(),
                     source: "1.0+2.0i",
                     span: Span::new(20, 28, SourceId::none()),
                 },
                 Token {
                     ty: NumberLiteral::Complex(
                         IntLiteral::Small(3).into(),
-                        RealLiteral::Float(-4.0).into()
+                        RealLiteral::Float(-4.0)
                     )
                     .into(),
                     source: "3-4.0i",
@@ -1159,7 +1155,7 @@ mod lexer_tests {
                 Token {
                     ty: NumberLiteral::Complex(
                         IntLiteral::Small(0).into(),
-                        RealLiteral::Float(1.0).into()
+                        RealLiteral::Float(1.0)
                     )
                     .into(),
                     source: "+1.0i",

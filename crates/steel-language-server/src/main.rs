@@ -47,7 +47,7 @@ async fn main() {
     let home_directory = lsp_home();
 
     ENGINE.write().unwrap().register_module_resolver(
-        ExternalModuleResolver::new(&mut resolver_engine, PathBuf::from(home_directory)).unwrap(),
+        ExternalModuleResolver::new(&mut resolver_engine, home_directory).unwrap(),
     );
 
     {

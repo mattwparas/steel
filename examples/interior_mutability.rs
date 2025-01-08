@@ -1,8 +1,4 @@
-use std::{
-    cell::RefCell,
-    rc::Rc,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use steel::steel_vm::engine::Engine;
 use steel::steel_vm::register_fn::RegisterFn;

@@ -213,7 +213,6 @@ impl<'a> CodeGenerator<'a> {
         Some(())
     }
 
-    #[allow(unused)]
     fn specialize_call(&mut self, l: &List, op: OpCode) -> Option<()> {
         if l.args.len() != 3 {
             return None;

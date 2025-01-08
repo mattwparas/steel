@@ -1,12 +1,7 @@
-#![allow(unused)]
+use std::{future::Future, marker::PhantomData, rc::Rc, sync::Arc};
 
-use std::{cell::RefCell, future::Future, marker::PhantomData, rc::Rc, sync::Arc};
-
-use super::{
-    builtin::{Arity, FunctionSignatureMetadata},
-    engine::Engine,
-};
-use crate::{gc::Gc, rvals::MaybeSendSyncStatic, values::lists::List};
+use super::engine::Engine;
+use crate::{gc::Gc, rvals::MaybeSendSyncStatic};
 use crate::{
     gc::{
         shared::MutContainer,
@@ -350,7 +345,7 @@ impl<
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
-            let mut area = <AREA>::from_steelval(&args[1]).map_err(|mut e| {
+            let area = <AREA>::from_steelval(&args[1]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
@@ -398,7 +393,7 @@ impl<
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
-            let mut area = <AREA>::from_steelval(&args[1]).map_err(|mut e| {
+            let area = <AREA>::from_steelval(&args[1]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
@@ -441,13 +436,13 @@ impl<
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
-            let mut nursery = <AREA as AsRefSteelVal>::Nursery::default();
+            let nursery = <AREA as AsRefSteelVal>::Nursery::default();
 
             let mut input = <SELF>::as_mut_ref(&args[0]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
-            let mut area = <AREA>::as_ref(&args[1]).map_err(|mut e| {
+            let area = <AREA>::as_ref(&args[1]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
@@ -486,17 +481,17 @@ impl<
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
-            let mut nursery = <SELF as AsRefSteelVal>::Nursery::default();
+            let nursery = <SELF as AsRefSteelVal>::Nursery::default();
 
-            let mut input = <SELF>::as_ref(&args[0]).map_err(|mut e| {
+            let input = <SELF>::as_ref(&args[0]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
-            let mut area = <AREA>::from_steelval(&args[1]).map_err(|mut e| {
+            let area = <AREA>::from_steelval(&args[1]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
-            let mut ctx = <CTX>::as_ref_from_ref(&args[2]).map_err(|mut e| {
+            let ctx = <CTX>::as_ref_from_ref(&args[2]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
@@ -778,7 +773,7 @@ impl<
             }
 
             // If this value is
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+            let input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
@@ -811,7 +806,7 @@ impl<
             // Mark as borrowed now
             borrow_flag.set(true);
 
-            let mut borrowed = BorrowedObject::new(weak_ptr).with_parent_flag(borrow_flag);
+            let borrowed = BorrowedObject::new(weak_ptr).with_parent_flag(borrow_flag);
 
             let extended = unsafe {
                 std::mem::transmute::<BorrowedObject<RET>, BorrowedObject<STATICRET>>(borrowed)
@@ -862,7 +857,7 @@ impl<
             }
 
             // If this value is
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+            let input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
@@ -940,7 +935,7 @@ impl<
             }
 
             // If this value is
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+            let input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
@@ -1022,7 +1017,7 @@ impl<
             }
 
             // If this value is
-            let mut input = <SELF>::as_ref_from_ref(&args[0]).map_err(|mut e| {
+            let input = <SELF>::as_ref_from_ref(&args[0]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
@@ -1096,7 +1091,7 @@ impl<
             }
 
             // If this value is
-            let mut input = <SELF>::as_ref_from_ref(&args[0]).map_err(|mut e| {
+            let input = <SELF>::as_ref_from_ref(&args[0]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
@@ -1161,13 +1156,13 @@ impl<
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
-            let mut nursery = <AREA as AsRefSteelVal>::Nursery::default();
+            let nursery = <AREA as AsRefSteelVal>::Nursery::default();
 
             let mut input = <SELF>::as_mut_ref(&args[0]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
-            let mut area = <AREA>::as_ref(&args[1]).map_err(|mut e| {
+            let area = <AREA>::as_ref(&args[1]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
@@ -1206,17 +1201,17 @@ impl<
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
-            let mut nursery = <SELF as AsRefSteelVal>::Nursery::default();
+            let nursery = <SELF as AsRefSteelVal>::Nursery::default();
 
-            let mut input = <SELF>::as_ref(&args[0]).map_err(|mut e| {
+            let input = <SELF>::as_ref(&args[0]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
-            let mut area = <AREA>::from_steelval(&args[1]).map_err(|mut e| {
+            let area = <AREA>::from_steelval(&args[1]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
-            let mut ctx = <CTX>::as_ref_from_ref(&args[2]).map_err(|mut e| {
+            let ctx = <CTX>::as_ref_from_ref(&args[2]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
@@ -1352,7 +1347,7 @@ impl<
             }
 
             // If this value is
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+            let input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
@@ -1436,7 +1431,7 @@ impl<
             }
 
             // If this value is
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+            let input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
@@ -1518,7 +1513,7 @@ impl<
             }
 
             // If this value is
-            let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
+            let input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
@@ -1701,7 +1696,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
             }
 
-            let mut nursery = <SELF::Nursery>::default();
+            let nursery = <SELF::Nursery>::default();
 
             let input = <SELF>::as_ref(&args[0]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
@@ -1732,7 +1727,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
             }
 
-            let mut nursery = <SELF::Nursery>::default();
+            let nursery = <SELF::Nursery>::default();
 
             let input = <SELF>::as_ref(&args[0]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
@@ -1951,14 +1946,14 @@ impl<
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
             }
 
-            let mut nursery = <A::Nursery>::default();
+            let nursery = <A::Nursery>::default();
 
             let one = A::as_ref(&args[0]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
 
-            let mut nursery = <B::Nursery>::default();
+            let nursery = <B::Nursery>::default();
 
             let two = B::as_ref(&args[1]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
@@ -1994,7 +1989,7 @@ impl<
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
             }
 
-            let mut nursery = <B::Nursery>::default();
+            let nursery = <B::Nursery>::default();
 
             let input = B::as_ref(&args[1])?;
 
@@ -2147,7 +2142,7 @@ macro_rules! impl_register_fn_self {
                         stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
                     }
 
-                    let mut nursery = <SELF::Nursery>::default();
+                    let nursery = <SELF::Nursery>::default();
 
                     let input = <SELF>::as_ref(&args[0]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));

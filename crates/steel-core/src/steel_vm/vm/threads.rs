@@ -159,7 +159,7 @@ pub fn closure_into_serializable(
     serializer: &mut std::collections::HashMap<usize, SerializableSteelVal>,
     visited: &mut std::collections::HashSet<usize>,
 ) -> Result<SerializedLambda> {
-    if let Some(mut prototype) = CACHED_CLOSURES.with(|x| x.borrow().get(&c.id).cloned()) {
+    if let Some(prototype) = CACHED_CLOSURES.with(|x| x.borrow().get(&c.id).cloned()) {
         let mut prototype = SerializedLambda {
             id: prototype.id,
             body_exp: prototype.body_exp,
@@ -177,7 +177,7 @@ pub fn closure_into_serializable(
 
         Ok(prototype)
     } else {
-        let mut prototype = SerializedLambdaPrototype {
+        let prototype = SerializedLambdaPrototype {
             id: c.id,
 
             #[cfg(not(feature = "dynamic"))]
@@ -384,7 +384,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
     // TODO: Spawn a bunch of threads at the start to handle requests. That way we don't need to do this
     // the whole time they're in there.
     let handle = std::thread::spawn(move || {
-        let mut heap = time!("Heap Creation", Arc::new(Mutex::new(Heap::new())));
+        let heap = time!("Heap Creation", Arc::new(Mutex::new(Heap::new())));
 
         // Move across threads?
         let mut mapping = initial_map
@@ -593,7 +593,7 @@ impl Channels {
 pub fn select(values: &[SteelVal]) -> Result<SteelVal> {
     let mut selector = crossbeam::channel::Select::new();
 
-    let mut borrows = values
+    let borrows = values
         .iter()
         .map(|x| SteelReceiver::as_ref(x))
         .collect::<Result<smallvec::SmallVec<[_; 8]>>>()?;

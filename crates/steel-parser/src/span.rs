@@ -63,7 +63,7 @@ impl Span {
     }
 
     pub fn coalesce_span(spans: &[Span]) -> Span {
-        let span = spans.get(0);
+        let span = spans.first();
         if let Some(span) = span {
             let mut span = *span;
             for s in spans {

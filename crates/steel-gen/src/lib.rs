@@ -1,8 +1,6 @@
 // TODO: Create stack to ssa representation of the op codes, via macros
-#![allow(unused)]
 
 pub mod opcode;
-pub mod permutations;
 use std::{borrow::Cow, fmt::Write};
 
 pub use opcode::OpCode;
@@ -331,7 +329,7 @@ impl StackToSSAConverter {
                         max_local_offset_read = max_local_offset_read.max(0);
                     } else {
                         let local = self.push();
-                        let var = self.stack.get(0).unwrap();
+                        let var = self.stack.first().unwrap();
 
                         if &local == var {
                             lines.line(format!(
@@ -363,7 +361,7 @@ impl StackToSSAConverter {
                         if &local == var {
                             // let local = self.pop();
 
-                            let var = self.stack.get(0).unwrap();
+                            let var = self.stack.first().unwrap();
 
                             lines.line(format!("let {local} = {var}.clone();"));
                             lines.line("ctx.ip += 1;")
@@ -455,7 +453,7 @@ impl StackToSSAConverter {
                         max_local_offset_read = max_local_offset_read.max(0);
                     } else {
                         let local = self.push();
-                        let var = self.stack.get(0).unwrap();
+                        let var = self.stack.first().unwrap();
                         lines.line(format!("let {local} = {var};"));
                     }
                 }
@@ -807,7 +805,7 @@ impl<'a> Call<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for Call<'a> {
+impl std::fmt::Display for Call<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.name)?;
         write!(f, "(")?;
@@ -952,7 +950,7 @@ pub fn generate_opcode_map() -> String {
 
     for pattern in patterns {
         let original_pattern = pattern;
-        let pattern = Pattern::from_opcodes(&pattern);
+        let pattern = Pattern::from_opcodes(pattern);
 
         if pattern.is_empty() {
             dbg!("Pattern produced empty result: {:?}", original_pattern);
@@ -1039,70 +1037,138 @@ pub(crate) fn generate_dynamic_op_codes() -> SuperInstructionMap {
     format!("{}\n{}", top_level_definition, global_scope.to_string())
 }
 
-#[test]
-fn test() {
-    // let op_codes = vec![
-    //     Pattern::Double(OpCode::BEGINSCOPE, 0),
-    //     Pattern::Single(OpCode::LOADINT0),
-    //     // Pattern::Single(OpCode::BEGINSCOPE),
-    //     Pattern::Single(OpCode::LOADINT1),
-    //     Pattern::Single(OpCode::LOADINT1),
-    //     Pattern::Single(OpCode::LOADINT1),
-    //     Pattern::Single(OpCode::LOADINT1),
-    //     Pattern::Single(OpCode::LOADINT1),
-    //     Pattern::Single(OpCode::READLOCAL0),
-    //     Pattern::Single(OpCode::READLOCAL1),
-    //     Pattern::Pair(OpCode::CALLGLOBAL, OpCode::Arity, 6),
-    //     // Pattern::Single(OpCode::BEGINSCOPE), // Pattern::Double(OpCode::ADD, 2),
-    //     Pattern::Single(OpCode::LOADINT2),
-    //     Pattern::Double(OpCode::EQUAL, 2),
-    //     Pattern::Single(OpCode::IF),
-    // ];
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    use OpCode::*;
+    #[test]
+    fn test() {
+        // let op_codes = vec![
+        //     Pattern::Double(OpCode::BEGINSCOPE, 0),
+        //     Pattern::Single(OpCode::LOADINT0),
+        //     // Pattern::Single(OpCode::BEGINSCOPE),
+        //     Pattern::Single(OpCode::LOADINT1),
+        //     Pattern::Single(OpCode::LOADINT1),
+        //     Pattern::Single(OpCode::LOADINT1),
+        //     Pattern::Single(OpCode::LOADINT1),
+        //     Pattern::Single(OpCode::LOADINT1),
+        //     Pattern::Single(OpCode::READLOCAL0),
+        //     Pattern::Single(OpCode::READLOCAL1),
+        //     Pattern::Pair(OpCode::CALLGLOBAL, OpCode::Arity, 6),
+        //     // Pattern::Single(OpCode::BEGINSCOPE), // Pattern::Double(OpCode::ADD, 2),
+        //     Pattern::Single(OpCode::LOADINT2),
+        //     Pattern::Double(OpCode::EQUAL, 2),
+        //     Pattern::Single(OpCode::IF),
+        // ];
 
-    let op_codes = vec![
-        (OpCode::BEGINSCOPE, 0),
-        (OpCode::READLOCAL0, 0),
-        (OpCode::CALLGLOBAL, 75),
-        (OpCode::FUNC, 1),
-        (OpCode::READLOCAL1, 1),
-        (OpCode::PUSHCONST, 565),
-        (OpCode::CALLGLOBAL, 75),
-        (OpCode::FUNC, 1),
-        (OpCode::NUMEQUAL, 2),
-        (OpCode::PASS, 2),
-        (OpCode::IF, 22),
-    ];
+        let op_codes = vec![
+            (OpCode::BEGINSCOPE, 0),
+            (OpCode::READLOCAL0, 0),
+            (OpCode::CALLGLOBAL, 75),
+            (OpCode::FUNC, 1),
+            (OpCode::READLOCAL1, 1),
+            (OpCode::PUSHCONST, 565),
+            (OpCode::CALLGLOBAL, 75),
+            (OpCode::FUNC, 1),
+            (OpCode::NUMEQUAL, 2),
+            (OpCode::PASS, 2),
+            (OpCode::IF, 22),
+        ];
 
-    let op_codes = Pattern::from_opcodes(&op_codes);
+        let op_codes = Pattern::from_opcodes(&op_codes);
 
-    println!("{op_codes:#?}");
+        println!("{op_codes:#?}");
 
-    let mut stack_to_ssa = StackToSSAConverter::new();
+        let mut stack_to_ssa = StackToSSAConverter::new();
 
-    let result = stack_to_ssa.process_sequence(&op_codes);
+        let result = stack_to_ssa.process_sequence(&op_codes);
 
-    let mut scope = Scope::new();
+        let mut scope = Scope::new();
 
-    scope.push_fn(result);
+        scope.push_fn(result);
 
-    println!("{}", scope.to_string());
+        println!("{}", scope.to_string());
 
-    // println!("{}", ctx_signature().to_string());
+        // println!("{}", ctx_signature().to_string());
+    }
+
+    #[test]
+    fn test_generation() {
+        // TODO: Come up with better way for this to make it in
+        // let patterns: &'static [&'static [(OpCode, usize)]] = &[&[
+        //     (MOVEREADLOCAL0, 0),
+        //     (LOADINT2, 225),
+        //     (SUB, 2),
+        //     (CALLGLOBAL, 1),
+        // ]];
+
+        assert_eq!(STR, generate_opcode_map());
+    }
+
+    const STR: &str = "
+
+pub(crate) struct SuperInstructionMap {
+    map: std::collections::HashMap<Vec<steel_gen::Pattern>, for<'r> fn (&'r mut VmCore<'_>, usize) -> Result<()>>
 }
 
-#[test]
-fn test_generation() {
+impl SuperInstructionMap {
+    pub(crate) fn new() -> Self {
+        Self { map: std::collections::HashMap::new() }
+    }
+
+    pub(crate) fn insert(&mut self, pattern: Vec<steel_gen::Pattern>, func: for<'r> fn (&'r mut VmCore<'_>, usize) -> Result<()>) {
+        self.map.insert(pattern, func);
+    }
+
+    pub(crate) fn get(&self, op_codes: &[(OpCode, usize)]) -> Option<for<'r> fn (&'r mut VmCore<'_>, usize) -> Result<()>> {
+        let pattern = steel_gen::Pattern::from_opcodes(&op_codes);
+        self.map.get(&pattern).copied()
+    }
+}
+
+pub(crate) static DYNAMIC_SUPER_PATTERNS: once_cell::sync::Lazy<SuperInstructionMap> = once_cell::sync::Lazy::new(|| generate_dynamic_op_codes());
+
+pub(crate) fn generate_dynamic_op_codes() -> SuperInstructionMap {
+    SuperInstructionMap::new()
+}
+    
+    
+pub(crate) fn beginscope0_readlocal0_callglobal1_readlocal1_pushconst_callglobal1_numequal2_if(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
     use OpCode::*;
+    use steel_gen::Pattern::*;
+    ctx.ip += 1;
+    let x0 = opcode_to_ssa_handler!(READLOCAL0)(ctx)?;
+    let Some(x1) = opcode_to_ssa_handler!(CALLGLOBAL)(ctx, &mut [x0.into(), ])? else {
+                                    return Ok(());
+                                };
+    let x2 = x1.clone();
+    ctx.ip += 1;
+    let x3 = opcode_to_ssa_handler!(PUSHCONST)(ctx)?;
+    let Some(x4) = opcode_to_ssa_handler!(CALLGLOBAL)(ctx, &mut [x3.into(), ])? else {
+                                    return Ok(());
+                                };
+    let x5 = opcode_to_ssa_handler!(NUMEQUAL)(ctx, x2.into(), x4.into(), )?;
+    if_to_ssa_handler!(IF, Bool)(ctx, x5);
+    ctx.thread.stack.push(x1);
+    Ok(())
+}
 
-    // TODO: Come up with better way for this to make it in
-    // let patterns: &'static [&'static [(OpCode, usize)]] = &[&[
-    //     (MOVEREADLOCAL0, 0),
-    //     (LOADINT2, 225),
-    //     (SUB, 2),
-    //     (CALLGLOBAL, 1),
-    // ]];
+pub(crate) fn pattern_exists(pattern: &[steel_gen::Pattern]) -> bool {
+    use OpCode::*;
+    use steel_gen::Pattern::*;
+    match pattern {
+    &[Double(BEGINSCOPE, 0), Single(READLOCAL0), Double(CALLGLOBAL, 1), Single(READLOCAL1), Single(PUSHCONST), Double(CALLGLOBAL, 1), Double(NUMEQUAL, 2), Single(IF)] => true,
+    _ => false,
+    }
+}
 
-    println!("{}", generate_opcode_map());
+pub(crate) fn vm_match_dynamic_super_instruction(ctx: &mut VmCore<'_>, instr: DenseInstruction) -> Result<()> {
+    match instr {
+    DenseInstruction { op_code: OpCode::CaseLambdaDispatch, payload_size, .. } => dynamic::beginscope0_readlocal0_callglobal1_readlocal1_pushconst_callglobal1_numequal2_if(ctx, payload_size as usize),
+    _ => {
+    crate::core::instructions::pretty_print_dense_instructions(&ctx.instructions);
+    panic!(\"Unhandled opcode: {:?} @ {}\", ctx.instructions[ctx.ip], ctx.ip);
+    }
+    }
+}";
 }

@@ -35,7 +35,7 @@ fn main() {
 
         // module.documentation().definitions().get()
 
-        if let Some(module_doc) = module.documentation().get(&module_name) {
+        if let Some(module_doc) = module.documentation().get(module_name) {
             if let steel::steel_vm::builtin::Documentation::Markdown(m) = module_doc {
                 format_markdown_doc(&mut module_file, &m.0);
             }
@@ -60,14 +60,11 @@ fn main() {
 
                 found_definitions.insert(name.to_string());
 
-                match value {
-                    steel::steel_vm::builtin::Documentation::Markdown(m) => {
-                        let escaped = name.replace("*", "\\*");
-                        writeln!(&mut module_file, "### **{}**", escaped).unwrap();
+                if let steel::steel_vm::builtin::Documentation::Markdown(m) = value {
+                    let escaped = name.replace("*", "\\*");
+                    writeln!(&mut module_file, "### **{}**", escaped).unwrap();
 
-                        format_markdown_doc(&mut module_file, &m.0);
-                    }
-                    _ => {}
+                    format_markdown_doc(&mut module_file, &m.0);
                 }
             }
         }

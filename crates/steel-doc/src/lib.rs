@@ -1,6 +1,4 @@
-#![allow(unused)]
-
-use std::{env::current_dir, error::Error, io::BufWriter, path::PathBuf};
+use std::{env::current_dir, error::Error, path::PathBuf};
 
 use steel::compiler::modules::MANGLER_PREFIX;
 use steel::steel_vm::engine::Engine;

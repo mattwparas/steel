@@ -1,4 +1,4 @@
-#![allow(unused)]
+
 
 use crate::parser::ast::ExprKind;
 use crate::parser::tokens::TokenType;

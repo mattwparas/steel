@@ -627,7 +627,7 @@ pub mod unsafe_roots {
 }
 
 // #[cfg(feature = "unsafe-internals")]
-#[allow(unused)]
+
 pub mod unsafe_erased_pointers {
     /*
     Warning - here be dragons. Definitely a lot of unsafe things here, and when used incorrectly
@@ -635,12 +635,8 @@ pub mod unsafe_erased_pointers {
     */
 
     use std::cell::Cell;
-    use std::rc::{Rc, Weak};
-    use std::{any::Any, cell::RefCell, marker::PhantomData};
-
-    use crate::steel_vm::engine::EngineId;
-    use once_cell::sync::Lazy;
-    use std::collections::HashMap;
+    use std::rc::Rc;
+    use std::{any::Any, marker::PhantomData};
 
     use crate::rvals::cycles::IterativeDropHandler;
     use crate::rvals::{AsRefSteelValFromRef, MaybeSendSyncStatic};
