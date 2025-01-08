@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 use crate::rvals::{Result, SteelVal};
 
-#[allow(unused)]
 #[derive(Debug)]
 pub struct Env {
     #[cfg(not(feature = "sync"))]

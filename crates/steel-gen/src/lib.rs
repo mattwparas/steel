@@ -1,5 +1,4 @@
 // TODO: Create stack to ssa representation of the op codes, via macros
-#![allow(unused)]
 
 pub mod opcode;
 pub mod permutations;
@@ -331,7 +330,7 @@ impl StackToSSAConverter {
                         max_local_offset_read = max_local_offset_read.max(0);
                     } else {
                         let local = self.push();
-                        let var = self.stack.get(0).unwrap();
+                        let var = self.stack.first().unwrap();
 
                         if &local == var {
                             lines.line(format!(
@@ -363,7 +362,7 @@ impl StackToSSAConverter {
                         if &local == var {
                             // let local = self.pop();
 
-                            let var = self.stack.get(0).unwrap();
+                            let var = self.stack.first().unwrap();
 
                             lines.line(format!("let {local} = {var}.clone();"));
                             lines.line("ctx.ip += 1;")
@@ -455,7 +454,7 @@ impl StackToSSAConverter {
                         max_local_offset_read = max_local_offset_read.max(0);
                     } else {
                         let local = self.push();
-                        let var = self.stack.get(0).unwrap();
+                        let var = self.stack.first().unwrap();
                         lines.line(format!("let {local} = {var};"));
                     }
                 }
@@ -807,7 +806,7 @@ impl<'a> Call<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for Call<'a> {
+impl std::fmt::Display for Call<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.name)?;
         write!(f, "(")?;
@@ -952,7 +951,7 @@ pub fn generate_opcode_map() -> String {
 
     for pattern in patterns {
         let original_pattern = pattern;
-        let pattern = Pattern::from_opcodes(&pattern);
+        let pattern = Pattern::from_opcodes(pattern);
 
         if pattern.is_empty() {
             dbg!("Pattern produced empty result: {:?}", original_pattern);
@@ -1059,8 +1058,6 @@ fn test() {
     //     Pattern::Single(OpCode::IF),
     // ];
 
-    use OpCode::*;
-
     let op_codes = vec![
         (OpCode::BEGINSCOPE, 0),
         (OpCode::READLOCAL0, 0),
@@ -1094,8 +1091,6 @@ fn test() {
 
 #[test]
 fn test_generation() {
-    use OpCode::*;
-
     // TODO: Come up with better way for this to make it in
     // let patterns: &'static [&'static [(OpCode, usize)]] = &[&[
     //     (MOVEREADLOCAL0, 0),

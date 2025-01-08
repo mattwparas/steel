@@ -512,7 +512,6 @@ pub const fn sequence_to_opcode(pattern: &[(OpCode, usize)]) -> &'static [steel_
     }
 }
 
-#[allow(unused)]
 pub fn tile_super_instructions(instructions: &mut [Instruction]) {
     #[cfg(feature = "dynamic")]
     {
@@ -1189,7 +1188,7 @@ fn extract_spans(
 
 // A program stripped of its debug symbols, but only constructable by running a pass
 // over it with the symbol map to intern all of the symbols in the order they occurred
-#[allow(unused)]
+
 #[derive(Clone)]
 pub struct Executable {
     pub(crate) name: Shared<String>,

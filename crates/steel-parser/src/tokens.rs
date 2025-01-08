@@ -227,7 +227,7 @@ impl RealLiteral {
 
 impl From<RealLiteral> for NumberLiteral {
     fn from(value: RealLiteral) -> Self {
-        NumberLiteral::Real(value).into()
+        NumberLiteral::Real(value)
     }
 }
 

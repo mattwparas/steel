@@ -308,7 +308,7 @@ enum ParsingContext {
     UnquoteSplicingTick(usize),
 }
 
-impl<'a> Parser<'a> {
+impl Parser<'_> {
     pub fn parse(expr: &str) -> Result<Vec<ExprKind>> {
         Parser::new(expr, SourceId::none()).collect()
     }
@@ -1005,12 +1005,12 @@ impl<'a> Parser<'a> {
                                     | Some(ParsingContext::QuasiquoteTick(_)) => {
                                         // | Some(ParsingContext::Quote(d)) && d > 0 => {
 
-                                        return Ok(current_frame.to_expr(close)?);
+                                        return current_frame.to_expr(close);
                                     }
                                     Some(ParsingContext::Quote(x)) if *x > 0 => {
                                         self.context.pop();
 
-                                        return Ok(current_frame.to_expr(close)?);
+                                        return current_frame.to_expr(close);
                                     }
                                     Some(ParsingContext::Quote(0)) => {
                                         self.context.pop();
@@ -1037,7 +1037,7 @@ impl<'a> Parser<'a> {
 
                                             // println!("Should still be quoted here");
 
-                                            return Ok(current_frame.to_expr(close)?);
+                                            return current_frame.to_expr(close);
                                         }
 
                                         return self.maybe_lower_frame(current_frame, close);
@@ -1124,7 +1124,7 @@ fn wrap_in_doc_function(expr: ExprKind, comment: String) -> ExprKind {
     ]))
 }
 
-impl<'a> Parser<'a> {
+impl Parser<'_> {
     fn get_next_and_maybe_wrap_in_doc(&mut self) -> Option<Result<ExprKind>> {
         let mut next;
 
@@ -1354,7 +1354,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-impl<'a> Iterator for Parser<'a> {
+impl Iterator for Parser<'_> {
     type Item = Result<ExprKind>;
 
     // TODO -> put the
@@ -1796,7 +1796,8 @@ impl Frame {
             }
         }
 
-        Ok(self.exprs.push(expr))
+        self.exprs.push(expr);
+        Ok(())
     }
 
     fn improper(&self) -> Result<bool> {
@@ -1805,11 +1806,11 @@ impl Frame {
             Some((idx, span)) => {
                 debug_assert_eq!(idx, self.exprs.len());
 
-                return Err(ParseError::SyntaxError(
+                Err(ParseError::SyntaxError(
                     "Improper list must have a single cdr".into(),
                     span,
                     None,
-                ));
+                ))
             }
             None => Ok(false),
         }

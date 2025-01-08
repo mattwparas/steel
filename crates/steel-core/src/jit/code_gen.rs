@@ -1,4 +1,4 @@
-#![allow(unused)]
+
 
 use crate::gc::Gc;
 use crate::jit::ir::*;

@@ -69,7 +69,6 @@ impl<T: Recyclable + std::hash::Hash + Default> std::hash::Hash for Recycle<T> {
 
 static RECYCLE_LIMIT: AtomicUsize = AtomicUsize::new(128);
 
-#[allow(unused)]
 fn set_recycle_limit(value: usize) {
     RECYCLE_LIMIT.store(value, Ordering::Relaxed);
 }

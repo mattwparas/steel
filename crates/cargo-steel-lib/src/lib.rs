@@ -27,10 +27,8 @@ pub fn steel_home() -> Option<PathBuf> {
                 // this is probably not the best place to do this. This almost
                 // assuredly could be lifted out of this check since failing here
                 // could cause some annoyance.
-                if !x.exists() {
-                    if let Err(_) = std::fs::create_dir(&x) {
-                        eprintln!("Unable to create steel home directory {:?}", x)
-                    }
+                if !x.exists() && std::fs::create_dir(&x).is_err() {
+                    eprintln!("Unable to create steel home directory {:?}", x)
                 }
 
                 x
@@ -94,13 +92,7 @@ pub fn run(args: Vec<String>, env_vars: Vec<(String, String)>) -> Result<(), Box
     });
 
     for last in artifacts {
-        if last
-            .target
-            .kind
-            .iter()
-            .find(|x| x.as_str() == "cdylib")
-            .is_some()
-        {
+        if last.target.kind.iter().any(|x| x.as_str() == "cdylib") {
             for file in last.filenames {
                 if matches!(file.extension(), Some("so") | Some("dylib") | Some("lib")) {
                     println!("Found a cdylib!");

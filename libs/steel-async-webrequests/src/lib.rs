@@ -144,9 +144,9 @@ impl Client {
                 }
                 .into_ffi()
             } else {
-                let message = format!(
+                let message =
                     "Expected a value of type finalized request, found another opaque object"
-                );
+                        .to_string();
                 async move { RResult::RErr(RBoxError::new(AsyncError::TypeMismatch(message))) }
                     .into_ffi()
             }
@@ -210,8 +210,8 @@ impl AsyncRequest {
 
         match inner {
             Some(Ok(inner)) => FinalizedAsyncRequest(Some(inner)).into_ffi_val(),
-            Some(Err(e)) => return RResult::RErr(RBoxError::new(e)),
-            None => return RResult::RErr(RBoxError::new(AsyncError::RequestAlreadyUsed)),
+            Some(Err(e)) => RResult::RErr(RBoxError::new(e)),
+            None => RResult::RErr(RBoxError::new(AsyncError::RequestAlreadyUsed)),
         }
     }
 }

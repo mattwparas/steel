@@ -231,7 +231,7 @@ impl Highlighter for RustylineHelper {
 
             // println!("pos: {}")
 
-            let old_length = line_to_highlight.as_bytes().len();
+            let old_length = line_to_highlight.len();
 
             // self.bracket.set(check_bracket(&line_to_highlight, start));
 
@@ -239,7 +239,7 @@ impl Highlighter for RustylineHelper {
 
             line_to_highlight.replace_range(range, &highlighted);
 
-            let new_length = line_to_highlight.as_bytes().len();
+            let new_length = line_to_highlight.len();
 
             // TODO just store the updated location back in
             if let Some(pos) = paren_to_highlight {

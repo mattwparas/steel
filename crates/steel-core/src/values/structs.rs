@@ -1,7 +1,6 @@
-#![allow(unused)]
 #![allow(clippy::type_complexity)]
 
-use crate::steel_vm::primitives::{steel_unbox_mutable, unbox_mutable};
+use crate::steel_vm::primitives::steel_unbox_mutable;
 use crate::values::HashMap;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
@@ -12,29 +11,22 @@ use crate::parser::interner::InternedString;
 use crate::rerrs::ErrorKind;
 use crate::rvals::{
     from_serializable_value, into_serializable_value, Custom, HeapSerializer, SerializableSteelVal,
-    SerializedHeapRef, SteelHashMap,
 };
 use crate::rvals::{FromSteelVal, IntoSteelVal};
 use crate::steel_vm::register_fn::RegisterFn;
 use crate::throw;
 use crate::{
     gc::Gc,
-    rvals::{AsRefSteelVal, SRef, SteelString},
+    rvals::{AsRefSteelVal, SteelString},
 };
 use crate::{
     rvals::{Result, SteelVal},
     SteelErr,
 };
 use crate::{steel_vm::builtin::BuiltInModule, stop};
-use std::collections::VecDeque;
-use std::ops::Deref;
 use std::sync::Arc;
-use std::{
-    cell::{Ref, RefCell},
-    rc::Rc,
-};
+use std::{cell::RefCell, rc::Rc};
 
-use super::closed::Heap;
 use super::functions::BoxedDynFunction;
 use super::lists::List;
 use super::recycler::Recycle;
@@ -168,13 +160,6 @@ impl UserDefinedStruct {
         if let Some(SteelVal::HeapAllocated(s)) = inner {
             s.set_and_return(value);
         }
-    }
-}
-
-// TODO: This could blow the stack for big trees...
-impl PartialEq for UserDefinedStruct {
-    fn eq(&self, other: &Self) -> bool {
-        self.type_descriptor == other.type_descriptor && self.fields.deref() == other.fields.deref()
     }
 }
 
@@ -492,7 +477,7 @@ impl UserDefinedStruct {
 // This in practice should yield some nice performance
 pub fn struct_update_primitive(args: &mut [SteelVal]) -> Result<SteelVal> {
     if let Some((SteelVal::CustomStruct(s), fields)) = args.split_first_mut() {
-        let mut fields = fields.iter_mut();
+        let fields = fields.iter_mut();
 
         let struct_fields = s.type_descriptor.fields();
 

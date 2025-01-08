@@ -149,7 +149,7 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                 let identifier = &variant.ident;
 
                 for attr in &variant.attrs {
-                    if !filter_out_ignored_attr(&attr) {
+                    if !filter_out_ignored_attr(attr) {
                         continue 'variant;
                     }
                 }
@@ -540,9 +540,9 @@ fn parse_doc_comment(input: ItemFn) -> Option<proc_macro2::TokenStream> {
         args.push(expr);
     }
 
-    return Some(quote! {
+    Some(quote! {
         concat![#(#args),*]
-    });
+    })
 }
 
 #[proc_macro_attribute]

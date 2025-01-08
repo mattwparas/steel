@@ -74,7 +74,6 @@ impl Clone for RustlsTcpStream {
     }
 }
 
-#[allow(unused)]
 #[derive(Debug)]
 enum RustlsError {
     Io(std::io::Error),

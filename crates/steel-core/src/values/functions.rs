@@ -1,39 +1,20 @@
-#![allow(unused)]
-
-use std::{
-    cell::{Cell, RefCell},
-    collections::HashMap,
-    convert::TryFrom,
-    hash::Hasher,
-    sync::Arc,
-};
-
-use fxhash::FxHashSet;
+use std::{collections::HashMap, hash::Hasher, sync::Arc};
 
 use crate::{
-    core::{instructions::DenseInstruction, opcode::OpCode},
+    core::instructions::DenseInstruction,
     gc::{
         shared::{MutContainer, ShareableMut},
         Gc, Shared, SharedMut,
     },
-    parser::{parser::SyntaxObjectId, span::Span},
+    parser::parser::SyntaxObjectId,
     rvals::{
-        from_serializable_value, into_serializable_value, AsRefSteelVal, Custom, FunctionSignature,
-        HeapSerializer, IntoSteelVal, MutFunctionSignature, SerializableSteelVal, SteelString,
+        from_serializable_value, AsRefSteelVal, Custom, HeapSerializer, IntoSteelVal,
+        SerializableSteelVal, SteelString,
     },
-    steel_vm::{
-        register_fn::SendSyncStatic,
-        vm::{BlockMetadata, BlockPattern, BuiltInSignature},
-    },
-    // values::contracts::ContractedFunction,
-    SteelErr,
     SteelVal,
 };
 
-use super::{
-    closed::{Heap, HeapRef},
-    structs::UserDefinedStruct,
-};
+use super::structs::UserDefinedStruct;
 
 // pub(crate) enum Function {
 //     BoxedFunction(BoxedFunctionSignature),
