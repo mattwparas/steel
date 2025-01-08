@@ -4,7 +4,7 @@ extern crate steel_repl;
 
 use steel::steel_vm::engine::Engine;
 use steel_doc::walk_dir;
-use steel_repl::run_repl;
+use steel_repl::{register_readline_module, run_repl};
 
 use std::path::PathBuf;
 use std::process;
@@ -69,6 +69,8 @@ const VERSION_MESSAGE: &str = concat!(
 pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
     let mut vm = Engine::new();
     vm.register_value("std::env::args", steel::SteelVal::ListV(vec![].into()));
+
+    register_readline_module(&mut vm);
 
     match clap_args {
         Args {

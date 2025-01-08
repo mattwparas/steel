@@ -272,7 +272,15 @@ impl SteelPortRepr {
             SteelPortRepr::ChildStdError(output) => output.read_exact(&mut byte),
             SteelPortRepr::StringInput(reader) => reader.read_exact(&mut byte),
             SteelPortRepr::DynReader(reader) => reader.read_exact(&mut byte),
-            SteelPortRepr::TcpStream(t) => t.read(&mut byte).map(|_| ()),
+            SteelPortRepr::TcpStream(t) => {
+                let amount = t.read(&mut byte)?;
+
+                if amount == 0 {
+                    stop!(Generic => "unexpected eof");
+                } else {
+                    Ok(())
+                }
+            }
             SteelPortRepr::FileOutput(_, _)
             | SteelPortRepr::StdOutput(_)
             | SteelPortRepr::StdError(_)

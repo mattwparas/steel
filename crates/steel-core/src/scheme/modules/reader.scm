@@ -30,8 +30,15 @@
         (let ([next (finisher *reader*)])
           (if (void? next)
               (begin
-                (reader.reader-push-string *reader* (read-line-from-port (current-input-port)))
-                (read-impl finisher))
+                (let ([maybe-next-line (read-line-from-port (current-input-port))])
+                  (if (eof-object? maybe-next-line)
+                      (begin
+                        (set! *reader* (reader.new-reader))
+                        (error "missing closing parent - unexpected eof"))
+                      ;; If the next line is not empty,
+                      (begin
+                        (reader.reader-push-string *reader* maybe-next-line)
+                        (read-impl finisher)))))
               next))]
 
        [else next-line])]
@@ -42,7 +49,17 @@
      (let ([next (reader.reader-read-one *reader*)])
 
        (if (void? next)
+           ;; TODO: Share this code with the above
            (begin
-             (reader.reader-push-string *reader* (read-line-from-port (current-input-port)))
-             (read-impl finisher))
+             (let ([maybe-next-line (read-line-from-port (current-input-port))])
+               (if (eof-object? maybe-next-line)
+                   (begin
+                     ;; TODO: drain the reader - consider a separate function for this
+                     (set! *reader* (reader.new-reader))
+                     (error "missing closing parent - unexpected eof"))
+                   ;; If the next line is not empty,
+                   (begin
+                     (reader.reader-push-string *reader* maybe-next-line)
+                     (read-impl finisher)))))
+
            next))]))

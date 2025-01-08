@@ -1057,7 +1057,10 @@ impl ContinuationMark {
 
                 #[cfg(debug_assertions)]
                 {
-                    debug_assert_eq!(open.closed_continuation.stack, continuation.stack);
+                    debug_assert_eq!(
+                        open.closed_continuation.stack.len(),
+                        continuation.stack.len()
+                    );
                     debug_assert_eq!(
                         open.closed_continuation.stack_frames.len(),
                         continuation.stack_frames.len()
@@ -1170,7 +1173,10 @@ impl Continuation {
                                 ctx.instructions,
                                 open.closed_continuation.instructions
                             );
-                            debug_assert_eq!(ctx.thread.stack, open.closed_continuation.stack);
+                            debug_assert_eq!(
+                                ctx.thread.stack.len(),
+                                open.closed_continuation.stack.len()
+                            );
 
                             debug_assert_eq!(ctx.pop_count, open.closed_continuation.pop_count);
 

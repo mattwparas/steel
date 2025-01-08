@@ -6,3 +6,7 @@ mod highlight;
 pub fn run_repl(vm: steel::steel_vm::engine::Engine) -> std::io::Result<()> {
     repl::repl_base(vm)
 }
+
+pub fn register_readline_module(vm: &mut steel::steel_vm::engine::Engine) {
+    repl::readline_module(vm)
+}

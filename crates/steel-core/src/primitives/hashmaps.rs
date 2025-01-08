@@ -36,7 +36,8 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
         .register_native_fn_definition(VALUES_TO_VECTOR_DEFINITION)
         .register_native_fn_definition(CLEAR_DEFINITION)
         .register_native_fn_definition(HM_EMPTY_DEFINITION)
-        .register_native_fn_definition(HM_UNION_DEFINITION);
+        .register_native_fn_definition(HM_UNION_DEFINITION)
+        .register_native_fn_definition(HASH_REMOVE_DEFINITION);
     module
 }
 
@@ -106,6 +107,44 @@ pub fn hm_construct_keywords(args: &[SteelVal]) -> Result<SteelVal> {
     }
 
     Ok(SteelVal::HashMapV(Gc::new(hm).into()))
+}
+
+/// Returns a new hashmap with the given key removed. Performs a functional
+/// update, so the old hash map is still available with the original key value pair.
+///
+/// (hash-remove map key) -> hash?
+///
+/// * map : hash?
+/// * key : any/c
+///
+/// # Examples
+/// ```scheme
+/// > (hash-remove (hash 'a 10 'b 20) 'a)
+///
+/// => '#hash(('b . 20))
+/// ```
+#[function(name = "hash-remove")]
+pub fn hash_remove(map: &mut SteelVal, key: SteelVal) -> Result<SteelVal> {
+    if key.is_hashable() {
+        if let SteelVal::HashMapV(SteelHashMap(ref mut m)) = map {
+            match Gc::get_mut(m) {
+                Some(m) => {
+                    m.remove(&key);
+                    Ok(std::mem::replace(map, SteelVal::Void))
+                }
+                None => {
+                    let mut m = m.unwrap();
+                    m.remove(&key);
+
+                    Ok(SteelVal::HashMapV(Gc::new(m).into()))
+                }
+            }
+        } else {
+            stop!(TypeMismatch => "hash-insert expects a hash map, found: {:?}", map);
+        }
+    } else {
+        stop!(TypeMismatch => "hash key not hashable: {:?}", key)
+    }
 }
 
 /// Returns a new hashmap with the additional key value pair added. Performs a functional update,
