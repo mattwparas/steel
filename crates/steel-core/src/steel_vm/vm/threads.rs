@@ -512,7 +512,10 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             global_env,
             sources,
             stack: Vec::with_capacity(64),
+
+            #[cfg(feature = "dynamic")]
             profiler: OpCodeOccurenceProfiler::new(),
+
             function_interner,
             heap,
             runtime_options: thread.runtime_options,

@@ -35,7 +35,6 @@ use crate::values::transducers::Reducer;
 use crate::{
     compiler::constants::ConstantMap,
     core::{instructions::DenseInstruction, opcode::OpCode},
-    rvals::FutureResult,
 };
 use crate::{
     compiler::program::Executable,
@@ -345,7 +344,10 @@ pub enum ThreadState {
 pub struct SteelThread {
     pub(crate) global_env: Env,
     pub(crate) stack: Vec<SteelVal>,
+
+    #[cfg(feature = "dynamic")]
     profiler: OpCodeOccurenceProfiler,
+
     pub(crate) function_interner: FunctionInterner,
     pub(crate) heap: Arc<Mutex<Heap>>,
     pub(crate) runtime_options: RunTimeOptions,
@@ -554,7 +556,10 @@ impl SteelThread {
         SteelThread {
             global_env: Env::root(),
             stack: Vec::with_capacity(128),
+
+            #[cfg(feature = "dynamic")]
             profiler: OpCodeOccurenceProfiler::new(),
+
             function_interner: FunctionInterner::default(),
             // _super_instructions: Vec::new(),
             heap: Arc::new(Mutex::new(Heap::new())),
@@ -803,6 +808,7 @@ impl SteelThread {
         constant_map: ConstantMap,
         spans: Shared<[Span]>,
     ) -> Result<SteelVal> {
+        #[cfg(feature = "dynamic")]
         self.profiler.reset();
 
         #[cfg(feature = "profiling")]
@@ -1469,7 +1475,7 @@ impl<'a> VmCore<'a> {
         )
     }
 
-    fn weak_collection(&mut self) {
+    pub fn weak_collection(&mut self) {
         self.thread.heap.lock().unwrap().weak_collection();
     }
 
@@ -1515,7 +1521,7 @@ impl<'a> VmCore<'a> {
     // how the existing call/cc implementation works already, which would be nice. However -
     // when _replaying_ the continuation, we should also assume that it can only be replayed
     // once to avoid copying the whole thing.
-    fn new_oneshot_continuation_from_state(&mut self) -> ClosedContinuation {
+    pub fn new_oneshot_continuation_from_state(&mut self) -> ClosedContinuation {
         ClosedContinuation {
             stack: std::mem::take(&mut self.thread.stack),
             instructions: self.instructions.clone(),
@@ -3072,13 +3078,6 @@ impl<'a> VmCore<'a> {
     }
 
     #[inline(always)]
-    fn update_state_with_frame(&mut self, last: StackFrame) {
-        self.ip = last.ip;
-        self.instructions = last.instructions;
-        // self.spans = last.spans;
-    }
-
-    #[inline(always)]
     fn get_last_stack_frame_sp(&self) -> usize {
         self.thread.stack_frames.last().map(|x| x.sp).unwrap_or(0)
     }
@@ -3714,57 +3713,6 @@ impl<'a> VmCore<'a> {
     }
 
     #[inline(always)]
-    fn adjust_stack_for_multi_arity_tco(
-        &mut self,
-        is_multi_arity: bool,
-        original_arity: usize,
-        payload_size: usize,
-        new_arity: &mut usize,
-    ) -> Result<()> {
-        if likely(!is_multi_arity) {
-            if unlikely(original_arity != payload_size) {
-                stop!(ArityMismatch => format!("function expected {} arguments, found {}", original_arity, payload_size); self.current_span());
-            }
-        } else {
-            // println!(
-            //     "multi closure function, multi arity, arity: {:?}",
-            //     closure.arity()
-            // );
-
-            if payload_size < original_arity - 1 {
-                stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", original_arity, payload_size); self.current_span());
-            }
-
-            // (define (test x . y))
-            // (test 1 2 3 4 5)
-            // in this case, arity = 2 and payload size = 5
-            // pop off the last 4, collect into a list
-            let amount_to_remove = 1 + payload_size - original_arity;
-
-            let values = self
-                .thread
-                .stack
-                .drain(self.thread.stack.len() - amount_to_remove..)
-                .collect();
-            // .split_off(self.thread.stack.len() - amount_to_remove);
-
-            let list = SteelVal::ListV(values);
-
-            self.thread.stack.push(list);
-
-            *new_arity = original_arity;
-
-            // println!("Stack after list conversion: {:?}", self.stack);
-        }
-
-        // else if closure.arity() != payload_size {
-        //     stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), payload_size); self.current_span());
-        // }
-
-        Ok(())
-    }
-
-    #[inline(always)]
     fn adjust_stack_for_multi_arity(
         &mut self,
         closure: &Gc<ByteCodeLambda>,
@@ -3980,37 +3928,6 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
-    fn call_future_func_on_stack(
-        &mut self,
-        func: Rc<dyn Fn(&[SteelVal]) -> Result<FutureResult>>,
-        payload_size: usize,
-    ) -> Result<()> {
-        // stack is [args ... function]
-        let len = self.thread.stack.len();
-        // This is the start of the arguments
-        let last_index = len - payload_size - 1;
-
-        // Peek the range for the [args ... function]
-        //                        ~~~~~~~~~~
-        // let result = func(self.stack.peek_range_double(last_index..len))
-        //     .map_err(|x| x.set_span_if_none(self.current_span()))?;
-
-        let result = match func(&self.thread.stack[last_index..len]) {
-            Ok(value) => value,
-            Err(e) => return Err(e.set_span_if_none(self.current_span())),
-        };
-
-        // This is the old way, but now given that the function is included on the stack, this should work...
-        // self.stack.truncate(last_index);
-        // self.stack.push(result);
-
-        self.thread.stack.truncate(last_index + 1);
-        *self.thread.stack.last_mut().unwrap() = SteelVal::FutureV(Gc::new(result));
-
-        self.ip += 1;
-        Ok(())
-    }
-
     // #[inline(always)]
     fn call_future_func(
         &mut self,
@@ -4059,74 +3976,6 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
-    // #[inline(always)]
-    fn handle_lazy_closure(
-        &mut self,
-        closure: &Gc<ByteCodeLambda>,
-        local: SteelVal,
-        const_value: SteelVal,
-    ) -> Result<()> {
-        self.cut_sequence();
-
-        let prev_length = self.thread.stack.len();
-
-        // push them onto the stack if we need to
-        self.thread.stack.push(local);
-        self.thread.stack.push(const_value);
-
-        // Push new stack frame
-        self.thread.stack_frames.push(
-            StackFrame::new(
-                prev_length,
-                Gc::clone(closure),
-                self.ip + 4,
-                // Shared::clone(&self.instructions),
-                self.instructions.clone(),
-                // Rc::clone(&self.spans),
-            ), // .with_span(self.current_span()),
-        );
-
-        // self.current_frame.sp = prev_length;
-
-        // self.current_frame.ip += 4;
-
-        // // Set the sp to be the current values on this
-        // let mut current_frame = StackFrame::new(
-        //     prev_length,
-        //     Gc::clone(closure),
-        //     self.ip + 4,
-        //     Rc::clone(&self.instructions),
-        // )
-        // .with_span(self.current_span());
-
-        // std::mem::swap(&mut current_frame, &mut self.current_frame);
-        // self.stack_frames.push(current_frame);
-
-        self.sp = prev_length;
-
-        // Push on the function stack so we have access to it later
-        // self.function_stack
-        //     .push(CallContext::new(Gc::clone(closure)).with_span(self.current_span()));
-
-        if closure.is_multi_arity {
-            panic!("Calling lazy closure with multi arity");
-        }
-
-        if closure.arity() != 2 {
-            stop!(ArityMismatch => format!("function expected {} arguments, found {}", closure.arity(), 2); self.current_span());
-        }
-
-        // self.current_arity = Some(closure.arity());
-
-        self.check_stack_overflow()?;
-        self.pop_count += 1;
-
-        self.instructions = closure.body_exp();
-        // self.spans = closure.spans();
-        self.ip = 0;
-        Ok(())
-    }
-
     #[inline(always)]
     fn check_stack_overflow(&self) -> Result<()> {
         if CHECK_STACK_OVERFLOW {
@@ -4144,97 +3993,6 @@ impl<'a> VmCore<'a> {
     fn get_offset(&self) -> usize {
         self.sp
         // self.stack_frames.last().map(|x| x.index).unwrap_or(0)
-    }
-
-    // #[inline(always)]
-    fn handle_lazy_function_call(
-        &mut self,
-        stack_func: SteelVal,
-        local: SteelVal,
-        const_value: SteelVal,
-    ) -> Result<()> {
-        use SteelVal::*;
-
-        match &stack_func {
-            BoxedFunction(f) => {
-                self.thread.stack.push(
-                    f.func()(&[local, const_value])
-                        .map_err(|x| x.set_span_if_none(self.current_span()))?,
-                );
-                self.ip += 4;
-            }
-            FuncV(f) => {
-                // self.stack
-                //     .push(f(&[local, const_value]).map_err(|x| x.set_span_if_none(self.current_span()))?);
-                // self.ip += 4;
-
-                match f(&[local, const_value]) {
-                    Ok(value) => self.thread.stack.push(value),
-                    Err(e) => return Err(e.set_span_if_none(self.current_span())),
-                }
-
-                // self.stack
-                // .push(f(&[local, const_value]).map_err(|x| x.set_span_if_none(self.current_span()))?);
-                self.ip += 4;
-            }
-            FutureFunc(f) => {
-                let result = SteelVal::FutureV(Gc::new(
-                    f(&[local, const_value])
-                        .map_err(|x| x.set_span_if_none(self.current_span()))?,
-                ));
-
-                self.thread.stack.push(result);
-                self.ip += 4;
-            }
-            // ContractedFunction(cf) => {
-            //     if let Some(arity) = cf.arity() {
-            //         if arity != 2 {
-            //             stop!(ArityMismatch => format!("function expected {} arguments, found {}", arity, 2); self.current_span());
-            //         }
-            //     }
-
-            //     // if A::enforce_contracts() {
-            //     let result = cf.apply(vec![local, const_value], &self.current_span(), self)?;
-
-            //     self.thread.stack.push(result);
-            //     self.ip += 4;
-            //     // } else {
-            //     // self.handle_lazy_function_call(cf.function.clone(), local, const_value)?;
-            //     // }
-            // }
-            // Contract(c) => self.call_contract(c, payload_size, span)?,
-            ContinuationFunction(_cc) => {
-                unimplemented!("calling continuation lazily not yet handled");
-            }
-            Closure(closure) => self.handle_lazy_closure(closure, local, const_value)?,
-            MutFunc(func) => {
-                let mut args = [local, const_value];
-                self.thread
-                    .stack
-                    .push(func(&mut args).map_err(|x| x.set_span_if_none(self.current_span()))?);
-
-                self.ip += 4;
-            }
-            CustomStruct(s) => {
-                if let Some(proc) = s.maybe_proc() {
-                    return self.handle_lazy_function_call(proc.clone(), local, const_value);
-                } else {
-                    stop!(Generic => "attempted to call struct as function, but the struct does not have a function to call!")
-                }
-            }
-            // BuiltIn(func) => {
-            //     let args = [local, const_value];
-            //     let result =
-            //         func(self, &args).map_err(|x| x.set_span_if_none(self.current_span()))?;
-            //     self.stack.push(result);
-            //     self.ip += 4;
-            // }
-            _ => {
-                log::error!("{stack_func:?}");
-                stop!(BadSyntax => format!("Function application not a procedure or function type not supported, {stack_func}"); self.current_span());
-            }
-        }
-        Ok(())
     }
 
     // // #[inline(always)]
@@ -4353,135 +4111,6 @@ impl<'a> VmCore<'a> {
         }
     }
 
-    #[inline(always)]
-    fn handle_global_function_call_by_ref(
-        &mut self,
-        stack_func: &SteelVal,
-        payload_size: usize,
-    ) -> Result<()> {
-        use SteelVal::*;
-
-        match stack_func {
-            Closure(closure) => {
-                self.handle_function_call_closure_jit(closure.clone(), payload_size)
-            }
-            FuncV(f) => self.call_primitive_func(*f, payload_size),
-            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
-            MutFunc(f) => self.call_primitive_mut_func(*f, payload_size),
-            FutureFunc(f) => self.call_future_func(f.clone(), payload_size),
-            ContinuationFunction(cc) => self.call_continuation(cc.clone()),
-            BuiltIn(f) => {
-                // self.ip -= 1;
-                self.call_builtin_func(*f, payload_size)
-            }
-            CustomStruct(s) => self.call_custom_struct(&s, payload_size),
-            _ => {
-                // Explicitly mark this as unlikely
-                cold();
-                log::error!("{stack_func:?}");
-                log::error!("Stack: {:?}", self.thread.stack);
-                stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); self.current_span());
-            }
-        }
-    }
-    #[inline(always)]
-    fn handle_non_instr_global_function_call(
-        &mut self,
-        stack_func: SteelVal,
-        args: &mut [SteelVal],
-    ) -> Result<Option<SteelVal>> {
-        use SteelVal::*;
-
-        self.ip += 1;
-
-        match stack_func {
-            BoxedFunction(f) => f.func()(args).map(Some),
-            MutFunc(f) => f(args).map(Some),
-            FuncV(f) => f(args).map(Some),
-            FutureFunc(f) => Ok(SteelVal::FutureV(Gc::new(f(args)?))).map(Some),
-            Closure(closure) => {
-                let arity = args.len();
-
-                for arg in args {
-                    self.thread
-                        .stack
-                        .push(std::mem::replace(arg, SteelVal::Void));
-                }
-
-                self.handle_function_call_closure_jit(closure, arity)
-                    .map(|_| None)
-            }
-            // TODO: Implement this for other functions
-            _ => {
-                log::error!("{stack_func:?}");
-                log::error!("Stack: {:?}", self.thread.stack);
-                stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {stack_func}"); self.current_span());
-            }
-        }
-
-        // Ok(())
-    }
-
-    // #[inline(always)]
-    // fn handle_non_instr_global_function_call_lazy_push(
-    //     &mut self,
-    //     stack_func: SteelVal,
-    //     args: &mut [SteelVal],
-    // ) -> Result<()> {
-    //     use SteelVal::*;
-
-    //     // self.ip += 1;
-
-    //     match stack_func {
-    //         BoxedFunction(f) => {
-    //             self.ip += 1;
-    //             self.thread.stack.push(f.func()(args)?)
-    //         }
-    //         MutFunc(f) => {
-    //             self.ip += 1;
-    //             self.thread.stack.push(f(args)?)
-    //         }
-    //         FuncV(f) => {
-    //             self.ip += 1;
-    //             self.thread.stack.push(f(args)?)
-    //         }
-    //         FutureFunc(f) => {
-    //             self.ip += 1;
-    //             self.thread.stack.push(SteelVal::FutureV(Gc::new(f(args)?)))
-    //         }
-    //         Closure(closure) => {
-    //             let arity = args.len();
-
-    //             self.thread.stack.reserve(arity);
-
-    //             for arg in args {
-    //                 self.thread.stack.push(arg.clone());
-    //             }
-
-    //             // If we're here, we're already done profiling, and don't need to profile anymore
-    //             self.handle_function_call_closure_jit(closure, arity)?;
-    //         }
-    //         // BuiltIn(f) => f(self, args),
-    //         _ => {
-    //             log::error!("Lazy push: {stack_func:?}");
-    //             log::error!("Stack: {:?}", self.thread.stack);
-    //             stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {stack_func}"); self.current_span());
-    //         }
-    //     }
-
-    //     Ok(())
-    // }
-
-    // #[inline(always)]
-    // fn call_contract(&mut self, contract: &Gc<ContractType>, payload_size: usize) -> Result<()> {
-    //     match contract.as_ref() {
-    //         ContractType::Flat(f) => self.handle_function_call(f.predicate.clone(), payload_size),
-    //         _ => {
-    //             stop!(BadSyntax => "Function application not a procedure - cannot apply function contract to argument");
-    //         }
-    //     }
-    // }
-
     // #[inline(always)]
     fn handle_function_call(&mut self, stack_func: SteelVal, payload_size: usize) -> Result<()> {
         use SteelVal::*;
@@ -4511,17 +4140,6 @@ impl<'a> VmCore<'a> {
 
 // TODO: This is gonna cause issues assuming this was called in tail call.
 pub fn current_function_span(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
-    if !args.is_empty() {
-        builtin_stop!(ArityMismatch => format!("current-function-span requires no arguments, found {}", args.len()))
-    }
-
-    match ctx.enclosing_span() {
-        Some(s) => Some(Span::into_steelval(s)),
-        None => Some(Ok(SteelVal::Void)),
-    }
-}
-
-pub fn caller_span(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if !args.is_empty() {
         builtin_stop!(ArityMismatch => format!("current-function-span requires no arguments, found {}", args.len()))
     }
@@ -5140,7 +4758,7 @@ pub(crate) fn expand_syntax_case_impl(_ctx: &mut VmCore, args: &[SteelVal]) -> R
 
     let mut template = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
 
-    expand_template(&mut template, &mut bindings, &mut binding_kind);
+    expand_template(&mut template, &mut bindings, &mut binding_kind)?;
 
     crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(template)
 }
@@ -5367,6 +4985,7 @@ pub struct InstructionPattern {
     pub(crate) pattern: BlockPattern,
 }
 
+#[cfg(feature = "dynamic")]
 impl InstructionPattern {
     pub fn new(block: Rc<[(OpCode, usize)]>, pattern: BlockPattern) -> Self {
         Self { block, pattern }
@@ -5386,6 +5005,7 @@ pub struct BlockMetadata {
     created: bool,
 }
 
+#[cfg(feature = "dynamic")]
 #[derive(Clone)]
 pub struct OpCodeOccurenceProfiler {
     occurrences: HashMap<(OpCode, usize), usize>,
@@ -5395,6 +5015,7 @@ pub struct OpCodeOccurenceProfiler {
     sample_count: usize,
 }
 
+#[cfg(feature = "dynamic")]
 impl OpCodeOccurenceProfiler {
     pub fn new() -> Self {
         OpCodeOccurenceProfiler {
@@ -6075,6 +5696,7 @@ fn local_handler3(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.handle_local(3)
 }
 
+#[cfg(feature = "dynamic")]
 // OpCode::SETLOCAL
 fn set_local_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     let offset = ctx.instructions[ctx.ip].payload_size;
@@ -6082,12 +5704,14 @@ fn set_local_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "dynamic")]
 // OpCode::SETLOCAL
 fn set_local_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
     ctx.handle_set_local(payload);
     Ok(())
 }
 
+#[cfg(feature = "dynamic")]
 // OpCode::CALLGLOBAL
 fn call_global_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     // assert!(ctx.ip + 1 < ctx.instructions.len());
@@ -6098,6 +5722,7 @@ fn call_global_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.handle_call_global(payload_size.to_usize(), next_inst.payload_size.to_usize())
 }
 
+#[cfg(feature = "dynamic")]
 // OpCode::CALLGLOBAL
 // TODO: Fix this!
 fn call_global_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
@@ -6106,27 +5731,25 @@ fn call_global_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Res
     ctx.handle_call_global(payload, next_inst.payload_size.to_usize())
 }
 
-// TODO: Have a way to know the correct arity?
-fn call_global_handler_no_stack(
-    ctx: &mut VmCore<'_>,
-    args: &mut [SteelVal],
-) -> Result<Option<SteelVal>> {
-    // ctx.ip += 1;
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    ctx.ip += 1;
+// // TODO: Have a way to know the correct arity?
+// fn call_global_handler_no_stack(
+//     ctx: &mut VmCore<'_>,
+//     args: &mut [SteelVal],
+// ) -> Result<Option<SteelVal>> {
+//     // ctx.ip += 1;
+//     let payload_size = ctx.instructions[ctx.ip].payload_size;
+//     ctx.ip += 1;
+//     // TODO: Track the op codes of the surrounding values as well
+//     // let next_inst = ctx.instructions[ctx.ip];
+//     // println!("Looking up a function at index: {}", payload_size.to_usize());
+//     let func = ctx
+//         .thread
+//         .global_env
+//         .repl_lookup_idx(payload_size.to_usize());
+//     ctx.handle_non_instr_global_function_call(func, args)
+// }
 
-    // TODO: Track the op codes of the surrounding values as well
-    // let next_inst = ctx.instructions[ctx.ip];
-
-    // println!("Looking up a function at index: {}", payload_size.to_usize());
-
-    let func = ctx
-        .thread
-        .global_env
-        .repl_lookup_idx(payload_size.to_usize());
-    ctx.handle_non_instr_global_function_call(func, args)
-}
-
+#[cfg(feature = "dynamic")]
 fn num_equal_handler_no_stack(_ctx: &mut VmCore<'_>, l: SteelVal, r: SteelVal) -> Result<bool> {
     if let SteelVal::BoolV(b) = number_equality(&l, &r)? {
         Ok(b)
@@ -6135,6 +5758,7 @@ fn num_equal_handler_no_stack(_ctx: &mut VmCore<'_>, l: SteelVal, r: SteelVal) -
     }
 }
 
+#[cfg(feature = "dynamic")]
 // OpCode::LOADINT0
 fn handle_load_int0(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.thread.stack.push(SteelVal::INT_ZERO);
@@ -6142,6 +5766,7 @@ fn handle_load_int0(ctx: &mut VmCore<'_>) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "dynamic")]
 // OpCode::LOADINT1
 fn handle_load_int1(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.thread.stack.push(SteelVal::INT_ONE);
@@ -6149,6 +5774,7 @@ fn handle_load_int1(ctx: &mut VmCore<'_>) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "dynamic")]
 // OpCode::LOADINT2
 fn handle_load_int2(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.thread.stack.push(SteelVal::INT_TWO);
@@ -6156,48 +5782,57 @@ fn handle_load_int2(ctx: &mut VmCore<'_>) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "dynamic")]
 // OpCode::MOVEREADLOCAL
 fn move_local_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     let index = ctx.instructions[ctx.ip].payload_size;
     ctx.handle_move_local(index.to_usize())
 }
 
+#[cfg(feature = "dynamic")]
 // OpCode::MOVEREADLOCAL
 fn move_local_handler_with_payload(ctx: &mut VmCore<'_>, index: usize) -> Result<()> {
     ctx.handle_move_local(index)
 }
 
+#[cfg(feature = "dynamic")]
 // OpCode::MOVEREADLOCAL0
 fn move_local_handler0(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.handle_move_local(0)
 }
 
+#[cfg(feature = "dynamic")]
 // OpCode::MOVEREADLOCAL1
 fn move_local_handler1(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.handle_move_local(1)
 }
 
+#[cfg(feature = "dynamic")]
 // OpCode::MOVEREADLOCAL2
 fn move_local_handler2(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.handle_move_local(2)
 }
 
+#[cfg(feature = "dynamic")]
 // OpCode::MOVEREADLOCAL3
 fn move_local_handler3(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.handle_move_local(3)
 }
 
+#[cfg(feature = "dynamic")]
 // OpCode::READCAPTURED
 fn read_captured_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     ctx.handle_read_captures(payload_size.to_usize())
 }
 
+#[cfg(feature = "dynamic")]
 // OpCode::READCAPTURED
 fn read_captured_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
     ctx.handle_read_captures(payload_size)
 }
 
+#[cfg(feature = "dynamic")]
 // OpCode::BEGINSCOPE
 fn begin_scope_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.ip += 1;
@@ -6248,6 +5883,7 @@ fn let_end_scope_handler_with_payload(ctx: &mut VmCore<'_>, beginning_scope: usi
     Ok(())
 }
 
+#[cfg(feature = "dynamic")]
 // OpCode::PUREFUNC
 fn pure_function_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
@@ -6255,6 +5891,7 @@ fn pure_function_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "dynamic")]
 // OpCode::PUREFUNC
 fn pure_function_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
     ctx.handle_pure_function(payload_size);
@@ -6598,6 +6235,7 @@ mod handlers {
         Ok(())
     }
 
+    #[cfg(feature = "dynamic")]
     fn specialized_sub01(ctx: &mut VmCore<'_>) -> Result<()> {
         let offset = ctx.get_offset();
         // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
