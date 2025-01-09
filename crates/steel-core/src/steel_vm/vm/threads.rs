@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use fxhash::FxHashMap;
-use parking_lot::{lock_api::RawMutex, RwLock};
+use parking_lot::RwLock;
 use steel_derive::function;
 
 use crate::{
@@ -159,7 +159,7 @@ pub fn closure_into_serializable(
     serializer: &mut std::collections::HashMap<usize, SerializableSteelVal>,
     visited: &mut std::collections::HashSet<usize>,
 ) -> Result<SerializedLambda> {
-    if let Some(mut prototype) = CACHED_CLOSURES.with(|x| x.borrow().get(&c.id).cloned()) {
+    if let Some(prototype) = CACHED_CLOSURES.with(|x| x.borrow().get(&c.id).cloned()) {
         let mut prototype = SerializedLambda {
             id: prototype.id,
             body_exp: prototype.body_exp,
@@ -177,7 +177,7 @@ pub fn closure_into_serializable(
 
         Ok(prototype)
     } else {
-        let mut prototype = SerializedLambdaPrototype {
+        let prototype = SerializedLambdaPrototype {
             id: c.id,
 
             #[cfg(not(feature = "dynamic"))]
@@ -225,6 +225,7 @@ struct MovableFunctionInterner {
     instructions: fxhash::FxHashMap<u32, Vec<DenseInstruction>>,
 }
 
+#[allow(unused)]
 /// This will naively deep clone the environment, by attempting to translate every value into a `SerializableSteelVal`
 /// While this does work, it does result in a fairly hefty deep clone of the environment. It does _not_ smartly attempt
 /// to keep track of what values this function could touch - rather it assumes every value is possible to be touched
@@ -384,7 +385,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
     // TODO: Spawn a bunch of threads at the start to handle requests. That way we don't need to do this
     // the whole time they're in there.
     let handle = std::thread::spawn(move || {
-        let mut heap = time!("Heap Creation", Arc::new(Mutex::new(Heap::new())));
+        let heap = time!("Heap Creation", Arc::new(Mutex::new(Heap::new())));
 
         // Move across threads?
         let mut mapping = initial_map
@@ -596,7 +597,7 @@ impl Channels {
 pub fn select(values: &[SteelVal]) -> Result<SteelVal> {
     let mut selector = crossbeam::channel::Select::new();
 
-    let mut borrows = values
+    let borrows = values
         .iter()
         .map(|x| SteelReceiver::as_ref(x))
         .collect::<Result<smallvec::SmallVec<[_; 8]>>>()?;
@@ -641,7 +642,7 @@ pub fn channel_recv(receiver: &SteelVal) -> Result<SteelVal> {
     SteelReceiver::as_ref(receiver)?
         .receiver
         .recv()
-        .map_err(|e| {
+        .map_err(|_| {
             throw!(Generic => "Unable to receive on the channel. 
                 The channel is empty and disconnected")()
         })
@@ -752,7 +753,7 @@ pub fn disconnected_channel() -> SteelVal {
 }
 
 #[steel_derive::context(name = "current-thread-id", arity = "Exact(0)")]
-pub fn engine_id(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+pub fn engine_id(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(Ok(SteelVal::IntV(ctx.thread.id.0 as _)))
 }
 
@@ -779,7 +780,7 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
 
     let thread_time = std::time::Instant::now();
     let mut thread = ctx.thread.clone();
-    let interrupt = Arc::new(AtomicBool::new(false));
+    // let interrupt = Arc::new(AtomicBool::new(false));
     // Let this thread have its own interrupt handler
     let controller = ThreadStateController::default();
     thread.synchronizer.state = controller.clone();
