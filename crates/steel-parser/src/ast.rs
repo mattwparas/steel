@@ -1036,6 +1036,20 @@ impl Vector {
             ParenMod::Vector
         }
     }
+
+    pub fn as_bytes(&self) -> impl Iterator<Item = u8> + '_ {
+        self.args.iter().flat_map(move |expr| {
+            let byte = if let ExprKind::Atom(atom) = expr {
+                atom.byte()
+            } else {
+                None
+            };
+
+            debug_assert!(!(self.bytes && byte.is_none()));
+
+            byte
+        })
+    }
 }
 
 impl fmt::Display for Vector {

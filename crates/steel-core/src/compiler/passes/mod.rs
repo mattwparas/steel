@@ -131,11 +131,7 @@ pub trait Folder {
     }
 
     #[inline]
-    fn visit_vector(&mut self, mut v: Vector) -> ExprKind {
-        let args: Vec<_> = v.args.into_iter().map(|exp| self.visit(exp)).collect();
-
-        v.args = args;
-
+    fn visit_vector(&mut self, v: Vector) -> ExprKind {
         ExprKind::Vector(v)
     }
 }
@@ -225,12 +221,7 @@ pub trait VisitorMutUnit {
     #[inline]
     fn visit_require(&mut self, _s: &Require) {}
 
-    #[inline]
-    fn visit_vector(&mut self, v: &Vector) {
-        for arg in &v.args {
-            self.visit(arg);
-        }
-    }
+    fn visit_vector(&mut self, _v: &Vector) {}
 }
 
 pub trait VisitorMutControlFlow {
@@ -545,9 +536,7 @@ pub trait VisitorMutRefUnit {
     #[inline]
     fn visit_require(&mut self, _s: &mut Require) {}
 
-    fn visit_vector(&mut self, v: &mut Vector) {
-        for arg in &mut v.args {
-            self.visit(arg);
-        }
-    }
+    // vectors are constants, most analysis passes should ignore them
+    #[inline]
+    fn visit_vector(&mut self, v: &mut Vector) {}
 }

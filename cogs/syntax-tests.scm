@@ -146,14 +146,6 @@
 (check-equal? "catch-all lists, 1 arg" (catchall-list (a b)) '(a))
 (check-equal? "catch-all lists, 2 args" (catchall-list (a b) (c d)) '(a c))
 
-(define-syntax improper-rest
-  (syntax-rules ()
-    [(_ (a . b)) 'b]))
-
-(skip-compile (check-equal? "improper-rest, 0 args" (improper-rest 1) '()))
-(skip-compile (check-equal? "improper-rest, 1 arg" (improper-rest 1 2) '(2)))
-(skip-compile (check-equal? "improper-rest, 2 args" (improper-rest 1 a (b)) '(a (b))))
-
 (define bound-x 3)
 
 (define-syntax lexical-capture
@@ -161,6 +153,14 @@
     [(_) bound-x]))
 
 (let ([bound-x 'inner]) (check-equal? "hygiene, lexical capture" (lexical-capture) 3))
+
+(define-syntax improper-rest
+  (syntax-rules ()
+    [(_ (a . b)) 'b]))
+
+ (check-equal? "improper-rest, 0 args" (improper-rest (1)) '())
+ (check-equal? "improper-rest, 1 arg" (improper-rest (1 2)) '(2))
+ (check-equal? "improper-rest, 2 args" (improper-rest (1 a (b))) '(a (b)))
 
 (check-equal? "improper lists in syntax"
               ;; equivalent to (let [(x 1)] x)
@@ -210,6 +210,12 @@
               (improper-tail x y . z)
               '(y . z))
 (check-equal? "improper list pattern, tail arguments, constant in cdr" (improper-tail x . "y") "y")
+
+(define-syntax improper-tail-const
+  (syntax-rules ()
+    [(_ a . #t) (quote a)]))
+
+(check-equal? "improper list pattern, constant tail" (improper-tail-const x . #t) 'x)
 
 (define-syntax improper-tail-nested
   (syntax-rules ()
@@ -269,6 +275,34 @@
        (_t a))]))
 
 (check-equal? "macro expansion correctly works within another syntax rules" (t 10) 11)
+
+
+(define-syntax with-u8
+  (syntax-rules ()
+    [(_ #u8(1) a) a]))
+
+(check-equal? "bytevector patterns" (with-u8 #u8(1) #(a b)) #(a b))
+
+(check-syntax-error? "bytevector patterns, unmatched constant"
+                     '((define-syntax with-u8
+                         (syntax-rules ()
+                           [(_ #u8(1) a) a]))
+                       (with-u8 #u8(3) 1))
+                     "macro expansion unable to match case")
+
+(define-syntax with-vec
+  (syntax-rules ()
+    [(_ #(a)) 'a]))
+
+(check-equal? "vector pattern" (with-vec #((x y))) '(x y))
+
+(define-syntax into-vec
+  (syntax-rules ()
+    [(_ a b) #(b)]))
+
+(check-equal? "vector pattern replacement" (into-vec x y) #(y))
+
+(check-equal? "vector quasiquoting" `#(,(list 'a)) #((a)))
 
 ;; -------------- Report ------------------
 
