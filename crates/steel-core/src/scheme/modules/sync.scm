@@ -41,7 +41,9 @@
     (define func (Task-func-or-result next-task))
 
     ;; Does this work?
-    (with-handler (lambda (err) (set-Task-err! next-task err))
+    (with-handler (lambda (err)
+                    (set-Task-done! next-task #t)
+                    (set-Task-err! next-task err))
                   ;; Capture exception, if it exists. Store it in the task
                   (lock! (Task-lock next-task)
                          (lambda ()
@@ -82,7 +84,10 @@
     (cond
       ;; If its an error, we don't immediately raise
       ;; the exception for now
-      [(Task-done task) (if (Task-err task) (Task-err task) (Task-func-or-result task))]
+      [(Task-done task)
+       (if (Task-err task)
+           (Task-err task)
+           (Task-func-or-result task))]
       [else
        (try-block task)
        (loop task)]))

@@ -90,9 +90,19 @@ pub fn list_module() -> BuiltInModule {
         .register_native_fn_definition(PLIST_TRY_GET_POSITIONAL_DEFINITION)
         .register_native_fn_definition(PLIST_GET_POSITIONAL_LIST_DEFINITION)
         .register_native_fn_definition(PLIST_VALIDATE_ARGS_DEFINITION)
-        .register_native_fn_definition(DROP_START_DEFINITION);
+        .register_native_fn_definition(DROP_START_DEFINITION)
+        .register_native_fn_definition(CHUNKS_DEFINITION);
 
     module
+}
+
+#[steel_derive::function(name = "list-chunks", constant = true)]
+pub fn chunks(list: &List<SteelVal>) -> Result<SteelVal> {
+    let nodes = list.nodes();
+
+    Ok(SteelVal::ListV(
+        nodes.into_iter().map(|x| SteelVal::ListV(x)).collect(),
+    ))
 }
 
 /// Get the second element of the list. Raises an error if the list does not have an element in the second position.

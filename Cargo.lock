@@ -1752,8 +1752,7 @@ dependencies = [
 [[package]]
 name = "im-lists"
 version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c38da2a11f128e1af1585abdd7041a96fc1adcd6ca2cb33e7fc5728326edbe8a"
+source = "git+https://github.com/mattwparas/im-lists.git?branch=mwp-node-iter#5f566d726136a81c24d22115c303a873021d46b4"
 dependencies = [
  "smallvec",
 ]
