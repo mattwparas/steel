@@ -16,7 +16,7 @@
 (define (pmap func lst)
   ;; Chunk based on the natural growth
   (define chunks (list-chunks lst))
-  (displayln (map length chunks))
+  ; (displayln (map length chunks))
   ;; Lots of additional allocation?
   (define tasks (map (lambda (chunk) (submit-task tp (lambda () (map func chunk)))) chunks))
   ;; Reducing contention... how to do it? Probably need to do some kind of work with
@@ -27,11 +27,10 @@
 
 (define inputs (range 0 10000))
 
-; (for-each (lambda (_)
-(time! (pmap add1 inputs))
-(time! (map add1 inputs))
-; )
-; (range 0 100))
+(for-each (lambda (_) (pmap add1 inputs))
+          ; (time! (map add1 inputs))
+          ; )
+          (range 0 1000))
 
-(time! (pmap add1 inputs))
-(time! (map add1 inputs))
+; (time! (pmap add1 inputs))
+; (time! (map add1 inputs))
