@@ -342,6 +342,8 @@ pub enum ThreadState {
 /// The thread execution context
 #[derive(Clone)]
 pub struct SteelThread {
+    // TODO: Make the global env readable? Multiple threads?
+    // Force other threads to get updates from it during a safepoint exit?
     pub(crate) global_env: Env,
     pub(crate) stack: Vec<SteelVal>,
 
@@ -438,7 +440,7 @@ impl ThreadStateController {
 
 #[derive(Clone)]
 struct ThreadContext {
-    ctx: std::sync::Weak<AtomicCell<Option<*const SteelThread>>>,
+    ctx: std::sync::Weak<AtomicCell<Option<*mut SteelThread>>>,
     handle: SteelVal,
 }
 
@@ -454,7 +456,7 @@ pub struct Synchronizer {
 
     // If we're at a safe point, then this will include a _live_ pointer
     // to the context. Once we exit the safe point, we're done.
-    ctx: Arc<AtomicCell<Option<*const SteelThread>>>,
+    ctx: Arc<AtomicCell<Option<*mut SteelThread>>>,
 }
 
 // TODO: Until I figure out how to note have this be the case
@@ -470,6 +472,36 @@ impl Synchronizer {
                 state: Arc::new(AtomicCell::new(ThreadState::Running)),
             },
             ctx: Arc::new(AtomicCell::new(None)),
+        }
+    }
+
+    pub(crate) unsafe fn call_per_ctx(&mut self, mut func: impl FnMut(&mut SteelThread)) {
+        let guard = self.threads.lock().unwrap();
+
+        for ThreadContext { ctx, .. } in guard.iter() {
+            if let Some(ctx) = ctx.upgrade() {
+                // TODO: Have to use a condvar
+                loop {
+                    if let Some(ctx) = ctx.load() {
+                        log::debug!("Broadcasting `set!` operation");
+
+                        unsafe {
+                            let live_ctx = &mut (*ctx);
+                            (func)(live_ctx)
+                        }
+
+                        break;
+                    } else {
+                        log::debug!("Waiting for thread...")
+
+                        // TODO: Some kind of condvar or message passing
+                        // is probably a better scheme here, but the idea is to just
+                        // wait until all the threads are done.
+                    }
+                }
+            } else {
+                continue;
+            }
         }
     }
 
@@ -597,7 +629,8 @@ impl SteelThread {
         // thread exists
 
         if cfg!(feature = "sync") && self.safepoints_enabled {
-            self.synchronizer.ctx.store(Some(self as _));
+            let ptr = self as _;
+            self.synchronizer.ctx.store(Some(ptr));
         }
 
         let res = finish(self);
@@ -813,16 +846,6 @@ impl SteelThread {
 
         #[cfg(feature = "profiling")]
         let execution_time = Instant::now();
-
-        // let mut vm_instance = VmCore::new(
-        //     instructions,
-        //     constant_map,
-        //     Shared::clone(&spans),
-        //     self,
-        //     &spans,
-        // )?;
-
-        // TODO: Very important! Convert this back before we return
 
         let mut vm_instance = VmCore::new(
             RootedInstructions::new(instructions),
@@ -1406,7 +1429,7 @@ impl<'a> VmCore<'a> {
     }
 
     #[inline(always)]
-    pub fn safepoint_or_interrupt(&self) -> Result<()> {
+    pub fn safepoint_or_interrupt(&mut self) -> Result<()> {
         // Check if we need to be paused
         if self
             .thread
@@ -1425,7 +1448,8 @@ impl<'a> VmCore<'a> {
                 ThreadState::PausedAtSafepoint => {
                     // TODO:
                     // Insert the code to do the stack things here
-                    self.thread.synchronizer.ctx.store(Some(self.thread as _));
+                    let ptr = self.thread as _;
+                    self.thread.synchronizer.ctx.store(Some(ptr));
                     self.park_thread_while_paused();
                     self.thread.synchronizer.ctx.store(None);
                 }
@@ -3096,10 +3120,28 @@ impl<'a> VmCore<'a> {
     fn handle_set(&mut self, index: usize) -> Result<()> {
         let value_to_assign = self.thread.stack.pop().unwrap();
 
+        // STOP THREADS -> apply the set index across all of them.
+        // set! is _much_ slower than it needs to be.
+        self.thread.synchronizer.stop_threads();
+
         let value = self
             .thread
             .global_env
-            .repl_set_idx(index, value_to_assign)?;
+            .repl_set_idx(index, value_to_assign.clone())?;
+
+        // Updating on all
+        unsafe {
+            self.thread.synchronizer.call_per_ctx(|thread| {
+                thread
+                    .global_env
+                    .repl_set_idx(index, value_to_assign.clone())
+                    .unwrap();
+            });
+        }
+
+        // Resume.
+        // Apply these to all of the things.
+        self.thread.synchronizer.resume_threads();
 
         self.thread.stack.push(value);
         self.ip += 1;
@@ -3644,9 +3686,27 @@ impl<'a> VmCore<'a> {
 
     // #[inline(always)]
     fn handle_bind(&mut self, payload_size: usize) {
+        let value = self.thread.stack.pop().unwrap();
+
+        // TODO: Do the same thing here:
+        self.thread.synchronizer.stop_threads();
+
         self.thread
             .global_env
-            .repl_define_idx(payload_size, self.thread.stack.pop().unwrap());
+            .repl_define_idx(payload_size, value.clone());
+
+        // Updating on all
+        unsafe {
+            self.thread.synchronizer.call_per_ctx(|thread| {
+                thread
+                    .global_env
+                    .repl_define_idx(payload_size, value.clone());
+            });
+        }
+
+        // Resume.
+        // Apply these to all of the things.
+        self.thread.synchronizer.resume_threads();
 
         self.ip += 1;
     }

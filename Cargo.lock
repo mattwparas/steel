@@ -1752,7 +1752,7 @@ dependencies = [
 [[package]]
 name = "im-lists"
 version = "0.8.1"
-source = "git+https://github.com/mattwparas/im-lists.git?branch=mwp-node-iter#5f566d726136a81c24d22115c303a873021d46b4"
+source = "git+https://github.com/mattwparas/im-lists.git?branch=mwp-node-iter#b177f28f135daaed73d0778f0c0b9b58af6ebfea"
 dependencies = [
  "smallvec",
 ]

@@ -1,5 +1,6 @@
 (require "steel/sync")
 (require "steel/time/time.scm")
+(require-builtin steel/time)
 
 ;; Thread pool for parallel map - will just be static for all pmaps.
 (define tp (make-thread-pool 16))
@@ -13,24 +14,68 @@
 ;; that this is something we _could_ implement, and _should_ implement, but I
 ;; don't feel like going through that exercise right now.
 
+(define printer-lock (mutex))
+(define (instant/elapsed->string t)
+  (~> t (instant/elapsed) (duration->string)))
+
 (define (pmap func lst)
   ;; Chunk based on the natural growth
   (define chunks (list-chunks lst))
   ; (displayln (map length chunks))
   ;; Lots of additional allocation?
-  (define tasks (map (lambda (chunk) (submit-task tp (lambda () (map func chunk)))) chunks))
+  (define tasks
+    (map (lambda (chunk)
+           (submit-task tp
+                        (lambda ()
+                          (define now (instant/now))
+                          ;; Find out where the overhead is coming from
+                          (define res (map func chunk))
+
+                          ; (displayln printer-lock)
+
+                          ; (lock! printer-lock
+                          ;        (lambda ()
+                          ;          (displayln (thread::current/id)
+                          ;                     "-"
+                          ;                     "Chunk size:"
+                          ;                     (length chunk)
+                          ;                     ":"
+                          ;                     (instant/elapsed->string now))))
+
+                          res)))
+         chunks))
   ;; Reducing contention... how to do it? Probably need to do some kind of work with
   ;; making sure that the globals don't get locked up - I'm guessing that is where most of
   ;; the wait time here is - if each thread can get its own copies of the values, then
   ;; they don't have to be locked up reading a global.
-  (transduce tasks (into-for-each block-on-task)))
+  (transduce tasks (flat-mapping (lambda (x) (block-on-task x))) (into-list)))
 
-(define inputs (range 0 10000))
+;; Why is this so slow?
+(define inputs (range 0 100000))
 
-(for-each (lambda (_) (pmap add1 inputs))
-          ; (time! (map add1 inputs))
-          ; )
-          (range 0 1000))
+(define (looper x)
+  (if (= x 100)
+      x
+      (looper (+ x 1))))
 
-; (time! (pmap add1 inputs))
-; (time! (map add1 inputs))
+(define (expensive-add1 x)
+  (looper 0)
+  (add1 x))
+
+(for-each (lambda (_)
+            (time! (pmap expensive-add1 inputs))
+            ; (time! (map expensive-add1 inputs))
+            )
+          (range 0 10))
+
+; (time! (pmap expensive-add1 inputs))
+; (time! (pmap expensive-add1 inputs))
+; (time! (map expensive-add1 inputs))
+
+; (define (test)
+;   (dynamic-wind (lambda () (displayln "before"))
+;                 (lambda () (displayln "during"))
+;                 (lambda () (displayln "after")))
+;   10)
+
+; (displayln (test))

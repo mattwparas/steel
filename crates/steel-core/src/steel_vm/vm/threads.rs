@@ -311,6 +311,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
                 .global_env
                 .bindings_vec
                 .read()
+                .unwrap()
                 .iter()
                 .cloned()
                 .map(|x| into_serializable_value(x, &mut initial_map, &mut visited))
@@ -425,7 +426,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
         let global_env = time!(
             "Global env creation",
             Env {
-                bindings_vec: Arc::new(RwLock::new(
+                bindings_vec: Arc::new(std::sync::RwLock::new(
                     thread
                         .global_env
                         .into_iter()
@@ -433,7 +434,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
                         .collect()
                 )),
                 // TODO:
-                // thread_local_bindings: Vec::new(),
+                thread_local_bindings: Vec::new(),
             }
         );
 
@@ -779,7 +780,12 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     ctx.thread.safepoints_enabled = true;
 
     let thread_time = std::time::Instant::now();
+
+    // Do this here?
     let mut thread = ctx.thread.clone();
+
+    // println!("Created thread");
+
     // let interrupt = Arc::new(AtomicBool::new(false));
     // Let this thread have its own interrupt handler
     let controller = ThreadStateController::default();
