@@ -9,7 +9,9 @@ use crate::parser::{
 };
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 // TODO add the serializing and deserializing for constants
 use serde::{Deserialize, Serialize};
 use steel_parser::parser::{lower_entire_ast, SourceId};
@@ -20,6 +22,8 @@ use steel_parser::parser::{lower_entire_ast, SourceId};
 pub struct ConstantMap {
     map: SharedMut<HashMap<SteelVal, usize>>,
     values: SharedMut<Vec<SteelVal>>,
+    // TODO: Flush to these values after a compilation. - maybe have two of them to
+    reified_values: Arc<ArcSwap<Vec<SteelVal>>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -36,6 +40,7 @@ impl Clone for ConstantMap {
         Self {
             values: Shared::clone(&self.values),
             map: Shared::clone(&self.map),
+            reified_values: Arc::clone(&self.reified_values),
         }
     }
 }
@@ -45,7 +50,14 @@ impl ConstantMap {
         ConstantMap {
             values: Shared::new(MutContainer::new(Vec::new())),
             map: Shared::new(MutContainer::new(HashMap::new())),
+            // Does this help at all?
+            reified_values: Arc::new(ArcSwap::from_pointee(Vec::new())),
         }
+    }
+
+    pub fn flush(&self) {
+        let values = self.values.read().clone();
+        self.reified_values.store(Arc::new(values));
     }
 
     pub fn deep_clone(&self) -> ConstantMap {
@@ -58,6 +70,9 @@ impl ConstantMap {
                     .collect(),
             )),
             values: Shared::new(MutContainer::new(
+                self.values.read().iter().cloned().collect(),
+            )),
+            reified_values: Arc::new(ArcSwap::from_pointee(
                 self.values.read().iter().cloned().collect(),
             )),
         }
@@ -91,6 +106,7 @@ impl ConstantMap {
                     .collect(),
             )),
             values: Shared::new(MutContainer::new(vec)),
+            reified_values: todo!(),
         }
     }
 
@@ -165,6 +181,10 @@ impl ConstantMap {
     #[inline(always)]
     pub fn get(&self, idx: usize) -> SteelVal {
         self.values.read()[idx].clone()
+    }
+
+    pub fn get_value(&self, idx: usize) -> SteelVal {
+        self.reified_values.load()[idx].clone()
     }
 
     pub fn try_get(&self, idx: usize) -> Option<SteelVal> {

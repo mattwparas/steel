@@ -63,9 +63,8 @@
   (add1 x))
 
 (for-each (lambda (_)
-            (time! (pmap expensive-add1 inputs))
-            ; (time! (map expensive-add1 inputs))
-            )
+            ; (time! (pmap expensive-add1 inputs))
+            (time! (map expensive-add1 inputs)))
           (range 0 10))
 
 ; (time! (pmap expensive-add1 inputs))

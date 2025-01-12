@@ -60,6 +60,7 @@ use std::{cell::RefCell, collections::HashMap, iter::Iterator, rc::Rc};
 
 use super::engine::EngineId;
 
+use arc_swap::ArcSwap;
 use crossbeam::atomic::AtomicCell;
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
@@ -342,8 +343,6 @@ pub enum ThreadState {
 /// The thread execution context
 #[derive(Clone)]
 pub struct SteelThread {
-    // TODO: Make the global env readable? Multiple threads?
-    // Force other threads to get updates from it during a safepoint exit?
     pub(crate) global_env: Env,
     pub(crate) stack: Vec<SteelVal>,
 
@@ -1330,6 +1329,10 @@ impl<'a> VmContext for VmCore<'a> {
 pub struct VmCore<'a> {
     // pub(crate) instructions: Shared<[DenseInstruction]>,
     pub(crate) instructions: RootedInstructions,
+
+    // TODO: Replace this with a thread local constant map!
+    // that way reads are fast - and any updates to it are
+    // broadcast from the shared constant map.
     pub(crate) constants: ConstantMap,
     pub(crate) ip: usize,
     pub(crate) sp: usize,
@@ -2065,7 +2068,7 @@ impl<'a> VmCore<'a> {
                     self.thread.stack[read_local.payload_size.to_usize() + offset].clone();
 
                 // get the const
-                let const_val = self.constants.get(push_const.payload_size.to_usize());
+                let const_val = self.constants.get_value(push_const.payload_size.to_usize());
 
                 let result = match $name(&[local_value, const_val]) {
                     Ok(value) => value,
@@ -2549,7 +2552,7 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
-                    let val = self.constants.get(payload_size.to_usize());
+                    let val = self.constants.get_value(payload_size.to_usize());
                     self.thread.stack.push(val);
                     self.ip += 1;
                 }
@@ -6450,7 +6453,7 @@ mod handlers {
     // OpCode::PUSHCONST
     fn push_const_handler(ctx: &mut VmCore<'_>) -> Result<()> {
         let payload_size = ctx.instructions[ctx.ip].payload_size;
-        let val = ctx.constants.get(payload_size.to_usize());
+        let val = ctx.constants.get_value(payload_size.to_usize());
         ctx.thread.stack.push(val);
         ctx.ip += 1;
         Ok(())
@@ -6458,14 +6461,14 @@ mod handlers {
 
     pub fn push_const_handler_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
         let payload_size = ctx.instructions[ctx.ip].payload_size;
-        let val = ctx.constants.get(payload_size.to_usize());
+        let val = ctx.constants.get_value(payload_size.to_usize());
         ctx.ip += 1;
         Ok(val)
     }
 
     // OpCode::PUSHCONST
     fn push_const_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-        let val = ctx.constants.get(payload);
+        let val = ctx.constants.get_value(payload);
         ctx.thread.stack.push(val);
         ctx.ip += 1;
         Ok(())
