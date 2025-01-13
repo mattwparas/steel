@@ -1,7 +1,9 @@
 extern crate rustyline;
 use colored::*;
+use steel_parser::interner::InternedString;
 use steel_parser::parser::SourceId;
 
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use rustyline::highlight::Highlighter;
@@ -17,22 +19,20 @@ use rustyline::completion::Pair;
 
 use std::borrow::Cow;
 
-use steel::steel_vm::engine::Engine;
-
 impl Completer for RustylineHelper {
     type Candidate = Pair;
 }
 
 #[derive(Helper)]
 pub struct RustylineHelper {
-    engine: Arc<Mutex<Engine>>,
+    globals: Arc<Mutex<HashSet<InternedString>>>,
     bracket: crossbeam::atomic::AtomicCell<Option<(u8, usize)>>, // keywords: HashSet<&'static str>,
 }
 
 impl RustylineHelper {
-    pub fn new(engine: Arc<Mutex<Engine>>) -> Self {
+    pub fn new(globals: Arc<Mutex<HashSet<InternedString>>>) -> Self {
         Self {
-            engine,
+            globals,
             bracket: crossbeam::atomic::AtomicCell::new(None),
         }
     }
@@ -195,18 +195,21 @@ impl Highlighter for RustylineHelper {
                 }
                 TokenType::Identifier(ident) => {
                     // If its a free identifier, nix it?
-                    if self.engine.lock().unwrap().global_exists(ident) {
-                        // println!("before length: {}", token.source().as_bytes().len());
+
+                    if self
+                        .globals
+                        .lock()
+                        .unwrap()
+                        .contains(&InternedString::from(*ident))
+                    {
                         let highlighted = format!("{}", token.source().bright_blue());
-                        // println!("After length: {}", highlighted.as_bytes().len());
-
-                        // println!("paren pos: {:?}", self.bracket.get());
-
                         ranges_to_replace.push((token.span().range(), highlighted));
                     }
 
-                    // else if self.engine.borrow().in_scope_macros().contains_key(*ident) {
-                    //     let highlighted = format!("{}", token.source().bright_cyan());
+                    // TODO:
+                    // if self.engine.lock().unwrap().global_exists(ident) {
+                    //     // println!("before length: {}", token.source().as_bytes().len());
+                    //     let highlighted = format!("{}", token.source().bright_blue());
                     //     ranges_to_replace.push((token.span().range(), highlighted));
                     // }
                 }

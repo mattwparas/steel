@@ -60,7 +60,6 @@ use std::{cell::RefCell, collections::HashMap, iter::Iterator, rc::Rc};
 
 use super::engine::EngineId;
 
-use arc_swap::ArcSwap;
 use crossbeam::atomic::AtomicCell;
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
@@ -343,6 +342,10 @@ pub enum ThreadState {
 /// The thread execution context
 #[derive(Clone)]
 pub struct SteelThread {
+    // TODO: Figure out how to best broadcast changes
+    // to the rest of the world? Right now pausing threads
+    // means we can get away with one environment that is
+    // shared, but in reality this should just be
     pub(crate) global_env: Env,
     pub(crate) stack: Vec<SteelVal>,
 
@@ -477,8 +480,14 @@ impl Synchronizer {
     pub(crate) unsafe fn call_per_ctx(&mut self, mut func: impl FnMut(&mut SteelThread)) {
         let guard = self.threads.lock().unwrap();
 
+        // IMPORTANT - This needs to be all threads except the currently
+        // executing one.
         for ThreadContext { ctx, .. } in guard.iter() {
             if let Some(ctx) = ctx.upgrade() {
+                if Arc::ptr_eq(&ctx, &self.ctx) {
+                    continue;
+                }
+
                 // TODO: Have to use a condvar
                 loop {
                     if let Some(ctx) = ctx.load() {
@@ -492,6 +501,8 @@ impl Synchronizer {
                         break;
                     } else {
                         log::debug!("Waiting for thread...")
+
+                        // println!("Waiting for thread...");
 
                         // TODO: Some kind of condvar or message passing
                         // is probably a better scheme here, but the idea is to just
@@ -511,6 +522,11 @@ impl Synchronizer {
         // Wait for all the threads to be legal
         for ThreadContext { ctx, .. } in guard.iter() {
             if let Some(ctx) = ctx.upgrade() {
+                // Don't pause myself, enter safepoint from main thread?
+                if Arc::ptr_eq(&ctx, &self.ctx) {
+                    continue;
+                }
+
                 // TODO: Have to use a condvar
                 loop {
                     if let Some(ctx) = ctx.load() {
@@ -584,6 +600,16 @@ impl Synchronizer {
 
 impl SteelThread {
     pub fn new(sources: Sources, compiler: std::sync::Arc<RwLock<Compiler>>) -> SteelThread {
+        let synchronizer = Synchronizer::new();
+        let weak_ctx = Arc::downgrade(&synchronizer.ctx);
+
+        // TODO: Entering safepoint should happen often
+        // for the main thread?
+        synchronizer.threads.lock().unwrap().push(ThreadContext {
+            ctx: weak_ctx,
+            handle: SteelVal::Void,
+        });
+
         SteelThread {
             global_env: Env::root(),
             stack: Vec::with_capacity(128),
@@ -604,7 +630,7 @@ impl SteelThread {
             // with the executables
             constant_map: DEFAULT_CONSTANT_MAP.with(|x| x.clone()),
             interrupted: Default::default(),
-            synchronizer: Synchronizer::new(),
+            synchronizer,
             thread_local_storage: Vec::new(),
             sources,
             compiler,
@@ -3694,6 +3720,7 @@ impl<'a> VmCore<'a> {
         // TODO: Do the same thing here:
         self.thread.synchronizer.stop_threads();
 
+        // println!("Pausing threads to define new variable");
         self.thread
             .global_env
             .repl_define_idx(payload_size, value.clone());
@@ -3706,6 +3733,8 @@ impl<'a> VmCore<'a> {
                     .repl_define_idx(payload_size, value.clone());
             });
         }
+
+        // println!("Finished broadcasting new variable");
 
         // Resume.
         // Apply these to all of the things.

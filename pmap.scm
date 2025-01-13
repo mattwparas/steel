@@ -2,6 +2,10 @@
 (require "steel/time/time.scm")
 (require-builtin steel/time)
 
+;; Dedicated internal thread pool - sits and waits for things.
+;; How does eval on another thread behave?
+;; The ultimate question...
+
 ;; Thread pool for parallel map - will just be static for all pmaps.
 (define tp (make-thread-pool 16))
 
@@ -54,17 +58,23 @@
 (define inputs (range 0 100000))
 
 (define (looper x)
-  (if (= x 100)
-      x
-      (looper (+ x 1))))
+  (if (= x 100) x (looper (+ x 1))))
 
 (define (expensive-add1 x)
   (looper 0)
   (add1 x))
 
+;; List chunks -> Most elegant way of submitting the values in the list?
+;; Also, more or less guaranteed to be sequential in memory. Big memory savings by
+;; putting things together.
+
+;; Where is the contention?
+;; Contention on function calls.
 (for-each (lambda (_)
-            ; (time! (pmap expensive-add1 inputs))
-            (time! (map expensive-add1 inputs)))
+            ;; Rooted instructions - very important.
+            ;; Need to have a lot more tests around this.
+            (displayln (equal? (time! (pmap expensive-add1 inputs))
+                               (time! (map expensive-add1 inputs)))))
           (range 0 10))
 
 ; (time! (pmap expensive-add1 inputs))
