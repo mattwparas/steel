@@ -58,7 +58,9 @@
 (define inputs (range 0 100000))
 
 (define (looper x)
-  (if (= x 100) x (looper (+ x 1))))
+  (if (= x 100)
+      x
+      (looper (+ x 1))))
 
 (define (expensive-add1 x)
   (looper 0)

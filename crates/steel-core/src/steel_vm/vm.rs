@@ -872,6 +872,9 @@ impl SteelThread {
         #[cfg(feature = "profiling")]
         let execution_time = Instant::now();
 
+        let keep_alive = instructions.clone();
+        let raw_keep_alive = Shared::into_raw(keep_alive);
+
         let mut vm_instance = VmCore::new(
             RootedInstructions::new(instructions),
             constant_map,
@@ -970,6 +973,7 @@ impl SteelThread {
                 }
 
                 self.stack.clear();
+                unsafe { Shared::from_raw(raw_keep_alive) };
 
                 return Err(e);
             } else {
@@ -979,6 +983,7 @@ impl SteelThread {
 
                 // Clean up
                 self.stack.clear();
+                unsafe { Shared::from_raw(raw_keep_alive) };
 
                 return result;
             }

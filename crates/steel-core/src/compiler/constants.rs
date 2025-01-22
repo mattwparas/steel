@@ -105,8 +105,8 @@ impl ConstantMap {
                     .map(|x| (x.1, x.0))
                     .collect(),
             )),
-            values: Shared::new(MutContainer::new(vec)),
-            reified_values: todo!(),
+            values: Shared::new(MutContainer::new(vec.clone())),
+            reified_values: Arc::new(ArcSwap::from_pointee(vec)),
         }
     }
 

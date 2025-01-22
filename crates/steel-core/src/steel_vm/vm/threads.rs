@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 
 use fxhash::FxHashMap;
-use parking_lot::RwLock;
 use steel_derive::function;
 
 use crate::{
