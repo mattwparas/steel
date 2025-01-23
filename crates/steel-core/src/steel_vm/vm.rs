@@ -164,11 +164,6 @@ pub struct StackFrame {
 
     ip: usize,
 
-    // TODO: Root all functions forever? At least, the instructions?
-    // This is probably not good, perhaps really not good, but operating
-    // under the assumption that all code that ends up in functions lives
-    // forever statically is probably okay? How else are they going to be
-    // referenced?
     instructions: RootedInstructions,
 
     pub(crate) attachments: Option<Box<StackFrameAttachments>>,
@@ -3245,24 +3240,15 @@ impl<'a> VmCore<'a> {
         // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
         let offset = self.get_offset();
 
-        // if index + offset >= self.thread.stack.len() {
-        // dbg!(&self.thread.stack.get(offset..));
-        //     // dbg!(&self.current_span());
-
-        //     pretty_print_dense_instructions(&self.instructions);
-        //     dbg!(self.ip);
-        // }
-
         let value = self.thread.stack[index + offset].clone();
-
         self.thread.stack.push(value);
         self.ip += 1;
         Ok(())
     }
 
+    // How many captures?
     fn handle_read_captures(&mut self, index: usize) -> Result<()> {
         let value = self.thread.stack_frames.last().unwrap().function.captures()[index].clone();
-
         self.thread.stack.push(value);
         self.ip += 1;
         Ok(())
@@ -3428,8 +3414,7 @@ impl<'a> VmCore<'a> {
                 arity.to_usize(),
                 is_multi_arity,
                 Vec::new(),
-                // Vec::new(),
-                // Rc::clone(&spans),
+                // smallvec::SmallVec::new(),
             ));
 
             self.thread
@@ -3490,6 +3475,7 @@ impl<'a> VmCore<'a> {
 
         // TODO preallocate size
         let mut captures = Vec::with_capacity(ndefs);
+        // let mut captures = smallvec::SmallVec::with_capacity(ndefs);
 
         // TODO clean this up a bit
         // hold the spot for where we need to jump aftwards
@@ -3647,7 +3633,7 @@ impl<'a> VmCore<'a> {
                 arity.to_usize(),
                 is_multi_arity,
                 Vec::new(),
-                // Vec::new(),
+                // smallvec::SmallVec::new(),
             );
 
             self.thread
@@ -4596,6 +4582,7 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
         0,
         false,
         Vec::new(),
+        // smallvec::SmallVec::new(),
     ));
     ctx.thread
         .function_interner

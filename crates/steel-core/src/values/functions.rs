@@ -106,7 +106,13 @@ pub struct ByteCodeLambda {
 
     pub(crate) is_multi_arity: bool,
 
+    // Store... some amount inline?
     pub(crate) captures: Vec<SteelVal>,
+
+    //
+    // pub(crate) captures: smallvec::SmallVec<[SteelVal; 6]>,
+
+    // pub(crate) captures: Box<[SteelVal]>
     #[cfg(feature = "dynamic")]
     pub(crate) blocks: RefCell<Vec<(BlockPattern, BlockMetadata)>>,
 
@@ -210,10 +216,8 @@ impl ByteCodeLambda {
         arity: usize,
         is_multi_arity: bool,
         captures: Vec<SteelVal>,
-        // heap_allocated: Vec<HeapRef<SteelVal>>,
+        // captures: smallvec::SmallVec<[SteelVal; 6]>,
     ) -> ByteCodeLambda {
-        // debug_assert_eq!(body_exp.len(), spans.len());
-
         ByteCodeLambda {
             id,
 
@@ -256,13 +260,14 @@ impl ByteCodeLambda {
         )
     }
 
-    pub fn rooted(instructions: Arc<[DenseInstruction]>) -> ByteCodeLambda {
+    pub fn rooted(instructions: Shared<[DenseInstruction]>) -> ByteCodeLambda {
         Self::new(
             SyntaxObjectId::fresh().into(),
             instructions,
             0,
             false,
             Vec::default(),
+            // smallvec::SmallVec::default(),
         )
     }
 
@@ -273,12 +278,17 @@ impl ByteCodeLambda {
             0,
             false,
             Vec::default(),
+            // smallvec::SmallVec::default(),
         )
     }
 
     pub fn set_captures(&mut self, captures: Vec<SteelVal>) {
         self.captures = captures;
     }
+
+    // pub fn set_captures(&mut self, captures: smallvec::SmallVec<[SteelVal; 6]>) {
+    //     self.captures = captures;
+    // }
 
     // TODO: The lifecycle of `RootedInstructions` should not be
     // beyond the scope of execution. This invariant should in
