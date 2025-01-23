@@ -256,6 +256,16 @@ impl ByteCodeLambda {
         )
     }
 
+    pub fn rooted(instructions: Arc<[DenseInstruction]>) -> ByteCodeLambda {
+        Self::new(
+            SyntaxObjectId::fresh().into(),
+            instructions,
+            0,
+            false,
+            Vec::default(),
+        )
+    }
+
     pub fn main(instructions: Vec<DenseInstruction>) -> ByteCodeLambda {
         Self::new(
             SyntaxObjectId::fresh().into(),
@@ -263,24 +273,20 @@ impl ByteCodeLambda {
             0,
             false,
             Vec::default(),
-            // Vec::default(),
-            // Rc::from([]),
         )
     }
-
-    // pub fn id(&self) -> usize {
-    //     self.id
-    // }
 
     pub fn set_captures(&mut self, captures: Vec<SteelVal>) {
         self.captures = captures;
     }
 
-    // pub fn set_heap_allocated(&mut self, heap_allocated: Vec<HeapRef<SteelVal>>) {
-    //     self.heap_allocated = RefCell::new(heap_allocated);
-    // }
-
-    pub fn body_exp(&self) -> RootedInstructions {
+    // TODO: The lifecycle of `RootedInstructions` should not be
+    // beyond the scope of execution. This invariant should in
+    // general hold - with the exception of continuations, which
+    // should probably hold on to any functions that are contains
+    // strongly - so there should be some kind of slot on the continuation
+    // to hold on to a strong reference to each instruction set.
+    pub(crate) fn body_exp(&self) -> RootedInstructions {
         // #[cfg(feature = "dynamic")]
         // return Shared::clone(&self.body_exp.borrow());
 

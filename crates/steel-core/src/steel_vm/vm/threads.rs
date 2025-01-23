@@ -221,7 +221,6 @@ struct MovableFunctionInterner {
     closure_interner: fxhash::FxHashMap<u32, SerializedLambda>,
     pure_function_interner: fxhash::FxHashMap<u32, SerializedLambda>,
     spans: fxhash::FxHashMap<u32, Vec<Span>>,
-    instructions: fxhash::FxHashMap<u32, Vec<DenseInstruction>>,
 }
 
 #[allow(unused)]
@@ -367,13 +366,6 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
                     .iter()
                     .map(|(k, v)| (*k, v.iter().copied().collect()))
                     .collect(),
-                instructions: ctx
-                    .thread
-                    .function_interner
-                    .instructions
-                    .iter()
-                    .map(|(k, v)| (*k, v.iter().copied().collect()))
-                    .collect(),
             }
         ),
 
@@ -474,12 +466,6 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
                 spans: thread
                     .function_interner
                     .spans
-                    .into_iter()
-                    .map(|(k, v)| (k, v.into()))
-                    .collect(),
-                instructions: thread
-                    .function_interner
-                    .instructions
                     .into_iter()
                     .map(|(k, v)| (k, v.into()))
                     .collect(),

@@ -1,4 +1,3 @@
-// use crate::compiler::code_gen::fresh_function_id;
 use crate::compiler::compiler::Compiler;
 use crate::core::instructions::u24;
 use crate::gc::shared::MutContainer;
@@ -19,7 +18,6 @@ use crate::primitives::numbers::add_two;
 use crate::rvals::as_underlying_type;
 use crate::rvals::cycles::BreadthFirstSearchSteelValVisitor;
 use crate::rvals::number_equality;
-// use crate::rvals::AsRefMutSteelVal as _;
 use crate::rvals::BoxedAsyncFunctionSignature;
 use crate::rvals::FromSteelVal as _;
 use crate::rvals::SteelString;
@@ -162,30 +160,17 @@ pub struct StackFrameAttachments {
 pub struct StackFrame {
     sp: usize,
 
-    // This _has_ to be a function
-    // pub(crate) handler: Option<Shared<SteelVal>>,
-    // This should get added to the GC as well
-    #[cfg(not(feature = "unsafe-internals"))]
     pub(crate) function: Gc<ByteCodeLambda>,
-    // Whenever the StackFrame object leaves the context of _this_ VM, these functions
-    // need to become rooted, otherwise we'll have an issue with use after free
-    #[cfg(feature = "unsafe-internals")]
-    pub(crate) function: crate::gc::unsafe_roots::MaybeRooted<ByteCodeLambda>,
 
     ip: usize,
 
-    // // TODO: This should just be... *const [DenseInstruction]
-    // // Since Rc<DenseInstruction> should always just be alive?
-    // instructions: Shared<[DenseInstruction]>,
-
-    // // TODO: Delete this one!
-    // // continuation_mark: Option<MaybeContinuation>,
-    // weak_continuation_mark: Option<WeakContinuation>,
+    // TODO: Root all functions forever? At least, the instructions?
+    // This is probably not good, perhaps really not good, but operating
+    // under the assumption that all code that ends up in functions lives
+    // forever statically is probably okay? How else are they going to be
+    // referenced?
     instructions: RootedInstructions,
 
-    // TODO: Delete this one!
-    // continuation_mark: Option<MaybeContinuation>,
-    // weak_continuation_mark: Option<WeakContinuation>,
     pub(crate) attachments: Option<Box<StackFrameAttachments>>,
 }
 
@@ -228,14 +213,10 @@ impl StackFrame {
         stack_index: usize,
         function: Gc<ByteCodeLambda>,
         ip: usize,
-        // instructions: Shared<[DenseInstruction]>,
         instructions: RootedInstructions,
     ) -> Self {
         Self {
             sp: stack_index,
-            #[cfg(feature = "unsafe-internals")]
-            function: crate::gc::unsafe_roots::MaybeRooted::Reference(function),
-            #[cfg(not(feature = "unsafe-internals"))]
             function,
             ip,
             instructions,
@@ -266,7 +247,6 @@ impl StackFrame {
 
     pub fn main() -> Self {
         let function = Gc::new(ByteCodeLambda::main(Vec::new()));
-        // StackFrame::new(0, function, 0, Shared::from([]))
         StackFrame::new(
             0,
             function,
@@ -277,15 +257,7 @@ impl StackFrame {
 
     #[inline(always)]
     pub fn set_function(&mut self, function: Gc<ByteCodeLambda>) {
-        #[cfg(not(feature = "unsafe-internals"))]
-        {
-            self.function = function;
-        }
-
-        #[cfg(feature = "unsafe-internals")]
-        {
-            self.function = crate::gc::unsafe_roots::MaybeRooted::Reference(function);
-        }
+        self.function = function;
     }
 
     #[inline(always)]
@@ -403,9 +375,6 @@ pub struct FunctionInterner {
     // reference to the existing thread in which it was created, and if passed in externally by
     // another run time, we can nuke it?
     spans: fxhash::FxHashMap<u32, Shared<[Span]>>,
-    // Keep these around - each thread keeps track of the instructions on the bytecode object, but we shouldn't
-    // need to dereference that until later? When we actually move to that
-    instructions: fxhash::FxHashMap<u32, Shared<[DenseInstruction]>>,
 }
 
 #[derive(Clone, Default)]
@@ -873,8 +842,15 @@ impl SteelThread {
         let execution_time = Instant::now();
 
         let keep_alive = instructions.clone();
+
+        self.current_frame
+            .set_function(Gc::new(ByteCodeLambda::rooted(keep_alive.clone())));
+
         let raw_keep_alive = Shared::into_raw(keep_alive);
 
+        // TODO: Figure out how to keep the first set of instructions around
+        // during a continuation? Does it get allocated into something? If its the
+        // root one, we should move it into a function?
         let mut vm_instance = VmCore::new(
             RootedInstructions::new(instructions),
             constant_map,
@@ -951,10 +927,7 @@ impl SteelThread {
                                     panic!("This shouldn't happen")
                                 }
 
-                                #[cfg(not(feature = "unsafe-internals"))]
-                                {
-                                    last.function = closure.clone();
-                                }
+                                last.function = closure.clone();
 
                                 vm_instance.ip = 0;
 
@@ -996,7 +969,6 @@ pub struct OpenContinuationMark {
     // Lazily capture the frames we need to?
     pub(crate) current_frame: StackFrame,
     pub(crate) stack_frame_offset: usize,
-    // instructions: Shared<[DenseInstruction]>,
     instructions: RootedInstructions,
 
     // Captured at creation, everything on the stack
@@ -1235,13 +1207,14 @@ impl WeakContinuation {
 pub struct ClosedContinuation {
     pub(crate) stack: Vec<SteelVal>,
     pub(crate) current_frame: StackFrame,
-    // instructions: Shared<[DenseInstruction]>,
     instructions: RootedInstructions,
     pub(crate) stack_frames: Vec<StackFrame>,
     ip: usize,
     sp: usize,
     pop_count: usize,
 
+    // #[cfg(feature = "rooted-instructions")]
+    // rooted_instructions: Vec<Shared<[DenseInstruction]>>,
     #[cfg(debug_assertions)]
     closed_continuation: Option<Box<ClosedContinuation>>,
 }
@@ -1358,7 +1331,6 @@ impl<'a> VmContext for VmCore<'a> {
 // }
 
 pub struct VmCore<'a> {
-    // pub(crate) instructions: Shared<[DenseInstruction]>,
     pub(crate) instructions: RootedInstructions,
 
     // TODO: Replace this with a thread local constant map!
@@ -1403,11 +1375,6 @@ impl<'a> VmCore<'a> {
         if instructions.is_empty() {
             stop!(Generic => "empty stack!")
         }
-
-        // Set up the instruction pointers here
-        // let function = Gc::new(ByteCodeLambda::main(instructions.iter().copied().collect()));
-
-        // let current_frame = StackFrame::new(0, function, 0, Rc::clone(&instructions));
 
         Ok(VmCore {
             instructions,
@@ -1687,7 +1654,6 @@ impl<'a> VmCore<'a> {
     // Reset state FULLY
     pub(crate) fn call_with_instructions_and_reset_state(
         &mut self,
-        // closure: Shared<[DenseInstruction]>,
         closure: RootedInstructions,
     ) -> Result<SteelVal> {
         let old_ip = self.ip;
@@ -1765,12 +1731,7 @@ impl<'a> VmCore<'a> {
                                 self.sp = last.sp;
                                 self.instructions = closure.body_exp();
 
-                                // last.handler = None;
-
-                                #[cfg(not(feature = "unsafe-internals"))]
-                                {
-                                    last.function = closure.clone();
-                                }
+                                last.function = closure.clone();
 
                                 self.ip = 0;
 
@@ -2022,7 +1983,6 @@ impl<'a> VmCore<'a> {
             Gc::clone(closure),
             0,
             RootedInstructions::new(THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone())),
-            // Rc::from([]),
         ));
 
         self.sp = prev_length;
@@ -2043,10 +2003,6 @@ impl<'a> VmCore<'a> {
         closure: &Gc<ByteCodeLambda>,
         arg: SteelVal,
     ) -> Result<SteelVal> {
-        // thread_local! {
-        // static EMPTY_INSTRUCTIONS: Shared<[DenseInstruction]> = Shared::new([]);
-        // }
-
         let prev_length = self.thread.stack.len();
 
         self.thread.stack_frames.push(StackFrame::new(
