@@ -127,6 +127,7 @@ recycle = []
 git = ["dep:git2", "anyhow"]
 experimental-drop-handler = []
 unsandboxed-kernel = []
+inline-captures = []
 
 [[bench]]
 name = "my_benchmark"

@@ -128,9 +128,9 @@ impl<'a> CodeGenerator<'a> {
             if let Some(info) = self.analysis.get(function.atom_syntax_object()?) {
                 if info.kind == Free || info.kind == Global {
                     return match function.atom_identifier().unwrap().resolve() {
-                        "+" => Some(OpCode::ADDIMMEDIATE),
-                        "-" => Some(OpCode::SUBIMMEDIATE),
-                        "<=" => Some(OpCode::LTEIMMEDIATE),
+                        "+" | "#%prim.+" => Some(OpCode::ADDIMMEDIATE),
+                        "-" | "#%prim.-" => Some(OpCode::SUBIMMEDIATE),
+                        "<=" | "#%prim.<=" => Some(OpCode::LTEIMMEDIATE),
                         _ => None,
                     };
                 }
@@ -544,6 +544,14 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         if let Some(x) = body_instructions.last_mut() {
             if x.op_code == OpCode::POPN {
                 x.op_code = OpCode::PASS;
+            }
+        }
+
+        let size = body_instructions.len();
+
+        for instr in &mut body_instructions {
+            if instr.op_code == OpCode::JMP && instr.payload_size.to_usize() == size {
+                instr.op_code = OpCode::POPJMP;
             }
         }
 

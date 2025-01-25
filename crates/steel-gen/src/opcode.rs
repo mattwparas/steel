@@ -117,7 +117,13 @@ declare_opcodes! {
         LTEIMMEDIATEIF;
         NOT;
         VEC;
-        Apply
+        Apply;
+        POPJMP;
+        CALLGLOBALTAILPOP;
+        BINOPADDTAIL;
+        LOADINT0POP; // Load const 0
+        LOADINT1POP;
+        LOADINT2POP
     }
 
     // Super instructions

@@ -26,6 +26,7 @@ use crate::steel_vm::primitives::steel_set_box_mutable;
 use crate::steel_vm::primitives::steel_unbox_mutable;
 use crate::values::closed::Heap;
 use crate::values::closed::MarkAndSweepContext;
+use crate::values::functions::CaptureVec;
 use crate::values::functions::RootedInstructions;
 use crate::values::functions::SerializedLambda;
 use crate::values::structs::UserDefinedStruct;
@@ -204,6 +205,7 @@ thread_local! {
 }
 
 impl StackFrame {
+    #[inline(always)]
     pub fn new(
         stack_index: usize,
         function: Gc<ByteCodeLambda>,
@@ -215,9 +217,7 @@ impl StackFrame {
             function,
             ip,
             instructions,
-            // handler: None,
             attachments: None,
-            // weak_continuation_mark: None,
         }
     }
 
@@ -2336,12 +2336,30 @@ impl<'a> VmCore<'a> {
                     // and don't have to invoke a clone here.
                     // let result = sub_handler_none_int(self, local_value, const_val)?;
 
+                    // let result = match l {
+                    //     SteelVal::IntV(_)
+                    //     | SteelVal::NumV(_)
+                    //     | SteelVal::Rational(_)
+                    //     | SteelVal::BigNum(_)
+                    //     | SteelVal::BigRational(_) => {
+                    //         // TODO: Create a specialized version of this!
+                    //         subtract_primitive(&[l.clone(), SteelVal::IntV(r)])
+                    //             .map_err(|x| x.set_span_if_none(self.current_span()))?
+                    //     }
+                    //     _ => {
+                    //         cold();
+                    //         stop!(TypeMismatch => "sub expected a number, found: {}", l)
+                    //     }
+                    // };
+
                     let result = match l {
-                        SteelVal::IntV(_)
-                        | SteelVal::NumV(_)
+                        // TODO: Handle overflow / underflow?
+                        SteelVal::IntV(l) => SteelVal::IntV(l - r),
+                        SteelVal::NumV(_)
                         | SteelVal::Rational(_)
                         | SteelVal::BigNum(_)
                         | SteelVal::BigRational(_) => {
+                            // TODO: Create a specialized version of this!
                             subtract_primitive(&[l.clone(), SteelVal::IntV(r)])
                                 .map_err(|x| x.set_span_if_none(self.current_span()))?
                         }
@@ -2450,17 +2468,39 @@ impl<'a> VmCore<'a> {
                     // add_handler_payload(self, 2)?;
 
                     let right = self.thread.stack.pop().unwrap();
-                    let left = self.thread.stack.last().unwrap();
+                    let left = self.thread.stack.last_mut().unwrap();
 
-                    let result = match handlers::add_handler_none_none(left, &right) {
+                    let result = match add_two(left, &right) {
                         Ok(value) => value,
                         Err(e) => return Err(e.set_span_if_none(self.current_span())),
                     };
 
-                    *self.thread.stack.last_mut().unwrap() = result;
+                    *left = result;
 
                     self.ip += 2;
                 }
+
+                DenseInstruction {
+                    op_code: OpCode::BINOPADDTAIL,
+                    ..
+                } => {
+                    let right = self.thread.stack.pop().unwrap();
+                    let left = self.thread.stack.pop().unwrap();
+
+                    let result = match handlers::add_handler_none_none(&left, &right) {
+                        Ok(value) => value,
+                        Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                    };
+
+                    // *left = result;
+
+                    if let Some(r) = self.handle_pop_pure_value(result) {
+                        return r;
+                    }
+
+                    // self.ip += 2;
+                }
+
                 DenseInstruction {
                     op_code: OpCode::SUB,
                     payload_size,
@@ -2643,6 +2683,18 @@ impl<'a> VmCore<'a> {
                     self.thread.stack.push(SteelVal::INT_TWO);
                     self.ip += 1;
                 }
+
+                DenseInstruction {
+                    op_code: OpCode::LOADINT1POP,
+                    ..
+                } => {
+                    // self.thread.stack.push(SteelVal::INT_TWO);
+                    self.ip += 1;
+                    if let Some(r) = self.handle_pop_pure_value(SteelVal::INT_TWO) {
+                        return r;
+                    }
+                }
+
                 // DenseInstruction {
                 //     op_code: OpCode::CGLOCALCONST,
                 //     payload_size,
@@ -2686,10 +2738,56 @@ impl<'a> VmCore<'a> {
                     ..
                 } => {
                     let next_inst = self.instructions[self.ip + 1];
-                    self.handle_tail_call_global(
-                        payload_size.to_usize(),
-                        next_inst.payload_size.to_usize(),
-                    )?;
+                    // self.handle_tail_call_global(
+                    //     payload_size.to_usize(),
+                    //     next_inst.payload_size.to_usize(),
+                    // )?;
+
+                    let stack_func = self
+                        .thread
+                        .global_env
+                        .repl_lookup_idx(payload_size.to_usize());
+                    self.ip += 1;
+                    let payload_size = next_inst.payload_size.to_usize();
+                    // self.handle_tail_call(stack_func, next_inst.payload_size.to_usize());
+
+                    use SteelVal::*;
+
+                    match stack_func {
+                        FuncV(f) => {
+                            let last_index = self.thread.stack.len() - payload_size;
+                            let result =
+                                match self.thread.enter_safepoint(move |ctx: &SteelThread| {
+                                    f(&ctx.stack[last_index..])
+                                }) {
+                                    Ok(v) => v,
+                                    Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                                };
+
+                            // This is the old way... lets see if the below way improves the speed
+                            self.thread.stack.truncate(last_index);
+                            if let Some(r) = self.handle_pop_pure_value(result) {
+                                return r;
+                            }
+                            Ok(())
+                        }
+                        MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
+                        BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
+                        Closure(closure) => {
+                            self.new_handle_tail_call_closure(closure, payload_size)
+                        }
+                        BuiltIn(f) => self.call_builtin_func(f, payload_size),
+                        CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+                        ContinuationFunction(cc) => self.call_continuation(cc),
+                        _ => {
+                            // println!("{:?}", self.stack);
+                            // println!("{:?}", self.stack_index);
+                            // println!("Bad tail call");
+                            // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+                            stop!(BadSyntax => format!("TailCall - Application not a procedure or function type 
+                    not supported: {stack_func}"); self.current_span());
+                        }
+                    }?
                 }
                 DenseInstruction {
                     op_code: OpCode::FUNC,
@@ -2814,12 +2912,10 @@ impl<'a> VmCore<'a> {
                     //     self.stack[offset + i] = self.stack[back + i].clone();
                     // }
 
-                    // self.stack.truncate(offset + current_arity);
-
                     let _ = self.thread.stack.drain(offset..back);
-
-                    // println!("stack after truncating: {:?}", self.stack);
                 }
+
+                // Blindly go to the next instructions
                 DenseInstruction {
                     op_code: OpCode::JMP,
                     payload_size,
@@ -2827,6 +2923,18 @@ impl<'a> VmCore<'a> {
                 } => {
                     self.ip = payload_size.to_usize();
                 }
+
+                // If the JMP points to a pop, just pop
+                DenseInstruction {
+                    op_code: OpCode::POPJMP,
+                    ..
+                } => {
+                    // self.ip = payload_size.to_usize();
+                    if let Some(r) = self.handle_pop_pure() {
+                        return r;
+                    }
+                }
+
                 DenseInstruction {
                     op_code: OpCode::BEGINSCOPE,
                     ..
@@ -3034,10 +3142,10 @@ impl<'a> VmCore<'a> {
     }
 
     #[inline(always)]
-    fn handle_pop_pure(&mut self) -> Option<Result<SteelVal>> {
+    fn handle_pop_pure_value(&mut self, value: SteelVal) -> Option<Result<SteelVal>> {
         // Check that the amount we're looking to pop and the function stack length are equivalent
         // otherwise we have a problem
-
+        // println!("{} - {}", self.pop_count, self.thread.stack_frames.len());
         self.pop_count -= 1;
 
         let last = self.thread.stack_frames.pop();
@@ -3047,6 +3155,66 @@ impl<'a> VmCore<'a> {
 
         if should_continue {
             let last = last.unwrap();
+            // let last = unsafe { last.unwrap_unchecked() };
+
+            let rollback_index = last.sp;
+
+            self.close_continuation_marks(&last);
+
+            // let _ = self
+            //     .thread
+            //     .stack
+            //     .drain(rollback_index..self.thread.stack.len() - 1);
+
+            self.thread.stack.truncate(rollback_index);
+            self.thread.stack.push(value);
+
+            self.ip = last.ip;
+            self.instructions = last.instructions;
+
+            self.sp = self.get_last_stack_frame_sp();
+
+            None
+        } else {
+            // let ret_val = self.thread.stack.pop().ok_or_else(|| {
+            //     SteelErr::new(ErrorKind::Generic, "stack empty at pop".to_string())
+            //         .with_span(self.current_span())
+            // });
+
+            let ret_val = Ok(value);
+
+            let rollback_index = last
+                .map(|x| {
+                    self.close_continuation_marks(&x);
+                    x.sp
+                })
+                .unwrap_or(0);
+
+            // Move forward past the pop
+            self.ip += 1;
+
+            self.thread.stack.truncate(rollback_index);
+            self.sp = 0;
+
+            Some(ret_val)
+        }
+    }
+
+    #[inline(always)]
+    fn handle_pop_pure(&mut self) -> Option<Result<SteelVal>> {
+        // Check that the amount we're looking to pop and the function stack length are equivalent
+        // otherwise we have a problem
+        // println!("{} - {}", self.pop_count, self.thread.stack_frames.len());
+        self.pop_count -= 1;
+
+        let last = self.thread.stack_frames.pop();
+
+        // let should_return = self.stack_frames.is_empty();
+        let should_continue = self.pop_count != 0;
+
+        if should_continue {
+            let last = last.unwrap();
+            // let last = unsafe { last.unwrap_unchecked() };
 
             let rollback_index = last.sp;
 
@@ -3413,8 +3581,7 @@ impl<'a> VmCore<'a> {
                 closure_body,
                 arity.to_usize(),
                 is_multi_arity,
-                Vec::new(),
-                // smallvec::SmallVec::new(),
+                CaptureVec::new(),
             ));
 
             self.thread
@@ -3474,8 +3641,7 @@ impl<'a> VmCore<'a> {
         self.ip += 1;
 
         // TODO preallocate size
-        let mut captures = Vec::with_capacity(ndefs);
-        // let mut captures = smallvec::SmallVec::with_capacity(ndefs);
+        let mut captures = CaptureVec::with_capacity(ndefs);
 
         // TODO clean this up a bit
         // hold the spot for where we need to jump aftwards
@@ -3632,8 +3798,7 @@ impl<'a> VmCore<'a> {
                 closure_body,
                 arity.to_usize(),
                 is_multi_arity,
-                Vec::new(),
-                // smallvec::SmallVec::new(),
+                CaptureVec::new(),
             );
 
             self.thread
@@ -3953,11 +4118,18 @@ impl<'a> VmCore<'a> {
         let last_index = self.thread.stack.len() - payload_size;
 
         // Register safepoint
-        let result = self
+        // let result = self
+        //     .thread
+        //     .enter_safepoint(move |ctx: &SteelThread| f(&ctx.stack[last_index..]))
+        //     .map_err(|e| e.set_span_if_none(self.current_span()))?;
+
+        let result = match self
             .thread
             .enter_safepoint(move |ctx: &SteelThread| f(&ctx.stack[last_index..]))
-            // // TODO: Can we just apply this at the end?
-            .map_err(|e| e.set_span_if_none(self.current_span()))?;
+        {
+            Ok(v) => v,
+            Err(e) => return Err(e.set_span_if_none(self.current_span())),
+        };
 
         // This is the old way... lets see if the below way improves the speed
         self.thread.stack.truncate(last_index);
@@ -4071,35 +4243,6 @@ impl<'a> VmCore<'a> {
     }
 
     // TODO improve this a bit
-    #[inline(always)]
-    fn handle_function_call_closure_jit_without_profiling(
-        &mut self,
-        closure: Gc<ByteCodeLambda>,
-        payload_size: usize,
-    ) -> Result<()> {
-        self.adjust_stack_for_multi_arity(&closure, payload_size, &mut 0)?;
-
-        self.sp = self.thread.stack.len() - closure.arity();
-
-        let mut instructions = closure.body_exp();
-
-        std::mem::swap(&mut instructions, &mut self.instructions);
-
-        // Do this _after_ the multi arity business
-        // TODO: can these rcs be avoided
-        self.thread.stack_frames.push(
-            StackFrame::new(self.sp, closure, self.ip + 1, instructions), // .with_span(self.current_span()),
-        );
-
-        self.check_stack_overflow()?;
-
-        self.pop_count += 1;
-
-        self.ip = 0;
-        Ok(())
-    }
-
-    // TODO improve this a bit
     // #[inline(always)]
     #[inline(always)]
     fn handle_function_call_closure_jit(
@@ -4108,7 +4251,7 @@ impl<'a> VmCore<'a> {
         payload_size: usize,
     ) -> Result<()> {
         // Record the end of the existing sequence
-        self.cut_sequence();
+        // self.cut_sequence();
 
         // Jit profiling -> Make sure that we really only trace once we pass a certain threshold
         // For instance, if this function
@@ -4117,7 +4260,39 @@ impl<'a> VmCore<'a> {
             closure.increment_call_count();
         }
 
-        self.handle_function_call_closure_jit_without_profiling(closure, payload_size)
+        self.adjust_stack_for_multi_arity(&closure, payload_size, &mut 0)?;
+        self.sp = self.thread.stack.len() - closure.arity();
+
+        #[cfg(not(feature = "rooted-instructions"))]
+        {
+            let mut instructions = closure.body_exp();
+
+            std::mem::swap(&mut instructions, &mut self.instructions);
+
+            // Do this _after_ the multi arity business
+            // TODO: can these rcs be avoided
+            self.thread.stack_frames.push(
+                StackFrame::new(self.sp, closure, self.ip + 1, instructions), // .with_span(self.current_span()),
+            );
+        }
+
+        #[cfg(feature = "rooted-instructions")]
+        {
+            let frame = StackFrame {
+                sp: self.sp,
+                function: closure,
+                ip: self.ip + 1,
+                instructions: self.instructions,
+                attachments: None,
+            };
+            self.instructions = frame.function.body_exp();
+            self.thread.stack_frames.push(frame);
+        }
+
+        self.check_stack_overflow()?;
+        self.pop_count += 1;
+        self.ip = 0;
+        Ok(())
     }
 
     #[inline(always)]
@@ -4135,16 +4310,10 @@ impl<'a> VmCore<'a> {
             MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
             FutureFunc(f) => self.call_future_func(f, payload_size),
             ContinuationFunction(cc) => self.call_continuation(cc),
-            BuiltIn(f) => {
-                // self.ip -= 1;
-                self.call_builtin_func(f, payload_size)
-            }
+            BuiltIn(f) => self.call_builtin_func(f, payload_size),
             CustomStruct(s) => self.call_custom_struct(&s, payload_size),
             _ => {
-                // Explicitly mark this as unlikely
                 cold();
-                log::error!("{stack_func:?}");
-                log::error!("Stack: {:?}", self.thread.stack);
                 stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); self.current_span());
             }
         }
@@ -4581,8 +4750,7 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
         Shared::from(bytecode),
         0,
         false,
-        Vec::new(),
-        // smallvec::SmallVec::new(),
+        CaptureVec::new(),
     ));
     ctx.thread
         .function_interner

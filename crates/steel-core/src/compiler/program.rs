@@ -135,30 +135,61 @@ pub fn specialize_read_local(instructions: &mut [Instruction]) {
 }
 
 pub fn specialize_constants(instructions: &mut [Instruction]) -> Result<()> {
-    for instruction in instructions.iter_mut() {
-        match instruction {
-            Instruction {
-                op_code: OpCode::PUSHCONST,
-                contents:
-                    Some(Expr::Atom(SyntaxObject {
-                        ty: TokenType::Identifier(_),
-                        ..
-                    })),
-                ..
-            } => continue,
-            Instruction {
-                op_code: OpCode::PUSHCONST,
-                contents: Some(Expr::Atom(syn)),
-                ..
-            } => {
-                let value = eval_atom(syn)?;
+    for i in 0..instructions.len() - 1 {
+        let instruction = instructions.get(i);
+        let next = instructions.get(i + 1);
+
+        match (instruction, next) {
+            (
+                Some(Instruction {
+                    op_code: OpCode::PUSHCONST,
+                    contents:
+                        Some(Expr::Atom(SyntaxObject {
+                            ty: TokenType::Identifier(_),
+                            ..
+                        })),
+                    ..
+                }),
+                ..,
+            ) => continue,
+
+            (
+                Some(Instruction {
+                    op_code: OpCode::PUSHCONST,
+                    contents: Some(Expr::Atom(syn)),
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::POPJMP | OpCode::POPPURE,
+                    ..
+                }),
+            ) => {
+                let value = eval_atom(&syn)?;
+                let opcode = match &value {
+                    SteelVal::IntV(0) => OpCode::LOADINT0POP,
+                    SteelVal::IntV(1) => OpCode::LOADINT1POP,
+                    SteelVal::IntV(2) => OpCode::LOADINT2POP,
+                    _ => continue,
+                };
+                instructions.get_mut(i).unwrap().op_code = opcode;
+            }
+
+            (
+                Some(Instruction {
+                    op_code: OpCode::PUSHCONST,
+                    contents: Some(Expr::Atom(syn)),
+                    ..
+                }),
+                ..,
+            ) => {
+                let value = eval_atom(&syn)?;
                 let opcode = match &value {
                     SteelVal::IntV(0) => OpCode::LOADINT0,
                     SteelVal::IntV(1) => OpCode::LOADINT1,
                     SteelVal::IntV(2) => OpCode::LOADINT2,
                     _ => continue,
                 };
-                instruction.op_code = opcode;
+                instructions.get_mut(i).unwrap().op_code = opcode;
             }
             _ => continue,
         }
@@ -460,11 +491,11 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
 
         if let (
             Some(Instruction {
-                op_code: OpCode::PUSH,
+                op_code: OpCode::PUSH | OpCode::CALLGLOBAL | OpCode::CALLGLOBALTAIL,
                 ..
             }),
             Some(Instruction {
-                op_code: OpCode::FUNC | OpCode::TAILCALL,
+                op_code: op @ OpCode::FUNC | op @ OpCode::TAILCALL,
                 contents:
                     Some(Expr::Atom(RawSyntaxObject {
                         ty: TokenType::Identifier(ident),
@@ -478,6 +509,9 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
             let payload_size = payload_size.to_u32();
 
             let replaced = match *ident {
+                x if x == *PRIM_PLUS && payload_size == 2 && *op == OpCode::TAILCALL => {
+                    Some(OpCode::BINOPADDTAIL)
+                }
                 x if x == *PRIM_PLUS && payload_size == 2 => Some(OpCode::BINOPADD),
                 x if x == *PRIM_PLUS && payload_size > 0 => Some(OpCode::ADD),
                 // x if x == *PRIM_MINUS && *payload_size == 2 => Some(OpCode::BINOPSUB),
@@ -960,26 +994,14 @@ impl RawProgramWithSymbols {
 
     // Apply the optimizations to raw bytecode
     pub(crate) fn apply_optimizations(&mut self) -> &mut Self {
-        // if std::env::var("CODE_GEN_V2").is_err() {
         // Run down the optimizations here
         for instructions in &mut self.instructions {
             inline_num_operations(instructions);
             convert_call_globals(instructions);
-
-            // gimmick_super_instruction(instructions);
-            // move_read_local_call_global(instructions);
             specialize_read_local(instructions);
-
             merge_conditions_with_if(instructions);
-
             specialize_constants(instructions).unwrap();
-
-            // Apply the super instruction tiling!
             tile_super_instructions(instructions);
-
-            // specialize_exit_jmp(instructions);
-
-            // loop_condition_local_const_arity_two(instructions);
         }
 
         self
