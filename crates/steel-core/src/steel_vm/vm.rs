@@ -62,6 +62,8 @@ use super::engine::EngineId;
 use crossbeam::atomic::AtomicCell;
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
+use num::BigInt;
+use num::CheckedSub;
 use parking_lot::RwLock;
 use smallvec::SmallVec;
 #[cfg(feature = "profiling")]
@@ -2353,8 +2355,14 @@ impl<'a> VmCore<'a> {
                     // };
 
                     let result = match l {
-                        // TODO: Handle overflow / underflow?
-                        SteelVal::IntV(l) => SteelVal::IntV(l - r),
+                        SteelVal::IntV(l) => {
+                            match l.checked_sub(&r) {
+                                Some(r) => SteelVal::IntV(r),
+                                // Slow path
+                                None => SteelVal::BigNum(Gc::new(BigInt::from(*l) - r)),
+                            }
+                        }
+
                         SteelVal::NumV(_)
                         | SteelVal::Rational(_)
                         | SteelVal::BigNum(_)
