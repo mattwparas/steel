@@ -2332,29 +2332,8 @@ impl<'a> VmCore<'a> {
                     // get the const value, if it can fit into the value...
                     let r = push_const.payload_size.to_usize() as isize;
 
-                    // sub_handler_none_int
-
-                    // TODO: Inline this here - so that we can just refer to the value
-                    // and don't have to invoke a clone here.
-                    // let result = sub_handler_none_int(self, local_value, const_val)?;
-
-                    // let result = match l {
-                    //     SteelVal::IntV(_)
-                    //     | SteelVal::NumV(_)
-                    //     | SteelVal::Rational(_)
-                    //     | SteelVal::BigNum(_)
-                    //     | SteelVal::BigRational(_) => {
-                    //         // TODO: Create a specialized version of this!
-                    //         subtract_primitive(&[l.clone(), SteelVal::IntV(r)])
-                    //             .map_err(|x| x.set_span_if_none(self.current_span()))?
-                    //     }
-                    //     _ => {
-                    //         cold();
-                    //         stop!(TypeMismatch => "sub expected a number, found: {}", l)
-                    //     }
-                    // };
-
                     let result = match l {
+                        // Fast path with an integer, otherwise slow path
                         SteelVal::IntV(l) => {
                             match l.checked_sub(&r) {
                                 Some(r) => SteelVal::IntV(r),
@@ -2386,7 +2365,6 @@ impl<'a> VmCore<'a> {
                     ..
                 } => {
                     // inline_register_primitive_immediate!(subtract_primitive)
-
                     let read_local = &self.instructions[self.ip];
                     let push_const = &self.instructions[self.ip + 1];
 
