@@ -116,7 +116,9 @@
          (#%build-dylib (list "--manifest-path" (append-with-separator target "Cargo.toml"))
                         (list (list "CARGO_TARGET_DIR"
                                     (append-with-separator *CARGO_TARGET_DIR*
-                                                           (file-name target-directory)))))))
+                                                           (file-name target-directory)))))
+
+         (displayln "Finished building")))
 
       ;; This... should be run in the background?
       (~> (command "cargo-steel-lib" '())
@@ -135,7 +137,12 @@
                                                   #:subdir [subdir ""]
                                                   #:sha [*sha* void])
 
-  (~> (maybe-git-clone library-name git-url *COG-SOURCES* #:sha *sha*)
+  (define found-library-name
+    (if (void? library-name)
+        (~> (split-many git-url "/") last (trim-end-matches ".git"))
+        library-name))
+
+  (~> (maybe-git-clone found-library-name git-url *COG-SOURCES* #:sha *sha*)
       ;; If we're attempting to install the package from a subdirectory of
       ;; git urls, we should do that accordingly here.
       (append-with-separator subdir)
