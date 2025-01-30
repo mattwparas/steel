@@ -29,3 +29,5 @@
 ;; Constant propagation, with some rules.
 ;;
 ;; What that looks like -> Inlining a function call?
+
+(fib 35)
