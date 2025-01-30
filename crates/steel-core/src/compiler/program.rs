@@ -153,6 +153,7 @@ pub fn specialize_constants(instructions: &mut [Instruction]) -> Result<()> {
                 ..,
             ) => continue,
 
+            #[cfg(feature = "experimental")]
             (
                 Some(Instruction {
                     op_code: OpCode::PUSHCONST,
