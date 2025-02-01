@@ -1359,6 +1359,7 @@ impl SteelComplex {
 }
 
 impl IntoSteelVal for SteelComplex {
+    #[inline(always)]
     fn into_steelval(self) -> Result<SteelVal> {
         Ok(match self.im {
             NumV(n) if n.is_zero() => self.re,

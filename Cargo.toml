@@ -19,7 +19,7 @@ path = "src/main.rs"
 
 [workspace.dependencies]
 # This has to line up with the workspace version above
-steel-core = { path = "./crates/steel-core", version = "0.6.0", features = ["dylibs", "markdown", "stacker", "sync"] }
+steel-core = { path = "./crates/steel-core", version = "0.6.0", features = ["dylibs", "markdown", "stacker", "sync", "rooted-instructions"] }
 
 [features]
 default = ["mimalloc"]

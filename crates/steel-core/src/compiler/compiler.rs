@@ -667,6 +667,9 @@ impl Compiler {
             results.push(instructions);
         }
 
+        // Push down the readable constant map
+        self.constant_map.flush();
+
         // This... cannot be efficient?
         // for idx in index_buffer {
         //     let extracted: Vec<Instruction> = instruction_buffer.drain(0..idx).collect();

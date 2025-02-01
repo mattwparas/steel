@@ -1156,18 +1156,18 @@ fn ord_module() -> BuiltInModule {
         match args {
             [x] => {
                 ensure_real(x)?;
-                true.into_steelval()
+                Ok(SteelVal::BoolV(true))
             }
             [x, rest @ ..] => {
                 let mut left = ensure_real(x)?;
                 for r in rest {
                     let right = ensure_real(r)?;
                     if !ordering_f(left.partial_cmp(right)) {
-                        return false.into_steelval();
+                        return Ok(SteelVal::BoolV(false));
                     }
                     left = right;
                 }
-                true.into_steelval()
+                Ok(SteelVal::BoolV(true))
             }
             _ => stop!(ArityMismatch => "expected at least one argument"),
         }

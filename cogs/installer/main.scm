@@ -88,6 +88,19 @@
         (displayln "Package is not currently installed.")
         (install-package-and-log cog-to-install))))
 
+(define (install-package-from-git index git-url args)
+  ;; First, install the source to a temporary location.
+  (define package-spec (download-cog-to-sources-and-parse-module void git-url))
+
+  (define force (member "--force" args))
+
+  (displayln args)
+  (displayln package-spec)
+
+  (if force
+      (install-package-and-log package-spec)
+      (install-package-if-not-installed index package-spec)))
+
 ;; TODO: Move this to `installer/package.scm`
 (define (install-package-from-pkg-index index package args)
   (define pkg-index (list-package-index))
@@ -260,6 +273,17 @@ Commands:
       [(equal? '("pkg" "refresh") command-line-args) (refresh-package-index package-index)]
       ;; List the remote package index
       [(equal? '("pkg" "list") command-line-args) (print-package-index)]
+
+      [(equal? '("pkg" "install" "--git") (take command-line-args 3))
+
+       (displayln command-line-args)
+       (displayln (list-ref command-line-args 3))
+       (displayln (drop command-line-args 4))
+
+       ;; Install using a git url
+       (install-package-from-git package-index
+                                 (list-ref command-line-args 3)
+                                 (drop command-line-args 3))]
 
       ;; Install package from remote
       [(equal? '("pkg" "install") (take command-line-args 2))

@@ -3,7 +3,7 @@
 use super::{
     builtin::{BuiltInModule, FunctionSignatureMetadata},
     primitives::{register_builtin_modules, CONSTANTS},
-    vm::{SteelThread, ThreadStateController},
+    vm::{SteelThread, Synchronizer, ThreadStateController},
 };
 
 #[cfg(feature = "dylibs")]
@@ -217,9 +217,25 @@ pub struct Engine {
     pub(crate) id: EngineId,
 }
 
+impl Engine {
+    pub fn enter_safepoint<T, F: FnMut() -> T>(&mut self, mut thunk: F) -> T {
+        let mut res = None;
+
+        self.virtual_machine.enter_safepoint(|_| {
+            res = Some((thunk)());
+            Ok(SteelVal::Void)
+        });
+
+        res.unwrap()
+    }
+}
+
 impl Clone for Engine {
     fn clone(&self) -> Self {
         let mut virtual_machine = self.virtual_machine.clone();
+
+        virtual_machine.synchronizer = Synchronizer::new();
+
         let compiler = Arc::new(RwLock::new(self.virtual_machine.compiler.write().clone()));
 
         // virtual_machine.compiler = Some(Arc::downgrade(&compiler));
@@ -1696,6 +1712,7 @@ impl Engine {
                 .global_env
                 .bindings_vec
                 .write()
+                .unwrap()
                 .truncate(checkpoint.globals_offset);
         }
 
@@ -1727,7 +1744,12 @@ impl Engine {
             #[cfg(feature = "sync")]
             {
                 GlobalSlotRecycler::free_shadowed_rooted_values(
-                    &mut self.virtual_machine.global_env.bindings_vec.write(),
+                    &mut self
+                        .virtual_machine
+                        .global_env
+                        .bindings_vec
+                        .write()
+                        .unwrap(),
                     &mut self.virtual_machine.compiler.write().symbol_map,
                     &mut self.virtual_machine.heap.lock().unwrap(),
                 );
@@ -2017,12 +2039,6 @@ impl Engine {
     //     let program = self.compiler.compile_program(expr, None, constants)?;
     //     self.virtual_machine
     //         .execute_program::<DoNotUseCallback, ApplyContract>(program)
-    // }
-
-    // TODO this does not take into account the issues with
-    // people registering new functions that shadow the original one
-    // fn constants(&mut self) -> ImmutableHashMap<InternedString, SteelVal, FxBuildHasher> {
-    //     CONSTANT_PRIMITIVES.clone()
     // }
 
     pub fn add_module(&mut self, path: String) -> Result<()> {

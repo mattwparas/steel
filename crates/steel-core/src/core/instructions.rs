@@ -103,9 +103,6 @@ pub fn disassemble(instructions: &[Instruction]) -> String {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DenseInstruction {
     pub op_code: OpCode,
-    // Function IDs need to be interned _again_ before patched into the code?
-    // Also: We should be able to get away with a u16 here. Just grab places where u16
-    // won't fit and convert to something else.
     pub payload_size: u24,
 }
 

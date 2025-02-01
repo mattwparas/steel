@@ -89,6 +89,15 @@ impl LambdaMetadataTable {
     }
 }
 
+#[cfg(feature = "inline-captures")]
+const INLINE_CAPTURE_SIZE: usize = 3;
+
+#[cfg(not(feature = "inline-captures"))]
+pub type CaptureVec = Vec<SteelVal>;
+
+#[cfg(feature = "inline-captures")]
+pub type CaptureVec = smallvec::SmallVec<[SteelVal; INLINE_CAPTURE_SIZE]>;
+
 #[derive(Clone, Debug)]
 pub struct ByteCodeLambda {
     pub(crate) id: u32,
@@ -106,7 +115,11 @@ pub struct ByteCodeLambda {
 
     pub(crate) is_multi_arity: bool,
 
-    pub(crate) captures: Vec<SteelVal>,
+    // Store... some amount inline?
+    // pub(crate) captures: Vec<SteelVal>,
+    pub(crate) captures: CaptureVec,
+
+    // pub(crate) captures: Box<[SteelVal]>
     #[cfg(feature = "dynamic")]
     pub(crate) blocks: RefCell<Vec<(BlockPattern, BlockMetadata)>>,
 
@@ -165,6 +178,9 @@ pub struct RootedInstructions {
     inner: Shared<[DenseInstruction]>,
 }
 
+#[cfg(feature = "rooted-instructions")]
+impl Copy for RootedInstructions {}
+
 // TODO: Come back to this
 unsafe impl Send for RootedInstructions {}
 unsafe impl Sync for RootedInstructions {}
@@ -200,20 +216,14 @@ impl std::ops::Deref for RootedInstructions {
     }
 }
 
-// TODO
-// is_let can probably be localized to a specific kind of function
-// is_multi_arity can also be localized to a specific kind of function
 impl ByteCodeLambda {
     pub fn new(
         id: u32,
         body_exp: Shared<[DenseInstruction]>,
         arity: usize,
         is_multi_arity: bool,
-        captures: Vec<SteelVal>,
-        // heap_allocated: Vec<HeapRef<SteelVal>>,
+        captures: CaptureVec,
     ) -> ByteCodeLambda {
-        // debug_assert_eq!(body_exp.len(), spans.len());
-
         ByteCodeLambda {
             id,
 
@@ -252,7 +262,16 @@ impl ByteCodeLambda {
                 .into_iter()
                 .map(|x| from_serializable_value(heap, x))
                 .collect(),
-            // Vec::new(),
+        )
+    }
+
+    pub fn rooted(instructions: Shared<[DenseInstruction]>) -> ByteCodeLambda {
+        Self::new(
+            SyntaxObjectId::fresh().into(),
+            instructions,
+            0,
+            false,
+            CaptureVec::default(),
         )
     }
 
@@ -262,25 +281,21 @@ impl ByteCodeLambda {
             instructions.into(),
             0,
             false,
-            Vec::default(),
-            // Vec::default(),
-            // Rc::from([]),
+            CaptureVec::default(),
         )
     }
 
-    // pub fn id(&self) -> usize {
-    //     self.id
-    // }
-
-    pub fn set_captures(&mut self, captures: Vec<SteelVal>) {
+    pub fn set_captures(&mut self, captures: CaptureVec) {
         self.captures = captures;
     }
 
-    // pub fn set_heap_allocated(&mut self, heap_allocated: Vec<HeapRef<SteelVal>>) {
-    //     self.heap_allocated = RefCell::new(heap_allocated);
-    // }
-
-    pub fn body_exp(&self) -> RootedInstructions {
+    // TODO: The lifecycle of `RootedInstructions` should not be
+    // beyond the scope of execution. This invariant should in
+    // general hold - with the exception of continuations, which
+    // should probably hold on to any functions that are contains
+    // strongly - so there should be some kind of slot on the continuation
+    // to hold on to a strong reference to each instruction set.
+    pub(crate) fn body_exp(&self) -> RootedInstructions {
         // #[cfg(feature = "dynamic")]
         // return Shared::clone(&self.body_exp.borrow());
 

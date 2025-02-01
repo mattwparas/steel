@@ -219,8 +219,10 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     vm.register_fn("quit", cancellation_function);
     let safepoint = vm.get_thread_state_controller();
 
-    let engine = Arc::new(Mutex::new(vm));
-    rl.set_helper(Some(RustylineHelper::new(engine.clone())));
+    let mut engine = vm;
+    let globals = Arc::new(Mutex::new(engine.globals().iter().copied().collect()));
+
+    rl.set_helper(Some(RustylineHelper::new(globals.clone())));
 
     let safepoint = safepoint.clone();
     let ctrlc_safepoint = safepoint.clone();
@@ -235,7 +237,20 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     };
 
     while rx.try_recv().is_err() {
-        let readline = rl.readline(&prompt);
+        // Update globals for highlighting
+        // TODO: Come up with some kind of subscription API?
+        let known_globals_length = globals.lock().unwrap().len();
+        let updated_globals_length = engine.globals().len();
+        if updated_globals_length > known_globals_length {
+            let mut guard = globals.lock().unwrap();
+            if let Some(range) = engine.globals().get(known_globals_length..) {
+                for var in range {
+                    guard.insert(*var);
+                }
+            }
+        }
+
+        let readline = engine.enter_safepoint(|| rl.readline(&prompt));
 
         match readline {
             Ok(line) => {
@@ -281,11 +296,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
 
                         clear_interrupted();
 
-                        finish_load_or_interrupt(
-                            &mut engine.lock().unwrap(),
-                            exprs,
-                            path.to_path_buf(),
-                        );
+                        finish_load_or_interrupt(&mut engine, exprs, path.to_path_buf());
                     }
                     _ => {
                         // TODO also include this for loading files
@@ -293,7 +304,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
 
                         clear_interrupted();
 
-                        finish_or_interrupt(&mut engine.lock().unwrap(), line);
+                        finish_or_interrupt(&mut engine, line);
 
                         if print_time {
                             println!("Time taken: {:?}", now.elapsed());

@@ -1,14 +1,8 @@
+use crate::rvals::{IntoSteelVal, Result, SteelVal};
 use crate::{
     gc::Gc,
-    steel_vm::{
-        builtin::BuiltInModule,
-        vm::{VmContext, APPLY_DEFINITION},
-    },
+    steel_vm::{builtin::BuiltInModule, vm::APPLY_DEFINITION},
     values::lists::Pair,
-};
-use crate::{
-    rvals::{IntoSteelVal, Result, SteelVal},
-    steel_vm::vm::VmCore,
 };
 use crate::{stop, throw};
 
@@ -96,9 +90,19 @@ pub fn list_module() -> BuiltInModule {
         .register_native_fn_definition(PLIST_TRY_GET_POSITIONAL_DEFINITION)
         .register_native_fn_definition(PLIST_GET_POSITIONAL_LIST_DEFINITION)
         .register_native_fn_definition(PLIST_VALIDATE_ARGS_DEFINITION)
-        .register_native_fn_definition(DROP_START_DEFINITION);
+        .register_native_fn_definition(DROP_START_DEFINITION)
+        .register_native_fn_definition(CHUNKS_DEFINITION);
 
     module
+}
+
+#[steel_derive::function(name = "list-chunks", constant = true)]
+pub fn chunks(list: &List<SteelVal>) -> Result<SteelVal> {
+    let nodes = list.nodes();
+
+    Ok(SteelVal::ListV(
+        nodes.into_iter().map(|x| SteelVal::ListV(x)).collect(),
+    ))
 }
 
 /// Get the second element of the list. Raises an error if the list does not have an element in the second position.
@@ -141,32 +145,6 @@ pub fn second(list: &List<SteelVal>) -> Result<SteelVal> {
 #[steel_derive::function(name = "third", constant = true)]
 pub(crate) fn third(list: &List<SteelVal>) -> Result<SteelVal> {
     list.get(2).cloned().ok_or_else(throw!(Generic => "third: Index out of bounds - list did not have an element in the second position: {:?}", list))
-}
-
-fn _test_map(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-    arity_check!(test_map, args, 2);
-
-    let mut arg_iter = args.iter();
-    let arg1 = arg_iter.next().unwrap();
-    let arg2 = arg_iter.next().unwrap();
-
-    if let SteelVal::ListV(l) = arg2 {
-        if arg1.is_function() {
-            // unimplemented!()
-
-            Ok(SteelVal::ListV(
-                l.into_iter()
-                    .map(|x| ctx.call_function_one_arg(arg1, x.clone()))
-                    .collect::<Result<_>>()?,
-            ))
-
-            // ctx.call_function_one_arg_or_else(function, arg)
-        } else {
-            stop!(TypeMismatch => "test-map expected a function")
-        }
-    } else {
-        stop!(TypeMismatch => "test-map expects a list")
-    }
 }
 
 #[steel_derive::function(name = "list-tail")]

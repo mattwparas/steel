@@ -68,6 +68,7 @@ macro_rules! try_from_impl {
         $(
             impl TryFrom<SteelVal> for $body {
                 type Error = SteelErr;
+                #[inline]
                 fn try_from(value: SteelVal) -> result::Result<Self, Self::Error> {
                     match value {
                         SteelVal::$type(x) => Ok(x.clone() as $body),
@@ -78,6 +79,7 @@ macro_rules! try_from_impl {
 
             impl TryFrom<&SteelVal> for $body {
                 type Error = SteelErr;
+                #[inline]
                 fn try_from(value: &SteelVal) -> result::Result<Self, Self::Error> {
                     match value {
                         SteelVal::$type(x) => Ok(x.clone() as $body),
@@ -87,6 +89,7 @@ macro_rules! try_from_impl {
             }
 
             impl FromSteelVal for $body {
+                #[inline]
                 fn from_steelval(value: &SteelVal) -> result::Result<Self, SteelErr> {
                     match value {
                         SteelVal::$type(x) => Ok(x.clone() as $body),
@@ -103,12 +106,14 @@ macro_rules! from_f64 {
     ($($body:ty),*) => {
         $(
             impl From<$body> for SteelVal {
+                #[inline]
                 fn from(val: $body) -> SteelVal {
                     SteelVal::NumV(val as f64)
                 }
             }
 
             impl IntoSteelVal for $body {
+                #[inline]
                 fn into_steelval(self) -> Result<SteelVal, SteelErr> {
                     Ok(SteelVal::NumV(self as f64))
                 }
@@ -121,12 +126,14 @@ macro_rules! from_for_isize {
     ($($body:ty),*) => {
         $(
             impl From<$body> for SteelVal {
+                #[inline]
                 fn from(val: $body) -> SteelVal {
                     SteelVal::IntV(val as isize)
                 }
             }
 
             impl IntoSteelVal for $body {
+                #[inline]
                 fn into_steelval(self) -> Result<SteelVal, SteelErr> {
                     Ok(SteelVal::IntV(self as isize))
                 }
@@ -146,6 +153,7 @@ impl From<i64> for SteelVal {
 }
 
 impl FromSteelVal for u8 {
+    #[inline]
     fn from_steelval(val: &SteelVal) -> crate::rvals::Result<Self> {
         match val {
             SteelVal::IntV(v) => (*v).try_into().map_err(|_err| {
@@ -169,6 +177,7 @@ impl FromSteelVal for u8 {
 }
 
 impl From<usize> for SteelVal {
+    #[inline]
     fn from(value: usize) -> Self {
         if value > isize::MAX as usize {
             SteelVal::BigNum(Gc::new(value.into()))
@@ -179,12 +188,14 @@ impl From<usize> for SteelVal {
 }
 
 impl IntoSteelVal for usize {
+    #[inline]
     fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
         Ok(SteelVal::from(self))
     }
 }
 
 impl IntoSteelVal for i64 {
+    #[inline]
     fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
         Ok(self.into())
     }
@@ -214,12 +225,14 @@ impl FromSteelVal for i64 {
 }
 
 impl From<char> for SteelVal {
+    #[inline]
     fn from(val: char) -> SteelVal {
         SteelVal::CharV(val)
     }
 }
 
 impl IntoSteelVal for char {
+    #[inline]
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         Ok(SteelVal::CharV(self))
     }
@@ -239,6 +252,7 @@ impl FromSteelVal for char {
 }
 
 impl<T: Into<SteelVal>> From<Option<T>> for SteelVal {
+    #[inline]
     fn from(val: Option<T>) -> SteelVal {
         if let Some(s) = val {
             s.into()
@@ -249,6 +263,7 @@ impl<T: Into<SteelVal>> From<Option<T>> for SteelVal {
 }
 
 impl<T: IntoSteelVal> IntoSteelVal for Option<T> {
+    #[inline]
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         if let Some(s) = self {
             s.into_steelval()
@@ -259,6 +274,7 @@ impl<T: IntoSteelVal> IntoSteelVal for Option<T> {
 }
 
 impl<T: FromSteelVal> FromSteelVal for Option<T> {
+    #[inline]
     fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
         if val.is_truthy() {
             Ok(Some(T::from_steelval(val)?))
@@ -269,6 +285,7 @@ impl<T: FromSteelVal> FromSteelVal for Option<T> {
 }
 
 impl FromSteelVal for SteelVal {
+    #[inline]
     fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
         Ok(val.clone())
     }
@@ -285,18 +302,21 @@ impl FromSteelVal for () {
 }
 
 impl IntoSteelVal for () {
+    #[inline]
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         Ok(SteelVal::Void)
     }
 }
 
 impl From<()> for SteelVal {
+    #[inline]
     fn from(_: ()) -> SteelVal {
         SteelVal::Void
     }
 }
 
 impl IntoSteelVal for Rational32 {
+    #[inline]
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         if self.is_integer() {
             self.numer().into_steelval()
@@ -307,6 +327,7 @@ impl IntoSteelVal for Rational32 {
 }
 
 impl IntoSteelVal for BigInt {
+    #[inline]
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         match self.to_isize() {
             Some(i) => i.into_steelval(),
@@ -316,6 +337,7 @@ impl IntoSteelVal for BigInt {
 }
 
 impl IntoSteelVal for BigRational {
+    #[inline]
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         if self.is_integer() {
             let (n, _) = self.into();
@@ -335,6 +357,7 @@ try_from_impl!(IntV => i32, i16, i8, u16, u32, u64, usize, isize);
 
 impl TryFrom<SteelVal> for String {
     type Error = SteelErr;
+    #[inline]
     fn try_from(value: SteelVal) -> result::Result<Self, Self::Error> {
         match value {
             SteelVal::StringV(ref x) => Ok(x.to_string()),
@@ -348,18 +371,21 @@ impl TryFrom<SteelVal> for String {
 }
 
 impl From<SteelVal> for Gc<SteelVal> {
+    #[inline]
     fn from(val: SteelVal) -> Self {
         Gc::new(val)
     }
 }
 
 impl From<Gc<SteelVal>> for SteelVal {
+    #[inline]
     fn from(val: Gc<SteelVal>) -> Self {
         (*val).clone()
     }
 }
 
 impl FromSteelVal for String {
+    #[inline]
     fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
         match val {
             SteelVal::StringV(s) | SteelVal::SymbolV(s) => Ok(s.to_string()),
@@ -373,6 +399,7 @@ impl FromSteelVal for String {
 
 impl TryFrom<&SteelVal> for String {
     type Error = SteelErr;
+    #[inline]
     fn try_from(value: &SteelVal) -> result::Result<Self, Self::Error> {
         match value {
             SteelVal::StringV(x) => Ok(x.to_string()),
@@ -386,19 +413,21 @@ impl TryFrom<&SteelVal> for String {
 }
 
 impl From<String> for SteelVal {
+    #[inline]
     fn from(val: String) -> SteelVal {
         SteelVal::StringV(val.into())
     }
 }
 
 impl IntoSteelVal for &str {
-    #[inline(always)]
+    #[inline]
     fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
         Ok(SteelVal::StringV(self.into()))
     }
 }
 
 impl FromSteelVal for SteelString {
+    #[inline]
     fn from_steelval(val: &SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::StringV(s) = val {
             Ok(s.clone())
@@ -828,30 +857,35 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelHashMap {
 }
 
 impl IntoSteelVal for String {
+    #[inline(always)]
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         Ok(SteelVal::StringV(self.into()))
     }
 }
 
 impl IntoSteelVal for SteelString {
+    #[inline(always)]
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         Ok(SteelVal::StringV(self))
     }
 }
 
 impl From<String> for Gc<SteelVal> {
+    #[inline(always)]
     fn from(val: String) -> Gc<SteelVal> {
         Gc::new(val.into())
     }
 }
 
 impl From<bool> for SteelVal {
+    #[inline(always)]
     fn from(val: bool) -> SteelVal {
         SteelVal::BoolV(val)
     }
 }
 
 impl FromSteelVal for bool {
+    #[inline(always)]
     fn from_steelval(val: &SteelVal) -> crate::rvals::Result<bool> {
         if let SteelVal::BoolV(b) = val {
             Ok(*b)
@@ -862,12 +896,14 @@ impl FromSteelVal for bool {
 }
 
 impl IntoSteelVal for bool {
+    #[inline(always)]
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         Ok(SteelVal::BoolV(self))
     }
 }
 
 impl From<Vector<SteelVal>> for SteelVal {
+    #[inline(always)]
     fn from(val: Vector<SteelVal>) -> SteelVal {
         SteelVal::VectorV(Gc::new(val).into())
     }

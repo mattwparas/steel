@@ -126,6 +126,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b3d1d046238990b9cf5bcde22a3fb3584ee5cf65fb2765f454ed428c7a0063da"
 
 [[package]]
+name = "arc-swap"
+version = "1.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69f7f8c3906b62b754cd5326047894316021dcfe5a194c8ea52bdd94934a3457"
+
+[[package]]
 name = "arrayvec"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1751,9 +1757,9 @@ dependencies = [
 
 [[package]]
 name = "im-lists"
-version = "0.8.1"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c38da2a11f128e1af1585abdd7041a96fc1adcd6ca2cb33e7fc5728326edbe8a"
+checksum = "88485149c4fcec01ebce4e4b8284a3c75b3d8a4749169f5481144e6433e9bcd2"
 dependencies = [
  "smallvec",
 ]
@@ -3359,6 +3365,7 @@ version = "0.6.0"
 dependencies = [
  "abi_stable",
  "anyhow",
+ "arc-swap",
  "async-ffi",
  "bigdecimal",
  "bincode",
