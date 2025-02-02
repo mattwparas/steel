@@ -5,7 +5,8 @@
          task-done?
          task-err
          task
-         pmap)
+         ; pmap
+         )
 
 ;;@doc
 ;; Lock the given lock during the duration
@@ -85,10 +86,7 @@
     (cond
       ;; If its an error, we don't immediately raise
       ;; the exception for now
-      [(Task-done task)
-       (if (Task-err task)
-           (Task-err task)
-           (Task-func-or-result task))]
+      [(Task-done task) (if (Task-err task) (Task-err task) (Task-func-or-result task))]
       [else
        (try-block task)
        (loop task)]))
@@ -96,26 +94,26 @@
   (loop task))
 
 ;; Thread pool for parallel map - will just be static for all pmaps.
-(define tp (make-thread-pool 16))
+; (define tp (make-thread-pool 16))
 
-(define (pmap func lst)
-  ;; Convert list into chunks that it can operate on, independently - since the
-  ;; list is already stored as a bunch of exponential things in a row, we can
-  ;; slice it up into those pieces nicely - for now, we can just assume
-  ;; that this is something we _could_ implement, and _should_ implement, but I
-  ;; don't feel like going through that exercise right now.
-  (define chunks (list-chunks lst))
-  (define tasks
-    (map (lambda (chunk)
-           (submit-task tp
-                        (lambda ()
-                          ;; Find out where the overhead is coming from
-                          (define res (map func chunk))
+; (define (pmap func lst)
+;   ;; Convert list into chunks that it can operate on, independently - since the
+;   ;; list is already stored as a bunch of exponential things in a row, we can
+;   ;; slice it up into those pieces nicely - for now, we can just assume
+;   ;; that this is something we _could_ implement, and _should_ implement, but I
+;   ;; don't feel like going through that exercise right now.
+;   (define chunks (list-chunks lst))
+;   (define tasks
+;     (map (lambda (chunk)
+;            (submit-task tp
+;                         (lambda ()
+;                           ;; Find out where the overhead is coming from
+;                           (define res (map func chunk))
 
-                          res)))
-         chunks))
-  ;; Reducing contention... how to do it? Probably need to do some kind of work with
-  ;; making sure that the globals don't get locked up - I'm guessing that is where most of
-  ;; the wait time here is - if each thread can get its own copies of the values, then
-  ;; they don't have to be locked up reading a global.
-  (transduce tasks (flat-mapping (lambda (x) (block-on-task x))) (into-list)))
+;                           res)))
+;          chunks))
+;   ;; Reducing contention... how to do it? Probably need to do some kind of work with
+;   ;; making sure that the globals don't get locked up - I'm guessing that is where most of
+;   ;; the wait time here is - if each thread can get its own copies of the values, then
+;   ;; they don't have to be locked up reading a global.
+;   (transduce tasks (flat-mapping (lambda (x) (block-on-task x))) (into-list)))
