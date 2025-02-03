@@ -100,9 +100,7 @@
 
   (loop task))
 
-(define tp (make-thread-pool 16))
-
-(define (pmap func lst)
+(define (pmap func lst tp)
   ;; Convert list into chunks that it can operate on, independently - since the
   ;; list is already stored as a bunch of exponential things in a row, we can
   ;; slice it up into those pieces nicely - for now, we can just assume
