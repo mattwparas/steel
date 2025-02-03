@@ -1,6 +1,5 @@
 use fxhash::FxHashMap;
 use smallvec::SmallVec;
-use steel_parser::ast::List;
 
 use crate::compiler::passes::{VisitorMutControlFlow, VisitorMutRefUnit};
 use crate::compiler::program::SYNTAX_SPAN;
@@ -506,7 +505,7 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
                 }
 
                 if l.improper {
-                    *l = std::mem::replace(l, List::new(vec![])).make_improper();
+                    l.make_improper();
                 }
 
                 if let Some(expanded) = self.vec_syntax_span_object(&l.args)? {

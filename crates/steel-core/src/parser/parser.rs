@@ -194,6 +194,7 @@ impl TryFrom<TokenType<InternedString>> for SteelVal {
                 ErrorKind::UnexpectedToken,
                 "comment".to_string(),
             )),
+            DatumComment => Err(SteelErr::new(ErrorKind::UnexpectedToken, "#;".to_string())),
             If => Ok(SymbolV("if".into())),
             Define => Ok(SymbolV("define".into())),
             Let => Ok(SymbolV("let".into())),
@@ -261,6 +262,9 @@ impl TryFrom<SyntaxObject> for SteelVal {
             Comment => Err(
                 SteelErr::new(ErrorKind::UnexpectedToken, "comment".to_string()).with_span(span),
             ),
+            DatumComment => {
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#;".to_string()).with_span(span))
+            }
             If => Ok(SymbolV("if".into())),
             Define => Ok(SymbolV("define".into())),
             Let => Ok(SymbolV("let".into())),

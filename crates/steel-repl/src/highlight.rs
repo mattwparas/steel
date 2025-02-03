@@ -46,14 +46,9 @@ impl Validator for RustylineHelper {
 
         let mut balance = 0;
 
-        let mut unfinished_string = false;
+        let mut unfinished = false;
 
         for token in token_stream {
-            unfinished_string = match token.ty {
-                TokenType::Error => token.source.starts_with("\""),
-                _ => false,
-            };
-
             match token.ty {
                 TokenType::OpenParen(..) => {
                     balance += 1;
@@ -61,11 +56,16 @@ impl Validator for RustylineHelper {
                 TokenType::CloseParen(_) => {
                     balance -= 1;
                 }
+                TokenType::Error => {
+                    unfinished = token.source.starts_with("\"") || token.source.starts_with("#|");
+
+                    break;
+                }
                 _ => {}
             }
         }
 
-        if balance > 0 || unfinished_string {
+        if balance > 0 || unfinished {
             Ok(ValidationResult::Incomplete)
         } else {
             Ok(ValidationResult::Valid(None))
