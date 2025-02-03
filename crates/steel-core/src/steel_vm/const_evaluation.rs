@@ -1019,5 +1019,5 @@ impl<'a> VisitorMut for CollectSet<'a> {
         self.scopes.pop_layer();
     }
 
-    fn visit_vector(&mut self, v: &crate::parser::ast::Vector) -> Self::Output {}
+    fn visit_vector(&mut self, _v: &crate::parser::ast::Vector) -> Self::Output {}
 }

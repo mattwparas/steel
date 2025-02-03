@@ -538,5 +538,5 @@ pub trait VisitorMutRefUnit {
 
     // vectors are constants, most analysis passes should ignore them
     #[inline]
-    fn visit_vector(&mut self, v: &mut Vector) {}
+    fn visit_vector(&mut self, _v: &mut Vector) {}
 }

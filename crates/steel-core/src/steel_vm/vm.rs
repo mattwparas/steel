@@ -4344,8 +4344,7 @@ pub fn current_function_span(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Resu
     }
 }
 
-#[steel_derive::context(name = "inspect", arity = "Exact(1)")]
-pub fn inspect(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+fn inspect_impl(ctx: &VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let guard = ctx.thread.sources.sources.lock().unwrap();
 
     if let Some(SteelVal::Closure(c)) = args.get(0) {
@@ -4417,6 +4416,11 @@ pub fn inspect(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
     }
 
     Some(Ok(SteelVal::Void))
+}
+
+#[steel_derive::context(name = "inspect", arity = "Exact(1)")]
+pub fn inspect(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    inspect_impl(ctx, args)
 }
 
 /// Inspect the locals at the given function. Probably need to provide a way to

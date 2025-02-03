@@ -784,29 +784,8 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
 
     let func = args[0].clone();
 
-    // Try closing open continuations?
-    // TODO: See if we can close them here?
-
-    // Anything open, should be closed. And we'll be okay... I think.
-    // This could be an unreasonably negative performance hit, however in
-    // spirit I'd imagine its for the best in order to make sure that open
-    // continuations are legal to be called across other threads.
-
-    let now = std::time::Instant::now();
-    for frame in &ctx.thread.stack_frames {
-        ctx.close_continuation_marks(frame);
-    }
-    log::debug!(target: "threads", "Time to close continuations: {:?}", now.elapsed());
-
-    // Meta continuations should actually be captured?
-    ctx.close_continuation_marks(&ctx.thread.current_frame);
-
-    // thread.stack = Vec::new();
-    // thread.stack_frames = Vec::new();
-
-    // The whole stack above and below... should be able to be dropped
-    // from this context? - basically, unwind the stack since we're no
-    // longer going to be in this context.
+    // TODO: Continuations should not cross thread barriers.
+    // Install continuation barriers here?
 
     let handle = std::thread::spawn(move || {
         let constant_map = thread.compiler.read().constant_map.clone();

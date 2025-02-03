@@ -30,6 +30,11 @@
 ;; Get the err object (if any) from the given task
 (define task-err Task-err)
 
+(define (inner-map func lst)
+  (if (empty? lst)
+      '()
+      (cons (func (first lst)) (inner-map func (rest lst)))))
+
 ;;@doc
 ;; Create a thread pool with the given capacity
 (define (make-thread-pool capacity)
@@ -58,7 +63,7 @@
   ;; Give me back a thread pool to do some work
   (ThreadPool sender
               capacity
-              (map (lambda (_) (spawn-native-thread listen-for-tasks)) (range 0 capacity))))
+              (inner-map (lambda (_) (spawn-native-thread listen-for-tasks)) (range 0 capacity))))
 
 ;;@doc
 ;; Submit task to the thread pool
@@ -85,16 +90,19 @@
     (cond
       ;; If its an error, we don't immediately raise
       ;; the exception for now
-      [(Task-done task) (if (Task-err task) (Task-err task) (Task-func-or-result task))]
+      [(Task-done task)
+       (if (Task-err task)
+           (Task-err task)
+           (Task-func-or-result task))]
       [else
        (try-block task)
        (loop task)]))
 
   (loop task))
 
-; (define tp (make-thread-pool 16))
+(define tp (make-thread-pool 16))
 
-(define (pmap func lst tp)
+(define (pmap func lst)
   ;; Convert list into chunks that it can operate on, independently - since the
   ;; list is already stored as a bunch of exponential things in a row, we can
   ;; slice it up into those pieces nicely - for now, we can just assume

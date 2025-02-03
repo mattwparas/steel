@@ -368,7 +368,7 @@ impl<'a> VisitorMutRef for Expander<'a> {
         Ok(())
     }
 
-    fn visit_vector(&mut self, v: &mut super::ast::Vector) -> Self::Output {
+    fn visit_vector(&mut self, _v: &mut super::ast::Vector) -> Self::Output {
         Ok(())
     }
 }
@@ -1113,7 +1113,7 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
         res
     }
 
-    fn visit_vector(&mut self, v: &mut super::ast::Vector) -> Self::Output {
+    fn visit_vector(&mut self, _v: &mut super::ast::Vector) -> Self::Output {
         Ok(())
     }
 }
