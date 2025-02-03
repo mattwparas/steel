@@ -1216,7 +1216,6 @@ impl<'a> Parser<'a> {
 
                     // println!("{}", List::new(value.clone().unwrap()));
 
-                    // TODO: datum comment?
                     maybe_return!(match value {
                         Ok(v) => {
                             // Ok(ExprKind::List(List::new(v)))
