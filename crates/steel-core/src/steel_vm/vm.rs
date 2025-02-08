@@ -339,6 +339,9 @@ pub struct SteelThread {
     pub(crate) id: EngineId,
 
     pub(crate) safepoints_enabled: bool,
+
+    // Instruction -> count
+    pub(crate) profiler: Vec<usize>,
 }
 
 #[derive(Clone)]
@@ -605,6 +608,9 @@ impl SteelThread {
             // Only incur the cost of the actual safepoint behavior
             // if multiple threads are enabled
             safepoints_enabled: false,
+
+            // Last enum variant
+            profiler: vec![0; OpCode::LOADINT2POP as usize],
         }
     }
 
@@ -985,12 +991,18 @@ pub struct OpenContinuationMark {
 pub enum ContinuationMark {
     Closed(ClosedContinuation),
     Open(OpenContinuationMark),
+
+    // TODO: When closing continuations, we need to mark
+    // check if we're running into any barriers, and
+    // raise an error otherwise.
+    #[allow(unused)]
+    Barrier,
 }
 
 impl ContinuationMark {
-    pub fn close(&mut self, ctx: &VmCore<'_>) {
+    pub fn close(&mut self, ctx: &VmCore<'_>) -> bool {
         match self {
-            ContinuationMark::Closed(_) => {}
+            ContinuationMark::Closed(_) => true,
             ContinuationMark::Open(open) => {
                 let mut continuation = ctx.new_closed_continuation_from_state();
 
@@ -1023,7 +1035,9 @@ impl ContinuationMark {
                 }
 
                 *self = ContinuationMark::Closed(continuation);
+                true
             }
+            ContinuationMark::Barrier => false,
         }
     }
 
@@ -2018,7 +2032,6 @@ impl<'a> VmCore<'a> {
     }
 
     pub(crate) fn vm(&mut self) -> Result<SteelVal> {
-        // if self.depth > 1024 {
         if self.depth > 1024 * 128 {
             // TODO: Unwind the callstack? Patch over to the VM call stack rather than continue to do recursive calls?
             stop!(Generic => "stack overflow! The rust call stack is currently used for transducers, so we impose a hard recursion limit of 1024"; self.current_span());
@@ -2156,7 +2169,17 @@ impl<'a> VmCore<'a> {
 
             let instr = self.instructions[self.ip];
 
-            // dbg!(&instr);
+            // Set up the profiler.
+            // This would be... something that records the time spent in each opcode?
+            // This additional overhead would not be ideal.
+            // Instead, lets add instrumentation for every function. This (unfortunately)
+            // will not work to record tail calls, so maybe just don't do that?
+            //
+            // Inject instrumentation code into every function, assuming that the
+            // function is not called via tail call?
+
+            // Record the call - find hot op codes
+            // self.thread.profiler[instr.op_code as usize] += 1;
 
             match instr {
                 // DenseInstruction {
@@ -2177,12 +2200,1028 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
+                    // TODO: In order to write this into a TCO style thing,
+                    // if needs to return an optional value?
+                    // impl<'a> VmCore<'a> {
+                    //     fn popn_impl(&mut self) {
                     let last = self.thread.stack.pop().unwrap();
+                    // let payload_size = self.instructions[self.ip].payload_size;
                     self.thread
                         .stack
                         .truncate(self.thread.stack.len() - payload_size.to_usize());
                     self.thread.stack.push(last);
                     self.ip += 1;
+                    //     }
+                    // }
+
+                    // self.popn_impl();
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::POPSINGLE,
+                    ..
+                } => {
+                    self.thread.stack.pop();
+                    self.ip += 1;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::POPPURE,
+                    ..
+                } => {
+                    if let Some(r) = self.handle_pop_pure() {
+                        return r;
+                    }
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::SUBREGISTER1,
+                    ..
+                } => {
+                    let read_local = &self.instructions[self.ip + 1];
+
+                    // get the local
+                    // let offset = frame.index;
+                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                    let offset = self.get_offset();
+                    let local_value =
+                        self.thread.stack[read_local.payload_size.to_usize() + offset].clone();
+
+                    let result = match subtract_primitive(&[local_value, SteelVal::IntV(1)]) {
+                        Ok(value) => value,
+                        Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                    };
+
+                    self.thread.stack.push(result);
+
+                    self.ip += 2;
+                }
+
+                // Specialization of specific library functions!
+                DenseInstruction {
+                    op_code: OpCode::CONS,
+                    ..
+                } => {
+                    cons_handler(self)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::Apply,
+                    // payload_size,
+                    ..
+                } => {
+                    todo!()
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::LIST,
+                    payload_size,
+                    ..
+                } => {
+                    list_handler(self, payload_size.to_usize())?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::NEWBOX,
+                    ..
+                } => {
+                    new_box_handler(self)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::UNBOX,
+                    ..
+                } => {
+                    unbox_handler(self)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::SETBOX,
+                    ..
+                } => {
+                    setbox_handler(self)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::CAR,
+                    ..
+                } => {
+                    car_handler(self)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::NOT,
+                    ..
+                } => {
+                    not_handler(self)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::CDR,
+                    ..
+                } => {
+                    cdr_handler(self)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::ADDREGISTER,
+                    ..
+                } => {
+                    inline_register_primitive!(add_primitive)
+                }
+                DenseInstruction {
+                    op_code: OpCode::SUBREGISTER,
+                    ..
+                } => {
+                    inline_register_primitive!(subtract_primitive)
+                }
+                DenseInstruction {
+                    op_code: OpCode::LTEREGISTER,
+                    ..
+                } => {
+                    inline_register_primitive!(lte_primitive)
+                }
+                DenseInstruction {
+                    op_code: OpCode::ADDIMMEDIATE,
+                    ..
+                } => {
+                    inline_register_primitive_immediate!(add_primitive)
+                }
+                DenseInstruction {
+                    op_code: OpCode::SUBIMMEDIATE,
+                    ..
+                } => {
+                    // inline_register_primitive_immediate!(subtract_primitive)
+
+                    let read_local = &self.instructions[self.ip];
+                    let push_const = &self.instructions[self.ip + 1];
+
+                    // get the local
+                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                    let offset = self.get_offset();
+                    let l = &self.thread.stack[read_local.payload_size.to_usize() + offset];
+
+                    // get the const value, if it can fit into the value...
+                    let r = push_const.payload_size.to_usize() as isize;
+
+                    let result = match l {
+                        // Fast path with an integer, otherwise slow path
+                        SteelVal::IntV(l) => {
+                            match l.checked_sub(&r) {
+                                Some(r) => SteelVal::IntV(r),
+                                // Slow path
+                                None => SteelVal::BigNum(Gc::new(BigInt::from(*l) - r)),
+                            }
+                        }
+
+                        SteelVal::NumV(_)
+                        | SteelVal::Rational(_)
+                        | SteelVal::BigNum(_)
+                        | SteelVal::BigRational(_) => {
+                            // TODO: Create a specialized version of this!
+                            subtract_primitive(&[l.clone(), SteelVal::IntV(r)])
+                                .map_err(|x| x.set_span_if_none(self.current_span()))?
+                        }
+                        _ => {
+                            cold();
+                            stop!(TypeMismatch => "sub expected a number, found: {}", l)
+                        }
+                    };
+
+                    self.thread.stack.push(result);
+
+                    self.ip += 2;
+                }
+                DenseInstruction {
+                    op_code: OpCode::LTEIMMEDIATE,
+                    ..
+                } => {
+                    // inline_register_primitive_immediate!(subtract_primitive)
+                    let read_local = &self.instructions[self.ip];
+                    let push_const = &self.instructions[self.ip + 1];
+
+                    // get the local
+                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                    let offset = self.get_offset();
+                    let l = &self.thread.stack[read_local.payload_size.to_usize() + offset];
+
+                    // get the const value, if it can fit into the value...
+                    let r = push_const.payload_size.to_usize() as isize;
+
+                    // sub_handler_none_int
+
+                    // TODO: Probably elide the stack push if the next inst is an IF
+                    // let result = lte_handler_none_int(self, local_value, const_val)?;
+
+                    let result = match l {
+                        SteelVal::IntV(_)
+                        | SteelVal::NumV(_)
+                        | SteelVal::Rational(_)
+                        | SteelVal::BigNum(_)
+                        | SteelVal::BigRational(_) => l.clone() <= SteelVal::IntV(r),
+                        _ => {
+                            stop!(TypeMismatch => format!("lte expected an number, found: {}", l); self.current_span())
+                        }
+                    };
+
+                    self.thread.stack.push(SteelVal::BoolV(result));
+
+                    self.ip += 2;
+                }
+                DenseInstruction {
+                    op_code: OpCode::LTEIMMEDIATEIF,
+                    ..
+                } => {
+                    // inline_register_primitive_immediate!(subtract_primitive)
+
+                    let read_local = &self.instructions[self.ip];
+                    let push_const = &self.instructions[self.ip + 1];
+
+                    // get the local
+                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                    let offset = self.get_offset();
+                    let l = &self.thread.stack[read_local.payload_size.to_usize() + offset];
+
+                    // get the const value, if it can fit into the value...
+                    let r = push_const.payload_size.to_usize() as isize;
+
+                    // sub_handler_none_int
+
+                    // TODO: Probably elide the stack push if the next inst is an IF
+                    // let result = lte_handler_none_int(self, local_value, const_val)?;
+
+                    let result = match l {
+                        SteelVal::IntV(_)
+                        | SteelVal::NumV(_)
+                        | SteelVal::Rational(_)
+                        | SteelVal::BigNum(_)
+                        | SteelVal::BigRational(_) => l.clone() <= SteelVal::IntV(r),
+                        _ => {
+                            stop!(TypeMismatch => format!("lte expected an number, found: {}", l); self.current_span())
+                        }
+                    };
+
+                    self.ip += 2;
+
+                    // change to truthy...
+                    if result {
+                        self.ip += 1;
+                    } else {
+                        self.ip = self.instructions[self.ip].payload_size.to_usize();
+                    }
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::ADD,
+                    payload_size,
+                    ..
+                } => {
+                    add_handler_payload(self, payload_size.to_usize())?;
+                    // inline_primitive!(add_primitive, payload_size)
+                }
+                DenseInstruction {
+                    op_code: OpCode::BINOPADD,
+                    ..
+                } => {
+                    // add_handler_payload(self, 2)?;
+
+                    let right = self.thread.stack.pop().unwrap();
+                    let left = self.thread.stack.last_mut().unwrap();
+
+                    let result = match add_two(left, &right) {
+                        Ok(value) => value,
+                        Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                    };
+
+                    *left = result;
+
+                    self.ip += 2;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::BINOPADDTAIL,
+                    ..
+                } => {
+                    let right = self.thread.stack.pop().unwrap();
+                    let left = self.thread.stack.pop().unwrap();
+
+                    let result = match handlers::add_handler_none_none(&left, &right) {
+                        Ok(value) => value,
+                        Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                    };
+
+                    // *left = result;
+
+                    if let Some(r) = self.handle_pop_pure_value(result) {
+                        return r;
+                    }
+
+                    // self.ip += 2;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::SUB,
+                    payload_size,
+                    ..
+                } => {
+                    sub_handler_payload(self, payload_size.to_usize())?;
+                    // inline_primitive!(subtract_primitive, payload_size)
+                }
+                DenseInstruction {
+                    op_code: OpCode::MUL,
+                    payload_size,
+                    ..
+                } => {
+                    inline_primitive!(multiply_primitive, payload_size)
+                }
+                DenseInstruction {
+                    op_code: OpCode::DIV,
+                    payload_size,
+                    ..
+                } => inline_primitive!(divide_primitive, payload_size),
+
+                DenseInstruction {
+                    op_code: OpCode::EQUAL,
+                    payload_size,
+                    ..
+                } => {
+                    inline_primitive!(equality_primitive, payload_size);
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::NUMEQUAL,
+                    ..
+                } => {
+                    number_equality_handler(self)?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::NULL,
+                    ..
+                } => {
+                    // Simply fast path case for checking null or empty
+                    let last = self.thread.stack.last_mut().unwrap();
+                    let result = is_empty(last);
+                    *last = SteelVal::BoolV(result);
+                    self.ip += 2;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::LTE,
+                    payload_size,
+                    ..
+                } => {
+                    lte_handler_payload(self, payload_size.to_usize())?;
+                    // inline_primitive!(lte_primitive, payload_size);
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::VOID,
+                    ..
+                } => {
+                    self.thread.stack.push(SteelVal::Void);
+                    self.ip += 1;
+                }
+                DenseInstruction {
+                    op_code: OpCode::SET,
+                    payload_size,
+                    ..
+                } => self.handle_set(payload_size.to_usize())?,
+                DenseInstruction {
+                    op_code: OpCode::PUSHCONST,
+                    payload_size,
+                    ..
+                } => {
+                    let val = self.constants.get_value(payload_size.to_usize());
+                    self.thread.stack.push(val);
+                    self.ip += 1;
+                }
+                DenseInstruction {
+                    op_code: OpCode::PUSH,
+                    payload_size,
+                    ..
+                } => self.handle_push(payload_size.to_usize())?,
+                DenseInstruction {
+                    op_code: OpCode::READLOCAL,
+                    payload_size,
+                    ..
+                } => self.handle_local(payload_size.to_usize())?,
+                DenseInstruction {
+                    op_code: OpCode::READLOCAL0,
+                    ..
+                } => local_handler0(self)?,
+                DenseInstruction {
+                    op_code: OpCode::READLOCAL1,
+                    ..
+                } => local_handler1(self)?,
+                DenseInstruction {
+                    op_code: OpCode::READLOCAL2,
+                    ..
+                } => local_handler2(self)?,
+                DenseInstruction {
+                    op_code: OpCode::READLOCAL3,
+                    ..
+                } => local_handler3(self)?,
+                DenseInstruction {
+                    op_code: OpCode::READCAPTURED,
+                    payload_size,
+                    ..
+                } => self.handle_read_captures(payload_size.to_usize())?,
+                DenseInstruction {
+                    op_code: OpCode::MOVEREADLOCAL,
+                    payload_size,
+                    ..
+                } => self.handle_move_local(payload_size.to_usize())?,
+                // TODO: Introduce macro for this
+                DenseInstruction {
+                    op_code: OpCode::MOVEREADLOCAL0,
+                    ..
+                } => {
+                    let offset = self.get_offset();
+                    let value = self.move_from_stack(offset);
+
+                    self.thread.stack.push(value);
+                    self.ip += 1;
+                }
+                DenseInstruction {
+                    op_code: OpCode::MOVEREADLOCAL1,
+                    ..
+                } => {
+                    let offset = self.get_offset();
+                    let value = self.move_from_stack(offset + 1);
+
+                    self.thread.stack.push(value);
+                    self.ip += 1;
+                }
+                DenseInstruction {
+                    op_code: OpCode::MOVEREADLOCAL2,
+                    ..
+                } => {
+                    let offset = self.get_offset();
+                    let value = self.move_from_stack(offset + 2);
+
+                    self.thread.stack.push(value);
+                    self.ip += 1;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::MOVEREADLOCAL3,
+                    ..
+                } => {
+                    let offset = self.get_offset();
+                    let value = self.move_from_stack(offset + 3);
+
+                    self.thread.stack.push(value);
+                    self.ip += 1;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::SETLOCAL,
+                    payload_size,
+                    ..
+                } => self.handle_set_local(payload_size.to_usize()),
+                DenseInstruction {
+                    op_code: OpCode::LOADINT0,
+                    ..
+                } => {
+                    self.thread.stack.push(SteelVal::INT_ZERO);
+                    self.ip += 1;
+                }
+                DenseInstruction {
+                    op_code: OpCode::LOADINT1,
+                    ..
+                } => {
+                    self.thread.stack.push(SteelVal::INT_ONE);
+                    self.ip += 1;
+                }
+                DenseInstruction {
+                    op_code: OpCode::LOADINT2,
+                    ..
+                } => {
+                    self.thread.stack.push(SteelVal::INT_TWO);
+                    self.ip += 1;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::LOADINT1POP,
+                    ..
+                } => {
+                    // self.thread.stack.push(SteelVal::INT_TWO);
+                    self.ip += 1;
+                    if let Some(r) = self.handle_pop_pure_value(SteelVal::INT_TWO) {
+                        return r;
+                    }
+                }
+
+                // DenseInstruction {
+                //     op_code: OpCode::CGLOCALCONST,
+                //     payload_size,
+                //     ..
+                // } => {
+                //     let read_local = &self.instructions[self.ip + 1];
+                //     let push_const = &self.instructions[self.ip + 2];
+
+                //     // Snag the function
+                //     let func = self
+                //         .thread
+                //         .global_env
+                //         .repl_lookup_idx(payload_size.to_usize());
+
+                //     // get the local
+                //     // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                //     let offset = self.get_offset();
+                //     let local_value =
+                //         self.thread.stack[read_local.payload_size.to_usize() + offset].clone();
+
+                //     // get the const
+                //     let const_val = self.constants.get(push_const.payload_size.to_usize());
+
+                //     self.handle_lazy_function_call(func, local_value, const_val)?;
+                // }
+                DenseInstruction {
+                    op_code: OpCode::CALLGLOBAL,
+                    payload_size,
+                    ..
+                } => {
+                    self.ip += 1;
+                    let next_inst = self.instructions[self.ip];
+                    self.handle_call_global(
+                        payload_size.to_usize(),
+                        next_inst.payload_size.to_usize(),
+                    )?;
+                }
+                DenseInstruction {
+                    op_code: OpCode::CALLGLOBALTAIL,
+                    payload_size,
+                    ..
+                } => {
+                    let next_inst = self.instructions[self.ip + 1];
+                    // self.handle_tail_call_global(
+                    //     payload_size.to_usize(),
+                    //     next_inst.payload_size.to_usize(),
+                    // )?;
+
+                    let stack_func = self
+                        .thread
+                        .global_env
+                        .repl_lookup_idx(payload_size.to_usize());
+                    self.ip += 1;
+                    let payload_size = next_inst.payload_size.to_usize();
+                    // self.handle_tail_call(stack_func, next_inst.payload_size.to_usize());
+
+                    use SteelVal::*;
+
+                    match stack_func {
+                        FuncV(f) => {
+                            let last_index = self.thread.stack.len() - payload_size;
+                            let result =
+                                match self.thread.enter_safepoint(move |ctx: &SteelThread| {
+                                    f(&ctx.stack[last_index..])
+                                }) {
+                                    Ok(v) => v,
+                                    Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                                };
+
+                            // This is the old way... lets see if the below way improves the speed
+                            self.thread.stack.truncate(last_index);
+                            if let Some(r) = self.handle_pop_pure_value(result) {
+                                return r;
+                            }
+                            Ok(())
+                        }
+                        MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
+                        BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
+                        Closure(closure) => {
+                            self.new_handle_tail_call_closure(closure, payload_size)
+                        }
+                        BuiltIn(f) => self.call_builtin_func(f, payload_size),
+                        CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+                        ContinuationFunction(cc) => self.call_continuation(cc),
+                        _ => {
+                            // println!("{:?}", self.stack);
+                            // println!("{:?}", self.stack_index);
+                            // println!("Bad tail call");
+                            // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+                            stop!(BadSyntax => format!("TailCall - Application not a procedure or function type 
+                    not supported: {stack_func}"); self.current_span());
+                        }
+                    }?
+                }
+                DenseInstruction {
+                    op_code: OpCode::FUNC,
+                    payload_size,
+                    ..
+                } => {
+                    // TODO: @Matt -> don't pop the function off of the stack, just read it from there directly.
+                    let func = self.thread.stack.pop().unwrap();
+                    self.handle_function_call(func, payload_size.to_usize())?;
+                }
+                // Tail call basically says "hey this function is exiting"
+                // In the closure case, transfer ownership of the stack to the called function
+                DenseInstruction {
+                    op_code: OpCode::TAILCALL,
+                    payload_size,
+                    ..
+                } => {
+                    let func = self.thread.stack.pop().unwrap();
+                    self.handle_tail_call(func, payload_size.to_usize())?
+                }
+                DenseInstruction {
+                    op_code: OpCode::IF,
+                    payload_size,
+                    ..
+                } => {
+                    // change to truthy...
+                    if self.thread.stack.pop().unwrap().is_truthy() {
+                        self.ip += 1;
+                    } else {
+                        self.ip = payload_size.to_usize();
+                    }
+                }
+                DenseInstruction {
+                    op_code: OpCode::TCOJMP,
+                    payload_size,
+                    ..
+                } => {
+                    let mut current_arity = payload_size.to_usize();
+                    // This is the number of (local) functions we need to pop to get back to the place we want to be at
+                    // let depth = self.instructions[self.ip + 1].payload_size.to_usize();
+
+                    // for _ in 0..depth {
+                    //     self.thread.stack_frames.pop();
+                    //     self.pop_count -= 1;
+                    // }
+
+                    let last_stack_frame = self.thread.stack_frames.last().unwrap();
+
+                    #[cfg(feature = "dynamic")]
+                    {
+                        last_stack_frame.function.increment_call_count();
+                    }
+
+                    self.instructions = last_stack_frame.function.body_exp();
+                    // self.spans = last_stack_frame.function.spans();
+                    self.sp = last_stack_frame.sp;
+
+                    // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+
+                    // panic!("Stopping");
+
+                    self.ip = 0;
+
+                    // TODO: Adjust the stack for multiple arity functions
+                    let is_multi_arity = last_stack_frame.function.is_multi_arity;
+                    let original_arity = last_stack_frame.function.arity();
+                    let payload_size = current_arity;
+                    // let new_arity = &mut closure_arity;
+
+                    // TODO: Reuse the original list allocation, if it exists.
+                    if likely(!is_multi_arity) {
+                        if unlikely(original_arity != payload_size) {
+                            stop!(ArityMismatch => format!("function expected {} arguments, found {}", original_arity, payload_size); self.current_span());
+                        }
+                    } else {
+                        // println!(
+                        //     "multi closure function, multi arity, arity: {:?} - called with: {:?}",
+                        //     original_arity, payload_size
+                        // );
+
+                        if payload_size < original_arity - 1 {
+                            stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", original_arity, payload_size); self.current_span());
+                        }
+
+                        // (define (test x . y))
+                        // (test 1 2 3 4 5)
+                        // in this case, arity = 2 and payload size = 5
+                        // pop off the last 4, collect into a list
+                        let amount_to_remove = 1 + payload_size - original_arity;
+
+                        let values = self
+                            .thread
+                            .stack
+                            .drain(self.thread.stack.len() - amount_to_remove..)
+                            .collect();
+
+                        let list = SteelVal::ListV(values);
+
+                        self.thread.stack.push(list);
+
+                        current_arity = original_arity;
+                    }
+
+                    // HACK COME BACK TO THIS
+                    // if self.ip == 0 && self.heap.len() > self.heap.limit() {
+                    // TODO collect here
+                    // self.heap.collect_garbage();
+                    // }
+                    // let offset = self.stack_index.last().copied().unwrap_or(0);
+                    let offset = last_stack_frame.sp;
+
+                    // We should have arity at this point, drop the stack up to this point
+                    // take the last arity off the stack, go back and replace those in order
+                    // [... arg1 arg2 arg3]
+                    //      ^^^ <- back = this index
+                    // offset = the start of the stack frame
+                    // Copy the arg1 arg2 arg3 values to
+                    // [... frame-start ... arg1 arg2 arg3]
+                    //      ^^^^^^~~~~~~~~
+                    let back = self.thread.stack.len() - current_arity;
+                    // for i in 0..current_arity {
+                    //     self.stack[offset + i] = self.stack[back + i].clone();
+                    // }
+
+                    let _ = self.thread.stack.drain(offset..back);
+                }
+
+                // Blindly go to the next instructions
+                DenseInstruction {
+                    op_code: OpCode::JMP,
+                    payload_size,
+                    ..
+                } => {
+                    self.ip = payload_size.to_usize();
+                }
+
+                // If the JMP points to a pop, just pop
+                DenseInstruction {
+                    op_code: OpCode::POPJMP,
+                    ..
+                } => {
+                    // self.ip = payload_size.to_usize();
+                    if let Some(r) = self.handle_pop_pure() {
+                        return r;
+                    }
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::BEGINSCOPE,
+                    ..
+                } => {
+                    self.ip += 1;
+                }
+                DenseInstruction {
+                    op_code: OpCode::SETALLOC,
+                    ..
+                } => set_alloc_handler(self)?,
+                DenseInstruction {
+                    op_code: OpCode::READALLOC,
+                    ..
+                } => read_alloc_handler(self)?,
+
+                DenseInstruction {
+                    op_code: OpCode::ALLOC,
+                    ..
+                } => alloc_handler(self)?,
+                DenseInstruction {
+                    op_code: OpCode::LETENDSCOPE,
+                    ..
+                } => {
+                    let_end_scope_handler(self)?;
+                }
+                DenseInstruction {
+                    op_code: OpCode::BIND,
+                    payload_size,
+                    ..
+                } => self.handle_bind(payload_size.to_usize()),
+                DenseInstruction {
+                    op_code: OpCode::NEWSCLOSURE,
+                    payload_size,
+                    ..
+                } => self.handle_new_start_closure(payload_size.to_usize())?,
+                DenseInstruction {
+                    op_code: OpCode::PUREFUNC,
+                    payload_size,
+                    ..
+                } => self.handle_pure_function(payload_size.to_usize()),
+                DenseInstruction {
+                    op_code: OpCode::SDEF,
+                    ..
+                } => self.handle_start_def(),
+                DenseInstruction {
+                    op_code: OpCode::EDEF,
+                    ..
+                } => {
+                    self.ip += 1;
+                }
+                DenseInstruction {
+                    op_code: OpCode::Arity,
+                    ..
+                } => {
+                    self.ip += 1;
+                }
+                DenseInstruction {
+                    op_code: OpCode::PANIC,
+                    ..
+                } => self.handle_panic(self.current_span())?,
+                DenseInstruction {
+                    op_code: OpCode::PASS,
+                    ..
+                } => {
+                    self.ip += 1;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::VEC,
+                    payload_size,
+                } => {
+                    let payload = payload_size.to_usize();
+                    let len = payload / 2;
+                    let bytes = payload % 2 != 0;
+
+                    let args = self.thread.stack.split_off(self.thread.stack.len() - len);
+
+                    let val = if bytes {
+                        let buffer: Vec<_> = args
+                            .into_iter()
+                            .flat_map(|val| {
+                                let int = val.int_or_else(|| "unexpected non integer");
+
+                                debug_assert!(int.is_ok());
+
+                                int.ok()
+                            })
+                            .flat_map(|int| {
+                                let byte = u8::try_from(int);
+
+                                debug_assert!(byte.is_ok());
+                                byte.ok()
+                            })
+                            .collect();
+
+                        SteelVal::ByteVector(crate::rvals::SteelByteVector::new(buffer))
+                    } else {
+                        SteelVal::VectorV(crate::rvals::SteelVector(Gc::new(args.into())))
+                    };
+
+                    self.thread.stack.push(val);
+                    self.ip += 1;
+                }
+
+                // DenseInstruction {
+                //     op_code: OpCode::ECLOSURE,
+                //     ..
+                // } => {
+                //     self.ip += 1;
+                // }
+
+                // match_dynamic_super_instructions!()
+                _ => {
+                    #[cfg(feature = "dynamic")]
+                    // TODO: Dispatch on the function here for super instructions!
+                    dynamic::vm_match_dynamic_super_instruction(self, instr)?;
+
+                    // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+                    // panic!(
+                    //     "Unhandled opcode: {:?} @ {}",
+                    //     self.instructions[self.ip], self.ip
+                    // );
+                }
+            }
+        }
+    }
+
+    pub(crate) fn vm_tco(&mut self) -> Result<SteelVal> {
+        if self.depth > 1024 * 128 {
+            // TODO: Unwind the callstack? Patch over to the VM call stack rather than continue to do recursive calls?
+            stop!(Generic => "stack overflow! The rust call stack is currently used for transducers, so we impose a hard recursion limit of 1024"; self.current_span());
+        }
+
+        macro_rules! inline_primitive {
+            ($name:tt, $payload_size:expr) => {{
+                let last_index = self.thread.stack.len() - $payload_size.to_usize();
+
+                let result = match $name(&mut self.thread.stack[last_index..]) {
+                    Ok(value) => value,
+                    Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                };
+
+                self.thread.stack.truncate(last_index + 1);
+                *self.thread.stack.last_mut().unwrap() = result;
+
+                self.ip += 2;
+            }};
+        }
+
+        macro_rules! inline_register_primitive {
+            ($name:tt) => {{
+                let read_local = &self.instructions[self.ip];
+                let push_const = &self.instructions[self.ip + 1];
+
+                // get the local
+                // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                let offset = self.get_offset();
+                let local_value =
+                    self.thread.stack[read_local.payload_size.to_usize() + offset].clone();
+
+                // get the const
+                let const_val = self.constants.get_value(push_const.payload_size.to_usize());
+
+                let result = match $name(&[local_value, const_val]) {
+                    Ok(value) => value,
+                    Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                };
+
+                self.thread.stack.push(result);
+
+                self.ip += 2;
+            }};
+        }
+
+        // TODO: Directly call the binary operation with the value as an isize
+        macro_rules! inline_register_primitive_immediate {
+            ($name:tt) => {{
+                let read_local = &self.instructions[self.ip];
+                let push_const = &self.instructions[self.ip + 1];
+
+                // get the local
+                // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+                let offset = self.get_offset();
+                let local_value =
+                    self.thread.stack[read_local.payload_size.to_usize() + offset].clone();
+
+                // get the const value, if it can fit into the value...
+                let const_val = SteelVal::IntV(push_const.payload_size.to_usize() as isize);
+
+                // sub_handler_none_int
+
+                let result = match $name(&[local_value, const_val]) {
+                    Ok(value) => value,
+                    Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                };
+
+                self.thread.stack.push(result);
+
+                self.ip += 2;
+            }};
+        }
+
+        loop {
+            self.safepoint_or_interrupt()?;
+
+            // Process the op code
+            // TODO: Just build up a slice, don't directly store the full vec of op codes
+
+            // assert_eq!(self.spans.len(), self.instructions.len());
+
+            #[cfg(feature = "dynamic")]
+            if let Some(pat) = self.thread.profiler.process_opcode(
+                &self.instructions[self.ip].op_code,
+                self.ip,
+                &self.instructions,
+                // Grab the current stack frame
+                self.thread.stack_frames.last().map(|x| x.function.as_ref()),
+            ) {
+                // if count > 1000 {
+                log::debug!(target: "super-instructions", "Found a hot pattern, creating super instruction...");
+
+                log::debug!(target: "super-instructions", "{:#?}", pat);
+
+                // if USE_SUPER_INSTRUCTIONS {
+                //     // Index of the starting opcode
+                //     let start = pat.pattern.start;
+
+                //     let id = self.thread.super_instructions.len();
+
+                //     let guard = self.thread.stack_frames.last_mut().unwrap();
+
+                //     // Next run should get the new sequence of opcodes
+                //     let (head, _) = guard.function.update_to_super_instruction(start, id);
+
+                //     let block = DynamicBlock::construct_basic_block(head, pat);
+
+                //     self.thread.super_instructions.push(Rc::new(block));
+                // }
+                // self.thread.super_instructions.push(Rc::new(|ctx| {
+                //     block.call(ctx);
+                // }))
+
+                // let
+                // }
+            }
+
+            let instr = self.instructions[self.ip];
+
+            match instr {
+                DenseInstruction {
+                    op_code: OpCode::POPN,
+                    payload_size,
+                    ..
+                } => {
+                    // TODO: In order to write this into a TCO style thing,
+                    // if needs to return an optional value?
+                    // impl<'a> VmCore<'a> {
+                    //     fn popn_impl(&mut self) {
+                    let last = self.thread.stack.pop().unwrap();
+                    // let payload_size = self.instructions[self.ip].payload_size;
+                    self.thread
+                        .stack
+                        .truncate(self.thread.stack.len() - payload_size.to_usize());
+                    self.thread.stack.push(last);
+                    self.ip += 1;
+                    //     }
+                    // }
+
+                    // self.popn_impl();
                 }
 
                 DenseInstruction {
@@ -5041,6 +6080,55 @@ pub(crate) fn macro_case_bindings(ctx: &mut VmCore, args: &[SteelVal]) -> Option
 #[steel_derive::context(name = "#%match-syntax-case", arity = "Exact(2)")]
 pub(crate) fn match_syntax_case(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(match_syntax_case_impl(ctx, args))
+}
+
+#[steel_derive::context(name = "#%opcode-counter", arity = "Exact(0)")]
+pub(crate) fn opcode_counts(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    unsafe {
+        let mut counts = ctx.thread.profiler.iter().enumerate().collect::<Vec<_>>();
+        counts.sort_by_key(|x| x.1);
+        for (index, count) in counts.into_iter().rev() {
+            if *count == 0 {
+                continue;
+            }
+            println!(
+                "{:?}: {}",
+                std::mem::transmute::<u8, OpCode>(index as u8),
+                count
+            );
+        }
+    }
+
+    Some(Ok(SteelVal::Void))
+}
+
+#[steel_derive::context(name = "#%primitives", arity = "Exact(0)")]
+pub(crate) fn build_reverse_map(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    let mut modules = Vec::new();
+
+    // Iterate over the globals, find all primitives
+    for value in &ctx.thread.global_env.thread_local_bindings {
+        if let Ok(inner) = super::builtin::BuiltInModule::from_steelval(value) {
+            // println!("{:?}", inner.bound_identifiers());
+            modules.push(inner);
+        }
+    }
+
+    for global_value in &ctx.thread.global_env.thread_local_bindings {
+        // Map the value back to the original thing, based
+        // on equality?
+        for module in &modules {
+            let keys = module.values();
+
+            for (key, value) in keys.iter() {
+                if global_value == value {
+                    println!("Found match: {} -> {:?}", key, value);
+                }
+            }
+        }
+    }
+
+    Some(Ok(SteelVal::Void))
 }
 
 /// Applies the given `function` with arguments as the contents of the `list`.

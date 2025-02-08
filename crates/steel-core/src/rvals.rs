@@ -1379,6 +1379,20 @@ impl fmt::Display for SteelComplex {
     }
 }
 
+// Strategy for creating an image:
+//
+// Primitives need to serialize to something that allows
+// reconstruction by the host VM. For example, they should
+// map #%prim.foo -> value, so that when serialized, we can
+// map the serialized value back to the original thing.
+enum Location {
+    // Should serialize directly to something that is writeable
+    Trivial(SteelVal),
+    // Should convert to something from the built in primitives
+    BuiltInFunction(SteelVal),
+    Address(usize),
+}
+
 impl SteelVal {
     // TODO: Re-evaluate this - should this be buffered?
     pub fn new_dyn_writer_port(port: impl Write + Send + Sync + 'static) -> SteelVal {
@@ -1410,6 +1424,48 @@ impl SteelVal {
     pub fn as_box_to_inner(&self) -> Option<SteelVal> {
         self.as_box().map(|x| x.get())
     }
+
+    // pub(crate) fn location(&self) -> Location {
+    //     match self {
+    //         Closure(gc) => todo!(),
+    //         BoolV(_) => todo!(),
+    //         NumV(_) => todo!(),
+    //         IntV(_) => todo!(),
+    //         Rational(ratio) => todo!(),
+    //         CharV(_) => todo!(),
+    //         VectorV(steel_vector) => todo!(),
+    //         Void => todo!(),
+    //         StringV(steel_string) => todo!(),
+    //         FuncV(_) => todo!(),
+    //         SymbolV(steel_string) => todo!(),
+    //         SteelVal::Custom(gc) => todo!(),
+    //         HashMapV(steel_hash_map) => todo!(),
+    //         HashSetV(steel_hash_set) => todo!(),
+    //         CustomStruct(gc) => todo!(),
+    //         PortV(steel_port) => todo!(),
+    //         IterV(gc) => todo!(),
+    //         ReducerV(gc) => todo!(),
+    //         FutureFunc(arc) => todo!(),
+    //         FutureV(gc) => todo!(),
+    //         StreamV(gc) => todo!(),
+    //         BoxedFunction(gc) => todo!(),
+    //         ContinuationFunction(continuation) => todo!(),
+    //         ListV(generic_list) => todo!(),
+    //         Pair(gc) => todo!(),
+    //         MutFunc(_) => todo!(),
+    //         BuiltIn(_) => todo!(),
+    //         MutableVector(heap_ref) => todo!(),
+    //         BoxedIterator(gc) => todo!(),
+    //         SteelVal::SyntaxObject(gc) => todo!(),
+    //         Boxed(gc) => todo!(),
+    //         HeapAllocated(heap_ref) => todo!(),
+    //         Reference(gc) => todo!(),
+    //         BigNum(gc) => todo!(),
+    //         SteelVal::BigRational(gc) => todo!(),
+    //         Complex(gc) => todo!(),
+    //         ByteVector(steel_byte_vector) => todo!(),
+    //     }
+    // }
 
     pub fn as_ptr_usize(&self) -> Option<usize> {
         match self {

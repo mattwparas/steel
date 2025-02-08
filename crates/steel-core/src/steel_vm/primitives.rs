@@ -1798,6 +1798,8 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(MACRO_CASE_BINDINGS_DEFINITION)
         .register_native_fn_definition(EVAL_STRING_DEFINITION)
         .register_native_fn_definition(CALL_WITH_EXCEPTION_HANDLER_DEFINITION)
+        .register_native_fn_definition(super::vm::BUILD_REVERSE_MAP_DEFINITION)
+        .register_native_fn_definition(super::vm::OPCODE_COUNTS_DEFINITION)
         .register_value("breakpoint!", SteelVal::BuiltIn(super::vm::breakpoint))
         .register_native_fn_definition(INSPECT_DEFINITION)
         // TODO: Come back to this

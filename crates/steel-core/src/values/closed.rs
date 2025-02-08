@@ -282,6 +282,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
                     self.push_back(value.clone());
                 }
             }
+            ContinuationMark::Barrier => {}
         }
     }
     // TODO: Come back to this
@@ -1188,6 +1189,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
                     self.push_back(value.clone());
                 }
             }
+
+            ContinuationMark::Barrier => {}
         }
     }
     // TODO: Come back to this

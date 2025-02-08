@@ -516,6 +516,8 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             compiler: todo!(),
             id: EngineId::new(),
             safepoints_enabled: false,
+
+            profiler: vec![0; OpCode::LOADINT2POP as usize],
         };
 
         #[cfg(feature = "profiling")]

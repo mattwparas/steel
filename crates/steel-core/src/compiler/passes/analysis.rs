@@ -3208,6 +3208,8 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
                                 // TODO: Check if the number of captured vars is 1, and if that 1 is equivalent to the
                                 // define name. If it is, then we should just mark this as a pure local function, because
                                 // then we can lift it and be happy about it!
+                                //
+                                //
 
                                 for (_, info) in info.captured_vars() {
                                     if info.id == define.name_id().unwrap() {

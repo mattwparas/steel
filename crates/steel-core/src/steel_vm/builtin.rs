@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::{borrow::Cow, cell::RefCell, sync::Arc};
 
 use crate::gc::shared::{
@@ -60,6 +61,18 @@ struct BuiltInModuleRepr {
     // We don't need to generate this every time, just need to
     // clone it?
     generated_expression: SharedMut<Option<ExprKind>>,
+    // Add reverse mapping, lazily?
+}
+
+// #[derive(serde::Serialize, serde::Deserialize)]
+pub struct ModuleConverter {
+    name: String,
+    // Hash of value... take by pointer?
+    mapping: BTreeMap<String, SteelVal>,
+    // Attempt to find the pointer via the hash?
+    // TODO: Reverse mapping - take the pointer, convert it back
+    // to the original kind, see if it finds the value.
+    pointer_mapping: HashMap<usize, SteelVal>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -723,6 +736,13 @@ impl BuiltInModule {
     /// global namespace.
     pub fn to_syntax(&self, prefix: Option<&str>) -> ExprKind {
         self.module.read().to_syntax(prefix)
+    }
+
+    pub fn values(
+        &self,
+    ) -> MappedScopedReadContainer<'_, std::collections::HashMap<Arc<str>, SteelVal, FxBuildHasher>>
+    {
+        ScopedReadContainer::map(self.module.read(), |x| &x.values)
     }
 }
 

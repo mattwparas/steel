@@ -947,6 +947,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
                         }
                     }
                 }
+                ContinuationMark::Barrier => {}
             }
         }
     }

@@ -1002,8 +1002,8 @@ impl Compiler {
                 &self.macro_env,
                 &self.module_manager,
             )
-            .lift_pure_local_functions()
-            .lift_all_local_functions();
+            .lift_pure_local_functions();
+        // .lift_all_local_functions();
 
         // debug!("About to expand defines");
 
