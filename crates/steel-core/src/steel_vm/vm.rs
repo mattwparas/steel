@@ -2676,7 +2676,7 @@ impl<'a> VmCore<'a> {
                 } => {
                     // self.thread.stack.push(SteelVal::INT_TWO);
                     self.ip += 1;
-                    if let Some(r) = self.handle_pop_pure_value(SteelVal::INT_TWO) {
+                    if let Some(r) = self.handle_pop_pure_value(SteelVal::INT_ONE) {
                         return r;
                     }
                 }
