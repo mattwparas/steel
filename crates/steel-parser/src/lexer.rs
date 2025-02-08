@@ -356,6 +356,36 @@ impl<'a> Lexer<'a> {
             }
         }
     }
+
+    fn read_nestable_comment(&mut self) -> Result<TokenType<&'a str>> {
+        self.eat();
+
+        let mut depth = 1;
+
+        while let Some(c) = self.eat() {
+            match c {
+                '|' => {
+                    if self.chars.peek().copied() == Some('#') {
+                        self.eat();
+                        depth -= 1;
+
+                        if depth == 0 {
+                            return Ok(TokenType::Comment);
+                        }
+                    }
+                }
+                '#' => {
+                    if self.chars.peek().copied() == Some('|') {
+                        self.eat();
+                        depth += 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Err(TokenError::IncompleteComment)
+    }
 }
 
 fn strip_shebang_line(input: &str) -> (&str, usize, usize) {
@@ -476,6 +506,7 @@ pub type Result<T> = std::result::Result<T, TokenError>;
 pub enum TokenError {
     UnexpectedChar(char),
     IncompleteString,
+    IncompleteComment,
     InvalidEscape,
     InvalidCharacter,
     MalformedHexInteger,
@@ -556,7 +587,18 @@ impl<'a> Iterator for Lexer<'a> {
             }
             Some('#') => {
                 self.eat();
-                Some(self.read_hash_value())
+                let next = self.chars.peek().copied();
+
+                let token = match next {
+                    Some('|') => self.read_nestable_comment(),
+                    Some(';') => {
+                        self.eat();
+                        Ok(TokenType::DatumComment)
+                    }
+                    _ => self.read_hash_value(),
+                };
+
+                Some(token)
             }
 
             Some(c) if !c.is_whitespace() && !c.is_numeric() || *c == '_' => {
@@ -1433,5 +1475,30 @@ mod lexer_tests {
                 span: Span::new(0, 3, SourceId::none())
             }
         )
+    }
+
+    #[test]
+    fn special_comments_test() {
+        let mut lexer = Lexer::new("#| f(\n [ |#");
+        assert_eq!(lexer.next(), Some(Ok(TokenType::Comment)));
+
+        let mut lexer = Lexer::new("#| a #| ( |# |#");
+        assert_eq!(lexer.next(), Some(Ok(TokenType::Comment)));
+
+        let mut lexer = Lexer::new("#;(a b)");
+        assert_eq!(lexer.next(), Some(Ok(TokenType::DatumComment)));
+
+        let mut lexer = Lexer::new("#; #(#true 3)");
+        assert_eq!(lexer.next(), Some(Ok(TokenType::DatumComment)));
+
+        let mut lexer = Lexer::new("#; #; 3 5");
+        assert_eq!(lexer.next(), Some(Ok(TokenType::DatumComment)));
+    }
+
+    #[test]
+    fn comment_error_test() {
+        let mut lexer = Lexer::new("#|");
+
+        assert_eq!(lexer.next().unwrap(), Err(TokenError::IncompleteComment));
     }
 }

@@ -1135,24 +1135,25 @@ impl List {
         }
     }
 
-    pub fn make_improper(mut self) -> Self {
+    pub fn make_improper(&mut self) {
         let Some(last) = self.args.pop() else {
             debug_assert!(false);
 
             self.improper = true;
-            return self;
+
+            return;
         };
 
         let ExprKind::List(l) = last else {
             self.args.push(last);
 
             self.improper = true;
-            return self;
+
+            return;
         };
 
         self.args.extend(l.args);
         self.improper = l.improper;
-        self
     }
 
     pub fn is_empty(&self) -> bool {
