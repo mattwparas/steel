@@ -4,86 +4,10 @@ use crate::span::Span;
 use core::ops;
 use num::{BigInt, Rational32, Signed};
 use serde::{Deserialize, Serialize};
-use std::convert::TryFrom;
 use std::fmt::{self, Display};
-use std::num::ParseIntError;
 use std::str::FromStr;
 use std::sync::Arc;
 use TokenType::*;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DecodeHexError {
-    OddLength,
-    ParseInt(ParseIntError),
-}
-
-impl From<ParseIntError> for DecodeHexError {
-    fn from(e: ParseIntError) -> Self {
-        DecodeHexError::ParseInt(e)
-    }
-}
-
-impl Display for DecodeHexError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            DecodeHexError::OddLength => "input string has an odd number of bytes".fmt(f),
-            DecodeHexError::ParseInt(e) => e.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for DecodeHexError {}
-
-pub fn decode_hex(s: &str) -> Result<Vec<u8>, DecodeHexError> {
-    if s.len() % 2 != 0 {
-        Err(DecodeHexError::OddLength)
-    } else {
-        (0..s.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| e.into()))
-            .collect()
-    }
-}
-
-pub fn parse_unicode_str(slice: &str) -> Option<char> {
-    if slice.starts_with("#\\u") && slice.contains('{') && slice.contains('}') {
-        let rest = slice
-            .trim_start_matches("#\\u")
-            .trim_start_matches('{')
-            .trim_end_matches('}')
-            .to_lowercase();
-
-        let rest = match rest.len() {
-            0 => panic!("length of 0"),
-            1 => "000".to_string() + &rest,
-            2 => "00".to_string() + &rest,
-            3 => "0".to_string() + &rest,
-            _ => return None,
-        };
-
-        let decoded: u8 = decode_hex(&rest).ok()?.into_iter().sum();
-        let uinitial: u32 = decoded.into();
-        char::try_from(uinitial).ok()
-    } else if slice.starts_with("#\\u") {
-        let rest = slice.trim_start_matches("#\\u").to_lowercase();
-
-        let rest = match rest.len() {
-            1 => "000".to_string() + &rest,
-            2 => "00".to_string() + &rest,
-            3 => "0".to_string() + &rest,
-            4 => rest,
-            _ => return None,
-        };
-
-        let decoded: u8 = decode_hex(&rest).ok()?.into_iter().sum();
-
-        let uinitial: u32 = decoded.into();
-
-        char::try_from(uinitial).ok()
-    } else {
-        None
-    }
-}
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Paren {
