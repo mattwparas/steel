@@ -32,6 +32,15 @@ macro_rules! declare_opcodes {
         pub static PATTERNS: &'static [&'static [(OpCode, usize)]] = &[
                 $( &[ $(($k, $v)),* ] ),* ,
         ];
+
+        pub static OPCODES_SLIZE: &'static [OpCode] = &[
+            $(OpCode::$variant),*
+        ];
+
+        pub const MAX_OPCODE_SIZE: usize = OpCode::LOADINT2POP as usize + 1;
+        pub const OPCODES_ARRAY: [OpCode; MAX_OPCODE_SIZE] = [
+            $(OpCode::$variant),*
+        ];
     }
 
 }

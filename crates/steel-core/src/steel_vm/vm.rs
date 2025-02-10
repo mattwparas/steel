@@ -68,6 +68,8 @@ use parking_lot::RwLock;
 use smallvec::SmallVec;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
+use steel_gen::opcode::MAX_OPCODE_SIZE;
+use steel_gen::opcode::OPCODES_ARRAY;
 use steel_parser::interner::InternedString;
 use threads::ThreadHandle;
 
@@ -342,6 +344,8 @@ pub struct SteelThread {
 
     // Instruction -> count
     pub(crate) profiler: Vec<usize>,
+
+    pub(crate) handler_map: &'static [OpHandler],
 }
 
 #[derive(Clone)]
@@ -611,6 +615,8 @@ impl SteelThread {
 
             // Last enum variant
             profiler: vec![0; OpCode::LOADINT2POP as usize],
+
+            handler_map: &HANDLER_MAP,
         }
     }
 
@@ -864,7 +870,15 @@ impl SteelThread {
         // This is our pseudo "dynamic unwind"
         // If we need to, we'll walk back on the stack and find any handlers to pop
         'outer: loop {
+            #[cfg(debug_assertions)]
             let result = vm_instance.vm().map_err(|error| {
+                error
+                    .set_span_if_none(vm_instance.current_span())
+                    .with_stack_trace(vm_instance.snapshot_stack_trace())
+            });
+
+            #[cfg(not(debug_assertions))]
+            let result = vm_instance.vm_tco().map_err(|error| {
                 error
                     .set_span_if_none(vm_instance.current_span())
                     .with_stack_trace(vm_instance.snapshot_stack_trace())
@@ -1354,6 +1368,1197 @@ pub struct VmCore<'a> {
     pub(crate) depth: usize,
     pub(crate) thread: &'a mut SteelThread,
     pub(crate) root_spans: &'a [Span],
+
+    pub(crate) return_value: Option<SteelVal>,
+}
+
+pub type Dispatch = ();
+
+// pub enum Dispatch {
+//     // Continue,
+//     // Break,
+// }
+
+const _ASSERT_SMALL: () = assert!(std::mem::size_of::<Result<Dispatch>>() <= 8);
+
+pub type OpHandler = for<'a, 'b> fn(&'a mut VmCore<'b>) -> Result<Dispatch>;
+
+pub static HANDLER_MAP: [OpHandler; MAX_OPCODE_SIZE] = [
+    // VOID;
+    void_handler_tco,
+    // PUSH;
+    push_handler_tco,
+    // IF;
+    if_handler_tco,
+    // JMP;
+    jmp_handler_tco,
+    // FUNC;
+    func_handler_tco,
+    // SCLOSURE;
+    unhandled_handler_tco,
+    // ECLOSURE;
+    unhandled_handler_tco,
+    // BIND;
+    bind_handler_tco,
+    // SDEF;
+    sdef_handler_tco,
+    // EDEF;
+    edef_handler_tco,
+    // POPPURE;
+    poppure_handler_tco,
+    // POPN;
+    popn_handler_tco,
+    // POPSINGLE;
+    popsingle_handler_tco,
+    // PASS;
+    pass_handler_tco,
+    // PUSHCONST;
+    pushconst_handler_tco,
+    // NDEFS;
+    unhandled_handler_tco,
+    // PANIC;
+    panic_handler_tco,
+    // TAILCALL;
+    tailcall_handler_tco,
+    // SET;
+    set_handler_tco,
+    // READLOCAL;
+    readlocal_handler_tco,
+    // READLOCAL0;
+    readlocal0_handler_tco,
+    // READLOCAL1;
+    readlocal1_handler_tco,
+    // READLOCAL2;
+    readlocal2_handler_tco,
+    // READLOCAL3;
+    readlocal3_handler_tco,
+    // SETLOCAL;
+    setlocal_handler_tco,
+    // COPYCAPTURESTACK;
+    unhandled_handler_tco,
+    // COPYCAPTURECLOSURE;
+    unhandled_handler_tco,
+    // COPYHEAPCAPTURECLOSURE;
+    unhandled_handler_tco,
+    // FIRSTCOPYHEAPCAPTURECLOSURE;
+    unhandled_handler_tco,
+    // TCOJMP;
+    tcojmp_handler_tco,
+    // CALLGLOBAL;
+    callglobal_handler_tco,
+    // CALLGLOBALTAIL;
+    callglobaltail_handler_tco,
+    // LOADINT0; // Load const 0,
+    loadint0_handler_tco,
+    // LOADINT1;
+    loadint1_handler_tco,
+    // LOADINT2;
+    loadint2_handler_tco,
+    // CGLOCALCONST;
+    unhandled_handler_tco,
+    // MOVEREADLOCAL;
+    movereadlocal_handler_tco,
+    // MOVEREADLOCAL0;
+    movereadlocal0_handler_tco,
+    // MOVEREADLOCAL1;
+    movereadlocal1_handler_tco,
+    // MOVEREADLOCAL2;
+    movereadlocal2_handler_tco,
+    // MOVEREADLOCAL3;
+    movereadlocal3_handler_tco,
+    // READCAPTURED;
+    readcaptured_handler_tco,
+    // BEGINSCOPE;
+    beginscope_handler_tco,
+    // LETENDSCOPE;
+    letendscope_handler_tco,
+    // PUREFUNC;
+    purefunc_handler_tco,
+    // ADD;
+    add_handler_tco,
+    // SUB;
+    sub_handler_tco,
+    // MUL;
+    mul_handler_tco,
+    // DIV;
+    div_handler_tco,
+    // EQUAL;
+    equal_handler_tco,
+    // NUMEQUAL;
+    numequal_handler_tco,
+    // NULL;
+    null_handler_tco,
+    // LTE;
+    lte_handler_tco,
+    // CONS; // Cons should be... probably specialized
+    cons_handler_tco,
+    // LIST;
+    list_handler_tco,
+    // CAR;
+    car_handler_tco,
+    // CDR;
+    cdr_handler_tco,
+    // NEWBOX;
+    newbox_handler_tco,
+    // SETBOX;
+    setbox_handler_tco,
+    // UNBOX;
+    unbox_handler_tco,
+    // NEWSCLOSURE;
+    newsclosure_handler_tco,
+    // ADDREGISTER;
+    addregister_handler_tco,
+    // SUBREGISTER;
+    subregister_handler_tco,
+    // LTEREGISTER;
+    lteregister_handler_tco,
+    // SUBREGISTER1;
+    subregister1_handler_tco,
+    // ALLOC;
+    alloc_handler_tco,
+    // READALLOC;
+    readalloc_handler_tco,
+    // SETALLOC;
+    setalloc_handler_tco,
+    // DynSuperInstruction;
+    unhandled_handler_tco,
+    // Arity;
+    unhandled_handler_tco,
+    // LetVar;
+    unhandled_handler_tco,
+    // ADDIMMEDIATE;
+    addimmediate_handler_tco,
+    // SUBIMMEDIATE;
+    subimmediate_handler_tco,
+    // LTEIMMEDIATE;
+    lteimmediate_handler_tco,
+    // BINOPADD;
+    binopadd_handler_tco,
+    // BINOPSUB;
+    // binopsub_handler_tco,
+    unhandled_handler_tco,
+    // LTEIMMEDIATEIF;
+    lteimmediateif_handler_tco,
+    // NOT;
+    not_handler_tco,
+    // VEC;
+    vec_handler_tco,
+    // Apply;
+    unhandled_handler_tco,
+    // POPJMP;
+    popjmp_handler_tco,
+    // CALLGLOBALTAILPOP;
+    // callglobaltailpop_handler_tco,
+    unhandled_handler_tco,
+    // BINOPADDTAIL;
+    binopaddtail_handler_tco,
+    // LOADINT0POP; // Load const 0
+    // loadint0pop_handler_tco,
+    unhandled_handler_tco,
+    // LOADINT1POP;
+    loadint1pop_handler_tco,
+    // LOADINT2POP
+    // loadint2pop_handler_tco
+    unhandled_handler_tco,
+];
+
+// pub static HANDLER_MAP: [OpHandler; MAX_OPCODE_SIZE] = initialize_handler_map();
+
+// const fn initialize_handler_map() -> [OpHandler; MAX_OPCODE_SIZE] {
+//     let mut ops = [unhandled_handler_tco as _; MAX_OPCODE_SIZE];
+
+//     let mut i = 0;
+//     while i < MAX_OPCODE_SIZE {
+//         let op = OPCODES_ARRAY[i];
+//         ops[i] = match op {
+//             OpCode::VOID => void_handler_tco as _,
+//             OpCode::PUSH => push_handler_tco as _,
+//             OpCode::IF => if_handler_tco as _,
+//             OpCode::JMP => jmp_handler_tco as _,
+//             OpCode::FUNC => func_handler_tco as _,
+//             OpCode::BIND => bind_handler_tco as _,
+//             OpCode::SDEF => sdef_handler_tco as _,
+//             OpCode::EDEF => edef_handler_tco as _,
+//             OpCode::POPPURE => poppure_handler_tco as _,
+//             OpCode::POPN => popn_handler_tco as _,
+//             OpCode::POPSINGLE => popsingle_handler_tco as _,
+//             OpCode::PASS => pass_handler_tco as _,
+//             OpCode::PUSHCONST => pushconst_handler_tco as _,
+//             OpCode::PANIC => panic_handler_tco as _,
+//             OpCode::TAILCALL => tailcall_handler_tco as _,
+//             OpCode::SET => set_handler_tco as _,
+//             OpCode::READLOCAL => readlocal_handler_tco as _,
+//             OpCode::READLOCAL0 => readlocal0_handler_tco as _,
+//             OpCode::READLOCAL1 => readlocal1_handler_tco as _,
+//             OpCode::READLOCAL2 => readlocal2_handler_tco as _,
+//             OpCode::READLOCAL3 => readlocal3_handler_tco as _,
+//             OpCode::SETLOCAL => setlocal_handler_tco as _,
+//             OpCode::TCOJMP => tcojmp_handler_tco as _,
+//             OpCode::CALLGLOBAL => callglobal_handler_tco as _,
+//             OpCode::CALLGLOBALTAIL => callglobaltail_handler_tco as _,
+//             OpCode::LOADINT0 => loadint0_handler_tco as _,
+//             OpCode::LOADINT1 => loadint1_handler_tco as _,
+//             OpCode::LOADINT2 => loadint2_handler_tco as _,
+//             OpCode::MOVEREADLOCAL => movereadlocal_handler_tco as _,
+//             OpCode::MOVEREADLOCAL0 => movereadlocal0_handler_tco as _,
+//             OpCode::MOVEREADLOCAL1 => movereadlocal1_handler_tco as _,
+//             OpCode::MOVEREADLOCAL2 => movereadlocal2_handler_tco as _,
+//             OpCode::MOVEREADLOCAL3 => movereadlocal3_handler_tco as _,
+//             OpCode::READCAPTURED => readcaptured_handler_tco as _,
+//             OpCode::BEGINSCOPE => beginscope_handler_tco as _,
+//             OpCode::LETENDSCOPE => letendscope_handler_tco as _,
+//             OpCode::PUREFUNC => purefunc_handler_tco as _,
+//             OpCode::ADD => add_handler_tco as _,
+//             OpCode::SUB => sub_handler_tco as _,
+//             OpCode::MUL => mul_handler_tco as _,
+//             OpCode::DIV => div_handler_tco as _,
+//             OpCode::EQUAL => equal_handler_tco as _,
+//             OpCode::NUMEQUAL => numequal_handler_tco as _,
+//             OpCode::NULL => null_handler_tco as _,
+//             OpCode::LTE => lte_handler_tco as _,
+//             OpCode::CONS => cons_handler_tco as _,
+//             OpCode::LIST => list_handler_tco as _,
+//             OpCode::CAR => car_handler_tco as _,
+//             OpCode::CDR => cdr_handler_tco as _,
+//             OpCode::NEWBOX => newbox_handler_tco as _,
+//             OpCode::SETBOX => setbox_handler_tco as _,
+//             OpCode::UNBOX => unbox_handler_tco as _,
+//             OpCode::NEWSCLOSURE => newsclosure_handler_tco as _,
+//             OpCode::ADDREGISTER => addregister_handler_tco as _,
+//             OpCode::SUBREGISTER => subregister_handler_tco as _,
+//             OpCode::LTEREGISTER => lteregister_handler_tco as _,
+//             OpCode::SUBREGISTER1 => subregister1_handler_tco as _,
+//             OpCode::ALLOC => alloc_handler_tco as _,
+//             OpCode::READALLOC => readalloc_handler_tco as _,
+//             OpCode::SETALLOC => setalloc_handler_tco as _,
+//             OpCode::Arity => arity_handler_tco as _,
+//             OpCode::ADDIMMEDIATE => addimmediate_handler_tco as _,
+//             OpCode::SUBIMMEDIATE => subimmediate_handler_tco as _,
+//             OpCode::LTEIMMEDIATE => lteimmediate_handler_tco as _,
+//             OpCode::BINOPADD => binopadd_handler_tco as _,
+//             OpCode::LTEIMMEDIATEIF => lteimmediateif_handler_tco as _,
+//             OpCode::NOT => not_handler_tco as _,
+//             OpCode::VEC => vec_handler_tco as _,
+//             OpCode::POPJMP => popjmp_handler_tco as _,
+//             OpCode::BINOPADDTAIL => binopaddtail_handler_tco as _,
+//             OpCode::LOADINT1POP => loadint1pop_handler_tco as _,
+//             _ => unhandled_handler_tco as _,
+//         };
+
+//         i += 1;
+//     }
+
+//     ops
+// }
+
+macro_rules! dispatch {
+    ($ctx:expr) => {{
+        $ctx.safepoint_or_interrupt()?;
+        // unsafe {
+        //     let op_code = $ctx.instructions.get_unchecked($ctx.ip).op_code;
+        //     ($ctx.thread.handler_map.get_unchecked(op_code as usize))($ctx)
+        // }
+        unsafe {
+            (HANDLER_MAP.get_unchecked($ctx.instructions.get_unchecked($ctx.ip).op_code as usize))(
+                $ctx,
+            )
+        }
+    }};
+}
+
+// Option... Result... - Some means return, None means
+// continue?
+fn popn_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let last = ctx.thread.stack.pop().unwrap();
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.thread
+        .stack
+        .truncate(ctx.thread.stack.len() - payload_size.to_usize());
+    ctx.thread.stack.push(last);
+    ctx.ip += 1;
+    dispatch!(ctx)
+}
+
+#[inline(never)]
+fn pop(ctx: &mut VmCore) {
+    drop(ctx.thread.stack.pop());
+}
+
+fn popsingle_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    // #[inline(never)]
+    // fn pop(ctx: &mut VmCore) {
+    //     drop(ctx.thread.stack.pop())
+    // }
+    pop(ctx);
+    ctx.ip += 1;
+    return dispatch!(ctx);
+}
+
+fn poppure_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    if let Some(r) = ctx.handle_pop_pure() {
+        // return r;
+        ctx.return_value = Some(r?);
+        return Ok(());
+    }
+    dispatch!(ctx)
+}
+
+fn subregister1_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let read_local = &ctx.instructions[ctx.ip + 1];
+
+    // get the local
+    // let offset = frame.index;
+    // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
+    let offset = ctx.get_offset();
+    let local_value = ctx.thread.stack[read_local.payload_size.to_usize() + offset].clone();
+
+    let result = match subtract_primitive(&[local_value, SteelVal::IntV(1)]) {
+        Ok(value) => value,
+        Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
+    };
+
+    ctx.thread.stack.push(result);
+
+    ctx.ip += 2;
+    dispatch!(ctx)
+}
+
+fn cons_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    cons_handler(ctx)?;
+    dispatch!(ctx)
+}
+
+fn list_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    list_handler(ctx, payload_size.to_usize())?;
+    dispatch!(ctx)
+}
+
+fn newbox_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    new_box_handler(ctx)?;
+    dispatch!(ctx)
+}
+
+fn unbox_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    unbox_handler(ctx)?;
+    dispatch!(ctx)
+}
+
+fn setbox_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    setbox_handler(ctx)?;
+    dispatch!(ctx)
+}
+
+fn car_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    car_handler(ctx)?;
+    dispatch!(ctx)
+}
+
+fn not_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    not_handler(ctx)?;
+    dispatch!(ctx)
+}
+
+fn cdr_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    cdr_handler(ctx)?;
+    dispatch!(ctx)
+}
+
+fn addregister_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let read_local = &ctx.instructions[ctx.ip];
+    let push_const = &ctx.instructions[ctx.ip + 1];
+
+    // get the local
+    // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
+    let offset = ctx.get_offset();
+    let local_value = ctx.thread.stack[read_local.payload_size.to_usize() + offset].clone();
+
+    // get the const
+    let const_val = ctx.constants.get_value(push_const.payload_size.to_usize());
+
+    let result = match add_primitive(&[local_value, const_val]) {
+        Ok(value) => value,
+        Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
+    };
+
+    ctx.thread.stack.push(result);
+
+    ctx.ip += 2;
+    dispatch!(ctx)
+}
+
+fn subregister_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let read_local = &ctx.instructions[ctx.ip];
+    let push_const = &ctx.instructions[ctx.ip + 1];
+
+    // get the local
+    // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
+    let offset = ctx.get_offset();
+    let local_value = ctx.thread.stack[read_local.payload_size.to_usize() + offset].clone();
+
+    // get the const
+    let const_val = ctx.constants.get_value(push_const.payload_size.to_usize());
+
+    let result = match subtract_primitive(&[local_value, const_val]) {
+        Ok(value) => value,
+        Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
+    };
+
+    ctx.thread.stack.push(result);
+
+    ctx.ip += 2;
+    dispatch!(ctx)
+}
+
+fn lteregister_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let read_local = &ctx.instructions[ctx.ip];
+    let push_const = &ctx.instructions[ctx.ip + 1];
+
+    // get the local
+    // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
+    let offset = ctx.get_offset();
+    let local_value = ctx.thread.stack[read_local.payload_size.to_usize() + offset].clone();
+
+    // get the const
+    let const_val = ctx.constants.get_value(push_const.payload_size.to_usize());
+
+    let result = match lte_primitive(&[local_value, const_val]) {
+        Ok(value) => value,
+        Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
+    };
+
+    ctx.thread.stack.push(result);
+
+    ctx.ip += 2;
+
+    dispatch!(ctx)
+}
+
+fn addimmediate_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let read_local = &ctx.instructions[ctx.ip];
+    let push_const = &ctx.instructions[ctx.ip + 1];
+
+    // get the local
+    // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
+    let offset = ctx.get_offset();
+    let local_value = ctx.thread.stack[read_local.payload_size.to_usize() + offset].clone();
+
+    // get the const value, if it can fit into the value...
+    let const_val = SteelVal::IntV(push_const.payload_size.to_usize() as isize);
+
+    // sub_handler_none_int
+
+    let result = match add_primitive(&[local_value, const_val]) {
+        Ok(value) => value,
+        Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
+    };
+
+    ctx.thread.stack.push(result);
+
+    ctx.ip += 2;
+
+    dispatch!(ctx)
+}
+
+fn subimmediate_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let result = subimmediate_impl(ctx)?;
+    ctx.thread.stack.push(result);
+    ctx.ip += 2;
+    dispatch!(ctx)
+}
+
+// #[inline(never)]
+fn subimmediate_impl(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
+    let read_local = &ctx.instructions[ctx.ip];
+    let push_const = &ctx.instructions[ctx.ip + 1];
+    let offset = ctx.get_offset();
+    let l = &ctx.thread.stack[read_local.payload_size.to_usize() + offset];
+    let r = push_const.payload_size.to_usize() as isize;
+    let result = match l {
+        // Fast path with an integer, otherwise slow path
+        SteelVal::IntV(l) => {
+            match l.checked_sub(&r) {
+                Some(r) => SteelVal::IntV(r),
+                // Slow path
+                None => SteelVal::BigNum(Gc::new(BigInt::from(*l) - r)),
+            }
+        }
+
+        SteelVal::NumV(_)
+        | SteelVal::Rational(_)
+        | SteelVal::BigNum(_)
+        | SteelVal::BigRational(_) => {
+            cold();
+            subtract_slow(l, r).map_err(|x| x.set_span_if_none(ctx.current_span()))?
+        }
+        _ => {
+            cold();
+            stop!(TypeMismatch => "sub expected a number, found: {}", l)
+        }
+    };
+    Ok(result)
+}
+
+#[inline(never)]
+fn subtract_slow(l: &SteelVal, r: isize) -> Result<SteelVal> {
+    subtract_primitive(&[l.clone(), SteelVal::IntV(r)])
+}
+
+fn lteimmediate_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    // inline_register_primitive_immediate!(subtract_primitive)
+    let read_local = &ctx.instructions[ctx.ip];
+    let push_const = &ctx.instructions[ctx.ip + 1];
+
+    // get the local
+    // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
+    let offset = ctx.get_offset();
+    let l = &ctx.thread.stack[read_local.payload_size.to_usize() + offset];
+
+    // get the const value, if it can fit into the value...
+    let r = push_const.payload_size.to_usize() as isize;
+
+    // sub_handler_none_int
+
+    // TODO: Probably elide the stack push if the next inst is an IF
+    // let result = lte_handler_none_int(ctx, local_value, const_val)?;
+
+    let result = match l {
+        SteelVal::IntV(_)
+        | SteelVal::NumV(_)
+        | SteelVal::Rational(_)
+        | SteelVal::BigNum(_)
+        | SteelVal::BigRational(_) => l.clone() <= SteelVal::IntV(r),
+        _ => {
+            stop!(TypeMismatch => format!("lte expected an number, found: {}", l); ctx.current_span())
+        }
+    };
+
+    ctx.thread.stack.push(SteelVal::BoolV(result));
+
+    ctx.ip += 2;
+
+    dispatch!(ctx)
+}
+
+fn lteimmediateif_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    // inline_register_primitive_immediate!(subtract_primitive)
+    let result = lteimmediateif_function(ctx)?;
+
+    ctx.ip += 2;
+
+    // change to truthy...
+    if result {
+        ctx.ip += 1;
+    } else {
+        ctx.ip = ctx.instructions[ctx.ip].payload_size.to_usize();
+    }
+
+    dispatch!(ctx)
+}
+
+#[inline(never)]
+fn lteimmediateif_function(ctx: &mut VmCore<'_>) -> Result<bool> {
+    let read_local = &ctx.instructions[ctx.ip];
+    let push_const = &ctx.instructions[ctx.ip + 1];
+
+    // get the local
+    // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
+    let offset = ctx.get_offset();
+    let l = &ctx.thread.stack[read_local.payload_size.to_usize() + offset];
+
+    // get the const value, if it can fit into the value...
+    let r = push_const.payload_size.to_usize() as isize;
+
+    let result = match l {
+        SteelVal::IntV(_)
+        | SteelVal::NumV(_)
+        | SteelVal::Rational(_)
+        | SteelVal::BigNum(_)
+        | SteelVal::BigRational(_) => l.clone() <= SteelVal::IntV(r),
+        _ => {
+            stop!(TypeMismatch => format!("lte expected an number, found: {}", l); ctx.current_span())
+        }
+    };
+    Ok(result)
+}
+
+fn add_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    add_handler_payload(ctx, payload_size.to_usize())?;
+    dispatch!(ctx)
+}
+
+fn binopadd_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let right = ctx.thread.stack.pop().unwrap();
+    let left = ctx.thread.stack.last_mut().unwrap();
+
+    let result = match add_two(left, &right) {
+        Ok(value) => value,
+        Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
+    };
+
+    *left = result;
+
+    ctx.ip += 2;
+
+    dispatch!(ctx)
+}
+
+fn binopaddtail_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let right = ctx.thread.stack.pop().unwrap();
+    let left = ctx.thread.stack.pop().unwrap();
+
+    let result = match handlers::add_handler_none_none(&left, &right) {
+        Ok(value) => value,
+        Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
+    };
+
+    // *left = result;
+
+    if let Some(r) = ctx.handle_pop_pure_value(result) {
+        // return r;
+        ctx.return_value = Some(r?);
+        return Ok(());
+    }
+    dispatch!(ctx)
+}
+
+fn sub_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    sub_handler_payload(ctx, payload_size.to_usize())?;
+
+    dispatch!(ctx)
+}
+
+fn mul_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    let last_index = ctx.thread.stack.len() - payload_size.to_usize();
+
+    let result = match multiply_primitive(&mut ctx.thread.stack[last_index..]) {
+        Ok(value) => value,
+        Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
+    };
+
+    ctx.thread.stack.truncate(last_index + 1);
+    *ctx.thread.stack.last_mut().unwrap() = result;
+
+    ctx.ip += 2;
+
+    dispatch!(ctx)
+}
+
+fn div_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    let last_index = ctx.thread.stack.len() - payload_size.to_usize();
+
+    let result = match divide_primitive(&mut ctx.thread.stack[last_index..]) {
+        Ok(value) => value,
+        Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
+    };
+
+    ctx.thread.stack.truncate(last_index + 1);
+    *ctx.thread.stack.last_mut().unwrap() = result;
+
+    ctx.ip += 2;
+
+    dispatch!(ctx)
+}
+
+fn equal_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    let last_index = ctx.thread.stack.len() - payload_size.to_usize();
+
+    let result = match equality_primitive(&mut ctx.thread.stack[last_index..]) {
+        Ok(value) => value,
+        Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
+    };
+
+    ctx.thread.stack.truncate(last_index + 1);
+    *ctx.thread.stack.last_mut().unwrap() = result;
+
+    ctx.ip += 2;
+    dispatch!(ctx)
+}
+
+fn numequal_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    number_equality_handler(ctx)?;
+    dispatch!(ctx)
+}
+
+fn null_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    // Simply fast path case for checking null or empty
+    let last = ctx.thread.stack.last_mut().unwrap();
+    let result = is_empty(last);
+    *last = SteelVal::BoolV(result);
+    ctx.ip += 2;
+    dispatch!(ctx)
+}
+
+fn lte_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    lte_handler_payload(ctx, payload_size.to_usize())?;
+
+    dispatch!(ctx)
+}
+
+fn void_handler_tco<'a, 'b>(ctx: &'a mut VmCore<'b>) -> Result<Dispatch> {
+    ctx.thread.stack.push(SteelVal::Void);
+    ctx.ip += 1;
+
+    dispatch!(ctx)
+}
+
+fn set_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.handle_set(payload_size.to_usize())?;
+    dispatch!(ctx)
+}
+
+fn pushconst_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    let val = ctx.constants.get_value(payload_size.to_usize());
+    ctx.thread.stack.push(val);
+    ctx.ip += 1;
+    dispatch!(ctx)
+}
+
+fn push_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.handle_push(payload_size.to_usize())?;
+    dispatch!(ctx)
+}
+
+fn readlocal_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.handle_local(payload_size.to_usize())?;
+    dispatch!(ctx)
+}
+
+fn readlocal0_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    local_handler0(ctx)?;
+    dispatch!(ctx)
+}
+
+fn readlocal1_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    local_handler1(ctx)?;
+    dispatch!(ctx)
+}
+
+fn readlocal2_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    local_handler2(ctx)?;
+    dispatch!(ctx)
+}
+
+fn readlocal3_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    local_handler3(ctx)?;
+    dispatch!(ctx)
+}
+
+fn readcaptured_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.handle_read_captures(payload_size.to_usize())?;
+    dispatch!(ctx)
+}
+
+fn movereadlocal_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.handle_move_local(payload_size.to_usize())?;
+    dispatch!(ctx)
+}
+
+fn movereadlocal0_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let offset = ctx.get_offset();
+    let value = ctx.move_from_stack(offset);
+
+    ctx.thread.stack.push(value);
+    ctx.ip += 1;
+
+    dispatch!(ctx)
+}
+
+fn movereadlocal1_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let offset = ctx.get_offset();
+    let value = ctx.move_from_stack(offset + 1);
+
+    ctx.thread.stack.push(value);
+    ctx.ip += 1;
+    dispatch!(ctx)
+}
+
+fn movereadlocal2_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let offset = ctx.get_offset();
+    let value = ctx.move_from_stack(offset + 2);
+
+    ctx.thread.stack.push(value);
+    ctx.ip += 1;
+    dispatch!(ctx)
+}
+
+fn movereadlocal3_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let offset = ctx.get_offset();
+    let value = ctx.move_from_stack(offset + 3);
+
+    ctx.thread.stack.push(value);
+    ctx.ip += 1;
+    dispatch!(ctx)
+}
+
+fn setlocal_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.handle_set_local(payload_size.to_usize());
+    dispatch!(ctx)
+}
+
+fn loadint0_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    ctx.thread.stack.push(SteelVal::INT_ZERO);
+    ctx.ip += 1;
+    dispatch!(ctx)
+}
+
+fn loadint1_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    ctx.thread.stack.push(SteelVal::INT_ONE);
+    ctx.ip += 1;
+    dispatch!(ctx)
+}
+
+fn loadint2_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    ctx.thread.stack.push(SteelVal::INT_TWO);
+    ctx.ip += 1;
+    dispatch!(ctx)
+}
+
+fn loadint1pop_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    // ctx.thread.stack.push(SteelVal::INT_TWO);
+    ctx.ip += 1;
+    if let Some(r) = ctx.handle_pop_pure_value(SteelVal::INT_ONE) {
+        ctx.return_value = Some(r?);
+        return Ok(());
+    }
+    dispatch!(ctx)
+}
+
+fn callglobal_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.ip += 1;
+    let next_inst = ctx.instructions[ctx.ip];
+    ctx.handle_call_global(payload_size.to_usize(), next_inst.payload_size.to_usize())?;
+    dispatch!(ctx)
+}
+
+fn callglobaltail_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    let next_inst = ctx.instructions[ctx.ip + 1];
+
+    let stack_func = ctx
+        .thread
+        .global_env
+        .repl_lookup_idx(payload_size.to_usize());
+    ctx.ip += 1;
+    let payload_size = next_inst.payload_size.to_usize();
+
+    if call_function_tco(stack_func, ctx, payload_size)? {
+        return Ok(());
+    };
+
+    dispatch!(ctx)
+}
+
+#[inline(never)]
+fn call_function_tco(
+    stack_func: SteelVal,
+    ctx: &mut VmCore<'_>,
+    payload_size: usize,
+) -> Result<bool> {
+    use SteelVal::*;
+    match stack_func {
+        FuncV(f) => {
+            let last_index = ctx.thread.stack.len() - payload_size;
+            let result = match ctx
+                .thread
+                .enter_safepoint(move |ctx: &SteelThread| f(&ctx.stack[last_index..]))
+            {
+                Ok(v) => v,
+                Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
+            };
+
+            // This is the old way... lets see if the below way improves the speed
+            ctx.thread.stack.truncate(last_index);
+            if let Some(r) = ctx.handle_pop_pure_value(result) {
+                // return r;
+                ctx.return_value = Some(r?);
+                return Ok(true);
+            }
+            Ok(())
+        }
+        MutFunc(f) => ctx.call_primitive_mut_func(f, payload_size),
+        BoxedFunction(f) => ctx.call_boxed_func(f.func(), payload_size),
+        Closure(closure) => ctx.new_handle_tail_call_closure(closure, payload_size),
+        BuiltIn(f) => ctx.call_builtin_func(f, payload_size),
+        CustomStruct(s) => ctx.call_custom_struct(&s, payload_size),
+        ContinuationFunction(cc) => ctx.call_continuation(cc),
+        _ => {
+            stop!(BadSyntax => format!("TailCall - Application not a procedure or function type 
+                    not supported: {stack_func}"); ctx.current_span());
+        }
+    }?;
+    Ok(false)
+}
+
+fn func_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    let func = ctx.thread.stack.pop().unwrap();
+    ctx.handle_function_call(func, payload_size.to_usize())?;
+    dispatch!(ctx)
+}
+
+fn tailcall_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    let func = ctx.thread.stack.pop().unwrap();
+    ctx.handle_tail_call(func, payload_size.to_usize())?;
+    dispatch!(ctx)
+}
+
+fn if_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    // change to truthy...
+    if ctx.thread.stack.pop().unwrap().is_truthy() {
+        ctx.ip += 1;
+    } else {
+        ctx.ip = payload_size.to_usize();
+    }
+
+    dispatch!(ctx)
+}
+
+fn tcojmp_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    let mut current_arity = payload_size.to_usize();
+    let last_stack_frame = ctx.thread.stack_frames.last().unwrap();
+
+    #[cfg(feature = "dynamic")]
+    {
+        last_stack_frame.function.increment_call_count();
+    }
+
+    ctx.instructions = last_stack_frame.function.body_exp();
+    ctx.sp = last_stack_frame.sp;
+    ctx.ip = 0;
+
+    // TODO: Adjust the stack for multiple arity functions
+    // let is_multi_arity = last_stack_frame.function.is_multi_arity;
+    // let original_arity = last_stack_frame.function.arity();
+    // let payload_size = current_arity;
+    // let offset = last_stack_frame.sp;
+    // let new_arity = &mut closure_arity;
+
+    // TODO: Reuse the original list allocation, if it exists.
+    handle_multi_arity(
+        last_stack_frame.function.is_multi_arity,
+        last_stack_frame.function.arity(),
+        current_arity,
+        ctx,
+        &mut current_arity,
+    )?;
+
+    // HACK COME BACK TO THIS
+    // if ctx.ip == 0 && ctx.heap.len() > ctx.heap.limit() {
+    // TODO collect here
+    // ctx.heap.collect_garbage();
+    // }
+    // let offset = ctx.stack_index.last().copied().unwrap_or(0);
+    // let offset = last_stack_frame.sp;
+
+    // We should have arity at this point, drop the stack up to this point
+    // take the last arity off the stack, go back and replace those in order
+    // [... arg1 arg2 arg3]
+    //      ^^^ <- back = this index
+    // offset = the start of the stack frame
+    // Copy the arg1 arg2 arg3 values to
+    // [... frame-start ... arg1 arg2 arg3]
+    //      ^^^^^^~~~~~~~~
+    let back = ctx.thread.stack.len() - current_arity;
+    // for i in 0..current_arity {
+    //     ctx.stack[offset + i] = ctx.stack[back + i].clone();
+    // }
+
+    // drop(ctx.thread.stack.drain(offset..back));
+
+    drain_back(ctx, ctx.sp, back);
+
+    dispatch!(ctx)
+}
+
+#[inline(never)]
+fn handle_multi_arity(
+    is_multi_arity: bool,
+    original_arity: usize,
+    payload_size: usize,
+    ctx: &mut VmCore<'_>,
+    current_arity: &mut usize,
+) -> Result<()> {
+    if likely(!is_multi_arity) {
+        if unlikely(original_arity != payload_size) {
+            stop!(ArityMismatch => format!("function expected {} arguments, found {}", original_arity, payload_size); ctx.current_span());
+        }
+    } else {
+        if payload_size < original_arity - 1 {
+            stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", original_arity, payload_size); ctx.current_span());
+        }
+
+        // (define (test x . y))
+        // (test 1 2 3 4 5)
+        // in this case, arity = 2 and payload size = 5
+        // pop off the last 4, collect into a list
+        let amount_to_remove = 1 + payload_size - original_arity;
+
+        let values = ctx
+            .thread
+            .stack
+            .drain(ctx.thread.stack.len() - amount_to_remove..)
+            .collect();
+
+        let list = SteelVal::ListV(values);
+
+        ctx.thread.stack.push(list);
+
+        *current_arity = original_arity;
+    }
+
+    Ok(())
+}
+
+#[inline(never)]
+fn drain_back(ctx: &mut VmCore, offset: usize, back: usize) {
+    drop(ctx.thread.stack.drain(offset..back));
+}
+
+fn jmp_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.ip = payload_size.to_usize();
+    dispatch!(ctx)
+}
+
+fn popjmp_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    if let Some(r) = ctx.handle_pop_pure() {
+        // return r;
+        ctx.return_value = Some(r?);
+        return Ok(());
+    }
+
+    dispatch!(ctx)
+}
+
+fn beginscope_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    ctx.ip += 1;
+    dispatch!(ctx)
+}
+
+fn setalloc_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    set_alloc_handler(ctx)?;
+    dispatch!(ctx)
+}
+
+fn readalloc_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    read_alloc_handler(ctx)?;
+    dispatch!(ctx)
+}
+
+fn alloc_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    alloc_handler(ctx)?;
+    dispatch!(ctx)
+}
+
+fn letendscope_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let_end_scope_handler(ctx)?;
+    dispatch!(ctx)
+}
+
+fn bind_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.handle_bind(payload_size.to_usize());
+    dispatch!(ctx)
+}
+
+fn newsclosure_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.handle_new_start_closure(payload_size.to_usize())?;
+    dispatch!(ctx)
+}
+
+fn purefunc_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.handle_pure_function(payload_size.to_usize());
+    dispatch!(ctx)
+}
+
+fn sdef_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    ctx.handle_start_def();
+    dispatch!(ctx)
+}
+
+fn edef_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    ctx.ip += 1;
+    dispatch!(ctx)
+}
+
+fn arity_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    ctx.ip += 1;
+    dispatch!(ctx)
+}
+
+fn panic_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    ctx.handle_panic(ctx.current_span())?;
+    dispatch!(ctx)
+}
+
+fn pass_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    ctx.ip += 1;
+    dispatch!(ctx)
+}
+
+fn vec_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    let payload = payload_size.to_usize();
+    let len = payload / 2;
+    let bytes = payload % 2 != 0;
+
+    let args = ctx.thread.stack.split_off(ctx.thread.stack.len() - len);
+
+    let val = if bytes {
+        let buffer: Vec<_> = args
+            .into_iter()
+            .flat_map(|val| {
+                let int = val.int_or_else(|| "unexpected non integer");
+
+                debug_assert!(int.is_ok());
+
+                int.ok()
+            })
+            .flat_map(|int| {
+                let byte = u8::try_from(int);
+
+                debug_assert!(byte.is_ok());
+                byte.ok()
+            })
+            .collect();
+
+        SteelVal::ByteVector(crate::rvals::SteelByteVector::new(buffer))
+    } else {
+        SteelVal::VectorV(crate::rvals::SteelVector(Gc::new(args.into())))
+    };
+
+    ctx.thread.stack.push(val);
+    ctx.ip += 1;
+
+    dispatch!(ctx)
+}
+
+fn unhandled_handler_tco<'a, 'b>(ctx: &'a mut VmCore<'b>) -> Result<Dispatch> {
+    panic!(
+        "Unhandled opcode: {:?} @ {}",
+        ctx.instructions[ctx.ip], ctx.ip
+    );
+    // Ok(SteelVal::Void)
 }
 
 // TODO: Delete this entirely, and just have the run function live on top of the SteelThread.
@@ -1374,6 +2579,7 @@ impl<'a> VmCore<'a> {
             depth: 0,
             thread,
             root_spans,
+            return_value: None,
         }
     }
 
@@ -1396,6 +2602,7 @@ impl<'a> VmCore<'a> {
             depth: 0,
             thread,
             root_spans,
+            return_value: None,
         })
     }
 
@@ -1440,20 +2647,18 @@ impl<'a> VmCore<'a> {
         }
     }
 
-    #[inline(always)]
+    #[inline(never)]
     pub fn safepoint_or_interrupt(&mut self) -> Result<()> {
         // Check if we need to be paused
-        if self
-            .thread
-            .synchronizer
-            .state
-            .paused
-            .load(std::sync::atomic::Ordering::Relaxed)
-        {
+        if unlikely(
+            self.thread
+                .synchronizer
+                .state
+                .paused
+                .load(std::sync::atomic::Ordering::Relaxed),
+        ) {
             match self.thread.synchronizer.state.state.load() {
-                ThreadState::Interrupted => {
-                    stop!(Generic => format!("Thread: {:?} - Interrupted by user", std::thread::current().id()); self.current_span());
-                }
+                ThreadState::Running => {}
                 ThreadState::Suspended => {
                     self.park_thread_while_paused();
                 }
@@ -1465,7 +2670,10 @@ impl<'a> VmCore<'a> {
                     self.park_thread_while_paused();
                     self.thread.synchronizer.ctx.store(None);
                 }
-                ThreadState::Running => {}
+                ThreadState::Interrupted => {
+                    cold();
+                    stop!(Generic => format!("Thread: {:?} - Interrupted by user", std::thread::current().id()); self.current_span());
+                }
             }
         }
 
@@ -1680,8 +2888,14 @@ impl<'a> VmCore<'a> {
         let res;
 
         'outer: loop {
+            #[cfg(debug_assertions)]
             let result = self
                 .vm()
+                .map_err(|error| error.with_stack_trace(self.snapshot_stack_trace()));
+
+            #[cfg(not(debug_assertions))]
+            let result = self
+                .vm_tco()
                 .map_err(|error| error.with_stack_trace(self.snapshot_stack_trace()));
 
             if let Err(e) = result {
@@ -2708,7 +3922,7 @@ impl<'a> VmCore<'a> {
                 } => {
                     // self.thread.stack.push(SteelVal::INT_TWO);
                     self.ip += 1;
-                    if let Some(r) = self.handle_pop_pure_value(SteelVal::INT_TWO) {
+                    if let Some(r) = self.handle_pop_pure_value(SteelVal::INT_ONE) {
                         return r;
                     }
                 }
@@ -3080,1011 +4294,18 @@ impl<'a> VmCore<'a> {
         }
     }
 
+    // WIP tail call version of the TCO
     pub(crate) fn vm_tco(&mut self) -> Result<SteelVal> {
         if self.depth > 1024 * 128 {
             // TODO: Unwind the callstack? Patch over to the VM call stack rather than continue to do recursive calls?
             stop!(Generic => "stack overflow! The rust call stack is currently used for transducers, so we impose a hard recursion limit of 1024"; self.current_span());
         }
 
-        macro_rules! inline_primitive {
-            ($name:tt, $payload_size:expr) => {{
-                let last_index = self.thread.stack.len() - $payload_size.to_usize();
+        dispatch!(self)?;
 
-                let result = match $name(&mut self.thread.stack[last_index..]) {
-                    Ok(value) => value,
-                    Err(e) => return Err(e.set_span_if_none(self.current_span())),
-                };
+        Ok(self.return_value.clone().unwrap())
 
-                self.thread.stack.truncate(last_index + 1);
-                *self.thread.stack.last_mut().unwrap() = result;
-
-                self.ip += 2;
-            }};
-        }
-
-        macro_rules! inline_register_primitive {
-            ($name:tt) => {{
-                let read_local = &self.instructions[self.ip];
-                let push_const = &self.instructions[self.ip + 1];
-
-                // get the local
-                // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
-                let offset = self.get_offset();
-                let local_value =
-                    self.thread.stack[read_local.payload_size.to_usize() + offset].clone();
-
-                // get the const
-                let const_val = self.constants.get_value(push_const.payload_size.to_usize());
-
-                let result = match $name(&[local_value, const_val]) {
-                    Ok(value) => value,
-                    Err(e) => return Err(e.set_span_if_none(self.current_span())),
-                };
-
-                self.thread.stack.push(result);
-
-                self.ip += 2;
-            }};
-        }
-
-        // TODO: Directly call the binary operation with the value as an isize
-        macro_rules! inline_register_primitive_immediate {
-            ($name:tt) => {{
-                let read_local = &self.instructions[self.ip];
-                let push_const = &self.instructions[self.ip + 1];
-
-                // get the local
-                // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
-                let offset = self.get_offset();
-                let local_value =
-                    self.thread.stack[read_local.payload_size.to_usize() + offset].clone();
-
-                // get the const value, if it can fit into the value...
-                let const_val = SteelVal::IntV(push_const.payload_size.to_usize() as isize);
-
-                // sub_handler_none_int
-
-                let result = match $name(&[local_value, const_val]) {
-                    Ok(value) => value,
-                    Err(e) => return Err(e.set_span_if_none(self.current_span())),
-                };
-
-                self.thread.stack.push(result);
-
-                self.ip += 2;
-            }};
-        }
-
-        loop {
-            self.safepoint_or_interrupt()?;
-
-            // Process the op code
-            // TODO: Just build up a slice, don't directly store the full vec of op codes
-
-            // assert_eq!(self.spans.len(), self.instructions.len());
-
-            #[cfg(feature = "dynamic")]
-            if let Some(pat) = self.thread.profiler.process_opcode(
-                &self.instructions[self.ip].op_code,
-                self.ip,
-                &self.instructions,
-                // Grab the current stack frame
-                self.thread.stack_frames.last().map(|x| x.function.as_ref()),
-            ) {
-                // if count > 1000 {
-                log::debug!(target: "super-instructions", "Found a hot pattern, creating super instruction...");
-
-                log::debug!(target: "super-instructions", "{:#?}", pat);
-
-                // if USE_SUPER_INSTRUCTIONS {
-                //     // Index of the starting opcode
-                //     let start = pat.pattern.start;
-
-                //     let id = self.thread.super_instructions.len();
-
-                //     let guard = self.thread.stack_frames.last_mut().unwrap();
-
-                //     // Next run should get the new sequence of opcodes
-                //     let (head, _) = guard.function.update_to_super_instruction(start, id);
-
-                //     let block = DynamicBlock::construct_basic_block(head, pat);
-
-                //     self.thread.super_instructions.push(Rc::new(block));
-                // }
-                // self.thread.super_instructions.push(Rc::new(|ctx| {
-                //     block.call(ctx);
-                // }))
-
-                // let
-                // }
-            }
-
-            let instr = self.instructions[self.ip];
-
-            match instr {
-                DenseInstruction {
-                    op_code: OpCode::POPN,
-                    payload_size,
-                    ..
-                } => {
-                    // TODO: In order to write this into a TCO style thing,
-                    // if needs to return an optional value?
-                    // impl<'a> VmCore<'a> {
-                    //     fn popn_impl(&mut self) {
-                    let last = self.thread.stack.pop().unwrap();
-                    // let payload_size = self.instructions[self.ip].payload_size;
-                    self.thread
-                        .stack
-                        .truncate(self.thread.stack.len() - payload_size.to_usize());
-                    self.thread.stack.push(last);
-                    self.ip += 1;
-                    //     }
-                    // }
-
-                    // self.popn_impl();
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::POPSINGLE,
-                    ..
-                } => {
-                    self.thread.stack.pop();
-                    self.ip += 1;
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::POPPURE,
-                    ..
-                } => {
-                    if let Some(r) = self.handle_pop_pure() {
-                        return r;
-                    }
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::SUBREGISTER1,
-                    ..
-                } => {
-                    let read_local = &self.instructions[self.ip + 1];
-
-                    // get the local
-                    // let offset = frame.index;
-                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
-                    let offset = self.get_offset();
-                    let local_value =
-                        self.thread.stack[read_local.payload_size.to_usize() + offset].clone();
-
-                    let result = match subtract_primitive(&[local_value, SteelVal::IntV(1)]) {
-                        Ok(value) => value,
-                        Err(e) => return Err(e.set_span_if_none(self.current_span())),
-                    };
-
-                    self.thread.stack.push(result);
-
-                    self.ip += 2;
-                }
-
-                // Specialization of specific library functions!
-                DenseInstruction {
-                    op_code: OpCode::CONS,
-                    ..
-                } => {
-                    cons_handler(self)?;
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::Apply,
-                    // payload_size,
-                    ..
-                } => {
-                    todo!()
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::LIST,
-                    payload_size,
-                    ..
-                } => {
-                    list_handler(self, payload_size.to_usize())?;
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::NEWBOX,
-                    ..
-                } => {
-                    new_box_handler(self)?;
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::UNBOX,
-                    ..
-                } => {
-                    unbox_handler(self)?;
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::SETBOX,
-                    ..
-                } => {
-                    setbox_handler(self)?;
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::CAR,
-                    ..
-                } => {
-                    car_handler(self)?;
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::NOT,
-                    ..
-                } => {
-                    not_handler(self)?;
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::CDR,
-                    ..
-                } => {
-                    cdr_handler(self)?;
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::ADDREGISTER,
-                    ..
-                } => {
-                    inline_register_primitive!(add_primitive)
-                }
-                DenseInstruction {
-                    op_code: OpCode::SUBREGISTER,
-                    ..
-                } => {
-                    inline_register_primitive!(subtract_primitive)
-                }
-                DenseInstruction {
-                    op_code: OpCode::LTEREGISTER,
-                    ..
-                } => {
-                    inline_register_primitive!(lte_primitive)
-                }
-                DenseInstruction {
-                    op_code: OpCode::ADDIMMEDIATE,
-                    ..
-                } => {
-                    inline_register_primitive_immediate!(add_primitive)
-                }
-                DenseInstruction {
-                    op_code: OpCode::SUBIMMEDIATE,
-                    ..
-                } => {
-                    // inline_register_primitive_immediate!(subtract_primitive)
-
-                    let read_local = &self.instructions[self.ip];
-                    let push_const = &self.instructions[self.ip + 1];
-
-                    // get the local
-                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
-                    let offset = self.get_offset();
-                    let l = &self.thread.stack[read_local.payload_size.to_usize() + offset];
-
-                    // get the const value, if it can fit into the value...
-                    let r = push_const.payload_size.to_usize() as isize;
-
-                    let result = match l {
-                        // Fast path with an integer, otherwise slow path
-                        SteelVal::IntV(l) => {
-                            match l.checked_sub(&r) {
-                                Some(r) => SteelVal::IntV(r),
-                                // Slow path
-                                None => SteelVal::BigNum(Gc::new(BigInt::from(*l) - r)),
-                            }
-                        }
-
-                        SteelVal::NumV(_)
-                        | SteelVal::Rational(_)
-                        | SteelVal::BigNum(_)
-                        | SteelVal::BigRational(_) => {
-                            // TODO: Create a specialized version of this!
-                            subtract_primitive(&[l.clone(), SteelVal::IntV(r)])
-                                .map_err(|x| x.set_span_if_none(self.current_span()))?
-                        }
-                        _ => {
-                            cold();
-                            stop!(TypeMismatch => "sub expected a number, found: {}", l)
-                        }
-                    };
-
-                    self.thread.stack.push(result);
-
-                    self.ip += 2;
-                }
-                DenseInstruction {
-                    op_code: OpCode::LTEIMMEDIATE,
-                    ..
-                } => {
-                    // inline_register_primitive_immediate!(subtract_primitive)
-                    let read_local = &self.instructions[self.ip];
-                    let push_const = &self.instructions[self.ip + 1];
-
-                    // get the local
-                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
-                    let offset = self.get_offset();
-                    let l = &self.thread.stack[read_local.payload_size.to_usize() + offset];
-
-                    // get the const value, if it can fit into the value...
-                    let r = push_const.payload_size.to_usize() as isize;
-
-                    // sub_handler_none_int
-
-                    // TODO: Probably elide the stack push if the next inst is an IF
-                    // let result = lte_handler_none_int(self, local_value, const_val)?;
-
-                    let result = match l {
-                        SteelVal::IntV(_)
-                        | SteelVal::NumV(_)
-                        | SteelVal::Rational(_)
-                        | SteelVal::BigNum(_)
-                        | SteelVal::BigRational(_) => l.clone() <= SteelVal::IntV(r),
-                        _ => {
-                            stop!(TypeMismatch => format!("lte expected an number, found: {}", l); self.current_span())
-                        }
-                    };
-
-                    self.thread.stack.push(SteelVal::BoolV(result));
-
-                    self.ip += 2;
-                }
-                DenseInstruction {
-                    op_code: OpCode::LTEIMMEDIATEIF,
-                    ..
-                } => {
-                    // inline_register_primitive_immediate!(subtract_primitive)
-
-                    let read_local = &self.instructions[self.ip];
-                    let push_const = &self.instructions[self.ip + 1];
-
-                    // get the local
-                    // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
-                    let offset = self.get_offset();
-                    let l = &self.thread.stack[read_local.payload_size.to_usize() + offset];
-
-                    // get the const value, if it can fit into the value...
-                    let r = push_const.payload_size.to_usize() as isize;
-
-                    // sub_handler_none_int
-
-                    // TODO: Probably elide the stack push if the next inst is an IF
-                    // let result = lte_handler_none_int(self, local_value, const_val)?;
-
-                    let result = match l {
-                        SteelVal::IntV(_)
-                        | SteelVal::NumV(_)
-                        | SteelVal::Rational(_)
-                        | SteelVal::BigNum(_)
-                        | SteelVal::BigRational(_) => l.clone() <= SteelVal::IntV(r),
-                        _ => {
-                            stop!(TypeMismatch => format!("lte expected an number, found: {}", l); self.current_span())
-                        }
-                    };
-
-                    self.ip += 2;
-
-                    // change to truthy...
-                    if result {
-                        self.ip += 1;
-                    } else {
-                        self.ip = self.instructions[self.ip].payload_size.to_usize();
-                    }
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::ADD,
-                    payload_size,
-                    ..
-                } => {
-                    add_handler_payload(self, payload_size.to_usize())?;
-                    // inline_primitive!(add_primitive, payload_size)
-                }
-                DenseInstruction {
-                    op_code: OpCode::BINOPADD,
-                    ..
-                } => {
-                    // add_handler_payload(self, 2)?;
-
-                    let right = self.thread.stack.pop().unwrap();
-                    let left = self.thread.stack.last_mut().unwrap();
-
-                    let result = match add_two(left, &right) {
-                        Ok(value) => value,
-                        Err(e) => return Err(e.set_span_if_none(self.current_span())),
-                    };
-
-                    *left = result;
-
-                    self.ip += 2;
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::BINOPADDTAIL,
-                    ..
-                } => {
-                    let right = self.thread.stack.pop().unwrap();
-                    let left = self.thread.stack.pop().unwrap();
-
-                    let result = match handlers::add_handler_none_none(&left, &right) {
-                        Ok(value) => value,
-                        Err(e) => return Err(e.set_span_if_none(self.current_span())),
-                    };
-
-                    // *left = result;
-
-                    if let Some(r) = self.handle_pop_pure_value(result) {
-                        return r;
-                    }
-
-                    // self.ip += 2;
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::SUB,
-                    payload_size,
-                    ..
-                } => {
-                    sub_handler_payload(self, payload_size.to_usize())?;
-                    // inline_primitive!(subtract_primitive, payload_size)
-                }
-                DenseInstruction {
-                    op_code: OpCode::MUL,
-                    payload_size,
-                    ..
-                } => {
-                    inline_primitive!(multiply_primitive, payload_size)
-                }
-                DenseInstruction {
-                    op_code: OpCode::DIV,
-                    payload_size,
-                    ..
-                } => inline_primitive!(divide_primitive, payload_size),
-
-                DenseInstruction {
-                    op_code: OpCode::EQUAL,
-                    payload_size,
-                    ..
-                } => {
-                    inline_primitive!(equality_primitive, payload_size);
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::NUMEQUAL,
-                    ..
-                } => {
-                    number_equality_handler(self)?;
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::NULL,
-                    ..
-                } => {
-                    // Simply fast path case for checking null or empty
-                    let last = self.thread.stack.last_mut().unwrap();
-                    let result = is_empty(last);
-                    *last = SteelVal::BoolV(result);
-                    self.ip += 2;
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::LTE,
-                    payload_size,
-                    ..
-                } => {
-                    lte_handler_payload(self, payload_size.to_usize())?;
-                    // inline_primitive!(lte_primitive, payload_size);
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::VOID,
-                    ..
-                } => {
-                    self.thread.stack.push(SteelVal::Void);
-                    self.ip += 1;
-                }
-                DenseInstruction {
-                    op_code: OpCode::SET,
-                    payload_size,
-                    ..
-                } => self.handle_set(payload_size.to_usize())?,
-                DenseInstruction {
-                    op_code: OpCode::PUSHCONST,
-                    payload_size,
-                    ..
-                } => {
-                    let val = self.constants.get_value(payload_size.to_usize());
-                    self.thread.stack.push(val);
-                    self.ip += 1;
-                }
-                DenseInstruction {
-                    op_code: OpCode::PUSH,
-                    payload_size,
-                    ..
-                } => self.handle_push(payload_size.to_usize())?,
-                DenseInstruction {
-                    op_code: OpCode::READLOCAL,
-                    payload_size,
-                    ..
-                } => self.handle_local(payload_size.to_usize())?,
-                DenseInstruction {
-                    op_code: OpCode::READLOCAL0,
-                    ..
-                } => local_handler0(self)?,
-                DenseInstruction {
-                    op_code: OpCode::READLOCAL1,
-                    ..
-                } => local_handler1(self)?,
-                DenseInstruction {
-                    op_code: OpCode::READLOCAL2,
-                    ..
-                } => local_handler2(self)?,
-                DenseInstruction {
-                    op_code: OpCode::READLOCAL3,
-                    ..
-                } => local_handler3(self)?,
-                DenseInstruction {
-                    op_code: OpCode::READCAPTURED,
-                    payload_size,
-                    ..
-                } => self.handle_read_captures(payload_size.to_usize())?,
-                DenseInstruction {
-                    op_code: OpCode::MOVEREADLOCAL,
-                    payload_size,
-                    ..
-                } => self.handle_move_local(payload_size.to_usize())?,
-                // TODO: Introduce macro for this
-                DenseInstruction {
-                    op_code: OpCode::MOVEREADLOCAL0,
-                    ..
-                } => {
-                    let offset = self.get_offset();
-                    let value = self.move_from_stack(offset);
-
-                    self.thread.stack.push(value);
-                    self.ip += 1;
-                }
-                DenseInstruction {
-                    op_code: OpCode::MOVEREADLOCAL1,
-                    ..
-                } => {
-                    let offset = self.get_offset();
-                    let value = self.move_from_stack(offset + 1);
-
-                    self.thread.stack.push(value);
-                    self.ip += 1;
-                }
-                DenseInstruction {
-                    op_code: OpCode::MOVEREADLOCAL2,
-                    ..
-                } => {
-                    let offset = self.get_offset();
-                    let value = self.move_from_stack(offset + 2);
-
-                    self.thread.stack.push(value);
-                    self.ip += 1;
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::MOVEREADLOCAL3,
-                    ..
-                } => {
-                    let offset = self.get_offset();
-                    let value = self.move_from_stack(offset + 3);
-
-                    self.thread.stack.push(value);
-                    self.ip += 1;
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::SETLOCAL,
-                    payload_size,
-                    ..
-                } => self.handle_set_local(payload_size.to_usize()),
-                DenseInstruction {
-                    op_code: OpCode::LOADINT0,
-                    ..
-                } => {
-                    self.thread.stack.push(SteelVal::INT_ZERO);
-                    self.ip += 1;
-                }
-                DenseInstruction {
-                    op_code: OpCode::LOADINT1,
-                    ..
-                } => {
-                    self.thread.stack.push(SteelVal::INT_ONE);
-                    self.ip += 1;
-                }
-                DenseInstruction {
-                    op_code: OpCode::LOADINT2,
-                    ..
-                } => {
-                    self.thread.stack.push(SteelVal::INT_TWO);
-                    self.ip += 1;
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::LOADINT1POP,
-                    ..
-                } => {
-                    // self.thread.stack.push(SteelVal::INT_TWO);
-                    self.ip += 1;
-                    if let Some(r) = self.handle_pop_pure_value(SteelVal::INT_TWO) {
-                        return r;
-                    }
-                }
-
-                // DenseInstruction {
-                //     op_code: OpCode::CGLOCALCONST,
-                //     payload_size,
-                //     ..
-                // } => {
-                //     let read_local = &self.instructions[self.ip + 1];
-                //     let push_const = &self.instructions[self.ip + 2];
-
-                //     // Snag the function
-                //     let func = self
-                //         .thread
-                //         .global_env
-                //         .repl_lookup_idx(payload_size.to_usize());
-
-                //     // get the local
-                //     // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
-                //     let offset = self.get_offset();
-                //     let local_value =
-                //         self.thread.stack[read_local.payload_size.to_usize() + offset].clone();
-
-                //     // get the const
-                //     let const_val = self.constants.get(push_const.payload_size.to_usize());
-
-                //     self.handle_lazy_function_call(func, local_value, const_val)?;
-                // }
-                DenseInstruction {
-                    op_code: OpCode::CALLGLOBAL,
-                    payload_size,
-                    ..
-                } => {
-                    self.ip += 1;
-                    let next_inst = self.instructions[self.ip];
-                    self.handle_call_global(
-                        payload_size.to_usize(),
-                        next_inst.payload_size.to_usize(),
-                    )?;
-                }
-                DenseInstruction {
-                    op_code: OpCode::CALLGLOBALTAIL,
-                    payload_size,
-                    ..
-                } => {
-                    let next_inst = self.instructions[self.ip + 1];
-                    // self.handle_tail_call_global(
-                    //     payload_size.to_usize(),
-                    //     next_inst.payload_size.to_usize(),
-                    // )?;
-
-                    let stack_func = self
-                        .thread
-                        .global_env
-                        .repl_lookup_idx(payload_size.to_usize());
-                    self.ip += 1;
-                    let payload_size = next_inst.payload_size.to_usize();
-                    // self.handle_tail_call(stack_func, next_inst.payload_size.to_usize());
-
-                    use SteelVal::*;
-
-                    match stack_func {
-                        FuncV(f) => {
-                            let last_index = self.thread.stack.len() - payload_size;
-                            let result =
-                                match self.thread.enter_safepoint(move |ctx: &SteelThread| {
-                                    f(&ctx.stack[last_index..])
-                                }) {
-                                    Ok(v) => v,
-                                    Err(e) => return Err(e.set_span_if_none(self.current_span())),
-                                };
-
-                            // This is the old way... lets see if the below way improves the speed
-                            self.thread.stack.truncate(last_index);
-                            if let Some(r) = self.handle_pop_pure_value(result) {
-                                return r;
-                            }
-                            Ok(())
-                        }
-                        MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
-                        BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
-                        Closure(closure) => {
-                            self.new_handle_tail_call_closure(closure, payload_size)
-                        }
-                        BuiltIn(f) => self.call_builtin_func(f, payload_size),
-                        CustomStruct(s) => self.call_custom_struct(&s, payload_size),
-                        ContinuationFunction(cc) => self.call_continuation(cc),
-                        _ => {
-                            // println!("{:?}", self.stack);
-                            // println!("{:?}", self.stack_index);
-                            // println!("Bad tail call");
-                            // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-                            stop!(BadSyntax => format!("TailCall - Application not a procedure or function type 
-                    not supported: {stack_func}"); self.current_span());
-                        }
-                    }?
-                }
-                DenseInstruction {
-                    op_code: OpCode::FUNC,
-                    payload_size,
-                    ..
-                } => {
-                    // TODO: @Matt -> don't pop the function off of the stack, just read it from there directly.
-                    let func = self.thread.stack.pop().unwrap();
-                    self.handle_function_call(func, payload_size.to_usize())?;
-                }
-                // Tail call basically says "hey this function is exiting"
-                // In the closure case, transfer ownership of the stack to the called function
-                DenseInstruction {
-                    op_code: OpCode::TAILCALL,
-                    payload_size,
-                    ..
-                } => {
-                    let func = self.thread.stack.pop().unwrap();
-                    self.handle_tail_call(func, payload_size.to_usize())?
-                }
-                DenseInstruction {
-                    op_code: OpCode::IF,
-                    payload_size,
-                    ..
-                } => {
-                    // change to truthy...
-                    if self.thread.stack.pop().unwrap().is_truthy() {
-                        self.ip += 1;
-                    } else {
-                        self.ip = payload_size.to_usize();
-                    }
-                }
-                DenseInstruction {
-                    op_code: OpCode::TCOJMP,
-                    payload_size,
-                    ..
-                } => {
-                    let mut current_arity = payload_size.to_usize();
-                    // This is the number of (local) functions we need to pop to get back to the place we want to be at
-                    // let depth = self.instructions[self.ip + 1].payload_size.to_usize();
-
-                    // for _ in 0..depth {
-                    //     self.thread.stack_frames.pop();
-                    //     self.pop_count -= 1;
-                    // }
-
-                    let last_stack_frame = self.thread.stack_frames.last().unwrap();
-
-                    #[cfg(feature = "dynamic")]
-                    {
-                        last_stack_frame.function.increment_call_count();
-                    }
-
-                    self.instructions = last_stack_frame.function.body_exp();
-                    // self.spans = last_stack_frame.function.spans();
-                    self.sp = last_stack_frame.sp;
-
-                    // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-
-                    // panic!("Stopping");
-
-                    self.ip = 0;
-
-                    // TODO: Adjust the stack for multiple arity functions
-                    let is_multi_arity = last_stack_frame.function.is_multi_arity;
-                    let original_arity = last_stack_frame.function.arity();
-                    let payload_size = current_arity;
-                    // let new_arity = &mut closure_arity;
-
-                    // TODO: Reuse the original list allocation, if it exists.
-                    if likely(!is_multi_arity) {
-                        if unlikely(original_arity != payload_size) {
-                            stop!(ArityMismatch => format!("function expected {} arguments, found {}", original_arity, payload_size); self.current_span());
-                        }
-                    } else {
-                        // println!(
-                        //     "multi closure function, multi arity, arity: {:?} - called with: {:?}",
-                        //     original_arity, payload_size
-                        // );
-
-                        if payload_size < original_arity - 1 {
-                            stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", original_arity, payload_size); self.current_span());
-                        }
-
-                        // (define (test x . y))
-                        // (test 1 2 3 4 5)
-                        // in this case, arity = 2 and payload size = 5
-                        // pop off the last 4, collect into a list
-                        let amount_to_remove = 1 + payload_size - original_arity;
-
-                        let values = self
-                            .thread
-                            .stack
-                            .drain(self.thread.stack.len() - amount_to_remove..)
-                            .collect();
-
-                        let list = SteelVal::ListV(values);
-
-                        self.thread.stack.push(list);
-
-                        current_arity = original_arity;
-                    }
-
-                    // HACK COME BACK TO THIS
-                    // if self.ip == 0 && self.heap.len() > self.heap.limit() {
-                    // TODO collect here
-                    // self.heap.collect_garbage();
-                    // }
-                    // let offset = self.stack_index.last().copied().unwrap_or(0);
-                    let offset = last_stack_frame.sp;
-
-                    // We should have arity at this point, drop the stack up to this point
-                    // take the last arity off the stack, go back and replace those in order
-                    // [... arg1 arg2 arg3]
-                    //      ^^^ <- back = this index
-                    // offset = the start of the stack frame
-                    // Copy the arg1 arg2 arg3 values to
-                    // [... frame-start ... arg1 arg2 arg3]
-                    //      ^^^^^^~~~~~~~~
-                    let back = self.thread.stack.len() - current_arity;
-                    // for i in 0..current_arity {
-                    //     self.stack[offset + i] = self.stack[back + i].clone();
-                    // }
-
-                    let _ = self.thread.stack.drain(offset..back);
-                }
-
-                // Blindly go to the next instructions
-                DenseInstruction {
-                    op_code: OpCode::JMP,
-                    payload_size,
-                    ..
-                } => {
-                    self.ip = payload_size.to_usize();
-                }
-
-                // If the JMP points to a pop, just pop
-                DenseInstruction {
-                    op_code: OpCode::POPJMP,
-                    ..
-                } => {
-                    // self.ip = payload_size.to_usize();
-                    if let Some(r) = self.handle_pop_pure() {
-                        return r;
-                    }
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::BEGINSCOPE,
-                    ..
-                } => {
-                    self.ip += 1;
-                }
-                DenseInstruction {
-                    op_code: OpCode::SETALLOC,
-                    ..
-                } => set_alloc_handler(self)?,
-                DenseInstruction {
-                    op_code: OpCode::READALLOC,
-                    ..
-                } => read_alloc_handler(self)?,
-
-                DenseInstruction {
-                    op_code: OpCode::ALLOC,
-                    ..
-                } => alloc_handler(self)?,
-                DenseInstruction {
-                    op_code: OpCode::LETENDSCOPE,
-                    ..
-                } => {
-                    let_end_scope_handler(self)?;
-                }
-                DenseInstruction {
-                    op_code: OpCode::BIND,
-                    payload_size,
-                    ..
-                } => self.handle_bind(payload_size.to_usize()),
-                DenseInstruction {
-                    op_code: OpCode::NEWSCLOSURE,
-                    payload_size,
-                    ..
-                } => self.handle_new_start_closure(payload_size.to_usize())?,
-                DenseInstruction {
-                    op_code: OpCode::PUREFUNC,
-                    payload_size,
-                    ..
-                } => self.handle_pure_function(payload_size.to_usize()),
-                DenseInstruction {
-                    op_code: OpCode::SDEF,
-                    ..
-                } => self.handle_start_def(),
-                DenseInstruction {
-                    op_code: OpCode::EDEF,
-                    ..
-                } => {
-                    self.ip += 1;
-                }
-                DenseInstruction {
-                    op_code: OpCode::Arity,
-                    ..
-                } => {
-                    self.ip += 1;
-                }
-                DenseInstruction {
-                    op_code: OpCode::PANIC,
-                    ..
-                } => self.handle_panic(self.current_span())?,
-                DenseInstruction {
-                    op_code: OpCode::PASS,
-                    ..
-                } => {
-                    self.ip += 1;
-                }
-
-                DenseInstruction {
-                    op_code: OpCode::VEC,
-                    payload_size,
-                } => {
-                    let payload = payload_size.to_usize();
-                    let len = payload / 2;
-                    let bytes = payload % 2 != 0;
-
-                    let args = self.thread.stack.split_off(self.thread.stack.len() - len);
-
-                    let val = if bytes {
-                        let buffer: Vec<_> = args
-                            .into_iter()
-                            .flat_map(|val| {
-                                let int = val.int_or_else(|| "unexpected non integer");
-
-                                debug_assert!(int.is_ok());
-
-                                int.ok()
-                            })
-                            .flat_map(|int| {
-                                let byte = u8::try_from(int);
-
-                                debug_assert!(byte.is_ok());
-                                byte.ok()
-                            })
-                            .collect();
-
-                        SteelVal::ByteVector(crate::rvals::SteelByteVector::new(buffer))
-                    } else {
-                        SteelVal::VectorV(crate::rvals::SteelVector(Gc::new(args.into())))
-                    };
-
-                    self.thread.stack.push(val);
-                    self.ip += 1;
-                }
-
-                // DenseInstruction {
-                //     op_code: OpCode::ECLOSURE,
-                //     ..
-                // } => {
-                //     self.ip += 1;
-                // }
-
-                // match_dynamic_super_instructions!()
-                _ => {
-                    #[cfg(feature = "dynamic")]
-                    // TODO: Dispatch on the function here for super instructions!
-                    dynamic::vm_match_dynamic_super_instruction(self, instr)?;
-
-                    // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-                    // panic!(
-                    //     "Unhandled opcode: {:?} @ {}",
-                    //     self.instructions[self.ip], self.ip
-                    // );
-                }
-            }
-        }
+        // Ok(SteelVal::Void)
     }
 
     fn move_from_stack(&mut self, offset: usize) -> SteelVal {
@@ -4225,7 +4446,8 @@ impl<'a> VmCore<'a> {
         }
     }
 
-    #[inline(always)]
+    // #[inline(always)]
+    #[inline(never)]
     fn handle_pop_pure(&mut self) -> Option<Result<SteelVal>> {
         // Check that the amount we're looking to pop and the function stack length are equivalent
         // otherwise we have a problem
@@ -4239,10 +4461,7 @@ impl<'a> VmCore<'a> {
 
         if should_continue {
             let last = last.unwrap();
-            // let last = unsafe { last.unwrap_unchecked() };
-
             let rollback_index = last.sp;
-
             self.close_continuation_marks(&last);
 
             let _ = self
@@ -4252,9 +4471,7 @@ impl<'a> VmCore<'a> {
 
             self.ip = last.ip;
             self.instructions = last.instructions;
-
             self.sp = self.get_last_stack_frame_sp();
-
             None
         } else {
             let ret_val = self.thread.stack.pop().ok_or_else(|| {
@@ -4326,58 +4543,13 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
+    // #[inline(always)]
     #[inline(always)]
     fn handle_call_global(&mut self, index: usize, payload_size: usize) -> Result<()> {
         // TODO: Lazily fetch the function. Avoid cloning where relevant.
         // Boxed functions probably _should_ be rooted in the modules?
         let func = self.thread.global_env.repl_lookup_idx(index);
         self.handle_global_function_call(func, payload_size)
-
-        // let stack_func = &self.thread.global_env.thread_local_bindings[index] as *const _;
-
-        // let stack_func = &self.thread.global_env.repl_lookup_idx(idx);
-
-        // use SteelVal::*;
-
-        // match unsafe { &*stack_func } {
-        //     Closure(closure) => {
-        //         let closure = closure.clone();
-        //         self.handle_function_call_closure_jit(closure, payload_size)
-        //     }
-        //     FuncV(f) => {
-        //         let f = *f;
-        //         self.call_primitive_func(f, payload_size)
-        //     }
-        //     BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
-        //     MutFunc(f) => {
-        //         let f = *f;
-        //         self.call_primitive_mut_func(f, payload_size)
-        //     }
-        //     FutureFunc(f) => {
-        //         let f = f.clone();
-        //         self.call_future_func(f, payload_size)
-        //     }
-        //     ContinuationFunction(cc) => {
-        //         let cc = cc.clone();
-        //         self.call_continuation(cc)
-        //     }
-        //     BuiltIn(f) => {
-        //         let f = *f;
-        //         // self.ip -= 1;
-        //         self.call_builtin_func(f, payload_size)
-        //     }
-        //     CustomStruct(s) => {
-        //         let s = s.clone();
-        //         self.call_custom_struct(&s, payload_size)
-        //     }
-        //     other => {
-        //         // Explicitly mark this as unlikely
-        //         cold();
-        //         log::error!("{stack_func:?}");
-        //         log::error!("Stack: {:?}", self.thread.stack);
-        //         stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", other); self.current_span());
-        //     }
-        // }
     }
 
     #[inline(always)]
@@ -5184,6 +5356,8 @@ impl<'a> VmCore<'a> {
     // #[inline(always)]
     // TODO: See if calling continuations can be implemented in terms of the core ABI
     // That way, we dont need a special "continuation" function
+
+    #[inline(never)]
     fn call_continuation(&mut self, continuation: Continuation) -> Result<()> {
         let last =
             self.thread.stack.pop().ok_or_else(
@@ -5320,7 +5494,7 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
-    #[inline(always)]
+    #[inline(never)]
     fn handle_global_function_call(
         &mut self,
         stack_func: SteelVal,
@@ -7866,26 +8040,23 @@ mod handlers {
     #[inline(always)]
     fn tco_jump_handler(ctx: &mut VmCore<'_>) -> Result<()> {
         // TODO: Handle multiple arity for TCO
-
         let payload_size = ctx.instructions[ctx.ip].payload_size;
-
         let current_arity = payload_size.to_usize();
         let last_stack_frame = ctx.thread.stack_frames.last().unwrap();
 
         ctx.instructions = last_stack_frame.function.body_exp();
         ctx.sp = last_stack_frame.sp;
-
         ctx.ip = 0;
 
         let closure_arity = last_stack_frame.function.arity();
-
         if current_arity != closure_arity {
             stop!(ArityMismatch => format!("tco: function expected {closure_arity} arguments, found {current_arity}"); ctx.current_span());
         }
         let offset = ctx.sp;
 
         let back = ctx.thread.stack.len() - current_arity;
-        let _ = ctx.thread.stack.drain(offset..back);
+        let remaining = ctx.thread.stack.drain(offset..back);
+        drop(remaining);
 
         Ok(())
     }

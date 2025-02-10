@@ -518,6 +518,8 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             safepoints_enabled: false,
 
             profiler: vec![0; OpCode::LOADINT2POP as usize],
+
+            handler_map: &HANDLER_MAP,
         };
 
         #[cfg(feature = "profiling")]
