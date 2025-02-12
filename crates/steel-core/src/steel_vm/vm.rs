@@ -622,6 +622,7 @@ impl SteelThread {
 
     // Allow this thread to be available for garbage collection
     // during the duration of the provided thunk
+
     #[inline(always)]
     pub fn enter_safepoint(
         &mut self,
@@ -1383,6 +1384,8 @@ const _ASSERT_SMALL: () = assert!(std::mem::size_of::<Result<Dispatch>>() <= 8);
 
 pub type OpHandler = for<'a, 'b> fn(&'a mut VmCore<'b>) -> Result<Dispatch>;
 
+// TODO: Replace each of these with the proper handler, and come up
+// with a better way of doing it?
 pub static HANDLER_MAP: [OpHandler; MAX_OPCODE_SIZE] = [
     // VOID;
     void_handler_tco,
@@ -1658,11 +1661,7 @@ macro_rules! dispatch {
         //     let op_code = $ctx.instructions.get_unchecked($ctx.ip).op_code;
         //     ($ctx.thread.handler_map.get_unchecked(op_code as usize))($ctx)
         // }
-        unsafe {
-            (HANDLER_MAP.get_unchecked($ctx.instructions.get_unchecked($ctx.ip).op_code as usize))(
-                $ctx,
-            )
-        }
+        (HANDLER_MAP[$ctx.instructions[$ctx.ip].op_code as usize])($ctx)
     }};
 }
 
@@ -1867,7 +1866,6 @@ fn subimmediate_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
     dispatch!(ctx)
 }
 
-// #[inline(never)]
 fn subimmediate_impl(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
     let read_local = &ctx.instructions[ctx.ip];
     let push_const = &ctx.instructions[ctx.ip + 1];
@@ -1956,30 +1954,38 @@ fn lteimmediateif_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
     dispatch!(ctx)
 }
 
-#[inline(never)]
+// #[inline(never)]
 fn lteimmediateif_function(ctx: &mut VmCore<'_>) -> Result<bool> {
     let read_local = &ctx.instructions[ctx.ip];
     let push_const = &ctx.instructions[ctx.ip + 1];
 
     // get the local
     // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
-    let offset = ctx.get_offset();
-    let l = &ctx.thread.stack[read_local.payload_size.to_usize() + offset];
+    let l = &ctx.thread.stack[read_local.payload_size.to_usize() + ctx.sp];
 
     // get the const value, if it can fit into the value...
     let r = push_const.payload_size.to_usize() as isize;
 
-    let result = match l {
+    if let SteelVal::IntV(l) = l {
+        Ok(*l <= r)
+    } else {
+        lte_slow(l.clone(), r, ctx)
+    }
+}
+
+#[inline(never)]
+fn lte_slow(l: SteelVal, r: isize, ctx: &mut VmCore<'_>) -> Result<bool> {
+    match l {
         SteelVal::IntV(_)
         | SteelVal::NumV(_)
         | SteelVal::Rational(_)
         | SteelVal::BigNum(_)
-        | SteelVal::BigRational(_) => l.clone() <= SteelVal::IntV(r),
+        | SteelVal::BigRational(_) => Ok(l <= SteelVal::IntV(r)),
         _ => {
+            cold();
             stop!(TypeMismatch => format!("lte expected an number, found: {}", l); ctx.current_span())
         }
-    };
-    Ok(result)
+    }
 }
 
 fn add_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
@@ -2007,20 +2013,21 @@ fn binopadd_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
 fn binopaddtail_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
     let right = ctx.thread.stack.pop().unwrap();
     let left = ctx.thread.stack.pop().unwrap();
-
-    let result = match handlers::add_handler_none_none(&left, &right) {
-        Ok(value) => value,
-        Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
-    };
-
-    // *left = result;
-
-    if let Some(r) = ctx.handle_pop_pure_value(result) {
+    let result = add_slow(ctx, left, right)?;
+    if let Some(r) = ctx.handle_pop_pure_value_no_inline(result) {
         // return r;
         ctx.return_value = Some(r?);
         return Ok(());
     }
     dispatch!(ctx)
+}
+
+#[inline(never)]
+fn add_slow(ctx: &mut VmCore, left: SteelVal, right: SteelVal) -> Result<SteelVal> {
+    match add_two(&left, &right) {
+        Ok(value) => Ok(value),
+        Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
+    }
 }
 
 fn sub_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
@@ -2242,13 +2249,13 @@ fn callglobal_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
     ctx.ip += 1;
     let next_inst = ctx.instructions[ctx.ip];
     ctx.handle_call_global(payload_size.to_usize(), next_inst.payload_size.to_usize())?;
+
     dispatch!(ctx)
 }
 
 fn callglobaltail_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     let next_inst = ctx.instructions[ctx.ip + 1];
-
     let stack_func = ctx
         .thread
         .global_env
@@ -2258,7 +2265,7 @@ fn callglobaltail_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
 
     if call_function_tco(stack_func, ctx, payload_size)? {
         return Ok(());
-    };
+    }
 
     dispatch!(ctx)
 }
@@ -2273,21 +2280,22 @@ fn call_function_tco(
     match stack_func {
         FuncV(f) => {
             let last_index = ctx.thread.stack.len() - payload_size;
-            let result = match ctx
+            match ctx
                 .thread
                 .enter_safepoint(move |ctx: &SteelThread| f(&ctx.stack[last_index..]))
             {
-                Ok(v) => v,
+                Ok(result) => {
+                    // This is the old way... lets see if the below way improves the speed
+                    ctx.thread.stack.truncate(last_index);
+                    if let Some(r) = ctx.handle_pop_pure_value(result) {
+                        // return r;
+                        ctx.return_value = Some(r?);
+                        return Ok(true);
+                    }
+                }
                 Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
             };
 
-            // This is the old way... lets see if the below way improves the speed
-            ctx.thread.stack.truncate(last_index);
-            if let Some(r) = ctx.handle_pop_pure_value(result) {
-                // return r;
-                ctx.return_value = Some(r?);
-                return Ok(true);
-            }
             Ok(())
         }
         MutFunc(f) => ctx.call_primitive_mut_func(f, payload_size),
@@ -2297,6 +2305,7 @@ fn call_function_tco(
         CustomStruct(s) => ctx.call_custom_struct(&s, payload_size),
         ContinuationFunction(cc) => ctx.call_continuation(cc),
         _ => {
+            cold();
             stop!(BadSyntax => format!("TailCall - Application not a procedure or function type 
                     not supported: {stack_func}"); ctx.current_span());
         }
@@ -2314,17 +2323,24 @@ fn func_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
 fn tailcall_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     let func = ctx.thread.stack.pop().unwrap();
-    ctx.handle_tail_call(func, payload_size.to_usize())?;
+    ctx.new_handle_tail_call(func, payload_size.to_usize())?;
     dispatch!(ctx)
 }
 
+#[inline(never)]
+fn pop_test(ctx: &mut VmCore) -> bool {
+    let test = ctx.thread.stack.pop().unwrap();
+    test.is_truthy()
+}
+
 fn if_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    // let payload_size = ctx.instructions[ctx.ip].payload_size;
+    let result = pop_test(ctx);
     // change to truthy...
-    if ctx.thread.stack.pop().unwrap().is_truthy() {
+    if result {
         ctx.ip += 1;
     } else {
-        ctx.ip = payload_size.to_usize();
+        ctx.ip = ctx.instructions[ctx.ip].payload_size.to_usize();
     }
 
     dispatch!(ctx)
@@ -4377,7 +4393,7 @@ impl<'a> VmCore<'a> {
     // are not in a recursive installment of the VM. Any recursive call sharing the
     // stack will need to be instrumented with the point in time that we are at
     // with respect to the existing continuation.
-    #[inline(always)]
+    #[inline(never)]
     fn close_continuation_marks(&self, last: &StackFrame) -> bool {
         // TODO: @Matt - continuation marks should actually do something here
         // What we'd like: This marks the stack frame going out of scope. Since it is going out of scope,
@@ -4385,6 +4401,11 @@ impl<'a> VmCore<'a> {
         // the values out of the existing frame, and "close" the open continuation. That way the continuation (if called)
         // does not need to actually copy the entire frame eagerly, but rather can do so lazily.
         Continuation::close_marks(self, last)
+    }
+
+    #[inline(never)]
+    fn handle_pop_pure_value_no_inline(&mut self, value: SteelVal) -> Option<Result<SteelVal>> {
+        self.handle_pop_pure_value(value)
     }
 
     #[inline(always)]
@@ -4446,8 +4467,7 @@ impl<'a> VmCore<'a> {
         }
     }
 
-    // #[inline(always)]
-    #[inline(never)]
+    #[inline(always)]
     fn handle_pop_pure(&mut self) -> Option<Result<SteelVal>> {
         // Check that the amount we're looking to pop and the function stack length are equivalent
         // otherwise we have a problem
@@ -4462,38 +4482,52 @@ impl<'a> VmCore<'a> {
         if should_continue {
             let last = last.unwrap();
             let rollback_index = last.sp;
-            self.close_continuation_marks(&last);
-
-            let _ = self
-                .thread
-                .stack
-                .drain(rollback_index..self.thread.stack.len() - 1);
-
+            self.drain_stack(&last, rollback_index);
             self.ip = last.ip;
-            self.instructions = last.instructions;
+            self.instructions = last.instructions.clone();
             self.sp = self.get_last_stack_frame_sp();
+            // drop(last);
             None
         } else {
-            let ret_val = self.thread.stack.pop().ok_or_else(|| {
-                SteelErr::new(ErrorKind::Generic, "stack empty at pop".to_string())
-                    .with_span(self.current_span())
-            });
-
-            let rollback_index = last
-                .map(|x| {
-                    self.close_continuation_marks(&x);
-                    x.sp
-                })
-                .unwrap_or(0);
-
-            // Move forward past the pop
-            self.ip += 1;
-
-            self.thread.stack.truncate(rollback_index);
-            self.sp = 0;
-
+            let ret_val = self.return_value_pop(last);
             Some(ret_val)
         }
+    }
+
+    #[inline(never)]
+    fn drain_stack(&mut self, last: &StackFrame, rollback_index: usize) {
+        self.close_continuation_marks(last);
+
+        drop(
+            self.thread
+                .stack
+                .drain(rollback_index..self.thread.stack.len() - 1),
+        );
+    }
+
+    #[inline(never)]
+    fn return_value_pop(
+        &mut self,
+        last: Option<StackFrame>,
+    ) -> std::result::Result<SteelVal, SteelErr> {
+        let ret_val = self.thread.stack.pop().ok_or_else(|| {
+            SteelErr::new(ErrorKind::Generic, "stack empty at pop".to_string())
+                .with_span(self.current_span())
+        });
+
+        let rollback_index = last
+            .map(|x| {
+                self.close_continuation_marks(&x);
+                x.sp
+            })
+            .unwrap_or(0);
+
+        // Move forward past the pop
+        self.ip += 1;
+
+        self.thread.stack.truncate(rollback_index);
+        self.sp = 0;
+        ret_val
     }
 
     #[inline(always)]
@@ -4544,7 +4578,7 @@ impl<'a> VmCore<'a> {
     }
 
     // #[inline(always)]
-    #[inline(always)]
+    #[inline(never)]
     fn handle_call_global(&mut self, index: usize, payload_size: usize) -> Result<()> {
         // TODO: Lazily fetch the function. Avoid cloning where relevant.
         // Boxed functions probably _should_ be rooted in the modules?
@@ -4557,28 +4591,6 @@ impl<'a> VmCore<'a> {
         let stack_func = self.thread.global_env.repl_lookup_idx(index);
         self.ip += 1;
         self.handle_tail_call(stack_func, payload_size)
-
-        // let stack_func = &self.thread.global_env.thread_local_bindings[index] as *const _;
-
-        // use SteelVal::*;
-
-        // match unsafe { &*stack_func } {
-        //     FuncV(f) => self.call_primitive_func(*f, payload_size),
-        //     MutFunc(f) => self.call_primitive_mut_func(*f, payload_size),
-        //     BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
-        //     Closure(closure) => self.new_handle_tail_call_closure(closure.clone(), payload_size),
-        //     BuiltIn(f) => self.call_builtin_func(*f, payload_size),
-        //     CustomStruct(s) => self.call_custom_struct(&s, payload_size),
-        //     ContinuationFunction(cc) => self.call_continuation(cc.clone()),
-        //     stack_func => {
-        //         // println!("{:?}", self.stack);
-        //         // println!("{:?}", self.stack_index);
-        //         // println!("Bad tail call");
-        //         // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-        //         stop!(BadSyntax => format!("TailCall - Application not a procedure or function type
-        //             not supported: {stack_func}"); self.current_span());
-        //     }
-        // }
     }
 
     // #[inline(always)]
@@ -5072,41 +5084,26 @@ impl<'a> VmCore<'a> {
     }
 
     // Calls the given function in tail position.
+    #[inline(never)]
     fn new_handle_tail_call_closure(
         &mut self,
         closure: Gc<ByteCodeLambda>,
         payload_size: usize,
     ) -> Result<()> {
         self.cut_sequence();
-
         let mut new_arity = payload_size;
-
         self.adjust_stack_for_multi_arity(&closure, payload_size, &mut new_arity)?;
 
         // TODO: Try to figure out if we need to close this frame
         // self.close_continuation_marks(self.thread.stack_frames.last().unwrap());
-
         let last = self.thread.stack_frames.last_mut().unwrap();
-
-        let offset = last.sp;
 
         // We should have arity at this point, drop the stack up to this point
         // take the last arity off the stack, go back and replace those in order
         let back = self.thread.stack.len() - new_arity;
-
-        // println!("{}..{}", offset, back);
-        // println!("{:?}", self.thread.stack);
-        // println!("{}..{}", offset, back);
-        // println!("{:?}", self.thread.stack);
-
-        let _ = self.thread.stack.drain(offset..back);
-
-        // TODO: Perhaps add call to minor collection here?
-        // Could be a good way to avoid running the whole mark and sweep,
-        // since values will have left the scope by now.
+        drop(self.thread.stack.drain(last.sp..back));
 
         self.instructions = closure.body_exp();
-
         last.set_function(closure);
 
         self.ip = 0;
@@ -5195,6 +5192,73 @@ impl<'a> VmCore<'a> {
     }
 
     #[inline(always)]
+    fn new_handle_tail_call(&mut self, stack_func: SteelVal, payload_size: usize) -> Result<()> {
+        use SteelVal::*;
+
+        match stack_func {
+            FuncV(f) => {
+                let last_index = self.thread.stack.len() - payload_size;
+
+                let result = match self
+                    .thread
+                    .enter_safepoint(move |ctx: &SteelThread| f(&ctx.stack[last_index..]))
+                {
+                    Ok(v) => v,
+                    Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                };
+
+                // This is the old way... lets see if the below way improves the speed
+                self.thread.stack.truncate(last_index);
+                self.thread.stack.push(result);
+
+                self.ip += 1;
+                Ok(())
+            }
+            // FuncV(f) => self.call_primitive_func(f, payload_size),
+            MutFunc(f) => {
+                let last_index = self.thread.stack.len() - payload_size;
+
+                // These kinds of functions aren't valid for a safepoint.
+                let result = f(&mut self.thread.stack[last_index..])
+                    .map_err(|x| x.set_span_if_none(self.current_span()))?;
+
+                self.thread.stack.truncate(last_index);
+                self.thread.stack.push(result);
+
+                self.ip += 1;
+                Ok(())
+            }
+            BoxedFunction(f) => {
+                let last_index = self.thread.stack.len() - payload_size;
+
+                let result = self
+                    .thread
+                    .enter_safepoint(|ctx| f.func()(&ctx.stack[last_index..]))
+                    .map_err(|x| x.set_span_if_none(self.current_span()))?;
+
+                // TODO: Drain, and push onto another thread to drop?
+                self.thread.stack.truncate(last_index);
+                self.thread.stack.push(result);
+                self.ip += 1;
+                Ok(())
+            }
+            Closure(closure) => self.new_handle_tail_call_closure(closure, payload_size),
+            BuiltIn(f) => self.call_builtin_func(f, payload_size),
+            CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+            ContinuationFunction(cc) => self.call_continuation(cc),
+            _ => {
+                cold();
+                // println!("{:?}", self.stack);
+                // println!("{:?}", self.stack_index);
+                // println!("Bad tail call");
+                // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+                stop!(BadSyntax => format!("TailCall - Application not a procedure or function type 
+                    not supported: {stack_func}"); self.current_span());
+            }
+        }
+    }
+
+    #[inline(always)]
     fn handle_tail_call(&mut self, stack_func: SteelVal, payload_size: usize) -> Result<()> {
         use SteelVal::*;
 
@@ -5217,7 +5281,7 @@ impl<'a> VmCore<'a> {
         }
     }
 
-    // #[inline(always)]
+    #[inline(always)]
     fn call_boxed_func(
         &mut self,
         func: &dyn Fn(&[SteelVal]) -> Result<SteelVal>,
@@ -5238,6 +5302,8 @@ impl<'a> VmCore<'a> {
     }
 
     // #[inline(always)]
+
+    // #[inline(never)]
     fn call_builtin_func(&mut self, func: BuiltInSignature, payload_size: usize) -> Result<()> {
         // println!("Calling builtin function");
 
@@ -5274,7 +5340,7 @@ impl<'a> VmCore<'a> {
         // Ok(())
     }
 
-    // #[inline(always)]
+    #[inline(always)]
     fn call_primitive_mut_func(
         &mut self,
         f: fn(&mut [SteelVal]) -> Result<SteelVal>,
@@ -5294,6 +5360,8 @@ impl<'a> VmCore<'a> {
     }
 
     // TODO: Clean up function calls and create a nice calling convention API?
+
+    // #[inline(never)]
     fn call_custom_struct(&mut self, s: &UserDefinedStruct, payload_size: usize) -> Result<()> {
         if let Some(procedure) = s.maybe_proc() {
             if let SteelVal::HeapAllocated(h) = procedure {
@@ -5314,12 +5382,6 @@ impl<'a> VmCore<'a> {
     ) -> Result<()> {
         let last_index = self.thread.stack.len() - payload_size;
 
-        // Register safepoint
-        // let result = self
-        //     .thread
-        //     .enter_safepoint(move |ctx: &SteelThread| f(&ctx.stack[last_index..]))
-        //     .map_err(|e| e.set_span_if_none(self.current_span()))?;
-
         let result = match self
             .thread
             .enter_safepoint(move |ctx: &SteelThread| f(&ctx.stack[last_index..]))
@@ -5336,7 +5398,7 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
-    // #[inline(always)]
+    #[inline(always)]
     fn call_future_func(
         &mut self,
         // f: Shared<Box<dyn Fn(&[SteelVal]) -> Result<FutureResult>>>,
@@ -5357,7 +5419,7 @@ impl<'a> VmCore<'a> {
     // TODO: See if calling continuations can be implemented in terms of the core ABI
     // That way, we dont need a special "continuation" function
 
-    #[inline(never)]
+    // #[inline(never)]
     fn call_continuation(&mut self, continuation: Continuation) -> Result<()> {
         let last =
             self.thread.stack.pop().ok_or_else(
@@ -5494,7 +5556,7 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn handle_global_function_call(
         &mut self,
         stack_func: SteelVal,
@@ -7306,6 +7368,7 @@ fn let_end_scope_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 }
 
 // OpCode::LETENDSCOPE
+#[inline(never)]
 fn let_end_scope_handler_with_payload(ctx: &mut VmCore<'_>, beginning_scope: usize) -> Result<()> {
     // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
     let offset = ctx.get_offset();

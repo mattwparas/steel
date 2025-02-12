@@ -327,7 +327,6 @@ impl IntoSteelVal for Rational32 {
 }
 
 impl IntoSteelVal for BigInt {
-    #[inline]
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         match self.to_isize() {
             Some(i) => i.into_steelval(),
