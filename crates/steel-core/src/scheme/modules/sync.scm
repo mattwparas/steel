@@ -92,18 +92,17 @@
   ;; block on it
   (define (loop task)
     (cond
-      ;; If its an error, we don't immediately raise
-      ;; the exception for now
-      [(Task-done task)
-       (if (Task-err task)
-           (Task-err task)
-           (Task-func-or-result task))]
 
       [(eq? (Task-done task) *waiting*) (loop)]
 
       [(eq? (Task-done task) *running*)
        (try-block task)
        (loop)]
+
+      [(Task-done task)
+       (if (Task-err task)
+           (Task-err task)
+           (Task-func-or-result task))]
 
       [else
        (try-block task)
