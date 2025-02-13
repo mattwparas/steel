@@ -19,8 +19,11 @@
 
 (struct Task (lock done func-or-result err) #:mutable)
 
+(define *running* 'running)
+(define *waiting* 'waiting)
+
 (define (task func)
-  (Task (mutex) #f func #f))
+  (Task (mutex) *waiting* func #f))
 
 ;;@doc
 ;; Check if the given task is done
@@ -53,6 +56,7 @@
                   ;; Capture exception, if it exists. Store it in the task
                   (lock! (Task-lock next-task)
                          (lambda ()
+                           (set-Task-done! next-task *running*)
                            ;; This should be fine, we're updating the task to be finished,
                            ;; so we can check the progress of it
                            (set-Task-func-or-result! next-task (func))
@@ -94,6 +98,13 @@
        (if (Task-err task)
            (Task-err task)
            (Task-func-or-result task))]
+
+      [(eq? (Task-done task) *waiting*) (loop)]
+
+      [(eq? (Task-done task) *running*)
+       (try-block task)
+       (loop)]
+
       [else
        (try-block task)
        (loop task)]))
