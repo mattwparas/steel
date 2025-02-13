@@ -1,7 +1,8 @@
 use super::parser::SourceId;
-use crate::tokens::{parse_unicode_str, NumberLiteral, Paren, ParenMod, RealLiteral};
 use crate::tokens::{IntLiteral, Token, TokenType};
+use crate::tokens::{NumberLiteral, Paren, ParenMod, RealLiteral};
 use smallvec::SmallVec;
+use std::char;
 use std::iter::Iterator;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -75,6 +76,7 @@ impl<'a> Lexer<'a> {
         self.eat();
 
         let mut buf = String::new();
+
         while let Some(&c) = self.chars.peek() {
             self.eat();
             match c {
@@ -85,9 +87,24 @@ impl<'a> Lexer<'a> {
                         buf.push('"');
                     }
 
+                    Some('a') => {
+                        self.eat();
+                        buf.push('\x07');
+                    }
+
+                    Some('b') => {
+                        self.eat();
+                        buf.push('\x08');
+                    }
+
                     Some('\\') => {
                         self.eat();
                         buf.push('\\')
+                    }
+
+                    Some('|') => {
+                        self.eat();
+                        buf.push('|')
                     }
 
                     Some('t') => {
@@ -110,23 +127,63 @@ impl<'a> Lexer<'a> {
                         buf.push('\0');
                     }
 
-                    Some('x') => {
+                    Some(&code @ ('x' | 'u')) => {
                         self.eat();
 
-                        let digit1 = self.eat().ok_or_else(|| TokenError::MalformedByteEscape)?;
-                        let digit2 = self.eat().ok_or_else(|| TokenError::MalformedByteEscape)?;
+                        let mut digits = String::new();
 
-                        let mut chars = String::new();
-                        chars.push(digit1);
-                        chars.push(digit2);
+                        let braces = match self.chars.peek().copied() {
+                            Some('{') if code == 'u' => {
+                                self.eat();
+                                true
+                            }
+                            _ => false,
+                        };
 
-                        let byte = u8::from_str_radix(&chars, 16)
+                        loop {
+                            let Some(c) = self.eat() else {
+                                return Err(TokenError::MalformedByteEscape);
+                            };
+
+                            match c {
+                                ';' if !braces => break,
+                                '}' if braces => break,
+                                c if c.is_ascii_digit() => {
+                                    digits.push(c);
+                                }
+                                'a'..='f' | 'A'..='F' => {
+                                    digits.push(c);
+                                }
+                                _ => return Err(TokenError::MalformedByteEscape),
+                            }
+                        }
+
+                        let codepoint = u32::from_str_radix(&digits, 16)
                             .map_err(|_| TokenError::MalformedByteEscape)?;
-
-                        let char = char::from_u32(byte as u32)
-                            .ok_or_else(|| TokenError::MalformedByteEscape)?;
+                        let char =
+                            char::from_u32(codepoint).ok_or(TokenError::MalformedByteEscape)?;
 
                         buf.push(char);
+                    }
+
+                    Some(&start @ (' ' | '\t' | '\n')) => {
+                        self.eat();
+
+                        let mut trimming = start == '\n';
+
+                        while let Some(c) = self.chars.peek() {
+                            match c {
+                                ' ' | '\t' => {
+                                    self.eat();
+                                }
+                                '\n' if !trimming => {
+                                    self.eat();
+                                    trimming = true;
+                                }
+                                _ if trimming => break,
+                                _ => return Err(TokenError::IncompleteString),
+                            }
+                        }
                     }
 
                     _ => return Err(TokenError::InvalidEscape),
@@ -135,7 +192,6 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        buf.insert(0, '"');
         Err(TokenError::IncompleteString)
     }
 
@@ -143,41 +199,48 @@ impl<'a> Lexer<'a> {
         fn parse_char(slice: &str) -> Option<char> {
             use std::str::FromStr;
 
-            match slice {
-                "#\\SPACE" => Some(' '),
-                "#\\space" => Some(' '),
-                "#\\\\" => Some('\\'),
-                "#\\tab" => Some('\t'),
-                "#\\TAB" => Some('\t'),
-                "#\\NEWLINE" => Some('\n'),
-                "#\\newline" => Some('\n'),
-                "#\\return" => Some('\r'),
-                "#\\RETURN" => Some('\r'),
-                "#\\NULL" => Some('\0'),
-                "#\\null" => Some('\0'),
-                "#\\ALARM" => Some('\x07'),
-                "#\\alarm" => Some('\x07'),
-                "#\\BACKSPACE" => Some('\x08'),
-                "#\\backspace" => Some('\x08'),
-                "#\\DELETE" => Some('\x7F'),
-                "#\\delete" => Some('\x7F'),
-                "#\\ESCAPE" => Some('\x1B'),
-                "#\\escape" => Some('\x1B'),
-                "#\\)" => Some(')'),
-                "#\\]" => Some(']'),
-                "#\\[" => Some('['),
-                "#\\(" => Some('('),
-                "#\\^" => Some('^'),
+            debug_assert!(slice.len() > 2);
 
-                character if character.starts_with("#\\") => {
-                    let parsed_unicode = parse_unicode_str(character);
+            match &slice[2..] {
+                "alarm" | "ALARM" => Some('\x07'),
+                "backspace" | "BACKSPACE" => Some('\x08'),
+                "delete" | "DELETE" => Some('\x7F'),
+                "escape" | "ESCAPE" => Some('\x1B'),
+                "newline" | "NEWLINE" => Some('\n'),
+                "null" | "NULL" => Some('\0'),
+                "return" | "RETURN" => Some('\r'),
+                "space" | "SPACE" => Some(' '),
+                "tab" | "TAB" => Some('\t'),
+                "\\" => Some('\\'),
+                ")" => Some(')'),
+                "]" => Some(']'),
+                "[" => Some('['),
+                "(" => Some('('),
+                "^" => Some('^'),
 
-                    if parsed_unicode.is_some() {
-                        return parsed_unicode;
+                character => {
+                    let first = character.as_bytes()[0];
+
+                    let escape = (first == b'u' || first == b'x') && slice.len() > 3;
+
+                    if !escape {
+                        return char::from_str(character).ok();
                     }
-                    char::from_str(character.trim_start_matches("#\\")).ok()
+
+                    let payload = if first == b'u' && character.as_bytes().get(1) == Some(&b'{') {
+                        if character.as_bytes().last() != Some(&b'}') {
+                            return None;
+                        }
+
+                        &character[2..(character.len() - 1)]
+                    } else {
+                        &character[1..]
+                    };
+
+                    let code = u32::from_str_radix(payload, 16).ok()?;
+
+                    char::from_u32(code)
                 }
-                _ => None,
             }
         }
 
@@ -243,6 +306,10 @@ impl<'a> Lexer<'a> {
             keyword if keyword.starts_with("#:") => Ok(TokenType::Keyword(self.slice())),
 
             character if character.starts_with("#\\") => {
+                if character.len() <= 2 {
+                    return Err(TokenError::InvalidCharacter);
+                }
+
                 if let Some(parsed_character) = parse_char(character) {
                     Ok(TokenType::CharacterLiteral(parsed_character))
                 } else {
@@ -799,6 +866,115 @@ mod lexer_tests {
                 source: "#\\λ",
                 span: Span::new(8, 12, SourceId::none())
             })
+        );
+    }
+
+    #[test]
+    fn test_unicode_escapes() {
+        let mut s = TokenStream::new(
+            r#"  #\xAb #\u{0D300} #\u0540 "\x00D;" "\u1044;" "\u{045}"  "#,
+            true,
+            SourceId::none(),
+        );
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: CharacterLiteral('«'),
+                source: r#"#\xAb"#,
+                span: Span::new(2, 7, SourceId::none())
+            }
+        );
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: CharacterLiteral('팀'),
+                source: r#"#\u{0D300}"#,
+                span: Span::new(8, 18, SourceId::none())
+            }
+        );
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: CharacterLiteral('Հ'),
+                source: r#"#\u0540"#,
+                span: Span::new(19, 26, SourceId::none())
+            }
+        );
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: StringLiteral(Arc::from("\r".to_string())),
+                source: r#""\x00D;""#,
+                span: Span::new(27, 35, SourceId::none())
+            }
+        );
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: StringLiteral(Arc::from("၄".to_string())),
+                source: r#""\u1044;""#,
+                span: Span::new(36, 45, SourceId::none())
+            }
+        );
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: StringLiteral(Arc::from("E".to_string())),
+                source: r#""\u{045}""#,
+                span: Span::new(46, 55, SourceId::none())
+            }
+        );
+    }
+
+    #[test]
+    fn test_invalid_unicode_escapes() {
+        let tokens = [
+            r#" #\xd820 "#,
+            r#" #\u{1 "#,
+            r#" "\xabx" "#,
+            r#" "\u0045" "#,
+            r#" #\xaaaaaaaa " "#,
+            r#" "\u{ffffffff}" "#,
+            r#" #\u{} "#,
+        ];
+
+        for token in tokens {
+            let mut s = TokenStream::new(token, true, SourceId::none());
+
+            assert_eq!(s.next().unwrap().ty, Error, "{:?} should be invalid", token);
+        }
+    }
+
+    #[test]
+    fn test_string_newlines() {
+        let mut s = TokenStream::new(
+            " \"foo\nbar\" \"foo \\  \n   bar\" ",
+            true,
+            SourceId::none(),
+        );
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: StringLiteral(Arc::from("foo\nbar".to_string())),
+                source: "\"foo\nbar\"",
+                span: Span::new(1, 10, SourceId::none())
+            }
+        );
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: StringLiteral(Arc::from("foo bar".to_string())),
+                source: "\"foo \\  \n   bar\"",
+                span: Span::new(11, 27, SourceId::none())
+            }
         );
     }
 
