@@ -93,11 +93,11 @@
   (define (loop task)
     (cond
 
-      [(eq? (Task-done task) *waiting*) (loop)]
+      [(eq? (Task-done task) *waiting*) (loop task)]
 
       [(eq? (Task-done task) *running*)
        (try-block task)
-       (loop)]
+       (loop task)]
 
       [(Task-done task)
        (if (Task-err task)
