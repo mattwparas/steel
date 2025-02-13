@@ -952,6 +952,33 @@ mod lexer_tests {
     }
 
     #[test]
+    fn test_string_newlines() {
+        let mut s = TokenStream::new(
+            " \"foo\nbar\" \"foo \\  \n   bar\" ",
+            true,
+            SourceId::none(),
+        );
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: StringLiteral(Arc::from("foo\nbar".to_string())),
+                source: "\"foo\nbar\"",
+                span: Span::new(1, 10, SourceId::none())
+            }
+        );
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: StringLiteral(Arc::from("foo bar".to_string())),
+                source: "\"foo \\  \n   bar\"",
+                span: Span::new(11, 27, SourceId::none())
+            }
+        );
+    }
+
+    #[test]
     fn test_unexpected_char() {
         let mut s = TokenStream::new("($)", true, SourceId::none());
         assert_eq!(
