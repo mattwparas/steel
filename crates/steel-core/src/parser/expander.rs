@@ -1,4 +1,4 @@
-use crate::compiler::program::{BEGIN, DEFINE, IF};
+use crate::compiler::program::{BEGIN, DEFINE, ELLIPSES_SYMBOL, IF};
 use crate::parser::ast::{Atom, ExprKind, List, Macro, PatternPair, Vector};
 use crate::parser::parser::SyntaxObject;
 use crate::parser::rename_idents::RenameIdentifiersVisitor;
@@ -249,6 +249,7 @@ impl SteelMacro {
     }
 
     pub(crate) fn match_case_index(&self, expr: &List) -> Result<(&MacroCase, usize)> {
+        // TODO: Ellipses need to not be mangled?
         for (index, case) in self.cases.iter().enumerate() {
             if case.recursive_match(expr) {
                 return Ok((case, index));
@@ -611,6 +612,33 @@ impl MacroPattern {
                                     add_binding!(t, span);
                                     pattern_vec.push(MacroPattern::Many(t));
                                 }
+
+                                // HACK: Somewhere, the ellipses are getting converted back into the raw
+                                // form when doing syntax-case expansion. This is duplicated code of the
+                                // above.
+                                Some(ExprKind::Atom(Atom {
+                                    syn:
+                                        SyntaxObject {
+                                            ty: TokenType::Identifier(ty),
+                                            span,
+                                            ..
+                                        },
+                                })) if *ty == *ELLIPSES_SYMBOL => {
+                                    let span = *span;
+
+                                    let last_proper = list.improper && i + 2 == len;
+                                    check_ellipsis!(last_proper, span);
+
+                                    exprs_iter.next();
+
+                                    if i == 0 && top_level {
+                                        stop!(BadSyntax => "macro name cannot be followed by ellipsis"; span);
+                                    }
+
+                                    add_binding!(t, span);
+                                    pattern_vec.push(MacroPattern::Many(t));
+                                }
+
                                 _ => {
                                     if i == 0 && top_level {
                                         macro_keyword = Some(t);
@@ -1085,7 +1113,7 @@ fn match_single_pattern(pattern: &MacroPattern, expr: &ExprKind) -> bool {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum BindingKind {
     Many,
     Single,
