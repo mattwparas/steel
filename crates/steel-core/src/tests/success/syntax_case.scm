@@ -33,3 +33,17 @@
 
 (define (test-compile)
   (loop (func)))
+
+(define-syntax loop2
+  (lambda (x)
+    (syntax-case x ()
+      [(k e ...)
+       (with-syntax ([break #'k])
+         #'(call-with-current-continuation (lambda (break)
+                                             (let f ()
+                                               e
+                                               ...
+                                               (f)))))])))
+
+(define (test-compile2)
+  (loop2 (func)))
