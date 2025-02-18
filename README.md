@@ -61,14 +61,14 @@ If you would like to customize the location of installed packages, please set th
 
 ## About
 
-`Steel` is an embeddable scheme interpreter, with a standalone cli included as well. Inspired largely by Racket, the language seeks to be ergonomic scheme variant helpful for embedding in applications, or to be used on its own with high performance functions implemented in Rust. The language implementation itself contains a fairly powerful macro system based on the `syntax-rules` style and a bytecode virtual machine. At the moment, it is not explicitly compliant with any individual scheme specification.
+`Steel` is an embeddable scheme interpreter, with a standalone cli included as well. Inspired largely by Racket, the language seeks to be ergonomic scheme variant helpful for embedding in applications, or to be used on its own with high performance functions implemented in Rust. The language implementation itself contains a fairly powerful macro system based on the `syntax-rules` style and a bytecode virtual machine. At the moment, it is mostly compliant with R5RS, only missing `let-syntax` support. Support for R7Rs is underway.
 
 > **Warning**
-> The API is unstable with no guarantees, and may change at any time while pre 1.0. There are undoubtedly bugs that exist, and any major bug reports will be addressed quickly. That being said, I do use it as a daily driver for many scripting tasks myself.
+> The API is relatively unstable with no guarantees, and may change at any time while pre 1.0. There are undoubtedly bugs that exist, and any major bug reports will be addressed quickly. That being said, I do use it as a daily driver for many scripting tasks myself.
 
 ## Features
 
-- Limited `syntax-rules` style macros are supported
+- `syntax-rules` style macros are supported
 - Easy integration with Rust functions and structs
 - Easily call a script from rust or via a separate file
 - Efficient - common functions and data structures are optimized for performance (`map`, `filter`, etc)
@@ -217,24 +217,6 @@ Compose just combines the iterator functions and lets us avoid intermediate allo
         (taking 5)))
 
 (transduce (range 0 100) xf (into-list)) ;; => '(1 3 5 7 9)
-```
-
-## Syntax Choices
-
-`Steel` is mildly opinionated in that there a few ways to define variables and functions. These choices are fairly arbitrary except for the shorthand function syntax, which I borrowed from Racket. `defn` and `fn` were really encouraged by me wanting to type less characters.
-
-```scheme
-
-;; All of the following are equivalent
-(define (foo x) (+ x 1))
-(define foo (lambda (x) (+ x 1)))
-(defn (foo x) (+ x 1))
-(defn foo (lambda (x) (+ x 1)))
-
-;; All of the following are equivalent
-(lambda (x) (+ x 1))
-(λ (x) (+ x 1))
-(fn (x) (+ x 1))
 ```
 
 ## Modules
