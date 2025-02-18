@@ -4,6 +4,7 @@ use crate::span::Span;
 use core::ops;
 use num::{BigInt, Rational32, Signed};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::fmt::{self, Display};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -271,7 +272,7 @@ impl From<BigInt> for IntLiteral {
     }
 }
 
-impl<'a> TokenType<&'a str> {
+impl<'a> TokenType<Cow<'a, str>> {
     pub fn open_span(mut span: Span, paren_mod: Option<ParenMod>) -> Span {
         let offset = match paren_mod {
             Some(ParenMod::Vector) => 1,
@@ -284,7 +285,7 @@ impl<'a> TokenType<&'a str> {
         span
     }
 
-    pub fn to_owned<T: From<&'a str>>(self) -> TokenType<T> {
+    pub fn to_owned<T: From<Cow<'a, str>>>(self) -> TokenType<T> {
         match self {
             TokenType::Identifier(i) => TokenType::Identifier(i.into()),
             TokenType::Keyword(i) => TokenType::Keyword(i.into()),
@@ -322,7 +323,7 @@ impl<'a> TokenType<&'a str> {
         }
     }
 
-    pub fn map<T>(self, mut func: impl FnMut(&'a str) -> T) -> TokenType<T> {
+    pub fn map<T>(self, mut func: impl FnMut(Cow<'a, str>) -> T) -> TokenType<T> {
         match self {
             TokenType::Identifier(i) => TokenType::Identifier(func(i)),
             TokenType::Keyword(i) => TokenType::Keyword(func(i)),
