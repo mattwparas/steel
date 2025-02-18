@@ -143,7 +143,9 @@
                  (define options
                    (let ([raw (cdddr unwrapped)])
                      ; (displayln raw)
-                     (if (empty? raw) raw (map syntax->datum raw))))
+                     (if (empty? raw)
+                         raw
+                         (map syntax->datum raw))))
                  (define result (struct-impl struct-name fields options))
                  (syntax/loc result
                    (syntax-span expr)))
@@ -270,10 +272,13 @@
 
               `(set! ,struct-name constructor-proto))
          ,(new-make-predicate struct-predicate struct-name fields)
-         ,@
-         (if mutable? (mutable-make-getters struct-name fields) (new-make-getters struct-name fields))
+         ,@(if mutable?
+               (mutable-make-getters struct-name fields)
+               (new-make-getters struct-name fields))
          ;; If this is a mutable struct, generate the setters
-         ,@(if mutable? (mutable-make-setters struct-name fields) (list))
+         ,@(if mutable?
+               (mutable-make-setters struct-name fields)
+               (list))
          void)))))
 
 (define (new-make-predicate struct-predicate-name struct-name fields)
@@ -366,69 +371,96 @@
 ;; As of now, the define-syntax will get parsed and yoinked
 ;; into the wrong format. Add plumbing to ignore those.
 (define (parse-def-syntax stx)
+
   ;; Name of the function
   (define name-expr (list-ref stx 1))
-  ;; Syntax case expr
-  (define syntax-case-expr (last stx))
 
-  (define body-exprs (all-but-last (drop stx 2)))
+  (cond
+    [(list? name-expr)
 
-  (define name (list-ref name-expr 0))
-  (define param-name (list-ref name-expr 1))
-  (define syntax-case-param (list-ref syntax-case-expr 1))
-  (define syntax-case-syntax (list-ref syntax-case-expr 2))
+     ;; Syntax case expr
+     (define syntax-case-expr (last stx))
 
-  (define cases (drop syntax-case-expr 3))
+     (define body-exprs (all-but-last (drop stx 2)))
 
-  (define gensym-name (gensym-sym (concat-symbols '__generated- name)))
+     (define name (list-ref name-expr 0))
+     (define param-name (list-ref name-expr 1))
+     (define syntax-case-param (list-ref syntax-case-expr 1))
+     (define syntax-case-syntax (list-ref syntax-case-expr 2))
 
-  ;; Expand to syntax-rules:
-  (define fake-syntax-rules
-    `(define-syntax ,gensym-name
-       (syntax-rules ,syntax-case-syntax
-         ,@(drop syntax-case-expr 3))))
+     (define cases (drop syntax-case-expr 3))
 
-  ;; This needs to be eval'd right away so that we can actually
-  ;; reference the values.
-  (eval fake-syntax-rules)
+     (define gensym-name (gensym-sym (concat-symbols '__generated- name)))
 
-  (define conditions (map (lambda (p) (list-ref p 1)) cases))
+     ;; Expand to syntax-rules:
+     (define fake-syntax-rules
+       `(define-syntax ,gensym-name
+          (syntax-rules ,syntax-case-syntax
+            ,@(drop syntax-case-expr 3))))
 
-  ;; List of cases, in order, for the syntax rules
-  (define matched-case-bindings (#%macro-case-bindings (symbol->string gensym-name)))
-  (define generated-function-name (gensym-sym '#%func))
-  (define expressions
-    (transduce (map list (range 0 (length conditions))) (zipping conditions) (into-list)))
+     ;; This needs to be eval'd right away so that we can actually
+     ;; reference the values.
+     (eval fake-syntax-rules)
 
-  (define expansion-func
-    ;; TODO: gensym this!
-    `(define ,generated-function-name
-       (lambda (#%#%index)
-         ,@body-exprs
-         (case #%#%index
-           ,@expressions))))
+     (define conditions (map (lambda (p) (list-ref p 1)) cases))
 
-  (define generated-match-function
-    `(lambda (expr)
-       ;; Get the bindings first
-       (define result (#%match-syntax-case ,(symbol->string gensym-name) expr))
-       (define index (list-ref result 0))
-       (define case-bindings (list-ref result 1))
-       (define binding-kind (list-ref result 2))
-       (parameterize ([#%syntax-bindings case-bindings])
-         (parameterize ([#%syntax-binding-kind binding-kind])
-           (,generated-function-name index)))))
+     ;; List of cases, in order, for the syntax rules
+     (define matched-case-bindings (#%macro-case-bindings (symbol->string gensym-name)))
+     (define generated-function-name (gensym-sym '#%func))
+     (define expressions
+       (transduce (map list (range 0 (length conditions))) (zipping conditions) (into-list)))
 
-  (eval expansion-func)
+     (define expansion-func
+       ;; TODO: gensym this!
+       `(define ,generated-function-name
+          (lambda (#%#%index)
+            ,@body-exprs
+            (case #%#%index
+              ,@expressions))))
 
-  generated-match-function)
+     (define generated-match-function
+       `(lambda (expr)
+          ;; Get the bindings first
+          (define result (#%match-syntax-case ,(symbol->string gensym-name) expr))
+          (define index (list-ref result 0))
+          (define case-bindings (list-ref result 1))
+          (define binding-kind (list-ref result 2))
+          (parameterize ([#%syntax-bindings case-bindings])
+            (parameterize ([#%syntax-binding-kind binding-kind])
+              (,generated-function-name index)))))
+
+     (eval expansion-func)
+
+     generated-match-function]
+
+    [(symbol? name-expr)
+     ;; (lambda (x) ...)
+     (define lambda-expr (list-ref stx 2))
+     (if (and (list? lambda-expr) (equal? (car lambda-expr) 'lambda))
+         (begin
+
+           (define lowered-expression
+             (append (list 'define-syntax (cons name-expr (cadr lambda-expr))) (drop lambda-expr 2)))
+
+           (displayln lowered-expression)
+
+           ;; Body exprs
+           (parse-def-syntax lowered-expression))
+
+         (error "syntax-case expects a function"))]
+
+    [else (error "internal compilation error")]))
 
 (#%define-syntax
  (define-syntax expression)
  (define unwrapped (syntax->datum expression))
  ;; Just register a syntax transformer?
  (define func (parse-def-syntax unwrapped))
- (define name (list-ref (list-ref unwrapped 1) 0))
+ (define name-expr (list-ref unwrapped 1))
+ (define name
+   (if (list? name-expr)
+       (list-ref name-expr 0)
+       name-expr))
  (define originating-file (syntax-originating-file expression))
  ;; We'd like to
  (define env (or originating-file "default"))
