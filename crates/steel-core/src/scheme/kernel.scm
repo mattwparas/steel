@@ -372,9 +372,6 @@
 ;; into the wrong format. Add plumbing to ignore those.
 (define (parse-def-syntax stx)
 
-  (displayln "Entering parse-def-syntax")
-  (displayln stx)
-
   ;; Name of the function
   (define name-expr (list-ref stx 1))
 
