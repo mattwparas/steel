@@ -200,7 +200,7 @@ impl Highlighter for RustylineHelper {
                         .globals
                         .lock()
                         .unwrap()
-                        .contains(&InternedString::from(*ident))
+                        .contains(&InternedString::from(&**ident))
                     {
                         let highlighted = format!("{}", token.source().bright_blue());
                         ranges_to_replace.push((token.span().range(), highlighted));
