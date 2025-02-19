@@ -406,9 +406,9 @@ impl<'a> Lexer<'a> {
                 '\\' if escaped_identifier => {
                     self.eat();
 
-                    if let Some(c) = self.read_string_escape()? {
-                        ident_buffer.push_escape(c);
-                    }
+                    let escaped = self.read_string_escape()?;
+
+                    ident_buffer.push_escape(escaped);
                 }
                 c if escaped_identifier => {
                     ident_buffer.push(c);
@@ -535,13 +535,15 @@ impl<'a> IdentBuffer<'a> {
         }
     }
 
-    fn push_escape(&mut self, c: char) {
+    fn push_escape(&mut self, c: Option<char>) {
         if let Err(len) = self.mode {
             self.ident.extend(self.chars.clone().take(len));
             self.mode = Ok(());
         }
 
-        self.ident.push(c);
+        if let Some(c) = c {
+            self.ident.push(c);
+        }
     }
 }
 
@@ -1794,6 +1796,17 @@ mod lexer_tests {
                 ty: identifier("."),
                 source: "|.|",
                 span: Span::new(18, 21, None),
+            },
+        );
+
+        let mut s = TokenStream::new("|a\\\nb|", true, SourceId::none());
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: identifier("ab"),
+                source: "|a\\\nb|",
+                span: Span::new(0, 6, None),
             },
         );
     }
