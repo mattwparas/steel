@@ -199,13 +199,14 @@ impl<'a> Lexer<'a> {
                         }
                         _ if trimming => return Ok(None),
 
-                        // FIXME: not quite correct, it's a _malformed_ string
-                        _ => return Err(TokenError::IncompleteString),
+                        _ => return Err(TokenError::InvalidEscape),
                     }
                 }
             }
 
-            _ => return Err(TokenError::InvalidEscape),
+            Some(_) => return Err(TokenError::InvalidEscape),
+
+            None => return Err(TokenError::IncompleteString),
         };
 
         Ok(Some(c))
@@ -406,7 +407,10 @@ impl<'a> Lexer<'a> {
                 '\\' if escaped_identifier => {
                     self.eat();
 
-                    let escaped = self.read_string_escape()?;
+                    let escaped = self.read_string_escape().map_err(|err| match err {
+                        TokenError::IncompleteString => TokenError::IncompleteIdentifier,
+                        err => err,
+                    })?;
 
                     ident_buffer.push_escape(escaped);
                 }
