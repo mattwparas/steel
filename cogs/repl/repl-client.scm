@@ -53,8 +53,7 @@
 
                (unless (equal? "#<void>" value-as-string)
                  (display "=> ")
-                 (display value-as-string)
-                 (newline))
+                 (displayln value-as-string))
 
                (channel/send sender #t))
              ;; Next should be the length, until the next newline
@@ -94,7 +93,9 @@
                   ;; Selection. Wait on either an acknowledgement, or a shutdown?
                   (define result (receivers-select receiver shutdown-receiver))
                   (case result
-                    [(0) (input-loop)]
+                    [(0)
+                     (channel/recv receiver)
+                     (input-loop)]
                     [(1) (displayln "Shutting down")]
                     [else void])))
   (input-loop))
